@@ -1,4 +1,6 @@
-//! ROM scan, index cache, core and system metadata, gamelist import.
+//! ROM scan, index cache, and core and system metadata.
+//!
+//! See the crate README for the scan rules, the sort order and the cache format.
 
 #![forbid(unsafe_code)]
 
