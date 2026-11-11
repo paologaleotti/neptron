@@ -25,7 +25,8 @@ The table is the full scope for the first public alpha. Milestones M0 to M4 are 
 | Emulation | Multi-core libretro host: software, OpenGL ES and later Vulkan cores | M2 |
 | Emulation | Low-latency frame pacing and audio resampling locked to the display's real refresh | M2 |
 | Emulation | Save states, SRAM flush on exit, per-core options editor, BIOS presence check | M3 |
-| Emulation | Fast-forward; zipped ROMs unpacked for cores that need a plain file | M3 |
+| Emulation | ROMs in `.zip` files, read into memory at launch | MVP |
+| Emulation | Fast-forward; `.7z` ROMs; zipped ROMs unpacked to a file for cores that need a path | M3 |
 | UI | Rust frontend: system list, game list, favourites, recents, search, launch, exit | M3 |
 | UI | Settings at three levels: global, per system, per game, with visible inheritance | M3 |
 | UI | In-game quick menu on a button combination: video, timing, core options, save states, input, quit | M3 |
