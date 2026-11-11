@@ -59,6 +59,7 @@ cargo xtask qemu -- uname -a                     boot, run one command, exit wit
 cargo xtask qemu --script test.sh --share dir    run a script; dir is read-only at /mnt/host
 cargo xtask qemu                                 interactive console; Ctrl-A then X stops QEMU
 cargo xtask gles-compare                         build the GLES comparison for the guest and run it
+cargo xtask core-trace                           run the test ROMs in the real cores (tier T4)
 ```
 
 `os build` builds the development container from `Dockerfile`, then runs Buildroot in it with 4 jobs, 4 CPUs and 6 GB of memory. A machine-wide lock allows one Buildroot build at a time. Buildroot does not see a change to a kernel fragment, or to the source of a package in `package/`, by itself: give the `-reconfigure` or `-rebuild` target as above.

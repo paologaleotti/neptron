@@ -11,6 +11,7 @@ mod monitors;
 mod os;
 mod repo;
 mod rules;
+mod sha256;
 mod ui;
 mod verify;
 mod worktree;
@@ -58,6 +59,9 @@ commands:
   gles-compare [--arch A] [--timeout SECS]
                        build the GLES comparison for the guest in the
                        development container and run it in QEMU (tier T3)
+  core-trace [--arch A] [--timeout SECS] [--bless] [--dump FRAME[,FRAME...]]
+                       run the test ROMs in the real cores in QEMU and compare
+                       the traces with tests/traces (tier T4)
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
@@ -127,6 +131,7 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "os" => Ok(os::run_os(&rest)?),
         "qemu" => Ok(os::run_qemu(&rest)?),
         "gles-compare" => Ok(os::run_gles_compare(&rest)?),
+        "core-trace" => Ok(os::run_core_trace(&rest)?),
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy", "--all-targets"], &rest),

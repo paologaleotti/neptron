@@ -7,15 +7,18 @@
 
 mod arch;
 mod build;
+mod core_trace;
 mod cross;
 #[cfg(test)]
 mod defconfig;
 mod guest;
 mod host;
 mod qemu;
+mod trace;
 mod transcript;
 
 pub use arch::Arch;
+pub use core_trace::run as run_core_trace;
 
 use std::io::{self, ErrorKind};
 use std::path::PathBuf;
@@ -149,12 +152,14 @@ pub enum OsError {
     Repo(#[from] RepoError),
 }
 
-/// The usage text of `os build`, `qemu` and `gles-compare`.
+/// The usage text of `os build`, `qemu`, `gles-compare` and `core-trace`.
 pub const USAGE: &str = "\
 usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [-- make targets...]
        cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
                         [--script FILE | -- command...]
-       cargo xtask gles-compare [--arch A] [--timeout SECS]";
+       cargo xtask gles-compare [--arch A] [--timeout SECS]
+       cargo xtask core-trace [--arch A] [--timeout SECS] [--bless]
+                              [--dump FRAME[,FRAME...]]";
 
 /// `cargo xtask os <subcommand>`.
 pub fn run_os(args: &[&str]) -> Result<ExitCode, OsError> {

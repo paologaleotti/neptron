@@ -5,7 +5,7 @@
 
 mod font;
 mod image;
-mod png;
+pub(crate) mod png;
 
 use std::io;
 use std::path::{Path, PathBuf};
