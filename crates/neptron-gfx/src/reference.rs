@@ -3,6 +3,7 @@
 
 mod axis;
 mod error;
+mod overlay;
 mod pixel;
 
 pub use error::{Image, MAX_RECT_SIDE_PX, RectKind, RenderError};
@@ -91,6 +92,18 @@ pub struct OutputBuffer<'a> {
 /// Below a scale of 1, `p` is 1 and the filter is a plain bilinear blend at
 /// the pixel centre.
 ///
+/// # UI canvas
+///
+/// The UI canvas is drawn after the game, over it, and is opaque: every
+/// output pixel it covers shows the canvas pixel, whatever the game shows
+/// there. The X bits of the canvas are ignored, as for the game. The canvas
+/// scales by the largest integer factor `k` at which it fits the output on
+/// both axes, at least 1, with nearest scaling. Its top-left corner is at
+/// `floor((out.width - k * ui.width) / 2)` and
+/// `floor((out.height - k * ui.height) / 2)`, so a canvas larger than the
+/// output loses the same amount on both sides, one pixel more on the left
+/// or the top for an odd margin.
+///
 /// # Integers
 ///
 /// The pixel path uses integer maths only, so the output is the same on
@@ -134,9 +147,15 @@ impl ReferenceRenderer {
             check_rect(&scene.crop, RectKind::Crop)?;
             check_rect(&scene.dest, RectKind::Dest)?;
         }
+        if let Some(ui) = &scene.ui {
+            check_frame(ui, Image::Ui)?;
+        }
         fill_black(out);
         if let Some(game) = &scene.game {
             self.draw_game(game, scene, out);
+        }
+        if let Some(ui) = &scene.ui {
+            overlay::draw(ui, out);
         }
         Ok(())
     }

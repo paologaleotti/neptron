@@ -409,3 +409,102 @@ fn the_largest_rectangles_render() {
     let s = scene(Some(g), crop, dest, Filter::SharpBilinear);
     assert_eq!(render(&s, 3, 1), [0xFF_FFFFFF, BLACK, BLACK]);
 }
+
+#[test]
+fn ui_is_drawn_opaque_over_the_game() {
+    let game = xrgb(&[0x00_0000FF]);
+    let ui = xrgb(&[0x7F_FF0000, 0x00_000000]);
+    let s = Scene {
+        ui: Some(frame(&ui, 2, 1)),
+        ..scene(
+            Some(frame(&game, 1, 1)),
+            rect(0, 0, 1, 1),
+            rect(0, 0, 4, 3),
+            Filter::Nearest,
+        )
+    };
+    // The canvas fits twice on both axes, so it scales by 2 and sits at
+    // (0, 0). Its black pixel and its X byte do not let the game show.
+    let (g, red) = (0xFF_0000FF, 0xFF_FF0000);
+    #[rustfmt::skip]
+    let expected = [
+        red, red, BLACK, BLACK,
+        red, red, BLACK, BLACK,
+        g, g, g, g,
+    ];
+    assert_eq!(render(&s, 4, 3), expected);
+}
+
+#[test]
+fn ui_scales_by_the_largest_integer_factor() {
+    let ui_data = xrgb(&[1, 2, 3, 4]);
+    let s = Scene {
+        ui: Some(frame(&ui_data, 2, 2)),
+        ..scene(None, rect(0, 0, 0, 0), rect(0, 0, 0, 0), Filter::Nearest)
+    };
+    let (b, p, q, r, t) = (BLACK, BLACK | 1, BLACK | 2, BLACK | 3, BLACK | 4);
+    #[rustfmt::skip]
+    let expected = [
+        b, p, p, q, q, b, b,
+        b, p, p, q, q, b, b,
+        b, r, r, t, t, b, b,
+        b, r, r, t, t, b, b,
+        b, b, b, b, b, b, b,
+    ];
+    assert_eq!(render(&s, 7, 5), expected);
+}
+
+#[test]
+fn ui_larger_than_the_output_is_cropped_around_the_centre() {
+    let ui_data = xrgb(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    let s = Scene {
+        ui: Some(frame(&ui_data, 3, 3)),
+        ..scene(None, rect(0, 0, 0, 0), rect(0, 0, 0, 0), Filter::Nearest)
+    };
+    assert_eq!(render(&s, 1, 1), [BLACK | 5]);
+    // The margin is -1: the canvas loses its left column and its top line.
+    assert_eq!(
+        render(&s, 2, 2),
+        [BLACK | 5, BLACK | 6, BLACK | 8, BLACK | 9]
+    );
+}
+
+#[test]
+fn an_empty_ui_draws_nothing() {
+    let game = xrgb(&[7]);
+    let s = Scene {
+        ui: Some(frame(&[], 0, 0)),
+        ..scene(
+            Some(frame(&game, 1, 1)),
+            rect(0, 0, 1, 1),
+            rect(0, 0, 1, 1),
+            Filter::Nearest,
+        )
+    };
+    assert_eq!(render(&s, 1, 1), [BLACK | 7]);
+}
+
+#[test]
+fn a_short_ui_canvas_is_refused() {
+    let data = [0_u8; 9];
+    let ui = Frame {
+        data: &data,
+        width: 2,
+        height: 2,
+        pitch: 6,
+        format: PixelFormat::Xrgb1555,
+    };
+    let s = Scene {
+        ui: Some(ui),
+        ..scene(None, rect(0, 0, 0, 0), rect(0, 0, 0, 0), Filter::Nearest)
+    };
+    let mut out = vec![7_u8; 16];
+    assert_eq!(
+        render_err(&s, &mut out, 2, 2, 8),
+        RenderError::BufferTooSmall {
+            image: Image::Ui,
+            len: 9,
+            min: 10
+        }
+    );
+}
