@@ -193,6 +193,7 @@ name = "neptron-audio"
 version = "0.1.0"
 dependencies = [
  "rubato",
+ "thiserror",
 ]
 
 [[package]]
