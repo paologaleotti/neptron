@@ -1,0 +1,15 @@
+# The default keyboard map of the RetroArch keyboard driver for player one,
+# by key. One line per key: the RetroArch key name, then the RetroPad
+# control. Every keyboard table of NEPTRON must give exactly these pairs.
+up up
+down down
+left left
+right right
+x a
+z b
+s x
+a y
+q l
+w r
+enter start
+rshift select

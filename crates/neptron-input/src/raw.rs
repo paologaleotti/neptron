@@ -76,6 +76,23 @@ impl HatState {
     }
 }
 
+/// A keyboard key, as a Linux input event code (`KEY_*` in
+/// `linux/input-event-codes.h`). The code is a physical position, so it
+/// does not change with the keyboard layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct KeyCode(pub u16);
+
+/// What a key did, as the value of a Linux key event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyAction {
+    /// The key went up (value 0).
+    Release,
+    /// The key went down (value 1).
+    Press,
+    /// The keyboard repeats a key that stays down (value 2).
+    Repeat,
+}
+
 /// One change of one control of a device, as a backend reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RawInput {
@@ -95,4 +112,11 @@ pub enum RawInput {
     },
     /// A hat switch changed.
     Hat(HatState),
+    /// A keyboard key changed.
+    Key {
+        /// The key.
+        code: KeyCode,
+        /// What it did.
+        action: KeyAction,
+    },
 }
