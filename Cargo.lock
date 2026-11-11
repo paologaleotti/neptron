@@ -88,6 +88,12 @@ version = "0.1.0"
 [[package]]
 name = "neptron-ipc"
 version = "0.1.0"
+dependencies = [
+ "neptron-types",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "neptron-kms"

@@ -12,6 +12,11 @@ publish.workspace = true
 control = []
 
 [dependencies]
+neptron-types = { path = "../neptron-types" }
+serde.workspace = true
+serde_json.workspace = true
+# The code standards make each crate own a thiserror enum.
+thiserror.workspace = true
 
 [lints]
 workspace = true
