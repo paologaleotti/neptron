@@ -247,7 +247,14 @@ pub struct PendingConfirm {
     pub description: String,
     /// Time left before the revert, in nanoseconds.
     pub remaining_ns: u64,
+    /// The confirmation. Each signal change that waits for the player gets
+    /// a new id, also one that replaces another at once.
+    pub id: ConfirmId,
 }
+
+/// The number of a confirmation, given by the app.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ConfirmId(pub u32);
 
 /// The game that runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -463,11 +470,12 @@ impl DisplayInfo {
 }
 
 impl PendingConfirm {
-    /// A change and the time left before it reverts.
-    pub fn new(description: impl Into<String>, remaining_ns: u64) -> Self {
+    /// A change with its id and the time left before it reverts.
+    pub fn new(id: ConfirmId, description: impl Into<String>, remaining_ns: u64) -> Self {
         Self {
             description: description.into(),
             remaining_ns,
+            id,
         }
     }
 }

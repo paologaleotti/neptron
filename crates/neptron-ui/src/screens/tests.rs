@@ -5,7 +5,7 @@ use crate::frame::UiFrame;
 use crate::input::UiAction::{self, Accept, Back, Down, Left, Menu, Right, Up};
 use crate::intent::{Intent, Value};
 use crate::snapshot::{
-    GameId, GameSource, GameWindow, Level, Notice, NoticeId, NoticeKind, PendingConfirm,
+    ConfirmId, GameId, GameSource, GameWindow, Level, Notice, NoticeId, NoticeKind, PendingConfirm,
     SessionInfo, SettingsPage, Snapshot,
 };
 use crate::theme::Theme;
@@ -401,7 +401,11 @@ fn confirming(remaining_ns: u64) -> (Run, Snapshot) {
     let mut run = Run::new();
     let mut snap = with_display();
     run.step(&snap, &TO_DISPLAY);
-    snap.confirm = Some(PendingConfirm::new("640x480 at 59.94 Hz", remaining_ns));
+    snap.confirm = Some(PendingConfirm::new(
+        ConfirmId(1),
+        "640x480 at 59.94 Hz",
+        remaining_ns,
+    ));
     run.step(&snap, &[]);
     (run, snap)
 }
@@ -454,15 +458,54 @@ fn every_new_confirmation_starts_on_revert() {
     snap.confirm = None;
     run.step(&snap, &[]);
     assert_eq!(run.screen(), "display");
-    snap.confirm = Some(PendingConfirm::new("320x240 at 60 Hz", 10 * SECOND_NS));
+    snap.confirm = Some(PendingConfirm::new(
+        ConfirmId(1),
+        "640x480 at 59.94 Hz",
+        9 * SECOND_NS,
+    ));
     run.step(&snap, &[Accept]);
     assert_eq!(run.intents(), [Intent::RevertMode]);
+}
 
+#[test]
+fn a_confirmation_that_replaces_another_at_once_starts_again() {
     let (mut run, mut snap) = confirming(4 * SECOND_NS);
     run.step(&snap, &[Right]);
-    snap.confirm = Some(PendingConfirm::new("320x240 at 60 Hz", 10 * SECOND_NS));
+    assert_eq!(run.focused(), Some("Keep"));
+    snap.confirm = Some(PendingConfirm::new(
+        ConfirmId(2),
+        "320x240 at 60 Hz",
+        2 * SECOND_NS,
+    ));
     run.step(&snap, &[]);
     assert_eq!(run.focused(), Some("Revert"));
+
+    run.step(&snap, &[Back]);
+    assert_eq!(run.intents(), [Intent::RevertMode]);
+    snap.confirm = Some(PendingConfirm::new(
+        ConfirmId(3),
+        "288 lines at 50 Hz",
+        10 * SECOND_NS,
+    ));
+    run.step(&snap, &[Accept]);
+    assert_eq!(
+        run.intents(),
+        [Intent::RevertMode],
+        "the new one takes an answer"
+    );
+}
+
+#[test]
+fn more_time_left_with_the_same_id_is_the_same_confirmation() {
+    let (mut run, mut snap) = confirming(4 * SECOND_NS);
+    run.step(&snap, &[Right]);
+    snap.confirm = Some(PendingConfirm::new(
+        ConfirmId(1),
+        "640x480 at 59.94 Hz",
+        9 * SECOND_NS,
+    ));
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some("Keep"));
 }
 
 #[test]
@@ -489,7 +532,11 @@ fn a_confirmation_shows_over_a_running_game() {
     snap.session = Some(SessionInfo::new(GameId(0), "Astro Quest"));
     run.step(&snap, &[]);
     assert!(!run.screens.shows_ui());
-    snap.confirm = Some(PendingConfirm::new("288 lines at 50 Hz", 10 * SECOND_NS));
+    snap.confirm = Some(PendingConfirm::new(
+        ConfirmId(7),
+        "288 lines at 50 Hz",
+        10 * SECOND_NS,
+    ));
     run.step(&snap, &[]);
     assert!(run.screens.shows_ui());
     assert_eq!(run.screen(), "confirm");
@@ -540,7 +587,11 @@ fn notices_wait_while_a_game_runs_and_yield_to_a_confirmation() {
     run.step(&snap, &[Accept]);
     assert_eq!(run.screen(), "game");
     assert!(run.intents().is_empty());
-    snap.confirm = Some(PendingConfirm::new("288 lines at 50 Hz", SECOND_NS));
+    snap.confirm = Some(PendingConfirm::new(
+        ConfirmId(7),
+        "288 lines at 50 Hz",
+        SECOND_NS,
+    ));
     run.step(&snap, &[]);
     assert_eq!(run.screen(), "confirm");
     snap.session = None;
@@ -739,7 +790,11 @@ fn capacities(frame: &UiFrame) -> ((usize, usize), (usize, usize), usize) {
 fn a_static_screen_allocates_nothing_after_its_first_frame() {
     let quick = in_game();
     let mut confirm = with_display();
-    confirm.confirm = Some(PendingConfirm::new("640x480 at 59.94 Hz", 5 * SECOND_NS));
+    confirm.confirm = Some(PendingConfirm::new(
+        ConfirmId(1),
+        "640x480 at 59.94 Hz",
+        5 * SECOND_NS,
+    ));
     let mut noticed = with_systems();
     noticed.notices = vec![notice(1, "The scan found 12 new games.")];
     let (_, games) = snes_list();
@@ -925,7 +980,8 @@ mod fuzz {
             }
             if self.chance(25) {
                 let remaining = [0, 1, SECOND_NS, 10 * SECOND_NS, u64::MAX][self.below(5) as usize];
-                snap.confirm = Some(PendingConfirm::new(self.text(), remaining));
+                let id = ConfirmId(self.below(3) as u32);
+                snap.confirm = Some(PendingConfirm::new(id, self.text(), remaining));
             }
             if self.chance(30) {
                 snap.session = Some(SessionInfo::new(GameId(1), self.text()));
@@ -962,11 +1018,7 @@ mod fuzz {
                 if rng.chance(15) {
                     let before = snap.confirm.clone();
                     snap = rng.snapshot();
-                    let renewed = match (&before, &snap.confirm) {
-                        (Some(old), Some(new)) => new.remaining_ns > old.remaining_ns,
-                        (None, Some(_)) => true,
-                        _ => false,
-                    };
+                    let renewed = before.map(|c| c.id) != snap.confirm.as_ref().map(|c| c.id);
                     if renewed {
                         moved_to_keep = false;
                     }

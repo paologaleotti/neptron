@@ -7,7 +7,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
-use crate::snapshot::{Notice, NoticeId, NoticeKind, PendingConfirm, Snapshot};
+use crate::snapshot::{ConfirmId, Notice, NoticeId, NoticeKind, PendingConfirm, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
 use crate::widgets::{Dialog, DialogContent, DialogEvent};
@@ -35,12 +35,14 @@ const DISMISSED_SLOTS: usize = 8;
 ///
 /// Keep must be a deliberate choice: the focus starts on Revert for each
 /// new confirmation, accept on Revert or back reverts, and only right then
-/// accept keeps. After one answer the dialog ignores input until the
-/// snapshot drops the confirmation or holds a new one.
+/// accept keeps. A confirmation is new when its id differs from the one of
+/// the last frame, or when the last frame had none. After one answer the
+/// dialog ignores input until the snapshot drops the confirmation or holds
+/// a new one.
 pub(super) struct Confirm {
     dialog: Dialog,
     answered: bool,
-    last_remaining_ns: Option<u64>,
+    id: Option<ConfirmId>,
 }
 
 /// The notices of the snapshot, oldest first, one at a time.
@@ -55,24 +57,18 @@ impl Confirm {
         Self {
             dialog: Dialog::new(REVERT),
             answered: false,
-            last_remaining_ns: None,
+            id: None,
         }
     }
 
-    /// Starts again for a confirmation that was not there before, or whose
-    /// time left went up: that is a new confirmation.
+    /// Starts again for a new confirmation, and forgets the last one when
+    /// the snapshot has none.
     pub(super) fn follow(&mut self, pending: Option<&PendingConfirm>) {
-        let Some(pending) = pending else {
+        let id = pending.map(|p| p.id);
+        if id != self.id {
             *self = Self::new();
-            return;
-        };
-        if self
-            .last_remaining_ns
-            .is_some_and(|last| pending.remaining_ns > last)
-        {
-            *self = Self::new();
+            self.id = id;
         }
-        self.last_remaining_ns = Some(pending.remaining_ns);
     }
 
     pub(super) fn handle(&mut self, action: UiAction, out: &mut Vec<Intent>) {

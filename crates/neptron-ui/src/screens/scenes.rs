@@ -6,9 +6,9 @@ use crate::input::UiAction;
 use crate::registry::SceneDef;
 use crate::snapshot::SessionInfo;
 use crate::snapshot::{
-    ChoiceOption, DisplayInfo, GameEntry, GameId, GameSource, GameWindow, Level, MenuItem, Notice,
-    NoticeId, NoticeKind, PendingConfirm, ProfileEntry, ProfileId, Scopes, SettingKey,
-    SettingValue, SettingsPage, Snapshot, SystemEntry, SystemId,
+    ChoiceOption, ConfirmId, DisplayInfo, GameEntry, GameId, GameSource, GameWindow, Level,
+    MenuItem, Notice, NoticeId, NoticeKind, PendingConfirm, ProfileEntry, ProfileId, Scopes,
+    SettingKey, SettingValue, SettingsPage, Snapshot, SystemEntry, SystemId,
 };
 use crate::theme::Theme;
 
@@ -356,7 +356,7 @@ fn confirm_at(frame: &mut UiFrame, theme: &Theme, remaining_ns: u64) {
         UiAction::Accept,
     ];
     screens.update(&snap, &choose_2x, frame);
-    snap.confirm = Some(PendingConfirm::new(CHANGE, remaining_ns));
+    snap.confirm = Some(PendingConfirm::new(ConfirmId(1), CHANGE, remaining_ns));
     screens.update(&snap, &[], frame);
 }
 
