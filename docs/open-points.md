@@ -129,3 +129,30 @@ Each open point is one section:
 - How to change: T19 computes the source index from `gl_FragCoord` with a small bias and `highp`, expands 5 and 6 bit channels itself (rounded, not bit replication), converts XRGB1555, and clamps the taps to the crop in the shader.
 - Decision:
 
+### OP-013: Nothing forces a caller to apply the pixel clock limit of an EDID profile.
+
+- Raised by: T11
+- Status: open, input for T15 and T27
+- Default: `EdidProfile` carries the limit next to the profile, and the caller must call `limit_caps`.
+- Where: `crates/neptron-platform/src/profile.rs`
+- How to change: carry the limit in `MonitorProfile` (a contract change).
+- Decision:
+
+### OP-014: An EDID profile has one sync and porch set for the full line-rate range.
+
+- Raised by: T11
+- Status: open
+- Default: the porches are the largest GTF values in the range. Wide modes near the top line rate then need more pixel clock than the monitor allows (for example 1024x768 at 85 Hz), and DMT modes with short sync pulses are refused. The project's own modes (480p, 240p at 120 Hz) fit.
+- Where: `crates/neptron-platform/src/gtf.rs`, `profile.rs`
+- How to change: one `CrtRange` per line-rate band.
+- Decision:
+
+### OP-015: The real EDID of the SyncMaster 740s is not checked.
+
+- Raised by: T11
+- Status: open, bench check
+- Default: none. If the monitor does not set the GTF bit or is not EDID 1.3 or 1.4, it gets no profile from EDID and the user selects a preset.
+- Where: `crates/neptron-platform/src/edid.rs`
+- How to change: relax one named check after the real EDID is read.
+- Decision:
+

@@ -37,7 +37,7 @@ name = "Safety validator"
 owns = ["crates/neptron-safety"]
 needs = ["T02"]
 gate = "Timing check 2"
-status = "in_progress"
+status = "in_review"
 
 [[task]]
 id = "T05"
@@ -46,7 +46,7 @@ name = "Switchres wrapper"
 owns = ["crates/neptron-modeline", "crates/neptron-switchres-sys", "vendor/switchres"]
 needs = ["T02"]
 gate = "Timing check 1, identical on macOS and Linux"
-status = "in_progress"
+status = "in_review"
 
 [[task]]
 id = "T06"
@@ -73,7 +73,7 @@ name = "Settings"
 owns = ["crates/neptron-settings"]
 needs = ["T01"]
 gate = "Unit tests and fixtures"
-status = "in_progress"
+status = "in_review"
 
 [[task]]
 id = "T09"
@@ -82,7 +82,7 @@ name = "Libretro bindings and test core"
 owns = ["crates/neptron-libretro-sys", "crates/neptron-testcore"]
 needs = ["T01"]
 gate = "Test core builds as a dynamic library; layout tests"
-status = "in_progress"
+status = "in_review"
 
 [[task]]
 id = "T10"
@@ -91,7 +91,7 @@ name = "Library"
 owns = ["crates/neptron-library", "data/systems", "data/cores"]
 needs = ["T01"]
 gate = "Fixture trees; a 10,000-game query fits the frame budget"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T11"
@@ -100,7 +100,7 @@ name = "GPU detection and capability table"
 owns = ["crates/neptron-platform", "data/hardware"]
 needs = ["T02"]
 gate = "Unit tests on fixture sysfs trees"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T12"
@@ -109,7 +109,7 @@ name = "Control protocol and `neptronctl` client"
 owns = ["crates/neptron-ipc", "apps/neptronctl"]
 needs = ["T02"]
 gate = "Round-trip tests"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T13"
@@ -127,7 +127,7 @@ name = "OS base and QEMU"
 owns = ["os/", "Dockerfile", "xtask/src/os"]
 needs = ["T01"]
 gate = "Image boots in QEMU; `vkms` findings in the task report"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T15"
