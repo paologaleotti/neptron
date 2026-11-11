@@ -11,6 +11,7 @@ mod device;
 mod key_map;
 mod mapper;
 mod pad_map;
+mod ports;
 mod raw;
 mod state;
 
@@ -23,4 +24,5 @@ pub use pad_map::{
     AxisTarget, PAD_BUTTON_MAP, STICK_DEAD_ZONE, TRIGGER_THRESHOLD, axis_target, hat_values,
     pad_control, stick_value, trigger_value,
 };
+pub use ports::PortStates;
 pub use raw::{HatState, KeyAction, KeyCode, PadAxis, PadButton, RawInput};

@@ -36,12 +36,22 @@ pub(crate) const ALL_CONTROLS: [Control; CONTROL_COUNT] = [
 pub(crate) struct ControlState([i16; CONTROL_COUNT]);
 
 impl ControlState {
+    /// The value of `control`.
+    pub(crate) fn get(&self, control: Control) -> i16 {
+        self.0[index(control)]
+    }
+
     /// Sets `control` to `value`. True when the value changed.
     pub(crate) fn set(&mut self, control: Control, value: i16) -> bool {
         let slot = &mut self.0[index(control)];
         let changed = *slot != value;
         *slot = value;
         changed
+    }
+
+    /// True when no button is down and every axis is centred.
+    pub(crate) fn is_neutral(&self) -> bool {
+        self.0.iter().all(|value| *value == 0)
     }
 
     /// Appends to `out` an event that sets each control of `device` that is
@@ -99,12 +109,13 @@ mod tests {
     #[test]
     fn set_reports_a_change_only() {
         let mut state = ControlState::default();
-        assert_eq!(state, ControlState::default());
+        assert!(state.is_neutral());
         assert!(state.set(Control::A, 1));
         assert!(!state.set(Control::A, 1));
-        assert_ne!(state, ControlState::default());
+        assert_eq!(state.get(Control::A), 1);
+        assert!(!state.is_neutral());
         assert!(state.set(Control::A, 0));
-        assert_eq!(state, ControlState::default());
+        assert!(state.is_neutral());
     }
 
     #[test]
@@ -124,7 +135,7 @@ mod tests {
                 (0x100, Control::LeftX, 0),
             ]
         );
-        assert_eq!(state, ControlState::default());
+        assert!(state.is_neutral());
         out.clear();
         state.release_all(0x100, &mut out);
         assert!(out.is_empty());
