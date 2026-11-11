@@ -228,16 +228,14 @@ pub(super) fn paragraph(
         if drawn >= max_lines {
             break;
         }
-        let last = drawn + 1 == max_lines && lines.peek().is_some();
-        let shown = if last { rest_of(message, line) } else { line };
+        let cut = drawn + 1 == max_lines && lines.peek().is_some();
         let y = offset(rect.y, row.saturating_mul(drawn as u32));
-        label(
-            frame,
-            Rect::new(rect.x, y, rect.w, row),
-            Align::Left,
-            color,
-            shown,
-        );
+        let line_box = Rect::new(rect.x, y, rect.w, row);
+        if cut {
+            label_cut(frame, line_box, color, line);
+        } else {
+            label(frame, line_box, Align::Left, color, line);
+        }
         drawn += 1;
     }
     drawn as u32
@@ -259,11 +257,33 @@ pub(super) fn offset(x: i32, by: u32) -> i32 {
     i32::try_from(i64::from(x) + i64::from(by)).unwrap_or(i32::MAX)
 }
 
-/// The part of `message` from the start of `line` to the end. `line` is a
-/// slice of `message`, as `text::wrap` gives it.
-fn rest_of<'a>(message: &'a str, line: &'a str) -> &'a str {
-    let start = (line.as_ptr() as usize).wrapping_sub(message.as_ptr() as usize);
-    message.get(start..).unwrap_or(line)
+/// Draws `line` followed by an ellipsis, cut so that both fit in `rect`:
+/// more text follows the line and has no room. The tree gets the whole
+/// line, marked as clipped.
+fn label_cut(frame: &mut UiFrame, rect: Rect, color: Color, line: &str) {
+    let room = font::chars_in(rect.w).saturating_sub(text::ELLIPSIS.len());
+    let end = line
+        .char_indices()
+        .nth(room)
+        .map_or(line.len(), |(at, _)| at);
+    let kept = line.get(..end).unwrap_or(line).trim_end_matches(' ');
+    text::draw_in(&mut frame.scene, rect, Align::Left, color, kept);
+    let dots = Rect::new(
+        offset(rect.x, font::text_width(kept)),
+        rect.y,
+        rect.w.saturating_sub(font::text_width(kept)),
+        rect.h,
+    );
+    text::draw_in(&mut frame.scene, dots, Align::Left, color, text::ELLIPSIS);
+    frame.tree.push(TreeRow {
+        widget: WidgetKind::Label,
+        label: line,
+        value: None,
+        source: None,
+        rect,
+        focused: false,
+        clipped: true,
+    });
 }
 
 #[cfg(test)]
@@ -297,6 +317,16 @@ mod tests {
         );
         assert_eq!(lines, 2);
         let rows: Vec<_> = frame.tree.rows().map(|r| (r.label, r.clipped)).collect();
-        assert_eq!(rows, [("one two", false), ("three four five", true)]);
+        assert_eq!(rows, [("one two", false), ("three four", true)]);
+        let texts: Vec<_> = frame
+            .scene
+            .commands()
+            .iter()
+            .filter_map(|c| match *c {
+                crate::DrawCommand::Text { x, span, .. } => Some((x, frame.scene.text(span))),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, [(16, "one two"), (16, "three f"), (58, "...")]);
     }
 }
