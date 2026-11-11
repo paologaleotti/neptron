@@ -13,8 +13,14 @@
 pub mod canvas;
 pub mod font;
 mod geom;
+mod input;
+mod intent;
 pub mod scene;
+pub mod snapshot;
 
 pub use canvas::{Canvas, CpuCanvas, Sprite, SpriteId, UI_HEIGHT, UI_WIDTH};
 pub use geom::{Color, Rect};
+pub use input::UiAction;
+pub use intent::{Intent, Value};
 pub use scene::{DrawCommand, TextSpan, UiScene};
+pub use snapshot::Snapshot;
