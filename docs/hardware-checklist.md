@@ -40,6 +40,7 @@ Bench: Intel i3-6100T (HD 530) with a Samsung SyncMaster 740s through a DisplayP
 - [ ] A USB keyboard on the image: found, grabbed (no key reaches a console), mapped, and released when unplugged.
 - [ ] Blind recovery from a gamepad and from a keyboard with no picture.
 - [ ] The combination held at boot on a keyboard encoder triggers recovery.
+- [ ] The Start hold from an arcade panel encoder with no Select button opens the quick menu.
 
 ## T17 audio
 

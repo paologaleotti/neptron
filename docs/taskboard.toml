@@ -289,7 +289,7 @@ name = "Setting: hold Start for N seconds opens the quick menu"
 owns = ["crates/neptron-input/src/hotkeys.rs", "crates/neptron-settings"]
 needs = ["T10", "T18"]
 gate = "T1; the setting is a schema entry"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C04"

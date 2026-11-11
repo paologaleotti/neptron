@@ -477,3 +477,12 @@ Each open point is one section:
 - Where: `crates/neptron-types/src/scene.rs`, `crates/neptron-gfx`
 - How to change: a scanline strength in `Scene` (a contract change), in both renderers, with goldens.
 - Decision: in the MVP. The owner: it must look right, like other setups and hardware line doublers, and it must be built so that more scanline kinds and their own settings can follow.
+
+### OP-051: What the app must do for the Start hold, and settings help text.
+
+- Raised by: C03 and its review
+- Status: open, input for T27
+- Default: the app reads `input.menu_hold_start_seconds`, passes it to `Hotkeys::set_start_hold_ns`, and treats a second `QuickMenu` while the menu is open as no action (the quick menu is never a toggle). When the hold fires, the app gives the core Start up on that port until the release. The game has already seen the Start press, so most games are in their own pause screen on resume. A game that needs Start held opens the menu by accident; the hold is off by default and the first-boot setup must say this. A schema entry has no help text field: the help of a setting is in the doc comment of its key and in the README.
+- Where: `crates/neptron-input/README.md`, `crates/neptron-settings/src/builtin.rs`
+- How to change: a `help` field in the schema entry (a change to the settings model, with an ADR).
+- Decision:
