@@ -79,7 +79,8 @@ A pass on `vkms`:
 - The exit code is 0, and the summary ends with `restore:` and no `RESTORE FAILED`.
 - For every mode that passed `validate`, `test_commit.ok` and `commit.ok` are true in the report. An interlaced mode is the one exception: a refused 480i answers the open question "does `vkms` accept interlaced user modes", and it is not a failure of the tool.
 - `readback.equals_request` is true, and `readback.validation.passed` is true.
-- `vblank.rate_mhz` is within 1 % of the field rate of the mode, and `flips_completed` is at least `flips_queued` less 1.
+- For a progressive mode, `vblank.rate_mhz` is within 1 % of the field rate of the mode. For an interlaced mode on `vkms` the 1 % check does not apply: `vkms` delivers vblanks at twice the field rate, so `rate_mhz` is near 2 times the field rate and `implied_pclock_hz` near 2 times the requested clock (open point OP-030).
+- `flips_completed` is at least `flips_queued` less 1.
 - `--list-connectors` after the run shows the connector in its state from before the run.
 
 What the `vkms` run showed: the commits succeed, the readback equals the request, the restore succeeds, and Ctrl-C (SIGINT) or SIGTERM to the supervisor restores within 100 ms. After SIGKILL of the worker the CRTC stays active with its mode and no plane framebuffer.
@@ -90,6 +91,8 @@ What the `vkms` run cannot show:
 - It has no fbdev console. The "restore the original mode" path and the console takeover after an "output off" restore never run there.
 - Its vblank timing comes from a kernel timer, not from a scanout clock. The measured rate shows that the tool counts vblanks correctly, not what a real GPU makes.
 - It accepts interlace and any low pixel clock, with no hardware limit. A test-only commit that passes on `vkms` says nothing about i915.
+- In an interlaced mode it delivers vblanks at twice the field rate (open point OP-030). For 480i in `generic_15` (field rate 59.999 Hz) it gave `rate_mhz` 120227 and `implied_pclock_hz` 26 352 255 against a requested 13 151 000. The interlaced vblank timing of real hardware stays unmeasured.
+- Under QEMU the flip loop completed about one flip per 2 vblanks, so `flip_cadence` came out `other` for progressive modes.
 
 On a PC, `generic_15` and the other 15 kHz presets give no valid mode with the default GPU values: at the default width of 640 pixels every 15 kHz mode is below the conservative minimum pixel clock of 25 MHz. Add `--allow-low-pclock HZ` to show them, or choose a much larger `--width`.
 
@@ -165,10 +168,10 @@ The report is one JSON file, written through a temporary file and a rename. `rep
 | `modes[].beyond_conservative` | Why the mode is outside the values of an unknown GPU. |
 | `modes[].kms.test_commit`, `.commit` | `ok`, and the kernel error text when it failed. |
 | `modes[].kms.readback` | The mode the kernel stores for the CRTC, `equals_request`, the fields that differ, and the second validation. |
-| `modes[].kms.vblank` | Vblank timing: `count` of samples; `rate_mhz`, the measured field rate (the vblanks the kernel counted over the time span, so a sample that the loop misses does not lower it); `mean_interval_ns`, the mean time per vblank; the shortest and longest time between two samples; `jitter_ns`, the largest distance from the mean of one interval divided by the vblanks it spans; `skipped_vblanks`, vblanks with no sample; `event_rate_mhz`, the rate of the samples themselves. |
+| `modes[].kms.vblank` | Vblank timing: `count` of samples; `rate_mhz`, the rate of the vblank events that the driver delivers (the vblanks the kernel counted over the time span, so a sample that the loop misses does not lower it); `mean_interval_ns`, the mean time per vblank; the shortest and longest time between two samples; `jitter_ns`, the largest distance from the mean of one interval divided by the vblanks it spans; `skipped_vblanks`, vblanks with no sample; `event_rate_mhz`, the rate of the samples themselves. On hardware `rate_mhz` is the field rate; for an interlaced mode that is not verified on hardware, and `vkms` delivers vblanks at twice the field rate there. |
 | `modes[].kms.flips` | The same for the page-flip events. Here `event_rate_mhz` is the flip rate. |
 | `modes[].kms.flips_queued`, `.flips_completed` | Flips asked for and flip events received. The difference is the missed flips. |
-| `modes[].kms.flip_cadence` | `per_field`, `per_frame` or `other`: the flip rate (`flips.event_rate_mhz`) against the field rate, within 2 %. In an interlaced mode this says whether flips come once per field or once per frame. |
+| `modes[].kms.flip_cadence` | `per_field`, `per_frame` or `other`: the flip rate (`flips.event_rate_mhz`) against the field rate, within 2 %. In an interlaced mode this says whether flips come once per field or once per frame. Read it together with `flips.skipped_vblanks`: when the flip loop misses vblanks (on `vkms` under QEMU it completed about one flip per 2 vblanks, so progressive modes came out `other`), a 480i result of `per_frame` is not proof of one flip per frame. |
 | `modes[].kms.implied_pclock_hz` | The pixel clock that the measured vblank rate implies. The kernel's readback gives the requested clock, not the clock the hardware makes, so compare this value with `requested.pclock_hz` to see the rounding of the driver. |
 | `modes[].kms.kernel_errors` | Kernel errors during the display time, each once with a count. |
 | `restore` | `ok`, and what was restored or what failed. |
