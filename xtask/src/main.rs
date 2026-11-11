@@ -8,6 +8,7 @@
 mod load;
 mod repo;
 mod rules;
+mod verify;
 
 use std::process::ExitCode;
 
@@ -15,6 +16,8 @@ const USAGE: &str = "\
 usage: cargo xtask <command> [args]
 
 commands:
+  verify --tier <N>    run tier N of the verification ladder and the tiers
+                       below it; writes target/verify/report.json
   check [cargo args]   cargo check, under the machine-load rules
   test [nextest args]  cargo nextest run, under the machine-load rules
   clippy [cargo args]  cargo clippy, under the machine-load rules
@@ -37,6 +40,8 @@ enum Error {
     Load(#[from] load::LoadError),
     #[error(transparent)]
     Rules(#[from] rules::RulesError),
+    #[error(transparent)]
+    Verify(#[from] verify::VerifyError),
 }
 
 fn main() -> ExitCode {
@@ -57,6 +62,7 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
     };
     let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
     match cmd.as_str() {
+        "verify" => Ok(verify::run(&rest)?),
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy"], &rest),

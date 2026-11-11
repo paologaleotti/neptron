@@ -4,6 +4,7 @@ Build, verification and worktree automation for the NEPTRON workspace. Run it as
 
 ## Commands
 
+- `cargo xtask verify --tier <N>`: runs tier N of the verification ladder and every tier below it. Tier 0: `fmt`, `rules`, `cargo deny check licenses bans sources`, `clippy` with warnings denied. Tier 1: `cargo nextest run --workspace --no-run` (timed as build time), `cargo nextest run --workspace --no-tests=warn` and `cargo test --workspace --doc`. Every step runs, also after a failure. The command always writes `target/verify/report.json`, also when it cannot start the steps, and prints a summary with the time of each step, the build time and the tier budgets. A run over budget is reported, not failed. It exits non-zero when a step fails.
 - `cargo xtask check [cargo args]`: `cargo check` under the machine-load rules.
 - `cargo xtask test [nextest args]`: `cargo nextest run` under the machine-load rules.
 - `cargo xtask clippy [cargo args]`: `cargo clippy` under the machine-load rules.
