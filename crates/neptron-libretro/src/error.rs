@@ -4,6 +4,7 @@ use std::io;
 use std::path::PathBuf;
 
 use crate::geometry::GeometryError;
+use crate::zip::ZipError;
 
 /// Why [`Host::open`](crate::Host::open) failed.
 #[derive(Debug, thiserror::Error)]
@@ -90,6 +91,24 @@ pub enum LoadError {
         len: u64,
         /// The limit.
         limit: u64,
+    },
+    /// The zip file could not be opened or gave no usable entry.
+    #[error("cannot load from {path}: {source}")]
+    Zip {
+        /// The archive path.
+        path: PathBuf,
+        /// The cause.
+        #[source]
+        source: ZipError,
+    },
+    /// The core reads this content from a path on disk, and the MVP does
+    /// not extract zip entries to files.
+    #[error("the core needs a file path for {entry} in {path}; extract it from the archive")]
+    ZipNeedsFullPath {
+        /// The archive path.
+        path: PathBuf,
+        /// The entry that matched.
+        entry: String,
     },
     /// `retro_load_game` returned false. The core log says why.
     #[error("the core refused the content")]

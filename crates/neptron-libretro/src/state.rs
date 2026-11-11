@@ -4,9 +4,11 @@
 
 use std::ffi::{CStr, CString};
 
+use neptron_libretro_sys::retro_game_info_ext;
 use neptron_types::PixelFormat;
 
 use crate::audio::AudioBuffer;
+use crate::content::{ContentOverride, overrides_of};
 use crate::geometry::{AvInfo, GameGeometry, Timing};
 use crate::log::{LogLevel, LogQueue, LogRecord, LogSource};
 use crate::options::{CoreOption, OptionError, OptionStore};
@@ -20,6 +22,8 @@ pub const EVENT_CAPACITY: usize = 32;
 pub const MAX_LOGGED_COMMANDS: usize = 64;
 /// The longest `SET_MESSAGE` text kept, in bytes.
 pub const MESSAGE_MAX_BYTES: usize = 1024;
+/// The most `SET_CONTENT_INFO_OVERRIDE` entries that the host reads.
+pub const MAX_CONTENT_OVERRIDES: usize = 64;
 
 /// The fields of a `retro_system_av_info`, as plain values.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -66,6 +70,10 @@ pub(crate) struct State {
     logged_commands: Vec<u32>,
     in_run: bool,
     options: OptionStore,
+    overrides: Vec<ContentOverride>,
+    /// The content of the loaded game for `GET_GAME_INFO_EXT`, or null. The
+    /// host owns the pointee and clears this before it drops it.
+    game_info_ext: *const retro_game_info_ext,
 }
 
 impl State {
@@ -86,6 +94,8 @@ impl State {
             logged_commands: Vec::with_capacity(MAX_LOGGED_COMMANDS),
             in_run: false,
             options: OptionStore::default(),
+            overrides: Vec::new(),
+            game_info_ext: std::ptr::null(),
         }
     }
 
@@ -200,6 +210,27 @@ impl State {
     /// `GET_VARIABLE_UPDATE`: true once after a value changed.
     pub(crate) fn take_option_update(&mut self) -> bool {
         self.options.take_update()
+    }
+
+    pub(crate) fn content_overrides(&self) -> &[ContentOverride] {
+        &self.overrides
+    }
+
+    pub(crate) fn set_game_info_ext(&mut self, info: *const retro_game_info_ext) {
+        self.game_info_ext = info;
+    }
+
+    pub(crate) fn game_info_ext(&self) -> *const retro_game_info_ext {
+        self.game_info_ext
+    }
+
+    /// `SET_CONTENT_INFO_OVERRIDE`: replaces the overrides with the given
+    /// entries of `(extensions, need_fullpath)`.
+    pub(crate) fn set_content_overrides(&mut self, entries: &[(&[u8], bool)]) {
+        self.overrides = entries
+            .iter()
+            .flat_map(|&(extensions, need_fullpath)| overrides_of(extensions, need_fullpath))
+            .collect();
     }
 
     pub(crate) fn system_dir(&self) -> &CStr {

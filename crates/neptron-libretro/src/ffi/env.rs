@@ -13,7 +13,7 @@ use neptron_libretro_sys::*;
 
 use super::{c_str_bytes, core_av_info, neptron_libretro_log_printf};
 use crate::options::MAX_OPTIONS;
-use crate::state::State;
+use crate::state::{MAX_CONTENT_OVERRIDES, State};
 
 /// Answers one environment call.
 ///
@@ -94,6 +94,24 @@ pub(super) unsafe fn dispatch(state: &mut State, cmd: u32, data: *mut c_void) ->
         | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY
         | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK => {
             state.refuse(cmd, "only the version 0 option API is supported")
+        }
+        RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE => {
+            if data.is_null() {
+                return false;
+            }
+            // SAFETY: SET_CONTENT_INFO_OVERRIDE takes an array of
+            // `struct retro_system_content_info_override` that ends with null
+            // extensions, valid for the length of the call.
+            let entries = unsafe { content_overrides(data.cast()) };
+            state.set_content_overrides(&entries);
+            true
+        }
+        RETRO_ENVIRONMENT_GET_GAME_INFO_EXT => {
+            let info = state.game_info_ext();
+            // SAFETY: GET_GAME_INFO_EXT takes a
+            // `const struct retro_game_info_ext **`. The pointee lives in the
+            // host until `retro_unload_game`.
+            !info.is_null() && unsafe { write(data, info) }
         }
         RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS
         | RETRO_ENVIRONMENT_SET_CONTROLLER_INFO
@@ -182,6 +200,49 @@ unsafe fn variables<'a>(array: *const retro_variable) -> Vec<(&'a [u8], &'a [u8]
     }
     entries
 }
+
+/// The extensions and `need_fullpath` of each override entry up to the one
+/// with null extensions, at most [`MAX_CONTENT_OVERRIDES`] of them. An entry
+/// with an unterminated string is skipped.
+///
+/// # Safety
+///
+/// `array` points to entries that end with null extensions, with
+/// NUL-terminated strings, valid for `'a`.
+unsafe fn content_overrides<'a>(
+    array: *const retro_system_content_info_override,
+) -> Vec<(&'a [u8], bool)> {
+    let mut entries = Vec::new();
+    for i in 0..MAX_CONTENT_OVERRIDES {
+        // SAFETY: the array goes on until the null entry, and the loop stops
+        // there, so entry `i` exists. The read needs no alignment; the
+        // `bool` field is read as a byte below.
+        let entry = unsafe { array.add(i).cast::<OverrideBytes>().read_unaligned() };
+        if entry.extensions.is_null() {
+            break;
+        }
+        // SAFETY: the string is NUL-terminated and valid for `'a`.
+        if let Some(extensions) = unsafe { c_str_bytes(entry.extensions) } {
+            entries.push((extensions, entry.need_fullpath != 0));
+        }
+    }
+    entries
+}
+
+/// `retro_system_content_info_override` with its `bool` fields as bytes, so
+/// that any byte the core wrote is a valid value.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct OverrideBytes {
+    extensions: *const c_char,
+    need_fullpath: u8,
+    persistent_data: u8,
+}
+
+const _: () = assert!(
+    size_of::<OverrideBytes>() == size_of::<retro_system_content_info_override>()
+        && align_of::<OverrideBytes>() == align_of::<retro_system_content_info_override>()
+);
 
 /// Reads a `T` from `data`. `None` for null.
 ///

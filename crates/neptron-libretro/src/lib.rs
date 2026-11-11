@@ -40,6 +40,6 @@ pub use pad::{InputError, MAX_PORTS, Pad};
 pub use save::{
     MAX_SAVE_RAM_BYTES, SaveFileError, read_save_file, save_file_path, write_save_file,
 };
-pub use state::{EVENT_CAPACITY, MAX_LOGGED_COMMANDS, MESSAGE_MAX_BYTES};
+pub use state::{EVENT_CAPACITY, MAX_CONTENT_OVERRIDES, MAX_LOGGED_COMMANDS, MESSAGE_MAX_BYTES};
 pub use video::MAX_PITCH_BYTES;
 pub use zip::{MAX_CENTRAL_DIRECTORY_BYTES, ZipEntry, ZipError, read_zip_entry};

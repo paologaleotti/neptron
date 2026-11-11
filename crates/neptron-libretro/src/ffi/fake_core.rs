@@ -781,3 +781,176 @@ fn options_follow_the_version_0_api() {
         "false true pal false true false"
     );
 }
+
+fn write_zip(name: &str, entries: &[crate::zip::tests::TestEntry<'_>]) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("neptron-libretro-fake-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(name);
+    std::fs::write(&path, crate::zip::tests::build(entries)).unwrap();
+    path
+}
+
+/// Reads the extended content information as FCEUmm and Genesis Plus GX
+/// do, and records it.
+fn record_game_info_ext(cb: &Callbacks) {
+    let mut info: *const retro_game_info_ext = std::ptr::null();
+    let found = cb.env(RETRO_ENVIRONMENT_GET_GAME_INFO_EXT, &raw mut info);
+    let text = if found {
+        // SAFETY: the host gave a pointer to extended content information
+        // whose strings and data live until `retro_unload_game`.
+        unsafe {
+            let i = &*info;
+            let s = |p: *const c_char| {
+                if p.is_null() {
+                    "-".to_owned()
+                } else {
+                    CStr::from_ptr(p).to_string_lossy().into_owned()
+                }
+            };
+            let data = std::slice::from_raw_parts(i.data.cast::<u8>(), i.size);
+            format!(
+                "{} | {} | {} | {} | {} | {} | {} {} {}",
+                s(i.full_path),
+                s(i.archive_path),
+                s(i.archive_file),
+                s(i.dir).rsplit('/').next().unwrap_or_default(),
+                s(i.name),
+                s(i.ext),
+                String::from_utf8_lossy(data),
+                i.file_in_archive,
+                i.persistent_data
+            )
+        }
+    } else {
+        "no info".to_owned()
+    };
+    fake().seen.calls.push(text);
+}
+
+/// The record that `record_game_info_ext` made during the load.
+fn info_record() -> String {
+    seen()
+        .calls
+        .into_iter()
+        .find(|c| c.contains(" | "))
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_zip_entry_loads_for_a_core_that_takes_data() {
+    use crate::zip::tests::TestEntry;
+    script(|s| s.on_load = Some(record_game_info_ext));
+    let zip = write_zip(
+        "Game (USA).zip",
+        &[
+            TestEntry {
+                name: "Game (USA).txt",
+                data: b"notes",
+                deflate: true,
+            },
+            TestEntry {
+                name: "Game (USA).nes",
+                data: b"NES\x1a from the archive",
+                deflate: true,
+            },
+        ],
+    );
+    let mut host = open().unwrap();
+    let exts = ["nes".to_owned()];
+    host.load_game(Some(ContentRequest {
+        path: &zip,
+        extensions: &exts,
+    }))
+    .unwrap();
+    let seen = seen();
+    let text = zip.to_str().unwrap();
+    assert_eq!(
+        seen.path.as_deref(),
+        Some(format!("{text}#Game (USA).nes").as_str())
+    );
+    assert_eq!(seen.data.as_deref(), Some(&b"NES\x1a from the archive"[..]));
+    let dir = zip.parent().unwrap().file_name().unwrap().to_str().unwrap();
+    assert_eq!(
+        info_record(),
+        format!(
+            "{text}#Game (USA).nes | {text} | Game (USA).nes | {dir} | Game (USA) | nes | NES\x1a from the archive true true"
+        )
+    );
+    std::fs::remove_file(zip).unwrap();
+}
+
+#[test]
+fn a_content_override_lets_a_fullpath_core_take_a_zip() {
+    use crate::zip::tests::TestEntry;
+    script(|s| {
+        s.need_fullpath = true;
+        s.on_set_environment = Some(|cb| {
+            let mut overrides = [
+                retro_system_content_info_override {
+                    extensions: c"fds|NES|unf".as_ptr(),
+                    need_fullpath: false,
+                    persistent_data: false,
+                },
+                retro_system_content_info_override {
+                    extensions: std::ptr::null(),
+                    need_fullpath: false,
+                    persistent_data: false,
+                },
+            ];
+            assert!(cb.env(
+                RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE,
+                overrides.as_mut_ptr()
+            ));
+            record_game_info_ext(cb);
+        });
+        s.on_load = Some(record_game_info_ext);
+    });
+    let zip = write_zip(
+        "mario.zip",
+        &[TestEntry {
+            name: "mario.nes",
+            data: b"mario",
+            deflate: false,
+        }],
+    );
+    let mut host = open().unwrap();
+    assert!(
+        seen().calls.contains(&"no info".to_owned()),
+        "no content yet"
+    );
+    let exts = ["nes".to_owned()];
+    host.load_game(Some(ContentRequest {
+        path: &zip,
+        extensions: &exts,
+    }))
+    .unwrap();
+    assert_eq!(seen().data.as_deref(), Some(&b"mario"[..]));
+    assert!(info_record().ends_with("| mario | nes | mario true true"));
+    std::fs::remove_file(zip).unwrap();
+}
+
+#[test]
+fn a_fullpath_core_without_an_override_cannot_take_a_zip() {
+    use crate::zip::tests::TestEntry;
+    script(|s| s.need_fullpath = true);
+    let zip = write_zip(
+        "game.zip",
+        &[TestEntry {
+            name: "game.nes",
+            data: b"x",
+            deflate: false,
+        }],
+    );
+    let mut host = open().unwrap();
+    let exts = ["nes".to_owned()];
+    let result = host.load_game(Some(ContentRequest {
+        path: &zip,
+        extensions: &exts,
+    }));
+    assert!(matches!(
+        result,
+        Err(LoadError::ZipNeedsFullPath { entry, .. }) if entry == "game.nes"
+    ));
+    assert!(!seen().calls.contains(&"load_game".to_owned()));
+    std::fs::remove_file(zip).unwrap();
+}

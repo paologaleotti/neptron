@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use neptron_libretro_sys::{RETRO_API_VERSION, RETRO_DEVICE_JOYPAD};
 use neptron_types::PixelFormat;
 
-use crate::content::{ContentRequest, LoadedContent, c_path};
+use crate::content::{ContentRequest, ContentRules, LoadedContent, c_path};
 use crate::error::{LoadError, OpenError, RunError};
 use crate::ffi::{self, Core, CoreSystemInfo, OpenFailure, Poisoned};
 use crate::geometry::AvInfo;
@@ -161,13 +161,19 @@ impl Host {
             None => return Err(LoadError::NoContent),
         };
         self.begin_call();
+        let info_ext = content
+            .as_ref()
+            .map_or(std::ptr::null(), LoadedContent::info_ext);
         self.content = content;
+        if let Some(state) = self.state.as_deref_mut() {
+            state.set_game_info_ext(info_ext);
+        }
         let core = &self.core;
         let content = self.content.as_ref();
         let loaded =
             ffi::lend(&mut self.state, || core.load_game(content)).map_err(poisoned_load)?;
         if !loaded {
-            self.content = None;
+            self.drop_content();
             return Err(LoadError::Refused);
         }
         self.game_loaded = true;
@@ -252,7 +258,12 @@ impl Host {
     }
 
     fn prepare(&self, request: &ContentRequest<'_>) -> Result<LoadedContent, LoadError> {
-        LoadedContent::plain(request.path, self.system_info.need_fullpath)
+        let rules = ContentRules {
+            need_fullpath: self.system_info.need_fullpath,
+            block_extract: self.system_info.block_extract,
+            overrides: self.state().map_or(&[], State::content_overrides),
+        };
+        LoadedContent::prepare(request, &rules)
     }
 
     fn unload(&mut self) {
@@ -260,6 +271,14 @@ impl Host {
             // A lost state cannot be repaired here; the core still unloads.
             let _ = self.call(Core::unload_game);
             self.game_loaded = false;
+        }
+        self.drop_content();
+    }
+
+    /// Clears the state's pointer to the content before the content goes.
+    fn drop_content(&mut self) {
+        if let Some(state) = self.state.as_deref_mut() {
+            state.set_game_info_ext(std::ptr::null());
         }
         self.content = None;
     }
