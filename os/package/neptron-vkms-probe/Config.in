@@ -1,0 +1,9 @@
+config BR2_PACKAGE_NEPTRON_VKMS_PROBE
+	bool "neptron-vkms-probe"
+	depends on BR2_TOOLCHAIN_HAS_THREADS # libdrm
+	select BR2_PACKAGE_LIBDRM
+	help
+	  Commits user modelines through the atomic KMS API and reports
+	  what the driver does with them: the mode read back, vblank
+	  periods, flip events, frame CRCs and the writeback picture.
+	  A test tool for the QEMU images and the vkms driver.
