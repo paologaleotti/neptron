@@ -186,6 +186,10 @@ dependencies = [
 [[package]]
 name = "neptron-testkit"
 version = "0.1.0"
+dependencies = [
+ "neptron-backend",
+ "thiserror",
+]
 
 [[package]]
 name = "neptron-types"
