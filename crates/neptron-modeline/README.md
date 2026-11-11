@@ -62,6 +62,8 @@ The source is `MIT OR Apache-2.0`. The crate links Switchres (GPL-2.0-or-later) 
 - `tests/integration/solver.rs`: the solver on presets from `data/monitors` (results compared with the upstream standalone program), every error, the settings, and a grid of 7 widths, 9 heights, 6 rates and both scan types on all 25 presets, in which every candidate has its timings in order.
 - `tests/integration/golden.rs`: timing check 1, the golden list in `tests/golden/systems.toml`. It has 30 real systems and 61 cases that cover all 25 presets. On a difference, the test prints every case that changed, with the expected and the actual modeline.
 
+- `tests/integration/safety.rs`: the second opinion. Every golden modeline validates with `neptron_safety::validate` against its preset, and so do 640x480 at 60 Hz, 320x240 at 120 Hz and 256x224 at 60.099 Hz on the profile that `neptron-platform` builds from the EDID of a 30 to 71 kHz, 50 to 160 Hz PC CRT (values copied from its tests). `neptron-safety` is a dev-dependency only.
+
 ## The golden list
 
 The expected modelines are recorded from Switchres at the vendored commit. No source independent of Switchres gives them. Each one is the output of the upstream standalone program, built from the same commit and not from this crate. That program reads the presets from its own table and selects the mode in its own `get_mode`, so a match also checks the shim and the conversion. The source geometries and where they come from are in the file.
