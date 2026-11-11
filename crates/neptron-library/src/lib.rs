@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cache;
 mod catalog;
 mod index;
 mod scan;
