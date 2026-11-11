@@ -278,6 +278,9 @@ name = "kms-spike"
 version = "0.1.0"
 dependencies = [
  "drm",
+ "neptron-safety",
+ "neptron-types",
+ "toml",
 ]
 
 [[package]]

@@ -12,9 +12,15 @@ publish.workspace = true
 kms = ["dep:drm"]
 
 [dependencies]
+neptron-safety = { path = "../../crates/neptron-safety" }
+neptron-types = { path = "../../crates/neptron-types" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 drm = { workspace = true, optional = true }
+
+[build-dependencies]
+neptron-types = { path = "../../crates/neptron-types" }
+toml.workspace = true
 
 [lints]
 workspace = true
