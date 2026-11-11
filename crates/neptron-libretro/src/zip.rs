@@ -169,14 +169,24 @@ fn find_end_of_central_directory<R: Read + Seek>(
     let tail_len = len.min(EOCD_LEN + MAX_COMMENT_LEN);
     let tail_start = len - tail_len;
     let tail = read_at(archive, tail_start, tail_len)?;
-    let record_at = (0..=tail.len() - EOCD_LEN as usize)
-        .rev()
-        .find(|&i| {
-            u32_at(&tail, i) == Some(EOCD_SIGNATURE)
-                && u16_at(&tail, i + 20).is_some_and(|comment| {
-                    i + EOCD_LEN as usize + usize::from(comment) <= tail.len()
-                })
-        })
+    // The comment can hold the signature bytes too, even a whole fake
+    // record that ends at the end of the file. The real record is the one
+    // whose comment ends at the end of the file and holds every later
+    // candidate: the first such record from the start. A record whose
+    // comment only fits is the fallback, for bytes after the comment.
+    let candidate = |i: usize| {
+        if u32_at(&tail, i) != Some(EOCD_SIGNATURE) {
+            return None;
+        }
+        let end = i + EOCD_LEN as usize + usize::from(u16_at(&tail, i + 20)?);
+        (end <= tail.len()).then_some((i, end))
+    };
+    let last = tail.len() - EOCD_LEN as usize;
+    let record_at = (0..=last)
+        .filter_map(candidate)
+        .find(|&(_, end)| end == tail.len())
+        .or_else(|| (0..=last).rev().find_map(candidate))
+        .map(|(i, _)| i)
         .ok_or(ZipError::NoEndOfCentralDirectory)?;
     let record = &tail[record_at..];
     let field16 = |at| u16_at(record, at).ok_or(ZipError::NoEndOfCentralDirectory);
@@ -695,6 +705,18 @@ pub(crate) mod tests {
         let len = zip.len();
         zip[len - 2..].copy_from_slice(&5u16.to_le_bytes());
         zip.extend_from_slice(b"hello");
+        assert_eq!(read(&zip, &["nes"], 1024).unwrap().data, ROM);
+    }
+
+    #[test]
+    fn a_fake_end_record_in_the_comment_does_not_win() {
+        let mut zip = one("game.nes", false);
+        let mut comment = b"PK\x05\x06".to_vec();
+        comment.extend_from_slice(&[0; 16]);
+        comment.extend_from_slice(&[0, 0]);
+        let len = zip.len();
+        zip[len - 2..].copy_from_slice(&(comment.len() as u16).to_le_bytes());
+        zip.extend_from_slice(&comment);
         assert_eq!(read(&zip, &["nes"], 1024).unwrap().data, ROM);
     }
 
