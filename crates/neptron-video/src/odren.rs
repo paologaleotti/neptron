@@ -5,7 +5,10 @@ use neptron_types::{FlipEvent, GpuCaps, Modeline, SourceGeometry};
 
 use crate::cache::Cache;
 use crate::decision::{Decision, Inputs};
-use crate::{Chosen, Monitor, Outcome, SwitchRecord, SwitchTrace, Trigger, Unshowable, Veto};
+use crate::{
+    Chosen, Monitor, Outcome, READ_BACK_RATE_NOTICE_MHZ, SwitchRecord, SwitchTrace, Trigger,
+    Unshowable, Veto,
+};
 
 /// A source that asks for a new mode must stay the same for this many core
 /// frames before the engine sets the mode. A core that flickers between
@@ -343,8 +346,12 @@ impl Odren {
         let requested = *commit.chosen.token.mode();
         match result {
             Ok(read_back) if self.read_back_holds(&requested, read_back) => {
+                let drift = requested
+                    .field_rate_mhz()
+                    .abs_diff(read_back.field_rate_mhz());
                 self.trace.push(SwitchRecord {
                     read_back: Some(*read_back),
+                    rate_drift_mhz: (drift >= READ_BACK_RATE_NOTICE_MHZ).then_some(drift),
                     outcome: Outcome::Modeset,
                     ..commit.record
                 });
@@ -589,6 +596,7 @@ impl Odren {
             previous: self.current.as_ref().map(|c| *c.chosen.token.mode()),
             winner,
             read_back: None,
+            rate_drift_mhz: None,
             outcome: Outcome::ScaleOnly,
             dropped: decision.map(Decision::dropped).unwrap_or_default(),
             refused: decision.map(|d| d.refused.clone()).unwrap_or_default(),

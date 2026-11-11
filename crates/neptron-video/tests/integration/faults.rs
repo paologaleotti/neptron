@@ -6,7 +6,10 @@ use neptron_safety::Rejection;
 use neptron_testkit::preset::monitor_preset;
 use neptron_testkit::{FlipFault, ModeFault};
 use neptron_types::Modeline;
-use neptron_video::{Directive, Monitor, Outcome, Refusal, Trigger, Unshowable, VideoError};
+use neptron_video::{
+    Directive, Monitor, Outcome, READ_BACK_RATE_NOTICE_MHZ, Refusal, Trigger, Unshowable,
+    VideoError,
+};
 
 use crate::harness::{MD_H32, MD_H40, Rig, SNES, frame, generic_15, mode_for, native_width};
 
@@ -458,4 +461,37 @@ fn retry_on_a_steady_source_sets_no_mode() {
     rig.engine.retry();
     assert_ne!(rig.frame(MD_H40).directive, Directive::Modeset);
     assert_eq!(rig.fake.mode_calls().len(), 1);
+}
+
+#[test]
+fn a_read_back_rate_that_drifts_is_noted_in_the_trace() {
+    let asked = mode_for(generic_15(), native_width(), MD_H40);
+    let drifted = Modeline {
+        pclock_hz: asked.pclock_hz + 2_000,
+        ..asked
+    };
+    let drift = drifted.field_rate_mhz().abs_diff(asked.field_rate_mhz());
+    assert!(drift >= READ_BACK_RATE_NOTICE_MHZ, "{drift} mHz");
+    let mut rig = Rig::generic_15(native_width());
+    rig.fake.fault_mode(0, ModeFault::ReadBack(drifted));
+    rig.frame(MD_H40);
+    let record = rig.engine.trace().last().unwrap();
+    assert_eq!(record.outcome, Outcome::Modeset);
+    assert_eq!(record.rate_drift_mhz, Some(drift));
+    assert_eq!(rig.engine.current().unwrap().read_back, drifted);
+}
+
+#[test]
+fn a_read_back_rate_within_the_bound_is_not_noted() {
+    let asked = mode_for(generic_15(), native_width(), MD_H40);
+    let mut rig = Rig::generic_15(native_width());
+    rig.fake.fault_mode(
+        0,
+        ModeFault::ReadBack(Modeline {
+            pclock_hz: asked.pclock_hz + 1,
+            ..asked
+        }),
+    );
+    rig.frame(MD_H40);
+    assert_eq!(rig.engine.trace().last().unwrap().rate_drift_mhz, None);
 }

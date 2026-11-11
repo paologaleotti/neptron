@@ -25,7 +25,9 @@ pub use monitor::Monitor;
 pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
 pub use scene::build_scene;
 pub use settings::{SettingsError, policy_settings};
-pub use trace::{Outcome, SwitchRecord, SwitchTrace, TRACE_CAPACITY, Trigger};
+pub use trace::{
+    Outcome, READ_BACK_RATE_NOTICE_MHZ, SwitchRecord, SwitchTrace, TRACE_CAPACITY, Trigger,
+};
 
 /// The policy types that the engine's callers name. Only this crate may
 /// depend on `neptron-modeline`.

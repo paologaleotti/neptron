@@ -7,6 +7,14 @@ use neptron_types::{Modeline, SourceGeometry};
 
 use crate::{Chosen, Refusal, Unshowable};
 
+/// A read back whose field rate differs from the requested mode's by this
+/// many millihertz or more is noted in its record. It is the policy's
+/// bound for "matches to two decimals" (`REFRESH_MATCH_MHZ`, 5 mHz): from
+/// there on the rate on the wire is no longer the rate the policy chose.
+/// Pacing and audio already follow the read back; the note tells the
+/// player and the log.
+pub const READ_BACK_RATE_NOTICE_MHZ: u64 = neptron_modeline::policy::REFRESH_MATCH_MHZ;
+
 /// How many records the trace keeps. The oldest goes first.
 pub const TRACE_CAPACITY: usize = 64;
 
@@ -77,6 +85,10 @@ pub struct SwitchRecord {
     pub winner: Option<Chosen>,
     /// The mode the driver read back, after a modeset.
     pub read_back: Option<Modeline>,
+    /// The difference of field rate between the requested mode and the
+    /// read back, in millihertz, when it is
+    /// [`READ_BACK_RATE_NOTICE_MHZ`] or more.
+    pub rate_drift_mhz: Option<u64>,
     /// What came of it.
     pub outcome: Outcome,
     /// The candidates the policy dropped before the winner (all of them
@@ -228,6 +240,9 @@ impl fmt::Display for SwitchRecord {
                 scan(m),
                 m.field_rate_mhz()
             )?;
+        }
+        if let Some(drift) = self.rate_drift_mhz {
+            write!(f, ", read back {drift} mHz off")?;
         }
         if self.count > 1 {
             write!(f, ", {} decisions", self.count)?;
