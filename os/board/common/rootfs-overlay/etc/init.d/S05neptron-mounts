@@ -1,0 +1,12 @@
+#!/bin/sh
+# Mounts debugfs, where vkms reports its frame CRCs, and the host directory
+# that `cargo xtask qemu --share` passes over 9p.
+
+[ "$1" = start ] || exit 0
+
+mount -t debugfs debugfs /sys/kernel/debug
+
+if grep -qsx neptron /sys/bus/virtio/devices/*/mount_tag; then
+	mkdir -p /mnt/host
+	mount -t 9p -o trans=virtio,version=9p2000.L,ro neptron /mnt/host
+fi

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Runs the script that `cargo xtask qemu` passes through the QEMU firmware
+# config, prints its exit code between markers, and stops the guest. With no
+# script the guest boots to the console shell.
+#
+# The markers carry the nonce of the run, so output of the script cannot end
+# the run. The guest enforces the deadline itself, so it stops in time even
+# when the host process is gone.
+
+[ "$1" = start ] || exit 0
+
+fw=/sys/firmware/qemu_fw_cfg/by_name/opt/neptron
+[ -r "$fw/run/raw" ] || exit 0
+
+cp "$fw/run/raw" /tmp/neptron-run.sh
+nonce=$(cat "$fw/nonce/raw")
+deadline=$(cat "$fw/timeout/raw")
+read -r uptime _ < /proc/uptime
+echo "NEPTRON-BEGIN $nonce $uptime"
+(cd / && timeout -s KILL "$deadline" sh /tmp/neptron-run.sh) < /dev/null 2>&1
+code=$?
+[ "$code" -eq 137 ] && echo "neptron-run: exit code 137: the deadline of $deadline s, or another SIGKILL"
+echo "NEPTRON-END $nonce $code"
+reboot -f
