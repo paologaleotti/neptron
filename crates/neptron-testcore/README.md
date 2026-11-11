@@ -30,7 +30,7 @@ Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` afte
 | `sram_write <offset> <byte>` | Writes one byte of save RAM |
 | `shutdown` | Calls `RETRO_ENVIRONMENT_SHUTDOWN` |
 
-The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, frame rate 1 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB. An error names the line. A script with an error makes `retro_load_game` return false.
+The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB. An error names the line. A script with an error makes `retro_load_game` return false.
 
 The format is append-only. A new keyword or action can come in a later version. A keyword never changes its meaning or its arguments.
 

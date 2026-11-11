@@ -9,13 +9,15 @@
 
 mod audio;
 mod frame;
+mod model;
 mod script;
 
 pub use audio::{frames_after, max_frames_per_run, sample};
 pub use frame::{expected_hash, hash, pixel, render};
+pub use model::{Core, PADDING_BYTE, Request, SaveRam, Step, Video};
 
 pub use script::{
     Action, AudioMode, AvInfo, Event, Geometry, HEADER_KEYWORD, LoadError, MAX_ASPECT_MILLI,
-    MAX_DIMENSION_PX, MAX_FPS_MHZ, MAX_SAMPLE_RATE_HZ, MAX_SAVE_RAM_BYTES, PixelFormat, SCRIPT_ENV,
-    SCRIPT_VERSION, Script, ScriptError, Size, Timing,
+    MAX_DIMENSION_PX, MAX_FPS_MHZ, MAX_SAMPLE_RATE_HZ, MAX_SAVE_RAM_BYTES, MIN_FPS_MHZ,
+    PixelFormat, SCRIPT_ENV, SCRIPT_VERSION, Script, ScriptError, Size, Timing,
 };

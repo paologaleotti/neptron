@@ -16,6 +16,9 @@ pub const HEADER_KEYWORD: &str = "neptron-testcore";
 pub const SCRIPT_VERSION: u32 = 1;
 /// Largest frame width or height, in pixels.
 pub const MAX_DIMENSION_PX: u32 = 4096;
+/// Smallest frame rate, in millihertz. It bounds the audio of one frame, and
+/// so the audio buffer.
+pub const MIN_FPS_MHZ: u32 = 1_000;
 /// Largest frame rate, in millihertz.
 pub const MAX_FPS_MHZ: u32 = 1_000_000;
 /// Largest audio sample rate, in hertz.
@@ -709,7 +712,7 @@ impl Args<'_> {
 
     fn timing(&self, index: usize) -> Result<Timing, ScriptError> {
         Ok(Timing {
-            fps_mhz: self.number(index, "frame rate", 1, MAX_FPS_MHZ)?,
+            fps_mhz: self.number(index, "frame rate", MIN_FPS_MHZ, MAX_FPS_MHZ)?,
             sample_rate_hz: self.number(index + 1, "sample rate", 1, MAX_SAMPLE_RATE_HZ)?,
         })
     }
