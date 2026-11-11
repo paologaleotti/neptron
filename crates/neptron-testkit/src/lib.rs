@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+mod audio;
 mod clock;
 mod display;
 pub mod golden;
@@ -14,6 +15,7 @@ mod image;
 pub mod preset;
 mod rng;
 
+pub use audio::{AudioOptions, AudioWrite, FakeAudio, Underrun};
 pub use clock::{ClockError, SimClock};
 pub use display::{
     DEFAULT_FLIP_TIMEOUT_NS, DisplayOptions, FakeDisplay, FlipFault, FrameRecord, Jitter,
