@@ -60,6 +60,10 @@ dependencies = [
 [[package]]
 name = "neptron-gfx"
 version = "0.1.0"
+dependencies = [
+ "neptron-types",
+ "thiserror",
+]
 
 [[package]]
 name = "neptron-input"
