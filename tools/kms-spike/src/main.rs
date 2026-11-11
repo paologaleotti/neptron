@@ -10,6 +10,14 @@
 mod args;
 mod caps;
 mod json;
+#[cfg_attr(
+    not(all(target_os = "linux", feature = "kms")),
+    allow(
+        dead_code,
+        reason = "only the Linux KMS run uses it; the tests cover it on every host"
+    )
+)]
+mod kernel_mode;
 mod modes;
 mod plan;
 mod presets;
