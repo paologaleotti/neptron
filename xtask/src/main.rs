@@ -42,6 +42,11 @@ commands:
                        development window, show test modes and inject a
                        key (needs a display and SDL3)
   font                 generate the UI glyph table from the vendored BDF font
+  shot <scene>         render one UI scene to target/ui/shot, at 1x and 4x
+  gallery              render every UI scene onto target/ui/gallery.png
+  golden [--bless] [scene...]
+                       compare UI scenes with their golden images; --bless
+                       writes the golden of each scene that differs
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
@@ -101,6 +106,9 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
             Ok(ExitCode::SUCCESS)
         }
         "font" => Ok(ui::font(&rest)?),
+        "shot" => Ok(ui::shot(&rest)?),
+        "gallery" => Ok(ui::gallery(&rest)?),
+        "golden" => Ok(ui::golden(&rest)?),
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy", "--all-targets"], &rest),

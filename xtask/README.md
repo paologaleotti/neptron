@@ -16,6 +16,9 @@ Build, verification and worktree automation for the NEPTRON workspace. Run it as
 
 - `cargo xtask bindgen`: generates the libretro bindings of `neptron-libretro-sys` from `crates/neptron-libretro-sys/vendor/libretro.h`. It writes `src/bindings.rs` (every `retro_*` type and `RETRO_*` constant, no functions) and `src/core_api_decls.rs` (the core entry points, no types), then formats both with `rustfmt`. The generated files are committed, so no build needs libclang. The command needs the `bindgen` command-line tool (on macOS: `brew install bindgen`; the committed files come from bindgen 0.73.2). `NEPTRON_BINDGEN` names another executable. The clang target is always `x86_64-unknown-linux-gnu` with `-ffreestanding`, so the output does not depend on the host. The layout checks that bindgen writes are valid for every 64-bit target with the LP64 data model.
 - `cargo xtask font`: generates the glyph table `crates/neptron-ui/src/font/spleen_6x12.rs` from the vendored BDF file `crates/neptron-ui/assets/fonts/spleen/spleen-6x12.bdf`, for printable ASCII and Latin-1. The parser reads the BDF text format by hand. A test fails when the committed table differs from the output of the generator.
+- `cargo xtask shot <scene>`: renders one scene of the `neptron-ui` registry to `target/ui/shot/<scene>.png` and a 4x enlarged copy `<scene>@4x.png`.
+- `cargo xtask gallery`: renders every scene onto one contact sheet, `target/ui/gallery.png`, each tile under its name.
+- `cargo xtask golden [--bless] [scene...]`: compares each scene (default: all) with its golden image in `crates/neptron-ui/tests/golden/<scene>.ppm`, byte for byte. For a difference it prints the pixel count, the bounding box and the first differing pixels, and writes `<scene>.expected.png`, `<scene>.actual.png` and `<scene>.diff.png` (differing pixels in red over a dark copy of the golden) to `target/ui/golden`. A golden without a scene is reported as stale. It exits non-zero on any failure. `--bless` writes the golden of each scene that differs or has none; nothing blesses automatically. The format is binary PPM, described in `crates/neptron-ui/README.md`. The test `crates/neptron-ui/tests/golden.rs` runs the same comparison in tier 1.
 
 Both worktree commands refuse to run when Cargo builds the checkout into a directory other than `<checkout>/target` (for example with `CARGO_TARGET_DIR`), because the clone would then not be the build cache.
 
@@ -69,6 +72,7 @@ Cargo compiles `xtask` itself before xtask starts, so that one small compile run
 
 ## Dependencies
 
+- `neptron-ui`: the scene registry, the CPU canvas and the golden format for `shot`, `gallery` and `golden`. The PNG files are written by a small encoder in `src/ui/png.rs` (stored deflate blocks), so no image crate is needed.
 - `serde_json`: reads `cargo metadata` and Cargo build messages, and writes the report.
 - `thiserror`: each module owns its error enum, as the code standards ask.
 

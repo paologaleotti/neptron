@@ -446,6 +446,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "neptron-ui",
  "serde_json",
  "thiserror",
 ]
