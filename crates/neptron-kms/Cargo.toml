@@ -27,3 +27,9 @@ rustix = { workspace = true, optional = true }
 
 [lints]
 workspace = true
+
+# Timing check 7 (tier T3) on vkms. It needs DRM, GBM and EGL, so it runs in
+# the QEMU guest: `cargo xtask kms-check`.
+[[example]]
+name = "kms_check"
+required-features = ["kms"]
