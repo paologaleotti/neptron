@@ -7,11 +7,11 @@ mod overlay;
 mod pixel;
 
 pub use error::{Image, MAX_RECT_SIDE_PX, RectKind, RenderError};
+pub(crate) use error::{check_frame, check_output, check_rect};
 
 use neptron_types::{Frame, Scene};
 
 use axis::{AxisMap, Tap};
-use error::{check_frame, check_output, check_rect};
 use pixel::Rgb;
 
 /// The buffer that [`ReferenceRenderer::render`] writes, owned by the
@@ -200,7 +200,7 @@ impl ReferenceRenderer {
 
 /// The output pixels `[start, end)` of an axis that a rectangle at `pos`
 /// with length `len` covers.
-fn visible(pos: i32, len: u32, out_len: u32) -> (u32, u32) {
+pub(crate) fn visible(pos: i32, len: u32, out_len: u32) -> (u32, u32) {
     let start = i64::from(pos).clamp(0, i64::from(out_len));
     let end = (i64::from(pos) + i64::from(len)).clamp(start, i64::from(out_len));
     (start as u32, end as u32)

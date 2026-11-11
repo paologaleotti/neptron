@@ -10,11 +10,16 @@ pub const ROW_PADDING_BYTES: usize = 6;
 
 /// A source image that owns its bytes.
 pub struct Source {
-    data: Vec<u8>,
-    width: u16,
-    height: u16,
-    pitch: usize,
-    format: PixelFormat,
+    /// The pixel bytes.
+    pub data: Vec<u8>,
+    /// Width, in pixels.
+    pub width: u16,
+    /// Height, in lines.
+    pub height: u16,
+    /// Bytes from one row to the next.
+    pub pitch: usize,
+    /// The layout of each pixel.
+    pub format: PixelFormat,
 }
 
 impl Source {

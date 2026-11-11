@@ -1,0 +1,419 @@
+use neptron_types::{Filter, Frame, Rect, Scene};
+
+use super::GlesError;
+use super::ffi::{Buffer, EglContext, Framebuffer, Gl, Program, Texture, Uniform};
+use super::quad::{Quad, quad};
+use super::shader;
+use crate::reference::{check_frame, check_output, check_rect};
+use crate::{Image, OutputBuffer, RectKind};
+
+/// Draws a [`Scene`] with EGL and OpenGL ES 2, with the pixel rules of
+/// [`ReferenceRenderer`](crate::ReferenceRenderer).
+///
+/// # Pixels
+///
+/// The renderer draws two quads with one program: the game frame into
+/// `dest`, then the UI canvas into `ui_dest`, over black. The fragment
+/// shader computes the source pixel of each output pixel from its position
+/// with the integer rules of the reference, in 32-bit floats that hold
+/// every value exactly. It reads the source bytes as they are in memory and
+/// expands 5-bit and 6-bit channels with the rounding of the reference. So
+/// nearest output equals the reference byte for byte. The shader rounds a
+/// sharp bilinear blend half up, as the reference does, but in floats: a
+/// blend whose exact value is within float error of a half can round the
+/// other way, so a channel can differ by 1. The shader needs highp floats
+/// with the 23-bit precision of an IEEE 32-bit float, and
+/// [`headless`](Self::headless) checks that the driver gives it.
+///
+/// The renderer refuses what the reference refuses, with
+/// [`GlesError::Scene`]. It also refuses a scene that the shader cannot
+/// compute exactly ([`GlesError::ScaleTooLarge`]), and images or outputs
+/// above the GL limits.
+///
+/// # Target
+///
+/// [`headless`](Self::headless) makes a context with no display on the
+/// Mesa surfaceless platform. It draws into a framebuffer object, and
+/// [`render`](Self::render) reads the pixels back.
+///
+/// All surfaceless renderers of a process share one EGL display. When EGL
+/// has `EGL_KHR_display_reference`, each renderer holds a reference to it,
+/// and dropping one renderer leaves the others working. Without that
+/// extension a renderer never terminates the display, so the display stays
+/// initialized until the process ends.
+///
+/// # Threads and allocation
+///
+/// The renderer is not `Send`: its GL context stays on the thread that
+/// made it. Each call makes the context current first, which replaces any
+/// other context that is current on the thread. Dropping the renderer
+/// releases the current context of the thread. Textures and the
+/// read-back buffer are made on the first call and again when a size
+/// changes; other calls allocate nothing.
+///
+/// # Byte order
+///
+/// Source pixels are native-endian; the shader reads them as little-endian,
+/// so the module does not build for a big-endian target.
+pub struct GlesRenderer {
+    game: SourceTexture,
+    ui: SourceTexture,
+    target: Option<Offscreen>,
+    program: Program,
+    corners: Buffer,
+    uniforms: Uniforms,
+    max_texture: u32,
+    max_output: u32,
+    context: EglContext,
+}
+
+impl std::fmt::Debug for GlesRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GlesRenderer")
+            .field("output", &self.target.as_ref().map(|t| (t.width, t.height)))
+            .finish_non_exhaustive()
+    }
+}
+
+impl GlesRenderer {
+    /// A renderer with no display: an OpenGL ES 2 context on the EGL
+    /// surfaceless platform of Mesa.
+    ///
+    /// # Errors
+    ///
+    /// [`GlesError`] when EGL does not load, the platform or an OpenGL ES 2
+    /// context is not available, highp floats are not 32-bit floats, or the
+    /// program does not compile.
+    pub fn headless() -> Result<Self, GlesError> {
+        Self::on(EglContext::surfaceless()?)
+    }
+
+    fn on(context: EglContext) -> Result<Self, GlesError> {
+        let gl = context.current()?;
+        gl.check_highp()?;
+        // On an error below, dropping the context deletes every object
+        // made in it.
+        let program = gl.program(shader::VERTEX, shader::FRAGMENT)?;
+        let corners = gl.corner_buffer()?;
+        let game = SourceTexture::new(&gl)?;
+        let ui = SourceTexture::new(&gl)?;
+        let uniforms = Uniforms::of(&gl, program);
+        let (max_texture, max_viewport) = gl.limits();
+        gl.check("renderer setup")?;
+        Ok(Self {
+            game,
+            ui,
+            target: None,
+            program,
+            corners,
+            uniforms,
+            max_texture,
+            max_output: max_texture.min(max_viewport),
+            context,
+        })
+    }
+
+    /// Draws `scene` into `out`, with the rules of
+    /// [`ReferenceRenderer`](crate::ReferenceRenderer).
+    ///
+    /// # Errors
+    ///
+    /// [`GlesError::Scene`] for what the reference refuses, and the other
+    /// [`GlesError`] values for a scene or an output above a limit of this
+    /// renderer, or a failed GL call. The renderer checks the scene before
+    /// it draws, and `out` is unchanged after an error.
+    pub fn render(
+        &mut self,
+        scene: &Scene<'_>,
+        out: &mut OutputBuffer<'_>,
+    ) -> Result<(), GlesError> {
+        check_output(out)?;
+        let size = (out.width, out.height);
+        let game = match &scene.game {
+            Some(frame) => {
+                check_frame(frame, Image::Game)?;
+                check_rect(&scene.crop, RectKind::Crop)?;
+                check_rect(&scene.dest, RectKind::Dest)?;
+                draw_of(
+                    frame,
+                    scene.crop,
+                    scene.dest,
+                    scene.filter,
+                    RectKind::Dest,
+                    size,
+                )?
+            }
+            None => None,
+        };
+        let ui = match &scene.ui {
+            Some(frame) => {
+                check_frame(frame, Image::Ui)?;
+                check_rect(&scene.ui_dest, RectKind::UiDest)?;
+                let whole = Rect {
+                    x: 0,
+                    y: 0,
+                    w: u32::from(frame.width),
+                    h: u32::from(frame.height),
+                };
+                let kind = RectKind::UiDest;
+                draw_of(frame, whole, scene.ui_dest, Filter::Nearest, kind, size)?
+            }
+            None => None,
+        };
+        if out.width == 0 || out.height == 0 {
+            return Ok(());
+        }
+        self.check_sizes(out, game.as_ref(), ui.as_ref())?;
+
+        let gl = self.context.current()?;
+        gl.drain_errors()?;
+        let target = ensure_target(&gl, &mut self.target, out.width, out.height)?;
+        gl.begin(target.framebuffer, out.width, out.height);
+        for (draw, texture) in [(game, &mut self.game), (ui, &mut self.ui)] {
+            if let Some(draw) = draw {
+                texture.upload(&gl, &draw.frame)?;
+                gl.check("source texture upload")?;
+                gl.bind_quad(self.program, self.corners, texture.texture);
+                self.uniforms.set(&gl, &draw.quad, out.width, out.height);
+                gl.draw_quad();
+            }
+        }
+        gl.check("draw")?;
+        gl.read_rgba(out.width, out.height, &mut target.pixels)?;
+        gl.check("glReadPixels")?;
+        copy_out(&target.pixels, out);
+        Ok(())
+    }
+
+    /// The GL renderer and version strings, such as `softpipe` and
+    /// `OpenGL ES 3.1 Mesa 26.1.8`, for logs and reports.
+    ///
+    /// # Errors
+    ///
+    /// [`GlesError::Egl`] when the context cannot be made current.
+    pub fn gl_strings(&self) -> Result<(String, String), GlesError> {
+        Ok(self.context.current()?.names())
+    }
+
+    /// `GL_MAX_TEXTURE_SIZE`: a source row of more bytes, or more rows,
+    /// gives [`GlesError::TextureTooLarge`].
+    pub fn max_texture_side(&self) -> u32 {
+        self.max_texture
+    }
+
+    /// The largest output side, from `GL_MAX_TEXTURE_SIZE` and
+    /// `GL_MAX_VIEWPORT_DIMS`: a larger output gives
+    /// [`GlesError::OutputTooLarge`].
+    pub fn max_output_side(&self) -> u32 {
+        self.max_output
+    }
+
+    fn check_sizes(
+        &self,
+        out: &OutputBuffer<'_>,
+        game: Option<&Draw<'_>>,
+        ui: Option<&Draw<'_>>,
+    ) -> Result<(), GlesError> {
+        if out.width > self.max_output || out.height > self.max_output {
+            return Err(GlesError::OutputTooLarge {
+                width: out.width,
+                height: out.height,
+                limit: self.max_output,
+            });
+        }
+        for (draw, image) in [(game, Image::Game), (ui, Image::Ui)] {
+            let Some(draw) = draw else { continue };
+            let (width, height) = texture_size(&draw.frame);
+            if width > u64::from(self.max_texture) || height > self.max_texture {
+                return Err(GlesError::TextureTooLarge {
+                    image,
+                    width,
+                    height,
+                    limit: self.max_texture,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One quad to draw, with the image that it shows.
+struct Draw<'a> {
+    frame: Frame<'a>,
+    quad: Quad,
+}
+
+fn draw_of<'a>(
+    frame: &Frame<'a>,
+    crop: Rect,
+    dest: Rect,
+    filter: Filter,
+    kind: RectKind,
+    size: (u32, u32),
+) -> Result<Option<Draw<'a>>, GlesError> {
+    Ok(
+        quad(frame, crop, dest, filter, kind, size)?.map(|quad| Draw {
+            frame: *frame,
+            quad,
+        }),
+    )
+}
+
+/// The texture of a source image: one texel per byte of a row.
+fn texture_size(frame: &Frame<'_>) -> (u64, u32) {
+    let row = u64::from(frame.width) * frame.format.bytes_per_pixel() as u64;
+    (row, u32::from(frame.height))
+}
+
+/// A texture that holds one source image, with the size of its storage.
+struct SourceTexture {
+    texture: Texture,
+    size: (u32, u32),
+}
+
+impl SourceTexture {
+    fn new(gl: &Gl<'_>) -> Result<Self, GlesError> {
+        Ok(Self {
+            texture: gl.texture()?,
+            size: (0, 0),
+        })
+    }
+
+    /// Copies `frame` into the texture. The caller checked the frame and
+    /// the texture limit, so the row width fits a `u32`.
+    fn upload(&mut self, gl: &Gl<'_>, frame: &Frame<'_>) -> Result<(), GlesError> {
+        let (row, rows) = texture_size(frame);
+        let row = row as u32;
+        if self.size != (row, rows) {
+            gl.allocate(self.texture, false, row, rows);
+            self.size = (row, rows);
+        }
+        gl.upload(self.texture, frame.data, row, rows, frame.pitch)
+    }
+}
+
+/// The framebuffer object that the headless renderer draws into, and the
+/// buffer that receives its pixels.
+struct Offscreen {
+    framebuffer: Framebuffer,
+    texture: Texture,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
+/// The offscreen target of `width` by `height`. Its storage changes only
+/// with the size. GL objects live as long as the context, which deletes
+/// them when it is destroyed.
+fn ensure_target<'t>(
+    gl: &Gl<'_>,
+    target: &'t mut Option<Offscreen>,
+    width: u32,
+    height: u32,
+) -> Result<&'t mut Offscreen, GlesError> {
+    let t = match target {
+        Some(t) => t,
+        None => {
+            let texture = gl.texture()?;
+            let framebuffer = gl.framebuffer(texture)?;
+            target.insert(Offscreen {
+                framebuffer,
+                texture,
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+            })
+        }
+    };
+    if (t.width, t.height) != (width, height) {
+        gl.allocate(t.texture, true, width, height);
+        gl.check_framebuffer(t.framebuffer)?;
+        gl.check("framebuffer setup")?;
+        t.pixels.clear();
+        t.pixels.resize(width as usize * height as usize * 4, 0);
+        (t.width, t.height) = (width, height);
+    }
+    Ok(t)
+}
+
+/// Writes the RGBA rows from GL, bottom row first, into `out` as XRGB8888
+/// rows from the top.
+fn copy_out(pixels: &[u8], out: &mut OutputBuffer<'_>) {
+    let row_bytes = out.width as usize * 4;
+    for (y, gl_row) in pixels.chunks_exact(row_bytes).rev().enumerate() {
+        let start = y * out.pitch;
+        let Some(row) = out.data.get_mut(start..start + row_bytes) else {
+            continue;
+        };
+        for (px, rgba) in row.chunks_exact_mut(4).zip(gl_row.chunks_exact(4)) {
+            px.copy_from_slice(&[rgba[2], rgba[1], rgba[0], 0xFF]);
+        }
+    }
+}
+
+/// The uniform locations of the program.
+struct Uniforms {
+    output: Option<Uniform>,
+    visible: Option<Uniform>,
+    dest: Option<Uniform>,
+    crop: Option<Uniform>,
+    frame: Option<Uniform>,
+    mode: Option<Uniform>,
+    texture: Option<Uniform>,
+}
+
+impl Uniforms {
+    fn of(gl: &Gl<'_>, program: Program) -> Self {
+        Self {
+            output: gl.uniform(program, "u_output"),
+            visible: gl.uniform(program, "u_visible"),
+            dest: gl.uniform(program, "u_dest"),
+            crop: gl.uniform(program, "u_crop"),
+            frame: gl.uniform(program, "u_frame"),
+            mode: gl.uniform(program, "u_mode"),
+            texture: gl.uniform(program, "u_texture"),
+        }
+    }
+
+    fn set(&self, gl: &Gl<'_>, quad: &Quad, width: u32, height: u32) {
+        gl.set_vec4(
+            self.output.as_ref(),
+            [width as f32, height as f32, 0.0, 0.0],
+        );
+        gl.set_vec4(self.visible.as_ref(), quad.visible);
+        gl.set_vec4(self.dest.as_ref(), quad.dest);
+        gl.set_vec4(self.crop.as_ref(), quad.crop);
+        gl.set_vec4(self.frame.as_ref(), quad.frame);
+        gl.set_vec4(self.mode.as_ref(), quad.mode);
+        gl.set_int(self.texture.as_ref(), 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn headless_without_libegl_is_a_load_error() {
+        let err = GlesRenderer::headless().unwrap_err();
+        assert!(matches!(err, GlesError::LoadEgl { .. }), "{err}");
+    }
+
+    #[test]
+    fn copy_out_flips_rows_and_swaps_channels() {
+        // Two rows of one pixel, bottom row first as GL gives them.
+        let pixels = [1, 2, 3, 0, 4, 5, 6, 0];
+        let mut data = [0xAA_u8; 12];
+        let mut out = OutputBuffer {
+            data: &mut data,
+            width: 1,
+            height: 2,
+            pitch: 8,
+        };
+        copy_out(&pixels, &mut out);
+        assert_eq!(data[..4], [6, 5, 4, 0xFF]);
+        assert_eq!(data[4..8], [0xAA; 4], "row padding is not written");
+        assert_eq!(data[8..], [3, 2, 1, 0xFF]);
+    }
+}

@@ -4,6 +4,9 @@
 #[forbid(unsafe_code)]
 mod reference;
 
+#[cfg(feature = "gles")]
+pub mod gles;
+
 pub use reference::{
     Image, MAX_RECT_SIDE_PX, OutputBuffer, RectKind, ReferenceRenderer, RenderError,
 };

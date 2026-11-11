@@ -20,3 +20,9 @@ khronos-egl = { workspace = true, optional = true }
 
 [lints]
 workspace = true
+
+# The tier T3 comparison with the reference renderer. It needs EGL, so it
+# runs in the QEMU guest: `cargo xtask gles-compare`.
+[[example]]
+name = "gles_compare"
+required-features = ["gles"]

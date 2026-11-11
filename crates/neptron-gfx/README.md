@@ -7,7 +7,8 @@ Renderers for a `Scene`. `ReferenceRenderer` (CPU, pure Rust) defines the correc
 - `struct ReferenceRenderer` with `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), RenderError>`
 - `struct OutputBuffer { data: &mut [u8], width: u32, height: u32, pitch: usize }`, owned by the caller
 - `enum RenderError`, with `Image`, `RectKind` and `MAX_RECT_SIDE_PX`
-- `gles::GlesRenderer` (feature `gles`)
+- `gles::GlesRenderer` (feature `gles`) with `headless() -> Result<Self, GlesError>`, `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), GlesError>`, `gl_strings()`, `max_texture_side()` and `max_output_side()`
+- `gles::GlesError`, `gles::MAX_AXIS_PRODUCT`
 
 ## Reference renderer
 
@@ -24,9 +25,30 @@ The doc comment of `ReferenceRenderer` states every pixel rule. In short:
 - No `unsafe`: the module carries `#[forbid(unsafe_code)]`.
 - Allocation: two small tables of sample positions grow on the first call and on a larger output. Other calls allocate nothing.
 
+## GLES renderer
+
+`GlesRenderer` (feature `gles`) draws a `Scene` with EGL 1.5 and OpenGL ES 2. It must give the pixels of the reference renderer. The doc comment of `GlesRenderer` states the rules. In short:
+
+- One program, two quads: the game frame into `dest`, then the UI canvas into `ui_dest`, over black. The UI is the same program with the whole canvas as the crop and nearest scaling.
+- The source image goes to the GPU as a one-byte texture (`LUMINANCE`), one texel per byte of a row. The shader reads the bytes as they are in memory, so it decodes XRGB8888, RGB565 and XRGB1555 itself and expands 5-bit and 6-bit channels with the rounding of the reference, not bit replication. Native byte order must be little-endian; a big-endian build stops with a compile error.
+- The fragment shader computes the source pixel of each output pixel from `gl_FragCoord` with the integer rules of `AxisMap::tap`: the sample position as an exact quotient and remainder, the prescale, the weight, and the far tap clamped to the crop inside the frame. It needs `highp` floats. Every value is an integer below 2^24, so a 32-bit float holds it exactly, and each division is corrected to the exact quotient.
+- `MAX_AXIS_PRODUCT` (2^23): on each axis the source side times the destination side must not be above it, or `render` returns `GlesError::ScaleTooLarge`. 320 to 1920 is 614 400; 2048 to 4096 is the limit. The reference has no such limit.
+- Nearest output equals the reference byte for byte. A sharp bilinear blend is rounded half up in the shader, in floats; a blend whose exact value is within float error of a half can round the other way, so a channel can differ by 1.
+- `headless()` checks with `glGetShaderPrecisionFormat` that a highp float of the fragment shader has at least 23 bits of precision, as an IEEE 32-bit float has. GLSL ES 1.00 only promises 16 bits. Less gives `GlesError::LowPrecision`. It also checks `GL_VERSION` before the GL loader reads it, because `glow` panics on a missing or unknown version string (`GlesError::GlVersion`).
+- `render` clears old GL error flags first, so a check reports only the call it follows.
+- `render` checks the scene with the checks of the reference first, so it refuses the same scenes with `GlesError::Scene`, and leaves the output unchanged after an error.
+- Target: `headless()` makes a context on the Mesa surfaceless platform (`EGL_PLATFORM_SURFACELESS_MESA`) with no surface, draws into a framebuffer object and reads it back with `glReadPixels`. The KMS backend will add a constructor that takes its EGL display and GBM surface. The draw code does not depend on the target: GL rows count from the bottom, and the shader maps output rows from the top.
+- EGL is loaded at run time from `libEGL.so.1` (`khronos-egl` with `dynamic`), and every GL function through `eglGetProcAddress` (`glow`). No build links EGL or GL, so `cargo xtask clippy -p neptron-gfx --features gles` and the unit tests of the module run on macOS too.
+- Threads: the renderer is not `Send`. Each call makes its context current first, which replaces any other context that is current on the thread. Dropping the renderer releases the current context of the thread.
+- All surfaceless renderers of a process share one EGL display. With `EGL_KHR_display_reference` each renderer holds a counted reference, and dropping one leaves the others working. Without it a renderer never calls `eglTerminate`, so dropping one renderer cannot break another, and the display stays initialized until the process ends. Mesa 26.1 does not have the extension, so the guest takes the second path.
+- Allocation: the textures, the framebuffer and the read-back buffer are made on the first call and again when a size changes. Other calls allocate nothing.
+- `unsafe` is only in `src/gles/ffi.rs`. Every other module of `gles` carries `#[forbid(unsafe_code)]`.
+
+The check against the reference is `cargo xtask gles-compare` (tier T3). It builds `examples/gles_compare.rs` for the guest and runs it in QEMU, where Mesa softpipe gives software GL. It renders every golden scene and more scenes (every value of each pixel format, both filters on every format, crops, a 1920x240 super-width mode with and without the UI, a flat panel with the UI, 1080p, the axis product limit, a UI larger than the mode, an empty scene, frames and canvases with a zero side, crops wholly outside the frame, a 1x1 source, 1x1 destinations, destinations wholly off the mode) with both renderers. It also checks the error paths (the reference checks, the axis limit, the texture and output limits read from GL at run time), and that a second renderer can come and go while the first keeps drawing. A nearest or UI pixel must be equal, a sharp bilinear game pixel within 1 per channel, and no row padding byte may change. The exit code is the number of failed checks.
+
 ## Goldens
 
-`tests/goldens.rs` renders small scenes and compares them with `tests/goldens/*.ppm` byte for byte. The format is binary PPM: the header `P6\n<width> <height>\n255\n`, then 3 bytes (R, G, B) per pixel, rows top to bottom. Most image viewers open it. The output X byte is not in the file; the test checks it separately.
+`tests/goldens.rs` renders the scenes of `tests/common/scenes.rs` and compares them with `tests/goldens/*.ppm` byte for byte. The format is binary PPM: the header `P6\n<width> <height>\n255\n`, then 3 bytes (R, G, B) per pixel, rows top to bottom. Most image viewers open it. The output X byte is not in the file; the test checks it separately.
 
 When a golden does not match or is missing, the test writes the rendered image to `target/tmp/goldens-actual/<name>.ppm` and prints the difference. To accept a new image, look at it first, then copy it to `tests/goldens/`. Never copy an image to get a green run.
 
@@ -42,4 +64,4 @@ When a golden does not match or is missing, the test writes the rendered image t
 
 ## Status
 
-The reference renderer is complete. `GlesRenderer` is not written yet.
+The reference renderer is complete. `GlesRenderer` matches it under Mesa softpipe in the QEMU guest; it is not checked on a real GPU yet. The KMS target comes with the KMS backend.
