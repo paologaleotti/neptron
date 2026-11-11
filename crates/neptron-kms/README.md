@@ -1,11 +1,64 @@
 # neptron-kms
 
-`Display` on DRM/KMS: connector choice, atomic modeset, GBM buffers, flip events. It accepts a `ValidatedMode` only.
+`Display` on DRM/KMS: connector choice, atomic modeset, GBM buffers, flip events. It accepts a `ValidatedMode` only. `docs/spec/kms.md` defines the behaviour; this file is the short form.
 
-## Public API sketch
+## Public API
 
-- `struct KmsDisplay: Display`
-- `fn open(fd: OwnedFd) -> Result<KmsDisplay, DisplayError>`
+On every host (pure, no I/O):
+
+- `choose(&[ConnectorFacts], named, crt) -> Result<usize, ChoiceError>`: the output rule of the Definition. `ConnectorClass::of_type` maps a DRM connector type.
+- `ModeRecord::from_validated(&ValidatedMode)`: the kernel mode record, the only way to make one for the kernel. `ModeRecord::to_modeline` reads a kernel mode back.
+- `PlaneRect::for_mode`: the part of the scanout buffers a mode shows.
+- `VblankCounter`: the kernel's 32-bit vblank count as 64 bits.
+- `FlipState`: the order rules of the `Display` calls, the same as the fake display of `neptron-testkit`.
+- Inside the crate: `Request`, an atomic request in fixed arrays.
+
+On Linux with the `kms` feature:
+
+- `KmsDisplay::from_env(KmsConfig) -> Result<KmsDisplay, KmsError>`: the display on the descriptor in `NEPTRON_DRM_FD` (`DRM_FD_ENV`). This is the path of the frontend (T27). A process takes the descriptor once.
+- `KmsDisplay::open(OwnedFd, KmsConfig)`: the same on a descriptor the caller opened (tests, tools).
+- `impl Display for KmsDisplay`: `caps`, `set_mode`, `present`, `wait_flip`.
+- `KmsDisplay::capture() -> Result<Capture, DisplayError>`: the composed picture through a writeback connector, when `KmsConfig::writeback` is on. For tests and the self-test, not for the frame loop.
+- `connector_name()`, `crtc_id()`, `driver_name()`, `linear_by_modifier()`: for logs and reports.
+- `KmsConfig { caps, output, crt, buffer_width, buffer_height, writeback }`: everything the caller decides. The buffers have the size of the largest mode the caller will set; the backend makes them once.
+- Limits: `FLIP_WAIT_LIMIT_MS` (500), `WRITEBACK_WAIT_LIMIT_MS` (1000).
+
+```rust
+let config = KmsConfig {
+    caps,                         // from neptron-platform
+    output: settings.output,      // None for the rule of the Definition
+    crt: profile.is_crt(),
+    buffer_width: 3840,
+    buffer_height: 576,
+    writeback: false,
+};
+let mut display = KmsDisplay::from_env(config)?;
+let readback = display.set_mode(&validated)?;   // the first and only modeset path
+display.present(&scene)?;
+let flip = display.wait_flip()?;
+```
+
+## How it works
+
+- Atomic API only. `set_mode` sends a test-only commit, then the real one, with `ALLOW_MODESET`, and only when the mode differs from the mode on the wire. `present` sends a nonblocking commit with a page-flip event that changes only the plane's framebuffer.
+- Buffers: one GBM surface, XRGB8888, linear (the modifier list `[LINEAR]`, or the linear usage flag when the driver takes no modifiers), at the configured size, made at open. `neptron-gfx` draws into it through EGL on GBM (`GlesRenderer::on_gbm`, `draw_to_window`). A mode shows the last rows of the buffer, where the window surface stores a picture drawn at the GL origin.
+- Flips: `wait_flip` polls with a bound and reads only readable data. A flip that does not come within `FLIP_WAIT_LIMIT_MS` is an error, not a hang, and stays pending.
+- The present path allocates nothing: the atomic request is fixed arrays (`drm-ffi`), the framebuffers of the GBM buffers are kept in a table of four, and the event read uses a stack buffer.
+- Drop: with a mode set, the plane goes off and the validated mode stays on the wire; when the driver refuses that, the output goes off. A panic in the dev profile unwinds into this drop. In the release profile a panic aborts; then every mode that ever reached the kernel is validated, the images have no console that sets a mode, and the launcher's descriptor keeps the mode on the wire.
+
+## The T3 check
+
+`cargo xtask kms-check` is timing check 7 on `vkms` in the aarch64 QEMU guest. It cross-builds `examples/kms_check.rs` in the development container (warnings denied, every target of the crate checked first) and runs it with the device on descriptor 3 and `NEPTRON_DRM_FD=3`. The spec lists the checks and what `vkms` cannot prove.
+
+## Why the mode record is not shared with `kms-spike`
+
+`kms-spike` has the same conversion. The dependency rules allow that tool only `drm`, `neptron-types` and `neptron-safety`, so it cannot use this crate, and a change to the rule needs a decision. Both refuse a clock that is not a whole number of kHz.
+
+## Dependencies
+
+- `neptron-backend`, `neptron-safety`, `neptron-types`: the contract.
+- `neptron-gfx` with `gles` (through the `kms` feature): the renderer.
+- `drm`, `drm-ffi`, `gbm-sys`, `rustix` (`event`): optional, Linux only, with the `kms` feature. `gbm-sys` links `libgbm`.
 
 ## Must never depend on
 
@@ -14,9 +67,14 @@
 
 ## Rules
 
-- `unsafe` is allowed in this crate, in one module with a safe wrapper around it. Every `unsafe` block has a `// SAFETY:` comment.
-- Features: `kms`. No feature is on by default.
+- `unsafe` is allowed in this crate, only in `src/kms/ffi.rs` (taking a descriptor by number, libgbm, the GBM pointers for EGL). Every other module carries `#[forbid(unsafe_code)]`. Every `unsafe` block has a `// SAFETY:` comment.
+- Features: `kms`. No feature is on by default. The headless build compiles no DRM, GBM or EGL code.
+
+## Tests
+
+- Tier 1, every host: the connector rule (named, one connected, analog without EDID, class by profile, fallbacks, errors, type numbers), the mode record (each field and flag, the kHz refusal, the readback refusals), the plane rectangles, the vblank counter across a wrap, the order rules of the calls, the fixed atomic request (grouping, overflow).
+- Tier 3: `cargo xtask kms-check`.
 
 ## Status
 
-Stub.
+The backend runs on `vkms` in the QEMU guest. It is not checked on a real GPU or monitor; `docs/hardware-checklist.md` has the checks.

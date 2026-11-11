@@ -10,6 +10,8 @@
 mod connector;
 #[forbid(unsafe_code)]
 mod flip_state;
+#[cfg(all(feature = "kms", target_os = "linux"))]
+mod kms;
 #[forbid(unsafe_code)]
 mod layout;
 #[forbid(unsafe_code)]
@@ -23,6 +25,11 @@ mod sequence;
 
 pub use connector::{ChoiceError, ConnectorClass, ConnectorFacts, choose};
 pub use flip_state::FlipState;
+#[cfg(all(feature = "kms", target_os = "linux"))]
+pub use kms::{
+    Capture, DRM_FD_ENV, FLIP_WAIT_LIMIT_MS, KmsConfig, KmsDisplay, KmsError,
+    WRITEBACK_WAIT_LIMIT_MS,
+};
 pub use layout::{PlaneRect, TooLarge};
 pub use mode_record::{ModeRecord, ModeRecordError};
 pub use sequence::VblankCounter;
