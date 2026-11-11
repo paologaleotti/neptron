@@ -38,6 +38,15 @@ mod pattern;
 mod plan;
 mod presets;
 mod report;
+#[cfg(unix)]
+#[cfg_attr(
+    not(all(target_os = "linux", feature = "kms")),
+    allow(
+        dead_code,
+        reason = "only the Linux KMS run uses it; the tests cover it on every host"
+    )
+)]
+mod supervisor;
 #[cfg_attr(
     not(all(target_os = "linux", feature = "kms")),
     allow(
