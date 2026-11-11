@@ -74,7 +74,10 @@ impl CoreTiming {
     /// `f_dev * f_core / (f_in * f_run)`. The audio arrives at `f_in *
     /// f_run / f_core` in real time, as in RetroArch's
     /// `audio_driver_monitor_adjust_system_rates`.
-    pub fn nominal_ratio(&self, device_rate_hz: u32, run_rate_mhz: u64) -> f64 {
+    ///
+    /// The caller checks the rates first: with a zero rate the result is
+    /// infinite or NaN.
+    pub(crate) fn nominal_ratio(&self, device_rate_hz: u32, run_rate_mhz: u64) -> f64 {
         // Millihertz to hertz on the device side keeps the units equal.
         let output = f64::from(device_rate_hz) * 1_000.0 * self.frame_rate_mhz as f64;
         let input = self.sample_rate_mhz as f64 * run_rate_mhz as f64;
@@ -200,5 +203,12 @@ mod tests {
         );
         assert!(core.check_run_rate(120_001).is_err());
         assert!(core.check_run_rate(u64::MAX).is_err());
+        assert_eq!(
+            core.check_run_rate(0),
+            Err(AudioError::RunRatio {
+                run_rate_mhz: 0,
+                frame_rate_mhz: 60_000
+            })
+        );
     }
 }

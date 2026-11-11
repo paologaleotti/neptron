@@ -64,6 +64,9 @@ fn a_refused_run_rate_keeps_the_old_one() {
     );
     assert_eq!(pipeline.run_rate_mhz(), 60_099);
     assert_eq!(pipeline.nominal_ratio(), nominal);
+    assert!(pipeline.set_run_rate_mhz(0).is_err());
+    assert_eq!(pipeline.nominal_ratio(), nominal);
+    assert!(pipeline.nominal_ratio().is_finite());
     assert_eq!(pipeline.set_run_rate_mhz(72_119), Ok(()));
     assert!(pipeline.nominal_ratio() < nominal);
 }
