@@ -24,7 +24,7 @@ pub use engine::{FLIP_WAIT_ATTEMPTS, Presented, VideoEngine, VideoError};
 pub use monitor::Monitor;
 pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
 pub use scene::build_scene;
-pub use settings::{SettingsError, policy_settings};
+pub use settings::{ScanlineSettings, SettingsError, policy_settings, scanline_settings};
 pub use trace::{
     Outcome, READ_BACK_RATE_NOTICE_MHZ, SwitchRecord, SwitchTrace, TRACE_CAPACITY, Trigger,
 };

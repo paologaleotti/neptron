@@ -1,4 +1,5 @@
 use neptron_modeline::policy::{HorizontalStrategy, PictureStyle, PolicySettings, RefreshPolicy};
+use neptron_types::{ScanlineMode, Scanlines};
 
 /// A settings value that the policy does not know.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -16,6 +17,69 @@ pub enum SettingsError {
         /// The value that was given.
         value: String,
     },
+    /// The value of `display.scanlines` is not a scanline mode.
+    #[error("display.scanlines {value:?} is not one of auto, off, on")]
+    UnknownScanlineMode {
+        /// The value that was given.
+        value: String,
+    },
+    /// The value of `display.scanline_strength` is outside 0 to 100.
+    #[error("display.scanline_strength {value} is outside 0 to {max}")]
+    ScanlineStrength {
+        /// The value that was given, in percent.
+        value: i64,
+        /// The largest value, in percent.
+        max: u8,
+    },
+}
+
+/// The scanline settings the engine applies to each scene: the resolved
+/// values of `display.scanlines` and `display.scanline_strength`. A change
+/// needs no modeset, only a new scene.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ScanlineSettings {
+    /// The scanline mode.
+    pub mode: ScanlineMode,
+    /// How much a dark line loses, in whole percent.
+    pub strength_percent: u8,
+}
+
+impl ScanlineSettings {
+    /// No scanlines: what the engine draws until the session passes the
+    /// settings.
+    pub const OFF: Self = Self {
+        mode: ScanlineMode::Off,
+        strength_percent: 0,
+    };
+}
+
+/// The scanline settings for the resolved values of `display.scanlines` and
+/// `display.scanline_strength`.
+///
+/// # Errors
+///
+/// [`SettingsError::UnknownScanlineMode`] for a mode that is not a choice,
+/// and [`SettingsError::ScanlineStrength`] for a strength outside 0 to 100.
+/// The schema already refuses both.
+pub fn scanline_settings(
+    mode: &str,
+    strength_percent: i64,
+) -> Result<ScanlineSettings, SettingsError> {
+    let mode = ScanlineMode::from_key(mode).ok_or_else(|| SettingsError::UnknownScanlineMode {
+        value: mode.to_owned(),
+    })?;
+    let max = Scanlines::MAX_STRENGTH_PERCENT;
+    let strength_percent = u8::try_from(strength_percent)
+        .ok()
+        .filter(|s| *s <= max)
+        .ok_or(SettingsError::ScanlineStrength {
+            value: strength_percent,
+            max,
+        })?;
+    Ok(ScanlineSettings {
+        mode,
+        strength_percent,
+    })
 }
 
 /// The policy settings for the resolved values of `display.style` and
@@ -74,6 +138,40 @@ mod tests {
                 assert_eq!(settings.horizontal, None);
             }
         }
+    }
+
+    #[test]
+    fn every_scanline_mode_of_the_schema_is_a_mode_of_the_scene_types() {
+        let schema: Vec<&str> = neptron_settings::SCANLINE_MODES.to_vec();
+        let types: Vec<&str> = ScanlineMode::ALL.iter().map(|m| m.key()).collect();
+        assert_eq!(schema, types, "same names in the same order");
+        for &key in neptron_settings::SCANLINE_MODES {
+            let settings = scanline_settings(key, 50).unwrap();
+            assert_eq!(settings.mode.key(), key);
+            assert_eq!(settings.strength_percent, 50);
+        }
+        assert_eq!(
+            neptron_settings::SCANLINE_STRENGTH_MAX_PERCENT,
+            i64::from(Scanlines::MAX_STRENGTH_PERCENT)
+        );
+    }
+
+    #[test]
+    fn a_bad_scanline_value_is_an_error_with_the_value() {
+        assert_eq!(
+            scanline_settings("black", 50),
+            Err(SettingsError::UnknownScanlineMode {
+                value: "black".to_owned()
+            })
+        );
+        for value in [-1, 101, 1_000] {
+            assert_eq!(
+                scanline_settings("on", value),
+                Err(SettingsError::ScanlineStrength { value, max: 100 })
+            );
+        }
+        assert!(scanline_settings("on", 0).is_ok());
+        assert!(scanline_settings("on", 100).is_ok());
     }
 
     #[test]
