@@ -14,6 +14,8 @@ mod error;
 mod line;
 mod reply;
 mod server;
+#[cfg(feature = "control")]
+mod tcp;
 mod transport;
 
 pub use command::{
@@ -32,6 +34,8 @@ pub use reply::{
     SessionStatus, SettingValue, SettingWritten, Stats, UiRow, UiTree, Verdict, VideoState,
 };
 pub use server::{Handler, ServeError, dispatch, handle_line, serve_lines};
+#[cfg(feature = "control")]
+pub use tcp::TcpControlListener;
 pub use transport::{
     Client, ClientError, ControlListener, DEFAULT_SOCKET_PATH, ListenError, SOCKET_PATH_ENV,
     serve_stream,

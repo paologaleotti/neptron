@@ -8,3 +8,5 @@ mod fixture;
 mod messages;
 mod server;
 mod socket;
+#[cfg(feature = "control")]
+mod tcp;
