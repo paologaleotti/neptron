@@ -7,5 +7,9 @@
 #![forbid(unsafe_code)]
 
 mod clock;
+pub mod golden;
+mod image;
 
 pub use clock::{ClockError, SimClock};
+pub use golden::Golden;
+pub use image::{ImageError, RgbImage};
