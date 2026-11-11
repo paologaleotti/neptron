@@ -51,12 +51,17 @@ commands:
   os build [--arch A] [--jobs N] [-- make targets...]
                        build the QEMU image of target A (aarch64, x86_64)
                        with Buildroot in the development container
+  qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
+       [--script FILE | -- command...]
+                       boot the QEMU image; run the command in the guest
+                       and exit with its exit code, or give a console
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
   NEPTRON_BUILD_JOBS   CARGO_BUILD_JOBS per build (default on macOS: 5)
   NEPTRON_BINDGEN      the bindgen executable (default: bindgen on the PATH)
   NEPTRON_CACHE_DIR    machine cache for the OS images (default ~/.cache/neptron)
+  NEPTRON_OS_IMAGES    images directory that qemu boots in place of the build
 ";
 
 /// An error of any xtask command.
@@ -117,6 +122,7 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "gallery" => Ok(ui::gallery(&rest)?),
         "golden" => Ok(ui::golden(&rest)?),
         "os" => Ok(os::run_os(&rest)?),
+        "qemu" => Ok(os::run_qemu(&rest)?),
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy", "--all-targets"], &rest),

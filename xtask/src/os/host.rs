@@ -1,4 +1,5 @@
-//! Facts about the host: where its tools are and where the shared caches live.
+//! Facts about the host: where its tools are, which accelerator QEMU can use,
+//! and where the shared caches live.
 
 use std::ffi::OsStr;
 use std::fs::{self, File, TryLockError};
@@ -8,6 +9,42 @@ use super::{Arch, OsError};
 
 /// Environment variable that moves the cache directory from `~/.cache/neptron`.
 pub const CACHE_ENV: &str = "NEPTRON_CACHE_DIR";
+/// Environment variable that names an images directory to boot, for example
+/// one fetched from CI, in place of the local build output.
+pub const IMAGES_ENV: &str = "NEPTRON_OS_IMAGES";
+
+/// How QEMU runs the guest CPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Accel {
+    /// The macOS hypervisor: native speed for an aarch64 guest on Apple Silicon.
+    Hvf,
+    /// The Linux hypervisor: native speed when guest and host match.
+    Kvm,
+    /// Software emulation: correct, but slow.
+    Tcg,
+}
+
+impl Accel {
+    /// Picks the fastest accelerator for `guest` on a host with this OS and
+    /// CPU (values of `std::env::consts`).
+    pub fn choose(guest: Arch, host_os: &str, host_arch: &str, kvm_available: bool) -> Self {
+        let native = Arch::of_host(host_arch) == Some(guest);
+        match host_os {
+            "macos" if native => Self::Hvf,
+            "linux" if native && kvm_available => Self::Kvm,
+            _ => Self::Tcg,
+        }
+    }
+
+    /// The value of QEMU's `-accel` option.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Hvf => "hvf",
+            Self::Kvm => "kvm",
+            Self::Tcg => "tcg",
+        }
+    }
+}
 
 /// The directories that NEPTRON shares between worktrees on this machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +83,11 @@ impl Cache {
     /// The lock that allows one Buildroot build at a time on this machine.
     pub fn build_lock(&self) -> PathBuf {
         self.root.join("buildroot.lock")
+    }
+
+    /// The lock that allows one QEMU guest at a time on this machine.
+    pub fn qemu_lock(&self) -> PathBuf {
+        self.root.join("qemu.lock")
     }
 }
 
@@ -100,9 +142,46 @@ pub fn require_tool(tool: &str, hint: &'static str) -> Result<PathBuf, OsError> 
     })
 }
 
+/// Whether this host offers KVM to the current user.
+pub fn kvm_available() -> bool {
+    File::options()
+        .read(true)
+        .write(true)
+        .open("/dev/kvm")
+        .is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mac_runs_aarch64_on_hvf_and_x86_on_tcg() {
+        assert_eq!(
+            Accel::choose(Arch::Aarch64, "macos", "aarch64", false),
+            Accel::Hvf
+        );
+        assert_eq!(
+            Accel::choose(Arch::X86_64, "macos", "aarch64", false),
+            Accel::Tcg
+        );
+    }
+
+    #[test]
+    fn linux_uses_kvm_only_when_present_and_native() {
+        assert_eq!(
+            Accel::choose(Arch::X86_64, "linux", "x86_64", true),
+            Accel::Kvm
+        );
+        assert_eq!(
+            Accel::choose(Arch::X86_64, "linux", "x86_64", false),
+            Accel::Tcg
+        );
+        assert_eq!(
+            Accel::choose(Arch::Aarch64, "linux", "x86_64", true),
+            Accel::Tcg
+        );
+    }
 
     #[test]
     fn cache_env_wins_over_home() {

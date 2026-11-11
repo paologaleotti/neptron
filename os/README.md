@@ -6,7 +6,7 @@ The Buildroot br2-external tree of NEPTRON. It defines the OS images. Today it h
 
 | What | Version | Pin |
 | --- | --- | --- |
-| Buildroot | 2026.08.1, the newest stable release on 2026-11-11 | Tag commit `7fdeadb3b9f12f78e5fccca914d7fef47090ab9a`; `buildroot-2026.08.1.tar.gz` SHA-256 `38a6c152490096018720a9ade379ee1e571c9bf5f93a3657a166566945a98b0d`, from the signed release announcement. The development container fetches and checks it |
+| Buildroot | 2026.08.1, the newest stable release on 2026-11-11 | Tag commit `7fdeadb3b9f12f78e5fccca914d7fef47090ab9a`; `buildroot-2026.08.1.tar.gz` SHA-256 `38a6c152490096018720a9ade379ee1e571c9bf5f93a3657a166566945a98b0d`, from the signed release announcement. `Dockerfile` fetches and checks it |
 | Linux | 6.18.63, the newest 6.18 LTS release on 2026-11-11 | SHA-256 in `patches/linux/linux.hash`, from kernel.org |
 | C library | glibc, from the Buildroot toolchain | Buildroot 2026.08.1 |
 | Container base | `debian:trixie-slim` | Image digest in `Dockerfile` |
@@ -36,7 +36,44 @@ Both QEMU targets have:
 
 - BusyBox init, with `mdev` for device nodes. There is no udev daemon and no systemd.
 - A root shell on the serial console, with no login.
-- An ext4 root filesystem, 256 MB, on a virtio disk.
+- An ext4 root filesystem, 256 MB, on a virtio disk. QEMU runs it in snapshot mode, so a run never changes the image.
+
+## Commands
+
+All commands go through `xtask`.
+
+```text
+cargo xtask os build --arch aarch64              build the image
+cargo xtask os build --arch aarch64 -- linux-reconfigure
+                                                 rebuild the kernel after a change to its fragment
+cargo xtask qemu -- uname -a                     boot, run one command, exit with its exit code
+cargo xtask qemu --script test.sh --share dir    run a script; dir is read-only at /mnt/host
+cargo xtask qemu                                 interactive console; Ctrl-A then X stops QEMU
+```
+
+`os build` builds the development container from `Dockerfile`, then runs Buildroot in it with 4 jobs, 4 CPUs and 6 GB of memory. A machine-wide lock allows one Buildroot build at a time. Buildroot does not see a change to a kernel fragment by itself: give `linux-reconfigure` as above.
+
+`qemu` boots the image with 2 GB of memory and 2 CPUs. A machine-wide lock allows one guest at a time. On macOS QEMU runs under `taskpolicy -c utility`. The aarch64 guest uses the hypervisor on an Apple Silicon Mac and KVM on an aarch64 Linux host. The x86\_64 guest uses KVM on an x86-64 Linux host. Everywhere else QEMU emulates the CPU, which is too slow for routine use: on a Mac, use the aarch64 target.
+
+How a command runs:
+
+1. `xtask` writes the command as a shell script and gives it to QEMU as the firmware config entry `opt/neptron/run`. Two more entries carry a new random nonce (`opt/neptron/nonce`) and the deadline in seconds (`opt/neptron/timeout`, from `--timeout`, default 120).
+2. The init script `S99neptron-run` prints `NEPTRON-BEGIN <nonce> <uptime>`, runs the script under `timeout -s KILL <deadline>`, prints `NEPTRON-END <nonce> <exit code>` and reboots. `-no-reboot` turns the reboot into a QEMU exit. A command over its deadline ends with exit code 137, and the guest stops even when no host process watches it.
+3. `xtask` accepts only markers with its nonce, so output that contains the marker text does not end the run. It prints the lines between the markers, the time to the first marker and the guest uptime, and exits with the exit code of the command. It writes the whole console to `target/qemu/<arch>-console.log`.
+4. `xtask` stops QEMU 30 s after the deadline, and at once on SIGTERM, SIGHUP or SIGINT. It removes its script on exit, and the next run removes scripts that a killed run left.
+
+## Where the build data lives
+
+Nothing large is in the repository.
+
+| What | Where |
+| --- | --- |
+| Downloads | Docker volume `neptron-br-dl` |
+| Compiler cache | Docker volume `neptron-br-ccache` |
+| Buildroot output | Docker volume `neptron-br-out-<arch>` |
+| Images for QEMU | `~/.cache/neptron/buildroot/images/<arch>` (`NEPTRON_CACHE_DIR` moves `~/.cache/neptron`) |
+
+The downloads, the compiler cache and the output are Docker volumes because Buildroot needs a case-sensitive filesystem and the macOS default is not. All worktrees share them. `NEPTRON_OS_IMAGES` or `--images` boots an images directory from somewhere else, for example the base image that CI publishes.
 
 ## Licences
 

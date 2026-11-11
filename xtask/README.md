@@ -12,6 +12,7 @@ Build, verification and worktree automation for the NEPTRON workspace. Run it as
 - `cargo xtask worktree cache-check [--from <checkout>]`: proves rule 12. It builds the source checkout (default: the main checkout) to warm it, makes a temporary worktree with a cloned `target/`, repeats the test build and clippy there, and counts the artifacts that Cargo compiles again. It fails when a dependency compiles again. It deletes the temporary worktree at the end, also on failure, and removes clones that an interrupted check left.
 - `cargo xtask rules`: checks the crate boundaries (see below).
 - `cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [-- make targets...]`: builds the development container from `Dockerfile` (tagged `neptron-dev:<hash of the Dockerfile>`), then runs Buildroot in it for the QEMU image of the target: the defconfig, the extra make targets in order, the full build, and a copy of the images to `~/.cache/neptron/buildroot/images/<arch>`. `os/README.md` describes the images.
+- `cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR] [--script FILE | -- command...]`: boots the QEMU image of the target. With a command or a script it runs it in the guest, prints its output and exits with its exit code. Without one it gives the serial console to the terminal. This is the base of tier T3. `os/README.md` describes how a run works.
 - `cargo xtask window-smoke`: builds `neptron-window` with its `sdl3` feature and runs its smoke example. No tier compiles the `sdl3` code, so this command and `cargo xtask clippy -p neptron-window --features sdl3` are the checks for it. The example opens a desktop window, shows a 240p and a super-width mode, injects a key press and checks it. It needs a display and the SDL3 library, so no tier runs it.
 - `cargo xtask monitors <monitor.cpp> [dir]`: converts the Switchres preset table in a local copy of `monitor.cpp` into one TOML file per preset in `data/monitors` (or `dir`). Each value is converted from its decimal text with integer maths. `data/monitors/README.md` names the source commit and the units.
 
@@ -74,10 +75,12 @@ Cargo compiles `xtask` itself before xtask starts, so that one small compile run
 The OS commands have their own limits, machine-wide through lock files in the cache directory (`NEPTRON_CACHE_DIR`, default `~/.cache/neptron`):
 
 - `os build`: one Buildroot build at a time, 4 jobs by default (`--jobs`, at most 8), a container with as many CPUs as jobs and 6 GB of memory.
+- `qemu`: one guest at a time, with 2 GB of memory and 2 CPUs, under `taskpolicy -c utility` on macOS. The guest stops its command at `--timeout` (default 120 s) and powers off; xtask stops QEMU 30 s after that, and at once on SIGTERM, SIGHUP or SIGINT.
 
 ## Dependencies
 
 - `neptron-ui`: the scene registry, the CPU canvas and the golden format for `shot`, `gallery` and `golden`. The PNG files are written by a small encoder in `src/ui/png.rs` (stored deflate blocks), so no image crate is needed.
+- `signal-hook`: sets a flag on SIGTERM, SIGHUP and SIGINT, so that `qemu` stops its QEMU child before it exits. It needs `unsafe` code to install a handler, which xtask forbids in its own code. It is small: it pulls in `libc` (already in the build) and `signal-hook-registry`.
 - `serde_json`: reads `cargo metadata` and Cargo build messages, and writes the report.
 - `thiserror`: each module owns its error enum, as the code standards ask.
 

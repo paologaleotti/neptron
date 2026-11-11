@@ -12,6 +12,8 @@ publish.workspace = true
 neptron-ui = { path = "../crates/neptron-ui" }
 # Reads the JSON of cargo metadata and cargo build, and writes the verify report.
 serde_json.workspace = true
+# Stops the QEMU child on SIGTERM, SIGHUP and SIGINT, so no guest outlives xtask.
+signal-hook.workspace = true
 # The code standards make each module own a thiserror enum.
 thiserror.workspace = true
 

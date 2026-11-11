@@ -49,6 +49,30 @@ impl Arch {
     pub fn defconfig(self) -> String {
         format!("neptron_qemu_{}_defconfig", self.name())
     }
+
+    /// The kernel file in the Buildroot images directory.
+    pub fn kernel_image(self) -> &'static str {
+        match self {
+            Self::Aarch64 => "Image",
+            Self::X86_64 => "bzImage",
+        }
+    }
+
+    /// The QEMU system emulator for this target.
+    pub fn qemu_binary(self) -> &'static str {
+        match self {
+            Self::Aarch64 => "qemu-system-aarch64",
+            Self::X86_64 => "qemu-system-x86_64",
+        }
+    }
+
+    /// The serial console device of the guest kernel.
+    pub fn console(self) -> &'static str {
+        match self {
+            Self::Aarch64 => "ttyAMA0",
+            Self::X86_64 => "ttyS0",
+        }
+    }
 }
 
 #[cfg(test)]
