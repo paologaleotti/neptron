@@ -16,11 +16,11 @@ pub const BORDER_LINES: [u16; 2] = [224, 240];
 ///
 /// A whole multiple that misses the lines a range holds by a few lines is
 /// cropped, as the overscan of a CRT hides the edge lines, so the picture
-/// stays pixel exact at nearly full height. 4 lines per edge cover an NES
-/// at 2x on a 31 kHz monitor that holds 478 lines (1 per edge) and Donkey
-/// Kong at 2x in 502 lines (3 per edge). 4 of 240 lines is 1.7 % of the
-/// height at each edge, inside the 5 % or more that a consumer CRT hides.
-pub const OVERSCAN_CROP_MAX_LINES_PER_EDGE: u16 = 4;
+/// stays pixel exact at nearly full height. 8 lines per edge is the classic
+/// NES crop (240 to 224 lines) that emulator cores apply by default;
+/// MiSTer and hardware scalers crop the same amount for whole-number
+/// scales, and a consumer CRT hides at least that much.
+pub const OVERSCAN_CROP_MAX_LINES_PER_EDGE: u16 = 8;
 
 /// The source lines that the overscan crop hides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -538,10 +538,10 @@ mod tests {
                 capacity_lines: 241
             })
         );
-        // 249 lines: 8 too many, 4 per edge, the bound.
-        assert_eq!(crop(249, Rung::Native).unwrap().game_lines, 241);
-        // 250 lines: 9 too many, 5 per edge, above the bound.
-        assert_eq!(crop(250, Rung::Native), None);
+        // 257 lines: 16 too many, 8 per edge, the bound.
+        assert_eq!(crop(257, Rung::Native).unwrap().game_lines, 241);
+        // 258 lines: 17 too many, 9 per edge, above the bound.
+        assert_eq!(crop(258, Rung::Native), None);
         // 2x of 122 lines: 244 in 241 holds 120 source lines, 1 per edge.
         let s = crop(122, Rung::Multiple(2)).unwrap();
         assert_eq!((s.game_lines, s.factor), (240, 2));

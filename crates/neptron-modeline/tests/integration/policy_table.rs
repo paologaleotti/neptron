@@ -324,19 +324,19 @@ fn rows() -> Vec<Row> {
             )
         },
         // The fitted rung keeps the game's rate when the profile allows it.
-        // 512 lines at 60.606 Hz on pc_31_120: the range holds floor(31.6
-        // kHz / 60.606 Hz) = 521 lines less ceil(571 us x 31.6 kHz) = 19 of
-        // blanking, 502. No exact rung holds 512 lines, and a crop needs 5
-        // lines per edge, above the bound of 4. Asked for 502 lines,
-        // Switchres reaches 60.606 Hz.
+        // 500 lines at 60.606 Hz on arcade_31: the range holds floor(31,500
+        // / 60.606) = 519 lines less ceil(1.43 ms x 31.5 kHz) = 46 of
+        // blanking, 473. No exact rung holds 500 lines, and a crop needs 14
+        // lines per edge, above the bound of 8. Switchres alone keeps 500
+        // lines at 57.798 Hz; asked for 473 lines, it reaches 60.606 Hz.
         Row {
-            source: source(256, 512, 60_606),
+            source: source(256, 500, 60_606),
             rung: Rung::Fitted,
-            mode: "256x502p",
+            mode: "256x473p",
             rate_mhz: 60_606,
             ..row(
                 "step5_fitted_keeps_the_game_rate",
-                preset("pc_31_120"),
+                preset("arcade_31"),
                 open_caps(),
             )
         },
@@ -553,22 +553,32 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
-        // The crop applies to the native rung too: 510 lines at 60.606 Hz
-        // on pc_31_120 miss the 502 the range holds by 8, so 4 lines per
+        // The crop applies to the native rung too: 518 lines at 60.606 Hz
+        // on pc_31_120 miss the 502 the range holds by 16, so 8 lines per
         // edge, the bound, leave 502.
         Row {
-            source: source(256, 510, 60_606),
+            source: source(256, 518, 60_606),
             mode: "256x502p",
             rate_mhz: 60_606,
             ..row("crop_native_at_the_bound", preset("pc_31_120"), open_caps())
         },
-        // Just outside the bound: 260 lines at 60.606 Hz on pc_31_120. 2x
-        // needs 520, the range holds 502: 251 source lines, 9 too many, 5
-        // per edge. Native is 260 lines centred in the 501 lines that the
-        // range forces. Width: 256 x 501 x 4 / (3 x 260 x 1.333) = 493.4.
+        // 2x at the bound: 266 lines at 60.606 Hz on pc_31_120. The range
+        // holds 502 lines, 251 source lines at 2x: 15 too many, 8 per edge.
+        // 250 lines at 2x are 500.
         Row {
-            source: source(256, 260, 60_606),
-            mode: "493x501p",
+            source: source(256, 266, 60_606),
+            rung: Rung::Multiple(2),
+            mode: "256x500p",
+            rate_mhz: 60_606,
+            ..row("crop_2x_at_the_bound", preset("pc_31_120"), open_caps())
+        },
+        // Just outside the bound: 268 lines need 17 fewer, 9 per edge. Native
+        // is 268 lines centred in the 501 lines that the range forces, 53.5
+        // %: padded, but exact. Width: 256 x 501 x 4 / (3 x 268 x 1.333) =
+        // 478.7.
+        Row {
+            source: source(256, 268, 60_606),
+            mode: "479x501p",
             rate_mhz: 60_606,
             ..row(
                 "crop_just_outside_the_bound",
