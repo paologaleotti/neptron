@@ -1039,3 +1039,14 @@ fn save_ram_checks_the_core_values() {
     assert!(host.load_save_ram(&[1]).is_err(), "nothing is written");
     assert_eq!(sram(), [0; 8]);
 }
+
+#[test]
+fn a_lost_state_still_unloads_and_deinits_the_core() {
+    let mut host = loaded();
+    host.lose_state();
+    assert!(matches!(host.run_frame(), Err(RunError::HostPoisoned)));
+    drop(host);
+    let calls = seen().calls;
+    let tail = &calls[calls.len() - 2..];
+    assert_eq!(tail, ["unload_game", "deinit"]);
+}

@@ -291,8 +291,7 @@ impl Host {
 
     fn unload(&mut self) {
         if self.game_loaded {
-            // A lost state cannot be repaired here; the core still unloads.
-            let _ = self.call(Core::unload_game);
+            self.call_for_teardown(Core::unload_game);
             self.game_loaded = false;
         }
         self.drop_content();
@@ -318,6 +317,30 @@ impl Host {
         self.state.as_deref()
     }
 
+    /// Calls into the core for teardown, also when the state is lost: then
+    /// the call runs with no state lent, and every callback returns its
+    /// default. The core must never keep a game loaded after its content is
+    /// freed.
+    fn call_for_teardown(&mut self, f: impl Fn(&Core)) {
+        let core = &self.core;
+        let mut ran = false;
+        // A state lost after the call is reported by `ran`; nothing else can
+        // use the error here.
+        let _ = ffi::lend(&mut self.state, || {
+            ran = true;
+            f(core);
+        });
+        if !ran {
+            f(core);
+        }
+    }
+
+    /// Drops the state, as a call that loses it does. For tests only.
+    #[cfg(test)]
+    pub(crate) fn lose_state(&mut self) {
+        self.state = None;
+    }
+
     /// Calls into the core with the state lent to the callbacks.
     fn call<R>(&mut self, f: impl FnOnce(&Core) -> R) -> Result<R, Poisoned> {
         let core = &self.core;
@@ -329,8 +352,7 @@ impl Drop for Host {
     fn drop(&mut self) {
         self.unload();
         if self.initialized {
-            // Nothing can report a lost state during a drop.
-            let _ = self.call(Core::deinit);
+            self.call_for_teardown(Core::deinit);
         }
     }
 }
