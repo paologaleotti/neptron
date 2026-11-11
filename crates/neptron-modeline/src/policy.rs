@@ -45,7 +45,7 @@ pub use choose::{
 pub use ladder::{Rung, walk_ladder};
 pub use padding::{PADDED_FILL_MIN_PERCENT, Padding};
 pub use placement::{HorizontalScale, Placement, ScaleClaim, UI_CANVAS};
-pub use plan::{Considered, Plan, Proposal, Timing};
+pub use plan::{Considered, Plan, Proposal, StrategyReplaced, Timing};
 pub use reason::Dropped;
 pub use refresh::{
     FORCE_50_MHZ, FORCE_60_MHZ, REFRESH_MATCH_MHZ, RefreshKind, RefreshTarget, SkippedTarget,

@@ -32,10 +32,11 @@ pub enum Dropped {
         /// Most lines the GPU sends.
         max_lines: u16,
     },
-    /// No whole multiple of the game width reaches the GPU's lowest pixel
-    /// clock within the widest mode the GPU sends.
+    /// The mode's pixel clock is below the GPU's lowest pixel clock: a
+    /// native or fixed width, or no whole multiple of the game width within
+    /// the widest mode the GPU sends.
     PixelClockFloor {
-        /// Widest mode tried, in pixels.
+        /// Width of the mode, or the widest multiple tried, in pixels.
         width: u32,
         /// Its pixel clock, in hertz.
         pclock_hz: u32,

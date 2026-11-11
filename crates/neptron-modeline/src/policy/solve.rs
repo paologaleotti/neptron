@@ -26,17 +26,23 @@ const REQUEST_ASPECT_MILLI: u32 = 1_333;
 pub(crate) type Solved = Result<Result<Proposal, Dropped>, ModelineError>;
 
 /// Step 5: ask Switchres for the modeline of the shape at the target rate,
-/// with the width that the horizontal strategy gives.
+/// with the width that `strategy` gives.
 ///
 /// The policy computes the width, so Switchres gets no pixel clock floor
 /// and never doubles the width itself: the reason for the width is then
 /// the policy's own rule. Of the modes Switchres returns, the first that
 /// keeps the requested lines, scan and width, and reaches the target rate,
 /// is the proposal. `enforce_refresh` is false only for the last resort.
+///
+/// The pixel clock is known only once Switchres gives the line rate, so a
+/// native or fixed width below the GPU floor is dropped right after the
+/// call, before a proposal is built (`PixelClockFloor`). The same holds
+/// for a source wider than the GPU, at the GPU's widest mode.
 pub(crate) fn solve(
     shape: &Shape,
     target: RefreshTarget,
     enforce_refresh: bool,
+    strategy: HorizontalStrategy,
     crt: &Crt<'_>,
 ) -> Solved {
     let caps = crt.caps;
@@ -48,11 +54,11 @@ pub(crate) fn solve(
         profile: crt.profile,
         caps,
     };
-    let picked = match crt.settings.horizontal {
-        _ if shape.base_width > caps.max_width => ask.fixed(caps.max_width)?,
-        HorizontalStrategy::Native => ask.multiple(1)?,
+    let picked = match strategy {
+        _ if shape.base_width > caps.max_width => ask.at_floor(ask.fixed(caps.max_width)?),
+        HorizontalStrategy::Native => ask.at_floor(ask.multiple(1)?),
         HorizontalStrategy::DynamicSuperWidth => ask.dynamic()?,
-        HorizontalStrategy::FixedSuperWidth { width } => ask.fixed(width)?,
+        HorizontalStrategy::FixedSuperWidth { width } => ask.at_floor(ask.fixed(width)?),
     };
     Ok(picked.map(|(candidate, horizontal)| {
         proposal(
@@ -88,6 +94,22 @@ impl Ask<'_> {
         Ok(self
             .call(width)?
             .map(|c| (c, HorizontalScale::Fixed(width))))
+    }
+
+    /// Drops a mode whose pixel clock is below the GPU floor, with the
+    /// numbers, so the caller can go on with the dynamic super width.
+    fn at_floor(&self, picked: Picked) -> Picked {
+        let (candidate, horizontal) = picked?;
+        let pclock_hz = candidate.modeline.pclock_hz;
+        if pclock_hz < self.caps.pclock_min_hz {
+            return Err(Dropped::PixelClockFloor {
+                width: u32::from(candidate.modeline.hactive),
+                pclock_hz,
+                floor_hz: self.caps.pclock_min_hz,
+                max_width: self.caps.max_width,
+            });
+        }
+        Ok((candidate, horizontal))
     }
 
     /// The smallest multiple of the base width whose pixel clock is at
@@ -229,6 +251,7 @@ fn proposal(
             field_rate_mhz: mode.field_rate_mhz(),
         },
         bordered: shape.bordered,
+        strategy_replaced: None,
         padding: padded,
     }
 }

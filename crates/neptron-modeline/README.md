@@ -61,6 +61,7 @@ Where the Definition allows two readings, the policy takes the one below. Each i
 - A medium-resolution board (384 lines) on 15 kHz: rung 3, interlaced 1:1 with borders, where its lines fill the field; the sources table says "interlaced fit". The ladder puts rung 3 above the fitted rung, and the fit stays the fallback.
 - "Matches to two decimals": less than 5 mHz (`REFRESH_MATCH_MHZ`).
 - `force_60` is 60.000 Hz and `force_50` is 50.000 Hz (`FORCE_60_MHZ`, `FORCE_50_MHZ`).
+- A native or fixed width whose pixel clock is below the GPU floor gives no mode. The candidate is dropped with `PixelClockFloor` (width, pixel clock, floor, widest GPU mode), and the next entry is the same rung with the dynamic super width, marked `strategy_replaced`; `notice` reports it. A source wider than the GPU is dropped once: no multiple of its width fits.
 - The dynamic super width needs a pixel clock of at least the floor, the bound of the validator; Switchres doubles while the clock is at most the floor.
 - A flat panel: a whole vertical scale, the width at the core's aspect (`panel_placement`); no notice for the panel rate.
 

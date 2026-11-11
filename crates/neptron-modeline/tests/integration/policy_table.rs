@@ -146,6 +146,18 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
+        // Step 2: the native width on a GPU with a floor is below it; the
+        // walk goes on with the dynamic super width (5 x 256), and the
+        // notice says so.
+        Row {
+            horizontal: Some(HorizontalStrategy::Native),
+            mode: "1280x224p",
+            ..row(
+                "step2_native_width_below_floor_replaced",
+                preset("generic_15"),
+                intel,
+            )
+        },
         // Step 2: a fixed super width wider than the GPU becomes its own.
         Row {
             horizontal: Some(HorizontalStrategy::FixedSuperWidth { width: 2_560 }),
@@ -637,19 +649,98 @@ fn step6_no_winner_when_the_validator_refuses_everything() {
     assert_eq!(choice.refused.len(), plan.proposals().count());
 }
 
-#[test]
-fn step6_the_validator_refuses_a_mode_below_the_gpu_floor() {
-    // Native width on a GPU with a floor: Switchres gives 256 pixels, the
-    // validator refuses every one, and no mode is set.
-    let caps = intel_gen9();
+/// The first two entries of a plan whose strategy cannot reach the GPU
+/// floor: the dropped candidate, then its replacement.
+fn floor_pair(source: SourceGeometry, horizontal: HorizontalStrategy, caps: GpuCaps) -> Plan {
     let s = PolicySettings {
-        horizontal: Some(HorizontalStrategy::Native),
+        horizontal: Some(horizontal),
         ..PolicySettings::default()
     };
-    let plan = decide(&snes(), &s, &preset("generic_15"), &caps).unwrap();
-    let choice = choose(&plan, |m| validate(m, &preset("generic_15"), &caps));
-    assert!(choice.winner.is_none());
-    assert!(!choice.refused.is_empty());
+    decide(&source, &s, &preset("generic_15"), &caps).unwrap()
+}
+
+#[test]
+fn a_native_width_below_the_gpu_floor_is_replaced_by_the_dynamic_super_width() {
+    let caps = intel_gen9();
+    let plan = floor_pair(snes(), HorizontalStrategy::Native, caps);
+    let first = &plan.considered[0];
+    assert_eq!(first.rung, Rung::Native);
+    let Err(Dropped::PixelClockFloor {
+        width,
+        pclock_hz,
+        floor_hz,
+        max_width,
+    }) = first.outcome
+    else {
+        panic!("{first}");
+    };
+    assert_eq!((width, floor_hz, max_width), (256, 25_000_000, 1_920));
+    assert!(pclock_hz < floor_hz);
+
+    let (considered, proposal) = winner(&plan, &preset("generic_15"), &caps);
+    assert_eq!(considered, &plan.considered[1]);
+    assert_eq!(proposal.horizontal, Some(HorizontalScale::Multiple(5)));
+    let replaced = proposal.strategy_replaced.unwrap();
+    assert_eq!(replaced.from, HorizontalStrategy::Native);
+    assert_eq!(replaced.reason, first.outcome.unwrap_err());
+    let n = notice(considered).unwrap();
+    assert!(!n.fitted);
+    assert_eq!(n.strategy_replaced, Some(replaced));
+}
+
+#[test]
+fn a_fixed_width_below_the_gpu_floor_is_replaced_by_the_dynamic_super_width() {
+    let caps = GpuCaps {
+        pclock_min_hz: 60_000_000,
+        max_width: 3_840,
+        ..intel_gen9()
+    };
+    let plan = floor_pair(
+        snes(),
+        HorizontalStrategy::FixedSuperWidth { width: 1_920 },
+        caps,
+    );
+    assert!(matches!(
+        plan.considered[0].outcome,
+        Err(Dropped::PixelClockFloor {
+            width: 1_920,
+            floor_hz: 60_000_000,
+            ..
+        })
+    ));
+    let (_, proposal) = winner(&plan, &preset("generic_15"), &caps);
+    let Some(HorizontalScale::Multiple(k)) = proposal.horizontal else {
+        panic!("{proposal}");
+    };
+    assert!(proposal.mode.pclock_hz >= caps.pclock_min_hz);
+    assert!(u64::from(proposal.mode.pclock_hz) * u64::from(k - 1) / u64::from(k) < 60_000_000);
+}
+
+#[test]
+fn a_source_wider_than_the_gpu_below_the_floor_is_dropped_with_the_numbers() {
+    // At the GPU's widest mode the pixel clock is below the floor, and no
+    // whole multiple of 2048 pixels fits 1920: the candidate is dropped
+    // once, with no replacement.
+    let caps = GpuCaps {
+        pclock_min_hz: 60_000_000,
+        ..intel_gen9()
+    };
+    let plan = floor_pair(source(2_048, 224, 60_099), HorizontalStrategy::Native, caps);
+    let first = &plan.considered[0];
+    assert_eq!(first.rung, Rung::Native);
+    assert!(
+        matches!(
+            first.outcome,
+            Err(Dropped::PixelClockFloor {
+                width: 1_920,
+                floor_hz: 60_000_000,
+                max_width: 1_920,
+                ..
+            })
+        ),
+        "{first}"
+    );
+    assert_ne!(plan.considered[1].rung, Rung::Native);
 }
 
 #[test]

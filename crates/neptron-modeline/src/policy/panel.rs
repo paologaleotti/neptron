@@ -58,6 +58,7 @@ pub(crate) fn panel_plan(
                     field_rate_mhz: field,
                 },
                 bordered: false,
+                strategy_replaced: None,
                 padding: None,
             };
             (

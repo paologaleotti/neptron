@@ -2,7 +2,7 @@ use neptron_types::{GpuCaps, Modeline, MonitorProfile, SourceGeometry};
 
 use super::{
     Considered, PictureStyle, Plan, PolicyError, PolicySettings, Proposal, RefreshKind, Rung,
-    decide,
+    StrategyReplaced, decide,
 };
 
 /// The result of step 6: the first proposal that the validator accepts,
@@ -57,6 +57,9 @@ pub struct Notice {
     /// The rate the game runs at: the field rate per game frame, in
     /// millihertz.
     pub shown_mhz: u64,
+    /// The horizontal strategy of the settings gave no mode above the
+    /// GPU's pixel clock floor, and the dynamic super width replaced it.
+    pub strategy_replaced: Option<StrategyReplaced>,
 }
 
 /// One row of the picture style list of the Display panel.
@@ -118,8 +121,9 @@ pub fn switch_for(current: Option<&Modeline>, winner: &Modeline) -> Switch {
     }
 }
 
-/// Step 8: a notice when the winner is the fitted rung, or when the game
-/// runs at a rate other than its own. Double refresh shows each frame twice
+/// Step 8: a notice when the winner is the fitted rung, when the game runs
+/// at a rate other than its own, or when the dynamic super width replaced
+/// the horizontal strategy of the settings. Double refresh shows each frame twice
 /// at the game's own rate, so it needs no notice. A flat panel needs none
 /// for its rate: audio rate control absorbs the difference.
 pub fn notice(considered: &Considered) -> Option<Notice> {
@@ -127,10 +131,12 @@ pub fn notice(considered: &Considered) -> Option<Notice> {
     let timing = &proposal.timing;
     let fitted = considered.rung == Rung::Fitted;
     let refresh_differs = timing.changes_speed() && timing.target.kind != RefreshKind::Panel;
-    (fitted || refresh_differs).then(|| Notice {
+    let strategy_replaced = proposal.strategy_replaced;
+    (fitted || refresh_differs || strategy_replaced.is_some()).then(|| Notice {
         fitted,
         game_mhz: timing.game_mhz,
         shown_mhz: timing.field_rate_mhz / u64::from(timing.repeat().max(1)),
+        strategy_replaced,
     })
 }
 

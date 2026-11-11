@@ -57,10 +57,22 @@ pub struct Proposal {
     /// The game sits in a mode with more lines than it has, because the
     /// profile allows no fewer.
     pub bordered: bool,
+    /// The horizontal strategy of the settings could not reach the GPU's
+    /// pixel clock floor, and the dynamic super width replaced it.
+    pub strategy_replaced: Option<StrategyReplaced>,
     /// The range forces so many lines that the game fills too little of
     /// the screen: the plan puts this mode after every exact mode that is
     /// not padded.
     pub padding: Option<Padding>,
+}
+
+/// A horizontal strategy that the dynamic super width replaced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StrategyReplaced {
+    /// The strategy of the settings.
+    pub from: HorizontalStrategy,
+    /// Why it gave no mode: a `PixelClockFloor` with the numbers.
+    pub reason: Dropped,
 }
 
 /// The rates of a proposal.
@@ -116,6 +128,9 @@ impl fmt::Display for Considered {
             Err(dropped) => write!(f, "dropped, {dropped}"),
             Ok(p) => {
                 write!(f, "{p}")?;
+                if let Some(replaced) = p.strategy_replaced {
+                    write!(f, ", replaces {}: {}", replaced.from, replaced.reason)?;
+                }
                 if let Some(pad) = p.padding {
                     write!(
                         f,
