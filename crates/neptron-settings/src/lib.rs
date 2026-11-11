@@ -3,12 +3,16 @@
 #![forbid(unsafe_code)]
 
 mod builtin;
+mod layer;
+mod resolve;
 mod schema;
 
 pub use builtin::{
     DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE, NAME_MAX_LEN,
     PICTURE_STYLES, REFRESH_POLICIES, SCHEMA_VERSION, VERSION_KEY,
 };
+pub use layer::{Layer, SetError};
+pub use resolve::{LayerMismatch, Layers, Resolved, resolve, resolve_key};
 pub use schema::{
     Entry, Invalid, Kind, Level, Levels, Safety, Schema, SchemaError, Source, Value, ValueType,
 };
