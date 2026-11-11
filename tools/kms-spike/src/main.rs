@@ -18,6 +18,8 @@ mod json;
     )
 )]
 mod kernel_mode;
+#[cfg(all(target_os = "linux", feature = "kms"))]
+mod kms;
 mod modes;
 #[cfg_attr(
     not(all(target_os = "linux", feature = "kms")),
@@ -173,18 +175,123 @@ fn hard_limit(o: &Options) -> Duration {
     worker_limit(o) + Duration::from_secs(KILL_MARGIN_S)
 }
 
+#[cfg(all(target_os = "linux", feature = "kms"))]
+fn list_connectors(device: &Path) -> ExitCode {
+    match kms::list_connectors(device) {
+        Ok(text) => {
+            print!("{text}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("kms-spike: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "kms"))]
+fn confirmed_run(o: &Options, args: &[String]) -> ExitCode {
+    use supervisor::Ended;
+
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("kms-spike: cannot find its own executable: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut command = std::process::Command::new(exe);
+    command.args(args).arg(args::WORKER_FLAG);
+    println!("\nshowing the valid modes; Ctrl-C stops the run and restores the display");
+    match supervisor::supervise(command, hard_limit(o), &mut std::io::stdout()) {
+        Ok(Ended::Exited(status)) if status.success() => ExitCode::SUCCESS,
+        Ok(Ended::Exited(status)) => {
+            eprintln!("kms-spike: the worker ended with {status}");
+            ExitCode::FAILURE
+        }
+        Ok(Ended::Killed(status)) => {
+            eprintln!(
+                "kms-spike: the worker ran past the hard limit of {} s and was killed ({status}). \
+                 The kernel removes its framebuffers, and most drivers then switch the \
+                 output off. If a test mode is still on the tube, switch the monitor off.",
+                hard_limit(o).as_secs()
+            );
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("kms-spike: cannot run the worker: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "kms"))]
+fn worker(o: &Options, preset: &Preset, planned: &[Planned]) -> ExitCode {
+    let start = std::time::Instant::now();
+    let mut link = supervisor::Link::new(std::io::stdout());
+    let mut report = Report::new(preset.id, &o.allow, o.width, o.seconds, true, planned);
+    let profile = preset.profile();
+    let caps = o.allow.caps();
+    let inputs = kms::Inputs {
+        device: &o.device,
+        connector: o.connector.as_deref(),
+        profile: &profile,
+        caps: &caps,
+        planned,
+        per_mode: Duration::from_secs(u64::from(o.seconds)),
+        deadline: start + worker_limit(o),
+    };
+    let ran = kms::run(&inputs, &mut report, &mut link);
+    if let Err(e) = &ran {
+        supervisor::warn(&format!("kms-spike: {e}"));
+        report.errors.push(e.to_string());
+    }
+    let summary = report.summary();
+    for line in summary.lines() {
+        if link.line(line).is_err() {
+            supervisor::warn(line);
+        }
+    }
+    let written = match report.write(&o.report) {
+        Ok(()) => {
+            let line = format!("report written to {}", o.report.display());
+            if link.line(&line).is_err() {
+                supervisor::warn(&line);
+            }
+            true
+        }
+        Err(e) => {
+            supervisor::warn(&format!(
+                "kms-spike: cannot write the report {}: {e}",
+                o.report.display()
+            ));
+            false
+        }
+    };
+    let restored = !matches!(report.restore, Some(Err(_)));
+    if ran.is_ok() && restored && written {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+#[cfg(not(all(target_os = "linux", feature = "kms")))]
 fn list_connectors(_: &Path) -> ExitCode {
     no_kms()
 }
 
+#[cfg(not(all(target_os = "linux", feature = "kms")))]
 fn confirmed_run(_: &Options, _: &[String]) -> ExitCode {
     no_kms()
 }
 
+#[cfg(not(all(target_os = "linux", feature = "kms")))]
 fn worker(_: &Options, _: &Preset, _: &[Planned]) -> ExitCode {
     no_kms()
 }
 
+#[cfg(not(all(target_os = "linux", feature = "kms")))]
 fn no_kms() -> ExitCode {
     eprintln!(
         "kms-spike: this build cannot set modes. DRM/KMS needs Linux and the kms feature: \
