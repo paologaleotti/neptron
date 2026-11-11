@@ -60,6 +60,8 @@ The defaults of the RetroArch keyboard driver for player one, by physical key (L
 
 The frontend actions of a keyboard come from the hotkeys: Right Shift and Enter together open the quick menu.
 
+A key held before a keyboard opens gives no kernel event. So when the source opens a keyboard, it reads the key state and sends a press for each mapped key that is down (`mapped_keys_down`). A combination held from power-on, or held while a keyboard opens again after a read error, reaches the hotkeys.
+
 ## Device ids and ports
 
 | Ids | Devices | Port |
@@ -131,6 +133,7 @@ These need a device and are not verified:
 - SDL3 without libudev finds a gamepad plugged in after start (inotify on `/dev/input`).
 - A USB keyboard on the image: found, grabbed (no key reaches a console), mapped, and released when unplugged.
 - Blind recovery from a gamepad and from a keyboard with no picture.
+- The combination held at boot on a keyboard encoder triggers recovery.
 
 ## Must never depend on
 

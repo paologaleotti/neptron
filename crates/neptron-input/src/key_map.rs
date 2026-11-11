@@ -30,6 +30,19 @@ pub fn key_control(code: KeyCode) -> Option<Control> {
         .map(|(_, _, control)| *control)
 }
 
+/// The keys of [`KEY_MAP`] that are down, in table order. `is_down` tells
+/// whether the device reports a key code as down.
+///
+/// A keyboard source sends a press for each of them when it opens a
+/// keyboard, because a key held before the open gives no event: a
+/// combination held from power-on must still reach the hotkeys.
+pub fn mapped_keys_down(is_down: impl Fn(u16) -> bool) -> impl Iterator<Item = KeyCode> {
+    KEY_MAP
+        .into_iter()
+        .map(|(key, _, _)| key)
+        .filter(move |key| is_down(key.0))
+}
+
 /// True when a device with these key codes is a keyboard that the keyboard
 /// source reads: it has a key of [`KEY_MAP`], and no joystick or gamepad
 /// button. `has_key` tells whether the device reports a key code.
@@ -131,6 +144,17 @@ mod tests {
         for code in [1, 57, 42, 59, 0x2FF] {
             assert_eq!(key_control(KeyCode(code)), None, "{code}");
         }
+    }
+
+    #[test]
+    fn the_mapped_keys_that_are_down_come_out_in_table_order() {
+        // Right Shift, Enter and Escape down: the recovery combination on
+        // a keyboard, held from power-on.
+        let down = |code: u16| [54, 28, 1].contains(&code);
+        let keys: Vec<KeyCode> = mapped_keys_down(down).collect();
+        assert_eq!(keys, [KEY_ENTER, KEY_RIGHTSHIFT]);
+        assert_eq!(mapped_keys_down(|_| false).count(), 0);
+        assert_eq!(mapped_keys_down(|_| true).count(), KEY_MAP.len());
     }
 
     #[test]

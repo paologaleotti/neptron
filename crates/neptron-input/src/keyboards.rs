@@ -7,7 +7,7 @@ use evdev::{Device, EventType};
 use neptron_backend::InputSource;
 use neptron_types::InputEvent;
 
-use crate::key_map::looks_like_keyboard;
+use crate::key_map::{looks_like_keyboard, mapped_keys_down};
 use crate::mapper::Mapper;
 use crate::notice::{InputNotice, NoticeQueue};
 use crate::raw::{KeyAction, KeyCode, RawInput};
@@ -70,7 +70,7 @@ impl EvdevKeyboards {
         self.notices.drain_into(out);
     }
 
-    fn scan(&mut self) {
+    fn scan(&mut self, out: &mut Vec<InputEvent>) {
         let entries = match std::fs::read_dir(&self.dir) {
             Ok(entries) => entries,
             Err(e) => {
@@ -93,14 +93,14 @@ impl EvdevKeyboards {
             }
             let known = self.open.iter().any(|kb| kb.path == path) || self.skipped.contains(&path);
             if !known {
-                self.try_open(path.clone());
+                self.try_open(path.clone(), out);
             }
             present.push(path);
         }
         self.skipped.retain(|path| present.contains(path));
     }
 
-    fn try_open(&mut self, path: PathBuf) {
+    fn try_open(&mut self, path: PathBuf, out: &mut Vec<InputEvent>) {
         let mut dev = match Device::open(&path) {
             Ok(dev) => dev,
             Err(e) => return self.skip(path, &e.to_string()),
@@ -119,15 +119,46 @@ impl EvdevKeyboards {
             Ok(device) => device,
             Err(e) => return self.skip(path, &e.to_string()),
         };
+        // The grab comes after every check that can drop the device: the
+        // drop of a grabbed device ungrabs it, and the crate prints the
+        // error of that ungrab on stderr.
         if let Err(e) = dev.grab() {
             self.notices.push(InputNotice::NotGrabbed {
                 device,
                 reason: e.to_string(),
             });
         }
+        self.press_held_keys(&dev, device, out);
         let what = format!("{} ({})", path.display(), dev.name().unwrap_or("no name"));
         self.notices.push(InputNotice::Connected { device, what });
         self.open.push(OpenKeyboard { dev, path, device });
+    }
+
+    /// Sends a press for each mapped key that is down when the keyboard
+    /// opens, such as a combination held from power-on.
+    fn press_held_keys(&mut self, dev: &Device, device: u32, out: &mut Vec<InputEvent>) {
+        let keys = match dev.get_key_state() {
+            Ok(keys) => keys,
+            Err(e) => {
+                self.notices.push(InputNotice::Ignored {
+                    what: format!("the held keys of device {device:#x}"),
+                    reason: e.to_string(),
+                });
+                return;
+            }
+        };
+        for code in mapped_keys_down(|code| keys.contains(evdev::KeyCode::new(code))) {
+            let input = RawInput::Key {
+                code,
+                action: KeyAction::Press,
+            };
+            if let Err(e) = self.mapper.apply(device, input, out) {
+                self.notices.push(InputNotice::Ignored {
+                    what: format!("device {device:#x}"),
+                    reason: e.to_string(),
+                });
+            }
+        }
     }
 
     fn skip(&mut self, path: PathBuf, reason: &str) {
@@ -169,7 +200,7 @@ impl Default for EvdevKeyboards {
 impl InputSource for EvdevKeyboards {
     fn poll(&mut self, out: &mut Vec<InputEvent>) {
         if self.polls_to_scan == 0 {
-            self.scan();
+            self.scan(out);
             self.polls_to_scan = KEYBOARD_SCAN_INTERVAL_POLLS;
         }
         self.polls_to_scan -= 1;
