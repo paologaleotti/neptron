@@ -12,6 +12,14 @@ use crate::{Chosen, Monitor, Outcome, SwitchRecord, SwitchTrace, Trigger, Unshow
 /// two sizes then causes no modeset.
 pub const DEBOUNCE_FRAMES: u32 = 3;
 
+/// How many times the engine asks for a modeset that a monitor, settings
+/// or retry change needs, when `set_mode` fails on the device. A busy or
+/// transient device error clears within three frames; a lasting one must
+/// not cost a `set_mode` call on every frame. After the last attempt the
+/// mode on screen stays, and `current_refused` tells whether the inputs
+/// refuse it.
+pub const MODESET_ATTEMPTS: u32 = 3;
+
 /// The mode on screen and the game's place in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Current {
@@ -79,6 +87,8 @@ pub struct Odren {
     /// try it again until the source on screen comes back, or the monitor
     /// or the settings change.
     blocked: Option<SourceGeometry>,
+    /// Device errors of the modeset that the last input change asked for.
+    failed_attempts: u32,
     frame: u64,
     /// The mode on the display is one the inputs refuse, or one the engine
     /// does not know after a failed restore.
@@ -126,6 +136,7 @@ impl Odren {
             redo: None,
             commit: None,
             blocked: None,
+            failed_attempts: 0,
             frame: 0,
             refused_on_screen: false,
             muted: false,
@@ -227,7 +238,9 @@ impl Odren {
     /// display does. Call it once per core frame, not once per flip.
     pub fn on_frame(&mut self, source: SourceGeometry) -> Directive {
         self.frame += 1;
-        self.commit = None;
+        if let Some(stale) = self.commit.take() {
+            self.keep_trigger(stale.record.trigger);
+        }
         let directive = self.step(source);
         if directive == Directive::Modeset {
             self.muted = true;
@@ -332,6 +345,7 @@ impl Odren {
                 });
                 self.request = None;
                 self.blocked = None;
+                self.failed_attempts = 0;
                 self.refused_on_screen = false;
                 AfterModeSet::Done
             }
@@ -351,7 +365,7 @@ impl Odren {
                 if matches!(error, DisplayError::ModeRefused { .. }) {
                     self.refused_by_driver(requested);
                 } else {
-                    self.blocked = Some(commit.source);
+                    self.after_device_error(commit.record.trigger, commit.source);
                 }
                 self.trace.push(SwitchRecord {
                     outcome: Outcome::SetModeFailed(error.clone()),
@@ -456,7 +470,32 @@ impl Odren {
         self.inputs.style_rows(source)
     }
 
+    /// A modeset of a monitor, settings or retry change that did not reach
+    /// the display is decided again on the next frame. A geometry or
+    /// launch modeset needs no help: its source asks again.
+    fn keep_trigger(&mut self, trigger: Trigger) {
+        if !matches!(trigger, Trigger::Geometry | Trigger::Launch) && self.redo.is_none() {
+            self.redo = Some(trigger);
+        }
+    }
+
+    /// A geometry or launch modeset blocks its source. Any other is tried
+    /// again, up to [`MODESET_ATTEMPTS`] in all.
+    fn after_device_error(&mut self, trigger: Trigger, source: SourceGeometry) {
+        if matches!(trigger, Trigger::Geometry | Trigger::Launch) {
+            self.blocked = Some(source);
+            return;
+        }
+        self.failed_attempts += 1;
+        if self.failed_attempts < MODESET_ATTEMPTS {
+            self.keep_trigger(trigger);
+        } else {
+            self.blocked = Some(source);
+        }
+    }
+
     fn invalidate(&mut self, trigger: Trigger) {
+        self.failed_attempts = 0;
         self.generation += 1;
         self.commit = None;
         self.cache.clear();

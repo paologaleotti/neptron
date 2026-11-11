@@ -22,7 +22,7 @@ pub use cache::CACHE_ENTRIES;
 pub use decision::{Chosen, Refusal, Unshowable, Veto};
 pub use engine::{Presented, VideoEngine, VideoError};
 pub use monitor::Monitor;
-pub use odren::{Current, DEBOUNCE_FRAMES, Directive, Odren};
+pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
 pub use scene::build_scene;
 pub use settings::{SettingsError, policy_settings};
 pub use trace::{Outcome, SwitchRecord, SwitchTrace, TRACE_CAPACITY, Trigger};

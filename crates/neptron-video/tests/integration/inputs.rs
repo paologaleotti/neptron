@@ -3,10 +3,11 @@
 use neptron_platform::{EdidProfile, TimingFormula};
 use neptron_safety::Rejection;
 use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
+use neptron_testkit::{FlipFault, ModeFault};
 use neptron_types::Modeline;
 use neptron_video::{
-    Directive, Monitor, Outcome, PictureStyle, PolicySettings, Refusal, Trigger, Unshowable,
-    VideoError,
+    Directive, MODESET_ATTEMPTS, Monitor, Outcome, PictureStyle, PolicySettings, Refusal, Trigger,
+    Unshowable, VideoError,
 };
 
 use crate::harness::{MD_H40, Rig, SNES, fixed_width, frame, generic_15, native_width};
@@ -219,4 +220,92 @@ fn a_modeset_decided_before_a_settings_or_veto_change_is_never_set() {
         !rig.modes().contains(&fixed),
         "the vetoed mode is never set"
     );
+}
+
+fn passes(monitor: &Monitor, mode: &Modeline) -> bool {
+    let caps = monitor.caps_for(&CAPS_LOW_CLOCK);
+    neptron_safety::validate(mode, monitor.profile(), &caps).is_ok()
+}
+
+#[test]
+fn a_monitor_modeset_that_is_not_presented_is_decided_again() {
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    rig.frame(SNES);
+    rig.engine.set_monitor(generic_15());
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Modeset);
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Modeset);
+    rig.engine.present(Some(frame(&SNES)), None).unwrap();
+    rig.engine.wait_flip().unwrap();
+    assert!(passes(&generic_15(), &rig.current_mode()));
+    assert!(!rig.engine.current_refused());
+}
+
+#[test]
+fn a_monitor_modeset_whose_flip_wait_fails_is_decided_again() {
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    rig.frame(SNES);
+    rig.engine.begin_frame(SNES);
+    let index = rig.fake.next_present_index();
+    rig.fake.fault_flip(
+        index,
+        FlipFault::WaitFails {
+            reason: "EIO".to_owned(),
+        },
+    );
+    rig.engine.present(Some(frame(&SNES)), None).unwrap();
+    rig.engine.set_monitor(generic_15());
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Modeset);
+    assert!(rig.engine.present(Some(frame(&SNES)), None).is_err());
+    for _ in 0..3 {
+        if rig.try_frame(SNES).is_ok() && passes(&generic_15(), &rig.current_mode()) {
+            break;
+        }
+    }
+    assert!(passes(&generic_15(), &rig.current_mode()));
+    assert!(!rig.engine.current_refused());
+}
+
+#[test]
+fn a_device_error_on_a_monitor_modeset_is_tried_again_up_to_the_bound() {
+    let new = crate::harness::mode_for(generic_15(), native_width(), SNES);
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    rig.frame(SNES);
+    rig.fake.fault_requested_mode(
+        new,
+        ModeFault::Device {
+            reason: "EIO".to_owned(),
+        },
+    );
+    rig.engine.set_monitor(generic_15());
+    for _ in 0..MODESET_ATTEMPTS {
+        assert_eq!(rig.frame(SNES).directive, Directive::Modeset);
+    }
+    for _ in 0..5 {
+        assert_eq!(rig.frame(SNES).directive, Directive::Steady);
+    }
+    let asked = rig
+        .fake
+        .mode_calls()
+        .iter()
+        .filter(|c| c.requested == new)
+        .count();
+    assert_eq!(asked, MODESET_ATTEMPTS as usize);
+    assert!(rig.engine.current_refused(), "the 31 kHz mode is still on");
+}
+
+#[test]
+fn a_device_error_on_a_monitor_modeset_then_success() {
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    rig.frame(SNES);
+    rig.fake.fault_mode(
+        1,
+        ModeFault::Device {
+            reason: "EIO".to_owned(),
+        },
+    );
+    rig.engine.set_monitor(generic_15());
+    rig.frame(SNES);
+    assert_eq!(rig.frame(SNES).directive, Directive::Modeset);
+    assert!(passes(&generic_15(), &rig.current_mode()));
+    assert!(!rig.engine.current_refused());
 }
