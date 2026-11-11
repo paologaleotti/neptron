@@ -101,3 +101,31 @@ Each open point is one section:
 - Where: `crates/neptron-types/src/event.rs`
 - How to change: add variants.
 - Decision:
+
+### OP-010: Is the UI canvas transparent over the game?
+
+- Raised by: T06
+- Status: open
+- Default: opaque. The X byte of the canvas is ignored, so the quick menu hides the game where it is drawn.
+- Where: `crates/neptron-gfx/src/reference/overlay.rs`
+- How to change: a contract change (an alpha or colour-key rule for the canvas), with an ADR, then the overlay, its tests and one golden.
+- Decision:
+
+### OP-011: How is the UI placed on a super-width mode?
+
+- Raised by: T06
+- Status: open, to decide before T19 and T25
+- Default: one uniform integer scale, centred. On a 1920x240 mode the 320-pixel menu fills one sixth of the width.
+- Where: `crates/neptron-gfx/src/reference/overlay.rs`, `placement`
+- How to change: a contract change. `Scene` carries a UI destination rectangle or a scale per axis, which the video side chooses.
+- Decision:
+
+### OP-012: What the OpenGL ES renderer must do to match the reference renderer.
+
+- Raised by: T06 review
+- Status: open, input for T19
+- Default: none. T19 reads this point.
+- Where: `crates/neptron-gfx/src/reference.rs`
+- How to change: T19 computes the source index from `gl_FragCoord` with a small bias and `highp`, expands 5 and 6 bit channels itself (rounded, not bit replication), converts XRGB1555, and clamps the taps to the crop in the shader.
+- Decision:
+

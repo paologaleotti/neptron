@@ -37,7 +37,7 @@ name = "Safety validator"
 owns = ["crates/neptron-safety"]
 needs = ["T02"]
 gate = "Timing check 2"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T05"
@@ -46,7 +46,7 @@ name = "Switchres wrapper"
 owns = ["crates/neptron-modeline", "crates/neptron-switchres-sys", "vendor/switchres"]
 needs = ["T02"]
 gate = "Timing check 1, identical on macOS and Linux"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T06"
@@ -55,7 +55,7 @@ name = "Reference renderer"
 owns = ["crates/neptron-gfx except src/gles"]
 needs = ["T02"]
 gate = "Pixel goldens"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "T07"
@@ -64,7 +64,7 @@ name = "UI core"
 owns = ["crates/neptron-ui", "xtask/src/ui"]
 needs = ["T01"]
 gate = "First scene golden is bit-identical on both hosts"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T08"
@@ -73,7 +73,7 @@ name = "Settings"
 owns = ["crates/neptron-settings"]
 needs = ["T01"]
 gate = "Unit tests and fixtures"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T09"
@@ -82,7 +82,7 @@ name = "Libretro bindings and test core"
 owns = ["crates/neptron-libretro-sys", "crates/neptron-testcore"]
 needs = ["T01"]
 gate = "Test core builds as a dynamic library; layout tests"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T10"
@@ -100,7 +100,7 @@ name = "GPU detection and capability table"
 owns = ["crates/neptron-platform", "data/hardware"]
 needs = ["T02"]
 gate = "Unit tests on fixture sysfs trees"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T12"
