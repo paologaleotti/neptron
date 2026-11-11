@@ -137,6 +137,8 @@ pub enum Action {
     },
     /// Ask the frontend to shut down with `RETRO_ENVIRONMENT_SHUTDOWN`.
     Shutdown,
+    /// Send an environment command that no frontend knows, with null data.
+    UnknownEnv,
     /// Read a core option with `GET_VARIABLE` and write the answer code
     /// (`value_code`) to one byte of save RAM.
     GetVariable {
@@ -558,6 +560,10 @@ impl Builder {
                     value: u8::try_from(a.number(1, "byte value", 0, 255)?)
                         .map_err(|_| a.value_error(1, "byte value"))?,
                 }
+            }
+            "unknown_env" => {
+                a.count(0)?;
+                Action::UnknownEnv
             }
             "get_variable" => {
                 a.count(2)?;
@@ -1114,6 +1120,16 @@ mod tests {
         assert!(matches!(
             parse("at 2 get_variable neptron_testcore_mode"),
             Err(ScriptError::Arguments { expected: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn unknown_env_takes_no_arguments() {
+        let s = parse("at 7 unknown_env").unwrap();
+        assert_eq!(s.events[0].action, Action::UnknownEnv);
+        assert!(matches!(
+            parse("at 7 unknown_env 3"),
+            Err(ScriptError::Arguments { expected: 0, .. })
         ));
     }
 

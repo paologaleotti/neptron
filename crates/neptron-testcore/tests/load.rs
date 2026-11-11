@@ -12,8 +12,8 @@ use std::sync::{Mutex, MutexGuard};
 use libloading::Library;
 use neptron_libretro_sys::*;
 use neptron_testcore::{
-    CORE_OPTIONS, PixelFormat, SCRIPT_ENV, Size, VALUE_NOT_SET, declaration, expected_hash,
-    frames_after, hash, sample,
+    CORE_OPTIONS, PixelFormat, SCRIPT_ENV, Size, UNKNOWN_ENVIRONMENT_COMMAND, VALUE_NOT_SET,
+    declaration, expected_hash, frames_after, hash, sample,
 };
 
 /// What the frontend callbacks saw.
@@ -25,6 +25,7 @@ enum Seen {
     Shutdown,
     Variables(Vec<(String, String)>),
     GetVariable(String),
+    Unknown(c_uint),
     Frame { size: Size, pitch: usize, hash: u64 },
     Dupe,
     Audio { first: u64, frames: usize },
@@ -56,6 +57,7 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
     let mut f = frontend();
     match cmd {
         RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME => true,
+        RETRO_ENVIRONMENT_GET_LOG_INTERFACE => false,
         RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => {
             // SAFETY: libretro.h: the data is a `const enum retro_pixel_format *`.
             let format = unsafe { *data.cast::<retro_pixel_format>() };
@@ -135,7 +137,10 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
                 None => false,
             }
         }
-        _ => false,
+        other => {
+            f.seen.push(Seen::Unknown(other));
+            false
+        }
     }
 }
 
@@ -390,6 +395,7 @@ at 3 av_info 320 240 0 320 240 50000 48000
 at 4 shutdown
 at 4 get_variable neptron_testcore_mode 6
 at 4 get_variable neptron_testcore_level 7
+at 4 unknown_env
 ";
 
 #[test]
@@ -479,6 +485,7 @@ fn a_scripted_run_through_the_raw_api() {
         Seen::Shutdown,
         Seen::GetVariable("neptron_testcore_mode".to_owned()),
         Seen::GetVariable("neptron_testcore_level".to_owned()),
+        Seen::Unknown(UNKNOWN_ENVIRONMENT_COMMAND),
         frame(qvga, 4),
         audio(
             ntsc_total + frames_after(1, pal),

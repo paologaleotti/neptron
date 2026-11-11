@@ -29,6 +29,7 @@ Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` afte
 | `dupe` | Sends no frame data (`NULL`) for this frame, if the frontend allows duplicate frames |
 | `sram_write <offset> <byte>` | Writes one byte of save RAM |
 | `shutdown` | Calls `RETRO_ENVIRONMENT_SHUTDOWN` |
+| `unknown_env` | Calls environment command `0x24E54` (`RETRO_ENVIRONMENT_PRIVATE \| 0x4E54`, `UNKNOWN_ENVIRONMENT_COMMAND`) with null data. No frontend knows it, so a host can test how it answers an unknown call |
 | `get_variable <key> <offset>` | Calls `GET_VARIABLE` for a core option and writes the answer code to the save RAM byte at `offset` (see Core options) |
 
 The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB. An error names the line. A script with an error makes `retro_load_game` return false.

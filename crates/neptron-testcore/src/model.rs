@@ -19,6 +19,11 @@ use crate::script::{Action, AudioMode, AvInfo, Geometry, PixelFormat, Script, Si
 /// the frame width keep it until a wider frame covers them.
 pub const PADDING_BYTE: u8 = 0xA5;
 
+/// The command number of the `unknown_env` event. It is in the range that
+/// libretro.h reserves for private use, so no frontend knows it.
+pub const UNKNOWN_ENVIRONMENT_COMMAND: u32 =
+    neptron_libretro_sys::RETRO_ENVIRONMENT_PRIVATE | 0x4E54;
+
 /// A call that the core makes into the frontend environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Request {
@@ -34,6 +39,8 @@ pub enum Request {
     AvInfo(AvInfo),
     /// `RETRO_ENVIRONMENT_SHUTDOWN`
     Shutdown,
+    /// [`UNKNOWN_ENVIRONMENT_COMMAND`], with null data.
+    UnknownEnv,
     /// `RETRO_ENVIRONMENT_GET_VARIABLE`. The answer code goes to the save
     /// RAM byte at `offset`.
     GetVariable {
@@ -304,6 +311,7 @@ impl Core {
                     self.save_ram.write(to_usize(offset), value);
                 }
                 Action::Shutdown => requests.push(Request::Shutdown),
+                Action::UnknownEnv => requests.push(Request::UnknownEnv),
                 Action::GetVariable { option, offset } => {
                     requests.push(Request::GetVariable { option, offset });
                 }
@@ -562,6 +570,17 @@ mod tests {
                 offset: 1
             }]
         );
+    }
+
+    #[test]
+    fn unknown_env_becomes_a_request_at_its_frame() {
+        let mut c = core("at 0 unknown_env\nat 0 unknown_env\n");
+        assert_eq!(
+            run(&mut c, 0).requests,
+            [Request::UnknownEnv, Request::UnknownEnv]
+        );
+        assert!(run(&mut c, 0).requests.is_empty());
+        assert_eq!(UNKNOWN_ENVIRONMENT_COMMAND, 0x2_4E54);
     }
 
     #[test]

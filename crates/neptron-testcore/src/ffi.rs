@@ -32,7 +32,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use neptron_libretro_sys::*;
 
-use crate::model::{Core, Request, Step, Video};
+use crate::model::{Core, Request, Step, UNKNOWN_ENVIRONMENT_COMMAND, Video};
 use crate::options::{VALUE_NOT_LISTED, VALUE_NOT_SET, value_code};
 use crate::script::{AudioMode, AvInfo, Geometry, PixelFormat, Script, Size};
 
@@ -525,6 +525,9 @@ fn send(callbacks: &Callbacks, step: &Step) {
             }
             Request::Shutdown => {
                 env::<c_void>(callbacks, RETRO_ENVIRONMENT_SHUTDOWN, ptr::null_mut())
+            }
+            Request::UnknownEnv => {
+                env::<c_void>(callbacks, UNKNOWN_ENVIRONMENT_COMMAND, ptr::null_mut())
             }
             Request::GetVariable { option, offset } => {
                 let code = get_variable(callbacks, option);
