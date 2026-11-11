@@ -8,7 +8,8 @@ neptron/
 ├── crates/
 │   ├── neptron-types           shared data: modeline, monitor profile, GPU capabilities, source geometry
 │   ├── neptron-backend         display, audio, input and clock traits
-│   ├── neptron-modeline        Switchres wrapper, profiles, ODREN policy (no I/O)
+│   ├── neptron-modeline        safe Switchres wrapper, profiles, ODREN policy (no I/O)
+│   ├── neptron-switchres-sys   Switchres C++ build and raw FFI calls, nothing else
 │   ├── neptron-safety          ValidatedMode, range checks, hard rails
 │   ├── neptron-kms             DRM/KMS: connectors, atomic commits, flip events, buffers
 │   ├── neptron-window          desktop window backend for development
@@ -53,7 +54,7 @@ neptron/
 - `neptron-modeline` and `neptron-safety` depend only on the shared types crate. They build and test on any laptop, with no hardware.
 - `neptron-kms` accepts `ValidatedMode` only. `neptron-video` is the single crate that joins solver, safety and KMS.
 - `neptron-ui` depends on no other NEPTRON crate, and only the app binary depends on it: state snapshot in, scene and intents out. `neptron-session` mediates between UI, core host and video.
-- `unsafe` is allowed only in `-sys`, `libretro`, `kms`, `gfx`, `audio` and `input`. Every other crate carries `#![forbid(unsafe_code)]`.
+- `unsafe` is allowed only in `-sys`, `libretro`, `kms`, `gfx`, `audio`, `input` and `testcore`. Every other crate carries `#![forbid(unsafe_code)]`. `unsafe` is used only where no safe way exists, in the smallest possible block, with a `// SAFETY:` comment that states the invariant. `neptron-testcore` uses it only for the exported libretro functions, and it is never in the image.
 - No async runtime in the frontend. One frame loop on the main thread, plus dedicated audio and I/O threads talking over channels.
 - Display, audio and input sit behind traits. A windowed desktop backend lets UI work happen on a laptop; `neptron-testkit` fakes let CI run a full launch-play-exit session with no GPU.
 
