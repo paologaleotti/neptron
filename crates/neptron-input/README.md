@@ -15,7 +15,7 @@ The tests drive layers 2 to 4 with scripted devices and scripted input, with no 
 
 - `Mapper`: `connect_gamepad(identity)`, `connect_keyboard()`, `disconnect(device, out)`, `apply(device, raw, out)`. `MapperError`.
 - `PortStates`: `apply(events)`, `value(port, control)`, `is_held(port, control)`.
-- `Hotkeys`: `update(ports, now_ns, out)` gives `Hotkey::QuickMenu { port }` and `Hotkey::BlindRecovery { port }`.
+- `Hotkeys`: `update(ports, now_ns, out)` gives `Hotkey::QuickMenu { port }` and `Hotkey::BlindRecovery { port }`. `set_start_hold_ns(hold_ns)` and `start_hold_ns()` give the Start hold time (0 is off).
 - `port_of(device)`, `DeviceIdentity`, the id ranges and limits.
 - The mapping tables and rules: `PAD_BUTTON_MAP`, `pad_control`, `axis_target`, `stick_value`, `trigger_value`, `hat_values`, `KEY_MAP`, `key_control`, `looks_like_keyboard`.
 - `InputNotice`: what a backend tells the frontend to log.
@@ -99,11 +99,34 @@ The same code runs on the device, where no video subsystem and no pump exist, an
 | --- | --- | --- |
 | Quick menu | Select + Start (`QUICK_MENU_COMBO`) | when the combination goes down |
 | Blind recovery | Select + Start (`BLIND_RECOVERY_COMBO`) | when it has stayed down for `BLIND_RECOVERY_HOLD_NS` (5 s) |
+| Quick menu | Start alone (`START_HOLD_BUTTON`), off by default | when it has stayed down alone for the time of `set_start_hold_ns` |
 
 - Each fires once per hold. A release starts the hold time again.
 - The hold counts from the first `update` that sees the combination, so call `update` every frame, also with no event.
 - A recovery hold opens the quick menu first. The frontend acts on the recovery even when the menu is open.
 - The recogniser reads the port state only. It needs no picture and no UI, and the control API and scripted input can trigger it.
+
+### The Start hold
+
+An arcade panel can have no Select button. For it, Start held alone can open the quick menu. The setting `input.menu_hold_start_seconds` of `neptron-settings` holds the time in seconds. 0 is off, and 0 is the default.
+
+The rule for "Start alone", on each port:
+
+- The hold starts at the first `update` that sees Start down and Select (`START_HOLD_BLOCKER`) up.
+- It fires one `Hotkey::QuickMenu` when it has lasted the hold time: at exactly the hold time, not one nanosecond before.
+- A release of Start ends the hold. The next press starts a new one.
+- Select down on the same port ends the hold, and no new hold starts until Start is released. So Select and Start give only their own quick menu at once, also when Select goes up again while Start stays down. A Start hold that fired and a recovery hold that follows on the same press of Start are both possible: Start alone fires first, then Select joins and the combination behaves as always.
+- Other buttons on the port, and every button on other ports, do not matter.
+- A disconnect releases Start, so it ends the hold.
+- A new hold time ends every hold in progress. The same time again changes nothing. A time set before the first `update` applies to a Start held from power-on.
+
+The Select and Start combination and the blind recovery do not change, with the Start hold on or off.
+
+What the app (T27) must do:
+
+- Read the resolved `input.menu_hold_start_seconds`, multiply it by 1 000 000 000, and pass it to `Hotkeys::set_start_hold_ns`. It can pass it every frame, or when the setting changes.
+- The core sees Start down for the whole hold, so the game can act on it before the menu opens (for example, it pauses). The recogniser only reports and changes no port state. When the hold fires, the app opens the quick menu, which pauses the core. From then on, the app gives the core Start up on that port until Start is released, so the core sees one release and no new press when it resumes.
+- The 2 s of an arcade panel is a choice of the first-boot setup, which writes it to the settings. It is not a hidden default in this crate or in the app: nothing tells a pad from a panel.
 
 ## Frame loop and latency
 
@@ -135,6 +158,7 @@ These need a device and are not verified:
 - SDL3 without libudev finds a gamepad plugged in after start (inotify on `/dev/input`).
 - A USB keyboard on the image: found, grabbed (no key reaches a console), mapped, and released when unplugged.
 - Blind recovery from a gamepad and from a keyboard with no picture.
+- The Start hold from an arcade panel encoder with no Select button.
 - The combination held at boot on a keyboard encoder triggers recovery.
 
 ## Must never depend on
