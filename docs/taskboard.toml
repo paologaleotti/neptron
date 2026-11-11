@@ -271,5 +271,5 @@ name = "Contract change: UI destination rectangle in Scene"
 owns = ["crates/neptron-types/src/scene.rs", "crates/neptron-gfx/src/reference", "callers in crates/neptron-testkit and crates/neptron-window", "docs/adr"]
 needs = ["T03", "T06", "T13"]
 gate = "T1; goldens updated and viewed; an ADR"
-status = "in_review"
+status = "merged"
 
