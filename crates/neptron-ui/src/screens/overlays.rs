@@ -26,6 +26,17 @@ const MESSAGE_BYTES: usize = 256;
 /// Width of the background ring that separates a dialog from the screen
 /// under it, in pixels.
 const RING_PX: u32 = 4;
+/// The frames in a row with no direction action that the confirm dialog
+/// waits for before left and right move its focus.
+///
+/// `UiAction` has no press or repeat flag, so the dialog cannot see that a
+/// key is still held: a direction held from the screen below reaches it as
+/// key repeat. One quiet frame proves nothing, because key repeat leaves
+/// gaps (a first delay of about 400 ms, then a press every few frames).
+/// 60 frames is longer than such a delay at every refresh up to 120 Hz, so
+/// a held key keeps the dialog waiting, and the player who releases the
+/// key can keep the mode about one second later.
+pub(super) const QUIET_FRAMES_BEFORE_MOVE: u32 = 60;
 /// The notices that the UI remembers as dismissed until the app removes
 /// them from the snapshot.
 const DISMISSED_SLOTS: usize = 8;
@@ -39,10 +50,16 @@ const DISMISSED_SLOTS: usize = 8;
 /// the last frame, or when the last frame had none. After one answer the
 /// dialog ignores input until the snapshot drops the confirmation or holds
 /// a new one.
+///
+/// A held direction must not move the focus to Keep: after a confirmation
+/// appears, the dialog ignores left and right until it has seen
+/// [`QUIET_FRAMES_BEFORE_MOVE`] frames in a row with no direction action.
+/// Accept and back work at once, and revert while the focus is on Revert.
 pub(super) struct Confirm {
     dialog: Dialog,
     answered: bool,
     id: Option<ConfirmId>,
+    quiet_frames: u32,
 }
 
 /// The notices of the snapshot, oldest first, one at a time.
@@ -58,6 +75,7 @@ impl Confirm {
             dialog: Dialog::new(REVERT),
             answered: false,
             id: None,
+            quiet_frames: 0,
         }
     }
 
@@ -71,8 +89,31 @@ impl Confirm {
         }
     }
 
+    /// Counts the frames in a row with no direction action, once per frame
+    /// after its actions. A direction starts the count again until the
+    /// dialog takes left and right.
+    pub(super) fn end_frame(&mut self, actions: &[UiAction]) {
+        if self.takes_directions() {
+            return;
+        }
+        let direction = actions.iter().any(|a| {
+            matches!(
+                a,
+                UiAction::Up | UiAction::Down | UiAction::Left | UiAction::Right
+            )
+        });
+        self.quiet_frames = if direction {
+            0
+        } else {
+            self.quiet_frames.saturating_add(1)
+        };
+    }
+
     pub(super) fn handle(&mut self, action: UiAction, out: &mut Vec<Intent>) {
         if self.answered {
+            return;
+        }
+        if matches!(action, UiAction::Left | UiAction::Right) && !self.takes_directions() {
             return;
         }
         let intent = match self.dialog.handle(action, CONFIRM_BUTTONS.len()) {
@@ -82,6 +123,10 @@ impl Confirm {
         };
         out.push(intent);
         self.answered = true;
+    }
+
+    fn takes_directions(&self) -> bool {
+        self.quiet_frames >= QUIET_FRAMES_BEFORE_MOVE
     }
 
     pub(super) fn draw(&self, pending: &PendingConfirm, theme: &Theme, frame: &mut UiFrame) {

@@ -105,6 +105,7 @@ impl Screens {
             self.handle(action, snap, &mut out.intents);
             self.follow(snap);
         }
+        self.confirm.end_frame(actions);
         if let Some(request) = self.request(snap) {
             out.intents.push(request);
         }
