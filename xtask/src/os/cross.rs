@@ -19,7 +19,7 @@ pub struct CrossPlan {
     pub export: PathBuf,
     /// The package.
     pub package: String,
-    /// The features to turn on.
+    /// The features to turn on; empty for none.
     pub features: String,
     /// The example to build.
     pub example: String,
@@ -30,19 +30,11 @@ impl CrossPlan {
     /// of the program to the export directory.
     pub fn steps(&self) -> Vec<Vec<String>> {
         let target = self.arch.rust_target();
-        let build = [
-            "cargo",
-            "build",
-            "--locked",
-            "--package",
-            &self.package,
-            "--features",
-            &self.features,
-            "--example",
-            &self.example,
-            "--target",
-            target,
-        ];
+        let mut build = vec!["cargo", "build", "--locked", "--package", &self.package];
+        if !self.features.is_empty() {
+            build.extend(["--features", &self.features]);
+        }
+        build.extend(["--example", &self.example, "--target", target]);
         let program = format!("{HOME}/target/{target}/debug/examples/{}", self.example);
         vec![
             self.run(&build),
@@ -78,15 +70,20 @@ impl CrossPlan {
             "CARGO_TARGET_{}_LINKER",
             self.arch.rust_target().to_uppercase().replace('-', "_")
         );
+        let gcc = format!("{host_bin}/{}-buildroot-linux-gnu-gcc", self.arch.name());
+        // The `cc` crate of build scripts looks for these, and else for a
+        // cross compiler name that the container does not have.
+        let target_cc = format!("CC_{}", self.arch.rust_target().replace('-', "_"));
+        let target_ar = format!("AR_{}", self.arch.rust_target().replace('-', "_"));
+        let ar = format!("{host_bin}/{}-buildroot-linux-gnu-ar", self.arch.name());
         for (name, value) in [
             ("PATH".to_owned(), format!("{host_bin}:/usr/bin:/bin")),
             ("CARGO_HOME".to_owned(), format!("{HOME}/.cargo")),
             ("CARGO_TARGET_DIR".to_owned(), format!("{HOME}/target")),
             ("CARGO_BUILD_JOBS".to_owned(), cpus.clone()),
-            (
-                linker_var,
-                format!("{host_bin}/{}-buildroot-linux-gnu-gcc", self.arch.name()),
-            ),
+            (linker_var, gcc.clone()),
+            (target_cc, gcc),
+            (target_ar, ar),
         ] {
             args.push("--env".to_owned());
             args.push(format!("{name}={value}"));
@@ -140,6 +137,27 @@ mod tests {
             build.contains(
                 "--env CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=\
                  /work/out/host/bin/aarch64-buildroot-linux-gnu-gcc"
+            ),
+            "{build}"
+        );
+        assert!(
+            build.contains(
+                "--env CC_aarch64_unknown_linux_gnu=\
+                 /work/out/host/bin/aarch64-buildroot-linux-gnu-gcc"
+            ),
+            "{build}"
+        );
+    }
+
+    #[test]
+    fn a_build_without_features_names_none() {
+        let mut p = plan();
+        p.features = String::new();
+        let build = p.steps()[0].join(" ");
+        assert!(
+            build.ends_with(
+                "cargo build --locked --package neptron-gfx --example gles_compare \
+                 --target aarch64-unknown-linux-gnu"
             ),
             "{build}"
         );
