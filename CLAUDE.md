@@ -35,7 +35,7 @@ On macOS, xtask runs every command under `taskpolicy -c utility` and holds one o
 
 1. One task is one local branch `mvp/<task>` in its own worktree `.worktrees/<task>`. Nothing is pushed. No pull requests.
 2. A task starts from current `main` when all its needs are merged.
-3. A task edits only the paths in its "Owns" column. Only the orchestrator edits the root `Cargo.toml`, `Cargo.lock`, `CLAUDE.md`, `docs/taskboard.toml` and `docs/open-points.md`. Ask for a new workspace dependency in the task report.
+3. A task edits only the paths in its "Owns" column. Only the orchestrator edits the root `Cargo.toml`, `Cargo.lock`, `CLAUDE.md`, `docs/taskboard.toml` and `docs/open-points.md`. A new external dependency goes in `[workspace.dependencies]`, in a separate `build(deps)` commit with the reason, and in the task report.
 4. A needed change to a contract, a brief or earlier code goes on a separate small branch: the change, every caller fixed, and an ADR.
 5. Conventional Commits, one logical change each with its tests. Each commit builds and passes T0 and T1. No `wip` or fixup commits. Rebase, never merge. No emojis. No mention of AI, Claude or any assistant, and no `Co-Authored-By` trailer, anywhere.
 6. A "spec first" task commits its file in `docs/spec/` before any code.

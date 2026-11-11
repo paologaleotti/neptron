@@ -19,14 +19,14 @@ name = "Contracts and monitor presets"
 owns = ["crates/neptron-types", "crates/neptron-backend", "API of crates/neptron-safety", "data/monitors"]
 needs = ["T01"]
 gate = "T1; code matches the contracts block"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T03"
 wave = 1
 name = "Test fakes"
 owns = ["crates/neptron-testkit"]
-needs = ["T02"]
+needs = ["T02", "T04"]
 gate = "A 1,000-frame fake session gives identical output twice"
 status = "pending"
 
@@ -116,7 +116,7 @@ id = "T13"
 wave = 1
 name = "Window backend"
 owns = ["crates/neptron-window"]
-needs = ["T02"]
+needs = ["T02", "T04"]
 gate = "Builds on both hosts; smoke test"
 status = "pending"
 

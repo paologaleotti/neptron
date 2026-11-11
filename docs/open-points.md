@@ -74,3 +74,30 @@ Each open point is one section:
 - Where: `xtask/src/rules.rs`, `bracket_body`
 - How to change: handle char literals and comments inside attributes.
 - Decision:
+
+### OP-007: Can preset data derived from Switchres stay in the permissively licensed tree?
+
+- Raised by: T02
+- Status: open, needs the project owner
+- Default: the 25 files in `data/monitors` stay, and `data/monitors/README.md` states the origin (Switchres, GPL-2.0-or-later, commit 09272ac).
+- Where: `data/monitors`
+- How to change: move the presets to a directory with its own GPL licence file, or write the values again from the monitor specifications.
+- Decision:
+
+### OP-008: The four `vesa_*` presets of Switchres are not converted.
+
+- Raised by: T02
+- Status: open
+- Default: absent. Switchres computes them at run time with floating-point GTF maths, so there is no table to convert.
+- Where: `data/monitors/README.md`
+- How to change: T05 can produce them through Switchres.
+- Decision:
+
+### OP-009: `InputEvent` has no hotplug event and no device that is not a RetroPad.
+
+- Raised by: T02
+- Status: open
+- Default: absent. A later addition does not change the existing wire format.
+- Where: `crates/neptron-types/src/event.rs`
+- How to change: add variants.
+- Decision:

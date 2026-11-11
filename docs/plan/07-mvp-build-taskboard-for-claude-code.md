@@ -24,7 +24,7 @@ Highlighted boxes are the critical path. Every other task has slack. The taskboa
 
 1. One task is one branch (`mvp/T05-modeline`) in its own git worktree. The branch stays local (rule 15).
 2. A task starts from current `main`, and only when every task in its "Needs" column is merged.
-3. A task edits only the paths in its "Owns" column. The orchestrator alone edits the root `Cargo.toml`, `Cargo.lock`, `CLAUDE.md`, `docs/taskboard.toml` and `docs/open-points.md`. A task asks for a new workspace dependency in its task report.
+3. A task edits only the paths in its "Owns" column. The orchestrator alone edits the root `Cargo.toml`, `Cargo.lock`, `CLAUDE.md`, `docs/taskboard.toml` and `docs/open-points.md`. A task that needs a new external dependency adds it to `[workspace.dependencies]` in the root `Cargo.toml`, in a separate `build(deps)` commit with the reason in the body, and lists it in its task report. The orchestrator resolves conflicts in the root `Cargo.toml` and `Cargo.lock` at the rebase.
 4. The contracts and the task briefs below are the starting point, not a cage. A task that needs a contract, a brief or an earlier task's code to change makes that change itself, on a separate small branch: the change, every caller in the workspace fixed so that all crates still build, and an ADR that says why. The orchestrator verifies and merges it before anything else, updates this document and the taskboard, and tells every running task to rebase onto main. A running task rebases, adapts, and continues.
 5. Commits are Conventional Commits (`feat(modeline): add crt_range parser`), one logical change each, as many as the work needs. Each commit builds and passes T0 and T1. No `wip` or fixup commits: rebase before merge. Always rebase, never merge: a branch gets new commits from main with git rebase only, and no merge commit exists anywhere in the history. Merges are fast-forward only, so `main` stays linear and bisectable. No emojis. No mention of AI, Claude or any assistant, and no Co-Authored-By trailer, in commits, branch names, pull requests, code or comments. CLAUDE.md files are tracked in the repository as usual.
 6. A task marked "spec first" commits its file in `docs/spec/` before any code. The reviewer checks the spec against the Definition before the code.
@@ -50,7 +50,7 @@ Highlighted boxes are the critical path. Every other task has slack. The taskboa
 
 ### Contracts
 
-T02 turns this sketch into code. Names, fields and units are the agreed starting point; rule 4 says how they change. All values are integers: frequencies in millihertz, times in nanoseconds.
+T02 turned this sketch into code. The code in `crates/neptron-types`, `crates/neptron-safety` and `crates/neptron-backend` is now the contract, and rule 4 says how it changes. The block below is the original sketch; `docs/adr/0001-contract-corrections-in-code.md` lists the differences (a tenth `Rejection` variant `Malformed`, payloads on every variant, `FlipEvent`, `InputEvent` and `Control` in `neptron-types`, `DisplayError`, and snake_case names on the wire). All values are integers: frequencies in millihertz, times in nanoseconds.
 
 ```rust
 // neptron-types: plain data with serde, no I/O, #![forbid(unsafe_code)]
@@ -126,7 +126,7 @@ pub trait Clock { fn now_ns(&self) -> u64; }
 | --- | --- | --- | --- | --- | --- |
 | T01 | 0 | Scaffold | Whole repo | None | T0 green on both hosts in CI |
 | T02 | 0 | Contracts and monitor presets | `crates/neptron-types`, `crates/neptron-backend`, API of `crates/neptron-safety`, `data/monitors` | T01 | T1; code matches the contracts block |
-| T03 | 1 | Test fakes | `crates/neptron-testkit` | T02 | A 1,000-frame fake session gives identical output twice |
+| T03 | 1 | Test fakes | `crates/neptron-testkit` | T02, T04 | A 1,000-frame fake session gives identical output twice |
 | T04 | 1 | Safety validator | `crates/neptron-safety` | T02 | Timing check 2 |
 | T05 | 1 | Switchres wrapper | `crates/neptron-modeline`, `crates/neptron-switchres-sys`, `vendor/switchres` | T02 | Timing check 1, identical on macOS and Linux |
 | T06 | 1 | Reference renderer | `crates/neptron-gfx` except `src/gles` | T02 | Pixel goldens |
@@ -136,7 +136,7 @@ pub trait Clock { fn now_ns(&self) -> u64; }
 | T10 | 1 | Library | `crates/neptron-library`, `data/systems`, `data/cores` | T01 | Fixture trees; a 10,000-game query fits the frame budget |
 | T11 | 1 | GPU detection and capability table | `crates/neptron-platform`, `data/hardware` | T02 | Unit tests on fixture sysfs trees |
 | T12 | 1 | Control protocol and `neptronctl` client | `crates/neptron-ipc`, `apps/neptronctl` | T02 | Round-trip tests |
-| T13 | 1 | Window backend | `crates/neptron-window` | T02 | Builds on both hosts; smoke test |
+| T13 | 1 | Window backend | `crates/neptron-window` | T02, T04 | Builds on both hosts; smoke test |
 | T14 | 1 | OS base and QEMU | `os/`, `Dockerfile`, `xtask/src/os` | T01 | Image boots in QEMU; `vkms` findings in the task report |
 | T15 | 2 | ODREN policy | `crates/neptron-modeline/src/policy` | T05, T11 | Timing checks 3 and 4 |
 | T16 | 2 | Libretro host (spec first) | `crates/neptron-libretro`, `docs/spec/libretro-host.md` | T03, T09 | Test-core frame hashes |
@@ -194,7 +194,7 @@ Each brief lists what the task must deliver and the choices that are already mad
 
 ### How the orchestrator runs a task
 
-**Pilot first.** Wave 0 (T01 and T02) runs alone. The contracts block is a sketch that was never compiled, so T02 may correct it where the compiler demands, and records each correction in an ADR and in this document. After T02 merges, the orchestrator proves that the stubs of every wave-1 crate build against the contracts, sends you a short report, and waits for your go. Wave 1 then starts its twelve tasks. Later contract changes follow rule 4.
+**Pilot first.** Wave 0 (T01 and T02) runs alone. The contracts block is a sketch that was never compiled, so T02 may correct it where the compiler demands, and records each correction in an ADR and in this document. After T02 merges, the orchestrator proves that the stubs of every wave-1 crate build against the contracts, sends you a short report, and waits for your go. Wave 1 then starts its twelve tasks. T03 and T13 are written with the others, but they merge after T04, because only `validate` can make the `ValidatedMode` that a display needs. Later contract changes follow rule 4.
 
 1. Pick every task whose needs are merged. Start one implementer agent per task, each in its own worktree. The brief is the task's two table rows, the contracts block, the Definition sections it names, and the crate README.
 2. The implementer writes tests with the code, runs the gate, and sends the orchestrator a task report with the gate summary and any open points.
