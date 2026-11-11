@@ -357,11 +357,11 @@ Each open point is one section:
 ### OP-038: Which combination is the blind recovery, and the arcade quick-menu rule.
 
 - Raised by: T18
-- Status: open, needs a decision from the owner
+- Status: decided by the owner
 - Default: Select+Start opens the quick menu. The same combination held for 5 s is the blind recovery. The arcade rule "hold Start for 2 s" is not implemented, because nothing tells a pad from a panel with no Select.
 - Where: `QUICK_MENU_COMBO`, `BLIND_RECOVERY_COMBO` and `BLIND_RECOVERY_HOLD_NS` in `crates/neptron-input/src/hotkeys.rs`
 - How to change: edit the constants. The arcade rule needs a second hold timer.
-- Decision:
+- Decision: Select+Start opens the quick menu, and the same combination held for 5 s is the blind recovery. "Hold Start for N seconds" becomes a setting (off by default, 2 s on an arcade panel). Change C03 adds it.
 
 ### OP-039: Input limits that hardware must show.
 
@@ -411,11 +411,11 @@ Each open point is one section:
 ### OP-044: A binary that embeds the monitor presets carries their GPL licence.
 
 - Raised by: T21
-- Status: open, needs a decision from the owner before the first release
+- Status: decided by the owner
 - Default: `kms-spike` embeds `data/monitors` and states `(MIT OR Apache-2.0) AND GPL-2.0-or-later`. It is a bench tool and is not shipped. The same question comes back for the main binary: if it embeds the presets, the binary is GPL-2.0-or-later as a whole.
 - Where: `tools/kms-spike/Cargo.toml`, `data/monitors/LICENSE`
 - How to change: load the presets from files on the image at run time, so that the binary embeds no GPL data.
-- Decision:
+- Decision: the main binary loads the monitor presets from files on the image at run time and embeds no GPL data. T27 and T28 follow this. `kms-spike` stays as it is.
 
 ### OP-045: What `kms-spike` has not shown.
 
@@ -429,7 +429,7 @@ Each open point is one section:
 ### OP-046: Readings of the Definition in the ODREN policy that the owner must confirm.
 
 - Raised by: T15 and its reviews
-- Status: open, needs a decision from the owner
+- Status: decided in part by the owner
 - Default: each reading is one named constant or function, listed in the README under "Readings".
   1. The `native` picture style walks the same rungs as `auto`, so both give the same plan today. The other reading: `native` falls only to interlaced 1:1, then to the fit, and never to a multiple.
   2. Borders exist only in 224 or 240 line modes (`BORDER_LINES`). On a 31 kHz monitor, Master System, Atari 2600 and ZX Spectrum get a filtered fit, where a pixel-exact 2x in a 400-line mode is possible. WonderSwan on `generic_15` gets a 144 to 221 line stretch at 65 Hz.
@@ -440,7 +440,7 @@ Each open point is one section:
   7. A flat panel gives no notice for its refresh rate.
 - Where: `crates/neptron-modeline/README.md`, `crates/neptron-modeline/src/policy`
 - How to change: edit the named constant or function, and update the table rows and the goldens.
-- Decision:
+- Decision: (1) `native` means the lines of the game 1:1 and never a multiple; `auto` takes the best exact result for the monitor, which is native on 15 kHz and line doubled on 31 kHz. (2) Pixel exact has priority: a border mode can have any height that the monitor accepts, and a filtered fit is the last choice. Change C02 does both. Points 3 to 7 keep their defaults.
 
 ### OP-047: Limits of the ODREN policy.
 
