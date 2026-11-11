@@ -3,7 +3,7 @@
 //! the GLES renderer with the reference on the same scenes.
 
 use neptron_types::{
-    Filter, Frame, PixelFormat, Rect, Scanlines, Scene, ui_dest_fill, ui_dest_uniform,
+    Filter, Frame, PixelFormat, Rect, ScanlineKind, Scanlines, Scene, ui_dest_fill, ui_dest_uniform,
 };
 
 /// Extra bytes at the end of each source row, so that the scenes also
@@ -116,6 +116,8 @@ pub struct Case {
     pub dest: Rect,
     /// The game filter.
     pub filter: Filter,
+    /// The scanlines over the game.
+    pub scanlines: Scanlines,
     /// The UI canvas.
     pub ui: Option<Source>,
     /// The destination of the UI canvas.
@@ -142,6 +144,7 @@ impl Case {
             crop,
             dest,
             filter,
+            scanlines: Scanlines::NONE,
             ui: None,
             ui_dest: rect(0, 0, 0, 0),
             width,
@@ -158,6 +161,17 @@ impl Case {
         }
     }
 
+    /// This case with black scanlines at `strength_percent`.
+    pub fn with_black_lines(self, strength_percent: u8) -> Self {
+        Self {
+            scanlines: Scanlines {
+                kind: ScanlineKind::Black,
+                strength_percent,
+            },
+            ..self
+        }
+    }
+
     /// The scene, borrowing the images of the case.
     pub fn scene(&self) -> Scene<'_> {
         Scene {
@@ -165,7 +179,7 @@ impl Case {
             crop: self.crop,
             dest: self.dest,
             filter: self.filter,
-            scanlines: Scanlines::NONE,
+            scanlines: self.scanlines,
             ui: self.ui.as_ref().map(Source::frame),
             ui_dest: self.ui_dest,
         }
@@ -264,5 +278,102 @@ pub fn golden_cases() -> Vec<Case> {
             (96, 24),
         )
         .with_ui(pattern(16, 12, Xrgb8888), rect(-10, 4, 100, 18)),
+        // Line doubling with black scanlines. Borders at the left and the
+        // right show that only the game lines darken.
+        Case::game(
+            "scanlines_2x_strength_100",
+            pattern(8, 6, Xrgb8888),
+            rect(0, 0, 8, 6),
+            rect(4, 0, 16, 12),
+            Nearest,
+            (24, 12),
+        )
+        .with_black_lines(100),
+        Case::game(
+            "scanlines_2x_strength_50",
+            pattern(8, 6, Xrgb8888),
+            rect(0, 0, 8, 6),
+            rect(4, 0, 16, 12),
+            Nearest,
+            (24, 12),
+        )
+        .with_black_lines(50),
+        Case::game(
+            "scanlines_2x_strength_0",
+            pattern(8, 6, Xrgb8888),
+            rect(0, 0, 8, 6),
+            rect(4, 0, 16, 12),
+            Nearest,
+            (24, 12),
+        )
+        .with_black_lines(0),
+        Case::game(
+            "scanlines_3x_rgb565",
+            pattern(8, 6, Rgb565),
+            rect(0, 0, 8, 6),
+            rect(0, 0, 24, 18),
+            Nearest,
+            (24, 18),
+        )
+        .with_black_lines(100),
+        Case::game(
+            "scanlines_4x_xrgb1555",
+            pattern(6, 4, Xrgb1555),
+            rect(0, 0, 6, 4),
+            rect(0, 0, 24, 16),
+            Nearest,
+            (24, 16),
+        )
+        .with_black_lines(75),
+        // 6 lines to 15: a scale of 2.5 shows no scanlines.
+        Case::game(
+            "scanlines_fractional_scale",
+            pattern(8, 6, Xrgb8888),
+            rect(0, 0, 8, 6),
+            rect(0, 0, 16, 15),
+            Nearest,
+            (16, 15),
+        )
+        .with_black_lines(100),
+        Case::game(
+            "scanlines_1x_scale",
+            pattern(8, 6, Xrgb8888),
+            rect(0, 0, 8, 6),
+            rect(4, 3, 8, 6),
+            Nearest,
+            (16, 12),
+        )
+        .with_black_lines(100),
+        // The destination starts on line 3, so the dark lines are the even
+        // output lines 4 to 12.
+        Case::game(
+            "scanlines_crop_and_odd_offset",
+            pattern(8, 8, Rgb565),
+            rect(1, 1, 6, 5),
+            rect(2, 3, 12, 10),
+            Nearest,
+            (16, 15),
+        )
+        .with_black_lines(100),
+        Case::game(
+            "scanlines_under_the_ui",
+            pattern(16, 12, Xrgb8888),
+            rect(0, 0, 16, 12),
+            rect(0, 0, 32, 24),
+            Nearest,
+            (32, 24),
+        )
+        .with_black_lines(100)
+        .with_ui(pattern(16, 12, Xrgb1555), rect(8, 6, 16, 12)),
+        // A width of 29 for 10 pixels blends columns; the height is 2x.
+        Case::game(
+            "scanlines_sharp_bilinear",
+            pattern(10, 6, Xrgb8888),
+            rect(0, 0, 10, 6),
+            rect(1, 0, 29, 12),
+            SharpBilinear,
+            (32, 12),
+        )
+        .with_black_lines(60),
     ]
 }

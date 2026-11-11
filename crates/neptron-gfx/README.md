@@ -6,7 +6,7 @@ Renderers for a `Scene`. `ReferenceRenderer` (CPU, pure Rust) defines the correc
 
 - `struct ReferenceRenderer` with `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), RenderError>`
 - `struct OutputBuffer { data: &mut [u8], width: u32, height: u32, pitch: usize }`, owned by the caller
-- `enum RenderError`, with `Image`, `RectKind` and `MAX_RECT_SIDE_PX`
+- `enum RenderError`, with `Image`, `RectKind` and `MAX_RECT_SIDE_PX`. `ScanlineStrengthTooHigh` refuses a scanline strength above 100 %.
 - `gles::GlesRenderer` (feature `gles`) with `headless() -> Result<Self, GlesError>`, `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), GlesError>`, `gl_strings()`, `max_texture_side()` and `max_output_side()`
 - `gles::GlesError`, `gles::MAX_AXIS_PRODUCT`
 
@@ -19,6 +19,7 @@ The doc comment of `ReferenceRenderer` states every pixel rule. In short:
 - Mapping: destination pixel `i` samples the source at `crop.x + (i + 1/2) * crop.w / dest.w`, an exact fraction. Each axis scales on its own. A sample outside the frame is black. A zero-size crop or destination shows no game.
 - Nearest: the source pixel under the sample point. A point on an edge takes the right or the lower pixel.
 - Sharp bilinear: the libretro `sharp-bilinear` formula with an integer prescale per axis. Taps clamp to the crop inside the frame. Each channel is the exact blend, rounded half up. At an integer scale it equals nearest.
+- Scanlines: `scene.scanlines` darkens lines of the game picture, with the rule in the doc comment of `neptron_types::Scanlines` (ADR 0006). Only at a whole vertical scale `k = dest.h / crop.h` of at least 2. Destination line `j`, counted from `dest.y`, is dark when `j mod k >= k - d`, with `d = ScanlineKind::dark_lines(k)`: for black lines the last `floor(k / 2)` lines of each group (2x: 1 of 2, 3x: 1 of 3, 4x: 2 of 4). A dark channel is the exact value times `(100 - strength) / 100`, rounded half up, on the gamma-encoded 8-bit values: `(c * (100 - strength) + 50) / 100` for nearest, and the exact blend scaled before its one rounding for sharp bilinear. Borders, samples outside the frame and the UI canvas do not change. A fractional scale or a scale of 1 shows no scanlines, and `Scanlines::NONE` gives the output of a renderer with no scanline support.
 - UI canvas: opaque, over the game. The whole canvas scales to `scene.ui_dest` with nearest scaling, each axis on its own, with the sample rule of the game (pixel centres, `floor`). A part outside the output is clipped. A zero-size `ui_dest` shows no UI. The renderer does not choose the rectangle: the video side sets it with `ui_dest_fill` (CRT) or `ui_dest_uniform` (flat panel) from `neptron-types`.
 - Rectangles: a crop, destination or UI destination side above `MAX_RECT_SIDE_PX` (65 536) is refused with `RenderError::RectTooLarge`, so no position or size can make the renderer panic.
 - Integer maths only, so every host gives the same bytes.
@@ -49,6 +50,8 @@ The check against the reference is `cargo xtask gles-compare` (tier T3). It buil
 ## Goldens
 
 `tests/goldens.rs` renders the scenes of `tests/common/scenes.rs` and compares them with `tests/goldens/*.ppm` byte for byte. The format is binary PPM: the header `P6\n<width> <height>\n255\n`, then 3 bytes (R, G, B) per pixel, rows top to bottom. Most image viewers open it. The output X byte is not in the file; the test checks it separately.
+
+The `scanlines_*` goldens cover 2x at 0, 50 and 100 %, 3x, 4x, a fractional scale, a scale of 1, a crop with a destination on an odd line, the UI over the game, and sharp bilinear, with each pixel format once. The test `scanline_strength_sheet` also writes `target/tmp/scanline-sheet/scanlines_2x_strength_0_50_100.ppm`: one 256x224 picture at 2x with black scanlines at 0, 50 and 100 %, side by side, to look at. It checks each panel with the pixel rule.
 
 When a golden does not match or is missing, the test writes the rendered image to `target/tmp/goldens-actual/<name>.ppm` and prints the difference. To accept a new image, look at it first, then copy it to `tests/goldens/`. Never copy an image to get a green run.
 

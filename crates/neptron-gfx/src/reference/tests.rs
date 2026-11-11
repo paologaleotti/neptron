@@ -1,4 +1,4 @@
-use neptron_types::{Filter, Frame, PixelFormat, Rect, Scanlines, Scene};
+use neptron_types::{Filter, Frame, PixelFormat, Rect, ScanlineKind, Scanlines, Scene};
 
 use super::{Image, MAX_RECT_SIDE_PX, OutputBuffer, RectKind, ReferenceRenderer, RenderError};
 
@@ -633,4 +633,158 @@ fn a_short_ui_canvas_is_refused() {
             min: 10
         }
     );
+}
+
+fn black_lines(strength_percent: u8) -> Scanlines {
+    Scanlines {
+        kind: ScanlineKind::Black,
+        strength_percent,
+    }
+}
+
+/// A one-column game of `lines` source lines, each its own colour, scaled
+/// to `dest` with black scanlines at `strength_percent`.
+fn scanline_scene<'a>(game: &'a [u8], lines: u16, dest: Rect, strength_percent: u8) -> Scene<'a> {
+    Scene {
+        scanlines: black_lines(strength_percent),
+        ..scene(
+            Some(frame(game, 1, lines)),
+            rect(0, 0, 1, u32::from(lines)),
+            dest,
+            Filter::Nearest,
+        )
+    }
+}
+
+#[test]
+fn two_x_black_scanlines_darken_the_second_line_of_each_pair() {
+    let data = xrgb(&[0x00_FF8001, 0x00_030405]);
+    let s = scanline_scene(&data, 2, rect(0, 0, 1, 4), 100);
+    assert_eq!(render(&s, 1, 4), [0xFF_FF8001, BLACK, 0xFF_030405, BLACK]);
+    // 50 %: (c * 50 + 50) / 100, a half rounded up.
+    let s = scanline_scene(&data, 2, rect(0, 0, 1, 4), 50);
+    assert_eq!(
+        render(&s, 1, 4),
+        [0xFF_FF8001, 0xFF_804001, 0xFF_030405, 0xFF_020203]
+    );
+}
+
+#[test]
+fn zero_strength_and_none_give_the_same_pixels() {
+    let data = xrgb(&[0x00_FF8001, 0x00_030405]);
+    let plain = scene(
+        Some(frame(&data, 1, 2)),
+        rect(0, 0, 1, 2),
+        rect(0, 1, 1, 4),
+        Filter::Nearest,
+    );
+    let zero = scanline_scene(&data, 2, rect(0, 1, 1, 4), 0);
+    assert_eq!(render(&zero, 1, 6), render(&plain, 1, 6));
+}
+
+#[test]
+fn three_x_darkens_one_line_in_three_and_four_x_two_in_four() {
+    let data = xrgb(&[0x00_FFFFFF, 0x00_808080]);
+    let (w, g) = (0xFF_FFFFFF, 0xFF_808080);
+    let s = scanline_scene(&data, 2, rect(0, 0, 1, 6), 100);
+    assert_eq!(render(&s, 1, 6), [w, w, BLACK, g, g, BLACK]);
+    let s = scanline_scene(&data, 2, rect(0, 0, 1, 8), 100);
+    assert_eq!(render(&s, 1, 8), [w, w, BLACK, BLACK, g, g, BLACK, BLACK]);
+}
+
+#[test]
+fn a_fractional_or_unit_scale_has_no_scanlines() {
+    let data = xrgb(&[0x00_FFFFFF, 0x00_808080]);
+    for dest in [rect(0, 0, 1, 5), rect(0, 0, 1, 2), rect(0, 0, 1, 3)] {
+        let plain = scene(
+            Some(frame(&data, 1, 2)),
+            rect(0, 0, 1, 2),
+            dest,
+            Filter::Nearest,
+        );
+        let lined = scanline_scene(&data, 2, dest, 100);
+        assert_eq!(render(&lined, 1, 5), render(&plain, 1, 5), "{dest:?}");
+    }
+}
+
+#[test]
+fn the_pattern_follows_the_destination_not_the_output_parity() {
+    let data = xrgb(&[0x00_FFFFFF, 0x00_808080]);
+    let (w, g) = (0xFF_FFFFFF, 0xFF_808080);
+    let s = scanline_scene(&data, 2, rect(0, 1, 1, 4), 100);
+    assert_eq!(render(&s, 1, 6), [BLACK, w, BLACK, g, BLACK, BLACK]);
+    // A destination that starts above the output keeps its phase.
+    let s = scanline_scene(&data, 2, rect(0, -1, 1, 4), 100);
+    assert_eq!(render(&s, 1, 3), [BLACK, g, BLACK]);
+}
+
+#[test]
+fn a_crop_offset_keeps_the_pattern_on_whole_source_lines() {
+    let data = xrgb(&[0x00_000001, 0x00_000002, 0x00_000003]);
+    let s = Scene {
+        scanlines: black_lines(100),
+        ..scene(
+            Some(frame(&data, 1, 3)),
+            rect(0, 1, 1, 2),
+            rect(0, 0, 1, 4),
+            Filter::Nearest,
+        )
+    };
+    assert_eq!(render(&s, 1, 4), [BLACK | 2, BLACK, BLACK | 3, BLACK]);
+}
+
+#[test]
+fn sharp_bilinear_scales_the_exact_blend_before_rounding() {
+    // Two source pixels over three columns: the middle one is the exact
+    // half of 0 and 1. Rounded alone it is 1; at 50 % it is 0.25, so 0.
+    // Rounding twice would give 1.
+    let data = xrgb(&[0x00_000000, 0x00_000001]);
+    let s = Scene {
+        scanlines: black_lines(50),
+        ..scene(
+            Some(frame(&data, 2, 1)),
+            rect(0, 0, 2, 1),
+            rect(0, 0, 3, 2),
+            Filter::SharpBilinear,
+        )
+    };
+    assert_eq!(
+        render(&s, 3, 2),
+        [BLACK, BLACK | 1, BLACK | 1, BLACK, BLACK, BLACK | 1]
+    );
+}
+
+#[test]
+fn the_ui_and_the_borders_are_not_darkened() {
+    let game = xrgb(&[0x00_FFFFFF]);
+    let ui = xrgb(&[0x00_123456]);
+    let s = Scene {
+        ui: Some(frame(&ui, 1, 1)),
+        ui_dest: rect(1, 0, 1, 4),
+        ..scanline_scene(&game, 1, rect(0, 0, 2, 2), 100)
+    };
+    let (w, u) = (0xFF_FFFFFF, 0xFF_123456);
+    assert_eq!(
+        render(&s, 3, 4),
+        [
+            w, u, BLACK, BLACK, u, BLACK, BLACK, u, BLACK, BLACK, u, BLACK
+        ]
+    );
+}
+
+#[test]
+fn a_scanline_strength_above_100_is_refused() {
+    let data = xrgb(&[1, 2]);
+    let s = scanline_scene(&data, 2, rect(0, 0, 1, 4), 101);
+    let mut out = vec![7_u8; 16];
+    assert_eq!(
+        render_err(&s, &mut out, 1, 4, 4),
+        RenderError::ScanlineStrengthTooHigh {
+            strength_percent: 101,
+            limit: 100
+        }
+    );
+    // Without a game frame the strength is not used, and not checked.
+    let s = Scene { game: None, ..s };
+    assert_eq!(render(&s, 1, 4), [BLACK; 4]);
 }

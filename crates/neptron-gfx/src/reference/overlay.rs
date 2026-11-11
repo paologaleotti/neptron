@@ -1,6 +1,7 @@
 use neptron_types::{Filter, Frame, Rect};
 
 use super::axis::AxisMap;
+use super::scanline::FULL_PERCENT;
 use super::{OutputBuffer, ReferenceRenderer, fill_taps, output_row, sample, visible};
 
 impl ReferenceRenderer {
@@ -28,7 +29,9 @@ impl ReferenceRenderer {
                 continue;
             };
             for (px, column) in row.chunks_exact_mut(4).zip(&self.columns) {
-                px.copy_from_slice(&sample(ui, *column, *line, (1, 1)).to_xrgb8888_le());
+                px.copy_from_slice(
+                    &sample(ui, *column, *line, (1, 1), FULL_PERCENT).to_xrgb8888_le(),
+                );
             }
         }
     }

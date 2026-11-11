@@ -1,6 +1,6 @@
 use std::fmt;
 
-use neptron_types::{Frame, Rect};
+use neptron_types::{Frame, Rect, Scanlines};
 
 use super::OutputBuffer;
 
@@ -62,6 +62,15 @@ pub enum RenderError {
         h: u32,
         /// The limit, [`MAX_RECT_SIDE_PX`].
         limit: u32,
+    },
+    /// The scanline strength is above
+    /// [`Scanlines::MAX_STRENGTH_PERCENT`].
+    #[error("the scanline strength is {strength_percent} %, above the limit of {limit} %")]
+    ScanlineStrengthTooHigh {
+        /// The strength, in percent.
+        strength_percent: u8,
+        /// The limit, in percent.
+        limit: u8,
     },
 }
 
@@ -136,6 +145,16 @@ pub(crate) fn check_rect(rect: &Rect, kind: RectKind) -> Result<(), RenderError>
             w: rect.w,
             h: rect.h,
             limit: MAX_RECT_SIDE_PX,
+        });
+    }
+    Ok(())
+}
+
+pub(crate) fn check_scanlines(scanlines: &Scanlines) -> Result<(), RenderError> {
+    if scanlines.strength_percent > Scanlines::MAX_STRENGTH_PERCENT {
+        return Err(RenderError::ScanlineStrengthTooHigh {
+            strength_percent: scanlines.strength_percent,
+            limit: Scanlines::MAX_STRENGTH_PERCENT,
         });
     }
     Ok(())
@@ -262,6 +281,28 @@ mod tests {
                 h: MAX_RECT_SIDE_PX + 1,
                 limit: MAX_RECT_SIDE_PX
             })
+        );
+    }
+
+    #[test]
+    fn scanline_strength_limit_is_inclusive() {
+        let at = |strength_percent| Scanlines {
+            kind: neptron_types::ScanlineKind::Black,
+            strength_percent,
+        };
+        assert_eq!(check_scanlines(&at(100)), Ok(()));
+        assert_eq!(check_scanlines(&Scanlines::NONE), Ok(()));
+        let e = check_scanlines(&at(101)).unwrap_err();
+        assert_eq!(
+            e,
+            RenderError::ScanlineStrengthTooHigh {
+                strength_percent: 101,
+                limit: 100
+            }
+        );
+        assert_eq!(
+            e.to_string(),
+            "the scanline strength is 101 %, above the limit of 100 %"
         );
     }
 

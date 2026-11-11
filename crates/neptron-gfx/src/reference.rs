@@ -5,14 +5,17 @@ mod axis;
 mod error;
 mod overlay;
 mod pixel;
+mod scanline;
 
 pub use error::{Image, MAX_RECT_SIDE_PX, RectKind, RenderError};
-pub(crate) use error::{check_frame, check_output, check_rect};
+pub(crate) use error::{check_frame, check_output, check_rect, check_scanlines};
+pub(crate) use scanline::Pattern;
 
 use neptron_types::{Frame, Scene};
 
 use axis::{AxisMap, Tap};
 use pixel::Rgb;
+use scanline::FULL_PERCENT;
 
 /// The buffer that [`ReferenceRenderer::render`] writes, owned by the
 /// caller.
@@ -92,6 +95,20 @@ pub struct OutputBuffer<'a> {
 /// Below a scale of 1, `p` is 1 and the filter is a plain bilinear blend at
 /// the pixel centre.
 ///
+/// # Scanlines
+///
+/// `scene.scanlines` darkens lines of the game picture, with the rule that
+/// the doc comment of [`Scanlines`](neptron_types::Scanlines) states. In
+/// short: only at a whole vertical scale `k = dest.h / crop.h` of at least
+/// 2; destination line `j` (counted from `dest.y`) is dark when
+/// `j mod k >= k - d`, with `d` from
+/// [`ScanlineKind::dark_lines`](neptron_types::ScanlineKind::dark_lines);
+/// a channel of a dark line is the exact value times
+/// `(100 - strength) / 100`, rounded half up, so nearest gives
+/// `(c * (100 - strength) + 50) / 100` and sharp bilinear scales the exact
+/// blend before its one rounding. Borders, pixels outside the frame and the
+/// UI canvas do not change.
+///
 /// # UI canvas
 ///
 /// The UI canvas is drawn after the game, over it, and is opaque: every
@@ -108,7 +125,7 @@ pub struct OutputBuffer<'a> {
 ///
 /// The pixel path uses integer maths only, so the output is the same on
 /// every host. With rectangle sides up to [`MAX_RECT_SIDE_PX`], no value
-/// overflows a `u64`.
+/// overflows a `u64`: a blend sum times 200 stays below `2^52`.
 ///
 /// # Allocation
 ///
@@ -133,10 +150,12 @@ impl ReferenceRenderer {
     /// # Errors
     ///
     /// [`RenderError`] when a frame or the output buffer is smaller than
-    /// its size and pitch need, or when a side of a rectangle that the
-    /// scene uses is above [`MAX_RECT_SIDE_PX`]: the crop and the
-    /// destination with a game frame, the UI destination with a canvas. The renderer checks
-    /// everything before it writes, so `out` is unchanged after an error.
+    /// its size and pitch need, when a side of a rectangle that the
+    /// scene uses is above [`MAX_RECT_SIDE_PX`] (the crop and the
+    /// destination with a game frame, the UI destination with a canvas),
+    /// or when the scanline strength of a scene with a game frame is above
+    /// 100 %. The renderer checks everything before it writes, so `out` is
+    /// unchanged after an error.
     pub fn render(
         &mut self,
         scene: &Scene<'_>,
@@ -147,6 +166,7 @@ impl ReferenceRenderer {
             check_frame(game, Image::Game)?;
             check_rect(&scene.crop, RectKind::Crop)?;
             check_rect(&scene.dest, RectKind::Dest)?;
+            check_scanlines(&scene.scanlines)?;
         }
         if let Some(ui) = &scene.ui {
             check_frame(ui, Image::Ui)?;
@@ -187,12 +207,15 @@ impl ReferenceRenderer {
         fill_taps(&mut self.lines, &y_map, y0, y1, dest.y);
 
         let den = (x_map.denominator(), y_map.denominator());
+        let pattern = Pattern::of(scene.scanlines, crop.h, dest.h);
         for (y, line) in (y0..y1).zip(&self.lines) {
+            let j = (i64::from(y) - i64::from(dest.y)) as u32;
+            let keep = pattern.map_or(FULL_PERCENT, |p| p.keep(j));
             let Some(row) = output_row(out, y, x0, x1) else {
                 continue;
             };
             for (px, column) in row.chunks_exact_mut(4).zip(&self.columns) {
-                px.copy_from_slice(&sample(game, *column, *line, den).to_xrgb8888_le());
+                px.copy_from_slice(&sample(game, *column, *line, den, keep).to_xrgb8888_le());
             }
         }
     }
@@ -230,7 +253,15 @@ fn fill_black(out: &mut OutputBuffer<'_>) {
     }
 }
 
-fn sample(frame: &Frame<'_>, column: Tap, line: Tap, (den_x, den_y): (u64, u64)) -> Rgb {
+/// The colour at `column` and `line`, with each channel scaled by
+/// `keep_percent / 100` before its one rounding.
+fn sample(
+    frame: &Frame<'_>,
+    column: Tap,
+    line: Tap,
+    (den_x, den_y): (u64, u64),
+    keep_percent: u32,
+) -> Rgb {
     let (
         Tap::Inside {
             near: x_near,
@@ -246,8 +277,19 @@ fn sample(frame: &Frame<'_>, column: Tap, line: Tap, (den_x, den_y): (u64, u64))
     else {
         return Rgb::BLACK;
     };
+    let keep = u64::from(keep_percent);
     if wx == 0 && wy == 0 {
-        return pixel::read(frame, x_near, y_near);
+        let c = pixel::read(frame, x_near, y_near);
+        if keep_percent == FULL_PERCENT {
+            return c;
+        }
+        // keep is at most 100, so the quotient is at most 255.
+        let scale = |v: u8| ((u64::from(v) * keep + 50) / 100) as u8;
+        return Rgb {
+            r: scale(c.r),
+            g: scale(c.g),
+            b: scale(c.b),
+        };
     }
     let taps = [
         (
@@ -258,11 +300,12 @@ fn sample(frame: &Frame<'_>, column: Tap, line: Tap, (den_x, den_y): (u64, u64))
         (pixel::read(frame, x_near, y_far), (den_x - wx) * wy),
         (pixel::read(frame, x_far, y_far), wx * wy),
     ];
-    let total = den_x * den_y;
+    let total = den_x * den_y * u64::from(FULL_PERCENT);
     let channel = |get: fn(&Rgb) -> u8| {
         let sum: u64 = taps.iter().map(|(c, w)| u64::from(get(c)) * w).sum();
-        // The weights sum to `total`, so the rounded quotient is at most 255.
-        ((2 * sum + total) / (2 * total)) as u8
+        // The weights sum to `total / 100` and keep is at most 100, so the
+        // rounded quotient is at most 255.
+        ((2 * sum * keep + total) / (2 * total)) as u8
     };
     Rgb {
         r: channel(|c| c.r),

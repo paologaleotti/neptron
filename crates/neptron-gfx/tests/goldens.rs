@@ -13,7 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use neptron_gfx::{OutputBuffer, ReferenceRenderer};
-use neptron_types::Scene;
+use neptron_types::{Filter, PixelFormat, Scanlines, Scene};
 
 #[path = "common/scenes.rs"]
 mod scenes;
@@ -212,6 +212,56 @@ fn ui_fractional_scale_clipped() {
     golden("ui_fractional_scale_clipped");
 }
 
+#[test]
+fn scanlines_2x_strength_100() {
+    golden("scanlines_2x_strength_100");
+}
+
+#[test]
+fn scanlines_2x_strength_50() {
+    golden("scanlines_2x_strength_50");
+}
+
+#[test]
+fn scanlines_2x_strength_0() {
+    golden("scanlines_2x_strength_0");
+}
+
+#[test]
+fn scanlines_3x_rgb565() {
+    golden("scanlines_3x_rgb565");
+}
+
+#[test]
+fn scanlines_4x_xrgb1555() {
+    golden("scanlines_4x_xrgb1555");
+}
+
+#[test]
+fn scanlines_fractional_scale() {
+    golden("scanlines_fractional_scale");
+}
+
+#[test]
+fn scanlines_1x_scale() {
+    golden("scanlines_1x_scale");
+}
+
+#[test]
+fn scanlines_crop_and_odd_offset() {
+    golden("scanlines_crop_and_odd_offset");
+}
+
+#[test]
+fn scanlines_under_the_ui() {
+    golden("scanlines_under_the_ui");
+}
+
+#[test]
+fn scanlines_sharp_bilinear() {
+    golden("scanlines_sharp_bilinear");
+}
+
 /// Renders the case `name` of the scene list and compares it with its
 /// golden.
 fn golden(name: &str) {
@@ -220,6 +270,137 @@ fn golden(name: &str) {
         .find(|c| c.name == name)
         .expect("the scene list has the case");
     check(name, &render(&case.scene(), case.width, case.height));
+}
+
+#[test]
+fn scanline_cases_with_no_effect_equal_the_plain_scene() {
+    for name in [
+        "scanlines_2x_strength_0",
+        "scanlines_fractional_scale",
+        "scanlines_1x_scale",
+    ] {
+        let case = scenes::golden_cases()
+            .into_iter()
+            .find(|c| c.name == name)
+            .expect("the scene list has the case");
+        let plain = Scene {
+            scanlines: Scanlines::NONE,
+            ..case.scene()
+        };
+        let (w, h) = (case.width, case.height);
+        assert!(
+            render(&case.scene(), w, h) == render(&plain, w, h),
+            "{name} differs from the scene with no scanlines"
+        );
+    }
+}
+
+/// A 256x224 game picture: colour bars, a grey ramp, a sky gradient and a
+/// floor of tiles, with some hard edges. It only serves the sheet below.
+fn game_picture() -> scenes::Source {
+    scenes::Source::from_fn(256, 224, PixelFormat::Xrgb8888, |x, y| {
+        let (x, y) = (u32::from(x), u32::from(y));
+        let rgb = |r: u32, g: u32, b: u32| (r << 16) | (g << 8) | b;
+        const BARS: [u32; 8] = [
+            0xFFFFFF, 0xFFFF00, 0x00FFFF, 0x00FF00, 0xFF00FF, 0xFF0000, 0x0000FF, 0x000000,
+        ];
+        match y {
+            0..32 => BARS[(x / 32) as usize],
+            32..48 => rgb(x, x, x),
+            48..144 => {
+                let sun = (x as i32 - 180).pow(2) + (y as i32 - 90).pow(2) < 400;
+                if sun {
+                    rgb(255, 220, 64)
+                } else {
+                    rgb(40 + (y - 48), 80 + (y - 48), 200)
+                }
+            }
+            _ => {
+                let tile = ((x / 16) + (y / 16)) % 2 == 0;
+                let edge = x % 16 == 0 || y % 16 == 0;
+                match (edge, tile) {
+                    (true, _) => rgb(20, 20, 20),
+                    (false, true) => rgb(200, 120, 60),
+                    (false, false) => rgb(150, 80, 40),
+                }
+            }
+        }
+    })
+}
+
+/// Renders the game picture at 2x with black scanlines at 0, 50 and 100 %,
+/// checks each panel with the pixel rule, and writes the three side by side
+/// to `scanline-sheet/scanlines_2x_strength_0_50_100.ppm` in the Cargo test
+/// temporary directory, to look at.
+#[test]
+fn scanline_strength_sheet() {
+    const GAP_PX: u32 = 16;
+    let source = game_picture();
+    let (w, h) = (512, 448);
+    let panel = |strength_percent| {
+        let case = scenes::Case::game(
+            "sheet",
+            game_picture(),
+            scenes::rect(0, 0, 256, 224),
+            scenes::rect(0, 0, w, h),
+            Filter::Nearest,
+            (w, h),
+        )
+        .with_black_lines(strength_percent);
+        render(&case.scene(), w, h)
+    };
+    let panels = [panel(0), panel(50), panel(100)];
+    let plain = scenes::Case::game(
+        "plain",
+        source,
+        scenes::rect(0, 0, 256, 224),
+        scenes::rect(0, 0, w, h),
+        Filter::Nearest,
+        (w, h),
+    );
+    assert!(panels[0] == render(&plain.scene(), w, h));
+    let row = |image: &Rgb, y: u32| {
+        let start = (y * w * 3) as usize;
+        image.bytes[start..start + (w * 3) as usize].to_vec()
+    };
+    for y in (0..h).step_by(2) {
+        let bright = row(&panels[0], y);
+        assert_eq!(row(&panels[2], y), bright, "line {y} at 100 %");
+        assert_eq!(row(&panels[1], y), bright, "line {y} at 50 %");
+        assert!(
+            row(&panels[2], y + 1).iter().all(|&c| c == 0),
+            "line {} at 100 %",
+            y + 1
+        );
+        let half: Vec<u8> = bright
+            .iter()
+            .map(|&c| ((u32::from(c) * 50 + 50) / 100) as u8)
+            .collect();
+        assert_eq!(row(&panels[1], y + 1), half, "line {} at 50 %", y + 1);
+    }
+
+    let sheet_w = 3 * w + 2 * GAP_PX;
+    let mut bytes = Vec::with_capacity((sheet_w * h * 3) as usize);
+    for y in 0..h {
+        for (i, image) in panels.iter().enumerate() {
+            if i > 0 {
+                bytes.extend(std::iter::repeat_n(0x40, (GAP_PX * 3) as usize));
+            }
+            bytes.extend_from_slice(&row(image, y));
+        }
+    }
+    let sheet = Rgb {
+        width: sheet_w,
+        height: h,
+        bytes,
+    };
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("scanline-sheet");
+    fs::create_dir_all(&dir).expect("make the sheet directory");
+    fs::write(
+        dir.join("scanlines_2x_strength_0_50_100.ppm"),
+        encode_ppm(&sheet),
+    )
+    .expect("write the sheet");
 }
 
 #[test]
