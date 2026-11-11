@@ -20,9 +20,14 @@ pub enum GlesError {
         /// The text of the error.
         message: String,
     },
-    /// The display has no config for OpenGL ES 2 with pbuffer support.
+    /// The display has no config for OpenGL ES 2 of the surface kind the
+    /// renderer needs: pbuffer with no surface, or a window of the GBM
+    /// format.
     #[error("eglChooseConfig found no config for OpenGL ES 2")]
     NoConfig,
+    /// A draw into a window surface on a renderer made with no surface.
+    #[error("the renderer has no window surface")]
+    NoWindow,
     /// `GL_VERSION` is missing or does not name OpenGL ES 2 or later in a
     /// form the GL loader parses.
     #[error("the GL version string {text:?} is not OpenGL ES 2 or later")]

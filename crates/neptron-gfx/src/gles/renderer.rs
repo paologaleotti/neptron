@@ -1,7 +1,9 @@
+use std::rc::Rc;
+
 use neptron_types::{Filter, Frame, Rect, Scene};
 
 use super::GlesError;
-use super::ffi::{Buffer, EglContext, Framebuffer, Gl, Program, Texture, Uniform};
+use super::ffi::{Buffer, EglContext, Framebuffer, GbmTarget, Gl, Program, Texture, Uniform};
 use super::quad::{Quad, quad};
 use super::shader;
 use crate::reference::{Pattern, check_frame, check_output, check_rect, check_scanlines};
@@ -47,6 +49,12 @@ use crate::{Image, OutputBuffer, RectKind};
 /// and dropping one renderer leaves the others working. Without that
 /// extension a renderer never terminates the display, so the display stays
 /// initialized until the process ends.
+///
+/// [`on_gbm`](Self::on_gbm) makes a context on the GBM platform with a
+/// window surface on the KMS backend's GBM surface, and
+/// [`draw_to_window`](Self::draw_to_window) draws into it and swaps. That
+/// display belongs to the renderer alone and ends with it. Both targets
+/// share one draw function, so they give the same pixels.
 ///
 /// # Threads and allocation
 ///
@@ -94,6 +102,44 @@ impl GlesRenderer {
         Self::on(EglContext::surfaceless()?)
     }
 
+    /// A renderer that draws into a window surface on the GBM surface of
+    /// `target`, for the KMS backend. It also renders into an output buffer
+    /// as [`headless`](Self::headless) does. The renderer holds `target`
+    /// until it drops, so the GBM objects outlive its EGL surface.
+    ///
+    /// # Errors
+    ///
+    /// [`GlesError`] as for [`headless`](Self::headless), and when EGL has
+    /// no GBM platform or no config of the GBM format.
+    pub fn on_gbm(target: Rc<dyn GbmTarget>) -> Result<Self, GlesError> {
+        Self::on(EglContext::on_gbm(target)?)
+    }
+
+    /// Draws `scene` into the window surface as a `width` by `height`
+    /// output at the GL origin, the bottom left, and swaps: the frame
+    /// becomes the front buffer of the GBM surface. The pixels are the
+    /// pixels of [`render`](Self::render). A window surface stores the last
+    /// GL row first, so the picture is in the last `height` rows of the
+    /// surface buffer. The rest of the surface is black.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`render`](Self::render), and [`GlesError::NoWindow`]
+    /// on a renderer with no window surface. Nothing is swapped after an
+    /// error.
+    pub fn draw_to_window(
+        &mut self,
+        scene: &Scene<'_>,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GlesError> {
+        if !self.context.has_window() {
+            return Err(GlesError::NoWindow);
+        }
+        self.draw(scene, width, height, Surface::Window)?;
+        self.context.swap()
+    }
+
     fn on(context: EglContext) -> Result<Self, GlesError> {
         let gl = context.current()?;
         gl.check_highp()?;
@@ -134,7 +180,7 @@ impl GlesRenderer {
         out: &mut OutputBuffer<'_>,
     ) -> Result<(), GlesError> {
         check_output(out)?;
-        if !self.draw(scene, out.width, out.height)? {
+        if !self.draw(scene, out.width, out.height, Surface::Offscreen)? {
             return Ok(());
         }
         let gl = self.context.current()?;
@@ -147,10 +193,16 @@ impl GlesRenderer {
     }
 
     /// Checks `scene` for an output of `width` by `height` and draws it into
-    /// the offscreen target. Returns false, with nothing drawn, for an
-    /// output with a zero side. Every target and every finish step goes
-    /// through this one function, so they all get the same pixels.
-    fn draw(&mut self, scene: &Scene<'_>, width: u32, height: u32) -> Result<bool, GlesError> {
+    /// `surface`. Returns false, with nothing drawn, for an output with a
+    /// zero side. Every target and every finish step goes through this one
+    /// function, so they all get the same pixels.
+    fn draw(
+        &mut self,
+        scene: &Scene<'_>,
+        width: u32,
+        height: u32,
+        surface: Surface,
+    ) -> Result<bool, GlesError> {
         let size = (width, height);
         let game = match &scene.game {
             Some(frame) => {
@@ -186,8 +238,13 @@ impl GlesRenderer {
 
         let gl = self.context.current()?;
         gl.drain_errors()?;
-        let target = ensure_target(&gl, &mut self.target, width, height)?;
-        gl.begin(target.framebuffer, width, height);
+        match surface {
+            Surface::Offscreen => {
+                let target = ensure_target(&gl, &mut self.target, width, height)?;
+                gl.begin(target.framebuffer, width, height);
+            }
+            Surface::Window => gl.begin_window(width, height),
+        }
         for (draw, texture) in [(game, &mut self.game), (ui, &mut self.ui)] {
             if let Some(draw) = draw {
                 texture.upload(&gl, &draw.frame)?;
@@ -251,6 +308,15 @@ impl GlesRenderer {
         }
         Ok(())
     }
+}
+
+/// Where [`GlesRenderer::draw`] draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Surface {
+    /// The framebuffer object that `render` reads back.
+    Offscreen,
+    /// The window surface on GBM, from its origin.
+    Window,
 }
 
 /// One quad to draw, with the image that it shows.

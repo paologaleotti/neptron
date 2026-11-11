@@ -17,5 +17,6 @@ mod shader;
 mod version;
 
 pub use error::GlesError;
+pub use ffi::GbmTarget;
 pub use quad::MAX_AXIS_PRODUCT;
 pub use renderer::GlesRenderer;

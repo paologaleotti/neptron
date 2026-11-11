@@ -7,8 +7,8 @@ Renderers for a `Scene`. `ReferenceRenderer` (CPU, pure Rust) defines the correc
 - `struct ReferenceRenderer` with `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), RenderError>`
 - `struct OutputBuffer { data: &mut [u8], width: u32, height: u32, pitch: usize }`, owned by the caller
 - `enum RenderError`, with `Image`, `RectKind` and `MAX_RECT_SIDE_PX`. `ScanlineStrengthTooHigh` refuses a scanline strength above 100 %.
-- `gles::GlesRenderer` (feature `gles`) with `headless() -> Result<Self, GlesError>`, `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), GlesError>`, `gl_strings()`, `max_texture_side()` and `max_output_side()`
-- `gles::GlesError`, `gles::MAX_AXIS_PRODUCT`
+- `gles::GlesRenderer` (feature `gles`) with `headless() -> Result<Self, GlesError>`, `on_gbm(Rc<dyn GbmTarget>) -> Result<Self, GlesError>`, `render(&mut self, &Scene, &mut OutputBuffer) -> Result<(), GlesError>`, `draw_to_window(&mut self, &Scene, width, height) -> Result<(), GlesError>`, `gl_strings()`, `max_texture_side()` and `max_output_side()`
+- `gles::GlesError`, `gles::MAX_AXIS_PRODUCT`, `gles::GbmTarget` (an unsafe trait: the GBM device and surface pointers)
 
 ## Reference renderer
 
@@ -39,7 +39,7 @@ The doc comment of `ReferenceRenderer` states every pixel rule. In short:
 - `headless()` checks with `glGetShaderPrecisionFormat` that a highp float of the fragment shader has at least 23 bits of precision, as an IEEE 32-bit float has. GLSL ES 1.00 only promises 16 bits. Less gives `GlesError::LowPrecision`. It also checks `GL_VERSION` before the GL loader reads it, because `glow` panics on a missing or unknown version string (`GlesError::GlVersion`).
 - `render` clears old GL error flags first, so a check reports only the call it follows.
 - `render` checks the scene with the checks of the reference first, so it refuses the same scenes with `GlesError::Scene`, and leaves the output unchanged after an error.
-- Target: `headless()` makes a context on the Mesa surfaceless platform (`EGL_PLATFORM_SURFACELESS_MESA`) with no surface, draws into a framebuffer object and reads it back with `glReadPixels`. The KMS backend will add a constructor that takes its EGL display and GBM surface. The draw code does not depend on the target: GL rows count from the bottom, and the shader maps output rows from the top.
+- Target: `headless()` makes a context on the Mesa surfaceless platform (`EGL_PLATFORM_SURFACELESS_MESA`) with no surface, draws into a framebuffer object and reads it back with `glReadPixels`. `on_gbm(target)` makes a context on the GBM platform (`EGL_PLATFORM_GBM_KHR`) with a window surface on the GBM surface that `neptron-kms` owns; it gets the two pointers through the unsafe trait `GbmTarget`, so no GBM type enters this crate, and it holds the `Rc` until it drops. `draw_to_window(scene, width, height)` draws a `width` by `height` output at the GL origin of the window surface and swaps. `render` and `draw_to_window` go through one private `draw` function (checks, scanline pattern, size limits, the two quads); only the target binding and the finish step differ (read back, or swap). A window surface stores the last GL row first, so the picture is in the last `height` rows of the GBM buffer; the KMS backend shows those rows. The draw code does not depend on the target: GL rows count from the bottom, and the shader maps output rows from the top. `GlesError::NoWindow` is the error of a window draw on a renderer with no window.
 - EGL is loaded at run time from `libEGL.so.1` (`khronos-egl` with `dynamic`), and every GL function through `eglGetProcAddress` (`glow`). No build links EGL or GL, so `cargo xtask clippy -p neptron-gfx --features gles` and the unit tests of the module run on macOS too.
 - Threads: the renderer is not `Send`. Each call makes its context current first, which replaces any other context that is current on the thread. Dropping the renderer releases the current context of the thread.
 - All surfaceless renderers of a process share one EGL display. With `EGL_KHR_display_reference` each renderer holds a counted reference, and dropping one leaves the others working. Without it a renderer never calls `eglTerminate`, so dropping one renderer cannot break another, and the display stays initialized until the process ends. Mesa 26.1 does not have the extension, so the guest takes the second path.
@@ -68,4 +68,4 @@ When a golden does not match or is missing, the test writes the rendered image t
 
 ## Status
 
-The reference renderer is complete. `GlesRenderer` matches it under Mesa softpipe in the QEMU guest; it is not checked on a real GPU yet. The KMS target comes with the KMS backend.
+The reference renderer is complete. `GlesRenderer` matches it under Mesa softpipe in the QEMU guest; it is not checked on a real GPU yet. The KMS target (EGL on GBM) is checked on `vkms` by `cargo xtask kms-check`: its writeback picture equals the reference renderer, and equals `render` of the same scene with scanlines on.

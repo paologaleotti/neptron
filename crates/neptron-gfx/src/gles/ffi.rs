@@ -1,5 +1,6 @@
 //! Every `unsafe` call of the GLES renderer: loading libEGL, the platform
-//! display, the GL function table, and each GL call.
+//! display, the window surface on GBM, the GL function table, and each GL
+//! call.
 //!
 //! A [`Gl`] exists only while [`EglContext::current`] holds: the context is
 //! current on the calling thread, and the GL function table belongs to it.
@@ -8,6 +9,7 @@
 
 use std::ffi::{CStr, c_void};
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 use glow::HasContext as _;
 use khronos_egl as egl;
@@ -20,6 +22,14 @@ pub(super) type EglInstance = egl::DynamicInstance<egl::EGL1_5>;
 
 /// `EGL_PLATFORM_SURFACELESS_MESA`, from `EGL_MESA_platform_surfaceless`.
 const PLATFORM_SURFACELESS_MESA: egl::Enum = 0x31DD;
+/// `EGL_PLATFORM_GBM_KHR`, from `EGL_KHR_platform_gbm`.
+const PLATFORM_GBM_KHR: egl::Enum = 0x31D7;
+/// `GBM_FORMAT_XRGB8888`, the fourcc `XR24`: the native visual of an EGL
+/// config whose buffers a GBM surface of that format can take.
+const GBM_FORMAT_XRGB8888: egl::Int = 0x3432_5258;
+/// Configs read to find the one with the GBM format. Mesa lists a few
+/// dozen.
+const MAX_CONFIGS: usize = 256;
 /// `EGL_TRACK_REFERENCES_KHR`, from `EGL_KHR_display_reference`.
 const TRACK_REFERENCES_KHR: egl::Attrib = 0x3352;
 /// The fewest mantissa bits of a highp float that keep every integer of
@@ -28,6 +38,22 @@ pub(super) const MIN_HIGHP_PRECISION_BITS: i32 = 23;
 /// More pending GL errors than this means a fault that draining does not
 /// clear.
 const MAX_PENDING_GL_ERRORS: usize = 16;
+
+/// A GBM device and a GBM surface on it, which the renderer draws into
+/// through EGL. The KMS backend owns them; the renderer sees two pointers.
+///
+/// # Safety
+///
+/// [`gbm_device`](Self::gbm_device) returns a live `struct gbm_device *`,
+/// and [`gbm_surface`](Self::gbm_surface) a live `struct gbm_surface *` made
+/// on that device with the format `GBM_FORMAT_XRGB8888`. Both stay live and
+/// unchanged for as long as the value lives.
+pub unsafe trait GbmTarget {
+    /// The `struct gbm_device *`.
+    fn gbm_device(&self) -> *mut c_void;
+    /// The `struct gbm_surface *`.
+    fn gbm_surface(&self) -> *mut c_void;
+}
 
 /// Opens `libEGL.so.1` and checks that it provides EGL 1.5.
 fn load_egl() -> Result<EglInstance, GlesError> {
@@ -54,15 +80,20 @@ fn egl_error(call: &'static str, e: egl::Error) -> GlesError {
 /// current on the calling thread, so the context stays on the thread that
 /// made it.
 pub(super) struct EglContext {
-    // Drop order: the function table, then the context (in Drop), then the
-    // library that holds the code of both.
+    // Drop order: the function table, then the surface and the context (in
+    // Drop), then the library that holds the code of both, then the GBM
+    // objects under the surface.
     gl: glow::Context,
     context: egl::Context,
+    /// The window surface on GBM, or `None` with no surface.
+    surface: Option<egl::Surface>,
     display: egl::Display,
-    /// True when the display counts its references, so terminate releases
-    /// only this renderer's reference.
+    /// True when drop terminates the display: the display counts its
+    /// references, so terminate releases only this renderer's reference,
+    /// or the display belongs to this context alone (GBM).
     counted: bool,
     lib: EglInstance,
+    _target: Option<Rc<dyn GbmTarget>>,
     not_send: PhantomData<*const ()>,
 }
 
@@ -106,9 +137,11 @@ impl EglContext {
             Ok((gl, context)) => Ok(Self {
                 gl,
                 context,
+                surface: None,
                 display,
                 counted,
                 lib,
+                _target: None,
                 not_send: PhantomData,
             }),
             Err(e) => {
@@ -121,13 +154,138 @@ impl EglContext {
         }
     }
 
-    /// Makes the context current on this thread and gives the GL calls.
+    /// A context on the GBM platform with a window surface on the GBM
+    /// surface of `target`. The EGL display belongs to this context alone,
+    /// because each GBM device gets its own display.
+    pub(super) fn on_gbm(target: Rc<dyn GbmTarget>) -> Result<Self, GlesError> {
+        let lib = load_egl()?;
+        // SAFETY: the GbmTarget contract makes the native display a live
+        // gbm_device. The attribute list ends with ATTRIB_NONE.
+        let display = unsafe {
+            lib.get_platform_display(PLATFORM_GBM_KHR, target.gbm_device(), &[egl::ATTRIB_NONE])
+        }
+        .map_err(|e| egl_error("eglGetPlatformDisplay(gbm)", e))?;
+        lib.initialize(display)
+            .map_err(|e| egl_error("eglInitialize", e))?;
+        let made = window_on(&lib, display, target.as_ref()).and_then(|(context, surface)| {
+            gl_on(&lib)
+                .map(|gl| (gl, context, surface))
+                .inspect_err(|_| {
+                    // The GL error is the one to report.
+                    let _ = lib.make_current(display, None, None, None);
+                    let _ = lib.destroy_surface(display, surface);
+                    let _ = lib.destroy_context(display, context);
+                })
+        });
+        match made {
+            Ok((gl, context, surface)) => Ok(Self {
+                gl,
+                context,
+                surface: Some(surface),
+                display,
+                counted: true,
+                lib,
+                _target: Some(target),
+                not_send: PhantomData,
+            }),
+            Err(e) => {
+                // The setup error is the one to report.
+                let _ = lib.terminate(display);
+                Err(e)
+            }
+        }
+    }
+
+    /// Makes the context current on this thread, with its window surface
+    /// when it has one, and gives the GL calls.
     pub(super) fn current(&self) -> Result<Gl<'_>, GlesError> {
         self.lib
-            .make_current(self.display, None, None, Some(self.context))
+            .make_current(self.display, self.surface, self.surface, Some(self.context))
             .map_err(|e| egl_error("eglMakeCurrent", e))?;
         Ok(Gl { gl: &self.gl })
     }
+
+    /// True when the context has a window surface.
+    pub(super) fn has_window(&self) -> bool {
+        self.surface.is_some()
+    }
+
+    /// Shows what was drawn into the window surface: on GBM, it finishes
+    /// the frame and makes it the surface's front buffer.
+    pub(super) fn swap(&self) -> Result<(), GlesError> {
+        let surface = self.surface.ok_or(GlesError::NoWindow)?;
+        self.lib
+            .swap_buffers(self.display, surface)
+            .map_err(|e| egl_error("eglSwapBuffers", e))
+    }
+}
+
+/// Binds OpenGL ES, and makes an ES 2 context current on a window surface
+/// on the GBM surface of `target`.
+fn window_on(
+    lib: &EglInstance,
+    display: egl::Display,
+    target: &dyn GbmTarget,
+) -> Result<(egl::Context, egl::Surface), GlesError> {
+    lib.bind_api(egl::OPENGL_ES_API)
+        .map_err(|e| egl_error("eglBindAPI", e))?;
+    let attributes = [
+        egl::SURFACE_TYPE,
+        egl::WINDOW_BIT,
+        egl::RENDERABLE_TYPE,
+        egl::OPENGL_ES2_BIT,
+        egl::RED_SIZE,
+        8,
+        egl::GREEN_SIZE,
+        8,
+        egl::BLUE_SIZE,
+        8,
+        egl::NONE,
+    ];
+    let mut configs = Vec::with_capacity(MAX_CONFIGS);
+    lib.choose_config(display, &attributes, &mut configs)
+        .map_err(|e| egl_error("eglChooseConfig", e))?;
+    let config = configs
+        .into_iter()
+        .find(|&c| {
+            lib.get_config_attrib(display, c, egl::NATIVE_VISUAL_ID)
+                .is_ok_and(|id| id == GBM_FORMAT_XRGB8888)
+        })
+        .ok_or(GlesError::NoConfig)?;
+    let context = lib
+        .create_context(
+            display,
+            config,
+            None,
+            &[egl::CONTEXT_CLIENT_VERSION, 2, egl::NONE],
+        )
+        .map_err(|e| egl_error("eglCreateContext", e))?;
+    // SAFETY: the GbmTarget contract makes the native window a live
+    // gbm_surface of format XRGB8888 on the display's device, the format of
+    // the config. The attribute list ends with ATTRIB_NONE.
+    let surface = unsafe {
+        lib.create_platform_window_surface(
+            display,
+            config,
+            target.gbm_surface(),
+            &[egl::ATTRIB_NONE],
+        )
+    };
+    let surface = match surface {
+        Ok(s) => s,
+        Err(e) => {
+            // The surface error is the one to report.
+            let _ = lib.destroy_context(display, context);
+            return Err(egl_error("eglCreatePlatformWindowSurface", e));
+        }
+    };
+    if let Err(e) = lib.make_current(display, Some(surface), Some(surface), Some(context)) {
+        // The make-current error is the one to report.
+        let _ = lib.destroy_surface(display, surface);
+        let _ = lib.destroy_context(display, context);
+        return Err(egl_error("eglMakeCurrent with the window surface", e));
+    }
+    Ok((context, surface))
 }
 
 /// Binds OpenGL ES, and makes an ES 2 context current with no surface.
@@ -212,6 +370,9 @@ impl Drop for EglContext {
     fn drop(&mut self) {
         // Nothing can be done about a failure while the renderer goes away.
         let _ = self.lib.make_current(self.display, None, None, None);
+        if let Some(surface) = self.surface {
+            let _ = self.lib.destroy_surface(self.display, surface);
+        }
         let _ = self.lib.destroy_context(self.display, self.context);
         if self.counted {
             let _ = self.lib.terminate(self.display);
@@ -569,6 +730,24 @@ impl Gl<'_> {
         // against the GL limits, so it fits an i32.
         unsafe {
             self.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
+            self.gl.viewport(0, 0, width as i32, height as i32);
+            self.gl.disable(glow::BLEND);
+            self.gl.disable(glow::DITHER);
+            self.gl.disable(glow::SCISSOR_TEST);
+            self.gl.disable(glow::DEPTH_TEST);
+            self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
+            self.gl.clear(glow::COLOR_BUFFER_BIT);
+        }
+    }
+
+    /// Binds the window surface's framebuffer, sets the viewport to `width`
+    /// by `height` at the origin and clears the whole surface to opaque
+    /// black, as [`begin`](Self::begin) does for a framebuffer object.
+    pub(super) fn begin_window(&self, width: u32, height: u32) {
+        // SAFETY: the context is current with its window surface. The
+        // caller checked the size against the GL limits, so it fits an i32.
+        unsafe {
+            self.gl.bind_framebuffer(glow::FRAMEBUFFER, None);
             self.gl.viewport(0, 0, width as i32, height as i32);
             self.gl.disable(glow::BLEND);
             self.gl.disable(glow::DITHER);
