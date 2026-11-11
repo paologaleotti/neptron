@@ -4,7 +4,8 @@ description = "Standalone hardware spike (WP 1.1)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+# The crate code is MIT OR Apache-2.0; the embedded presets of data/monitors are GPL-2.0-or-later.
+license = "(MIT OR Apache-2.0) AND GPL-2.0-or-later"
 publish.workspace = true
 
 [features]

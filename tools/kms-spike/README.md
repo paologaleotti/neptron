@@ -165,7 +165,7 @@ The kernel log can hold more detail than the error code. After a run on hardware
 
 ## Presets
 
-The build script reads every file in `data/monitors` with the serde types of `neptron-types` and writes it as Rust constants. The binary then needs no TOML parser, which the dependency rules do not allow, and a preset that does not parse fails the build. A custom monitor file is not supported. The preset files are licensed GPL-2.0-or-later (see `data/monitors/README.md`), so a binary of this tool contains GPL-2.0-or-later data. The tool is a development aid and is not shipped.
+The build script reads every file in `data/monitors` with the serde types of `neptron-types` and writes it as Rust constants. The binary then needs no TOML parser, which the dependency rules do not allow, and a preset that does not parse fails the build. A custom monitor file is not supported. The preset files are licensed GPL-2.0-or-later (see `data/monitors/README.md`), so a binary of this tool contains GPL-2.0-or-later data. The `license` field of the crate says so: `(MIT OR Apache-2.0) AND GPL-2.0-or-later`. The tool is a development aid and is not shipped.
 
 ## Dependencies
 
