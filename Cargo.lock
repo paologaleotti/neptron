@@ -195,6 +195,7 @@ dependencies = [
  "neptron-backend",
  "neptron-testkit",
  "rubato",
+ "sdl3",
  "thiserror",
 ]
 

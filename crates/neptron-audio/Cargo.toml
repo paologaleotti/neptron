@@ -9,12 +9,14 @@ publish.workspace = true
 
 [features]
 # Off by default: the headless build (T0 to T2) compiles no SDL3, EGL or KMS code.
-sdl3 = []
+sdl3 = ["dep:sdl3"]
 
 [dependencies]
 neptron-backend = { path = "../neptron-backend" }
 # The resampler with a variable ratio that dynamic rate control needs.
 rubato.workspace = true
+# The audio subsystem only. The audio API needs no feature of the crate.
+sdl3 = { workspace = true, optional = true }
 # The code standards make each crate own a thiserror enum.
 thiserror.workspace = true
 

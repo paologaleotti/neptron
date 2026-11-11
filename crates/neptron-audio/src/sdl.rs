@@ -1,0 +1,180 @@
+//! The SDL3 audio sink, in SDL's push model: the frame thread puts samples
+//! into an SDL audio stream, and SDL's own device thread plays them. No
+//! code of this crate runs on the audio thread.
+
+use neptron_backend::AudioSink;
+use sdl3::audio::{AudioDevice, AudioFormat, AudioSpec, AudioStreamOwner};
+
+use crate::check_device_rate;
+
+/// The most frames the sink queues, in milliseconds: twice the control
+/// span. SDL's stream has no limit of its own.
+pub const SINK_CAPACITY_MS: u32 = 128;
+
+/// The device buffer SDL is asked for, in frames: 10.7 ms at 48 kHz.
+pub const DEVICE_BUFFER_FRAMES: u32 = 512;
+
+/// The rate used when SDL does not report the device's rate, in hertz.
+const FALLBACK_RATE_HZ: u32 = 48_000;
+/// Bytes of one stereo 16-bit frame.
+const BYTES_PER_FRAME: usize = 4;
+
+/// An error of [`Sdl3Sink::open`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum SinkError {
+    /// SDL or its audio subsystem did not start.
+    #[error("SDL could not start its audio subsystem: {reason}")]
+    Init {
+        /// SDL's message.
+        reason: String,
+    },
+    /// The default playback device did not open.
+    #[error("SDL could not open the default playback device: {reason}")]
+    Open {
+        /// SDL's message.
+        reason: String,
+    },
+    /// The device reports a rate the pipeline does not take.
+    #[error("the playback device runs at {rate_hz} Hz, which the pipeline does not take")]
+    Rate {
+        /// The device's rate, in hertz.
+        rate_hz: u32,
+    },
+    /// The audio stream could not be made or bound to the device.
+    #[error("SDL could not make the audio stream at {rate_hz} Hz: {reason}")]
+    Stream {
+        /// The stream's rate, in hertz.
+        rate_hz: u32,
+        /// SDL's message.
+        reason: String,
+    },
+}
+
+/// The default playback device, through an SDL3 audio stream of 16-bit
+/// stereo at the device's own rate, so that SDL does not resample.
+///
+/// The queue holds at most [`SINK_CAPACITY_MS`]. An SDL error makes the
+/// sink act as full: `write` takes nothing and `queued_frames` reports the
+/// capacity.
+///
+/// Make it on the thread that first started SDL (the `sdl3` crate checks
+/// this); it is not `Send`.
+pub struct Sdl3Sink {
+    // Fields drop in order: the stream unbinds, then the device closes,
+    // then the subsystem and SDL stop.
+    stream: AudioStreamOwner,
+    _device: AudioDevice,
+    _audio: sdl3::AudioSubsystem,
+    _sdl: sdl3::Sdl,
+    rate_hz: u32,
+    capacity_frames: usize,
+    device_buffer_frames: Option<u32>,
+}
+
+impl Sdl3Sink {
+    /// Starts the SDL audio subsystem only, opens the default playback
+    /// device, and binds a stream at the device's rate.
+    ///
+    /// # Errors
+    ///
+    /// A [`SinkError`] with SDL's message when a step fails.
+    pub fn open() -> Result<Self, SinkError> {
+        let init = |error: sdl3::Error| SinkError::Init {
+            reason: error.to_string(),
+        };
+        let sdl = sdl3::init().map_err(init)?;
+        let audio = sdl.audio().map_err(init)?;
+        // SDL reads the hint when a device opens. A false return means that
+        // an environment variable already sets it, which is the owner's
+        // choice.
+        let _hint_set = sdl3::hint::set(
+            "SDL_AUDIO_DEVICE_SAMPLE_FRAMES",
+            &DEVICE_BUFFER_FRAMES.to_string(),
+        );
+
+        let request = AudioSpec::new(None, Some(2), Some(AudioFormat::s16_sys()));
+        let device = audio
+            .open_playback_device(&request)
+            .map_err(|error| SinkError::Open {
+                reason: error.to_string(),
+            })?;
+        let (device_spec, device_buffer_frames) =
+            device.format().map_err(|error| SinkError::Open {
+                reason: error.to_string(),
+            })?;
+        let rate_hz = device_spec
+            .freq
+            .and_then(|freq| u32::try_from(freq).ok())
+            .unwrap_or(FALLBACK_RATE_HZ);
+        check_device_rate(rate_hz).map_err(|_| SinkError::Rate { rate_hz })?;
+
+        let stream_error = |error: sdl3::Error| SinkError::Stream {
+            rate_hz,
+            reason: error.to_string(),
+        };
+        // `rate_hz` passed the device rate check, so it fits an i32.
+        let freq = i32::try_from(rate_hz).unwrap_or(i32::MAX);
+        let app = AudioSpec::new(Some(freq), Some(2), Some(AudioFormat::s16_sys()));
+        let stream = audio
+            .new_playback_stream(&app, None)
+            .map_err(stream_error)?;
+        device.bind_stream(&stream).map_err(stream_error)?;
+        // A device from SDL_OpenAudioDevice starts playing; resuming it
+        // again does nothing.
+        let _playing = device.resume();
+
+        let capacity = u64::from(rate_hz) * u64::from(SINK_CAPACITY_MS) / 1_000;
+        Ok(Self {
+            stream,
+            _device: device,
+            _audio: audio,
+            _sdl: sdl,
+            rate_hz,
+            capacity_frames: usize::try_from(capacity).unwrap_or(usize::MAX),
+            device_buffer_frames: device_buffer_frames.and_then(|f| u32::try_from(f).ok()),
+        })
+    }
+
+    /// The device buffer SDL reports, in frames: the delay after the
+    /// stream's queue.
+    pub fn device_buffer_frames(&self) -> Option<u32> {
+        self.device_buffer_frames
+    }
+
+    /// The most frames the queue takes.
+    pub fn capacity_frames(&self) -> usize {
+        self.capacity_frames
+    }
+
+    fn queued(&self) -> Option<usize> {
+        let bytes = self.stream.queued_bytes().ok()?;
+        usize::try_from(bytes)
+            .ok()
+            .map(|bytes| bytes / BYTES_PER_FRAME)
+    }
+}
+
+impl AudioSink for Sdl3Sink {
+    fn rate_hz(&self) -> u32 {
+        self.rate_hz
+    }
+
+    fn queued_frames(&self) -> usize {
+        self.queued().unwrap_or(self.capacity_frames)
+    }
+
+    fn write(&mut self, stereo: &[i16]) -> usize {
+        let Some(queued) = self.queued() else {
+            return 0;
+        };
+        let taken = (stereo.len() / 2).min(self.capacity_frames.saturating_sub(queued));
+        if taken == 0 {
+            return 0;
+        }
+        match self.stream.put_data_i16(&stereo[..taken * 2]) {
+            Ok(()) => taken,
+            Err(_) => 0,
+        }
+    }
+}
