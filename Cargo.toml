@@ -11,6 +11,7 @@ publish = false
 
 [workspace.dependencies]
 cc = "1.11.1"
+drm = "0.15.0"
 # Linux only: keyboards through the kernel evdev interface. No async
 # features.
 evdev = { version = "0.13.2", default-features = false }

@@ -9,9 +9,12 @@ publish.workspace = true
 
 [features]
 # Off by default: the headless build (T0 to T2) compiles no SDL3, EGL or KMS code.
-kms = []
+kms = ["dep:drm"]
 
 [dependencies]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+drm = { workspace = true, optional = true }
 
 [lints]
 workspace = true
