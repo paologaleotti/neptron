@@ -177,16 +177,18 @@ impl QuickMenu {
         }
     }
 
-    /// Moves every noted change from the game level to `level`, where the
-    /// row allows that level. The game level is where the changes are, so
-    /// for it there is nothing to send.
+    /// Moves every noted change from the game level to `level`, when the
+    /// row of the change is in the snapshot and allows that level. A change
+    /// whose row is gone stays at the game level, the narrowest one. The
+    /// game level is where the changes are, so for it there is nothing to
+    /// send.
     fn keep_at(&mut self, level: Level, snap: &Snapshot, out: &mut Vec<Intent>) {
         let rows = self.page.rows(snap);
         for (key, value) in self.changes.iter_mut().filter_map(Option::take) {
             let allowed = rows
                 .iter()
                 .find(|r| r.key == key)
-                .is_none_or(|r| r.scopes.allows(level));
+                .is_some_and(|r| r.scopes.allows(level));
             if level == Level::Game || !allowed {
                 continue;
             }

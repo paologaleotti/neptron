@@ -1210,3 +1210,14 @@ fn a_dialog_shows_its_own_hints() {
     run.step(&snap, &[Back]);
     assert_eq!(hints(&run), ["Accept: choose", "Back: cancel"]);
 }
+
+#[test]
+fn a_change_whose_row_is_gone_stays_for_the_game() {
+    let (mut run, mut snap) = quick_menu();
+    run.step(&snap, &TO_FORCE_60);
+    snap.settings.rows.retain(|r| r.key != REFRESH);
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "quick-menu/keep");
+    run.step(&snap, &[Right, Accept]);
+    assert_eq!(run.intents(), [Intent::Resume]);
+}
