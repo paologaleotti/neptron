@@ -80,7 +80,7 @@ impl BuildPlan {
     /// input, so Docker sends no build context: the repository holds `target/`
     /// directories of many gigabytes.
     pub fn container_build(&self) -> Vec<String> {
-        strings(&["build", "--tag", &self.container, "-"])
+        container_build(&self.container)
     }
 
     /// The `docker run` arguments of each step: apply the defconfig, run the
@@ -128,13 +128,7 @@ impl BuildPlan {
 /// Builds the container, then runs each step of `plan`, under the
 /// machine-wide build lock that the caller holds.
 pub fn execute(plan: &BuildPlan, dockerfile: &Path) -> Result<(), OsError> {
-    let file = std::fs::File::open(dockerfile).map_err(|source| OsError::Io {
-        path: dockerfile.to_path_buf(),
-        source,
-    })?;
-    let mut build = Command::new("docker");
-    build.args(plan.container_build()).stdin(file);
-    super::run_step(&mut build)?;
+    build_container(&plan.container_build(), dockerfile)?;
     std::fs::create_dir_all(&plan.images).map_err(|source| OsError::Io {
         path: plan.images.clone(),
         source,
@@ -145,16 +139,33 @@ pub fn execute(plan: &BuildPlan, dockerfile: &Path) -> Result<(), OsError> {
     Ok(())
 }
 
+/// The arguments of `docker build` for the image tag `container`, with the
+/// Dockerfile on standard input.
+pub fn container_build(container: &str) -> Vec<String> {
+    strings(&["build", "--tag", container, "-"])
+}
+
+/// Runs `docker build` with `args`, the Dockerfile on standard input.
+pub fn build_container(args: &[String], dockerfile: &Path) -> Result<(), OsError> {
+    let file = std::fs::File::open(dockerfile).map_err(|source| OsError::Io {
+        path: dockerfile.to_path_buf(),
+        source,
+    })?;
+    let mut build = Command::new("docker");
+    build.args(args).stdin(file);
+    super::run_step(&mut build)
+}
+
 /// Buildroot jobs when `--jobs` is not given: the limit for this machine.
-const DEFAULT_JOBS: u32 = 4;
+pub const DEFAULT_JOBS: u32 = 4;
 /// More jobs would take the cores and memory that the owner of the machine needs.
 const MAX_JOBS: u32 = 8;
-const CONTAINER_MEMORY: &str = "6g";
+pub const CONTAINER_MEMORY: &str = "6g";
 /// Named volumes keep the downloads, the compiler cache and the output on a
 /// case-sensitive Linux filesystem, which Buildroot needs and macOS lacks.
 const DL_VOLUME: &str = "neptron-br-dl";
 const CCACHE_VOLUME: &str = "neptron-br-ccache";
-const OUT_VOLUME_PREFIX: &str = "neptron-br-out-";
+pub const OUT_VOLUME_PREFIX: &str = "neptron-br-out-";
 
 fn value<'a>(it: &mut std::slice::Iter<'_, &'a str>, flag: &str) -> Result<&'a str, OsError> {
     it.next()

@@ -42,6 +42,8 @@ Both QEMU targets have:
 - Mesa with the softpipe software renderer: EGL, OpenGL ES and GBM, and `kmscube`.
 - SDL3 with the KMS/DRM video driver and OpenGL ES, without libudev, and alsa-lib.
 
+The build also installs the Rust toolchain of Buildroot (`host-rustc`, the prebuilt `rust-bin`, with the standard library for the target) in the output, not in the image. `cargo xtask gles-compare` uses it with the Buildroot C toolchain as the linker to build Rust programs for the guest. This toolchain (Rust 1.97.1 in Buildroot 2026.08.1) is not the one that `rust-toolchain.toml` pins for the host (1.97.0); the two can drift apart when Buildroot is bumped.
+
 ## Commands
 
 All commands go through `xtask`.
@@ -55,6 +57,7 @@ cargo xtask os build -- neptron-vkms-probe-rebuild
 cargo xtask qemu -- uname -a                     boot, run one command, exit with its exit code
 cargo xtask qemu --script test.sh --share dir    run a script; dir is read-only at /mnt/host
 cargo xtask qemu                                 interactive console; Ctrl-A then X stops QEMU
+cargo xtask gles-compare                         build the GLES comparison for the guest and run it
 ```
 
 `os build` builds the development container from `Dockerfile`, then runs Buildroot in it with 4 jobs, 4 CPUs and 6 GB of memory. A machine-wide lock allows one Buildroot build at a time. Buildroot does not see a change to a kernel fragment, or to the source of a package in `package/`, by itself: give the `-reconfigure` or `-rebuild` target as above.
@@ -88,6 +91,8 @@ On an Apple Silicon Mac, on 2026-11-11, with the aarch64 image:
 - `neptron-vkms-probe` with 320x240 at 6.7 MHz, 640x480, 720x480i and a doublescan mode: every commit is accepted, the readback equals the request, the CRCs and the writeback work.
 - `sleep 60 | kmscube -D /dev/dri/card0 -c 300` draws on `vkms` with Mesa softpipe at about 53 frames per second ("Rendered 299 frames in 5.630363 sec"), and the frame CRCs change from frame to frame while it runs. kmscube needs a standard input that stays open: with `/dev/null` it stops at once. `kmscube -A` (atomic) stops with "no eglDupNativeFenceFDANDROID", because softpipe has no native fence.
 
+- EGL on the Mesa surfaceless platform with no device gives OpenGL ES 2 on softpipe. `cargo xtask gles-compare` uses it: an image build that adds `host-rustc` took 4 min, the cross build of the comparison 7 s from cold, and the guest run under 10 s.
+
 Not verified:
 
 - The x86\_64 image was never built or booted. Its defconfig resolves in Buildroot with every option set. On a Mac it runs only under CPU emulation; it is meant for Linux CI with KVM. `-vga none` keeps the q35 VGA card away from `card0`, but this is not checked on x86\_64.
@@ -106,6 +111,7 @@ Nothing large is in the repository.
 | Downloads | Docker volume `neptron-br-dl` |
 | Compiler cache | Docker volume `neptron-br-ccache` |
 | Buildroot output | Docker volume `neptron-br-out-<arch>` |
+| Cargo registry and target directory of the guest builds | Docker volume `neptron-cross-<arch>` |
 | Images for QEMU | `~/.cache/neptron/buildroot/images/<arch>` (`NEPTRON_CACHE_DIR` moves `~/.cache/neptron`) |
 
 The downloads, the compiler cache and the output are Docker volumes because Buildroot needs a case-sensitive filesystem and the macOS default is not. All worktrees share them. `NEPTRON_OS_IMAGES` or `--images` boots an images directory from somewhere else, for example the base image that CI publishes.

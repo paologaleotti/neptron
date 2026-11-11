@@ -7,6 +7,7 @@
 
 mod arch;
 mod build;
+mod cross;
 #[cfg(test)]
 mod defconfig;
 mod guest;
@@ -148,11 +149,12 @@ pub enum OsError {
     Repo(#[from] RepoError),
 }
 
-/// The usage text of `os build` and `qemu`.
+/// The usage text of `os build`, `qemu` and `gles-compare`.
 pub const USAGE: &str = "\
 usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [-- make targets...]
        cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
-                        [--script FILE | -- command...]";
+                        [--script FILE | -- command...]
+       cargo xtask gles-compare [--arch A] [--timeout SECS]";
 
 /// `cargo xtask os <subcommand>`.
 pub fn run_os(args: &[&str]) -> Result<ExitCode, OsError> {
@@ -246,6 +248,104 @@ pub fn run_qemu(args: &[&str]) -> Result<ExitCode, OsError> {
     };
     drop(written);
     result
+}
+
+/// `cargo xtask gles-compare`: builds the `gles_compare` example of
+/// `neptron-gfx` for the guest in the development container, then runs it
+/// in the guest. The exit code is the one of the example.
+pub fn run_gles_compare(args: &[&str]) -> Result<ExitCode, OsError> {
+    let (arch, timeout) = parse_compare_args(args, Arch::default_for(std::env::consts::ARCH))?;
+    let repo = Repo::discover()?;
+    let cache = Cache::from_env()?;
+    host::require_tool(
+        "docker",
+        "install Docker (macOS: Docker Desktop) to build for the guest",
+    )?;
+    check_docker_daemon()?;
+    let dockerfile = repo.root.join("Dockerfile");
+    let text = std::fs::read_to_string(&dockerfile).map_err(|source| OsError::Io {
+        path: dockerfile.clone(),
+        source,
+    })?;
+    let export = repo.root.join("target").join("gles-compare");
+    let program = export.join(GLES_COMPARE_EXAMPLE);
+    std::fs::create_dir_all(&export).map_err(|source| OsError::Io {
+        path: export.clone(),
+        source,
+    })?;
+    if let Err(source) = std::fs::remove_file(&program)
+        && source.kind() != ErrorKind::NotFound
+    {
+        return Err(OsError::Io {
+            path: program,
+            source,
+        });
+    }
+    let plan = cross::CrossPlan {
+        arch,
+        container: build::container_image(&text),
+        repo: repo.root.clone(),
+        export: export.clone(),
+        package: "neptron-gfx".to_owned(),
+        features: "gles".to_owned(),
+        example: GLES_COMPARE_EXAMPLE.to_owned(),
+    };
+    {
+        // The build reads the toolchains in the Buildroot output, which an
+        // os build changes.
+        let _lock = MachineLock::take(&cache.build_lock(), "Buildroot build")?;
+        build::build_container(&build::container_build(&plan.container), &dockerfile)?;
+        for step in plan.steps() {
+            run_step(Command::new("docker").args(step))?;
+        }
+    }
+    let share = export
+        .to_str()
+        .ok_or_else(|| OsError::Usage(format!("the path {} is not UTF-8", export.display())))?;
+    let timeout = timeout.to_string();
+    let guest_program = format!("/mnt/host/{GLES_COMPARE_EXAMPLE}");
+    run_qemu(&[
+        "--arch",
+        arch.name(),
+        "--timeout",
+        &timeout,
+        "--share",
+        share,
+        "--",
+        &guest_program,
+    ])
+}
+
+const GLES_COMPARE_EXAMPLE: &str = "gles_compare";
+/// Software GL draws the largest scenes in seconds each.
+const GLES_COMPARE_TIMEOUT_SECS: u64 = 600;
+
+fn parse_compare_args(args: &[&str], default_arch: Arch) -> Result<(Arch, u64), OsError> {
+    let mut arch = default_arch;
+    let mut timeout = GLES_COMPARE_TIMEOUT_SECS;
+    let mut it = args.iter();
+    while let Some(&arg) = it.next() {
+        let value = it
+            .next()
+            .copied()
+            .ok_or_else(|| OsError::Usage(format!("{arg} needs a value")))?;
+        match arg {
+            "--arch" => arch = Arch::parse(value)?,
+            "--timeout" => {
+                timeout = match value.parse::<u64>() {
+                    Ok(secs) if secs > 0 => secs,
+                    _ => {
+                        return Err(OsError::BadNumber {
+                            flag: "--timeout",
+                            value: value.to_owned(),
+                        });
+                    }
+                }
+            }
+            other => return Err(OsError::Usage(format!("unknown argument {other:?}"))),
+        }
+    }
+    Ok((arch, timeout))
 }
 
 /// A command script in `target/qemu` that is removed when it drops.
@@ -462,6 +562,21 @@ mod tests {
         assert_eq!(left, ["aarch64-console.log", "notes.sh"]);
         remove_stale_scripts(&dir.join("missing"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn gles_compare_arguments_parse() {
+        assert_eq!(
+            parse_compare_args(&[], Arch::Aarch64).unwrap(),
+            (Arch::Aarch64, 600)
+        );
+        assert_eq!(
+            parse_compare_args(&["--arch", "x86_64", "--timeout", "30"], Arch::Aarch64).unwrap(),
+            (Arch::X86_64, 30)
+        );
+        for bad in [&["--timeout", "0"][..], &["--arch"], &["--images", "x"]] {
+            assert!(parse_compare_args(bad, Arch::Aarch64).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

@@ -66,6 +66,14 @@ impl Arch {
         }
     }
 
+    /// The Rust target triple of the guest.
+    pub fn rust_target(self) -> &'static str {
+        match self {
+            Self::Aarch64 => "aarch64-unknown-linux-gnu",
+            Self::X86_64 => "x86_64-unknown-linux-gnu",
+        }
+    }
+
     /// The serial console device of the guest kernel.
     pub fn console(self) -> &'static str {
         match self {
@@ -92,6 +100,12 @@ mod tests {
     fn unknown_name_is_rejected_with_the_name() {
         let err = Arch::parse("riscv64").unwrap_err();
         assert!(err.to_string().contains("riscv64"), "{err}");
+    }
+
+    #[test]
+    fn rust_targets_are_the_glibc_triples() {
+        assert_eq!(Arch::Aarch64.rust_target(), "aarch64-unknown-linux-gnu");
+        assert_eq!(Arch::X86_64.rust_target(), "x86_64-unknown-linux-gnu");
     }
 
     #[test]

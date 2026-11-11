@@ -55,6 +55,9 @@ commands:
        [--script FILE | -- command...]
                        boot the QEMU image; run the command in the guest
                        and exit with its exit code, or give a console
+  gles-compare [--arch A] [--timeout SECS]
+                       build the GLES comparison for the guest in the
+                       development container and run it in QEMU (tier T3)
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
@@ -123,6 +126,7 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "golden" => Ok(ui::golden(&rest)?),
         "os" => Ok(os::run_os(&rest)?),
         "qemu" => Ok(os::run_qemu(&rest)?),
+        "gles-compare" => Ok(os::run_gles_compare(&rest)?),
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy", "--all-targets"], &rest),
