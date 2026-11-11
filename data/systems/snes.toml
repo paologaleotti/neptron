@@ -1,0 +1,6 @@
+# Super Nintendo. See data/systems/README.md for the sources.
+format = 1
+folder = "snes"
+aliases = []
+name = "Super Nintendo"
+extensions = ["bs", "fig", "sfc", "smc", "swc"]

@@ -1,0 +1,7 @@
+# FCEUmm. See data/cores/README.md for the sources.
+format = 1
+id = "fceumm"
+name = "FCEUmm"
+library = "fceumm_libretro.so"
+systems = ["nes"]
+licence = "GPL-2.0-or-later"

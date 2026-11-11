@@ -1,0 +1,6 @@
+# Sega Mega Drive. See data/systems/README.md for the sources.
+format = 1
+folder = "megadrive"
+aliases = ["genesis"]
+name = "Mega Drive"
+extensions = ["bin", "gen", "md", "sg", "smd"]

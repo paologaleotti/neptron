@@ -1,0 +1,6 @@
+# Nintendo Entertainment System. See data/systems/README.md for the sources.
+format = 1
+folder = "nes"
+aliases = []
+name = "Nintendo Entertainment System"
+extensions = ["nes"]

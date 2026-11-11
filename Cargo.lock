@@ -100,6 +100,11 @@ version = "0.1.0"
 [[package]]
 name = "neptron-library"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "toml",
+]
 
 [[package]]
 name = "neptron-libretro"

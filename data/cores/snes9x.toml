@@ -1,0 +1,7 @@
+# Snes9x. See data/cores/README.md for the sources.
+format = 1
+id = "snes9x"
+name = "Snes9x"
+library = "snes9x_libretro.so"
+systems = ["snes"]
+licence = "LicenseRef-Snes9x"

@@ -1,0 +1,7 @@
+# Genesis Plus GX. See data/cores/README.md for the sources.
+format = 1
+id = "genesis_plus_gx"
+name = "Genesis Plus GX"
+library = "genesis_plus_gx_libretro.so"
+systems = ["megadrive"]
+licence = "LicenseRef-GenesisPlusGX"
