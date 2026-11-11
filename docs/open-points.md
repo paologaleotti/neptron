@@ -309,3 +309,21 @@ Each open point is one section:
 - How to change: the KMS backend returns the same error, or the `Display` contract states the rule.
 - Decision:
 
+### OP-033: The Switchres wrapper and its goldens are checked on macOS only.
+
+- Raised by: T05
+- Status: open, the first CI run decides
+- Default: the build uses `-ffp-contract=off` and the sources use exact library calls, so the 61 goldens are expected to be equal on Linux. Nobody has run it.
+- Where: `crates/neptron-switchres-sys`, `crates/neptron-modeline/tests/golden`
+- How to change: repair after the first Linux run.
+- Decision:
+
+### OP-034: `GpuCaps` has no doublescan field.
+
+- Raised by: T05
+- Status: open
+- Default: doublescan is off in the solver settings, because i915 refuses doublescan modes.
+- Where: `crates/neptron-modeline/src/settings.rs`
+- How to change: a capability field in `GpuCaps` (a contract change).
+- Decision:
+
