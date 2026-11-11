@@ -53,8 +53,13 @@ pub enum Outcome {
 pub struct SwitchRecord {
     /// Number of the core frame that first asked for the source, from 1.
     pub asked_frame: u64,
-    /// Number of the core frame of the decision.
+    /// Number of the core frame of the decision. For merged scale-only
+    /// records, the last one.
     pub decided_frame: u64,
+    /// How many decisions the record holds: 1, or more for consecutive
+    /// scale-only changes, which share one record so that a flicker under
+    /// a fixed super width does not push the modesets out of the trace.
+    pub count: u32,
     /// Number of the core frame whose flip first showed the new mode.
     /// `None` until that flip, and for an outcome other than a modeset.
     pub shown_frame: Option<u64>,
@@ -120,7 +125,8 @@ impl SwitchTrace {
         self.records.back()
     }
 
-    /// How many records were ever pushed, including the ones that left.
+    /// How many records were ever pushed, including the ones that left. A
+    /// scale-only decision merged into the record before it adds none.
     pub fn total(&self) -> u64 {
         self.total
     }
@@ -133,6 +139,14 @@ impl SwitchTrace {
     }
 
     pub(crate) fn push(&mut self, record: SwitchRecord) {
+        if record.outcome == Outcome::ScaleOnly
+            && let Some(last) = self.records.back_mut()
+            && last.outcome == Outcome::ScaleOnly
+        {
+            let count = last.count.saturating_add(record.count);
+            *last = SwitchRecord { count, ..record };
+            return;
+        }
         if self.records.len() == TRACE_CAPACITY {
             self.records.pop_front();
         }
@@ -214,6 +228,9 @@ impl fmt::Display for SwitchRecord {
                 scan(m),
                 m.field_rate_mhz()
             )?;
+        }
+        if self.count > 1 {
+            write!(f, ", {} decisions", self.count)?;
         }
         if let Some(took) = self.took_frames() {
             write!(f, ", shown after {took} frames")?;

@@ -570,6 +570,7 @@ impl Odren {
         SwitchRecord {
             asked_frame: request.asked_frame,
             decided_frame: self.frame,
+            count: 1,
             shown_frame: None,
             gap_ns: None,
             trigger,

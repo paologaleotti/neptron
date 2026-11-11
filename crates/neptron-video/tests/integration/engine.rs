@@ -313,3 +313,21 @@ fn the_ui_alone_needs_a_mode() {
     let placement = rig.engine.current().unwrap().chosen.proposal.placement;
     assert_eq!(scene.ui_dest, placement.ui_dest);
 }
+
+#[test]
+fn a_long_flicker_under_a_fixed_width_keeps_the_modeset_in_the_trace() {
+    let mut rig = Rig::generic_15(fixed_width());
+    rig.frame(MD_H40);
+    for _ in 0..200 {
+        rig.frame(MD_H32);
+        rig.frame(MD_H40);
+    }
+    let trace = rig.engine.trace();
+    assert_eq!(trace.modesets().count(), 1, "the launch modeset is kept");
+    assert_eq!(trace.records().len(), 2);
+    let merged = trace.last().unwrap();
+    assert_eq!(merged.outcome, Outcome::ScaleOnly);
+    assert_eq!(merged.count, 400);
+    assert_eq!(merged.decided_frame, 401);
+    assert_eq!(merged.source, MD_H40);
+}
