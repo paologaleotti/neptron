@@ -1,0 +1,190 @@
+# Fast CI: four parallel jobs, none waits for another.
+# Every job runs the same `cargo xtask verify` that runs locally.
+# Path filters apply to pull requests only. A push to main runs every job in
+# full, because main is the only source of the caches.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  # Incremental data makes the cache large and gives no benefit in a clean runner.
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: lint (T0)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Restore the Cargo cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ runner.os }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ github.job }}-
+      - name: Verify tier 0
+        run: cargo xtask verify --tier 0
+      - name: Save the Cargo cache
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+  test-linux:
+    name: test-linux (T0 to T2)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find changed paths
+        id: changes
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!LICENSE-*'
+      - name: Install the pinned toolchain
+        if: github.event_name != 'pull_request' || steps.changes.outputs.code == 'true'
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        if: github.event_name != 'pull_request' || steps.changes.outputs.code == 'true'
+        with:
+          tool: cargo-nextest,cargo-deny
+      - name: Restore the Cargo cache
+        id: cache
+        if: github.event_name != 'pull_request' || steps.changes.outputs.code == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ runner.os }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ github.job }}-
+      # Tier 2 (the headless app) does not exist yet; this becomes tier 2 then.
+      - name: Verify tier 1
+        if: github.event_name != 'pull_request' || steps.changes.outputs.code == 'true'
+        run: cargo xtask verify --tier 1
+      - name: Save the Cargo cache
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+  test-macos:
+    name: test-macos (T0 to T2)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find changed paths
+        id: changes
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!LICENSE-*'
+      - name: Install the pinned toolchain
+        if: github.event_name != 'pull_request' || steps.changes.outputs.code == 'true'
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        if: github.event_name != 'pull_request' || steps.changes.outputs.code == 'true'
+        with:
+          tool: cargo-nextest,cargo-deny
+      - name: Restore the Cargo cache
+        id: cache
+        if: github.event_name != 'pull_request' || steps.changes.outputs.code == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ runner.os }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ github.job }}-
+      # Tier 2 (the headless app) does not exist yet; this becomes tier 2 then.
+      - name: Verify tier 1
+        if: github.event_name != 'pull_request' || steps.changes.outputs.code == 'true'
+        run: cargo xtask verify --tier 1
+      - name: Save the Cargo cache
+        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+  # Placeholder until the x86_64 image exists. Then the step below becomes T3:
+  # download the base image that main published, overlay the new binaries and
+  # boot it in QEMU with KVM. Until then the job reports that it has nothing to
+  # run, and stays green.
+  qemu-x86_64:
+    name: qemu-x86_64 (T3, placeholder)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find changed paths
+        id: changes
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            device:
+              - 'os/**'
+              - 'Dockerfile'
+              - 'crates/neptron-kms/**'
+              - 'crates/neptron-input/**'
+              - 'crates/neptron-audio/**'
+              - 'apps/neptron-launch/**'
+              - 'apps/neptron-update/**'
+              - 'xtask/src/os/**'
+              - '.github/workflows/ci.yml'
+      - name: T3 placeholder
+        if: github.event_name != 'pull_request' || steps.changes.outputs.device == 'true'
+        run: echo "No T3 checks exist yet: the x86_64 image does not exist."
