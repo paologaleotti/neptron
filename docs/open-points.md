@@ -407,3 +407,21 @@ Each open point is one section:
 - Where: `crates/neptron-gfx/src/gles`, `crates/neptron-gfx/README.md`, `xtask/src/os/cross.rs`
 - How to change: see the README for each item. Read `GL_RENDERER` and the extension list through the checked `glGetString` path to close the panic paths.
 - Decision:
+
+### OP-044: A binary that embeds the monitor presets carries their GPL licence.
+
+- Raised by: T21
+- Status: open, needs a decision from the owner before the first release
+- Default: `kms-spike` embeds `data/monitors` and states `(MIT OR Apache-2.0) AND GPL-2.0-or-later`. It is a bench tool and is not shipped. The same question comes back for the main binary: if it embeds the presets, the binary is GPL-2.0-or-later as a whole.
+- Where: `tools/kms-spike/Cargo.toml`, `data/monitors/LICENSE`
+- How to change: load the presets from files on the image at run time, so that the binary embeds no GPL data.
+- Decision:
+
+### OP-045: What `kms-spike` has not shown.
+
+- Raised by: T21
+- Status: open, the hardware run decides
+- Default: the tool ran on `vkms` only. `vkms` has one fixed connector and no console to restore, takes interlace and any pixel clock, and gives vblanks at twice the field rate for an interlaced mode (OP-030). The derived 480p mode of `pc_31_120` has vertical porches of about 14, 3 and 27 lines (VGA has 10, 2 and 33). After a kill of the worker the test mode can stay on the output with a black picture.
+- Where: `tools/kms-spike/README.md`, `docs/hardware-checklist.md`
+- How to change: run the check list on the bench and record the results.
+- Decision:

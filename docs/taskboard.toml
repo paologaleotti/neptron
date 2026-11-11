@@ -190,7 +190,7 @@ name = "KMS spike tool (WP 1.1)"
 owns = ["tools/kms-spike"]
 needs = ["T04"]
 gate = "Runs on `vkms`; you run it on the i3-6100T when you can"
-status = "in_review"
+status = "merged"
 
 [[task]]
 id = "T22"
