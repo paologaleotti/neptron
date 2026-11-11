@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 mod rejection;
+mod structure;
 mod validated;
 
 pub use rejection::{Axis, InterlaceLimit, PorchEdge, Rejection};
