@@ -25,3 +25,12 @@ thiserror.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+toml.workspace = true
+
+# Opens a real window, so it is a program and not a test: tier 1 has no
+# display, and SDL video must run on the main thread.
+[[example]]
+name = "smoke"
+required-features = ["sdl3"]

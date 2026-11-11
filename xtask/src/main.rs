@@ -37,6 +37,9 @@ commands:
                        from its vendored libretro.h (needs the bindgen tool)
   rules                check the dependency rules, the unsafe allow-list
                        and the headless feature set
+  window-smoke         build neptron-window with its sdl3 feature, open the
+                       development window, show test modes and inject a
+                       key (needs a display and SDL3)
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
@@ -96,6 +99,18 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy", "--all-targets"], &rest),
+        "window-smoke" => passthrough(
+            &[
+                "run",
+                "-p",
+                "neptron-window",
+                "--features",
+                "sdl3",
+                "--example",
+                "smoke",
+            ],
+            &rest,
+        ),
         "rules" => {
             let repo = repo::Repo::discover()?;
             let policy = load::LoadPolicy::from_env()?;

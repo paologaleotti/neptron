@@ -218,6 +218,7 @@ dependencies = [
  "neptron-types",
  "sdl3",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
