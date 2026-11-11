@@ -10,9 +10,14 @@
 mod device;
 mod hotkeys;
 mod key_map;
+#[cfg(all(feature = "evdev", target_os = "linux"))]
+mod keyboards;
 mod mapper;
 // Only the device backends fill a notice queue.
-#[cfg_attr(not(feature = "sdl3"), allow(dead_code))]
+#[cfg_attr(
+    not(any(feature = "sdl3", all(feature = "evdev", target_os = "linux"))),
+    allow(dead_code)
+)]
 mod notice;
 mod pad_map;
 mod ports;
@@ -28,6 +33,8 @@ pub use hotkeys::{
     BLIND_RECOVERY_COMBO, BLIND_RECOVERY_HOLD_NS, Hotkey, Hotkeys, QUICK_MENU_COMBO,
 };
 pub use key_map::{KEY_MAP, key_control, looks_like_keyboard};
+#[cfg(all(feature = "evdev", target_os = "linux"))]
+pub use keyboards::{EvdevKeyboards, INPUT_DIR, KEYBOARD_SCAN_INTERVAL_POLLS};
 pub use mapper::{Mapper, MapperError};
 pub use notice::{InputNotice, MAX_NOTICES};
 pub use pad_map::{

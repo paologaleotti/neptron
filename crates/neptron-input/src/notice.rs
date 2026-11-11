@@ -18,6 +18,13 @@ pub enum InputNotice {
         /// The device id it had.
         device: u32,
     },
+    /// A device failed and was dropped. Its controls were released.
+    Lost {
+        /// The device id it had.
+        device: u32,
+        /// The error.
+        reason: String,
+    },
     /// A device was found and is not read.
     Ignored {
         /// What the backend knows of the device.
