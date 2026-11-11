@@ -37,7 +37,8 @@ pub(crate) fn line_rate_min_mhz(h_min_mhz: u64, h_max_mhz: u64, field_rate_mhz: 
 ///
 /// A horizontal value must reach 90 % of the nominal time. A vertical
 /// value can only change in steps of one line, and Switchres rounds it to
-/// the nearest line, so it may also be one line short of the nominal time.
+/// whole lines after it centres the blanking, so it may also be up to one
+/// line short of the nominal time.
 /// The result is never 0: a porch or a pulse is never empty.
 pub(crate) fn min_ns(axis: Axis, nominal_ns: u64, line_ns: u64) -> u64 {
     let share = nominal_ns
