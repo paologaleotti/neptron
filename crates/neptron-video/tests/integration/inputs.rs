@@ -3,11 +3,13 @@
 use neptron_platform::{EdidProfile, TimingFormula};
 use neptron_safety::Rejection;
 use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
+use neptron_types::Modeline;
 use neptron_video::{
     Directive, Monitor, Outcome, PictureStyle, PolicySettings, Refusal, Trigger, Unshowable,
+    VideoError,
 };
 
-use crate::harness::{MD_H40, Rig, SNES, fixed_width, generic_15, native_width};
+use crate::harness::{MD_H40, Rig, SNES, fixed_width, frame, generic_15, native_width};
 
 fn pc_31_120() -> Monitor {
     Monitor::Profile(monitor_preset("pc_31_120").unwrap())
@@ -120,4 +122,59 @@ fn a_monitor_with_no_mode_for_the_game_keeps_the_mode_and_reports() {
     assert_eq!(record.trigger, Trigger::Monitor);
     assert_eq!(record.outcome, Outcome::Kept(Unshowable::NoWinner));
     assert_eq!(rig.frame(SNES).directive, Directive::Steady);
+}
+
+/// Every mode the display was asked for passes the validator of `monitor`.
+fn every_set_mode_passes(rig: &Rig, monitor: &Monitor) {
+    for call in rig.fake.mode_calls() {
+        let caps = monitor.caps_for(&CAPS_LOW_CLOCK);
+        assert!(
+            neptron_safety::validate(&call.requested, monitor.profile(), &caps).is_ok(),
+            "set_mode got {:?}",
+            call.requested
+        );
+    }
+}
+
+#[test]
+fn a_modeset_decided_before_a_monitor_change_is_never_set() {
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Modeset);
+    rig.engine.set_monitor(generic_15());
+    assert_eq!(
+        rig.engine.present(Some(frame(&SNES)), None),
+        Err(VideoError::NoMode)
+    );
+    assert!(rig.fake.mode_calls().is_empty());
+    rig.frame(SNES);
+    assert_eq!(rig.fake.mode_calls().len(), 1);
+    every_set_mode_passes(&rig, &generic_15());
+}
+
+#[test]
+fn a_modeset_decided_before_a_settings_or_veto_change_is_never_set() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(MD_H40);
+    let old = rig.current_mode();
+    rig.engine.set_settings(fixed_width());
+    assert_eq!(rig.engine.begin_frame(MD_H40), Directive::Modeset);
+    let fixed = *rig.engine.odren().pending_modeset().unwrap().mode();
+    rig.engine.set_veto(Box::new(move |m: &Modeline| {
+        if *m == fixed {
+            Err(Rejection::NotAPanelMode {
+                mode: *m,
+                panel_modes: 0,
+            })
+        } else {
+            Ok(())
+        }
+    }));
+    rig.engine.present(Some(frame(&MD_H40)), None).unwrap();
+    rig.engine.wait_flip().unwrap();
+    assert_eq!(rig.modes(), [old], "the stale token is dropped");
+    rig.frame(MD_H40);
+    assert!(
+        !rig.modes().contains(&fixed),
+        "the vetoed mode is never set"
+    );
 }

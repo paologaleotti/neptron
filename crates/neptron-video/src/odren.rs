@@ -45,11 +45,21 @@ pub enum Directive {
 }
 
 /// What the display does after a `set_mode` result.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) enum AfterModeSet {
     Done,
     /// Set this mode again: the last good one.
-    Restore(ValidatedMode),
+    Restore(ModeOrder),
+}
+
+/// A token and the generation of the inputs it was validated for. Only
+/// [`Odren::authorize`] gives the token out, and only while the inputs are
+/// that generation, so a token from before a change of the monitor, the
+/// settings, the veto or the driver refusals never reaches `set_mode`.
+#[derive(Debug, Clone)]
+pub(crate) struct ModeOrder {
+    token: ValidatedMode,
+    generation: u64,
 }
 
 /// The ODREN state machine: debounce, decision, commit and trace. It does
@@ -57,6 +67,8 @@ pub(crate) enum AfterModeSet {
 /// the results of the display calls, and says what to do next.
 pub struct Odren {
     inputs: Inputs,
+    /// Counts the changes of the inputs that judge a mode.
+    generation: u64,
     cache: Cache,
     current: Option<Current>,
     request: Option<Request>,
@@ -85,6 +97,7 @@ struct Request {
 #[derive(Debug)]
 struct Commit {
     chosen: Chosen,
+    generation: u64,
     source: SourceGeometry,
     record: SwitchRecord,
 }
@@ -101,6 +114,7 @@ impl Odren {
                 veto: None,
                 driver_refused: Vec::new(),
             },
+            generation: 0,
             cache: Cache::new(),
             current: None,
             request: None,
@@ -177,6 +191,20 @@ impl Odren {
     /// The token of the modeset that the next present sets.
     pub fn pending_modeset(&self) -> Option<&ValidatedMode> {
         self.commit.as_ref().map(|c| &c.chosen.token)
+    }
+
+    /// The modeset that the next present sets, for the executor.
+    pub(crate) fn pending_order(&self) -> Option<ModeOrder> {
+        self.commit.as_ref().map(|c| ModeOrder {
+            token: c.chosen.token.clone(),
+            generation: c.generation,
+        })
+    }
+
+    /// The token of `order`, or `None` when the inputs changed since it was
+    /// validated.
+    pub(crate) fn authorize<'o>(&self, order: &'o ModeOrder) -> Option<&'o ValidatedMode> {
+        (order.generation == self.generation).then_some(&order.token)
     }
 
     /// Takes the source of one core frame: debounce, decision, and what the
@@ -257,6 +285,7 @@ impl Odren {
                 let record = self.record(trigger, request, Some(winner.clone()), Some(index));
                 self.commit = Some(Commit {
                     chosen: winner,
+                    generation: self.generation,
                     source,
                     record,
                 });
@@ -298,7 +327,10 @@ impl Odren {
                     ..commit.record
                 });
                 match &self.current {
-                    Some(current) => AfterModeSet::Restore(current.chosen.token.clone()),
+                    Some(current) => AfterModeSet::Restore(ModeOrder {
+                        token: current.chosen.token.clone(),
+                        generation: self.generation,
+                    }),
                     None => AfterModeSet::Done,
                 }
             }
@@ -361,6 +393,8 @@ impl Odren {
     }
 
     fn invalidate(&mut self, trigger: Trigger) {
+        self.generation += 1;
+        self.commit = None;
         self.cache.clear();
         self.blocked = None;
         self.request = None;
@@ -371,6 +405,8 @@ impl Odren {
         if !self.inputs.driver_refused.contains(&mode) {
             self.inputs.driver_refused.push(mode);
         }
+        self.generation += 1;
+        self.commit = None;
         self.cache.clear();
         self.redo = Some(Trigger::Retry);
     }
@@ -418,5 +454,41 @@ impl Odren {
             dropped: decision.map(Decision::dropped).unwrap_or_default(),
             refused: decision.map(|d| d.refused.clone()).unwrap_or_default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
+    use neptron_types::Rotation;
+
+    use super::*;
+
+    const SNES: SourceGeometry = SourceGeometry {
+        width: 256,
+        height: 224,
+        refresh_mhz: 60_099,
+        aspect_milli: 1_333,
+        interlaced: false,
+        rotation: Rotation::R0,
+    };
+
+    fn monitor(id: &str) -> Monitor {
+        Monitor::Profile(monitor_preset(id).unwrap())
+    }
+
+    #[test]
+    fn an_order_from_older_inputs_is_not_authorized() {
+        let mut odren = Odren::new(
+            &CAPS_LOW_CLOCK,
+            monitor("pc_31_120"),
+            PolicySettings::default(),
+        );
+        assert_eq!(odren.on_frame(SNES), Directive::Modeset);
+        let order = odren.pending_order().unwrap();
+        assert!(odren.authorize(&order).is_some());
+        odren.set_monitor(&CAPS_LOW_CLOCK, monitor("pc_31_120"));
+        assert!(odren.authorize(&order).is_none());
+        assert!(odren.pending_order().is_none());
     }
 }

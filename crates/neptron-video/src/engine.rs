@@ -2,7 +2,7 @@ use neptron_backend::{Display, DisplayError};
 use neptron_modeline::policy::{PolicySettings, StyleRow};
 use neptron_types::{FlipEvent, Frame, Modeline, SourceGeometry};
 
-use crate::odren::AfterModeSet;
+use crate::odren::{AfterModeSet, ModeOrder};
 use crate::{
     Current, Directive, Monitor, Odren, Outcome, Refusal, SwitchTrace, Unshowable, Veto,
     build_scene,
@@ -124,7 +124,7 @@ impl<D: Display> VideoEngine<D> {
             drained_flip: None,
             modeset: None,
         };
-        if self.odren.pending_modeset().is_some() {
+        if self.odren.pending_order().is_some() {
             presented.drained_flip = self.drain_flip()?;
             presented.modeset = self.modeset()?;
         }
@@ -210,19 +210,30 @@ impl<D: Display> VideoEngine<D> {
     }
 
     fn modeset(&mut self) -> Result<Option<Outcome>, VideoError> {
-        let Some(token) = self.odren.pending_modeset().cloned() else {
+        let Some(order) = self.odren.pending_order() else {
             return Ok(None);
         };
-        let result = self.display.set_mode(&token);
+        let Some(result) = self.set_mode(&order) else {
+            return Ok(None);
+        };
         let after = self.odren.on_mode_set(&result);
         let outcome = self.odren.trace().last().map(|r| r.outcome.clone());
         if let AfterModeSet::Restore(good) = after {
-            let restored = self.display.set_mode(&good);
+            let Some(restored) = self.set_mode(&good) else {
+                return Ok(outcome);
+            };
             self.odren.on_restore(&restored);
             if let (Err(error), Ok(read_back)) = (restored, result) {
                 return Err(VideoError::RestoreFailed { read_back, error });
             }
         }
         Ok(outcome)
+    }
+
+    /// The one call of `Display::set_mode`. It sets nothing for an order
+    /// whose inputs changed since its token was validated.
+    fn set_mode(&mut self, order: &ModeOrder) -> Option<Result<Modeline, DisplayError>> {
+        let token = self.odren.authorize(order)?;
+        Some(self.display.set_mode(token))
     }
 }
