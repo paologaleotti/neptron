@@ -124,6 +124,7 @@ name = "neptron-input"
 version = "0.1.0"
 dependencies = [
  "neptron-types",
+ "thiserror",
 ]
 
 [[package]]

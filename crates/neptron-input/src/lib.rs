@@ -9,13 +9,16 @@
 
 mod device;
 mod key_map;
+mod mapper;
 mod pad_map;
 mod raw;
+mod state;
 
 pub use device::{
     DeviceIdentity, GAMEPAD_DEVICE_BASE, KEYBOARD_DEVICE_BASE, MAX_KEYBOARDS, MAX_PORTS, port_of,
 };
 pub use key_map::{KEY_MAP, key_control, looks_like_keyboard};
+pub use mapper::{Mapper, MapperError};
 pub use pad_map::{
     AxisTarget, PAD_BUTTON_MAP, STICK_DEAD_ZONE, TRIGGER_THRESHOLD, axis_target, hat_values,
     pad_control, stick_value, trigger_value,

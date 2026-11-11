@@ -31,17 +31,35 @@ pub const KEYBOARD_DEVICE_BASE: u32 = 0x200;
 /// The port of the events of `device`, or `None` for an id outside every
 /// range.
 pub fn port_of(device: u32) -> Option<u8> {
-    let ports = u32::from(MAX_PORTS);
-    let keyboards = u32::from(MAX_KEYBOARDS);
-    if device < ports {
+    if device < u32::from(MAX_PORTS) {
         u8::try_from(device).ok()
-    } else if (GAMEPAD_DEVICE_BASE..GAMEPAD_DEVICE_BASE + ports).contains(&device) {
-        u8::try_from(device - GAMEPAD_DEVICE_BASE).ok()
-    } else if (KEYBOARD_DEVICE_BASE..KEYBOARD_DEVICE_BASE + keyboards).contains(&device) {
-        Some(0)
+    } else if let Some(port) = gamepad_port(device) {
+        u8::try_from(port).ok()
     } else {
-        None
+        keyboard_slot(device).map(|_| 0)
     }
+}
+
+/// The device id of the gamepad on `port`.
+pub(crate) fn gamepad_device(port: usize) -> u32 {
+    GAMEPAD_DEVICE_BASE + u32::try_from(port).unwrap_or(u32::MAX - GAMEPAD_DEVICE_BASE)
+}
+
+/// The device id of keyboard slot `slot`.
+pub(crate) fn keyboard_device(slot: usize) -> u32 {
+    KEYBOARD_DEVICE_BASE + u32::try_from(slot).unwrap_or(u32::MAX - KEYBOARD_DEVICE_BASE)
+}
+
+/// The port of a device id of the gamepad range.
+pub(crate) fn gamepad_port(device: u32) -> Option<usize> {
+    let offset = usize::try_from(device.checked_sub(GAMEPAD_DEVICE_BASE)?).ok()?;
+    (offset < usize::from(MAX_PORTS)).then_some(offset)
+}
+
+/// The slot of a device id of the keyboard range.
+pub(crate) fn keyboard_slot(device: u32) -> Option<usize> {
+    let offset = usize::try_from(device.checked_sub(KEYBOARD_DEVICE_BASE)?).ok()?;
+    (offset < usize::from(MAX_KEYBOARDS)).then_some(offset)
 }
 
 /// What tells two physical devices apart across a reconnect: a hash of the
@@ -90,6 +108,9 @@ mod tests {
         assert_eq!(port_of(0x100), Some(0));
         assert_eq!(port_of(0x107), Some(7));
         assert_eq!(port_of(0x108), None);
+        for port in 0..usize::from(MAX_PORTS) {
+            assert_eq!(gamepad_port(gamepad_device(port)), Some(port));
+        }
     }
 
     #[test]
@@ -97,6 +118,9 @@ mod tests {
         assert_eq!(port_of(0x200), Some(0));
         assert_eq!(port_of(0x207), Some(0));
         assert_eq!(port_of(0x208), None);
+        for slot in 0..usize::from(MAX_KEYBOARDS) {
+            assert_eq!(keyboard_slot(keyboard_device(slot)), Some(slot));
+        }
     }
 
     #[test]
