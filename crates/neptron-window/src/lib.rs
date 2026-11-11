@@ -14,3 +14,12 @@ mod keymap;
 mod pacing;
 #[cfg_attr(not(feature = "sdl3"), allow(dead_code))]
 mod picture;
+#[cfg(feature = "sdl3")]
+mod sdl;
+
+#[cfg(feature = "sdl3")]
+pub use keymap::KEYBOARD_DEVICE_ID;
+#[cfg(feature = "sdl3")]
+pub use sdl::{
+    KeyboardPad, WINDOW_CAPS, WINDOW_MAX_SIDE_PX, WindowClock, WindowDisplay, WindowError, open,
+};
