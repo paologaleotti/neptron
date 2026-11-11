@@ -219,8 +219,6 @@ fn list_connectors(device: &Path) -> ExitCode {
 
 #[cfg(all(target_os = "linux", feature = "kms"))]
 fn confirmed_run(o: &Options, args: &[String]) -> ExitCode {
-    use supervisor::Ended;
-
     let exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
@@ -232,23 +230,13 @@ fn confirmed_run(o: &Options, args: &[String]) -> ExitCode {
     command.args(args).arg(args::WORKER_FLAG);
     println!("\nshowing the valid modes; Ctrl-C stops the run and restores the display");
     match supervisor::supervise(command, hard_limit(o), &mut std::io::stdout()) {
-        Ok(Ended::Exited(status)) if status.success() => ExitCode::SUCCESS,
-        Ok(Ended::Exited(status)) => {
-            eprintln!("kms-spike: the worker ended with {status}");
-            ExitCode::FAILURE
-        }
-        Ok(Ended::Killed(status)) => {
-            eprintln!(
-                "kms-spike: the worker ran past the hard limit of {} s and was killed ({status}). \
-                 The kernel removes its framebuffers. On some drivers (probably i915) the \
-                 validated test mode can stay on the wire with a black picture until the \
-                 kernel console takes the display back. This is not verified on hardware. \
-                 If the picture is wrong, switch the monitor off and switch to another \
-                 virtual terminal or reboot.",
-                hard_limit(o).as_secs()
-            );
-            ExitCode::FAILURE
-        }
+        Ok(ended) => match supervisor::end_text(&ended, hard_limit(o)) {
+            None => ExitCode::SUCCESS,
+            Some(text) => {
+                eprintln!("kms-spike: {text}");
+                ExitCode::FAILURE
+            }
+        },
         Err(e) => {
             eprintln!("kms-spike: cannot run the worker: {e}");
             ExitCode::FAILURE

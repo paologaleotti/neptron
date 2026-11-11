@@ -19,6 +19,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::BorrowedFd;
 use std::os::unix::fs::FileTypeExt as _;
 use std::os::unix::process::CommandExt as _;
+use std::os::unix::process::ExitStatusExt as _;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::thread;
@@ -95,6 +96,28 @@ pub fn is_pipe(fd: BorrowedFd<'_>) -> io::Result<bool> {
     let file = File::from(fd.try_clone_to_owned()?);
     Ok(file.metadata()?.file_type().is_fifo())
 }
+
+/// What the user reads when the worker did not end well, or `None` when it
+/// did. A worker that a signal ended ran no restore.
+pub fn end_text(ended: &Ended, hard_limit: Duration) -> Option<String> {
+    match ended {
+        Ended::Exited(status) if status.success() => None,
+        Ended::Exited(status) => Some(match status.signal() {
+            Some(signal) => format!("the worker was killed by signal {signal}. {KILLED_NOTE}"),
+            None => format!("the worker ended with {status}"),
+        }),
+        Ended::Killed(status) => Some(format!(
+            "the worker ran past the hard limit of {} s and was killed ({status}). {KILLED_NOTE}",
+            hard_limit.as_secs()
+        )),
+    }
+}
+
+/// What a killed worker leaves on the display.
+pub const KILLED_NOTE: &str = "The kernel removes its framebuffers. On some drivers \
+     (probably i915) the validated test mode stays on the wire with a black picture until the \
+     kernel console takes the display back. To recover, switch to another virtual terminal \
+     and back, or reboot.";
 
 /// How the supervised worker ended.
 #[derive(Debug)]
@@ -199,6 +222,25 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn the_end_text_names_a_kill_and_what_it_leaves() {
+        let limit = Duration::from_secs(55);
+        assert_eq!(
+            end_text(&Ended::Exited(ExitStatus::from_raw(0)), limit),
+            None
+        );
+        let exited = end_text(&Ended::Exited(ExitStatus::from_raw(1 << 8)), limit).unwrap();
+        assert!(exited.contains("ended with"), "{exited}");
+        assert!(!exited.contains("black picture"), "{exited}");
+        let signalled = end_text(&Ended::Exited(ExitStatus::from_raw(9)), limit).unwrap();
+        assert!(signalled.contains("killed by signal 9"), "{signalled}");
+        assert!(signalled.contains("black picture"), "{signalled}");
+        assert!(signalled.contains("virtual terminal"), "{signalled}");
+        let killed = end_text(&Ended::Killed(ExitStatus::from_raw(9)), limit).unwrap();
+        assert!(killed.contains("hard limit of 55 s"), "{killed}");
+        assert!(killed.contains("black picture"), "{killed}");
     }
 
     #[test]
