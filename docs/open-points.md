@@ -353,3 +353,21 @@ Each open point is one section:
 - Where: `os/README.md`, section "Not verified"
 - How to change: build and boot the x86_64 image in T28 (the image for the real PC), and repair what fails.
 - Decision:
+
+### OP-038: Which combination is the blind recovery, and the arcade quick-menu rule.
+
+- Raised by: T18
+- Status: open, needs a decision from the owner
+- Default: Select+Start opens the quick menu. The same combination held for 5 s is the blind recovery. The arcade rule "hold Start for 2 s" is not implemented, because nothing tells a pad from a panel with no Select.
+- Where: `QUICK_MENU_COMBO`, `BLIND_RECOVERY_COMBO` and `BLIND_RECOVERY_HOLD_NS` in `crates/neptron-input/src/hotkeys.rs`
+- How to change: edit the constants. The arcade rule needs a second hold timer.
+- Decision:
+
+### OP-039: Input limits that hardware must show.
+
+- Raised by: T18
+- Status: open
+- Default: a gamepad is identified by its SDL GUID only, so two identical pads can swap ports on reconnect. A gamepad refused because all ports are full gets no port until it reconnects. The device rescans run on the frame thread (every 30 polls for SDL, every 120 for evdev). The evdev crate prints one line to stderr when a grabbed keyboard goes away. The keyboard table of `neptron-window` is not tested against the shared fixture. SDL3 hotplug without libudev is not verified.
+- Where: `crates/neptron-input/README.md`
+- How to change: see the README for each item.
+- Decision:

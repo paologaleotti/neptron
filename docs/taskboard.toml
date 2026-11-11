@@ -163,7 +163,7 @@ name = "Input"
 owns = ["crates/neptron-input"]
 needs = ["T03"]
 gate = "Scripted device tests; mapping fixtures"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T19"
