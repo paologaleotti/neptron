@@ -23,6 +23,7 @@ cc.workspace = true
 
 [dev-dependencies]
 # The integration tests load the test core and drive it with the fakes.
+neptron-backend = { path = "../neptron-backend" }
 neptron-testcore = { path = "../neptron-testcore" }
 neptron-testkit = { path = "../neptron-testkit" }
 

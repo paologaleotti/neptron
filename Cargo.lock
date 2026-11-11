@@ -216,6 +216,7 @@ dependencies = [
  "cc",
  "libloading",
  "miniz_oxide",
+ "neptron-backend",
  "neptron-libretro-sys",
  "neptron-testcore",
  "neptron-testkit",
