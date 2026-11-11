@@ -115,8 +115,8 @@ pub fn end_text(ended: &Ended, hard_limit: Duration) -> Option<String> {
 
 /// What a killed worker leaves on the display.
 pub const KILLED_NOTE: &str = "The kernel removes its framebuffers. On some drivers \
-     (probably i915) the validated test mode stays on the wire with a black picture until the \
-     kernel console takes the display back. To recover, switch to another virtual terminal \
+     (probably i915) the validated test mode can stay on the wire with a black picture until \
+     the kernel console takes the display back. This is not verified on hardware. To recover, switch to another virtual terminal \
      and back, or reboot.";
 
 /// How the supervised worker ended.
@@ -238,6 +238,11 @@ mod tests {
         assert!(signalled.contains("killed by signal 9"), "{signalled}");
         assert!(signalled.contains("black picture"), "{signalled}");
         assert!(signalled.contains("virtual terminal"), "{signalled}");
+        assert!(signalled.contains("can stay on the wire"), "{signalled}");
+        assert!(
+            signalled.contains("not verified on hardware"),
+            "{signalled}"
+        );
         let killed = end_text(&Ended::Killed(ExitStatus::from_raw(9)), limit).unwrap();
         assert!(killed.contains("hard limit of 55 s"), "{killed}");
         assert!(killed.contains("black picture"), "{killed}");
