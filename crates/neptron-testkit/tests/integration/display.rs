@@ -301,6 +301,34 @@ fn mode_faults_keep_the_active_mode() {
 }
 
 #[test]
+fn mode_faults_can_match_the_requested_mode() {
+    let clock = SimClock::new();
+    let mut display = timing_only(&clock, DisplayOptions::default());
+    let refused = |reason: &str| ModeFault::Refuse {
+        reason: reason.to_owned(),
+    };
+    display.fault_requested_mode(MODE_288P, refused("first"));
+    display.fault_requested_mode(MODE_288P, refused("ERANGE"));
+    let rounded = Modeline {
+        pclock_hz: 6_000_000,
+        ..MODE_240P
+    };
+    display.fault_requested_mode(MODE_240P, ModeFault::ReadBack(rounded));
+    let refusal = Err(DisplayError::ModeRefused {
+        mode: MODE_288P,
+        reason: "ERANGE".to_owned(),
+    });
+    for _ in 0..3 {
+        assert_eq!(display.set_mode(&mode(MODE_288P)), refusal);
+        assert_eq!(display.set_mode(&mode(MODE_240P)), Ok(rounded));
+    }
+    // A fault by call number comes first.
+    display.fault_mode(display.next_mode_call(), ModeFault::ReadBack(MODE_288P));
+    assert_eq!(display.set_mode(&mode(MODE_288P)), Ok(MODE_288P));
+    assert_eq!(display.active_mode(), Some(MODE_288P));
+}
+
+#[test]
 fn the_mode_read_back_sets_the_flip_times() {
     let clock = SimClock::new();
     let mut display = timing_only(&clock, DisplayOptions::default());

@@ -64,7 +64,8 @@ pub const DEFAULT_FLIP_TIMEOUT_NS: u64 = 100_000_000;
 /// # Faults
 ///
 /// [`FakeDisplay::fault_mode`] and [`FakeDisplay::fault_flip`] script
-/// failures by call number. [`DisplayOptions::late_flips`] adds seeded late
+/// failures by call number, and [`FakeDisplay::fault_requested_mode`] by
+/// the mode asked for. [`DisplayOptions::late_flips`] adds seeded late
 /// flips. A failed `set_mode` keeps the mode that was active.
 ///
 /// # Sharing
@@ -209,6 +210,7 @@ impl FakeDisplay {
                 next_k: 1,
                 pending: None,
                 mode_faults: BTreeMap::new(),
+                requested_faults: Vec::new(),
                 flip_faults: BTreeMap::new(),
                 modes: Vec::new(),
                 frames: Vec::new(),
@@ -220,6 +222,18 @@ impl FakeDisplay {
     /// Scripts the result of the `set_mode` call number `call` (from 0).
     pub fn fault_mode(&self, call: u64, fault: ModeFault) {
         self.lock().mode_faults.insert(call, fault);
+    }
+
+    /// Scripts the result of every `set_mode` call that asks for
+    /// `requested`, whatever its call number. A fault by call number
+    /// ([`FakeDisplay::fault_mode`]) comes first. A later fault for the same
+    /// mode replaces an earlier one.
+    pub fn fault_requested_mode(&self, requested: Modeline, fault: ModeFault) {
+        let mut state = self.lock();
+        state
+            .requested_faults
+            .retain(|(mode, _)| *mode != requested);
+        state.requested_faults.push((requested, fault));
     }
 
     /// Scripts a fault of the frame with present number `index` (from 0).
@@ -330,6 +344,7 @@ struct State {
     next_k: u64,
     pending: Option<Pending>,
     mode_faults: BTreeMap<u64, ModeFault>,
+    requested_faults: Vec<(Modeline, ModeFault)>,
     flip_faults: BTreeMap<u64, FlipFault>,
     modes: Vec<ModeRecord>,
     frames: Vec<FrameRecord>,
@@ -368,7 +383,13 @@ impl State {
         if self.pending.is_some() {
             return Err(busy("set_mode"));
         }
-        let active = match self.mode_faults.get(&call) {
+        let fault = self.mode_faults.get(&call).or_else(|| {
+            self.requested_faults
+                .iter()
+                .find(|(mode, _)| mode == requested)
+                .map(|(_, fault)| fault)
+        });
+        let active = match fault {
             None => *requested,
             Some(ModeFault::ReadBack(mode)) => *mode,
             Some(ModeFault::Refuse { reason }) => {
