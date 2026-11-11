@@ -17,5 +17,9 @@ neptron-libretro-sys = { path = "../neptron-libretro-sys" }
 # The code standards make each module own a thiserror enum.
 thiserror.workspace = true
 
+[dev-dependencies]
+# The load test opens the built core as a frontend does.
+libloading.workspace = true
+
 [lints]
 workspace = true

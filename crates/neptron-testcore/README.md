@@ -80,6 +80,17 @@ Global state: libretro has no instance handle, so the state is one static behind
 
 Panics: no panic crosses the C boundary. Each entry point runs in `catch_unwind`. After a panic the core does nothing for the rest of the process, and each call returns its default value.
 
+## Tests
+
+- Unit tests of the parser, the generators, the core model and the FFI helpers.
+- `tests/load.rs` opens the built library with `libloading`, checks that all 25 entry points are exported, and runs a script through the raw API with frontend callbacks: frame hashes, the order of the environment calls, audio counts and pattern, save RAM, reset, and the two load failures. The test plays the frontend, so it uses `unsafe` to call the core and to read the data the core passes. Each test needs its own process, which `cargo nextest` gives.
+
+## Dependencies
+
+- `neptron-libretro-sys`: the types and constants of `libretro.h`.
+- `thiserror`: the error enums.
+- `libloading` (dev): the load test.
+
 ## Must never depend on
 
 - Any NEPTRON crate except `neptron-libretro-sys`
