@@ -13,6 +13,7 @@ use crate::error::{LoadError, OpenError, RunError};
 use crate::ffi::{self, Core, CoreSystemInfo, OpenFailure, Poisoned};
 use crate::geometry::AvInfo;
 use crate::log::LogRecord;
+use crate::options::{CoreOption, OptionError};
 use crate::output::FrameOutput;
 use crate::pad::{InputError, Pad};
 use crate::state::State;
@@ -130,6 +131,22 @@ impl Host {
     /// What the core says about itself.
     pub fn system_info(&self) -> &SystemInfo {
         &self.system_info
+    }
+
+    /// The options that the core declared, with their current values.
+    pub fn options(&self) -> &[CoreOption] {
+        self.state().map_or(&[], State::options)
+    }
+
+    /// Sets the value of a declared option. The core sees the change at its
+    /// next `GET_VARIABLE_UPDATE`.
+    pub fn set_option(&mut self, key: &str, value: &str) -> Result<(), OptionError> {
+        match self.state.as_deref_mut() {
+            Some(state) => state.set_option(key, value),
+            None => Err(OptionError::UnknownKey {
+                key: key.to_owned(),
+            }),
+        }
     }
 
     /// Loads content, or no content when the core supports that. Returns

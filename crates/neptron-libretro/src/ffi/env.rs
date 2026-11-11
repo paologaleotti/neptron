@@ -12,6 +12,7 @@ use std::ffi::{c_char, c_void};
 use neptron_libretro_sys::*;
 
 use super::{c_str_bytes, core_av_info, neptron_libretro_log_printf};
+use crate::options::MAX_OPTIONS;
 use crate::state::State;
 
 /// Answers one environment call.
@@ -47,6 +48,52 @@ pub(super) unsafe fn dispatch(state: &mut State, cmd: u32, data: *mut c_void) ->
             };
             // SAFETY: GET_LOG_INTERFACE takes a `struct retro_log_callback *`.
             unsafe { write(data, callback) }
+        }
+        RETRO_ENVIRONMENT_SET_VARIABLES => {
+            if data.is_null() {
+                return false;
+            }
+            // SAFETY: SET_VARIABLES takes an array of `struct retro_variable`
+            // that ends with a null key, with NUL-terminated strings, valid
+            // for the length of the call.
+            let entries = unsafe { variables(data.cast()) };
+            state.declare_options(&entries);
+            true
+        }
+        RETRO_ENVIRONMENT_GET_VARIABLE => {
+            // SAFETY: GET_VARIABLE takes a `struct retro_variable *`.
+            let Some(variable) = (unsafe { read::<retro_variable>(data) }) else {
+                return false;
+            };
+            // SAFETY: libretro.h: the key is a NUL-terminated string, valid
+            // for the length of the call.
+            let key = unsafe { c_str_bytes(variable.key) };
+            let value = key.and_then(|k| state.option_value(k));
+            let answer = retro_variable {
+                key: variable.key,
+                value: value.map_or(std::ptr::null(), |v| v.as_ptr()),
+            };
+            // SAFETY: as above. The value lives in the state until the
+            // option changes, which happens only between calls into the core.
+            let written = unsafe { write(data, answer) };
+            written && value.is_some()
+        }
+        RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE => {
+            let updated = state.take_option_update();
+            // SAFETY: GET_VARIABLE_UPDATE takes a `bool *`.
+            unsafe { write(data, updated) }
+        }
+        RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION => {
+            // SAFETY: GET_CORE_OPTIONS_VERSION takes an `unsigned *`.
+            unsafe { write::<u32>(data, 0) }
+        }
+        RETRO_ENVIRONMENT_SET_CORE_OPTIONS
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK => {
+            state.refuse(cmd, "only the version 0 option API is supported")
         }
         RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS
         | RETRO_ENVIRONMENT_SET_CONTROLLER_INFO
@@ -109,6 +156,31 @@ pub(super) unsafe fn dispatch(state: &mut State, cmd: u32, data: *mut c_void) ->
         }
         _ => state.unknown(cmd),
     }
+}
+
+/// The key and declaration of each `retro_variable` up to the null key, at
+/// most `MAX_OPTIONS + 1` of them, so the store can report the excess. An
+/// entry with an unterminated or null string is passed as empty, and the
+/// store skips it.
+///
+/// # Safety
+///
+/// `array` points to `retro_variable` entries that end with a null key, with
+/// NUL-terminated strings, valid for `'a`.
+unsafe fn variables<'a>(array: *const retro_variable) -> Vec<(&'a [u8], &'a [u8])> {
+    let mut entries = Vec::new();
+    for i in 0..=MAX_OPTIONS {
+        // SAFETY: the array goes on until the null key, and the loop stops
+        // there, so entry `i` exists. The read needs no alignment.
+        let entry = unsafe { array.add(i).read_unaligned() };
+        if entry.key.is_null() {
+            break;
+        }
+        // SAFETY: the strings are NUL-terminated and valid for `'a`.
+        let (key, value) = unsafe { (c_str_bytes(entry.key), c_str_bytes(entry.value)) };
+        entries.push((key.unwrap_or_default(), value.unwrap_or_default()));
+    }
+    entries
 }
 
 /// Reads a `T` from `data`. `None` for null.

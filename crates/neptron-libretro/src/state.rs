@@ -9,6 +9,7 @@ use neptron_types::PixelFormat;
 use crate::audio::AudioBuffer;
 use crate::geometry::{AvInfo, GameGeometry, Timing};
 use crate::log::{LogLevel, LogQueue, LogRecord, LogSource};
+use crate::options::{CoreOption, OptionError, OptionStore};
 use crate::output::{Dropped, Event, FrameFault, FrameOutput, Refusal};
 use crate::pad::{MAX_PORTS, Pad};
 use crate::video::{FramePlan, VideoBuffer, pixel_format_from_core};
@@ -64,6 +65,7 @@ pub(crate) struct State {
     logs: LogQueue,
     logged_commands: Vec<u32>,
     in_run: bool,
+    options: OptionStore,
 }
 
 impl State {
@@ -83,6 +85,7 @@ impl State {
             logs: LogQueue::new(),
             logged_commands: Vec::with_capacity(MAX_LOGGED_COMMANDS),
             in_run: false,
+            options: OptionStore::default(),
         }
     }
 
@@ -164,6 +167,39 @@ impl State {
 
     pub(crate) fn logs(&self) -> &[LogRecord] {
         self.logs.records()
+    }
+
+    pub(crate) fn options(&self) -> &[CoreOption] {
+        self.options.options()
+    }
+
+    pub(crate) fn set_option(&mut self, key: &str, value: &str) -> Result<(), OptionError> {
+        self.options.set(key, value)
+    }
+
+    /// `SET_VARIABLES`: replaces the declared options and logs each entry
+    /// that was skipped.
+    pub(crate) fn declare_options(&mut self, entries: &[(&[u8], &[u8])]) {
+        for (key, reason) in self.options.declare(entries) {
+            self.logs.push_fmt(
+                LogLevel::Warn,
+                LogSource::Host,
+                format_args!(
+                    "core option {} skipped: {reason}",
+                    String::from_utf8_lossy(key)
+                ),
+            );
+        }
+    }
+
+    /// `GET_VARIABLE`: the current value of a declared option.
+    pub(crate) fn option_value(&self, key: &[u8]) -> Option<&CStr> {
+        self.options.value(key)
+    }
+
+    /// `GET_VARIABLE_UPDATE`: true once after a value changed.
+    pub(crate) fn take_option_update(&mut self) -> bool {
+        self.options.take_update()
     }
 
     pub(crate) fn system_dir(&self) -> &CStr {

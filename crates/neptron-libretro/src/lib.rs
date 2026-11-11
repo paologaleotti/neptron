@@ -17,6 +17,7 @@ mod ffi;
 mod geometry;
 mod host;
 mod log;
+mod options;
 mod output;
 mod pad;
 mod save;
@@ -33,6 +34,7 @@ pub use geometry::{
 };
 pub use host::{Host, HostConfig, SystemInfo};
 pub use log::{LOG_CAPACITY, LOG_TEXT_MAX_BYTES, LogLevel, LogRecord, LogSource};
+pub use options::{CoreOption, MAX_OPTIONS, OptionError};
 pub use output::{Dropped, Event, FrameFault, FrameOutput, Refusal, Video};
 pub use pad::{InputError, MAX_PORTS, Pad};
 pub use save::{

@@ -694,3 +694,90 @@ fn environment_answers() {
     );
     assert_eq!(seen().calls.last().unwrap(), "failed []");
 }
+
+#[test]
+fn options_follow_the_version_0_api() {
+    script(|s| {
+        s.on_set_environment = Some(|cb| {
+            let mut yes = true;
+            assert!(cb.env(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &raw mut yes));
+            let mut version = 9u32;
+            assert!(cb.env(RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION, &raw mut version));
+            assert_eq!(version, 0);
+            assert!(!cb.env(
+                RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2,
+                std::ptr::null_mut::<u8>()
+            ));
+            let mut vars = [
+                retro_variable {
+                    key: c"fake_region".as_ptr(),
+                    value: c"Region; auto|ntsc|pal".as_ptr(),
+                },
+                retro_variable {
+                    key: c"fake_broken".as_ptr(),
+                    value: c"no separator".as_ptr(),
+                },
+                retro_variable {
+                    key: std::ptr::null(),
+                    value: std::ptr::null(),
+                },
+            ];
+            assert!(cb.env(RETRO_ENVIRONMENT_SET_VARIABLES, vars.as_mut_ptr()));
+            assert!(!cb.env(RETRO_ENVIRONMENT_SET_VARIABLES, std::ptr::null_mut::<u8>()));
+        });
+        s.on_run = Some(|cb| {
+            let mut updated = false;
+            assert!(cb.env(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &raw mut updated));
+            let mut var = retro_variable {
+                key: c"fake_region".as_ptr(),
+                value: std::ptr::null(),
+            };
+            let found = cb.env(RETRO_ENVIRONMENT_GET_VARIABLE, &raw mut var);
+            // SAFETY: the host gave a NUL-terminated value.
+            let value = unsafe { CStr::from_ptr(var.value) }.to_string_lossy();
+            let mut missing = retro_variable {
+                key: c"fake_none".as_ptr(),
+                value: c"stale".as_ptr(),
+            };
+            let none = cb.env(RETRO_ENVIRONMENT_GET_VARIABLE, &raw mut missing);
+            let mut null_key = retro_variable {
+                key: std::ptr::null(),
+                value: std::ptr::null(),
+            };
+            let null = cb.env(RETRO_ENVIRONMENT_GET_VARIABLE, &raw mut null_key);
+            fake().seen.calls.push(format!(
+                "{updated} {found} {value} {none} {} {null}",
+                missing.value.is_null()
+            ));
+        });
+    });
+    let mut host = open().unwrap();
+    let logs: Vec<_> = host.logs().iter().map(|l| l.text.clone()).collect();
+    assert_eq!(
+        logs,
+        [
+            "environment call 0x43 refused: only the version 0 option API is supported",
+            "core option fake_broken skipped: the declaration has no \"; \"",
+        ]
+    );
+    let options = host.options();
+    assert_eq!(options.len(), 1);
+    assert_eq!(options[0].key(), "fake_region");
+    assert_eq!(options[0].value(), "auto");
+    host.set_option("fake_region", "pal").unwrap();
+    assert!(matches!(
+        host.set_option("fake_region", "secam"),
+        Err(crate::OptionError::UnknownValue { .. })
+    ));
+    host.load_game(None).unwrap();
+    host.run_frame().unwrap();
+    assert_eq!(
+        seen().calls.last().unwrap(),
+        "true true pal false true false"
+    );
+    host.run_frame().unwrap();
+    assert_eq!(
+        seen().calls.last().unwrap(),
+        "false true pal false true false"
+    );
+}
