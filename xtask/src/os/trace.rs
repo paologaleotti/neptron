@@ -652,6 +652,34 @@ mod tests {
     }
 
     #[test]
+    fn every_case_has_a_committed_trace_that_ran_to_the_end() {
+        let dir = repo_dir().join("tests/traces");
+        for case in CASES {
+            let text = std::fs::read_to_string(dir.join(format!("{}.trace", case.name))).unwrap();
+            assert!(text.starts_with("format 1\n"), "{}", case.name);
+            assert!(text.ends_with("end\nexit 0\n"), "{}", case.name);
+            let hashes = text.lines().filter(|l| l.starts_with("hash ")).count();
+            assert_eq!(
+                hashes,
+                usize::try_from(FRAMES / HASH_EVERY).unwrap(),
+                "{}",
+                case.name
+            );
+            for press in case.presses {
+                let (start, rest) = press.split_once(':').unwrap();
+                let (buttons, frames) = rest.split_once(':').unwrap();
+                let line = format!("press {start} {buttons} frames={frames}");
+                assert!(text.lines().any(|l| l == line), "{}: {line}", case.name);
+            }
+            if let Some(plain) = case.plain() {
+                let plain =
+                    std::fs::read_to_string(dir.join(format!("{}.trace", plain.name))).unwrap();
+                assert_eq!(zip_matches_plain(&plain, &text), Ok(()), "{}", case.name);
+            }
+        }
+    }
+
+    #[test]
     fn crc32_and_the_stored_zip_follow_the_format() {
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
         let zip = stored_zip("a.nes", b"NES").unwrap();

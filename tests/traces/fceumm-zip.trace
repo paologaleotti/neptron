@@ -1,0 +1,145 @@
+format 1
+arch aarch64
+core fceumm_libretro.so
+content fceumm-zip.zip
+run frames=900 hash_every=30
+press 120 b frames=6
+press 240 right frames=6
+press 260 down frames=4
+press 272 down frames=4
+press 284 down frames=4
+press 296 down frames=4
+press 308 down frames=4
+press 320 down frames=4
+press 332 down frames=4
+press 344 down frames=4
+press 356 down frames=4
+press 368 down frames=4
+press 400 a frames=6
+press 460 a frames=6
+system name="FCEUmm" version="(SVN) e0f3086" need_fullpath=true block_extract=false
+extensions fds|nes|unf|unif
+log open Warn Host unknown environment call 0x1002d
+log open Info Host environment call 0x37 refused: only the version 0 option API is supported
+log open Info Host environment call 0x45 refused: only the version 0 option API is supported
+log open Warn Host unknown environment call 0x1002a
+log open Warn Host unknown environment call 0x3b
+log open Warn Host unknown environment call 0x46
+option fceumm_region = "Auto" [Auto|NTSC|PAL|Dendy] Region
+option fceumm_game_genie = "disabled" [disabled|enabled] Game Genie Add-On (Restart Required)
+option fceumm_show_adv_sound_options = "disabled" [disabled|enabled] Show Advanced Sound Options
+option fceumm_aspect = "8:7 PAR" [8:7 PAR|4:3|PP] Aspect Ratio
+option fceumm_overscan_h_left = "0" [0|4|8|12|16] Crop Horizontal Left Overscan
+option fceumm_overscan_h_right = "0" [0|4|8|12|16] Crop Horizontal Right Overscan
+option fceumm_overscan_v_top = "8" [8|0|4|12|16|20|24] Crop Vertical Top Overscan
+option fceumm_overscan_v_bottom = "8" [8|0|4|12|16|20|24] Crop Vertical Bottom Overscan
+option fceumm_palette = "default" [default|asqrealc|restored-wii-vc|wii-vc|rgb|yuv-v3|unsaturated-final|sony-cxa2025as-us|pal|bmf-final2|bmf-final3|smooth-fbx|composite-direct-fbx|pvm-style-d93-fbx|ntsc-hardware-fbx|nes-classic-fbx-fs|nescap|wavebeam|digital-prime-fbx|magnum-fbx|smooth-v2-fbx|nes-classic-fbx|royaltea|mugicha|raw|custom] Color Palette
+option fceumm_ntsc_filter = "disabled" [disabled|composite|svideo|rgb|monochrome] NTSC Filter
+option fceumm_hdpacks = "enabled" [enabled|disabled] HD Texture Packs (Restart)
+option fceumm_sndrate_hint = "Auto" [Auto|32KHz|44KHz|48KHz|96KHz] Sound Samplerate (Hint)
+option fceumm_sndquality = "Low" [Low|High|Very High] Sound Quality
+option fceumm_sndlowpass = "disabled" [disabled|enabled] Audio RF Filter
+option fceumm_removetrianglenoise = "disabled" [disabled|enabled] Reduce Triangle Channel Popping
+option fceumm_reducedmcpopping = "disabled" [disabled|enabled] Reduce DMC Channel Popping
+option fceumm_sndstereodelay = "disabled" [disabled|01_ms_delay|02_ms_delay|03_ms_delay|04_ms_delay|05_ms_delay|06_ms_delay|07_ms_delay|08_ms_delay|09_ms_delay|10_ms_delay|11_ms_delay|12_ms_delay|13_ms_delay|14_ms_delay|15_ms_delay|16_ms_delay|17_ms_delay|18_ms_delay|19_ms_delay|20_ms_delay|21_ms_delay|22_ms_delay|23_ms_delay|24_ms_delay|25_ms_delay|26_ms_delay|27_ms_delay|28_ms_delay|29_ms_delay|30_ms_delay|31_ms_delay|32_ms_delay] Stereo Sound Effect
+option fceumm_swapduty = "disabled" [disabled|enabled] Swap Audio Duty Cycles
+option fceumm_sndvolume = "7" [7|0|1|2|3|4|5|6|8|9|10] Master Volume
+option fceumm_apu_1 = "enabled" [enabled|disabled] Audio Channel 1 (Square 1)
+option fceumm_apu_2 = "enabled" [enabled|disabled] Audio Channel 2 (Square 2)
+option fceumm_apu_3 = "enabled" [enabled|disabled] Audio Channel 3 (Triangle)
+option fceumm_apu_4 = "enabled" [enabled|disabled] Audio Channel 4 (Noise)
+option fceumm_apu_5 = "enabled" [enabled|disabled] Audio Channel 5 (PCM)
+option fceumm_apu_fds = "100" [100|0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95] Channel Volume (FDS)
+option fceumm_apu_s5b = "100" [100|0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95] Channel Volume (S5B)
+option fceumm_apu_n163 = "100" [100|0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95] Channel Volume (N163)
+option fceumm_apu_vrc6 = "100" [100|0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95] Channel Volume (VRC6)
+option fceumm_apu_vrc7 = "100" [100|0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95] Channel Volume (VRC7)
+option fceumm_apu_mmc5 = "100" [100|0|5|10|15|20|25|30|35|40|45|50|55|60|65|70|75|80|85|90|95] Channel Volume (MMC5)
+option fceumm_turbo_enable = "None" [None|Player 1|Player 2|Both] Turbo Enable
+option fceumm_turbo_delay = "3" [3|1|2|5|10|15|30|60] Turbo Delay (in frames)
+option fceumm_zapper_mode = "clightgun" [clightgun|stlightgun|touchscreen|mouse] Zapper Mode
+option fceumm_show_crosshair = "enabled" [enabled|disabled] Show Zapper Crosshair
+option fceumm_zapper_tolerance = "6" [6|0|1|2|3|4|5|7|8|9|10|11|12|13|14|15|16|17|18|19|20] Zapper Tolerance
+option fceumm_zapper_trigger = "enabled" [enabled|disabled] Invert Zapper Trigger Signal
+option fceumm_zapper_sensor = "enabled" [enabled|disabled] Invert Zapper Sensor Signal
+option fceumm_arkanoid_mode = "mouse" [mouse|abs_mouse|stelladaptor|touchscreen] Arkanoid Mode
+option fceumm_mouse_sensitivity = "100" [100|20|30|40|50|60|70|80|90|110|120|130|140|150|160|170|180|190|200] Mouse Sensitivity
+option fceumm_up_down_allowed = "disabled" [disabled|enabled] Allow Opposing Directions
+option fceumm_nospritelimit = "disabled" [disabled|enabled] No Sprite Limit
+option fceumm_overclocking = "disabled" [disabled|2x-Postrender|2x-VBlank] Overclock
+option fceumm_ramstate = "fill $ff" [fill $ff|fill $00|random] RAM Power-On Fill (Restart Required)
+log load Info Core Frontend supports RGBX888 - will use that instead of XRGB1555.
+log load Warn Host unknown environment call 0x8
+log load Info Core  FCEU_MakeFName: /tmp/core-trace/fceumm-zip/system/nes.pal
+log load Warn Host unknown environment call 0x10051
+log load Info Host environment call 0x10024 refused: memory maps are not used
+log load Info Core  Player 1: Gamepad
+log load Info Core  Player 2: Gamepad
+av base=256x224 max=256x240 aspect_milli=1306 fps_mhz=60100 sample_rate_mhz=48000000
+pixel_format Xrgb8888
+options_after_load count=43
+log 0 Warn Host unknown environment call 0x10028
+hash 29 256x224 Xrgb8888 8d2ec9a3592c0510
+audio 0-29 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 59 256x224 Xrgb8888 d7a59015fd66a565
+audio 30-59 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 89 256x224 Xrgb8888 d2e6917e089188ed
+audio 60-89 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 119 256x224 Xrgb8888 d2e6917e089188ed
+audio 90-119 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 149 256x224 Xrgb8888 2ab898c41e79b374
+audio 120-149 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 179 256x224 Xrgb8888 68465bac85f76dcd
+audio 150-179 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 209 256x224 Xrgb8888 68465bac85f76dcd
+audio 180-209 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 239 256x224 Xrgb8888 68465bac85f76dcd
+audio 210-239 stereo_frames=23960 nonzero_samples=0 ee8451cddf1a92a5
+hash 269 256x224 Xrgb8888 52e152217459e787
+audio 240-269 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 299 256x224 Xrgb8888 c9fdde95d9824024
+audio 270-299 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 329 256x224 Xrgb8888 ef7035fc73d0628a
+audio 300-329 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 359 256x224 Xrgb8888 da15723def3d580c
+audio 330-359 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 389 256x224 Xrgb8888 de5e91ba6c44cadd
+audio 360-389 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 419 256x224 Xrgb8888 c5ab68a7f142d089
+audio 390-419 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 449 256x224 Xrgb8888 64a5bf70a445657d
+audio 420-449 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 479 256x224 Xrgb8888 e116cb74f2964027
+audio 450-479 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 509 256x224 Xrgb8888 5d0f66328a85a4e9
+audio 480-509 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 539 256x224 Xrgb8888 3abcf6034be0b3e7
+audio 510-539 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 569 256x224 Xrgb8888 b560035987b15ed4
+audio 540-569 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 599 256x224 Xrgb8888 14c93e4585247759
+audio 570-599 stereo_frames=23959 nonzero_samples=31372 0decc01cac467511
+hash 629 256x224 Xrgb8888 662894cbc1386835
+audio 600-629 stereo_frames=23960 nonzero_samples=0 ee8451cddf1a92a5
+hash 659 256x224 Xrgb8888 73a212eec93c0935
+audio 630-659 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 689 256x224 Xrgb8888 f123f57ac043bdc5
+audio 660-689 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 719 256x224 Xrgb8888 4712ffe011778714
+audio 690-719 stereo_frames=23959 nonzero_samples=28698 b26ca1bd67345b1d
+hash 749 256x224 Xrgb8888 e76245722c354e81
+audio 720-749 stereo_frames=23959 nonzero_samples=2632 234a2163f87e2745
+hash 779 256x224 Xrgb8888 83dab7f0acba8c69
+audio 750-779 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 809 256x224 Xrgb8888 d6055a224fd076f3
+audio 780-809 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+hash 839 256x224 Xrgb8888 f55894671781aaa0
+audio 810-839 stereo_frames=23959 nonzero_samples=25486 64d4baa4afe8d18d
+hash 869 256x224 Xrgb8888 c70fc3332dc40861
+audio 840-869 stereo_frames=23960 nonzero_samples=5808 bb5c37bacc354815
+hash 899 256x224 Xrgb8888 5b19362b6a9e77b7
+audio 870-899 stereo_frames=23959 nonzero_samples=0 0e4049fa7028ced5
+video 0-899 frame 256x224
+save_ram size=0 cbf29ce484222325
+end
+exit 0

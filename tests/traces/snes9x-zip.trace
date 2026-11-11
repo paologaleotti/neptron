@@ -1,0 +1,126 @@
+format 1
+arch aarch64
+core snes9x_libretro.so
+content snes9x-zip.zip
+run frames=900 hash_every=30
+press 240 down frames=6
+press 270 down frames=6
+press 300 a frames=6
+press 340 down frames=6
+press 380 a frames=6
+system name="Snes9x" version="1.63 fae2fea" need_fullpath=false block_extract=false
+extensions smc|sfc|swc|fig|bs|st
+log open Warn Host unknown environment call 0x1002d
+log open Warn Host unknown environment call 0x22
+log open Warn Host unknown environment call 0x1002a
+log open Warn Host unknown environment call 0x8
+option snes9x_region = "auto" [auto|ntsc|pal] Console Region (Reload Core)
+option snes9x_aspect = "4:3" [4:3|4:3 scaled|uncorrected|auto|ntsc|pal] Preferred Aspect Ratio
+option snes9x_overscan = "enabled" [enabled|12_pixels|16_pixels|auto|disabled] Crop Overscan
+option snes9x_mode7_hires = "disabled" [disabled|2x|4x|2x_hv|4x_hv] HD Mode 7 Scale
+option snes9x_mode7_hires_bilinear = "disabled" [disabled|stable|smooth] HD Mode 7 Filtering
+option snes9x_hires_blend = "disabled" [disabled|merge|blur] Hi-Res Blending
+option snes9x_blargg = "disabled" [disabled|monochrome|rf|composite|s-video|rgb] Blargg NTSC Filter
+option snes9x_audio_interpolation = "gaussian" [gaussian|cubic|sinc|none|linear] Audio Interpolation
+option snes9x_up_down_allowed = "disabled" [disabled|enabled] Allow Opposing Directions
+option snes9x_overclock_superfx = "100%" [100%|50%|60%|70%|80%|90%|150%|200%|250%|300%|350%|400%|450%|500%] SuperFX Overclocking
+option snes9x_superfx_timing = "compat" [compat|hardware] SuperFX Timing Model (Experimental)
+option snes9x_overclock_cycles = "disabled" [disabled|light|compatible|max] Reduce Slowdown (Hack, Unsafe)
+option snes9x_reduce_sprite_flicker = "disabled" [disabled|enabled] Reduce Flickering (Hack, Unsafe)
+option snes9x_randomize_memory = "disabled" [disabled|enabled] Randomize Memory (Unsafe)
+option snes9x_block_invalid_vram_access = "enabled" [enabled|disabled] Block Invalid VRAM Access
+option snes9x_echo_buffer_hack = "disabled" [disabled|enabled] Echo Buffer Hack (Unsafe, only enable for old addmusic hacks)
+option snes9x_lightgun_mode = "Lightgun" [Lightgun|Touchscreen] Light Gun Mode
+option snes9x_superscope_reverse_buttons = "disabled" [disabled|enabled] Super Scope Reverse Trigger Buttons
+option snes9x_superscope_crosshair = "2" [2|0|1|3|4|5|6|7|8|9|10|11|12|13|14|15|16] Super Scope Crosshair
+option snes9x_superscope_color = "White" [White|White (blend)|Red|Red (blend)|Orange|Orange (blend)|Yellow|Yellow (blend)|Green|Green (blend)|Cyan|Cyan (blend)|Sky|Sky (blend)|Blue|Blue (blend)|Violet|Violet (blend)|Pink|Pink (blend)|Purple|Purple (blend)|Black|Black (blend)|25% Grey|25% Grey (blend)|50% Grey|50% Grey (blend)|75% Grey|75% Grey (blend)] Super Scope Color
+option snes9x_justifier1_crosshair = "4" [4|0|1|2|3|5|6|7|8|9|10|11|12|13|14|15|16] Justifier 1 Crosshair
+option snes9x_justifier1_color = "Blue" [Blue|Blue (blend)|Violet|Violet (blend)|Pink|Pink (blend)|Purple|Purple (blend)|Black|Black (blend)|25% Grey|25% Grey (blend)|50% Grey|50% Grey (blend)|75% Grey|75% Grey (blend)|White|White (blend)|Red|Red (blend)|Orange|Orange (blend)|Yellow|Yellow (blend)|Green|Green (blend)|Cyan|Cyan (blend)|Sky|Sky (blend)] Justifier 1 Color
+option snes9x_justifier2_crosshair = "4" [4|0|1|2|3|5|6|7|8|9|10|11|12|13|14|15|16] Justifier 2 Crosshair
+option snes9x_justifier2_color = "Pink" [Pink|Pink (blend)|Purple|Purple (blend)|Black|Black (blend)|25% Grey|25% Grey (blend)|50% Grey|50% Grey (blend)|75% Grey|75% Grey (blend)|White|White (blend)|Red|Red (blend)|Orange|Orange (blend)|Yellow|Yellow (blend)|Green|Green (blend)|Cyan|Cyan (blend)|Sky|Sky (blend)|Blue|Blue (blend)|Violet|Violet (blend)] Justifier 2 Color
+option snes9x_rifle_crosshair = "2" [2|0|1|3|4|5|6|7|8|9|10|11|12|13|14|15|16] M.A.C.S. Rifle Crosshair
+option snes9x_rifle_color = "White" [White|White (blend)|Red|Red (blend)|Orange|Orange (blend)|Yellow|Yellow (blend)|Green|Green (blend)|Cyan|Cyan (blend)|Sky|Sky (blend)|Blue|Blue (blend)|Violet|Violet (blend)|Pink|Pink (blend)|Purple|Purple (blend)|Black|Black (blend)|25% Grey|25% Grey (blend)|50% Grey|50% Grey (blend)|75% Grey|75% Grey (blend)] M.A.C.S. Rifle Color
+option snes9x_msu1_enhanced_audio = "enabled" [enabled|disabled] MSU-1 Enhanced Audio
+option snes9x_layer_1 = "enabled" [enabled|disabled] Show Layer 1
+option snes9x_layer_2 = "enabled" [enabled|disabled] Show Layer 2
+option snes9x_layer_3 = "enabled" [enabled|disabled] Show Layer 3
+option snes9x_layer_4 = "enabled" [enabled|disabled] Show Layer 4
+option snes9x_layer_5 = "enabled" [enabled|disabled] Show Sprite Layer
+option snes9x_gfx_transp = "enabled" [enabled|disabled] Enable Transparency Effects
+option snes9x_sndchan_volume_1 = "100" [100|0|10|20|30|40|50|60|70|80|90] Volume % for Sound Channel 1
+option snes9x_sndchan_volume_2 = "100" [100|0|10|20|30|40|50|60|70|80|90] Volume % for Sound Channel 2
+option snes9x_sndchan_volume_3 = "100" [100|0|10|20|30|40|50|60|70|80|90] Volume % for Sound Channel 3
+option snes9x_sndchan_volume_4 = "100" [100|0|10|20|30|40|50|60|70|80|90] Volume % for Sound Channel 4
+option snes9x_sndchan_volume_5 = "100" [100|0|10|20|30|40|50|60|70|80|90] Volume % for Sound Channel 5
+option snes9x_sndchan_volume_6 = "100" [100|0|10|20|30|40|50|60|70|80|90] Volume % for Sound Channel 6
+option snes9x_sndchan_volume_7 = "100" [100|0|10|20|30|40|50|60|70|80|90] Volume % for Sound Channel 7
+option snes9x_sndchan_volume_8 = "100" [100|0|10|20|30|40|50|60|70|80|90] Volume % for Sound Channel 8
+log load Info Core \"240P TEST SUITE SNES\" (NTSC) version 1.0\nROM: LoROM: 8 Mbit, SRAM: 0 Kbit\nID: SNES, CRC32: d62379ba, Checksum OK
+av base=256x224 max=1024x478 aspect_milli=1333 fps_mhz=60099 sample_rate_mhz=32040000
+pixel_format Rgb565
+options_after_load count=41
+event 0 geometry base=256x224 max=1024x478 aspect_milli=1333
+hash 29 256x224 Rgb565 52b32ac4d3f78b15
+audio 0-29 stereo_frames=15918 nonzero_samples=0 b9606b1d0c27cf85
+hash 59 256x224 Rgb565 52b32ac4d3f78b15
+audio 30-59 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 89 256x224 Rgb565 52b32ac4d3f78b15
+audio 60-89 stereo_frames=15993 nonzero_samples=0 d20758301ea92175
+hash 119 256x224 Rgb565 4ea2a2029a763db9
+audio 90-119 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 149 256x224 Rgb565 83eb9043de97cb57
+audio 120-149 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 179 256x224 Rgb565 7cc1f5de05387882
+audio 150-179 stereo_frames=15993 nonzero_samples=0 d20758301ea92175
+hash 209 256x224 Rgb565 af21ed933f0f5691
+audio 180-209 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 239 256x224 Rgb565 af21ed933f0f5691
+audio 210-239 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 269 256x224 Rgb565 41aebc16af062fb8
+audio 240-269 stereo_frames=15993 nonzero_samples=0 d20758301ea92175
+hash 299 256x224 Rgb565 3b533532a0867c0c
+audio 270-299 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 329 256x224 Rgb565 c241a7700578d525
+audio 300-329 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 359 256x224 Rgb565 302559b6daae74c2
+audio 330-359 stereo_frames=15993 nonzero_samples=0 d20758301ea92175
+hash 389 256x224 Rgb565 8c4870664d30c0d4
+audio 360-389 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 419 256x224 Rgb565 bc7a326e53c1630f
+audio 390-419 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 449 256x224 Rgb565 216b9749ad9f2220
+audio 420-449 stereo_frames=15993 nonzero_samples=0 d20758301ea92175
+hash 479 256x224 Rgb565 56c3b77d7a867aed
+audio 450-479 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 509 256x224 Rgb565 c51fed2fa3c73132
+audio 480-509 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 539 256x224 Rgb565 d3998f8958da9447
+audio 510-539 stereo_frames=15993 nonzero_samples=2066 38749908bd87c03b
+hash 569 256x224 Rgb565 6a57311152c328ad
+audio 540-569 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 599 256x224 Rgb565 cbc24ea7900f83cf
+audio 570-599 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 629 256x224 Rgb565 3503156e5619a201
+audio 600-629 stereo_frames=15993 nonzero_samples=0 d20758301ea92175
+hash 659 256x224 Rgb565 1ec491110978fb12
+audio 630-659 stereo_frames=15994 nonzero_samples=2066 8d03256e14a42beb
+hash 689 256x224 Rgb565 098c93b3484dd5ac
+audio 660-689 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 719 256x224 Rgb565 45f7e28df4a6a642
+audio 690-719 stereo_frames=15993 nonzero_samples=0 d20758301ea92175
+hash 749 256x224 Rgb565 5aa2b9fc88416569
+audio 720-749 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 779 256x224 Rgb565 a2dcb6afc76098c6
+audio 750-779 stereo_frames=15994 nonzero_samples=2066 75cf27fbee6f79eb
+hash 809 256x224 Rgb565 85a5e76bb3207983
+audio 780-809 stereo_frames=15993 nonzero_samples=0 d20758301ea92175
+hash 839 256x224 Rgb565 fc6d7b553f63faa4
+audio 810-839 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 869 256x224 Rgb565 4217f306e63c0050
+audio 840-869 stereo_frames=15994 nonzero_samples=0 b6351baecd96df45
+hash 899 256x224 Rgb565 33fba014186598c3
+audio 870-899 stereo_frames=15993 nonzero_samples=2066 3fa976514ee0107b
+video 0-899 frame 256x224
+save_ram size=0 cbf29ce484222325
+end
+exit 0
