@@ -7,6 +7,9 @@
 //! feature; `docs/spec/kms.md` defines it.
 
 #[forbid(unsafe_code)]
+mod connector;
+#[forbid(unsafe_code)]
 mod mode_record;
 
+pub use connector::{ChoiceError, ConnectorClass, ConnectorFacts, choose};
 pub use mode_record::{ModeRecord, ModeRecordError};
