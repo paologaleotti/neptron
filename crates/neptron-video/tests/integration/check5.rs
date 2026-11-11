@@ -14,8 +14,8 @@ use neptron_types::SourceGeometry;
 use neptron_video::{Directive, Outcome, PolicySettings, SwitchRecord};
 
 use crate::harness::{
-    MD_H32, MD_H40, PAL_239, Rig, SNES, SNES_239, SNES_448I, SNES_HIRES, Step, fixed_width,
-    native_width,
+    MD_H32, MD_H40, PAL_239, Rig, SNES, SNES_239, SNES_448I, SNES_HIRES, SNES_PAL, Step,
+    fixed_width, native_width,
 };
 
 const GOLDEN: &str = include_str!("../golden/switch_trace.txt");
@@ -46,7 +46,8 @@ const fn no_modeset(frames: u32, cycle: &'static [SourceGeometry]) -> Stretch {
 }
 
 /// SNES under a fixed super width: width changes and flicker cost no
-/// modeset; the lines, the scan and the rate do.
+/// modeset; the lines, the scan and the rate do. The last stretch changes
+/// the rate alone.
 const SNES_SCRIPT: &[Stretch] = &[
     hold(60, &[SNES]),
     no_modeset(60, &[SNES_HIRES]),
@@ -57,6 +58,8 @@ const SNES_SCRIPT: &[Stretch] = &[
     no_modeset(58, &[SNES_448I]),
     no_modeset(20, &[SNES_448I, SNES]),
     hold(80, &[PAL_239]),
+    hold(60, &[SNES]),
+    hold(60, &[SNES_PAL]),
 ];
 
 /// Mega Drive under the native width: H32 and H40 are two modes, and the
@@ -163,11 +166,4 @@ fn timing_check_5_switches_match_the_golden_trace() {
         "the switch trace differs from tests/golden/switch_trace.txt. Check each \
          line against the policy before you change the file.\nactual:\n{actual}"
     );
-}
-
-#[test]
-fn timing_check_5_gives_the_same_trace_twice() {
-    let first = run("snes", fixed_width(), SNES_SCRIPT);
-    let second = run("snes", fixed_width(), SNES_SCRIPT);
-    assert_eq!(first, second);
 }

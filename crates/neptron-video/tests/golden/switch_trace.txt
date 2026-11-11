@@ -3,6 +3,8 @@ frame 1 asked 1 shown 1 launch 256x224p@60099 -> native 2560x224p 60099 mHz 5192
 frame 143 asked 141 shown 143 geometry 256x239p@60099 -> native 2560x239p 60099 mHz 51924333 Hz pclock, gap 16639211 ns
 frame 203 asked 201 shown 203 geometry 512x448i@60099 -> native 2560x448i 60099 mHz 52055499 Hz pclock, gap 33278423 ns
 frame 343 asked 341 shown 343 geometry 256x239p@50007 -> native 2560x239p 50007 mHz 52043535 Hz pclock, gap 19997200 ns
+frame 423 asked 421 shown 423 geometry 256x224p@60099 -> native 2560x224p 60099 mHz 51924333 Hz pclock, gap 16639211 ns
+frame 483 asked 481 shown 483 geometry 256x224p@50007 -> native 2560x224p 50007 mHz 52043535 Hz pclock, gap 19997200 ns
 [mega drive native width]
 frame 1 asked 1 shown 1 launch 320x224p@59922 -> native 320x224p 59922 mHz 6506091 Hz pclock
 frame 33 asked 31 shown 33 geometry 256x224p@59922 -> native 256x224p 59922 mHz 5176721 Hz pclock, gap 16688361 ns

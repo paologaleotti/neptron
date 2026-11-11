@@ -29,6 +29,8 @@ pub const SNES_448I: SourceGeometry = SourceGeometry {
 };
 /// SNES at 239 lines (overscan mode).
 pub const SNES_239: SourceGeometry = source(256, 239, 60_099);
+/// The SNES geometry at the PAL rate: only the rate differs from `SNES`.
+pub const SNES_PAL: SourceGeometry = source(256, 224, 50_007);
 /// A PAL game: 256x239 at 50.007 Hz.
 pub const PAL_239: SourceGeometry = source(256, 239, 50_007);
 
