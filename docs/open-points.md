@@ -219,3 +219,39 @@ Each open point is one section:
 - How to change: a namespace for options that a core declares at run time.
 - Decision:
 
+### OP-023: `gamelist.xml` import is not done.
+
+- Raised by: T10
+- Status: open
+- Default: absent. It needs an XML reader.
+- Where: `crates/neptron-library`
+- How to change: a module that fills names and favourites after the scan.
+- Decision:
+
+### OP-024: Which control commands does a release image serve?
+
+- Raised by: T12 review
+- Status: open, to settle in T27 and T28
+- Default: the Unix socket code is always compiled in `neptron-ipc`. The application serves `input_send`, `input_script`, `clock_step`, `session_launch` and `settings_set` only when it is built with its `control` feature. A scripted client can press "confirm", so these commands must not be in a release image.
+- Where: `crates/neptron-ipc/README.md`, the application wiring
+- How to change: a read-only subset (`hello`, `video_state`, `stats`, `log_tail`) on a socket with owner-only permissions in a release image.
+- Decision:
+
+### OP-025: `cargo xtask clippy -p` does not check test code.
+
+- Raised by: T10
+- Status: open, to fix between waves
+- Default: only `cargo xtask verify` finds a lint in test code.
+- Where: `xtask/src/main.rs`
+- How to change: pass `--all-targets` in the `clippy` command.
+- Decision:
+
+### OP-026: On a 31 kHz monitor, Switchres pads a 224-line source to 500 lines.
+
+- Raised by: T05
+- Status: open, input for T15
+- Default: the mode is valid, but the picture is small and high on the screen. The policy must prefer 240p at double refresh or a line-doubled mode on a 31 kHz profile.
+- Where: `crates/neptron-modeline/tests/integration/safety.rs` records the mode
+- How to change: the ODREN policy.
+- Decision:
+

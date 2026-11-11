@@ -91,7 +91,7 @@ name = "Library"
 owns = ["crates/neptron-library", "data/systems", "data/cores"]
 needs = ["T01"]
 gate = "Fixture trees; a 10,000-game query fits the frame budget"
-status = "in_review"
+status = "merged"
 
 [[task]]
 id = "T11"
@@ -109,7 +109,7 @@ name = "Control protocol and `neptronctl` client"
 owns = ["crates/neptron-ipc", "apps/neptronctl"]
 needs = ["T02"]
 gate = "Round-trip tests"
-status = "in_review"
+status = "merged"
 
 [[task]]
 id = "T13"
