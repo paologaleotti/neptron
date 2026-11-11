@@ -149,4 +149,4 @@ These need a device and are not verified:
 
 ## Status
 
-Complete for the MVP. The SDL3 path compiles and passes clippy and its tests on macOS; no gamepad has run it. The evdev path has not been built for Linux: it was type-checked, and its tests ran, on macOS with the gate changed to `unix` for one local run.
+Complete for the MVP. The SDL3 path compiles and passes clippy and its tests on macOS; no gamepad has run it. The evdev path compiles only on Linux: the review built it on aarch64 Linux in a container (check, clippy with warnings denied, tests with `--features evdev`). No keyboard has run it.
