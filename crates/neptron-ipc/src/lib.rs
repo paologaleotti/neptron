@@ -9,7 +9,9 @@
 
 pub mod base64;
 mod command;
+mod envelope;
 mod error;
+mod line;
 mod reply;
 
 pub use command::{
@@ -17,7 +19,12 @@ pub use command::{
     ScriptedInput, SessionLaunchArgs, SessionState, SettingLevel, SettingsGetArgs, SettingsSetArgs,
     Stage, WaitArgs, WaitCondition,
 };
+pub use envelope::{
+    CodecError, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, Refusal, Request, Response, decode_request,
+    decode_response, encode_request, encode_response,
+};
 pub use error::{ErrorBody, ErrorCode};
+pub use line::{LineRead, MAX_REQUEST_LINE_BYTES, MAX_RESPONSE_LINE_BYTES, read_line};
 pub use reply::{
     FrameReached, HelloReply, InputQueued, LogLines, Reply, Screenshot, ScriptQueued,
     SessionStatus, SettingValue, SettingWritten, Stats, UiRow, UiTree, Verdict, VideoState,

@@ -120,8 +120,14 @@ mod tests {
     #[test]
     fn a_line_of_exactly_the_limit_is_read() {
         for chunk in 1..8 {
-            assert_eq!(lines(b"abcd\n", 4, chunk)[0], (LineRead::Line, b"abcd".to_vec()));
-            assert_eq!(lines(b"abcd", 4, chunk)[0], (LineRead::Line, b"abcd".to_vec()));
+            assert_eq!(
+                lines(b"abcd\n", 4, chunk)[0],
+                (LineRead::Line, b"abcd".to_vec())
+            );
+            assert_eq!(
+                lines(b"abcd", 4, chunk)[0],
+                (LineRead::Line, b"abcd".to_vec())
+            );
         }
     }
 
@@ -129,7 +135,11 @@ mod tests {
     fn a_line_over_the_limit_stops_at_the_limit() {
         for chunk in 1..8 {
             let out = lines(b"abcde\nf\n", 4, chunk);
-            assert_eq!(out, vec![(LineRead::TooLong, b"abcd".to_vec())], "chunk {chunk}");
+            assert_eq!(
+                out,
+                vec![(LineRead::TooLong, b"abcd".to_vec())],
+                "chunk {chunk}"
+            );
         }
     }
 

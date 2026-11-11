@@ -3,4 +3,5 @@
 
 #![forbid(unsafe_code)]
 
+mod codec;
 mod messages;
