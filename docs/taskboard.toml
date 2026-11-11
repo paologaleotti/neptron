@@ -1,0 +1,265 @@
+# The MVP taskboard: the rows of docs/plan/07-mvp-build-taskboard-for-claude-code.md
+# plus a status. The orchestrator reads it to find ready tasks and updates it on each merge.
+#
+# status: pending | in_progress | in_review | merged | blocked
+
+[[task]]
+id = "T01"
+wave = 0
+name = "Scaffold"
+owns = ["Whole repo"]
+needs = []
+gate = "T0 green on both hosts in CI"
+status = "in_review"
+
+[[task]]
+id = "T02"
+wave = 0
+name = "Contracts and monitor presets"
+owns = ["crates/neptron-types", "crates/neptron-backend", "API of crates/neptron-safety", "data/monitors"]
+needs = ["T01"]
+gate = "T1; code matches the contracts block"
+status = "pending"
+
+[[task]]
+id = "T03"
+wave = 1
+name = "Test fakes"
+owns = ["crates/neptron-testkit"]
+needs = ["T02"]
+gate = "A 1,000-frame fake session gives identical output twice"
+status = "pending"
+
+[[task]]
+id = "T04"
+wave = 1
+name = "Safety validator"
+owns = ["crates/neptron-safety"]
+needs = ["T02"]
+gate = "Timing check 2"
+status = "pending"
+
+[[task]]
+id = "T05"
+wave = 1
+name = "Switchres wrapper"
+owns = ["crates/neptron-modeline", "crates/neptron-switchres-sys", "vendor/switchres"]
+needs = ["T02"]
+gate = "Timing check 1, identical on macOS and Linux"
+status = "pending"
+
+[[task]]
+id = "T06"
+wave = 1
+name = "Reference renderer"
+owns = ["crates/neptron-gfx except src/gles"]
+needs = ["T02"]
+gate = "Pixel goldens"
+status = "pending"
+
+[[task]]
+id = "T07"
+wave = 1
+name = "UI core"
+owns = ["crates/neptron-ui", "xtask/src/ui"]
+needs = ["T01"]
+gate = "First scene golden is bit-identical on both hosts"
+status = "pending"
+
+[[task]]
+id = "T08"
+wave = 1
+name = "Settings"
+owns = ["crates/neptron-settings"]
+needs = ["T01"]
+gate = "Unit tests and fixtures"
+status = "pending"
+
+[[task]]
+id = "T09"
+wave = 1
+name = "Libretro bindings and test core"
+owns = ["crates/neptron-libretro-sys", "crates/neptron-testcore"]
+needs = ["T01"]
+gate = "Test core builds as a dynamic library; layout tests"
+status = "pending"
+
+[[task]]
+id = "T10"
+wave = 1
+name = "Library"
+owns = ["crates/neptron-library", "data/systems", "data/cores"]
+needs = ["T01"]
+gate = "Fixture trees; a 10,000-game query fits the frame budget"
+status = "pending"
+
+[[task]]
+id = "T11"
+wave = 1
+name = "GPU detection and capability table"
+owns = ["crates/neptron-platform", "data/hardware"]
+needs = ["T02"]
+gate = "Unit tests on fixture sysfs trees"
+status = "pending"
+
+[[task]]
+id = "T12"
+wave = 1
+name = "Control protocol and `neptronctl` client"
+owns = ["crates/neptron-ipc", "apps/neptronctl"]
+needs = ["T02"]
+gate = "Round-trip tests"
+status = "pending"
+
+[[task]]
+id = "T13"
+wave = 1
+name = "Window backend"
+owns = ["crates/neptron-window"]
+needs = ["T02"]
+gate = "Builds on both hosts; smoke test"
+status = "pending"
+
+[[task]]
+id = "T14"
+wave = 1
+name = "OS base and QEMU"
+owns = ["os/", "Dockerfile", "xtask/src/os"]
+needs = ["T01"]
+gate = "Image boots in QEMU; `vkms` findings in the task report"
+status = "pending"
+
+[[task]]
+id = "T15"
+wave = 2
+name = "ODREN policy"
+owns = ["crates/neptron-modeline/src/policy"]
+needs = ["T05", "T11"]
+gate = "Timing checks 3 and 4"
+status = "pending"
+
+[[task]]
+id = "T16"
+wave = 2
+name = "Libretro host (spec first)"
+owns = ["crates/neptron-libretro", "docs/spec/libretro-host.md"]
+needs = ["T03", "T09"]
+gate = "Test-core frame hashes"
+status = "pending"
+
+[[task]]
+id = "T17"
+wave = 2
+name = "Audio (spec first)"
+owns = ["crates/neptron-audio", "docs/spec/pacing-audio.md"]
+needs = ["T03"]
+gate = "Audio part of timing check 6"
+status = "pending"
+
+[[task]]
+id = "T18"
+wave = 2
+name = "Input"
+owns = ["crates/neptron-input"]
+needs = ["T03"]
+gate = "Scripted device tests; mapping fixtures"
+status = "pending"
+
+[[task]]
+id = "T19"
+wave = 2
+name = "OpenGL ES renderer"
+owns = ["crates/neptron-gfx/src/gles"]
+needs = ["T06", "T14"]
+gate = "T3: matches the reference renderer under Mesa software GL"
+status = "pending"
+
+[[task]]
+id = "T20"
+wave = 2
+name = "Screens"
+owns = ["crates/neptron-ui/src/screens", "data/skins/default"]
+needs = ["T07"]
+gate = "Scene goldens"
+status = "pending"
+
+[[task]]
+id = "T21"
+wave = 2
+name = "KMS spike tool (WP 1.1)"
+owns = ["tools/kms-spike"]
+needs = ["T04"]
+gate = "Runs on `vkms`; you run it on the i3-6100T when you can"
+status = "pending"
+
+[[task]]
+id = "T22"
+wave = 3
+name = "ODREN engine"
+owns = ["crates/neptron-video except src/guard"]
+needs = ["T03", "T04", "T15"]
+gate = "Timing check 5"
+status = "pending"
+
+[[task]]
+id = "T23"
+wave = 3
+name = "KMS backend (spec first)"
+owns = ["crates/neptron-kms", "docs/spec/kms.md"]
+needs = ["T04", "T14", "T19"]
+gate = "Timing check 7 on `vkms`"
+status = "pending"
+
+[[task]]
+id = "T24"
+wave = 3
+name = "Three real cores and test ROMs"
+owns = ["os/package/libretro-*", "tests/roms", "tests/traces"]
+needs = ["T14", "T16"]
+gate = "T4 frame hashes; traces committed"
+status = "pending"
+
+[[task]]
+id = "T25"
+wave = 4
+name = "Session"
+owns = ["crates/neptron-session"]
+needs = ["T06", "T16", "T17", "T18", "T22"]
+gate = "Timing check 6; scripted session"
+status = "pending"
+
+[[task]]
+id = "T26"
+wave = 4
+name = "Safety behaviours"
+owns = ["crates/neptron-video/src/guard"]
+needs = ["T08", "T22"]
+gate = "Scripted safety scenarios"
+status = "pending"
+
+[[task]]
+id = "T27"
+wave = 5
+name = "App wiring and launcher"
+owns = ["apps/neptron", "apps/neptron-launch", "xtask/src/verify"]
+needs = ["T10", "T11", "T12", "T13", "T20", "T25", "T26"]
+gate = "T2 end to end: list, launch, mode switches, quick menu, quit; UI crawler"
+status = "pending"
+
+[[task]]
+id = "T28"
+wave = 6
+name = "x86_64 image"
+owns = ["os/"]
+needs = ["T23", "T24", "T27"]
+gate = "T3: QEMU boots to the game list; `vkms` writeback equals the golden; boot time recorded"
+status = "pending"
+
+[[task]]
+id = "T29"
+wave = 6
+name = "Hardware test kit"
+owns = ["apps/neptronctl/src/selftest", "docs/hardware-checklist.md"]
+needs = ["T23", "T27"]
+gate = "Self-test passes on `vkms`"
+status = "pending"
