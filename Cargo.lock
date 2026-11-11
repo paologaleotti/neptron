@@ -122,6 +122,9 @@ dependencies = [
 [[package]]
 name = "neptron-input"
 version = "0.1.0"
+dependencies = [
+ "neptron-types",
+]
 
 [[package]]
 name = "neptron-ipc"

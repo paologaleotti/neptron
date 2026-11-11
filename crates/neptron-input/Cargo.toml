@@ -13,6 +13,7 @@ sdl3 = []
 evdev = []
 
 [dependencies]
+neptron-types = { path = "../neptron-types" }
 
 [lints]
 workspace = true
