@@ -203,6 +203,13 @@ version = "0.1.0"
 [[package]]
 name = "neptronctl"
 version = "0.1.0"
+dependencies = [
+ "neptron-ipc",
+ "neptron-types",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "proc-macro2"

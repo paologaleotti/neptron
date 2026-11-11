@@ -8,6 +8,14 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+neptron-ipc = { path = "../../crates/neptron-ipc" }
+serde.workspace = true
+serde_json.workspace = true
+# The code standards make each crate own a thiserror enum.
+thiserror.workspace = true
+
+[dev-dependencies]
+neptron-types = { path = "../../crates/neptron-types" }
 
 [lints]
 workspace = true
