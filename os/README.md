@@ -27,7 +27,7 @@ Buildroot 2026.08.1 is a bug-fix release of 2026.08. It is not in the repository
 | `board/common/busybox.config` | BusyBox fragment: the `timeout` applet |
 | `board/common/rootfs-overlay` | `inittab` for BusyBox init, and the init scripts that mount debugfs and run the command from the host |
 | `patches/` | The global patch and hash directory. It holds the kernel hashes |
-| `package/` | NEPTRON packages. `neptron-vkms-probe` is a test tool for `vkms`; see below |
+| `package/` | NEPTRON packages. `libretro-fceumm`, `libretro-snes9x` and `libretro-genesis-plus-gx` are the three MVP cores; see below. `neptron-vkms-probe` is a test tool for `vkms`; see below |
 
 The kernel configuration of each QEMU target is the Buildroot QEMU configuration (`board/qemu/aarch64-virt/linux.config` or `board/qemu/x86_64/linux.config` in the Buildroot tree) plus the four fragments in `board/qemu`, one for each concern.
 
@@ -41,6 +41,7 @@ Both QEMU targets have:
 - libdrm with its test programs (`modetest`), and `neptron-vkms-probe`.
 - Mesa with the softpipe software renderer: EGL, OpenGL ES and GBM, and `kmscube`.
 - SDL3 with the KMS/DRM video driver and OpenGL ES, without libudev, and alsa-lib.
+- The libretro cores FCEUmm, Snes9x and Genesis Plus GX in `/usr/lib/libretro`, with the library names of `data/cores`.
 
 The build also installs the Rust toolchain of Buildroot (`host-rustc`, the prebuilt `rust-bin`, with the standard library for the target) in the output, not in the image. `cargo xtask gles-compare` uses it with the Buildroot C toolchain as the linker to build Rust programs for the guest. This toolchain (Rust 1.97.1 in Buildroot 2026.08.1) is not the one that `rust-toolchain.toml` pins for the host (1.97.0); the two can drift apart when Buildroot is bumped.
 
@@ -71,6 +72,20 @@ How a command runs:
 3. `xtask` accepts only markers with its nonce, so output that contains the marker text does not end the run. It prints the lines between the markers, the time to the first marker and the guest uptime, and exits with the exit code of the command. It writes the whole console to `target/qemu/<arch>-console.log`.
 4. `xtask` stops QEMU 30 s after the deadline, and at once on SIGTERM, SIGHUP or SIGINT. It removes its script on exit, and the next run removes scripts that a killed run left.
 
+## The cores
+
+One package for each core, pinned to an exact upstream commit, with the SHA-256 of the GitHub archive of that commit and of the licence file in its `.hash` file. `BR2_DOWNLOAD_FORCE_CHECK_HASHES` makes Buildroot refuse a download with another hash.
+
+| Package | Upstream and commit | Library | Licence in the package |
+| --- | --- | --- | --- |
+| `libretro-fceumm` | `libretro/libretro-fceumm` `e0f3086a8104f8fbbe49a2615b10401504a9533f` | `fceumm_libretro.so` | `GPL-2.0+`, file `Copying` |
+| `libretro-snes9x` | `libretro/snes9x` `fae2fea08f74180759ef540ee94259213f503480` | `snes9x_libretro.so` | `LicenseRef-Snes9x (non-commercial)`, file `LICENSE` |
+| `libretro-genesis-plus-gx` | `libretro/Genesis-Plus-GX` `b9c2316441978d4015ba30e9a95d9b0e6f8ee981` | `genesis_plus_gx_libretro.so` | `LicenseRef-GenesisPlusGX (non-commercial)`, file `LICENSE.txt` |
+
+These are the commits that `data/cores/README.md` names. Each package runs the upstream libretro makefile with `platform=unix` and the Buildroot cross toolchain, and installs the library in `/usr/lib/libretro`. The makefiles ask git for the version, and the build directory is no git checkout, so each package gives `GIT_VERSION` from its pin. The packages have no architecture-specific flags, so the same files build for both targets. Only the aarch64 image has been built.
+
+Snes9x and Genesis Plus GX allow non-commercial use only. `make legal-info` lists the licence of each package. Whether an image ships them is a decision of the owner; the QEMU images are test images and are not distributed.
+
 ## neptron-vkms-probe
 
 A small C program on libdrm. For each mode on its command line it makes a framebuffer with a test pattern, and reports: the test-only and the real atomic commit, the mode read back from the CRTC, the vblank period and the flip-event period next to the period of the mode, three frame CRCs from debugfs, and a writeback capture compared pixel by pixel with the pattern. The exit code is the number of failed commits, readbacks, CRC reads and writeback captures. The periods are reported only, not judged. For an interlaced mode the `vkms` vblank interval on kernel 6.18 is half the field period: `crtc_vtotal` is already halved for interlace, and the timestamping code halves the frame duration again. The probe prints a line that says so.
@@ -92,6 +107,7 @@ On an Apple Silicon Mac, on 2026-11-11, with the aarch64 image:
 - `sleep 60 | kmscube -D /dev/dri/card0 -c 300` draws on `vkms` with Mesa softpipe at about 53 frames per second ("Rendered 299 frames in 5.630363 sec"), and the frame CRCs change from frame to frame while it runs. kmscube needs a standard input that stays open: with `/dev/null` it stops at once. `kmscube -A` (atomic) stops with "no eglDupNativeFenceFDANDROID", because softpipe has no native fence.
 
 - EGL on the Mesa surfaceless platform with no device gives OpenGL ES 2 on softpipe. `cargo xtask gles-compare` uses it: an image build that adds `host-rustc` took 4 min, the cross build of the comparison 7 s from cold, and the guest run under 10 s.
+- The three cores (2026-11-11): the incremental `os build` that added them took 130 s. The root filesystem went from 28,922 KiB to 44,717 KiB used. The libraries are 4.3 MiB (`fceumm_libretro.so`), 2.7 MiB (`snes9x_libretro.so`) and 12.0 MiB (`genesis_plus_gx_libretro.so`). `neptron-vkms-probe` passes on the new image.
 
 Not verified:
 

@@ -1,0 +1,9 @@
+config BR2_PACKAGE_LIBRETRO_GENESIS_PLUS_GX
+	bool "libretro-genesis-plus-gx"
+	help
+	  Genesis Plus GX, the libretro core for the Sega Mega Drive.
+	  NEPTRON runs it for the system "megadrive". Licence: the
+	  Genesis Plus GX licence, which forbids sale and commercial
+	  use.
+
+	  https://github.com/libretro/Genesis-Plus-GX

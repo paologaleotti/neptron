@@ -118,6 +118,79 @@ mod tests {
         assert_eq!(video["CONFIG_FRAMEBUFFER_CONSOLE"], "n");
     }
 
+    /// The core packages, their make prefix, and the library that
+    /// `data/cores` names.
+    const CORE_PACKAGES: [(&str, &str, &str); 3] = [
+        ("libretro-fceumm", "LIBRETRO_FCEUMM", "fceumm"),
+        ("libretro-snes9x", "LIBRETRO_SNES9X", "snes9x"),
+        (
+            "libretro-genesis-plus-gx",
+            "LIBRETRO_GENESIS_PLUS_GX",
+            "genesis_plus_gx",
+        ),
+    ];
+
+    #[test]
+    fn both_targets_build_the_three_cores() {
+        for arch in [Arch::Aarch64, Arch::X86_64] {
+            let options = defconfig(arch);
+            for (_, prefix, _) in CORE_PACKAGES {
+                let name = format!("BR2_PACKAGE_{prefix}");
+                assert_eq!(options.get(&name).map(String::as_str), Some("y"), "{name}");
+            }
+        }
+        let menu = std::fs::read_to_string(os_dir().join("Config.in")).unwrap();
+        for (package, _, _) in CORE_PACKAGES {
+            assert!(
+                menu.contains(&format!("package/{package}/Config.in")),
+                "{package}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_core_is_pinned_hashed_and_installed_under_its_library_name() {
+        for (package, prefix, core) in CORE_PACKAGES {
+            let dir = os_dir().join("package").join(package);
+            let mk = std::fs::read_to_string(dir.join(format!("{package}.mk"))).unwrap();
+            let version = mk
+                .lines()
+                .find_map(|l| l.strip_prefix(&format!("{prefix}_VERSION = ")))
+                .unwrap();
+            assert!(
+                version.len() == 40 && version.bytes().all(|b| b.is_ascii_hexdigit()),
+                "{package}: {version} is not a commit"
+            );
+            let hashes = std::fs::read_to_string(dir.join(format!("{package}.hash"))).unwrap();
+            let tarball = format!("{package}-{version}.tar.gz");
+            let pinned = hashes.lines().any(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                f.len() == 3 && f[0] == "sha256" && f[1].len() == 64 && f[2] == tarball
+            });
+            assert!(pinned, "{package}: no sha256 for {tarball}");
+            let files = mk
+                .lines()
+                .find_map(|l| l.strip_prefix(&format!("{prefix}_LICENSE_FILES = ")))
+                .unwrap();
+            for file in files.split_whitespace() {
+                assert!(
+                    hashes.lines().any(|l| l.ends_with(&format!("  {file}"))),
+                    "{package}: no hash for the licence file {file}"
+                );
+            }
+            let library = format!("{core}_libretro.so");
+            assert!(
+                mk.contains(&format!("$(TARGET_DIR)/usr/lib/libretro/{library}")),
+                "{package}"
+            );
+            let data = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../data/cores")
+                .join(format!("{core}.toml"));
+            let data = std::fs::read_to_string(data).unwrap();
+            assert!(data.contains(&format!("library = \"{library}\"")), "{core}");
+        }
+    }
+
     #[test]
     fn every_external_path_exists() {
         for arch in [Arch::Aarch64, Arch::X86_64] {

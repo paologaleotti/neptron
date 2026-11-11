@@ -1,0 +1,8 @@
+config BR2_PACKAGE_LIBRETRO_FCEUMM
+	bool "libretro-fceumm"
+	help
+	  FCEUmm, the libretro core for the Nintendo Entertainment
+	  System. NEPTRON runs it for the system "nes". Licence:
+	  GPL-2.0 or later.
+
+	  https://github.com/libretro/libretro-fceumm

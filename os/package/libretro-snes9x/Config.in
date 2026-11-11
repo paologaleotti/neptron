@@ -1,0 +1,12 @@
+config BR2_PACKAGE_LIBRETRO_SNES9X
+	bool "libretro-snes9x"
+	depends on BR2_INSTALL_LIBSTDCPP
+	help
+	  Snes9x, the libretro core for the Super Nintendo
+	  Entertainment System. NEPTRON runs it for the system "snes".
+	  Licence: the Snes9x licence, for non-commercial use only.
+
+	  https://github.com/libretro/snes9x
+
+comment "libretro-snes9x needs a toolchain w/ C++"
+	depends on !BR2_INSTALL_LIBSTDCPP
