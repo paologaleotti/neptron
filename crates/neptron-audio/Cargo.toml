@@ -12,6 +12,8 @@ publish.workspace = true
 sdl3 = []
 
 [dependencies]
+# The resampler with a variable ratio that dynamic rate control needs.
+rubato.workspace = true
 
 [lints]
 workspace = true
