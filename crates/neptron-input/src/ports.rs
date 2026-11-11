@@ -9,7 +9,8 @@ use crate::state::ControlState;
 /// source: gamepads, keyboards, the window keyboard, scripted input.
 ///
 /// Several devices can play on one port (all keyboards play on port 0). A
-/// button of a port is down while it is down on any of its devices. An
+/// button of a port is down while any of its devices has a non-zero value
+/// for it, and then reads as 1. An
 /// axis of a port has the value with the largest magnitude among its
 /// devices, and the device that sent its events first wins a tie.
 ///
@@ -38,9 +39,11 @@ impl PortStates {
     }
 
     /// The value of `control` on `port`: 0 or 1 for a button, -32768 to
-    /// 32767 for an axis.
+    /// 32767 for an axis. A button is down when any device of the port has
+    /// a non-zero value for it, as libretro reads a button, so a source
+    /// that sends a value other than 0 or 1 still reads as 1.
     pub fn value(&self, port: u8, control: Control) -> i16 {
-        let values = self
+        let mut values = self
             .devices
             .iter()
             .flatten()
@@ -55,7 +58,7 @@ impl PortStates {
                 }
             })
         } else {
-            values.max().unwrap_or(0).min(1)
+            i16::from(values.any(|v| v != 0))
         }
     }
 
@@ -144,6 +147,17 @@ mod tests {
         assert!(ports.devices.iter().all(Option::is_none));
         ports.apply(&[ev(3, Control::A, 0)]);
         assert!(ports.devices.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn a_button_is_down_for_any_non_zero_value_and_reads_as_1() {
+        let mut ports = PortStates::new();
+        ports.apply(&[ev(0, Control::A, 5), ev(1, Control::B, -1)]);
+        assert_eq!(ports.value(0, Control::A), 1);
+        assert_eq!(ports.value(1, Control::B), 1);
+        assert!(ports.is_held(1, Control::B));
+        ports.apply(&[ev(1, Control::B, 0)]);
+        assert_eq!(ports.value(1, Control::B), 0);
     }
 
     #[test]
