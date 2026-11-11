@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 mod device;
+mod hotkeys;
 mod key_map;
 mod mapper;
 mod pad_map;
@@ -17,6 +18,9 @@ mod state;
 
 pub use device::{
     DeviceIdentity, GAMEPAD_DEVICE_BASE, KEYBOARD_DEVICE_BASE, MAX_KEYBOARDS, MAX_PORTS, port_of,
+};
+pub use hotkeys::{
+    BLIND_RECOVERY_COMBO, BLIND_RECOVERY_HOLD_NS, Hotkey, Hotkeys, QUICK_MENU_COMBO,
 };
 pub use key_map::{KEY_MAP, key_control, looks_like_keyboard};
 pub use mapper::{Mapper, MapperError};

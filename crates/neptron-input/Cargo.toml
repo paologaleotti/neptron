@@ -19,3 +19,9 @@ thiserror.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# The backend traits and the simulated clock: the hotkey tests run in
+# simulated time, and scripted input enters as real input does.
+neptron-backend = { path = "../neptron-backend" }
+neptron-testkit = { path = "../neptron-testkit" }
