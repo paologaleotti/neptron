@@ -33,6 +33,7 @@ These files are the source of truth for the design and the build plan. Each file
 - [MVP build: taskboard for Claude Code](plan/07-mvp-build-taskboard-for-claude-code.md)
 - [Work packages](plan/08-work-packages.md)
 - [CI pipeline and definition of done](plan/09-ci-pipeline-and-definition-of-done.md)
+- [Code standards](plan/10-code-standards.md)
 
 ## History
 
