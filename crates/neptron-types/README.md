@@ -12,6 +12,7 @@ Every contract value is an integer. Frequencies are in millihertz (`_mhz`), or i
 - `GpuCaps`: pixel clock range, interlace, flip per field, maximum size.
 - `Rotation` (counter-clockwise, as in libretro) and `SourceGeometry`.
 - `PixelFormat` with `bytes_per_pixel()`, `Frame`, `Rect`, `Filter`, `Scene`. `Frame` and `Scene` borrow pixel data and have no serde.
+- `ui_dest_fill(mode_width, mode_height)` and `ui_dest_uniform(mode_width, mode_height, canvas_width, canvas_height)`: the UI destination rectangle for a CRT (the full active area) and for a flat panel (the largest whole scale that fits both axes, centred).
 - `FlipEvent { time_ns, sequence }`, `InputEvent { device, control, value }` and `Control`, the RetroPad controls.
 
 ## Must never depend on

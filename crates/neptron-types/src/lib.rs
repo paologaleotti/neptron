@@ -18,5 +18,5 @@ pub use event::{Control, FlipEvent, InputEvent};
 pub use gpu::GpuCaps;
 pub use modeline::Modeline;
 pub use monitor::{CrtRange, MonitorKind, MonitorProfile};
-pub use scene::{Filter, Frame, PixelFormat, Rect, Scene};
+pub use scene::{Filter, Frame, PixelFormat, Rect, Scene, ui_dest_fill, ui_dest_uniform};
 pub use source::{Rotation, SourceGeometry};
