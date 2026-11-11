@@ -39,6 +39,10 @@ pub(crate) struct Crt<'a> {
 /// (`native_key`): the native rung at each target, then at twice the game's
 /// rate when the refresh policy did not ask for it; rung 3; every padded
 /// exact mode, the fuller first; the fitted rung.
+///
+/// For every style, an exact mode at a forced rate (`force_50`,
+/// `force_60`) ranks before every exact mode at another rate: the forced
+/// rate is the user's choice of speed, so no fill comparison overrides it.
 pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
     let style = crt.settings.style;
     let rungs = walk_ladder(style);
@@ -185,9 +189,9 @@ fn fitted_at_capacity(
     Ok(matches!(outcomes.last(), Some(Ok(_))).then_some(outcomes))
 }
 
-/// Group, then four places: the entries sort by it. Group 3 is the fitted
-/// rung for every style.
-type Key = (u8, usize, usize, usize, usize);
+/// Band (exact at a forced rate, other exact, fitted), group, then four
+/// places: the entries sort by it.
+type Key = (u8, u8, usize, usize, usize, usize);
 
 /// The order key of an entry; `(tier, place, sub)` is the refresh target,
 /// the place on the ladder and the order within one candidate.
@@ -199,10 +203,12 @@ fn entry(
     outcome: Outcome,
 ) -> (Key, Considered) {
     let rank = padded_rank(&outcome);
+    let forced = matches!(target.kind, RefreshKind::Forced50 | RefreshKind::Forced60);
+    let band = u8::from(!forced);
     let key = match (rung.is_fitted(), style) {
-        (true, _) => (3, tier, 0, place, sub),
-        (false, PictureStyle::Native) => native_key(rung, rank, (tier, place, sub)),
-        (false, _) => (0, tier, rank, place, sub),
+        (true, _) => (2, 0, tier, 0, place, sub),
+        (false, PictureStyle::Native) => native_key(band, rung, rank, (tier, place, sub)),
+        (false, _) => (band, 0, tier, rank, place, sub),
     };
     (
         key,
@@ -214,14 +220,14 @@ fn entry(
     )
 }
 
-/// The key of an exact entry of the `native` style: the native rung that
-/// is not padded at every target, then rung 3, then every padded mode by
-/// its fill, then by target.
-fn native_key(rung: Rung, rank: usize, (tier, place, sub): (usize, usize, usize)) -> Key {
+/// The key of an exact entry of the `native` style, within its band: the
+/// native rung that is not padded at every target, then rung 3, then every
+/// padded mode by its fill, then by target.
+fn native_key(band: u8, rung: Rung, rank: usize, (tier, place, sub): (usize, usize, usize)) -> Key {
     match (rank, rung) {
-        (0, Rung::Native) => (0, tier, 0, place, sub),
-        (0, _) => (1, tier, 0, place, sub),
-        _ => (2, rank, tier, place, sub),
+        (0, Rung::Native) => (band, 0, tier, 0, place, sub),
+        (0, _) => (band, 1, tier, 0, place, sub),
+        _ => (band, 2, rank, tier, place, sub),
     }
 }
 

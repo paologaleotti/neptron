@@ -250,6 +250,25 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
+        // force_50 is the user's choice of speed: it ranks before any fill
+        // comparison. NES native on arcade_31 at 50 Hz: the range holds
+        // floor(31,500 / 50) = 630 less 46 lines, above its 512 limit, and
+        // forces 628 - 45 = 583, so 240 lines sit in 512 (41 %). At 60.099
+        // Hz they would fill more (240 of 478, 50 %), but the forced rate
+        // wins. Width: 256 x 512 x 4 / (3 x 240 x 1.333) = 546.3.
+        Row {
+            source: source(256, 240, 60_099),
+            style: PictureStyle::Native,
+            refresh: RefreshPolicy::Force50,
+            mode: "546x512p",
+            kind: RefreshKind::Forced50,
+            rate_mhz: 50_000,
+            ..row(
+                "style_native_force_50_before_fill",
+                preset("arcade_31"),
+                open_caps(),
+            )
+        },
         // Auto on the same monitor: 2x, 448 lines in 478.
         Row {
             rung: Rung::Multiple(2),
