@@ -30,6 +30,7 @@ The host produces data and decides nothing for the session. It does not own the 
 
 - Unit tests of each module: zip reader (with damaged archives), geometry and timing conversion, save files (backup, stale temp file, symlink at the temp path), options, pads, log queue, frame checks, audio buffer, state.
 - `src/ffi/fake_core.rs`: a fake core of Rust `extern "C"` functions, driven through the same entry point table: a wrong API version, hostile frames, audio and environment data, callbacks from another thread, zip content for a core that takes data, content overrides with `GET_GAME_INFO_EXT`, save RAM checks.
+- `examples/core_trace.rs`: the tier T4 program. It runs a real core (FCEUmm, Snes9x, Genesis Plus GX) in the QEMU guest and prints a trace of what the host saw. `cargo xtask core-trace` builds and runs it and compares the traces with `tests/traces`.
 - `tests/test_core.rs`: the built `neptron-testcore` library with the fakes of `neptron-testkit`: frame hashes, audio, events, duplicate frames, input read-back, options, save RAM through a file, the unknown call logged once, and each error path of `Host::open` and `load_game`.
 
 The host allows one core per process, so each test needs its own process. `cargo xtask test` runs them with `cargo nextest`, which gives that. Plain `cargo test` fails the second test of each binary.
