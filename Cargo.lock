@@ -95,6 +95,9 @@ version = "0.1.0"
 [[package]]
 name = "neptron-safety"
 version = "0.1.0"
+dependencies = [
+ "neptron-types",
+]
 
 [[package]]
 name = "neptron-session"
