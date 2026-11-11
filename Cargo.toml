@@ -14,6 +14,13 @@ cc = "1.11.1"
 # Linux only: keyboards through the kernel evdev interface. No async
 # features.
 evdev = { version = "0.13.2", default-features = false }
+# OpenGL ES calls for the renderer of neptron-gfx, feature `gles`. It loads
+# every GL function through eglGetProcAddress and links no GL library.
+glow = "0.18.0"
+# EGL for the renderer of neptron-gfx, feature `gles`. `dynamic` opens
+# libEGL.so.1 at run time, so no build links EGL and the guest build needs no
+# EGL in its sysroot.
+khronos-egl = { version = "6.0.0", default-features = false, features = ["1_5", "dynamic"] }
 libloading = "0.9.0"
 # Raw deflate for zip content. Pure Rust, one dependency.
 miniz_oxide = "0.9.1"
