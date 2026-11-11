@@ -240,11 +240,11 @@ Each open point is one section:
 ### OP-025: `cargo xtask clippy -p` does not check test code.
 
 - Raised by: T10
-- Status: open, to fix between waves
+- Status: closed
 - Default: only `cargo xtask verify` finds a lint in test code.
 - Where: `xtask/src/main.rs`
 - How to change: pass `--all-targets` in the `clippy` command.
-- Decision:
+- Decision: done. The command passes `--all-targets`.
 
 ### OP-026: On a 31 kHz monitor, Switchres pads a 224-line source to 500 lines.
 
