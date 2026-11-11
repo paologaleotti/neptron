@@ -298,5 +298,5 @@ name = "Contract change: scanlines in Scene, both renderers, and the setting"
 owns = ["crates/neptron-types/src/scene.rs", "crates/neptron-gfx", "crates/neptron-settings", "callers of Scene", "docs/adr"]
 needs = ["T06", "T10", "T19", "C01"]
 gate = "T1 and gles-compare; goldens viewed; an ADR"
-status = "in_progress"
+status = "merged"
 

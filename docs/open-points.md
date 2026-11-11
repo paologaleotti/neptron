@@ -486,3 +486,12 @@ Each open point is one section:
 - Where: `crates/neptron-input/README.md`, `crates/neptron-settings/src/builtin.rs`
 - How to change: a `help` field in the schema entry (a change to the settings model, with an ADR).
 - Decision:
+
+### OP-052: Scanline defaults and what follows later.
+
+- Raised by: C04 and its review
+- Status: decided in part by the owner
+- Default: the strength default is 75 percent. MiSTer offers 25, 50 and 75 for VGA monitors and no 100; users on PC CRTs mostly prefer 75; black lines on every second line halve the light. The dark line is the second of each pair. At 3x one line in three is dark, at 4x two in four: black lines stand in for the "shaped scanlines" of the Definition until that kind exists. `auto` is off on a flat panel and on 15 kHz. The 15/31 kHz boundary is 20 kHz by the line rate of the mode. The UI can offer presets (off, light 25, medium 50, strong 75, black 100). No test links the mode names in `neptron-settings` with `ScanlineMode` in `neptron-types`; a crate that uses both must add it.
+- Where: `crates/neptron-types/src/scanline.rs`, `crates/neptron-settings/src/builtin.rs`, `docs/adr/0006-scanlines-in-scene.md`
+- How to change: edit the named constants. A new scanline kind is a new variant of `ScanlineKind`. CRT shaders for flat panels (mask, glow, curvature) need one more field in `Scene`, a post-process stage in the GLES renderer, and a tolerance comparison in place of the byte-equal one.
+- Decision: the owner asked for a researched default for VGA monitors; 75 percent. Shaders for flat panels come after the MVP.

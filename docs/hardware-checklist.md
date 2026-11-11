@@ -49,3 +49,8 @@ Bench: Intel i3-6100T (HD 530) with a Samsung SyncMaster 740s through a DisplayP
 - [ ] Pi 3 CPU cost: release build, CPU share of `AudioPipeline::end_frame` with Sinc. Estimate 3 to 4 % of one core; use Polynomial if it is over budget.
 - [ ] Device buffer: record `Sdl3Sink::device_buffer_frames()` and the device rate on each output. The 512-frame hint is honoured.
 - [ ] The tone is heard: `cargo xtask test -p neptron-audio --features sdl3 --run-ignored only`. A person confirms a clean 440 Hz tone for one second, with no clicks.
+
+## C04 scanlines
+
+- [ ] 2x black scanlines at 100, 75 and 50 percent on the SyncMaster 740s: brightness, and whether the lines read as gaps. Record the value that looks right.
+- [ ] No moiré from the DisplayPort to VGA bridge with scanlines on.
