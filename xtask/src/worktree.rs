@@ -121,9 +121,7 @@ fn create(main_root: &Path, task: &str, policy: &LoadPolicy) -> Result<PathBuf, 
     }
     let branch = format!("mvp/{task}");
     repo::output(
-        Command::new("git")
-            .arg("-C")
-            .arg(&main_root)
+        repo::git(&main_root)
             .args(["worktree", "add", "-b", &branch])
             .arg(&path)
             .arg("main"),
@@ -208,9 +206,7 @@ struct TempWorktree {
 impl TempWorktree {
     fn add(source: &Path, path: PathBuf) -> Result<Self, WorktreeError> {
         repo::output(
-            Command::new("git")
-                .arg("-C")
-                .arg(source)
+            repo::git(source)
                 .args(["worktree", "add", "--detach"])
                 .arg(&path)
                 .arg("HEAD"),
@@ -407,9 +403,7 @@ fn remove_stale_clones(source: &Path, worktrees: &Path) {
 /// Cleanup is best effort: a failure is reported and does not hide the
 /// result of the command that ran before it.
 fn remove_worktree(source: &Path, path: &Path) {
-    let removed = Command::new("git")
-        .arg("-C")
-        .arg(source)
+    let removed = repo::git(source)
         .args(["worktree", "remove", "--force"])
         .arg(path)
         .output();
@@ -424,23 +418,13 @@ fn remove_worktree(source: &Path, path: &Path) {
     {
         eprintln!("xtask: cannot delete {}: {e}", path.display());
     }
-    if let Err(e) = repo::output(
-        Command::new("git")
-            .arg("-C")
-            .arg(source)
-            .args(["worktree", "prune"]),
-    ) {
+    if let Err(e) = repo::output(repo::git(source).args(["worktree", "prune"])) {
         eprintln!("xtask: {e}");
     }
 }
 
 fn delete_branch(main_root: &Path, branch: &str) {
-    if let Err(e) = repo::output(
-        Command::new("git")
-            .arg("-C")
-            .arg(main_root)
-            .args(["branch", "-D", branch]),
-    ) {
+    if let Err(e) = repo::output(repo::git(main_root).args(["branch", "-D", branch])) {
         eprintln!("xtask: {e}");
     }
 }
@@ -501,9 +485,7 @@ mod tests {
 
     fn git(dir: &Path, args: &[&str]) {
         repo::output(
-            Command::new("git")
-                .arg("-C")
-                .arg(dir)
+            repo::git(dir)
                 .args(["-c", "user.name=t", "-c", "user.email=t@t"])
                 .args(args),
         )
@@ -554,8 +536,7 @@ mod tests {
             "{result:?}"
         );
         assert!(!dir.join(".worktrees/T99-x").exists());
-        let branches =
-            repo::output(Command::new("git").arg("-C").arg(&dir).args(["branch"])).unwrap();
+        let branches = repo::output(repo::git(&dir).args(["branch"])).unwrap();
         assert!(!branches.contains("mvp/T99-x"), "{branches}");
         std::fs::remove_dir_all(&dir).unwrap();
     }

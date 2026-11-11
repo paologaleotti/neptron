@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use crate::repo;
+
 /// Environment variable that sets the number of build slots.
 pub const SLOTS_ENV: &str = "NEPTRON_BUILD_SLOTS";
 /// Environment variable that sets `CARGO_BUILD_JOBS` for each build.
@@ -85,6 +87,7 @@ impl LoadPolicy {
             Command::new("cargo")
         };
         cmd.args(args);
+        repo::without_git_location(&mut cmd);
         if let Some(jobs) = self.jobs {
             cmd.env("CARGO_BUILD_JOBS", jobs.to_string());
         }
@@ -230,7 +233,15 @@ mod tests {
         let p = LoadPolicy::resolve(false, None, None).unwrap();
         let cmd = p.cargo(&["check"]);
         assert_eq!(cmd.get_program(), "cargo");
-        assert_eq!(cmd.get_envs().count(), 0);
+        assert_eq!(cmd.get_envs().filter(|(_, v)| v.is_some()).count(), 0);
+    }
+
+    #[test]
+    fn cargo_does_not_inherit_the_git_location() {
+        let p = LoadPolicy::resolve(false, None, None).unwrap();
+        let cmd = p.cargo(&["check"]);
+        let removed = cmd.get_envs().any(|(k, v)| k == "GIT_DIR" && v.is_none());
+        assert!(removed);
     }
 
     #[test]
