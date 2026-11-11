@@ -4,5 +4,8 @@
 #![forbid(unsafe_code)]
 
 mod edid;
+mod gtf;
+mod profile;
 
 pub use edid::{EDID_BLOCK_LEN, Edid, EdidError, RangeLimits, TimingFormula, parse_edid};
+pub use profile::{EdidProfile, ProfileError, profile_from_edid};

@@ -101,6 +101,7 @@ version = "0.1.0"
 name = "neptron-platform"
 version = "0.1.0"
 dependencies = [
+ "neptron-types",
  "thiserror",
 ]
 

@@ -5,3 +5,4 @@
 
 mod blobs;
 mod edid;
+mod profile;
