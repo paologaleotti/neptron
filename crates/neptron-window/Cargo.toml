@@ -9,9 +9,13 @@ publish.workspace = true
 
 [features]
 # Off by default: the headless build (T0 to T2) compiles no SDL3, EGL or KMS code.
-sdl3 = []
+sdl3 = ["dep:sdl3"]
 
 [dependencies]
+# `unsafe_textures` removes the lifetime that ties a texture to its creator,
+# so that one struct can own the renderer and its texture. The crate calls no
+# unsafe function of `sdl3`.
+sdl3 = { workspace = true, optional = true, features = ["unsafe_textures"] }
 
 [lints]
 workspace = true
