@@ -1,0 +1,6 @@
+DRIVER=vc4-drm
+OF_NAME=gpu
+OF_FULLNAME=/soc/gpu
+OF_COMPATIBLE_0=brcm,bcm2835-vc4
+OF_COMPATIBLE_N=1
+MODALIAS=of:NgpuT(null)Cbrcm,bcm2835-vc4

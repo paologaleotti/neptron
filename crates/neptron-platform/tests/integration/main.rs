@@ -6,3 +6,4 @@
 mod blobs;
 mod edid;
 mod profile;
+mod sysfs;

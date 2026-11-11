@@ -1,11 +1,22 @@
 //! GPU and board detection from sysfs, the capability table, and a monitor
 //! profile built from the range limits in an EDID.
+//!
+//! The parsers and the table lookup are pure functions over bytes and
+//! strings. Only [`detect`] reads files, from a root path that tests point
+//! at a fixture tree.
 
 #![forbid(unsafe_code)]
 
 mod edid;
+mod gpu;
 mod gtf;
 mod profile;
+mod sysfs;
 
 pub use edid::{EDID_BLOCK_LEN, Edid, EdidError, RangeLimits, TimingFormula, parse_edid};
+pub use gpu::{
+    Connector, ConnectorName, ConnectorStatus, Gpu, ParseError, PciId, Platform, Uevent,
+    parse_card_name, parse_connector_name, parse_status, parse_uevent,
+};
 pub use profile::{EdidProfile, ProfileError, profile_from_edid};
+pub use sysfs::{SysfsError, detect};
