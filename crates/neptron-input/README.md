@@ -82,6 +82,8 @@ A key held before a keyboard opens gives no kernel event. So when the source ope
 
 **What hotplug relies on.** `SdlGamepads` calls `SDL_UpdateGamepads` in each poll, which runs the device detection of SDL3. The source asks SDL3 for the joystick list every `SCAN_INTERVAL_POLLS` (30) polls and checks each open gamepad for a disconnect in every poll. With no libudev, SDL3 on Linux finds devices through inotify on `/dev/input`, or by a scan of that folder when inotify is not there. `EvdevKeyboards` scans `/dev/input` every `KEYBOARD_SCAN_INTERVAL_POLLS` (120) polls. Both rely on `mdev` making the nodes in `/dev/input` with read access for the frontend. This is unverified on the target until the image runs it.
 
+**A line on stderr when a keyboard is lost.** The drop of an `evdev::Device` ungrabs it, and evdev 0.13.2 prints the error of that ungrab with `eprintln!`. The drop of a device that was never grabbed is silent: the crate then makes no call. So the source grabs a keyboard as the last step before it keeps it, and the scan of nodes that are not keyboards prints nothing. A grabbed keyboard that goes away (unplugged, read error) prints one line, `Failed to ungrab device: ...`, because the ungrab of a removed device fails and the crate gives no safe way to skip it. The source also gives an `InputNotice::Lost` for it.
+
 ## The SDL event pump
 
 SDL allows one event pump for each process. In a window build the window keyboard owns it. `SdlGamepads` needs none:
