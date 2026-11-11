@@ -21,7 +21,8 @@ pub struct ListItem<'a> {
     pub label: &'a str,
     /// Extra text on the right, for example a game count.
     pub detail: Option<&'a str>,
-    /// False shows the row as not available. It can still have the focus.
+    /// False shows the row as not available: dim text, and a bar in the
+    /// border colour instead of the focus colour when it has the focus.
     pub enabled: bool,
 }
 
@@ -138,7 +139,10 @@ impl List {
             let row = self.row_rect(index - top, scrolls);
             let entry = item(index);
             let focused = index == cursor;
-            let color = if focused {
+            let color = if focused && !entry.enabled {
+                frame.scene.rect(row, theme.colors.border);
+                theme.colors.text
+            } else if focused {
                 frame.scene.rect(row, theme.colors.focus);
                 theme.colors.focus_text
             } else if entry.enabled {
@@ -158,7 +162,7 @@ impl List {
             if let Some(detail) = entry.detail {
                 let at = Rect::new(add(inner.x, inner.w - detail_w), inner.y, detail_w, inner.h);
                 let detail_color = if focused {
-                    theme.colors.focus_text
+                    color
                 } else {
                     theme.colors.text_dim
                 };
@@ -341,6 +345,31 @@ mod tests {
         );
         let focused = frame.tree.focused().expect("a focused row");
         assert_eq!(focused.rect, Rect::new(16, 48, 284, 12));
+    }
+
+    #[test]
+    fn a_focused_row_that_is_not_available_has_no_focus_colour() {
+        let theme = Theme::default();
+        let l = list();
+        let fills = |enabled| {
+            let mut frame = UiFrame::new();
+            l.draw(&mut frame, &theme, 1, |_| ListItem {
+                label: "Native",
+                detail: None,
+                enabled,
+            });
+            frame
+                .scene
+                .commands()
+                .iter()
+                .filter_map(|c| match *c {
+                    crate::DrawCommand::Rect { color, .. } => Some(color),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(fills(true), [theme.colors.focus]);
+        assert_eq!(fills(false), [theme.colors.border]);
     }
 
     #[test]
