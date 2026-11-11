@@ -1,0 +1,123 @@
+//! A monitor or settings change during a game, and the EDID limit.
+
+use neptron_platform::{EdidProfile, TimingFormula};
+use neptron_safety::Rejection;
+use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
+use neptron_video::{
+    Directive, Monitor, Outcome, PictureStyle, PolicySettings, Refusal, Trigger, Unshowable,
+};
+
+use crate::harness::{MD_H40, Rig, SNES, fixed_width, generic_15, native_width};
+
+fn pc_31_120() -> Monitor {
+    Monitor::Profile(monitor_preset("pc_31_120").unwrap())
+}
+
+fn edid(pclock_max_hz: u32) -> Monitor {
+    Monitor::Edid(EdidProfile {
+        profile: monitor_preset("pc_31_120").unwrap(),
+        pclock_max_hz,
+        formula: TimingFormula::DefaultGtf,
+    })
+}
+
+#[test]
+fn a_monitor_change_in_a_game_switches_on_the_next_frame() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(SNES);
+    rig.frame(SNES);
+    let old = rig.current_mode();
+    rig.engine.set_monitor(pc_31_120());
+    let step = rig.frame(SNES);
+    assert_eq!(step.directive, Directive::Modeset, "no debounce");
+    assert!(step.muted_before_present);
+    let record = rig.engine.trace().last().unwrap();
+    assert_eq!(record.trigger, Trigger::Monitor);
+    assert_eq!(record.decided_frame, 3);
+    assert_eq!(record.took_frames(), Some(0));
+    assert_ne!(rig.current_mode(), old);
+    assert_eq!(rig.modes().len(), 2);
+}
+
+#[test]
+fn a_settings_change_in_a_game_decides_on_the_next_frame() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(MD_H40);
+    rig.engine.set_settings(fixed_width());
+    let step = rig.frame(MD_H40);
+    assert_ne!(step.directive, Directive::Steady);
+    let record = rig.engine.trace().last().unwrap();
+    assert_eq!(record.trigger, Trigger::Settings);
+    assert_eq!(record.decided_frame, 2);
+    assert_eq!(rig.engine.odren().settings(), &fixed_width());
+}
+
+#[test]
+fn the_same_settings_change_nothing() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(SNES);
+    rig.engine.set_settings(native_width());
+    assert_eq!(rig.frame(SNES).directive, Directive::Steady);
+    assert_eq!(rig.engine.trace().total(), 1);
+}
+
+#[test]
+fn a_style_change_takes_the_style_of_the_new_settings() {
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    rig.frame(SNES);
+    let x3 = PolicySettings {
+        style: PictureStyle::X3,
+        ..native_width()
+    };
+    rig.engine.set_settings(x3);
+    rig.frame(SNES);
+    let rows = rig.engine.style_rows(&SNES).unwrap();
+    let x3_row = rows.iter().find(|r| r.style == PictureStyle::X3).unwrap();
+    let current = rig.engine.current().unwrap();
+    assert_eq!(x3_row.winner, Some(current.chosen.index));
+}
+
+#[test]
+fn an_edid_monitor_limits_the_pixel_clock_of_the_caps() {
+    let limit = 20_000_000;
+    let mut rig = Rig::new(edid(limit), native_width());
+    assert_eq!(rig.engine.odren().caps().pclock_max_hz, limit);
+    rig.frame(SNES);
+    let current = rig.engine.current().unwrap();
+    assert!(current.chosen.token.mode().pclock_hz <= limit);
+    rig.engine.set_monitor(generic_15());
+    assert_eq!(
+        rig.engine.odren().caps().pclock_max_hz,
+        CAPS_LOW_CLOCK.pclock_max_hz
+    );
+}
+
+#[test]
+fn an_edid_limit_below_every_mode_keeps_the_screen_dark() {
+    let mut rig = Rig::new(edid(2_000_000), native_width());
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Kept);
+    let record = rig.engine.trace().last().unwrap();
+    assert_eq!(record.outcome, Outcome::Kept(Unshowable::NoWinner));
+    assert!(record.refused.iter().all(|r| matches!(
+        r.reason,
+        Refusal::Validator(Rejection::PixelClock {
+            max_hz: 2_000_000,
+            ..
+        })
+    )));
+    assert!(rig.fake.mode_calls().is_empty());
+}
+
+#[test]
+fn a_monitor_with_no_mode_for_the_game_keeps_the_mode_and_reports() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(SNES);
+    let mode = rig.current_mode();
+    rig.engine.set_monitor(edid(2_000_000));
+    assert_eq!(rig.frame(SNES).directive, Directive::Kept);
+    assert_eq!(rig.current_mode(), mode);
+    let record = rig.engine.trace().last().unwrap();
+    assert_eq!(record.trigger, Trigger::Monitor);
+    assert_eq!(record.outcome, Outcome::Kept(Unshowable::NoWinner));
+    assert_eq!(rig.frame(SNES).directive, Directive::Steady);
+}
