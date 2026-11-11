@@ -261,10 +261,18 @@ pub struct SessionInfo {
     pub paused: bool,
 }
 
-/// A message for the player.
+/// The number of a notice, given by the app. Two notices in one snapshot
+/// have different numbers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NoticeId(pub u32);
+
+/// A message for the player. It stays in the snapshot until the player
+/// dismisses it ([`crate::Intent::DismissNotice`]) or the app removes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Notice {
+    /// The notice.
+    pub id: NoticeId,
     /// The text.
     pub text: String,
     /// How serious it is.
@@ -476,9 +484,10 @@ impl SessionInfo {
 }
 
 impl Notice {
-    /// A message of a kind.
-    pub fn new(text: impl Into<String>, kind: NoticeKind) -> Self {
+    /// A message of a kind, with its number.
+    pub fn new(id: NoticeId, text: impl Into<String>, kind: NoticeKind) -> Self {
         Self {
+            id,
             text: text.into(),
             kind,
         }
@@ -554,6 +563,8 @@ mod tests {
         );
         assert!(!GameEntry::new(GameId(1), SystemId(1), "x").favourite);
         assert!(!SessionInfo::new(GameId(1), "x").paused);
+        let notice = Notice::new(NoticeId(7), "Cannot start the game.", NoticeKind::Error);
+        assert_eq!((notice.id, notice.kind), (NoticeId(7), NoticeKind::Error));
     }
 
     #[test]

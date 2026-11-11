@@ -1,7 +1,9 @@
 //! What goes out of the UI: requests that the app carries out. The UI never
 //! acts itself.
 
-use crate::snapshot::{ActionId, GameId, GameSource, Level, PageId, ProfileId, SettingKey};
+use crate::snapshot::{
+    ActionId, GameId, GameSource, Level, NoticeId, PageId, ProfileId, SettingKey,
+};
 
 /// A request from the UI to the app.
 ///
@@ -62,6 +64,8 @@ pub enum Intent {
     Resume,
     /// Stop the game and return to the game list.
     QuitGame,
+    /// Remove a notice from the snapshot: the player has read it.
+    DismissNotice(NoticeId),
 }
 
 /// A new setting value.
