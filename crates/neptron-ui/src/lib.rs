@@ -20,6 +20,7 @@ mod intent;
 pub mod registry;
 pub mod scene;
 pub mod screens;
+pub mod skin;
 pub mod snapshot;
 pub mod text;
 pub mod theme;

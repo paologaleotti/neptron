@@ -1,0 +1,24 @@
+# The built-in skin of NEPTRON.
+#
+# The app reads this file and passes its text to `neptron_ui::skin::parse`,
+# which refuses a file with a missing key, an unknown key or a value outside
+# its limits. A skin changes colours and sizes, never behaviour.
+#
+# Colours are "#RRGGBB". Sizes are in pixels of the 320x240 canvas:
+# row_height_px is 12 to 24, padding_px is 0 to 16.
+
+version = 1
+
+[colors]
+background = "#101428"
+panel = "#202848"
+border = "#6070A0"
+text = "#E8E8E8"
+text_dim = "#9098B0"
+focus = "#F0C030"
+focus_text = "#101428"
+accent = "#50C8F0"
+
+[sizes]
+row_height_px = 12
+padding_px = 4
