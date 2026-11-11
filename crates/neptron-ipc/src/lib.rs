@@ -8,3 +8,17 @@
 #![forbid(unsafe_code)]
 
 pub mod base64;
+mod command;
+mod error;
+mod reply;
+
+pub use command::{
+    ClockStepArgs, Command, InputScriptArgs, InputSendArgs, LogTailArgs, ScreenshotArgs,
+    ScriptedInput, SessionLaunchArgs, SessionState, SettingLevel, SettingsGetArgs, SettingsSetArgs,
+    Stage, WaitArgs, WaitCondition,
+};
+pub use error::{ErrorBody, ErrorCode};
+pub use reply::{
+    FrameReached, HelloReply, InputQueued, LogLines, Reply, Screenshot, ScriptQueued,
+    SessionStatus, SettingValue, SettingWritten, Stats, UiRow, UiTree, Verdict, VideoState,
+};
