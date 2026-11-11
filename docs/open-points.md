@@ -468,3 +468,12 @@ Each open point is one section:
 - Where: `crates/neptron-ui/README.md`, `crates/neptron-ui/src/screens`
 - How to change: see the README for each item. An "Inherit" entry in the option list solves the first.
 - Decision:
+
+### OP-050: Black scanlines for line-doubled 480p.
+
+- Raised by: the owner's review of wave 2
+- Status: decided by the owner
+- Default: the MVP renderer has no scanlines. `auto` on a 31 kHz monitor gives plain line-doubled 480p, where each line is drawn twice.
+- Where: `crates/neptron-types/src/scene.rs`, `crates/neptron-gfx`
+- How to change: a scanline strength in `Scene` (a contract change), in both renderers, with goldens.
+- Decision: after the MVP.
