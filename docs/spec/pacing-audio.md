@@ -212,16 +212,37 @@ All run on `FakeAudio` and `SimClock`, with no sleep and no thread. A test harne
 | Device fast and slow | Same, device 0.1% fast, and 0.1% slow | Same bounds |
 | Display off, rate given | Display 0.2% off the core's rate, `f_run` given | Same bounds |
 | Display off, rate not given | Display 0.2% off, the pipeline not told | No underrun, no overrun; level inside `[0.15, 0.85] A_B` |
-| Mode switch | `mute()`, one frame, 100 ms with no frame, `unmute()` | Level back inside the steady bounds at the first frame after the pause; no underrun after it; the output stays continuous |
+| Mode switch | `mute()`, one frame, 100 ms with no frame, `unmute()` | The device runs dry on silence only; one underrun, inside the pause; from the first frame after the pause, the level is inside the steady bounds; the output stays continuous |
+| Pause, stall, late flip | A 3 s muted pause; a 100 ms stall without mute; one missed flip | The pause and the stall restart the queue once each. After a missed flip the law brings the level back within 0.01 `A_B` of the target in 30 s (about 5 `tau`), with no underrun |
 | Continuity | 440 Hz sine | Each step between two output samples is at most the slope of the sine plus the fade slope plus 2 LSB |
-| Pitch | 440 Hz sine | Frequency of the output, on the device's real clock, within 0.5% in each 1 s window, and within 0.01% over the run |
+| Pitch | 440 Hz sine, at the core's rate and with the device 0.1% fast and slow | Frequency of the output, on the device's real clock, within 0.5% in each 1 s window. Over the run: within 0.01% plus the part the level drift explains. While the law moves the queue from the target to its fixed point, the device plays the frames the queue loses on top of the frames written, so the mean pitch moves by that change over the frames played (0.019% in 29 s for a 0.1% crystal error) |
 | Forced 60 Hz | 50 Hz core shown at 60 Hz, `f_run` given | Steady bounds; pitch 1.2 times the input, within 0.5% |
 | Random rates | Fixed seed: core sample rates, frame rates, device rates, crystal and display errors | Steady bounds for each pair |
-| Determinism | The steady run twice | The same sample hash |
+| Determinism | The steady run twice: 60 s polynomial, 10 s sinc | The same sample hash |
 
-The ten-minute runs use `Resampling::Polynomial`: the sinc filter costs 21% of real time in the dev profile, so ten minutes would take two minutes per run. Rate control sees only frame counts, which are the same for both kernels except for the constant resampler delay. Each scenario also runs for 30 simulated seconds with `Resampling::Sinc`, and the pitch and continuity tests use `Sinc`. The sample hash is the same in every run on one machine. It is not the same across CPUs with the sinc filter, because rubato picks AVX, SSE, NEON or scalar code at run time and the sums are made in a different order.
+The ten-minute runs use `Resampling::Polynomial`: the sinc filter costs 21% of real time in the dev profile, so ten minutes would take two minutes per run. Rate control sees only frame counts, which are the same for both kernels except for the constant resampler delay. The display scenarios also run for 30 simulated seconds with `Resampling::Sinc`; the pitch, continuity and mode switch tests use `Sinc` and cover the core's own rate and the device 0.1% fast and slow. The sample hash is the same in every run on one machine. It is not the same across CPUs with the sinc filter, because rubato picks AVX, SSE, NEON or scalar code at run time and the sums are made in a different order.
 
 The SDL3 sink has one smoke test, ignored by default because it needs a sound device: a quiet 440 Hz tone through `AudioPipeline` and `Sdl3Sink` for one second, paced by the device's own queue. `cargo xtask test -p neptron-audio --features sdl3 --run-ignored only` runs it.
+
+## Measured results
+
+On the fakes, levels as fractions of `A_B`, judged after the first second:
+
+| Scenario | Levels before a write | Largest deviation after 1 s |
+| --- | --- | --- |
+| Core rate, device exact | 0.499 to 0.501 | 0.00001 |
+| Device 0.1% fast / slow | 0.400 to 0.485 / 0.514 to 0.600 | 0.00100 |
+| Display 0.2% off, rate given | 0.499 to 0.501 | 0.00001 |
+| Display 0.2% fast / slow, not given | 0.528 to 0.700 / 0.299 to 0.471 | 0.00201 |
+| 50 Hz game forced to 60 Hz | 0.500 to 0.521 | 0.00021 |
+| Twelve random rate pairs | 0.423 to 0.591 | |
+
+The fixed points are those of equation (6): 0.40, 0.60, 0.30 and 0.70. The deviation is 0.5% only on the first frame, which finds the queue empty. Every run has no underrun and no overrun.
+
+- Pitch of a 440 Hz tone: worst 1 s window 0.00006% at the core's rate, 0.080% with the device 0.1% off, 0.019% at 528 Hz forced to 60 Hz.
+- Largest step of the 440 Hz tone at a quarter of full scale: 473, against a bound of 511 (568 against 606 at 528 Hz).
+- Mode switch: the level is at 0.500 of the span from the first frame after the 100 ms pause.
+- SDL3 smoke test on this machine (macOS, built-in output): the device opened at 44 100 Hz with a 512-frame buffer and played one second of samples in 1.01 s, with no overrun. A person must listen to know whether the tone is heard.
 
 ## Open points
 
