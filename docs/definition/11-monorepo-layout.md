@@ -51,7 +51,7 @@ neptron/
 
 **Dependency rules**
 
-- `neptron-modeline` and `neptron-safety` depend only on the shared types crate. They build and test on any laptop, with no hardware.
+- `neptron-modeline` and `neptron-safety` depend only on the shared types crate. The one exception is `neptron-switchres-sys`: only `neptron-modeline` depends on it, and it depends on no workspace crate. They build and test on any laptop, with no hardware.
 - `neptron-kms` accepts `ValidatedMode` only. `neptron-video` is the single crate that joins solver, safety and KMS.
 - `neptron-ui` depends on no other NEPTRON crate, and only the app binary depends on it: state snapshot in, scene and intents out. `neptron-session` mediates between UI, core host and video.
 - `unsafe` is allowed only in `-sys`, `libretro`, `kms`, `gfx`, `audio`, `input` and `testcore`. Every other crate carries `#![forbid(unsafe_code)]`. `unsafe` is used only where no safe way exists, in the smallest possible block, with a `// SAFETY:` comment that states the invariant. `neptron-testcore` uses it only for the exported libretro functions, and it is never in the image.
