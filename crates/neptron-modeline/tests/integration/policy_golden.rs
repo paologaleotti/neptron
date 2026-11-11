@@ -116,6 +116,7 @@ fn every_system_on_each_profile_gives_its_golden_decision() {
         (preset("generic_15"), open_caps()),
         (preset("arcade_15"), open_caps()),
         (preset("pc_31_120"), open_caps()),
+        (preset("arcade_31"), open_caps()),
         (pc_crt_30_71(), edid_caps(open_caps())),
         (panel_1080(), open_caps()),
     ];
