@@ -13,6 +13,8 @@ Build, verification and worktree automation for the NEPTRON workspace. Run it as
 - `cargo xtask rules`: checks the crate boundaries (see below).
 - `cargo xtask monitors <monitor.cpp> [dir]`: converts the Switchres preset table in a local copy of `monitor.cpp` into one TOML file per preset in `data/monitors` (or `dir`). Each value is converted from its decimal text with integer maths. `data/monitors/README.md` names the source commit and the units.
 
+- `cargo xtask bindgen`: generates the libretro bindings of `neptron-libretro-sys` from `crates/neptron-libretro-sys/vendor/libretro.h`. It writes `src/bindings.rs` (every `retro_*` type and `RETRO_*` constant, no functions) and `src/core_api_decls.rs` (the core entry points, no types), then formats both with `rustfmt`. The generated files are committed, so no build needs libclang. The command needs the `bindgen` command-line tool (on macOS: `brew install bindgen`; the committed files come from bindgen 0.73.2). `NEPTRON_BINDGEN` names another executable. The clang target is always `x86_64-unknown-linux-gnu` with `-ffreestanding`, so the output does not depend on the host. The layout checks that bindgen writes are valid for every 64-bit target with the LP64 data model.
+
 Both worktree commands refuse to run when Cargo builds the checkout into a directory other than `<checkout>/target` (for example with `CARGO_TARGET_DIR`), because the clone would then not be the build cache.
 
 ## Rule checker

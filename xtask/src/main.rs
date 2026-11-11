@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod bindgen;
 mod load;
 mod monitors;
 mod repo;
@@ -31,12 +32,15 @@ commands:
   monitors <monitor.cpp> [dir]
                        convert the Switchres preset table into the TOML
                        files of data/monitors (default dir)
+  bindgen              generate the libretro bindings of neptron-libretro-sys
+                       from its vendored libretro.h (needs the bindgen tool)
   rules                check the dependency rules, the unsafe allow-list
                        and the headless feature set
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
   NEPTRON_BUILD_JOBS   CARGO_BUILD_JOBS per build (default on macOS: 5)
+  NEPTRON_BINDGEN      the bindgen executable (default: bindgen on the PATH)
 ";
 
 /// An error of any xtask command.
@@ -44,6 +48,8 @@ environment:
 enum Error {
     #[error("unknown command {0:?}\n{USAGE}")]
     UnknownCommand(String),
+    #[error(transparent)]
+    Bindgen(#[from] bindgen::BindgenError),
     #[error(transparent)]
     Monitors(#[from] monitors::MonitorsError),
     #[error(transparent)]
@@ -80,6 +86,10 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "worktree" => Ok(worktree::run(&rest)?),
         "monitors" => {
             monitors::run(&rest)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        "bindgen" => {
+            bindgen::run(&rest)?;
             Ok(ExitCode::SUCCESS)
         }
         "check" => passthrough(&["check"], &rest),
