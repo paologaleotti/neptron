@@ -167,6 +167,17 @@ pub fn run_os(args: &[&str]) -> Result<ExitCode, OsError> {
 /// `cargo xtask qemu`: boots the image of the target and runs the job.
 pub fn run_qemu(args: &[&str]) -> Result<ExitCode, OsError> {
     let args = QemuArgs::parse(args, Arch::default_for(std::env::consts::ARCH))?;
+    let mut out = std::io::stdout().lock();
+    boot(&args, &mut out).map(|code| match code {
+        Some(code) => ExitCode::from(u8::try_from(code).unwrap_or(u8::MAX)),
+        None => ExitCode::SUCCESS,
+    })
+}
+
+/// Boots the image of the target and runs the job. The command output goes
+/// to `out`. Returns the exit code of the guest command, or `None` for an
+/// interactive session that ended well.
+fn boot(args: &QemuArgs, out: &mut dyn std::io::Write) -> Result<Option<i32>, OsError> {
     let repo = Repo::discover()?;
     let cache = Cache::from_env()?;
     let images = match (&args.images, std::env::var_os(host::IMAGES_ENV)) {
@@ -236,13 +247,15 @@ pub fn run_qemu(args: &[&str]) -> Result<ExitCode, OsError> {
     cmd.args(plan.args());
     let stop = guest::StopFlag::register()?;
     let result = match &plan.job {
-        None => guest::interactive(&mut cmd, &stop),
+        None => {
+            guest::interactive(&mut cmd, &stop).map(|code| (code != ExitCode::SUCCESS).then_some(1))
+        }
         Some(job) => {
             let log = guest::log_path(&repo.root.join("target"), args.arch.name());
             let deadline = args.timeout + qemu::HOST_MARGIN;
-            guest::run(&mut cmd, &plan, &job.nonce, deadline, &log, &stop).map(|code| {
+            guest::run(&mut cmd, &plan, &job.nonce, deadline, &log, &stop, out).map(|code| {
                 eprintln!("xtask: guest command exited with {code}");
-                ExitCode::from(u8::try_from(code).unwrap_or(u8::MAX))
+                Some(code)
             })
         }
     };

@@ -62,9 +62,9 @@ pub fn interactive(qemu: &mut Command, stop: &StopFlag) -> Result<ExitCode, OsEr
     }
 }
 
-/// Runs `qemu`, prints the command output to standard output, writes the
-/// whole console to `log`, and returns the exit code of the guest command.
-/// QEMU is stopped after `deadline` or on a stop signal.
+/// Runs `qemu`, writes the command output to `out`, writes the whole
+/// console to `log`, and returns the exit code of the guest command. QEMU
+/// is stopped after `deadline` or on a stop signal.
 pub fn run(
     qemu: &mut Command,
     plan: &QemuPlan,
@@ -72,6 +72,7 @@ pub fn run(
     deadline: Duration,
     log: &Path,
     stop: &StopFlag,
+    out: &mut dyn Write,
 ) -> Result<i32, OsError> {
     qemu.stdin(Stdio::null()).stdout(Stdio::piped());
     let start = Instant::now();
@@ -98,7 +99,6 @@ pub fn run(
     });
 
     let mut transcript = Transcript::new(nonce);
-    let mut out = std::io::stdout().lock();
     let end = start + deadline;
     let mut announced = false;
     let ending = loop {
@@ -112,7 +112,7 @@ pub fn run(
         match rx.recv_timeout(left.min(POLL)) {
             Ok(line) => {
                 if let Some(output) = transcript.feed(&line, start.elapsed()) {
-                    // A closed standard output must not stop the guest run.
+                    // A closed output must not stop the guest run.
                     let _ = writeln!(out, "{output}");
                 }
                 if !announced && transcript.ready_after.is_some() {
