@@ -1,0 +1,13 @@
+[package]
+name = "neptron-testcore"
+description = "A libretro core that follows a script, for tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

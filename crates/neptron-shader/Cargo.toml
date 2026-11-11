@@ -1,0 +1,13 @@
+[package]
+name = "neptron-shader"
+description = "Slang shader presets through librashader"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

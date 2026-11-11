@@ -1,0 +1,18 @@
+[package]
+name = "neptron-input"
+description = "Input: SDL3 gamepads, evdev keyboards, RetroPad mapping and hotplug"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Off by default: the headless build (T0 to T2) compiles no SDL3, EGL or KMS code.
+sdl3 = []
+evdev = []
+
+[dependencies]
+
+[lints]
+workspace = true

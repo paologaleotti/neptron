@@ -1,0 +1,13 @@
+[package]
+name = "neptron-settings"
+description = "Typed settings schema, three-level resolution (game, system, global, default) and TOML persistence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

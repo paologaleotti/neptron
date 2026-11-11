@@ -1,0 +1,13 @@
+[package]
+name = "neptron-backend"
+description = "The traits that hide display, audio, input and clock behind one interface, so that the frontend runs on KMS, in a window or on test fakes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "neptron-gfx"
+description = "Renderers for a Scene"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Off by default: the headless build (T0 to T2) compiles no SDL3, EGL or KMS code.
+gles = []
+
+[dependencies]
+
+[lints]
+workspace = true

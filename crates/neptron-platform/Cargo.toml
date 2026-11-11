@@ -1,0 +1,13 @@
+[package]
+name = "neptron-platform"
+description = "GPU and board detection from sysfs, the capability table, and a monitor profile built from the range limits in an EDID"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
