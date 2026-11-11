@@ -81,6 +81,10 @@ pub enum Refusal {
 /// Why a frame of the core was not copied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum FrameFault {
+    /// The core passed `RETRO_HW_FRAME_BUFFER_VALID`: a frame in a hardware
+    /// framebuffer, which the host does not support.
+    #[error("hardware-rendered frame; the host supports software frames only")]
+    HardwareFrame,
     /// No geometry is known yet: the frame came before `load_game` read it.
     #[error("frame before the geometry is known")]
     NoGeometry,

@@ -172,6 +172,7 @@ Checks on each frame, in order. A failed check gives `Video::Rejected(fault)` an
 | Check | Fault |
 | --- | --- |
 | `data` is null | not a fault: `Video::Duplicate(last frame)` |
+| `data` is `RETRO_HW_FRAME_BUFFER_VALID` (`(void*)-1`) | `HardwareFrame` |
 | no AV info yet (before `load_game` returned) | `NoGeometry` |
 | `width` and `height` are 1 or more | `ZeroSize` |
 | `width <= max_width`, `height <= max_height` (the current maximum) | `OverMaximum` |

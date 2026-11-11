@@ -36,8 +36,14 @@ use libloading::Library;
 use neptron_libretro_sys::*;
 
 use crate::content::LoadedContent;
+use crate::output::FrameFault;
 use crate::save::{MAX_SAVE_RAM_BYTES, SaveRamError, SaveRamLoad};
 use crate::state::{CoreAvInfo, State};
+
+/// `RETRO_HW_FRAME_BUFFER_VALID` of libretro.h, `(void *)-1`: a hardware
+/// core's marker for a frame in its framebuffer. bindgen does not
+/// translate the pointer macro.
+const RETRO_HW_FRAME_BUFFER_VALID: *const c_void = usize::MAX as *const c_void;
 
 thread_local! {
     /// The state of the host while it is inside a call into the core.
@@ -488,6 +494,10 @@ unsafe extern "C" fn video_refresh(
         with_state(|state| {
             if data.is_null() {
                 state.video_mut().duplicate();
+                return;
+            }
+            if data == RETRO_HW_FRAME_BUFFER_VALID {
+                state.video_mut().reject(FrameFault::HardwareFrame);
                 return;
             }
             let plan = match state.frame_plan(width, height, pitch) {

@@ -1050,3 +1050,20 @@ fn a_lost_state_still_unloads_and_deinits_the_core() {
     let tail = &calls[calls.len() - 2..];
     assert_eq!(tail, ["unload_game", "deinit"]);
 }
+
+#[test]
+fn a_hardware_frame_marker_is_rejected() {
+    script(|s| {
+        s.on_run = Some(|cb| {
+            // SAFETY: the host must refuse the marker without reading it.
+            unsafe {
+                (cb.video_refresh.unwrap())(usize::MAX as *const c_void, 320, 240, 0);
+            }
+        });
+    });
+    let mut host = loaded();
+    assert_eq!(
+        host.run_frame().unwrap().video,
+        Video::Rejected(FrameFault::HardwareFrame)
+    );
+}
