@@ -212,6 +212,7 @@ version = "0.1.0"
 name = "neptron-window"
 version = "0.1.0"
 dependencies = [
+ "neptron-types",
  "sdl3",
 ]
 

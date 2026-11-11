@@ -9,6 +9,8 @@
 // Only the SDL3 backend calls the rules below. They are plain functions so
 // that the tests check them without the feature and without a window.
 #[cfg_attr(not(feature = "sdl3"), allow(dead_code))]
+mod keymap;
+#[cfg_attr(not(feature = "sdl3"), allow(dead_code))]
 mod pacing;
 #[cfg_attr(not(feature = "sdl3"), allow(dead_code))]
 mod picture;

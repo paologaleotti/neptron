@@ -12,6 +12,7 @@ publish.workspace = true
 sdl3 = ["dep:sdl3"]
 
 [dependencies]
+neptron-types = { path = "../neptron-types" }
 # `unsafe_textures` removes the lifetime that ties a texture to its creator,
 # so that one struct can own the renderer and its texture. The crate calls no
 # unsafe function of `sdl3`.
