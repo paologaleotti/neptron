@@ -8,6 +8,7 @@ mod layer;
 mod parse;
 mod resolve;
 mod schema;
+mod storage;
 
 pub use builtin::{
     DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE, NAME_MAX_LEN,
@@ -20,3 +21,4 @@ pub use resolve::{LayerMismatch, Layers, Resolved, resolve, resolve_key};
 pub use schema::{
     Entry, Invalid, Kind, Level, Levels, Safety, Schema, SchemaError, Source, Value, ValueType,
 };
+pub use storage::{Loaded, NEW_FILE_MODE, Storage, StorageError, Target, WriteStep};
