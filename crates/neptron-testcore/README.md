@@ -60,11 +60,31 @@ The frame hash is FNV-1a 64 over the visible bytes: `width` pixels of each row, 
 
 The stereo sample with index `n` (from 0 at load or reset) is `[n as i16, -(n as i16)]`, with wrapping. After `k` video frames at a constant timing, the core has sent `k * sample_rate_hz * 1000 / fps_mhz` stereo frames, rounded down (`frames_after`). Each frame sends the difference, so the count never drifts. An `av_info` event starts the count again from that frame, at the new rate.
 
+## The core
+
+The crate builds as a dynamic library (`cdylib`: `libneptron_testcore.so` on Linux, `libneptron_testcore.dylib` on macOS) that exports all 25 libretro entry points, and as a Rust library that exports the script parser and the frame and audio generators for tests.
+
+| Call | What the core does |
+| --- | --- |
+| `retro_set_environment` | Calls `SET_SUPPORT_NO_GAME` (true) and `GET_LOG_INTERFACE` |
+| `retro_load_game` | Reads the script, calls `SET_PIXEL_FORMAT` (not for `0rgb1555`) and `GET_CAN_DUPE`. The content is not used: `game` may be null. Returns false and logs the reason on a script error or a refused pixel format |
+| `retro_get_system_av_info` | The geometry and timing in force |
+| `retro_run` | Calls `input_poll`, reads the 16 joypad buttons of port 0, makes the environment calls of the frame's events, sends the frame (or `NULL` for `dupe`), then the audio |
+| `retro_reset` | Starts the script again at frame 0 and keeps the save RAM. If the geometry or timing changed since load, the next frame calls `SET_SYSTEM_AV_INFO` with the load values |
+| `retro_get_memory_data`, `retro_get_memory_size` | The save RAM for `RETRO_MEMORY_SAVE_RAM`, zeros at load |
+| `retro_serialize_size` | 0: no save states |
+
+The frame buffer has the largest maximum size of the script, and the pitch is its full row, so the pitch is larger than the width in most frames. `dupe` sends the previous frame again when the frontend does not allow duplicate frames. The core allocates no buffer after load.
+
+Global state: libretro has no instance handle, so the state is one static behind a mutex. The frontend calls the core from one thread, as libretro.h says. The core holds no lock while it calls into the frontend, so a callback can call back into the core. A call from a second thread while the lock is taken does nothing. One process holds one test core.
+
+Panics: no panic crosses the C boundary. Each entry point runs in `catch_unwind`. After a panic the core does nothing for the rest of the process, and each call returns its default value.
+
 ## Must never depend on
 
 - Any NEPTRON crate except `neptron-libretro-sys`
 
 ## Rules
 
-- `unsafe` is allowed only on the exported libretro functions. Each has a `// SAFETY:` comment. The test core is never in the image.
+- `unsafe` is allowed only on the exported libretro functions, in `src/ffi.rs`: the exports and the calls into the frontend callbacks. Each block has a `// SAFETY:` comment. Every other module carries `#![forbid(unsafe_code)]`. The test core is never in the image.
 - No features.

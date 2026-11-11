@@ -4,10 +4,16 @@
 //!
 //! The library also exports the frame and audio generators, so that a test
 //! can work out what the core sends.
+//!
+//! The crate builds as a dynamic library (`cdylib`) that exports the 25
+//! libretro entry points, and as a Rust library for tests.
 
-#![forbid(unsafe_code)]
+// Only `ffi` may contain `unsafe`. Every other module forbids it.
+#![deny(unsafe_code)]
 
 mod audio;
+#[allow(unsafe_code)]
+mod ffi;
 mod frame;
 mod model;
 mod script;

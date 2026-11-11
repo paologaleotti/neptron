@@ -135,6 +135,7 @@ version = "0.1.0"
 name = "neptron-testcore"
 version = "0.1.0"
 dependencies = [
+ "neptron-libretro-sys",
  "thiserror",
 ]
 
