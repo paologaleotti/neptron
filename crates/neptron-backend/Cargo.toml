@@ -8,6 +8,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+neptron-safety = { path = "../neptron-safety" }
+neptron-types = { path = "../neptron-types" }
+# The code standards make each crate own a thiserror enum.
+thiserror.workspace = true
 
 [lints]
 workspace = true

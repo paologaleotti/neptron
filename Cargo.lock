@@ -51,6 +51,11 @@ version = "0.1.0"
 [[package]]
 name = "neptron-backend"
 version = "0.1.0"
+dependencies = [
+ "neptron-safety",
+ "neptron-types",
+ "thiserror",
+]
 
 [[package]]
 name = "neptron-gfx"

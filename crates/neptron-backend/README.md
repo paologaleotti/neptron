@@ -1,12 +1,16 @@
 # neptron-backend
 
-The traits that hide display, audio, input and clock behind one interface, so that the frontend runs on KMS, in a window or on test fakes.
+The traits that hide display, audio, input and clock behind one interface, so that the frontend runs on KMS, in a window or on test fakes. A backend executes what it gets and decides nothing.
 
-## Public API sketch
+## Public API
 
-- `trait Display` (`caps`, `set_mode(&ValidatedMode)`, `present(&Scene)`, `wait_flip`)
-- `trait AudioSink`, `trait InputSource`, `trait Clock`
-- `FlipEvent`, `InputEvent`, `DisplayError`
+- `trait Display`: `caps() -> &GpuCaps`, `set_mode(&ValidatedMode) -> Result<Modeline, DisplayError>` (returns the mode the driver reports back), `present(&Scene)` (queues one flip), `wait_flip() -> Result<FlipEvent, DisplayError>`.
+- `enum DisplayError` (`thiserror`, `#[non_exhaustive]`): `ModeRefused`, `SceneRefused`, `NoMode`, `Device`. Each variant carries what the driver or the device reported.
+- `trait AudioSink`: `rate_hz()`, `queued_frames()`, `write(&[i16]) -> usize`. Interleaved 16-bit stereo; `write` never blocks.
+- `trait InputSource`: `poll(&mut Vec<InputEvent>)` appends the events since the last call, already mapped to the RetroPad.
+- `trait Clock`: `now_ns()`, monotonic nanoseconds.
+
+`FlipEvent`, `InputEvent` and `Control` are plain data in `neptron-types`, so that the control protocol can send them. Every trait works as a trait object.
 
 ## Must never depend on
 
@@ -20,4 +24,4 @@ The traits that hide display, audio, input and clock behind one interface, so th
 
 ## Status
 
-Stub.
+The traits are in place. The implementations are in `neptron-kms`, `neptron-window`, `neptron-audio`, `neptron-input` and `neptron-testkit`.
