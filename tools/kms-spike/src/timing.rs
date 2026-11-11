@@ -49,15 +49,16 @@ pub enum Cadence {
 }
 
 /// The statistics of `samples`, in time order. `None` ("not measured")
-/// with fewer than two samples, or with no time or no vblank between the
-/// first and the last.
+/// with fewer than two samples, with no time or no vblank between the
+/// first and the last, or with more than one vblank per millisecond: a
+/// sequence that goes backwards wraps to about four billion vblanks.
 pub fn stats(samples: &[Sample]) -> Option<Stats> {
     let first = samples.first()?;
     let last = samples.last()?;
     let intervals = samples.len().checked_sub(1).filter(|&n| n > 0)?;
     let span_ns = last.time_ns.checked_sub(first.time_ns).filter(|&t| t > 0)?;
     let vblanks = u64::from(last.sequence.wrapping_sub(first.sequence));
-    if vblanks == 0 {
+    if vblanks == 0 || vblanks > span_ns / VBLANK_INTERVAL_MIN_NS {
         return None;
     }
     let mean = span_ns / vblanks;
@@ -102,10 +103,16 @@ pub fn cadence(flip_rate_mhz: u64, field_rate_mhz: u64) -> Cadence {
 
 /// The pixel clock that a measured field rate implies for this mode, in
 /// hertz. It shows the clock the hardware really runs at, which the
-/// kernel's readback does not report.
-pub fn implied_pclock_hz(field_rate_mhz: u64, htotal: u16, vtotal: u16, interlace: bool) -> u64 {
+/// kernel's readback does not report. `None` when the product overflows.
+pub fn implied_pclock_hz(
+    field_rate_mhz: u64,
+    htotal: u16,
+    vtotal: u16,
+    interlace: bool,
+) -> Option<u64> {
     let fields_per_frame = if interlace { 2 } else { 1 };
-    u64::from(htotal) * u64::from(vtotal) * field_rate_mhz / (1_000 * fields_per_frame)
+    let product = (u64::from(htotal) * u64::from(vtotal)).checked_mul(field_rate_mhz)?;
+    Some(product / (1_000 * fields_per_frame))
 }
 
 /// `count` events over `span_ns`, in millihertz, rounded to the nearest.
@@ -128,6 +135,8 @@ impl Cadence {
 
 /// The tolerance of the cadence match, in thousandths of the rate.
 const CADENCE_TOLERANCE_PERMILLE: u64 = 20;
+/// No display makes more than one vblank per millisecond (1 kHz).
+const VBLANK_INTERVAL_MIN_NS: u64 = 1_000_000;
 const NS_PER_S_MHZ: u128 = 1_000_000_000_000;
 
 #[cfg(test)]
@@ -178,7 +187,7 @@ mod tests {
                 sequence: u32::MAX,
             },
             Sample {
-                time_ns: 10,
+                time_ns: 16_666_667,
                 sequence: 0,
             },
         ];
@@ -236,6 +245,33 @@ mod tests {
     }
 
     #[test]
+    fn a_sequence_that_goes_backwards_is_not_measured() {
+        let samples = [
+            Sample {
+                time_ns: 0,
+                sequence: 500,
+            },
+            Sample {
+                time_ns: 1_000_000_000,
+                sequence: 499,
+            },
+        ];
+        assert_eq!(stats(&samples), None);
+    }
+
+    #[test]
+    fn more_than_one_vblank_per_millisecond_is_not_measured() {
+        let at = |time_ns, sequence| Sample { time_ns, sequence };
+        assert_eq!(stats(&[at(0, 0), at(10_000_000, 11)]), None);
+        assert!(stats(&[at(0, 0), at(10_000_000, 10)]).is_some());
+    }
+
+    #[test]
+    fn an_implied_clock_that_overflows_is_not_measured() {
+        assert_eq!(implied_pclock_hz(u64::MAX, u16::MAX, u16::MAX, false), None);
+    }
+
+    #[test]
     fn no_vblank_between_the_samples_is_not_measured() {
         let samples = [
             Sample {
@@ -267,7 +303,7 @@ mod tests {
 
     #[test]
     fn implied_clock_follows_the_totals() {
-        assert_eq!(implied_pclock_hz(59_940, 800, 525, false), 25_174_800);
-        assert_eq!(implied_pclock_hz(59_940, 858, 525, true), 13_499_986);
+        assert_eq!(implied_pclock_hz(59_940, 800, 525, false), Some(25_174_800));
+        assert_eq!(implied_pclock_hz(59_940, 858, 525, true), Some(13_499_986));
     }
 }

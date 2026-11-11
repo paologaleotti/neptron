@@ -364,12 +364,8 @@ impl Ctx<'_> {
         result.vblank = timing::stats(&vblanks);
         result.flips = timing::stats(&flips);
         if let Some(v) = &result.vblank {
-            result.implied_pclock_hz = Some(timing::implied_pclock_hz(
-                v.rate_mhz,
-                m.htotal,
-                m.vtotal,
-                m.interlace,
-            ));
+            result.implied_pclock_hz =
+                timing::implied_pclock_hz(v.rate_mhz, m.htotal, m.vtotal, m.interlace);
         }
         if let Some(f) = &result.flips {
             result.cadence = Some(timing::cadence(f.event_rate_mhz, m.field_rate_mhz()));
