@@ -472,8 +472,8 @@ Each open point is one section:
 ### OP-050: Black scanlines for line-doubled 480p.
 
 - Raised by: the owner's review of wave 2
-- Status: decided by the owner
-- Default: the MVP renderer has no scanlines. `auto` on a 31 kHz monitor gives plain line-doubled 480p, where each line is drawn twice.
+- Status: decided by the owner, change C04
+- Default: black scanlines are in the MVP for a whole vertical multiple, with a strength setting. The type in `Scene` is built so that other scanline kinds can follow (for example shaped scanlines at 3x and 4x, and different kinds for different resolutions) with no second contract change.
 - Where: `crates/neptron-types/src/scene.rs`, `crates/neptron-gfx`
 - How to change: a scanline strength in `Scene` (a contract change), in both renderers, with goldens.
-- Decision: after the MVP.
+- Decision: in the MVP. The owner: it must look right, like other setups and hardware line doublers, and it must be built so that more scanline kinds and their own settings can follow.
