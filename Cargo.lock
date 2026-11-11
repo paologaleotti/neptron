@@ -134,6 +134,9 @@ version = "0.1.0"
 [[package]]
 name = "neptron-testcore"
 version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "neptron-testkit"
