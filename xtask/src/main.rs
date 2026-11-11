@@ -9,6 +9,7 @@ mod load;
 mod repo;
 mod rules;
 mod verify;
+mod worktree;
 
 use std::process::ExitCode;
 
@@ -21,6 +22,11 @@ commands:
   check [cargo args]   cargo check, under the machine-load rules
   test [nextest args]  cargo nextest run, under the machine-load rules
   clippy [cargo args]  cargo clippy, under the machine-load rules
+  worktree new <task>  make .worktrees/<task> on branch mvp/<task> from main,
+                       with target/ cloned from the main checkout
+  worktree cache-check [--from <checkout>]
+                       prove that a build in a cloned target/ compiles no
+                       dependency again (default source: the main checkout)
   rules                check the dependency rules, the unsafe allow-list
                        and the headless feature set
 
@@ -42,6 +48,8 @@ enum Error {
     Rules(#[from] rules::RulesError),
     #[error(transparent)]
     Verify(#[from] verify::VerifyError),
+    #[error(transparent)]
+    Worktree(#[from] worktree::WorktreeError),
 }
 
 fn main() -> ExitCode {
@@ -63,6 +71,7 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
     let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
     match cmd.as_str() {
         "verify" => Ok(verify::run(&rest)?),
+        "worktree" => Ok(worktree::run(&rest)?),
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy"], &rest),

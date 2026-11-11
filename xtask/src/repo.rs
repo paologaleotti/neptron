@@ -41,6 +41,9 @@ pub enum RepoError {
     /// The current directory is not readable.
     #[error("cannot read the current directory: {0}")]
     CurrentDir(io::Error),
+    /// The shared git directory has no parent directory.
+    #[error("{0} has no parent directory")]
+    NoParent(PathBuf),
 }
 
 impl Repo {
@@ -65,6 +68,14 @@ impl Repo {
             root,
             git_common_dir,
         })
+    }
+
+    /// Root of the main checkout: the parent of the shared git directory.
+    pub fn main_root(&self) -> Result<PathBuf, RepoError> {
+        self.git_common_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| RepoError::NoParent(self.git_common_dir.clone()))
     }
 }
 

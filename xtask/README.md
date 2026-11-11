@@ -8,7 +8,11 @@ Build, verification and worktree automation for the NEPTRON workspace. Run it as
 - `cargo xtask check [cargo args]`: `cargo check` under the machine-load rules.
 - `cargo xtask test [nextest args]`: `cargo nextest run` under the machine-load rules.
 - `cargo xtask clippy [cargo args]`: `cargo clippy` under the machine-load rules.
+- `cargo xtask worktree new <task>`: makes `.worktrees/<task>` in the main checkout, on branch `mvp/<task>` from `main`. Its `target/` is an APFS clone (`cp -cRp`) of the `target/` of the main checkout, so dependencies do not compile again (run rule 12). If the clone fails, the command removes the new worktree and branch again.
+- `cargo xtask worktree cache-check [--from <checkout>]`: proves rule 12. It builds the source checkout (default: the main checkout) to warm it, makes a temporary worktree with a cloned `target/`, repeats the test build and clippy there, and counts the artifacts that Cargo compiles again. It fails when a dependency compiles again. It deletes the temporary worktree at the end, also on failure, and removes clones that an interrupted check left.
 - `cargo xtask rules`: checks the crate boundaries (see below).
+
+Both worktree commands refuse to run when Cargo builds the checkout into a directory other than `<checkout>/target` (for example with `CARGO_TARGET_DIR`), because the clone would then not be the build cache.
 
 ## Rule checker
 
