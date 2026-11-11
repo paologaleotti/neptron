@@ -425,3 +425,46 @@ Each open point is one section:
 - Where: `tools/kms-spike/README.md`, `docs/hardware-checklist.md`
 - How to change: run the check list on the bench and record the results.
 - Decision:
+
+### OP-046: Readings of the Definition in the ODREN policy that the owner must confirm.
+
+- Raised by: T15 and its reviews
+- Status: open, needs a decision from the owner
+- Default: each reading is one named constant or function, listed in the README under "Readings".
+  1. The `native` picture style walks the same rungs as `auto`, so both give the same plan today. The other reading: `native` falls only to interlaced 1:1, then to the fit, and never to a multiple.
+  2. Borders exist only in 224 or 240 line modes (`BORDER_LINES`). On a 31 kHz monitor, Master System, Atari 2600 and ZX Spectrum get a filtered fit, where a pixel-exact 2x in a 400-line mode is possible. WonderSwan on `generic_15` gets a 144 to 221 line stretch at 65 Hz.
+  3. A mode is padded when the game fills less than 75 % of its picture lines (`PADDED_FILL_MIN_PERCENT`). The Definition gives no number.
+  4. With `exact_x2`, a padded mode at the doubled rate ranks before an unpadded exact multiple at the game's rate (Game Boy on `pc_31_120`: 144 lines in a 224-line border mode at 119.456 Hz wins over 3x at 59.728 Hz).
+  5. A medium-resolution source on 15 kHz is shown interlaced 1:1 before the fit.
+  6. "Matches to two decimals" means a difference under 5 mHz (`REFRESH_MATCH_MHZ`). `force_60` is 60.000 Hz exactly.
+  7. A flat panel gives no notice for its refresh rate.
+- Where: `crates/neptron-modeline/README.md`, `crates/neptron-modeline/src/policy`
+- How to change: edit the named constant or function, and update the table rows and the goldens.
+- Decision:
+
+### OP-047: Limits of the ODREN policy.
+
+- Raised by: T15
+- Status: open
+- Default: `pi_vc4_composite` gets no mode, because its pixel clock is fixed at 13.5 MHz and Switchres does not calculate for a fixed clock. The policy swaps the axes of a rotated game, but `Scene` has no rotation and the renderer does not rotate, so the engine must not show a rotated game. With a Switchres monitor aspect other than 4:3 every exact rung drops; no preset sets one, and the default is 4:3. A non-finite Switchres score stops the plan. The engine must apply `EdidProfile::limit_caps` before it calls the policy (OP-013), and it must commit `token.mode()` of the winner.
+- Where: `crates/neptron-modeline/README.md`, section "Known limits"
+- How to change: a fixed-clock strategy for composite (after the MVP); a rotation field in `Scene` (a contract change); pass 4:3 to Switchres and use the monitor aspect for border widths only.
+- Decision:
+
+### OP-048: What the app must do for the confirm dialog and the screens.
+
+- Raised by: T20 and its reviews
+- Status: open, input for T25 to T27
+- Default: the dialog ignores Left and Right until 60 frames in a row pass with no direction action (`QUIET_FRAMES_BEFORE_MOVE`). The app must also guard: when a confirmation appears it stops every key repeat and sends nothing for a key that is held at that moment. Its first repeat delay must stay under 60 frames at the highest refresh rate (500 ms at 120 Hz). It calls `update` one time for each displayed frame. It gives each confirmation a new `ConfirmId`. It drops a `KeepMode` that arrives after its own timeout, because the UI still sends one at 0 s. It removes dismissed notices.
+- Where: `crates/neptron-ui/README.md`, `crates/neptron-ui/src/screens/overlays.rs`
+- How to change: the UI can also require elapsed time from `remaining_ns`, and can ignore Keep at 0 s.
+- Decision:
+
+### OP-049: Screen behaviour that the owner must confirm.
+
+- Raised by: T20
+- Status: open, needs a decision from the owner
+- Default: only the Menu button resets a settings row to "inherited", so a two-button pad cannot do it. Notices wait until a menu is open (the canvas is opaque, OP-010). "All games" in the quick menu writes the global level only, so a value set for the system still wins. The display panel always writes the global level. More than 16 settings changed in one quick-menu visit: the extra ones stay at the game level. Favourites and Recent always show on the home screen when systems exist. The skin file refuses unknown keys.
+- Where: `crates/neptron-ui/README.md`, `crates/neptron-ui/src/screens`
+- How to change: see the README for each item. An "Inherit" entry in the option list solves the first.
+- Decision:

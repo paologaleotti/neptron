@@ -136,7 +136,7 @@ name = "ODREN policy"
 owns = ["crates/neptron-modeline/src/policy"]
 needs = ["T05", "T11"]
 gate = "Timing checks 3 and 4"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T16"
@@ -181,7 +181,7 @@ name = "Screens"
 owns = ["crates/neptron-ui/src/screens", "data/skins/default"]
 needs = ["T07"]
 gate = "Scene goldens"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T21"
