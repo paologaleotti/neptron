@@ -172,7 +172,7 @@ name = "OpenGL ES renderer"
 owns = ["crates/neptron-gfx/src/gles"]
 needs = ["T06", "T14"]
 gate = "T3: matches the reference renderer under Mesa software GL"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T20"

@@ -123,8 +123,8 @@ Each open point is one section:
 ### OP-012: What the OpenGL ES renderer must do to match the reference renderer.
 
 - Raised by: T06 review
-- Status: open, input for T19
-- Default: none. T19 reads this point.
+- Status: closed by T19
+- Default: the OpenGL ES renderer follows the rules below. It matches the reference under Mesa software GL: exact for nearest and UI pixels, within 1 per channel for sharp bilinear.
 - Where: `crates/neptron-gfx/src/reference.rs`
 - How to change: T19 computes the source index from `gl_FragCoord` with a small bias and `highp`, expands 5 and 6 bit channels itself (rounded, not bit replication), converts XRGB1555, and clamps the taps to the crop in the shader.
 - Decision:
@@ -397,4 +397,13 @@ Each open point is one section:
 - Default: a pause mutes, lets the device run dry on silence and fills the queue with silence at the next frame. The ten-minute part of timing check 6 is proven with the Polynomial mode; the Sinc default is proven for 30 s runs, because the sinc filter is slow at `opt-level = 0`. The rate re-estimation of Arntzen's paper (equation 8) is not implemented: the session gives the run rate.
 - Where: `docs/spec/pacing-audio.md`, `crates/neptron-audio`
 - How to change: add `pause` and `resume` to the trait (a contract change). Set an `opt-level` for `rubato` in the dev profile of the root `Cargo.toml`, then run the long tests with Sinc.
+- Decision:
+
+### OP-043: Limits of the OpenGL ES renderer.
+
+- Raised by: T19
+- Status: open
+- Default: a scene whose crop side times dest side on one axis is above 2^23 is refused (`ScaleTooLarge`); the reference has no such limit. Only a headless constructor exists; T23 adds the one for its GBM surface. A big-endian host is a compile error. Without `EGL_KHR_display_reference` (Mesa 26.1.8 lacks it) a renderer never calls `eglTerminate`. `glow` can still panic when a driver gives a null or non-UTF-8 extension or renderer string. `khronos-egl` brings a second `libloading` version. `gles-compare --arch x86_64` was never run.
+- Where: `crates/neptron-gfx/src/gles`, `crates/neptron-gfx/README.md`, `xtask/src/os/cross.rs`
+- How to change: see the README for each item. Read `GL_RENDERER` and the extension list through the checked `glGetString` path to close the panic paths.
 - Decision:
