@@ -203,6 +203,26 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
+        // The fitted rung keeps the game's rate when the profile allows it.
+        // Donkey Kong, turned: 256 lines at 60.606 Hz. 2x (512) misses the
+        // rate on pc_31_120, and Switchres alone doubles the fitted request
+        // to 512 lines at 59.623 Hz. The range holds floor(31.6 kHz /
+        // 60.606 Hz) = 521 lines less ceil(571 us x 31.6 kHz) = 19 of
+        // blanking: 502 lines at 60.606 Hz.
+        Row {
+            source: SourceGeometry {
+                rotation: Rotation::R90,
+                ..source(256, 224, 60_606)
+            },
+            rung: Rung::Fitted,
+            mode: "224x502p",
+            rate_mhz: 60_606,
+            ..row(
+                "step5_fitted_keeps_the_game_rate",
+                preset("pc_31_120"),
+                open_caps(),
+            )
+        },
         // Step 3: an explicit multiple starts at its own rung.
         Row {
             style: PictureStyle::X3,

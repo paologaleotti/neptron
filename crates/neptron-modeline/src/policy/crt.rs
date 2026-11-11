@@ -3,9 +3,13 @@ use neptron_types::{CrtRange, GpuCaps, MonitorProfile};
 use super::ladder::walk_ladder;
 use super::refresh::{game_target, refresh_targets};
 use super::settings::Effective;
-use super::shape::shape;
+use super::shape::{Shape, progressive_capacity, shape};
 use super::solve::{Solved, solve};
-use super::{Considered, OrientedSource, Plan, PolicyError, RefreshKind, RefreshTarget, Rung};
+use super::{
+    Considered, Dropped, OrientedSource, Plan, PolicyError, Proposal, RefreshKind, RefreshTarget,
+    Rung,
+};
+use crate::ModelineError;
 
 /// The inputs of a plan on a CRT profile.
 pub(crate) struct Crt<'a> {
@@ -62,7 +66,7 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
 /// Steps 4 and 5 for one rung at one target.
 fn candidate(rung: Rung, target: RefreshTarget, enforce_refresh: bool, crt: &Crt<'_>) -> Solved {
     let aspect = crt.settings.solver.monitor_aspect;
-    match shape(
+    let shape = match shape(
         rung,
         &crt.source,
         crt.ranges,
@@ -70,9 +74,40 @@ fn candidate(rung: Rung, target: RefreshTarget, enforce_refresh: bool, crt: &Crt
         aspect,
         target.rate_mhz,
     ) {
-        Ok(shape) => solve(&shape, target, enforce_refresh, crt),
-        Err(dropped) => Ok(Err(dropped)),
+        Ok(shape) => shape,
+        Err(dropped) => return Ok(Err(dropped)),
+    };
+    let solved = solve(&shape, target, enforce_refresh, crt)?;
+    match solved {
+        Err(Dropped::RefreshMissed { .. }) if rung.is_fitted() => {
+            Ok(fitted_at_capacity(&shape, target, crt)?.unwrap_or(solved))
+        }
+        _ => Ok(solved),
     }
+}
+
+/// The fitted rung at the target rate: when Switchres scales the source to
+/// more lines than the ranges hold at the rate, ask again for the most
+/// progressive lines a range holds at that rate, so the game keeps its
+/// rate when the profile allows it ("refresh matches the core to two
+/// decimals when the profile allows it").
+/// `None` when there is no other line count to try, or when the retry
+/// misses as well: the first reason then stays.
+fn fitted_at_capacity(
+    shape: &Shape,
+    target: RefreshTarget,
+    crt: &Crt<'_>,
+) -> Result<Option<Result<Proposal, Dropped>>, ModelineError> {
+    let capacity = progressive_capacity(crt.ranges, target.rate_mhz);
+    if capacity == 0 || capacity == shape.lines {
+        return Ok(None);
+    }
+    let retry = Shape {
+        lines: capacity,
+        interlace: false,
+        ..*shape
+    };
+    Ok(solve(&retry, target, true, crt)?.ok().map(Ok))
 }
 
 type Key = (bool, usize, u8, usize);
@@ -82,7 +117,7 @@ fn entry(
     place: usize,
     rung: Rung,
     target: RefreshTarget,
-    outcome: Result<super::Proposal, super::Dropped>,
+    outcome: Result<Proposal, Dropped>,
 ) -> (Key, Considered) {
     let class = match &outcome {
         Ok(p) if p.padding.is_some() => 1,
