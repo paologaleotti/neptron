@@ -533,7 +533,7 @@ fn present_renders_the_scene_with_the_reference_renderer() {
 
 #[test]
 fn a_broken_scene_is_refused_with_or_without_rendering() {
-    for render in [Render::Pixels, Render::Off] {
+    for render in [Render::Pixels, Render::Scene, Render::Off] {
         let clock = SimClock::new();
         let options = DisplayOptions {
             render,
@@ -551,6 +551,67 @@ fn a_broken_scene_is_refused_with_or_without_rendering() {
         assert!(display.wait_flip().is_err());
         assert_eq!(display.frames()[0].hash, None);
     }
+}
+
+#[test]
+fn scene_mode_shows_the_same_pixels_and_hashes_the_scene() {
+    let shown = |render| {
+        let clock = SimClock::new();
+        let options = DisplayOptions {
+            render,
+            ..DisplayOptions::default()
+        };
+        let mut display = FakeDisplay::with_options(clock, CAPS_LOW_CLOCK, options);
+        display.set_mode(&mode(MODE_240P)).unwrap();
+        let data = bytes(&PIXELS);
+        let mut other = PIXELS;
+        other[5] = 0x0012_3456;
+        let other = bytes(&other);
+        display.capture(1);
+        for frame in [&data, &other, &data] {
+            display.present(&scene(frame)).unwrap();
+            display.wait_flip().unwrap();
+        }
+        (
+            display.screen(),
+            display.captured(1),
+            display.frame_hashes(),
+        )
+    };
+    let (pixels_screen, pixels_capture, _) = shown(Render::Pixels);
+    let (scene_screen, scene_capture, hashes) = shown(Render::Scene);
+    assert!(pixels_screen.is_some());
+    assert_eq!(scene_screen, pixels_screen);
+    assert!(scene_capture.is_some());
+    assert_eq!(scene_capture, pixels_capture);
+    assert_ne!(scene_capture, scene_screen);
+    assert_eq!(hashes.len(), 3);
+    assert_eq!(hashes[0], hashes[2]);
+    assert_ne!(hashes[0], hashes[1]);
+}
+
+#[test]
+fn the_scene_hash_ignores_the_row_padding() {
+    let hash = |data: &[u8], pitch| {
+        let clock = SimClock::new();
+        let options = DisplayOptions {
+            render: Render::Scene,
+            ..DisplayOptions::default()
+        };
+        let mut display = FakeDisplay::with_options(clock, CAPS_LOW_CLOCK, options);
+        display.set_mode(&mode(MODE_240P)).unwrap();
+        let mut s = scene(data);
+        if let Some(game) = &mut s.game {
+            game.pitch = pitch;
+        }
+        display.present(&s).unwrap();
+        display.frames()[0].hash.unwrap()
+    };
+    let packed = bytes(&PIXELS);
+    let mut padded = packed[..16].to_vec();
+    padded.extend_from_slice(&[0xAB; 4]);
+    padded.extend_from_slice(&packed[16..]);
+    assert_eq!(hash(&packed, 16), hash(&padded, 20));
 }
 
 #[test]

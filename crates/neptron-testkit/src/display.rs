@@ -99,16 +99,25 @@ pub struct DisplayOptions {
     pub flip_timeout_ns: u64,
 }
 
-/// Whether the fake display renders each scene.
+/// What the fake display does with each scene. Every mode checks the
+/// scene with the reference renderer, so a broken scene is refused in each.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Render {
     /// Render each scene at the size of the mode with the reference
     /// renderer, and record the hash of the pixels. Two frame buffers of the
-    /// mode size are kept, and nothing more unless a test asks for a
-    /// capture.
-    #[default]
+    /// mode size are kept. In the unoptimised test build, a 320x240 frame
+    /// takes about 10 ms. For goldens of every frame.
     Pixels,
-    /// Check each scene but do not render it: no hash, no screen. For long
+    /// Record the hash of the scene: the mode size, the rectangles, the
+    /// filter, and the rows of each frame without padding. The renderer is
+    /// a pure function of these, so two scenes with the same hash show the
+    /// same pixels. The queued scene and the scene on screen are copied,
+    /// and rendered only for [`FakeDisplay::screen`] and captures, with the
+    /// same pixels as [`Render::Pixels`]. Well under 1 ms per frame. The
+    /// default, for sessions.
+    #[default]
+    Scene,
+    /// Check each scene but keep nothing: no hash, no screen. For long
     /// timing runs.
     Off,
 }
@@ -172,7 +181,7 @@ pub enum FlipFault {
 impl Default for DisplayOptions {
     fn default() -> Self {
         Self {
-            render: Render::Pixels,
+            render: Render::Scene,
             jitter: Jitter::None,
             late_flips: None,
             refresh_mhz: None,
@@ -183,8 +192,8 @@ impl Default for DisplayOptions {
 }
 
 impl FakeDisplay {
-    /// A display with the default options: render every frame, no jitter,
-    /// no faults.
+    /// A display with the default options: scene hashes, no jitter, no
+    /// faults.
     pub fn new(clock: SimClock, caps: GpuCaps) -> Self {
         Self::with_options(clock, caps, DisplayOptions::default())
     }
@@ -235,8 +244,8 @@ impl FakeDisplay {
     }
 
     /// Keeps a copy of the pixels of the frame with present number `index`,
-    /// for a golden. Only frames presented after this call with rendering on
-    /// are kept.
+    /// for a golden. Only frames presented after this call are kept, and
+    /// none with [`Render::Off`].
     pub fn capture(&self, index: u64) {
         self.lock().screen.request_capture(index);
     }
@@ -247,7 +256,7 @@ impl FakeDisplay {
     }
 
     /// The frame on screen now: the last frame that flipped in the active
-    /// mode. `None` before that flip, or with rendering off.
+    /// mode. `None` before that flip, or with [`Render::Off`].
     pub fn screen(&self) -> Option<RgbImage> {
         self.lock().screen.shown()
     }
@@ -432,7 +441,7 @@ impl State {
         .next_multiple_of(step);
         let hash = self
             .screen
-            .render(index, scene, self.options.render)
+            .present(index, scene)
             .map_err(|e| DisplayError::SceneRefused {
                 reason: e.to_string(),
             })?;

@@ -55,9 +55,10 @@ pub struct FrameRecord {
     pub scene: SceneSummary,
     /// What `present` returned.
     pub present: Result<(), DisplayError>,
-    /// The hash of the rendered pixels ([`frame_hash`](crate::frame_hash)
-    /// of the XRGB8888 rows, no padding). `None` when rendering is off or
-    /// `present` failed.
+    /// With [`Render::Pixels`](crate::Render::Pixels), the
+    /// [`frame_hash`](crate::frame_hash) of the rendered XRGB8888 rows,
+    /// no padding. With [`Render::Scene`](crate::Render::Scene), the hash
+    /// of the scene. `None` when rendering is off or `present` failed.
     pub hash: Option<u64>,
     /// The sequence number of the first vertical blank after the present:
     /// the flip is on time when it lands there. `None` when `present`
@@ -136,7 +137,7 @@ impl FakeDisplay {
         self.flips().iter().map(|f| f.time_ns).collect()
     }
 
-    /// The pixel hash of every frame that flipped, in order. Empty when
+    /// The hash of every frame that flipped, in order. Empty when
     /// rendering is off.
     pub fn frame_hashes(&self) -> Vec<u64> {
         self.lock()
