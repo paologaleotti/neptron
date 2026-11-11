@@ -14,7 +14,10 @@
 //! that runs past it is killed, and the kernel then removes its
 //! framebuffers.
 
+use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
+use std::os::fd::BorrowedFd;
+use std::os::unix::fs::FileTypeExt as _;
 use std::os::unix::process::CommandExt as _;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
@@ -83,6 +86,14 @@ impl std::fmt::Display for SupervisorGone {
 pub fn warn(text: &str) {
     // Nothing is left to report a failed write to.
     let _ = writeln!(io::stderr(), "{text}");
+}
+
+/// True when `fd` is a pipe. The worker's output must be the supervisor's
+/// pipe: without it no failed write tells the worker that Ctrl-C ended
+/// the run.
+pub fn is_pipe(fd: BorrowedFd<'_>) -> io::Result<bool> {
+    let file = File::from(fd.try_clone_to_owned()?);
+    Ok(file.metadata()?.file_type().is_fifo())
 }
 
 /// How the supervised worker ended.
@@ -169,6 +180,8 @@ fn kill(child: &mut Child) -> io::Result<ExitStatus> {
 
 #[cfg(test)]
 mod tests {
+    use std::os::fd::AsFd as _;
+
     use super::*;
 
     fn sh(script: &str) -> Command {
@@ -186,6 +199,17 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn a_pipe_is_told_from_a_file() {
+        let (reader, writer) = io::pipe().unwrap();
+        assert!(is_pipe(writer.as_fd()).unwrap());
+        assert!(is_pipe(reader.as_fd()).unwrap());
+        let path = std::env::temp_dir().join(format!("kms-spike-pipe-{}", std::process::id()));
+        let file = File::create(&path).unwrap();
+        assert!(!is_pipe(file.as_fd()).unwrap());
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

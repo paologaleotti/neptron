@@ -110,7 +110,12 @@ fn run(o: &Options, args: &[String]) -> ExitCode {
         return ExitCode::from(EXIT_USAGE);
     };
     let planned = plan::plan(preset, &o.modes, o.width, &o.allow);
+    let valid = planned.iter().filter(|p| p.valid().is_some()).count();
     if o.worker {
+        if let Some(why) = worker_refusal(valid, stdout_is_pipe()) {
+            eprintln!("kms-spike: the worker does not run: {why}");
+            return ExitCode::from(EXIT_USAGE);
+        }
         return worker(o, preset, &planned);
     }
     print!("{}", plan::describe_preset(preset));
@@ -118,7 +123,6 @@ fn run(o: &Options, args: &[String]) -> ExitCode {
     for p in &planned {
         print!("{}", plan::describe_planned(p, &o.allow));
     }
-    let valid = planned.iter().filter(|p| p.valid().is_some()).count();
     if !o.confirmed {
         println!(
             "\nDRY RUN: no mode was set. Check that the ranges above match the monitor, \
@@ -134,6 +138,30 @@ fn run(o: &Options, args: &[String]) -> ExitCode {
         return finish_dry_run(o, preset, &planned);
     }
     confirmed_run(o, args)
+}
+
+/// Why a worker must not open the device, if it must not. The worker runs
+/// only under the supervisor, whose pipe is its output, and only with a
+/// mode to show. The command line already requires the confirmation.
+fn worker_refusal(valid_modes: usize, output_is_pipe: bool) -> Option<&'static str> {
+    if !output_is_pipe {
+        return Some("its output is not the supervisor's pipe; run without --worker");
+    }
+    if valid_modes == 0 {
+        return Some("no mode passed validation");
+    }
+    None
+}
+
+#[cfg(unix)]
+fn stdout_is_pipe() -> bool {
+    use std::os::fd::AsFd as _;
+    supervisor::is_pipe(std::io::stdout().as_fd()).unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn stdout_is_pipe() -> bool {
+    false
 }
 
 fn finish_dry_run(o: &Options, preset: &Preset, planned: &[Planned]) -> ExitCode {
@@ -313,6 +341,14 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn a_worker_runs_only_under_the_supervisor_with_a_valid_mode() {
+        assert_eq!(worker_refusal(1, true), None);
+        assert!(worker_refusal(1, false).unwrap().contains("supervisor"));
+        assert!(worker_refusal(0, true).unwrap().contains("no mode"));
+        assert!(worker_refusal(0, false).is_some());
     }
 
     #[test]

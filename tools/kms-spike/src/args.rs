@@ -71,6 +71,9 @@ pub enum ArgsError {
     NoPreset,
     /// Two preset names.
     ExtraArgument(String),
+    /// `--worker` without the confirmation flag. The worker sets modes, so
+    /// it never runs unconfirmed.
+    WorkerWithoutConfirmation,
 }
 
 /// The default DRM device node.
@@ -209,6 +212,9 @@ impl Parser {
             return Ok(Command::ListConnectors { device });
         }
         let preset = self.preset.ok_or(ArgsError::NoPreset)?;
+        if self.worker && !self.confirmed {
+            return Err(ArgsError::WorkerWithoutConfirmation);
+        }
         Ok(Command::Run(Options {
             preset,
             modes: self.modes.unwrap_or_else(|| TestMode::ALL.to_vec()),
@@ -311,6 +317,10 @@ impl fmt::Display for ArgsError {
                 f.write_str("name a monitor preset; there is no default (see --list-presets)")
             }
             ArgsError::ExtraArgument(a) => write!(f, "unexpected argument {a:?}: name one preset"),
+            ArgsError::WorkerWithoutConfirmation => write!(
+                f,
+                "{WORKER_FLAG} is internal and needs {CONFIRM_FLAG}; run without {WORKER_FLAG}"
+            ),
         }
     }
 }
@@ -380,6 +390,15 @@ mod tests {
         assert_eq!(o.report, PathBuf::from("/tmp/r.json"));
         assert!(o.confirmed);
         assert!(o.worker);
+    }
+
+    #[test]
+    fn the_worker_flag_needs_the_confirmation() {
+        assert_eq!(
+            run(&["pc_31_120", "--worker"]),
+            Err(ArgsError::WorkerWithoutConfirmation)
+        );
+        assert!(run(&["pc_31_120", "--worker", "--i-have-checked-the-monitor"]).is_ok());
     }
 
     #[test]
