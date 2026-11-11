@@ -156,3 +156,39 @@ Each open point is one section:
 - How to change: relax one named check after the real EDID is read.
 - Decision:
 
+### OP-016: A flat-panel profile in a custom file bypasses the hard rails.
+
+- Raised by: T04 review
+- Status: open
+- Default: a flat-panel profile is matched exactly against its own listed modes and skips the rails.
+- Where: `crates/neptron-safety/src/validated.rs`
+- How to change: record where a profile comes from (EDID or custom file) and refuse `flat_panel` in a custom file. This is a contract change.
+- Decision:
+
+### OP-017: No hard rail applies above 40 kHz.
+
+- Raised by: T04
+- Status: open
+- Default: above 40 kHz the monitor profile is the only limit.
+- Where: `crates/neptron-safety/src/rails.rs`
+- How to change: add one compiled absolute ceiling for line rate and field rate.
+- Decision:
+
+### OP-018: Sync polarity and the largest size of the GPU are not checked by `validate`.
+
+- Raised by: T04
+- Status: open
+- Default: not checked. The KMS test-only commit refuses a mode that is too large.
+- Where: `crates/neptron-safety`
+- How to change: add `Rejection` variants (a contract change).
+- Decision:
+
+### OP-019: The hard rails are the union of all presets of a line-rate class.
+
+- Raised by: T04 review
+- Status: open
+- Default: the rails guard against a bad custom profile, and not against the choice of the wrong preset for a monitor.
+- Where: `crates/neptron-safety/build.rs`
+- How to change: rails per monitor type.
+- Decision:
+
