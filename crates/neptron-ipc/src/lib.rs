@@ -14,6 +14,7 @@ mod error;
 mod line;
 mod reply;
 mod server;
+mod transport;
 
 pub use command::{
     ClockStepArgs, Command, InputScriptArgs, InputSendArgs, LogTailArgs, ScreenshotArgs,
@@ -31,3 +32,7 @@ pub use reply::{
     SessionStatus, SettingValue, SettingWritten, Stats, UiRow, UiTree, Verdict, VideoState,
 };
 pub use server::{Handler, ServeError, dispatch, handle_line, serve_lines};
+pub use transport::{
+    Client, ClientError, ControlListener, DEFAULT_SOCKET_PATH, ListenError, SOCKET_PATH_ENV,
+    serve_stream,
+};

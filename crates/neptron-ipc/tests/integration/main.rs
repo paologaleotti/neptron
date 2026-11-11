@@ -7,3 +7,4 @@ mod codec;
 mod fixture;
 mod messages;
 mod server;
+mod socket;
