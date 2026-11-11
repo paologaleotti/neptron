@@ -9,7 +9,16 @@
 #[forbid(unsafe_code)]
 mod connector;
 #[forbid(unsafe_code)]
+mod flip_state;
+#[forbid(unsafe_code)]
+mod layout;
+#[forbid(unsafe_code)]
 mod mode_record;
+#[forbid(unsafe_code)]
+mod sequence;
 
 pub use connector::{ChoiceError, ConnectorClass, ConnectorFacts, choose};
+pub use flip_state::FlipState;
+pub use layout::{PlaneRect, TooLarge};
 pub use mode_record::{ModeRecord, ModeRecordError};
+pub use sequence::VblankCounter;
