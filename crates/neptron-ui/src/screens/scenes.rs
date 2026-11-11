@@ -4,6 +4,7 @@
 use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::registry::SceneDef;
+use crate::snapshot::SessionInfo;
 use crate::snapshot::{
     ChoiceOption, DisplayInfo, GameEntry, GameId, GameSource, GameWindow, Level, MenuItem, Notice,
     NoticeId, NoticeKind, PendingConfirm, ProfileEntry, ProfileId, Scopes, SettingKey,
@@ -13,7 +14,9 @@ use crate::theme::Theme;
 
 use super::game_list::WINDOW_ROWS;
 use super::router::Screen;
-use super::{DISPLAY_PAGE, GRID_PATTERN, Screens};
+use super::{
+    DISPLAY_PAGE, GRID_PATTERN, OPEN_DISPLAY, QUICK_MENU_PAGE, QUIT_GAME, RESUME, Screens,
+};
 
 pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
@@ -63,6 +66,14 @@ pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
         name: "screens/notice",
         build: notice,
+    },
+    SceneDef {
+        name: "screens/quick-menu",
+        build: quick_menu,
+    },
+    SceneDef {
+        name: "screens/quick-menu-keep",
+        build: quick_menu_keep,
     },
 ];
 
@@ -366,4 +377,62 @@ fn notice(frame: &mut UiFrame, theme: &Theme) {
         NoticeKind::Error,
     )];
     screens.update(&snap, &[], frame);
+}
+
+/// The rows of the quick menu page: the display settings of the game, and
+/// the rows the UI carries out itself.
+pub(super) fn quick_rows() -> Vec<MenuItem> {
+    let mut rows = display_rows(Scopes::ALL);
+    rows.retain(|r| r.key == STYLE || r.key == REFRESH);
+    if let Some(style) = rows.iter_mut().find(|r| r.key == STYLE) {
+        style.source = Level::System;
+    }
+    let action = |key, label, id| MenuItem::new(SettingKey(key), label, SettingValue::Action(id));
+    rows.insert(0, action(10, "Resume", RESUME));
+    rows.push(action(11, "Display", OPEN_DISPLAY));
+    rows.push(action(12, "Quit game", QUIT_GAME));
+    rows
+}
+
+/// A snapshot of a running game with the quick menu page.
+pub(super) fn in_game() -> Snapshot {
+    let mut snap = with_display();
+    snap.session = Some(SessionInfo::new(GameId(1), "Astro Racer"));
+    snap.settings = SettingsPage::new(QUICK_MENU_PAGE, "Quick menu", quick_rows());
+    snap
+}
+
+fn quick_menu(frame: &mut UiFrame, theme: &Theme) {
+    let snap = in_game();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[], frame);
+    screens.update(&snap, &[UiAction::Menu, UiAction::Down], frame);
+}
+
+fn quick_menu_keep(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = in_game();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[], frame);
+    let force_60 = [
+        UiAction::Menu,
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Accept,
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Accept,
+    ];
+    screens.update(&snap, &force_60, frame);
+    if let Some(refresh) = snap.settings.rows.iter_mut().find(|r| r.key == REFRESH) {
+        refresh.value = SettingValue::Choice {
+            index: 3,
+            options: match &refresh.value {
+                SettingValue::Choice { options, .. } => options.clone(),
+                _ => Vec::new(),
+            },
+        };
+        refresh.source = Level::Game;
+    }
+    screens.update(&snap, &[UiAction::Back], frame);
 }

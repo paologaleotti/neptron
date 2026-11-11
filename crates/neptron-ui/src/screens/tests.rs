@@ -3,18 +3,19 @@
 
 use crate::frame::UiFrame;
 use crate::input::UiAction::{self, Accept, Back, Down, Left, Menu, Right, Up};
-use crate::intent::Intent;
-use crate::snapshot::{GameId, GameSource, GameWindow, SessionInfo, Snapshot};
+use crate::intent::{Intent, Value};
+use crate::snapshot::{
+    GameId, GameSource, GameWindow, Level, Notice, NoticeId, NoticeKind, PendingConfirm,
+    SessionInfo, SettingsPage, Snapshot,
+};
 use crate::theme::Theme;
 
-use super::DISPLAY_PAGE;
-use super::Screens;
 use super::game_list::{PREFETCH_ROWS, WINDOW_ROWS};
 use super::scenes::{
-    LONG_LIST, MEGA_DRIVE, SNES, STYLE, TO_DISPLAY, window, with_display, with_systems,
+    LONG_LIST, MEGA_DRIVE, REFRESH, SNES, STYLE, TO_DISPLAY, in_game, window, with_display,
+    with_systems,
 };
-use crate::intent::Value;
-use crate::snapshot::{Level, Notice, NoticeId, NoticeKind, PendingConfirm, SettingsPage};
+use super::{DISPLAY_PAGE, QUICK_MENU_PAGE, Screens};
 
 pub(super) struct Run {
     pub screens: Screens,
@@ -546,4 +547,155 @@ fn notices_wait_while_a_game_runs_and_yield_to_a_confirmation() {
     snap.confirm = None;
     run.step(&snap, &[]);
     assert_eq!(run.screen(), "notice");
+}
+
+/// A run with the quick menu open over a running game.
+fn quick_menu() -> (Run, Snapshot) {
+    let mut run = Run::new();
+    let snap = in_game();
+    run.step(&snap, &[]);
+    run.step(&snap, &[Menu]);
+    (run, snap)
+}
+
+/// The path from the top of the quick menu to "Force 60 Hz".
+const TO_FORCE_60: [UiAction; 7] = [Down, Down, Accept, Down, Down, Down, Accept];
+
+fn force_60(level: Level) -> Intent {
+    Intent::SetValue {
+        key: REFRESH,
+        level,
+        value: Value::Choice(3),
+    }
+}
+
+#[test]
+fn menu_opens_the_quick_menu_over_the_game_and_back_resumes() {
+    let mut run = Run::new();
+    let mut snap = in_game();
+    snap.settings = SettingsPage::default();
+    run.step(&snap, &[Up, Accept, Back]);
+    assert!(!run.screens.shows_ui());
+    run.step(&snap, &[Menu]);
+    assert!(run.screens.shows_ui());
+    assert_eq!(run.screen(), "quick-menu");
+    assert_eq!(
+        run.intents(),
+        [Intent::LoadSettings {
+            page: QUICK_MENU_PAGE
+        }]
+    );
+    snap = in_game();
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some("Resume"));
+    run.step(&snap, &[Back]);
+    assert_eq!(run.intents(), [Intent::Resume]);
+    assert!(!run.screens.shows_ui());
+    run.step(&snap, &[Menu, Accept]);
+    assert_eq!(run.intents(), [Intent::Resume]);
+    assert_eq!(run.screen(), "game");
+}
+
+#[test]
+fn quit_stops_the_game_and_the_list_comes_back() {
+    let (mut run, mut snap) = quick_menu();
+    run.step(&snap, &[Up, Down, Down, Down, Down]);
+    assert_eq!(run.focused(), Some("Quit game"));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::QuitGame]);
+    run.step(&snap, &[Accept, Back]);
+    assert!(run.intents().is_empty());
+    assert_eq!(run.screen(), "quick-menu");
+    snap.session = None;
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "home");
+}
+
+#[test]
+fn a_change_in_the_quick_menu_is_written_for_the_game() {
+    let (mut run, snap) = quick_menu();
+    run.step(&snap, &TO_FORCE_60);
+    assert_eq!(run.intents(), [force_60(Level::Game)]);
+    assert_eq!(run.screen(), "quick-menu");
+}
+
+#[test]
+fn leaving_after_a_change_asks_where_to_keep_it() {
+    for (presses, level) in [
+        (&[Accept][..], Level::Game),
+        (&[Right, Accept][..], Level::System),
+        (&[Right, Right, Accept][..], Level::Global),
+    ] {
+        let (mut run, snap) = quick_menu();
+        run.step(&snap, &TO_FORCE_60);
+        run.step(&snap, &[Back]);
+        assert_eq!(run.screen(), "quick-menu/keep");
+        assert_eq!(run.focused(), Some("This game"));
+        assert!(run.intents().is_empty());
+        run.step(&snap, presses);
+        let mut expected = Vec::new();
+        if level != Level::Game {
+            expected.push(force_60(level));
+            expected.push(Intent::ResetValue {
+                key: REFRESH,
+                level: Level::Game,
+            });
+        }
+        expected.push(Intent::Resume);
+        assert_eq!(run.intents(), expected, "{level:?}");
+        assert!(!run.screens.shows_ui());
+        run.step(&snap, &[Menu, Back]);
+        assert_eq!(run.intents(), [Intent::Resume], "nothing is left to keep");
+    }
+}
+
+#[test]
+fn back_in_the_prompt_returns_to_the_quick_menu() {
+    let (mut run, snap) = quick_menu();
+    run.step(&snap, &TO_FORCE_60);
+    run.step(&snap, &[Back, Back]);
+    assert!(run.intents().is_empty());
+    assert_eq!(run.screen(), "quick-menu");
+    run.step(&snap, &[Up, Down, Down, Down, Down, Accept]);
+    assert_eq!(run.screen(), "quick-menu/keep");
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::QuitGame]);
+}
+
+#[test]
+fn a_reset_leaves_nothing_to_keep() {
+    let (mut run, snap) = quick_menu();
+    run.step(&snap, &TO_FORCE_60);
+    let mut reset = snap.clone();
+    if let Some(row) = reset.settings.rows.iter_mut().find(|r| r.key == REFRESH) {
+        row.source = Level::Game;
+    }
+    run.step(&reset, &[Menu]);
+    assert_eq!(
+        run.intents(),
+        [Intent::ResetValue {
+            key: REFRESH,
+            level: Level::Game
+        }]
+    );
+    run.step(&snap, &[Back]);
+    assert_eq!(run.intents(), [Intent::Resume]);
+}
+
+#[test]
+fn the_display_panel_opens_from_the_quick_menu_and_returns_to_it() {
+    let (mut run, mut snap) = quick_menu();
+    run.step(&snap, &[Down, Down, Down, Accept]);
+    assert_eq!(run.screen(), "display");
+    assert_eq!(run.intents(), [Intent::LoadSettings { page: DISPLAY_PAGE }]);
+    snap.settings = with_display().settings;
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "quick-menu");
+    assert_eq!(
+        run.intents(),
+        [Intent::LoadSettings {
+            page: QUICK_MENU_PAGE
+        }]
+    );
+    assert!(run.screens.shows_ui());
 }

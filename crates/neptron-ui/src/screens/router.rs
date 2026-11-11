@@ -13,6 +13,7 @@ use super::game_list::GameList;
 use super::home::Home;
 use super::options::Options;
 use super::overlays::{Confirm, Notices};
+use super::quick_menu::QuickMenu;
 
 /// The deepest screen stack. The longest path is home, game list, game,
 /// quick menu, display panel, option list: six screens.
@@ -48,6 +49,7 @@ pub(super) enum Nav {
 pub(super) enum Target {
     Games(GameSource),
     Display,
+    QuickMenu,
     /// The options of a choice row of a page, written at a level.
     Options {
         page: PageId,
@@ -62,6 +64,8 @@ pub(super) enum Screen {
     Games(GameList),
     Display(DisplayPanel),
     Options(Options),
+    /// Boxed: its list of changes makes it much larger than the others.
+    QuickMenu(Box<QuickMenu>),
     /// A game runs and the UI draws nothing.
     Game,
 }
@@ -151,13 +155,21 @@ impl Screens {
             self.notices.handle(action, snap, out);
             return;
         }
+        let first_new = out.len();
         let nav = match self.stack.last_mut() {
             Some(Screen::Home(home)) => home.handle(action, snap),
             Some(Screen::Games(list)) => list.handle(action, snap, out),
             Some(Screen::Display(panel)) => panel.handle(action, snap, out),
             Some(Screen::Options(options)) => options.handle(action, snap, out),
+            Some(Screen::QuickMenu(menu)) => menu.handle(action, snap, out),
+            Some(Screen::Game) if action == UiAction::Menu => Nav::Open(Target::QuickMenu),
             Some(Screen::Game) | None => Nav::Stay,
         };
+        if let Some(menu) = self.quick_menu() {
+            for intent in out.get(first_new..).unwrap_or(&[]) {
+                menu.record(intent);
+            }
+        }
         match nav {
             Nav::Stay => {}
             Nav::Back => {
@@ -177,6 +189,7 @@ impl Screens {
         let screen = match target {
             Target::Games(source) => Screen::Games(GameList::new(source, layout, theme)),
             Target::Display => Screen::Display(DisplayPanel::new(layout, theme)),
+            Target::QuickMenu => Screen::QuickMenu(Box::new(QuickMenu::new(layout, theme))),
             Target::Options { page, key, level } => {
                 Screen::Options(Options::new(page, key, level, layout, theme))
             }
@@ -190,6 +203,7 @@ impl Screens {
             Screen::Games(list) => list.request(snap),
             Screen::Display(panel) => panel.request(snap),
             Screen::Options(options) => options.request(snap),
+            Screen::QuickMenu(menu) => menu.request(snap),
             Screen::Home(_) | Screen::Game => None,
         }
     }
@@ -213,6 +227,10 @@ impl Screens {
                 out.tree.set_screen("options");
                 options.draw(snap, theme, out);
             }
+            Some(Screen::QuickMenu(menu)) => {
+                out.tree.set_screen("quick-menu");
+                menu.draw(snap, theme, out);
+            }
             Some(Screen::Game) | None => {
                 out.tree.set_screen("game");
                 if snap.confirm.is_some() {
@@ -229,6 +247,15 @@ impl Screens {
             out.tree.set_screen("notice");
             self.notices.draw(notice, theme, out);
         }
+    }
+
+    /// The quick menu, when it is open under the screen on top or is the
+    /// screen on top.
+    fn quick_menu(&mut self) -> Option<&mut QuickMenu> {
+        self.stack.iter_mut().rev().find_map(|s| match s {
+            Screen::QuickMenu(menu) => Some(&mut **menu),
+            _ => None,
+        })
     }
 
     /// The screen on top, for the scenes and the tests that start deep in a

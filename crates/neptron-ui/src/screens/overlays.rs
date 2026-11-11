@@ -177,7 +177,12 @@ impl Notices {
 
 /// Draws a dialog with a ring of background colour around it, so its frame
 /// stands apart from the text of the screen under it.
-fn draw_dialog(dialog: &Dialog, content: &DialogContent<'_>, theme: &Theme, frame: &mut UiFrame) {
+pub(super) fn draw_dialog(
+    dialog: &Dialog,
+    content: &DialogContent<'_>,
+    theme: &Theme,
+    frame: &mut UiFrame,
+) {
     let area = Dialog::layout(content, theme);
     let ring = Rect::new(
         area.x.saturating_sub(RING_PX as i32),

@@ -14,12 +14,14 @@ mod home;
 mod options;
 mod overlays;
 mod page;
+mod quick_menu;
 mod router;
 mod scenes;
 
 #[cfg(test)]
 mod tests;
 
+pub use quick_menu::MAX_CHANGES;
 pub use router::{MAX_DEPTH, Screens};
 
 use crate::registry::SceneDef;
