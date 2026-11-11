@@ -39,6 +39,7 @@ Highlighted boxes are the critical path. Every other task has slack. The taskboa
 15. Local flow. The MVP run opens no pull requests and pushes no task branch. The review agent reads the local diff of the branch against `main`. After approval, the orchestrator rebases the branch, runs the local gate on it, moves `main` forward (fast-forward) and deletes the branch and the worktree. The local gate includes T3 in the aarch64 QEMU guest for the tasks that need T3. The orchestrator pushes `main` one time, when the MVP is finished, with the full commit history and no squash. CI runs on that push. The x86\_64 checks run only in CI, so this first run can show failures that the local gate cannot see; the orchestrator repairs them with new commits. Where this document says "pull request", the MVP run uses the task report. Pull requests become the normal flow after the MVP.
 16. Commit quality. The history is part of the product, and the work must be clean. A commit holds one logical change with its tests, and a person can read it alone. No commit is a dump of a full task. Each commit builds. The agent decides the number and the size of the commits. Nothing is squashed, at any time.
 17. Model. Every agent of the run (orchestrator, implementer, reviewer) uses Opus 5.5 (`claude-opus-5-5`) at medium effort.
+18. ADRs. An ADR (architecture decision record, a short file in `docs/adr/`) is only for a decision that changes the design: a contract change, a new crate, a change to a dependency rule, a licence decision, a change to a safety rule. A routine choice goes in the commit body or the crate README, not in an ADR.
 
 ### Contracts
 
@@ -129,7 +130,7 @@ pub trait Clock { fn now_ns(&self) -> u64; }
 | T11 | 1 | GPU detection and capability table | `crates/neptron-platform`, `data/hardware` | T02 | Unit tests on fixture sysfs trees |
 | T12 | 1 | Control protocol and `neptronctl` client | `crates/neptron-ipc`, `apps/neptronctl` | T02 | Round-trip tests |
 | T13 | 1 | Window backend | `crates/neptron-window` | T02 | Builds on both hosts; smoke test |
-| T14 | 1 | OS base and QEMU | `os/`, `Dockerfile`, `xtask/src/os` | T01 | Image boots in QEMU; `vkms` findings in an ADR |
+| T14 | 1 | OS base and QEMU | `os/`, `Dockerfile`, `xtask/src/os` | T01 | Image boots in QEMU; `vkms` findings in the task report |
 | T15 | 2 | ODREN policy | `crates/neptron-modeline/src/policy` | T05, T11 | Timing checks 3 and 4 |
 | T16 | 2 | Libretro host (spec first) | `crates/neptron-libretro`, `docs/spec/libretro-host.md` | T03, T09 | Test-core frame hashes |
 | T17 | 2 | Audio (spec first) | `crates/neptron-audio`, `docs/spec/pacing-audio.md` | T03 | Audio part of timing check 6 |
@@ -160,7 +161,7 @@ Each brief lists what the task must deliver and the choices that are already mad
 | T04 | `validate` with every range check, and the hard rails \[CRT safety model\] | Integer maths only. It judges the modeline it is given. A build script generates the rails from `data/monitors`. No dependency except `neptron-types` |
 | T05 | Switchres as a pinned submodule, compiled with the `cc` crate; a safe function from source geometry, profile and GPU capabilities to a list of modelines; the golden list of about 40 systems | Compile only the calculation sources, with `-ffp-contract=off`, in `neptron-switchres-sys`. That crate holds the C++ build and the raw calls, and nothing else. `neptron-modeline` wraps it and has no `unsafe`. Calls are serialised behind one lock. An ADR records the licence |
 | T06 | `ReferenceRenderer`: scale, crop, both filters, UI overlay, all three pixel formats | Pure Rust, no dependencies. Its output is the definition of correct |
-| T07 | Canvas trait and CPU canvas, bitmap font, the five widget templates, scene registry, snapshot and intent types; `xtask shot`, `gallery`, `golden` \[Frontend and UX\] | No dependency on any NEPTRON crate. 320x240 XRGB. Try `embedded-graphics` first and record the choice in an ADR. The font has a permissive licence, committed with it |
+| T07 | Canvas trait and CPU canvas, bitmap font, the five widget templates, scene registry, snapshot and intent types; `xtask shot`, `gallery`, `golden` \[Frontend and UX\] | No dependency on any NEPTRON crate. 320x240 XRGB. Try `embedded-graphics` first and record the choice in the crate README. The font has a permissive licence, committed with it |
 | T08 | Typed schema, three-level resolution, TOML files \[Settings model\] | Order is game, system, global, default. Writes are temp file, fsync, rename |
 | T09 | Bindings for `libretro.h`; `neptron-testcore`, a core that follows a script | `xtask bindgen` generates the bindings and they are committed. `libretro.h` is vendored. The test core reads its script from a file named in an environment variable. In the test core, `unsafe` is only on the exported libretro functions, each with a `// SAFETY:` comment |
 | T10 | ROM scan, index cache, metadata for the three MVP systems, the folder layout of the Definition (Batocera and RetroPie names) | The cache is one versioned binary file, rebuilt on a version mismatch. Scans never run on the frame thread |
