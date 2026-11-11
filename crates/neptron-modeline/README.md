@@ -59,3 +59,17 @@ The source is `MIT OR Apache-2.0`. The crate links Switchres (GPL-2.0-or-later) 
 
 - `src/convert.rs`: every conversion, its rounding and its errors.
 - `tests/integration/solver.rs`: the solver on presets from `data/monitors` (results compared with the upstream standalone program), every error, the settings, and a grid of 7 widths, 9 heights, 6 rates and both scan types on all 25 presets, in which every candidate has its timings in order.
+- `tests/integration/golden.rs`: timing check 1, the golden list in `tests/golden/systems.toml`. It has 30 real systems and 61 cases that cover all 25 presets. On a difference, the test prints every case that changed, with the expected and the actual modeline.
+
+## The golden list
+
+The expected modelines are recorded from Switchres at the vendored commit. No source independent of Switchres gives them. Each one is the output of the upstream standalone program, built from the same commit and not from this crate. That program reads the presets from its own table and selects the mode in its own `get_mode`, so a match also checks the shim and the conversion. The source geometries and where they come from are in the file.
+
+To check a value against the standalone program:
+
+1. Get the Switchres archive of the vendored commit (`vendor/switchres/README.md` has the URL) and unpack it into a new directory.
+2. Build the program there: `c++ -std=c++11 -ffp-contract=off -I. switchres_main.cpp switchres.cpp display.cpp custom_video.cpp monitor.cpp modeline.cpp log.cpp edid.cpp -o switchres`. On Linux, add `display_linux.cpp`.
+3. Run it from an empty directory with the command line in the comment of the case. The program reads a `switchres.ini` from the working directory and from `/etc` (or `./ini`) if one exists, and that changes the result.
+4. `expect` is the timing part of the "Modeline" line, after the quoted label, with the spaces collapsed.
+
+A changed modeline is a change in what NEPTRON sends to a CRT. Update the file only after the standalone program gives the same value.

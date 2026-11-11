@@ -3,5 +3,6 @@
 
 #![forbid(unsafe_code)]
 
+mod golden;
 mod presets;
 mod solver;

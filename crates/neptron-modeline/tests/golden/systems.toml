@@ -1,0 +1,666 @@
+# Timing check 1: the golden list of systems.
+#
+# Each [[system]] is the source geometry of a real system: the active size
+# and the refresh in millihertz, with the scan type and the rotation.
+# `origin` gives the clock and the totals that the refresh comes from. These
+# are the common figures for each system (hardware documentation and MAME
+# drivers). They are inputs: an error in one changes the case, not the
+# check.
+#
+# Each [[case]] runs one system against one preset of data/monitors, with
+# the default Settings of neptron-modeline (doublescan off) and a GPU with no
+# pixel clock floor that allows interlace, unless the case says otherwise.
+# Together the cases cover all 25 presets.
+#
+# Where the expected values come from: they are recorded from Switchres at
+# commit 09272ac24640daee45f5be15b1b856ecd220dda2. No source independent of
+# Switchres gives these modelines. Each value is the output of the upstream
+# standalone program, built from the same commit and not from this crate:
+# the comment in each case is its command line, and `expect` is the
+# timing part of its "Modeline" line. The program reads the presets from
+# its own table in monitor.cpp and selects the mode in its own get_mode, so
+# a match also checks the shim and the integer conversion of this crate.
+# Recorded on macOS arm64, Apple clang 21, -ffp-contract=off.
+#
+# A changed value is a change in the modelines that NEPTRON sends to a CRT.
+# Check it against the standalone program before you change this file. See
+# crates/neptron-modeline/README.md.
+
+[[system]]
+name = "nes_ntsc"
+width = 256
+height = 240
+refresh_mhz = 60099
+interlaced = false
+rotation = "r0"
+origin = "NES, NTSC: PPU clock 236.25 MHz / 11 / 4, 341 x 262 dots less one dot every second frame (89,341.5 dots); 60.0988 Hz"
+
+[[system]]
+name = "nes_pal"
+width = 256
+height = 240
+refresh_mhz = 50007
+interlaced = false
+rotation = "r0"
+origin = "NES, PAL: PPU clock 26.601712 MHz / 5, 341 x 312 dots; 50.0070 Hz"
+
+[[system]]
+name = "snes_ntsc"
+width = 256
+height = 224
+refresh_mhz = 60099
+interlaced = false
+rotation = "r0"
+origin = "SNES, NTSC: master clock 236.25 MHz / 11, 357,366 master cycles per frame; 60.0988 Hz"
+
+[[system]]
+name = "snes_pal"
+width = 256
+height = 239
+refresh_mhz = 50007
+interlaced = false
+rotation = "r0"
+origin = "SNES, PAL, overscan mode: master clock 21.28137 MHz, 1,364 x 312 master cycles; 50.0070 Hz"
+
+[[system]]
+name = "md_ntsc_h40"
+width = 320
+height = 224
+refresh_mhz = 59923
+interlaced = false
+rotation = "r0"
+origin = "Mega Drive, NTSC, H40 mode: master clock 53.693175 MHz, 3,420 x 262 master cycles; 59.9227 Hz"
+
+[[system]]
+name = "md_ntsc_h32"
+width = 256
+height = 224
+refresh_mhz = 59923
+interlaced = false
+rotation = "r0"
+origin = "Mega Drive, NTSC, H32 mode: same frame timing as H40; 59.9227 Hz"
+
+[[system]]
+name = "md_pal_h40"
+width = 320
+height = 240
+refresh_mhz = 49701
+interlaced = false
+rotation = "r0"
+origin = "Mega Drive, PAL, V30 mode: master clock 53.203424 MHz, 3,420 x 313 master cycles; 49.7015 Hz"
+
+[[system]]
+name = "sms_ntsc"
+width = 256
+height = 192
+refresh_mhz = 59923
+interlaced = false
+rotation = "r0"
+origin = "Master System, NTSC: CPU clock 53.693175 MHz / 15, 228 x 262 CPU cycles; 59.9227 Hz"
+
+[[system]]
+name = "game_gear"
+width = 160
+height = 144
+refresh_mhz = 59923
+interlaced = false
+rotation = "r0"
+origin = "Game Gear: the Master System timing, 160 x 144 visible; 59.9227 Hz"
+
+[[system]]
+name = "game_boy"
+width = 160
+height = 144
+refresh_mhz = 59728
+interlaced = false
+rotation = "r0"
+origin = "Game Boy: 4.194304 MHz, 70,224 cycles per frame; 59.7275 Hz"
+
+[[system]]
+name = "gba"
+width = 240
+height = 160
+refresh_mhz = 59728
+interlaced = false
+rotation = "r0"
+origin = "Game Boy Advance: 16.777216 MHz, 280,896 cycles per frame; 59.7275 Hz"
+
+[[system]]
+name = "pc_engine"
+width = 256
+height = 240
+refresh_mhz = 59826
+interlaced = false
+rotation = "r0"
+origin = "PC Engine: master clock 236.25 MHz / 11, 1,365 x 263 master cycles; 59.8261 Hz"
+
+[[system]]
+name = "neogeo"
+width = 320
+height = 224
+refresh_mhz = 59186
+interlaced = false
+rotation = "r0"
+origin = "Neo Geo (MAME): pixel clock 6 MHz, 384 x 264 total; 59.1856 Hz"
+
+[[system]]
+name = "cps1"
+width = 384
+height = 224
+refresh_mhz = 59637
+interlaced = false
+rotation = "r0"
+origin = "Capcom CPS-1 (MAME): pixel clock 8 MHz, 512 x 262 total; 59.6374 Hz"
+
+[[system]]
+name = "pacman"
+width = 288
+height = 224
+refresh_mhz = 60606
+interlaced = false
+rotation = "r90"
+origin = "Pac-Man (MAME, ROT90): pixel clock 6.144 MHz, 384 x 264 total; 60.6061 Hz"
+
+[[system]]
+name = "donkey_kong"
+width = 256
+height = 224
+refresh_mhz = 60606
+interlaced = false
+rotation = "r270"
+origin = "Donkey Kong (MAME, ROT270): pixel clock 6.144 MHz, 384 x 264 total; 60.6061 Hz"
+
+[[system]]
+name = "space_invaders"
+width = 256
+height = 224
+refresh_mhz = 59542
+interlaced = false
+rotation = "r270"
+origin = "Space Invaders (MAME, ROT270): pixel clock 19.968 MHz / 4, 320 x 262 total; 59.5420 Hz"
+
+[[system]]
+name = "gradius"
+width = 256
+height = 224
+refresh_mhz = 60606
+interlaced = false
+rotation = "r0"
+origin = "Gradius (MAME, Konami Nemesis board): pixel clock 6.144 MHz, 384 x 264 total; 60.6061 Hz"
+
+[[system]]
+name = "system16"
+width = 320
+height = 224
+refresh_mhz = 60054
+interlaced = false
+rotation = "r0"
+origin = "Sega System 16 (MAME): pixel clock 25.1748 MHz / 4, 400 x 262 total; 60.0544 Hz"
+
+[[system]]
+name = "rtype"
+width = 384
+height = 256
+refresh_mhz = 55018
+interlaced = false
+rotation = "r0"
+origin = "R-Type (MAME, Irem M72): pixel clock 8 MHz, 512 x 284 total; 55.0176 Hz. The Switchres README uses 384x256 at 55.017605"
+
+[[system]]
+name = "system24"
+width = 496
+height = 384
+refresh_mhz = 57524
+interlaced = false
+rotation = "r0"
+origin = "Sega System 24 (MAME): pixel clock 16 MHz, 656 x 424 total; 57.5242 Hz, a 24 kHz medium resolution"
+
+[[system]]
+name = "vga_mode13h"
+width = 320
+height = 200
+refresh_mhz = 70086
+interlaced = false
+rotation = "r0"
+origin = "DOS VGA mode 13h: 25.175 MHz, 800 x 449 total, each line sent twice; 70.0863 Hz"
+
+[[system]]
+name = "vga_640x480"
+width = 640
+height = 480
+refresh_mhz = 59940
+interlaced = false
+rotation = "r0"
+origin = "DOS VGA 640x480: 25.175 MHz, 800 x 525 total; 59.9405 Hz"
+
+[[system]]
+name = "ntsc_480i"
+width = 640
+height = 480
+refresh_mhz = 59940
+interlaced = true
+rotation = "r0"
+origin = "NTSC broadcast, 480 interlaced lines: 60 / 1.001 fields per second; 59.9401 Hz"
+
+[[system]]
+name = "pal_576i"
+width = 720
+height = 576
+refresh_mhz = 50000
+interlaced = true
+rotation = "r0"
+origin = "PAL broadcast, 576 interlaced lines: 50 fields per second"
+
+[[system]]
+name = "wonderswan"
+width = 224
+height = 144
+refresh_mhz = 75472
+interlaced = false
+rotation = "r0"
+origin = "WonderSwan: 3.072 MHz, 256 x 159 cycles; 75.4717 Hz"
+
+[[system]]
+name = "atari_2600"
+width = 160
+height = 192
+refresh_mhz = 59923
+interlaced = false
+rotation = "r0"
+origin = "Atari 2600, NTSC: colour clock 3.579545 MHz, 228 x 262 colour clocks; 59.9227 Hz"
+
+[[system]]
+name = "c64_pal"
+width = 320
+height = 200
+refresh_mhz = 50125
+interlaced = false
+rotation = "r0"
+origin = "Commodore 64, PAL (VIC-II 6569): CPU clock 985,248 Hz, 63 x 312 cycles; 50.1245 Hz"
+
+[[system]]
+name = "c64_ntsc"
+width = 320
+height = 200
+refresh_mhz = 59826
+interlaced = false
+rotation = "r0"
+origin = "Commodore 64, NTSC (VIC-II 6567R8): CPU clock 1,022,727 Hz, 65 x 263 cycles; 59.8261 Hz"
+
+[[system]]
+name = "zx_spectrum"
+width = 256
+height = 192
+refresh_mhz = 50080
+interlaced = false
+rotation = "r0"
+origin = "ZX Spectrum 48K: 3.5 MHz, 224 x 312 T-states; 50.0801 Hz"
+
+[[case]]
+# switchres 256 240 60.099 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "nes_ntsc"
+preset = "generic_15"
+expect = "5.172119 256 266 290 331 240 241 244 260 -hsync -vsync"
+
+[[case]]
+# switchres 256 240 60.099 --calc -m pc_31_120 --doublescan 0 --interlace 1
+system = "nes_ntsc"
+preset = "pc_31_120"
+expect = "10.203367 256 263 290 324 240 243 246 262 -hsync -vsync"
+
+[[case]]
+# switchres 256 240 60.099 --calc -m pc_70_120 --doublescan 0 --interlace 1
+system = "nes_ntsc"
+preset = "pc_70_120"
+expect = "10.463596 256 279 282 331 240 242 243 263 -hsync -vsync"
+
+[[case]]
+# switchres 256 240 60.099 --calc -m generic_15 --doublescan 0 --interlace 1 --dotclock_min 25.000000
+system = "nes_ntsc"
+preset = "generic_15"
+pclock_min_hz = 25000000
+expect = "41.533216 2048 2131 2326 2658 240 241 244 260 -hsync -vsync"
+
+[[case]]
+# switchres 256 240 50.007 --calc -m pal --doublescan 0 --interlace 1
+system = "nes_pal"
+preset = "pal"
+expect = "4.898400 256 263 286 314 240 267 269 312 -hsync -vsync"
+
+[[case]]
+# switchres 256 240 50.007 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "nes_pal"
+preset = "generic_15"
+expect = "5.180875 256 266 290 331 240 268 271 313 -hsync -vsync"
+
+[[case]]
+# switchres 256 224 60.099 --calc -m ntsc --doublescan 0 --interlace 1
+system = "snes_ntsc"
+preset = "ntsc"
+expect = "4.852622 256 263 286 309 224 235 238 262 -hsync -vsync"
+
+[[case]]
+# switchres 256 224 60.099 --calc -m arcade_31 --doublescan 0 --interlace 1
+system = "snes_ntsc"
+preset = "arcade_31"
+expect = "20.273495 512 531 607 645 448 474 476 523 -hsync -vsync"
+
+[[case]]
+# switchres 256 224 60.099 --calc -m k7131 --doublescan 0 --interlace 1
+system = "snes_ntsc"
+preset = "k7131"
+expect = "5.172119 256 266 290 331 224 233 236 260 -hsync -vsync"
+
+[[case]]
+# switchres 256 239 50.007 --calc -m pal --doublescan 0 --interlace 1
+system = "snes_pal"
+preset = "pal"
+expect = "4.898400 256 263 286 314 239 266 268 312 -hsync -vsync"
+
+[[case]]
+# switchres 320 224 59.923 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "md_ntsc_h40"
+preset = "generic_15"
+expect = "6.506199 320 333 364 416 224 234 237 261 -hsync -vsync"
+
+[[case]]
+# switchres 320 224 59.923 --calc -m arcade_15_25_31 --doublescan 0 --interlace 1
+system = "md_ntsc_h40"
+preset = "arcade_15_25_31"
+expect = "6.506199 320 333 364 416 224 234 237 261 -hsync -vsync"
+
+[[case]]
+# switchres 320 224 59.923 --calc -m k7000 --doublescan 0 --interlace 1
+system = "md_ntsc_h40"
+preset = "k7000"
+expect = "6.506199 320 333 364 416 224 234 237 261 -hsync -vsync"
+
+[[case]]
+# switchres 320 224 59.923 --calc -m arcade_31 --doublescan 1 --interlace 1
+system = "md_ntsc_h40"
+preset = "arcade_31"
+doublescan = true
+expect = "12.709668 320 332 380 404 224 237 238 262 doublescan -hsync -vsync"
+
+[[case]]
+# switchres 256 224 59.923 --calc -m arcade_15 --doublescan 0 --interlace 1
+system = "md_ntsc_h32"
+preset = "arcade_15"
+expect = "5.176807 256 266 290 331 224 234 237 261 -hsync -vsync"
+
+[[case]]
+# switchres 320 240 49.701 --calc -m pal --doublescan 0 --interlace 1
+system = "md_pal_h40"
+preset = "pal"
+expect = "6.146400 320 329 358 394 240 267 269 312 -hsync -vsync"
+
+[[case]]
+# switchres 256 192 59.923 --calc -m ntsc --doublescan 0 --interlace 1
+system = "sms_ntsc"
+preset = "ntsc"
+expect = "4.852622 256 263 286 309 192 219 222 262 -hsync -vsync"
+
+[[case]]
+# switchres 160 144 59.923 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "game_gear"
+preset = "generic_15"
+expect = "6.551999 320 333 364 416 288 289 292 308 -hsync -vsync"
+
+[[case]]
+# switchres 160 144 59.728 --calc -m arcade_15 --doublescan 0 --interlace 1
+system = "game_boy"
+preset = "arcade_15"
+expect = "6.804000 320 334 366 420 288 289 292 309 -hsync -vsync"
+
+[[case]]
+# switchres 160 144 59.728 --calc -m pc_31_120 --doublescan 0 --interlace 1
+system = "game_boy"
+preset = "pc_31_120"
+expect = "19.101492 480 493 544 608 432 471 474 526 -hsync -vsync"
+
+[[case]]
+# switchres 240 160 59.728 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "gba"
+preset = "generic_15"
+expect = "14.659491 720 749 818 935 480 485 491 525 interlace -hsync -vsync"
+
+[[case]]
+# switchres 256 240 59.826 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "pc_engine"
+preset = "generic_15"
+expect = "5.203904 256 266 290 332 240 242 245 262 -hsync -vsync"
+
+[[case]]
+# switchres 320 224 59.186 --calc -m arcade_15 --doublescan 0 --interlace 1
+system = "neogeo"
+preset = "arcade_15"
+expect = "6.484418 320 333 363 415 224 235 238 264 -hsync -vsync"
+
+[[case]]
+# switchres 320 224 59.186 --calc -m pc_31_120 --doublescan 0 --interlace 1
+system = "neogeo"
+preset = "pc_31_120"
+expect = "12.783702 320 329 363 406 224 237 240 266 -hsync -vsync"
+
+[[case]]
+# switchres 320 224 59.186 --calc -m arcade_15_31 --doublescan 0 --interlace 1
+system = "neogeo"
+preset = "arcade_15_31"
+expect = "6.484418 320 333 363 415 224 235 238 264 -hsync -vsync"
+
+[[case]]
+# switchres 384 224 59.637 --calc -m arcade_15 --doublescan 0 --interlace 1
+system = "cps1"
+preset = "arcade_15"
+expect = "7.842265 384 400 437 500 224 235 238 263 -hsync -vsync"
+
+[[case]]
+# switchres 384 224 59.637 --calc -m d9800 --doublescan 0 --interlace 1
+system = "cps1"
+preset = "d9800"
+expect = "7.404530 384 400 435 485 224 232 235 256 -hsync -vsync"
+
+[[case]]
+# switchres 384 224 59.637 --calc -m m2929 --doublescan 0 --interlace 1
+system = "cps1"
+preset = "m2929"
+expect = "28.073283 768 785 855 934 448 468 471 504 -hsync -vsync"
+
+[[case]]
+# switchres 288 224 60.606 --calc -m arcade_15 --doublescan 0 --interlace 1 -r
+system = "pacman"
+preset = "arcade_15"
+expect = "8.472600 398 415 455 523 288 289 292 309 -hsync -vsync"
+
+[[case]]
+# switchres 288 224 60.606 --calc -m d9400 --doublescan 0 --interlace 1 -r
+system = "pacman"
+preset = "d9400"
+expect = "10.116353 398 420 467 535 288 291 295 312 -hsync -vsync"
+
+[[case]]
+# switchres 256 224 60.606 --calc -m generic_15 --doublescan 0 --interlace 1 -r
+system = "donkey_kong"
+preset = "generic_15"
+expect = "8.142750 398 414 452 517 256 257 260 276 -hsync -vsync"
+
+[[case]]
+# switchres 256 224 60.606 --calc -m polo --doublescan 0 --interlace 1 -r
+system = "donkey_kong"
+preset = "polo"
+expect = "8.785090 398 416 457 527 256 257 260 277 -hsync -vsync"
+
+[[case]]
+# switchres 256 224 59.542 --calc -m arcade_15 --doublescan 0 --interlace 1 -r
+system = "space_invaders"
+preset = "arcade_15"
+expect = "8.472600 398 415 455 523 256 257 260 277 -hsync -vsync"
+
+[[case]]
+# switchres 256 224 59.542 --calc -m h9110 --doublescan 0 --interlace 1 -r
+system = "space_invaders"
+preset = "h9110"
+expect = "8.658895 398 415 456 525 256 257 260 277 -hsync -vsync"
+
+[[case]]
+# switchres 256 224 60.606 --calc -m arcade_15ex --doublescan 0 --interlace 1
+system = "gradius"
+preset = "arcade_15ex"
+expect = "5.175631 256 266 290 331 224 232 235 258 -hsync -vsync"
+
+[[case]]
+# switchres 256 224 60.606 --calc -m r666b --doublescan 0 --interlace 1
+system = "gradius"
+preset = "r666b"
+expect = "5.084540 256 272 296 329 224 230 233 255 -hsync -vsync"
+
+[[case]]
+# switchres 320 224 60.054 --calc -m arcade_15 --doublescan 0 --interlace 1
+system = "system16"
+preset = "arcade_15"
+expect = "6.520423 320 333 364 416 224 234 237 261 -hsync -vsync"
+
+[[case]]
+# switchres 320 224 60.054 --calc -m m3129 --doublescan 0 --interlace 1
+system = "system16"
+preset = "m3129"
+expect = "6.147247 320 333 362 403 224 231 234 254 +hsync +vsync"
+
+[[case]]
+# switchres 320 224 60.054 --calc -m pstar --doublescan 0 --interlace 1
+system = "system16"
+preset = "pstar"
+expect = "5.947508 320 331 334 378 224 234 237 262 -hsync -vsync"
+
+[[case]]
+# switchres 384 256 55.018 --calc -m arcade_15 --doublescan 0 --interlace 1
+system = "rtype"
+preset = "arcade_15"
+expect = "7.796931 384 400 437 499 256 261 264 284 -hsync -vsync"
+
+[[case]]
+# switchres 384 256 55.018 --calc -m arcade_15_25_31 --doublescan 0 --interlace 1
+system = "rtype"
+preset = "arcade_15_25_31"
+expect = "7.796931 384 400 437 499 256 261 264 284 -hsync -vsync"
+
+[[case]]
+# switchres 384 256 55.018 --calc -m d9200 --doublescan 0 --interlace 1
+system = "rtype"
+preset = "d9200"
+expect = "7.418077 384 400 435 485 256 259 262 278 -hsync -vsync"
+
+[[case]]
+# switchres 496 384 57.524 --calc -m arcade_15_25_31 --doublescan 0 --interlace 1
+system = "system24"
+preset = "arcade_15_25_31"
+expect = "15.417984 496 508 570 619 384 394 399 433 -hsync -vsync"
+
+[[case]]
+# switchres 496 384 57.524 --calc -m arcade_25 --doublescan 0 --interlace 1
+system = "system24"
+preset = "arcade_25"
+expect = "15.417984 496 508 570 619 384 394 399 433 -hsync -vsync"
+
+[[case]]
+# switchres 496 384 57.524 --calc -m arcade_15_25 --doublescan 0 --interlace 1
+system = "system24"
+preset = "arcade_15_25"
+expect = "15.417984 496 508 570 619 384 394 399 433 -hsync -vsync"
+
+[[case]]
+# switchres 320 200 70.086 --calc -m arcade_31 --doublescan 0 --interlace 1
+system = "vga_mode13h"
+preset = "arcade_31"
+expect = "25.419680 640 664 760 808 400 430 432 484 -hsync -vsync"
+
+[[case]]
+# switchres 320 200 70.086 --calc -m pc_31_120 --doublescan 0 --interlace 1
+system = "vga_mode13h"
+preset = "pc_31_120"
+expect = "12.748400 320 329 363 406 200 249 252 314 -hsync -vsync"
+
+[[case]]
+# switchres 320 200 70.086 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "vga_mode13h"
+preset = "generic_15"
+expect = "6.516640 320 333 364 416 200 212 215 241 -hsync -vsync"
+
+[[case]]
+# switchres 320 200 70.086 --calc -m ms929 --doublescan 0 --interlace 1
+system = "vga_mode13h"
+preset = "ms929"
+expect = "6.481930 320 345 375 419 200 211 214 238 -hsync -vsync"
+
+[[case]]
+# switchres 640 480 59.940 --calc -m arcade_31 --doublescan 0 --interlace 1
+system = "vga_640x480"
+preset = "arcade_31"
+expect = "25.426547 640 664 760 808 480 491 493 525 -hsync -vsync"
+
+[[case]]
+# switchres 640 480 59.940 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "vga_640x480"
+preset = "generic_15"
+expect = "13.025351 640 666 727 831 480 483 489 523 interlace -hsync -vsync"
+
+[[case]]
+# switchres 640 480 59.940 --calc -m ms2930 --doublescan 0 --interlace 1
+system = "vga_640x480"
+preset = "ms2930"
+expect = "24.654040 640 648 736 779 480 490 492 528 -hsync -vsync"
+
+[[case]]
+# switchres 640 480 59.940i --calc -m generic_15 --doublescan 0 --interlace 1
+system = "ntsc_480i"
+preset = "generic_15"
+expect = "13.025351 640 666 727 831 480 483 489 523 interlace -hsync -vsync"
+
+[[case]]
+# switchres 640 480 59.940i --calc -m ntsc --doublescan 0 --interlace 1
+system = "ntsc_480i"
+preset = "ntsc"
+expect = "12.146841 640 658 715 772 480 487 493 525 interlace -hsync -vsync"
+
+[[case]]
+# switchres 640 480 59.940i --calc -m generic_15 --doublescan 0 --interlace 0
+system = "ntsc_480i"
+preset = "generic_15"
+interlace = false
+expect = "13.000446 640 666 727 831 240 242 245 261 -hsync -vsync"
+
+[[case]]
+# switchres 720 576 50.000i --calc -m pal --doublescan 0 --interlace 1
+system = "pal_576i"
+preset = "pal"
+expect = "13.843750 720 741 806 886 576 583 588 625 interlace -hsync -vsync"
+
+[[case]]
+# switchres 224 144 75.472 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "wonderswan"
+preset = "generic_15"
+expect = "9.166499 448 466 509 582 288 289 292 308 -hsync -vsync"
+
+[[case]]
+# switchres 160 192 59.923 --calc -m ntsc --doublescan 0 --interlace 1
+system = "atari_2600"
+preset = "ntsc"
+expect = "3.030926 160 165 179 193 192 219 222 262 -hsync -vsync"
+
+[[case]]
+# switchres 320 200 50.125 --calc -m pal --doublescan 0 --interlace 1
+system = "c64_pal"
+preset = "pal"
+expect = "6.146400 320 329 358 394 200 247 249 312 -hsync -vsync"
+
+[[case]]
+# switchres 320 200 59.826 --calc -m generic_15 --doublescan 0 --interlace 1
+system = "c64_ntsc"
+preset = "generic_15"
+expect = "6.520555 320 333 364 416 200 222 225 262 -hsync -vsync"
+
+[[case]]
+# switchres 256 192 50.080 --calc -m pal --doublescan 0 --interlace 1
+system = "zx_spectrum"
+preset = "pal"
+expect = "4.898400 256 263 286 314 192 243 245 312 -hsync -vsync"
