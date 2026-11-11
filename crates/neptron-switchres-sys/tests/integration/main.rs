@@ -6,3 +6,4 @@
 //! (`switchres <w> <h> <refresh> --calc`), built from the vendored commit.
 
 mod calls;
+mod fuzz;

@@ -11,9 +11,11 @@
 //! Out of Switchres: the timings are already integers; each is checked
 //! against the width of its contract field. The pixel clock is whole hertz,
 //! because Switchres truncates it toward zero. A score is multiplied by
-//! 1,000 and rounded to the nearest integer, a half away from zero.
+//! 1,000 and rounded to the nearest integer, a half away from zero. A
+//! blanking time in an error is rounded to the nearest nanosecond, a half
+//! away from zero.
 
-use neptron_switchres_sys as sys;
+use neptron_switchres_sys::{self as sys, BlankingFault};
 use neptron_types::{CrtRange, GpuCaps, Modeline, Rotation, SourceGeometry};
 
 use crate::{Candidate, ConvertError, Settings};
@@ -107,6 +109,19 @@ pub(crate) fn candidate(mode: &sys::Mode) -> Result<Candidate, ConvertError> {
         y_scale_milli: scale_milli("y_scale_milli", mode.y_scale)?,
         refresh_diff_mhz: hertz_to_millihertz("refresh_diff_mhz", mode.v_diff_hz)?,
     })
+}
+
+/// A blanking time of a refused range in nanoseconds: Switchres gives the
+/// horizontal one in microseconds and the vertical one in milliseconds. A
+/// value that is not finite or does not fit becomes 0 or `u64::MAX`; the
+/// error only reports it.
+pub(crate) fn blanking_ns(fault: BlankingFault, value: f64) -> u64 {
+    let per_unit = match fault {
+        BlankingFault::HorizontalTooLong => PER_KILO,
+        BlankingFault::VerticalTooLong | BlankingFault::VerticalTooShort => PER_MEGA,
+    };
+    // `as` saturates: NaN gives 0, and a value out of range gives a bound.
+    (value * per_unit).round() as u64
 }
 
 fn millihertz_to_hertz(value: u64) -> f64 {
@@ -332,6 +347,25 @@ mod tests {
             weight: 0,
             range_index: 2,
         }
+    }
+
+    #[test]
+    fn a_blanking_time_converts_to_nanoseconds() {
+        assert_eq!(blanking_ns(BlankingFault::HorizontalTooLong, 14.7), 14_700);
+        assert_eq!(
+            blanking_ns(BlankingFault::HorizontalTooLong, 10.714_285_7),
+            10_714
+        );
+        assert_eq!(
+            blanking_ns(BlankingFault::VerticalTooLong, 7.696),
+            7_696_000
+        );
+        assert_eq!(blanking_ns(BlankingFault::VerticalTooShort, 0.000_002), 2);
+        assert_eq!(blanking_ns(BlankingFault::VerticalTooShort, f64::NAN), 0);
+        assert_eq!(
+            blanking_ns(BlankingFault::HorizontalTooLong, f64::INFINITY),
+            u64::MAX
+        );
     }
 
     #[test]

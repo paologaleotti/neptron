@@ -15,6 +15,7 @@ mod settings;
 
 pub use candidate::Candidate;
 pub use error::{ConvertError, ModelineError};
+pub use neptron_switchres_sys::BlankingFault;
 pub use settings::{Aspect, Settings};
 
 use neptron_switchres_sys as sys;
@@ -123,6 +124,18 @@ fn call_error(profile: &MonitorProfile, error: sys::CallError) -> ModelineError 
             profile,
             count,
             max,
+        },
+        sys::CallError::Blanking {
+            index,
+            fault,
+            blanking,
+            limit,
+        } => ModelineError::Blanking {
+            profile,
+            index,
+            fault,
+            blanking_ns: convert::blanking_ns(fault, blanking),
+            limit_ns: convert::blanking_ns(fault, limit),
         },
         error => ModelineError::Switchres { profile, error },
     }

@@ -13,6 +13,7 @@ Safe Switchres wrapper, monitor profiles and the ODREN policy: from source geome
 ## What the solver does
 
 - It accepts a CRT profile with 1 to 10 ranges. A flat-panel profile is an error: it lists its modes, and Switchres does not calculate for it.
+- A range that Switchres refuses, or whose blanking is outside the limits of `neptron-switchres-sys` (Switchres would loop forever on it), is an error with the index of the range and the values in nanoseconds. Every shipped preset passes.
 - It returns at most one candidate per range, best first, in the order of Switchres. The first candidate is the mode that Switchres selects. An empty list means that no range can show the source.
 - From `GpuCaps`, Switchres uses `pclock_min_hz` (its `dotclock_min`) and `interlace`. The highest pixel clock and the largest size are not checked here: the safety validator judges every candidate.
 - A rotation of 90 or 270 degrees sets the "rotated" flag of Switchres, which swaps width and height. Switchres takes every source as 4:3, so `aspect_milli` is not used.

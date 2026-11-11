@@ -18,6 +18,27 @@ pub(crate) const NSR_BAD_RANGE: i32 = 2;
 pub(crate) const NSR_EXCEPTION: i32 = 3;
 pub(crate) const NSR_BAD_REQUEST: i32 = 4;
 pub(crate) const NSR_BAD_SETTINGS: i32 = 5;
+pub(crate) const NSR_BAD_BLANKING: i32 = 6;
+
+/// Horizontal blanking (front porch, sync and back porch) of a range must
+/// stay below this fraction of its shortest line (`1 / hfreq_max`). The line
+/// rate of a mode is at most about 1.2% above `hfreq_max`, so the blanking
+/// fills at most 0.759 of the line of a mode, and `get_line_params` of
+/// Switchres ends for every fraction below 1.
+pub const HBLANK_MAX_FRACTION: f64 = 0.75;
+/// Vertical blanking of a range must stay below this fraction of its
+/// shortest field (`1 / vfreq_max`). No mode has a field rate above
+/// `vfreq_max`, so the divisor `1 - vfreq * vblank` of Switchres stays above
+/// 0.5.
+pub const VBLANK_MAX_FRACTION: f64 = 0.5;
+/// Vertical blanking of a range must last at least this many lines at
+/// `hfreq_max`, so that the divisor of `max_vfreq_for_yres` of Switchres is
+/// at least 1.
+pub const VBLANK_MIN_LINES: f64 = 1.0;
+
+pub(crate) const NSR_FAULT_HBLANK_TOO_LONG: i32 = 1;
+pub(crate) const NSR_FAULT_VBLANK_TOO_LONG: i32 = 2;
+pub(crate) const NSR_FAULT_VBLANK_TOO_SHORT: i32 = 3;
 
 /// Lowest refresh of a request, in hertz: `NSR_REFRESH_MIN_HZ` of the shim.
 pub const REFRESH_MIN_HZ: f64 = 0.001;
@@ -182,6 +203,24 @@ const _: () = assert!(offset_of!(Mode, vsync_positive) == 100);
 const _: () = assert!(offset_of!(Mode, weight) == 104);
 const _: () = assert!(offset_of!(Mode, range_index) == 108);
 
+/// Why the shim refuses a range.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct Fault {
+    pub(crate) blanking: f64,
+    pub(crate) limit: f64,
+    pub(crate) range_index: u64,
+    pub(crate) kind: i32,
+    pub(crate) padding: i32,
+}
+
+const _: () = assert!(size_of::<Fault>() == 32);
+const _: () = assert!(offset_of!(Fault, blanking) == 0);
+const _: () = assert!(offset_of!(Fault, limit) == 8);
+const _: () = assert!(offset_of!(Fault, range_index) == 16);
+const _: () = assert!(offset_of!(Fault, kind) == 24);
+const _: () = assert!(offset_of!(Fault, padding) == 28);
+
 unsafe extern "C" {
     pub(crate) fn nsr_modelines(
         ranges: *const RawRange,
@@ -191,6 +230,6 @@ unsafe extern "C" {
         out: *mut Mode,
         out_capacity: usize,
         out_count: *mut usize,
-        bad_range: *mut usize,
+        fault: *mut Fault,
     ) -> i32;
 }

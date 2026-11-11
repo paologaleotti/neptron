@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use neptron_modeline::{Aspect, ModelineError, Settings, modelines, modelines_with};
+use neptron_modeline::{Aspect, BlankingFault, ModelineError, Settings, modelines, modelines_with};
 use neptron_types::{CrtRange, GpuCaps, MonitorKind, MonitorProfile, SourceGeometry};
 
 use crate::presets::{all_presets, modeline_text, open_caps, preset, source};
@@ -351,5 +351,66 @@ fn a_convert_error_is_the_source() {
         }
         .source()
         .is_none()
+    );
+}
+
+#[test]
+fn a_range_whose_blanking_fills_the_line_returns_an_error_at_once() {
+    // generic_15 porches at 70 kHz: 14.7 us of blanking in a 14.29 us line.
+    // Switchres accepts the range and then never returns.
+    let fast = CrtRange {
+        h_min_mhz: 70_000_000,
+        h_max_mhz: 70_000_000,
+        v_min_mhz: 50_000,
+        v_max_mhz: 60_000,
+        ..ranges(&preset("generic_15"))[0]
+    };
+    let profile = with_ranges("fast", vec![fast]);
+    assert_eq!(
+        modelines(&source(320, 240, 60_000), &profile, &open_caps()),
+        Err(ModelineError::Blanking {
+            profile: "fast".into(),
+            index: 0,
+            fault: BlankingFault::HorizontalTooLong,
+            blanking_ns: 14_700,
+            // 0.75 of 1 / 70 kHz = 10.714 us.
+            limit_ns: 10_714,
+        })
+    );
+    // The lock is free again: the next call works.
+    assert!(
+        modelines(
+            &source(320, 240, 60_000),
+            &preset("generic_15"),
+            &open_caps()
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn every_shipped_preset_passes_the_blanking_guard() {
+    for profile in all_presets() {
+        let result = modelines(&source(320, 240, 60_000), &profile, &open_caps());
+        assert!(
+            !matches!(result, Err(ModelineError::Blanking { .. })),
+            "{}: {result:?}",
+            profile.id
+        );
+    }
+}
+
+#[test]
+fn a_blanking_error_names_the_profile_and_the_values() {
+    let error = ModelineError::Blanking {
+        profile: "fast".into(),
+        index: 0,
+        fault: BlankingFault::HorizontalTooLong,
+        blanking_ns: 14_700,
+        limit_ns: 10_714,
+    };
+    assert_eq!(
+        error.to_string(),
+        "range 0 of profile fast: horizontal blanking 14700 ns, must be below 10714 ns"
     );
 }

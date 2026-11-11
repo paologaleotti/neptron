@@ -1,6 +1,6 @@
 use std::fmt;
 
-use neptron_switchres_sys::CallError;
+use neptron_switchres_sys::{BlankingFault, CallError};
 
 /// Why the solver gives no list of modelines.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +31,22 @@ pub enum ModelineError {
         profile: String,
         /// Index of the range in the profile.
         index: usize,
+    },
+    /// The blanking of a range is outside the limits that keep Switchres
+    /// from looping forever or dividing by zero (see
+    /// `neptron_switchres_sys::HBLANK_MAX_FRACTION` and its siblings).
+    /// Switchres itself accepts such a range.
+    Blanking {
+        /// Id of the profile.
+        profile: String,
+        /// Index of the range in the profile.
+        index: usize,
+        /// Which limit the range breaks.
+        fault: BlankingFault,
+        /// The blanking of the range, in nanoseconds.
+        blanking_ns: u64,
+        /// The limit, in nanoseconds.
+        limit_ns: u64,
     },
     /// The source has no width, no height or no refresh.
     EmptySource {
@@ -107,6 +123,24 @@ impl fmt::Display for ModelineError {
             ),
             Self::InvalidRange { profile, index } => {
                 write!(f, "Switchres refuses range {index} of profile {profile}")
+            }
+            Self::Blanking {
+                profile,
+                index,
+                fault,
+                blanking_ns,
+                limit_ns,
+            } => {
+                let (what, relation) = match fault {
+                    BlankingFault::HorizontalTooLong => ("horizontal", "below"),
+                    BlankingFault::VerticalTooLong => ("vertical", "below"),
+                    BlankingFault::VerticalTooShort => ("vertical", "at least"),
+                };
+                write!(
+                    f,
+                    "range {index} of profile {profile}: {what} blanking {blanking_ns} ns, \
+                     must be {relation} {limit_ns} ns"
+                )
             }
             Self::EmptySource {
                 width,

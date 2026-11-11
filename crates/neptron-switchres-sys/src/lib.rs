@@ -17,8 +17,9 @@ use std::fmt;
 use std::sync::{Mutex, PoisonError};
 
 pub use ffi::{
-    MAX_RANGES, MONITOR_ASPECT_MAX, MONITOR_ASPECT_MIN, Mode, REFRESH_MAX_HZ, REFRESH_MIN_HZ,
-    WEIGHT_OUT_OF_RANGE, WEIGHT_REFRESH_OFF, WEIGHT_STRETCHED,
+    HBLANK_MAX_FRACTION, MAX_RANGES, MONITOR_ASPECT_MAX, MONITOR_ASPECT_MIN, Mode, REFRESH_MAX_HZ,
+    REFRESH_MIN_HZ, VBLANK_MAX_FRACTION, VBLANK_MIN_LINES, WEIGHT_OUT_OF_RANGE, WEIGHT_REFRESH_OFF,
+    WEIGHT_STRETCHED,
 };
 pub use types::{Range, Request, Settings};
 
@@ -54,6 +55,20 @@ pub enum CallError {
         /// Index of the range in the call.
         index: usize,
     },
+    /// The blanking of a range is outside the limits that keep Switchres
+    /// from looping forever or dividing by zero. Switchres itself accepts
+    /// such a range.
+    Blanking {
+        /// Index of the range in the call.
+        index: usize,
+        /// Which limit the range breaks.
+        fault: BlankingFault,
+        /// The blanking of the range: microseconds for the horizontal
+        /// blanking, milliseconds for the vertical blanking.
+        blanking: f64,
+        /// The limit, in the same unit.
+        limit: f64,
+    },
     /// The C++ code threw an exception, and the shim caught it.
     Exception,
     /// The shim returned a status or a count that this crate does not know.
@@ -65,12 +80,30 @@ pub enum CallError {
     },
 }
 
+/// The blanking limit that a range breaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlankingFault {
+    /// The horizontal blanking is not below [`HBLANK_MAX_FRACTION`] of the
+    /// shortest line.
+    HorizontalTooLong,
+    /// The vertical blanking is not below [`VBLANK_MAX_FRACTION`] of the
+    /// shortest field.
+    VerticalTooLong,
+    /// The vertical blanking is shorter than [`VBLANK_MIN_LINES`] at the
+    /// highest line rate.
+    VerticalTooShort,
+}
+
 /// Calculates one modeline per range with Switchres and returns the ones
 /// in range, best first, in the order of Switchres.
 ///
 /// The first mode is the mode that `display_manager::get_mode` of
 /// Switchres returns for a display that can add a mode. An empty list
 /// means that no range can show the request.
+///
+/// Before Switchres sees a range, `monitor_evaluate_range` checks it and the
+/// shim checks its blanking (see [`CallError::Blanking`]). Without that
+/// check, a range that Switchres accepts can make it loop forever.
 ///
 /// Calls are serialised behind one lock: Switchres keeps its log functions
 /// in global variables.
@@ -90,7 +123,7 @@ pub fn modelines(
     let raw_request = request.raw();
     let mut out = [Mode::default(); MAX_RANGES];
     let mut count = 0usize;
-    let mut bad_range = 0usize;
+    let mut fault = ffi::Fault::default();
 
     let status = {
         let _guard = SWITCHRES.lock().unwrap_or_else(PoisonError::into_inner);
@@ -112,7 +145,7 @@ pub fn modelines(
                 out.as_mut_ptr(),
                 out.len(),
                 &mut count,
-                &mut bad_range,
+                &mut fault,
             )
         }
     };
@@ -130,10 +163,35 @@ pub fn modelines(
         ffi::NSR_BAD_SETTINGS => Err(CallError::InvalidSettings {
             monitor_aspect: settings.monitor_aspect,
         }),
-        ffi::NSR_BAD_RANGE => Err(CallError::InvalidRange { index: bad_range }),
+        ffi::NSR_BAD_RANGE => Err(CallError::InvalidRange {
+            index: fault_index(&fault),
+        }),
+        ffi::NSR_BAD_BLANKING => {
+            Err(blanking_error(&fault).unwrap_or(CallError::UnknownStatus { status, count }))
+        }
         ffi::NSR_EXCEPTION => Err(CallError::Exception),
         _ => Err(CallError::UnknownStatus { status, count }),
     }
+}
+
+fn fault_index(fault: &ffi::Fault) -> usize {
+    // The shim writes an index below MAX_RANGES, so the conversion holds.
+    usize::try_from(fault.range_index).unwrap_or(usize::MAX)
+}
+
+fn blanking_error(fault: &ffi::Fault) -> Option<CallError> {
+    let kind = match fault.kind {
+        ffi::NSR_FAULT_HBLANK_TOO_LONG => BlankingFault::HorizontalTooLong,
+        ffi::NSR_FAULT_VBLANK_TOO_LONG => BlankingFault::VerticalTooLong,
+        ffi::NSR_FAULT_VBLANK_TOO_SHORT => BlankingFault::VerticalTooShort,
+        _ => return None,
+    };
+    Some(CallError::Blanking {
+        index: fault_index(fault),
+        fault: kind,
+        blanking: fault.blanking,
+        limit: fault.limit,
+    })
 }
 
 impl fmt::Display for CallError {
@@ -157,6 +215,22 @@ impl fmt::Display for CallError {
                  {MONITOR_ASPECT_MAX}"
             ),
             Self::InvalidRange { index } => write!(f, "Switchres refuses range {index}"),
+            Self::Blanking {
+                index,
+                fault,
+                blanking,
+                limit,
+            } => {
+                let (what, unit, relation) = match fault {
+                    BlankingFault::HorizontalTooLong => ("horizontal", "us", "below"),
+                    BlankingFault::VerticalTooLong => ("vertical", "ms", "below"),
+                    BlankingFault::VerticalTooShort => ("vertical", "ms", "at least"),
+                };
+                write!(
+                    f,
+                    "range {index}: {what} blanking {blanking} {unit}, must be {relation} {limit} {unit}"
+                )
+            }
             Self::Exception => write!(f, "Switchres threw a C++ exception"),
             Self::UnknownStatus { status, count } => {
                 write!(f, "unknown shim result: status {status}, {count} modes")

@@ -1,6 +1,7 @@
 use neptron_switchres_sys::{
-    CallError, MAX_RANGES, MONITOR_ASPECT_MAX, MONITOR_ASPECT_MIN, Mode, REFRESH_MAX_HZ,
-    REFRESH_MIN_HZ, Range, Request, Settings, WEIGHT_OUT_OF_RANGE, modelines,
+    BlankingFault, CallError, HBLANK_MAX_FRACTION, MAX_RANGES, MONITOR_ASPECT_MAX,
+    MONITOR_ASPECT_MIN, Mode, REFRESH_MAX_HZ, REFRESH_MIN_HZ, Range, Request, Settings,
+    VBLANK_MAX_FRACTION, VBLANK_MIN_LINES, WEIGHT_OUT_OF_RANGE, modelines,
 };
 
 /// `generic_15`: 15625-15750, 49.50-65.00, 2.000, 4.700, 8.000, 0.064,
@@ -399,5 +400,143 @@ fn errors_say_what_failed() {
     assert_eq!(
         CallError::TooManyRanges { count: 11, max: 10 }.to_string(),
         "11 ranges, but Switchres holds at most 10"
+    );
+}
+
+fn blanking(ranges: &[Range]) -> CallError {
+    modelines(ranges, &defaults(), &request(320, 240, 60.0)).unwrap_err()
+}
+
+#[test]
+fn a_horizontal_blanking_that_fills_the_line_is_refused() {
+    // Switchres accepts this range and then loops forever in
+    // get_line_params: 14.7 us of blanking in a line of 14.29 us.
+    let fast = Range {
+        hfreq_min_hz: 70_000.0,
+        hfreq_max_hz: 70_000.0,
+        vfreq_min_hz: 50.0,
+        vfreq_max_hz: 60.0,
+        ..generic_15()
+    };
+    match blanking(&[generic_15(), fast]) {
+        CallError::Blanking {
+            index,
+            fault,
+            blanking,
+            limit,
+        } => {
+            assert_eq!(index, 1);
+            assert_eq!(fault, BlankingFault::HorizontalTooLong);
+            assert_eq!(blanking, 2.0 + 4.7 + 8.0);
+            assert_eq!(limit, HBLANK_MAX_FRACTION * 1_000_000.0 / 70_000.0);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A 20 kHz range: the line is 50 us, so the horizontal limit is 37.5 us.
+fn twenty_khz(hback_porch_us: f64) -> Range {
+    Range {
+        hfreq_min_hz: 20_000.0,
+        hfreq_max_hz: 20_000.0,
+        hfront_porch_us: 2.0,
+        hsync_pulse_us: 4.0,
+        hback_porch_us,
+        ..generic_15()
+    }
+}
+
+#[test]
+fn the_horizontal_limit_is_three_quarters_of_the_shortest_line() {
+    assert_eq!(HBLANK_MAX_FRACTION, 0.75);
+    let request = request(320, 240, 60.0);
+    // 2 + 4 + 31.4999 us: below the limit.
+    assert!(modelines(&[twenty_khz(31.4999)], &defaults(), &request).is_ok());
+    // 2 + 4 + 31.5 us: at the limit.
+    assert!(matches!(
+        blanking(&[twenty_khz(31.5)]),
+        CallError::Blanking {
+            fault: BlankingFault::HorizontalTooLong,
+            ..
+        }
+    ));
+}
+
+/// generic_15 with a vertical back porch of `vback_porch_ms`; the field at
+/// 65 Hz is 15.38 ms, so the vertical limit is 7.69 ms.
+fn long_vblank(vback_porch_ms: f64) -> Range {
+    // Fewer lines, so that monitor_evaluate_range still fits the longer
+    // blanking into a field at the lowest field rate.
+    Range {
+        vback_porch_ms,
+        progressive_lines_max: 196,
+        interlaced_lines_min: 0,
+        interlaced_lines_max: 0,
+        ..generic_15()
+    }
+}
+
+#[test]
+fn the_vertical_limit_is_half_of_the_shortest_field() {
+    assert_eq!(VBLANK_MAX_FRACTION, 0.5);
+    let request = request(320, 240, 60.0);
+    // 0.064 + 0.192 + 7.43 = 7.686 ms: below 0.5 / 65 Hz = 7.6923 ms.
+    assert!(modelines(&[long_vblank(7.43)], &defaults(), &request).is_ok());
+    match blanking(&[long_vblank(7.44)]) {
+        CallError::Blanking {
+            index: 0,
+            fault: BlankingFault::VerticalTooLong,
+            blanking,
+            limit,
+        } => {
+            assert!((blanking - 7.696).abs() < 1e-9, "{blanking}");
+            assert!((limit - 500.0 / 65.0).abs() < 1e-9, "{limit}");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_vertical_blanking_shorter_than_one_line_is_refused() {
+    assert_eq!(VBLANK_MIN_LINES, 1.0);
+    let short = |vback_porch_ms| Range {
+        vfront_porch_ms: 0.01,
+        vsync_pulse_ms: 0.02,
+        vback_porch_ms,
+        ..generic_15()
+    };
+    let request = request(320, 240, 60.0);
+    // One line at 15 750 Hz is 0.0635 ms.
+    assert!(modelines(&[short(0.034)], &defaults(), &request).is_ok());
+    assert!(matches!(
+        blanking(&[short(0.03)]),
+        CallError::Blanking {
+            fault: BlankingFault::VerticalTooShort,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn every_blanking_error_says_what_failed() {
+    let error = CallError::Blanking {
+        index: 2,
+        fault: BlankingFault::HorizontalTooLong,
+        blanking: 14.7,
+        limit: 10.5,
+    };
+    assert_eq!(
+        error.to_string(),
+        "range 2: horizontal blanking 14.7 us, must be below 10.5 us"
+    );
+    let error = CallError::Blanking {
+        index: 0,
+        fault: BlankingFault::VerticalTooShort,
+        blanking: 0.03,
+        limit: 0.0635,
+    };
+    assert_eq!(
+        error.to_string(),
+        "range 0: vertical blanking 0.03 ms, must be at least 0.0635 ms"
     );
 }

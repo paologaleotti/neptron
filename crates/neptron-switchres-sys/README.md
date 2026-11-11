@@ -51,8 +51,30 @@ Before the calculation, each range goes through the same steps as `monitor_fill_
 | `Request.width`, `Request.height` | `u16`; the shim refuses 0 (`InvalidRequest`), on which Switchres loops forever. A width of 2,000,000,000 overflowed `get_line_params` |
 | `Request.refresh_hz` (`f64`) | The shim refuses a value outside 0.001 to 10,000,000 Hz (`InvalidRequest`): below, the float that `get_mode` makes can reach 0 and Switchres loops forever; above, the float conversion can overflow |
 | `Request` flags | `bool` |
+| `Range` blanking | The shim refuses a blanking outside the limits below (`Blanking`) |
 | Pointers, range count, capacity | Set by `modelines` from slices and a local array |
 | `Mode` (output) | Plain data; every value is safe in Rust |
+
+- The shim refuses a range whose blanking Switchres cannot handle, with `CallError::Blanking` and the value and the limit. `monitor_evaluate_range` accepts such ranges, and then Switchres loops forever (and overflows `int`) in `get_line_params` when the horizontal blanking fills the line, or divides by zero in `total_lines_for_yres` and `max_vfreq_for_yres`. A hang would also hold the lock for every later call. The limits:
+
+| Limit | Value | Why |
+| --- | --- | --- |
+| Horizontal blanking, as a fraction of `1 / hfreq_max` | below 0.75 | A mode line can be up to about 1.2% shorter than `1 / hfreq_max`. 0.5 would refuse `pc_70_120` (0.501) |
+| Vertical blanking, as a fraction of `1 / vfreq_max` | below 0.5 | The divisor `1 - vfreq * vblank` of `total_lines_for_yres` stays above 0.5, because no mode has a field rate above `vfreq_max` |
+| Vertical blanking, in lines at `hfreq_max` | at least 1 | The divisor of `max_vfreq_for_yres` stays at 1 or more when the range allows zero lines |
+
+Every shipped preset passes. The largest fractions are 0.501 horizontal (`pc_70_120`) and 0.141 vertical (`d9200`).
+
+Why the limits are enough, from a reading of `modeline.cpp`:
+
+- Horizontal: `total_lines_for_yres` and `max_vfreq_for_yres` keep the line rate of a mode at most about 1.2% above `hfreq_max` (the line count rounds to whole lines, plus the half line of interlace). A blanking below 0.75 of `1 / hfreq_max` then fills at most 0.759 of the line of a mode. `get_line_params` ends for every fraction below 1: each pass adds at most one character to each porch, and a porch stops growing once it reaches its time.
+- Vertical: no mode has a field rate above `vfreq_max`, and the shim keeps the border at 0 (no vertical shift correction). A blanking below 0.5 of `1 / vfreq_max` keeps the divisor `1 - vfreq * vblank` of `total_lines_for_yres` above 0.5. One line of blanking at `hfreq_max` keeps the divisor of `max_vfreq_for_yres` at 1 or more.
+
+A fuzz run agrees. 6,000,000 random calls through the shim and the vendored sources, built with `-fsanitize=undefined,float-cast-overflow,float-divide-by-zero` outside the repository, with every field drawn over the whole domain of its Rust type, found no hang (a 5-second limit per call), no exception and no undefined behaviour. 1,957,522 calls reached the calculation; the line rate of a mode was at most 1.0113 times `hfreq_max`, and the blanking filled at most 0.756 of the line of a mode. `tests/integration/fuzz.rs` draws the same way with a fixed seed: 50,000 calls in tier 1, and 2,000,000 on demand (`--run-ignored only`, about a minute, inside the slow-test timeout).
+
+No other loop in the calculation can hold the lock without end once the request and the range pass these checks: every other loop counts toward a bound that the checked values keep finite. The guard cannot make Switchres stop a call that is slow; nothing can stop a thread inside C++.
+
+The guard and fuzz tests rely on the slow-test timeout in `.config/nextest.toml` to stop a hang: a hung test fails after three minutes instead of blocking the run.
 
 ## Must never depend on
 

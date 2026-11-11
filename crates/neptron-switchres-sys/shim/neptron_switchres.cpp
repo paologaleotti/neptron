@@ -73,6 +73,12 @@ static_assert(offsetof(nsr_mode, hsync_positive) == 96, "nsr_mode layout changed
 static_assert(offsetof(nsr_mode, vsync_positive) == 100, "nsr_mode layout changed: update src/ffi.rs");
 static_assert(offsetof(nsr_mode, weight) == 104, "nsr_mode layout changed: update src/ffi.rs");
 static_assert(offsetof(nsr_mode, range_index) == 108, "nsr_mode layout changed: update src/ffi.rs");
+static_assert(sizeof(nsr_fault) == 32, "nsr_fault layout changed: update src/ffi.rs");
+static_assert(offsetof(nsr_fault, blanking) == 0, "nsr_fault layout changed: update src/ffi.rs");
+static_assert(offsetof(nsr_fault, limit) == 8, "nsr_fault layout changed: update src/ffi.rs");
+static_assert(offsetof(nsr_fault, range_index) == 16, "nsr_fault layout changed: update src/ffi.rs");
+static_assert(offsetof(nsr_fault, kind) == 24, "nsr_fault layout changed: update src/ffi.rs");
+static_assert(offsetof(nsr_fault, padding) == 28, "nsr_fault layout changed: update src/ffi.rs");
 static_assert(NSR_MAX_RANGES == MAX_RANGES, "MAX_RANGES of monitor.h changed");
 static_assert(NSR_WEIGHT_REFRESH_OFF == R_V_FREQ_OFF, "result bits of modeline.h changed");
 static_assert(NSR_WEIGHT_STRETCHED == R_RES_STRETCH, "result bits of modeline.h changed");
@@ -154,6 +160,38 @@ static nsr_mode to_nsr_mode(const modeline &mode)
 	out.weight = mode.result.weight;
 	out.range_index = mode.range;
 	return out;
+}
+
+// Runs after monitor_evaluate_range, which keeps hfreq_max and vfreq_max
+// above zero. The comparisons are written so that a NaN fails them.
+static bool blanking_fits(const monitor_range &range, nsr_fault *fault)
+{
+	double hblank_us = range.hfront_porch + range.hsync_pulse + range.hback_porch;
+	double hlimit_us = NSR_HBLANK_MAX_FRACTION * 1000000.0 / range.hfreq_max;
+	if (!(hblank_us < hlimit_us))
+	{
+		fault->kind = NSR_FAULT_HBLANK_TOO_LONG;
+		fault->blanking = hblank_us;
+		fault->limit = hlimit_us;
+		return false;
+	}
+	double vlimit_s = NSR_VBLANK_MAX_FRACTION / range.vfreq_max;
+	if (!(range.vertical_blank < vlimit_s))
+	{
+		fault->kind = NSR_FAULT_VBLANK_TOO_LONG;
+		fault->blanking = range.vertical_blank * 1000;
+		fault->limit = vlimit_s * 1000;
+		return false;
+	}
+	double vminimum_s = NSR_VBLANK_MIN_LINES / range.hfreq_max;
+	if (!(range.vertical_blank >= vminimum_s))
+	{
+		fault->kind = NSR_FAULT_VBLANK_TOO_SHORT;
+		fault->blanking = range.vertical_blank * 1000;
+		fault->limit = vminimum_s * 1000;
+		return false;
+	}
+	return true;
 }
 
 // The Rust types keep the sizes in 0 to 65535 and the booleans in 0 and 1.
@@ -276,15 +314,15 @@ extern "C" int32_t nsr_modelines(
 	nsr_mode *out,
 	size_t out_capacity,
 	size_t *out_count,
-	size_t *bad_range)
+	nsr_fault *fault)
 {
 	try
 	{
 		if (ranges == nullptr || settings == nullptr || request == nullptr || out == nullptr ||
-			out_count == nullptr || bad_range == nullptr)
+			out_count == nullptr || fault == nullptr)
 			return NSR_BAD_ARGUMENT;
 		*out_count = 0;
-		*bad_range = 0;
+		memset(fault, 0, sizeof(*fault));
 		if (range_count > MAX_RANGES || out_capacity < range_count)
 			return NSR_BAD_ARGUMENT;
 		if (!request_is_valid(*request))
@@ -295,13 +333,14 @@ extern "C" int32_t nsr_modelines(
 		for (size_t i = 0; i < range_count; i++)
 		{
 			monitor_range range = to_monitor_range(ranges[i]);
+			fault->range_index = i;
 			if (!range_is_finite(ranges[i]) || monitor_evaluate_range(&range) != 0)
-			{
-				*bad_range = i;
 				return NSR_BAD_RANGE;
-			}
+			if (!blanking_fits(range, fault))
+				return NSR_BAD_BLANKING;
 		}
 
+		fault->range_index = 0;
 		return modelines(ranges, range_count, settings, request, out, out_capacity, out_count);
 	}
 	catch (...)
