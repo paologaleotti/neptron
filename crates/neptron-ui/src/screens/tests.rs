@@ -1260,3 +1260,63 @@ fn many_dismissed_notices_never_come_back() {
     run.step(&snap, &[]);
     assert_eq!(message(&run), "New");
 }
+
+/// Scrolls the long list to its end and back to its top, loading each
+/// window that the screen asks for.
+fn scroll_round_trip(run: &mut Run, snap: &mut Snapshot) {
+    for direction in [Right, Left] {
+        for _ in 0..LONG_LIST / 8 {
+            run.step(snap, &[direction]);
+            if let Some(&(first, count)) = run.loads().first() {
+                snap.games = window(SNES_LIST, first, LONG_LIST, count);
+            }
+        }
+    }
+}
+
+#[test]
+fn scrolling_a_long_list_allocates_nothing_after_a_warm_up() {
+    let (mut run, mut snap) = snes_list();
+    scroll_round_trip(&mut run, &mut snap);
+    let before = (capacities(&run.frame), run.screens.stack_capacity());
+    scroll_round_trip(&mut run, &mut snap);
+    assert_eq!(run.focused(), Some(super::scenes::title(0).as_str()));
+    assert_eq!(
+        (capacities(&run.frame), run.screens.stack_capacity()),
+        before
+    );
+}
+
+/// Opens and closes a confirmation, a notice and the quick menu over a
+/// running game.
+fn overlay_round_trip(run: &mut Run, base: &Snapshot, round: u32) {
+    let mut snap = base.clone();
+    snap.confirm = Some(PendingConfirm::new(ConfirmId(round), "2x", 3 * SECOND_NS));
+    run.step(&snap, &[]);
+    run.step(&snap, &[Back]);
+    snap.confirm = None;
+    snap.notices = vec![notice(round, "Forced to 60 Hz")];
+    run.step(&snap, &[Menu]);
+    run.step(&snap, &[Accept]);
+    snap.notices.clear();
+    run.step(&snap, &[Down, Back]);
+    run.step(&snap, &[]);
+}
+
+#[test]
+fn overlays_that_open_and_close_allocate_nothing_after_a_warm_up() {
+    let mut run = Run::new();
+    let snap = in_game();
+    run.step(&snap, &[]);
+    overlay_round_trip(&mut run, &snap, 1);
+    let before = (capacities(&run.frame), run.screens.stack_capacity());
+    for round in 2..6 {
+        overlay_round_trip(&mut run, &snap, round);
+        assert_eq!(run.screen(), "game");
+        assert_eq!(
+            (capacities(&run.frame), run.screens.stack_capacity()),
+            before,
+            "round {round}"
+        );
+    }
+}

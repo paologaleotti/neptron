@@ -117,6 +117,8 @@ The format is binary PPM (`P6`, maxval 255): the header `P6\n320 240\n255\n`, th
 
 `UiScene`, `UiTree` and the intent list keep their memory on `clear()`. Text goes into the store of the scene; numbers are formatted with `StackText` on the stack. `CpuCanvas` makes its buffer once in `new()`; drawing writes into it. A unit test draws every registered scene twice and checks that no buffer grew or moved. That test is a proxy: the crate forbids `unsafe`, so it cannot install a counting allocator. Fixture data of the scenes (the `Vec<MenuItem>` of a scene) is made when the scene is built and is not part of the frame.
 
+For the router, the tests prove three things about the scene, the tree, the intent list and the screen stack: a static screen or overlay keeps their capacity after its first frame; a round trip from the top of a 10,000-game list to its end and back keeps it after one warm-up round trip; and a confirmation, a notice and the quick menu that open and close over a game keep it after one warm-up round. What can still grow: a frame with more or longer text than any frame before it grows the scene and the tree once, to the new size; opening the quick menu allocates one box for its state, which is freed when it closes; the snapshot belongs to the app and is not counted.
+
 ## Why no `embedded-graphics`
 
 The brief asks to try `embedded-graphics` first. The comparison:
