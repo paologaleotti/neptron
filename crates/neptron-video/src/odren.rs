@@ -5,7 +5,7 @@ use neptron_types::{FlipEvent, GpuCaps, Modeline, SourceGeometry};
 
 use crate::cache::Cache;
 use crate::decision::{Decision, Inputs};
-use crate::{Chosen, Monitor, Outcome, SwitchRecord, SwitchTrace, Trigger, Veto};
+use crate::{Chosen, Monitor, Outcome, SwitchRecord, SwitchTrace, Trigger, Unshowable, Veto};
 
 /// A source that asks for a new mode must stay the same for this many core
 /// frames before the engine sets the mode. A core that flickers between
@@ -80,6 +80,9 @@ pub struct Odren {
     /// or the settings change.
     blocked: Option<SourceGeometry>,
     frame: u64,
+    /// The mode on the display is one the inputs refuse, or one the engine
+    /// does not know after a failed restore.
+    refused_on_screen: bool,
     muted: bool,
     /// The trace number of the modeset that waits for its first flip.
     awaiting_flip: Option<u64>,
@@ -122,6 +125,7 @@ impl Odren {
             commit: None,
             blocked: None,
             frame: 0,
+            refused_on_screen: false,
             muted: false,
             awaiting_flip: None,
             last_flip_ns: None,
@@ -180,6 +184,15 @@ impl Odren {
     /// The number of the last core frame, from 1.
     pub fn frame(&self) -> u64 {
         self.frame
+    }
+
+    /// The mode on the display is one that the current inputs refuse, or
+    /// one the engine does not know (a read back it refused, with no good
+    /// mode to restore). It stays set until a valid mode is on screen. The
+    /// session and the guard must read it: the engine cannot blank the
+    /// output by itself.
+    pub fn current_refused(&self) -> bool {
+        self.refused_on_screen
     }
 
     /// Audio must be silent now: a modeset is due or the new mode has not
@@ -255,7 +268,7 @@ impl Odren {
                 let reason = self.decision(index).and_then(Decision::unshowable_reason);
                 let record = self.record(trigger, request, None, Some(index));
                 self.trace.push(SwitchRecord {
-                    outcome: Outcome::Kept(reason.unwrap_or(crate::Unshowable::NoWinner)),
+                    outcome: Outcome::Kept(reason.unwrap_or(Unshowable::NoWinner)),
                     ..record
                 });
             }
@@ -269,6 +282,7 @@ impl Odren {
                     current.chosen = winner;
                     current.source = source;
                 }
+                self.refused_on_screen = false;
                 self.request = None;
                 self.trace.push(SwitchRecord {
                     outcome: Outcome::ScaleOnly,
@@ -315,6 +329,7 @@ impl Odren {
                 });
                 self.request = None;
                 self.blocked = None;
+                self.refused_on_screen = false;
                 AfterModeSet::Done
             }
             Ok(read_back) => {
@@ -358,8 +373,10 @@ impl Odren {
             (Ok(read_back), Some(current)) => {
                 current.read_back = *read_back;
                 self.awaiting_flip = Some(self.trace.total());
+                self.refused_on_screen = false;
             }
             _ => {
+                self.refused_on_screen = true;
                 self.current = None;
                 self.awaiting_flip = None;
                 self.muted = false;
@@ -399,6 +416,30 @@ impl Odren {
         self.blocked = None;
         self.request = None;
         self.redo = Some(trigger);
+        self.check_on_screen(trigger);
+    }
+
+    /// Judges the mode on the display with the new inputs, and records a
+    /// refusal.
+    fn check_on_screen(&mut self, trigger: Trigger) {
+        let Some(current) = &self.current else {
+            return;
+        };
+        let Err(refusal) = self.inputs.check(&current.read_back) else {
+            self.refused_on_screen = false;
+            return;
+        };
+        self.refused_on_screen = true;
+        let request = Request {
+            source: current.source,
+            asked_frame: self.frame,
+            stable: 1,
+        };
+        let record = self.record(trigger, request, None, None);
+        self.trace.push(SwitchRecord {
+            outcome: Outcome::Kept(Unshowable::CurrentRefused(refusal)),
+            ..record
+        });
     }
 
     fn refused_by_driver(&mut self, mode: Modeline) {

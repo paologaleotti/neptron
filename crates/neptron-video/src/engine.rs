@@ -160,6 +160,12 @@ impl<D: Display> VideoEngine<D> {
         self.odren.muted()
     }
 
+    /// The mode on the display is refused by the current inputs or not
+    /// known. See [`Odren::current_refused`].
+    pub fn current_refused(&self) -> bool {
+        self.odren.current_refused()
+    }
+
     /// The mode on screen.
     pub fn current(&self) -> Option<&Current> {
         self.odren.current()

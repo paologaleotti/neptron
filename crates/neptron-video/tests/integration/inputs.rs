@@ -111,17 +111,59 @@ fn an_edid_limit_below_every_mode_keeps_the_screen_dark() {
 }
 
 #[test]
-fn a_monitor_with_no_mode_for_the_game_keeps_the_mode_and_reports() {
+fn a_monitor_that_refuses_the_mode_on_screen_is_reported_until_a_valid_mode() {
     let mut rig = Rig::generic_15(native_width());
     rig.frame(SNES);
     let mode = rig.current_mode();
+    assert!(!rig.engine.current_refused());
     rig.engine.set_monitor(edid(2_000_000));
-    assert_eq!(rig.frame(SNES).directive, Directive::Kept);
-    assert_eq!(rig.current_mode(), mode);
+    assert!(
+        rig.engine.current_refused(),
+        "known at once, before a frame"
+    );
     let record = rig.engine.trace().last().unwrap();
     assert_eq!(record.trigger, Trigger::Monitor);
-    assert_eq!(record.outcome, Outcome::Kept(Unshowable::NoWinner));
-    assert_eq!(rig.frame(SNES).directive, Directive::Steady);
+    assert!(matches!(
+        record.outcome,
+        Outcome::Kept(Unshowable::CurrentRefused(Refusal::Validator(_)))
+    ));
+    assert_eq!(rig.frame(SNES).directive, Directive::Kept);
+    assert_eq!(
+        rig.current_mode(),
+        mode,
+        "the engine has no blank operation"
+    );
+    assert_eq!(
+        rig.engine.trace().last().unwrap().outcome,
+        Outcome::Kept(Unshowable::NoWinner)
+    );
+    for _ in 0..5 {
+        assert_eq!(rig.frame(SNES).directive, Directive::Steady);
+        assert!(rig.engine.current_refused());
+    }
+    rig.engine.set_monitor(generic_15());
+    assert!(!rig.engine.current_refused());
+}
+
+#[test]
+fn a_veto_of_the_mode_on_screen_is_reported_until_a_valid_mode_is_set() {
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    rig.frame(SNES);
+    let mode = rig.current_mode();
+    rig.engine.set_veto(Box::new(move |m: &Modeline| {
+        if *m == mode {
+            Err(Rejection::NotAPanelMode {
+                mode: *m,
+                panel_modes: 0,
+            })
+        } else {
+            Ok(())
+        }
+    }));
+    assert!(rig.engine.current_refused());
+    assert_eq!(rig.frame(SNES).directive, Directive::Modeset);
+    assert!(!rig.engine.current_refused());
+    assert_ne!(rig.current_mode(), mode);
 }
 
 /// Every mode the display was asked for passes the validator of `monitor`.

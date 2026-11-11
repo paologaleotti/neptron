@@ -50,6 +50,10 @@ pub enum Unshowable {
     Policy(PolicyError),
     /// Every proposal was refused.
     NoWinner,
+    /// The inputs changed, and they refuse the mode on screen. The
+    /// `Display` contract has no operation that blanks the output, so the
+    /// mode stays until a valid one is set.
+    CurrentRefused(Refusal),
 }
 
 /// The engine's inputs that do not change from frame to frame.
@@ -189,6 +193,9 @@ impl fmt::Display for Unshowable {
             ),
             Self::Policy(error) => write!(f, "no plan: {error}"),
             Self::NoWinner => f.write_str("every proposal was refused"),
+            Self::CurrentRefused(refusal) => {
+                write!(f, "the inputs refuse the mode on screen: {refusal}")
+            }
         }
     }
 }
