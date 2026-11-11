@@ -13,98 +13,10 @@ use std::fs;
 use std::path::PathBuf;
 
 use neptron_gfx::{OutputBuffer, ReferenceRenderer};
-use neptron_types::{Filter, Frame, PixelFormat, Rect, Scene, ui_dest_fill, ui_dest_uniform};
+use neptron_types::Scene;
 
-/// Extra bytes at the end of each source row, so that the goldens also
-/// check the pitch.
-const ROW_PADDING_BYTES: usize = 6;
-
-/// A source image that owns its bytes.
-struct Source {
-    data: Vec<u8>,
-    width: u16,
-    height: u16,
-    pitch: usize,
-    format: PixelFormat,
-}
-
-impl Source {
-    /// A test pattern: red grows to the right, blue grows down, and green
-    /// alternates as a checkerboard. Every X bit that a format has is set
-    /// on some pixels, so the goldens show that it is ignored.
-    fn pattern(width: u16, height: u16, format: PixelFormat) -> Self {
-        let bpp = format.bytes_per_pixel();
-        let pitch = usize::from(width) * bpp + ROW_PADDING_BYTES;
-        let mut data = vec![0x5A_u8; pitch * usize::from(height)];
-        for y in 0..height {
-            for x in 0..width {
-                let r = ramp(x, width);
-                let g = if (x + y) % 2 == 0 { 0xFF } else { 0x40 };
-                let b = ramp(y, height);
-                let x_bits = (x + 2 * y) % 3 == 0;
-                let start = usize::from(y) * pitch + usize::from(x) * bpp;
-                let px = &mut data[start..start + bpp];
-                match format {
-                    PixelFormat::Xrgb8888 => {
-                        let x_byte = if x_bits { 0xA5 } else { 0 };
-                        let v = u32::from_be_bytes([x_byte, r, g, b]);
-                        px.copy_from_slice(&v.to_ne_bytes());
-                    }
-                    PixelFormat::Rgb565 => {
-                        let v = (u16::from(r >> 3) << 11)
-                            | (u16::from(g >> 2) << 5)
-                            | u16::from(b >> 3);
-                        px.copy_from_slice(&v.to_ne_bytes());
-                    }
-                    PixelFormat::Xrgb1555 => {
-                        let x_bit = if x_bits { 0x8000 } else { 0 };
-                        let v = x_bit
-                            | (u16::from(r >> 3) << 10)
-                            | (u16::from(g >> 3) << 5)
-                            | u16::from(b >> 3);
-                        px.copy_from_slice(&v.to_ne_bytes());
-                    }
-                }
-            }
-        }
-        Self {
-            data,
-            width,
-            height,
-            pitch,
-            format,
-        }
-    }
-
-    fn frame(&self) -> Frame<'_> {
-        Frame {
-            data: &self.data,
-            width: self.width,
-            height: self.height,
-            pitch: self.pitch,
-            format: self.format,
-        }
-    }
-}
-
-fn ramp(i: u16, len: u16) -> u8 {
-    (u32::from(i) * 255 / u32::from(len.max(2) - 1)) as u8
-}
-
-fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
-    Rect { x, y, w, h }
-}
-
-fn game_scene(game: &Source, crop: Rect, dest: Rect, filter: Filter) -> Scene<'_> {
-    Scene {
-        game: Some(game.frame()),
-        crop,
-        dest,
-        filter,
-        ui: None,
-        ui_dest: rect(0, 0, 0, 0),
-    }
-}
+#[path = "common/scenes.rs"]
+mod scenes;
 
 /// An RGB image, 3 bytes per pixel.
 #[derive(PartialEq, Eq)]
@@ -252,109 +164,79 @@ fn check(name: &str, image: &Rgb) {
 
 #[test]
 fn nearest_integer_scale() {
-    let game = Source::pattern(8, 6, PixelFormat::Xrgb8888);
-    let s = game_scene(&game, rect(0, 0, 8, 6), rect(4, 3, 24, 18), Filter::Nearest);
-    check("nearest_integer_scale", &render(&s, 32, 24));
+    golden("nearest_integer_scale");
 }
 
 #[test]
 fn nearest_fractional_scale() {
-    let game = Source::pattern(10, 7, PixelFormat::Xrgb8888);
-    let s = game_scene(
-        &game,
-        rect(0, 0, 10, 7),
-        rect(1, 2, 29, 19),
-        Filter::Nearest,
-    );
-    check("nearest_fractional_scale", &render(&s, 32, 24));
+    golden("nearest_fractional_scale");
 }
 
 #[test]
 fn sharp_bilinear_fractional_scale() {
-    let game = Source::pattern(10, 7, PixelFormat::Xrgb8888);
-    let s = game_scene(
-        &game,
-        rect(0, 0, 10, 7),
-        rect(1, 2, 29, 19),
-        Filter::SharpBilinear,
-    );
-    check("sharp_bilinear_fractional_scale", &render(&s, 32, 24));
+    golden("sharp_bilinear_fractional_scale");
 }
 
 #[test]
 fn sharp_bilinear_downscale() {
-    let game = Source::pattern(16, 12, PixelFormat::Xrgb8888);
-    let s = game_scene(
-        &game,
-        rect(0, 0, 16, 12),
-        rect(3, 2, 11, 9),
-        Filter::SharpBilinear,
-    );
-    check("sharp_bilinear_downscale", &render(&s, 16, 12));
+    golden("sharp_bilinear_downscale");
 }
 
 #[test]
 fn crop_outside_the_frame() {
-    let game = Source::pattern(8, 8, PixelFormat::Rgb565);
-    let s = game_scene(
-        &game,
-        rect(-2, -1, 12, 10),
-        rect(-5, 1, 40, 23),
-        Filter::SharpBilinear,
-    );
-    check("crop_outside_the_frame", &render(&s, 32, 24));
+    golden("crop_outside_the_frame");
 }
 
 #[test]
 fn rgb565_crop() {
-    let game = Source::pattern(8, 6, PixelFormat::Rgb565);
-    let s = game_scene(&game, rect(1, 1, 6, 4), rect(2, 2, 12, 8), Filter::Nearest);
-    check("rgb565_crop", &render(&s, 16, 12));
+    golden("rgb565_crop");
 }
 
 #[test]
 fn xrgb1555_crop() {
-    let game = Source::pattern(8, 6, PixelFormat::Xrgb1555);
-    let s = game_scene(&game, rect(1, 1, 6, 4), rect(2, 2, 12, 8), Filter::Nearest);
-    check("xrgb1555_crop", &render(&s, 16, 12));
+    golden("xrgb1555_crop");
 }
 
 #[test]
 fn ui_over_the_game() {
-    let game = Source::pattern(8, 6, PixelFormat::Xrgb8888);
-    let ui = Source::pattern(16, 12, PixelFormat::Xrgb1555);
-    let s = Scene {
-        ui: Some(ui.frame()),
-        ui_dest: ui_dest_uniform(40, 30, 16, 12),
-        ..game_scene(&game, rect(0, 0, 8, 6), rect(0, 0, 40, 30), Filter::Nearest)
-    };
-    check("ui_over_the_game", &render(&s, 40, 30));
+    golden("ui_over_the_game");
 }
 
-/// A CRT mode six times wider than the canvas, as 1920x240 is for 320x240.
 #[test]
 fn ui_fills_a_super_width_mode() {
-    let game = Source::pattern(8, 6, PixelFormat::Xrgb8888);
-    let ui = Source::pattern(16, 12, PixelFormat::Xrgb1555);
-    let s = Scene {
-        ui: Some(ui.frame()),
-        ui_dest: ui_dest_fill(96, 12),
-        ..game_scene(&game, rect(0, 0, 8, 6), rect(0, 0, 96, 12), Filter::Nearest)
-    };
-    check("ui_fills_a_super_width_mode", &render(&s, 96, 12));
+    golden("ui_fills_a_super_width_mode");
 }
 
-/// A canvas stretched by 6.25 and 1.5, partly outside the output.
 #[test]
 fn ui_fractional_scale_clipped() {
-    let game = Source::pattern(8, 6, PixelFormat::Xrgb8888);
-    let ui = Source::pattern(16, 12, PixelFormat::Xrgb8888);
-    let s = Scene {
-        ui: Some(ui.frame()),
-        ui_dest: rect(-10, 4, 100, 18),
-        ..game_scene(&game, rect(0, 0, 8, 6), rect(0, 0, 96, 24), Filter::Nearest)
-    };
-    check("ui_fractional_scale_clipped", &render(&s, 96, 24));
+    golden("ui_fractional_scale_clipped");
+}
+
+/// Renders the case `name` of the scene list and compares it with its
+/// golden.
+fn golden(name: &str) {
+    let case = scenes::golden_cases()
+        .into_iter()
+        .find(|c| c.name == name)
+        .expect("the scene list has the case");
+    check(name, &render(&case.scene(), case.width, case.height));
+}
+
+#[test]
+fn every_golden_file_has_a_case() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens");
+    let names: Vec<_> = scenes::golden_cases().iter().map(|c| c.name).collect();
+    for entry in fs::read_dir(&dir).expect("read the goldens directory") {
+        let file = entry.expect("a directory entry").file_name();
+        let file = file.to_string_lossy();
+        let Some(stem) = file.strip_suffix(".ppm") else {
+            continue;
+        };
+        assert!(
+            names.contains(&stem),
+            "{file} has no case in the scene list"
+        );
+    }
 }
 
 #[test]
