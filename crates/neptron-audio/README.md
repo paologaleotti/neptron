@@ -6,7 +6,7 @@ Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 
 ## Public API
 
-- `AudioPipeline<S: AudioSink>`: `new(sink, CoreTiming, Resampling)`, `set_run_rate_mhz`, `push_samples` (from the core's audio callbacks), `end_frame` (once per core frame), `mute`, `unmute`, `stats`, `sink`. It takes interleaved `i16` stereo at the core's rate and writes to any `AudioSink`.
+- `AudioPipeline<S: AudioSink>`: `new(sink, CoreTiming, run_rate_mhz, Resampling)`, `set_run_rate_mhz`, `push_samples` (from the core's audio callbacks), `end_frame` (once per core frame), `mute`, `unmute`, `stats`, `sink`. It takes interleaved `i16` stereo at the core's rate and writes to any `AudioSink`.
 - `CoreTiming { sample_rate_mhz, frame_rate_mhz }`: the core's AV timing, in millihertz.
 - `Resampling::{Sinc, Polynomial}`: the interpolation. `Sinc` is the default.
 - `RateControl`: the law alone, `factor(queued_frames)`.
@@ -16,7 +16,7 @@ Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 
 ## How the session uses it
 
-1. At launch, and when the core's AV info changes: `AudioPipeline::new` with the core's timing. This is the only allocation.
+1. At launch, and when the core's AV info changes: `AudioPipeline::new` with the core's timing and the run rate (the core's own frame rate when no better figure is known yet). This is the only allocation.
 2. Give the run rate (core frames per second of real time): on KMS, the field rate of the mode read back (half of it for double refresh); in the desktop window, `FlipRateMeter::rate_mhz` fed with every `FlipEvent::time_ns`.
 3. Each frame: the core's audio goes to `push_samples`; after `retro_run`, call `end_frame`.
 4. Before a modeset or a pause: `mute`. After the first flip in the new mode, or on resume: `unmute`.
@@ -31,7 +31,11 @@ Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 ## Tests
 
 - Unit tests: the law, the rates and their limits, conversions and fades, the pipeline on `FakeAudio` (priming, restart, mute, unmute, overrun, dropped input), the flip rate meter.
-- `tests/integration`: the audio part of timing check 6 on `FakeAudio` and `SimClock`, with no sleep. Ten-minute runs with the polynomial mode; the sinc runs last 30 simulated seconds, because the filter costs 21% of real time in the dev profile.
+- `tests/integration`: the audio part of timing check 6 on `FakeAudio` and `SimClock`, with no sleep. The polynomial runs last 120 simulated seconds, about 19 time constants of the law; the sinc runs last 30 s, because the filter costs 21% of real time in the dev profile. The full ten-minute run of check 6 is an ignored test:
+
+```sh
+cargo xtask test -p neptron-audio --run-ignored only -E 'test(ten_minutes)'
+```
 - `tests/sdl_smoke.rs`: a quiet 440 Hz tone through `Sdl3Sink` for one second. It needs a sound device, so it is ignored by default:
 
 ```sh
@@ -54,6 +58,7 @@ cargo xtask clippy -p neptron-audio --features sdl3
 - `unsafe` is allowed in this crate, in one module with a safe wrapper around it, but the crate uses none.
 - Features: `sdl3`. No feature is on by default.
 - `push_samples` and `end_frame` do not allocate, do no I/O and take no lock of their own.
+- With `Sdl3Sink`, `SDL_PutAudioStreamData` and `SDL_GetAudioStreamQueued` take SDL's stream lock, which the device thread holds while it converts one device buffer. The hold is short, but a priority inversion is possible, and SDL's queue can allocate when it grows. Both are SDL's code; check them on the target.
 
 ## Status
 
