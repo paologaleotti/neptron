@@ -282,3 +282,30 @@ Each open point is one section:
 - How to change: a tier 2 step that builds the hardware features on a host that has the libraries.
 - Decision:
 
+### OP-030: `vkms` gives vblank events at twice the field rate for an interlaced mode.
+
+- Raised by: T14, confirmed in review against the kernel source
+- Status: open, input for T23
+- Default: on `vkms`, interlaced modes are tested for the commit, the readback, the CRC and the writeback only. Field pacing is tested with the simulated clock and on hardware.
+- Where: `os/`, the `vkms` probe
+- How to change: none on kernel 6.18. It is how the kernel computes the frame duration for the vblank timer.
+- Decision:
+
+### OP-031: The UI needs data per option and names for its pages.
+
+- Raised by: T07 review
+- Status: open, part of T20
+- Default: a choice option is a text label only, so the display panel cannot show the line rate of a picture style or grey out a style the monitor cannot show. The page ids for the display panel and the quick menu are not named. No intent dismisses a notice.
+- Where: `crates/neptron-ui/src/snapshot.rs`, `intent.rs`
+- How to change: T20 adds an option type with a label, a detail text and an enabled flag, named page ids and a dismiss intent.
+- Decision:
+
+### OP-032: `present` or `set_mode` while a flip is pending.
+
+- Raised by: T03 review
+- Status: open, input for T23
+- Default: the fake display returns a device error, as a nonblocking atomic commit returns EBUSY. The engine must call `wait_flip` first.
+- Where: `crates/neptron-testkit/README.md`, section "What the real backend must match"
+- How to change: the KMS backend returns the same error, or the `Display` contract states the rule.
+- Decision:
+

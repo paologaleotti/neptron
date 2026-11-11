@@ -28,7 +28,7 @@ name = "Test fakes"
 owns = ["crates/neptron-testkit"]
 needs = ["T02", "T04"]
 gate = "A 1,000-frame fake session gives identical output twice"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T04"
@@ -64,7 +64,7 @@ name = "UI core"
 owns = ["crates/neptron-ui", "xtask/src/ui"]
 needs = ["T01"]
 gate = "First scene golden is bit-identical on both hosts"
-status = "in_review"
+status = "merged"
 
 [[task]]
 id = "T08"
@@ -145,7 +145,7 @@ name = "Libretro host (spec first)"
 owns = ["crates/neptron-libretro", "docs/spec/libretro-host.md"]
 needs = ["T03", "T09"]
 gate = "Test-core frame hashes"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T17"
@@ -154,7 +154,7 @@ name = "Audio (spec first)"
 owns = ["crates/neptron-audio", "docs/spec/pacing-audio.md"]
 needs = ["T03"]
 gate = "Audio part of timing check 6"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T18"
@@ -163,7 +163,7 @@ name = "Input"
 owns = ["crates/neptron-input"]
 needs = ["T03"]
 gate = "Scripted device tests; mapping fixtures"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T19"
@@ -181,7 +181,7 @@ name = "Screens"
 owns = ["crates/neptron-ui/src/screens", "data/skins/default"]
 needs = ["T07"]
 gate = "Scene goldens"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T21"
@@ -271,5 +271,5 @@ name = "Contract change: UI destination rectangle in Scene"
 owns = ["crates/neptron-types/src/scene.rs", "crates/neptron-gfx/src/reference", "callers in crates/neptron-testkit and crates/neptron-window", "docs/adr"]
 needs = ["T03", "T06", "T13"]
 gate = "T1; goldens updated and viewed; an ADR"
-status = "pending"
+status = "in_progress"
 

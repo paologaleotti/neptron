@@ -27,7 +27,7 @@ All builds and tests go through `xtask`. Do not call `cargo` directly for a buil
 | `cargo xtask worktree new <task>` | a task worktree with a cloned `target/` |
 | `cargo xtask worktree cache-check` | proves that a cloned `target/` compiles no dependency again |
 
-`verify` writes `target/verify/report.json` and prints a summary with the build time. Tier 2, tier 3, `qemu`, `shot`, `gallery` and `golden` come later. `xtask/README.md` describes every check.
+`verify` writes `target/verify/report.json` and prints a summary with the build time. Tier 2 and tier 3 come later. `cargo xtask help` lists the other commands (`font`, `shot`, `gallery`, `golden`, `bindgen`, `monitors`, `window-smoke`). `xtask/README.md` describes every check.
 
 On macOS, xtask runs every command under `taskpolicy -c utility` and holds one of 2 build slots with `CARGO_BUILD_JOBS=5`. `NEPTRON_BUILD_SLOTS` and `NEPTRON_BUILD_JOBS` change this.
 
