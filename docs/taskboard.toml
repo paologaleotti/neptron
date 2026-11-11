@@ -263,3 +263,13 @@ owns = ["apps/neptronctl/src/selftest", "docs/hardware-checklist.md"]
 needs = ["T23", "T27"]
 gate = "Self-test passes on `vkms`"
 status = "pending"
+
+[[task]]
+id = "C01"
+wave = 2
+name = "Contract change: UI destination rectangle in Scene"
+owns = ["crates/neptron-types/src/scene.rs", "crates/neptron-gfx/src/reference", "callers in crates/neptron-testkit and crates/neptron-window", "docs/adr"]
+needs = ["T03", "T06", "T13"]
+gate = "T1; goldens updated and viewed; an ADR"
+status = "pending"
+

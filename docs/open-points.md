@@ -114,11 +114,11 @@ Each open point is one section:
 ### OP-011: How is the UI placed on a super-width mode?
 
 - Raised by: T06
-- Status: open, to decide before T19 and T25
+- Status: decided
 - Default: one uniform integer scale, centred. On a 1920x240 mode the 320-pixel menu fills one sixth of the width.
 - Where: `crates/neptron-gfx/src/reference/overlay.rs`, `placement`
 - How to change: a contract change. `Scene` carries a UI destination rectangle or a scale per axis, which the video side chooses.
-- Decision:
+- Decision: `Scene` carries a destination rectangle for the UI canvas, `ui_dest`. The video side sets it: the full active area on a CRT, a centred box with one scale for both axes on a flat panel. The renderer draws the canvas into it with nearest scaling, each axis on its own. Done as contract change C01, before T19 and T25.
 
 ### OP-012: What the OpenGL ES renderer must do to match the reference renderer.
 
