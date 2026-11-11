@@ -82,7 +82,7 @@ name = "Libretro bindings and test core"
 owns = ["crates/neptron-libretro-sys", "crates/neptron-testcore"]
 needs = ["T01"]
 gate = "Test core builds as a dynamic library; layout tests"
-status = "in_review"
+status = "merged"
 
 [[task]]
 id = "T10"
@@ -109,7 +109,7 @@ name = "Control protocol and `neptronctl` client"
 owns = ["crates/neptron-ipc", "apps/neptronctl"]
 needs = ["T02"]
 gate = "Round-trip tests"
-status = "in_progress"
+status = "in_review"
 
 [[task]]
 id = "T13"

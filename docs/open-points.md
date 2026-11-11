@@ -192,3 +192,21 @@ Each open point is one section:
 - How to change: rails per monitor type.
 - Decision:
 
+### OP-020: The libretro bindings and the test core are checked on macOS only.
+
+- Raised by: T09
+- Status: open, the first CI run decides
+- Default: the bindings are generated for LP64 targets and give the same output for x86_64 Linux, aarch64 Linux and aarch64 macOS. Nobody has built or loaded the Linux `.so`.
+- Where: `crates/neptron-libretro-sys`, `crates/neptron-testcore`
+- How to change: repair after the first Linux run. A 32-bit target needs a second generated file.
+- Decision:
+
+### OP-021: The test core has no save states.
+
+- Raised by: T09
+- Status: open
+- Default: `retro_serialize_size` returns 0. No MVP task needs save states.
+- Where: `crates/neptron-testcore/src/ffi.rs`
+- How to change: add them to the core model when the save-state work starts.
+- Decision:
+
