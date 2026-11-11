@@ -11,7 +11,7 @@ The values come from the preset table of Switchres (function `monitor_set_preset
 - Files: `monitor.cpp` (the preset table) and `switchres.ini` (the documentation of the `crt_range` format)
 - Source URL of the table: https://github.com/antonioginer/switchres/blob/09272ac24640daee45f5be15b1b856ecd220dda2/monitor.cpp
 
-Switchres is licensed GPL-2.0-or-later. Its copyright holders are Chris Kennedy, Antonio Giner, Alexandre Wodarczyk and Gil Delescluse. Each file keeps the original `crt_range` lines in a comment. Whether data derived from this table can stay in the `MIT OR Apache-2.0` tree is an open licence question.
+Switchres is licensed GPL-2.0-or-later. Its copyright holders are Chris Kennedy, Antonio Giner, Alexandre Wodarczyk and Gil Delescluse. Each file keeps the original `crt_range` lines in a comment. The files in this directory are derived from that table, so this directory is licensed GPL-2.0-or-later, and not `MIT OR Apache-2.0` as the rest of the source. `LICENSE` in this directory holds the text.
 
 ## Units
 

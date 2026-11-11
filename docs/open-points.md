@@ -78,11 +78,11 @@ Each open point is one section:
 ### OP-007: Can preset data derived from Switchres stay in the permissively licensed tree?
 
 - Raised by: T02
-- Status: open, needs the project owner
+- Status: decided
 - Default: the 25 files in `data/monitors` stay, and `data/monitors/README.md` states the origin (Switchres, GPL-2.0-or-later, commit 09272ac).
 - Where: `data/monitors`
 - How to change: move the presets to a directory with its own GPL licence file, or write the values again from the monitor specifications.
-- Decision:
+- Decision: the presets stay in `data/monitors`, and that directory is licensed GPL-2.0-or-later with its own `LICENSE` file. The same holds for `vendor/switchres`.
 
 ### OP-008: The four `vesa_*` presets of Switchres are not converted.
 

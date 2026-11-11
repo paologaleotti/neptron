@@ -30,4 +30,4 @@ Start at [docs/README.md](docs/README.md).
 
 ## Licence
 
-NEPTRON source is licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. The `neptron` binary and the OS images link Switchres (GPL-2.0-or-later), so they are distributed under GPL-3.0-or-later.
+NEPTRON source is licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Two directories are the exception: `data/monitors` (presets derived from Switchres) and `vendor/switchres` are licensed GPL-2.0-or-later, and each holds its licence text. The `neptron` binary and the OS images link Switchres, so they are distributed under GPL-3.0-or-later.
