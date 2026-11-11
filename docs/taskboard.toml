@@ -127,7 +127,7 @@ name = "OS base and QEMU"
 owns = ["os/", "Dockerfile", "xtask/src/os"]
 needs = ["T01"]
 gate = "Image boots in QEMU; `vkms` findings in the task report"
-status = "in_review"
+status = "merged"
 
 [[task]]
 id = "T15"
@@ -172,7 +172,7 @@ name = "OpenGL ES renderer"
 owns = ["crates/neptron-gfx/src/gles"]
 needs = ["T06", "T14"]
 gate = "T3: matches the reference renderer under Mesa software GL"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T20"

@@ -327,3 +327,29 @@ Each open point is one section:
 - How to change: a capability field in `GpuCaps` (a contract change).
 - Decision:
 
+### OP-035: A guest command can read the run nonce and forge the end marker.
+
+- Raised by: T14
+- Status: open, accepted for the MVP
+- Default: the nonce stops marker text that a command prints by accident. It does not stop a command that reads the nonce from `fw_cfg` as root. The markers give honest test results; they are not a security boundary.
+- Where: `xtask/src/os/transcript.rs`, `os/README.md`
+- How to change: send the exit status through a channel that the guest command cannot write, for example a second serial port that only the init script opens.
+- Decision:
+
+### OP-036: `neptron-vkms-probe` divides by zero for a mode with a zero clock or a zero total.
+
+- Raised by: T14 (review)
+- Status: open
+- Default: the probe is a test tool and its callers give it correct modes.
+- Where: `os/` package `neptron-vkms-probe`, `parse_mode`
+- How to change: refuse such a mode in `parse_mode`. Count a refused test-only commit as a failure.
+- Decision:
+
+### OP-037: The x86_64 image was never built or booted.
+
+- Raised by: T14
+- Status: open, the first x86_64 build decides
+- Default: all tier 3 work of the MVP runs on the aarch64 QEMU image. The x86_64 target has a configuration and no result. The Debian packages of the development container are not pinned. CI does not fetch a base image, and the `--hot` overlay does not exist.
+- Where: `os/README.md`, section "Not verified"
+- How to change: build and boot the x86_64 image in T28 (the image for the real PC), and repair what fails.
+- Decision:
