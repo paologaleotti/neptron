@@ -2,15 +2,18 @@
 //! geometry, profile and GPU capabilities to a list of candidate modelines.
 //! No I/O.
 //!
-//! Switchres calculates the modelines. This crate converts the integer
-//! contract types into its units and back, in one module, and ranks nothing
-//! itself: the order of the list is the order of Switchres.
+//! Switchres calculates the modelines. The solver functions convert the
+//! integer contract types into its units and back, in one module, and rank
+//! nothing: the order of their list is the order of Switchres. The
+//! [`policy`] module is ODREN's own decision on top: which rung, which
+//! refresh, which width, and where the game sits in the mode.
 
 #![forbid(unsafe_code)]
 
 mod candidate;
 mod convert;
 mod error;
+pub mod policy;
 mod settings;
 
 pub use candidate::Candidate;
