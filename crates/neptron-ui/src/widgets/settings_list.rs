@@ -22,6 +22,9 @@ pub enum SettingsEvent {
     Back,
     /// The player asked for a change; the app carries it out.
     Intent(Intent),
+    /// The player accepted the choice row at this index, in a list made
+    /// with [`SettingsList::with_pickers`]: the screen opens the options.
+    Pick(usize),
 }
 
 /// A list of settings rows: label, value and the level the value comes from.
@@ -29,9 +32,14 @@ pub enum SettingsEvent {
 /// Up and down move. Left and right step the value. Accept toggles a switch,
 /// moves a choice to the next option, or runs an action. Menu resets the
 /// value at the edit level, so the row inherits again.
+///
+/// A list made with [`SettingsList::with_pickers`] never changes a choice
+/// in place: accept on a choice row gives [`SettingsEvent::Pick`], so the
+/// screen can show every option with its detail before one applies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SettingsList {
     list: List,
+    pickers: bool,
 }
 
 /// The short name of a level, as the source column shows it.
@@ -52,7 +60,15 @@ impl SettingsList {
     pub fn new(rect: Rect, row_height_px: u32) -> Self {
         Self {
             list: List::new(rect, row_height_px),
+            pickers: false,
         }
+    }
+
+    /// The same list, in which accept on a choice row gives
+    /// [`SettingsEvent::Pick`] and left and right do not change it.
+    pub fn with_pickers(mut self) -> Self {
+        self.pickers = true;
+        self
     }
 
     /// The focused row.
@@ -82,6 +98,13 @@ impl SettingsList {
         let Some(item) = items.get(self.list.cursor()) else {
             return SettingsEvent::None;
         };
+        if self.picks(item) {
+            match action {
+                UiAction::Accept => return SettingsEvent::Pick(self.list.cursor()),
+                UiAction::Left | UiAction::Right => return SettingsEvent::None,
+                _ => {}
+            }
+        }
         intent_for(action, item, level).map_or(SettingsEvent::None, SettingsEvent::Intent)
     }
 
@@ -93,15 +116,34 @@ impl SettingsList {
         let rows = self.list.visible_rows();
         for (slot, (index, item)) in items.iter().enumerate().skip(top).take(rows).enumerate() {
             let row = self.list.row_rect(slot, scrolls);
-            draw_row(frame, theme, row, item, index == cursor);
+            let focused = index == cursor;
+            draw_row(
+                frame,
+                theme,
+                row,
+                item,
+                focused,
+                focused && !self.picks(item),
+            );
         }
         if scrolls {
             self.list.draw_scrollbar(frame, theme, len, top);
         }
     }
+
+    fn picks(&self, item: &MenuItem) -> bool {
+        self.pickers && matches!(item.value, SettingValue::Choice { .. })
+    }
 }
 
-fn draw_row(frame: &mut UiFrame, theme: &Theme, row: Rect, item: &MenuItem, focused: bool) {
+fn draw_row(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    row: Rect,
+    item: &MenuItem,
+    focused: bool,
+    arrows: bool,
+) {
     let (color, dim) = if focused {
         frame.scene.rect(row, theme.colors.focus);
         (theme.colors.focus_text, theme.colors.focus_text)
@@ -146,7 +188,7 @@ fn draw_row(frame: &mut UiFrame, theme: &Theme, row: Rect, item: &MenuItem, focu
     let mut buf = StackText::<32>::new();
     let value = text::value_text(&item.value, &mut buf);
     let value_clipped = text::draw_in(&mut frame.scene, value_box, Align::Center, color, value);
-    if focused {
+    if arrows {
         let left = Rect::new(value_x, row.y, advance, row.h);
         let right = Rect::new(add(value_x, advance + value_w), row.y, advance, row.h);
         text::draw_in(&mut frame.scene, left, Align::Left, color, "<");
@@ -441,6 +483,51 @@ mod tests {
             l.handle(UiAction::Accept, &items, Level::Game),
             SettingsEvent::None
         );
+    }
+
+    #[test]
+    fn with_pickers_a_choice_opens_its_options_and_never_steps() {
+        let mut l = SettingsList::new(Rect::new(16, 12, 288, 48), 12).with_pickers();
+        let items = items();
+        at(&mut l, 2);
+        assert_eq!(
+            l.handle(UiAction::Accept, &items, Level::Game),
+            SettingsEvent::Pick(2)
+        );
+        for action in [UiAction::Left, UiAction::Right] {
+            assert_eq!(l.handle(action, &items, Level::Game), SettingsEvent::None);
+        }
+        assert_eq!(
+            l.handle(UiAction::Menu, &items, Level::System),
+            SettingsEvent::Intent(Intent::ResetValue {
+                key: SettingKey(3),
+                level: Level::System
+            })
+        );
+        at(&mut l, 0);
+        assert_eq!(
+            l.handle(UiAction::Accept, &items, Level::Game),
+            set(1, Value::Toggle(true))
+        );
+        let texts = |list: &SettingsList| {
+            let mut frame = UiFrame::new();
+            list.draw(&mut frame, &Theme::default(), &items);
+            frame
+                .scene
+                .commands()
+                .iter()
+                .filter_map(|c| match *c {
+                    crate::DrawCommand::Text { span, .. } => {
+                        Some(frame.scene.text(span).to_owned())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        at(&mut l, 2);
+        assert!(!texts(&l).iter().any(|t| t == "<" || t == ">"));
+        at(&mut l, 1);
+        assert!(texts(&l).iter().any(|t| t == "<"));
     }
 
     #[test]
