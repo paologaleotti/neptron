@@ -372,7 +372,7 @@ impl Ctx<'_> {
             ));
         }
         if let Some(f) = &result.flips {
-            result.cadence = Some(timing::cadence(f.rate_mhz, m.field_rate_mhz()));
+            result.cadence = Some(timing::cadence(f.event_rate_mhz, m.field_rate_mhz()));
         }
         result.errors.extend(errors.into_lines());
         stop

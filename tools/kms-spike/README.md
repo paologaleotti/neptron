@@ -137,7 +137,7 @@ The tool flips between the two buffers once per vblank to measure the page-flip 
 
 ## The report
 
-The report is one JSON file, written through a temporary file and a rename. `report_version` is 1. The format is append-only: a new field gets a new version, and no field is renamed or removed. The summary on the terminal shows the same data in short form.
+The report is one JSON file, written through a temporary file and a rename. `report_version` is 2. Version 2 adds `event_rate_mhz` to the timing statistics; in version 1, `rate_mhz` counted the samples and came out too low when the loop missed vblanks. The format is append-only: a new field gets a new version, and no field is renamed or removed. The summary on the terminal shows the same data in short form.
 
 | Field | Meaning |
 | --- | --- |
@@ -152,10 +152,10 @@ The report is one JSON file, written through a temporary file and a rename. `rep
 | `modes[].beyond_conservative` | Why the mode is outside the values of an unknown GPU. |
 | `modes[].kms.test_commit`, `.commit` | `ok`, and the kernel error text when it failed. |
 | `modes[].kms.readback` | The mode the kernel stores for the CRTC, `equals_request`, the fields that differ, and the second validation. |
-| `modes[].kms.vblank` | Vblank timing: count, `rate_mhz` (the measured field rate), mean, shortest and longest interval, `jitter_ns` (largest distance from the mean), `skipped_vblanks`. |
-| `modes[].kms.flips` | The same for the page-flip events. |
+| `modes[].kms.vblank` | Vblank timing: `count` of samples; `rate_mhz`, the measured field rate (the vblanks the kernel counted over the time span, so a sample that the loop misses does not lower it); `mean_interval_ns`, the mean time per vblank; the shortest and longest time between two samples; `jitter_ns`, the largest distance from the mean of one interval divided by the vblanks it spans; `skipped_vblanks`, vblanks with no sample; `event_rate_mhz`, the rate of the samples themselves. |
+| `modes[].kms.flips` | The same for the page-flip events. Here `event_rate_mhz` is the flip rate. |
 | `modes[].kms.flips_queued`, `.flips_completed` | Flips asked for and flip events received. The difference is the missed flips. |
-| `modes[].kms.flip_cadence` | `per_field`, `per_frame` or `other`: the flip rate against the field rate, within 2 %. In an interlaced mode this says whether flips come once per field or once per frame. |
+| `modes[].kms.flip_cadence` | `per_field`, `per_frame` or `other`: the flip rate (`flips.event_rate_mhz`) against the field rate, within 2 %. In an interlaced mode this says whether flips come once per field or once per frame. |
 | `modes[].kms.implied_pclock_hz` | The pixel clock that the measured vblank rate implies. The kernel's readback gives the requested clock, not the clock the hardware makes, so compare this value with `requested.pclock_hz` to see the rounding of the driver. |
 | `modes[].kms.kernel_errors` | Kernel errors during the display time, each once with a count. |
 | `restore` | `ok`, and what was restored or what failed. |

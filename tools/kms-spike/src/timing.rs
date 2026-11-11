@@ -15,19 +15,26 @@ pub struct Sample {
 pub struct Stats {
     /// How many samples.
     pub count: usize,
-    /// Mean time between two samples, in nanoseconds.
+    /// Mean time between two vblanks, in nanoseconds: the time span over
+    /// the vblanks the kernel counted in it.
     pub mean_interval_ns: u64,
     /// Shortest time between two samples, in nanoseconds.
     pub min_interval_ns: u64,
     /// Longest time between two samples, in nanoseconds.
     pub max_interval_ns: u64,
-    /// Largest distance of one interval from the mean, in nanoseconds.
+    /// Largest distance from the mean of one interval divided by the
+    /// vblanks it spans, in nanoseconds.
     pub jitter_ns: u64,
-    /// The event rate, in millihertz.
+    /// The vblank rate, in millihertz: the vblanks the kernel counted over
+    /// the time span. A sample that the loop misses does not lower it.
     pub rate_mhz: u64,
     /// Vblanks the kernel counted between two samples beyond the first: a
     /// flip that took two vblanks adds one.
     pub skipped_vblanks: u64,
+    /// The rate of the samples themselves, in millihertz. For page flips
+    /// it is the flip rate, which tells one flip per field from one per
+    /// frame.
+    pub event_rate_mhz: u64,
 }
 
 /// How often page flips complete in an interlaced mode.
@@ -41,15 +48,19 @@ pub enum Cadence {
     Other,
 }
 
-/// The statistics of `samples`, in time order. `None` with fewer than two
-/// samples or no time between the first and the last.
+/// The statistics of `samples`, in time order. `None` ("not measured")
+/// with fewer than two samples, or with no time or no vblank between the
+/// first and the last.
 pub fn stats(samples: &[Sample]) -> Option<Stats> {
     let first = samples.first()?;
     let last = samples.last()?;
     let intervals = samples.len().checked_sub(1).filter(|&n| n > 0)?;
     let span_ns = last.time_ns.checked_sub(first.time_ns).filter(|&t| t > 0)?;
-    let n = u64::try_from(intervals).ok()?;
-    let mean = span_ns / n;
+    let vblanks = u64::from(last.sequence.wrapping_sub(first.sequence));
+    if vblanks == 0 {
+        return None;
+    }
+    let mean = span_ns / vblanks;
     let mut min = u64::MAX;
     let mut max = 0;
     let mut jitter = 0;
@@ -58,19 +69,21 @@ pub fn stats(samples: &[Sample]) -> Option<Stats> {
         let interval = pair[1].time_ns.saturating_sub(pair[0].time_ns);
         min = min.min(interval);
         max = max.max(interval);
-        jitter = jitter.max(interval.abs_diff(mean));
         let steps = pair[1].sequence.wrapping_sub(pair[0].sequence);
+        if steps > 0 {
+            jitter = jitter.max((interval / u64::from(steps)).abs_diff(mean));
+        }
         skipped += u64::from(steps.saturating_sub(1));
     }
-    let rate = u128::from(n) * NS_PER_S_MHZ / u128::from(span_ns);
     Some(Stats {
         count: samples.len(),
         mean_interval_ns: mean,
         min_interval_ns: min,
         max_interval_ns: max,
         jitter_ns: jitter,
-        rate_mhz: u64::try_from(rate).unwrap_or(u64::MAX),
+        rate_mhz: per_second_mhz(vblanks, span_ns),
         skipped_vblanks: skipped,
+        event_rate_mhz: per_second_mhz(u64::try_from(intervals).ok()?, span_ns),
     })
 }
 
@@ -93,6 +106,13 @@ pub fn cadence(flip_rate_mhz: u64, field_rate_mhz: u64) -> Cadence {
 pub fn implied_pclock_hz(field_rate_mhz: u64, htotal: u16, vtotal: u16, interlace: bool) -> u64 {
     let fields_per_frame = if interlace { 2 } else { 1 };
     u64::from(htotal) * u64::from(vtotal) * field_rate_mhz / (1_000 * fields_per_frame)
+}
+
+/// `count` events over `span_ns`, in millihertz, rounded to the nearest.
+fn per_second_mhz(count: u64, span_ns: u64) -> u64 {
+    let span = u128::from(span_ns);
+    let rate = (u128::from(count) * NS_PER_S_MHZ + span / 2) / span;
+    u64::try_from(rate).unwrap_or(u64::MAX)
 }
 
 impl Cadence {
@@ -134,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn a_late_sample_shows_as_jitter_and_a_skipped_vblank() {
+    fn a_missed_sample_is_a_skipped_vblank_and_keeps_the_rate() {
         let mut samples = even(5, 10_000_000);
         for s in &mut samples[3..] {
             s.time_ns += 10_000_000;
@@ -143,9 +163,11 @@ mod tests {
         let s = stats(&samples).unwrap();
         assert_eq!(s.min_interval_ns, 10_000_000);
         assert_eq!(s.max_interval_ns, 20_000_000);
-        assert_eq!(s.mean_interval_ns, 12_500_000);
-        assert_eq!(s.jitter_ns, 7_500_000);
+        assert_eq!(s.mean_interval_ns, 10_000_000);
+        assert_eq!(s.jitter_ns, 0);
         assert_eq!(s.skipped_vblanks, 1);
+        assert_eq!(s.rate_mhz, 100_000);
+        assert_eq!(s.event_rate_mhz, 80_000);
     }
 
     #[test]
@@ -161,6 +183,71 @@ mod tests {
             },
         ];
         assert_eq!(stats(&samples).unwrap().skipped_vblanks, 0);
+    }
+
+    #[test]
+    fn a_late_vblank_shows_as_jitter() {
+        let times = [0, 10_000_000, 21_000_000, 30_000_000];
+        let samples: Vec<Sample> = (0_u32..)
+            .zip(times)
+            .map(|(i, time_ns)| Sample {
+                time_ns,
+                sequence: i,
+            })
+            .collect();
+        let s = stats(&samples).unwrap();
+        assert_eq!(s.mean_interval_ns, 10_000_000);
+        assert_eq!(s.jitter_ns, 1_000_000);
+        assert_eq!(s.rate_mhz, s.event_rate_mhz);
+    }
+
+    #[test]
+    fn a_gap_in_the_sequence_keeps_the_vblank_rate() {
+        // One sample every second vblank of a 120 Hz mode.
+        let samples: Vec<Sample> = (0..121_u32)
+            .map(|i| Sample {
+                time_ns: 5_000 + u64::from(i) * 16_666_667,
+                sequence: 1_000 + 2 * i,
+            })
+            .collect();
+        let s = stats(&samples).unwrap();
+        assert_eq!(s.rate_mhz, 120_000);
+        assert_eq!(s.event_rate_mhz, 60_000);
+        assert_eq!(s.mean_interval_ns, 8_333_333);
+        assert_eq!(s.skipped_vblanks, 120);
+        assert!(s.jitter_ns <= 1, "{s:?}");
+    }
+
+    #[test]
+    fn the_rate_counts_vblanks_across_a_sequence_wrap() {
+        let samples = [
+            Sample {
+                time_ns: 0,
+                sequence: u32::MAX - 1,
+            },
+            Sample {
+                time_ns: 30_000_000,
+                sequence: 1,
+            },
+        ];
+        let s = stats(&samples).unwrap();
+        assert_eq!(s.rate_mhz, 100_000);
+        assert_eq!(s.skipped_vblanks, 2);
+    }
+
+    #[test]
+    fn no_vblank_between_the_samples_is_not_measured() {
+        let samples = [
+            Sample {
+                time_ns: 0,
+                sequence: 7,
+            },
+            Sample {
+                time_ns: 10,
+                sequence: 7,
+            },
+        ];
+        assert_eq!(stats(&samples), None);
     }
 
     #[test]

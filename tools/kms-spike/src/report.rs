@@ -13,8 +13,9 @@ use crate::json::Json;
 use crate::plan::{Planned, Verdict, milli_text, modeline_text};
 use crate::timing::{Cadence, Stats};
 
-/// The version of the report format.
-pub const REPORT_VERSION: u32 = 1;
+/// The version of the report format. Version 2 adds `event_rate_mhz` to
+/// the timing statistics, and `rate_mhz` counts the vblanks of the kernel.
+pub const REPORT_VERSION: u32 = 2;
 
 /// Everything one run found out.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -488,6 +489,7 @@ fn stats_json(s: &Stats) -> Json {
         .with("max_interval_ns", s.max_interval_ns)
         .with("jitter_ns", s.jitter_ns)
         .with("skipped_vblanks", s.skipped_vblanks)
+        .with("event_rate_mhz", s.event_rate_mhz)
 }
 
 fn unit_result_json(r: &Result<(), String>) -> Json {
@@ -524,7 +526,7 @@ mod tests {
     #[test]
     fn a_dry_run_report_has_the_plan_and_no_kernel_results() {
         let text = dry().to_json().pretty();
-        assert!(text.starts_with("{\n  \"report_version\": 1,\n  \"tool\": \"kms-spike\""));
+        assert!(text.starts_with("{\n  \"report_version\": 2,\n  \"tool\": \"kms-spike\""));
         assert!(text.contains("\"dry_run\": true"));
         assert!(text.contains("\"name\": \"480i\""));
         assert!(text.contains("\"passed\": false"));
@@ -552,6 +554,16 @@ mod tests {
                 rejection: None,
             }),
             shown_ms: 10_000,
+            vblank: crate::timing::stats(&[
+                crate::timing::Sample {
+                    time_ns: 0,
+                    sequence: 0,
+                },
+                crate::timing::Sample {
+                    time_ns: 33_333_334,
+                    sequence: 2,
+                },
+            ]),
             flips_queued: 600,
             flips_completed: 599,
             cadence: Some(Cadence::PerField),
@@ -561,9 +573,11 @@ mod tests {
         let text = r.to_json().pretty();
         assert!(text.contains("\"equals_request\": true"), "{text}");
         assert!(text.contains("\"flip_cadence\": \"per_field\""), "{text}");
+        assert!(text.contains("\"rate_mhz\": 60000"), "{text}");
+        assert!(text.contains("\"event_rate_mhz\": 30000"), "{text}");
         let s = r.summary();
         assert!(
-            s.contains("480p: shown for 10000 ms, flips 599/600 (per_field)"),
+            s.contains("480p: shown for 10000 ms, vblank 60.000 Hz (jitter 0 us), flips 599/600 (per_field)"),
             "{s}"
         );
         assert!(s.contains("readback equals the request"), "{s}");
