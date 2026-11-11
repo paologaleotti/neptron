@@ -324,13 +324,13 @@ fn rows() -> Vec<Row> {
             )
         },
         // The fitted rung keeps the game's rate when the profile allows it.
-        // 510 lines at 60.606 Hz on pc_31_120: the range holds floor(31.6
+        // 512 lines at 60.606 Hz on pc_31_120: the range holds floor(31.6
         // kHz / 60.606 Hz) = 521 lines less ceil(571 us x 31.6 kHz) = 19 of
-        // blanking, 502. No exact rung holds 510 lines, and Switchres alone
-        // keeps 510 lines at 59.848 Hz. Asked again for 502 lines, it
-        // reaches 60.606 Hz.
+        // blanking, 502. No exact rung holds 512 lines, and a crop needs 5
+        // lines per edge, above the bound of 4. Asked for 502 lines,
+        // Switchres reaches 60.606 Hz.
         Row {
-            source: source(256, 510, 60_606),
+            source: source(256, 512, 60_606),
             rung: Rung::Fitted,
             mode: "256x502p",
             rate_mhz: 60_606,
@@ -522,6 +522,57 @@ fn rows() -> Vec<Row> {
             ..row(
                 "border_any_height_wonderswan",
                 preset("generic_15"),
+                open_caps(),
+            )
+        },
+        // Overscan crop: NES on arcade_31 at 60.099 Hz. The range holds
+        // floor(31,500 / 60.099) = 524 less ceil(1.43 ms x 31.5 kHz) = 46:
+        // 478 lines, and 2x needs 480. One source line per edge leaves 238
+        // lines, 476 at 2x: pixel exact, 1 line of 240 hidden at the top
+        // and 1 at the bottom, as a CRT's overscan hides them.
+        Row {
+            source: source(256, 240, 60_099),
+            rung: Rung::Multiple(2),
+            mode: "256x476p",
+            ..row("crop_nes_2x_on_arcade_31", preset("arcade_31"), open_caps())
+        },
+        // Donkey Kong, turned (256 lines) on pc_31_120 at 60.606 Hz: 2x
+        // needs 512 lines, the range holds 502. 256 - 2c lines at 2x fit
+        // 502 from c = 2.5, so 3 lines per edge: 250 lines, 500 at 2x.
+        Row {
+            source: SourceGeometry {
+                rotation: Rotation::R90,
+                ..source(256, 224, 60_606)
+            },
+            rung: Rung::Multiple(2),
+            mode: "224x500p",
+            rate_mhz: 60_606,
+            ..row(
+                "crop_donkey_kong_2x_on_31khz",
+                preset("pc_31_120"),
+                open_caps(),
+            )
+        },
+        // The crop applies to the native rung too: 510 lines at 60.606 Hz
+        // on pc_31_120 miss the 502 the range holds by 8, so 4 lines per
+        // edge, the bound, leave 502.
+        Row {
+            source: source(256, 510, 60_606),
+            mode: "256x502p",
+            rate_mhz: 60_606,
+            ..row("crop_native_at_the_bound", preset("pc_31_120"), open_caps())
+        },
+        // Just outside the bound: 260 lines at 60.606 Hz on pc_31_120. 2x
+        // needs 520, the range holds 502: 251 source lines, 9 too many, 5
+        // per edge. Native is 260 lines centred in the 501 lines that the
+        // range forces. Width: 256 x 501 x 4 / (3 x 260 x 1.333) = 493.4.
+        Row {
+            source: source(256, 260, 60_606),
+            mode: "493x501p",
+            rate_mhz: 60_606,
+            ..row(
+                "crop_just_outside_the_bound",
+                preset("pc_31_120"),
                 open_caps(),
             )
         },
@@ -1088,6 +1139,105 @@ fn native_with_exact_x2_has_one_double_refresh_target() {
         .map(|c| c.target.kind)
         .collect();
     assert_eq!(kinds, [RefreshKind::Double, RefreshKind::Exact]);
+}
+
+#[test]
+fn an_overscan_crop_keeps_the_picture_exact_and_says_so() {
+    let r = rows()
+        .into_iter()
+        .find(|r| r.rule == "crop_nes_2x_on_arcade_31")
+        .unwrap();
+    let plan = plan_of(&r);
+    let (considered, proposal) = winner(&plan, &r.profile, &r.caps);
+    let crop = proposal.overscan_crop.expect("the 2x mode is cropped");
+    assert_eq!(
+        (crop.lines_per_edge, crop.asked_lines, crop.capacity_lines),
+        (1, 480, 478)
+    );
+    let place = &proposal.placement;
+    assert_eq!(
+        place.crop,
+        Rect {
+            x: 0,
+            y: 1,
+            w: 256,
+            h: 238
+        }
+    );
+    assert_eq!(
+        place.dest,
+        Rect {
+            x: 0,
+            y: 0,
+            w: 256,
+            h: 476
+        }
+    );
+    assert_eq!(place.filter, Filter::Nearest);
+    assert_eq!((place.scale.x, place.scale.y), (Some(1), Some(2)));
+    // 476 of the 478 lines that the range forces: not padded.
+    assert_eq!(proposal.padding, None);
+    let n = notice(&plan, considered).unwrap();
+    assert_eq!(n.cropped_lines, 2);
+    assert!(!n.fitted && !n.style_fallback);
+    // The uncropped 2x is kept before it, with the reason.
+    let index = plan
+        .considered
+        .iter()
+        .position(|c| std::ptr::eq(c, considered))
+        .unwrap();
+    assert!(
+        plan.considered[..index]
+            .iter()
+            .any(|c| c.rung == Rung::Multiple(2) && c.outcome.is_err()),
+        "no dropped 2x before the cropped one"
+    );
+}
+
+#[test]
+fn a_turned_game_is_cropped_on_the_columns_of_its_frame() {
+    let r = rows()
+        .into_iter()
+        .find(|r| r.rule == "crop_donkey_kong_2x_on_31khz")
+        .unwrap();
+    let plan = plan_of(&r);
+    let (_, proposal) = winner(&plan, &r.profile, &r.caps);
+    assert_eq!(proposal.overscan_crop.unwrap().lines_per_edge, 3);
+    assert_eq!(
+        proposal.placement.crop,
+        Rect {
+            x: 3,
+            y: 0,
+            w: 250,
+            h: 224
+        }
+    );
+}
+
+#[test]
+fn a_multiple_that_fits_is_not_cropped() {
+    for rule in ["step3_auto_on_31khz_is_2x", "crop_just_outside_the_bound"] {
+        let r = rows().into_iter().find(|r| r.rule == rule).unwrap();
+        let plan = plan_of(&r);
+        let (considered, proposal) = winner(&plan, &r.profile, &r.caps);
+        assert_eq!(proposal.overscan_crop, None, "{rule}");
+        let (fw, fh) = (u32::from(r.source.width), u32::from(r.source.height));
+        assert_eq!(
+            proposal.placement.crop,
+            Rect {
+                x: 0,
+                y: 0,
+                w: fw,
+                h: fh
+            },
+            "{rule}"
+        );
+        assert_eq!(
+            notice(&plan, considered).map_or(0, |n| n.cropped_lines),
+            0,
+            "{rule}"
+        );
+    }
 }
 
 #[test]

@@ -10,7 +10,8 @@ pub const UI_CANVAS: (u16, u16) = (320, 240);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Placement {
     /// The part of the game frame to show, in pixels of the frame as the
-    /// core draws it: the whole frame.
+    /// core draws it: the whole frame, less the lines of an overscan crop
+    /// at both edges.
     pub crop: Rect,
     /// Where the game goes, in pixels of the mode. It lies inside the
     /// active area.
@@ -26,7 +27,7 @@ pub struct Placement {
 
 /// The whole scale factor of each axis from the source on the screen
 /// (after the rotation) to `dest`, or `None` where the scale is a fraction.
-/// A claim of `Some(k)` means `dest` is exactly `k` times the source on
+/// A claim of `Some(k)` means `dest` is exactly `k` times the crop on
 /// that axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScaleClaim {
@@ -50,8 +51,13 @@ pub enum HorizontalScale {
 /// The vertical part of a CRT placement, from the shape of the request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Vertical {
-    /// The game is `factor` times its lines, `lines` in all, centred.
-    Exact { lines: u16, factor: u16 },
+    /// The game is `factor` times its lines, `lines` in all, centred, with
+    /// `crop_per_edge` source lines left out at the top and the bottom.
+    Exact {
+        lines: u16,
+        factor: u16,
+        crop_per_edge: u16,
+    },
     /// The game fills the active lines.
     Fill,
 }
@@ -66,7 +72,7 @@ pub(crate) fn crt_placement(
     base_width: u16,
 ) -> Placement {
     let (y, h, claim_y) = match vertical {
-        Vertical::Exact { lines, factor } => (
+        Vertical::Exact { lines, factor, .. } => (
             centre(mode.vactive, u32::from(lines)),
             u32::from(lines),
             Some(factor),
@@ -91,8 +97,12 @@ pub(crate) fn crt_placement(
         x: claim_x,
         y: claim_y,
     };
+    let crop_per_edge = match vertical {
+        Vertical::Exact { crop_per_edge, .. } => crop_per_edge,
+        Vertical::Fill => 0,
+    };
     Placement {
-        crop: frame_rect(source),
+        crop: line_crop(source, crop_per_edge),
         dest: Rect {
             x: centre(mode.hactive, w),
             y,
@@ -167,6 +177,28 @@ fn frame_rect(source: &OrientedSource) -> Rect {
     }
 }
 
+/// The frame without `per_edge` lines of the screen at each end. The
+/// lines of a turned frame are its columns; the crop is the same at both
+/// ends, so the direction of the turn does not matter.
+fn line_crop(source: &OrientedSource, per_edge: u16) -> Rect {
+    let whole = frame_rect(source);
+    let cut = u32::from(per_edge);
+    let edge = i32::from(per_edge);
+    if source.turned {
+        Rect {
+            x: edge,
+            w: whole.w.saturating_sub(cut * 2),
+            ..whole
+        }
+    } else {
+        Rect {
+            y: edge,
+            h: whole.h.saturating_sub(cut * 2),
+            ..whole
+        }
+    }
+}
+
 fn filter_for(scale: ScaleClaim) -> Filter {
     if scale.x.is_some() && scale.y.is_some() {
         Filter::Nearest
@@ -208,6 +240,7 @@ mod tests {
             aspect_milli,
             frame_width: width,
             frame_height: height,
+            turned: false,
         }
     }
 
@@ -241,6 +274,7 @@ mod tests {
             Vertical::Exact {
                 lines: 224,
                 factor: 1,
+                crop_per_edge: 0,
             },
             HorizontalScale::Multiple(5),
             256,
@@ -259,6 +293,45 @@ mod tests {
     }
 
     #[test]
+    fn an_overscan_crop_leaves_out_the_same_lines_at_both_edges() {
+        // NES at 2x with 1 line per edge cropped: 238 lines, 476 at 2x.
+        let p = crt_placement(
+            &source(256, 240, 1_333),
+            &mode(256, 476),
+            Vertical::Exact {
+                lines: 476,
+                factor: 2,
+                crop_per_edge: 1,
+            },
+            HorizontalScale::Multiple(1),
+            256,
+        );
+        assert_eq!(p.crop, rect(0, 1, 256, 238));
+        assert_eq!(p.dest, rect(0, 0, 256, 476));
+        assert_eq!(p.filter, Filter::Nearest);
+        // A turned frame of 256x224 shows 256 lines: its columns are cut.
+        let turned = OrientedSource {
+            frame_width: 256,
+            frame_height: 224,
+            turned: true,
+            ..source(224, 256, 750)
+        };
+        let p = crt_placement(
+            &turned,
+            &mode(224, 500),
+            Vertical::Exact {
+                lines: 500,
+                factor: 2,
+                crop_per_edge: 3,
+            },
+            HorizontalScale::Multiple(1),
+            224,
+        );
+        assert_eq!(p.crop, rect(3, 0, 250, 224));
+        assert_eq!(p.dest, rect(0, 0, 224, 500));
+    }
+
+    #[test]
     fn a_bordered_source_is_centred_on_both_axes() {
         // A Game Boy in a 320x224 mode.
         let p = crt_placement(
@@ -267,6 +340,7 @@ mod tests {
             Vertical::Exact {
                 lines: 144,
                 factor: 1,
+                crop_per_edge: 0,
             },
             HorizontalScale::Multiple(1),
             320,
@@ -283,6 +357,7 @@ mod tests {
             Vertical::Exact {
                 lines: 224,
                 factor: 1,
+                crop_per_edge: 0,
             },
             HorizontalScale::Fixed(1_920),
             256,

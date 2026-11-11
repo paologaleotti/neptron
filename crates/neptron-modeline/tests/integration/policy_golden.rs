@@ -52,7 +52,8 @@ fn systems() -> Vec<(String, SourceGeometry)> {
 
 /// The winner for a source with the default settings (`auto`, `exact`, the
 /// GPU's horizontal strategy), in one line: rung, refresh kind, mode, line
-/// rate, field rate, the game's rectangle and the filter. "none" when no
+/// rate, field rate, the game's rectangle and the filter, then "crop N"
+/// when an overscan crop hides N source lines at each edge. "none" when no
 /// proposal validates.
 fn outcome(source: &SourceGeometry, profile: &MonitorProfile, caps: &GpuCaps) -> String {
     let plan = decide(source, &PolicySettings::default(), profile, caps)
@@ -64,8 +65,12 @@ fn outcome(source: &SourceGeometry, profile: &MonitorProfile, caps: &GpuCaps) ->
     let p = w.proposal;
     let m = &p.mode;
     let d = &p.placement.dest;
+    let crop = p
+        .overscan_crop
+        .map(|c| format!(" crop {}", c.lines_per_edge))
+        .unwrap_or_default();
     format!(
-        "{} {} {}x{}{} {}.{:03}kHz {}.{:03}Hz game {}x{}+{}+{} {}",
+        "{} {} {}x{}{} {}.{:03}kHz {}.{:03}Hz game {}x{}+{}+{} {}{crop}",
         w.considered.rung,
         w.considered.target.kind,
         m.hactive,

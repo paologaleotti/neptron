@@ -4,8 +4,8 @@ use neptron_types::Modeline;
 
 use super::units::{Hz, KHz};
 use super::{
-    Dropped, HorizontalScale, HorizontalStrategy, OrientedSource, Padding, PictureStyle, Placement,
-    REFRESH_MATCH_MHZ, RefreshPolicy, RefreshTarget, Rung, SkippedTarget,
+    Dropped, HorizontalScale, HorizontalStrategy, OrientedSource, OverscanCrop, Padding,
+    PictureStyle, Placement, REFRESH_MATCH_MHZ, RefreshPolicy, RefreshTarget, Rung, SkippedTarget,
 };
 
 /// Everything the policy decided for one source: the candidates in the
@@ -64,6 +64,10 @@ pub struct Proposal {
     /// the screen: the plan puts this mode after every exact mode that is
     /// not padded.
     pub padding: Option<Padding>,
+    /// Source lines hidden at the top and the bottom so that a whole
+    /// multiple fits the lines the range holds. The crop of the placement
+    /// leaves them out.
+    pub overscan_crop: Option<OverscanCrop>,
 }
 
 /// A horizontal strategy that the dynamic super width replaced.
@@ -130,6 +134,13 @@ impl fmt::Display for Considered {
                 write!(f, "{p}")?;
                 if let Some(replaced) = p.strategy_replaced {
                     write!(f, ", replaces {}: {}", replaced.from, replaced.reason)?;
+                }
+                if let Some(crop) = p.overscan_crop {
+                    write!(
+                        f,
+                        ", {} lines cropped per edge: {} lines do not fit {}",
+                        crop.lines_per_edge, crop.asked_lines, crop.capacity_lines
+                    )?;
                 }
                 if let Some(pad) = p.padding {
                     write!(

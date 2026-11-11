@@ -69,6 +69,9 @@ pub struct Notice {
     /// picture is not the one the style names (a smaller multiple, rung 3
     /// or the fit). Auto has no rung of its own.
     pub style_fallback: bool,
+    /// Source lines that the overscan crop hides, both edges together; 0
+    /// when none.
+    pub cropped_lines: u16,
 }
 
 /// One row of the picture style list of the Display panel.
@@ -133,8 +136,9 @@ pub fn switch_for(current: Option<&Modeline>, winner: &Modeline) -> Switch {
 /// Step 8 for a candidate of `plan`, the winner: a notice when the winner
 /// is the fitted rung, when the game runs at a rate other than its own,
 /// when the dynamic super width replaced the horizontal strategy of the
-/// settings, when the `native` style took double refresh on its own, or
-/// when the winner is not on the style's own rung. Double refresh that the
+/// settings, when the `native` style took double refresh on its own, when
+/// the winner is not on the style's own rung, or when an overscan crop
+/// hides source lines. Double refresh that the
 /// refresh policy asks for shows each frame twice at the game's own rate,
 /// so it needs no notice. A flat panel needs none for its rate: audio rate
 /// control absorbs the difference.
@@ -146,11 +150,13 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
     let strategy_replaced = proposal.strategy_replaced;
     let double_refresh = timing.target.kind == RefreshKind::NativeDouble;
     let style_fallback = !on_own_rung(plan, plan.style, considered.rung);
+    let cropped_lines = proposal.overscan_crop.map_or(0, |crop| crop.lines());
     let any = fitted
         || refresh_differs
         || strategy_replaced.is_some()
         || double_refresh
-        || style_fallback;
+        || style_fallback
+        || cropped_lines > 0;
     any.then(|| Notice {
         fitted,
         game_mhz: timing.game_mhz,
@@ -158,6 +164,7 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         strategy_replaced,
         double_refresh,
         style_fallback,
+        cropped_lines,
     })
 }
 

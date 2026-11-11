@@ -5,8 +5,9 @@
 # with the default settings (style auto, refresh exact, the GPU's
 # horizontal strategy) after choose() with neptron_safety::validate: rung,
 # refresh kind, mode, line rate, field rate, the game's rectangle in the
-# mode (size, then offset) and the filter. "none" means no proposal
-# validates.
+# mode (size, then offset) and the filter, then "crop N" when an overscan
+# crop hides N source lines at the top and N at the bottom. "none" means no
+# proposal validates.
 #
 # The CRT profiles use a GPU with no pixel clock floor that sends
 # interlace, so the width is the game width; the per-GPU widths are in
@@ -59,7 +60,7 @@
 "donkey_kong edid_npt_0071" = "2x exact 224x512p 32.302kHz 60.606Hz game 224x512+0+0 nearest"
 "donkey_kong generic_15" = "interlaced 1:1 exact 697x448i 15.666kHz 60.606Hz game 224x256+236+96 nearest"
 "donkey_kong panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 768x1024+576+28 sharp"
-"donkey_kong pc_31_120" = "native exact 779x501p 31.454kHz 60.606Hz game 224x256+277+122 nearest"
+"donkey_kong pc_31_120" = "2x exact 224x500p 31.454kHz 60.606Hz game 224x500+0+0 nearest crop 3"
 "game_boy arcade_15" = "native exact 249x224p 15.648kHz 59.728Hz game 160x144+44+40 nearest"
 "game_boy arcade_31" = "3x exact 160x432p 31.416kHz 59.728Hz game 160x432+0+0 nearest"
 "game_boy edid_npt_0071" = "3x exact 160x432p 30.043kHz 59.728Hz game 160x432+0+0 nearest"
@@ -109,7 +110,7 @@
 "neogeo panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1194x896+363+92 sharp"
 "neogeo pc_31_120" = "2x exact 320x448p 31.427kHz 59.186Hz game 320x448+0+0 nearest"
 "nes_ntsc arcade_15" = "native exact 256x240p 15.625kHz 60.099Hz game 256x240+0+0 nearest"
-"nes_ntsc arcade_31" = "native exact 510x478p 31.431kHz 60.099Hz game 256x240+127+119 nearest"
+"nes_ntsc arcade_31" = "2x exact 256x476p 31.431kHz 60.099Hz game 256x476+0+0 nearest crop 1"
 "nes_ntsc edid_npt_0071" = "2x exact 256x480p 30.049kHz 60.099Hz game 256x480+0+0 nearest"
 "nes_ntsc generic_15" = "native exact 256x240p 15.625kHz 60.099Hz game 256x240+0+0 nearest"
 "nes_ntsc panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1280x960+320+60 nearest"
@@ -168,7 +169,7 @@
 "snes_pal generic_15" = "native exact 256x239p 15.652kHz 50.007Hz game 256x239+0+0 nearest"
 "snes_pal panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 1274x956+323+62 sharp"
 "snes_pal pc_31_120" = "2x exact 256x478p 31.404kHz 50.007Hz game 256x478+0+0 nearest"
-"space_invaders arcade_15" = "interlaced 1:1 exact 697x448i 15.689kHz 59.542Hz game 224x256+236+96 nearest"
+"space_invaders arcade_15" = "native exact 224x250p 16.135kHz 59.542Hz game 224x250+0+0 nearest crop 3"
 "space_invaders arcade_31" = "native exact 751x483p 31.438kHz 59.542Hz game 224x256+263+113 nearest"
 "space_invaders edid_npt_0071" = "2x exact 224x512p 31.676kHz 59.542Hz game 224x512+0+0 nearest"
 "space_invaders generic_15" = "interlaced 1:1 exact 697x448i 15.689kHz 59.542Hz game 224x256+236+96 nearest"

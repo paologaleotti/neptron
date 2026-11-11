@@ -6,8 +6,8 @@
 //! multiple above 1 on a CRT, and the decision is deterministic.
 
 use neptron_modeline::policy::{
-    Considered, HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError,
-    PolicySettings, Proposal, RefreshPolicy, Rung, choose, decide,
+    Considered, HorizontalStrategy, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OrientedSource, PictureStyle,
+    Plan, PolicyError, PolicySettings, Proposal, RefreshPolicy, Rung, choose, decide,
 };
 use neptron_safety::validate;
 use neptron_types::{GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry, ui_dest_fill};
@@ -100,9 +100,10 @@ fn gpus() -> Vec<(String, GpuCaps)> {
     gpus
 }
 
-/// The rectangle lies inside the active area, the crop is the whole
-/// frame, every whole-scale claim holds exactly, and on a CRT the UI fills
-/// the active area.
+/// The rectangle lies inside the active area, the crop is the whole frame
+/// less the overscan crop (lines only, the same at both edges, within the
+/// bound), every whole-scale claim holds exactly against the crop, and on
+/// a CRT the UI fills the active area.
 fn check_placement(p: &Proposal, source: &OrientedSource, crt: bool) -> Result<(), String> {
     let (m, place) = (&p.mode, &p.placement);
     let d = &place.dest;
@@ -116,25 +117,40 @@ fn check_placement(p: &Proposal, source: &OrientedSource, crt: bool) -> Result<(
         return Err(format!("game {d:?} outside {}x{}", m.hactive, m.vactive));
     }
     let crop = &place.crop;
-    if (crop.x, crop.y, crop.w, crop.h)
-        != (
-            0,
-            0,
-            u32::from(source.frame_width),
-            u32::from(source.frame_height),
-        )
-    {
-        return Err(format!("crop {crop:?} is not the whole frame"));
+    let per_edge = p.overscan_crop.map_or(0, |c| c.lines_per_edge);
+    if per_edge > OVERSCAN_CROP_MAX_LINES_PER_EDGE {
+        return Err(format!("{per_edge} lines cropped per edge"));
     }
+    let (fw, fh) = (
+        u32::from(source.frame_width),
+        u32::from(source.frame_height),
+    );
+    let cut = u32::from(per_edge);
+    let edge = i32::from(per_edge);
+    let want = if source.turned {
+        (edge, 0, fw.saturating_sub(2 * cut), fh)
+    } else {
+        (0, edge, fw, fh.saturating_sub(2 * cut))
+    };
+    if (crop.x, crop.y, crop.w, crop.h) != want {
+        return Err(format!(
+            "crop {crop:?} is not the frame less {per_edge} lines per edge"
+        ));
+    }
+    let (crop_width, crop_lines) = if source.turned {
+        (crop.h, crop.w)
+    } else {
+        (crop.w, crop.h)
+    };
     if let Some(k) = place.scale.x
-        && d.w != u32::from(source.width) * u32::from(k)
+        && d.w != crop_width * u32::from(k)
     {
-        return Err(format!("x claim {k} but {} from {}", d.w, source.width));
+        return Err(format!("x claim {k} but {} from {crop_width}", d.w));
     }
     if let Some(k) = place.scale.y
-        && d.h != u32::from(source.height) * u32::from(k)
+        && d.h != crop_lines * u32::from(k)
     {
-        return Err(format!("y claim {k} but {} from {}", d.h, source.height));
+        return Err(format!("y claim {k} but {} from {crop_lines}", d.h));
     }
     if crt && place.ui_dest != ui_dest_fill(m.hactive, m.vactive) {
         return Err(format!("ui {:?} does not fill the mode", place.ui_dest));

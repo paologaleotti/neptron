@@ -3,7 +3,7 @@ use neptron_types::{CrtRange, GpuCaps, MonitorProfile};
 use super::ladder::walk_ladder;
 use super::refresh::{game_target, native_double_target, refresh_targets};
 use super::settings::Effective;
-use super::shape::{Shape, progressive_capacity, shape};
+use super::shape::{Shape, overscan_crop, progressive_capacity, shape};
 use super::solve::solve;
 use super::{
     Considered, Dropped, HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError,
@@ -97,7 +97,9 @@ type Outcome = Result<Proposal, Dropped>;
 /// Steps 4 and 5 for one rung at one target. One outcome, or two when the
 /// horizontal strategy of the settings is below the GPU's pixel clock
 /// floor: the dropped candidate, then the dynamic super width that
-/// replaces it, so the screen still gets a mode.
+/// replaces it, so the screen still gets a mode. When a whole multiple
+/// misses the lines the range holds, the dropped candidate is followed by
+/// the same multiple with an overscan crop, if one fits.
 fn candidate(
     rung: Rung,
     target: RefreshTarget,
@@ -116,8 +118,15 @@ fn candidate(
         Ok(shape) => shape,
         Err(dropped) => return Ok(vec![Err(dropped)]),
     };
-    let outcomes = solve_replacing(&shape, target, enforce_refresh, crt)?;
+    let mut outcomes = solve_replacing(&shape, target, enforce_refresh, crt)?;
     let missed = matches!(outcomes.last(), Some(Err(Dropped::RefreshMissed { .. })));
+    let lines_missed = missed || matches!(outcomes.last(), Some(Err(Dropped::LinesChanged { .. })));
+    if lines_missed
+        && let Some(cropped) = overscan_crop(&shape, &crt.source, crt.ranges, target.rate_mhz)
+    {
+        outcomes.extend(solve_replacing(&cropped, target, enforce_refresh, crt)?);
+        return Ok(outcomes);
+    }
     if rung.is_fitted()
         && enforce_refresh
         && missed
@@ -221,18 +230,25 @@ fn entry(
 }
 
 /// The key of an exact entry of the `native` style, within its band: the
-/// native rung that is not padded at every target, then rung 3, then every
-/// padded mode by its fill, then by target.
+/// native rung with no crop and no padding at every target, then rung 3,
+/// then the cropped native rung, then every padded mode by its fill, then
+/// by target.
 fn native_key(band: u8, rung: Rung, rank: usize, (tier, place, sub): (usize, usize, usize)) -> Key {
     match (rank, rung) {
         (0, Rung::Native) => (band, 0, tier, 0, place, sub),
         (0, _) => (band, 1, tier, 0, place, sub),
-        _ => (band, 2, rank, tier, place, sub),
+        (CROPPED_RANK, _) => (band, 2, tier, 0, place, sub),
+        _ => (band, 3, rank, tier, place, sub),
     }
 }
 
-/// 0 for an entry that is not padded; else above 0, and lower for a
-/// padded mode that fills more of its picture lines.
+/// The rank of a cropped mode that is not padded.
+const CROPPED_RANK: usize = 1;
+
+/// The rank of an exact entry within its target: 0 for a mode with no
+/// crop and no padding (and for a dropped entry); [`CROPPED_RANK`] for a
+/// cropped mode; above it for a padded mode, lower when it fills more of
+/// its picture lines.
 fn padded_rank(outcome: &Outcome) -> usize {
     match outcome {
         Ok(Proposal {
@@ -240,8 +256,12 @@ fn padded_rank(outcome: &Outcome) -> usize {
             ..
         }) => {
             let fill = usize::try_from(padding.fill_permille()).unwrap_or(usize::MAX);
-            1_001_usize.saturating_sub(fill).max(1)
+            1_002_usize.saturating_sub(fill).max(CROPPED_RANK + 1)
         }
+        Ok(Proposal {
+            overscan_crop: Some(_),
+            ..
+        }) => CROPPED_RANK,
         _ => 0,
     }
 }

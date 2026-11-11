@@ -11,6 +11,35 @@ use crate::Aspect;
 /// rate; when none fits, in the smallest height in range that holds it.
 pub const BORDER_LINES: [u16; 2] = [224, 240];
 
+/// The most source lines that the overscan crop hides at each edge, top
+/// and bottom, in lines of the game.
+///
+/// A whole multiple that misses the lines a range holds by a few lines is
+/// cropped, as the overscan of a CRT hides the edge lines, so the picture
+/// stays pixel exact at nearly full height. 4 lines per edge cover an NES
+/// at 2x on a 31 kHz monitor that holds 478 lines (1 per edge) and Donkey
+/// Kong at 2x in 502 lines (3 per edge). 4 of 240 lines is 1.7 % of the
+/// height at each edge, inside the 5 % or more that a consumer CRT hides.
+pub const OVERSCAN_CROP_MAX_LINES_PER_EDGE: u16 = 4;
+
+/// The source lines that the overscan crop hides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OverscanCrop {
+    /// Source lines hidden at the top and the same number at the bottom.
+    pub lines_per_edge: u16,
+    /// Lines of the game at its multiple before the crop.
+    pub asked_lines: u16,
+    /// The most progressive lines that a range holds at the target rate.
+    pub capacity_lines: u16,
+}
+
+impl OverscanCrop {
+    /// Source lines hidden in all: both edges.
+    pub fn lines(&self) -> u16 {
+        self.lines_per_edge.saturating_mul(2)
+    }
+}
+
 /// What step 4 asks Switchres for, before the horizontal strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Shape {
@@ -26,6 +55,8 @@ pub(crate) struct Shape {
     pub(crate) base_width: u16,
     /// The game is centred in more lines than it has.
     pub(crate) bordered: bool,
+    /// Source lines hidden at the edges, so the multiple fits the range.
+    pub(crate) crop: Option<OverscanCrop>,
 }
 
 /// Step 4, lines and scan: the line count is the height times the factor
@@ -60,6 +91,7 @@ pub(crate) fn shape(
         interlace,
         base_width: source.width,
         bordered: false,
+        crop: None,
     };
     let floor = match rung {
         Rung::Fitted => None,
@@ -80,6 +112,47 @@ pub(crate) fn shape(
         shape.bordered = true;
     }
     Ok(shape)
+}
+
+/// The shape of a progressive whole multiple (the native rung is the
+/// multiple 1) whose lines miss what the ranges hold at `rate_mhz`, with
+/// the fewest source lines per edge hidden so that the multiple fits; or
+/// `None` when no crop up to [`OVERSCAN_CROP_MAX_LINES_PER_EDGE`] fits, or
+/// the shape is not such a multiple. The width is never cropped.
+pub(crate) fn overscan_crop(
+    shape: &Shape,
+    source: &OrientedSource,
+    ranges: &[CrtRange],
+    rate_mhz: u32,
+) -> Option<Shape> {
+    let multiple = matches!(shape.rung, Rung::Native | Rung::Multiple(_));
+    if !multiple || shape.interlace || shape.bordered || shape.factor == 0 {
+        return None;
+    }
+    let capacity = progressive_capacity(ranges, rate_mhz);
+    if shape.game_lines <= capacity {
+        return None;
+    }
+    let held = capacity / shape.factor;
+    let lines_per_edge = source.height.saturating_sub(held).div_ceil(2);
+    let shown = source.height.checked_sub(lines_per_edge.checked_mul(2)?)?;
+    if lines_per_edge > OVERSCAN_CROP_MAX_LINES_PER_EDGE || shown == 0 {
+        return None;
+    }
+    let game_lines = shown * shape.factor;
+    if progressive_min(ranges, rate_mhz).is_some_and(|min| game_lines < min) {
+        return None;
+    }
+    Some(Shape {
+        game_lines,
+        lines: game_lines,
+        crop: Some(OverscanCrop {
+            lines_per_edge,
+            asked_lines: shape.game_lines,
+            capacity_lines: capacity,
+        }),
+        ..*shape
+    })
 }
 
 /// Rung 3 is for a progressive source whose lines fit no progressive range
@@ -324,6 +397,7 @@ mod tests {
             aspect_milli: 1_333,
             frame_width: width,
             frame_height: height,
+            turned: false,
         }
     }
 
@@ -440,6 +514,68 @@ mod tests {
         assert_eq!(border_lines(192, 1, &[range], 65_000), None);
         // At 60 Hz it holds exactly 384.
         assert_eq!(border_lines(192, 1, &[range], 60_000), Some(384));
+    }
+
+    #[test]
+    fn a_multiple_that_misses_the_range_is_cropped_by_the_fewest_lines_per_edge() {
+        // generic_15 at 60 Hz holds 241 lines.
+        let ranges = generic_15();
+        let crop = |height: u16, rung: Rung| {
+            let s = source(256, height, false);
+            let shaped =
+                shape(rung, &s, &ranges, &caps(true), Aspect::STANDARD_CRT, 60_000).unwrap();
+            overscan_crop(&shaped, &s, &ranges, 60_000)
+        };
+        assert_eq!(crop(241, Rung::Native), None);
+        // 242 lines: 1 too many, so 1 per edge and 240 lines shown.
+        let s = crop(242, Rung::Native).unwrap();
+        assert_eq!((s.game_lines, s.lines), (240, 240));
+        assert_eq!(
+            s.crop,
+            Some(OverscanCrop {
+                lines_per_edge: 1,
+                asked_lines: 242,
+                capacity_lines: 241
+            })
+        );
+        // 249 lines: 8 too many, 4 per edge, the bound.
+        assert_eq!(crop(249, Rung::Native).unwrap().game_lines, 241);
+        // 250 lines: 9 too many, 5 per edge, above the bound.
+        assert_eq!(crop(250, Rung::Native), None);
+        // 2x of 122 lines: 244 in 241 holds 120 source lines, 1 per edge.
+        let s = crop(122, Rung::Multiple(2)).unwrap();
+        assert_eq!((s.game_lines, s.factor), (240, 2));
+    }
+
+    #[test]
+    fn only_a_progressive_multiple_is_cropped() {
+        let ranges = generic_15();
+        let s = source(640, 242, false);
+        for rung in [Rung::Interlaced, Rung::Fitted] {
+            let shaped = Shape {
+                rung,
+                game_lines: 242,
+                factor: 1,
+                lines: 242,
+                interlace: rung == Rung::Interlaced,
+                base_width: 640,
+                bordered: false,
+                crop: None,
+            };
+            assert_eq!(overscan_crop(&shaped, &s, &ranges, 60_000), None);
+        }
+        let huge = source(256, u16::MAX, false);
+        let shaped = Shape {
+            rung: Rung::Native,
+            game_lines: u16::MAX,
+            factor: 1,
+            lines: u16::MAX,
+            interlace: false,
+            base_width: 256,
+            bordered: false,
+            crop: None,
+        };
+        assert_eq!(overscan_crop(&shaped, &huge, &ranges, 60_000), None);
     }
 
     #[test]

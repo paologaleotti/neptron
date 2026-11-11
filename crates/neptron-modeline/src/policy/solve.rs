@@ -249,6 +249,7 @@ fn proposal(
         Vertical::Exact {
             lines: shape.game_lines,
             factor: shape.factor,
+            crop_per_edge: shape.crop.map_or(0, |c| c.lines_per_edge),
         }
     };
     let padded = match ranges.get(candidate.range_index) {
@@ -271,6 +272,7 @@ fn proposal(
         bordered: shape.bordered,
         strategy_replaced: None,
         padding: padded,
+        overscan_crop: shape.crop,
     }
 }
 
@@ -327,6 +329,7 @@ mod tests {
             interlace,
             base_width: 256,
             bordered: false,
+            crop: None,
         }
     }
 

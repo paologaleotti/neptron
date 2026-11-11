@@ -60,6 +60,7 @@ pub(crate) fn panel_plan(
                 bordered: false,
                 strategy_replaced: None,
                 padding: None,
+                overscan_crop: None,
             };
             (
                 key,

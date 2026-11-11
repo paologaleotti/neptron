@@ -21,6 +21,9 @@ pub struct OrientedSource {
     pub frame_width: u16,
     /// Height of the frame as the core draws it, in lines.
     pub frame_height: u16,
+    /// The frame is turned by 90 or 270 degrees: the lines on the screen
+    /// are columns of the frame.
+    pub turned: bool,
 }
 
 /// Step 1: take the source. A rotation of 90 or 270 degrees swaps the axes
@@ -52,6 +55,7 @@ pub(crate) fn take_source(source: &SourceGeometry) -> Result<OrientedSource, Pol
         aspect_milli,
         frame_width: source.width,
         frame_height: source.height,
+        turned,
     })
 }
 
@@ -93,6 +97,7 @@ mod tests {
             let s = take_source(&geometry(288, 224, rotation)).unwrap();
             assert_eq!((s.width, s.height, s.aspect_milli), (224, 288, 750));
             assert_eq!((s.frame_width, s.frame_height), (288, 224));
+            assert!(s.turned);
         }
     }
 

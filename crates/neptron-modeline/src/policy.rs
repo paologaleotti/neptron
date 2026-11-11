@@ -54,7 +54,7 @@ pub use refresh::{
 pub use settings::{
     FIXED_SUPER_WIDTHS, HorizontalStrategy, PictureStyle, PolicySettings, RefreshPolicy,
 };
-pub use shape::BORDER_LINES;
+pub use shape::{BORDER_LINES, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OverscanCrop};
 pub use source::OrientedSource;
 
 use neptron_types::{GpuCaps, MonitorKind, MonitorProfile, SourceGeometry};
