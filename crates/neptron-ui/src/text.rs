@@ -35,7 +35,7 @@ pub struct Fit<'a> {
 }
 
 /// Cuts `text` to fit `width_px`. A cut text ends with [`ELLIPSIS`] when
-/// the width has room for it.
+/// the width has room for it; spaces before the ellipsis are dropped.
 pub fn fit(text: &str, width_px: u32) -> Fit<'_> {
     let room = font::chars_in(width_px);
     let count = text.chars().count();
@@ -52,8 +52,13 @@ pub fn fit(text: &str, width_px: u32) -> Fit<'_> {
     } else {
         (room, false)
     };
+    let shown = prefix(text, keep);
     Fit {
-        shown: prefix(text, keep),
+        shown: if ellipsis {
+            shown.trim_end_matches(' ')
+        } else {
+            shown
+        },
         ellipsis,
         clipped: true,
     }
@@ -240,6 +245,13 @@ mod tests {
     fn long_text_ends_with_an_ellipsis() {
         let f = fit("Super Mario World", 60);
         assert_eq!((f.shown, f.ellipsis, f.clipped), ("Super M", true, true));
+    }
+
+    #[test]
+    fn no_space_comes_before_the_ellipsis() {
+        let f = fit("Ganbare Goemon", 66);
+        assert_eq!((f.shown, f.ellipsis, f.clipped), ("Ganbare", true, true));
+        assert_eq!(fit("a          b", 36).shown, "a");
     }
 
     #[test]
