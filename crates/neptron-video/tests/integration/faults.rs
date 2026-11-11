@@ -261,6 +261,7 @@ fn a_failed_restore_is_an_error_and_the_engine_decides_again() {
     let error = rig.engine.present(Some(frame(&MD_H32)), None).unwrap_err();
     assert!(matches!(error, VideoError::RestoreFailed { read_back, .. } if read_back == wrong));
     assert!(rig.engine.current().is_none(), "the mode is not known");
+    assert!(rig.engine.current_refused());
     // The driver refused the only mode of this source, so the engine has
     // none, says so, and guesses nothing.
     assert_eq!(rig.try_frame(MD_H32), Err(VideoError::NoMode));
@@ -270,6 +271,7 @@ fn a_failed_restore_is_an_error_and_the_engine_decides_again() {
     rig.frame(MD_H40);
     assert_eq!(rig.current_mode(), good);
     assert_eq!(rig.fake.active_mode(), Some(good));
+    assert!(!rig.engine.current_refused());
 }
 
 #[test]
@@ -356,4 +358,68 @@ fn a_failed_wait_before_a_modeset_keeps_the_modeset_for_the_next_frame() {
     rig.engine.wait_flip().unwrap();
     assert_eq!(rig.modes().len(), 2);
     assert!(!rig.engine.muted());
+}
+
+#[test]
+fn a_restore_never_sets_a_mode_the_new_monitor_refuses() {
+    let pc_31_120 = || Monitor::Profile(monitor_preset("pc_31_120").unwrap());
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    rig.frame(SNES);
+    let old = rig.current_mode();
+    let new = mode_for(generic_15(), native_width(), SNES);
+    rig.engine.set_monitor(generic_15());
+    rig.fake.fault_mode(
+        1,
+        ModeFault::ReadBack(Modeline {
+            hactive: new.hactive - 8,
+            ..new
+        }),
+    );
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Modeset);
+    assert_eq!(
+        rig.engine.present(Some(frame(&SNES)), None),
+        Err(VideoError::NoMode)
+    );
+    let calls = rig.fake.mode_calls();
+    assert_eq!(calls.len(), 2, "no restore of {old:?}");
+    assert_eq!(calls[1].requested, new);
+    assert!(rig.engine.current().is_none());
+    assert!(rig.engine.current_refused());
+    assert!(
+        rig.engine
+            .trace()
+            .records()
+            .any(|r| matches!(r.outcome, Outcome::Kept(Unshowable::CurrentRefused(_))))
+    );
+}
+
+#[test]
+fn the_read_back_of_a_restore_is_checked_like_a_modeset() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(MD_H40);
+    let good = rig.current_mode();
+    let wrong = |m: Modeline| Modeline {
+        vactive: m.vactive - 2,
+        ..m
+    };
+    let asked = mode_for(generic_15(), native_width(), MD_H32);
+    rig.fake.fault_mode(1, ModeFault::ReadBack(wrong(asked)));
+    rig.fake.fault_mode(2, ModeFault::ReadBack(wrong(good)));
+    rig.frame(MD_H32);
+    rig.frame(MD_H32);
+    rig.engine.begin_frame(MD_H32);
+    assert_eq!(
+        rig.engine.present(Some(frame(&MD_H32)), None),
+        Err(VideoError::NoMode)
+    );
+    assert_eq!(rig.fake.mode_calls()[2].requested, good);
+    assert!(
+        rig.engine.current().is_none(),
+        "the restored mode did not hold"
+    );
+    assert!(rig.engine.current_refused());
+    assert!(rig.engine.trace().records().any(|r| r.outcome
+        == Outcome::ReadBackRefused {
+            read_back: wrong(good)
+        }));
 }

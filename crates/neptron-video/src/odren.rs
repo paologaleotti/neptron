@@ -84,6 +84,8 @@ pub struct Odren {
     /// does not know after a failed restore.
     refused_on_screen: bool,
     muted: bool,
+    /// The last good mode that the executor sets again.
+    restoring: Option<Modeline>,
     /// The trace number of the modeset that waits for its first flip.
     awaiting_flip: Option<u64>,
     last_flip_ns: Option<u64>,
@@ -127,6 +129,7 @@ impl Odren {
             frame: 0,
             refused_on_screen: false,
             muted: false,
+            restoring: None,
             awaiting_flip: None,
             last_flip_ns: None,
             trace: SwitchTrace::new(),
@@ -341,13 +344,8 @@ impl Odren {
                     },
                     ..commit.record
                 });
-                match &self.current {
-                    Some(current) => AfterModeSet::Restore(ModeOrder {
-                        token: current.chosen.token.clone(),
-                        generation: self.generation,
-                    }),
-                    None => AfterModeSet::Done,
-                }
+                self.refused_on_screen = true;
+                self.restore_order(commit.record.trigger)
             }
             Err(error) => {
                 if matches!(error, DisplayError::ModeRefused { .. }) {
@@ -365,23 +363,72 @@ impl Odren {
         }
     }
 
-    /// Takes the result of setting the last good mode again. On an error
-    /// the mode on the display is not known, so the engine forgets its
-    /// mode and decides again on the next frame.
-    pub(crate) fn on_restore(&mut self, result: &Result<Modeline, DisplayError>) {
-        match (result, &mut self.current) {
-            (Ok(read_back), Some(current)) => {
-                current.read_back = *read_back;
-                self.awaiting_flip = Some(self.trace.total());
-                self.refused_on_screen = false;
+    /// The last good mode, validated again with the current inputs, to set
+    /// after a refused read back. With no good mode, or one the inputs now
+    /// refuse, the engine sets nothing and forgets its mode: the display
+    /// holds a mode it does not know, and `current_refused` says so.
+    fn restore_order(&mut self, trigger: Trigger) -> AfterModeSet {
+        let Some(current) = &self.current else {
+            return AfterModeSet::Done;
+        };
+        match self.inputs.check(current.chosen.token.mode()) {
+            Ok(token) => {
+                self.restoring = Some(*token.mode());
+                AfterModeSet::Restore(ModeOrder {
+                    token,
+                    generation: self.generation,
+                })
             }
-            _ => {
-                self.refused_on_screen = true;
+            Err(refusal) => {
+                let request = Request {
+                    source: current.source,
+                    asked_frame: self.frame,
+                    stable: 1,
+                };
+                let record = self.record(trigger, request, None, None);
+                self.trace.push(SwitchRecord {
+                    outcome: Outcome::Kept(Unshowable::CurrentRefused(refusal)),
+                    ..record
+                });
                 self.current = None;
-                self.awaiting_flip = None;
-                self.muted = false;
+                AfterModeSet::Done
             }
         }
+    }
+
+    /// Takes the result of setting the last good mode again. Its read back
+    /// must hold as for a modeset. Otherwise the mode on the display is
+    /// not known, so the engine forgets its mode and decides again on the
+    /// next frame.
+    pub(crate) fn on_restore(&mut self, result: &Result<Modeline, DisplayError>) {
+        let restoring = self.restoring.take();
+        let held = match (result, restoring) {
+            (Ok(read_back), Some(asked)) => self.read_back_holds(&asked, read_back),
+            _ => false,
+        };
+        if let (true, Ok(read_back), Some(current)) = (held, result, &mut self.current) {
+            current.read_back = *read_back;
+            self.awaiting_flip = Some(self.trace.total());
+            self.refused_on_screen = false;
+            return;
+        }
+        if let (Ok(read_back), Some(last)) = (result, self.trace.last()) {
+            let record = SwitchRecord {
+                read_back: Some(*read_back),
+                outcome: Outcome::ReadBackRefused {
+                    read_back: *read_back,
+                },
+                winner: None,
+                dropped: Vec::new(),
+                refused: Vec::new(),
+                ..last.clone()
+            };
+            self.trace.push(record);
+        }
+        self.refused_on_screen = true;
+        self.current = None;
+        self.awaiting_flip = None;
+        self.muted = false;
     }
 
     /// Takes a completed flip. The first flip in a new mode ends the mute.
