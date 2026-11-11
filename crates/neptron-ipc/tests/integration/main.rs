@@ -4,4 +4,6 @@
 #![forbid(unsafe_code)]
 
 mod codec;
+mod fixture;
 mod messages;
+mod server;

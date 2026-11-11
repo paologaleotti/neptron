@@ -13,6 +13,7 @@ mod envelope;
 mod error;
 mod line;
 mod reply;
+mod server;
 
 pub use command::{
     ClockStepArgs, Command, InputScriptArgs, InputSendArgs, LogTailArgs, ScreenshotArgs,
@@ -29,3 +30,4 @@ pub use reply::{
     FrameReached, HelloReply, InputQueued, LogLines, Reply, Screenshot, ScriptQueued,
     SessionStatus, SettingValue, SettingWritten, Stats, UiRow, UiTree, Verdict, VideoState,
 };
+pub use server::{Handler, ServeError, dispatch, handle_line, serve_lines};
