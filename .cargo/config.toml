@@ -1,0 +1,5 @@
+[alias]
+xtask = "run --quiet --package xtask --"
+
+# No linker override: x86_64-unknown-linux-gnu links with rust-lld by default
+# since Rust 1.90, and the default linker on macOS (ld-prime) is already fast.
