@@ -544,6 +544,16 @@ version = "0.1.0"
 [[package]]
 name = "neptron-video"
 version = "0.1.0"
+dependencies = [
+ "neptron-backend",
+ "neptron-modeline",
+ "neptron-platform",
+ "neptron-safety",
+ "neptron-settings",
+ "neptron-testkit",
+ "neptron-types",
+ "thiserror",
+]
 
 [[package]]
 name = "neptron-window"

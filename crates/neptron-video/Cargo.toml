@@ -8,6 +8,19 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+neptron-backend = { path = "../neptron-backend" }
+neptron-modeline = { path = "../neptron-modeline" }
+# EdidProfile only: the engine applies its pixel clock limit to the caps.
+neptron-platform = { path = "../neptron-platform" }
+neptron-safety = { path = "../neptron-safety" }
+neptron-types = { path = "../neptron-types" }
+# The code standards make each crate own a thiserror enum.
+thiserror.workspace = true
+
+[dev-dependencies]
+# The choices of the settings schema, to prove that each one maps.
+neptron-settings = { path = "../neptron-settings" }
+neptron-testkit = { path = "../neptron-testkit" }
 
 [lints]
 workspace = true
