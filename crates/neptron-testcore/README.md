@@ -50,6 +50,16 @@ at 301 sram_write 0 42
 at 600 shutdown
 ```
 
+## Frames
+
+Each pixel is a fixed function of the frame number, the joypad buttons of port 0 that the core read for that frame, and the pixel position: `pixel(format, frame, buttons, x, y)`. The core writes it in native byte order, as a `u32` for `xrgb8888` and a `u16` for the 16-bit formats. Only the colour bits of the format are set.
+
+The frame hash is FNV-1a 64 over the visible bytes: `width` pixels of each row, rows `pitch` bytes apart. `expected_hash(size, format, frame, buttons)` gives the hash of the frame that the core sends. A test that injects a button state can check that the core read it, because the hash changes with each button.
+
+## Audio
+
+The stereo sample with index `n` (from 0 at load or reset) is `[n as i16, -(n as i16)]`, with wrapping. After `k` video frames at a constant timing, the core has sent `k * sample_rate_hz * 1000 / fps_mhz` stereo frames, rounded down (`frames_after`). Each frame sends the difference, so the count never drifts. An `av_info` event starts the count again from that frame, at the new rate.
+
 ## Must never depend on
 
 - Any NEPTRON crate except `neptron-libretro-sys`
