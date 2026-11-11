@@ -4,6 +4,7 @@
 
 mod builtin;
 mod layer;
+mod parse;
 mod resolve;
 mod schema;
 
@@ -12,6 +13,7 @@ pub use builtin::{
     PICTURE_STYLES, REFRESH_POLICIES, SCHEMA_VERSION, VERSION_KEY,
 };
 pub use layer::{Layer, SetError};
+pub use parse::{Issue, IssueKind, Parsed, parse_layer};
 pub use resolve::{LayerMismatch, Layers, Resolved, resolve, resolve_key};
 pub use schema::{
     Entry, Invalid, Kind, Level, Levels, Safety, Schema, SchemaError, Source, Value, ValueType,
