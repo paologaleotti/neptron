@@ -20,8 +20,17 @@ pub const MD_H32: SourceGeometry = source(256, 224, 59_922);
 pub const MD_H40: SourceGeometry = source(320, 224, 59_922);
 /// SNES: 256x224 at 60.099 Hz.
 pub const SNES: SourceGeometry = source(256, 224, 60_099);
+/// SNES pseudo hires: 512x224 at 60.099 Hz.
+pub const SNES_HIRES: SourceGeometry = source(512, 224, 60_099);
+/// SNES interlaced hires: 512x448 at 60.099 Hz.
+pub const SNES_448I: SourceGeometry = SourceGeometry {
+    interlaced: true,
+    ..source(512, 448, 60_099)
+};
 /// SNES at 239 lines (overscan mode).
 pub const SNES_239: SourceGeometry = source(256, 239, 60_099);
+/// A PAL game: 256x239 at 50.007 Hz.
+pub const PAL_239: SourceGeometry = source(256, 239, 50_007);
 
 pub const fn source(width: u16, height: u16, refresh_mhz: u32) -> SourceGeometry {
     SourceGeometry {
