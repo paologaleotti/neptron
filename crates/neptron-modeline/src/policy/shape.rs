@@ -109,23 +109,31 @@ fn interlaced_rung(
 /// only `floor(h_max / rate)` lines per field, less the vertical blanking
 /// at that line rate. 0 when no range covers the rate.
 pub(crate) fn progressive_capacity(ranges: &[CrtRange], rate_mhz: u32) -> u16 {
-    const NS_MHZ_PER_LINE: u64 = 1_000_000_000_000;
     let rate = u64::from(rate_mhz).max(1);
     ranges
         .iter()
         .filter(|r| r.progressive_lines_min > 0 && r.v_min_mhz <= rate && rate <= r.v_max_mhz)
         .map(|r| {
-            let blank_ns = u64::from(r.v_front_porch_ns)
-                + u64::from(r.v_sync_ns)
-                + u64::from(r.v_back_porch_ns);
-            let blank = (blank_ns * r.h_max_mhz).div_ceil(NS_MHZ_PER_LINE);
-            let lines = (r.h_max_mhz / rate).saturating_sub(blank);
+            let lines = (r.h_max_mhz / rate).saturating_sub(blank_lines(r, r.h_max_mhz));
             u16::try_from(lines)
                 .unwrap_or(u16::MAX)
                 .min(r.progressive_lines_max)
         })
         .max()
         .unwrap_or(0)
+}
+
+/// The vertical blanking of a range in whole lines at a line rate of
+/// `line_rate_mhz`, rounded up. The product of a time in nanoseconds and a
+/// rate in millihertz can pass `u64`, so it is taken in `u128` and
+/// saturates.
+pub(crate) fn blank_lines(range: &CrtRange, line_rate_mhz: u64) -> u64 {
+    const NS_MHZ_PER_LINE: u128 = 1_000_000_000_000;
+    let blank_ns = u128::from(range.v_front_porch_ns)
+        + u128::from(range.v_sync_ns)
+        + u128::from(range.v_back_porch_ns);
+    let lines = (blank_ns * u128::from(line_rate_mhz)).div_ceil(NS_MHZ_PER_LINE);
+    u64::try_from(lines).unwrap_or(u64::MAX)
 }
 
 fn fit_height(lines: u32, caps: &GpuCaps) -> Result<u16, Dropped> {
@@ -394,5 +402,39 @@ mod tests {
         let s = shape_of(Rung::Native, &square, true).unwrap();
         // A 4:3 game with square pixels in 224 lines: 4/3 x 224 = 298.7.
         assert_eq!((s.lines, s.base_width), (224, 299));
+    }
+
+    #[test]
+    fn the_border_width_holds_at_the_extremes() {
+        let huge = OrientedSource {
+            aspect_milli: u32::MAX,
+            ..source(u16::MAX, u16::MAX, false)
+        };
+        let aspect = Aspect {
+            width: u16::MAX,
+            height: u16::MAX,
+        };
+        assert_eq!(border_width(&huge, u16::MAX, u16::MAX, aspect), u16::MAX);
+        let thin = OrientedSource {
+            aspect_milli: 1,
+            ..source(u16::MAX, 1, false)
+        };
+        assert_eq!(border_width(&thin, 1, u16::MAX, aspect), u16::MAX);
+    }
+
+    #[test]
+    fn the_progressive_capacity_holds_at_the_extremes() {
+        let wide = CrtRange {
+            h_max_mhz: u64::MAX,
+            v_min_mhz: 0,
+            v_max_mhz: u64::MAX,
+            v_front_porch_ns: u32::MAX,
+            v_sync_ns: u32::MAX,
+            v_back_porch_ns: u32::MAX,
+            ..range((1, u16::MAX), (0, 0))
+        };
+        assert_eq!(progressive_capacity(&[wide], 1), u16::MAX);
+        // 2^64 mHz / 2^32 mHz is 2^32 lines, all of them blanking.
+        assert_eq!(progressive_capacity(&[wide], u32::MAX), 0);
     }
 }

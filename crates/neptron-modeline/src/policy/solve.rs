@@ -122,10 +122,11 @@ impl Ask<'_> {
         let mut k: u32 = 1;
         let mut last = (base, 0);
         for _ in 0..DYNAMIC_STEPS_MAX {
-            let width = base * k;
-            if width > u32::from(self.caps.max_width) {
+            let Some(width) = multiple_width(self.shape.base_width, k)
+                .filter(|&w| w <= u32::from(self.caps.max_width))
+            else {
                 break;
-            }
+            };
             let multiple = u16::try_from(k).unwrap_or(u16::MAX);
             let (candidate, horizontal) = match self.multiple(multiple)? {
                 Ok(found) => found,
@@ -216,6 +217,12 @@ impl Ask<'_> {
     }
 }
 
+/// `base` times `k`, or `None` when the product does not fit a `u32`: the
+/// search then stops, as for a width above the GPU's widest mode.
+fn multiple_width(base: u16, k: u32) -> Option<u32> {
+    u32::from(base).checked_mul(k)
+}
+
 fn proposal(
     shape: &Shape,
     target: RefreshTarget,
@@ -253,5 +260,18 @@ fn proposal(
         bordered: shape.bordered,
         strategy_replaced: None,
         padding: padded,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_multiple_of_the_width_stops_before_an_overflow() {
+        assert_eq!(multiple_width(256, 5), Some(1_280));
+        assert_eq!(multiple_width(u16::MAX, 65_537), Some(4_294_967_295));
+        assert_eq!(multiple_width(u16::MAX, 65_538), None);
+        assert_eq!(multiple_width(2, u32::MAX), None);
     }
 }

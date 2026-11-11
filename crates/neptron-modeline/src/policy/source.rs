@@ -56,9 +56,11 @@ pub(crate) fn take_source(source: &SourceGeometry) -> Result<OrientedSource, Pol
 }
 
 /// `numerator / denominator` rounded to the nearest integer, a half up,
-/// saturated to `u32`. The callers never pass a zero denominator.
+/// saturated to `u32`. A zero denominator counts as 1. The sum is taken in
+/// `u128`, so it cannot overflow.
 pub(crate) fn div_round(numerator: u64, denominator: u64) -> u32 {
-    let quotient = (numerator + denominator / 2) / denominator.max(1);
+    let denominator = u128::from(denominator.max(1));
+    let quotient = (u128::from(numerator) + denominator / 2) / denominator;
     u32::try_from(quotient).unwrap_or(u32::MAX)
 }
 
@@ -110,5 +112,12 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[test]
+    fn div_round_saturates_at_the_extremes() {
+        assert_eq!(div_round(u64::MAX, u64::MAX), 1);
+        assert_eq!(div_round(u64::MAX, 1), u32::MAX);
+        assert_eq!(div_round(7, 0), 7);
     }
 }

@@ -1,5 +1,7 @@
 use neptron_types::{CrtRange, Modeline};
 
+use super::shape::blank_lines;
+
 /// A mode is padded when the game fills less than this share of the lines
 /// the range forces at the field rate, in percent.
 ///
@@ -60,13 +62,9 @@ pub(crate) fn padding(
 /// Lines per field that the minimum line rate forces, less the vertical
 /// blanking at that line rate.
 fn forced_picture_lines(range: &CrtRange, field_rate_mhz: u32) -> u32 {
-    const NS_MHZ_PER_LINE: u64 = 1_000_000_000_000;
     let rate = u64::from(field_rate_mhz).max(1);
     let total = range.h_min_mhz.div_ceil(rate);
-    let blank_ns = u64::from(range.v_front_porch_ns)
-        + u64::from(range.v_sync_ns)
-        + u64::from(range.v_back_porch_ns);
-    let blank = (blank_ns * range.h_min_mhz).div_ceil(NS_MHZ_PER_LINE);
+    let blank = blank_lines(range, range.h_min_mhz);
     u32::try_from(total.saturating_sub(blank)).unwrap_or(u32::MAX)
 }
 
@@ -191,5 +189,19 @@ mod tests {
     fn an_interlaced_mode_counts_lines_per_field() {
         // 480i on 15 kHz: 240 of 241 per field.
         assert_eq!(padding(480, &mode(480, true), 59_940, &generic_15()), None);
+    }
+
+    #[test]
+    fn the_rule_holds_at_the_extremes() {
+        let range = CrtRange {
+            h_min_mhz: u64::MAX,
+            v_front_porch_ns: u32::MAX,
+            v_sync_ns: u32::MAX,
+            v_back_porch_ns: u32::MAX,
+            ..edid_30_71()
+        };
+        assert_eq!(forced_picture_lines(&range, 1), u32::MAX);
+        assert_eq!(forced_picture_lines(&range, u32::MAX), 0);
+        assert!(padding(1, &mode(1, false), 1, &range).is_some());
     }
 }
