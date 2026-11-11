@@ -80,6 +80,12 @@ pub struct Scene<'a> {
     pub filter: Filter,
     /// The 320x240 UI canvas, drawn over the game, or `None` for no UI.
     pub ui: Option<Frame<'a>>,
+    /// Where the whole UI canvas goes, in pixels of the display mode. Each
+    /// axis scales on its own, so the video side picks the shape:
+    /// [`ui_dest_fill`] on a CRT, [`ui_dest_uniform`] on a flat panel. A
+    /// rectangle with a zero side shows no UI. The renderer ignores it when
+    /// `ui` is `None`.
+    pub ui_dest: Rect,
 }
 
 /// The UI destination for a CRT: the full active area of a

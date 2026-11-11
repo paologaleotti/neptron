@@ -13,7 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use neptron_gfx::{OutputBuffer, ReferenceRenderer};
-use neptron_types::{Filter, Frame, PixelFormat, Rect, Scene};
+use neptron_types::{Filter, Frame, PixelFormat, Rect, Scene, ui_dest_fill, ui_dest_uniform};
 
 /// Extra bytes at the end of each source row, so that the goldens also
 /// check the pitch.
@@ -102,6 +102,7 @@ fn game_scene(game: &Source, crop: Rect, dest: Rect, filter: Filter) -> Scene<'_
         dest,
         filter,
         ui: None,
+        ui_dest: rect(0, 0, 0, 0),
     }
 }
 
@@ -324,9 +325,36 @@ fn ui_over_the_game() {
     let ui = Source::pattern(16, 12, PixelFormat::Xrgb1555);
     let s = Scene {
         ui: Some(ui.frame()),
+        ui_dest: ui_dest_uniform(40, 30, 16, 12),
         ..game_scene(&game, rect(0, 0, 8, 6), rect(0, 0, 40, 30), Filter::Nearest)
     };
     check("ui_over_the_game", &render(&s, 40, 30));
+}
+
+/// A CRT mode six times wider than the canvas, as 1920x240 is for 320x240.
+#[test]
+fn ui_fills_a_super_width_mode() {
+    let game = Source::pattern(8, 6, PixelFormat::Xrgb8888);
+    let ui = Source::pattern(16, 12, PixelFormat::Xrgb1555);
+    let s = Scene {
+        ui: Some(ui.frame()),
+        ui_dest: ui_dest_fill(96, 12),
+        ..game_scene(&game, rect(0, 0, 8, 6), rect(0, 0, 96, 12), Filter::Nearest)
+    };
+    check("ui_fills_a_super_width_mode", &render(&s, 96, 12));
+}
+
+/// A canvas stretched by 6.25 and 1.5, partly outside the output.
+#[test]
+fn ui_fractional_scale_clipped() {
+    let game = Source::pattern(8, 6, PixelFormat::Xrgb8888);
+    let ui = Source::pattern(16, 12, PixelFormat::Xrgb8888);
+    let s = Scene {
+        ui: Some(ui.frame()),
+        ui_dest: rect(-10, 4, 100, 18),
+        ..game_scene(&game, rect(0, 0, 8, 6), rect(0, 0, 96, 24), Filter::Nearest)
+    };
+    check("ui_fractional_scale_clipped", &render(&s, 96, 24));
 }
 
 #[test]

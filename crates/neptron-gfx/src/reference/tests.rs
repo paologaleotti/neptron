@@ -30,6 +30,7 @@ fn scene<'a>(game: Option<Frame<'a>>, crop: Rect, dest: Rect, filter: Filter) ->
         dest,
         filter,
         ui: None,
+        ui_dest: rect(0, 0, 0, 0),
     }
 }
 
@@ -410,12 +411,22 @@ fn the_largest_rectangles_render() {
     assert_eq!(render(&s, 3, 1), [0xFF_FFFFFF, BLACK, BLACK]);
 }
 
+/// A scene with only the canvas `ui` at `ui_dest`.
+fn ui_scene(ui: Frame<'_>, ui_dest: Rect) -> Scene<'_> {
+    Scene {
+        ui: Some(ui),
+        ui_dest,
+        ..scene(None, rect(0, 0, 0, 0), rect(0, 0, 0, 0), Filter::Nearest)
+    }
+}
+
 #[test]
 fn ui_is_drawn_opaque_over_the_game() {
     let game = xrgb(&[0x00_0000FF]);
     let ui = xrgb(&[0x7F_FF0000, 0x00_000000]);
     let s = Scene {
         ui: Some(frame(&ui, 2, 1)),
+        ui_dest: rect(0, 0, 4, 2),
         ..scene(
             Some(frame(&game, 1, 1)),
             rect(0, 0, 1, 1),
@@ -423,8 +434,8 @@ fn ui_is_drawn_opaque_over_the_game() {
             Filter::Nearest,
         )
     };
-    // The canvas fits twice on both axes, so it scales by 2 and sits at
-    // (0, 0). Its black pixel and its X byte do not let the game show.
+    // The black pixel of the canvas and its X byte do not let the game
+    // show. Below the canvas, the game shows.
     let (g, red) = (0xFF_0000FF, 0xFF_FF0000);
     #[rustfmt::skip]
     let expected = [
@@ -436,52 +447,168 @@ fn ui_is_drawn_opaque_over_the_game() {
 }
 
 #[test]
-fn ui_scales_by_the_largest_integer_factor() {
-    let ui_data = xrgb(&[1, 2, 3, 4]);
-    let s = Scene {
-        ui: Some(frame(&ui_data, 2, 2)),
-        ..scene(None, rect(0, 0, 0, 0), rect(0, 0, 0, 0), Filter::Nearest)
-    };
+fn ui_scales_each_axis_on_its_own() {
+    let ui = xrgb(&[1, 2, 3, 4]);
+    let s = ui_scene(frame(&ui, 2, 2), rect(1, 0, 6, 2));
     let (b, p, q, r, t) = (BLACK, BLACK | 1, BLACK | 2, BLACK | 3, BLACK | 4);
     #[rustfmt::skip]
     let expected = [
-        b, p, p, q, q, b, b,
-        b, p, p, q, q, b, b,
-        b, r, r, t, t, b, b,
-        b, r, r, t, t, b, b,
-        b, b, b, b, b, b, b,
+        b, p, p, p, q, q, q, b,
+        b, r, r, r, t, t, t, b,
+        b, b, b, b, b, b, b, b,
     ];
-    assert_eq!(render(&s, 7, 5), expected);
+    assert_eq!(render(&s, 8, 3), expected);
 }
 
 #[test]
-fn ui_larger_than_the_output_is_cropped_around_the_centre() {
-    let ui_data = xrgb(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    let s = Scene {
-        ui: Some(frame(&ui_data, 3, 3)),
-        ..scene(None, rect(0, 0, 0, 0), rect(0, 0, 0, 0), Filter::Nearest)
-    };
-    assert_eq!(render(&s, 1, 1), [BLACK | 5]);
-    // The margin is -1: the canvas loses its left column and its top line.
+fn ui_fills_a_super_width_output() {
+    let ui = xrgb(&[1, 2, 3, 4]);
+    let s = ui_scene(frame(&ui, 2, 2), rect(0, 0, 12, 2));
+    let row = |a, c| [[BLACK | a; 6], [BLACK | c; 6]].concat();
+    assert_eq!(render(&s, 12, 2), [row(1, 2), row(3, 4)].concat());
+}
+
+#[test]
+fn ui_uses_the_sample_rule_of_the_game() {
+    // Centres of 5 pixels over 2 canvas pixels: 0.2, 0.6, 1.0, 1.4, 1.8.
+    // A centre on a pixel edge takes the pixel on the right.
+    let ui = xrgb(&[1, 2]);
+    let s = ui_scene(frame(&ui, 2, 1), rect(0, 0, 5, 1));
+    let (p, q) = (BLACK | 1, BLACK | 2);
+    assert_eq!(render(&s, 5, 1), [p, p, q, q, q]);
+    // Centres at 1.0 and 3.0.
+    let ui = xrgb(&[1, 2, 3, 4]);
+    let s = ui_scene(frame(&ui, 4, 1), rect(0, 0, 2, 1));
+    assert_eq!(render(&s, 2, 1), [BLACK | 2, BLACK | 4]);
+}
+
+#[test]
+fn ui_outside_the_output_is_clipped_without_a_scale_change() {
+    let ui = xrgb(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    let s = ui_scene(frame(&ui, 3, 3), rect(-1, -1, 3, 3));
     assert_eq!(
         render(&s, 2, 2),
         [BLACK | 5, BLACK | 6, BLACK | 8, BLACK | 9]
     );
+    let s = ui_scene(frame(&ui, 3, 3), rect(-1, 1, 6, 6));
+    // Destination column 1 shows canvas column 0; line 0 is above it.
+    assert_eq!(render(&s, 2, 2), [BLACK, BLACK, BLACK | 1, BLACK | 2]);
+    let s = ui_scene(frame(&ui, 3, 3), rect(2, 0, 3, 3));
+    assert_eq!(render(&s, 2, 2), [BLACK; 4]);
 }
 
 #[test]
 fn an_empty_ui_draws_nothing() {
     let game = xrgb(&[7]);
+    let ui = xrgb(&[1]);
+    for (canvas, ui_dest) in [
+        (frame(&[], 0, 0), rect(0, 0, 1, 1)),
+        (frame(&ui, 1, 1), rect(0, 0, 0, 1)),
+        (frame(&ui, 1, 1), rect(0, 0, 1, 0)),
+    ] {
+        let s = Scene {
+            ui: Some(canvas),
+            ui_dest,
+            ..scene(
+                Some(frame(&game, 1, 1)),
+                rect(0, 0, 1, 1),
+                rect(0, 0, 1, 1),
+                Filter::Nearest,
+            )
+        };
+        assert_eq!(render(&s, 1, 1), [BLACK | 7], "ui_dest {ui_dest:?}");
+    }
+}
+
+#[test]
+fn ui_at_extreme_positions_renders() {
+    let ui = xrgb(&[1, 2]);
+    let side = MAX_RECT_SIDE_PX;
+    for ui_dest in [
+        rect(i32::MAX, i32::MAX, side, side),
+        rect(i32::MIN, i32::MIN, side, side),
+        rect(i32::MAX, 0, side, 1),
+        rect(0, i32::MIN, 1, side),
+    ] {
+        let s = ui_scene(frame(&ui, 2, 1), ui_dest);
+        assert_eq!(render(&s, 3, 2), [BLACK; 6], "ui_dest {ui_dest:?}");
+    }
+    // Output pixel 0 is the last pixel of the destination: canvas column 1.
+    let last = 1 - i32::try_from(side).expect("the limit fits an i32");
+    let s = ui_scene(frame(&ui, 2, 1), rect(last, 0, side, side));
+    assert_eq!(render(&s, 2, 1), [BLACK | 2, BLACK]);
+    let s = ui_scene(frame(&ui, 2, 1), rect(0, 0, side, side));
+    assert_eq!(render(&s, 2, 1), [BLACK | 1, BLACK | 1]);
+}
+
+#[test]
+fn a_huge_ui_destination_is_refused() {
+    let ui = xrgb(&[1]);
+    let mut out = vec![7_u8; 16];
+    for (w, h) in [
+        (MAX_RECT_SIDE_PX + 1, 1),
+        (1, MAX_RECT_SIDE_PX + 1),
+        (u32::MAX, u32::MAX),
+    ] {
+        let s = ui_scene(frame(&ui, 1, 1), rect(i32::MIN, i32::MAX, w, h));
+        assert_eq!(
+            render_err(&s, &mut out, 2, 2, 8),
+            RenderError::RectTooLarge {
+                rect: RectKind::UiDest,
+                w,
+                h,
+                limit: MAX_RECT_SIDE_PX
+            }
+        );
+    }
+}
+
+#[test]
+fn the_ui_destination_is_not_checked_without_a_canvas() {
     let s = Scene {
-        ui: Some(frame(&[], 0, 0)),
+        ui_dest: rect(0, 0, u32::MAX, u32::MAX),
+        ..scene(None, rect(0, 0, 0, 0), rect(0, 0, 0, 0), Filter::Nearest)
+    };
+    assert_eq!(render(&s, 1, 1), [BLACK]);
+}
+
+#[test]
+fn a_second_render_keeps_the_tables() {
+    let game = xrgb(&[1, 2, 3, 4]);
+    let ui = xrgb(&[5, 6]);
+    let s = Scene {
+        ui: Some(frame(&ui, 2, 1)),
+        ui_dest: rect(-3, 1, 9, 2),
         ..scene(
-            Some(frame(&game, 1, 1)),
-            rect(0, 0, 1, 1),
-            rect(0, 0, 1, 1),
-            Filter::Nearest,
+            Some(frame(&game, 2, 2)),
+            rect(0, 0, 2, 2),
+            rect(1, 0, 4, 4),
+            Filter::SharpBilinear,
         )
     };
-    assert_eq!(render(&s, 1, 1), [BLACK | 7]);
+    let mut renderer = ReferenceRenderer::new();
+    let mut data = vec![0_u8; 6 * 4 * 4];
+    let mut out = OutputBuffer {
+        data: &mut data,
+        width: 6,
+        height: 4,
+        pitch: 24,
+    };
+    renderer.render(&s, &mut out).expect("valid scene");
+    let first = (
+        renderer.columns.as_ptr(),
+        renderer.columns.capacity(),
+        renderer.lines.as_ptr(),
+        renderer.lines.capacity(),
+    );
+    renderer.render(&s, &mut out).expect("valid scene");
+    let second = (
+        renderer.columns.as_ptr(),
+        renderer.columns.capacity(),
+        renderer.lines.as_ptr(),
+        renderer.lines.capacity(),
+    );
+    assert_eq!(first, second);
 }
 
 #[test]
@@ -494,10 +621,7 @@ fn a_short_ui_canvas_is_refused() {
         pitch: 6,
         format: PixelFormat::Xrgb1555,
     };
-    let s = Scene {
-        ui: Some(ui),
-        ..scene(None, rect(0, 0, 0, 0), rect(0, 0, 0, 0), Filter::Nearest)
-    };
+    let s = ui_scene(ui, rect(0, 0, 2, 2));
     let mut out = vec![7_u8; 16];
     assert_eq!(
         render_err(&s, &mut out, 2, 2, 8),

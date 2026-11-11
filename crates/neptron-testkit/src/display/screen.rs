@@ -134,8 +134,8 @@ enum Which {
     Shown,
 }
 
-/// A scene copied into one buffer: a header with the mode size, the
-/// rectangles, the filter and the size and format of each frame, then the
+/// A scene copied into one buffer: a header with the mode size, the crop,
+/// the destination and the UI destination, the filter and the size and format of each frame, then the
 /// rows of the game frame and of the UI canvas with no padding. All values
 /// are little-endian. The hash of [`Render::Scene`] is the hash of these
 /// bytes, so it is the same on every host.
@@ -144,6 +144,7 @@ struct OwnedScene {
     bytes: Vec<u8>,
     crop: Option<Rect>,
     dest: Option<Rect>,
+    ui_dest: Option<Rect>,
     filter: Option<Filter>,
     game: Option<Layout>,
     ui: Option<Layout>,
@@ -166,7 +167,7 @@ impl OwnedScene {
         bytes.clear();
         bytes.extend_from_slice(&width.to_le_bytes());
         bytes.extend_from_slice(&height.to_le_bytes());
-        for rect in [scene.crop, scene.dest] {
+        for rect in [scene.crop, scene.dest, scene.ui_dest] {
             bytes.extend_from_slice(&rect.x.to_le_bytes());
             bytes.extend_from_slice(&rect.y.to_le_bytes());
             bytes.extend_from_slice(&rect.w.to_le_bytes());
@@ -195,6 +196,7 @@ impl OwnedScene {
         self.ui = scene.ui.as_ref().map(|f| copy_rows(bytes, f));
         self.crop = Some(scene.crop);
         self.dest = Some(scene.dest);
+        self.ui_dest = Some(scene.ui_dest);
         self.filter = Some(scene.filter);
     }
 
@@ -225,6 +227,7 @@ impl OwnedScene {
             dest: self.dest.unwrap_or(empty),
             filter: self.filter.unwrap_or(Filter::Nearest),
             ui: self.ui.as_ref().map(frame),
+            ui_dest: self.ui_dest.unwrap_or(empty),
         }
     }
 }

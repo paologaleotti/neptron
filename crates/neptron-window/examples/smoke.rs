@@ -132,6 +132,12 @@ fn run_frames(
             },
             filter: Filter::Nearest,
             ui: None,
+            ui_dest: Rect {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+            },
         };
         display.present(&scene)?;
         let flip = display.wait_flip()?;

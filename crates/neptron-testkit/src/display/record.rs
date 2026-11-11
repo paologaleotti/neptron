@@ -42,6 +42,8 @@ pub struct SceneSummary {
     pub filter: Filter,
     /// Width and height of the UI canvas, if any.
     pub ui: Option<(u16, u16)>,
+    /// The UI destination rectangle.
+    pub ui_dest: Rect,
 }
 
 /// One call of `present`, and the flip that followed it.
@@ -91,6 +93,7 @@ impl SceneSummary {
             dest: scene.dest,
             filter: scene.filter,
             ui: scene.ui.map(|f| (f.width, f.height)),
+            ui_dest: scene.ui_dest,
         }
     }
 }

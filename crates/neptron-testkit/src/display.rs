@@ -109,8 +109,8 @@ pub enum Render {
     /// mode size are kept. In the unoptimised test build, a 320x240 frame
     /// takes about 10 ms. For goldens of every frame.
     Pixels,
-    /// Record the hash of the scene: the mode size, the rectangles, the
-    /// filter, and the rows of each frame without padding. The renderer is
+    /// Record the hash of the scene: the mode size, the crop, the
+    /// destination and the UI destination, the filter, and the rows of each frame without padding. The renderer is
     /// a pure function of these, so two scenes with the same hash show the
     /// same pixels. The queued scene and the scene on screen are copied,
     /// and rendered only for [`FakeDisplay::screen`] and captures, with the

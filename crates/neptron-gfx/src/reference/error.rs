@@ -4,8 +4,8 @@ use neptron_types::{Frame, Rect};
 
 use super::OutputBuffer;
 
-/// The largest width or height of the crop and the destination rectangle,
-/// in pixels. It keeps every intermediate value of the pixel maths inside
+/// The largest width or height of the crop, the destination and the UI
+/// destination rectangle, in pixels. It keeps every intermediate value of the pixel maths inside
 /// a `u64`.
 pub const MAX_RECT_SIDE_PX: u32 = 1 << 16;
 
@@ -50,8 +50,8 @@ pub enum RenderError {
         /// The pitch, in bytes.
         pitch: usize,
     },
-    /// A side of the crop or the destination rectangle is above
-    /// [`MAX_RECT_SIDE_PX`].
+    /// A side of the crop, the destination or the UI destination rectangle
+    /// is above [`MAX_RECT_SIDE_PX`].
     #[error("the {rect} rectangle is {w}x{h} pixels, above the limit of {limit} pixels per side")]
     RectTooLarge {
         /// The rectangle with the fault.
@@ -81,8 +81,10 @@ pub enum Image {
 pub enum RectKind {
     /// The crop, in game frame pixels.
     Crop,
-    /// The destination, in output pixels.
+    /// The destination of the game frame, in output pixels.
     Dest,
+    /// The destination of the UI canvas, in output pixels.
+    UiDest,
 }
 
 impl fmt::Display for Image {
@@ -100,6 +102,7 @@ impl fmt::Display for RectKind {
         f.write_str(match self {
             RectKind::Crop => "crop",
             RectKind::Dest => "destination",
+            RectKind::UiDest => "UI destination",
         })
     }
 }

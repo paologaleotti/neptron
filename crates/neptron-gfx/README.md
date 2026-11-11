@@ -18,7 +18,8 @@ The doc comment of `ReferenceRenderer` states every pixel rule. In short:
 - Mapping: destination pixel `i` samples the source at `crop.x + (i + 1/2) * crop.w / dest.w`, an exact fraction. Each axis scales on its own. A sample outside the frame is black. A zero-size crop or destination shows no game.
 - Nearest: the source pixel under the sample point. A point on an edge takes the right or the lower pixel.
 - Sharp bilinear: the libretro `sharp-bilinear` formula with an integer prescale per axis. Taps clamp to the crop inside the frame. Each channel is the exact blend, rounded half up. At an integer scale it equals nearest.
-- UI canvas: opaque, over the game, at the largest integer scale that fits, centred.
+- UI canvas: opaque, over the game. The whole canvas scales to `scene.ui_dest` with nearest scaling, each axis on its own, with the sample rule of the game (pixel centres, `floor`). A part outside the output is clipped. A zero-size `ui_dest` shows no UI. The renderer does not choose the rectangle: the video side sets it with `ui_dest_fill` (CRT) or `ui_dest_uniform` (flat panel) from `neptron-types`.
+- Rectangles: a crop, destination or UI destination side above `MAX_RECT_SIDE_PX` (65 536) is refused with `RenderError::RectTooLarge`, so no position or size can make the renderer panic.
 - Integer maths only, so every host gives the same bytes.
 - No `unsafe`: the module carries `#[forbid(unsafe_code)]`.
 - Allocation: two small tables of sample positions grow on the first call and on a larger output. Other calls allocate nothing.

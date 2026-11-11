@@ -43,7 +43,7 @@ Code that passes on the fake display must also work on the KMS backend. The KMS 
 
 | `Render` | Per frame | Kept for the run | Cost in the dev profile | Use it for |
 | --- | --- | --- | --- | --- |
-| `Scene` (default) | Hashes the scene (mode size, rectangles, filter, rows without padding) | Two copies of a scene; pixels only for `screen` and captures | Well under 1 ms | Sessions and scripted scenarios |
+| `Scene` (default) | Hashes the scene (mode size, crop, destination, UI destination, filter, rows without padding) | Two copies of a scene; pixels only for `screen` and captures | Well under 1 ms | Sessions and scripted scenarios |
 | `Pixels` | Renders at the mode size and hashes the pixels | Two XRGB8888 buffers of the mode size | About 10 ms for 320x240 | Goldens of every frame; a capture in `Scene` mode is enough for one frame |
 | `Off` | Checks the scene only | Nothing | Least | Long timing runs, such as the 100,000-frame pacing check |
 

@@ -96,19 +96,19 @@ pub struct OutputBuffer<'a> {
 ///
 /// The UI canvas is drawn after the game, over it, and is opaque: every
 /// output pixel it covers shows the canvas pixel, whatever the game shows
-/// there. The X bits of the canvas are ignored, as for the game. The canvas
-/// scales by the largest integer factor `k` at which it fits the output on
-/// both axes, at least 1, with nearest scaling. Its top-left corner is at
-/// `floor((out.width - k * ui.width) / 2)` and
-/// `floor((out.height - k * ui.height) / 2)`, so a canvas larger than the
-/// output loses the same amount on both sides, one pixel more on the left
-/// or the top for an odd margin.
+/// there. The X bits of the canvas are ignored, as for the game. The whole
+/// canvas scales to `ui_dest`, in output pixels, with nearest scaling and
+/// the sample rule of the game: pixel `i` of `ui_dest` shows canvas column
+/// `floor((i + 1/2) * ui.width / ui_dest.w)`, and the same holds for lines.
+/// Each axis scales on its own. A part of `ui_dest` outside the output is
+/// clipped; the scale does not change. A `ui_dest` with a zero side shows
+/// no UI. The renderer does not choose `ui_dest`.
 ///
 /// # Integers
 ///
 /// The pixel path uses integer maths only, so the output is the same on
-/// every host. With crop and destination sides up to [`MAX_RECT_SIDE_PX`],
-/// no value overflows a `u64`.
+/// every host. With rectangle sides up to [`MAX_RECT_SIDE_PX`], no value
+/// overflows a `u64`.
 ///
 /// # Allocation
 ///
@@ -133,8 +133,9 @@ impl ReferenceRenderer {
     /// # Errors
     ///
     /// [`RenderError`] when a frame or the output buffer is smaller than
-    /// its size and pitch need, or when a rectangle side of a scene with a
-    /// game frame is above [`MAX_RECT_SIDE_PX`]. The renderer checks
+    /// its size and pitch need, or when a side of a rectangle that the
+    /// scene uses is above [`MAX_RECT_SIDE_PX`]: the crop and the
+    /// destination with a game frame, the UI destination with a canvas. The renderer checks
     /// everything before it writes, so `out` is unchanged after an error.
     pub fn render(
         &mut self,
@@ -149,13 +150,14 @@ impl ReferenceRenderer {
         }
         if let Some(ui) = &scene.ui {
             check_frame(ui, Image::Ui)?;
+            check_rect(&scene.ui_dest, RectKind::UiDest)?;
         }
         fill_black(out);
         if let Some(game) = &scene.game {
             self.draw_game(game, scene, out);
         }
         if let Some(ui) = &scene.ui {
-            overlay::draw(ui, out);
+            self.draw_ui(ui, scene.ui_dest, out);
         }
         Ok(())
     }

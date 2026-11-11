@@ -65,6 +65,12 @@ fn scene(data: &[u8]) -> Scene<'_> {
         },
         filter: Filter::Nearest,
         ui: None,
+        ui_dest: Rect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        },
     }
 }
 
@@ -85,6 +91,12 @@ fn empty() -> Scene<'static> {
         },
         filter: Filter::Nearest,
         ui: None,
+        ui_dest: Rect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        },
     }
 }
 
@@ -640,6 +652,44 @@ fn the_scene_hash_ignores_the_row_padding() {
     padded.extend_from_slice(&[0xAB; 4]);
     padded.extend_from_slice(&packed[16..]);
     assert_eq!(hash(&packed, 16), hash(&padded, 20));
+}
+
+#[test]
+fn the_scene_hash_includes_the_ui_destination() {
+    let hash = |ui_dest| {
+        let clock = SimClock::new();
+        let mut display =
+            FakeDisplay::with_options(clock, CAPS_LOW_CLOCK, DisplayOptions::default());
+        display.set_mode(&mode(MODE_240P)).unwrap();
+        let data = bytes(&PIXELS);
+        let s = Scene {
+            ui: Some(Frame {
+                data: &data,
+                width: 4,
+                height: 2,
+                pitch: 16,
+                format: PixelFormat::Xrgb8888,
+            }),
+            ui_dest,
+            ..scene(&data)
+        };
+        display.present(&s).unwrap();
+        display.frames()[0].hash.unwrap()
+    };
+    let wide = Rect {
+        x: 0,
+        y: 0,
+        w: 320,
+        h: 240,
+    };
+    let narrow = Rect {
+        x: 158,
+        y: 119,
+        w: 4,
+        h: 2,
+    };
+    assert_eq!(hash(wide), hash(wide));
+    assert_ne!(hash(wide), hash(narrow));
 }
 
 #[test]
