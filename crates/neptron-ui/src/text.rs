@@ -92,11 +92,14 @@ pub fn draw_in(scene: &mut UiScene, rect: Rect, align: Align, color: Color, text
 
 /// Splits `text` into lines of at most `width_px`, at spaces where it can
 /// and inside a word where it must. A `\n` always ends a line. Each line is
-/// a slice of `text` without its outer spaces.
+/// a slice of `text` without the spaces at its end. A line that starts
+/// after a `\n` keeps its leading spaces, so a message can indent a line;
+/// a line that starts after a break at a space does not.
 pub fn wrap(text: &str, width_px: u32) -> Wrap<'_> {
     Wrap {
         rest: text,
         room: font::chars_in(width_px).max(1),
+        after_space: false,
     }
 }
 
@@ -105,18 +108,24 @@ pub fn wrap(text: &str, width_px: u32) -> Wrap<'_> {
 pub struct Wrap<'a> {
     rest: &'a str,
     room: usize,
+    after_space: bool,
 }
 
 impl<'a> Iterator for Wrap<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<&'a str> {
-        let rest = self.rest.trim_start_matches(' ');
-        if rest.is_empty() {
+        if self.rest.trim_start_matches(' ').is_empty() {
             return None;
         }
-        let (line, next) = take_line(rest, self.room);
+        let rest = if self.after_space {
+            self.rest.trim_start_matches(' ')
+        } else {
+            self.rest
+        };
+        let (line, next, at_newline) = take_line(rest, self.room);
         self.rest = next;
+        self.after_space = !at_newline;
         Some(line.trim_end_matches(' '))
     }
 }
@@ -204,26 +213,28 @@ fn prefix(text: &str, chars: usize) -> &str {
     }
 }
 
-fn take_line(text: &str, room: usize) -> (&str, &str) {
+/// The first line of `text` that fits `room` characters, the text after
+/// it, and true when a `\n` ended the line.
+fn take_line(text: &str, room: usize) -> (&str, &str, bool) {
     let mut last_space = None;
     for (count, (at, c)) in text.char_indices().enumerate() {
         if c == '\n' {
-            return (&text[..at], &text[at + 1..]);
+            return (&text[..at], &text[at + 1..], true);
         }
         if count == room {
             if c == ' ' {
-                return (&text[..at], &text[at..]);
+                return (&text[..at], &text[at..], false);
             }
             return match last_space {
-                Some(space) => (&text[..space], &text[space..]),
-                None => (&text[..at], &text[at..]),
+                Some(space) => (&text[..space], &text[space..], false),
+                None => (&text[..at], &text[at..], false),
             };
         }
         if c == ' ' {
             last_space = Some(at);
         }
     }
-    (text, "")
+    (text, "", false)
 }
 
 fn offset(x: i32, by: u32) -> i32 {
@@ -322,6 +333,15 @@ mod tests {
         assert_eq!(lines, ["abcde", "fghij", "kl", "xy"]);
         assert_eq!(wrap("", 30).count(), 0);
         assert_eq!(wrap("a\n\nb", 30).collect::<Vec<_>>(), ["a", "", "b"]);
+    }
+
+    #[test]
+    fn a_line_after_a_newline_keeps_its_indent() {
+        let lines: Vec<_> = wrap("Folders:\n  roms/nes  roms/snes", 300).collect();
+        assert_eq!(lines, ["Folders:", "  roms/nes  roms/snes"]);
+        let lines: Vec<_> = wrap("  one two three", 60).collect();
+        assert_eq!(lines, ["  one two", "three"]);
+        assert_eq!(wrap("a\n   ", 60).collect::<Vec<_>>(), ["a"]);
     }
 
     #[test]
