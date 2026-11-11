@@ -61,7 +61,7 @@ The table above lists what is possible; the user picks with a single "Picture st
 - The line count is the game's own height times the factor, so a 224-line game at 3x is a 672-line mode with no borders.
 - Each row shows the resulting line rate and field rate before it is applied, for example "45.3 kHz, 59.94 Hz, in range". Styles the active monitor profile cannot display are greyed out with the reason.
 - Double refresh has a trade-off the menu states: repeating frames keeps brightness but doubles moving edges; inserting black frames gives correct motion at half brightness with 60 Hz flicker. That is why it is not the default.
-- Two companion settings sit beside it: scanline strength, and refresh policy (exact, exact x2, or force 50/60).
+- Two companion settings sit beside it: scanline strength, and refresh policy (`exact`, `exact_x2`, `force_50`, `force_60`). In the settings files the picture style takes `auto`, `native`, `2x`, `3x` or `4x`.
 
 **Decision procedure.** ODREN runs these steps at launch and whenever the core's geometry changes. This list is the specification the policy tests are written from.
 
@@ -108,7 +108,7 @@ The table above lists what is possible; the user picks with a single "Picture st
 
 **Force 50 Hz / 60 Hz**
 
-A `refresh_policy` setting takes `native`, `force_60` or `force_50` at global, system or game level. Where a core exposes a region option, NEPTRON sets it to match. Where it does not, the game runs at the forced rate, speed changes by the ratio, and the quick menu says so. RePlayOS removed its forced 50/60 modes for stability reasons, so forcing is only offered where the profile's vertical range covers the target rate.
+A `refresh_policy` setting takes `exact`, `exact_x2`, `force_60` or `force_50` at global, system or game level. It is independent of the picture style: the style `native` with the policy `exact_x2` gives the "Native, double refresh" row of the picture style table. Where a core exposes a region option, NEPTRON sets it to match. Where it does not, the game runs at the forced rate, speed changes by the ratio, and the quick menu says so. RePlayOS removed its forced 50/60 modes for stability reasons, so forcing is only offered where the profile's vertical range covers the target rate.
 
 **Calibration**
 
