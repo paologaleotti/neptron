@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod builtin;
+mod edit;
 mod layer;
 mod parse;
 mod resolve;
@@ -12,6 +13,7 @@ pub use builtin::{
     DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE, NAME_MAX_LEN,
     PICTURE_STYLES, REFRESH_POLICIES, SCHEMA_VERSION, VERSION_KEY,
 };
+pub use edit::{Change, EditError, edit};
 pub use layer::{Layer, SetError};
 pub use parse::{Issue, IssueKind, Parsed, parse_layer};
 pub use resolve::{LayerMismatch, Layers, Resolved, resolve, resolve_key};
