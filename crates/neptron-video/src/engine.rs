@@ -24,13 +24,17 @@ pub enum VideoError {
     /// The display refused or failed the present. No flip is queued.
     #[error("present failed: {0}")]
     Present(DisplayError),
-    /// The display failed while it waited for the flip. The flip is lost.
+    /// The wait for the flip failed. The flip stays queued, because a
+    /// wait can time out while the flip is still in flight, until
+    /// [`FLIP_WAIT_ATTEMPTS`] waits in a row have failed; then it counts as
+    /// lost.
     #[error("wait_flip failed: {0}")]
     WaitFlip(DisplayError),
-    /// A flip was still queued before a modeset, and the wait for it
-    /// failed. The modeset waits for the next frame.
-    #[error("the flip before the modeset failed: {0}")]
-    FlipBeforeModeset(DisplayError),
+    /// The flip of the last present is still queued, and the wait for it
+    /// failed. Nothing was set or queued; a modeset waits for the next
+    /// frame.
+    #[error("the queued flip did not complete: {0}")]
+    PendingFlip(DisplayError),
     /// The driver read back a mode that the engine refuses, and setting
     /// the last good mode again failed. The mode on the display is not
     /// known; the engine decides again on the next frame.
@@ -43,11 +47,18 @@ pub enum VideoError {
     },
 }
 
+/// A queued flip whose wait failed this many times in a row counts as
+/// lost. A wait can time out while the flip is still in flight: the first
+/// failure keeps the flip queued, so the display does not refuse the next
+/// `set_mode` or `present` as busy. A second failure in a row means the
+/// device dropped the flip.
+pub const FLIP_WAIT_ATTEMPTS: u32 = 2;
+
 /// What [`VideoEngine::present`] did.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Presented {
-    /// A flip of the previous frame that the engine waited for before the
-    /// modeset, because the caller had not.
+    /// A flip of the previous present that the engine waited for first,
+    /// because the caller had not.
     pub drained_flip: Option<FlipEvent>,
     /// The outcome of the modeset of this present, if there was one:
     /// [`Outcome::Modeset`], [`Outcome::SetModeFailed`] or
@@ -67,6 +78,8 @@ pub struct VideoEngine<D: Display> {
     display: D,
     odren: Odren,
     flip_pending: bool,
+    /// Failed waits in a row for the queued flip.
+    failed_waits: u32,
 }
 
 impl<D: Display> VideoEngine<D> {
@@ -78,6 +91,7 @@ impl<D: Display> VideoEngine<D> {
             display,
             odren,
             flip_pending: false,
+            failed_waits: 0,
         }
     }
 
@@ -112,7 +126,7 @@ impl<D: Display> VideoEngine<D> {
     /// # Errors
     ///
     /// [`VideoError::NoMode`] when no mode is set,
-    /// [`VideoError::FlipBeforeModeset`] or [`VideoError::RestoreFailed`]
+    /// [`VideoError::PendingFlip`] or [`VideoError::RestoreFailed`]
     /// as their docs say, and [`VideoError::Present`] when the display
     /// refuses the scene.
     pub fn present(
@@ -124,10 +138,8 @@ impl<D: Display> VideoEngine<D> {
             drained_flip: None,
             modeset: None,
         };
-        if self.odren.pending_order().is_some() {
-            presented.drained_flip = self.drain_flip()?;
-            presented.modeset = self.modeset()?;
-        }
+        presented.drained_flip = self.drain_flip()?;
+        presented.modeset = self.modeset()?;
         let placement = self
             .odren
             .current()
@@ -149,10 +161,7 @@ impl<D: Display> VideoEngine<D> {
         if !self.flip_pending {
             return Err(VideoError::NoFlipPending);
         }
-        self.flip_pending = false;
-        let event = self.display.wait_flip().map_err(VideoError::WaitFlip)?;
-        self.odren.on_flip(&event);
-        Ok(event)
+        self.wait_queued().map_err(VideoError::WaitFlip)
     }
 
     /// Audio must be silent now.
@@ -200,19 +209,39 @@ impl<D: Display> VideoEngine<D> {
         self.odren.style_rows(source)
     }
 
-    /// The display refuses `set_mode` while a flip is queued, so the
-    /// engine waits for it first.
+    /// The display refuses `set_mode` and `present` while a flip is
+    /// queued, so the engine waits for it first. A flip that counts as lost
+    /// after this wait lets the present go on.
     fn drain_flip(&mut self) -> Result<Option<FlipEvent>, VideoError> {
         if !self.flip_pending {
             return Ok(None);
         }
-        self.flip_pending = false;
-        let event = self
-            .display
-            .wait_flip()
-            .map_err(VideoError::FlipBeforeModeset)?;
-        self.odren.on_flip(&event);
-        Ok(Some(event))
+        match self.wait_queued() {
+            Ok(event) => Ok(Some(event)),
+            Err(_) if !self.flip_pending => Ok(None),
+            Err(error) => Err(VideoError::PendingFlip(error)),
+        }
+    }
+
+    /// The one call of `Display::wait_flip`. The flip stays queued until
+    /// the wait succeeds or [`FLIP_WAIT_ATTEMPTS`] waits fail in a row.
+    fn wait_queued(&mut self) -> Result<FlipEvent, DisplayError> {
+        match self.display.wait_flip() {
+            Ok(event) => {
+                self.flip_pending = false;
+                self.failed_waits = 0;
+                self.odren.on_flip(&event);
+                Ok(event)
+            }
+            Err(error) => {
+                self.failed_waits += 1;
+                if self.failed_waits >= FLIP_WAIT_ATTEMPTS {
+                    self.flip_pending = false;
+                    self.failed_waits = 0;
+                }
+                Err(error)
+            }
+        }
     }
 
     fn modeset(&mut self) -> Result<Option<Outcome>, VideoError> {

@@ -20,7 +20,7 @@ mod trace;
 
 pub use cache::CACHE_ENTRIES;
 pub use decision::{Chosen, Refusal, Unshowable, Veto};
-pub use engine::{Presented, VideoEngine, VideoError};
+pub use engine::{FLIP_WAIT_ATTEMPTS, Presented, VideoEngine, VideoError};
 pub use monitor::Monitor;
 pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
 pub use scene::build_scene;
