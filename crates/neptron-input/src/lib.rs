@@ -8,7 +8,14 @@
 #![forbid(unsafe_code)]
 
 mod device;
+mod pad_map;
+mod raw;
 
 pub use device::{
     DeviceIdentity, GAMEPAD_DEVICE_BASE, KEYBOARD_DEVICE_BASE, MAX_KEYBOARDS, MAX_PORTS, port_of,
 };
+pub use pad_map::{
+    AxisTarget, PAD_BUTTON_MAP, STICK_DEAD_ZONE, TRIGGER_THRESHOLD, axis_target, hat_values,
+    pad_control, stick_value, trigger_value,
+};
+pub use raw::{HatState, PadAxis, PadButton, RawInput};
