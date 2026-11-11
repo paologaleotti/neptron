@@ -6,8 +6,10 @@ use neptron_audio::Resampling;
 use crate::harness::{Hz, Session, Setup, assert_steady};
 
 const SEED: u64 = 0x5EED_A0D1_0000_0017;
-const CASES: u64 = 12;
-const RUN_S: u64 = 60;
+/// Cases per test; four tests run in parallel.
+const CASES_PER_TEST: u64 = 3;
+/// About 4.7 time constants of the law: the fixed point is reached.
+const RUN_S: u64 = 30;
 
 /// SplitMix64 of a seed and an index: the same draw in every run.
 fn draw(index: u64) -> u64 {
@@ -36,9 +38,8 @@ fn setup(case: u64) -> Setup {
     }
 }
 
-#[test]
-fn random_rate_pairs_stay_inside_the_bounds() {
-    for case in 0..CASES {
+fn check(first: u64) {
+    for case in first..first + CASES_PER_TEST {
         let setup = setup(case);
         let mut session = Session::new(setup);
         session.run_seconds(RUN_S);
@@ -54,4 +55,24 @@ fn random_rate_pairs_stay_inside_the_bounds() {
             measured.high
         );
     }
+}
+
+#[test]
+fn random_rate_pairs_0_to_2_stay_inside_the_bounds() {
+    check(0);
+}
+
+#[test]
+fn random_rate_pairs_3_to_5_stay_inside_the_bounds() {
+    check(3);
+}
+
+#[test]
+fn random_rate_pairs_6_to_8_stay_inside_the_bounds() {
+    check(6);
+}
+
+#[test]
+fn random_rate_pairs_9_to_11_stay_inside_the_bounds() {
+    check(9);
 }

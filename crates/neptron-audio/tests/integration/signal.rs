@@ -123,9 +123,9 @@ fn forced_60(resampling: Resampling) -> Setup {
 }
 
 #[test]
-fn a_50_hz_game_forced_to_60_hz_stays_inside_the_bounds_for_ten_minutes() {
+fn a_50_hz_game_forced_to_60_hz_stays_inside_the_bounds() {
     let mut session = Session::new(forced_60(Resampling::Polynomial));
-    session.run_seconds(600);
+    session.run_seconds(120);
     let measured = assert_steady(&session, 0.25, 0.75);
     println!(
         "forced 60 Hz: levels {:.3} to {:.3}, deviation after settling {:.5}",

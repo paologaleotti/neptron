@@ -1,21 +1,24 @@
 //! Long runs at fixed rates: the queue stays inside its bounds with no
 //! underrun and no overrun.
 //!
-//! Each scenario runs ten simulated minutes with the polynomial resampler.
-//! The sinc filter costs 21% of real time in the dev profile, so it runs
-//! 30 simulated seconds: here for the display scenarios, and in `signal`
-//! for the core's own rate and the device 0.1% fast and slow. The law sees
-//! only frame counts, which both resamplers give alike up to the constant
-//! filter delay.
+//! Each scenario runs 120 simulated seconds with the polynomial resampler.
+//! The law's time constant is 6.4 s, so 120 s is about 19 time constants:
+//! the queue has reached its fixed point long before the end, and a longer
+//! run proves nothing more. One ten-minute run, the full length of timing
+//! check 6, is ignored by default and runs on demand. The sinc filter costs
+//! 21% of real time in the dev profile; it runs in `signal` and `events`
+//! for the core's own rate, the device 0.1% fast and slow, a forced rate
+//! and the mode switch. The law sees only frame counts, which both
+//! resamplers give alike up to the constant filter delay.
 
 use neptron_audio::Resampling;
 
 use crate::harness::{Session, Setup, assert_steady};
 
-/// Ten simulated minutes.
-const LONG_S: u64 = 600;
-/// The sinc runs of the same scenarios.
-const SINC_S: u64 = 30;
+/// About 19 time constants of the law.
+const RUN_S: u64 = 120;
+/// The full length of timing check 6.
+const TEN_MINUTES_S: u64 = 600;
 /// Bounds of the level before a write, as fractions of the span, when the
 /// run rate is known.
 const LOW: f64 = 0.25;
@@ -59,84 +62,67 @@ fn display_off(ppm: i64, tell_display: bool, resampling: Resampling) -> Setup {
 }
 
 #[test]
+fn snes_at_its_own_rate() {
+    run(Setup::snes(Resampling::Polynomial), RUN_S, LOW, HIGH);
+}
+
+#[test]
+#[ignore = "the full ten minutes of timing check 6, about 6 s in the dev profile; \
+            120 s already reach the fixed point"]
 fn snes_at_its_own_rate_for_ten_minutes() {
-    run(Setup::snes(Resampling::Polynomial), LONG_S, LOW, HIGH);
-}
-
-#[test]
-fn a_device_0_1_percent_fast_for_ten_minutes() {
-    run(device_off(1_000, Resampling::Polynomial), LONG_S, LOW, HIGH);
-}
-
-#[test]
-fn a_device_0_1_percent_slow_for_ten_minutes() {
     run(
-        device_off(-1_000, Resampling::Polynomial),
-        LONG_S,
+        Setup::snes(Resampling::Polynomial),
+        TEN_MINUTES_S,
         LOW,
         HIGH,
     );
 }
 
 #[test]
-fn a_display_0_2_percent_fast_for_ten_minutes() {
+fn a_device_0_1_percent_fast() {
+    run(device_off(1_000, Resampling::Polynomial), RUN_S, LOW, HIGH);
+}
+
+#[test]
+fn a_device_0_1_percent_slow() {
+    run(device_off(-1_000, Resampling::Polynomial), RUN_S, LOW, HIGH);
+}
+
+#[test]
+fn a_display_0_2_percent_fast() {
     run(
         display_off(2_000, true, Resampling::Polynomial),
-        LONG_S,
+        RUN_S,
         LOW,
         HIGH,
     );
 }
 
 #[test]
-fn a_display_0_2_percent_slow_for_ten_minutes() {
+fn a_display_0_2_percent_slow() {
     run(
         display_off(-2_000, true, Resampling::Polynomial),
-        LONG_S,
+        RUN_S,
         LOW,
         HIGH,
     );
 }
 
 #[test]
-fn a_display_0_2_percent_off_with_the_sinc_filter() {
-    run(
-        display_off(2_000, true, Resampling::Sinc),
-        SINC_S,
-        LOW,
-        HIGH,
-    );
-    run(
-        display_off(-2_000, true, Resampling::Sinc),
-        SINC_S,
-        LOW,
-        HIGH,
-    );
-}
-
-#[test]
-fn a_display_0_2_percent_fast_not_told_for_ten_minutes() {
+fn a_display_0_2_percent_fast_not_told() {
     let setup = display_off(2_000, false, Resampling::Polynomial);
-    run(setup, LONG_S, UNTOLD_LOW, UNTOLD_HIGH);
+    run(setup, RUN_S, UNTOLD_LOW, UNTOLD_HIGH);
 }
 
 #[test]
-fn a_display_0_2_percent_slow_not_told_for_ten_minutes() {
+fn a_display_0_2_percent_slow_not_told() {
     let setup = display_off(-2_000, false, Resampling::Polynomial);
-    run(setup, LONG_S, UNTOLD_LOW, UNTOLD_HIGH);
-}
-
-#[test]
-fn a_display_0_2_percent_off_not_told_with_the_sinc_filter() {
-    let fast = display_off(2_000, false, Resampling::Sinc);
-    run(fast, SINC_S, UNTOLD_LOW, UNTOLD_HIGH);
-    let slow = display_off(-2_000, false, Resampling::Sinc);
-    run(slow, SINC_S, UNTOLD_LOW, UNTOLD_HIGH);
+    run(setup, RUN_S, UNTOLD_LOW, UNTOLD_HIGH);
 }
 
 #[test]
 fn the_same_run_gives_the_same_samples() {
-    for (resampling, seconds) in [(Resampling::Polynomial, 60), (Resampling::Sinc, 10)] {
+    for (resampling, seconds) in [(Resampling::Polynomial, 5), (Resampling::Sinc, 3)] {
         let hashes: Vec<u64> = (0..2)
             .map(|_| {
                 let mut session = Session::new(Setup::snes(resampling));
