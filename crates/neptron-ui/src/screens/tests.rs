@@ -1221,3 +1221,20 @@ fn a_change_whose_row_is_gone_stays_for_the_game() {
     run.step(&snap, &[Right, Accept]);
     assert_eq!(run.intents(), [Intent::Resume]);
 }
+
+#[test]
+fn back_after_a_quit_request_gives_the_quick_menu_back() {
+    let (mut run, snap) = quick_menu();
+    run.step(&snap, &[Down, Down, Down, Down, Accept]);
+    assert_eq!(run.intents(), [Intent::QuitGame]);
+    run.step(&snap, &[Up, Accept]);
+    assert!(
+        run.intents().is_empty(),
+        "the menu waits for the session to end"
+    );
+    run.step(&snap, &[Back]);
+    assert!(run.intents().is_empty());
+    assert_eq!(run.screen(), "quick-menu");
+    run.step(&snap, &[Up, Up, Up, Up, Accept]);
+    assert_eq!(run.intents(), [Intent::Resume]);
+}

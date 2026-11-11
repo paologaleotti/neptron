@@ -35,6 +35,9 @@ pub(super) struct QuickMenu {
     page: Page,
     changes: [Option<(SettingKey, Value)>; MAX_CHANGES],
     prompt: Option<(Dialog, Leave)>,
+    /// True after a quit request: the menu waits for the session to end
+    /// and takes only back, which gives the menu back if the app did not
+    /// stop the game.
     quitting: bool,
 }
 
@@ -88,6 +91,9 @@ impl QuickMenu {
         out: &mut Vec<Intent>,
     ) -> Nav {
         if self.quitting {
+            if action == UiAction::Back {
+                self.quitting = false;
+            }
             return Nav::Stay;
         }
         if let Some((dialog, leave)) = &mut self.prompt {
