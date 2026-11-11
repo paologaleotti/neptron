@@ -8,6 +8,11 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+neptron-switchres-sys = { path = "../neptron-switchres-sys" }
+neptron-types = { path = "../neptron-types" }
+
+[dev-dependencies]
+toml.workspace = true
 
 [lints]
 workspace = true
