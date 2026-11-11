@@ -9,8 +9,12 @@ publish.workspace = true
 
 [dependencies]
 neptron-backend = { path = "../neptron-backend" }
+neptron-safety = { path = "../neptron-safety" }
+neptron-types = { path = "../neptron-types" }
 # The code standards make each crate own a thiserror enum.
 thiserror.workspace = true
+# Reads the monitor presets in data/monitors.
+toml.workspace = true
 
 [lints]
 workspace = true

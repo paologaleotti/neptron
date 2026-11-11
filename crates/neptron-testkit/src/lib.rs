@@ -9,6 +9,7 @@
 mod clock;
 pub mod golden;
 mod image;
+pub mod preset;
 
 pub use clock::{ClockError, SimClock};
 pub use golden::Golden;
