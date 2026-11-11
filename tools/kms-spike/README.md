@@ -82,6 +82,19 @@ A pass on `vkms`:
 - `vblank.rate_mhz` is within 1 % of the field rate of the mode, and `flips_completed` is at least `flips_queued` less 1.
 - `--list-connectors` after the run shows the connector in its state from before the run.
 
+What the `vkms` run showed: the commits succeed, the readback equals the request, the restore succeeds, and Ctrl-C (SIGINT) or SIGTERM to the supervisor restores within 100 ms. After SIGKILL of the worker the CRTC stays active with its mode and no plane framebuffer.
+
+What the `vkms` run cannot show:
+
+- `vkms` has one fixed connector, so the connector choice between several displays does not run.
+- It has no fbdev console. The "restore the original mode" path and the console takeover after an "output off" restore never run there.
+- Its vblank timing comes from a kernel timer, not from a scanout clock. The measured rate shows that the tool counts vblanks correctly, not what a real GPU makes.
+- It accepts interlace and any low pixel clock, with no hardware limit. A test-only commit that passes on `vkms` says nothing about i915.
+
+On a PC, `generic_15` and the other 15 kHz presets give no valid mode with the default GPU values: at the default width of 640 pixels every 15 kHz mode is below the conservative minimum pixel clock of 25 MHz. Add `--allow-low-pclock HZ` to show them, or choose a much larger `--width`.
+
+A note for scripted runs: a shell starts a background job (`kms-spike ... &`) with SIGINT ignored, so `kill -INT` does not stop it. Use SIGTERM, or run the tool in the foreground.
+
 ## Safety behaviour
 
 1. **Type gate.** A mode reaches the kernel only as a `KernelMode`, and `KernelMode::from_validated` takes a `ValidatedMode`. Only `neptron_safety::validate` makes one, against the chosen preset and the GPU values. No flag skips it. A mode that fails is printed with its rejection and is skipped. The kernel takes the pixel clock in kHz, so a validated clock that is not a whole number of kHz is refused, never rounded.
@@ -111,7 +124,7 @@ The original mode also goes through `validate`. When it passes, the restore puts
 
 **Why two processes.** A signal handler needs `unsafe` code or a crate such as `signal-hook`, and the tool may use neither (see "Dependencies"). The process the user starts is a supervisor. It starts the worker (the same program with `--worker`) in a new process group, so Ctrl-C at the terminal reaches only the supervisor. The worker writes a heartbeat line every 100 ms to a pipe that the supervisor reads. When the supervisor dies, the pipe has no reader, the write fails (Rust ignores SIGPIPE, so it is an error, not a signal), and the worker restores. The worker writes its messages after that to standard error, which still goes to the terminal. If the terminal has `stty tostop` set, the kernel stops the background worker when it writes; the supervisor's hard limit then kills it.
 
-**SIGKILL.** No code of the tool runs. The kernel closes the worker's DRM file descriptor and removes the framebuffers that the worker made. What the display does then depends on the driver. On some drivers (i915 is a probable case) the CRTC keeps its timing, so the validated test mode can stay on the wire with a black picture until the fbdev console takes the display back at the last close. Other drivers switch the CRTC off. This is not verified on hardware; the hardware checklist has a check for it. The test mode on the wire passed `validate`, so it is inside the ranges of the preset. To recover: switch to another virtual terminal and back, run the tool again with a valid preset, or reboot.
+**SIGKILL.** No code of the tool runs. The kernel closes the worker's DRM file descriptor and removes the framebuffers that the worker made. What the display does then depends on the driver. On `vkms` the CRTC stays active with its mode and no plane framebuffer. On some drivers (i915 is a probable case) the same happens, so the validated test mode can stay on the wire with a black picture until the fbdev console takes the display back at the last close. Other drivers switch the CRTC off. The supervisor prints this note whenever a signal ends the worker. It is not verified on hardware; the hardware checklist has a check for it. The test mode on the wire passed `validate`, so it is inside the ranges of the preset. To recover: switch to another virtual terminal and back, run the tool again with a valid preset, or reboot.
 
 ## The modes
 
