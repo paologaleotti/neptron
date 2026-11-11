@@ -73,7 +73,7 @@ name = "Settings"
 owns = ["crates/neptron-settings"]
 needs = ["T01"]
 gate = "Unit tests and fixtures"
-status = "in_review"
+status = "merged"
 
 [[task]]
 id = "T09"

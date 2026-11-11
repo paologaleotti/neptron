@@ -210,3 +210,12 @@ Each open point is one section:
 - How to change: add them to the core model when the save-state work starts.
 - Decision:
 
+### OP-022: Core options cannot be schema entries.
+
+- Raised by: T08
+- Status: open, input for T16
+- Default: keys under `[core.<name>]` are kept in the file and reported as unknown keys.
+- Where: `crates/neptron-settings/src/schema.rs` (`Entry` and `Kind` use `&'static str`)
+- How to change: a namespace for options that a core declares at run time.
+- Decision:
+
