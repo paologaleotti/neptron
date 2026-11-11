@@ -7,7 +7,7 @@ use super::PictureStyle;
 pub enum Rung {
     /// Rung 1: the game's own line count, progressive, or interlaced for an
     /// interlaced source. A source with fewer lines than the profile allows
-    /// is centred in a 224 or 240-line mode with borders.
+    /// is centred in a larger mode with borders.
     Native,
     /// Rung 2: a whole multiple (2, 3 or 4) of the game's line count,
     /// progressive.

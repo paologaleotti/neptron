@@ -1,7 +1,8 @@
 //! Property test of the policy, with a fixed seed: over random sources,
 //! settings and every shipped preset, the policy never panics, every winner
 //! passes the validator, every game rectangle lies inside its mode, every
-//! whole-scale claim holds exactly, and the decision is deterministic.
+//! whole-scale claim holds exactly, no fitted proposal comes before a pixel
+//! exact one, and the decision is deterministic.
 
 use neptron_modeline::policy::{
     HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError, PolicySettings, Proposal,
@@ -142,9 +143,19 @@ fn check_placement(p: &Proposal, source: &OrientedSource, crt: bool) -> Result<(
 
 fn check_plan(plan: &Plan, profile: &MonitorProfile, caps: &GpuCaps) -> Result<(), String> {
     let crt = matches!(profile.kind, MonitorKind::Crt { .. });
+    let mut fitted_seen = None;
     for (index, considered, proposal) in plan.proposals() {
         check_placement(proposal, &plan.source, crt)
             .map_err(|e| format!("#{index} {considered}: {e}"))?;
+        match (considered.rung.is_fitted(), fitted_seen) {
+            (true, None) => fitted_seen = Some(index),
+            (false, Some(fitted)) => {
+                return Err(format!(
+                    "#{index} {considered} comes after fitted #{fitted}"
+                ));
+            }
+            _ => {}
+        }
     }
     let choice = choose(plan, |m| validate(m, profile, caps));
     // choose() returns the token of the mode it validated; this checks that

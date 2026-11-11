@@ -216,18 +216,15 @@ fn rows() -> Vec<Row> {
             )
         },
         // The fitted rung keeps the game's rate when the profile allows it.
-        // Donkey Kong, turned: 256 lines at 60.606 Hz. 2x (512) misses the
-        // rate on pc_31_120, and Switchres alone doubles the fitted request
-        // to 512 lines at 59.623 Hz. The range holds floor(31.6 kHz /
-        // 60.606 Hz) = 521 lines less ceil(571 us x 31.6 kHz) = 19 of
-        // blanking: 502 lines at 60.606 Hz.
+        // 510 lines at 60.606 Hz on pc_31_120: the range holds floor(31.6
+        // kHz / 60.606 Hz) = 521 lines less ceil(571 us x 31.6 kHz) = 19 of
+        // blanking, 502. No exact rung holds 510 lines, and Switchres alone
+        // keeps 510 lines at 59.848 Hz. Asked again for 502 lines, it
+        // reaches 60.606 Hz.
         Row {
-            source: SourceGeometry {
-                rotation: Rotation::R90,
-                ..source(256, 224, 60_606)
-            },
+            source: source(256, 510, 60_606),
             rung: Rung::Fitted,
-            mode: "224x502p",
+            mode: "256x502p",
             rate_mhz: 60_606,
             ..row(
                 "step5_fitted_keeps_the_game_rate",
@@ -368,6 +365,58 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
+        // Pixel exact before a fit: a 192-line game on pc_31_120 at
+        // 59.923 Hz. Only the 400 to 512 line range covers the rate. 2x is
+        // 384 lines, below 400, so it is centred in the first standard
+        // height for 2x that the range holds: 2 x 224 = 448. The range
+        // forces ceil(31,400 / 59.923) = 525 lines less ceil(571 us x 31.4
+        // kHz) = 18 of blanking, 507 picture lines: 384 fill 75.7 %, not
+        // padded. The width keeps 4:3: 256 x 448 x 4 / (3 x 384 x 1.333) =
+        // 298.7.
+        Row {
+            source: source(256, 192, 59_923),
+            rung: Rung::Multiple(2),
+            mode: "299x448p",
+            rate_mhz: 59_923,
+            ..row(
+                "border_192_lines_2x_on_31khz",
+                preset("pc_31_120"),
+                open_caps(),
+            )
+        },
+        // ZX Spectrum, 192 lines at 50.08 Hz on pc_31_120: the range forces
+        // ceil(31,400 / 50.08) = 627 less 18 = 609 picture lines, above its
+        // 512-line limit. Native is 192 lines centred in 512 (31 %), 2x is
+        // 384 lines centred in 448 (63 %), 3x (576) is above 512. Both are
+        // padded; the one that fills more of the picture lines wins.
+        Row {
+            source: source(256, 192, 50_080),
+            rung: Rung::Multiple(2),
+            mode: "299x448p",
+            rate_mhz: 50_080,
+            ..row(
+                "border_padded_fuller_wins",
+                preset("pc_31_120"),
+                open_caps(),
+            )
+        },
+        // WonderSwan, 224x144 at 75.472 Hz on generic_15: the nearest
+        // covered rate is 65 Hz. At 65 Hz the range holds floor(15,750 /
+        // 65) = 242 less ceil(1.28 ms x 15.75 kHz) = 21: 221 lines, so
+        // neither 224 nor 240 fits. The smallest height in range that
+        // Switchres does not pad is ceil(15,625 / 65) = 241 less 20 = 221.
+        // Width: 224 x 221 x 4 / (3 x 144 x 1.333) = 343.9.
+        Row {
+            source: source(224, 144, 75_472),
+            mode: "344x221p",
+            kind: RefreshKind::Nearest,
+            rate_mhz: 65_000,
+            ..row(
+                "border_any_height_wonderswan",
+                preset("generic_15"),
+                open_caps(),
+            )
+        },
         // Sources that do not fit, more lines than progressive allows:
         // 480 progressive lines on 15 kHz are rung 3.
         Row {
@@ -405,11 +454,14 @@ fn rows() -> Vec<Row> {
                 with_interlace(open_caps()),
             )
         },
-        // Medium resolution: a progressive fit on 31 kHz.
+        // Medium resolution on 31 kHz: pixel exact has priority over the
+        // "480p fit" of the sources table. arcade_31 forces ceil(31,400 /
+        // 55) = 571 lines less ceil(1.43 ms x 31.4 kHz) = 45 of blanking at
+        // 55 Hz, above its 512-line limit: 384 lines centred in 512.
+        // Width: 496 x 512 x 4 / (3 x 384 x 1.333) = 661.5, rounded to 661.
         Row {
             source: source(496, 384, 55_000),
-            rung: Rung::Fitted,
-            mode: "682x512p",
+            mode: "661x512p",
             rate_mhz: 55_000,
             ..row(
                 "misfit_medium_res_on_31khz",
@@ -1038,19 +1090,20 @@ fn drop_rows() -> Vec<DropRow> {
                 preset("generic_15"),
             )
         },
-        // A 192-line game at 59.923 Hz on pc_31_120: only the 400 to 512
-        // line range covers the rate, and no border height of 224 or 240
-        // reaches 400.
+        // A 192-line game at 65 Hz on arcade_25 (24.96 kHz fixed, 384 to
+        // 400 lines): at 65 Hz the range holds floor(24,960 / 65) = 384
+        // lines less ceil(1.28 ms x 24.96 kHz) = 32 of blanking, 352, below
+        // its 384-line minimum. No mode height holds the game.
         DropRow {
-            source: source(256, 192, 59_923),
+            source: source(256, 192, 65_000),
             ..drop_row(
                 "no_border_mode",
                 Rung::Native,
                 Dropped::NoBorderMode {
                     lines: 192,
-                    line_min: 400,
+                    line_min: 384,
                 },
-                preset("pc_31_120"),
+                preset("arcade_25"),
             )
         },
         // 224 lines fit progressive at 60.099 Hz on generic_15:

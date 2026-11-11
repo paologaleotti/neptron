@@ -28,9 +28,10 @@ pub(crate) struct Crt<'a> {
 /// doubled or forced rate never beats an exact mode at the game's rate.
 /// Then refresh target (the asked target, then the game's rate). Within a
 /// target, the exact rungs that are not padded, in ladder order, then the
-/// padded exact rungs. A padded mode loses to every exact mode that is not
-/// padded, so line doubling or double refresh wins on 31 kHz; it still wins
-/// over a fitted scale, so a handheld on 15 kHz is centred with borders.
+/// padded exact rungs, the one that fills more of its picture lines first.
+/// A padded mode loses to every exact mode that is not padded, so line
+/// doubling or double refresh wins on 31 kHz; it still wins over a fitted
+/// scale, so a handheld on 15 kHz is centred with borders.
 /// The last resort is the fitted rung at whatever rate Switchres reaches,
 /// so a profile that has any mode for the source gives a proposal.
 pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
@@ -170,7 +171,7 @@ fn fitted_at_capacity(
     Ok(matches!(outcomes.last(), Some(Ok(_))).then_some(outcomes))
 }
 
-type Key = (bool, usize, u8, usize, usize);
+type Key = (bool, usize, u32, usize, usize);
 
 /// The order key of an entry; `(tier, place, sub)` is the refresh target,
 /// the place on the ladder and the order within one candidate.
@@ -180,16 +181,24 @@ fn entry(
     target: RefreshTarget,
     outcome: Outcome,
 ) -> (Key, Considered) {
-    let class = match &outcome {
-        Ok(p) if p.padding.is_some() => 1,
-        _ => 0,
-    };
     (
-        (rung.is_fitted(), tier, class, place, sub),
+        (rung.is_fitted(), tier, padded_rank(&outcome), place, sub),
         Considered {
             rung,
             target,
             outcome,
         },
     )
+}
+
+/// 0 for an entry that is not padded; else above 0, and lower for a
+/// padded mode that fills more of its picture lines.
+fn padded_rank(outcome: &Outcome) -> u32 {
+    match outcome {
+        Ok(Proposal {
+            padding: Some(padding),
+            ..
+        }) => 1_001_u32.saturating_sub(padding.fill_permille()).max(1),
+        _ => 0,
+    }
 }

@@ -1,11 +1,14 @@
 use neptron_types::{CrtRange, GpuCaps};
 
+use super::padding::forced_picture_lines;
 use super::source::div_round;
 use super::{Dropped, OrientedSource, Rung};
 use crate::Aspect;
 
-/// The mode heights that a source with fewer lines than the profile allows
-/// is centred in, smallest first.
+/// The standard mode heights for a game with fewer lines than the profile
+/// allows, smallest first. A whole multiple `k` of the game uses `k` times
+/// each. The game is centred in the first one that a range holds at the
+/// rate; when none fits, in the smallest height in range that holds it.
 pub const BORDER_LINES: [u16; 2] = [224, 240];
 
 /// What step 4 asks Switchres for, before the horizontal strategy.
@@ -27,11 +30,11 @@ pub(crate) struct Shape {
 
 /// Step 4, lines and scan: the line count is the height times the factor
 /// of the rung. An exact request with fewer lines than the ranges at the
-/// target rate allow is centred in a larger mode: a [`BORDER_LINES`] mode
-/// when progressive, the interlaced minimum when interlaced (rung 3 of a
-/// short game, such as a vertical game on 15 kHz). Its base width then
-/// keeps the game's aspect on the screen. A progressive game that no border
-/// height holds is dropped.
+/// target rate allow is centred in a larger mode: a height from
+/// [`border_lines`] when progressive, the interlaced minimum when
+/// interlaced (rung 3 of a short game, such as a vertical game on 15 kHz).
+/// Its base width then keeps the game's aspect on the screen. A progressive
+/// game that no mode height holds is dropped.
 pub(crate) fn shape(
     rung: Rung,
     source: &OrientedSource,
@@ -67,7 +70,7 @@ pub(crate) fn shape(
         let lines = if interlace {
             min
         } else {
-            border_lines(game_lines, min).ok_or(Dropped::NoBorderMode {
+            border_lines(game_lines, factor, ranges, rate_mhz).ok_or(Dropped::NoBorderMode {
                 lines: game_lines,
                 line_min: min,
             })?
@@ -113,14 +116,19 @@ pub(crate) fn progressive_capacity(ranges: &[CrtRange], rate_mhz: u32) -> u16 {
     ranges
         .iter()
         .filter(|r| r.progressive_lines_min > 0 && r.v_min_mhz <= rate && rate <= r.v_max_mhz)
-        .map(|r| {
-            let lines = (r.h_max_mhz / rate).saturating_sub(blank_lines(r, r.h_max_mhz));
-            u16::try_from(lines)
-                .unwrap_or(u16::MAX)
-                .min(r.progressive_lines_max)
-        })
+        .map(|r| range_capacity(r, rate_mhz))
         .max()
         .unwrap_or(0)
+}
+
+/// The most progressive lines of one range at `rate_mhz`, whatever its
+/// field rate limits.
+fn range_capacity(range: &CrtRange, rate_mhz: u32) -> u16 {
+    let rate = u64::from(rate_mhz).max(1);
+    let lines = (range.h_max_mhz / rate).saturating_sub(blank_lines(range, range.h_max_mhz));
+    u16::try_from(lines)
+        .unwrap_or(u16::MAX)
+        .min(range.progressive_lines_max)
 }
 
 /// The vertical blanking of a range in whole lines at a line rate of
@@ -177,11 +185,67 @@ fn interlaced_min(ranges: &[CrtRange], rate_mhz: u32) -> Option<u16> {
         .min()
 }
 
-/// The first border height that holds the game and that the ranges allow,
-/// or `None` when no border height does.
-pub(crate) fn border_lines(game_lines: u16, line_min: u16) -> Option<u16> {
-    let floor = game_lines.max(line_min);
-    BORDER_LINES.into_iter().find(|&lines| lines >= floor)
+/// The mode height for a progressive game of `game_lines` lines (its
+/// height times `factor`) that has fewer lines than the ranges allow at
+/// `rate_mhz`, or `None` when no range holds a height that holds it.
+///
+/// The standard heights come first: [`BORDER_LINES`] times the factor, when
+/// a range holds them. Then the smallest height that a range holds and that
+/// Switchres does not pad: at least the lines the range forces at the rate
+/// (`forced_picture_lines`), so the black borders are the policy's own,
+/// centred, and not a porch that moves the picture up.
+pub(crate) fn border_lines(
+    game_lines: u16,
+    factor: u16,
+    ranges: &[CrtRange],
+    rate_mhz: u32,
+) -> Option<u16> {
+    let held = |lines: u16| {
+        covering(ranges, rate_mhz)
+            .filter_map(|r| progressive_window(r, rate_mhz))
+            .any(|w| w.fewest <= lines && lines <= w.most)
+    };
+    let standard = BORDER_LINES
+        .into_iter()
+        .filter_map(|lines| lines.checked_mul(factor))
+        .find(|&lines| lines >= game_lines && held(lines));
+    standard.or_else(|| {
+        covering(ranges, rate_mhz)
+            .filter_map(|r| progressive_window(r, rate_mhz))
+            .map(|w| (game_lines.max(w.unpadded), w.most))
+            .filter(|&(lines, most)| lines <= most)
+            .map(|(lines, _)| lines)
+            .min()
+    })
+}
+
+/// The progressive mode heights of one range at one field rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Window {
+    fewest: u16,
+    most: u16,
+    /// The fewest active lines for which Switchres adds no padding: the
+    /// lines the minimum line rate forces, inside the window.
+    unpadded: u16,
+}
+
+/// The window of a range at `rate_mhz`, or `None` when it holds no
+/// progressive height at that rate.
+fn progressive_window(range: &CrtRange, rate_mhz: u32) -> Option<Window> {
+    let fewest = range.progressive_lines_min;
+    let most = range_capacity(range, rate_mhz);
+    if fewest == 0 || fewest > most {
+        return None;
+    }
+    let forced = forced_picture_lines(range, rate_mhz);
+    let unpadded = u16::try_from(forced)
+        .unwrap_or(u16::MAX)
+        .clamp(fewest, most);
+    Some(Window {
+        fewest,
+        most,
+        unpadded,
+    })
 }
 
 /// The width of a mode with `mode_lines` lines in which a game of
@@ -314,12 +378,68 @@ mod tests {
     }
 
     #[test]
-    fn the_border_height_is_the_first_that_holds_the_game_and_the_profile() {
-        assert_eq!(border_lines(144, 192), Some(224));
-        assert_eq!(border_lines(230, 192), Some(240));
-        assert_eq!(border_lines(144, 230), Some(240));
-        assert_eq!(border_lines(144, 400), None);
-        assert_eq!(border_lines(288, 400), None);
+    fn the_border_height_is_the_first_standard_height_that_a_range_holds() {
+        // generic_15 at 60 Hz: 192 to 241 lines.
+        let ranges = generic_15();
+        assert_eq!(border_lines(144, 1, &ranges, 60_000), Some(224));
+        assert_eq!(border_lines(230, 1, &ranges, 60_000), Some(240));
+        // At 50 Hz the range holds 192 to 288 lines and forces 293: a 2x
+        // request of 180 lines fits neither 448 nor 480, so it gets 288.
+        assert_eq!(border_lines(180, 2, &ranges, 50_000), Some(288));
+    }
+
+    #[test]
+    fn a_multiple_uses_the_standard_heights_times_its_factor() {
+        // pc_31_120 at 59.923 Hz holds 400 to 508 lines: 2 x 224 = 448.
+        let range = CrtRange {
+            h_min_mhz: 31_400_000,
+            h_max_mhz: 31_600_000,
+            v_min_mhz: 50_000,
+            v_max_mhz: 65_000,
+            v_front_porch_ns: 34_000,
+            v_sync_ns: 101_000,
+            v_back_porch_ns: 436_000,
+            ..range((400, 512), (0, 0))
+        };
+        assert_eq!(border_lines(384, 2, &[range], 59_923), Some(448));
+        // At 1x neither 224 nor 240 is in the window: the height is the
+        // 507 picture lines that the range forces, not the 400 minimum.
+        assert_eq!(border_lines(192, 1, &[range], 59_923), Some(507));
+        // At 50.08 Hz the range forces 609 lines, above its 512 limit.
+        assert_eq!(border_lines(192, 1, &[range], 50_080), Some(512));
+    }
+
+    #[test]
+    fn with_no_standard_height_the_border_is_the_smallest_unpadded_height() {
+        // generic_15 at 65 Hz holds 192 to 221 lines and forces 221.
+        let ranges = generic_15();
+        assert_eq!(border_lines(144, 1, &ranges, 65_000), Some(221));
+        let window = progressive_window(&ranges[0], 65_000).unwrap();
+        assert_eq!(
+            window,
+            Window {
+                fewest: 192,
+                most: 221,
+                unpadded: 221
+            }
+        );
+    }
+
+    #[test]
+    fn a_range_that_holds_no_height_at_the_rate_gives_no_border() {
+        // arcade_25 at 65 Hz: 24,960 / 65 = 384 lines less 32 of blanking.
+        let range = CrtRange {
+            h_min_mhz: 24_960_000,
+            h_max_mhz: 24_960_000,
+            v_front_porch_ns: 80_000,
+            v_sync_ns: 200_000,
+            v_back_porch_ns: 1_000_000,
+            ..range((384, 400), (768, 800))
+        };
+        assert_eq!(progressive_window(&range, 65_000), None);
+        assert_eq!(border_lines(192, 1, &[range], 65_000), None);
+        // At 60 Hz it holds exactly 384.
+        assert_eq!(border_lines(192, 1, &[range], 60_000), Some(384));
     }
 
     #[test]

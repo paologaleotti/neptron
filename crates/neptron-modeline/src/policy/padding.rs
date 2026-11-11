@@ -29,6 +29,15 @@ pub struct Padding {
     pub field_rate_mhz: u32,
 }
 
+impl Padding {
+    /// The share of the picture lines that the game fills, in per mille,
+    /// rounded down.
+    pub fn fill_permille(&self) -> u32 {
+        let fill = u64::from(self.game_lines) * 1_000 / u64::from(self.picture_lines.max(1));
+        u32::try_from(fill).unwrap_or(u32::MAX)
+    }
+}
+
 /// The padding rule: `Some` when the game fills less than
 /// [`PADDED_FILL_MIN_PERCENT`] of the picture lines of the mode.
 ///
@@ -61,7 +70,7 @@ pub(crate) fn padding(
 
 /// Lines per field that the minimum line rate forces, less the vertical
 /// blanking at that line rate.
-fn forced_picture_lines(range: &CrtRange, field_rate_mhz: u32) -> u32 {
+pub(crate) fn forced_picture_lines(range: &CrtRange, field_rate_mhz: u32) -> u32 {
     let rate = u64::from(field_rate_mhz).max(1);
     let total = range.h_min_mhz.div_ceil(rate);
     let blank = blank_lines(range, range.h_min_mhz);
@@ -183,6 +192,18 @@ mod tests {
         // In a 400-line mode the mode's own lines count.
         let padded = padding(288, &mode(400, false), 120_000, &edid_30_71()).unwrap();
         assert_eq!(padded.picture_lines, 400);
+    }
+
+    #[test]
+    fn the_fill_is_the_share_of_the_picture_lines_in_per_mille() {
+        let padded = padding(224, &mode(224, false), 60_099, &edid_30_71()).unwrap();
+        // 224 of 480 is 466.7 per mille, rounded down.
+        assert_eq!(padded.fill_permille(), 466);
+        let empty = Padding {
+            picture_lines: 0,
+            ..padded
+        };
+        assert_eq!(empty.fill_permille(), 224_000);
     }
 
     #[test]

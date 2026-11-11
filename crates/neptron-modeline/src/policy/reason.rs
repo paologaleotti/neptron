@@ -18,7 +18,7 @@ pub enum Dropped {
     /// The GPU cannot send an interlaced mode.
     NoInterlace,
     /// The game has fewer lines than the ranges at the rate allow, and no
-    /// border height holds it.
+    /// range holds a mode height at the rate that holds the game.
     NoBorderMode {
         /// Lines of the game.
         lines: u16,
@@ -125,8 +125,8 @@ impl fmt::Display for Dropped {
             Self::NoInterlace => f.write_str("the GPU sends no interlaced mode"),
             Self::NoBorderMode { lines, line_min } => write!(
                 f,
-                "{lines} lines, below the minimum of {line_min}, and no border mode of \
-                 224 or 240 lines reaches it"
+                "{lines} lines, below the minimum of {line_min}, and no range holds a \
+                 border mode at this rate"
             ),
             Self::TallerThanGpu { lines, max_lines } => {
                 write!(f, "{lines} lines, the GPU sends at most {max_lines}")
