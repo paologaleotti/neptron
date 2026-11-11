@@ -1,5 +1,7 @@
 use neptron_types::{GpuCaps, Modeline, MonitorKind, MonitorProfile};
 
+use crate::measure::Measure;
+use crate::range::check_ranges;
 use crate::structure::check_structure;
 use crate::{InterlaceLimit, Rejection};
 
@@ -38,11 +40,6 @@ impl ValidatedMode {
 /// # Errors
 ///
 /// Returns the first [`Rejection`] it finds, with the value and the limit.
-///
-/// # Panics
-///
-/// The checks of a CRT profile are not implemented yet, so a call with a
-/// CRT profile panics.
 pub fn validate(
     mode: &Modeline,
     profile: &MonitorProfile,
@@ -51,7 +48,7 @@ pub fn validate(
     check_structure(mode)?;
     check_gpu(mode, caps)?;
     match &profile.kind {
-        MonitorKind::Crt { .. } => todo!("CRT checks for profile {}", profile.id),
+        MonitorKind::Crt { ranges } => check_ranges(&Measure::of(mode), ranges)?,
         MonitorKind::FlatPanel { modes } => check_panel(mode, modes)?,
     }
     Ok(ValidatedMode { mode: *mode })
@@ -87,6 +84,8 @@ fn check_panel(mode: &Modeline, modes: &[Modeline]) -> Result<(), Rejection> {
 
 #[cfg(test)]
 mod tests {
+    use neptron_types::CrtRange;
+
     use super::*;
 
     const CAPS: GpuCaps = GpuCaps {
@@ -114,6 +113,100 @@ mod tests {
             hsync_positive: false,
             vsync_positive: false,
         }
+    }
+
+    /// 320x240 at 60.03 Hz, 15.728 kHz, with porches and syncs at or
+    /// above the nominal times of generic_15.
+    fn mode_240p() -> Modeline {
+        Modeline {
+            pclock_hz: 6_700_000,
+            hactive: 320,
+            hsync_start: 334,
+            hsync_end: 366,
+            htotal: 426,
+            vactive: 240,
+            vsync_start: 241,
+            vsync_end: 244,
+            vtotal: 262,
+            ..vga()
+        }
+    }
+
+    fn generic_15() -> MonitorProfile {
+        MonitorProfile {
+            id: "generic_15".to_owned(),
+            kind: MonitorKind::Crt {
+                ranges: vec![CrtRange {
+                    h_min_mhz: 15_625_000,
+                    h_max_mhz: 15_750_000,
+                    v_min_mhz: 49_500,
+                    v_max_mhz: 65_000,
+                    h_front_porch_ns: 2_000,
+                    h_sync_ns: 4_700,
+                    h_back_porch_ns: 8_000,
+                    v_front_porch_ns: 64_000,
+                    v_sync_ns: 192_000,
+                    v_back_porch_ns: 1_024_000,
+                    hsync_positive: false,
+                    vsync_positive: false,
+                    progressive_lines_min: 192,
+                    progressive_lines_max: 288,
+                    interlaced_lines_min: 448,
+                    interlaced_lines_max: 576,
+                }],
+            },
+        }
+    }
+
+    const LOW_CLOCK: GpuCaps = GpuCaps {
+        pclock_min_hz: 1_000_000,
+        ..CAPS
+    };
+
+    #[test]
+    fn a_crt_mode_inside_the_profile_passes_unchanged() {
+        let validated = validate(&mode_240p(), &generic_15(), &LOW_CLOCK).unwrap();
+        assert_eq!(validated.mode(), &mode_240p());
+    }
+
+    #[test]
+    fn a_crt_mode_outside_the_profile_is_rejected() {
+        let vga_on_15 = validate(&vga(), &generic_15(), &CAPS);
+        assert_eq!(
+            vga_on_15,
+            Err(Rejection::LineRate {
+                value_mhz: 31_468_750,
+                min_mhz: 15_625_000,
+                max_mhz: 15_750_000
+            })
+        );
+        let short_porch = Modeline {
+            hsync_start: 330,
+            hsync_end: 362,
+            ..mode_240p()
+        };
+        // 10 px at 6.7 MHz is 1492.5 ns.
+        assert_eq!(
+            validate(&short_porch, &generic_15(), &LOW_CLOCK),
+            Err(Rejection::Porch {
+                axis: crate::Axis::Horizontal,
+                edge: crate::PorchEdge::Front,
+                value_ns: 1_492,
+                min_ns: 1_800
+            })
+        );
+    }
+
+    #[test]
+    fn gpu_limits_come_before_the_profile() {
+        assert_eq!(
+            validate(&mode_240p(), &generic_15(), &CAPS),
+            Err(Rejection::PixelClock {
+                value_hz: 6_700_000,
+                min_hz: 25_000_000,
+                max_hz: 400_000_000
+            })
+        );
     }
 
     fn panel(modes: Vec<Modeline>) -> MonitorProfile {

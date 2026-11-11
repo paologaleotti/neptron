@@ -3,8 +3,13 @@
 
 #![forbid(unsafe_code)]
 
+mod check;
+mod limits;
+mod measure;
+mod range;
 mod rejection;
 mod structure;
+mod tolerance;
 mod validated;
 
 pub use rejection::{Axis, InterlaceLimit, PorchEdge, Rejection};
