@@ -10,7 +10,7 @@ publish.workspace = true
 [features]
 # Off by default: the headless build (T0 to T2) compiles no SDL3, EGL or KMS code.
 sdl3 = ["dep:sdl3"]
-evdev = []
+evdev = ["dep:evdev"]
 
 [dependencies]
 neptron-backend = { path = "../neptron-backend" }
@@ -20,6 +20,10 @@ neptron-types = { path = "../neptron-types" }
 sdl3 = { workspace = true, optional = true }
 # The code standards make each crate own a thiserror enum.
 thiserror.workspace = true
+
+# The evdev crate reads Linux input devices, so it exists only on Linux.
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = { workspace = true, optional = true }
 
 [lints]
 workspace = true
