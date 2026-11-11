@@ -1238,3 +1238,25 @@ fn back_after_a_quit_request_gives_the_quick_menu_back() {
     run.step(&snap, &[Up, Up, Up, Up, Accept]);
     assert_eq!(run.intents(), [Intent::Resume]);
 }
+
+#[test]
+fn many_dismissed_notices_never_come_back() {
+    let (mut run, mut snap) = snes_list();
+    let texts: Vec<String> = (0..20).map(|i| format!("Notice {i}")).collect();
+    snap.notices = texts
+        .iter()
+        .enumerate()
+        .map(|(i, t)| notice(i as u32, t))
+        .collect();
+    run.step(&snap, &[]);
+    for (i, text) in texts.iter().enumerate() {
+        assert_eq!(message(&run), text);
+        run.step(&snap, &[Accept]);
+        assert_eq!(run.intents(), [Intent::DismissNotice(NoticeId(i as u32))]);
+    }
+    assert_eq!(run.screen(), "games");
+    snap.notices.drain(..5);
+    snap.notices.push(notice(99, "New"));
+    run.step(&snap, &[]);
+    assert_eq!(message(&run), "New");
+}

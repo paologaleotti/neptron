@@ -89,7 +89,7 @@ Menu during a game opens the quick menu over the paused game. Its rows write at 
 
 ### Notices
 
-A notice shows as a dialog with one button, oldest first. Accept or back sends `DismissNotice(id)`, and the UI hides that notice until the app removes it from the snapshot. A failed launch is a notice of kind `Error`.
+A notice shows as a dialog with one button, oldest first. Accept or back sends `DismissNotice(id)`, and the UI hides that notice until the app removes it from the snapshot. The UI shows the notice after the newest one the player dismissed: the notices are oldest first, so the ones before it were dismissed too. It remembers 8 dismissed ids; when all 8 are still in the snapshot, it forgets the oldest one, which stays hidden behind a newer dismissed one. The app adds new notices at the end. A failed launch is a notice of kind `Error`.
 
 ### The grid pattern
 

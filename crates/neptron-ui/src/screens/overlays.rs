@@ -68,7 +68,6 @@ pub(super) struct Confirm {
 pub(super) struct Notices {
     dialog: Dialog,
     dismissed: [Option<NoticeId>; DISMISSED_SLOTS],
-    next_slot: usize,
 }
 
 impl Confirm {
@@ -167,7 +166,6 @@ impl Notices {
         Self {
             dialog: Dialog::new(0),
             dismissed: [None; DISMISSED_SLOTS],
-            next_slot: 0,
         }
     }
 
@@ -180,11 +178,17 @@ impl Notices {
         }
     }
 
-    /// The oldest notice that the player has not dismissed.
+    /// The notice after the newest one the player dismissed. The notices
+    /// are oldest first and the player dismisses them in that order, so
+    /// every notice before a dismissed one was dismissed too, also when its
+    /// id no longer fits in the remembered set.
     pub(super) fn current<'a>(&self, snap: &'a Snapshot) -> Option<&'a Notice> {
-        snap.notices
+        let after = snap
+            .notices
             .iter()
-            .find(|n| !self.dismissed.contains(&Some(n.id)))
+            .rposition(|n| self.dismissed.contains(&Some(n.id)))
+            .map_or(0, |last| last + 1);
+        snap.notices.get(after)
     }
 
     /// Accept or back dismisses the notice; the other actions do nothing,
@@ -195,7 +199,7 @@ impl Notices {
         };
         if matches!(action, UiAction::Accept | UiAction::Back) {
             out.push(Intent::DismissNotice(notice.id));
-            self.remember(notice.id);
+            self.remember(notice.id, snap);
         }
     }
 
@@ -214,13 +218,20 @@ impl Notices {
         chrome::hints(frame, theme, "Accept: OK", "");
     }
 
-    fn remember(&mut self, id: NoticeId) {
-        let free = self.dismissed.iter().position(Option::is_none);
-        let slot = free.unwrap_or(self.next_slot % DISMISSED_SLOTS);
-        if let Some(entry) = self.dismissed.get_mut(slot) {
+    /// Remembers a dismissed notice. When the set is full, every id in it
+    /// is still in the snapshot (`follow` drops the others), and the id of
+    /// the oldest notice makes room: a newer dismissed notice still hides
+    /// it, see [`Notices::current`].
+    fn remember(&mut self, id: NoticeId, snap: &Snapshot) {
+        let position = |slot: &Option<NoticeId>| {
+            slot.and_then(|old| snap.notices.iter().position(|n| n.id == old))
+        };
+        let slot = self.dismissed.iter().position(Option::is_none).or_else(|| {
+            (0..DISMISSED_SLOTS).min_by_key(|i| self.dismissed.get(*i).and_then(position))
+        });
+        if let Some(entry) = slot.and_then(|i| self.dismissed.get_mut(i)) {
             *entry = Some(id);
         }
-        self.next_slot = slot.wrapping_add(1);
     }
 }
 
