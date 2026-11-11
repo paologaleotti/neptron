@@ -7,6 +7,7 @@
 
 mod load;
 mod repo;
+mod rules;
 
 use std::process::ExitCode;
 
@@ -17,6 +18,8 @@ commands:
   check [cargo args]   cargo check, under the machine-load rules
   test [nextest args]  cargo nextest run, under the machine-load rules
   clippy [cargo args]  cargo clippy, under the machine-load rules
+  rules                check the dependency rules, the unsafe allow-list
+                       and the headless feature set
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
@@ -32,6 +35,8 @@ enum Error {
     Repo(#[from] repo::RepoError),
     #[error(transparent)]
     Load(#[from] load::LoadError),
+    #[error(transparent)]
+    Rules(#[from] rules::RulesError),
 }
 
 fn main() -> ExitCode {
@@ -55,6 +60,11 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy"], &rest),
+        "rules" => {
+            let repo = repo::Repo::discover()?;
+            let policy = load::LoadPolicy::from_env()?;
+            Ok(exit_code(rules::run(&repo, &policy)? == 0))
+        }
         "help" | "-h" | "--help" => {
             print!("{USAGE}");
             Ok(ExitCode::SUCCESS)

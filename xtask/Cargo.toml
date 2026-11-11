@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Reads the JSON of cargo metadata and cargo build, and writes the verify report.
+serde_json.workspace = true
 # The code standards make each module own a thiserror enum.
 thiserror.workspace = true
 
