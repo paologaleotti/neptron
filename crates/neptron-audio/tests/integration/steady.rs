@@ -13,16 +13,12 @@
 
 use neptron_audio::Resampling;
 
-use crate::harness::{Session, Setup, assert_steady};
+use crate::harness::{EXACT_HIGH, EXACT_LOW, HIGH, LOW, Session, Setup, assert_steady};
 
 /// About 19 time constants of the law.
 const RUN_S: u64 = 120;
 /// The full length of timing check 6.
 const TEN_MINUTES_S: u64 = 600;
-/// Bounds of the level before a write, as fractions of the span, when the
-/// run rate is known.
-const LOW: f64 = 0.25;
-const HIGH: f64 = 0.75;
 /// Bounds when the pipeline is not told a display 0.2% off.
 const UNTOLD_LOW: f64 = 0.15;
 const UNTOLD_HIGH: f64 = 0.85;
@@ -63,7 +59,12 @@ fn display_off(ppm: i64, tell_display: bool, resampling: Resampling) -> Setup {
 
 #[test]
 fn snes_at_its_own_rate() {
-    run(Setup::snes(Resampling::Polynomial), RUN_S, LOW, HIGH);
+    run(
+        Setup::snes(Resampling::Polynomial),
+        RUN_S,
+        EXACT_LOW,
+        EXACT_HIGH,
+    );
 }
 
 #[test]
@@ -93,8 +94,8 @@ fn a_display_0_2_percent_fast() {
     run(
         display_off(2_000, true, Resampling::Polynomial),
         RUN_S,
-        LOW,
-        HIGH,
+        EXACT_LOW,
+        EXACT_HIGH,
     );
 }
 
@@ -103,8 +104,8 @@ fn a_display_0_2_percent_slow() {
     run(
         display_off(-2_000, true, Resampling::Polynomial),
         RUN_S,
-        LOW,
-        HIGH,
+        EXACT_LOW,
+        EXACT_HIGH,
     );
 }
 

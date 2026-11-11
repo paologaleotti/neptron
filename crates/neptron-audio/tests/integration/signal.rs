@@ -4,8 +4,8 @@
 use neptron_audio::Resampling;
 
 use crate::harness::{
-    Hz, SETTLE_NS, Session, Setup, Signal, assert_steady, frequency, largest_step, step_bound,
-    upward_crossings,
+    EXACT_HIGH, EXACT_LOW, HIGH, Hz, LOW, SETTLE_NS, Session, Setup, Signal, assert_steady,
+    frequency, largest_step, step_bound, upward_crossings,
 };
 
 const TONE_HZ: f64 = 440.0;
@@ -86,7 +86,7 @@ fn check_sound(session: &Session) {
 fn a_tone_keeps_its_pitch_and_has_no_clicks() {
     let mut session = Session::new(tone(Setup::snes(Resampling::Sinc)));
     session.run_seconds(RUN_S);
-    assert_steady(&session, 0.25, 0.75);
+    assert_steady(&session, EXACT_LOW, EXACT_HIGH);
     check_sound(&session);
 }
 
@@ -97,7 +97,7 @@ fn a_tone_keeps_its_pitch_on_a_device_0_1_percent_fast() {
         ..Setup::snes(Resampling::Sinc)
     }));
     session.run_seconds(RUN_S);
-    assert_steady(&session, 0.25, 0.75);
+    assert_steady(&session, LOW, HIGH);
     check_sound(&session);
 }
 
@@ -108,7 +108,7 @@ fn a_tone_keeps_its_pitch_on_a_device_0_1_percent_slow() {
         ..Setup::snes(Resampling::Sinc)
     }));
     session.run_seconds(RUN_S);
-    assert_steady(&session, 0.25, 0.75);
+    assert_steady(&session, LOW, HIGH);
     check_sound(&session);
 }
 
@@ -126,7 +126,7 @@ fn forced_60(resampling: Resampling) -> Setup {
 fn a_50_hz_game_forced_to_60_hz_stays_inside_the_bounds() {
     let mut session = Session::new(forced_60(Resampling::Polynomial));
     session.run_seconds(120);
-    let measured = assert_steady(&session, 0.25, 0.75);
+    let measured = assert_steady(&session, EXACT_LOW, EXACT_HIGH);
     println!(
         "forced 60 Hz: levels {:.3} to {:.3}, deviation after settling {:.5}",
         measured.low, measured.high, measured.settled_deviation
@@ -138,6 +138,6 @@ fn a_50_hz_game_forced_to_60_hz_plays_1_2_times_higher() {
     let mut session = Session::new(tone(forced_60(Resampling::Sinc)));
     assert!((session.setup.heard_hz(TONE_HZ) - 528.0).abs() < 1e-9);
     session.run_seconds(RUN_S);
-    assert_steady(&session, 0.25, 0.75);
+    assert_steady(&session, EXACT_LOW, EXACT_HIGH);
     check_sound(&session);
 }

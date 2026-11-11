@@ -46,6 +46,16 @@ impl Hz {
     }
 }
 
+/// Bounds of the level before a write, as fractions of the span, when a
+/// rate is off by up to 0.1% and the run rate is known.
+pub const LOW: f64 = 0.25;
+pub const HIGH: f64 = 0.75;
+/// Bounds when every rate is exact and the run rate is known: the measured
+/// levels are 0.499 to 0.501, and an error of 0.1% in the nominal ratio
+/// moves the fixed point to 0.40 or 0.60, outside these bounds.
+pub const EXACT_LOW: f64 = 0.45;
+pub const EXACT_HIGH: f64 = 0.55;
+
 /// The SNES: 60.0988 Hz video, 32 040.5 Hz audio.
 pub const SNES_FPS: Hz = Hz::new(600_988, 10_000);
 pub const SNES_RATE: Hz = Hz::new(320_405, 10);
