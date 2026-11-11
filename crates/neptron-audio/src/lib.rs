@@ -6,11 +6,13 @@
 
 mod control;
 mod error;
+mod meter;
 mod pipeline;
 mod rates;
 
 pub use control::{CONTROL_SPAN_MS, MAX_RATE_DEVIATION_PPM, RateControl};
 pub use error::AudioError;
+pub use meter::{FLIP_METER_INTERVALS, FLIP_METER_MIN_INTERVALS, FlipRateMeter};
 pub use pipeline::{AudioPipeline, AudioStats, FADE_MS, MAX_INPUT_PER_FRAME_MS, Resampling};
 pub use rates::{
     CoreTiming, MAX_CORE_FRAME_RATE_MHZ, MAX_CORE_SAMPLE_RATE_MHZ, MAX_DEVICE_RATE_HZ,
