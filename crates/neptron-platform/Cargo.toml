@@ -9,7 +9,9 @@ publish.workspace = true
 
 [dependencies]
 neptron-types = { path = "../neptron-types" }
+serde.workspace = true
 thiserror.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

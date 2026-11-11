@@ -10,6 +10,7 @@
 mod edid;
 mod gpu;
 mod gtf;
+mod matrix;
 mod profile;
 mod sysfs;
 
@@ -17,6 +18,10 @@ pub use edid::{EDID_BLOCK_LEN, Edid, EdidError, RangeLimits, TimingFormula, pars
 pub use gpu::{
     Connector, ConnectorName, ConnectorStatus, Gpu, ParseError, PciId, Platform, Uevent,
     parse_card_name, parse_connector_name, parse_status, parse_uevent,
+};
+pub use matrix::{
+    GpuEntry, MATRIX_VERSION, Matrix, MatrixError, Quirk, UNKNOWN_GPU_CAPS,
+    UNKNOWN_GPU_PCLOCK_MIN_HZ,
 };
 pub use profile::{EdidProfile, ProfileError, profile_from_edid};
 pub use sysfs::{SysfsError, detect};

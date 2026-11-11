@@ -1,0 +1,148 @@
+# NEPTRON GPU capability table. data/hardware/README.md describes the
+# format, the match rules and the source of each value.
+#
+# A GPU that matches no entry gets the unknown-GPU values that
+# neptron-platform holds as constants: 25 MHz lowest pixel clock, no
+# interlace. Where the hardware support matrix says that a capability is
+# not proven, the entry leaves it off and names it in a quirk.
+
+version = 1
+
+[[gpu]]
+id = "intel_gen9"
+name = "Intel gen9 (Skylake, Kaby Lake, Amber Lake, Coffee Lake), onboard VGA or DP to VGA"
+tier = 1
+driver = "i915"
+pci_vendor = 0x8086
+pci_devices = [
+    # Skylake
+    0x1902, 0x1906, 0x190a, 0x190b, 0x190e, 0x1912, 0x1913, 0x1915,
+    0x1916, 0x1917, 0x191a, 0x191b, 0x191d, 0x191e, 0x1921, 0x1923,
+    0x1926, 0x1927, 0x192a, 0x192b, 0x192d, 0x1932, 0x193a, 0x193b,
+    0x193d,
+    # Kaby Lake
+    0x5902, 0x5906, 0x5908, 0x590a, 0x590b, 0x590e, 0x5912, 0x5913,
+    0x5915, 0x5916, 0x5917, 0x591a, 0x591b, 0x591c, 0x591d, 0x591e,
+    0x5921, 0x5923, 0x5926, 0x5927, 0x593b,
+    # Amber Lake
+    0x87c0, 0x87ca,
+    # Coffee Lake
+    0x3e90, 0x3e91, 0x3e92, 0x3e93, 0x3e94, 0x3e96, 0x3e98, 0x3e99,
+    0x3e9a, 0x3e9b, 0x3e9c, 0x3ea5, 0x3ea6, 0x3ea7, 0x3ea8, 0x3ea9,
+]
+pclock_min_hz = 25_000_000
+pclock_max_hz = 165_000_000
+interlace = false
+flip_per_field = false
+max_width = 1920
+max_height = 1200
+quirks = ["low_pixel_clock_unproven", "interlace_unproven", "interlace_needs_linear_scanout"]
+
+[[gpu]]
+id = "intel_i915"
+name = "Intel on i915, other generations"
+tier = 2
+driver = "i915"
+pclock_min_hz = 25_000_000
+pclock_max_hz = 165_000_000
+interlace = false
+flip_per_field = false
+max_width = 1920
+max_height = 1200
+quirks = []
+
+[[gpu]]
+id = "intel_xe"
+name = "Intel on xe, gen12 and newer, DP to VGA"
+tier = 3
+driver = "xe"
+pclock_min_hz = 25_000_000
+pclock_max_hz = 165_000_000
+interlace = false
+flip_per_field = false
+max_width = 1920
+max_height = 1200
+quirks = []
+
+[[gpu]]
+id = "amd_amdgpu"
+name = "AMD on amdgpu, analog connector or DP to VGA"
+tier = 2
+driver = "amdgpu"
+pclock_min_hz = 25_000_000
+pclock_max_hz = 165_000_000
+interlace = false
+flip_per_field = false
+max_width = 1920
+max_height = 1200
+quirks = ["needs_15khz_patches", "low_pixel_clock_unproven", "interlace_unproven"]
+
+[[gpu]]
+id = "amd_radeon"
+name = "AMD Radeon on radeon, analog connector"
+tier = 2
+driver = "radeon"
+pclock_min_hz = 25_000_000
+pclock_max_hz = 165_000_000
+interlace = false
+flip_per_field = false
+max_width = 1920
+max_height = 1200
+quirks = ["needs_15khz_patches", "low_pixel_clock_unproven", "interlace_unproven"]
+
+[[gpu]]
+id = "nvidia_nouveau"
+name = "NVIDIA on nouveau, analog on older cards"
+tier = 3
+driver = "nouveau"
+pclock_min_hz = 25_000_000
+pclock_max_hz = 165_000_000
+interlace = false
+flip_per_field = false
+max_width = 1920
+max_height = 1200
+quirks = ["interlace_unproven"]
+
+[[gpu]]
+id = "pi_vc4_dpi"
+name = "Raspberry Pi 3, 4, Zero 2 W, GPIO DPI"
+tier = 1
+driver = "vc4-drm"
+of_compatible = ["brcm,bcm2835-vc4", "brcm,bcm2711-vc5"]
+connectors = ["DPI"]
+pclock_min_hz = 0
+pclock_max_hz = 165_000_000
+interlace = false
+flip_per_field = false
+max_width = 1920
+max_height = 1200
+quirks = ["interlace_needs_kernel_patch"]
+
+[[gpu]]
+id = "pi_vc4_composite"
+name = "Raspberry Pi 3, 4, Zero 2 W, composite"
+tier = 2
+driver = "vc4-drm"
+of_compatible = ["brcm,bcm2835-vc4", "brcm,bcm2711-vc5"]
+connectors = ["Composite"]
+pclock_min_hz = 13_500_000
+pclock_max_hz = 13_500_000
+interlace = true
+flip_per_field = false
+max_width = 720
+max_height = 576
+quirks = ["fixed_pixel_clock"]
+
+[[gpu]]
+id = "pi5_rp1_dpi"
+name = "Raspberry Pi 5, GPIO DPI"
+tier = 1
+driver = "drm-rp1-dpi"
+of_compatible = ["raspberrypi,rp1dpi"]
+pclock_min_hz = 0
+pclock_max_hz = 165_000_000
+interlace = true
+flip_per_field = false
+max_width = 1920
+max_height = 1200
+quirks = ["interlace_uses_pio"]
