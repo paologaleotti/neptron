@@ -10,6 +10,7 @@ mod load;
 mod monitors;
 mod repo;
 mod rules;
+mod ui;
 mod verify;
 mod worktree;
 
@@ -40,6 +41,7 @@ commands:
   window-smoke         build neptron-window with its sdl3 feature, open the
                        development window, show test modes and inject a
                        key (needs a display and SDL3)
+  font                 generate the UI glyph table from the vendored BDF font
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
@@ -62,6 +64,8 @@ enum Error {
     Load(#[from] load::LoadError),
     #[error(transparent)]
     Rules(#[from] rules::RulesError),
+    #[error(transparent)]
+    Ui(#[from] ui::UiError),
     #[error(transparent)]
     Verify(#[from] verify::VerifyError),
     #[error(transparent)]
@@ -96,6 +100,7 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
             bindgen::run(&rest)?;
             Ok(ExitCode::SUCCESS)
         }
+        "font" => Ok(ui::font(&rest)?),
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy", "--all-targets"], &rest),

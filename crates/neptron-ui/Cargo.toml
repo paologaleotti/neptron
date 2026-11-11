@@ -4,7 +4,8 @@ description = "The sealed UI: snapshot in, scene and intents out"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+# The crate code is MIT OR Apache-2.0; the Spleen glyph table is BSD-2-Clause.
+license = "(MIT OR Apache-2.0) AND BSD-2-Clause"
 publish.workspace = true
 
 [dependencies]
