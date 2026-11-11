@@ -1,11 +1,11 @@
 use neptron_backend::{Display, DisplayError};
-use neptron_modeline::policy::{PolicySettings, StyleRow};
-use neptron_types::{FlipEvent, Frame, Modeline, SourceGeometry};
+use neptron_modeline::policy::{PolicySettings, Proposal, StyleRow};
+use neptron_types::{FlipEvent, Frame, Modeline, Scene, SourceGeometry};
 
 use crate::odren::{AfterModeSet, ModeOrder};
 use crate::{
-    Current, Directive, Monitor, Odren, Outcome, Refusal, SwitchTrace, Unshowable, Veto,
-    build_scene,
+    Current, Directive, Monitor, Odren, Outcome, Refusal, ScanlineSettings, SwitchTrace,
+    Unshowable, Veto,
 };
 
 /// An error of the engine. The trace has the details of every failed
@@ -112,6 +112,23 @@ impl<D: Display> VideoEngine<D> {
         self.odren.set_settings(settings);
     }
 
+    /// New scanline settings. The next scene takes them, with no modeset.
+    pub fn set_scanlines(&mut self, scanlines: ScanlineSettings) {
+        self.odren.set_scanlines(scanlines);
+    }
+
+    /// The scene that `proposal` would show for `source`, for the preview
+    /// of the Display panel. See [`Odren::preview_scene`].
+    pub fn preview_scene<'a>(
+        &self,
+        proposal: &Proposal,
+        source: &SourceGeometry,
+        game: Option<Frame<'a>>,
+        ui: Option<Frame<'a>>,
+    ) -> Scene<'a> {
+        self.odren.preview_scene(proposal, source, game, ui)
+    }
+
     /// Lifts the block of a source after a device error. See
     /// [`Odren::retry`].
     pub fn retry(&mut self) {
@@ -146,12 +163,7 @@ impl<D: Display> VideoEngine<D> {
         };
         presented.drained_flip = self.drain_flip()?;
         presented.modeset = self.modeset()?;
-        let (placement, source) = self
-            .odren
-            .current()
-            .map(|c| (c.chosen.proposal.placement, c.source))
-            .ok_or(VideoError::NoMode)?;
-        let scene = build_scene(&placement, &source, game, ui);
+        let scene = self.odren.scene(game, ui).ok_or(VideoError::NoMode)?;
         self.display.present(&scene).map_err(VideoError::Present)?;
         self.flip_pending = true;
         Ok(presented)

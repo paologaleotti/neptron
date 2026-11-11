@@ -23,7 +23,7 @@ pub use decision::{Chosen, Refusal, Unshowable, Veto};
 pub use engine::{FLIP_WAIT_ATTEMPTS, Presented, VideoEngine, VideoError};
 pub use monitor::Monitor;
 pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
-pub use scene::build_scene;
+pub use scene::{SceneInputs, build_scene};
 pub use settings::{ScanlineSettings, SettingsError, policy_settings, scanline_settings};
 pub use trace::{
     Outcome, READ_BACK_RATE_NOTICE_MHZ, SwitchRecord, SwitchTrace, TRACE_CAPACITY, Trigger,
@@ -33,5 +33,5 @@ pub use trace::{
 /// depend on `neptron-modeline`.
 pub use neptron_modeline::policy::{
     Dropped, HorizontalStrategy, Notice, PictureStyle, Placement, PolicyError, PolicySettings,
-    RefreshKind, RefreshPolicy, RefreshTarget, Refused, Rung, StyleRow, Timing,
+    Proposal, RefreshKind, RefreshPolicy, RefreshTarget, Refused, Rung, StyleRow, Timing,
 };

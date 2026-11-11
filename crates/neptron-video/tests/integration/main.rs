@@ -8,4 +8,5 @@ mod engine;
 mod faults;
 mod harness;
 mod inputs;
+mod scanlines;
 mod stall;

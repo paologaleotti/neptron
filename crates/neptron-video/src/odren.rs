@@ -1,13 +1,13 @@
 use neptron_backend::DisplayError;
-use neptron_modeline::policy::{PolicySettings, Switch, switch_for};
+use neptron_modeline::policy::{PolicySettings, Proposal, Switch, switch_for};
 use neptron_safety::{Rejection, ValidatedMode, validate};
-use neptron_types::{FlipEvent, GpuCaps, Modeline, SourceGeometry};
+use neptron_types::{FlipEvent, Frame, GpuCaps, Modeline, Scene, SourceGeometry};
 
 use crate::cache::Cache;
 use crate::decision::{Decision, Inputs};
 use crate::{
-    Chosen, Monitor, Outcome, READ_BACK_RATE_NOTICE_MHZ, SwitchRecord, SwitchTrace, Trigger,
-    Unshowable, Veto,
+    Chosen, Monitor, Outcome, READ_BACK_RATE_NOTICE_MHZ, ScanlineSettings, SceneInputs,
+    SwitchRecord, SwitchTrace, Trigger, Unshowable, Veto, build_scene,
 };
 
 /// A source that asks for a new mode must stay the same for this many core
@@ -80,6 +80,8 @@ pub struct Odren {
     inputs: Inputs,
     /// Counts the changes of the inputs that judge a mode.
     generation: u64,
+    /// Scanlines change the scene only, never the mode.
+    scanlines: ScanlineSettings,
     cache: Cache,
     current: Option<Current>,
     request: Option<Request>,
@@ -133,6 +135,7 @@ impl Odren {
                 driver_refused: Vec::new(),
             },
             generation: 0,
+            scanlines: ScanlineSettings::OFF,
             cache: Cache::new(),
             current: None,
             request: None,
@@ -182,6 +185,50 @@ impl Odren {
         self.blocked = None;
         self.failed_attempts = 0;
         self.redo = Some(Trigger::Retry);
+    }
+
+    /// New scanline settings. The next scene takes them; no modeset, no
+    /// debounce and no trace record.
+    pub fn set_scanlines(&mut self, scanlines: ScanlineSettings) {
+        self.scanlines = scanlines;
+    }
+
+    /// The scanline settings.
+    pub fn scanlines(&self) -> ScanlineSettings {
+        self.scanlines
+    }
+
+    /// The scene of the mode on screen, or `None` before the first mode.
+    pub fn scene<'a>(&self, game: Option<Frame<'a>>, ui: Option<Frame<'a>>) -> Option<Scene<'a>> {
+        let current = self.current.as_ref()?;
+        let inputs = SceneInputs {
+            placement: &current.chosen.proposal.placement,
+            source: &current.source,
+            monitor: &self.inputs.monitor.profile().kind,
+            mode: &current.read_back,
+            scanlines: self.scanlines,
+        };
+        Some(build_scene(&inputs, game, ui))
+    }
+
+    /// The scene that `proposal` would show for `source`, for the preview
+    /// of the Display panel: the same function, monitor and scanline
+    /// settings as the run.
+    pub fn preview_scene<'a>(
+        &self,
+        proposal: &Proposal,
+        source: &SourceGeometry,
+        game: Option<Frame<'a>>,
+        ui: Option<Frame<'a>>,
+    ) -> Scene<'a> {
+        let inputs = SceneInputs {
+            placement: &proposal.placement,
+            source,
+            monitor: &self.inputs.monitor.profile().kind,
+            mode: &proposal.mode,
+            scanlines: self.scanlines,
+        };
+        build_scene(&inputs, game, ui)
     }
 
     /// The monitor.
