@@ -1,4 +1,20 @@
 //! Typed settings schema, three-level resolution (game, system, global, default) and TOML persistence.
+//!
+//! Schema, resolution, parsing and editing are pure. Only [`Storage`] reads and writes files.
+//!
+//! ```
+//! use neptron_settings::{Layers, Level, Schema, Source, Value, parse_layer, resolve_key};
+//!
+//! let schema = Schema::builtin();
+//! let global = parse_layer(&schema, Level::Global, "[display]\nstyle = \"2x\"\n");
+//! let game = parse_layer(&schema, Level::Game, "[display]\nstyle = \"9x\"\n");
+//! assert_eq!(game.issues.len(), 1);
+//!
+//! let layers = Layers::try_new(Some(&global.layer), None, Some(&game.layer)).unwrap();
+//! let style = resolve_key(&schema, &layers, "display.style").unwrap();
+//! assert_eq!(style.value, Value::Text("2x".into()));
+//! assert_eq!(style.source, Source::Global);
+//! ```
 
 #![forbid(unsafe_code)]
 
