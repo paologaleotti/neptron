@@ -72,7 +72,9 @@ pub(super) fn save(
                 active: crtc_active != 0,
                 mode: None,
                 problem: None,
-                restore_plan: "the CRTC had no mode: the output goes off again".to_owned(),
+                restore_plan: format!(
+                    "the output off, because the CRTC had no mode. {CONSOLE_NOTE}"
+                ),
             },
         ),
         Some(m) => judge(&raw_of(&m), crtc_active != 0, profile, caps),
@@ -116,9 +118,10 @@ fn judge(
                     active,
                     mode: None,
                     problem: Some(e.to_string()),
-                    restore_plan:
-                        "the original mode cannot be judged: the output goes off at the end"
-                            .to_owned(),
+                    restore_plan: format!(
+                        "the output off, because the original mode cannot be judged. \
+                         {CONSOLE_NOTE}"
+                    ),
                 },
             );
         }
@@ -142,9 +145,10 @@ fn judge(
                 active,
                 mode: Some(modeline),
                 problem: Some(format!("validate rejects the original mode: {r}")),
-                restore_plan: "the original mode fails validation for this preset: \
-                               the output goes off at the end"
-                    .to_owned(),
+                restore_plan: format!(
+                    "the output off, because the original mode fails validation for this \
+                     preset. {CONSOLE_NOTE}"
+                ),
             },
         ),
     }
@@ -191,6 +195,11 @@ pub(super) fn loud(text: &str) {
          !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
     ));
 }
+
+/// What the owner sees after an "output off" restore.
+const CONSOLE_NOTE: &str = "With fbdev emulation (a normal desktop kernel) the kernel console \
+     then takes the display back in its own mode when the tool closes the device: this is \
+     expected. Without it the screen stays dark until the next program sets a mode.";
 
 fn restore(card: &Card, objects: &Objects, saved: &Saved) -> Result<String, String> {
     let first = match &saved.target {

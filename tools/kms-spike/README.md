@@ -25,7 +25,7 @@ kms-spike --help
 | `--connector NAME` | not set | The connector, for example `VGA-1` or `DP-1`. |
 | `--report PATH` | `kms-spike-report.json` | The JSON report file. |
 
-`--worker` is internal: the supervisor process adds it when it starts the worker (see below).
+`--worker` is internal: the supervisor process adds it when it starts the worker (see below). The command line refuses `--worker` without `--i-have-checked-the-monitor`, and the worker does not open the device when its output is not the supervisor's pipe or when no mode passed `validate`.
 
 ### Build
 
@@ -39,18 +39,27 @@ Use the dev profile, as above. The release profile of the workspace aborts on a 
 
 ### The run on the i3-6100T
 
-Run it as root from a text console, with no display server. Another DRM master (X, Wayland, a running NEPTRON) makes every commit fail with "Permission denied".
+Before the first run:
+
+- Build the dev profile on Linux: `cargo build -p kms-spike --features kms`. The release profile of the workspace aborts on a panic, so the restore guard cannot run there.
+- Run the tool as root on a text console. Stop X, Wayland and any running NEPTRON first: another DRM master makes every commit fail with "Permission denied".
+- Run `--list-connectors` first and use the name it prints. On an i3-6100T board the VGA port is probably behind a DP-to-VGA bridge, so it shows up as a DisplayPort connector such as `DP-1`, not as `VGA-1`.
+- After each run, keep the output of `dmesg | tail -50` with the report.
 
 ```sh
 kms-spike --list-connectors
-kms-spike pc_31_120 --connector VGA-1                  # dry run: read the ranges and the modes
-kms-spike pc_31_120 --connector VGA-1 --i-have-checked-the-monitor
+kms-spike pc_31_120 --connector DP-1                   # dry run: read the ranges and the modes
+kms-spike pc_31_120 --connector DP-1 --i-have-checked-the-monitor
 ```
 
-The SyncMaster 740s is a 31 kHz and higher PC monitor. On it, 240p shows at 120 Hz and 480p at 60 Hz. 480i needs a preset with an interlaced range, and every shipped 31 kHz range refuses interlace, so the hard rails refuse 480i there. To measure Intel interlace and a native low pixel clock, use a 15 kHz preset on a 15 kHz display, for example:
+Use the connector name that `--list-connectors` printed in place of `DP-1`.
+
+What to expect at the end: the console of a desktop kernel runs at a 31 kHz-and-higher mode, for example 1024x768, which fails validation for `pc_31_120`. So the tool switches the output off at the end, and it says so before the first modeset. With fbdev emulation the kernel console then takes the display back in its own mode when the tool closes the device. This is expected, and it is not a failure of the restore.
+
+The SyncMaster 740s is a 31 kHz and higher PC monitor. On it, 240p shows at 120 Hz and 480p at 60 Hz. 480i cannot be tested on a 31 kHz monitor: it needs a preset with an interlaced range, and every shipped 31 kHz range and the 31 kHz hard rails refuse interlace. To measure Intel interlace and a native low pixel clock, use a 15 kHz preset on a 15 kHz display, for example:
 
 ```sh
-kms-spike ntsc --connector VGA-1 --width 640 --allow-low-pclock 6000000 --allow-interlace
+kms-spike ntsc --connector DP-1 --width 640 --allow-low-pclock 6000000 --allow-interlace
 ```
 
 ### The run on `vkms`
@@ -88,7 +97,7 @@ A pass on `vkms`:
 
 At the start the worker saves the state of the connector, the CRTC and the primary plane: the connector's `CRTC_ID`, the CRTC's `ACTIVE` and mode, and the plane's `FB_ID`, `CRTC_ID` and source and destination rectangles. The restore puts them back with an atomic commit, after a test-only commit.
 
-The original mode also goes through `validate`. When it passes, the restore puts back the original mode and the original framebuffer. When it does not convert to a modeline or does not pass `validate` for the chosen preset, the restore switches the output off instead (no mode, no plane): no signal is safe for every display. The tool prints which of the two it will do before the first modeset. When the restore commit fails, the tool switches the output off; when that fails too, it prints a large `RESTORE FAILED` block.
+The original mode also goes through `validate`. When it passes, the restore puts back the original mode and the original framebuffer. When it does not convert to a modeline or does not pass `validate` for the chosen preset, the restore switches the output off instead (no mode, no plane): no signal is safe for every display. The tool prints which of the two it will do before the first modeset. After an "output off" restore on a kernel with fbdev emulation, the kernel console takes the display back in its own mode when the tool closes the device. The owner then sees the console again, as before the run; this is expected. Without fbdev emulation the screen stays dark until the next program sets a mode. When the restore commit fails, the tool switches the output off; when that fails too, it prints a large `RESTORE FAILED` block.
 
 | Exit path | What happens |
 | --- | --- |
@@ -102,7 +111,7 @@ The original mode also goes through `validate`. When it passes, the restore puts
 
 **Why two processes.** A signal handler needs `unsafe` code or a crate such as `signal-hook`, and the tool may use neither (see "Dependencies"). The process the user starts is a supervisor. It starts the worker (the same program with `--worker`) in a new process group, so Ctrl-C at the terminal reaches only the supervisor. The worker writes a heartbeat line every 100 ms to a pipe that the supervisor reads. When the supervisor dies, the pipe has no reader, the write fails (Rust ignores SIGPIPE, so it is an error, not a signal), and the worker restores. The worker writes its messages after that to standard error, which still goes to the terminal. If the terminal has `stty tostop` set, the kernel stops the background worker when it writes; the supervisor's hard limit then kills it.
 
-**SIGKILL.** No code of the tool runs. The kernel closes the worker's DRM file descriptor. When the last descriptor of a DRM client closes, the kernel removes the framebuffers that client made. A framebuffer that is on a plane is first taken off: on atomic drivers (i915, vkms) the kernel switches the CRTC off when its primary plane loses its framebuffer. The tube then gets no signal. Most monitors go to standby, and a no-signal state is safe for every display. If fbdev emulation is on, the kernel's console takes the display back with its own mode when the last client closes. To recover: switch to another virtual terminal and back, run the tool again with a valid preset (its restore target is then the output off or the console mode), or reboot. This behaviour of the kernel is from its source, not measured; the hardware checklist has a check for it.
+**SIGKILL.** No code of the tool runs. The kernel closes the worker's DRM file descriptor and removes the framebuffers that the worker made. What the display does then depends on the driver. On some drivers (i915 is a probable case) the CRTC keeps its timing, so the validated test mode can stay on the wire with a black picture until the fbdev console takes the display back at the last close. Other drivers switch the CRTC off. This is not verified on hardware; the hardware checklist has a check for it. The test mode on the wire passed `validate`, so it is inside the ranges of the preset. To recover: switch to another virtual terminal and back, run the tool again with a valid preset, or reboot.
 
 ## The modes
 
@@ -179,4 +188,4 @@ So the tool parses its arguments by hand, writes JSON with a small writer of its
 
 ## Tests
 
-The pure parts are tested on every host: argument parsing, the embedded presets, the mode derivation (every preset, every mode, three widths; each mode from a preset range passes `validate`), the GPU values, the plan, the kernel mode record and its conversions, the connector choice, the pattern, the timing statistics, the JSON writer and the report, and the supervisor with a shell script as the worker. The DRM code (`src/kms`) builds only on Linux with `--features kms`, and the workspace gate does not build it.
+The pure parts are tested on every host: argument parsing, the embedded presets, the mode derivation (every preset, every mode, three widths; each mode from a preset range passes `validate`), the GPU values, the plan, the kernel mode record and its conversions, the connector choice, the pattern, the timing statistics, the JSON writer and the report, the refusal of `--worker` without confirmation, without the supervisor's pipe or without a valid mode, and the supervisor with a shell script as the worker. The DRM code (`src/kms`) builds only on Linux with `--features kms`, and the workspace gate does not build it.

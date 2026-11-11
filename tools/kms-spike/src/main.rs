@@ -240,8 +240,11 @@ fn confirmed_run(o: &Options, args: &[String]) -> ExitCode {
         Ok(Ended::Killed(status)) => {
             eprintln!(
                 "kms-spike: the worker ran past the hard limit of {} s and was killed ({status}). \
-                 The kernel removes its framebuffers, and most drivers then switch the \
-                 output off. If a test mode is still on the tube, switch the monitor off.",
+                 The kernel removes its framebuffers. On some drivers (probably i915) the \
+                 validated test mode can stay on the wire with a black picture until the \
+                 kernel console takes the display back. This is not verified on hardware. \
+                 If the picture is wrong, switch the monitor off and switch to another \
+                 virtual terminal or reboot.",
                 hard_limit(o).as_secs()
             );
             ExitCode::FAILURE
