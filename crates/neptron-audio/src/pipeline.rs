@@ -96,20 +96,28 @@ pub struct AudioPipeline<S> {
 }
 
 impl<S: AudioSink> AudioPipeline<S> {
-    /// A pipeline from a core with `core` timing to `sink`, run at the
-    /// core's own frame rate until [`set_run_rate_mhz`](Self::set_run_rate_mhz).
-    /// It makes the resampler and every buffer.
+    /// A pipeline from a core with `core` timing to `sink`, run at
+    /// `run_rate_mhz` (core frames per second of real time; the core's own
+    /// frame rate when the session knows no better). The sinc filter is
+    /// made for that rate. It makes the resampler and every buffer.
     ///
     /// # Errors
     ///
     /// [`AudioError::CoreSampleRate`], [`AudioError::CoreFrameRate`] or
-    /// [`AudioError::DeviceRate`] for a rate outside the limits, and
-    /// [`AudioError::Resampler`] when rubato refuses the resampler.
-    pub fn new(sink: S, core: CoreTiming, resampling: Resampling) -> Result<Self, AudioError> {
+    /// [`AudioError::DeviceRate`] for a rate outside the limits,
+    /// [`AudioError::RunRatio`] for a run rate outside half to twice the
+    /// core's frame rate, and [`AudioError::Resampler`] when rubato refuses
+    /// the resampler.
+    pub fn new(
+        sink: S,
+        core: CoreTiming,
+        run_rate_mhz: u64,
+        resampling: Resampling,
+    ) -> Result<Self, AudioError> {
         core.check()?;
+        core.check_run_rate(run_rate_mhz)?;
         let device_rate_hz = sink.rate_hz();
         check_device_rate(device_rate_hz)?;
-        let run_rate_mhz = core.frame_rate_mhz;
         let nominal = core.nominal_ratio(device_rate_hz, run_rate_mhz);
         let max_input_frames = frames_in_ms_mhz(core.sample_rate_mhz, MAX_INPUT_PER_FRAME_MS);
         let resampler = resample::Stereo::new(resampling, nominal, max_input_frames)?;

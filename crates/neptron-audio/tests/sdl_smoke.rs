@@ -34,7 +34,8 @@ fn a_tone_plays_through_the_sdl3_sink_for_one_second() {
     let sink = Sdl3Sink::open().unwrap();
     let rate_hz = sink.rate_hz();
     let device_buffer = sink.device_buffer_frames();
-    let mut pipeline = AudioPipeline::new(sink, CORE, Resampling::Sinc).unwrap();
+    let mut pipeline =
+        AudioPipeline::new(sink, CORE, CORE.frame_rate_mhz, Resampling::Sinc).unwrap();
     let target = pipeline.control().target_frames();
 
     let started = Instant::now();

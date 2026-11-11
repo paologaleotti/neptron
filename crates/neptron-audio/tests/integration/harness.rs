@@ -140,10 +140,13 @@ impl Session {
             sample_rate_mhz: setup.core_rate.mhz(),
             frame_rate_mhz: setup.core_fps.mhz(),
         };
-        let mut pipeline = AudioPipeline::new(audio.clone(), core, setup.resampling).unwrap();
-        if setup.tell_display {
-            pipeline.set_run_rate_mhz(setup.display.mhz()).unwrap();
-        }
+        let run_rate_mhz = if setup.tell_display {
+            setup.display.mhz()
+        } else {
+            core.frame_rate_mhz
+        };
+        let pipeline =
+            AudioPipeline::new(audio.clone(), core, run_rate_mhz, setup.resampling).unwrap();
         Self {
             setup,
             clock,

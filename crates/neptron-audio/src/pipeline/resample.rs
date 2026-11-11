@@ -12,9 +12,11 @@ use crate::{AudioError, Resampling};
 const SINC_TAPS: usize = 128;
 /// Points between two input samples at which the sinc filter is computed.
 const SINC_OVERSAMPLING: usize = 128;
-/// How far the ratio may move from the ratio at construction, either way:
-/// the run ratio range (1/2 to 2) times the deviation bound, rounded up.
-const RATIO_RANGE: f64 = 2.02;
+/// How far the ratio may move from the ratio at construction, either way.
+/// The run rate may go from one end of its range (1/2 to 2 times the core
+/// rate) to the other after construction: a factor of 4, times the
+/// deviation bound, rounded up.
+const RATIO_RANGE: f64 = 4.04;
 
 /// Interleaved stereo.
 const CHANNELS: usize = 2;

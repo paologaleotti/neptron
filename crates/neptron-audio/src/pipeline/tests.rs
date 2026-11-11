@@ -22,7 +22,7 @@ fn fake(clock: &SimClock, rate_hz: u32, capacity_frames: usize) -> FakeAudio {
 
 fn pipeline(clock: &SimClock) -> (AudioPipeline<FakeAudio>, FakeAudio) {
     let audio = fake(clock, 48_000, 6_144);
-    let pipeline = AudioPipeline::new(audio.clone(), SNES, Resampling::Polynomial).unwrap();
+    let pipeline = AudioPipeline::new(audio.clone(), SNES, 60_099, Resampling::Polynomial).unwrap();
     (pipeline, audio)
 }
 
@@ -31,7 +31,7 @@ fn rates_outside_the_limits_are_refused() {
     let clock = SimClock::new();
     let slow_device = fake(&clock, 4_000, 1_000);
     assert_eq!(
-        AudioPipeline::new(slow_device, SNES, Resampling::Sinc).err(),
+        AudioPipeline::new(slow_device, SNES, 60_099, Resampling::Sinc).err(),
         Some(AudioError::DeviceRate {
             rate_hz: 4_000,
             min_hz: 8_000,
@@ -43,7 +43,12 @@ fn rates_outside_the_limits_are_refused() {
         ..SNES
     };
     assert!(matches!(
-        AudioPipeline::new(fake(&clock, 48_000, 1_000), bad_core, Resampling::Sinc),
+        AudioPipeline::new(
+            fake(&clock, 48_000, 1_000),
+            bad_core,
+            5_000,
+            Resampling::Sinc
+        ),
         Err(AudioError::CoreFrameRate { .. })
     ));
 }
@@ -132,7 +137,8 @@ fn input_beyond_the_frame_limit_is_dropped_and_counted() {
 fn a_full_sink_counts_the_frames_it_refused() {
     let clock = SimClock::new();
     let audio = fake(&clock, 48_000, 2_000);
-    let mut pipeline = AudioPipeline::new(audio.clone(), SNES, Resampling::Polynomial).unwrap();
+    let mut pipeline =
+        AudioPipeline::new(audio.clone(), SNES, 60_099, Resampling::Polynomial).unwrap();
     pipeline.push_samples(&[0; 1_000 * 2]);
     pipeline.end_frame();
     let stats = *pipeline.stats();
@@ -210,10 +216,10 @@ fn unmute_fades_the_next_frame_in() {
 fn the_sinc_filter_delays_by_95_frames_from_32_khz_to_48_khz() {
     let clock = SimClock::new();
     let audio = fake(&clock, 48_000, 6_144);
-    let pipeline = AudioPipeline::new(audio, SNES, Resampling::Sinc).unwrap();
+    let pipeline = AudioPipeline::new(audio, SNES, 60_099, Resampling::Sinc).unwrap();
     assert_eq!(pipeline.resampler_delay_frames(), 95);
     let audio = fake(&clock, 48_000, 6_144);
-    let pipeline = AudioPipeline::new(audio, SNES, Resampling::Polynomial).unwrap();
+    let pipeline = AudioPipeline::new(audio, SNES, 60_099, Resampling::Polynomial).unwrap();
     assert!(pipeline.resampler_delay_frames() <= 2);
 }
 
@@ -228,4 +234,40 @@ fn a_frame_without_audio_writes_nothing_but_the_priming() {
     assert_eq!(pipeline.stats().frames, 2);
     assert_eq!(pipeline.stats().output_frames, 0);
     assert_eq!(pipeline.into_sink().written_frames(), 1_536);
+}
+
+#[test]
+fn the_run_rate_at_construction_is_checked_and_used() {
+    let clock = SimClock::new();
+    assert_eq!(
+        AudioPipeline::new(fake(&clock, 48_000, 6_144), SNES, 0, Resampling::Sinc).err(),
+        Some(AudioError::RunRatio {
+            run_rate_mhz: 0,
+            frame_rate_mhz: 60_099
+        })
+    );
+    let forced =
+        AudioPipeline::new(fake(&clock, 48_000, 6_144), SNES, 72_119, Resampling::Sinc).unwrap();
+    assert_eq!(forced.run_rate_mhz(), 72_119);
+    let expected = 48_000.0 * 60_099.0 / (32_040.5 * 72_119.0);
+    assert!((forced.nominal_ratio() - expected).abs() < 1e-12);
+}
+
+#[test]
+fn the_run_rate_can_cross_its_whole_range_after_construction() {
+    for resampling in [Resampling::Sinc, Resampling::Polynomial] {
+        let clock = SimClock::new();
+        let audio = fake(&clock, 48_000, 6_144);
+        let mut pipeline = AudioPipeline::new(audio, SNES, 30_050, resampling).unwrap();
+        for run in [120_198, 30_050, 120_198] {
+            pipeline.set_run_rate_mhz(run).unwrap();
+            for _ in 0..3 {
+                clock.advance(16 * MS);
+                pipeline.push_samples(&[100; 533 * 2]);
+                pipeline.end_frame();
+            }
+        }
+        assert_eq!(pipeline.stats().resampler_errors, 0, "{resampling:?}");
+        assert!(pipeline.stats().output_frames > 0);
+    }
 }
