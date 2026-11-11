@@ -235,6 +235,27 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
+        // The last resort: 70 Hz on arcade_25 (24.96 kHz fixed, 384 to 400
+        // lines, no interlace on this GPU). The nearest covered rate is 65
+        // Hz; 384 lines need 384 + ceil(1.28 ms x 24.96 kHz) = 416 lines per
+        // field, and 24,960 / 416 = 60.000 Hz. Nothing reaches 65 Hz, so the
+        // fitted rung at the rate Switchres reaches wins: 384 lines, 4:3
+        // wide (512).
+        Row {
+            source: source(320, 240, 70_000),
+            rung: Rung::Fitted,
+            mode: "512x384p",
+            kind: RefreshKind::Unmatched,
+            rate_mhz: 65_000,
+            ..row(
+                "step5_unmatched_last_resort",
+                preset("arcade_25"),
+                GpuCaps {
+                    interlace: false,
+                    ..open_caps()
+                },
+            )
+        },
         // Step 3: an explicit multiple starts at its own rung.
         Row {
             style: PictureStyle::X3,
@@ -486,7 +507,7 @@ fn every_rule_gives_its_rung_and_mode_family() {
                 r.rule
             ));
         }
-        if r.kind != RefreshKind::Panel {
+        if r.kind != RefreshKind::Panel && r.kind != RefreshKind::Unmatched {
             let off = proposal
                 .timing
                 .field_rate_mhz
@@ -917,4 +938,204 @@ fn an_empty_source_or_profile_is_an_error() {
         ),
         Err(PolicyError::EmptyProfile { .. })
     ));
+}
+
+/// One row of the drop table: a rung at the game's rate, and the reason
+/// the policy drops it, with numbers from the Definition or a hand
+/// calculation.
+struct DropRow {
+    rule: &'static str,
+    source: SourceGeometry,
+    style: PictureStyle,
+    solver: neptron_modeline::Settings,
+    profile: MonitorProfile,
+    caps: GpuCaps,
+    rung: Rung,
+    want: Dropped,
+}
+
+fn drop_row(rule: &'static str, rung: Rung, want: Dropped, profile: MonitorProfile) -> DropRow {
+    DropRow {
+        rule,
+        source: snes(),
+        style: PictureStyle::Auto,
+        solver: neptron_modeline::Settings::default(),
+        profile,
+        caps: open_caps(),
+        rung,
+        want,
+    }
+}
+
+fn drop_rows() -> Vec<DropRow> {
+    let no_interlace = GpuCaps {
+        interlace: false,
+        ..open_caps()
+    };
+    vec![
+        // 480 progressive lines are above the 288 of generic_15 and inside
+        // its 448 to 576 interlaced lines: Switchres interlaces them.
+        DropRow {
+            source: source(640, 480, 60_000),
+            ..drop_row(
+                "scan_changed",
+                Rung::Native,
+                Dropped::ScanChanged {
+                    asked_interlace: false,
+                },
+                preset("generic_15"),
+            )
+        },
+        // A 16:9 monitor aspect makes Switchres widen the mode by
+        // (16/9) / (4/3): 256 x 4/3 = 341.3, truncated to 341.
+        DropRow {
+            solver: neptron_modeline::Settings {
+                monitor_aspect: neptron_modeline::Aspect {
+                    width: 16,
+                    height: 9,
+                },
+                ..neptron_modeline::Settings::default()
+            },
+            ..drop_row(
+                "width_changed",
+                Rung::Native,
+                Dropped::WidthChanged {
+                    asked: 256,
+                    got: 341,
+                },
+                preset("generic_15"),
+            )
+        },
+        // 448 lines fit no progressive range of generic_15 and the GPU has
+        // no interlace: Switchres stretches to the most lines at 60.099 Hz,
+        // 15,625 / 60.099 = 260 per field less 20 of blanking = 240.
+        DropRow {
+            caps: no_interlace,
+            ..drop_row(
+                "lines_changed",
+                Rung::Multiple(2),
+                Dropped::LinesChanged {
+                    asked: 448,
+                    got: 240,
+                },
+                preset("generic_15"),
+            )
+        },
+        // A Game Boy at 2x: 288 lines plus 20 of blanking at the highest
+        // 15.75 kHz is 15,750 / 308 = 51.136 Hz, not 59.728 Hz.
+        DropRow {
+            source: SourceGeometry {
+                aspect_milli: 1_111,
+                ..source(160, 144, 59_728)
+            },
+            ..drop_row(
+                "refresh_missed",
+                Rung::Multiple(2),
+                Dropped::RefreshMissed {
+                    target_mhz: 59_728,
+                    got_mhz: 51_136,
+                },
+                preset("generic_15"),
+            )
+        },
+        // A 192-line game at 59.923 Hz on pc_31_120: only the 400 to 512
+        // line range covers the rate, and no border height of 224 or 240
+        // reaches 400.
+        DropRow {
+            source: source(256, 192, 59_923),
+            ..drop_row(
+                "no_border_mode",
+                Rung::Native,
+                Dropped::NoBorderMode {
+                    lines: 192,
+                    line_min: 400,
+                },
+                preset("pc_31_120"),
+            )
+        },
+        // 224 lines fit progressive at 60.099 Hz on generic_15:
+        // floor(15,750 / 60.099) = 262 less ceil(1.28 ms x 15.75 kHz) = 21.
+        drop_row(
+            "fits_progressive",
+            Rung::Interlaced,
+            Dropped::FitsProgressive {
+                lines: 224,
+                progressive_max: 241,
+            },
+            preset("generic_15"),
+        ),
+        // Rung 3 of an interlaced source asks for the mode of rung 1.
+        DropRow {
+            source: SourceGeometry {
+                interlaced: true,
+                ..source(640, 480, 59_940)
+            },
+            ..drop_row(
+                "same_as_native",
+                Rung::Interlaced,
+                Dropped::SameAsNative,
+                preset("generic_15"),
+            )
+        },
+        // 480 lines need rung 3 on generic_15, and the GPU has no interlace.
+        DropRow {
+            source: source(640, 480, 60_000),
+            caps: no_interlace,
+            ..drop_row(
+                "no_interlace",
+                Rung::Interlaced,
+                Dropped::NoInterlace,
+                preset("generic_15"),
+            )
+        },
+    ]
+}
+
+#[test]
+fn every_drop_rule_gives_its_reason_and_numbers() {
+    let mut wrong = Vec::new();
+    for r in drop_rows() {
+        let settings = PolicySettings {
+            solver: r.solver,
+            ..settings(r.style, RefreshPolicy::Exact)
+        };
+        let plan = decide(&r.source, &settings, &r.profile, &r.caps)
+            .unwrap_or_else(|e| panic!("{}: {e}", r.rule));
+        let entry = plan
+            .considered
+            .iter()
+            .find(|c| c.rung == r.rung && c.target.kind != RefreshKind::Unmatched)
+            .unwrap_or_else(|| panic!("{}: no {} entry", r.rule, r.rung));
+        if entry.outcome != Err(r.want) {
+            wrong.push(format!("{}:\n  want {:?}\n  got  {entry}", r.rule, r.want));
+        }
+        if r.want.rule() != r.rule {
+            wrong.push(format!("{}: the reason names {}", r.rule, r.want.rule()));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The one exception to the scan check: an interlaced source on a monitor
+/// with no interlaced range is shown progressive, 480i as 480p.
+#[test]
+fn an_interlaced_source_on_31_khz_is_shown_progressive() {
+    let source = SourceGeometry {
+        interlaced: true,
+        ..source(640, 480, 59_940)
+    };
+    let plan = decide(
+        &source,
+        &PolicySettings::default(),
+        &pc_crt_30_71(),
+        &open_caps(),
+    )
+    .unwrap();
+    let native = &plan.considered[0];
+    assert_eq!(native.rung, Rung::Native);
+    let mode = native.outcome.as_ref().unwrap().mode;
+    assert_eq!(
+        (mode.hactive, mode.vactive, mode.interlace),
+        (640, 480, false)
+    );
 }
