@@ -10,5 +10,12 @@ publish.workspace = true
 [dependencies]
 neptron-types = { path = "../neptron-types" }
 
+[build-dependencies]
+neptron-types = { path = "../neptron-types" }
+toml.workspace = true
+
+[dev-dependencies]
+toml.workspace = true
+
 [lints]
 workspace = true

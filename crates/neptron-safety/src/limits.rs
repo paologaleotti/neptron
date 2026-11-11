@@ -326,7 +326,7 @@ mod tests {
         let cases = cases();
         assert_eq!(cases.len(), 16, "one case per check");
         for (check, limit, (min, max), set) in cases {
-            let (inside, outside) = if is_upper(check) {
+            let (inside, outside) = if check.is_max() {
                 (limit - 1, limit + 1)
             } else {
                 (limit + 1, limit - 1)
@@ -344,18 +344,6 @@ mod tests {
                 "{check:?} one unit outside"
             );
         }
-    }
-
-    fn is_upper(check: Check) -> bool {
-        matches!(
-            check,
-            Check::LineRateMax
-                | Check::FieldRateMax
-                | Check::ProgressiveLinesMax
-                | Check::InterlacedLinesMax
-                | Check::HorizontalSyncMax
-                | Check::VerticalSyncMax
-        )
     }
 
     #[test]

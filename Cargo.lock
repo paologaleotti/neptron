@@ -112,6 +112,7 @@ name = "neptron-safety"
 version = "0.1.0"
 dependencies = [
  "neptron-types",
+ "toml",
 ]
 
 [[package]]

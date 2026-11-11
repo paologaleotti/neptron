@@ -1,6 +1,7 @@
 use neptron_types::{GpuCaps, Modeline, MonitorKind, MonitorProfile};
 
 use crate::measure::Measure;
+use crate::rails::check_rails;
 use crate::range::check_ranges;
 use crate::structure::check_structure;
 use crate::{InterlaceLimit, Rejection};
@@ -48,7 +49,11 @@ pub fn validate(
     check_structure(mode)?;
     check_gpu(mode, caps)?;
     match &profile.kind {
-        MonitorKind::Crt { ranges } => check_ranges(&Measure::of(mode), ranges)?,
+        MonitorKind::Crt { ranges } => {
+            let measure = Measure::of(mode);
+            check_ranges(&measure, ranges)?;
+            check_rails(&measure)?;
+        }
         MonitorKind::FlatPanel { modes } => check_panel(mode, modes)?,
     }
     Ok(ValidatedMode { mode: *mode })
@@ -195,6 +200,42 @@ mod tests {
                 min_ns: 1_800
             })
         );
+    }
+
+    #[test]
+    fn a_custom_profile_cannot_widen_the_hard_rails() {
+        let MonitorKind::Crt { ranges } = generic_15().kind else {
+            unreachable!("generic_15 is a CRT");
+        };
+        let wide = MonitorProfile {
+            id: "custom".to_owned(),
+            kind: MonitorKind::Crt {
+                ranges: vec![CrtRange {
+                    v_max_mhz: 130_000,
+                    progressive_lines_min: 100,
+                    ..ranges[0]
+                }],
+            },
+        };
+        // 112 lines at 120.06 Hz: inside the custom range, above the 80 Hz
+        // rail of the 15 kHz class.
+        let fast = Modeline {
+            vactive: 112,
+            vsync_start: 113,
+            vsync_end: 116,
+            vtotal: 131,
+            ..mode_240p()
+        };
+        assert_eq!(
+            validate(&fast, &wide, &LOW_CLOCK),
+            Err(Rejection::HardRail {
+                rail: "15 kHz class field rate max mHz",
+                value: fast.field_rate_mhz(),
+                limit: 80_000
+            })
+        );
+        assert_eq!(fast.field_rate_mhz(), 120_059);
+        assert!(validate(&mode_240p(), &wide, &LOW_CLOCK).is_ok());
     }
 
     #[test]

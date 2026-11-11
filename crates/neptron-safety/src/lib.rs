@@ -4,8 +4,10 @@
 #![forbid(unsafe_code)]
 
 mod check;
+mod class;
 mod limits;
 mod measure;
+mod rails;
 mod range;
 mod rejection;
 mod structure;
