@@ -82,6 +82,8 @@ When the event comes, the buffer that was on the screen goes back to the GBM sur
 
 **Bounded waits.** `wait_flip` polls the descriptor with a limit of `FLIP_WAIT_LIMIT_MS` (500 ms) in total, and reads only when the poll says that data is there, so a read never blocks. The slowest field of any shipped profile is about 20 ms, and an interlaced frame about 40 ms; 500 ms also covers `vkms` under a loaded QEMU. A flip that does not complete in that time is `DisplayError::Device` with `operation` "wait for the page flip". The flip stays pending: a later `wait_flip` waits again, and `present` and `set_mode` stay refused until the event comes. The frame thread never hangs on a flip.
 
+This is the bounded wait that the `Display` contract asks for: on a timeout `wait_flip` returns `DisplayError::Device`, the flip can still complete, a later `wait_flip` returns its event, and until then `set_mode` and `present` return `DisplayError::Device` as busy.
+
 `wait_flip` with no flip queued is `DisplayError::Device` and does not block, and before the first `set_mode` it is `DisplayError::NoMode`, as on the fake display.
 
 **Interlace.** `GpuCaps::flip_per_field` comes from the capability table (`neptron-platform`), not from the backend. The backend passes the kernel's flip events on as they come: one event per vblank that the driver signals. On hardware with `flip_per_field`, the driver signals each field, and a flip can complete at each field. Without it, the driver signals each frame. The backend does not change the cadence and does not drop events. The engine, which reads the same capability, paces the core.
@@ -141,10 +143,12 @@ Timing check 7 runs in the aarch64 QEMU guest on `vkms`, with Mesa softpipe for 
 1. No modeset before the first commit: after `from_env` the CRTC has no mode and is not active, as before.
 2. For each test mode (240p at 6.7 MHz, 640x480 at 31 kHz, 1920x240 super width, 480i): `set_mode` succeeds, the mode it returns equals the request field by field, and a second read of the CRTC through another descriptor gives the same mode.
 3. The frame CRC from debugfs after each switch: stable over several frames of a still picture, different for a different picture, and equal when the same mode and picture come back.
-4. The writeback picture equals the reference renderer's output for the same scene, byte for byte in the colour bytes, for a nearest scene with the UI and for each test mode.
-5. Flips: 120 presents with `wait_flip` in each progressive mode. The sequence grows by at least one per flip, the time grows, and the mean time per vblank is within 1 % of the period of the mode. Missed vblanks are counted and printed, not failed: the guest is not real time.
+4. The writeback picture equals the reference renderer's output for the same scene, byte for byte in the colour bytes, for two nearest scenes with the UI in each test mode. In each mode with a whole vertical multiple of 2 (480p, 480i), a scene with black scanlines at 50 % gives the same writeback picture as the reference renderer and as `GlesRenderer::render` (the read-back path): the window path and the read-back path share one draw function, and this proves it on the output.
+5. Flips: 30 presents with `wait_flip` in each progressive mode. The sequence grows by at least one per flip, the time grows, and the mean time per vblank is within 1 % of the period of the mode. Missed vblanks are counted and printed, not failed: the guest is not real time.
 6. The errors of the contract: `present` and `set_mode` while a flip is pending, `wait_flip` with no flip queued, `present` and `wait_flip` before the first mode, a mode larger than the buffers, all as the fake display.
 7. Drop: after the display drops, the CRTC keeps the last mode with no plane, or is off.
+
+What the run showed (aarch64 guest, Mesa softpipe, kernel 6.18): every check passes. Mesa's GBM on `vkms` takes no modifiers, so the buffers are linear through the usage flag. The flip period equals the period of each progressive mode to 0 ppm; 480i gives one vblank per 8.33 ms, twice the field rate (OP-030). The dev build draws about four frames per second with software GL, so most vblanks have no flip; the check counts them and does not fail on them. The kernel logs "Overflow of CRC buffer" while the CRC file is open and not read; the check reads the newest entries after the picture settles.
 
 `vkms` cannot prove:
 
