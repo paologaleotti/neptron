@@ -14,6 +14,7 @@ mod home;
 mod options;
 mod overlays;
 mod page;
+mod pattern;
 mod quick_menu;
 mod router;
 mod scenes;

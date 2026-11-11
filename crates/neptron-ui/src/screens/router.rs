@@ -13,6 +13,7 @@ use super::game_list::GameList;
 use super::home::Home;
 use super::options::Options;
 use super::overlays::{Confirm, Notices};
+use super::pattern;
 use super::quick_menu::QuickMenu;
 
 /// The deepest screen stack. The longest path is home, game list, game,
@@ -66,6 +67,7 @@ pub(super) enum Screen {
     Options(Options),
     /// Boxed: its list of changes makes it much larger than the others.
     QuickMenu(Box<QuickMenu>),
+    Grid,
     /// A game runs and the UI draws nothing.
     Game,
 }
@@ -162,6 +164,7 @@ impl Screens {
             Some(Screen::Display(panel)) => panel.handle(action, snap, out),
             Some(Screen::Options(options)) => options.handle(action, snap, out),
             Some(Screen::QuickMenu(menu)) => menu.handle(action, snap, out),
+            Some(Screen::Grid) => pattern::handle(action),
             Some(Screen::Game) if action == UiAction::Menu => Nav::Open(Target::QuickMenu),
             Some(Screen::Game) | None => Nav::Stay,
         };
@@ -193,7 +196,7 @@ impl Screens {
             Target::Options { page, key, level } => {
                 Screen::Options(Options::new(page, key, level, layout, theme))
             }
-            Target::Grid => return,
+            Target::Grid => Screen::Grid,
         };
         self.stack.push(screen);
     }
@@ -204,7 +207,7 @@ impl Screens {
             Screen::Display(panel) => panel.request(snap),
             Screen::Options(options) => options.request(snap),
             Screen::QuickMenu(menu) => menu.request(snap),
-            Screen::Home(_) | Screen::Game => None,
+            Screen::Home(_) | Screen::Grid | Screen::Game => None,
         }
     }
 
@@ -230,6 +233,10 @@ impl Screens {
             Some(Screen::QuickMenu(menu)) => {
                 out.tree.set_screen("quick-menu");
                 menu.draw(snap, theme, out);
+            }
+            Some(Screen::Grid) => {
+                out.tree.set_screen("pattern/grid");
+                pattern::draw(out);
             }
             Some(Screen::Game) | None => {
                 out.tree.set_screen("game");

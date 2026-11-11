@@ -75,6 +75,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         name: "screens/quick-menu-keep",
         build: quick_menu_keep,
     },
+    SceneDef {
+        name: "pattern/grid",
+        build: grid,
+    },
 ];
 
 /// The settings of the fixtures.
@@ -435,4 +439,18 @@ fn quick_menu_keep(frame: &mut UiFrame, theme: &Theme) {
         refresh.source = Level::Game;
     }
     screens.update(&snap, &[UiAction::Back], frame);
+}
+
+fn grid(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_display();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_DISPLAY, frame);
+    let to_grid = [
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Accept,
+    ];
+    screens.update(&snap, &to_grid, frame);
 }

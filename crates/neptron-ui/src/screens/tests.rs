@@ -699,3 +699,29 @@ fn the_display_panel_opens_from_the_quick_menu_and_returns_to_it() {
     );
     assert!(run.screens.shows_ui());
 }
+
+#[test]
+fn the_grid_pattern_opens_from_the_display_panel_and_the_quick_menu() {
+    let mut run = Run::new();
+    let snap = with_display();
+    run.step(&snap, &TO_DISPLAY);
+    run.step(&snap, &[Up, Accept]);
+    assert_eq!(run.screen(), "options", "the list stops at its first row");
+    run.step(&snap, &[Back, Down, Down, Down, Down, Down, Accept]);
+    assert_eq!(run.screen(), "pattern/grid");
+    assert!(run.intents().is_empty());
+    run.step(&snap, &[Up, Left, Menu]);
+    assert_eq!(run.screen(), "pattern/grid");
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "display");
+
+    let (mut run, mut snap) = quick_menu();
+    if let Some(display) = snap.settings.rows.iter_mut().find(|r| r.label == "Display") {
+        display.value = crate::snapshot::SettingValue::Action(super::GRID_PATTERN);
+    }
+    run.step(&snap, &[Down, Down, Down, Accept]);
+    assert_eq!(run.screen(), "pattern/grid");
+    assert!(run.screens.shows_ui());
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.screen(), "quick-menu");
+}
