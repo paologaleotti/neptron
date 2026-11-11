@@ -23,7 +23,8 @@ commands:
                        below it; writes target/verify/report.json
   check [cargo args]   cargo check, under the machine-load rules
   test [nextest args]  cargo nextest run, under the machine-load rules
-  clippy [cargo args]  cargo clippy, under the machine-load rules
+  clippy [cargo args]  cargo clippy for all targets, tests included, under the
+                       machine-load rules
   worktree new <task>  make .worktrees/<task> on branch mvp/<task> from main,
                        with target/ cloned from the main checkout
   worktree cache-check [--from <checkout>]
@@ -94,7 +95,7 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         }
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
-        "clippy" => passthrough(&["clippy"], &rest),
+        "clippy" => passthrough(&["clippy", "--all-targets"], &rest),
         "rules" => {
             let repo = repo::Repo::discover()?;
             let policy = load::LoadPolicy::from_env()?;

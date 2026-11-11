@@ -22,7 +22,7 @@ All builds and tests go through `xtask`. Do not call `cargo` directly for a buil
 | `cargo xtask verify --tier 1` | tier 0, plus every test through `cargo nextest`, plus doctests |
 | `cargo xtask check -p <crate>` | `cargo check` for one crate |
 | `cargo xtask test -p <crate>` | `cargo nextest run` for one crate |
-| `cargo xtask clippy -p <crate>` | `cargo clippy` for one crate |
+| `cargo xtask clippy -p <crate>` | `cargo clippy` for one crate, tests included |
 | `cargo xtask rules` | the dependency-rule and `unsafe` allow-list check alone |
 | `cargo xtask worktree new <task>` | a task worktree with a cloned `target/` |
 | `cargo xtask worktree cache-check` | proves that a cloned `target/` compiles no dependency again |
