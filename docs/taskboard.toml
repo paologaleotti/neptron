@@ -10,7 +10,7 @@ name = "Scaffold"
 owns = ["Whole repo"]
 needs = []
 gate = "T0 green on both hosts in CI"
-status = "in_review"
+status = "merged"
 
 [[task]]
 id = "T02"
@@ -19,7 +19,7 @@ name = "Contracts and monitor presets"
 owns = ["crates/neptron-types", "crates/neptron-backend", "API of crates/neptron-safety", "data/monitors"]
 needs = ["T01"]
 gate = "T1; code matches the contracts block"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T03"
