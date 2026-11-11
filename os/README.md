@@ -39,6 +39,8 @@ Both QEMU targets have:
 - A root shell on the serial console, with no login.
 - An ext4 root filesystem, 256 MB, on a virtio disk. QEMU runs it in snapshot mode, so a run never changes the image.
 - libdrm with its test programs (`modetest`), and `neptron-vkms-probe`.
+- Mesa with the softpipe software renderer: EGL, OpenGL ES and GBM, and `kmscube`.
+- SDL3 with the KMS/DRM video driver and OpenGL ES, without libudev, and alsa-lib.
 
 ## Commands
 
@@ -77,6 +79,23 @@ cargo xtask qemu -- neptron-vkms-probe \
 ```
 
 A mode is `NAME CLOCK_KHZ HDISP HSS HSE HTOTAL VDISP VSS VSE VTOTAL` and flags from `+hsync -hsync +vsync -vsync interlace doublescan`.
+
+## What was verified
+
+On an Apple Silicon Mac, on 2026-11-11, with the aarch64 image:
+
+- The guest boots to the command in 0.2 to 1.2 s after QEMU starts (guest uptime 0.1 to 0.8 s). Exit codes and quoted words pass through. Output that holds `NEPTRON-END 0` does not end the run. A command over its deadline ends with 137 and the guest stops. After SIGTERM or SIGHUP to `xtask`, no QEMU process is left one second later. After SIGKILL to `xtask`, QEMU stops at the guest deadline.
+- `neptron-vkms-probe` with 320x240 at 6.7 MHz, 640x480, 720x480i and a doublescan mode: every commit is accepted, the readback equals the request, the CRCs and the writeback work.
+- `sleep 60 | kmscube -D /dev/dri/card0 -c 300` draws on `vkms` with Mesa softpipe at about 53 frames per second ("Rendered 299 frames in 5.630363 sec"), and the frame CRCs change from frame to frame while it runs. kmscube needs a standard input that stays open: with `/dev/null` it stops at once. `kmscube -A` (atomic) stops with "no eglDupNativeFenceFDANDROID", because softpipe has no native fence.
+
+Not verified:
+
+- The x86\_64 image was never built or booted. Its defconfig resolves in Buildroot with every option set. On a Mac it runs only under CPU emulation; it is meant for Linux CI with KVM. `-vga none` keeps the q35 VGA card away from `card0`, but this is not checked on x86\_64.
+- SDL3, ALSA (`snd-dummy`, `snd-aloop`) and `uinput` are in the image, but no program used them at run time.
+
+Build time and size, aarch64, 4 jobs: the first full build took 48 min (toolchain, host tools, kernel, BusyBox). Mesa, SDL3 and kmscube added 19 min. A kernel reconfigure, or a change to the overlay or to a package of this tree, takes about 1 min. The kernel `Image` is 13.3 MB. The root filesystem has 28 MB used of 256 MB. The guest uses about 100 MB of memory after boot.
+
+Disk use outside the repository after these builds: the downloads volume 1.2 GB, the output volume 10.9 GB, the compiler cache 0.3 GB, the container image 0.7 GB, and `~/.cache/neptron` 0.15 GB.
 
 ## Where the build data lives
 
