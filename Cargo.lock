@@ -188,6 +188,7 @@ name = "neptron-testkit"
 version = "0.1.0"
 dependencies = [
  "neptron-backend",
+ "neptron-gfx",
  "neptron-safety",
  "neptron-types",
  "thiserror",

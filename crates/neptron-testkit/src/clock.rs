@@ -68,6 +68,12 @@ impl SimClock {
         Ok(())
     }
 
+    /// Moves the clock forward to `target_ns` when it is later than the
+    /// time now, and does nothing otherwise.
+    pub(crate) fn catch_up(&self, target_ns: u64) {
+        self.now_ns.fetch_max(target_ns, Ordering::Relaxed);
+    }
+
     fn now(&self) -> u64 {
         self.now_ns.load(Ordering::Relaxed)
     }
@@ -114,6 +120,15 @@ mod tests {
             .to_string(),
             "the clock is at 250 ns and cannot go back to 249 ns"
         );
+    }
+
+    #[test]
+    fn catch_up_only_moves_forward() {
+        let clock = SimClock::starting_at(100);
+        clock.catch_up(50);
+        assert_eq!(clock.now_ns(), 100);
+        clock.catch_up(150);
+        assert_eq!(clock.now_ns(), 150);
     }
 
     #[test]

@@ -7,12 +7,18 @@
 #![forbid(unsafe_code)]
 
 mod clock;
+mod display;
 pub mod golden;
 mod hash;
 mod image;
 pub mod preset;
+mod rng;
 
 pub use clock::{ClockError, SimClock};
+pub use display::{
+    DEFAULT_FLIP_TIMEOUT_NS, DisplayOptions, FakeDisplay, FlipFault, FrameRecord, Jitter,
+    LateFlips, ModeFault, ModeRecord, ModeSwitch, Render, SceneSummary,
+};
 pub use golden::Golden;
 pub use hash::frame_hash;
 pub use image::{ImageError, RgbImage};

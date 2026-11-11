@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 neptron-backend = { path = "../neptron-backend" }
+# The reference renderer only: the fake display renders each scene with it.
+neptron-gfx = { path = "../neptron-gfx" }
 neptron-safety = { path = "../neptron-safety" }
 neptron-types = { path = "../neptron-types" }
 # The code standards make each crate own a thiserror enum.
