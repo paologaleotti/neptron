@@ -139,6 +139,7 @@ version = "0.1.0"
 name = "neptron-settings"
 version = "0.1.0"
 dependencies = [
+ "thiserror",
  "toml_edit",
 ]
 

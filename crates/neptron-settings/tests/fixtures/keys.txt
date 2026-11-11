@@ -1,0 +1,10 @@
+# Every settings key, with its levels and type. A test compares it with the
+# built-in schema. The format is append-only: to add a key, append its line;
+# to add a choice, append it to the end of its line. Never rename or remove a
+# key or a choice. The first line is the file layout version. It does not
+# change for an added key or choice.
+schema_version 1
+display.output global name
+display.monitor global name
+display.style game,system,global choice auto|native|2x|3x|4x
+display.refresh_policy game,system,global choice exact|exact_x2|force_50|force_60
