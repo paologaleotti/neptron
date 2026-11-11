@@ -134,7 +134,24 @@ impl GlesRenderer {
         out: &mut OutputBuffer<'_>,
     ) -> Result<(), GlesError> {
         check_output(out)?;
-        let size = (out.width, out.height);
+        if !self.draw(scene, out.width, out.height)? {
+            return Ok(());
+        }
+        let gl = self.context.current()?;
+        // The draw made the target at this size, so this changes nothing.
+        let target = ensure_target(&gl, &mut self.target, out.width, out.height)?;
+        gl.read_rgba(out.width, out.height, &mut target.pixels)?;
+        gl.check("glReadPixels")?;
+        copy_out(&target.pixels, out);
+        Ok(())
+    }
+
+    /// Checks `scene` for an output of `width` by `height` and draws it into
+    /// the offscreen target. Returns false, with nothing drawn, for an
+    /// output with a zero side. Every target and every finish step goes
+    /// through this one function, so they all get the same pixels.
+    fn draw(&mut self, scene: &Scene<'_>, width: u32, height: u32) -> Result<bool, GlesError> {
+        let size = (width, height);
         let game = match &scene.game {
             Some(frame) => {
                 check_frame(frame, Image::Game)?;
@@ -162,29 +179,26 @@ impl GlesRenderer {
             }
             None => None,
         };
-        if out.width == 0 || out.height == 0 {
-            return Ok(());
+        if width == 0 || height == 0 {
+            return Ok(false);
         }
-        self.check_sizes(out, game.as_ref(), ui.as_ref())?;
+        self.check_sizes(size, game.as_ref(), ui.as_ref())?;
 
         let gl = self.context.current()?;
         gl.drain_errors()?;
-        let target = ensure_target(&gl, &mut self.target, out.width, out.height)?;
-        gl.begin(target.framebuffer, out.width, out.height);
+        let target = ensure_target(&gl, &mut self.target, width, height)?;
+        gl.begin(target.framebuffer, width, height);
         for (draw, texture) in [(game, &mut self.game), (ui, &mut self.ui)] {
             if let Some(draw) = draw {
                 texture.upload(&gl, &draw.frame)?;
                 gl.check("source texture upload")?;
                 gl.bind_quad(self.program, self.corners, texture.texture);
-                self.uniforms.set(&gl, &draw.quad, out.width, out.height);
+                self.uniforms.set(&gl, &draw.quad, width, height);
                 gl.draw_quad();
             }
         }
         gl.check("draw")?;
-        gl.read_rgba(out.width, out.height, &mut target.pixels)?;
-        gl.check("glReadPixels")?;
-        copy_out(&target.pixels, out);
-        Ok(())
+        Ok(true)
     }
 
     /// The GL renderer and version strings, such as `softpipe` and
@@ -212,14 +226,14 @@ impl GlesRenderer {
 
     fn check_sizes(
         &self,
-        out: &OutputBuffer<'_>,
+        (width, height): (u32, u32),
         game: Option<&Draw<'_>>,
         ui: Option<&Draw<'_>>,
     ) -> Result<(), GlesError> {
-        if out.width > self.max_output || out.height > self.max_output {
+        if width > self.max_output || height > self.max_output {
             return Err(GlesError::OutputTooLarge {
-                width: out.width,
-                height: out.height,
+                width,
+                height,
                 limit: self.max_output,
             });
         }
