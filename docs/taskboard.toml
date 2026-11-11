@@ -145,7 +145,7 @@ name = "Libretro host (spec first)"
 owns = ["crates/neptron-libretro", "docs/spec/libretro-host.md"]
 needs = ["T03", "T09"]
 gate = "Test-core frame hashes"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T17"
@@ -154,7 +154,7 @@ name = "Audio (spec first)"
 owns = ["crates/neptron-audio", "docs/spec/pacing-audio.md"]
 needs = ["T03"]
 gate = "Audio part of timing check 6"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T18"

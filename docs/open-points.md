@@ -371,3 +371,30 @@ Each open point is one section:
 - Where: `crates/neptron-input/README.md`
 - How to change: see the README for each item.
 - Decision:
+
+### OP-040: The zip path of the libretro host is not tested with a real core library.
+
+- Raised by: T16
+- Status: open
+- Default: `neptron-testcore` reports `need_fullpath = true`, so the test with the real library checks only the typed `ZipNeedsFullPath` error. A fake core inside the crate tests the zip success path through the same dispatch code. The real cores (FCEUmm, Snes9x, Genesis Plus GX) are not checked.
+- Where: `crates/neptron-libretro/tests`, `crates/neptron-testcore`
+- How to change: add a `content-data` script keyword to the test core. With it the core sends `SET_CONTENT_INFO_OVERRIDE` for its extension and reads the data with `GET_GAME_INFO_EXT`. T24 runs the real cores.
+- Decision:
+
+### OP-041: Libretro host defaults.
+
+- Raised by: T16
+- Status: open
+- Default: a frame larger than the announced maximum is refused. The core library is never closed. `GET_LANGUAGE` reports English. Only version 0 of the core options API is served. A zip load holds up to about 148 MiB for a short time.
+- Where: `docs/spec/libretro-host.md`, `crates/neptron-libretro/README.md`
+- How to change: see the spec for each item. T24 traces of real cores decide the frame rule.
+- Decision:
+
+### OP-042: `AudioSink` has no pause, and the long audio run uses the cheaper resampler.
+
+- Raised by: T17
+- Status: open
+- Default: a pause mutes, lets the device run dry on silence and fills the queue with silence at the next frame. The ten-minute part of timing check 6 is proven with the Polynomial mode; the Sinc default is proven for 30 s runs, because the sinc filter is slow at `opt-level = 0`. The rate re-estimation of Arntzen's paper (equation 8) is not implemented: the session gives the run rate.
+- Where: `docs/spec/pacing-audio.md`, `crates/neptron-audio`
+- How to change: add `pause` and `resume` to the trait (a contract change). Set an `opt-level` for `rubato` in the dev profile of the root `Cargo.toml`, then run the long tests with Sinc.
+- Decision:
