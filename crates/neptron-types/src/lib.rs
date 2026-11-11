@@ -11,6 +11,7 @@ mod event;
 mod gpu;
 mod modeline;
 mod monitor;
+mod scanline;
 mod scene;
 mod source;
 
@@ -18,5 +19,9 @@ pub use event::{Control, FlipEvent, InputEvent};
 pub use gpu::GpuCaps;
 pub use modeline::Modeline;
 pub use monitor::{CrtRange, MonitorKind, MonitorProfile};
+pub use scanline::{
+    CRT_15KHZ_CLASS_MAX_LINE_RATE_MHZ, ScanlineKind, ScanlineMode, Scanlines, ScreenClass,
+    scanlines_for,
+};
 pub use scene::{Filter, Frame, PixelFormat, Rect, Scene, ui_dest_fill, ui_dest_uniform};
 pub use source::{Rotation, SourceGeometry};

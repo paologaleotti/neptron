@@ -1,4 +1,4 @@
-use neptron_types::{Filter, Frame, PixelFormat, Rect, Scene};
+use neptron_types::{Filter, Frame, PixelFormat, Rect, Scanlines, Scene};
 
 use super::{Image, MAX_RECT_SIDE_PX, OutputBuffer, RectKind, ReferenceRenderer, RenderError};
 
@@ -29,6 +29,7 @@ fn scene<'a>(game: Option<Frame<'a>>, crop: Rect, dest: Rect, filter: Filter) ->
         crop,
         dest,
         filter,
+        scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
     }
@@ -219,6 +220,7 @@ fn sharp_bilinear_at_an_integer_scale_equals_nearest() {
     );
     let sharp = Scene {
         filter: Filter::SharpBilinear,
+        scanlines: Scanlines::NONE,
         ..nearest
     };
     assert_eq!(render(&nearest, 14, 9), render(&sharp, 14, 9));

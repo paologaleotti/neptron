@@ -11,7 +11,7 @@ use neptron_testkit::{
     AudioWrite, Delivered, DisplayOptions, FakeAudio, FakeDisplay, FlipFault, FrameRecord, Jitter,
     LateFlips, ModeRecord, Render, RgbImage, ScriptedInput, SimClock, Underrun, frame_hash,
 };
-use neptron_types::{Control, Filter, Frame, InputEvent, PixelFormat, Rect, Scene};
+use neptron_types::{Control, Filter, Frame, InputEvent, PixelFormat, Rect, Scanlines, Scene};
 
 const WIDTH: u16 = 320;
 const HEIGHT: u16 = 240;
@@ -149,6 +149,7 @@ fn run(render: Render, frames: u64) -> Outcome {
                 h: u32::from(HEIGHT),
             },
             filter: Filter::Nearest,
+            scanlines: Scanlines::NONE,
             ui: None,
             ui_dest: Rect {
                 x: 0,

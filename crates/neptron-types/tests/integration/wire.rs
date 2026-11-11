@@ -1,6 +1,6 @@
 use neptron_types::{
     Control, CrtRange, Filter, InputEvent, Modeline, MonitorKind, MonitorProfile, PixelFormat,
-    Rotation, SourceGeometry,
+    Rotation, ScanlineKind, ScanlineMode, Scanlines, ScreenClass, SourceGeometry,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -146,6 +146,19 @@ fn pin<T: Serialize + DeserializeOwned + PartialEq + std::fmt::Debug>(cases: &[(
 }
 
 #[test]
+fn scanlines_json_shape() {
+    let black = Scanlines {
+        kind: ScanlineKind::Black,
+        strength_percent: 75,
+    };
+    let json = serde_json::to_string(&black).unwrap();
+    assert_eq!(json, r#"{"kind":"black","strength_percent":75}"#);
+    assert_eq!(serde_json::from_str::<Scanlines>(&json).unwrap(), black);
+    let none = serde_json::from_str::<Scanlines>(r#"{"kind":"none","strength_percent":0}"#);
+    assert_eq!(none.unwrap(), Scanlines::NONE);
+}
+
+#[test]
 fn enum_wire_names_are_pinned() {
     pin(&[
         (Rotation::R0, "r0"),
@@ -161,6 +174,17 @@ fn enum_wire_names_are_pinned() {
     pin(&[
         (Filter::Nearest, "nearest"),
         (Filter::SharpBilinear, "sharp_bilinear"),
+    ]);
+    pin(&[(ScanlineKind::None, "none"), (ScanlineKind::Black, "black")]);
+    pin(&[
+        (ScanlineMode::Auto, "auto"),
+        (ScanlineMode::Off, "off"),
+        (ScanlineMode::On, "on"),
+    ]);
+    pin(&[
+        (ScreenClass::Crt15khz, "crt15khz"),
+        (ScreenClass::Crt31khz, "crt31khz"),
+        (ScreenClass::FlatPanel, "flat_panel"),
     ]);
     pin(&[
         (Control::B, "b"),

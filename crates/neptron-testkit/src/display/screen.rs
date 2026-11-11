@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use neptron_gfx::{OutputBuffer, ReferenceRenderer, RenderError};
-use neptron_types::{Filter, Frame, Modeline, PixelFormat, Rect, Scene};
+use neptron_types::{Filter, Frame, Modeline, PixelFormat, Rect, ScanlineKind, Scanlines, Scene};
 
 use crate::{RgbImage, frame_hash};
 
@@ -135,7 +135,8 @@ enum Which {
 }
 
 /// A scene copied into one buffer: a header with the mode size, the crop,
-/// the destination and the UI destination, the filter and the size and format of each frame, then the
+/// the destination and the UI destination, the filter, the scanline kind and
+/// strength, and the size and format of each frame, then the
 /// rows of the game frame and of the UI canvas with no padding. All values
 /// are little-endian. The hash of [`Render::Scene`] is the hash of these
 /// bytes, so it is the same on every host.
@@ -146,6 +147,7 @@ struct OwnedScene {
     dest: Option<Rect>,
     ui_dest: Option<Rect>,
     filter: Option<Filter>,
+    scanlines: Option<Scanlines>,
     game: Option<Layout>,
     ui: Option<Layout>,
 }
@@ -177,6 +179,11 @@ impl OwnedScene {
             Filter::Nearest => 0,
             Filter::SharpBilinear => 1,
         });
+        bytes.push(match scene.scanlines.kind {
+            ScanlineKind::None => 0,
+            ScanlineKind::Black => 1,
+        });
+        bytes.push(scene.scanlines.strength_percent);
         for frame in [&scene.game, &scene.ui] {
             match frame {
                 None => bytes.push(0),
@@ -198,6 +205,7 @@ impl OwnedScene {
         self.dest = Some(scene.dest);
         self.ui_dest = Some(scene.ui_dest);
         self.filter = Some(scene.filter);
+        self.scanlines = Some(scene.scanlines);
     }
 
     fn scene(&self) -> Scene<'_> {
@@ -226,6 +234,7 @@ impl OwnedScene {
             crop: self.crop.unwrap_or(empty),
             dest: self.dest.unwrap_or(empty),
             filter: self.filter.unwrap_or(Filter::Nearest),
+            scanlines: self.scanlines.unwrap_or(Scanlines::NONE),
             ui: self.ui.as_ref().map(frame),
             ui_dest: self.ui_dest.unwrap_or(empty),
         }

@@ -2,7 +2,9 @@
 //! renderer with its golden images; `examples/gles_compare.rs` compares
 //! the GLES renderer with the reference on the same scenes.
 
-use neptron_types::{Filter, Frame, PixelFormat, Rect, Scene, ui_dest_fill, ui_dest_uniform};
+use neptron_types::{
+    Filter, Frame, PixelFormat, Rect, Scanlines, Scene, ui_dest_fill, ui_dest_uniform,
+};
 
 /// Extra bytes at the end of each source row, so that the scenes also
 /// check the pitch.
@@ -163,6 +165,7 @@ impl Case {
             crop: self.crop,
             dest: self.dest,
             filter: self.filter,
+            scanlines: Scanlines::NONE,
             ui: self.ui.as_ref().map(Source::frame),
             ui_dest: self.ui_dest,
         }

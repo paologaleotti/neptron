@@ -11,7 +11,9 @@ use neptron_testkit::{
     DEFAULT_FLIP_TIMEOUT_NS, DisplayOptions, FakeDisplay, FlipFault, Jitter, LateFlips, ModeFault,
     Render, SimClock, frame_hash,
 };
-use neptron_types::{Filter, FlipEvent, Frame, GpuCaps, Modeline, PixelFormat, Rect, Scene};
+use neptron_types::{
+    Filter, FlipEvent, Frame, GpuCaps, Modeline, PixelFormat, Rect, ScanlineKind, Scanlines, Scene,
+};
 
 /// One period of 240p at 60.029 Hz, in nanoseconds: 10^12 / 60 029,
 /// rounded down.
@@ -64,6 +66,7 @@ fn scene(data: &[u8]) -> Scene<'_> {
             h: 240,
         },
         filter: Filter::Nearest,
+        scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: Rect {
             x: 0,
@@ -90,6 +93,7 @@ fn empty() -> Scene<'static> {
             h: 0,
         },
         filter: Filter::Nearest,
+        scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: Rect {
             x: 0,
@@ -690,6 +694,30 @@ fn the_scene_hash_includes_the_ui_destination() {
     };
     assert_eq!(hash(wide), hash(wide));
     assert_ne!(hash(wide), hash(narrow));
+}
+
+#[test]
+fn the_scene_hash_includes_the_scanlines() {
+    let hash = |scanlines| {
+        let clock = SimClock::new();
+        let mut display =
+            FakeDisplay::with_options(clock, CAPS_LOW_CLOCK, DisplayOptions::default());
+        display.set_mode(&mode(MODE_240P)).unwrap();
+        let data = bytes(&PIXELS);
+        let s = Scene {
+            scanlines,
+            ..scene(&data)
+        };
+        display.present(&s).unwrap();
+        display.frames()[0].hash.unwrap()
+    };
+    let black = |strength_percent| Scanlines {
+        kind: ScanlineKind::Black,
+        strength_percent,
+    };
+    assert_eq!(hash(black(50)), hash(black(50)));
+    assert_ne!(hash(Scanlines::NONE), hash(black(50)));
+    assert_ne!(hash(black(50)), hash(black(100)));
 }
 
 #[test]

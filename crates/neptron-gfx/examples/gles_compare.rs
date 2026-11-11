@@ -13,7 +13,7 @@ use std::process::ExitCode;
 
 use neptron_gfx::gles::{GlesError, GlesRenderer};
 use neptron_gfx::{Image, OutputBuffer, RectKind, ReferenceRenderer, RenderError};
-use neptron_types::{Filter, PixelFormat, Rect, Scene, ui_dest_fill, ui_dest_uniform};
+use neptron_types::{Filter, PixelFormat, Rect, Scanlines, Scene, ui_dest_fill, ui_dest_uniform};
 
 #[path = "../tests/common/scenes.rs"]
 mod scenes;
@@ -515,6 +515,7 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
         crop: rect(0, 0, 8, 6),
         dest: rect(0, 0, 8, 6),
         filter: Filter::Nearest,
+        scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
     };
@@ -580,6 +581,7 @@ fn texture_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
         crop: rect(0, 0, 1, 1),
         dest: rect(0, 0, 1, 1),
         filter: Filter::Nearest,
+        scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
     };
@@ -612,6 +614,7 @@ fn output_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
         crop: rect(0, 0, 0, 0),
         dest: rect(0, 0, 0, 0),
         filter: Filter::Nearest,
+        scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
     };

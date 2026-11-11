@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::Scanlines;
+
 /// The layout of one pixel in memory. Each format is one native-endian
 /// integer per pixel, as libretro defines it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -78,6 +80,9 @@ pub struct Scene<'a> {
     pub dest: Rect,
     /// How the game frame is scaled from `crop` to `dest`.
     pub filter: Filter,
+    /// The scanlines over the game picture. [`Scanlines::NONE`] leaves the
+    /// picture as it is. The UI canvas is never darkened.
+    pub scanlines: Scanlines,
     /// The 320x240 UI canvas, drawn over the game, or `None` for no UI.
     pub ui: Option<Frame<'a>>,
     /// Where the whole UI canvas goes, in pixels of the display mode. Each
