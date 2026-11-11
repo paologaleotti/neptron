@@ -9,6 +9,7 @@ license = "(MIT OR Apache-2.0) AND BSD-2-Clause"
 publish.workspace = true
 
 [dependencies]
+thiserror.workspace = true
 
 [lints]
 workspace = true

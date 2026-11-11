@@ -10,4 +10,11 @@
 
 #![forbid(unsafe_code)]
 
+pub mod canvas;
 pub mod font;
+mod geom;
+pub mod scene;
+
+pub use canvas::{Canvas, CpuCanvas, Sprite, SpriteId, UI_HEIGHT, UI_WIDTH};
+pub use geom::{Color, Rect};
+pub use scene::{DrawCommand, TextSpan, UiScene};
