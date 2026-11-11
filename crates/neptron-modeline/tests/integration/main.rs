@@ -5,4 +5,5 @@
 
 mod golden;
 mod presets;
+mod safety;
 mod solver;

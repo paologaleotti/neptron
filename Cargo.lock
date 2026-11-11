@@ -152,6 +152,7 @@ version = "0.1.0"
 name = "neptron-modeline"
 version = "0.1.0"
 dependencies = [
+ "neptron-safety",
  "neptron-switchres-sys",
  "neptron-types",
  "serde",

@@ -12,6 +12,7 @@ neptron-switchres-sys = { path = "../neptron-switchres-sys" }
 neptron-types = { path = "../neptron-types" }
 
 [dev-dependencies]
+neptron-safety = { path = "../neptron-safety" }
 serde.workspace = true
 toml.workspace = true
 

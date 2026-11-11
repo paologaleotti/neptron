@@ -12,35 +12,35 @@ use crate::presets::{all_presets, modeline_text, open_caps, preset};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Golden {
-    system: Vec<System>,
-    case: Vec<Case>,
+pub struct Golden {
+    pub system: Vec<System>,
+    pub case: Vec<Case>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct System {
-    name: String,
-    width: u16,
-    height: u16,
-    refresh_mhz: u32,
-    interlaced: bool,
-    rotation: Rotation,
-    origin: String,
+pub struct System {
+    pub name: String,
+    pub width: u16,
+    pub height: u16,
+    pub refresh_mhz: u32,
+    pub interlaced: bool,
+    pub rotation: Rotation,
+    pub origin: String,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Case {
-    system: String,
-    preset: String,
-    doublescan: Option<bool>,
-    interlace: Option<bool>,
-    pclock_min_hz: Option<u32>,
-    expect: String,
+pub struct Case {
+    pub system: String,
+    pub preset: String,
+    pub doublescan: Option<bool>,
+    pub interlace: Option<bool>,
+    pub pclock_min_hz: Option<u32>,
+    pub expect: String,
 }
 
-fn golden() -> Golden {
+pub fn golden() -> Golden {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/systems.toml");
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     toml::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
