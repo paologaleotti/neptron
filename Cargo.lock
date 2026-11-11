@@ -192,6 +192,8 @@ version = "0.1.0"
 name = "neptron-audio"
 version = "0.1.0"
 dependencies = [
+ "neptron-backend",
+ "neptron-testkit",
  "rubato",
  "thiserror",
 ]

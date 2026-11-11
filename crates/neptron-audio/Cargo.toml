@@ -12,10 +12,14 @@ publish.workspace = true
 sdl3 = []
 
 [dependencies]
+neptron-backend = { path = "../neptron-backend" }
 # The resampler with a variable ratio that dynamic rate control needs.
 rubato.workspace = true
 # The code standards make each crate own a thiserror enum.
 thiserror.workspace = true
+
+[dev-dependencies]
+neptron-testkit = { path = "../neptron-testkit" }
 
 [lints]
 workspace = true

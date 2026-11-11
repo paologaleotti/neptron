@@ -1,0 +1,228 @@
+use neptron_testkit::{AudioOptions, FakeAudio, SimClock};
+
+use super::*;
+
+const MS: u64 = 1_000_000;
+const SNES: CoreTiming = CoreTiming {
+    sample_rate_mhz: 32_040_500,
+    frame_rate_mhz: 60_099,
+};
+
+fn fake(clock: &SimClock, rate_hz: u32, capacity_frames: usize) -> FakeAudio {
+    FakeAudio::with_options(
+        clock.clone(),
+        rate_hz,
+        AudioOptions {
+            capacity_frames,
+            device_rate_mhz: None,
+            keep_samples: true,
+        },
+    )
+}
+
+fn pipeline(clock: &SimClock) -> (AudioPipeline<FakeAudio>, FakeAudio) {
+    let audio = fake(clock, 48_000, 6_144);
+    let pipeline = AudioPipeline::new(audio.clone(), SNES, Resampling::Polynomial).unwrap();
+    (pipeline, audio)
+}
+
+#[test]
+fn rates_outside_the_limits_are_refused() {
+    let clock = SimClock::new();
+    let slow_device = fake(&clock, 4_000, 1_000);
+    assert_eq!(
+        AudioPipeline::new(slow_device, SNES, Resampling::Sinc).err(),
+        Some(AudioError::DeviceRate {
+            rate_hz: 4_000,
+            min_hz: 8_000,
+            max_hz: 384_000
+        })
+    );
+    let bad_core = CoreTiming {
+        frame_rate_mhz: 5_000,
+        ..SNES
+    };
+    assert!(matches!(
+        AudioPipeline::new(fake(&clock, 48_000, 1_000), bad_core, Resampling::Sinc),
+        Err(AudioError::CoreFrameRate { .. })
+    ));
+}
+
+#[test]
+fn a_refused_run_rate_keeps_the_old_one() {
+    let clock = SimClock::new();
+    let (mut pipeline, _) = pipeline(&clock);
+    assert_eq!(pipeline.run_rate_mhz(), 60_099);
+    let nominal = pipeline.nominal_ratio();
+    assert!((nominal - 48_000.0 / 32_040.5).abs() < 1e-12);
+    assert_eq!(
+        pipeline.set_run_rate_mhz(29_000),
+        Err(AudioError::RunRatio {
+            run_rate_mhz: 29_000,
+            frame_rate_mhz: 60_099
+        })
+    );
+    assert_eq!(pipeline.run_rate_mhz(), 60_099);
+    assert_eq!(pipeline.nominal_ratio(), nominal);
+    assert_eq!(pipeline.set_run_rate_mhz(72_119), Ok(()));
+    assert!(pipeline.nominal_ratio() < nominal);
+}
+
+#[test]
+fn the_first_frame_primes_the_queue_with_silence_then_fades_in() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    pipeline.push_samples(&[8_000; 533 * 2]);
+    pipeline.end_frame();
+
+    let writes = audio.writes();
+    assert_eq!(writes.len(), 2);
+    assert_eq!(writes[0].offered_frames, 1_536);
+    let stats = *pipeline.stats();
+    assert_eq!(stats.restarts, 1);
+    assert_eq!(stats.silence_frames, 1_536);
+    assert_eq!(stats.level_frames, 0);
+    assert_eq!(stats.input_frames, 533);
+    // An empty queue asks for the largest ratio.
+    assert!((stats.ratio / pipeline.nominal_ratio() - 1.005).abs() < 1e-12);
+
+    let samples = audio.samples();
+    assert!(samples[..1_536 * 2].iter().all(|s| *s == 0));
+    let audio_part = &samples[1_536 * 2..];
+    assert_eq!(audio_part.len() / 2, stats.output_frames as usize);
+    // 240 frames of fade at 48 kHz, then the full level.
+    assert_eq!(pipeline.fade_frames, 240);
+    assert_eq!(audio_part[0], 0);
+    assert!(audio_part[2 * 100] > 0 && audio_part[2 * 100] < 8_000);
+    assert_eq!(audio_part[2 * 400], 8_000);
+}
+
+#[test]
+fn a_queue_that_ran_dry_is_primed_again() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    clock.advance(200 * MS);
+    assert_eq!(audio.underruns().len(), 1);
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    assert_eq!(pipeline.stats().restarts, 2);
+    assert_eq!(pipeline.stats().silence_frames, 2 * 1_536);
+}
+
+#[test]
+fn input_beyond_the_frame_limit_is_dropped_and_counted() {
+    let clock = SimClock::new();
+    let (mut pipeline, _) = pipeline(&clock);
+    // 100 ms at 32 040.5 Hz is 3205 frames, rounded up.
+    pipeline.push_samples(&[0; 3_000 * 2]);
+    pipeline.push_samples(&[0; 300 * 2 + 1]);
+    assert_eq!(pipeline.stats().input_frames, 3_205);
+    assert_eq!(pipeline.stats().input_dropped_frames, 95);
+    pipeline.end_frame();
+    pipeline.push_samples(&[0; 10 * 2]);
+    assert_eq!(pipeline.stats().input_frames, 3_215);
+}
+
+#[test]
+fn a_full_sink_counts_the_frames_it_refused() {
+    let clock = SimClock::new();
+    let audio = fake(&clock, 48_000, 2_000);
+    let mut pipeline = AudioPipeline::new(audio.clone(), SNES, Resampling::Polynomial).unwrap();
+    pipeline.push_samples(&[0; 1_000 * 2]);
+    pipeline.end_frame();
+    let stats = *pipeline.stats();
+    let written = audio.written_frames();
+    assert_eq!(written, 2_000);
+    assert_eq!(
+        stats.overrun_frames,
+        stats.silence_frames + stats.output_frames - written
+    );
+    assert!(stats.overrun_frames > 0);
+    assert_eq!(audio.overruns().len(), 1);
+}
+
+#[test]
+fn mute_fades_out_from_the_last_sample_and_tops_up_with_silence() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    pipeline.push_samples(&[10_000; 800 * 2]);
+    pipeline.end_frame();
+    let before = audio.samples().len();
+    assert_eq!(audio.samples()[before - 2..], [10_000, 10_000]);
+
+    clock.advance(10 * MS);
+    pipeline.mute();
+    assert!(pipeline.is_muted());
+    let samples = audio.samples();
+    let fade = &samples[before..before + 240 * 2];
+    assert_eq!(fade[0], 9_958);
+    assert_eq!(fade[fade.len() - 1], 0);
+    assert!(fade.windows(4).step_by(2).all(|w| w[2] <= w[0]));
+    assert!(samples[before + 240 * 2..].iter().all(|s| *s == 0));
+
+    // Muted frames still run the law and write silence of their length.
+    let silence_before = pipeline.stats().silence_frames;
+    let written_before = audio.written_frames();
+    pipeline.push_samples(&[10_000; 533 * 2]);
+    pipeline.end_frame();
+    let output = pipeline.stats().output_frames;
+    assert!(audio.samples()[samples.len()..].iter().all(|s| *s == 0));
+    assert!(audio.written_frames() >= written_before + 533);
+    assert!(pipeline.stats().silence_frames >= silence_before);
+    assert!(output > 0);
+
+    let written = audio.written_frames();
+    pipeline.mute();
+    assert_eq!(audio.written_frames(), written);
+}
+
+#[test]
+fn unmute_fades_the_next_frame_in() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    pipeline.push_samples(&[10_000; 800 * 2]);
+    pipeline.end_frame();
+    pipeline.mute();
+    pipeline.unmute();
+    pipeline.unmute();
+    assert!(!pipeline.is_muted());
+    let before = audio.samples().len();
+    clock.advance(16 * MS);
+    pipeline.push_samples(&[10_000; 800 * 2]);
+    pipeline.end_frame();
+    let samples = audio.samples();
+    let part = &samples[before..];
+    assert_eq!(part[0], 0);
+    assert!(
+        part[2 * 120] > 3_000 && part[2 * 120] < 7_000,
+        "{}",
+        part[240]
+    );
+    assert_eq!(part[2 * 300], 10_000);
+}
+
+#[test]
+fn the_sinc_filter_delays_by_95_frames_from_32_khz_to_48_khz() {
+    let clock = SimClock::new();
+    let audio = fake(&clock, 48_000, 6_144);
+    let pipeline = AudioPipeline::new(audio, SNES, Resampling::Sinc).unwrap();
+    assert_eq!(pipeline.resampler_delay_frames(), 95);
+    let audio = fake(&clock, 48_000, 6_144);
+    let pipeline = AudioPipeline::new(audio, SNES, Resampling::Polynomial).unwrap();
+    assert!(pipeline.resampler_delay_frames() <= 2);
+}
+
+#[test]
+fn a_frame_without_audio_writes_nothing_but_the_priming() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    pipeline.end_frame();
+    assert_eq!(audio.written_frames(), 1_536);
+    pipeline.end_frame();
+    assert_eq!(audio.written_frames(), 1_536);
+    assert_eq!(pipeline.stats().frames, 2);
+    assert_eq!(pipeline.stats().output_frames, 0);
+    assert_eq!(pipeline.into_sink().written_frames(), 1_536);
+}
