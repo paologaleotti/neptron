@@ -255,3 +255,30 @@ Each open point is one section:
 - How to change: the ODREN policy.
 - Decision:
 
+### OP-027: The window backend shows every mode as a 4:3 picture.
+
+- Raised by: T13
+- Status: open
+- Default: 4:3 for all modes, also a 16:9 flat-panel mode.
+- Where: `crates/neptron-window/src/picture.rs`, `CRT_ASPECT`
+- How to change: pass the aspect of the monitor profile into `picture_size`.
+- Decision:
+
+### OP-028: SDL has one event pump for each process, and the keyboard pad of the window owns it.
+
+- Raised by: T13
+- Status: open, input for T18 and T27
+- Default: the window's `KeyboardPad` owns the pump. Its device id is 0, which can be the id of a gamepad too.
+- Where: `crates/neptron-window/src/keymap.rs`, `src/sdl`
+- How to change: T18 shares the pump in a window build, and the ids get separate ranges.
+- Decision:
+
+### OP-029: No tier compiles the SDL3 code.
+
+- Raised by: T13 review
+- Status: open, to settle in T27
+- Default: the SDL3 feature is checked by hand with `cargo xtask clippy -p neptron-window --features sdl3` and by `cargo xtask window-smoke`.
+- Where: `xtask/src/verify.rs`
+- How to change: a tier 2 step that builds the hardware features on a host that has the libraries.
+- Decision:
+

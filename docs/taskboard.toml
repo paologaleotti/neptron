@@ -118,7 +118,7 @@ name = "Window backend"
 owns = ["crates/neptron-window"]
 needs = ["T02", "T04"]
 gate = "Builds on both hosts; smoke test"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T14"
@@ -127,7 +127,7 @@ name = "OS base and QEMU"
 owns = ["os/", "Dockerfile", "xtask/src/os"]
 needs = ["T01"]
 gate = "Image boots in QEMU; `vkms` findings in the task report"
-status = "in_progress"
+status = "in_review"
 
 [[task]]
 id = "T15"
@@ -190,7 +190,7 @@ name = "KMS spike tool (WP 1.1)"
 owns = ["tools/kms-spike"]
 needs = ["T04"]
 gate = "Runs on `vkms`; you run it on the i3-6100T when you can"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T22"
