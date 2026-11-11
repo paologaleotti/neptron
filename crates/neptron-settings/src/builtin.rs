@@ -21,6 +21,19 @@ pub const PICTURE_STYLES: &[&str] = &["auto", "native", "2x", "3x", "4x"];
 /// The refresh policy choices, in menu order.
 pub const REFRESH_POLICIES: &[&str] = &["exact", "exact_x2", "force_50", "force_60"];
 
+/// The scanline choices, in menu order. `auto` draws scanlines where the tube cannot show
+/// real ones: a whole vertical multiple of at least 2 on a CRT that is not in a 15 kHz mode.
+/// Later scanline kinds are appended.
+pub const SCANLINE_MODES: &[&str] = &["auto", "off", "on"];
+
+/// The strongest scanline, in percent: black lines.
+pub const SCANLINE_STRENGTH_MAX_PERCENT: i64 = 100;
+
+/// The default scanline strength, in percent. MiSTer offers 25, 50 and 75 for VGA monitors
+/// and no 100, and users on PC CRTs mostly pick 75. Black lines on every second line halve
+/// the light, and an older tube is dim.
+pub const SCANLINE_STRENGTH_DEFAULT_PERCENT: i64 = 75;
+
 /// The longest connector name or monitor profile id, in bytes.
 pub const NAME_MAX_LEN: usize = 32;
 
@@ -42,7 +55,12 @@ pub const INPUT_MENU_HOLD_START_SECONDS: &str = "input.menu_hold_start_seconds";
 /// The longest Start hold that [`INPUT_MENU_HOLD_START_SECONDS`] allows, in seconds.
 pub const MENU_HOLD_START_MAX_SECONDS: i64 = 10;
 
-static BUILTIN: [Entry; 5] = [
+/// The key of the scanline mode: one of [`SCANLINE_MODES`].
+pub const DISPLAY_SCANLINES: &str = "display.scanlines";
+/// The key of the scanline strength, in percent.
+pub const DISPLAY_SCANLINE_STRENGTH: &str = "display.scanline_strength";
+
+static BUILTIN: [Entry; 7] = [
     Entry {
         key: DISPLAY_OUTPUT,
         label: "Output",
@@ -96,6 +114,29 @@ static BUILTIN: [Entry; 5] = [
             default: 0,
         },
         levels: Levels::GLOBAL,
+        live: true,
+        safety: Safety::None,
+    },
+    Entry {
+        key: DISPLAY_SCANLINES,
+        label: "Scanlines",
+        kind: Kind::Choice {
+            choices: SCANLINE_MODES,
+            default: "auto",
+        },
+        levels: Levels::ALL,
+        live: true,
+        safety: Safety::None,
+    },
+    Entry {
+        key: DISPLAY_SCANLINE_STRENGTH,
+        label: "Scanline strength",
+        kind: Kind::Int {
+            min: 0,
+            max: SCANLINE_STRENGTH_MAX_PERCENT,
+            default: SCANLINE_STRENGTH_DEFAULT_PERCENT,
+        },
+        levels: Levels::ALL,
         live: true,
         safety: Safety::None,
     },
@@ -168,6 +209,26 @@ mod tests {
         assert_eq!(default(DISPLAY_STYLE), "auto");
         assert_eq!(default(DISPLAY_REFRESH_POLICY), "exact");
         assert_eq!(default(INPUT_MENU_HOLD_START_SECONDS), "0");
+        assert_eq!(default(DISPLAY_SCANLINES), "auto");
+        assert_eq!(default(DISPLAY_SCANLINE_STRENGTH), "75");
+    }
+
+    #[test]
+    fn scanline_settings_change_no_signal_and_take_whole_percent() {
+        let schema = Schema::builtin();
+        for key in [DISPLAY_SCANLINES, DISPLAY_SCANLINE_STRENGTH] {
+            let entry = schema.get(key).unwrap();
+            assert_eq!(entry.safety, Safety::None, "{key}");
+            assert_eq!(entry.levels, Levels::ALL, "{key}");
+            assert!(entry.live, "{key}");
+        }
+        let strength = schema.get(DISPLAY_SCANLINE_STRENGTH).unwrap();
+        assert_eq!(strength.kind.check(&Value::Int(0)), Ok(()));
+        assert_eq!(strength.kind.check(&Value::Int(100)), Ok(()));
+        assert!(strength.kind.check(&Value::Int(101)).is_err());
+        assert!(strength.kind.check(&Value::Int(-1)).is_err());
+        let mode = schema.get(DISPLAY_SCANLINES).unwrap();
+        assert!(mode.kind.check(&Value::Text("black".into())).is_err());
     }
 
     #[test]

@@ -9,3 +9,5 @@ display.monitor global name
 display.style game,system,global choice auto|native|2x|3x|4x
 display.refresh_policy game,system,global choice exact|exact_x2|force_50|force_60
 input.menu_hold_start_seconds global int
+display.scanlines game,system,global choice auto|off|on
+display.scanline_strength game,system,global int
