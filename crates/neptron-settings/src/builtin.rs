@@ -32,8 +32,17 @@ pub const DISPLAY_MONITOR: &str = "display.monitor";
 pub const DISPLAY_STYLE: &str = "display.style";
 /// The key of the refresh policy.
 pub const DISPLAY_REFRESH_POLICY: &str = "display.refresh_policy";
+/// The key of the Start hold that opens the quick menu, in whole seconds.
+///
+/// Help text: "Hold Start alone on a controller for this number of seconds to open the quick
+/// menu. 0 turns it off. Select and Start together still open the quick menu at once. Use it
+/// on an arcade panel that has no Select button."
+pub const INPUT_MENU_HOLD_START_SECONDS: &str = "input.menu_hold_start_seconds";
 
-static BUILTIN: [Entry; 4] = [
+/// The longest Start hold that [`INPUT_MENU_HOLD_START_SECONDS`] allows, in seconds.
+pub const MENU_HOLD_START_MAX_SECONDS: i64 = 10;
+
+static BUILTIN: [Entry; 5] = [
     Entry {
         key: DISPLAY_OUTPUT,
         label: "Output",
@@ -78,6 +87,18 @@ static BUILTIN: [Entry; 4] = [
         live: true,
         safety: Safety::Validated,
     },
+    Entry {
+        key: INPUT_MENU_HOLD_START_SECONDS,
+        label: "Hold Start for quick menu",
+        kind: Kind::Int {
+            min: 0,
+            max: MENU_HOLD_START_MAX_SECONDS,
+            default: 0,
+        },
+        levels: Levels::GLOBAL,
+        live: true,
+        safety: Safety::None,
+    },
 ];
 
 impl Schema {
@@ -91,7 +112,8 @@ impl Schema {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::Level;
+    use crate::schema::{Invalid, Level, Source, Value, ValueType};
+    use crate::{Change, Issue, IssueKind, Layer, Layers, edit, parse_layer, resolve_key};
 
     /// One line per key, with the parts that a file depends on: type, levels and choices.
     fn describe(entry: &Entry) -> String {
@@ -145,6 +167,134 @@ mod tests {
         assert_eq!(default(DISPLAY_MONITOR), "auto");
         assert_eq!(default(DISPLAY_STYLE), "auto");
         assert_eq!(default(DISPLAY_REFRESH_POLICY), "exact");
+        assert_eq!(default(INPUT_MENU_HOLD_START_SECONDS), "0");
+    }
+
+    #[test]
+    fn the_start_hold_is_a_global_whole_number_of_seconds_from_0_to_10() {
+        let schema = Schema::builtin();
+        let entry = schema
+            .entries()
+            .iter()
+            .find(|entry| entry.key == INPUT_MENU_HOLD_START_SECONDS)
+            .unwrap();
+        assert_eq!(
+            entry.kind,
+            Kind::Int {
+                min: 0,
+                max: 10,
+                default: 0
+            }
+        );
+        assert_eq!(entry.levels, Levels::GLOBAL);
+        assert_eq!(entry.safety, Safety::None);
+        assert!(entry.live);
+        assert!(!entry.label.is_empty());
+    }
+
+    #[test]
+    fn the_start_hold_accepts_0_to_10_seconds_in_a_global_file() {
+        let schema = Schema::builtin();
+        for seconds in [0, 1, 2, MENU_HOLD_START_MAX_SECONDS] {
+            let src = format!("[input]\nmenu_hold_start_seconds = {seconds}\n");
+            let parsed = parse_layer(&schema, Level::Global, &src);
+            assert_eq!(parsed.issues, [], "{src}");
+            assert_eq!(
+                parsed.layer.get(INPUT_MENU_HOLD_START_SECONDS),
+                Some(&Value::Int(seconds))
+            );
+        }
+    }
+
+    #[test]
+    fn the_start_hold_rejects_values_out_of_range_or_of_another_type() {
+        let schema = Schema::builtin();
+        for (value, reason) in [
+            (
+                "-1",
+                Invalid::OutOfRange {
+                    value: -1,
+                    min: 0,
+                    max: 10,
+                },
+            ),
+            (
+                "11",
+                Invalid::OutOfRange {
+                    value: 11,
+                    min: 0,
+                    max: 10,
+                },
+            ),
+            (
+                "\"2\"",
+                Invalid::WrongType {
+                    expected: ValueType::Int,
+                    found: "string",
+                },
+            ),
+            (
+                "true",
+                Invalid::WrongType {
+                    expected: ValueType::Int,
+                    found: "boolean",
+                },
+            ),
+        ] {
+            let src = format!("[input]\nmenu_hold_start_seconds = {value}\n");
+            let parsed = parse_layer(&schema, Level::Global, &src);
+            assert_eq!(parsed.layer.get(INPUT_MENU_HOLD_START_SECONDS), None);
+            assert_eq!(
+                parsed.issues,
+                [Issue {
+                    line: Some(2),
+                    key: Some(INPUT_MENU_HOLD_START_SECONDS.to_owned()),
+                    kind: IssueKind::Invalid { reason },
+                }],
+                "{src}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_start_hold_cannot_be_set_for_a_system_or_a_game() {
+        let schema = Schema::builtin();
+        for level in [Level::System, Level::Game] {
+            let parsed = parse_layer(&schema, level, "[input]\nmenu_hold_start_seconds = 2\n");
+            assert_eq!(parsed.layer.get(INPUT_MENU_HOLD_START_SECONDS), None);
+            assert_eq!(parsed.issues.len(), 1);
+            assert_eq!(parsed.issues[0].kind, IssueKind::LevelNotAllowed { level });
+            let mut layer = Layer::new(level);
+            assert!(
+                layer
+                    .set(&schema, INPUT_MENU_HOLD_START_SECONDS, Value::Int(2))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn the_start_hold_survives_an_edit_and_a_parse() {
+        let schema = Schema::builtin();
+        let change = Change::Set {
+            key: INPUT_MENU_HOLD_START_SECONDS,
+            value: Value::Int(2),
+        };
+        let out = edit(&schema, Level::Global, "", &[change]).unwrap();
+        assert_eq!(
+            out,
+            "schema_version = 1\n\n[input]\nmenu_hold_start_seconds = 2\n"
+        );
+        let parsed = parse_layer(&schema, Level::Global, &out);
+        assert_eq!(parsed.issues, []);
+        assert_eq!(
+            parsed.layer.get(INPUT_MENU_HOLD_START_SECONDS),
+            Some(&Value::Int(2))
+        );
+        let layers = Layers::try_new(Some(&parsed.layer), None, None).unwrap();
+        let resolved = resolve_key(&schema, &layers, INPUT_MENU_HOLD_START_SECONDS).unwrap();
+        assert_eq!(resolved.value, Value::Int(2));
+        assert_eq!(resolved.source, Source::Global);
     }
 
     #[test]

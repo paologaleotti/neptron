@@ -20,8 +20,15 @@ Typed settings schema, three-level resolution (game, system, global, default) an
 | `display.monitor` | name (`auto` or a profile id, such as `generic_15`) | global | `auto` | confirm or revert |
 | `display.style` | `auto`, `native`, `2x`, `3x`, `4x` | game, system, global | `auto` | validated |
 | `display.refresh_policy` | `exact`, `exact_x2`, `force_50`, `force_60` | game, system, global | `exact` | validated |
+| `input.menu_hold_start_seconds` | whole number of seconds, 0 to 10 (`MENU_HOLD_START_MAX_SECONDS`), 0 is off | global | `0` | none |
 
 Picture style and refresh policy are independent settings. The "Native, double refresh" row of the picture style table is the pair `style = native` with `refresh_policy = exact_x2`. The UI can show the pair as one row.
+
+`input.menu_hold_start_seconds`: hold Start alone on a controller for this number of seconds to open the quick menu. 0 turns it off. Select and Start together still open the quick menu at once, and their 5 s hold is still the blind recovery. It is for an arcade panel with no Select button. `neptron-input` describes the exact rule. The schema has no help text field, so the menu help text is in the doc comment of `INPUT_MENU_HOLD_START_SECONDS`.
+
+- The app reads the resolved value, converts it to nanoseconds, and passes it to `Hotkeys::set_start_hold_ns` of `neptron-input`. The value applies live.
+- The setting is global only. A controller belongs to the machine, not to a game or a system.
+- The built-in default stays 0. The 2 s of an arcade panel is a choice that the first-boot setup writes to `global.toml` (or that the user writes in `neptron.toml`). It is not a hidden default: nothing detects a panel.
 
 The schema checks only the form of a name. The consumer checks that the connector or the profile exists, and every mode still passes the safety validator.
 

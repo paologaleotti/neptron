@@ -214,7 +214,11 @@ mod tests {
         for entry in schema.entries() {
             let choice = |n: usize| match entry.kind {
                 Kind::Choice { choices, .. } => Value::Text(choices[n % choices.len()].into()),
-                _ => Value::Text(format!("name{n}")),
+                Kind::Int { min, max, .. } => {
+                    Value::Int(min + i64::try_from(n).unwrap() % (max - min + 1))
+                }
+                Kind::Bool { .. } => Value::Bool(n % 2 == 1),
+                Kind::Name { .. } => Value::Text(format!("name{n}")),
             };
             for bits in 0..8u8 {
                 let mut layers = [
