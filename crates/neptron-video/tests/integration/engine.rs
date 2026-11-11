@@ -1,8 +1,9 @@
 //! The good path: launch, debounce, scale only, mute, trace.
 
-use neptron_types::{Rect, Rotation, SourceGeometry};
+use neptron_types::{Filter, Rect, Rotation, SourceGeometry};
 use neptron_video::{
-    DEBOUNCE_FRAMES, Directive, Outcome, PictureStyle, Trigger, Unshowable, VideoError,
+    DEBOUNCE_FRAMES, Directive, Outcome, PictureStyle, PolicySettings, Trigger, Unshowable,
+    VideoError,
 };
 
 use crate::harness::{
@@ -330,4 +331,25 @@ fn a_long_flicker_under_a_fixed_width_keeps_the_modeset_in_the_trace() {
     assert_eq!(merged.count, 400);
     assert_eq!(merged.decided_frame, 401);
     assert_eq!(merged.source, MD_H40);
+}
+
+#[test]
+fn the_overscan_crop_of_the_policy_reaches_the_scene() {
+    // An NES on arcade_31: 240 lines at 2x miss the 478 lines the range
+    // holds, so the policy hides 8 lines per edge.
+    let monitor = neptron_video::Monitor::Profile(
+        neptron_testkit::preset::monitor_preset("arcade_31").unwrap(),
+    );
+    let nes = crate::harness::source(256, 240, 60_099);
+    let mut rig = Rig::new(monitor, PolicySettings::default());
+    rig.frame(nes);
+    let proposal = rig.engine.current().unwrap().chosen.proposal;
+    let crop = proposal.overscan_crop.expect("the policy crops this game");
+    let scene = rig.fake.frames().last().unwrap().scene;
+    assert_eq!(scene.crop, proposal.placement.crop);
+    assert_eq!(scene.crop.h, 240 - u32::from(crop.lines()));
+    assert_eq!(scene.crop.y, i32::from(crop.lines_per_edge));
+    assert_eq!(scene.filter, Filter::Nearest);
+    assert_eq!(scene.dest.h % scene.crop.h, 0);
+    assert!(scene.dest.h / scene.crop.h >= 2);
 }

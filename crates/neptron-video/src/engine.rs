@@ -146,12 +146,12 @@ impl<D: Display> VideoEngine<D> {
         };
         presented.drained_flip = self.drain_flip()?;
         presented.modeset = self.modeset()?;
-        let placement = self
+        let (placement, source) = self
             .odren
             .current()
-            .map(|c| c.chosen.proposal.placement)
+            .map(|c| (c.chosen.proposal.placement, c.source))
             .ok_or(VideoError::NoMode)?;
-        let scene = build_scene(&placement, game, ui);
+        let scene = build_scene(&placement, &source, game, ui);
         self.display.present(&scene).map_err(VideoError::Present)?;
         self.flip_pending = true;
         Ok(presented)

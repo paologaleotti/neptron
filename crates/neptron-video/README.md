@@ -8,7 +8,7 @@ The ODREN engine: core geometry to policy to safety to display. Debounce, commit
 - `VideoEngine<D: Display>`: `Odren` on a display. `new(display, Monitor, PolicySettings)`, `begin_frame(SourceGeometry) -> Directive`, `present(game, ui) -> Result<Presented, VideoError>`, `wait_flip() -> Result<FlipEvent, VideoError>`, `muted()`, `current()`, `current_refused()`, `trace()`, `style_rows`, `set_monitor`, `set_settings`, `set_veto`, `retry()`, `display()`.
 - `Monitor`: `Profile(MonitorProfile)` or `Edid(EdidProfile)`. `caps_for(&GpuCaps)` applies the EDID pixel clock limit (`EdidProfile::limit_caps`).
 - `policy_settings(style, refresh_policy, horizontal) -> Result<PolicySettings, SettingsError>`: from the values of `display.style` and `display.refresh_policy`.
-- `build_scene(&Placement, game, ui) -> Scene`: the one function that builds a `Scene`.
+- `build_scene(&Placement, &SourceGeometry, game, ui) -> Scene`: the one function that builds a `Scene`. The placement's crop is kept when the frame has the size of the placement's source and the crop lies inside it; otherwise the whole frame goes to the destination.
 - `Current`: the winner on screen (`Chosen`: index, rung, target, proposal, token, notice), the mode read back, and the source.
 - `SwitchTrace` of `SwitchRecord`s, `Outcome`, `Trigger`, `Refusal`, `Unshowable`, `VideoError`.
 - Re-exports of the policy types that callers name (`PolicySettings`, `PictureStyle`, `RefreshPolicy`, `HorizontalStrategy`, `Notice`, `StyleRow`, `Timing`, `Placement`, and others), because only this crate may depend on `neptron-modeline`.
