@@ -21,6 +21,7 @@ pub mod snapshot;
 pub mod text;
 pub mod theme;
 mod tree;
+pub mod widgets;
 
 pub use canvas::{Canvas, CpuCanvas, Sprite, SpriteId, UI_HEIGHT, UI_WIDTH};
 pub use frame::UiFrame;
