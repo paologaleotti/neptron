@@ -29,6 +29,7 @@ Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` afte
 | `dupe` | Sends no frame data (`NULL`) for this frame, if the frontend allows duplicate frames |
 | `sram_write <offset> <byte>` | Writes one byte of save RAM |
 | `shutdown` | Calls `RETRO_ENVIRONMENT_SHUTDOWN` |
+| `get_variable <key> <offset>` | Calls `GET_VARIABLE` for a core option and writes the answer code to the save RAM byte at `offset` (see Core options) |
 
 The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB. An error names the line. A script with an error makes `retro_load_game` return false.
 
@@ -50,6 +51,17 @@ at 301 sram_write 0 42
 at 600 shutdown
 ```
 
+## Core options
+
+The core declares a fixed set of options with `SET_VARIABLES` in `retro_set_environment`:
+
+| Key | Declaration |
+| --- | --- |
+| `neptron_testcore_mode` | `Test mode; alpha\|beta\|gamma` |
+| `neptron_testcore_level` | `Test level; 1\|2\|3` |
+
+A `get_variable` event writes one byte of save RAM: 0 when the frontend returns false or no value, the position of the value in the list plus 1 (1 to 3), or 255 for a value that the list does not have. A test reads the byte through `retro_get_memory_data`.
+
 ## Frames
 
 Each pixel is a fixed function of the frame number, the joypad buttons of port 0 that the core read for that frame, and the pixel position: `pixel(format, frame, buttons, x, y)`. The core writes it in native byte order, as a `u32` for `xrgb8888` and a `u16` for the 16-bit formats. Only the colour bits of the format are set.
@@ -66,7 +78,7 @@ The crate builds as a dynamic library (`cdylib`: `libneptron_testcore.so` on Lin
 
 | Call | What the core does |
 | --- | --- |
-| `retro_set_environment` | Calls `SET_SUPPORT_NO_GAME` (true) and `GET_LOG_INTERFACE` |
+| `retro_set_environment` | Calls `SET_SUPPORT_NO_GAME` (true), `GET_LOG_INTERFACE` and `SET_VARIABLES` |
 | `retro_load_game` | Reads the script, calls `SET_PIXEL_FORMAT` (not for `0rgb1555`) and `GET_CAN_DUPE`. The content is not used: `game` may be null. Returns false and logs the reason on a script error or a refused pixel format |
 | `retro_get_system_av_info` | The geometry and timing in force |
 | `retro_run` | Calls `input_poll`, reads the 16 joypad buttons of port 0, makes the environment calls of the frame's events, sends the frame (or `NULL` for `dupe`), then the audio |

@@ -23,7 +23,7 @@
 //! and returns the default value. With `panic = "abort"` a panic ends the
 //! process instead, which is also safe.
 
-use std::ffi::{CString, c_char, c_uint, c_void};
+use std::ffi::{CStr, CString, c_char, c_uint, c_void};
 use std::io::Write;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
@@ -33,6 +33,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use neptron_libretro_sys::*;
 
 use crate::model::{Core, Request, Step, Video};
+use crate::options::{VALUE_NOT_LISTED, VALUE_NOT_SET, value_code};
 use crate::script::{AudioMode, AvInfo, Geometry, PixelFormat, Script, Size};
 
 /// The callbacks that the frontend gives the core.
@@ -76,6 +77,9 @@ const LIBRARY_NAME: &[u8] = b"neptron-testcore\0";
 const LIBRARY_VERSION: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
 const VALID_EXTENSIONS: &[u8] = b"ntc\0";
 const JOYPAD_BUTTONS: c_uint = 16;
+// The C form of `CORE_OPTIONS`; a test checks that both say the same.
+const OPTION_KEYS: [&CStr; 2] = [c"neptron_testcore_mode", c"neptron_testcore_level"];
+const OPTION_DECLARATIONS: [&CStr; 2] = [c"Test mode; alpha|beta|gamma", c"Test level; 1|2|3"];
 
 // Each export coerces to the function pointer type of the header only when
 // its signature matches.
@@ -106,7 +110,7 @@ const _: RetroGetMemoryDataFn = retro_get_memory_data;
 const _: RetroGetMemorySizeFn = retro_get_memory_size;
 
 /// Stores the environment callback, declares that the core runs without
-/// content, and asks for the log interface.
+/// content, asks for the log interface, and declares the core options.
 ///
 /// # Safety
 ///
@@ -136,6 +140,7 @@ pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
         ) {
             with_global(|g| g.callbacks.log = log.log);
         }
+        declare_options(&callbacks);
     });
 }
 
@@ -521,10 +526,67 @@ fn send(callbacks: &Callbacks, step: &Step) {
             Request::Shutdown => {
                 env::<c_void>(callbacks, RETRO_ENVIRONMENT_SHUTDOWN, ptr::null_mut())
             }
+            Request::GetVariable { option, offset } => {
+                let code = get_variable(callbacks, option);
+                update(|g| {
+                    if let Some(core) = g.core.as_ref() {
+                        core.save_ram()
+                            .write(usize::try_from(offset).unwrap_or(usize::MAX), code);
+                    }
+                });
+                code != VALUE_NOT_SET
+            }
         };
     }
     send_video(callbacks, step);
     send_audio(callbacks, step);
+}
+
+/// Declares the core options with `SET_VARIABLES`. libretro.h makes the
+/// frontend keep its own copy of the array; the strings are static.
+fn declare_options(callbacks: &Callbacks) {
+    let mut variables = [
+        variable(OPTION_KEYS[0], OPTION_DECLARATIONS[0]),
+        variable(OPTION_KEYS[1], OPTION_DECLARATIONS[1]),
+        retro_variable {
+            key: ptr::null(),
+            value: ptr::null(),
+        },
+    ];
+    // The core works with the defaults when the frontend has no options.
+    let _declared = env(
+        callbacks,
+        RETRO_ENVIRONMENT_SET_VARIABLES,
+        variables.as_mut_ptr(),
+    );
+}
+
+fn variable(key: &'static CStr, value: &'static CStr) -> retro_variable {
+    retro_variable {
+        key: key.as_ptr(),
+        value: value.as_ptr(),
+    }
+}
+
+/// Asks for option `option` with `GET_VARIABLE` and returns its answer code.
+fn get_variable(callbacks: &Callbacks, option: usize) -> u8 {
+    let Some(key) = OPTION_KEYS.get(option) else {
+        return VALUE_NOT_SET;
+    };
+    let mut var = retro_variable {
+        key: key.as_ptr(),
+        value: ptr::null(),
+    };
+    if !env(callbacks, RETRO_ENVIRONMENT_GET_VARIABLE, &raw mut var) || var.value.is_null() {
+        return VALUE_NOT_SET;
+    }
+    // SAFETY: the environment callback conforms to libretro.h (the contract
+    // of `retro_set_environment`). On success it sets `value` to a
+    // NUL-terminated string, valid until the next call into the frontend.
+    let value = unsafe { CStr::from_ptr(var.value) };
+    value
+        .to_str()
+        .map_or(VALUE_NOT_LISTED, |v| value_code(option, Some(v)))
 }
 
 fn send_video(callbacks: &Callbacks, step: &Step) {
@@ -697,6 +759,17 @@ mod tests {
         assert!(!retro_serialize(ptr::null_mut(), 0));
         retro_run();
         retro_reset();
+    }
+
+    #[test]
+    fn c_option_strings_match_the_option_table() {
+        for (i, option) in crate::options::CORE_OPTIONS.iter().enumerate() {
+            assert_eq!(OPTION_KEYS[i].to_str(), Ok(option.key));
+            assert_eq!(
+                OPTION_DECLARATIONS[i].to_str().map(str::to_owned),
+                Ok(crate::options::declaration(option))
+            );
+        }
     }
 
     #[test]

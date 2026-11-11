@@ -5,13 +5,16 @@
 //! environment variable, so each test needs its own process. `cargo nextest`
 //! runs every test in its own process.
 
-use std::ffi::{c_uint, c_void};
+use std::ffi::{CStr, c_uint, c_void};
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 use libloading::Library;
 use neptron_libretro_sys::*;
-use neptron_testcore::{PixelFormat, SCRIPT_ENV, Size, expected_hash, frames_after, hash, sample};
+use neptron_testcore::{
+    CORE_OPTIONS, PixelFormat, SCRIPT_ENV, Size, VALUE_NOT_SET, declaration, expected_hash,
+    frames_after, hash, sample,
+};
 
 /// What the frontend callbacks saw.
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +23,8 @@ enum Seen {
     Geometry(u32, u32, u32, u32),
     AvInfo(u32, u32, u32, u32, f64, f64),
     Shutdown,
+    Variables(Vec<(String, String)>),
+    GetVariable(String),
     Frame { size: Size, pitch: usize, hash: u64 },
     Dupe,
     Audio { first: u64, frames: usize },
@@ -87,6 +92,49 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             f.seen.push(Seen::Shutdown);
             true
         }
+        RETRO_ENVIRONMENT_SET_VARIABLES => {
+            let mut vars = Vec::new();
+            let mut p = data.cast::<retro_variable>().cast_const();
+            loop {
+                // SAFETY: libretro.h: the data is an array of `retro_variable`
+                // that ends with a null key; the strings are NUL-terminated.
+                let v = unsafe { *p };
+                if v.key.is_null() {
+                    break;
+                }
+                // SAFETY: as above.
+                let (key, value) = unsafe { (CStr::from_ptr(v.key), CStr::from_ptr(v.value)) };
+                vars.push((
+                    key.to_string_lossy().into_owned(),
+                    value.to_string_lossy().into_owned(),
+                ));
+                // SAFETY: the array goes on until the null key.
+                p = unsafe { p.add(1) };
+            }
+            f.seen.push(Seen::Variables(vars));
+            true
+        }
+        RETRO_ENVIRONMENT_GET_VARIABLE => {
+            // SAFETY: libretro.h: the data is a `struct retro_variable *` with
+            // a NUL-terminated key.
+            let var = unsafe { &mut *data.cast::<retro_variable>() };
+            // SAFETY: as above.
+            let key = unsafe { CStr::from_ptr(var.key) }
+                .to_string_lossy()
+                .into_owned();
+            let answer: Option<&'static CStr> = match key.as_str() {
+                "neptron_testcore_mode" => Some(c"beta"),
+                _ => None,
+            };
+            f.seen.push(Seen::GetVariable(key));
+            match answer {
+                Some(value) => {
+                    var.value = value.as_ptr();
+                    true
+                }
+                None => false,
+            }
+        }
         _ => false,
     }
 }
@@ -144,6 +192,15 @@ unsafe extern "C" fn input_state(port: c_uint, device: c_uint, index: c_uint, id
     } else {
         0
     }
+}
+
+fn declared_options() -> Seen {
+    Seen::Variables(
+        CORE_OPTIONS
+            .iter()
+            .map(|o| (o.key.to_owned(), declaration(o)))
+            .collect(),
+    )
 }
 
 fn av_seen(av: &retro_system_av_info) -> Seen {
@@ -331,6 +388,8 @@ at 2 dupe
 at 3 sram_write 5 42
 at 3 av_info 320 240 0 320 240 50000 48000
 at 4 shutdown
+at 4 get_variable neptron_testcore_mode 6
+at 4 get_variable neptron_testcore_level 7
 ";
 
 #[test]
@@ -405,6 +464,7 @@ fn a_scripted_run_through_the_raw_api() {
     let n2 = frames_after(3, ntsc) - n0 - n1;
     let ntsc_total = frames_after(3, ntsc);
     let expected = vec![
+        declared_options(),
         Seen::PixelFormat(RETRO_PIXEL_FORMAT_RGB565),
         frame(small, 0),
         audio(0, n0),
@@ -417,6 +477,8 @@ fn a_scripted_run_through_the_raw_api() {
         frame(qvga, 3),
         audio(ntsc_total, frames_after(1, pal)),
         Seen::Shutdown,
+        Seen::GetVariable("neptron_testcore_mode".to_owned()),
+        Seen::GetVariable("neptron_testcore_level".to_owned()),
         frame(qvga, 4),
         audio(
             ntsc_total + frames_after(1, pal),
@@ -427,6 +489,8 @@ fn a_scripted_run_through_the_raw_api() {
 
     assert_eq!(sram_byte(0), 7, "the frontend's write stays");
     assert_eq!(sram_byte(5), 42, "the script's write is visible");
+    assert_eq!(sram_byte(6), 2, "mode is beta, the second value");
+    assert_eq!(sram_byte(7), VALUE_NOT_SET, "level has no value");
 
     // SAFETY: a plain call.
     unsafe { (core.reset)() };
@@ -448,7 +512,7 @@ fn a_missing_script_fails_the_load() {
     core.start();
     assert!(!core.load_game());
     core.run(0);
-    assert!(frontend().seen.is_empty(), "no game, no output");
+    assert_eq!(frontend().seen, [declared_options()], "no game, no output");
     core.stop();
 }
 
@@ -461,7 +525,10 @@ fn a_refused_pixel_format_fails_the_load() {
     assert!(!core.load_game());
     assert_eq!(
         frontend().seen,
-        [Seen::PixelFormat(RETRO_PIXEL_FORMAT_XRGB8888)]
+        [
+            declared_options(),
+            Seen::PixelFormat(RETRO_PIXEL_FORMAT_XRGB8888)
+        ]
     );
     core.stop();
     std::fs::remove_dir_all(dir).expect("remove the script");

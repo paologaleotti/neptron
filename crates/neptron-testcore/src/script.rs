@@ -8,6 +8,8 @@
 
 use std::path::PathBuf;
 
+use crate::options::option_index;
+
 /// Environment variable that names the script file.
 pub const SCRIPT_ENV: &str = "NEPTRON_TESTCORE_SCRIPT";
 /// The keyword of the first line: `neptron-testcore <version>`.
@@ -135,6 +137,14 @@ pub enum Action {
     },
     /// Ask the frontend to shut down with `RETRO_ENVIRONMENT_SHUTDOWN`.
     Shutdown,
+    /// Read a core option with `GET_VARIABLE` and write the answer code
+    /// (`value_code`) to one byte of save RAM.
+    GetVariable {
+        /// The index of the option in `CORE_OPTIONS`.
+        option: usize,
+        /// The save RAM offset in bytes.
+        offset: u32,
+    },
 }
 
 /// An action and the frame it happens at.
@@ -549,6 +559,14 @@ impl Builder {
                         .map_err(|_| a.value_error(1, "byte value"))?,
                 }
             }
+            "get_variable" => {
+                a.count(2)?;
+                Action::GetVariable {
+                    option: option_index(a.token(0))
+                        .ok_or_else(|| a.value_error(0, "core option key"))?,
+                    offset: a.number(1, "save RAM offset", 0, MAX_SAVE_RAM_BYTES)?,
+                }
+            }
             "shutdown" => {
                 a.count(0)?;
                 Action::Shutdown
@@ -579,7 +597,9 @@ impl Builder {
                     check_fits(*line, av.geometry.size, av.max)?;
                     current_max = av.max;
                 }
-                Action::SramWrite { offset, .. } if offset >= save_ram_bytes => {
+                Action::SramWrite { offset, .. } | Action::GetVariable { offset, .. }
+                    if offset >= save_ram_bytes =>
+                {
                     return Err(ScriptError::SramOffset {
                         line: *line,
                         offset,
@@ -1068,6 +1088,33 @@ mod tests {
                 keyword: "save_ram".to_owned()
             })
         );
+    }
+
+    #[test]
+    fn get_variable_names_a_known_option_and_a_save_ram_byte() {
+        let s = parse("save_ram 4\nat 2 get_variable neptron_testcore_level 3").unwrap();
+        assert_eq!(
+            s.events[0].action,
+            Action::GetVariable {
+                option: 1,
+                offset: 3
+            }
+        );
+        assert!(matches!(
+            parse("save_ram 4\nat 2 get_variable neptron_testcore_speed 0"),
+            Err(ScriptError::Value {
+                what: "core option key",
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse("save_ram 4\nat 2 get_variable neptron_testcore_mode 4"),
+            Err(ScriptError::SramOffset { offset: 4, .. })
+        ));
+        assert!(matches!(
+            parse("at 2 get_variable neptron_testcore_mode"),
+            Err(ScriptError::Arguments { expected: 2, .. })
+        ));
     }
 
     #[test]

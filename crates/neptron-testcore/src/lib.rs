@@ -16,11 +16,16 @@ mod audio;
 mod ffi;
 mod frame;
 mod model;
+mod options;
 mod script;
 
 pub use audio::{frames_after, max_frames_per_run, sample};
 pub use frame::{expected_hash, hash, pixel, render};
 pub use model::{Core, PADDING_BYTE, Request, SaveRam, Step, Video};
+pub use options::{
+    CORE_OPTIONS, CoreOption, VALUE_NOT_LISTED, VALUE_NOT_SET, declaration, option_index,
+    value_code,
+};
 
 pub use script::{
     Action, AudioMode, AvInfo, Event, Geometry, HEADER_KEYWORD, LoadError, MAX_ASPECT_MILLI,

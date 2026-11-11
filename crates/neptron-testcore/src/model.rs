@@ -34,6 +34,14 @@ pub enum Request {
     AvInfo(AvInfo),
     /// `RETRO_ENVIRONMENT_SHUTDOWN`
     Shutdown,
+    /// `RETRO_ENVIRONMENT_GET_VARIABLE`. The answer code goes to the save
+    /// RAM byte at `offset`.
+    GetVariable {
+        /// The index of the option in `CORE_OPTIONS`.
+        option: usize,
+        /// The save RAM offset in bytes.
+        offset: u32,
+    },
 }
 
 /// What the core sends to `video_refresh` in one frame.
@@ -296,6 +304,9 @@ impl Core {
                     self.save_ram.write(to_usize(offset), value);
                 }
                 Action::Shutdown => requests.push(Request::Shutdown),
+                Action::GetVariable { option, offset } => {
+                    requests.push(Request::GetVariable { option, offset });
+                }
             }
             self.next_event += 1;
         }
@@ -538,6 +549,19 @@ mod tests {
     fn audio_buffer_fits_the_fastest_rate() {
         let c = core("timing 60000 22050\nat 5 av_info 320 240 0 320 240 50000 96000\n");
         assert_eq!(c.audio_buffer.len(), 2 * 1920);
+    }
+
+    #[test]
+    fn get_variable_becomes_a_request_at_its_frame() {
+        let mut c = core("save_ram 2\nat 1 get_variable neptron_testcore_mode 1\n");
+        assert!(run(&mut c, 0).requests.is_empty());
+        assert_eq!(
+            run(&mut c, 0).requests,
+            [Request::GetVariable {
+                option: 0,
+                offset: 1
+            }]
+        );
     }
 
     #[test]
