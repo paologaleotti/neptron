@@ -4,12 +4,14 @@
 use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::intent::Intent;
-use crate::snapshot::{GameSource, Snapshot};
+use crate::snapshot::{GameSource, Level, PageId, SettingKey, Snapshot};
 use crate::theme::Theme;
 
 use super::chrome::Layout;
+use super::display::DisplayPanel;
 use super::game_list::GameList;
 use super::home::Home;
+use super::options::Options;
 
 /// The deepest screen stack. The longest path is home, game list, game,
 /// quick menu, display panel, option list: six screens.
@@ -43,11 +45,20 @@ pub(super) enum Nav {
 pub(super) enum Target {
     Games(GameSource),
     Display,
+    /// The options of a choice row of a page, written at a level.
+    Options {
+        page: PageId,
+        key: SettingKey,
+        level: Level,
+    },
+    Grid,
 }
 
 pub(super) enum Screen {
     Home(Home),
     Games(GameList),
+    Display(DisplayPanel),
+    Options(Options),
     /// A game runs and the UI draws nothing.
     Game,
 }
@@ -107,8 +118,10 @@ impl Screens {
             (false, Some(at)) => self.stack.truncate(at.max(1)),
             _ => {}
         }
-        if let Some(Screen::Games(list)) = self.stack.last_mut() {
-            list.sync(snap);
+        match self.stack.last_mut() {
+            Some(Screen::Games(list)) => list.sync(snap),
+            Some(Screen::Options(options)) => options.sync(snap),
+            _ => {}
         }
         self.visible = !matches!(self.stack.last(), Some(Screen::Game));
     }
@@ -117,6 +130,8 @@ impl Screens {
         let nav = match self.stack.last_mut() {
             Some(Screen::Home(home)) => home.handle(action, snap),
             Some(Screen::Games(list)) => list.handle(action, snap, out),
+            Some(Screen::Display(panel)) => panel.handle(action, snap, out),
+            Some(Screen::Options(options)) => options.handle(action, snap, out),
             Some(Screen::Game) | None => Nav::Stay,
         };
         match nav {
@@ -134,11 +149,14 @@ impl Screens {
         if self.stack.len() >= MAX_DEPTH {
             return;
         }
+        let (layout, theme) = (&self.layout, &self.theme);
         let screen = match target {
-            Target::Games(source) => {
-                Screen::Games(GameList::new(source, &self.layout, &self.theme))
+            Target::Games(source) => Screen::Games(GameList::new(source, layout, theme)),
+            Target::Display => Screen::Display(DisplayPanel::new(layout, theme)),
+            Target::Options { page, key, level } => {
+                Screen::Options(Options::new(page, key, level, layout, theme))
             }
-            Target::Display => return,
+            Target::Grid => return,
         };
         self.stack.push(screen);
     }
@@ -146,6 +164,8 @@ impl Screens {
     fn request(&self, snap: &Snapshot) -> Option<Intent> {
         match self.stack.last()? {
             Screen::Games(list) => list.request(snap),
+            Screen::Display(panel) => panel.request(snap),
+            Screen::Options(options) => options.request(snap),
             Screen::Home(_) | Screen::Game => None,
         }
     }
@@ -160,6 +180,14 @@ impl Screens {
             Some(Screen::Games(list)) => {
                 out.tree.set_screen("games");
                 list.draw(snap, theme, layout, out);
+            }
+            Some(Screen::Display(panel)) => {
+                out.tree.set_screen("display");
+                panel.draw(snap, theme, out);
+            }
+            Some(Screen::Options(options)) => {
+                out.tree.set_screen("options");
+                options.draw(snap, theme, out);
             }
             Some(Screen::Game) | None => {
                 out.tree.set_screen("game");

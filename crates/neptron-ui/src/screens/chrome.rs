@@ -168,6 +168,46 @@ pub(super) fn label(frame: &mut UiFrame, rect: Rect, align: Align, color: Color,
     });
 }
 
+/// Draws a named value on one line: the name in a column of
+/// [`FIELD_NAME_CHARS`] characters, the value after it. The tree gets one
+/// label row with the name and the value.
+pub(super) fn field(frame: &mut UiFrame, theme: &Theme, rect: Rect, name: &str, value: &str) {
+    let name_w = font::char_count_width(FIELD_NAME_CHARS).min(rect.w);
+    let name_box = Rect::new(rect.x, rect.y, name_w, rect.h);
+    let value_box = Rect::new(
+        offset(rect.x, name_w),
+        rect.y,
+        rect.w.saturating_sub(name_w),
+        rect.h,
+    );
+    let name_clipped = text::draw_in(
+        &mut frame.scene,
+        name_box,
+        Align::Left,
+        theme.colors.text_dim,
+        name,
+    );
+    let value_clipped = text::draw_in(
+        &mut frame.scene,
+        value_box,
+        Align::Left,
+        theme.colors.text,
+        value,
+    );
+    frame.tree.push(TreeRow {
+        widget: WidgetKind::Label,
+        label: name,
+        value: Some(value),
+        source: None,
+        rect,
+        focused: false,
+        clipped: name_clipped || value_clipped,
+    });
+}
+
+/// Width of the name column of a [`field`], in characters.
+const FIELD_NAME_CHARS: usize = 9;
+
 /// Draws `message` wrapped into the lines of `rect`, one line per row of
 /// the theme. The last line that fits ends with an ellipsis when text is
 /// left over. Returns the number of lines drawn.

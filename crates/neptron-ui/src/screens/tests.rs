@@ -7,9 +7,14 @@ use crate::intent::Intent;
 use crate::snapshot::{GameId, GameSource, GameWindow, SessionInfo, Snapshot};
 use crate::theme::Theme;
 
+use super::DISPLAY_PAGE;
 use super::Screens;
 use super::game_list::{PREFETCH_ROWS, WINDOW_ROWS};
-use super::scenes::{LONG_LIST, MEGA_DRIVE, SNES, window, with_systems};
+use super::scenes::{
+    LONG_LIST, MEGA_DRIVE, SNES, STYLE, TO_DISPLAY, window, with_display, with_systems,
+};
+use crate::intent::Value;
+use crate::snapshot::{Level, SettingsPage};
 
 pub(super) struct Run {
     pub screens: Screens,
@@ -266,4 +271,124 @@ fn a_list_with_one_game_and_an_empty_list() {
     assert!(run.intents().is_empty());
     assert_eq!(run.focused(), None);
     assert!(run.labels().iter().any(|l| l.contains("no games")));
+}
+
+fn field<'a>(run: &'a Run, name: &str) -> Option<&'a str> {
+    run.frame
+        .tree
+        .rows()
+        .find(|r| r.label == name)
+        .and_then(|r| r.value)
+}
+
+#[test]
+fn the_display_panel_asks_for_its_page_and_shows_the_mode() {
+    let mut run = Run::new();
+    let mut snap = with_display();
+    let page = core::mem::take(&mut snap.settings);
+    run.step(&snap, &TO_DISPLAY);
+    assert_eq!(run.screen(), "display");
+    assert_eq!(run.intents(), [Intent::LoadSettings { page: DISPLAY_PAGE }]);
+    run.step(&snap, &[Down, Accept]);
+    assert_eq!(run.intents(), [Intent::LoadSettings { page: DISPLAY_PAGE }]);
+    snap.settings = page;
+    run.step(&snap, &[]);
+    assert!(run.intents().is_empty());
+    assert_eq!(field(&run, "Output"), Some("VGA-1"));
+    assert_eq!(field(&run, "Mode"), Some("640x480 59.94 Hz"));
+    assert_eq!(field(&run, "Monitor"), Some("pc_31_120"));
+    assert_eq!(run.focused(), Some("Output"));
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "home");
+}
+
+#[test]
+fn the_display_panel_never_changes_a_choice_in_place() {
+    let mut run = Run::new();
+    let snap = with_display();
+    run.step(&snap, &TO_DISPLAY);
+    run.step(&snap, &[Down, Down]);
+    assert_eq!(run.focused(), Some("Picture style"));
+    for action in [Left, Right, Left, Right] {
+        run.step(&snap, &[action]);
+        assert!(run.intents().is_empty(), "{action:?}");
+        assert_eq!(run.screen(), "display");
+    }
+}
+
+#[test]
+fn a_picture_style_applies_only_from_its_option_list() {
+    let mut run = Run::new();
+    let snap = with_display();
+    run.step(&snap, &TO_DISPLAY);
+    run.step(&snap, &[Down, Down, Accept]);
+    assert_eq!(run.screen(), "options");
+    assert_eq!(run.focused(), Some("Auto"));
+    assert_eq!(field(&run, "In use"), Some("Auto"));
+    let rows: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::List)
+        .map(|r| (r.label, r.value))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("Auto", Some("31.5 kHz  59.94 Hz")),
+            ("Native", Some("Needs a 15 kHz monitor")),
+            ("2x", Some("31.5 kHz  59.94 Hz")),
+            ("3x", Some("Needs a 45 kHz monitor")),
+            ("4x", Some("Needs a 60 kHz monitor")),
+        ]
+    );
+
+    run.step(&snap, &[Down, Accept]);
+    assert_eq!(run.screen(), "options");
+    assert!(run.intents().is_empty());
+    assert!(
+        run.labels()
+            .contains(&"Not available. Needs a 15 kHz monitor")
+    );
+
+    run.step(&snap, &[Down, Accept]);
+    assert_eq!(
+        run.intents(),
+        [Intent::SetValue {
+            key: STYLE,
+            level: Level::Global,
+            value: Value::Choice(2)
+        }]
+    );
+    assert_eq!(run.screen(), "display");
+}
+
+#[test]
+fn the_option_in_use_or_back_closes_the_list_with_no_change() {
+    let mut run = Run::new();
+    let snap = with_display();
+    run.step(&snap, &TO_DISPLAY);
+    run.step(&snap, &[Down, Down, Accept]);
+    run.step(&snap, &[Accept]);
+    assert!(run.intents().is_empty());
+    assert_eq!(run.screen(), "display");
+    run.step(&snap, &[Accept, Down, Down, Back]);
+    assert!(run.intents().is_empty());
+    assert_eq!(run.screen(), "display");
+}
+
+#[test]
+fn the_option_list_waits_for_its_page() {
+    let mut run = Run::new();
+    let mut snap = with_display();
+    run.step(&snap, &TO_DISPLAY);
+    run.step(&snap, &[Down, Down, Accept]);
+    snap.settings = SettingsPage::default();
+    run.step(&snap, &[Down, Accept]);
+    assert_eq!(run.intents(), [Intent::LoadSettings { page: DISPLAY_PAGE }]);
+    assert_eq!(run.screen(), "options");
+    snap = with_display();
+    run.step(&snap, &[]);
+    assert!(run.intents().is_empty());
+    assert_eq!(run.focused(), Some("Auto"));
 }

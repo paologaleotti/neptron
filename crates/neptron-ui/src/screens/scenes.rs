@@ -4,12 +4,16 @@
 use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::registry::SceneDef;
-use crate::snapshot::{GameEntry, GameId, GameSource, GameWindow, Snapshot, SystemEntry, SystemId};
+use crate::snapshot::{
+    ChoiceOption, DisplayInfo, GameEntry, GameId, GameSource, GameWindow, Level, MenuItem,
+    ProfileEntry, ProfileId, Scopes, SettingKey, SettingValue, SettingsPage, Snapshot, SystemEntry,
+    SystemId,
+};
 use crate::theme::Theme;
 
-use super::Screens;
 use super::game_list::WINDOW_ROWS;
 use super::router::Screen;
+use super::{DISPLAY_PAGE, GRID_PATTERN, Screens};
 
 pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
@@ -40,6 +44,30 @@ pub(super) const SCENES: &[SceneDef] = &[
         name: "screens/games-empty",
         build: games_empty,
     },
+    SceneDef {
+        name: "screens/display",
+        build: display,
+    },
+    SceneDef {
+        name: "screens/display-style",
+        build: display_style,
+    },
+];
+
+/// The settings of the fixtures.
+pub(super) const OUTPUT: SettingKey = SettingKey(1);
+pub(super) const MONITOR: SettingKey = SettingKey(2);
+pub(super) const STYLE: SettingKey = SettingKey(3);
+pub(super) const REFRESH: SettingKey = SettingKey(4);
+
+/// The path from home to the display panel with the fixture systems.
+pub(super) const TO_DISPLAY: [UiAction; 6] = [
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
 ];
 
 pub(super) const NES: SystemId = SystemId(1);
@@ -163,4 +191,122 @@ fn games_empty(frame: &mut UiFrame, theme: &Theme) {
     screens.update(&snap, &[UiAction::Accept], frame);
     snap.games = GameWindow::new(GameSource::Favourites, 0, 0, Vec::new());
     screens.update(&snap, &[], frame);
+}
+
+fn choice(index: usize, options: Vec<ChoiceOption>) -> SettingValue {
+    SettingValue::Choice { index, options }
+}
+
+fn setting(
+    key: SettingKey,
+    label: &str,
+    value: SettingValue,
+    source: Level,
+    scopes: Scopes,
+) -> MenuItem {
+    let mut item = MenuItem::new(key, label, value);
+    item.source = source;
+    item.scopes = scopes;
+    item.live = true;
+    item
+}
+
+/// The picture styles on a 31 kHz monitor that accepts 120 Hz, for a
+/// 240-line game at 59.94 Hz.
+pub(super) fn styles() -> Vec<ChoiceOption> {
+    vec![
+        ChoiceOption::new("Auto").with_detail("31.5 kHz  59.94 Hz"),
+        ChoiceOption::new("Native").unavailable("Needs a 15 kHz monitor"),
+        ChoiceOption::new("2x").with_detail("31.5 kHz  59.94 Hz"),
+        ChoiceOption::new("3x").unavailable("Needs a 45 kHz monitor"),
+        ChoiceOption::new("4x").unavailable("Needs a 60 kHz monitor"),
+    ]
+}
+
+/// The rows of a settings page with the display settings, written at the
+/// levels of `scopes`.
+pub(super) fn display_rows(scopes: Scopes) -> Vec<MenuItem> {
+    let global = Scopes {
+        global: true,
+        ..Scopes::NONE
+    };
+    let names = |names: &[&str]| names.iter().map(|n| ChoiceOption::new(*n)).collect();
+    vec![
+        setting(
+            OUTPUT,
+            "Output",
+            choice(1, names(&["Auto", "VGA-1", "HDMI-A-1"])),
+            Level::Global,
+            global,
+        ),
+        setting(
+            MONITOR,
+            "Monitor",
+            choice(2, names(&["Auto", "generic_15", "pc_31_120", "vesa_480"])),
+            Level::Global,
+            global,
+        ),
+        setting(
+            STYLE,
+            "Picture style",
+            choice(0, styles()),
+            Level::Default,
+            scopes,
+        ),
+        setting(
+            REFRESH,
+            "Refresh",
+            choice(
+                0,
+                vec![
+                    ChoiceOption::new("Exact").with_detail("The rate of the game"),
+                    ChoiceOption::new("Exact x2").with_detail("Twice the rate of the game"),
+                    ChoiceOption::new("Force 50 Hz")
+                        .unavailable("The monitor does not accept 50 Hz"),
+                    ChoiceOption::new("Force 60 Hz").with_detail("Games made for 50 Hz run faster"),
+                ],
+            ),
+            Level::Default,
+            scopes,
+        ),
+        MenuItem::new(
+            SettingKey(5),
+            "Grid pattern",
+            SettingValue::Action(GRID_PATTERN),
+        ),
+    ]
+}
+
+/// A snapshot with the fixture systems, the display, the monitor profiles
+/// and the display page.
+pub(super) fn with_display() -> Snapshot {
+    let mut snap = with_systems();
+    snap.display = Some(DisplayInfo::new("VGA-1", "640x480 59.94 Hz"));
+    snap.profiles = vec![
+        ProfileEntry::new(ProfileId(1), "generic_15"),
+        ProfileEntry::new(ProfileId(2), "pc_31_120"),
+        ProfileEntry::new(ProfileId(3), "vesa_480"),
+    ];
+    snap.active_profile = Some(ProfileId(2));
+    snap.settings = SettingsPage::new(DISPLAY_PAGE, "Display", display_rows(Scopes::ALL));
+    snap
+}
+
+fn display(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_display();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_DISPLAY, frame);
+    screens.update(&snap, &[UiAction::Down, UiAction::Down], frame);
+}
+
+fn display_style(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_display();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_DISPLAY, frame);
+    screens.update(
+        &snap,
+        &[UiAction::Down, UiAction::Down, UiAction::Accept],
+        frame,
+    );
+    screens.update(&snap, &[UiAction::Down], frame);
 }

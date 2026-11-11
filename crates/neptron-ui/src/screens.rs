@@ -8,8 +8,11 @@
 //! own pages and actions below it.
 
 mod chrome;
+mod display;
 mod game_list;
 mod home;
+mod options;
+mod page;
 mod router;
 mod scenes;
 
