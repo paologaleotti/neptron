@@ -265,6 +265,11 @@ impl Screens {
         })
     }
 
+    #[cfg(test)]
+    pub(super) fn stack_capacity(&self) -> usize {
+        self.stack.capacity()
+    }
+
     /// The screen on top, for the scenes and the tests that start deep in a
     /// list.
     pub(super) fn top_mut(&mut self) -> Option<&mut Screen> {

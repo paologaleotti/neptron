@@ -725,3 +725,286 @@ fn the_grid_pattern_opens_from_the_display_panel_and_the_quick_menu() {
     run.step(&snap, &[Accept]);
     assert_eq!(run.screen(), "quick-menu");
 }
+
+/// The memory that one frame holds: scene, tree and intents.
+fn capacities(frame: &UiFrame) -> ((usize, usize), (usize, usize), usize) {
+    (
+        frame.scene.capacity(),
+        frame.tree.capacity(),
+        frame.intents.capacity(),
+    )
+}
+
+#[test]
+fn a_static_screen_allocates_nothing_after_its_first_frame() {
+    let quick = in_game();
+    let mut confirm = with_display();
+    confirm.confirm = Some(PendingConfirm::new("640x480 at 59.94 Hz", 5 * SECOND_NS));
+    let mut noticed = with_systems();
+    noticed.notices = vec![notice(1, "The scan found 12 new games.")];
+    let (_, games) = snes_list();
+    let cases: [(&Snapshot, &[UiAction], &str); 9] = [
+        (&with_systems(), &[], "home"),
+        (&Snapshot::default(), &[], "home"),
+        (&games, &[Down, Accept], "games"),
+        (&with_display(), &TO_DISPLAY, "display"),
+        (&confirm, &TO_DISPLAY, "confirm"),
+        (&noticed, &[], "notice"),
+        (&quick, &[Menu], "quick-menu"),
+        (&quick, &[Menu, Down, Accept], "options"),
+        (
+            &with_display(),
+            &[
+                Down, Down, Down, Down, Down, Accept, Down, Down, Down, Down, Accept,
+            ],
+            "pattern/grid",
+        ),
+    ];
+    for (snap, path, screen) in cases {
+        let mut run = Run::new();
+        run.step(snap, &[]);
+        run.step(snap, path);
+        run.step(snap, &[]);
+        assert_eq!(run.screen(), screen);
+        let before = capacities(&run.frame);
+        let stack = run.screens.stack_capacity();
+        for _ in 0..10 {
+            run.step(snap, &[]);
+        }
+        assert_eq!(capacities(&run.frame), before, "{screen}");
+        assert_eq!(run.screens.stack_capacity(), stack, "{screen}");
+    }
+}
+
+mod fuzz {
+    use super::*;
+    use crate::screens::{GRID_PATTERN, OPEN_DISPLAY, QUIT_GAME, RESUME};
+    use crate::snapshot::{
+        ActionId, ChoiceOption, DisplayInfo, GameEntry, MenuItem, PageId, ProfileEntry, ProfileId,
+        Scopes, SettingKey, SettingValue, SystemEntry, SystemId,
+    };
+    use crate::theme::SAFE_AREA;
+    use crate::{CpuCanvas, WidgetKind};
+
+    const SEED: u64 = 0x5EED_0020_5C2E_E115;
+    const RUNS: usize = 60;
+    const FRAMES: usize = 80;
+    const ACTIONS: [UiAction; 7] = [Up, Down, Left, Right, Accept, Back, Menu];
+    const LONG: &str =
+        "A name that is far too long for any row of the canvas, with more words after it";
+
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n.max(1)
+        }
+        fn chance(&mut self, percent: u64) -> bool {
+            self.below(100) < percent
+        }
+        fn count(&mut self) -> usize {
+            let edges = [
+                0,
+                1,
+                2,
+                11,
+                12,
+                13,
+                127,
+                128,
+                129,
+                10_000,
+                usize::MAX - 1,
+                usize::MAX,
+            ];
+            match self.below(3) {
+                0 => edges[self.below(edges.len() as u64) as usize],
+                _ => self.below(300) as usize,
+            }
+        }
+        fn text(&mut self) -> &'static str {
+            [
+                "",
+                "x",
+                "Mega Drive",
+                LONG,
+                "\u{e9}\u{e8}\u{3a9}\u{2603} \n line",
+            ][self.below(5) as usize]
+        }
+        fn source(&mut self) -> GameSource {
+            match self.below(4) {
+                0 => GameSource::Favourites,
+                1 => GameSource::Recents,
+                _ => GameSource::System(SystemId(self.below(4) as u32)),
+            }
+        }
+        fn page(&mut self) -> PageId {
+            [DISPLAY_PAGE, QUICK_MENU_PAGE, PageId(3)][self.below(3) as usize]
+        }
+        fn action_id(&mut self) -> ActionId {
+            [RESUME, QUIT_GAME, OPEN_DISPLAY, GRID_PATTERN, ActionId(7)][self.below(5) as usize]
+        }
+        fn value(&mut self) -> SettingValue {
+            match self.below(4) {
+                0 => SettingValue::Toggle(self.chance(50)),
+                1 => SettingValue::Number {
+                    value: self.next() as i64,
+                    min: -(self.below(100) as i64),
+                    max: self.next() as i64,
+                    step: self.next() as i64,
+                    unit: self.text().into(),
+                },
+                2 => SettingValue::Choice {
+                    index: self.count(),
+                    options: (0..self.below(7))
+                        .map(|_| {
+                            let option = ChoiceOption::new(self.text()).with_detail(self.text());
+                            if self.chance(40) {
+                                option.unavailable(self.text())
+                            } else {
+                                option
+                            }
+                        })
+                        .collect(),
+                },
+                _ => SettingValue::Action(self.action_id()),
+            }
+        }
+        fn levels(&mut self) -> Scopes {
+            Scopes {
+                global: self.chance(70),
+                system: self.chance(50),
+                game: self.chance(50),
+            }
+        }
+        fn snapshot(&mut self) -> Snapshot {
+            let systems = (0..self.below(5))
+                .map(|i| SystemEntry::new(SystemId(i as u32), self.text(), self.next() as u32))
+                .collect();
+            let mut snap = Snapshot {
+                systems,
+                ..Snapshot::default()
+            };
+            if self.chance(80) {
+                let source = self.source();
+                let first = self.count();
+                let total = self.count();
+                let rows = (0..self.below(150))
+                    .map(|i| {
+                        let id = GameId(first.wrapping_add(i as usize) as u64);
+                        GameEntry::new(id, SystemId(0), self.text())
+                    })
+                    .collect();
+                snap.games = GameWindow::new(source, first, total, rows);
+            }
+            if self.chance(80) {
+                let rows = (0..self.below(20))
+                    .map(|k| {
+                        let mut item =
+                            MenuItem::new(SettingKey(k as u32 % 5), self.text(), self.value());
+                        item.scopes = self.levels();
+                        item.source = [Level::Default, Level::Global, Level::System, Level::Game]
+                            [self.below(4) as usize];
+                        item
+                    })
+                    .collect();
+                snap.settings = SettingsPage::new(self.page(), self.text(), rows);
+            }
+            snap.profiles = (0..self.below(3))
+                .map(|i| ProfileEntry::new(ProfileId(i as u32), self.text()))
+                .collect();
+            snap.active_profile = self.chance(50).then(|| ProfileId(self.below(4) as u32));
+            if self.chance(70) {
+                snap.display = Some(DisplayInfo::new(self.text(), self.text()));
+            }
+            if self.chance(25) {
+                let remaining = [0, 1, SECOND_NS, 10 * SECOND_NS, u64::MAX][self.below(5) as usize];
+                snap.confirm = Some(PendingConfirm::new(self.text(), remaining));
+            }
+            if self.chance(30) {
+                snap.session = Some(SessionInfo::new(GameId(1), self.text()));
+            }
+            snap.notices = (0..self.below(3))
+                .map(|i| {
+                    Notice::new(
+                        NoticeId(self.below(3) as u32 + i as u32),
+                        self.text(),
+                        NoticeKind::Info,
+                    )
+                })
+                .collect();
+            snap
+        }
+    }
+
+    fn requests(intents: &[Intent]) -> usize {
+        intents
+            .iter()
+            .filter(|i| matches!(i, Intent::LoadGames { .. } | Intent::LoadSettings { .. }))
+            .count()
+    }
+
+    #[test]
+    fn random_snapshots_and_actions_never_break_a_rule() {
+        let mut rng = Rng(SEED);
+        let mut canvas = CpuCanvas::new();
+        for _ in 0..RUNS {
+            let mut run = Run::new();
+            let mut snap = rng.snapshot();
+            let mut moved_to_keep = false;
+            for frame in 0..FRAMES {
+                if rng.chance(15) {
+                    let before = snap.confirm.clone();
+                    snap = rng.snapshot();
+                    let renewed = match (&before, &snap.confirm) {
+                        (Some(old), Some(new)) => new.remaining_ns > old.remaining_ns,
+                        (None, Some(_)) => true,
+                        _ => false,
+                    };
+                    if renewed {
+                        moved_to_keep = false;
+                    }
+                }
+                let actions: Vec<_> = (0..rng.below(5))
+                    .map(|_| ACTIONS[rng.below(ACTIONS.len() as u64) as usize])
+                    .collect();
+                if snap.confirm.is_some() && actions.contains(&Right) {
+                    moved_to_keep = true;
+                }
+                run.step(&snap, &actions);
+                let out = &run.frame;
+                assert!(
+                    requests(&out.intents) <= 1,
+                    "frame {frame}: {:?}",
+                    out.intents
+                );
+                if out.intents.contains(&Intent::KeepMode) {
+                    assert!(moved_to_keep, "frame {frame}: keep without a move to Keep");
+                }
+                for row in out.tree.rows() {
+                    assert!(SAFE_AREA.contains(&row.rect), "frame {frame}: {row:?}");
+                }
+                if snap.confirm.is_some() {
+                    assert_eq!(run.screen(), "confirm");
+                    assert!(run.screens.shows_ui());
+                }
+                assert!(run.screens.depth() <= crate::screens::MAX_DEPTH);
+                if frame % 8 == 0 {
+                    out.render(&mut canvas);
+                }
+                let buttons = out
+                    .tree
+                    .rows()
+                    .filter(|r| r.widget == WidgetKind::Button)
+                    .count();
+                assert!(buttons <= 3);
+            }
+        }
+    }
+}
