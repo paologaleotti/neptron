@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 mod golden;
+mod policy_golden;
 mod policy_table;
 mod presets;
 mod safety;
