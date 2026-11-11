@@ -16,6 +16,7 @@ use crate::log::LogRecord;
 use crate::options::{CoreOption, OptionError};
 use crate::output::FrameOutput;
 use crate::pad::{InputError, Pad};
+use crate::save::{SaveRamError, SaveRamLoad};
 use crate::state::State;
 
 /// Set by the first [`Host::open`] of the process and never cleared.
@@ -250,6 +251,28 @@ impl Host {
         self.begin_call();
         self.call(Core::reset)
             .map_err(|Poisoned| RunError::HostPoisoned)
+    }
+
+    /// Copies the save RAM of the core into `out` and returns its length.
+    /// 0 means the core has no save RAM. The session writes `out` with
+    /// [`write_save_file`](crate::write_save_file) off the frame thread.
+    pub fn copy_save_ram(&mut self, out: &mut Vec<u8>) -> Result<usize, SaveRamError> {
+        if !self.game_loaded {
+            return Err(SaveRamError::NoGame);
+        }
+        self.call(|core| core.read_save_ram(out))
+            .map_err(|Poisoned| SaveRamError::HostPoisoned)?
+    }
+
+    /// Copies `bytes` (a save file) into the save RAM of the core, after
+    /// `load_game`. A length that differs from the core's loads the smaller
+    /// of the two.
+    pub fn load_save_ram(&mut self, bytes: &[u8]) -> Result<SaveRamLoad, SaveRamError> {
+        if !self.game_loaded {
+            return Err(SaveRamError::NoGame);
+        }
+        self.call(|core| core.write_save_ram(bytes))
+            .map_err(|Poisoned| SaveRamError::HostPoisoned)?
     }
 
     /// The log records of the last call into the core.

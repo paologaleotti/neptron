@@ -6,8 +6,9 @@
 //! The fake keeps its state in statics, so each test needs its own process,
 //! which `cargo nextest` gives.
 
-use std::ffi::{CStr, c_char, c_uint};
+use std::ffi::{CStr, c_char, c_uint, c_void};
 use std::path::Path;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use neptron_libretro_sys::*;
@@ -40,6 +41,7 @@ struct Script {
     need_fullpath: bool,
     extensions: &'static CStr,
     load_result: bool,
+    memory_size: usize,
     av: retro_system_av_info,
     on_set_environment: Option<Hook>,
     on_load: Option<Hook>,
@@ -76,6 +78,7 @@ static FAKE: Mutex<Fake> = Mutex::new(Fake {
         need_fullpath: false,
         extensions: c"NES|fds",
         load_result: true,
+        memory_size: SRAM_LEN,
         av: retro_system_av_info {
             geometry: retro_game_geometry {
                 base_width: 256,
@@ -243,6 +246,30 @@ extern "C" fn unload_game() {
     record("unload_game");
 }
 
+const SRAM_LEN: usize = 8;
+/// The save RAM of the fake. Atomics, so the host can write through a raw
+/// pointer while the test reads.
+static SRAM: [AtomicU8; SRAM_LEN] = [const { AtomicU8::new(0) }; SRAM_LEN];
+
+extern "C" fn get_memory_data(id: c_uint) -> *mut c_void {
+    if id == RETRO_MEMORY_SAVE_RAM && fake().script.memory_size > 0 {
+        SRAM.as_ptr().cast_mut().cast()
+    } else {
+        std::ptr::null_mut()
+    }
+}
+extern "C" fn get_memory_size(id: c_uint) -> usize {
+    if id == RETRO_MEMORY_SAVE_RAM {
+        fake().script.memory_size
+    } else {
+        0
+    }
+}
+
+fn sram() -> Vec<u8> {
+    SRAM.iter().map(|b| b.load(Ordering::Relaxed)).collect()
+}
+
 fn entry_points() -> EntryPoints {
     EntryPoints {
         set_environment,
@@ -261,6 +288,8 @@ fn entry_points() -> EntryPoints {
         run,
         load_game,
         unload_game,
+        get_memory_data,
+        get_memory_size,
     }
 }
 
@@ -953,4 +982,60 @@ fn a_fullpath_core_without_an_override_cannot_take_a_zip() {
     ));
     assert!(!seen().calls.contains(&"load_game".to_owned()));
     std::fs::remove_file(zip).unwrap();
+}
+
+#[test]
+fn save_ram_round_trips_through_the_core() {
+    let mut host = loaded();
+    let loaded = host.load_save_ram(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
+    assert_eq!(
+        loaded,
+        crate::SaveRamLoad {
+            loaded: 8,
+            file_len: 8,
+            ram_len: 8
+        }
+    );
+    assert_eq!(sram(), [1, 2, 3, 4, 5, 6, 7, 8]);
+    SRAM[0].store(42, Ordering::Relaxed);
+    let mut out = vec![99; 3];
+    assert_eq!(host.copy_save_ram(&mut out).unwrap(), 8);
+    assert_eq!(out, [42, 2, 3, 4, 5, 6, 7, 8]);
+}
+
+#[test]
+fn a_save_file_of_another_size_loads_the_smaller_length() {
+    let mut host = loaded();
+    host.load_save_ram(&[9; 8]).unwrap();
+    let short = host.load_save_ram(&[1, 2, 3]).unwrap();
+    assert_eq!((short.loaded, short.file_len, short.ram_len), (3, 3, 8));
+    assert_eq!(sram(), [1, 2, 3, 9, 9, 9, 9, 9], "the rest stays");
+    let long = host.load_save_ram(&[7; 20]).unwrap();
+    assert_eq!((long.loaded, long.file_len, long.ram_len), (8, 20, 8));
+    assert_eq!(sram(), [7; 8]);
+}
+
+#[test]
+fn save_ram_checks_the_core_values() {
+    let mut host = open().unwrap();
+    let mut out = Vec::new();
+    assert_eq!(
+        host.copy_save_ram(&mut out),
+        Err(crate::SaveRamError::NoGame)
+    );
+    drop(host);
+    let mut host = loaded();
+    script(|s| s.memory_size = 0);
+    assert_eq!(host.copy_save_ram(&mut out), Ok(0));
+    assert_eq!(host.load_save_ram(&[1]).unwrap().loaded, 0);
+    script(|s| s.memory_size = crate::MAX_SAVE_RAM_BYTES + 1);
+    assert_eq!(
+        host.copy_save_ram(&mut out),
+        Err(crate::SaveRamError::TooLarge {
+            size: crate::MAX_SAVE_RAM_BYTES + 1,
+            limit: crate::MAX_SAVE_RAM_BYTES
+        })
+    );
+    assert!(host.load_save_ram(&[1]).is_err(), "nothing is written");
+    assert_eq!(sram(), [0; 8]);
 }

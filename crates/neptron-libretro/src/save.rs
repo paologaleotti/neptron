@@ -50,6 +50,44 @@ pub enum SaveFileError {
     },
 }
 
+/// Why the save RAM of the core could not be copied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SaveRamError {
+    /// No game is loaded.
+    #[error("no game is loaded")]
+    NoGame,
+    /// The core reports more save RAM than [`MAX_SAVE_RAM_BYTES`].
+    #[error("the core reports {size} bytes of save RAM, more than the limit of {limit} bytes")]
+    TooLarge {
+        /// The size the core reports.
+        size: usize,
+        /// The limit.
+        limit: usize,
+    },
+    /// The copy buffer could not be allocated.
+    #[error("cannot allocate {bytes} bytes for the save RAM copy")]
+    OutOfMemory {
+        /// The bytes asked for.
+        bytes: usize,
+    },
+    /// The callback state did not come back from a call into the core.
+    #[error("the host state was lost in a call into the core")]
+    HostPoisoned,
+}
+
+/// What [`Host::load_save_ram`](crate::Host::load_save_ram) copied. When the
+/// lengths differ, the smaller one is copied, as RetroArch does, and the
+/// rest of the core's save RAM keeps what the core put there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SaveRamLoad {
+    /// Bytes copied into the core.
+    pub loaded: usize,
+    /// Bytes given (the file length).
+    pub file_len: usize,
+    /// Bytes of save RAM in the core.
+    pub ram_len: usize,
+}
+
 /// The save file of `content`: `<save_dir>/<content file stem>.srm`, as
 /// RetroArch names it. For a zip file it is the stem of the archive. `None`
 /// when the content path has no file stem.

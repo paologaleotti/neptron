@@ -36,6 +36,7 @@ use libloading::Library;
 use neptron_libretro_sys::*;
 
 use crate::content::LoadedContent;
+use crate::save::{MAX_SAVE_RAM_BYTES, SaveRamError, SaveRamLoad};
 use crate::state::{CoreAvInfo, State};
 
 thread_local! {
@@ -156,6 +157,8 @@ pub(crate) struct Core {
     run: RetroRunFn,
     load_game: RetroLoadGameFn,
     unload_game: RetroUnloadGameFn,
+    get_memory_data: RetroGetMemoryDataFn,
+    get_memory_size: RetroGetMemorySizeFn,
 }
 
 /// The entry points of a core, for a core that is not a library (the fake
@@ -178,6 +181,8 @@ pub(crate) struct EntryPoints {
     pub run: RetroRunFn,
     pub load_game: RetroLoadGameFn,
     pub unload_game: RetroUnloadGameFn,
+    pub get_memory_data: RetroGetMemoryDataFn,
+    pub get_memory_size: RetroGetMemorySizeFn,
 }
 
 impl Core {
@@ -221,6 +226,8 @@ impl Core {
             run: entry!("retro_run"),
             load_game: entry!("retro_load_game"),
             unload_game: entry!("retro_unload_game"),
+            get_memory_data: entry!("retro_get_memory_data"),
+            get_memory_size: entry!("retro_get_memory_size"),
         };
         Ok(Self::with_entry_points(Some(library), points))
     }
@@ -246,6 +253,8 @@ impl Core {
             run: p.run,
             load_game: p.load_game,
             unload_game: p.unload_game,
+            get_memory_data: p.get_memory_data,
+            get_memory_size: p.get_memory_size,
         }
     }
 
@@ -357,6 +366,59 @@ impl Core {
         // `retro_game_info` whose pointers `LoadedContent` keeps valid for
         // its own life; the host keeps it until `retro_unload_game`.
         unsafe { (self.load_game)(info) }
+    }
+
+    /// The save RAM of the core, after the checks: `None` when the core has
+    /// none (null or size 0).
+    fn save_ram(&self) -> Result<Option<(*mut u8, usize)>, SaveRamError> {
+        // SAFETY: entry points of the core, with a plain integer.
+        let (data, size) = unsafe {
+            (
+                (self.get_memory_data)(RETRO_MEMORY_SAVE_RAM).cast::<u8>(),
+                (self.get_memory_size)(RETRO_MEMORY_SAVE_RAM),
+            )
+        };
+        if data.is_null() || size == 0 {
+            return Ok(None);
+        }
+        if size > MAX_SAVE_RAM_BYTES {
+            return Err(SaveRamError::TooLarge {
+                size,
+                limit: MAX_SAVE_RAM_BYTES,
+            });
+        }
+        Ok(Some((data, size)))
+    }
+
+    /// Copies the save RAM into `out` and returns its length.
+    pub(crate) fn read_save_ram(&self, out: &mut Vec<u8>) -> Result<usize, SaveRamError> {
+        out.clear();
+        let Some((data, size)) = self.save_ram()? else {
+            return Ok(0);
+        };
+        out.try_reserve_exact(size)
+            .map_err(|_| SaveRamError::OutOfMemory { bytes: size })?;
+        // SAFETY: libretro.h: the core keeps `size` bytes at `data` while
+        // the game is loaded; the size is bounded above. No call into the
+        // core runs during the copy, so the bytes do not change.
+        out.extend_from_slice(unsafe { std::slice::from_raw_parts(data, size) });
+        Ok(size)
+    }
+
+    /// Copies `bytes` into the save RAM: the smaller of the two lengths.
+    pub(crate) fn write_save_ram(&self, bytes: &[u8]) -> Result<SaveRamLoad, SaveRamError> {
+        let (data, size) = self.save_ram()?.unwrap_or((std::ptr::null_mut(), 0));
+        let loaded = size.min(bytes.len());
+        if loaded > 0 {
+            // SAFETY: as in `read_save_ram`; the core's memory and `bytes`
+            // are separate buffers, and `loaded` fits both.
+            unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, loaded) };
+        }
+        Ok(SaveRamLoad {
+            loaded,
+            file_len: bytes.len(),
+            ram_len: size,
+        })
     }
 }
 
