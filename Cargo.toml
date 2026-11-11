@@ -12,6 +12,15 @@ publish = false
 [workspace.dependencies]
 cc = "1.11.1"
 drm = "0.15.0"
+# The raw atomic ioctl of neptron-kms, feature `kms`: it takes the object,
+# property and value ids as slices, so a page flip can use fixed arrays and
+# allocate nothing. The version is the one drm 0.15 uses.
+drm-ffi = "0.9.1"
+# GBM buffers of neptron-kms, feature `kms`: the raw libgbm binding. The
+# `gbm` crate allocates an Arc for each locked buffer, once per frame, and
+# its handle is a C union anyway. Linked with -lgbm, so only a Linux build
+# with the feature needs libgbm.
+gbm-sys = "0.4.0"
 # Linux only: keyboards through the kernel evdev interface. No async
 # features.
 evdev = { version = "0.13.2", default-features = false }
@@ -28,6 +37,9 @@ miniz_oxide = "0.9.1"
 # Default features off: the FFT resampler and its dependencies are not
 # needed for a variable ratio.
 rubato = { version = "5.0.1", default-features = false }
+# poll(2) for the bounded waits of neptron-kms (page flip, writeback fence),
+# feature `kms`. Already in the build through drm.
+rustix = { version = "1.1.6", default-features = false, features = ["std", "event"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = "1.0.154"
 # Lets xtask stop its QEMU child on SIGTERM and SIGHUP without unsafe code.

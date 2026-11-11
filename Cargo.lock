@@ -219,6 +219,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gbm-sys"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c13a5f2acc785d8fb6bf6b7ab6bfb0ef5dad4f4d97e8e70bb8e470722312f76f"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "glow"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -395,6 +404,17 @@ dependencies = [
 [[package]]
 name = "neptron-kms"
 version = "0.1.0"
+dependencies = [
+ "drm",
+ "drm-ffi",
+ "gbm-sys",
+ "neptron-backend",
+ "neptron-gfx",
+ "neptron-safety",
+ "neptron-types",
+ "rustix",
+ "thiserror",
+]
 
 [[package]]
 name = "neptron-launch"

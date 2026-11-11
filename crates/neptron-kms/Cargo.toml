@@ -9,9 +9,21 @@ publish.workspace = true
 
 [features]
 # Off by default: the headless build (T0 to T2) compiles no SDL3, EGL or KMS code.
-kms = []
+kms = ["dep:drm", "dep:drm-ffi", "dep:gbm-sys", "dep:rustix", "neptron-gfx/gles"]
 
 [dependencies]
+neptron-backend = { path = "../neptron-backend" }
+neptron-gfx = { path = "../neptron-gfx" }
+neptron-safety = { path = "../neptron-safety" }
+neptron-types = { path = "../neptron-types" }
+# The code standards make each crate own a thiserror enum.
+thiserror.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+drm = { workspace = true, optional = true }
+drm-ffi = { workspace = true, optional = true }
+gbm-sys = { workspace = true, optional = true }
+rustix = { workspace = true, optional = true }
 
 [lints]
 workspace = true
