@@ -426,3 +426,36 @@ fn the_read_back_of_a_restore_is_checked_like_a_modeset() {
             read_back: wrong(good)
         }));
 }
+
+#[test]
+fn retry_lifts_the_block_of_a_source_after_a_device_error() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(MD_H40);
+    let old = rig.current_mode();
+    rig.fake.fault_mode(
+        1,
+        ModeFault::Device {
+            reason: "EIO".to_owned(),
+        },
+    );
+    switch_to_h32(&mut rig).unwrap();
+    assert_eq!(rig.frame(MD_H32).directive, Directive::Kept);
+    rig.engine.retry();
+    assert_eq!(
+        rig.frame(MD_H32).directive,
+        Directive::Modeset,
+        "no debounce"
+    );
+    assert_eq!(rig.engine.trace().last().unwrap().trigger, Trigger::Retry);
+    assert_ne!(rig.current_mode(), old);
+    assert_eq!(rig.fake.mode_calls().len(), 3);
+}
+
+#[test]
+fn retry_on_a_steady_source_sets_no_mode() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(MD_H40);
+    rig.engine.retry();
+    assert_ne!(rig.frame(MD_H40).directive, Directive::Modeset);
+    assert_eq!(rig.fake.mode_calls().len(), 1);
+}

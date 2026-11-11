@@ -112,6 +112,12 @@ impl<D: Display> VideoEngine<D> {
         self.odren.set_settings(settings);
     }
 
+    /// Lifts the block of a source after a device error. See
+    /// [`Odren::retry`].
+    pub fn retry(&mut self) {
+        self.odren.retry();
+    }
+
     /// Takes the source of one core frame. Does no display call.
     pub fn begin_frame(&mut self, source: SourceGeometry) -> Directive {
         self.odren.on_frame(source)
