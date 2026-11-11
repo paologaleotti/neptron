@@ -5,9 +5,9 @@ use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::registry::SceneDef;
 use crate::snapshot::{
-    ChoiceOption, DisplayInfo, GameEntry, GameId, GameSource, GameWindow, Level, MenuItem,
-    ProfileEntry, ProfileId, Scopes, SettingKey, SettingValue, SettingsPage, Snapshot, SystemEntry,
-    SystemId,
+    ChoiceOption, DisplayInfo, GameEntry, GameId, GameSource, GameWindow, Level, MenuItem, Notice,
+    NoticeId, NoticeKind, PendingConfirm, ProfileEntry, ProfileId, Scopes, SettingKey,
+    SettingValue, SettingsPage, Snapshot, SystemEntry, SystemId,
 };
 use crate::theme::Theme;
 
@@ -51,6 +51,18 @@ pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
         name: "screens/display-style",
         build: display_style,
+    },
+    SceneDef {
+        name: "screens/confirm-10s",
+        build: confirm_10s,
+    },
+    SceneDef {
+        name: "screens/confirm-3s",
+        build: confirm_3s,
+    },
+    SceneDef {
+        name: "screens/notice",
+        build: notice,
     },
 ];
 
@@ -309,4 +321,49 @@ fn display_style(frame: &mut UiFrame, theme: &Theme) {
         frame,
     );
     screens.update(&snap, &[UiAction::Down], frame);
+}
+
+/// The change that the confirm scenes wait for.
+pub(super) const CHANGE: &str = "Picture style 2x\n640x480, 31.5 kHz, 59.94 Hz";
+
+/// The display panel after the player chose the 2x picture style, with a
+/// confirmation that has `remaining_ns` left.
+fn confirm_at(frame: &mut UiFrame, theme: &Theme, remaining_ns: u64) {
+    let mut snap = with_display();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_DISPLAY, frame);
+    let choose_2x = [
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Accept,
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Accept,
+    ];
+    screens.update(&snap, &choose_2x, frame);
+    snap.confirm = Some(PendingConfirm::new(CHANGE, remaining_ns));
+    screens.update(&snap, &[], frame);
+}
+
+fn confirm_10s(frame: &mut UiFrame, theme: &Theme) {
+    confirm_at(frame, theme, 10_000_000_000);
+}
+
+fn confirm_3s(frame: &mut UiFrame, theme: &Theme) {
+    confirm_at(frame, theme, 2_400_000_000);
+}
+
+fn notice(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = with_systems();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[UiAction::Accept], frame);
+    let nes = GameSource::System(NES);
+    snap.games = window(nes, 0, 312, WINDOW_ROWS);
+    screens.update(&snap, &[UiAction::Down, UiAction::Accept], frame);
+    snap.notices = vec![Notice::new(
+        NoticeId(1),
+        "Astro Racer did not start: the core for this system is missing.",
+        NoticeKind::Error,
+    )];
+    screens.update(&snap, &[], frame);
 }

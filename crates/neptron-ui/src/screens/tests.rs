@@ -14,7 +14,7 @@ use super::scenes::{
     LONG_LIST, MEGA_DRIVE, SNES, STYLE, TO_DISPLAY, window, with_display, with_systems,
 };
 use crate::intent::Value;
-use crate::snapshot::{Level, SettingsPage};
+use crate::snapshot::{Level, Notice, NoticeId, NoticeKind, PendingConfirm, SettingsPage};
 
 pub(super) struct Run {
     pub screens: Screens,
@@ -391,4 +391,159 @@ fn the_option_list_waits_for_its_page() {
     run.step(&snap, &[]);
     assert!(run.intents().is_empty());
     assert_eq!(run.focused(), Some("Auto"));
+}
+
+const SECOND_NS: u64 = 1_000_000_000;
+
+/// A run on the display panel with a confirmation of `remaining_ns`.
+fn confirming(remaining_ns: u64) -> (Run, Snapshot) {
+    let mut run = Run::new();
+    let mut snap = with_display();
+    run.step(&snap, &TO_DISPLAY);
+    snap.confirm = Some(PendingConfirm::new("640x480 at 59.94 Hz", remaining_ns));
+    run.step(&snap, &[]);
+    (run, snap)
+}
+
+fn message(run: &Run) -> &str {
+    run.frame
+        .tree
+        .rows()
+        .find(|r| r.widget == crate::WidgetKind::Dialog)
+        .map_or("", |r| r.label)
+}
+
+#[test]
+fn a_blind_press_reverts_the_signal_change() {
+    let (mut run, snap) = confirming(10 * SECOND_NS);
+    assert_eq!(run.screen(), "confirm");
+    assert_eq!(run.focused(), Some("Revert"));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::RevertMode]);
+
+    let (mut run, snap) = confirming(10 * SECOND_NS);
+    run.step(&snap, &[Back]);
+    assert_eq!(run.intents(), [Intent::RevertMode]);
+
+    let (mut run, snap) = confirming(10 * SECOND_NS);
+    for action in [Up, Down, Menu, Left] {
+        run.step(&snap, &[action]);
+        assert!(run.intents().is_empty(), "{action:?}");
+    }
+    assert_eq!(run.focused(), Some("Revert"));
+}
+
+#[test]
+fn keep_needs_a_move_to_keep_then_accept() {
+    let (mut run, snap) = confirming(10 * SECOND_NS);
+    run.step(&snap, &[Right]);
+    assert!(run.intents().is_empty());
+    assert_eq!(run.focused(), Some("Keep"));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::KeepMode]);
+    run.step(&snap, &[Accept, Back, Left, Accept]);
+    assert!(run.intents().is_empty());
+    assert!(message(&run).contains("One moment."));
+}
+
+#[test]
+fn every_new_confirmation_starts_on_revert() {
+    let (mut run, mut snap) = confirming(10 * SECOND_NS);
+    run.step(&snap, &[Right]);
+    snap.confirm = None;
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "display");
+    snap.confirm = Some(PendingConfirm::new("320x240 at 60 Hz", 10 * SECOND_NS));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::RevertMode]);
+
+    let (mut run, mut snap) = confirming(4 * SECOND_NS);
+    run.step(&snap, &[Right]);
+    snap.confirm = Some(PendingConfirm::new("320x240 at 60 Hz", 10 * SECOND_NS));
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some("Revert"));
+}
+
+#[test]
+fn the_countdown_comes_from_the_snapshot() {
+    for (remaining_ns, text) in [
+        (10 * SECOND_NS, "comes back in 10 s."),
+        (2_400_000_000, "comes back in 3 s."),
+        (1, "comes back in 1 s."),
+        (0, "comes back now."),
+    ] {
+        let (run, _) = confirming(remaining_ns);
+        assert!(
+            message(&run).contains(text),
+            "{remaining_ns}: {:?}",
+            message(&run)
+        );
+        assert!(message(&run).starts_with("640x480 at 59.94 Hz"));
+    }
+}
+
+#[test]
+fn a_confirmation_shows_over_a_running_game() {
+    let (mut run, mut snap) = snes_list();
+    snap.session = Some(SessionInfo::new(GameId(0), "Astro Quest"));
+    run.step(&snap, &[]);
+    assert!(!run.screens.shows_ui());
+    snap.confirm = Some(PendingConfirm::new("288 lines at 50 Hz", 10 * SECOND_NS));
+    run.step(&snap, &[]);
+    assert!(run.screens.shows_ui());
+    assert_eq!(run.screen(), "confirm");
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::RevertMode]);
+    snap.confirm = None;
+    run.step(&snap, &[]);
+    assert!(!run.screens.shows_ui());
+}
+
+fn notice(id: u32, text: &str) -> Notice {
+    Notice::new(NoticeId(id), text, NoticeKind::Error)
+}
+
+#[test]
+fn notices_show_one_at_a_time_until_dismissed() {
+    let (mut run, mut snap) = snes_list();
+    snap.notices = vec![notice(4, "First"), notice(9, "Second")];
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "notice");
+    assert_eq!(message(&run), "First");
+    run.step(&snap, &[Down, Right, Menu]);
+    assert!(
+        run.intents()
+            .iter()
+            .all(|i| matches!(i, Intent::LoadGames { .. }))
+    );
+    assert_eq!(message(&run), "First");
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::DismissNotice(NoticeId(4))]);
+    assert_eq!(message(&run), "Second");
+    run.step(&snap, &[Back]);
+    assert_eq!(run.intents(), [Intent::DismissNotice(NoticeId(9))]);
+    assert_eq!(run.screen(), "games");
+    snap.notices.clear();
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "games");
+    snap.notices = vec![notice(4, "First again")];
+    run.step(&snap, &[]);
+    assert_eq!(message(&run), "First again");
+}
+
+#[test]
+fn notices_wait_while_a_game_runs_and_yield_to_a_confirmation() {
+    let (mut run, mut snap) = snes_list();
+    snap.session = Some(SessionInfo::new(GameId(0), "Astro Quest"));
+    snap.notices = vec![notice(1, "Forced to 60 Hz")];
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.screen(), "game");
+    assert!(run.intents().is_empty());
+    snap.confirm = Some(PendingConfirm::new("288 lines at 50 Hz", SECOND_NS));
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "confirm");
+    snap.session = None;
+    snap.confirm = None;
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "notice");
 }

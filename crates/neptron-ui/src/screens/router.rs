@@ -7,11 +7,12 @@ use crate::intent::Intent;
 use crate::snapshot::{GameSource, Level, PageId, SettingKey, Snapshot};
 use crate::theme::Theme;
 
-use super::chrome::Layout;
+use super::chrome::{self, Layout};
 use super::display::DisplayPanel;
 use super::game_list::GameList;
 use super::home::Home;
 use super::options::Options;
+use super::overlays::{Confirm, Notices};
 
 /// The deepest screen stack. The longest path is home, game list, game,
 /// quick menu, display panel, option list: six screens.
@@ -27,6 +28,8 @@ pub struct Screens {
     theme: Theme,
     layout: Layout,
     stack: Vec<Screen>,
+    confirm: Confirm,
+    notices: Notices,
     visible: bool,
 }
 
@@ -73,6 +76,8 @@ impl Screens {
             theme,
             layout,
             stack,
+            confirm: Confirm::new(),
+            notices: Notices::new(),
             visible: true,
         }
     }
@@ -80,6 +85,10 @@ impl Screens {
     /// Runs one frame: follows the snapshot, applies `actions` in order,
     /// asks for missing data, and draws. `out` is cleared first; it then
     /// holds the scene, the widget tree and the intents of the frame.
+    ///
+    /// An action goes to the topmost of: the confirm dialog of a pending
+    /// signal change, the oldest notice (not while a game runs alone), the
+    /// screen on top of the stack.
     ///
     /// The UI has no clock. A held direction repeats only when the app
     /// sends the action again.
@@ -96,9 +105,10 @@ impl Screens {
         self.draw(snap, out);
     }
 
-    /// False while a game runs with no menu over it. The app then shows the
-    /// game alone, sends the UI no actions but the menu button, and keeps
-    /// the core running. True otherwise: the core is paused.
+    /// False while a game runs with no menu and no confirm dialog over it.
+    /// The app then shows the game alone, sends the UI no actions but the
+    /// menu button, and keeps the core running. True otherwise: the core is
+    /// paused. Notices wait while it is false.
     pub fn shows_ui(&self) -> bool {
         self.visible
     }
@@ -123,10 +133,24 @@ impl Screens {
             Some(Screen::Options(options)) => options.sync(snap),
             _ => {}
         }
-        self.visible = !matches!(self.stack.last(), Some(Screen::Game));
+        self.confirm.follow(snap.confirm.as_ref());
+        self.notices.follow(snap);
+        self.visible = !self.in_game() || snap.confirm.is_some();
+    }
+
+    fn in_game(&self) -> bool {
+        matches!(self.stack.last(), Some(Screen::Game))
     }
 
     fn handle(&mut self, action: UiAction, snap: &Snapshot, out: &mut Vec<Intent>) {
+        if snap.confirm.is_some() {
+            self.confirm.handle(action, out);
+            return;
+        }
+        if !self.in_game() && self.notices.current(snap).is_some() {
+            self.notices.handle(action, snap, out);
+            return;
+        }
         let nav = match self.stack.last_mut() {
             Some(Screen::Home(home)) => home.handle(action, snap),
             Some(Screen::Games(list)) => list.handle(action, snap, out),
@@ -191,7 +215,19 @@ impl Screens {
             }
             Some(Screen::Game) | None => {
                 out.tree.set_screen("game");
+                if snap.confirm.is_some() {
+                    chrome::background(out, theme);
+                }
             }
+        }
+        if let Some(pending) = &snap.confirm {
+            out.tree.clear();
+            out.tree.set_screen("confirm");
+            self.confirm.draw(pending, theme, out);
+        } else if let Some(notice) = self.notices.current(snap).filter(|_| !self.in_game()) {
+            out.tree.clear();
+            out.tree.set_screen("notice");
+            self.notices.draw(notice, theme, out);
         }
     }
 

@@ -12,6 +12,7 @@ mod display;
 mod game_list;
 mod home;
 mod options;
+mod overlays;
 mod page;
 mod router;
 mod scenes;
