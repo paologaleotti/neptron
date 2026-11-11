@@ -11,9 +11,14 @@ mod device;
 mod hotkeys;
 mod key_map;
 mod mapper;
+// Only the device backends fill a notice queue.
+#[cfg_attr(not(feature = "sdl3"), allow(dead_code))]
+mod notice;
 mod pad_map;
 mod ports;
 mod raw;
+#[cfg(feature = "sdl3")]
+mod sdl;
 mod state;
 
 pub use device::{
@@ -24,9 +29,12 @@ pub use hotkeys::{
 };
 pub use key_map::{KEY_MAP, key_control, looks_like_keyboard};
 pub use mapper::{Mapper, MapperError};
+pub use notice::{InputNotice, MAX_NOTICES};
 pub use pad_map::{
     AxisTarget, PAD_BUTTON_MAP, STICK_DEAD_ZONE, TRIGGER_THRESHOLD, axis_target, hat_values,
     pad_control, stick_value, trigger_value,
 };
 pub use ports::PortStates;
 pub use raw::{HatState, KeyAction, KeyCode, PadAxis, PadButton, RawInput};
+#[cfg(feature = "sdl3")]
+pub use sdl::{SCAN_INTERVAL_POLLS, SdlGamepads, SdlInputError};

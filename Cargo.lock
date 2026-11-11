@@ -126,6 +126,7 @@ dependencies = [
  "neptron-backend",
  "neptron-testkit",
  "neptron-types",
+ "sdl3",
  "thiserror",
 ]
 
