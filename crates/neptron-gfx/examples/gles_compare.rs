@@ -13,7 +13,9 @@ use std::process::ExitCode;
 
 use neptron_gfx::gles::{GlesError, GlesRenderer};
 use neptron_gfx::{Image, OutputBuffer, RectKind, ReferenceRenderer, RenderError};
-use neptron_types::{Filter, PixelFormat, Rect, Scanlines, Scene, ui_dest_fill, ui_dest_uniform};
+use neptron_types::{
+    Filter, PixelFormat, Rect, ScanlineKind, Scanlines, Scene, ui_dest_fill, ui_dest_uniform,
+};
 
 #[path = "../tests/common/scenes.rs"]
 mod scenes;
@@ -58,6 +60,10 @@ fn main() -> ExitCode {
         failed = failed.saturating_add(1);
     }
     count += 1;
+    if !every_scanline_strength(&mut gles, &mut reference) {
+        failed = failed.saturating_add(1);
+    }
+    count += 1;
     if !second_renderer(&mut gles, &mut reference, &cases[..2]) {
         failed = failed.saturating_add(1);
     }
@@ -96,6 +102,46 @@ fn second_renderer(
         if ok && still { "ok  " } else { "FAIL" }
     );
     ok && still
+}
+
+/// Every strength from 0 to 100 % on every 8-bit channel value, at 2x with
+/// black scanlines. Prints one line. True when every strength is equal.
+fn every_scanline_strength(gles: &mut GlesRenderer, reference: &mut ReferenceRenderer) -> bool {
+    let mut failed = Vec::new();
+    for strength in 0..=100 {
+        let case = Case::game(
+            "scanlines_every_strength",
+            Source::from_fn(256, 1, PixelFormat::Xrgb8888, |x, _| {
+                let x = u32::from(x);
+                (x << 16) | ((255 - x) << 8) | ((x * 7) & 0xFF)
+            }),
+            rect(0, 0, 256, 1),
+            rect(0, 0, 256, 2),
+            Filter::Nearest,
+            (256, 2),
+        )
+        .with_black_lines(strength);
+        let scene = case.scene();
+        let expected = render(&case, |out| {
+            reference.render(&scene, out).map_err(|e| e.to_string())
+        });
+        let actual = render(&case, |out| {
+            gles.render(&scene, out).map_err(|e| e.to_string())
+        });
+        let ok = match (expected, actual) {
+            (Ok(e), Ok(a)) => Diff::of(&case, &e, &a).pixels == 0,
+            _ => false,
+        };
+        if !ok {
+            failed.push(strength);
+        }
+    }
+    let ok = failed.is_empty();
+    println!(
+        "{} scanlines_every_strength: 101 strengths, failed at {failed:?}",
+        if ok { "ok  " } else { "FAIL" }
+    );
+    ok
 }
 
 /// Renders `case` with both renderers and prints one line. True when the
@@ -484,6 +530,79 @@ fn extra_cases() -> Vec<Case> {
             (32, 24),
         ),
         Case::game(
+            "scanlines_240p_line_doubled_to_480p",
+            pattern(320, 240, Rgb565),
+            rect(0, 0, 320, 240),
+            rect(0, 0, 640, 480),
+            Nearest,
+            (640, 480),
+        )
+        .with_black_lines(100),
+        Case::game(
+            "scanlines_224_lines_in_480p_sharp_bilinear",
+            pattern(256, 224, Xrgb1555),
+            rect(0, 0, 256, 224),
+            rect(0, 16, 640, 448),
+            SharpBilinear,
+            (640, 480),
+        )
+        .with_black_lines(50),
+        Case::game(
+            "scanlines_3x_720_lines",
+            pattern(320, 240, Xrgb8888),
+            rect(0, 0, 320, 240),
+            rect(0, 0, 960, 720),
+            Nearest,
+            (960, 720),
+        )
+        .with_black_lines(100),
+        Case::game(
+            "scanlines_4x_960_lines_sharp_bilinear",
+            pattern(320, 240, Rgb565),
+            rect(0, 0, 320, 240),
+            rect(0, 0, 1280, 960),
+            SharpBilinear,
+            (1280, 960),
+        )
+        .with_black_lines(75),
+        Case::game(
+            "scanlines_rgb565_every_value",
+            every_value(Rgb565),
+            full,
+            rect(0, 0, 256, 512),
+            Nearest,
+            (256, 512),
+        )
+        .with_black_lines(37),
+        Case::game(
+            "scanlines_crop_above_the_mode",
+            pattern(16, 12, Xrgb8888),
+            rect(2, 1, 12, 9),
+            rect(3, -3, 24, 18),
+            Nearest,
+            (32, 20),
+        )
+        .with_black_lines(100),
+        Case::game(
+            "scanlines_fractional_sharp_bilinear",
+            pattern(320, 240, Xrgb8888),
+            rect(0, 0, 320, 240),
+            rect(0, 0, 640, 456),
+            SharpBilinear,
+            (640, 480),
+        )
+        .with_black_lines(100),
+        Case::game(
+            "scanlines_2x_with_the_ui",
+            pattern(320, 240, Rgb565),
+            rect(0, 0, 320, 240),
+            rect(0, 0, 640, 480),
+            Nearest,
+            (640, 480),
+        )
+        .with_black_lines(100)
+        .with_ui(pattern(320, 240, Xrgb8888), rect(160, 120, 320, 240)),
+        Case::game(
             "dest_wholly_above_the_mode",
             pattern(8, 6, Xrgb8888),
             rect(0, 0, 8, 6),
@@ -548,6 +667,26 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
             dest_len: 2048,
             limit: neptron_gfx::gles::MAX_AXIS_PRODUCT,
         });
+    let strong = Scene {
+        scanlines: Scanlines {
+            kind: ScanlineKind::Black,
+            strength_percent: 101,
+        },
+        ..too_large
+    };
+    let strength = gles.render(
+        &Scene {
+            crop: rect(0, 0, 8, 6),
+            dest: rect(0, 0, 8, 12),
+            ..strong
+        },
+        &mut out,
+    );
+    let strength_ok = strength
+        == Err(GlesError::Scene(RenderError::ScanlineStrengthTooHigh {
+            strength_percent: 101,
+            limit: 100,
+        }));
     let mut untouched = data.iter().all(|&b| b == PADDING);
     let texture_ok = texture_limit(gles, &mut untouched);
     let output_ok = output_limit(gles, &mut untouched);
@@ -557,6 +696,10 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
             pitch_ok,
         ),
         ("an axis product above the limit is refused", scale_ok),
+        (
+            "a scanline strength above 100 % is refused as the reference refuses it",
+            strength_ok,
+        ),
         (
             "a row above GL_MAX_TEXTURE_SIZE bytes is refused",
             texture_ok,

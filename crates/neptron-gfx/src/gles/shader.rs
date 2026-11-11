@@ -34,6 +34,9 @@ uniform vec4 u_dest;
 uniform vec4 u_crop;
 uniform vec4 u_frame;
 uniform vec4 u_mode;
+// Period, first dark line and kept percent of the scanlines; period 0 for
+// none.
+uniform vec4 u_scan;
 
 // floor(a / b) and the remainder, exact for integers a < 2^24 and b > 0.
 // The float quotient can be one off, and the correction fixes that.
@@ -112,6 +115,12 @@ vec3 pixel(float x, float y) {
     return vec3(expand5(red), expand5(green), expand5(blue));
 }
 
+// round(v * keep / 100) with a half rounded up, exact for an integer
+// channel v: v * keep + 50 is an integer below 2^15.
+float darken(float v, float keep) {
+    return divmod(v * keep + 50.0, 100.0).x;
+}
+
 void main() {
     // gl_FragCoord is at a pixel centre, half a pixel away from any edge,
     // so floor gives the pixel without a rounding risk.
@@ -126,15 +135,24 @@ void main() {
         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
+    // j is the destination line, so the pattern follows the source lines
+    // and not the output line parity.
+    bool dark = u_scan.x > 0.5 && divmod(j, u_scan.x).y >= u_scan.y;
     vec3 c = pixel(tx.x, ty.x);
     if (tx.z > 0.0 || ty.z > 0.0) {
         c = c * (1.0 - tx.z) * (1.0 - ty.z)
             + pixel(tx.y, ty.x) * tx.z * (1.0 - ty.z)
             + pixel(tx.x, ty.y) * (1.0 - tx.z) * ty.z
             + pixel(tx.y, ty.y) * tx.z * ty.z;
+        // The reference scales the exact blend before its one rounding.
+        if (dark) {
+            c = c * (u_scan.z / 100.0);
+        }
         // Round half up as the reference does, so the output is an exact
         // n / 255 and the conversion to 8 bits in GL does not round again.
         c = floor(c + 0.5);
+    } else if (dark) {
+        c = vec3(darken(c.r, u_scan.z), darken(c.g, u_scan.z), darken(c.b, u_scan.z));
     }
     gl_FragColor = vec4(c / 255.0, 1.0);
 }

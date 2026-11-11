@@ -2,7 +2,7 @@ use neptron_types::{Filter, Frame, PixelFormat, Rect};
 
 use super::GlesError;
 use crate::RectKind;
-use crate::reference::visible;
+use crate::reference::{Pattern, visible};
 
 /// The largest product of the source side and the destination side on one
 /// axis. The shader computes `(2 * i + 1) * source` for destination pixel
@@ -33,15 +33,20 @@ pub(super) struct Quad {
     /// The pixel format code (0 XRGB8888, 1 RGB565, 2 XRGB1555), then 1 for
     /// sharp bilinear or 0 for nearest.
     pub(super) mode: [f32; 4],
+    /// The scanline pattern: the period in destination lines (0 for no
+    /// scanlines), the first dark line of a period, the percent that a dark
+    /// line keeps, then 0.
+    pub(super) scan: [f32; 4],
 }
 
 /// The draw that maps `crop` of `frame` to `dest` on an output of
-/// `out_width` by `out_height`, or `None` when it shows nothing.
+/// `out_width` by `out_height`, with the scanline `pattern` of the
+/// destination lines, or `None` when it shows nothing.
 pub(super) fn quad(
     frame: &Frame<'_>,
-    crop: Rect,
-    dest: Rect,
+    (crop, dest): (Rect, Rect),
     filter: Filter,
+    pattern: Option<Pattern>,
     kind: RectKind,
     (out_width, out_height): (u32, u32),
 ) -> Result<Option<Quad>, GlesError> {
@@ -92,6 +97,16 @@ pub(super) fn quad(
             0.0,
             0.0,
         ],
+        // A period is at most dest.h and the percent at most 100, so the
+        // floats are exact.
+        scan: pattern.map_or([0.0; 4], |p| {
+            [
+                p.period as f32,
+                p.first_dark as f32,
+                p.keep_percent as f32,
+                0.0,
+            ]
+        }),
     }))
 }
 
@@ -125,7 +140,8 @@ mod tests {
 
     fn game(crop: Rect, dest: Rect) -> Result<Option<Quad>, GlesError> {
         let f = frame(PixelFormat::Rgb565);
-        quad(&f, crop, dest, Filter::SharpBilinear, RectKind::Dest, OUT)
+        let filter = Filter::SharpBilinear;
+        quad(&f, (crop, dest), filter, None, RectKind::Dest, OUT)
     }
 
     #[test]
@@ -136,6 +152,29 @@ mod tests {
         assert_eq!(q.crop, [1.0, 2.0, 8.0, 6.0]);
         assert_eq!(q.frame, [10.0, 8.0, 20.0, 8.0]);
         assert_eq!(q.mode, [1.0, 1.0, 0.0, 0.0]);
+        assert_eq!(q.scan, [0.0; 4]);
+    }
+
+    #[test]
+    fn the_scanline_pattern_goes_to_its_uniform() {
+        let f = frame(PixelFormat::Xrgb8888);
+        let pattern = Pattern {
+            period: 4,
+            first_dark: 2,
+            keep_percent: 25,
+        };
+        let rects = (rect(0, 0, 8, 6), rect(0, 0, 8, 24));
+        let q = quad(
+            &f,
+            rects,
+            Filter::Nearest,
+            Some(pattern),
+            RectKind::Dest,
+            OUT,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(q.scan, [4.0, 2.0, 25.0, 0.0]);
     }
 
     #[test]
@@ -167,9 +206,9 @@ mod tests {
             };
             let q = quad(
                 &f,
-                rect(0, 0, 8, 6),
-                rect(0, 0, 8, 6),
+                (rect(0, 0, 8, 6), rect(0, 0, 8, 6)),
                 Filter::Nearest,
+                None,
                 RectKind::Dest,
                 OUT,
             );
@@ -204,9 +243,9 @@ mod tests {
         let f = frame(PixelFormat::Xrgb1555);
         let q = quad(
             &f,
-            rect(0, 0, 1, 1),
-            rect(0, 0, 1, 1),
+            (rect(0, 0, 1, 1), rect(0, 0, 1, 1)),
             Filter::Nearest,
+            None,
             RectKind::UiDest,
             OUT,
         )
@@ -216,9 +255,9 @@ mod tests {
         let f = frame(PixelFormat::Xrgb8888);
         let q = quad(
             &f,
-            rect(0, 0, 1, 1),
-            rect(0, 0, 1, 1),
+            (rect(0, 0, 1, 1), rect(0, 0, 1, 1)),
             Filter::Nearest,
+            None,
             RectKind::UiDest,
             OUT,
         )

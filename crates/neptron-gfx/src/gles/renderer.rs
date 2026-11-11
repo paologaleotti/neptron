@@ -4,7 +4,7 @@ use super::GlesError;
 use super::ffi::{Buffer, EglContext, Framebuffer, Gl, Program, Texture, Uniform};
 use super::quad::{Quad, quad};
 use super::shader;
-use crate::reference::{check_frame, check_output, check_rect};
+use crate::reference::{Pattern, check_frame, check_output, check_rect, check_scanlines};
 use crate::{Image, OutputBuffer, RectKind};
 
 /// Draws a [`Scene`] with EGL and OpenGL ES 2, with the pixel rules of
@@ -24,6 +24,12 @@ use crate::{Image, OutputBuffer, RectKind};
 /// other way, so a channel can differ by 1. The shader needs highp floats
 /// with the 23-bit precision of an IEEE 32-bit float, and
 /// [`headless`](Self::headless) checks that the driver gives it.
+///
+/// Scanlines follow the same split. The pattern of dark lines comes from
+/// the reference code and reaches the shader as a uniform. On a nearest
+/// pixel the shader darkens with exact integer steps, so it equals the
+/// reference. On a blended pixel it scales the float blend before its one
+/// rounding, so a channel can differ by 1.
 ///
 /// The renderer refuses what the reference refuses, with
 /// [`GlesError::Scene`]. It also refuses a scene that the shader cannot
@@ -134,14 +140,10 @@ impl GlesRenderer {
                 check_frame(frame, Image::Game)?;
                 check_rect(&scene.crop, RectKind::Crop)?;
                 check_rect(&scene.dest, RectKind::Dest)?;
-                draw_of(
-                    frame,
-                    scene.crop,
-                    scene.dest,
-                    scene.filter,
-                    RectKind::Dest,
-                    size,
-                )?
+                check_scanlines(&scene.scanlines)?;
+                let pattern = Pattern::of(scene.scanlines, scene.crop.h, scene.dest.h);
+                let rects = (scene.crop, scene.dest);
+                draw_of(frame, rects, scene.filter, pattern, RectKind::Dest, size)?
             }
             None => None,
         };
@@ -155,8 +157,8 @@ impl GlesRenderer {
                     w: u32::from(frame.width),
                     h: u32::from(frame.height),
                 };
-                let kind = RectKind::UiDest;
-                draw_of(frame, whole, scene.ui_dest, Filter::Nearest, kind, size)?
+                let (rects, kind) = ((whole, scene.ui_dest), RectKind::UiDest);
+                draw_of(frame, rects, Filter::Nearest, None, kind, size)?
             }
             None => None,
         };
@@ -245,14 +247,14 @@ struct Draw<'a> {
 
 fn draw_of<'a>(
     frame: &Frame<'a>,
-    crop: Rect,
-    dest: Rect,
+    rects: (Rect, Rect),
     filter: Filter,
+    pattern: Option<Pattern>,
     kind: RectKind,
     size: (u32, u32),
 ) -> Result<Option<Draw<'a>>, GlesError> {
     Ok(
-        quad(frame, crop, dest, filter, kind, size)?.map(|quad| Draw {
+        quad(frame, rects, filter, pattern, kind, size)?.map(|quad| Draw {
             frame: *frame,
             quad,
         }),
@@ -359,6 +361,7 @@ struct Uniforms {
     crop: Option<Uniform>,
     frame: Option<Uniform>,
     mode: Option<Uniform>,
+    scan: Option<Uniform>,
     texture: Option<Uniform>,
 }
 
@@ -371,6 +374,7 @@ impl Uniforms {
             crop: gl.uniform(program, "u_crop"),
             frame: gl.uniform(program, "u_frame"),
             mode: gl.uniform(program, "u_mode"),
+            scan: gl.uniform(program, "u_scan"),
             texture: gl.uniform(program, "u_texture"),
         }
     }
@@ -385,6 +389,7 @@ impl Uniforms {
         gl.set_vec4(self.crop.as_ref(), quad.crop);
         gl.set_vec4(self.frame.as_ref(), quad.frame);
         gl.set_vec4(self.mode.as_ref(), quad.mode);
+        gl.set_vec4(self.scan.as_ref(), quad.scan);
         gl.set_int(self.texture.as_ref(), 0);
     }
 }
