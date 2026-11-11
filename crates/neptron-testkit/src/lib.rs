@@ -12,6 +12,7 @@ mod display;
 pub mod golden;
 mod hash;
 mod image;
+mod input;
 pub mod preset;
 mod rng;
 
@@ -24,3 +25,4 @@ pub use display::{
 pub use golden::Golden;
 pub use hash::frame_hash;
 pub use image::{ImageError, RgbImage};
+pub use input::{Delivered, ScriptedInput, TimedInput};

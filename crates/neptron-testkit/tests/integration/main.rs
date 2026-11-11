@@ -5,3 +5,4 @@
 mod audio;
 mod display;
 mod golden;
+mod input;
