@@ -1,0 +1,5 @@
+# A test that hangs must fail the run and not block it. No test of this
+# workspace needs more than a few seconds; the long fuzz runs are ignored
+# by default.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 3 }
