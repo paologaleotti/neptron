@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod load;
+mod monitors;
 mod repo;
 mod rules;
 mod verify;
@@ -27,6 +28,9 @@ commands:
   worktree cache-check [--from <checkout>]
                        prove that a build in a cloned target/ compiles no
                        dependency again (default source: the main checkout)
+  monitors <monitor.cpp> [dir]
+                       convert the Switchres preset table into the TOML
+                       files of data/monitors (default dir)
   rules                check the dependency rules, the unsafe allow-list
                        and the headless feature set
 
@@ -40,6 +44,8 @@ environment:
 enum Error {
     #[error("unknown command {0:?}\n{USAGE}")]
     UnknownCommand(String),
+    #[error(transparent)]
+    Monitors(#[from] monitors::MonitorsError),
     #[error(transparent)]
     Repo(#[from] repo::RepoError),
     #[error(transparent)]
@@ -72,6 +78,10 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
     match cmd.as_str() {
         "verify" => Ok(verify::run(&rest)?),
         "worktree" => Ok(worktree::run(&rest)?),
+        "monitors" => {
+            monitors::run(&rest)?;
+            Ok(ExitCode::SUCCESS)
+        }
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy"], &rest),
