@@ -1,0 +1,2 @@
+# Goldens compare byte for byte: no line-end or text conversion.
+*.ppm binary
