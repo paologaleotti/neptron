@@ -3,7 +3,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
-use crate::snapshot::{Level, MenuItem, SettingValue};
+use crate::snapshot::{ChoiceOption, Level, MenuItem, SettingValue};
 use crate::text::{self, Align, StackText};
 use crate::theme::Theme;
 use crate::tree::{TreeRow, WidgetKind};
@@ -229,17 +229,28 @@ fn next_value(action: UiAction, value: &SettingValue) -> Option<Value> {
             (next != *value).then_some(Value::Number(next))
         }
         SettingValue::Choice { index, options } => {
-            let len = options.len();
-            let next = match direction {
-                0 if len > 0 => index.checked_add(1).filter(|n| *n < len).unwrap_or(0),
-                -1 => index.checked_sub(1)?,
-                1 => index.checked_add(1)?,
-                _ => return None,
-            };
-            (next < len && next != *index).then_some(Value::Choice(next))
+            next_choice(*index, options, direction).map(Value::Choice)
         }
         SettingValue::Action(_) => None,
     }
+}
+
+/// The next option that the player can choose: the one before or after
+/// `index` for a `direction` of `-1` or `1`, or the one after it with a wrap
+/// to the start for `0`. Options that are not available are skipped.
+fn next_choice(index: usize, options: &[ChoiceOption], direction: i64) -> Option<usize> {
+    let len = options.len();
+    let enabled = |i: &usize| options.get(*i).is_some_and(ChoiceOption::is_enabled);
+    let next = match direction {
+        -1 if index < len => (0..index).rev().find(enabled),
+        1 if index < len => (index + 1..len).find(enabled),
+        0 => {
+            let start = index.saturating_add(1).min(len);
+            (start..len).chain(0..start).find(enabled)
+        }
+        _ => None,
+    }?;
+    (next != index).then_some(next)
 }
 
 #[cfg(test)]
@@ -384,6 +395,51 @@ mod tests {
         assert_eq!(
             l.handle(UiAction::Accept, &items, Level::Game),
             set(3, Value::Choice(0))
+        );
+    }
+
+    #[test]
+    fn a_choice_skips_the_options_that_are_not_available() {
+        let mut l = SettingsList::new(Rect::new(0, 0, 288, 48), 12);
+        at(&mut l, 2);
+        let mut items = items();
+        let style = |index| SettingValue::Choice {
+            index,
+            options: vec![
+                ChoiceOption::new("Auto"),
+                ChoiceOption::new("Native").unavailable("Needs a 15 kHz monitor"),
+                ChoiceOption::new("2x"),
+                ChoiceOption::new("3x").unavailable("Needs a 45 kHz monitor"),
+            ],
+        };
+        items[2].value = style(0);
+        assert_eq!(
+            l.handle(UiAction::Right, &items, Level::Game),
+            set(3, Value::Choice(2))
+        );
+        items[2].value = style(2);
+        assert_eq!(
+            l.handle(UiAction::Right, &items, Level::Game),
+            SettingsEvent::None
+        );
+        assert_eq!(
+            l.handle(UiAction::Left, &items, Level::Game),
+            set(3, Value::Choice(0))
+        );
+        assert_eq!(
+            l.handle(UiAction::Accept, &items, Level::Game),
+            set(3, Value::Choice(0))
+        );
+        items[2].value = SettingValue::Choice {
+            index: 0,
+            options: vec![
+                ChoiceOption::new("Auto"),
+                ChoiceOption::new("Native").unavailable("Needs a 15 kHz monitor"),
+            ],
+        };
+        assert_eq!(
+            l.handle(UiAction::Accept, &items, Level::Game),
+            SettingsEvent::None
         );
     }
 

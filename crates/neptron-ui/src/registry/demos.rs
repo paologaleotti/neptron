@@ -3,7 +3,7 @@
 use crate::canvas::{UI_HEIGHT, UI_WIDTH};
 use crate::frame::UiFrame;
 use crate::geom::Rect;
-use crate::snapshot::{ActionId, Level, MenuItem, Scopes, SettingKey, SettingValue};
+use crate::snapshot::{ActionId, ChoiceOption, Level, MenuItem, Scopes, SettingKey, SettingValue};
 use crate::text::{self, Align};
 use crate::theme::{SAFE_AREA, Theme};
 use crate::tree::{TreeRow, WidgetKind};
@@ -142,7 +142,7 @@ fn setting(key: u32, label: &str, value: SettingValue, source: Level) -> MenuIte
 fn choice(index: usize, options: &[&str]) -> SettingValue {
     SettingValue::Choice {
         index,
-        options: options.iter().map(|o| (*o).to_owned()).collect(),
+        options: options.iter().map(|o| ChoiceOption::new(*o)).collect(),
     }
 }
 

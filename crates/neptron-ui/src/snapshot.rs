@@ -193,11 +193,30 @@ pub enum SettingValue {
     Choice {
         /// The selected option.
         index: usize,
-        /// The option labels.
-        options: Vec<String>,
+        /// The options, in display order.
+        options: Vec<ChoiceOption>,
     },
     /// A row that does something when the player accepts it.
     Action(ActionId),
+}
+
+/// One option of a [`SettingValue::Choice`]: its label, what it gives, and
+/// whether the player can choose it now.
+///
+/// The display panel uses the detail for the line rate and the field rate
+/// that a picture style gives, and the reason for a style that the monitor
+/// cannot show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ChoiceOption {
+    /// The label, for example `2x`.
+    pub label: String,
+    /// What the option gives, for example `31.5 kHz 59.94 Hz`. It can be
+    /// empty.
+    pub detail: String,
+    /// Why the player cannot choose the option now, for example
+    /// `Needs a 45 kHz monitor`. `None` when the player can choose it.
+    pub unavailable: Option<String>,
 }
 
 /// One monitor profile.
@@ -374,6 +393,47 @@ impl MenuItem {
     }
 }
 
+impl ChoiceOption {
+    /// An option that the player can choose, with a label and no detail.
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            detail: String::new(),
+            unavailable: None,
+        }
+    }
+
+    /// The same option with a detail text.
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = detail.into();
+        self
+    }
+
+    /// The same option, marked as one the player cannot choose, for
+    /// `reason`.
+    pub fn unavailable(mut self, reason: impl Into<String>) -> Self {
+        self.unavailable = Some(reason.into());
+        self
+    }
+
+    /// True when the player can choose the option.
+    pub fn is_enabled(&self) -> bool {
+        self.unavailable.is_none()
+    }
+}
+
+impl From<&str> for ChoiceOption {
+    fn from(label: &str) -> Self {
+        Self::new(label)
+    }
+}
+
+impl From<String> for ChoiceOption {
+    fn from(label: String) -> Self {
+        Self::new(label)
+    }
+}
+
 impl ProfileEntry {
     /// A profile with its name.
     pub fn new(id: ProfileId, name: impl Into<String>) -> Self {
@@ -494,6 +554,17 @@ mod tests {
         );
         assert!(!GameEntry::new(GameId(1), SystemId(1), "x").favourite);
         assert!(!SessionInfo::new(GameId(1), "x").paused);
+    }
+
+    #[test]
+    fn a_choice_option_is_enabled_until_it_has_a_reason() {
+        let option = ChoiceOption::new("2x").with_detail("31.5 kHz 59.94 Hz");
+        assert!(option.is_enabled());
+        assert_eq!(option.detail, "31.5 kHz 59.94 Hz");
+        let option = option.unavailable("Needs a 31 kHz monitor");
+        assert!(!option.is_enabled());
+        assert_eq!(ChoiceOption::from("Auto"), ChoiceOption::new("Auto"));
+        assert_eq!(ChoiceOption::from(String::from("Auto")).detail, "");
     }
 
     #[test]

@@ -185,7 +185,9 @@ pub fn value_text<'a, const N: usize>(
             };
             buf.as_str()
         }
-        SettingValue::Choice { index, options } => options.get(*index).map_or("?", String::as_str),
+        SettingValue::Choice { index, options } => {
+            options.get(*index).map_or("?", |o| o.label.as_str())
+        }
         SettingValue::Action(_) => "",
     }
 }
