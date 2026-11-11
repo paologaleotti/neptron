@@ -51,6 +51,18 @@ On macOS, xtask runs every command under `taskpolicy -c utility` and holds one o
 16. Commit quality: one logical change per commit, readable alone, and each commit builds. Nothing is squashed.
 17. Every agent of the run uses the same model at medium effort.
 18. An ADR is only for a decision that changes the design: a contract change, a new crate, a change to a dependency rule, a licence decision, a change to a safety rule. A routine choice goes in the commit body or the crate README.
+19. Git safety. See the section below. It is binding for every agent.
+
+## Git safety
+
+The repository must stay clean and correct at all times.
+
+- A task agent uses git only in its own worktree and on its own branch: `status`, `diff`, `log`, `add`, `commit`, and `rebase` onto `main`. It never changes `main`, a different branch, a different worktree or the main checkout.
+- Only the orchestrator moves `main`, makes or removes worktrees, and deletes branches.
+- Never run `git config`, `git init` inside the repository tree, `git push`, `git stash`, `git clean`, `git gc`, `git reset --hard` on `main`, or any forced operation. Never edit a file in `.git/`. If one of these looks necessary, stop and report.
+- Never run a build or a test below a git operation: no `git rebase --exec`, no hooks, no `git bisect run`. Git exports `GIT_DIR` to such a command, and a child that runs git then changes the real repository. To check each commit, add a detached worktree in a temporary directory and run `cargo xtask verify` there from a normal shell.
+- In code, every `git` call starts from `repo::git` in `xtask`, which removes the variables that carry the repository location. A test that needs a repository makes it in a temporary directory with that helper.
+- Before a task starts and before and after each merge, the orchestrator checks: `core.bare` is false, the main checkout is clean, `main` is at the expected commit, and `git worktree list` shows only the expected worktrees.
 
 ## Definition of done
 

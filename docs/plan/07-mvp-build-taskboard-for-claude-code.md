@@ -40,6 +40,13 @@ Highlighted boxes are the critical path. Every other task has slack. The taskboa
 16. Commit quality. The history is part of the product, and the work must be clean. A commit holds one logical change with its tests, and a person can read it alone. No commit is a dump of a full task. Each commit builds. The agent decides the number and the size of the commits. Nothing is squashed, at any time.
 17. Model. Every agent of the run (orchestrator, implementer, reviewer) uses Opus 5.5 (`claude-opus-5-5`) at medium effort.
 18. ADRs. An ADR (architecture decision record, a short file in `docs/adr/`) is only for a decision that changes the design: a contract change, a new crate, a change to a dependency rule, a licence decision, a change to a safety rule. A routine choice goes in the commit body or the crate README, not in an ADR.
+19. Git safety. The repository must stay clean and correct at all times.
+    - A task agent uses git only in its own worktree and on its own branch: `status`, `diff`, `log`, `add`, `commit`, and `rebase` onto `main`. It never changes `main`, a different branch, a different worktree or the main checkout.
+    - Only the orchestrator moves `main`, makes or removes worktrees, and deletes branches.
+    - Nobody runs `git config`, `git init` inside the repository tree, `git push`, `git stash`, `git clean`, `git gc`, `git reset --hard` on `main`, or any forced operation, and nobody edits a file in `.git/`. If one of these looks necessary, the task stops and reports.
+    - No build and no test runs below a git operation: no `git rebase --exec`, no hooks, no `git bisect run`. Git exports `GIT_DIR` to such a command, and a child that runs git then changes the real repository. To check each commit, use a detached worktree in a temporary directory and run `cargo xtask verify` there from a normal shell.
+    - In code, every `git` call starts from `repo::git` in `xtask`, which removes the variables that carry the repository location. A test that needs a repository makes it in a temporary directory with that helper.
+    - Before it starts a task and before and after each merge, the orchestrator checks the repository: `core.bare` is false, the main checkout is clean, `main` is at the expected commit, and `git worktree list` shows only the expected worktrees. If a check fails, the run stops until the repository is repaired.
 
 ### Contracts
 
