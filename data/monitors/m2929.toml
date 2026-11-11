@@ -1,0 +1,24 @@
+# m2929: converted from the Switchres preset table by `cargo xtask monitors`.
+# Do not edit. See data/monitors/README.md for the source and the units.
+# Source crt_range lines:
+#   30000-40000, 47.00-90.00, 0.600, 2.500, 2.800, 0.032, 0.096, 0.448, 0, 0, 384, 640, 0, 0
+
+id = "m2929"
+
+[[kind.crt.ranges]]
+h_min_mhz = 30000000
+h_max_mhz = 40000000
+v_min_mhz = 47000
+v_max_mhz = 90000
+h_front_porch_ns = 600
+h_sync_ns = 2500
+h_back_porch_ns = 2800
+v_front_porch_ns = 32000
+v_sync_ns = 96000
+v_back_porch_ns = 448000
+hsync_positive = false
+vsync_positive = false
+progressive_lines_min = 384
+progressive_lines_max = 640
+interlaced_lines_min = 0
+interlaced_lines_max = 0

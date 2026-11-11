@@ -1,0 +1,24 @@
+# ntsc: converted from the Switchres preset table by `cargo xtask monitors`.
+# Do not edit. See data/monitors/README.md for the source and the units.
+# Source crt_range lines:
+#   15734.26-15734.26, 59.94-59.94, 1.500, 4.700, 4.700, 0.191, 0.191, 0.953, 0, 0, 192, 240, 448, 480
+
+id = "ntsc"
+
+[[kind.crt.ranges]]
+h_min_mhz = 15734260
+h_max_mhz = 15734260
+v_min_mhz = 59940
+v_max_mhz = 59940
+h_front_porch_ns = 1500
+h_sync_ns = 4700
+h_back_porch_ns = 4700
+v_front_porch_ns = 191000
+v_sync_ns = 191000
+v_back_porch_ns = 953000
+hsync_positive = false
+vsync_positive = false
+progressive_lines_min = 192
+progressive_lines_max = 240
+interlaced_lines_min = 448
+interlaced_lines_max = 480

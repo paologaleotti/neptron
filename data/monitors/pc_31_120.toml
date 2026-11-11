@@ -1,0 +1,43 @@
+# pc_31_120: converted from the Switchres preset table by `cargo xtask monitors`.
+# Do not edit. See data/monitors/README.md for the source and the units.
+# Source crt_range lines:
+#   31400-31600, 100-130, 0.671, 2.683, 3.353, 0.034, 0.101, 0.436, 0, 0, 200, 256, 0, 0
+#   31400-31600, 50-65, 0.671, 2.683, 3.353, 0.034, 0.101, 0.436, 0, 0, 400, 512, 0, 0
+
+id = "pc_31_120"
+
+[[kind.crt.ranges]]
+h_min_mhz = 31400000
+h_max_mhz = 31600000
+v_min_mhz = 100000
+v_max_mhz = 130000
+h_front_porch_ns = 671
+h_sync_ns = 2683
+h_back_porch_ns = 3353
+v_front_porch_ns = 34000
+v_sync_ns = 101000
+v_back_porch_ns = 436000
+hsync_positive = false
+vsync_positive = false
+progressive_lines_min = 200
+progressive_lines_max = 256
+interlaced_lines_min = 0
+interlaced_lines_max = 0
+
+[[kind.crt.ranges]]
+h_min_mhz = 31400000
+h_max_mhz = 31600000
+v_min_mhz = 50000
+v_max_mhz = 65000
+h_front_porch_ns = 671
+h_sync_ns = 2683
+h_back_porch_ns = 3353
+v_front_porch_ns = 34000
+v_sync_ns = 101000
+v_back_porch_ns = 436000
+hsync_positive = false
+vsync_positive = false
+progressive_lines_min = 400
+progressive_lines_max = 512
+interlaced_lines_min = 0
+interlaced_lines_max = 0

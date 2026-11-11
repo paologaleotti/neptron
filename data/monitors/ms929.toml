@@ -1,0 +1,43 @@
+# ms929: converted from the Switchres preset table by `cargo xtask monitors`.
+# Do not edit. See data/monitors/README.md for the source and the units.
+# Source crt_range lines:
+#   15450-16050, 50-65, 3.910, 4.700, 6.850, 0.190, 0.191, 1.018, 0, 0, 192, 288, 448, 576
+#   23900-24900, 50-65, 2.910, 3.000, 4.440, 0.451, 0.164, 1.048, 0, 0, 384, 400, 0, 0
+
+id = "ms929"
+
+[[kind.crt.ranges]]
+h_min_mhz = 15450000
+h_max_mhz = 16050000
+v_min_mhz = 50000
+v_max_mhz = 65000
+h_front_porch_ns = 3910
+h_sync_ns = 4700
+h_back_porch_ns = 6850
+v_front_porch_ns = 190000
+v_sync_ns = 191000
+v_back_porch_ns = 1018000
+hsync_positive = false
+vsync_positive = false
+progressive_lines_min = 192
+progressive_lines_max = 288
+interlaced_lines_min = 448
+interlaced_lines_max = 576
+
+[[kind.crt.ranges]]
+h_min_mhz = 23900000
+h_max_mhz = 24900000
+v_min_mhz = 50000
+v_max_mhz = 65000
+h_front_porch_ns = 2910
+h_sync_ns = 3000
+h_back_porch_ns = 4440
+v_front_porch_ns = 451000
+v_sync_ns = 164000
+v_back_porch_ns = 1048000
+hsync_positive = false
+vsync_positive = false
+progressive_lines_min = 384
+progressive_lines_max = 400
+interlaced_lines_min = 0
+interlaced_lines_max = 0

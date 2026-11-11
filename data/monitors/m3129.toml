@@ -1,0 +1,62 @@
+# m3129: converted from the Switchres preset table by `cargo xtask monitors`.
+# Do not edit. See data/monitors/README.md for the source and the units.
+# Source crt_range lines:
+#   15250-16500, 40-80, 2.187, 4.688, 6.719, 0.190, 0.191, 1.018, 1, 1, 192, 288, 448, 576
+#   23900-24420, 40-80, 2.910, 3.000, 4.440, 0.451, 0.164, 1.048, 1, 1, 384, 400, 0, 0
+#   31000-32000, 40-80, 0.636, 3.813, 1.906, 0.318, 0.064, 1.048, 1, 1, 400, 512, 0, 0
+
+id = "m3129"
+
+[[kind.crt.ranges]]
+h_min_mhz = 15250000
+h_max_mhz = 16500000
+v_min_mhz = 40000
+v_max_mhz = 80000
+h_front_porch_ns = 2187
+h_sync_ns = 4688
+h_back_porch_ns = 6719
+v_front_porch_ns = 190000
+v_sync_ns = 191000
+v_back_porch_ns = 1018000
+hsync_positive = true
+vsync_positive = true
+progressive_lines_min = 192
+progressive_lines_max = 288
+interlaced_lines_min = 448
+interlaced_lines_max = 576
+
+[[kind.crt.ranges]]
+h_min_mhz = 23900000
+h_max_mhz = 24420000
+v_min_mhz = 40000
+v_max_mhz = 80000
+h_front_porch_ns = 2910
+h_sync_ns = 3000
+h_back_porch_ns = 4440
+v_front_porch_ns = 451000
+v_sync_ns = 164000
+v_back_porch_ns = 1048000
+hsync_positive = true
+vsync_positive = true
+progressive_lines_min = 384
+progressive_lines_max = 400
+interlaced_lines_min = 0
+interlaced_lines_max = 0
+
+[[kind.crt.ranges]]
+h_min_mhz = 31000000
+h_max_mhz = 32000000
+v_min_mhz = 40000
+v_max_mhz = 80000
+h_front_porch_ns = 636
+h_sync_ns = 3813
+h_back_porch_ns = 1906
+v_front_porch_ns = 318000
+v_sync_ns = 64000
+v_back_porch_ns = 1048000
+hsync_positive = true
+vsync_positive = true
+progressive_lines_min = 400
+progressive_lines_max = 512
+interlaced_lines_min = 0
+interlaced_lines_max = 0

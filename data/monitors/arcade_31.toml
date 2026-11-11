@@ -1,0 +1,24 @@
+# arcade_31: converted from the Switchres preset table by `cargo xtask monitors`.
+# Do not edit. See data/monitors/README.md for the source and the units.
+# Source crt_range lines:
+#   31400-31500, 49.50-65.00, 0.940, 3.770, 1.890, 0.349, 0.064, 1.017, 0, 0, 400, 512, 0, 0
+
+id = "arcade_31"
+
+[[kind.crt.ranges]]
+h_min_mhz = 31400000
+h_max_mhz = 31500000
+v_min_mhz = 49500
+v_max_mhz = 65000
+h_front_porch_ns = 940
+h_sync_ns = 3770
+h_back_porch_ns = 1890
+v_front_porch_ns = 349000
+v_sync_ns = 64000
+v_back_porch_ns = 1017000
+hsync_positive = false
+vsync_positive = false
+progressive_lines_min = 400
+progressive_lines_max = 512
+interlaced_lines_min = 0
+interlaced_lines_max = 0

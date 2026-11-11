@@ -1,0 +1,24 @@
+# polo: converted from the Switchres preset table by `cargo xtask monitors`.
+# Do not edit. See data/monitors/README.md for the source and the units.
+# Source crt_range lines:
+#   15625-16670, 49.5-65, 2.000, 4.700, 8.000, 0.064, 0.160, 1.056, 0, 0, 192, 288, 448, 576
+
+id = "polo"
+
+[[kind.crt.ranges]]
+h_min_mhz = 15625000
+h_max_mhz = 16670000
+v_min_mhz = 49500
+v_max_mhz = 65000
+h_front_porch_ns = 2000
+h_sync_ns = 4700
+h_back_porch_ns = 8000
+v_front_porch_ns = 64000
+v_sync_ns = 160000
+v_back_porch_ns = 1056000
+hsync_positive = false
+vsync_positive = false
+progressive_lines_min = 192
+progressive_lines_max = 288
+interlaced_lines_min = 448
+interlaced_lines_max = 576

@@ -2,4 +2,5 @@
 
 #![forbid(unsafe_code)]
 
+mod monitors;
 mod wire;
