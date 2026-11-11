@@ -7,6 +7,16 @@
 
 #![forbid(unsafe_code)]
 
+mod event;
+mod gpu;
 mod modeline;
+mod monitor;
+mod scene;
+mod source;
 
+pub use event::{Control, FlipEvent, InputEvent};
+pub use gpu::GpuCaps;
 pub use modeline::Modeline;
+pub use monitor::{CrtRange, MonitorKind, MonitorProfile};
+pub use scene::{Filter, Frame, PixelFormat, Rect, Scene};
+pub use source::{Rotation, SourceGeometry};
