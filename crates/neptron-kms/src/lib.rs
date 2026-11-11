@@ -14,6 +14,10 @@ mod flip_state;
 mod layout;
 #[forbid(unsafe_code)]
 mod mode_record;
+// Only the Linux backend sends a request; the tests run on every host.
+#[cfg_attr(not(all(feature = "kms", target_os = "linux")), allow(dead_code))]
+#[forbid(unsafe_code)]
+mod request;
 #[forbid(unsafe_code)]
 mod sequence;
 
