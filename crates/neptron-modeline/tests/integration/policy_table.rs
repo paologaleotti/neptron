@@ -188,6 +188,21 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
+        // Step 3: with exact_x2, 480 lines fit no range at 119.88 Hz
+        // (range 1 holds 200 to 256 lines). The fitted rung at the doubled
+        // rate must not beat the exact native rung at the game's rate:
+        // only the fitted rung is not pixel exact.
+        Row {
+            source: source(640, 480, 59_940),
+            refresh: RefreshPolicy::ExactX2,
+            mode: "640x480p",
+            rate_mhz: 59_940,
+            ..row(
+                "step3_fitted_at_double_rate_after_exact_rungs",
+                preset("pc_31_120"),
+                open_caps(),
+            )
+        },
         // Step 3: an explicit multiple starts at its own rung.
         Row {
             style: PictureStyle::X3,
