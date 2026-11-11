@@ -26,12 +26,14 @@ Folder names and aliases come from two projects, read on 2026-11-11:
 
 Neither project has a separate folder for Famicom or Super Famicom.
 
-The extension list of a system is the intersection of two lists: the RetroPie `_exts` list, and the `valid_extensions` of the core that runs the system (see `data/cores/README.md`). Archives (`.zip`, `.7z`) are not in the lists, because NEPTRON does not unpack archives yet.
+The extension list of a system is the intersection of two lists, plus `zip`. The two lists are the RetroPie `_exts` list and the `valid_extensions` of the core that runs the system (see `data/cores/README.md`). A `.zip` file is one game: the core host reads the ROM from the archive at launch. RetroPie lists `.zip` for all three systems. `.7z` is not in the lists, because NEPTRON does not read `.7z` archives.
+
+`zip` was added to the lists after the first version of these files. A new value in a list is an addition, so `format` stays `1`.
 
 | System | RetroPie `_exts` | Core `valid_extensions` | Result |
 | --- | --- | --- | --- |
-| `nes` | `.7z .nes .zip` | `fds nes unf unif` | `nes` |
-| `snes` | `.7z .bin .bs .smc .sfc .fig .swc .mgd .zip` | `smc sfc swc fig bs st` | `bs fig sfc smc swc` |
-| `megadrive` | `.7z .smd .bin .gen .md .sg .zip` | `m3u mdx md smd gen bin cue iso chd bms sms gg sg 68k sgd` | `bin gen md sg smd` |
+| `nes` | `.7z .nes .zip` | `fds nes unf unif` | `nes zip` |
+| `snes` | `.7z .bin .bs .smc .sfc .fig .swc .mgd .zip` | `smc sfc swc fig bs st` | `bs fig sfc smc swc zip` |
+| `megadrive` | `.7z .smd .bin .gen .md .sg .zip` | `m3u mdx md smd gen bin cue iso chd bms sms gg sg 68k sgd` | `bin gen md sg smd zip` |
 
 The display names are the RetroPie `_fullname` values, except for `megadrive`, which takes the Batocera name "Mega Drive".

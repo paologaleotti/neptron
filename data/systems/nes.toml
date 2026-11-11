@@ -3,4 +3,4 @@ format = 1
 folder = "nes"
 aliases = []
 name = "Nintendo Entertainment System"
-extensions = ["nes"]
+extensions = ["nes", "zip"]

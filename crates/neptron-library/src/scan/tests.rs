@@ -71,7 +71,11 @@ fn layout_fixture_gives_the_expected_index() {
     assert_eq!(paths(index, "nes")[1], "nes/usa/Duck Hunt.nes");
     assert_eq!(
         paths(index, "snes"),
-        ["SNES/Mario World.sfc", "SNES/Mario World.smc"]
+        [
+            "SNES/Mario World.sfc",
+            "SNES/Mario World.smc",
+            "SNES/Mario World.zip"
+        ]
     );
     assert_eq!(
         paths(index, "megadrive"),
@@ -85,8 +89,8 @@ fn layout_fixture_gives_the_expected_index() {
     let report = &outcome.report;
     assert_eq!(report.unknown_folders, ["psx", "snes9x-empty"]);
     assert_eq!(report.more_unknown_folders, 0);
-    // readme.txt, noextension, .zip, notes.txt in the root.
-    assert_eq!(report.ignored_files, 4);
+    // readme.txt, noextension, notes.txt in the root.
+    assert_eq!(report.ignored_files, 3);
     // .nes, .hidden.nes, ._zelda.NES, .git, .Trashes.
     assert_eq!(report.hidden_entries, 5);
     assert_eq!(report.symlinks, 0);
@@ -302,4 +306,28 @@ fn counters_saturate() {
     bump(&mut n);
     bump(&mut n);
     assert_eq!(n, u32::MAX);
+}
+
+#[test]
+fn zip_files_are_games_and_are_not_opened() {
+    let dir = TestDir::new("zip");
+    dir.file("nes/Contra.nes");
+    // Not a valid archive: the scan must not care, because it never opens it.
+    fs::write(dir.file("nes/Contra.zip"), b"not a zip").expect("write the archive");
+    dir.file("nes/Bomberman.ZIP");
+    dir.file("nes/Excitebike.7z");
+    dir.file("snes/usa/Mario World.zip");
+    let outcome = run(dir.path()).expect("the scan completes");
+    let index = &outcome.index;
+    assert_eq!(names(index, "nes"), ["Bomberman", "Contra", "Contra"]);
+    assert_eq!(
+        paths(index, "nes"),
+        ["nes/Bomberman.ZIP", "nes/Contra.nes", "nes/Contra.zip"]
+    );
+    let zips: Vec<bool> = index
+        .system("nes")
+        .map_or(vec![], |s| s.games().iter().map(Game::is_zip).collect());
+    assert_eq!(zips, [true, false, true]);
+    assert_eq!(paths(index, "snes"), ["snes/usa/Mario World.zip"]);
+    assert_eq!(outcome.report.ignored_files, 1);
 }

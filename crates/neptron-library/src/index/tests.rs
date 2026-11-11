@@ -192,3 +192,12 @@ fn ten_thousand_game_query_fits_the_frame_budget() {
         "the fastest page query took {fastest:?}, the limit is {PAGE_QUERY_LIMIT:?}"
     );
 }
+
+#[test]
+fn zip_is_told_by_the_extension() {
+    assert!(Game::new("a".into(), "nes/a.zip".into()).is_zip());
+    assert!(Game::new("a".into(), "nes/a.ZiP".into()).is_zip());
+    assert!(!Game::new("a".into(), "nes/a.nes".into()).is_zip());
+    assert!(!Game::new("zip".into(), "nes/zip".into()).is_zip());
+    assert!(!Game::new("a".into(), "nes/a.zip.nes".into()).is_zip());
+}

@@ -58,6 +58,15 @@ impl Game {
     pub fn path(&self) -> &str {
         &self.path
     }
+
+    /// True when the game is a `.zip` archive, which the core host opens
+    /// at launch. The extension decides, with no regard to ASCII case; the
+    /// scan never opens the file.
+    pub fn is_zip(&self) -> bool {
+        self.path
+            .rsplit_once('.')
+            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("zip"))
+    }
 }
 
 impl SystemGames {

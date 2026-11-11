@@ -35,11 +35,12 @@ The cache file belongs on the state partition (ext4), for example `state/cache/l
 | Unknown folders | Not scanned. Listed in `ScanReport::unknown_folders` for the diagnostics page. |
 | Nested folders | Read down to 8 levels below the system folder. Their games join the system list; the path keeps the subfolder. |
 | Game files | Regular files whose extension the system accepts, with no regard to ASCII case. The name is the file name with no extension. |
-| Unknown extensions | Skipped and counted. This includes `.zip` and `.7z`, because NEPTRON does not unpack archives yet. |
+| `.zip` files | One game each, listed by the file name with no extension, like any other ROM. The scan never opens the archive; the core host reads it at launch. `Game::is_zip()` tells an archive from a plain file by the extension, so the index and the cache need no extra field. |
+| Unknown extensions | Skipped and counted. This includes `.7z`, which NEPTRON does not read. |
 | Hidden entries | A name that starts with `.` is skipped. This also skips the `._` files that macOS writes on exFAT. |
 | Symbolic links | Not followed, for files and folders. A link cannot make a loop or show a game twice (RetroPie links `genesis` to `megadrive`). exFAT has no links. |
 | Bad names | A name that is not UTF-8, or a path longer than 4096 bytes, is skipped and counted. |
-| Duplicate names | Kept. Equal names sort by path. |
+| Duplicate names | Kept. Equal names sort by path, by bytes. A `.zip` and a plain ROM with the same base name in one folder are both listed; with lower-case extensions the plain ROM comes first, because every accepted extension sorts before `zip`. |
 | Read errors | A folder that cannot be read is listed in the report, and the scan goes on. Only an unreadable `share/roms/` stops the scan. |
 | Multi-disc sets | Not handled. The MVP systems are cartridge systems. |
 
@@ -72,7 +73,7 @@ A frame at 60 Hz lasts 16.6 ms. The test `ten_thousand_game_query_fits_the_frame
 ## Open points
 
 - `gamelist.xml` import: not implemented. It needs an XML reader and tests. Add it as a new module that fills names and favourites after the scan.
-- Archives: `.zip` and `.7z` are not game files. When NEPTRON unpacks archives, add the extensions to `data/systems`.
+- `.7z` archives are not game files. When NEPTRON reads them, add `7z` to `data/systems`.
 - Sort order: no article rule, no locale collation, no natural number order. Change `compare_names` and add a cache version, because the stored order then changes.
 - Symbolic links: never followed. To follow folder links, add loop detection by device and inode.
 - Multi-disc sets (`.m3u`, `.cue`): not handled, because no MVP system needs them.

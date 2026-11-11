@@ -3,4 +3,4 @@ format = 1
 folder = "megadrive"
 aliases = ["genesis"]
 name = "Mega Drive"
-extensions = ["bin", "gen", "md", "sg", "smd"]
+extensions = ["bin", "gen", "md", "sg", "smd", "zip"]

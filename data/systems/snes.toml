@@ -3,4 +3,4 @@ format = 1
 folder = "snes"
 aliases = []
 name = "Super Nintendo"
-extensions = ["bs", "fig", "sfc", "smc", "swc"]
+extensions = ["bs", "fig", "sfc", "smc", "swc", "zip"]

@@ -76,10 +76,10 @@ fn builtin_catalog_has_the_three_mvp_systems() {
 }
 
 #[test]
-fn builtin_files_have_no_archive_extensions() {
+fn builtin_systems_accept_zip_but_not_7z() {
     let catalog = Catalog::builtin().expect("the built-in definitions are valid");
     for system in catalog.systems() {
-        assert!(!system.accepts_extension("zip"), "{}", system.folder);
+        assert!(system.accepts_extension("zip"), "{}", system.folder);
         assert!(!system.accepts_extension("7z"), "{}", system.folder);
     }
 }
