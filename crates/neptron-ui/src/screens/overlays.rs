@@ -12,6 +12,8 @@ use crate::text::StackText;
 use crate::theme::Theme;
 use crate::widgets::{Dialog, DialogContent, DialogEvent};
 
+use super::chrome;
+
 /// The buttons of the confirm dialog. Revert comes first and has the focus
 /// when the dialog opens, so a press of accept by a player who cannot see
 /// the picture reverts it.
@@ -152,6 +154,11 @@ impl Confirm {
             buttons: &CONFIRM_BUTTONS,
         };
         draw_dialog(&self.dialog, &content, theme, frame);
+        if self.answered {
+            chrome::hints(frame, theme, "", "");
+        } else {
+            chrome::hints(frame, theme, "Accept: revert", "Right, then Accept: keep");
+        }
     }
 }
 
@@ -204,6 +211,7 @@ impl Notices {
             buttons: &["OK"],
         };
         draw_dialog(&self.dialog, &content, theme, frame);
+        chrome::hints(frame, theme, "Accept: OK", "");
     }
 
     fn remember(&mut self, id: NoticeId) {

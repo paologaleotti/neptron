@@ -151,6 +151,7 @@ impl QuickMenu {
                 buttons: &KEEP_BUTTONS,
             };
             draw_dialog(dialog, &content, theme, frame);
+            chrome::hints(frame, theme, "Accept: choose", "Back: cancel");
         }
     }
 

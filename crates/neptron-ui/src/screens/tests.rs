@@ -1185,3 +1185,28 @@ mod fuzz {
         }
     }
 }
+
+fn hints(run: &Run) -> Vec<&str> {
+    run.labels()
+        .into_iter()
+        .filter(|l| l.contains(": "))
+        .collect()
+}
+
+#[test]
+fn a_dialog_shows_its_own_hints() {
+    let (mut run, snap) = confirming(10 * SECOND_NS);
+    assert_eq!(hints(&run), ["Accept: revert", "Right, then Accept: keep"]);
+    run.step(&snap, &[Accept]);
+    assert!(hints(&run).is_empty());
+
+    let (mut run, mut snap) = snes_list();
+    snap.notices = vec![notice(1, "The scan found 12 new games.")];
+    run.step(&snap, &[]);
+    assert_eq!(hints(&run), ["Accept: OK"]);
+
+    let (mut run, snap) = quick_menu();
+    run.step(&snap, &TO_FORCE_60);
+    run.step(&snap, &[Back]);
+    assert_eq!(hints(&run), ["Accept: choose", "Back: cancel"]);
+}

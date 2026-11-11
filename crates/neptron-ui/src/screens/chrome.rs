@@ -87,16 +87,18 @@ pub(super) fn frame(
     label(frame, title_box, Align::Left, theme.colors.text, title);
     label(frame, inner, Align::Right, theme.colors.accent, right);
 
-    frame.scene.rect(layout.footer, theme.colors.panel);
-    let inner = padded(layout.footer, theme);
-    label(frame, inner, Align::Left, theme.colors.text_dim, hint_left);
-    label(
-        frame,
-        inner,
-        Align::Right,
-        theme.colors.text_dim,
-        hint_right,
-    );
+    hints(frame, theme, hint_left, hint_right);
+}
+
+/// Draws the hint band with `left` and `right`, over any hints drawn
+/// before. A dialog draws its own hints, so the band never names a button
+/// of the screen under it.
+pub(super) fn hints(frame: &mut UiFrame, theme: &Theme, left: &str, right: &str) {
+    let footer = Layout::new(theme).footer;
+    frame.scene.rect(footer, theme.colors.panel);
+    let inner = padded(footer, theme);
+    label(frame, inner, Align::Left, theme.colors.text_dim, left);
+    label(frame, inner, Align::Right, theme.colors.text_dim, right);
 }
 
 /// A framed box at the top of `area` that holds `rows` rows of the theme,

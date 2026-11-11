@@ -56,7 +56,7 @@ The UI has no clock and takes no time step. Key repeat comes from the app: while
 - The stack: home, then a game list, then the game. Over the game: the quick menu, from it the display panel or the grid pattern, from a choice row the list of its options. From home: the display panel, then options or the grid pattern. `MAX_DEPTH` is 8; the deepest path is 6.
 - On top of every screen: the confirm dialog while the snapshot holds a pending confirmation (also over a running game), else the oldest notice that the player has not dismissed (not while a game runs alone: the canvas is opaque and would hide the game).
 
-The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `display`, `options`, `pattern/grid`, `confirm` and `notice`. Under a dialog the tree holds the rows of the dialog only.
+The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `display`, `options`, `pattern/grid`, `confirm` and `notice`. Under a dialog the tree holds the rows of the dialog only, and the hint band shows the hints of the dialog: "Accept: revert" and "Right, then Accept: keep" for the confirm dialog, "Accept: OK" for a notice, "Accept: choose" and "Back: cancel" for the prompt of the quick menu.
 
 ### Ids that the UI and the app share
 
