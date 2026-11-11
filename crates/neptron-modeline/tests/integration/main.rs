@@ -6,6 +6,7 @@
 
 mod golden;
 mod policy_golden;
+mod policy_property;
 mod policy_table;
 mod presets;
 mod safety;
