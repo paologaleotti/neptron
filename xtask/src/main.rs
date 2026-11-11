@@ -8,6 +8,7 @@
 mod bindgen;
 mod load;
 mod monitors;
+mod os;
 mod repo;
 mod rules;
 mod ui;
@@ -47,11 +48,15 @@ commands:
   golden [--bless] [scene...]
                        compare UI scenes with their golden images; --bless
                        writes the golden of each scene that differs
+  os build [--arch A] [--jobs N] [-- make targets...]
+                       build the QEMU image of target A (aarch64, x86_64)
+                       with Buildroot in the development container
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
   NEPTRON_BUILD_JOBS   CARGO_BUILD_JOBS per build (default on macOS: 5)
   NEPTRON_BINDGEN      the bindgen executable (default: bindgen on the PATH)
+  NEPTRON_CACHE_DIR    machine cache for the OS images (default ~/.cache/neptron)
 ";
 
 /// An error of any xtask command.
@@ -63,6 +68,8 @@ enum Error {
     Bindgen(#[from] bindgen::BindgenError),
     #[error(transparent)]
     Monitors(#[from] monitors::MonitorsError),
+    #[error(transparent)]
+    Os(#[from] os::OsError),
     #[error(transparent)]
     Repo(#[from] repo::RepoError),
     #[error(transparent)]
@@ -109,6 +116,7 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "shot" => Ok(ui::shot(&rest)?),
         "gallery" => Ok(ui::gallery(&rest)?),
         "golden" => Ok(ui::golden(&rest)?),
+        "os" => Ok(os::run_os(&rest)?),
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),
         "clippy" => passthrough(&["clippy", "--all-targets"], &rest),

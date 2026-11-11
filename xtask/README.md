@@ -11,6 +11,7 @@ Build, verification and worktree automation for the NEPTRON workspace. Run it as
 - `cargo xtask worktree new <task>`: makes `.worktrees/<task>` in the main checkout, on branch `mvp/<task>` from `main`. Its `target/` is an APFS clone (`cp -cRp`) of the `target/` of the main checkout, so dependencies do not compile again (run rule 12). If the clone fails, the command removes the new worktree and branch again.
 - `cargo xtask worktree cache-check [--from <checkout>]`: proves rule 12. It builds the source checkout (default: the main checkout) to warm it, makes a temporary worktree with a cloned `target/`, repeats the test build and clippy there, and counts the artifacts that Cargo compiles again. It fails when a dependency compiles again. It deletes the temporary worktree at the end, also on failure, and removes clones that an interrupted check left.
 - `cargo xtask rules`: checks the crate boundaries (see below).
+- `cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [-- make targets...]`: builds the development container from `Dockerfile` (tagged `neptron-dev:<hash of the Dockerfile>`), then runs Buildroot in it for the QEMU image of the target: the defconfig, the extra make targets in order, the full build, and a copy of the images to `~/.cache/neptron/buildroot/images/<arch>`. `os/README.md` describes the images.
 - `cargo xtask window-smoke`: builds `neptron-window` with its `sdl3` feature and runs its smoke example. No tier compiles the `sdl3` code, so this command and `cargo xtask clippy -p neptron-window --features sdl3` are the checks for it. The example opens a desktop window, shows a 240p and a super-width mode, injects a key press and checks it. It needs a display and the SDL3 library, so no tier runs it.
 - `cargo xtask monitors <monitor.cpp> [dir]`: converts the Switchres preset table in a local copy of `monitor.cpp` into one TOML file per preset in `data/monitors` (or `dir`). Each value is converted from its decimal text with integer maths. `data/monitors/README.md` names the source commit and the units.
 
@@ -69,6 +70,10 @@ On macOS, every Cargo command that xtask starts runs under `taskpolicy -c utilit
 | `NEPTRON_BUILD_JOBS` (sets `CARGO_BUILD_JOBS`) | 5 | Cargo default |
 
 Cargo compiles `xtask` itself before xtask starts, so that one small compile runs outside `taskpolicy` and the slots.
+
+The OS commands have their own limits, machine-wide through lock files in the cache directory (`NEPTRON_CACHE_DIR`, default `~/.cache/neptron`):
+
+- `os build`: one Buildroot build at a time, 4 jobs by default (`--jobs`, at most 8), a container with as many CPUs as jobs and 6 GB of memory.
 
 ## Dependencies
 
