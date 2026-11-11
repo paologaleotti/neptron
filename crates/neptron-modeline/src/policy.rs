@@ -15,10 +15,14 @@
 //!    forced rate) and the scan.
 //! 5. `solve`: the width by the horizontal strategy, and the modeline from
 //!    Switchres.
+//! 6. [`choose`]: the first proposal that the validator accepts.
+//! 7. [`switch_for`]: scale and crop only, or a modeset.
+//! 8. [`notice`]: the notice for a fitted rung or a changed rate.
 //!
 //! [`decide`] runs steps 1 to 5. The validator is not a dependency of this
-//! crate: the engine validates each proposal with `neptron_safety::validate`.
+//! crate: the engine runs step 6 with `neptron_safety::validate`.
 
+mod choose;
 mod crt;
 mod ladder;
 mod padding;
@@ -35,6 +39,9 @@ mod units;
 
 use std::fmt;
 
+pub use choose::{
+    Choice, Notice, Refused, StyleRow, Switch, Winner, choose, notice, style_rows, switch_for,
+};
 pub use ladder::{Rung, walk_ladder};
 pub use padding::{PADDED_FILL_MIN_PERCENT, Padding};
 pub use placement::{HorizontalScale, Placement, ScaleClaim, UI_CANVAS};
@@ -78,7 +85,8 @@ pub enum PolicyError {
 ///
 /// On a CRT profile, each rung of the picture style's walk at each refresh
 /// target, then a last resort; on a flat panel, each listed mode. The
-/// engine walks the proposals in order with the validator.
+/// engine walks the proposals with the validator ([`choose`]); the Display
+/// panel calls the same function for each style ([`style_rows`]).
 pub fn decide(
     source: &SourceGeometry,
     settings: &PolicySettings,

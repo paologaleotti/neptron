@@ -1,0 +1,179 @@
+use neptron_types::{GpuCaps, Modeline, MonitorProfile, SourceGeometry};
+
+use super::{
+    Considered, PictureStyle, Plan, PolicyError, PolicySettings, Proposal, RefreshKind, Rung,
+    decide,
+};
+
+/// The result of step 6: the first proposal that the validator accepts,
+/// and the validator's reason for each proposal before it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Choice<'p, V, E> {
+    /// The winner, or `None` when the validator refuses every proposal.
+    pub winner: Option<Winner<'p, V>>,
+    /// The proposals the validator refused, in walk order.
+    pub refused: Vec<Refused<E>>,
+}
+
+/// The proposal that won, with what the validator returned for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Winner<'p, V> {
+    /// Index of the winner in [`Plan::considered`].
+    pub index: usize,
+    /// The candidate: its rung and its target.
+    pub considered: &'p Considered,
+    /// The mode and its placement.
+    pub proposal: &'p Proposal,
+    /// What the validator returned: a `ValidatedMode` for the engine.
+    pub token: V,
+}
+
+/// A proposal the validator refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refused<E> {
+    /// Index of the proposal in [`Plan::considered`].
+    pub index: usize,
+    /// The validator's reason.
+    pub reason: E,
+}
+
+/// What step 7 does with a winner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Switch {
+    /// The winner equals the current mode: update only scale and crop.
+    ScaleOnly,
+    /// A new mode: commit it once the request has been stable for the
+    /// debounce frames.
+    Modeset,
+}
+
+/// What step 8 tells the player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Notice {
+    /// The winner is the fitted rung: the picture is not pixel exact.
+    pub fitted: bool,
+    /// The game's rate, in millihertz.
+    pub game_mhz: u32,
+    /// The rate the game runs at: the field rate per game frame, in
+    /// millihertz.
+    pub shown_mhz: u64,
+}
+
+/// One row of the picture style list of the Display panel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StyleRow<E> {
+    /// The style.
+    pub style: PictureStyle,
+    /// The plan for the style, from the same [`decide`] the engine calls.
+    pub plan: Plan,
+    /// Index of the winner in the plan, or `None` when nothing validates.
+    pub winner: Option<usize>,
+    /// The proposals the validator refused.
+    pub refused: Vec<Refused<E>>,
+    /// The winner is on the style's own rung: the row is not greyed out.
+    /// Auto is available whenever something wins.
+    pub available: bool,
+}
+
+/// Step 6: walk the proposals in order and ask the validator about each.
+/// The first one it accepts wins; its reasons for the earlier ones are kept
+/// for the log and the notice.
+///
+/// The engine passes `|mode| neptron_safety::validate(mode, profile, caps)`
+/// and gets the `ValidatedMode` to set as the winner's token.
+pub fn choose<V, E>(
+    plan: &Plan,
+    mut validate: impl FnMut(&Modeline) -> Result<V, E>,
+) -> Choice<'_, V, E> {
+    let mut refused = Vec::new();
+    for (index, considered, proposal) in plan.proposals() {
+        match validate(&proposal.mode) {
+            Ok(token) => {
+                return Choice {
+                    winner: Some(Winner {
+                        index,
+                        considered,
+                        proposal,
+                        token,
+                    }),
+                    refused,
+                };
+            }
+            Err(reason) => refused.push(Refused { index, reason }),
+        }
+    }
+    Choice {
+        winner: None,
+        refused,
+    }
+}
+
+/// Step 7: a winner equal to the current mode changes only scale and crop;
+/// any other winner is a modeset, which the engine debounces.
+pub fn switch_for(current: Option<&Modeline>, winner: &Modeline) -> Switch {
+    if current == Some(winner) {
+        Switch::ScaleOnly
+    } else {
+        Switch::Modeset
+    }
+}
+
+/// Step 8: a notice when the winner is the fitted rung, or when the game
+/// runs at a rate other than its own. Double refresh shows each frame twice
+/// at the game's own rate, so it needs no notice. A flat panel needs none
+/// for its rate: audio rate control absorbs the difference.
+pub fn notice(considered: &Considered) -> Option<Notice> {
+    let proposal = considered.outcome.as_ref().ok()?;
+    let timing = &proposal.timing;
+    let fitted = considered.rung == Rung::Fitted;
+    let refresh_differs = timing.changes_speed() && timing.target.kind != RefreshKind::Panel;
+    (fitted || refresh_differs).then(|| Notice {
+        fitted,
+        game_mhz: timing.game_mhz,
+        shown_mhz: timing.field_rate_mhz / u64::from(timing.repeat().max(1)),
+    })
+}
+
+/// The picture style rows of the Display panel: for each style, the plan
+/// and the winner of the same [`decide`] and [`choose`] that the engine
+/// runs. A style whose winner is not on its own rung is greyed out; the
+/// first candidate on its own rung holds the reason (a dropped reason, a
+/// padding, or a validator refusal in `refused`).
+pub fn style_rows<E>(
+    source: &SourceGeometry,
+    settings: &PolicySettings,
+    profile: &MonitorProfile,
+    caps: &GpuCaps,
+    mut validate: impl FnMut(&Modeline) -> Result<(), E>,
+) -> Result<Vec<StyleRow<E>>, PolicyError> {
+    PictureStyle::ALL
+        .into_iter()
+        .map(|style| {
+            let settings = PolicySettings { style, ..*settings };
+            let plan = decide(source, &settings, profile, caps)?;
+            let choice = choose(&plan, &mut validate);
+            let winner = choice.winner.as_ref().map(|w| (w.index, w.considered.rung));
+            let available = match (style, winner) {
+                (_, None) => false,
+                (PictureStyle::Auto, Some(_)) => true,
+                (_, Some((_, rung))) => Some(&rung) == plan_first_rung(&plan, style),
+            };
+            Ok(StyleRow {
+                style,
+                winner: winner.map(|(index, _)| index),
+                refused: choice.refused,
+                available,
+                plan,
+            })
+        })
+        .collect()
+}
+
+/// The style's own rung: the first rung of its walk. A flat panel has one
+/// rung.
+fn plan_first_rung(plan: &Plan, style: PictureStyle) -> Option<&'static Rung> {
+    if plan.horizontal.is_none() {
+        return Some(&Rung::Panel);
+    }
+    super::walk_ladder(style).first()
+}

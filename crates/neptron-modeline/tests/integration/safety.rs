@@ -5,10 +5,10 @@
 
 use neptron_modeline::{Settings, modelines, modelines_with};
 use neptron_safety::{Rejection, validate};
-use neptron_types::{CrtRange, GpuCaps, Modeline, MonitorKind, MonitorProfile, SourceGeometry};
+use neptron_types::{GpuCaps, Modeline, SourceGeometry};
 
 use crate::golden::golden;
-use crate::presets::{modeline_text, open_caps, preset, source};
+use crate::presets::{modeline_text, open_caps, pc_crt_30_71, preset, source};
 
 #[test]
 fn every_golden_modeline_validates_against_its_preset() {
@@ -58,37 +58,6 @@ fn every_golden_modeline_validates_against_its_preset() {
         golden.case.len(),
         refused.join("\n")
     );
-}
-
-/// The profile that `neptron_platform::profile_from_edid` builds for a PC
-/// CRT whose EDID range limits are 30 to 71 kHz and 50 to 160 Hz, with a
-/// 100 MHz pixel clock limit. The values are copied from the test
-/// `pc_crt_30_to_71_khz_profile` in
-/// crates/neptron-platform/tests/integration/profile.rs.
-fn pc_crt_30_71() -> MonitorProfile {
-    MonitorProfile {
-        id: "edid_npt_0071".into(),
-        kind: MonitorKind::Crt {
-            ranges: vec![CrtRange {
-                h_min_mhz: 30_000_000,
-                h_max_mhz: 71_000_000,
-                v_min_mhz: 50_000,
-                v_max_mhz: 160_000,
-                h_front_porch_ns: 817,
-                h_sync_ns: 2_667,
-                h_back_porch_ns: 3_334,
-                v_front_porch_ns: 33_334,
-                v_sync_ns: 100_000,
-                v_back_porch_ns: 507_747,
-                hsync_positive: false,
-                vsync_positive: true,
-                progressive_lines_min: 169,
-                progressive_lines_max: 1_374,
-                interlaced_lines_min: 0,
-                interlaced_lines_max: 0,
-            }],
-        },
-    }
 }
 
 /// The best candidate for a source on the EDID profile, and what the
