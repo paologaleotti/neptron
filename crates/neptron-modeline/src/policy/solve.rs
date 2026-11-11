@@ -9,7 +9,7 @@ use super::{
     Dropped, HorizontalScale, HorizontalStrategy, OrientedSource, Proposal, REFRESH_MATCH_MHZ,
     RefreshTarget, Rung, Timing,
 };
-use crate::{Candidate, ModelineError, modelines_with};
+use crate::{Candidate, ConvertError, ModelineError, modelines_with};
 
 /// The most Switchres calls the dynamic super width makes for one
 /// candidate. Each step at least adds one to the multiple, and the estimate
@@ -161,7 +161,18 @@ impl Ask<'_> {
             pclock_min_hz: 0,
             ..*self.caps
         };
-        let list = modelines_with(&request, self.profile, &caps, &self.settings.solver)?;
+        // A timing outside its contract field comes from the request, not
+        // from the profile, so it drops this candidate and the walk goes on.
+        // Every other solver error is an error of the profile or the
+        // settings and stops the plan.
+        let list = match modelines_with(&request, self.profile, &caps, &self.settings.solver) {
+            Ok(list) => list,
+            Err(ModelineError::Convert {
+                error: ConvertError::Timing { field, value, max },
+                ..
+            }) => return Ok(Err(Dropped::TimingOutOfRange { field, value, max })),
+            Err(error) => return Err(error),
+        };
         Ok(self.pick(&list, width))
     }
 

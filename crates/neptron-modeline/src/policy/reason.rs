@@ -47,6 +47,16 @@ pub enum Dropped {
     },
     /// Switchres has no mode for the request on any range.
     NoMode,
+    /// Switchres gave a timing that does not fit its contract field, such
+    /// as a width above 65535 pixels for an extreme source.
+    TimingOutOfRange {
+        /// Name of the field.
+        field: &'static str,
+        /// The value from Switchres.
+        value: i64,
+        /// Largest value of the field.
+        max: u64,
+    },
     /// Switchres changed the line count: the request does not fit a range
     /// at its own line count.
     LinesChanged {
@@ -89,6 +99,7 @@ impl Dropped {
             Self::TallerThanGpu { .. } => "taller_than_gpu",
             Self::PixelClockFloor { .. } => "pixel_clock_floor",
             Self::NoMode => "no_mode",
+            Self::TimingOutOfRange { .. } => "timing_out_of_range",
             Self::LinesChanged { .. } => "lines_changed",
             Self::ScanChanged { .. } => "scan_changed",
             Self::WidthChanged { .. } => "width_changed",
@@ -131,6 +142,9 @@ impl fmt::Display for Dropped {
                  and the GPU sends at most {max_width} pixels"
             ),
             Self::NoMode => f.write_str("no range of the profile has a mode"),
+            Self::TimingOutOfRange { field, value, max } => {
+                write!(f, "Switchres gave {field} {value}, outside 0 to {max}")
+            }
             Self::LinesChanged { asked, got } => {
                 write!(f, "asked for {asked} lines, the range gives {got}")
             }

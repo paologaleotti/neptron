@@ -4,7 +4,7 @@
 //! whole-scale claim holds exactly, and the decision is deterministic.
 
 use neptron_modeline::policy::{
-    HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicySettings, Proposal,
+    HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError, PolicySettings, Proposal,
     RefreshPolicy, choose, decide,
 };
 use neptron_safety::validate;
@@ -42,11 +42,27 @@ impl Lcg {
     }
 }
 
+/// A source of a usual shape, or one time in eight a value at an extreme:
+/// zero, one or the largest the type holds, on any axis.
 fn random_source(rng: &mut Lcg) -> SourceGeometry {
+    let extreme = rng.range(0, 7) == 0;
+    let (width, height, refresh_mhz) = if extreme {
+        (
+            rng.pick(&[0, 1, u16::MAX, 256]),
+            rng.pick(&[0, 1, u16::MAX, 224]),
+            rng.pick(&[0, 1, u32::MAX, 60_000]),
+        )
+    } else {
+        (
+            rng.range(64, 1_024) as u16,
+            rng.range(64, 600) as u16,
+            rng.range(20_000, 130_000) as u32,
+        )
+    };
     SourceGeometry {
-        width: rng.range(64, 1_024) as u16,
-        height: rng.range(64, 600) as u16,
-        refresh_mhz: rng.range(20_000, 130_000) as u32,
+        width,
+        height,
+        refresh_mhz,
         aspect_milli: rng.pick(&[0, 1_333, 1_111, 750, 1_777]),
         interlaced: rng.range(0, 9) == 0,
         rotation: rng.pick(&[Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270]),
@@ -131,6 +147,8 @@ fn check_plan(plan: &Plan, profile: &MonitorProfile, caps: &GpuCaps) -> Result<(
             .map_err(|e| format!("#{index} {considered}: {e}"))?;
     }
     let choice = choose(plan, |m| validate(m, profile, caps));
+    // choose() returns the token of the mode it validated; this checks that
+    // the winner's proposal is that same mode.
     if let Some(w) = choice.winner {
         validate(&w.proposal.mode, profile, caps)
             .map_err(|e| format!("winner {} refused: {e}", w.considered))?;
@@ -148,6 +166,7 @@ fn the_policy_is_safe_and_deterministic_over_random_sources() {
     let mut rng = Lcg(SEED);
     let mut failures = Vec::new();
     let mut decisions = 0;
+    let mut empty_sources = 0;
     let mut winners = 0;
     for (profile, edid) in &profiles {
         for (gpu, caps) in gpus() {
@@ -156,8 +175,13 @@ fn the_policy_is_safe_and_deterministic_over_random_sources() {
                 let source = random_source(&mut rng);
                 let settings = random_settings(&mut rng);
                 let case = format!("{} {gpu} {source:?} {settings:?}", profile.id);
+                let empty = source.width == 0 || source.height == 0 || source.refresh_mhz == 0;
                 let plan = match decide(&source, &settings, profile, &caps) {
                     Ok(plan) => plan,
+                    Err(PolicyError::EmptySource { .. }) if empty => {
+                        empty_sources += 1;
+                        continue;
+                    }
                     Err(e) => {
                         failures.push(format!("{case}: {e}"));
                         continue;
@@ -186,7 +210,11 @@ fn the_policy_is_safe_and_deterministic_over_random_sources() {
         failures.len(),
         failures.join("\n")
     );
-    assert_eq!(decisions, profiles.len() * 4 * SOURCES_PER_PROFILE);
+    assert_eq!(
+        decisions + empty_sources,
+        profiles.len() * 4 * SOURCES_PER_PROFILE
+    );
+    assert!(empty_sources > 0, "no source with a zero value was drawn");
     // Most random sources fit some mode; a policy that drops everything
     // would pass every check above.
     assert!(winners * 2 > decisions, "{winners} winners in {decisions}");

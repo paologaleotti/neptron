@@ -1139,3 +1139,34 @@ fn an_interlaced_source_on_31_khz_is_shown_progressive() {
         (640, 480, false)
     );
 }
+
+/// A width of 65535 pixels at the native width: the porches push the
+/// horizontal timings past the 16 bits of the contract, so the candidate
+/// is dropped and the plan goes on.
+#[test]
+fn a_timing_outside_its_contract_field_drops_only_that_candidate() {
+    let s = PolicySettings {
+        horizontal: Some(HorizontalStrategy::Native),
+        ..PolicySettings::default()
+    };
+    let plan = decide(
+        &source(u16::MAX, 224, 60_000),
+        &s,
+        &preset("generic_15"),
+        &open_caps(),
+    )
+    .unwrap();
+    let native = &plan.considered[0];
+    assert_eq!(native.rung, Rung::Native);
+    assert!(
+        matches!(
+            native.outcome,
+            Err(Dropped::TimingOutOfRange {
+                value,
+                max: 65_535,
+                ..
+            }) if value > 65_535
+        ),
+        "{native}"
+    );
+}
