@@ -23,6 +23,10 @@ pub enum RefreshKind {
     Exact,
     /// Twice the game's rate; each game frame is shown twice.
     Double,
+    /// Twice the game's rate, which the `native` style takes on its own
+    /// when the refresh policy did not ask for it: each game frame is shown
+    /// twice, and the game speed does not change. The notice says so.
+    NativeDouble,
     /// `force_50`: the game speed changes by the ratio.
     Forced50,
     /// `force_60`: the game speed changes by the ratio.
@@ -93,6 +97,28 @@ pub(crate) fn refresh_targets(
     (targets, skipped)
 }
 
+/// The extra target of the `native` style: twice the game's rate, for a
+/// monitor that cannot show the game's lines at its own rate. `None` when
+/// the refresh policy asks for double refresh already, or when no range
+/// covers the rate. The refresh policy did not ask for it, so a rate that
+/// no range covers is not a skipped target.
+pub(crate) fn native_double_target(
+    policy: RefreshPolicy,
+    game_mhz: u32,
+    ranges: &[CrtRange],
+) -> Option<RefreshTarget> {
+    if policy == RefreshPolicy::ExactX2 {
+        return None;
+    }
+    let rate_mhz = u64::from(game_mhz) * 2;
+    let rate = u32::try_from(rate_mhz).ok()?;
+    covers(ranges, rate_mhz).then_some(RefreshTarget {
+        kind: RefreshKind::NativeDouble,
+        rate_mhz: rate,
+        repeat: 2,
+    })
+}
+
 /// The target for the game's own rate: exact when a range covers it, else
 /// the nearest rate that a range covers.
 pub(crate) fn game_target(game_mhz: u32, ranges: &[CrtRange]) -> RefreshTarget {
@@ -135,6 +161,7 @@ impl fmt::Display for RefreshKind {
         f.write_str(match self {
             Self::Exact => "exact",
             Self::Double => "double refresh",
+            Self::NativeDouble => "double refresh for native",
             Self::Forced50 => "forced 50 Hz",
             Self::Forced60 => "forced 60 Hz",
             Self::Nearest => "nearest in range",
@@ -264,6 +291,36 @@ mod tests {
         assert!(covers(&[range(49_500, 65_000)], 49_500));
         assert!(covers(&[range(49_500, 65_000)], 65_000));
         assert!(!covers(&[range(49_500, 65_000)], 65_001));
+    }
+
+    #[test]
+    fn native_gets_twice_the_game_rate_where_a_range_covers_it() {
+        let pc_31_120 = [range(100_000, 130_000), range(50_000, 65_000)];
+        assert_eq!(
+            native_double_target(RefreshPolicy::Exact, NES, &pc_31_120),
+            Some(target(RefreshKind::NativeDouble, 120_198, 2))
+        );
+        assert_eq!(
+            native_double_target(RefreshPolicy::Force50, NES, &pc_31_120),
+            Some(target(RefreshKind::NativeDouble, 120_198, 2))
+        );
+        assert_eq!(
+            native_double_target(RefreshPolicy::Exact, NES, &[range(49_500, 65_000)]),
+            None
+        );
+    }
+
+    #[test]
+    fn native_gets_no_second_double_target_with_exact_x2() {
+        let pc_31_120 = [range(100_000, 130_000), range(50_000, 65_000)];
+        assert_eq!(
+            native_double_target(RefreshPolicy::ExactX2, NES, &pc_31_120),
+            None
+        );
+        assert_eq!(
+            native_double_target(RefreshPolicy::Exact, u32::MAX, &[range(0, u64::MAX)]),
+            None
+        );
     }
 
     #[test]

@@ -17,7 +17,8 @@
 //!    Switchres.
 //! 6. [`choose`]: the first proposal that the validator accepts.
 //! 7. [`switch_for`]: scale and crop only, or a modeset.
-//! 8. [`notice`]: the notice for a fitted rung or a changed rate.
+//! 8. [`notice`]: the notice for a fitted rung, a changed rate, double
+//!    refresh that the native style took, or a fall to another rung.
 //!
 //! [`decide`] runs steps 1 to 5. The validator is not a dependency of this
 //! crate: the engine runs step 6 with `neptron_safety::validate`.

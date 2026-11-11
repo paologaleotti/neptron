@@ -1,13 +1,13 @@
 use neptron_types::{CrtRange, GpuCaps, MonitorProfile};
 
 use super::ladder::walk_ladder;
-use super::refresh::{game_target, refresh_targets};
+use super::refresh::{game_target, native_double_target, refresh_targets};
 use super::settings::Effective;
 use super::shape::{Shape, progressive_capacity, shape};
 use super::solve::solve;
 use super::{
-    Considered, Dropped, HorizontalStrategy, OrientedSource, Plan, PolicyError, Proposal,
-    RefreshKind, RefreshTarget, Rung, StrategyReplaced,
+    Considered, Dropped, HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError,
+    Proposal, RefreshKind, RefreshTarget, Rung, StrategyReplaced,
 };
 use crate::ModelineError;
 
@@ -34,16 +34,29 @@ pub(crate) struct Crt<'a> {
 /// scale, so a handheld on 15 kHz is centred with borders.
 /// The last resort is the fitted rung at whatever rate Switchres reaches,
 /// so a profile that has any mode for the source gives a proposal.
+///
+/// The `native` style shows the game's own lines and orders by rung first
+/// (`native_key`): the native rung at each target, then at twice the game's
+/// rate when the refresh policy did not ask for it; rung 3; every padded
+/// exact mode, the fuller first; the fitted rung.
 pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
-    let rungs = walk_ladder(crt.settings.style);
+    let style = crt.settings.style;
+    let rungs = walk_ladder(style);
     let (targets, skipped) =
         refresh_targets(crt.settings.refresh, crt.source.refresh_mhz, crt.ranges);
+    let mut walk: Vec<(RefreshTarget, &[Rung])> = targets.iter().map(|&t| (t, rungs)).collect();
+    if style == PictureStyle::Native
+        && let Some(double) =
+            native_double_target(crt.settings.refresh, crt.source.refresh_mhz, crt.ranges)
+    {
+        walk.push((double, &[Rung::Native]));
+    }
 
-    let mut entries = Vec::with_capacity(targets.len() * rungs.len() + 1);
-    for (tier, &target) in targets.iter().enumerate() {
+    let mut entries = Vec::with_capacity(walk.len() * rungs.len() + 1);
+    for (tier, &(target, rungs)) in walk.iter().enumerate() {
         for (place, &rung) in rungs.iter().enumerate() {
             for (sub, outcome) in candidate(rung, target, true, crt)?.into_iter().enumerate() {
-                entries.push(entry((tier, place, sub), rung, target, outcome));
+                entries.push(entry(style, (tier, place, sub), rung, target, outcome));
             }
         }
     }
@@ -56,7 +69,8 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
         .enumerate()
     {
         entries.push(entry(
-            (targets.len(), 0, sub),
+            style,
+            (walk.len(), 0, sub),
             Rung::Fitted,
             last_resort,
             outcome,
@@ -171,18 +185,27 @@ fn fitted_at_capacity(
     Ok(matches!(outcomes.last(), Some(Ok(_))).then_some(outcomes))
 }
 
-type Key = (bool, usize, u32, usize, usize);
+/// Group, then four places: the entries sort by it. Group 3 is the fitted
+/// rung for every style.
+type Key = (u8, usize, usize, usize, usize);
 
 /// The order key of an entry; `(tier, place, sub)` is the refresh target,
 /// the place on the ladder and the order within one candidate.
 fn entry(
+    style: PictureStyle,
     (tier, place, sub): (usize, usize, usize),
     rung: Rung,
     target: RefreshTarget,
     outcome: Outcome,
 ) -> (Key, Considered) {
+    let rank = padded_rank(&outcome);
+    let key = match (rung.is_fitted(), style) {
+        (true, _) => (3, tier, 0, place, sub),
+        (false, PictureStyle::Native) => native_key(rung, rank, (tier, place, sub)),
+        (false, _) => (0, tier, rank, place, sub),
+    };
     (
-        (rung.is_fitted(), tier, padded_rank(&outcome), place, sub),
+        key,
         Considered {
             rung,
             target,
@@ -191,14 +214,28 @@ fn entry(
     )
 }
 
+/// The key of an exact entry of the `native` style: the native rung that
+/// is not padded at every target, then rung 3, then every padded mode by
+/// its fill, then by target.
+fn native_key(rung: Rung, rank: usize, (tier, place, sub): (usize, usize, usize)) -> Key {
+    match (rank, rung) {
+        (0, Rung::Native) => (0, tier, 0, place, sub),
+        (0, _) => (1, tier, 0, place, sub),
+        _ => (2, rank, tier, place, sub),
+    }
+}
+
 /// 0 for an entry that is not padded; else above 0, and lower for a
 /// padded mode that fills more of its picture lines.
-fn padded_rank(outcome: &Outcome) -> u32 {
+fn padded_rank(outcome: &Outcome) -> usize {
     match outcome {
         Ok(Proposal {
             padding: Some(padding),
             ..
-        }) => 1_001_u32.saturating_sub(padding.fill_permille()).max(1),
+        }) => {
+            let fill = usize::try_from(padding.fill_permille()).unwrap_or(usize::MAX);
+            1_001_usize.saturating_sub(fill).max(1)
+        }
         _ => 0,
     }
 }

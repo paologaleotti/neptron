@@ -30,6 +30,7 @@ impl Rung {
     }
 }
 
+const NATIVE: &[Rung] = &[Rung::Native, Rung::Interlaced, Rung::Fitted];
 const AUTO: &[Rung] = &[
     Rung::Native,
     Rung::Multiple(2),
@@ -59,11 +60,14 @@ const X4: &[Rung] = &[
 /// falls through the rungs below it. For a multiple, "below" reads as: the
 /// smaller multiples first, because they still give an exact scale, then
 /// rungs 3 and 4; the native rung is above every multiple and is never
-/// reached from one. Native starts at rung 1, so it walks the same rungs as
-/// Auto. The tables above are the whole reading.
+/// reached from one. Native shows the game's own lines and never a
+/// multiple: the native rung, then rung 3 and the fitted rung. The native
+/// rung also gets twice the game's rate (`crt_plan`). The tables above are
+/// the whole reading.
 pub fn walk_ladder(style: PictureStyle) -> &'static [Rung] {
     match style {
-        PictureStyle::Auto | PictureStyle::Native => AUTO,
+        PictureStyle::Auto => AUTO,
+        PictureStyle::Native => NATIVE,
         PictureStyle::X2 => X2,
         PictureStyle::X3 => X3,
         PictureStyle::X4 => X4,
@@ -94,8 +98,11 @@ mod tests {
     }
 
     #[test]
-    fn native_starts_at_rung_one_and_falls_through_every_rung_below() {
-        assert_eq!(walk_ladder(PictureStyle::Native), AUTO);
+    fn native_walks_the_game_lines_and_never_a_multiple() {
+        assert_eq!(
+            walk_ladder(PictureStyle::Native),
+            [Rung::Native, Rung::Interlaced, Rung::Fitted]
+        );
     }
 
     #[test]

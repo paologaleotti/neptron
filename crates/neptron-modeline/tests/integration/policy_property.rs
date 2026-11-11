@@ -2,11 +2,12 @@
 //! settings and every shipped preset, the policy never panics, every winner
 //! passes the validator, every game rectangle lies inside its mode, every
 //! whole-scale claim holds exactly, no fitted proposal comes before a pixel
-//! exact one, and the decision is deterministic.
+//! exact one, the `native` style never scales the game's lines by a whole
+//! multiple above 1 on a CRT, and the decision is deterministic.
 
 use neptron_modeline::policy::{
-    HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError, PolicySettings, Proposal,
-    RefreshPolicy, choose, decide,
+    Considered, HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError,
+    PolicySettings, Proposal, RefreshPolicy, Rung, choose, decide,
 };
 use neptron_safety::validate;
 use neptron_types::{GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry, ui_dest_fill};
@@ -141,12 +142,29 @@ fn check_placement(p: &Proposal, source: &OrientedSource, crt: bool) -> Result<(
     Ok(())
 }
 
+/// On a CRT, every exact proposal of the `native` style shows the game's
+/// lines once: the native rung or rung 3, at a vertical scale of 1.
+fn check_native(considered: &Considered, proposal: &Proposal) -> Result<(), String> {
+    match considered.rung {
+        Rung::Fitted => Ok(()),
+        Rung::Native | Rung::Interlaced if proposal.placement.scale.y == Some(1) => Ok(()),
+        rung => Err(format!(
+            "native gives {rung} at a vertical scale of {:?}",
+            proposal.placement.scale.y
+        )),
+    }
+}
+
 fn check_plan(plan: &Plan, profile: &MonitorProfile, caps: &GpuCaps) -> Result<(), String> {
     let crt = matches!(profile.kind, MonitorKind::Crt { .. });
     let mut fitted_seen = None;
     for (index, considered, proposal) in plan.proposals() {
         check_placement(proposal, &plan.source, crt)
             .map_err(|e| format!("#{index} {considered}: {e}"))?;
+        if crt && plan.style == PictureStyle::Native {
+            check_native(considered, proposal)
+                .map_err(|e| format!("#{index} {considered}: {e}"))?;
+        }
         match (considered.rung.is_fitted(), fitted_seen) {
             (true, None) => fitted_seen = Some(index),
             (false, Some(fitted)) => {

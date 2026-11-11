@@ -200,6 +200,95 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
+        // Native is the game's own lines 1:1, never a multiple. On 15 kHz
+        // that is the native mode at the game's rate.
+        Row {
+            style: PictureStyle::Native,
+            mode: "256x224p",
+            ..row("style_native_on_15khz", preset("generic_15"), open_caps())
+        },
+        // pc_31_120 at 60.099 Hz forces 523 lines less 18 of blanking: 224
+        // lines in 505 are padded. At twice the rate, range 1 holds 200 to
+        // 256 lines and forces ceil(31,400 / 120.198) = 262 less 18 = 244:
+        // 224 lines fill 92 %. Native takes double refresh, also with the
+        // refresh policy exact.
+        Row {
+            style: PictureStyle::Native,
+            mode: "256x224p",
+            kind: RefreshKind::NativeDouble,
+            rate_mhz: 2 * SNES.2,
+            ..row(
+                "style_native_on_31khz_is_double_refresh",
+                preset("pc_31_120"),
+                open_caps(),
+            )
+        },
+        // The EDID bench profile, 30 to 71 kHz and 50 to 160 Hz: 224 of 480
+        // picture lines at 60.099 Hz, 224 of 250 - 20 = 230 at 120.198 Hz.
+        Row {
+            style: PictureStyle::Native,
+            mode: "256x224p",
+            kind: RefreshKind::NativeDouble,
+            rate_mhz: 2 * SNES.2,
+            ..row(
+                "style_native_on_edid_is_double_refresh",
+                pc_crt_30_71(),
+                edid_caps(open_caps()),
+            )
+        },
+        // arcade_31 (31.4 to 31.5 kHz, 49.5 to 65 Hz, 400 to 512 lines)
+        // has no 120 Hz. At 60.099 Hz it forces ceil(31,400 / 60.099) = 523
+        // lines less ceil(1.43 ms x 31.4 kHz) = 45, and holds floor(31,500
+        // / 60.099) = 524 less 46: 478 either way. 224 lines are centred in
+        // 478, padded. Width: 256 x 478 x 4 / (3 x 224 x 1.333) = 546.4.
+        Row {
+            style: PictureStyle::Native,
+            mode: "546x478p",
+            ..row(
+                "style_native_on_31khz_60_only_is_padded",
+                preset("arcade_31"),
+                open_caps(),
+            )
+        },
+        // Auto on the same monitor: 2x, 448 lines in 478.
+        Row {
+            rung: Rung::Multiple(2),
+            mode: "256x448p",
+            ..row(
+                "style_auto_on_31khz_60_only_is_2x",
+                preset("arcade_31"),
+                open_caps(),
+            )
+        },
+        // Auto with exact_x2 gives the "native, double refresh" row.
+        Row {
+            refresh: RefreshPolicy::ExactX2,
+            mode: "256x224p",
+            kind: RefreshKind::Double,
+            rate_mhz: 2 * SNES.2,
+            ..row(
+                "style_auto_exact_x2_is_double_refresh",
+                preset("pc_31_120"),
+                open_caps(),
+            )
+        },
+        // A Game Boy with native on pc_31_120: every native mode is padded.
+        // At 59.728 Hz, 144 lines in 508 (28 %); at 119.456 Hz, 144 lines
+        // in the 224-line standard border, of 263 - 18 = 245 picture lines
+        // (58 %). The fuller one wins. Width: 160 x 224 x 4 / (3 x 144 x
+        // 1.111) = 298.7.
+        Row {
+            source: gb,
+            style: PictureStyle::Native,
+            mode: "299x224p",
+            kind: RefreshKind::NativeDouble,
+            rate_mhz: 119_456,
+            ..row(
+                "style_native_handheld_on_31khz",
+                preset("pc_31_120"),
+                open_caps(),
+            )
+        },
         // Step 3: with exact_x2, 480 lines fit no range at 119.88 Hz
         // (range 1 holds 200 to 256 lines). The fitted rung at the doubled
         // rate must not beat the exact native rung at the game's rate:
@@ -756,7 +845,7 @@ fn a_native_width_below_the_gpu_floor_is_replaced_by_the_dynamic_super_width() {
     let replaced = proposal.strategy_replaced.unwrap();
     assert_eq!(replaced.from, HorizontalStrategy::Native);
     assert_eq!(replaced.reason, first.outcome.unwrap_err());
-    let n = notice(considered).unwrap();
+    let n = notice(&plan, considered).unwrap();
     assert!(!n.fitted);
     assert_eq!(n.strategy_replaced, Some(replaced));
 }
@@ -843,7 +932,7 @@ fn step8_a_fitted_winner_shows_a_notice() {
         .unwrap();
     let plan = plan_of(&r);
     let (considered, _) = winner(&plan, &r.profile, &r.caps);
-    let n = notice(considered).unwrap();
+    let n = notice(&plan, considered).unwrap();
     assert!(n.fitted);
 }
 
@@ -856,7 +945,7 @@ fn step8_a_forced_rate_shows_a_notice_and_changes_the_speed() {
     let plan = plan_of(&r);
     let (considered, proposal) = winner(&plan, &r.profile, &r.caps);
     assert!(proposal.timing.changes_speed());
-    let n = notice(considered).unwrap();
+    let n = notice(&plan, considered).unwrap();
     assert!(!n.fitted);
     assert_eq!(n.game_mhz, 60_099);
     assert!(n.shown_mhz.abs_diff(50_000) < REFRESH_MATCH_MHZ);
@@ -872,12 +961,114 @@ fn step8_exact_double_refresh_and_panel_rates_show_no_notice() {
         let r = rows().into_iter().find(|r| r.rule == rule).unwrap();
         let plan = plan_of(&r);
         let (considered, proposal) = winner(&plan, &r.profile, &r.caps);
-        assert_eq!(notice(considered), None, "{rule}");
+        assert_eq!(notice(&plan, considered), None, "{rule}");
         if rule == "step3_native_double_refresh" {
             assert_eq!(proposal.timing.repeat(), 2);
             assert!(!proposal.timing.changes_speed());
         }
     }
+}
+
+#[test]
+fn step8_double_refresh_that_the_native_style_takes_shows_a_notice() {
+    let r = rows()
+        .into_iter()
+        .find(|r| r.rule == "style_native_on_31khz_is_double_refresh")
+        .unwrap();
+    let plan = plan_of(&r);
+    let (considered, proposal) = winner(&plan, &r.profile, &r.caps);
+    assert_eq!(proposal.timing.repeat(), 2);
+    assert!(!proposal.timing.changes_speed());
+    let n = notice(&plan, considered).unwrap();
+    assert!(n.double_refresh);
+    assert!(!n.fitted && !n.style_fallback);
+    assert_eq!(n.game_mhz, SNES.2);
+    assert!(n.shown_mhz.abs_diff(u64::from(SNES.2)) < REFRESH_MATCH_MHZ);
+}
+
+#[test]
+fn step8_a_style_that_falls_to_another_rung_shows_a_notice() {
+    let r = rows()
+        .into_iter()
+        .find(|r| r.rule == "step3_explicit_4x_falls_to_2x")
+        .unwrap();
+    let plan = plan_of(&r);
+    let (considered, _) = winner(&plan, &r.profile, &r.caps);
+    assert_eq!(considered.rung, Rung::Multiple(2));
+    let n = notice(&plan, considered).unwrap();
+    assert!(n.style_fallback);
+    assert!(!n.fitted && !n.double_refresh);
+}
+
+#[test]
+fn the_padded_native_mode_keeps_its_padding() {
+    let r = rows()
+        .into_iter()
+        .find(|r| r.rule == "style_native_on_31khz_60_only_is_padded")
+        .unwrap();
+    let plan = plan_of(&r);
+    let (considered, proposal) = winner(&plan, &r.profile, &r.caps);
+    let padding = proposal.padding.expect("the native mode is padded");
+    assert_eq!((padding.game_lines, padding.picture_lines), (224, 478));
+    assert_eq!(padding.line_rate_min_mhz, 31_400_000);
+    assert_eq!(padding.fill_permille(), 468);
+    assert!(proposal.bordered);
+    // The game's own lines, centred: (478 - 224) / 2 = 127.
+    assert_eq!(
+        (proposal.placement.dest.y, proposal.placement.scale.y),
+        (127, Some(1))
+    );
+    // Not a fall to another rung, and not a changed rate.
+    assert_eq!(notice(&plan, considered), None);
+    // arcade_31 has no range at 120.198 Hz, so native has no double
+    // refresh target; the plan does not list it as skipped, because the
+    // refresh policy did not ask for it.
+    assert!(
+        plan.considered
+            .iter()
+            .all(|c| c.target.kind != RefreshKind::NativeDouble)
+    );
+    assert!(plan.skipped.is_empty());
+}
+
+#[test]
+fn native_never_walks_a_multiple() {
+    for profile in [preset("generic_15"), preset("pc_31_120"), pc_crt_30_71()] {
+        for refresh in [RefreshPolicy::Exact, RefreshPolicy::ExactX2] {
+            let plan = decide(
+                &snes(),
+                &settings(PictureStyle::Native, refresh),
+                &profile,
+                &open_caps(),
+            )
+            .unwrap();
+            for c in &plan.considered {
+                assert!(
+                    matches!(c.rung, Rung::Native | Rung::Interlaced | Rung::Fitted),
+                    "{} {c}",
+                    profile.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn native_with_exact_x2_has_one_double_refresh_target() {
+    let plan = decide(
+        &snes(),
+        &settings(PictureStyle::Native, RefreshPolicy::ExactX2),
+        &preset("pc_31_120"),
+        &open_caps(),
+    )
+    .unwrap();
+    let kinds: Vec<RefreshKind> = plan
+        .considered
+        .iter()
+        .filter(|c| c.rung == Rung::Native)
+        .map(|c| c.target.kind)
+        .collect();
+    assert_eq!(kinds, [RefreshKind::Double, RefreshKind::Exact]);
 }
 
 #[test]
@@ -944,12 +1135,18 @@ fn the_display_panel_rows_come_from_the_same_plan_and_validator() {
         summary,
         [
             (PictureStyle::Auto, true, Some(Rung::Multiple(2))),
-            // Native is greyed out: its own rung is padded, 2x wins.
-            (PictureStyle::Native, false, Some(Rung::Multiple(2))),
+            // Native shows the game's own 224 lines, at double refresh.
+            (PictureStyle::Native, true, Some(Rung::Native)),
             (PictureStyle::X2, true, Some(Rung::Multiple(2))),
             (PictureStyle::X3, true, Some(Rung::Multiple(3))),
             (PictureStyle::X4, true, Some(Rung::Multiple(4))),
         ]
+    );
+    let native = &rows[1];
+    let target = native.plan.considered[native.winner.unwrap()].target;
+    assert_eq!(
+        (target.kind, target.rate_mhz),
+        (RefreshKind::NativeDouble, 2 * SNES.2)
     );
     // Each row is the engine's own decision for that style.
     for r in &rows {

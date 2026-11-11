@@ -60,6 +60,15 @@ pub struct Notice {
     /// The horizontal strategy of the settings gave no mode above the
     /// GPU's pixel clock floor, and the dynamic super width replaced it.
     pub strategy_replaced: Option<StrategyReplaced>,
+    /// The `native` style shows each frame twice at twice the game's rate,
+    /// although the refresh policy did not ask for it, because the monitor
+    /// cannot show the game's lines at the game's rate. The game speed does
+    /// not change.
+    pub double_refresh: bool,
+    /// The winner is not on the first rung of the picture style: the
+    /// picture is not the one the style names (a smaller multiple, rung 3
+    /// or the fit). Auto has no rung of its own.
+    pub style_fallback: bool,
 }
 
 /// One row of the picture style list of the Display panel.
@@ -121,22 +130,34 @@ pub fn switch_for(current: Option<&Modeline>, winner: &Modeline) -> Switch {
     }
 }
 
-/// Step 8: a notice when the winner is the fitted rung, when the game runs
-/// at a rate other than its own, or when the dynamic super width replaced
-/// the horizontal strategy of the settings. Double refresh shows each frame twice
-/// at the game's own rate, so it needs no notice. A flat panel needs none
-/// for its rate: audio rate control absorbs the difference.
-pub fn notice(considered: &Considered) -> Option<Notice> {
+/// Step 8 for a candidate of `plan`, the winner: a notice when the winner
+/// is the fitted rung, when the game runs at a rate other than its own,
+/// when the dynamic super width replaced the horizontal strategy of the
+/// settings, when the `native` style took double refresh on its own, or
+/// when the winner is not on the style's own rung. Double refresh that the
+/// refresh policy asks for shows each frame twice at the game's own rate,
+/// so it needs no notice. A flat panel needs none for its rate: audio rate
+/// control absorbs the difference.
+pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
     let proposal = considered.outcome.as_ref().ok()?;
     let timing = &proposal.timing;
     let fitted = considered.rung == Rung::Fitted;
     let refresh_differs = timing.changes_speed() && timing.target.kind != RefreshKind::Panel;
     let strategy_replaced = proposal.strategy_replaced;
-    (fitted || refresh_differs || strategy_replaced.is_some()).then(|| Notice {
+    let double_refresh = timing.target.kind == RefreshKind::NativeDouble;
+    let style_fallback = !on_own_rung(plan, plan.style, considered.rung);
+    let any = fitted
+        || refresh_differs
+        || strategy_replaced.is_some()
+        || double_refresh
+        || style_fallback;
+    any.then(|| Notice {
         fitted,
         game_mhz: timing.game_mhz,
         shown_mhz: timing.field_rate_mhz / u64::from(timing.repeat().max(1)),
         strategy_replaced,
+        double_refresh,
+        style_fallback,
     })
 }
 
@@ -159,11 +180,7 @@ pub fn style_rows<E>(
             let plan = decide(source, &settings, profile, caps)?;
             let choice = choose(&plan, &mut validate);
             let winner = choice.winner.as_ref().map(|w| (w.index, w.considered.rung));
-            let available = match (style, winner) {
-                (_, None) => false,
-                (PictureStyle::Auto, Some(_)) => true,
-                (_, Some((_, rung))) => Some(&rung) == plan_first_rung(&plan, style),
-            };
+            let available = winner.is_some_and(|(_, rung)| on_own_rung(&plan, style, rung));
             Ok(StyleRow {
                 style,
                 winner: winner.map(|(index, _)| index),
@@ -175,11 +192,14 @@ pub fn style_rows<E>(
         .collect()
 }
 
-/// The style's own rung: the first rung of its walk. A flat panel has one
-/// rung.
-fn plan_first_rung(plan: &Plan, style: PictureStyle) -> Option<&'static Rung> {
-    if plan.horizontal.is_none() {
-        return Some(&Rung::Panel);
+/// `rung` is the style's own rung: the first rung of its walk, or any rung
+/// for Auto. A flat panel has one rung.
+fn on_own_rung(plan: &Plan, style: PictureStyle, rung: Rung) -> bool {
+    if style == PictureStyle::Auto {
+        return true;
     }
-    super::walk_ladder(style).first()
+    if plan.horizontal.is_none() {
+        return rung == Rung::Panel;
+    }
+    super::walk_ladder(style).first() == Some(&rung)
 }
