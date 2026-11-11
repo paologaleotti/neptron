@@ -8,9 +8,11 @@
 
 mod clock;
 pub mod golden;
+mod hash;
 mod image;
 pub mod preset;
 
 pub use clock::{ClockError, SimClock};
 pub use golden::Golden;
+pub use hash::frame_hash;
 pub use image::{ImageError, RgbImage};
