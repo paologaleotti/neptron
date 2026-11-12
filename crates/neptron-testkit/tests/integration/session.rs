@@ -87,10 +87,10 @@ fn run(render: Render, frames: u64) -> Outcome {
         modeset_ns: 40_000_000,
         ..DisplayOptions::default()
     };
-    let lost = frames * 7 / 10;
+    let slow = frames * 7 / 10;
     let probe = FakeDisplay::with_options(clock.clone(), CAPS_LOW_CLOCK, options);
     probe.fault_flip(frames * 4 / 10, FlipFault::Late { vblanks: 2 });
-    probe.fault_flip(lost, FlipFault::Lost);
+    probe.fault_flip(slow, FlipFault::Slow { timeouts: 1 });
     probe.capture(frames - 1);
     let audio_probe = FakeAudio::new(clock.clone(), 48_000, 4_096);
     let input_probe = ScriptedInput::new(clock.clone(), Vec::new());
@@ -160,7 +160,10 @@ fn run(render: Render, frames: u64) -> Outcome {
         };
         display.present(&scene).unwrap();
         let flipped = display.wait_flip();
-        assert_eq!(flipped.is_err(), n == lost, "frame {n}: {flipped:?}");
+        assert_eq!(flipped.is_err(), n == slow, "frame {n}: {flipped:?}");
+        if flipped.is_err() {
+            display.wait_flip().unwrap();
+        }
         clock.advance(WORK_NS);
         for (i, s) in samples.iter_mut().enumerate() {
             *s = ((n as i64 * 31 + i as i64 * 7) % 4_001 - 2_000) as i16;
@@ -194,7 +197,7 @@ fn check_outcome(outcome: &Outcome, frames: u64) {
 
     assert_eq!(outcome.modes.len(), 2);
     let flipped = outcome.frames.iter().filter(|f| f.flip.is_some()).count();
-    assert_eq!(flipped, count - 1);
+    assert_eq!(flipped, count);
     assert!(outcome.frames[count * 7 / 10].flip_error.is_some());
     assert_eq!(outcome.frames[count * 4 / 10].late_by(), Some(2));
     assert_eq!(outcome.delivered.len(), 40);

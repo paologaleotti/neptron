@@ -393,15 +393,14 @@ fn flip_faults() {
     let mut display = timing_only(&clock, DisplayOptions::default());
     display.set_mode(&mode(MODE_240P)).unwrap();
     display.fault_flip(0, FlipFault::Late { vblanks: 2 });
-    display.fault_flip(1, FlipFault::Lost);
     display.fault_flip(
-        2,
+        1,
         FlipFault::PresentFails {
             reason: "EIO".to_owned(),
         },
     );
     display.fault_flip(
-        3,
+        2,
         FlipFault::WaitFails {
             reason: "EIO".to_owned(),
         },
@@ -411,14 +410,6 @@ fn flip_faults() {
     assert_eq!(late.sequence, 3);
     assert_eq!(display.late_frames()[0].late_by(), Some(2));
 
-    let before = clock.now_ns();
-    let lost = Err(DisplayError::Device {
-        operation: "wait_flip",
-        reason: format!("no flip event after {DEFAULT_FLIP_TIMEOUT_NS} ns"),
-    });
-    assert_eq!(frame(&mut display), lost);
-    assert_eq!(clock.now_ns(), before + DEFAULT_FLIP_TIMEOUT_NS);
-
     assert_eq!(
         display.present(&empty()),
         Err(DisplayError::Device {
@@ -426,21 +417,97 @@ fn flip_faults() {
             reason: "EIO".to_owned()
         })
     );
-    assert_eq!(display.next_present_index(), 3);
-    assert_eq!(
-        frame(&mut display),
-        Err(DisplayError::Device {
-            operation: "wait_flip",
-            reason: "EIO".to_owned()
-        })
-    );
+    assert_eq!(display.next_present_index(), 2);
+    let before = clock.now_ns();
+    let failed = Err(DisplayError::Device {
+        operation: "wait_flip",
+        reason: "EIO".to_owned(),
+    });
+    assert_eq!(frame(&mut display), failed);
+    assert_eq!(clock.now_ns(), before, "a device failure takes no time");
+    // The flip stays queued, and the next wait returns its event.
+    assert!(display.present(&empty()).is_err());
+    let landed = display.wait_flip().unwrap();
+    assert_eq!(landed.sequence, late.sequence + 1);
+    assert_eq!(display.frames()[2].flip, Some(landed));
+    assert_eq!(display.frames()[2].flip_error, failed.err());
     let after = frame(&mut display).unwrap();
-    assert!(after.sequence > late.sequence);
+    assert!(after.sequence > landed.sequence);
 
     let dropped: Vec<u64> = display.dropped_frames().iter().map(|f| f.index).collect();
-    assert_eq!(dropped, [1, 3]);
-    assert_eq!(display.frames()[1].flip_error, lost.err());
-    assert_eq!(display.flips().len(), 2);
+    assert!(dropped.is_empty(), "{dropped:?}");
+    assert_eq!(display.flips().len(), 3);
+}
+
+fn timed_out() -> Result<FlipEvent, DisplayError> {
+    Err(DisplayError::Device {
+        operation: "wait_flip",
+        reason: format!("no flip event after {DEFAULT_FLIP_TIMEOUT_NS} ns"),
+    })
+}
+
+#[test]
+fn a_lost_flip_stays_queued_and_every_wait_times_out() {
+    let clock = SimClock::new();
+    let mut display = timing_only(&clock, DisplayOptions::default());
+    display.set_mode(&mode(MODE_240P)).unwrap();
+    display.fault_flip(0, FlipFault::Lost);
+    display.present(&empty()).unwrap();
+    for wait in 1..=3 {
+        let before = clock.now_ns();
+        assert_eq!(display.wait_flip(), timed_out(), "wait {wait}");
+        assert_eq!(clock.now_ns(), before + DEFAULT_FLIP_TIMEOUT_NS);
+        let busy = |operation| DisplayError::Device {
+            operation,
+            reason: "a flip is already queued".to_owned(),
+        };
+        assert_eq!(display.present(&empty()), Err(busy("present")));
+        assert_eq!(display.set_mode(&mode(MODE_288P)), Err(busy("set_mode")));
+    }
+    assert_eq!(display.active_mode(), Some(MODE_240P));
+    assert!(display.flips().is_empty());
+    assert_eq!(display.frames()[0].flip_error, timed_out().err());
+    assert_eq!(display.dropped_frames().len(), 1);
+}
+
+#[test]
+fn a_slow_flip_lands_after_its_timeouts() {
+    let clock = SimClock::new();
+    let mut display = timing_only(&clock, DisplayOptions::default());
+    display.set_mode(&mode(MODE_240P)).unwrap();
+    display.fault_flip(0, FlipFault::Slow { timeouts: 2 });
+    display.present(&empty()).unwrap();
+    assert_eq!(display.wait_flip(), timed_out());
+    assert!(display.present(&empty()).is_err(), "still busy");
+    assert_eq!(display.wait_flip(), timed_out());
+    assert_eq!(clock.now_ns(), 2 * DEFAULT_FLIP_TIMEOUT_NS);
+    let landed = display.wait_flip().unwrap();
+    // The first blank of 240p after 200 ms is blank 13, at 216.6 ms.
+    assert_eq!(landed.sequence, 13);
+    assert_eq!(landed.time_ns, blank_240p(13));
+    assert_eq!(clock.now_ns(), landed.time_ns);
+    assert_eq!(display.frames()[0].flip, Some(landed));
+    let next = frame(&mut display).unwrap();
+    assert_eq!(next.sequence, 14);
+}
+
+#[test]
+fn a_slow_flip_whose_target_comes_after_the_timeouts_lands_on_time() {
+    let clock = SimClock::new();
+    let mut display = timing_only(
+        &clock,
+        DisplayOptions {
+            flip_timeout_ns: 1_000_000,
+            ..DisplayOptions::default()
+        },
+    );
+    display.set_mode(&mode(MODE_240P)).unwrap();
+    display.fault_flip(0, FlipFault::Slow { timeouts: 1 });
+    display.present(&empty()).unwrap();
+    assert!(display.wait_flip().is_err());
+    assert_eq!(clock.now_ns(), 1_000_000);
+    let landed = display.wait_flip().unwrap();
+    assert_eq!((landed.sequence, landed.time_ns), (1, blank_240p(1)));
 }
 
 #[test]

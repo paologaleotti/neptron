@@ -7,7 +7,7 @@ Other crates use it as a dev-dependency. It is library code: typed errors, no `u
 ## Public API sketch
 
 - `SimClock: Clock`: the only time source. Clones share one time. Time moves only on `advance`, `advance_to`, or when a fake display waits for a flip.
-- `FakeDisplay: Display`: vertical blanks at the field rate of the mode read back, on the simulated clock. `present` queues one flip for the first blank after the call where a flip can land; `wait_flip` moves the clock to that blank. Options: `Render` mode, `Jitter` (scripted or seeded), seeded `LateFlips`, a programmed refresh rate, a modeset duration, a flip timeout. Faults: `ModeFault` (refused, device error, other mode read back) by call number or by the requested mode (`fault_requested_mode`), and `FlipFault` (late, lost, failed `present`, device failure in `wait_flip` that loses the flip) by present number. Queries: `mode_calls`, `mode_switches`, `active_mode`, `frames`, `flips`, `flip_times`, `frame_hashes`, `late_frames`, `dropped_frames`, `repeated_vblanks`, `screen`, `capture` and `captured`.
+- `FakeDisplay: Display`: vertical blanks at the field rate of the mode read back, on the simulated clock. `present` queues one flip for the first blank after the call where a flip can land; `wait_flip` moves the clock to that blank. Options: `Render` mode, `Jitter` (scripted or seeded), seeded `LateFlips`, a programmed refresh rate, a modeset duration, a flip timeout. Faults: `ModeFault` (refused, device error, other mode read back) by call number or by the requested mode (`fault_requested_mode`), and `FlipFault` (late, lost, slow, failed `present`, device failure in one `wait_flip`; each keeps the flip queued) by present number. Queries: `mode_calls`, `mode_switches`, `active_mode`, `frames`, `flips`, `flip_times`, `frame_hashes`, `late_frames`, `dropped_frames`, `repeated_vblanks`, `screen`, `capture` and `captured`.
 - `FakeAudio: AudioSink`: a device that plays its queue at its rate on the simulated clock, from the first write. Queries: `writes` (time, offered, taken, depth after), `overruns`, `underruns`, `played_frames`, `written_frames`, `sample_hash`, `samples` (on request). The device rate can differ from the nominal rate.
 - `ScriptedInput: InputSource`: timed RetroPad events. `press`, `release`, `tap`, `set`, `push`; `delivered` and `pending`.
 - `golden`: `RgbImage`, `encode_ppm`, `decode_ppm`, `difference`, and `Golden`, which compares an image with `tests/golden/<name>.ppm` at the workspace root.
@@ -24,7 +24,7 @@ No fake reads the wall clock, sleeps, starts a thread, iterates a hash map or re
 
 - `present` and `wait_flip` before the first successful `set_mode` return `NoMode`.
 - One flip at a time. A second `present`, a `set_mode` with a queued flip, or a `wait_flip` with nothing queued returns `Device`, as KMS returns `EBUSY` or never sends an event.
-- A failed `set_mode` keeps the active mode. A lost flip moves the clock by the flip timeout (100 ms by default) and returns `Device`.
+- A failed `set_mode` keeps the active mode. A wait that times out moves the clock by the flip timeout (100 ms by default), returns `Device` and keeps the flip queued.
 - Jitter of half a period or more is refused at `set_mode`, so blanks stay in order.
 - Vertical blanks come at the field rate, and the sequence counts fields. For an interlaced mode on caps without `flip_per_field`, a flip lands only on the blank that starts a frame, every second field: 480i gives 30 flips per second. With `flip_per_field`, every field takes a flip. A programmed refresh rate overrides both: every blank of that rate takes a flip.
 - `repeated_vblanks` counts the blanks beyond the flip interval of each frame (`FrameRecord::flip_interval`), so 480i without `flip_per_field` repeats nothing when each frame starts a new picture.
@@ -36,6 +36,7 @@ Code that passes on the fake display must also work on the KMS backend. The KMS 
 
 - `present` or `set_mode` while a flip is pending returns `DisplayError::Device`, as a nonblocking atomic commit returns `EBUSY`. The engine must call `wait_flip` first.
 - `wait_flip` with no flip queued returns `DisplayError::Device`. It does not block.
+- `wait_flip` is bounded. On a timeout or another wait error it returns `DisplayError::Device` and the flip stays queued: a later `wait_flip` returns its event, and until then `present` and `set_mode` are busy. `FlipFault::Lost` never lands, `FlipFault::Slow { timeouts }` lands after `timeouts` timed-out waits, and `FlipFault::WaitFails` fails one wait at once. A timed-out wait moves the simulated clock by `DisplayOptions::flip_timeout_ns`.
 - A failed `set_mode` keeps the old mode active.
 - Interlaced flips follow `GpuCaps::flip_per_field`: one flip per field with it, one flip per frame without it.
 

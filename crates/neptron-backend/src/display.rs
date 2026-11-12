@@ -15,7 +15,8 @@ pub trait Display {
     /// # Errors
     ///
     /// [`DisplayError::ModeRefused`] when the driver refuses the mode,
-    /// [`DisplayError::Device`] when the device fails.
+    /// [`DisplayError::Device`] while a flip is queued (busy) or when the
+    /// device fails. On an error the mode that was active stays.
     fn set_mode(&mut self, mode: &ValidatedMode) -> Result<Modeline, DisplayError>;
 
     /// Queues one flip that shows `scene`, and returns without waiting for
@@ -25,16 +26,25 @@ pub trait Display {
     ///
     /// [`DisplayError::NoMode`] before the first `set_mode`,
     /// [`DisplayError::SceneRefused`] when the scene does not fit the mode
-    /// or its frames, [`DisplayError::Device`] when the device fails.
+    /// or its frames, [`DisplayError::Device`] while a flip is queued
+    /// (busy) or when the device fails.
     fn present(&mut self, scene: &Scene) -> Result<(), DisplayError>;
 
-    /// Blocks until the next flip completes, and returns when it took
-    /// effect.
+    /// Blocks until the next flip completes, but no longer than a limit of
+    /// the backend, and returns when the flip took effect.
+    ///
+    /// When the limit passes first, it returns [`DisplayError::Device`]
+    /// and the flip stays queued: it can still complete, a later
+    /// `wait_flip` returns its event, and until then `present` and
+    /// `set_mode` return [`DisplayError::Device`] as busy. Any other error
+    /// of the wait also keeps the flip queued. A backend never drops a
+    /// queued flip.
     ///
     /// # Errors
     ///
     /// [`DisplayError::NoMode`] before the first `set_mode`,
-    /// [`DisplayError::Device`] when the device fails.
+    /// [`DisplayError::Device`] with no flip queued, when the limit
+    /// passes, or when the device fails.
     fn wait_flip(&mut self) -> Result<FlipEvent, DisplayError>;
 }
 

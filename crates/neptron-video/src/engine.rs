@@ -24,10 +24,8 @@ pub enum VideoError {
     /// The display refused or failed the present. No flip is queued.
     #[error("present failed: {0}")]
     Present(DisplayError),
-    /// The wait for the flip failed. The flip stays queued, because a
-    /// wait can time out while the flip is still in flight, until
-    /// [`FLIP_WAIT_ATTEMPTS`] waits in a row have failed; then it counts as
-    /// lost.
+    /// The wait for the flip failed. The flip stays queued until a wait
+    /// returns its event: the display never drops a queued flip.
     #[error("wait_flip failed: {0}")]
     WaitFlip(DisplayError),
     /// The flip of the last present is still queued, and the wait for it
@@ -46,13 +44,6 @@ pub enum VideoError {
         error: DisplayError,
     },
 }
-
-/// A queued flip whose wait failed this many times in a row counts as
-/// lost. A wait can time out while the flip is still in flight: the first
-/// failure keeps the flip queued, so the display does not refuse the next
-/// `set_mode` or `present` as busy. A second failure in a row means the
-/// device dropped the flip.
-pub const FLIP_WAIT_ATTEMPTS: u32 = 2;
 
 /// What [`VideoEngine::present`] did.
 #[derive(Debug, Clone, PartialEq)]
@@ -77,9 +68,10 @@ pub struct Presented {
 pub struct VideoEngine<D: Display> {
     display: D,
     odren: Odren,
+    /// A flip is queued on the display. It stays queued until a wait
+    /// returns its event, because the display refuses `set_mode` and
+    /// `present` as busy until then.
     flip_pending: bool,
-    /// Failed waits in a row for the queued flip.
-    failed_waits: u32,
 }
 
 impl<D: Display> VideoEngine<D> {
@@ -91,7 +83,6 @@ impl<D: Display> VideoEngine<D> {
             display,
             odren,
             flip_pending: false,
-            failed_waits: 0,
         }
     }
 
@@ -234,38 +225,23 @@ impl<D: Display> VideoEngine<D> {
     }
 
     /// The display refuses `set_mode` and `present` while a flip is
-    /// queued, so the engine waits for it first. A flip that counts as lost
-    /// after this wait lets the present go on.
+    /// queued, so the engine waits for it first.
     fn drain_flip(&mut self) -> Result<Option<FlipEvent>, VideoError> {
         if !self.flip_pending {
             return Ok(None);
         }
-        match self.wait_queued() {
-            Ok(event) => Ok(Some(event)),
-            Err(_) if !self.flip_pending => Ok(None),
-            Err(error) => Err(VideoError::PendingFlip(error)),
-        }
+        self.wait_queued()
+            .map(Some)
+            .map_err(VideoError::PendingFlip)
     }
 
-    /// The one call of `Display::wait_flip`. The flip stays queued until
-    /// the wait succeeds or [`FLIP_WAIT_ATTEMPTS`] waits fail in a row.
+    /// The one call of `Display::wait_flip`. A failed wait keeps the flip
+    /// queued.
     fn wait_queued(&mut self) -> Result<FlipEvent, DisplayError> {
-        match self.display.wait_flip() {
-            Ok(event) => {
-                self.flip_pending = false;
-                self.failed_waits = 0;
-                self.odren.on_flip(&event);
-                Ok(event)
-            }
-            Err(error) => {
-                self.failed_waits += 1;
-                if self.failed_waits >= FLIP_WAIT_ATTEMPTS {
-                    self.flip_pending = false;
-                    self.failed_waits = 0;
-                }
-                Err(error)
-            }
-        }
+        let event = self.display.wait_flip()?;
+        self.flip_pending = false;
+        self.odren.on_flip(&event);
+        Ok(event)
     }
 
     fn modeset(&mut self) -> Result<Option<Outcome>, VideoError> {

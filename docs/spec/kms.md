@@ -82,7 +82,7 @@ When the event comes, the buffer that was on the screen goes back to the GBM sur
 
 **Bounded waits.** `wait_flip` polls the descriptor with a limit of `FLIP_WAIT_LIMIT_MS` (500 ms) in total, and reads only when the poll says that data is there, so a read never blocks. The slowest field of any shipped profile is about 20 ms, and an interlaced frame about 40 ms; 500 ms also covers `vkms` under a loaded QEMU. A flip that does not complete in that time is `DisplayError::Device` with `operation` "wait for the page flip". The flip stays pending: a later `wait_flip` waits again, and `present` and `set_mode` stay refused until the event comes. The frame thread never hangs on a flip.
 
-This bounded wait is the behaviour of this backend. The `Display` contract and the fake display of `neptron-testkit` do not state it yet; it is proposed for the contract. The rule: on a timeout `wait_flip` returns `DisplayError::Device`, the flip can still complete, a later `wait_flip` returns its event, and until then `set_mode` and `present` return `DisplayError::Device` as busy.
+The `Display` contract states this bounded wait (ADR 0007), and the fake display of `neptron-testkit` follows it: on a timeout `wait_flip` returns `DisplayError::Device`, the flip can still complete, a later `wait_flip` returns its event, and until then `set_mode` and `present` return `DisplayError::Device` as busy. A failed event read also keeps the flip pending.
 
 `wait_flip` with no flip queued is `DisplayError::Device` and does not block, and before the first `set_mode` it is `DisplayError::NoMode`, as on the fake display.
 

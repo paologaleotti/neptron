@@ -72,7 +72,8 @@ pub struct FrameRecord {
     pub flip_interval: Option<u64>,
     /// The completed flip, once `wait_flip` returned it.
     pub flip: Option<FlipEvent>,
-    /// The error `wait_flip` returned for this frame, if any.
+    /// The last error `wait_flip` returned for this frame, if any. The
+    /// flip stays queued after it, so `flip` can still come later.
     pub flip_error: Option<DisplayError>,
 }
 
@@ -163,7 +164,7 @@ impl FakeDisplay {
     }
 
     /// The frames whose `present` succeeded but that never flipped: the
-    /// flip was lost, `wait_flip` failed, or nobody waited yet.
+    /// flip did not land yet, or nobody waited for it.
     pub fn dropped_frames(&self) -> Vec<FrameRecord> {
         self.lock()
             .frames

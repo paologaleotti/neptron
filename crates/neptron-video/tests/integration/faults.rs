@@ -359,40 +359,6 @@ fn a_failed_present_queues_nothing() {
 }
 
 #[test]
-fn a_lost_flip_is_waited_for_again_and_the_next_frame_runs() {
-    let mut rig = Rig::generic_15(native_width());
-    rig.frame(SNES);
-    rig.fake.fault_flip(1, FlipFault::Lost);
-    rig.engine.begin_frame(SNES);
-    rig.engine.present(Some(frame(&SNES)), None).unwrap();
-    assert!(matches!(
-        rig.engine.wait_flip(),
-        Err(VideoError::WaitFlip(DisplayError::Device { .. }))
-    ));
-    // The flip stays queued after one failed wait, and the next frame's
-    // present waits for it again; the second failure counts it as lost,
-    // and that present goes on.
-    rig.frame(SNES);
-    assert_eq!(rig.engine.wait_flip(), Err(VideoError::NoFlipPending));
-}
-
-#[test]
-fn a_mute_stays_until_the_new_mode_flips_even_when_a_flip_is_lost() {
-    let mut rig = Rig::generic_15(native_width());
-    rig.frame(MD_H40);
-    rig.frame(MD_H32);
-    rig.frame(MD_H32);
-    let index = rig.fake.next_present_index();
-    rig.fake.fault_flip(index, FlipFault::Lost);
-    rig.engine.begin_frame(MD_H32);
-    rig.engine.present(Some(frame(&MD_H32)), None).unwrap();
-    assert!(rig.engine.wait_flip().is_err());
-    assert!(rig.engine.muted());
-    assert_eq!(rig.frame(MD_H32).directive, Directive::Steady);
-    assert!(!rig.engine.muted());
-}
-
-#[test]
 fn calls_out_of_order_are_errors() {
     let mut rig = Rig::generic_15(native_width());
     assert_eq!(rig.engine.present(None, None), Err(VideoError::NoMode));
@@ -420,6 +386,10 @@ fn a_failed_wait_before_a_modeset_keeps_the_modeset_for_the_next_frame() {
         rig.engine.present(Some(frame(&MD_H32)), None),
         Err(VideoError::PendingFlip(_))
     ));
+    assert!(
+        rig.fake.frames().iter().all(|f| f.present.is_ok()),
+        "the flip stays queued, so the engine presents nothing"
+    );
     assert_eq!(rig.modes().len(), 1);
     assert_eq!(rig.engine.begin_frame(MD_H32), Directive::Modeset);
     rig.engine.present(Some(frame(&MD_H32)), None).unwrap();

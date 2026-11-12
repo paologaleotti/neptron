@@ -20,7 +20,7 @@ use crate::{RgbImage, SimClock, rng};
 use screen::Screen;
 use timing::{Grid, GridError};
 
-/// The default time `wait_flip` waits for a lost flip before it fails:
+/// The default time `wait_flip` waits for a flip before it times out:
 /// 100 ms, six frames at 60 Hz.
 pub const DEFAULT_FLIP_TIMEOUT_NS: u64 = 100_000_000;
 
@@ -57,6 +57,8 @@ pub const DEFAULT_FLIP_TIMEOUT_NS: u64 = 100_000_000;
 ///   driver returns `EBUSY`. `wait_flip` with no flip queued returns
 ///   [`DisplayError::Device`], because a real driver would never send an
 ///   event.
+/// - A failed `wait_flip` keeps the flip queued, as the bounded wait of the
+///   contract says. Only a wait that returns the event ends it.
 /// - A scene that the reference renderer refuses returns
 ///   [`DisplayError::SceneRefused`].
 /// - `caps` returns the capabilities given to the constructor.
@@ -95,7 +97,7 @@ pub struct DisplayOptions {
     /// How long `set_mode` takes on the simulated clock, in nanoseconds.
     /// The first blank of the new mode comes one period after its end.
     pub modeset_ns: u64,
-    /// How long `wait_flip` waits for a lost flip before it fails, in
+    /// How long `wait_flip` waits for a flip before it times out, in
     /// nanoseconds.
     pub flip_timeout_ns: u64,
 }
@@ -163,16 +165,26 @@ pub enum FlipFault {
         /// Extra blanks.
         vblanks: u32,
     },
-    /// The flip never arrives: `wait_flip` moves the clock by the flip
-    /// timeout and returns [`DisplayError::Device`].
+    /// The flip never lands. Each `wait_flip` moves the clock by the flip
+    /// timeout and returns [`DisplayError::Device`]. The flip stays queued,
+    /// so `present` and `set_mode` stay busy.
     Lost,
+    /// The first `timeouts` waits time out as for [`FlipFault::Lost`],
+    /// with the flip kept queued. The next wait returns the event. The flip
+    /// lands on its target blank, or on the first blank where a flip can
+    /// land after the last timeout, whichever is later.
+    Slow {
+        /// Waits that time out before the flip lands.
+        timeouts: u32,
+    },
     /// `present` returns [`DisplayError::Device`] and queues nothing.
     PresentFails {
         /// What the device reports.
         reason: String,
     },
-    /// The device fails while `wait_flip` waits: it returns
-    /// [`DisplayError::Device`] at once, and the queued flip is lost.
+    /// The device fails in the first wait for the flip: `wait_flip`
+    /// returns [`DisplayError::Device`] at once, the flip stays queued, and
+    /// the next wait returns its event.
     WaitFails {
         /// What the device reports.
         reason: String,
@@ -364,6 +376,8 @@ struct Active {
 struct Pending {
     index: u64,
     land_k: u64,
+    /// Waits for this flip that failed.
+    failed_waits: u32,
 }
 
 struct Queued {
@@ -469,6 +483,7 @@ impl State {
         self.pending = Some(Pending {
             index,
             land_k: target_k + late,
+            failed_waits: 0,
         });
         Ok(Queued {
             hash,
@@ -481,26 +496,52 @@ impl State {
         let Some(active) = &self.active else {
             return Err(DisplayError::NoMode);
         };
-        let Some(pending) = self.pending.take() else {
+        let Some(mut pending) = self.pending else {
             return Err(device("wait_flip", "no flip is queued".to_owned()));
         };
-        let outcome = match self.flip_faults.get(&pending.index) {
-            Some(FlipFault::Lost) => {
+        let fault = self.flip_faults.get(&pending.index);
+        let timed_out = match fault {
+            Some(FlipFault::Lost) => true,
+            Some(FlipFault::Slow { timeouts }) => pending.failed_waits < *timeouts,
+            _ => false,
+        };
+        let failure = match fault {
+            _ if timed_out => {
                 clock.advance(self.options.flip_timeout_ns);
-                Err(device(
-                    "wait_flip",
-                    format!("no flip event after {} ns", self.options.flip_timeout_ns),
+                Some(format!(
+                    "no flip event after {} ns",
+                    self.options.flip_timeout_ns
                 ))
             }
-            Some(FlipFault::WaitFails { reason }) => Err(device("wait_flip", reason.clone())),
-            _ => {
-                let time_ns = active.grid.time_ns(pending.land_k);
+            Some(FlipFault::WaitFails { reason }) if pending.failed_waits == 0 => {
+                Some(reason.clone())
+            }
+            _ => None,
+        };
+        let outcome = match failure {
+            Some(reason) => {
+                pending.failed_waits += 1;
+                self.pending = Some(pending);
+                Err(device("wait_flip", reason))
+            }
+            None => {
+                let land_k = if pending.failed_waits > 0 {
+                    let after = active
+                        .grid
+                        .first_after(clock.now_ns(), self.next_k)
+                        .next_multiple_of(active.flip_interval);
+                    pending.land_k.max(after)
+                } else {
+                    pending.land_k
+                };
+                let time_ns = active.grid.time_ns(land_k);
                 clock.catch_up(time_ns);
-                self.next_k = pending.land_k + 1;
+                self.pending = None;
+                self.next_k = land_k + 1;
                 self.screen.flip();
                 Ok(FlipEvent {
                     time_ns,
-                    sequence: active.grid.sequence(pending.land_k),
+                    sequence: active.grid.sequence(land_k),
                 })
             }
         };
