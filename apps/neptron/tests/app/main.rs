@@ -12,5 +12,6 @@ mod control;
 mod crawler;
 mod end_to_end;
 mod faults;
+mod output;
 mod recovery;
 mod rig;

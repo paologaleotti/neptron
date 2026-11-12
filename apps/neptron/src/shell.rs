@@ -135,6 +135,8 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
     frame: Rc<Cell<u64>>,
     control_queue: Rc<RefCell<VecDeque<(u64, InputEvent)>>>,
     log: VecDeque<String>,
+    /// The connector of the last known good in the guard record.
+    record_output: Option<String>,
     outcome: Option<Outcome>,
 }
 

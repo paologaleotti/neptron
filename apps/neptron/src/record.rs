@@ -49,6 +49,16 @@ pub enum RecordError {
     },
 }
 
+/// A record as the file holds it: the guard's record and the output the
+/// last known good was confirmed on.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Stored {
+    /// The guard's record.
+    pub record: GuardRecord,
+    /// The connector of the confirmation, `None` in a file that has none.
+    pub output: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct RecordFile {
     version: u32,
@@ -56,6 +66,9 @@ struct RecordFile {
     safe_mode: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_known_good: Option<MonitorRef>,
+    /// Added after version 1 was written; optional, so older files read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    output: Option<String>,
 }
 
 impl MonitorRef {
@@ -72,13 +85,14 @@ impl MonitorRef {
     }
 }
 
-/// The text of the record file for `record`.
-pub fn encode(record: &GuardRecord) -> String {
+/// The text of the record file for `record`, confirmed on `output`.
+pub fn encode(record: &GuardRecord, output: Option<&str>) -> String {
     let file = RecordFile {
         version: RECORD_VERSION,
         failed_boots: record.failed_boots,
         safe_mode: record.safe_mode,
         last_known_good: record.last_known_good.as_ref().map(MonitorRef::of),
+        output: output.map(str::to_owned),
     };
     // A struct of integers, booleans and strings always serialises.
     toml::to_string(&file).unwrap_or_default()
@@ -94,17 +108,20 @@ pub fn encode(record: &GuardRecord) -> String {
 pub fn decode(
     text: &str,
     rebuild: impl Fn(&MonitorRef) -> Option<Monitor>,
-) -> Result<GuardRecord, RecordError> {
+) -> Result<Stored, RecordError> {
     let file: RecordFile = toml::from_str(text).map_err(|e| RecordError::Parse(e.to_string()))?;
     if file.version != RECORD_VERSION {
         return Err(RecordError::Version {
             found: file.version,
         });
     }
-    Ok(GuardRecord {
-        last_known_good: file.last_known_good.as_ref().and_then(rebuild),
-        failed_boots: file.failed_boots,
-        safe_mode: file.safe_mode,
+    Ok(Stored {
+        record: GuardRecord {
+            last_known_good: file.last_known_good.as_ref().and_then(rebuild),
+            failed_boots: file.failed_boots,
+            safe_mode: file.safe_mode,
+        },
+        output: file.output,
     })
 }
 
@@ -117,10 +134,10 @@ pub fn decode(
 pub fn load(
     path: &Path,
     rebuild: impl Fn(&MonitorRef) -> Option<Monitor>,
-) -> Result<GuardRecord, RecordError> {
+) -> Result<Stored, RecordError> {
     match std::fs::read_to_string(path) {
         Ok(text) => decode(&text, rebuild),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(GuardRecord::default()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Stored::default()),
         Err(e) => Err(RecordError::Read(e)),
     }
 }
@@ -130,8 +147,21 @@ pub fn load(
 /// # Errors
 ///
 /// The error of the write.
-pub fn save(path: &Path, record: &GuardRecord) -> io::Result<()> {
-    atomic::write(path, encode(record).as_bytes())
+pub fn save(path: &Path, record: &GuardRecord, output: Option<&str>) -> io::Result<()> {
+    atomic::write(path, encode(record, output).as_bytes())
+}
+
+/// The record for a start on `output`. A last known good confirmed on
+/// another connector, or on an unknown one, is dropped: the guard then
+/// opens the boot prompt and reverts to the safe default for the new
+/// output, because the guard compares monitors only and would otherwise
+/// drive the new display with the old profile and no prompt.
+pub fn for_output(stored: Stored, output: &str) -> GuardRecord {
+    let mut record = stored.record;
+    if stored.output.as_deref() != Some(output) {
+        record.last_known_good = None;
+    }
+    record
 }
 
 /// The record for a run that continues the boot of the run before it: a
@@ -172,9 +202,11 @@ mod tests {
             failed_boots: 1,
             safe_mode: true,
         };
-        let text = encode(&record);
+        let text = encode(&record, Some("VGA-1"));
         assert!(text.contains("kind = \"profile\""), "{text}");
-        assert_eq!(decode(&text, rebuild).expect("decode"), record);
+        let stored = decode(&text, rebuild).expect("decode");
+        assert_eq!(stored.record, record);
+        assert_eq!(stored.output.as_deref(), Some("VGA-1"));
     }
 
     #[test]
@@ -184,8 +216,8 @@ mod tests {
             failed_boots: 0,
             safe_mode: false,
         };
-        let back = decode(&encode(&record), rebuild).expect("decode");
-        assert_eq!(back.last_known_good, None);
+        let back = decode(&encode(&record, None), rebuild).expect("decode");
+        assert_eq!(back.record.last_known_good, None);
     }
 
     #[test]
@@ -210,13 +242,37 @@ mod tests {
     #[test]
     fn a_later_field_is_ignored() {
         let text = "version = 1\nfailed_boots = 2\nsafe_mode = false\nnew_field = 3\n";
-        assert_eq!(decode(text, rebuild).expect("decode").failed_boots, 2);
+        assert_eq!(
+            decode(text, rebuild).expect("decode").record.failed_boots,
+            2
+        );
     }
 
     #[test]
     fn a_missing_file_is_the_default_record() {
         let path = Path::new("/nonexistent/neptron/guard.toml");
-        assert_eq!(load(path, rebuild).expect("load"), GuardRecord::default());
+        assert_eq!(load(path, rebuild).expect("load"), Stored::default());
+    }
+
+    #[test]
+    fn a_last_known_good_of_another_output_is_dropped() {
+        let stored = |output: Option<&str>| Stored {
+            record: GuardRecord {
+                last_known_good: Some(profile("pc_31_120")),
+                failed_boots: 1,
+                safe_mode: false,
+            },
+            output: output.map(str::to_owned),
+        };
+        assert!(
+            for_output(stored(Some("VGA-1")), "VGA-1")
+                .last_known_good
+                .is_some()
+        );
+        let other = for_output(stored(Some("VGA-1")), "DP-1");
+        assert_eq!(other.last_known_good, None);
+        assert_eq!(other.failed_boots, 1, "the counts stay");
+        assert_eq!(for_output(stored(None), "VGA-1").last_known_good, None);
     }
 
     #[test]

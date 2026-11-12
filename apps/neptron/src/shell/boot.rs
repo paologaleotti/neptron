@@ -99,7 +99,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             monitor,
             settings: config.global_policy()?,
         };
-        let record = load_record(&paths, &detected, &presets, next.is_some(), &mut found);
+        let (record, record_output) = load_record(
+            &paths,
+            &detected,
+            &presets,
+            &runtime.output,
+            next.is_some(),
+            &mut found,
+        );
         let (mut library, issue) = Library::load(catalog, &paths.library_cache());
         found.warn_all(issue);
         let outbox = Outbox::start(Places {
@@ -169,7 +176,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             }
         };
         if let Some(saved) = step.save.take()
-            && let Err(e) = record::save(&paths.guard_record(), &saved)
+            && let Err(e) = record::save(&paths.guard_record(), &saved, record_output.as_deref())
         {
             found.warn(format!(
                 "cannot write the guard record before the first mode: {e}"
@@ -206,6 +213,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             frame,
             control_queue: queue,
             log: VecDeque::new(),
+            record_output,
             outcome: None,
         };
         shell.first_snapshot();
@@ -278,23 +286,29 @@ fn load_presets(dir: &Path, found: &mut Found) -> Presets {
     }
 }
 
+/// The record for this start, and the output of its last known good,
+/// which every later write of the record keeps.
 fn load_record(
     paths: &Paths,
     detected: &Detected,
     presets: &Presets,
+    output: &str,
     continued: bool,
     found: &mut Found,
-) -> GuardRecord {
-    let record = record::load(&paths.guard_record(), |r| detected.rebuild(presets, r))
+) -> (GuardRecord, Option<String>) {
+    let stored = record::load(&paths.guard_record(), |r| detected.rebuild(presets, r))
         .unwrap_or_else(|e| {
             found.warn(format!("{e}; the guard starts with no last known good"));
-            GuardRecord::default()
+            record::Stored::default()
         });
-    if continued {
+    let kept = (stored.output.as_deref() == Some(output)).then(|| output.to_owned());
+    let record = record::for_output(stored, output);
+    let record = if continued {
         record::for_continued_boot(record)
     } else {
         record
-    }
+    };
+    (record, kept)
 }
 
 fn load_theme(path: &Path, found: &mut Found) -> Theme {

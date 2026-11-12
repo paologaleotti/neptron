@@ -36,8 +36,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
 
     /// Acts on one step of the guard.
     pub(super) fn on_guard(&mut self, step: GuardStep, now_ns: u64) {
+        if matches!(step.event, Some(GuardEvent::Confirmed)) {
+            self.record_output = Some(self.runtime.output.clone());
+        }
         if let Some(record) = step.save {
-            self.outbox.send(Job::Record(record));
+            self.outbox.send(Job::Record {
+                record,
+                output: self.record_output.clone(),
+            });
         }
         let Some(event) = step.event else {
             return;

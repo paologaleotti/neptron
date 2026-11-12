@@ -158,3 +158,15 @@ fn a_busy_client_does_not_hold_the_end_of_the_run() {
     client.join().expect("the client");
     rig.finish();
 }
+
+#[test]
+fn the_output_cannot_be_set_over_the_protocol() {
+    let (mut rig, _) = socket_rig("output");
+    let result = rig.shell().set_from_protocol(
+        "display.output",
+        neptron_settings::Level::Global,
+        &serde_json::Value::String("VGA-1".to_owned()),
+    );
+    assert!(result.is_err(), "{result:?}");
+    rig.finish();
+}

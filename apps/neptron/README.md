@@ -40,7 +40,7 @@ Before a relaunch the run writes `run/next.toml` (the relaunch file, `relaunch.r
 3. The detected output from sysfs: the connected connectors, the EDID profile, the GPU caps of the capability table.
 4. The safe default: the EDID profile when a monitor gives one, else `generic_15`, with `auto` and `exact` (`SAFE_START_PROFILE`). Without both the run cannot start.
 5. `wanted`: the monitor of `display.monitor` (`auto` is the safe default, an unknown id is the safe default with a notice) and the global picture style and refresh policy.
-6. The guard record from `state/video/guard.toml`. A record that cannot be read is the default record.
+6. The guard record from `state/video/guard.toml`. A record that cannot be read is the default record. The file also holds `output`, the connector its last known good was confirmed on (an optional field, written at each confirmation). When the output of this start differs, or the file names none, the guard gets no last known good: it opens the boot prompt and reverts to the safe default for the new output, so a profile confirmed on one connector never drives another display without a prompt.
 7. The library cache. In the list, a scan starts on its own thread and replaces the index when it ends.
 8. The list: a `VideoEngine` for the menu source (320x240, 60 Hz, 4:3, `MENU_SOURCE`). A game: `Session::launch` with the resolved settings, the core options of `data/cores` (OP-055), `RunRateSource::ReadBack` on KMS and `Measured` in the window. A launch that fails ends the run with a relaunch to the list and the reason as a notice.
 9. `Guard::boot`, and the record it returns is written at once (temp file, fsync, rename) before the first modeset. In a game, `follow_settings` with the game's policy follows.
@@ -70,7 +70,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 | --- | --- |
 | Safety none: scanlines, scanline strength, the Start hold | Written at once (writer thread) and applied live |
 | Picture style, refresh policy, monitor | Changed in memory and given to `Guard::propose`. Written only on `Confirmed`. Taken back on `Reverted` and `SafeMode` |
-| Output (`display.output`) | Shown, not changed from the menu (see the open points) |
+| Output (`display.output`) | Shown, not changed from the menu or the protocol; a new connector at the next start opens the boot prompt |
 
 - `PromptOpened` puts the confirm dialog in the snapshot with the guard's deadline. `KeepMode` calls `confirm` with the open prompt; a confirmation after the deadline is dropped. `RevertMode` calls `decline`.
 - `Reverted { rewrite: Some(config) }`: the monitor, picture style and refresh policy of that configuration go to the global settings, never `Guard::active()`.
@@ -111,7 +111,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 
 ## Open points
 
-- The output connector is not under the guard, and a new connector needs the display opened again, so the display panel shows it read-only. It changes in `global.toml` or `neptron.toml`, at the next start, with no prompt.
+- The output connector is not an input of the guard, and a new connector needs the display opened again, so the display panel shows it read-only and `settings_set display.output` is refused. It changes in `global.toml` or `neptron.toml` and takes effect at the next start, where the guard record's output check below opens the boot prompt.
 - The audio cue of the blind recovery plays only in the game list. In a game the session owns the sink.
 - The picture style options do not show the line rate or grey out a style the monitor cannot show (`style_rows`). A style with no picture reverts after 1 s.
 - `screenshot` is not served: the frontend has no PNG encoder.

@@ -45,8 +45,13 @@ pub enum Job {
         /// The keys and their new values.
         changes: Vec<(&'static str, Option<Value>)>,
     },
-    /// Write the guard record.
-    Record(GuardRecord),
+    /// Write the guard record, with the output of its last known good.
+    Record {
+        /// The record.
+        record: GuardRecord,
+        /// The connector the last known good was confirmed on.
+        output: Option<String>,
+    },
     /// Write the library index cache.
     Cache(Box<Index>),
 }
@@ -185,7 +190,7 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, failures: &SyncSender<Strin
                     .apply(&schema, target.as_target(), &changes)
                     .map_err(|e| e.to_string())
             }
-            Job::Record(r) => record::save(&places.record, r)
+            Job::Record { record: r, output } => record::save(&places.record, r, output.as_deref())
                 .map_err(|e| format!("cannot write the guard record: {e}")),
             Job::Cache(index) => write_cache(&places.cache, index),
         };
@@ -243,10 +248,13 @@ mod tests {
                 changes: vec![("display.scanline_strength", Some(Value::Int(strength)))],
             });
         }
-        outbox.send(Job::Record(GuardRecord {
-            failed_boots: 1,
-            ..GuardRecord::default()
-        }));
+        outbox.send(Job::Record {
+            record: GuardRecord {
+                failed_boots: 1,
+                ..GuardRecord::default()
+            },
+            output: None,
+        });
         assert!(outbox.finish().is_empty());
         let text = std::fs::read_to_string(places.config.join("global.toml")).expect("global");
         assert!(text.contains("scanline_strength = 30"), "{text}");

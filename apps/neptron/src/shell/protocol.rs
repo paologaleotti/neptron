@@ -2,7 +2,7 @@
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_ipc::Stats;
-use neptron_settings::Level;
+use neptron_settings::{DISPLAY_OUTPUT, Level};
 use neptron_types::{Control, InputEvent};
 
 use super::{Shell, Stage};
@@ -131,6 +131,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             .schema()
             .get(key)
             .ok_or_else(|| format!("no setting {key:?}"))?;
+        if entry.key == DISPLAY_OUTPUT {
+            return Err(format!(
+                "{key} changes at the next start, in the settings file; the guard does not cover it"
+            ));
+        }
         let value = value_of_json(json).ok_or_else(|| format!("{json} is not a setting value"))?;
         entry.kind.check(&value).map_err(|e| e.to_string())?;
         if !entry.levels.allows(level) {
