@@ -15,6 +15,9 @@ pub const GUEST_CPUS: u32 = 2;
 pub const SHARE_TAG: &str = "neptron";
 /// The firmware config entry that carries the script to run.
 pub const RUN_ENTRY: &str = "opt/neptron/run";
+/// The firmware config entry that carries the boot check script. The guest
+/// runs it while the launcher runs, not instead of it.
+pub const CHECK_ENTRY: &str = "opt/neptron/check";
 /// The firmware config entry that carries the nonce of the run markers.
 pub const NONCE_ENTRY: &str = "opt/neptron/nonce";
 /// The firmware config entry that carries the guest deadline, in seconds.
@@ -111,12 +114,45 @@ impl QemuArgs {
 /// A command run: what the guest gets through the firmware config.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuestJob {
+    /// The firmware config entry of the script: [`RUN_ENTRY`] or
+    /// [`CHECK_ENTRY`].
+    pub entry: &'static str,
     /// The script file that the guest runs.
     pub script: PathBuf,
     /// The nonce that the guest puts in its markers.
     pub nonce: String,
     /// The guest stops the command after this many seconds and powers off.
     pub timeout_secs: u64,
+}
+
+/// How the guest boots.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Boot {
+    /// QEMU loads the kernel of the images directory, and the root
+    /// filesystem `rootfs.ext4` is a virtio disk.
+    Kernel,
+    /// The firmware boots a disk image from a USB stick on an xHCI
+    /// controller, as a PC boots the image. x86-64 only.
+    UsbDisk {
+        /// The disk image.
+        image: PathBuf,
+        /// The firmware.
+        firmware: Firmware,
+    },
+}
+
+/// The firmware of a disk boot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Firmware {
+    /// The default BIOS of QEMU (SeaBIOS).
+    Bios,
+    /// UEFI (EDK II): the code and the variable store flash images.
+    Uefi {
+        /// The code flash image, read-only.
+        code: PathBuf,
+        /// The variable store flash image. `-snapshot` keeps it unchanged.
+        vars: PathBuf,
+    },
 }
 
 /// Everything QEMU needs for one boot.
@@ -128,6 +164,8 @@ pub struct QemuPlan {
     pub accel: Accel,
     /// The directory with the kernel and `rootfs.ext4`.
     pub images: PathBuf,
+    /// How the guest boots.
+    pub boot: Boot,
     /// The command run, or `None` for an interactive boot.
     pub job: Option<GuestJob>,
     /// The host directory shared over 9p.
@@ -157,21 +195,44 @@ impl QemuPlan {
         ]);
         push(&["-smp", &GUEST_CPUS.to_string()]);
         push(&["-m", &GUEST_MEMORY_MIB.to_string()]);
-        push(&[
-            "-kernel",
-            &path_str(&self.images.join(self.arch.kernel_image())),
-        ]);
-        push(&["-append", &self.kernel_cmdline()]);
-        let drive = format!(
-            "file={},if=none,format=raw,id=root",
-            path_str(&self.images.join(ROOTFS))
-        );
-        push(&[
-            "-drive",
-            &drive,
-            "-device",
-            &format!("{blk_device},drive=root"),
-        ]);
+        match &self.boot {
+            Boot::Kernel => {
+                push(&[
+                    "-kernel",
+                    &path_str(&self.images.join(self.arch.kernel_image())),
+                ]);
+                push(&["-append", &self.kernel_cmdline()]);
+                let drive = format!(
+                    "file={},if=none,format=raw,id=root",
+                    path_str(&self.images.join(ROOTFS))
+                );
+                push(&[
+                    "-drive",
+                    &drive,
+                    "-device",
+                    &format!("{blk_device},drive=root"),
+                ]);
+            }
+            Boot::UsbDisk { image, firmware } => {
+                if let Firmware::Uefi { code, vars } = firmware {
+                    let code = format!(
+                        "if=pflash,format=raw,unit=0,readonly=on,file={}",
+                        path_str(code)
+                    );
+                    let vars = format!("if=pflash,format=raw,unit=1,file={}", path_str(vars));
+                    push(&["-drive", &code, "-drive", &vars]);
+                }
+                let drive = format!("file={},if=none,format=raw,id=usb", path_str(image));
+                push(&[
+                    "-drive",
+                    &drive,
+                    "-device",
+                    "qemu-xhci,id=xhci",
+                    "-device",
+                    "usb-storage,bus=xhci.0,drive=usb,bootindex=0",
+                ]);
+            }
+        }
         // The base image stays unchanged: guest writes go to a temporary overlay.
         push(&["-snapshot", "-nic", "none", "-no-reboot"]);
         // Without a display card vkms is the only DRM device, card0. The q35
@@ -183,7 +244,7 @@ impl QemuPlan {
                 push(&["-display", "none"]);
                 push(&["-serial", "stdio", "-monitor", "none"]);
                 let entries = [
-                    format!("name={RUN_ENTRY},file={}", path_str(&job.script)),
+                    format!("name={},file={}", job.entry, path_str(&job.script)),
                     format!("name={NONCE_ENTRY},string={}", job.nonce),
                     format!("name={TIMEOUT_ENTRY},string={}", job.timeout_secs),
                 ];
@@ -251,7 +312,9 @@ mod tests {
             arch,
             accel,
             images: PathBuf::from("/img"),
+            boot: Boot::Kernel,
             job: run.then(|| GuestJob {
+                entry: RUN_ENTRY,
                 script: PathBuf::from("/tmp/run.sh"),
                 nonce: "0123456789abcdef".to_owned(),
                 timeout_secs: 120,
@@ -374,6 +437,62 @@ mod tests {
             ),
             "{s}"
         );
+    }
+
+    #[test]
+    fn a_bios_disk_boot_is_a_usb_stick_and_no_kernel() {
+        let mut p = plan(Arch::X86_64, Accel::Tcg, true);
+        p.boot = Boot::UsbDisk {
+            image: PathBuf::from("/img/neptron-x86_64.img"),
+            firmware: Firmware::Bios,
+        };
+        let s = joined(&p);
+        assert!(
+            s.contains(
+                "-drive file=/img/neptron-x86_64.img,if=none,format=raw,id=usb \
+                 -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=usb,bootindex=0"
+            ),
+            "{s}"
+        );
+        assert!(!s.contains("-kernel"), "{s}");
+        assert!(!s.contains("-append"), "{s}");
+        assert!(!s.contains("pflash"), "{s}");
+        assert!(s.contains("-snapshot"), "{s}");
+        assert!(s.contains("-vga none"), "{s}");
+    }
+
+    #[test]
+    fn a_uefi_disk_boot_adds_the_two_flash_images() {
+        let mut p = plan(Arch::X86_64, Accel::Tcg, true);
+        p.boot = Boot::UsbDisk {
+            image: PathBuf::from("/img/disk.img"),
+            firmware: Firmware::Uefi {
+                code: PathBuf::from("/q/edk2-x86_64-code.fd"),
+                vars: PathBuf::from("/t/vars.fd"),
+            },
+        };
+        let s = joined(&p);
+        assert!(
+            s.contains(
+                "-drive if=pflash,format=raw,unit=0,readonly=on,file=/q/edk2-x86_64-code.fd \
+                 -drive if=pflash,format=raw,unit=1,file=/t/vars.fd"
+            ),
+            "{s}"
+        );
+    }
+
+    #[test]
+    fn a_check_job_uses_the_check_entry() {
+        let mut p = plan(Arch::X86_64, Accel::Tcg, true);
+        if let Some(job) = &mut p.job {
+            job.entry = CHECK_ENTRY;
+        }
+        let s = joined(&p);
+        assert!(
+            s.contains("-fw_cfg name=opt/neptron/check,file=/tmp/run.sh"),
+            "{s}"
+        );
+        assert!(!s.contains("opt/neptron/run"), "{s}");
     }
 
     #[test]

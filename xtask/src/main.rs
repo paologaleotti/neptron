@@ -64,6 +64,11 @@ commands:
   os selftest-check [--arch A] [--timeout SECS]
                        build neptronctl with kms for the guest, run
                        `selftest video` on vkms in QEMU and check the reports
+  os boot-check [--arch A] [--firmware bios|uefi] [--timeout SECS]
+                [--images DIR] [--bless]
+                       boot the image in QEMU to the game list, compare the
+                       vkms writeback picture with its golden image and
+                       record the boot time (tier T3)
   qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
        [--script FILE | -- command...]
                        boot the QEMU image; run the command in the guest

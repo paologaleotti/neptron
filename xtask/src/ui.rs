@@ -213,14 +213,24 @@ fn compare(path: &Path, actual: &Image) -> Result<Verdict, UiError> {
 }
 
 fn report_images(dir: &Path, name: &str, expected: &Image, actual: &Image) -> Result<(), UiError> {
-    let base = dir.join(name);
+    write_report_images(&dir.join(name), expected, actual)
+}
+
+/// Writes `<base>.expected.png`, `<base>.actual.png` and `<base>.diff.png`
+/// for a picture that differs from its golden image, and prints their
+/// paths. `os boot-check` uses it too.
+pub(crate) fn write_report_images(
+    base: &Path,
+    expected: &Image,
+    actual: &Image,
+) -> Result<(), UiError> {
     let mut written = Vec::new();
     for (suffix, img) in [
         (".expected.png", image::from_golden(expected)),
         (".actual.png", image::from_golden(actual)),
         (".diff.png", image::diff(expected, actual)),
     ] {
-        let path = with_suffix(&base, suffix);
+        let path = with_suffix(base, suffix);
         write(&path, &png::encode(img.width, img.height, &img.rgb))?;
         written.push(path);
     }

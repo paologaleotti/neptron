@@ -6,6 +6,7 @@
 //! and returns its exit code, or gives an interactive console.
 
 mod arch;
+mod boot_check;
 mod build;
 mod core_trace;
 mod cross;
@@ -163,6 +164,8 @@ usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [--dev-key FILE]
        cargo xtask gles-compare [--arch A] [--timeout SECS]
        cargo xtask os app-check [--arch A]
        cargo xtask os selftest-check [--arch A] [--timeout SECS]
+       cargo xtask os boot-check [--arch A] [--firmware bios|uefi] [--timeout SECS]
+                                 [--images DIR] [--bless]
        cargo xtask kms-check [--arch A] [--timeout SECS]
        cargo xtask core-trace [--arch A] [--timeout SECS] [--bless]
                               [--dump FRAME[,FRAME...]]";
@@ -173,6 +176,7 @@ pub fn run_os(args: &[&str]) -> Result<ExitCode, OsError> {
         Some((&"build", rest)) => build(rest),
         Some((&"app-check", rest)) => app_check(rest),
         Some((&"selftest-check", rest)) => selftest_check::run(rest),
+        Some((&"boot-check", rest)) => boot_check::run(rest),
         _ => Err(OsError::Usage("unknown os subcommand".to_owned())),
     }
 }
@@ -244,6 +248,7 @@ fn boot(args: &QemuArgs, out: &mut dyn std::io::Write) -> Result<Option<i32>, Os
         }
     }
     .map(|script| GuestJob {
+        entry: qemu::RUN_ENTRY,
         script,
         nonce: transcript::new_nonce(),
         timeout_secs: args.timeout.as_secs(),
@@ -252,6 +257,7 @@ fn boot(args: &QemuArgs, out: &mut dyn std::io::Write) -> Result<Option<i32>, Os
         arch: args.arch,
         accel,
         images,
+        boot: qemu::Boot::Kernel,
         job,
         share: args.share.clone(),
     };
