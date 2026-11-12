@@ -1,0 +1,8 @@
+config BR2_PACKAGE_NEPTRON_LAUNCH
+	bool "neptron-launch"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  The NEPTRON launcher: it holds the DRM device, starts the
+	  frontend and starts it again when it ends. Built from this
+	  checkout in the release profile.

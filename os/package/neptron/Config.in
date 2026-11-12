@@ -1,0 +1,22 @@
+config BR2_PACKAGE_NEPTRON
+	bool "neptron"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_MESA3D_OPENGL_EGL
+	depends on BR2_PACKAGE_MESA3D_OPENGL_ES
+	depends on BR2_PACKAGE_SDL3
+	select BR2_PACKAGE_HOST_RUSTC
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_ALSA_LIB
+	help
+	  The NEPTRON frontend, with the DRM/KMS backend (Cargo
+	  feature kms), built from this checkout in the release
+	  profile. Installs the data files that it reads at run time
+	  in /usr/share/neptron.
+
+config BR2_PACKAGE_NEPTRON_CONTROL
+	bool "control commands"
+	depends on BR2_PACKAGE_NEPTRON
+	help
+	  The Cargo feature control: the commands of the control
+	  protocol that change the frontend (input, launch, settings).
+	  Only the development variant turns it on.
