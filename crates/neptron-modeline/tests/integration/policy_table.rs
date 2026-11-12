@@ -642,7 +642,9 @@ fn rows() -> Vec<Row> {
         // Medium resolution on 31 kHz: pixel exact has priority over the
         // "480p fit" of the sources table. arcade_31 forces ceil(31,400 /
         // 55) = 571 lines less ceil(1.43 ms x 31.4 kHz) = 45 of blanking at
-        // 55 Hz, above its 512-line limit: 384 lines centred in 512.
+        // 55 Hz, above its 512-line limit: 384 lines centred in 512. The
+        // fill is 384 of 526 picture lines, 73.0 %: padded, but the only
+        // exact placement, so it wins over the fit.
         // Width: 496 x 512 x 4 / (3 x 384 x 1.333) = 661.5, rounded to 661.
         Row {
             source: source(496, 384, 55_000),
