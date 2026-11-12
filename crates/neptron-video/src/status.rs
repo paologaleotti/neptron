@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use neptron_modeline::policy::{Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung};
-use neptron_types::{Modeline, SourceGeometry};
+use neptron_types::{Filter, Modeline, SourceGeometry};
 
 use crate::Current;
 
@@ -22,10 +22,17 @@ pub struct VideoStatusText {
     /// rate, two spaces and the rung: `768x448p  30.05 kHz 60.099 Hz  2x`.
     pub mode: String,
     /// The result in words, joined with `, `, in the order `exact`,
-    /// `double refresh`, `cropped N lines`, `small picture N%`, `filtered`,
-    /// `speed (X to Y Hz)`. An alert result starts with [`ALERT_MARK`].
+    /// `sharp`, `double refresh`, `cropped N lines`, `small picture N%`,
+    /// `filtered`, `speed (X to Y Hz)`. An alert result starts with
+    /// [`ALERT_MARK`].
+    ///
+    /// On a flat panel the result is `exact` when both axes scale by a
+    /// whole factor and `sharp` when one axis uses the sharp bilinear
+    /// filter: the panel's way to keep the game's aspect, never blurry and
+    /// never an alert. `filtered` is a CRT word only.
     pub result: String,
-    /// The player must notice the result: `filtered` or `speed`.
+    /// The player must notice the result: `filtered` or `speed`, which a
+    /// flat panel never gives.
     pub alert: bool,
 }
 
@@ -112,14 +119,15 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
     let proposal = inputs.proposal;
     let timing = &proposal.timing;
     let repeat = u64::from(timing.repeat().max(1));
-    let fitted = inputs.rung == Rung::Fitted;
+    let panel = timing.target.kind == RefreshKind::Panel;
+    let fitted = inputs.rung == Rung::Fitted && !panel;
+    let sharp = panel && proposal.placement.filter != Filter::Nearest;
     let cropped = proposal.overscan_crop.map_or(0, |crop| crop.lines());
     let small = proposal.padding.map(|pad| pad.fill_permille());
     let game_mhz = u64::from(timing.game_mhz);
     let shown_mhz = inputs.mode.field_rate_mhz() / repeat;
-    let speed_changed = timing.target.kind != RefreshKind::Panel
-        && shown_mhz.abs_diff(game_mhz) >= REFRESH_MATCH_MHZ;
-    let exact = !fitted && cropped == 0 && small.is_none() && !speed_changed;
+    let speed_changed = !panel && shown_mhz.abs_diff(game_mhz) >= REFRESH_MATCH_MHZ;
+    let exact = !fitted && !sharp && cropped == 0 && small.is_none() && !speed_changed;
     let alert = fitted || speed_changed;
     if alert {
         out.push_str(ALERT_MARK);
@@ -127,6 +135,9 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
 
     if exact {
         push_word(out, |s| s.write_str("exact"));
+    }
+    if sharp {
+        push_word(out, |s| s.write_str("sharp"));
     }
     if repeat >= 2 {
         push_word(out, |s| s.write_str("double refresh"));
@@ -176,13 +187,17 @@ fn write_rung(out: &mut String, rung: Rung) -> std::fmt::Result {
 }
 
 /// Writes one column and pads it with spaces to [`STATUS_COLUMN_CHARS`].
-/// Every character the formatter writes is ASCII, so bytes count
-/// characters.
+/// A text that fills the column gets one space, so a panel size such as
+/// `1920x1080p` stays apart from the next column. Every character the
+/// formatter writes is ASCII, so bytes count characters.
 fn column(out: &mut String, write: impl FnOnce(&mut String) -> std::fmt::Result) {
     let start = out.len();
     // Writing into a String cannot fail.
     let _ = write(out);
     while out.len() - start < STATUS_COLUMN_CHARS {
+        out.push(' ');
+    }
+    if out.len() - start == STATUS_COLUMN_CHARS && !out.ends_with(' ') {
         out.push(' ');
     }
 }
@@ -367,6 +382,48 @@ mod tests {
             result(&p, Rung::Panel, &base.mode),
             ("exact".to_owned(), false)
         );
+    }
+
+    #[test]
+    fn a_panel_is_exact_or_sharp_and_never_an_alert() {
+        let (base, _) = winner();
+        let mut p = same_speed(base);
+        p.timing.target.kind = RefreshKind::Panel;
+        p.placement.filter = Filter::Nearest;
+        assert_eq!(
+            result(&p, Rung::Panel, &p.mode),
+            ("exact".to_owned(), false)
+        );
+        p.placement.filter = Filter::SharpBilinear;
+        assert_eq!(
+            result(&p, Rung::Panel, &p.mode),
+            ("sharp".to_owned(), false)
+        );
+        assert_eq!(
+            result(&p, Rung::Fitted, &p.mode),
+            ("sharp".to_owned(), false),
+            "a game larger than the panel"
+        );
+        p.timing.target.kind = RefreshKind::Exact;
+        let (text, alert) = result(&p, Rung::Fitted, &p.mode);
+        assert_eq!(text, "[!] filtered", "a CRT keeps its alert");
+        assert!(alert);
+    }
+
+    #[test]
+    fn a_1080p_panel_mode_line_keeps_its_columns_apart() {
+        let (p, _) = winner();
+        // 148.5 MHz over 2200 clocks is 67.50 kHz; over 1125 lines, 60 Hz.
+        let shown = mode(1920, 1080, 148_500_000, 2_200, 1_125);
+        let inputs = StatusInputs {
+            source: &SNES,
+            mode: &shown,
+            rung: Rung::Panel,
+            proposal: &p,
+        };
+        let mut out = VideoStatusText::default();
+        write_video_status(Some(&inputs), &mut out).unwrap();
+        assert_eq!(out.mode, "1920x1080p 67.50 kHz 60.000 Hz  panel");
     }
 
     #[test]
