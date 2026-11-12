@@ -103,20 +103,33 @@ fn a_lost_flip_stays_queued_and_every_frame_reports_it() {
 }
 
 #[test]
-fn a_mute_stays_until_the_new_mode_flips_after_a_slow_wait() {
+fn a_mute_holds_while_the_flip_of_the_new_mode_is_stuck_and_ends_when_it_lands() {
     let mut rig = Rig::generic_15(native_width());
     rig.frame(MD_H40);
     rig.frame(MD_H32);
     rig.frame(MD_H32);
     let index = rig.fake.next_present_index();
-    rig.fake.fault_flip(index, FlipFault::Slow { timeouts: 1 });
+    rig.fake.fault_flip(index, FlipFault::Slow { timeouts: 3 });
     assert_eq!(rig.engine.begin_frame(MD_H32), Directive::Modeset);
     rig.engine.present(Some(frame(&MD_H32)), None).unwrap();
+    assert_eq!(rig.fake.mode_switches().len(), 2, "the new mode is set");
     assert!(rig.engine.wait_flip().is_err());
     assert!(rig.engine.muted());
-    rig.engine.begin_frame(MD_H32);
+    for _ in 0..2 {
+        assert_eq!(rig.engine.begin_frame(MD_H32), Directive::Steady);
+        assert!(rig.engine.muted(), "the flip is still stuck");
+        assert!(matches!(
+            rig.engine.present(Some(frame(&MD_H32)), None),
+            Err(VideoError::PendingFlip(_))
+        ));
+        assert!(rig.engine.muted());
+    }
+    assert_eq!(rig.engine.begin_frame(MD_H32), Directive::Steady);
+    assert!(rig.engine.muted());
     let presented = rig.engine.present(Some(frame(&MD_H32)), None).unwrap();
     assert!(presented.drained_flip.is_some());
     assert!(!rig.engine.muted(), "the first flip in the new mode came");
     rig.engine.wait_flip().unwrap();
+    let record = rig.engine.trace().modesets().last().unwrap();
+    assert_eq!(record.shown_frame, Some(rig.engine.odren().frame()));
 }
