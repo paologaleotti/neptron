@@ -18,8 +18,11 @@ use crate::{Counters, ExitReport, Flush, RunRateSource, SaveStats};
 /// Loop frames in a row with no completed flip before
 /// [`Session::run_frame`] gives up with
 /// [`SessionError::DisplayStalled`](crate::SessionError::DisplayStalled).
-/// A bounded flip wait (500 ms on KMS) makes this at most a few seconds.
-/// The engine keeps a flip that timed out queued until a wait returns it,
+/// When each frame's wait times out, the bounded flip wait (500 ms on KMS)
+/// makes this at most a few seconds. When the display fails at once (an
+/// immediate error of `present` or of the wait, or `NoMode`), no wait
+/// paces the loop, and the session ends after this many unpaced frames:
+/// the core runs ten frames with no display. The engine keeps a flip that timed out queued until a wait returns it,
 /// so a flip that needs a few waits passes. A frame with the output off
 /// (`FrameReport::blanked`) does not count.
 pub const FLIPLESS_FRAMES_LIMIT: u32 = 10;
