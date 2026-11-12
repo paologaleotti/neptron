@@ -257,6 +257,31 @@ fn the_save_ram_is_loaded_at_launch_and_written_at_exit_with_a_backup() {
     );
 }
 
+/// A save file longer than the core's save RAM: the core gets the first
+/// 64 bytes, and the write keeps the other 16 after them.
+#[test]
+fn a_save_file_longer_than_the_save_ram_is_never_cut() {
+    with_script!(
+        "a_save_file_longer_than_the_save_ram_is_never_cut",
+        SAVE_SCRIPT,
+        |dir| {
+            let saves = dir.join("saves");
+            std::fs::create_dir_all(&saves).unwrap();
+            let old: Vec<u8> = (0..80).collect();
+            std::fs::write(saves.join("game.srm"), &old).unwrap();
+            let mut rig = Rig::launch(dir, Setup::default());
+            assert_eq!(rig.session.save_stats().unwrap().kept_tail_bytes, 16);
+            rig.run(30);
+            let exit = rig.session.quit();
+            assert_eq!(exit.save, Flush::Written);
+            let mut expected = old.clone();
+            expected[0] = 42;
+            assert_eq!(std::fs::read(saves.join("game.srm")).unwrap(), expected);
+            assert_eq!(std::fs::read(saves.join("game.srm.bak")).unwrap(), old);
+        }
+    );
+}
+
 #[test]
 fn a_failed_write_at_exit_is_reported_and_the_old_file_kept() {
     with_script!(

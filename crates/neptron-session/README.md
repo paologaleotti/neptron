@@ -66,6 +66,7 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 ## Save RAM
 
 - Launch reads `<save_dir>/<content stem>.srm` into the core. A save file that exists but cannot be read stops the launch, so the session never writes over a file it did not load.
+- A save file longer than the core's save RAM: the host loads only its first bytes, as RetroArch does. The rest is user data the core does not see, so every write keeps it after the save RAM (`SaveStats::kept_tail_bytes`). The file never gets shorter, and no write rotates the full file out of the `.bak`. A file shorter than the save RAM grows to the save RAM size, which loses nothing.
 - A writer thread writes the file with `write_save_file` of the host: temp file, fsync, rename, one `.bak`. The session owns it; `quit()` and the drop stop and join it.
 - Two buffers travel between the frame thread and the writer over two bounded one-direction channels. The frame thread copies the save RAM into a free buffer, compares it with the last copy and sends it only when it changed. With no free buffer the flush waits for the next one. The frame thread never blocks.
 - The flush runs every `SAVE_RAM_FLUSH_INTERVAL_NS` (30 s) while the game runs, when the quick menu opens, and at exit. A failed write makes the next flush write again.

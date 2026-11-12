@@ -55,6 +55,10 @@ pub struct SaveStats {
     pub failures: u64,
     /// The last failure, if any.
     pub last_error: Option<SaveError>,
+    /// Bytes of the loaded save file beyond the core's save RAM. Every
+    /// write keeps them at the end of the file, so a file longer than the
+    /// save RAM is never cut.
+    pub kept_tail_bytes: usize,
 }
 
 /// A failure of the save RAM flush.
@@ -87,6 +91,9 @@ pub(crate) struct SaveRamWriter {
     spare: Vec<Vec<u8>>,
     /// The save RAM as the file holds it, or will once the writer is done.
     last: Vec<u8>,
+    /// The bytes of the loaded file beyond the core's save RAM, written
+    /// after the save RAM each time.
+    tail: Vec<u8>,
     stats: SaveStats,
     /// The result of the last write the writer sent back.
     last_write_ok: Option<bool>,
@@ -99,9 +106,14 @@ struct Done {
 }
 
 impl SaveRamWriter {
-    /// Starts the writer for `path`. `loaded` is the save RAM as it was
-    /// loaded from the file (empty when there was none), and `ram_bytes`
-    /// the size of the core's save RAM, so that no copy allocates.
+    /// Starts the writer for `path`. `loaded` is the save file as it was
+    /// loaded (empty when there was none), and `ram_bytes` the size of the
+    /// core's save RAM, so that no copy allocates.
+    ///
+    /// The host loads only the first `ram_bytes` of a longer file. The rest
+    /// is user data the core does not see, so every write appends it after
+    /// the save RAM: the file never gets shorter, and the backup of a write
+    /// is never a cut copy.
     ///
     /// # Errors
     ///
@@ -113,7 +125,9 @@ impl SaveRamWriter {
         let worker = thread::Builder::new()
             .name("save-ram".to_owned())
             .spawn(move || write_loop(&file, &job_queue, &done_tx))?;
-        let mut last = Vec::with_capacity(ram_bytes);
+        let tail = loaded.get(ram_bytes..).unwrap_or_default().to_vec();
+        let file_bytes = ram_bytes + tail.len();
+        let mut last = Vec::with_capacity(file_bytes);
         last.extend_from_slice(loaded);
         Ok(Self {
             path,
@@ -121,10 +135,14 @@ impl SaveRamWriter {
             done,
             worker: Some(worker),
             spare: (0..BUFFERS)
-                .map(|_| Vec::with_capacity(ram_bytes))
+                .map(|_| Vec::with_capacity(file_bytes))
                 .collect(),
             last,
-            stats: SaveStats::default(),
+            stats: SaveStats {
+                kept_tail_bytes: tail.len(),
+                ..SaveStats::default()
+            },
+            tail,
             last_write_ok: None,
         })
     }
@@ -201,6 +219,7 @@ impl SaveRamWriter {
             self.fail(error.into());
             return Flush::Failed;
         }
+        buffer.extend_from_slice(&self.tail);
         if buffer == self.last {
             self.spare.push(buffer);
             self.stats.unchanged += 1;
@@ -334,6 +353,31 @@ mod tests {
         let stats = writer.stats();
         assert_eq!((stats.sent, stats.written, stats.unchanged), (1, 1, 1));
         assert_eq!(stats.failures, 0);
+    }
+
+    #[test]
+    fn a_file_longer_than_the_save_ram_keeps_its_tail() {
+        let dir = temp_dir("tail");
+        let path = dir.join("game.srm");
+        let old = [1, 2, 3, 4, 5, 6, 7, 8];
+        std::fs::write(&path, old).unwrap();
+        let mut writer = SaveRamWriter::start(path.clone(), &old, 4).unwrap();
+        assert_eq!(writer.stats().kept_tail_bytes, 4);
+        assert_eq!(writer.flush(ram(&[1, 2, 3, 4])), Flush::Unchanged);
+        assert_eq!(writer.finish(ram(&[9, 2, 3, 4])), Flush::Written);
+        assert_eq!(read(&path), Some(vec![9, 2, 3, 4, 5, 6, 7, 8]));
+        assert_eq!(read(&dir.join("game.srm.bak")), Some(old.to_vec()));
+    }
+
+    #[test]
+    fn a_file_shorter_than_the_save_ram_grows() {
+        let dir = temp_dir("short");
+        let path = dir.join("game.srm");
+        std::fs::write(&path, [1, 2]).unwrap();
+        let mut writer = SaveRamWriter::start(path.clone(), &[1, 2], 4).unwrap();
+        assert_eq!(writer.stats().kept_tail_bytes, 0);
+        assert_eq!(writer.finish(ram(&[1, 2, 0, 0])), Flush::Written);
+        assert_eq!(read(&path), Some(vec![1, 2, 0, 0]));
     }
 
     #[test]
