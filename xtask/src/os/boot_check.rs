@@ -22,8 +22,13 @@ use super::{Arch, OsError, RunScript, transcript};
 use crate::load::LoadPolicy;
 use crate::repo::Repo;
 
-/// The screen that the frontend shows first in the game list run.
-pub const GAME_LIST_SCREEN: &str = "home";
+/// The screen that the check waits for. The image boots with nothing
+/// confirmed, so the guard opens the boot prompt over the game list,
+/// reverts to the safe default when nobody answers in 10 s, and shows a
+/// notice over the home screen of the game list run until the player
+/// presses OK. That picture has no timer, so the golden image is the same
+/// on every run.
+pub const GAME_LIST_SCREEN: &str = "notice";
 /// The golden image of the game list, relative to the checkout.
 pub const GOLDEN: &str = "os/tests/golden/boot-game-list.ppm";
 /// The marker line before the picture.
@@ -670,7 +675,7 @@ mod tests {
         let script = guest_script(900);
         assert!(
             script.starts_with(
-                "neptron-capture --screen home --timeout-ms 870000 --settle-ms 3000 && exit 0\n"
+                "neptron-capture --screen notice --timeout-ms 870000 --settle-ms 3000 && exit 0\n"
             ),
             "{script}"
         );
