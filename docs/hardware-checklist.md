@@ -60,3 +60,22 @@ Bench: Intel i3-6100T (HD 530) with a Samsung SyncMaster 740s through a DisplayP
 - [ ] Space Invaders on `arcade_15`: the mode runs at 16.135 kHz. The picture locks and the height is correct.
 - [ ] Donkey Kong (unrotated) on `arcade_15`: the mode runs at 16.181 kHz. The picture locks. Record what the crop hides.
 - [ ] `native` with a 240-line game on the SyncMaster 740s (`pc_31_120`): the mode runs at double refresh near 120 Hz and the notice shows.
+
+## T23 KMS backend (Intel HD 530 with i915)
+
+Run the steps with the real frontend path (`KmsDisplay::from_env` from the launcher) on the i3-6100T. Keep `dmesg | tail -50` with each result.
+
+- [ ] Open: with no setting, the connector rule picks the VGA output (an analog connector with EDID, or the DP-to-VGA bridge as `DP-n`). Record the name, the driver, and whether the buffers got linear by the modifier list or by the usage flag.
+- [ ] No modeset before the first commit: after open, the firmware's mode is still on the wire (i915 inherits it) until the first `set_mode`.
+- [ ] Atomic modeset of a 15 kHz super-width mode (for example 1920x240 at 60 Hz, `generic_15`, with the pixel clock floor of the capability table): test-only commit and commit pass, the readback equals the request field by field, the monitor syncs.
+- [ ] Atomic modeset of each bench mode: 240p at 120 Hz and 480p at 60 Hz on the SyncMaster 740s (`pc_31_120`); readback equal; the picture shows the full test scene with no offset.
+- [ ] Positive sync on the wire: a mode with positive horizontal and vertical sync reads back with both polarities positive, and a scope or the monitor's on-screen display shows positive sync.
+- [ ] Connector choice with several outputs: with VGA and a digital monitor both connected and no setting, a CRT profile picks the analog output and a flat-panel profile the first digital one; a VGA output with no EDID is used only when named.
+- [ ] The real minimum pixel clock: lower the pixel clock of a 240p mode step by step (with `--allow-low-pclock` in `kms-spike`, then through the backend); record the lowest clock the test-only commit takes and the lowest the monitor syncs to, against the capability table.
+- [ ] 480i on a 15 kHz display with linear buffers and no kernel patch: the commit passes and the picture is stable.
+- [ ] Flip timing: 600 presents with `wait_flip` per progressive mode. The mean time per vblank is within 0.1 % of the mode period; record the jitter and the missed vblanks. Record the pixel clock the period implies against the requested clock.
+- [ ] Interlace cadence: in 480i, count flip events per second. Record whether i915 signals one flip per field (about 59.94 per second) or per frame (about 29.97), and set `flip_per_field` in `data/hardware/matrix.toml` from it (OP-030).
+- [ ] A flip that never completes: not testable by hand; check only that no `wait_flip` error appears in a 30-minute run.
+- [ ] Restore at a normal exit: the plane goes off and the last validated mode stays on the wire (or the output goes off, if i915 refuses an active CRTC with no primary plane). Record which.
+- [ ] Restore after a panic in the release build (abort), with the launcher holding the descriptor: the mode and the last picture stay; the respawned frontend sets the last validated mode again.
+- [ ] Restore after a kill with no launcher (the frontend opened the device itself): record whether i915 keeps the CRTC on with no plane, or switches it off.

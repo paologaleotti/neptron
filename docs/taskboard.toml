@@ -208,7 +208,7 @@ name = "KMS backend (spec first)"
 owns = ["crates/neptron-kms", "docs/spec/kms.md"]
 needs = ["T04", "T14", "T19"]
 gate = "Timing check 7 on `vkms`"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T24"

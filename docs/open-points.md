@@ -549,3 +549,21 @@ Each open point is one section:
 - Where: `crates/neptron-ui/src/screens/video.rs`, `crates/neptron-ui/README.md` (the contract of the text)
 - How to change: a warning colour is a new field of the skin and a new version of the skin format. A cheaper mark is a text prefix from the formatter, for example `! filtered`, with no UI change.
 - Decision:
+
+### OP-059: The bounded flip wait is not in the `Display` contract or the fake.
+
+- Raised by: T23 and its review
+- Status: open, a contract change for wave 4 (before T25 and T26 rely on it)
+- Default: `KmsDisplay::wait_flip` waits at most `FLIP_WAIT_LIMIT_MS` (500 ms). On a timeout it returns `DisplayError::Device` and the flip stays queued: it can still complete, and until then `present` and `set_mode` return `Device` as busy. `FakeDisplay` drops the pending flip on `FlipFault::Lost`, so the next `present` works. The two differ.
+- Where: `crates/neptron-backend/src/display.rs`, `crates/neptron-testkit/src/display.rs`, `docs/spec/` (the KMS backend spec, steps 2 and 8)
+- How to change: one small branch with an ADR. Add the sentence to the `wait_flip` doc. In the fake, `Lost` keeps the flip pending and returns `Device`; add `FlipFault::Slow { timeouts }`. Update the fake's README section "What the real backend must match". The same branch can add `Display::blank()` (output off: CRTC ACTIVE 0, MODE_ID 0), which the engine and T26 need when no valid mode exists.
+- Decision:
+
+### OP-060: Smaller points of the KMS backend.
+
+- Raised by: T23 review
+- Status: open, low priority
+- Default: (1) `tools/kms-spike` and `neptron-kms` each hold a copy of the mode conversion; the records are equal except the name text. (2) `draw_to_window` with a zero side has no test, because EGL does not run on the host. (3) Another thread can close and reuse the launcher descriptor number between the device check and the take; the launcher contract excludes it. (4) The task also changed `neptron-gfx` (one shared `draw`, the GBM window target) and `xtask` (`kms-check`, one `RUSTFLAGS` for all guest builds); the orchestrator accepted both.
+- Where: `crates/neptron-kms`, `crates/neptron-gfx`, `tools/kms-spike`, `xtask/src/os`
+- How to change: make the spike depend on `neptron-kms` or remove it after the hardware tests.
+- Decision:
