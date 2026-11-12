@@ -199,7 +199,7 @@ name = "ODREN engine"
 owns = ["crates/neptron-video except src/guard"]
 needs = ["T03", "T04", "T15"]
 gate = "Timing check 5"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T23"

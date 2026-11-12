@@ -567,3 +567,12 @@ Each open point is one section:
 - Where: `crates/neptron-kms`, `crates/neptron-gfx`, `tools/kms-spike`, `xtask/src/os`
 - How to change: make the spike depend on `neptron-kms` or remove it after the hardware tests.
 - Decision:
+
+### OP-061: Engine points for the session and the app.
+
+- Raised by: T22 and its reviews
+- Status: open, input for T25, T26 and T27
+- Default: (1) the engine draws no scanlines until the session calls `set_scanlines` with the settings. (2) When no valid mode exists, the engine reports `current_refused()` and cannot turn the output off, because the `Display` contract has no `blank()` (see OP-059). (3) The video status text comes from `Odren::video_status` (the read back); a status built from a proposal is for the Display panel preview only and must not go in the running game's snapshot. (4) On the mode line an interlaced 1:1 mode shows `native`, the fitted rung shows `fit`, a flat panel shows `panel`, and a multiple shows `Nx`. (5) `exact` shows when there is no fit, no crop, no padding and no speed change; a fractional horizontal scale under a fixed super width still counts as exact. (6) `double refresh` shows also when the user asked for it. (7) A field rate of 100 Hz or more makes the mode line 38 characters, and the UI cuts it.
+- Where: `crates/neptron-video/src/odren.rs`, `crates/neptron-video/src/status.rs`, `crates/neptron-video/README.md`
+- How to change: the labels and words are in `rung_label` and `write_result`. Scanline settings can move into `VideoEngine::new`.
+- Decision:
