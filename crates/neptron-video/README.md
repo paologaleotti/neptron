@@ -120,6 +120,14 @@ The guard owns a `DisplayConfig`: the monitor and the policy settings. Only the 
 
 The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `neptron-input`. It sends one `Hotkey::BlindRecovery`, and the app calls `Guard::recover`.
 
+### Narrower than the safety model
+
+The CRT safety model (rows 4 to 6) asks more than the guard does. These parts are left out on purpose:
+
+- Confirm or revert covers the monitor profile and the policy settings. The connector (`display.output`) is not an input of the engine, so the app must put a connector change under its own prompt. Signal geometry offsets do not exist in the MVP.
+- Last known good holds the monitor only, not the policy settings, because those resolve per game. A revert restores the settings that were active before the change, from memory.
+- The guard starts at `Guard::boot`. The blind recovery before that (the launcher, the first frames of the frontend) belongs to the launcher and the app. Safe mode at boot comes from the record, which the guard wrote in an earlier boot.
+
 ### States
 
 - **Confirmed.** The engine has the confirmed configuration.
@@ -206,8 +214,8 @@ The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `
 - `tests/integration/faults.rs`: a veto that refuses, no winner, each `DisplayError` of `set_mode`, `present` and `wait_flip`, a read back that differs, a restore validated again, the read back of a restore, a failed restore and its blank, `retry()`, the read-back rate note, calls out of order.
 - `tests/integration/inputs.rs`: a monitor change and a settings change in a game, a stale token after an input change, an unapplied or failed monitor modeset, the attempt bound, `current_refused()`, the blank when no valid mode exists and the modeset after it, a failed blank and its bound, a blank after a queued flip, the EDID pixel clock limit.
 - `tests/integration/stall.rs`: waits that time out with the flip still queued (`FlipFault::Slow` and `FlipFault::Lost` of the fake display).
-- `tests/integration/guard_confirm.rs`: timeout revert, confirmation, refused confirmations, decline, a new change while one is pending, the confirmed configuration chosen again, a settings change during a pending change, a blank during a pending change, a revert target the inputs refuse, device errors during a revert.
-- `tests/integration/guard_boot.rs`: a boot on the last known good, a good boot, two failed boots, safe mode until a confirmation, a revert in safe mode, settings that differ from the last known good, a first boot with nothing confirmed, a last known good with no valid mode, settings that follow.
+- `tests/integration/guard_confirm.rs`: timeout revert, confirmation, refused confirmations, decline, a new change while one is pending, the confirmed configuration chosen again, a settings change during a pending change, a blank during a pending change, a revert target the inputs refuse, device errors during a revert, a confirmation before a frame of the change, a propose loop with no picture, the pending limit, a settings loop with no picture, time that goes backwards, a flip that never completes during a pending change.
+- `tests/integration/guard_boot.rs`: a boot on the last known good, a good boot, two failed boots, safe mode until a confirmation, a revert in safe mode, settings that differ from the last known good, a first boot with nothing confirmed, a last known good with no valid mode, settings that follow, a boot prompt whose revert asks for the settings, and the boot prompt that comes back until they are written.
 - `tests/integration/guard_recovery.rs`: the blind recovery in each state: confirmed, a confirmation open, the output off, a refused mode after failed blanks, safe mode, before the first frame, a source blocked by device errors.
 - The guard rig checks after every frame that a mode on the wire passes the validator for the current monitor, unless the engine reports it as refused.
 - `tests/integration/check5.rs`: timing check 5. Two scripted cores (SNES under a fixed super width, Mega Drive under the native width) change width, lines, scan and rate at given frames. The list of switches must equal `tests/golden/switch_trace.txt`, and every frame checks the mute and the debounce. The golden holds the modes the policy picks on `generic_15`; a policy change shows as a diff to check line by line.
