@@ -544,11 +544,11 @@ Each open point is one section:
 ### OP-058: Layout and alert of the video status block.
 
 - Raised by: C05 and its review
-- Status: open, needs a look from the owner
+- Status: closed
 - Default: (1) the result words sit on their own two lines under the mode line, because the mode text already uses 32 to 37 of the 37 characters at 320 pixels. The block always has five lines, so the menu rows never move. (2) An alert result (filtered, speed changed) shows in the focus colour of the skin, amber in the default skin. The skin has no warning colour, and the alert is not in the accessibility tree. (3) The display panel drops its Mode line during a game, because the block shows the mode read back from the kernel. (4) A screen shows the block only when at least 2 rows of its page fit under it; with 24-pixel rows the display panel shows no block and the quick menu scrolls. (5) The UI part is merged; the formatter that fills the text is in `neptron-video` (T22), and the app (T27) copies it into the snapshot each frame.
 - Where: `crates/neptron-ui/src/screens/video.rs`, `crates/neptron-ui/README.md` (the contract of the text)
 - How to change: a warning colour is a new field of the skin and a new version of the skin format. A cheaper mark is a text prefix from the formatter, for example `! filtered`, with no UI change.
-- Decision: the owner (2026-11-12): the layout stays. An alert gets a text mark `[!]` from the formatter and its own warning colour. The palette also gets a red error colour for errors. Change C06 does this with a new version of the skin format.
+- Decision: the owner (2026-11-12): the layout stays. An alert gets a text mark `[!]` from the formatter and its own warning colour. The palette also gets a red error colour for errors. Change C06 does this with a new version of the skin format. Done in C06: the mark is `[!] `, the warning colour is `#FF8020`, the error colour is `#FF6060`, and the speed word is `speed (X to Y Hz)` so the longest result fits two lines. In a version 2 skin file both colour keys are required. A warning notice uses the warning colour on its title bar.
 
 ### OP-059: The bounded flip wait is not in the `Display` contract or the fake.
 

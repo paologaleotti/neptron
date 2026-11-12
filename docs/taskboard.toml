@@ -316,7 +316,7 @@ name = "Alert mark in the video status; warning and error colours in the skin"
 owns = ["crates/neptron-ui", "crates/neptron-video/src/status.rs"]
 needs = ["C05", "T22"]
 gate = "T1; scenes and goldens viewed; the old skin version still loads"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C07"
