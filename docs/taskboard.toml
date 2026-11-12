@@ -280,7 +280,7 @@ name = "Policy change: the native picture style and border modes of any height"
 owns = ["crates/neptron-modeline"]
 needs = ["T15"]
 gate = "T1; a table row for each new rule; every golden change explained"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C03"

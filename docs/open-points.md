@@ -522,3 +522,21 @@ Each open point is one section:
 - Where: `tests/traces/README.md`, `data/cores`
 - How to change: default options per system in the core metadata (it has no field for them yet): `fceumm_overscan_v_top=0` and `fceumm_overscan_v_bottom=0` give 256x240; `snes9x_overscan=auto` gives 224 or 239 lines as the game asks; `genesis_plus_gx_overscan=disabled` gives 320x224 and `top/bottom` gives 320x240 with the border. The session starts from the system's default geometry, or waits for the first frames before it commits a mode.
 - Decision:
+
+### OP-056: Policy choices of change C02 that the owner has not confirmed.
+
+- Raised by: C02 and its review
+- Status: open, needs a look from the owner
+- Default: (1) on a 31 kHz monitor the `native` style takes double refresh on its own when the game's lines at the game's rate do not fill the range, and gives a notice. (2) The overscan crop bound is 8 lines per edge, the crop is symmetric, and an odd miss costs one extra line. (3) A padded exact mode is used only when the game fills at least 75 percent of the picture lines; a smaller fill ranks after it. (4) The standard border heights 224 and 240 come first, so a 192-line game gets 448 lines before 400. (5) Donkey Kong with `native` on `pc_31_120` shows at full height at 121.212 Hz with a crop of 8 lines per edge. (6) A double rate that the user asks for (`exact_x2`) ranks like a forced rate, before any fill comparison.
+- Where: `crates/neptron-modeline/src/policy/crt.rs`, `crates/neptron-modeline/src/policy/choose.rs`, `crates/neptron-modeline/README.md` (Order, Known limits)
+- How to change: the bounds are named constants (`OVERSCAN_CROP_MAX_LINES_PER_EDGE`, `PADDED_FILL_MIN_PERCENT`, `BORDER_LINES`). The order is in `native_key` and `entry`. Each rule has a table row in `tests/integration/policy_table.rs`.
+- Decision:
+
+### OP-057: A crop at the bound can hide game content on arcade boards.
+
+- Raised by: C02 review
+- Status: open, known limit
+- Default: arcade boards draw to the frame edge, so a crop of up to 8 lines per edge can hide real content. A vertical game shown unrotated loses columns of its upright picture (Donkey Kong on `arcade_15` loses 5 at each side). The bound is not checked against real game pictures. The notice reports the hidden lines.
+- Where: `crates/neptron-modeline/README.md` (Known limits)
+- How to change: a per-system or per-game crop bound in the core or game metadata; or a setting that turns the crop off, at the cost of a padded or filtered picture.
+- Decision:

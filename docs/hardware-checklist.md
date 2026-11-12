@@ -54,3 +54,9 @@ Bench: Intel i3-6100T (HD 530) with a Samsung SyncMaster 740s through a DisplayP
 
 - [ ] 2x black scanlines at 100, 75 and 50 percent on the SyncMaster 740s: brightness, and whether the lines read as gaps. Record the value that looks right.
 - [ ] No moiré from the DisplayPort to VGA bridge with scanlines on.
+
+## C02 policy
+
+- [ ] Space Invaders on `arcade_15`: the mode runs at 16.135 kHz. The picture locks and the height is correct.
+- [ ] Donkey Kong (unrotated) on `arcade_15`: the mode runs at 16.181 kHz. The picture locks. Record what the crop hides.
+- [ ] `native` with a 240-line game on the SyncMaster 740s (`pc_31_120`): the mode runs at double refresh near 120 Hz and the notice shows.
