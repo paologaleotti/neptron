@@ -300,3 +300,12 @@ needs = ["T06", "T10", "T19", "C01"]
 gate = "T1 and gles-compare; goldens viewed; an ADR"
 status = "merged"
 
+[[task]]
+id = "C05"
+wave = 3
+name = "Video status block in the quick menu"
+owns = ["crates/neptron-ui", "the status formatter in crates/neptron-video (with T22)"]
+needs = ["T20", "T22"]
+gate = "T1; scenes and goldens viewed"
+status = "in_progress"
+
