@@ -17,6 +17,16 @@ The list is in the order of the work on the bench: first the safety checks, then
 - Keep these files with each result: the JSON report of the tool, and the output of `dmesg | tail -50` after the run. A photo of the screen helps when the picture is wrong.
 - Run every tool as root on a text console, with no X or Wayland. Stop the frontend and the launcher before a tool that opens the DRM device (`neptronctl selftest video`, `kms-spike`, `gles_compare`).
 
+## Safety rules for the 740s
+
+The frontend falls back to its safe default when it has no settings, after two failed boots, and on blind recovery. The safe default is the EDID profile when the monitor gives EDID, and else `generic_15` (15 kHz). A 15 kHz signal is out of range for the 740s. It is deliberate on an unknown display, but do not send it to this monitor.
+
+- Do the check "Find the VGA connector" first. Its result decides the rest:
+  - **EDID**: the `edid` file of the connector is not empty. The safe default is the EDID profile, and every check below can run.
+  - **No EDID**: the file is empty. Before the frontend starts with the 740s connected, write the preset into `/state/config/global.toml` (`[display]` with `monitor = "pc_31_120"`), and confirm the boot prompt within 10 s; with no confirmation the guard reverts to the safe default. Skip each check marked "Needs EDID", and write "skipped: no EDID through the bridge" under it.
+- Keep a hand on the power switch of the monitor. Switch the monitor off at once if it whines, clicks, or shows a rolling or folded picture, and write down what the tool or the frontend showed at that moment.
+- A check marked "Needs EDID" can make the frontend fall back to the safe default.
+
 ## 1. First boot and safety checks
 
 Do these before the CRT gets a mode that nobody checked on it.
@@ -33,10 +43,10 @@ Do these before the CRT gets a mode that nobody checked on it.
   - Do: `neptronctl selftest video --profile pc_31_120 --connector <name> --report /tmp/dry-pc.json`. If the `edid` file is not empty, also `neptronctl selftest video --profile edid --connector <name> --report /tmp/dry-edid.json`.
   - Expect: the dry run sets no mode. It prints the ranges of the profile, the GPU values (table entry `intel_gen9`, pixel clock 25 to 165 MHz, no interlace) and the modes: 240p at 120 Hz (`240p_double_refresh`), 480p, 768x224 at 120 Hz (`super_width_dynamic`) and 1920x224 at 120 Hz (`super_width_fixed`).
   - Record: compare each range with the manual of the 740s. Write down the modes and the EDID profile id (`edid_...`) and its ranges.
-- [ ] `needs-hardware` **The safe start is harmless on the 31 kHz CRT.**
-  - Do: boot the image with only the CRT connected and no settings file. With no EDID, the frontend starts at `generic_15` (15 kHz).
-  - Expect: the 740s shows "out of range" or no picture, with no noise from the tube. With EDID, the frontend uses the EDID profile and shows the game list.
-  - Record: what the monitor shows, and which profile the frontend log names.
+- [ ] `needs-hardware` **The first start on the 740s.**
+  - Do: with **EDID**, boot the image with only the CRT connected and no settings file. With **no EDID**, do not boot with no settings: write `pc_31_120` into the settings first (see "Safety rules for the 740s"), boot, and confirm the boot prompt.
+  - Expect: with EDID, the frontend uses the EDID profile and shows the game list. With no EDID, it uses `pc_31_120` and shows the game list. No noise comes from the tube.
+  - Record: which case it was, what the monitor shows, and which profile the frontend log names.
 - [ ] `needs-hardware` **The output can be turned off.** (C07)
   - Do: in the self-test, or with the frontend, cause a `blank` (the end of `neptronctl selftest video` is a blank).
   - Expect: the CRTC goes inactive, the monitor shows no sync and goes to standby, with no damage.
@@ -47,10 +57,10 @@ Do these before the CRT gets a mode that nobody checked on it.
   - Record: the time to the restore, and the `restore` field of the report.
 - [ ] `needs-hardware` **A kill shows what the driver does with no restore.**
   - Do: `kill -KILL <pid>` of `neptronctl` during a mode.
-  - Expect: no code of the tool runs. The tube shows the validated test mode with a black picture, or no signal.
-  - Record: what the tube shows. Recover with a switch to another virtual terminal, or run the self-test again.
+  - Expect: no code of the tool runs. The tube shows the validated test mode with a black picture, or no signal. When the tool closes, the console comes back in its own mode, or the output stays off.
+  - Record: what the tube shows, and whether the console came back or the output stayed off. Recover with a switch to another virtual terminal, or run the self-test again.
 - [ ] `needs-hardware` **The self-test refuses while the frontend runs.**
-  - Do: with the frontend running, run the self-test with the confirmation flag.
+  - Do: with the frontend running (with EDID, or with `pc_31_120` in the settings), run the self-test with the confirmation flag.
   - Expect: exit code 6 and an error that says the frontend answers on the control socket, or that `neptron` or `neptron-launch` runs. No mode changes.
   - Record: the error text.
 
@@ -123,7 +133,7 @@ Do these before the CRT gets a mode that nobody checked on it.
 Run these with the real frontend path (`KmsDisplay::from_env` from the launcher) on the i3-6100T, unless the check names the self-test.
 
 - [ ] `needs-hardware` **Open picks the VGA output.**
-  - Do: start the frontend with no `display.output` setting.
+  - Do: start the frontend with no `display.output` setting (with EDID, or with `pc_31_120` in the settings).
   - Expect: the connector rule picks the VGA output: an analog connector with EDID, or the DP-to-VGA bridge as `DP-n`.
   - Record: the name, the driver, and whether the buffers are linear by the modifier list or by the usage flag (`display.linear_by_modifier` in the self-test report says the same).
 - [ ] `needs-hardware` **No modeset before the first commit.**
@@ -220,11 +230,11 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Do: confirm a change, then reboot.
   - Expect: the mode is the same after the reboot.
   - Record: the mode before and after.
-- [ ] `needs-hardware` **Two failed boots give the safe default.**
+- [ ] `needs-hardware` **Two failed boots give the safe default.** Needs EDID.
   - Do: kill the frontend twice before 10 s of picture.
   - Expect: the third start comes up in the safe default.
   - Record: the profile of the third start.
-- [ ] `needs-hardware` **Blind recovery.**
+- [ ] `needs-hardware` **Blind recovery.** Needs EDID.
   - Do: hold Select and Start for 5 s with no picture (output off), and again during an open confirm dialog.
   - Expect: the safe default comes back with the audio cue.
   - Record: the time to the picture.
@@ -286,11 +296,11 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Do: plug a keyboard in, use it, unplug it.
   - Expect: it is found, grabbed (no key reaches a console), mapped, and released when unplugged.
   - Record: the keyboard model.
-- [ ] `needs-hardware` **Blind recovery from each device.**
+- [ ] `needs-hardware` **Blind recovery from each device.** Needs EDID.
   - Do: hold the recovery combination on a gamepad, then on a keyboard, with no picture.
   - Expect: the safe default comes back.
   - Record: the device and the time.
-- [ ] `needs-hardware` **Recovery held at boot on a keyboard encoder.**
+- [ ] `needs-hardware` **Recovery held at boot on a keyboard encoder.** Needs EDID.
   - Do: hold the combination on a keyboard encoder from power-on.
   - Expect: recovery triggers.
   - Record: the encoder model.
@@ -313,7 +323,7 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Do: `kill -TERM` the launcher.
   - Expect: it forwards SIGTERM, and the frontend leaves a validated mode on the wire.
   - Record: what the monitor shows.
-- [ ] `needs-hardware` **Blind recovery on the image.**
+- [ ] `needs-hardware` **Blind recovery on the image.** Needs EDID.
   - Do: hold the combination on a gamepad and on a keyboard, also from power-on.
   - Expect: the safe default comes back.
   - Record: the device and the time.
@@ -321,7 +331,7 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Do: boot a box with no sound device.
   - Expect: it boots and shows the "No sound" notice.
   - Record: the notice text.
-- [ ] `needs-hardware` **A connector change.**
+- [ ] `needs-hardware` **A connector change.** Needs EDID.
   - Do: change the connector in `global.toml`.
   - Expect: the boot prompt shows.
   - Record: what the prompt says.
@@ -338,7 +348,7 @@ T28 adds the checks of the image. These come from the MVP exit gate.
   - Do: boot the USB image on any monitor. Play one game of each core (FCEUmm, Snes9x, Genesis Plus GX) with a gamepad.
   - Expect: each game plays with sound, and the quick menu quits to the game list.
   - Record: the game of each core.
-- [ ] `needs-hardware` **Confirm-or-revert and blind recovery on the 740s.** (MVP exit)
+- [ ] `needs-hardware` **Confirm-or-revert and blind recovery on the 740s.** (MVP exit) Needs EDID.
   - Do: as in "Engine and guard", on the EDID profile of the 740s.
   - Expect: confirm-or-revert reverts with no button press, and blind recovery restores the safe mode.
   - Record: the results.
