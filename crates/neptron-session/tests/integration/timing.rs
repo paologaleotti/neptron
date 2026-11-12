@@ -8,9 +8,10 @@
 //! the queue to its target, and the pitch error stays under 0.5%.
 //!
 //! The runs in the tier take 30 simulated seconds, about 4.7 time constants
-//! of the rate control, as the random pairs of the audio crate do. The
-//! 100,000-frame run is an ignored test: the dev profile runs about 2 ms
-//! of test core, host, engine and resampler per frame.
+//! of the rate control, as the random pairs of the audio crate do. The two
+//! 100,000-frame runs are ignored tests: each takes about 67 s in the dev
+//! profile, about 0.7 ms of test core, host, engine and resampler per
+//! frame.
 //!
 //! ```sh
 //! cargo xtask test -p neptron-session --run-ignored only -E 'test(hundred_thousand)'
@@ -310,7 +311,7 @@ fn long_check(late: bool) -> Check {
 
 /// 100,000 frames, about 28 simulated minutes, with jitter.
 #[test]
-#[ignore = "100,000 frames take a minute in the dev profile"]
+#[ignore = "100,000 frames take about 67 s in the dev profile"]
 fn hundred_thousand_frames_at_60_10_hz() {
     with_script!("hundred_thousand_frames_at_60_10_hz", LONG_SCRIPT, |dir| {
         let display = DisplayOptions {
@@ -325,7 +326,7 @@ fn hundred_thousand_frames_at_60_10_hz() {
 
 /// 100,000 frames with jitter and one late flip in a thousand.
 #[test]
-#[ignore = "100,000 frames take a minute in the dev profile"]
+#[ignore = "100,000 frames take about 67 s in the dev profile"]
 fn hundred_thousand_frames_at_60_10_hz_with_late_flips() {
     with_script!(
         "hundred_thousand_frames_at_60_10_hz_with_late_flips",

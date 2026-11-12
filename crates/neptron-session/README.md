@@ -98,7 +98,7 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 - `tests/integration/session.rs`, the scripted session with the test core through the real host: one frame per flip, the input of each frame, the quick menu (pause, no toggle, UI over the frozen frame, the mask on resume), the Start hold, the blind recovery under the menu, save RAM at launch, on the timer, at the menu and at exit, a core shutdown, double refresh, scanline settings and video status, core options, a timing change.
 - `tests/integration/launch.rs`: the first mode for the Genesis Plus GX geometry, and the two modesets without the settle.
 - `tests/integration/faults.rs`: a slow flip, a failed present and wait, a display that stops flipping, the output turned off and on again.
-- `tests/integration/timing.rs`: timing check 6 at 50.00, 59.94 and 60.10 Hz with jitter, with late flips, and with a display rate that differs from the mode (measured run rate). 30 simulated seconds each in the tier. Two 100,000-frame runs (about 28 simulated minutes, 100 s each in the dev profile) are ignored tests: with jitter only, and with one late flip in a thousand.
+- `tests/integration/timing.rs`: timing check 6 at 50.00, 59.94 and 60.10 Hz with jitter, with late flips, and with a display rate that differs from the mode (measured run rate). 30 simulated seconds each in the tier. Two 100,000-frame runs (about 28 simulated minutes, about 67 s each in the dev profile) are ignored tests: with jitter only, and with one late flip in a thousand.
 
 ```sh
 cargo xtask test -p neptron-session --run-ignored only -E 'test(hundred_thousand)'
