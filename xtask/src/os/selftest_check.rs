@@ -277,7 +277,7 @@ fn build_program(repo: &Path, cache: &Cache, arch: Arch, share: &Path) -> Result
         example: String::new(),
         // No host gate compiles the Linux code of the kms feature.
         lint: true,
-        unwrapped_linker: false,
+        filtered_linker: false,
     };
     // The build reads the toolchains in the Buildroot output, which an os
     // build changes.

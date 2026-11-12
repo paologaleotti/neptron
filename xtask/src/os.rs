@@ -385,7 +385,7 @@ pub fn app_check(args: &[&str]) -> Result<ExitCode, OsError> {
             features: features.to_owned(),
             example: String::new(),
             lint: true,
-            unwrapped_linker: true,
+            filtered_linker: true,
         };
         for step in plan.app_steps() {
             run_step(Command::new("docker").args(step))?;
@@ -442,7 +442,7 @@ pub fn run_guest_check(check: &GuestCheck, args: &[&str]) -> Result<ExitCode, Os
         features: check.features.to_owned(),
         example: check.example.to_owned(),
         lint: check.lint,
-        unwrapped_linker: false,
+        filtered_linker: false,
     };
     {
         // The build reads the toolchains in the Buildroot output, which an

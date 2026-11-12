@@ -28,12 +28,12 @@ pub struct CrossPlan {
     /// feature. Every guest build denies warnings; the Buildroot Rust
     /// toolchain has no clippy, so these are rustc's lints only.
     pub lint: bool,
-    /// Link with the compiler behind the Buildroot wrapper. The `sdl3`
-    /// crate adds `/usr/local/lib` to the link search on every Linux host,
-    /// and the wrapper refuses that path as an error. The compiler itself
-    /// links against the sysroot and only warns. Only the builds that link
-    /// SDL3 set it; the compiler of the C code stays the wrapper.
-    pub unwrapped_linker: bool,
+    /// Link through `os/package/neptron/link-filter.sh`, as the image
+    /// packages do. The `sdl3` crate adds `/usr/local/lib` to the link
+    /// search on every Linux host, and the Buildroot compiler wrapper
+    /// refuses that path as an error; the filter drops it and links with
+    /// the wrapper. Only the builds that link SDL3 set it.
+    pub filtered_linker: bool,
 }
 
 impl CrossPlan {
@@ -132,8 +132,8 @@ impl CrossPlan {
             self.arch.rust_target().to_uppercase().replace('-', "_")
         );
         let gcc = format!("{host_bin}/{}-buildroot-linux-gnu-gcc", self.arch.name());
-        let linker = if self.unwrapped_linker {
-            format!("{gcc}.br_real")
+        let linker = if self.filtered_linker {
+            LINK_FILTER.to_owned()
         } else {
             gcc.clone()
         };
@@ -156,6 +156,7 @@ impl CrossPlan {
             ("PKG_CONFIG".to_owned(), format!("{host_bin}/pkg-config")),
             ("PKG_CONFIG_ALLOW_CROSS".to_owned(), "1".to_owned()),
             (linker_var, linker),
+            ("NEPTRON_LINK_CC".to_owned(), gcc.clone()),
             (target_cc, gcc),
             (target_ar, ar),
         ] {
@@ -174,6 +175,8 @@ impl CrossPlan {
 /// target directory.
 const HOME: &str = "/home/br";
 const CROSS_VOLUME_PREFIX: &str = "neptron-cross-";
+/// The linker filter of the image packages, in the checkout mount.
+const LINK_FILTER: &str = "/src/repo/os/package/neptron/link-filter.sh";
 
 #[cfg(test)]
 mod tests {
@@ -189,7 +192,7 @@ mod tests {
             features: "gles".to_owned(),
             example: "gles_compare".to_owned(),
             lint: false,
-            unwrapped_linker: false,
+            filtered_linker: false,
         }
     }
 
@@ -284,7 +287,7 @@ mod tests {
             package: "neptron".to_owned(),
             features: "kms".to_owned(),
             lint: true,
-            unwrapped_linker: true,
+            filtered_linker: true,
             ..plan()
         }
         .app_steps();
@@ -316,16 +319,51 @@ mod tests {
                 .any(|a| a == "PKG_CONFIG=/work/out/host/bin/pkg-config")),
             "a linked system library comes from the sysroot"
         );
+        let build = steps[1].join(" ");
         assert!(
-            steps[1]
-                .join(" ")
-                .contains("LINKER=/work/out/host/bin/aarch64-buildroot-linux-gnu-gcc.br_real"),
-            "{:?}",
-            steps[1]
+            build.contains(
+                "--env CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=\
+                 /src/repo/os/package/neptron/link-filter.sh"
+            ),
+            "{build}"
         );
         assert!(
-            !plan().steps()[0].join(" ").contains("br_real"),
-            "the other guest builds keep the wrapper"
+            build.contains(
+                "--env NEPTRON_LINK_CC=/work/out/host/bin/aarch64-buildroot-linux-gnu-gcc"
+            ),
+            "{build}"
+        );
+        assert!(!build.contains("br_real"), "the wrapper checks every link");
+        assert!(
+            !plan().steps()[0].join(" ").contains("link-filter"),
+            "the other guest builds link with the wrapper itself"
+        );
+    }
+
+    #[test]
+    fn the_link_filter_drops_only_usr_local_lib() {
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../os/package/neptron/link-filter.sh");
+        let out = std::process::Command::new("sh")
+            .arg(&script)
+            .args([
+                "-L",
+                "/usr/local/lib",
+                "-L/usr/local/lib",
+                "-L",
+                "/sysroot/a b",
+                "-L/usr/local/lib64",
+                "-o",
+                "neptron",
+                "-L",
+            ])
+            .env("NEPTRON_LINK_CC", "printf <%s>")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        assert_eq!(
+            String::from_utf8(out.stdout).unwrap(),
+            "<-L></sysroot/a b><-L/usr/local/lib64><-o><neptron><-L>"
         );
     }
 

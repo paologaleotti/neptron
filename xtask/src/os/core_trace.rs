@@ -252,7 +252,7 @@ fn build_program(repo: &Path, cache: &Cache, arch: Arch, share: &Path) -> Result
         features: String::new(),
         example: EXAMPLE.to_owned(),
         lint: false,
-        unwrapped_linker: false,
+        filtered_linker: false,
     };
     // The build reads the toolchains in the Buildroot output, which an os
     // build changes.
