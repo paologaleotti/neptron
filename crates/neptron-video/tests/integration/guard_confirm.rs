@@ -1,10 +1,10 @@
 //! Scripted safety scenarios: confirm-or-revert.
 
-use neptron_testkit::ModeFault;
+use neptron_testkit::{FlipFault, ModeFault};
 use neptron_types::Modeline;
 use neptron_video::{
     CONFIRM_WINDOW_NS, ConfirmError, GuardEvent, Health, MODESET_ATTEMPTS, NO_PICTURE_LIMIT_NS,
-    PENDING_LIMIT_NS, Phase, PictureStyle, PromptId, RevertReason, SafeReason,
+    PENDING_LIMIT_NS, Phase, PictureStyle, PromptId, RevertReason, SafeReason, VideoError,
 };
 
 use crate::guard_rig::{
@@ -415,5 +415,36 @@ fn time_that_goes_backwards_does_not_hold_off_the_no_picture_limit() {
         step.event,
         Some(GuardEvent::SafeMode(SafeReason::NoValidMode)),
         "the time before the jump still counts"
+    );
+}
+
+#[test]
+fn a_flip_that_never_completes_cannot_be_confirmed_and_the_deadline_reverts() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    let prompt = rig.propose(crt_31());
+    let index = rig.fake.next_present_index();
+    rig.fake.fault_flip(index, FlipFault::Lost);
+    rig.frame();
+    assert_eq!(rig.wire(), Some(mode_of(&crt_31())), "the mode is set");
+    assert!(rig.engine.muted(), "its first flip never came");
+    assert!(matches!(
+        rig.guard.confirm(prompt.id, rig.now(), &rig.engine),
+        Err(ConfirmError::NoPicture { .. })
+    ));
+
+    rig.run_until(prompt.deadline_ns + FRAME_NS);
+    assert!(
+        rig.event_list()
+            .contains(&GuardEvent::Reverted(RevertReason::Timeout))
+    );
+    assert!(
+        rig.errors
+            .iter()
+            .any(|e| matches!(e, VideoError::PendingFlip(_)))
+    );
+    assert_eq!(rig.engine.odren().monitor(), &crt_15().monitor);
+    assert!(
+        rig.engine.current_refused(),
+        "the stuck flip keeps the 31 kHz mode; the session must open the display again"
     );
 }
