@@ -27,9 +27,9 @@ pub struct VideoStatusText {
     /// [`ALERT_MARK`].
     ///
     /// On a flat panel the result is `exact` when both axes scale by a
-    /// whole factor and `sharp` when one axis uses the sharp bilinear
-    /// filter: the panel's way to keep the game's aspect, never blurry and
-    /// never an alert. `filtered` is a CRT word only.
+    /// whole factor and `sharp` when one does not (sharp bilinear, or
+    /// nearest with uneven pixels at a scale from 1 to 2): the panel's way
+    /// to keep the game's aspect, never blurry and never an alert. `filtered` is a CRT word only.
     pub result: String,
     /// The player must notice the result: `filtered` or `speed`, which a
     /// flat panel never gives.
@@ -121,7 +121,9 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
     let repeat = u64::from(timing.repeat().max(1));
     let panel = timing.target.kind == RefreshKind::Panel;
     let fitted = inputs.rung == Rung::Fitted && !panel;
-    let sharp = panel && proposal.placement.filter != Filter::Nearest;
+    let scale = proposal.placement.scale;
+    let sharp = panel
+        && (proposal.placement.filter != Filter::Nearest || scale.x.is_none() || scale.y.is_none());
     let cropped = proposal.overscan_crop.map_or(0, |crop| crop.lines());
     let small = proposal.padding.map(|pad| pad.fill_permille());
     let game_mhz = u64::from(timing.game_mhz);
@@ -393,6 +395,13 @@ mod tests {
         assert_eq!(
             result(&p, Rung::Panel, &p.mode),
             ("exact".to_owned(), false)
+        );
+        let mut uneven = p;
+        uneven.placement.scale.x = None;
+        assert_eq!(
+            result(&uneven, Rung::Panel, &uneven.mode),
+            ("sharp".to_owned(), false),
+            "nearest at a scale from 1 to 2 is not whole"
         );
         p.placement.filter = Filter::SharpBilinear;
         assert_eq!(

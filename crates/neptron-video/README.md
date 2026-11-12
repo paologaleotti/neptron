@@ -46,7 +46,7 @@ for _ in 0..repeat {                           // 2 for double refresh
 - `double refresh`: the winner shows each frame twice (`Timing::repeat() == 2`), from `exact_x2` or from `native` on its own.
 - `small picture N%`: the fill of a padded winner, rounded to whole percent.
 - `filtered`: the fitted rung on a CRT.
-- `sharp`: a flat panel whose picture scales an axis by a fraction with the sharp bilinear filter (the width at the game's aspect under a whole vertical factor, or a game larger than the panel). The owner's rule for a panel: the picture must be sharp, not pixel exact, so it is never an alert. A panel picture with a whole factor on both axes is `exact`.
+- `sharp`: a flat panel whose picture scales an axis by a fraction, with the sharp bilinear filter, or with nearest at a scale from 1 to 2 where sharp bilinear would be plain bilinear (the width at the game's aspect under a whole vertical factor, or a game larger than the panel). The owner's rule for a panel: the picture must be sharp, not pixel exact, so it is never an alert. A panel picture with a whole factor on both axes is `exact`.
 - `speed`: the speed of the game changes. X is the game's rate, Y the read-back field rate per game frame. It shows when they differ by `REFRESH_MATCH_MHZ` (5 mHz) or more, never on a flat panel (audio rate control absorbs the difference there, as in the policy's notice).
 - Before the first mode is on screen the function returns `None`, and the UI shows no block.
 - `[!] ` starts the result when `alert` is true, so the alert shows also where its colour is hard to tell apart. The mark is not a result word and has no `, ` after it.

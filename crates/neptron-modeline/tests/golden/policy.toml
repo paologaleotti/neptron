@@ -141,7 +141,7 @@
 "pal_576i arcade_31" = "fitted exact 720x512p 31.400kHz 50.000Hz game 720x512+0+0 sharp"
 "pal_576i edid_npt_0071" = "native exact 720x576p 30.000kHz 50.000Hz game 720x576+0+0 nearest"
 "pal_576i generic_15" = "native exact 720x576i 15.674kHz 50.000Hz game 720x576+0+0 nearest"
-"pal_576i panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 768x576+576+252 sharp"
+"pal_576i panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 768x576+576+252 nearest"
 "pal_576i pc_31_120" = "fitted exact 720x512p 31.400kHz 50.000Hz game 720x512+0+0 sharp"
 "pc_engine arcade_15" = "native exact 256x240p 15.674kHz 59.827Hz game 256x240+0+0 nearest"
 "pc_engine arcade_31" = "2x exact 256x480p 31.408kHz 59.826Hz game 256x480+0+0 nearest"

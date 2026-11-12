@@ -138,9 +138,26 @@ pub(crate) fn panel_placement(source: &OrientedSource, mode: &Modeline) -> Place
             w,
             h,
         },
-        filter: filter_for(scale),
+        filter: panel_filter(source, w, h, scale),
         ui_dest: ui_dest_uniform(mode.hactive, mode.vactive, UI_CANVAS.0, UI_CANVAS.1),
         scale,
+    }
+}
+
+/// The filter of a panel placement: [`filter_for`], except that a scale
+/// from 1 to below 2 that is not whole takes nearest. Sharp bilinear has a
+/// prescale of 1 there, which is plain bilinear and blurs the picture;
+/// nearest keeps it sharp, with pixels of uneven width. A scale below 1
+/// keeps sharp bilinear.
+fn panel_filter(source: &OrientedSource, w: u32, h: u32, scale: ScaleClaim) -> Filter {
+    let blurry = |dest: u32, len: u16| {
+        let len = u32::from(len);
+        dest >= len && dest < 2 * len && !dest.is_multiple_of(len)
+    };
+    if blurry(w, source.width) || blurry(h, source.height) {
+        Filter::Nearest
+    } else {
+        filter_for(scale)
     }
 }
 
@@ -420,6 +437,24 @@ mod tests {
             }
         );
         assert_eq!(p.filter, Filter::Nearest);
+    }
+
+    #[test]
+    fn a_panel_scale_between_1_and_2_is_nearest_never_plain_bilinear() {
+        // SNES hires on 720p: 224 x 3 = 672 lines, 896 pixels, 1.75 per
+        // source pixel. Sharp bilinear has a prescale of 1 there, which is
+        // plain bilinear: blurry. Nearest keeps it sharp.
+        let hires = panel_placement(&source(512, 224, 1_333), &mode(1_280, 720));
+        assert_eq!(hires.dest, rect(192, 24, 896, 672));
+        assert_eq!(hires.scale.x, None);
+        assert_eq!(hires.filter, Filter::Nearest);
+        // On 1080p it is 1194 pixels, 2.33 per source pixel: sharp
+        // bilinear with a prescale of 2.
+        let fhd = panel_placement(&source(512, 224, 1_333), &mode(1_920, 1_080));
+        assert_eq!(fhd.filter, Filter::SharpBilinear);
+        // A scale of exactly 1 is whole: nearest, as before.
+        let one = panel_placement(&source(640, 480, 0), &mode(640, 480));
+        assert_eq!(one.filter, Filter::Nearest);
     }
 
     #[test]
