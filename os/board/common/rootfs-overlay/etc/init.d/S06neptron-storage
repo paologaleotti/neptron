@@ -58,7 +58,12 @@ make_share() {
 		return 1
 	fi
 	echo "neptron-storage: first boot, making the share partition from $free free sectors"
-	echo ',,7' | sfdisk --quiet --append "/dev/${disk##*/}" || return 1
+	# The root and state partitions of this disk are mounted, so sfdisk
+	# refuses the disk unless forced, and the kernel cannot read the whole
+	# table again. Appending partition 4 leaves the other partitions as
+	# they are, and partx adds only the new one to the kernel.
+	echo ',,7' | sfdisk --quiet --force --no-reread --append "/dev/${disk##*/}" || return 1
+	partx --add --nr 4 "/dev/${disk##*/}" || return 1
 	share=$(partition "$disk" 4) || {
 		echo "neptron-storage: the kernel does not see the new partition yet; it is used after a restart"
 		return 1
