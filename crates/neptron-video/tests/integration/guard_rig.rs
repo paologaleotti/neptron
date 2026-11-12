@@ -176,6 +176,12 @@ impl GuardRig {
         }
     }
 
+    /// The user holds the blind recovery combination.
+    pub fn recover(&mut self) {
+        let step = self.guard.recover(&mut self.engine);
+        self.take(step);
+    }
+
     /// The mode on the wire.
     pub fn wire(&self) -> Option<Modeline> {
         self.fake.active_mode()

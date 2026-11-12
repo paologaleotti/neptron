@@ -9,6 +9,7 @@ mod engine;
 mod faults;
 mod guard_boot;
 mod guard_confirm;
+mod guard_recovery;
 mod guard_rig;
 mod harness;
 mod inputs;
