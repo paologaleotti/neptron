@@ -11,7 +11,6 @@ use neptron_video::{Phase, VideoStatusText};
 
 use super::boot::{game_name, profile_id};
 use super::{MENU_SOURCE, Shell, Stage};
-use crate::display::monitor_setting;
 use crate::pages::{self, Names, StyleOption};
 
 /// What the confirm dialog says.
@@ -88,7 +87,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// The active profile of the snapshot: the monitor the guard gave the
     /// engine.
     pub(super) fn refresh_profile(&mut self) {
-        let id = monitor_setting(&self.guard.active().monitor);
+        let id = self.detected.monitor_setting(&self.guard.active().monitor);
         self.snap.active_profile = self
             .presets
             .profiles()

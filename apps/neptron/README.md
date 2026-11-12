@@ -39,13 +39,14 @@ The guard boots, and its record is written, before every step that can fail for 
 
 1. The settings: `global.toml`, and for a game its system and game files. A file that cannot be read is an empty layer and a notice.
 2. The monitor presets from `data/monitors` at run time (OP-044): the binary embeds no GPL data. A bad file is left out with a notice.
-3. The detected output from sysfs: the connected connectors, the EDID profile, the GPU caps of the capability table.
-4. The safe default: the EDID profile when a monitor gives one, else `generic_15`, with `auto` and `exact` (`SAFE_START_PROFILE`). Without both the run cannot start.
-5. `wanted`: the monitor of `display.monitor` (`auto` is the safe default, an unknown id is the safe default with a notice) and the global picture style and refresh policy.
-6. The guard record from `state/video/guard.toml`. A record that cannot be read is the default record. The file also holds `output`, the connector its last known good was confirmed on (an optional field, written at each confirmation). When the output of this start differs, or the file names none, the guard gets no last known good: it opens the boot prompt and reverts to the safe default for the new output, so a profile confirmed on one connector never drives another display without a prompt.
-7. The library cache. In the list, a scan starts on its own thread and replaces the index when it ends.
-8. The list: a `VideoEngine` for the menu source (320x240, 60 Hz, 4:3, `MENU_SOURCE`). A game: `Session::launch` with the resolved settings, the core options of `data/cores` (OP-055), `RunRateSource::ReadBack` on KMS and `Measured` in the window. A launch that fails ends the run with a relaunch to the list and the reason as a notice.
-9. `Guard::boot`, and the record it returns is written at once (temp file, fsync, rename) before the first modeset. When that write fails (a read-only or full state partition), the boot cannot count itself, so it could fail again and again and never reach safe mode: this start uses the safe default (`Guard::recover`, with a notice and no tone). In a game, `follow_settings` with the game's policy follows.
+3. The detected output from sysfs, for the connector the backend drives (`Runtime::output`) and its `subconnector` property (`Runtime::subconnector`, read by the KMS backend): the connected connectors, the profile of that connector's own EDID by its class, the GPU caps of the capability table. The class rule is in the `neptron-platform` README: an analog EDID, a `VGA` or `DVI-A` subconnector or an analog-only connector is a CRT; a digital EDID on a digital connector is a flat panel. A named connector never borrows the EDID of another display. When no connected connector has the backend's name (the window, the fakes), the first connected connector that gives a profile is used.
+4. The flat-panel profile is cut to the modes that the display's caps and the panel limits (`PANEL_WIDTH_MAX_PX` 3840, `PANEL_HEIGHT_MAX_PX` 2160) allow. A panel whose native mode is above them starts in its largest listed mode that fits, with a notice that names both modes. A panel with no mode that fits gives no profile, with a notice.
+5. The safe default: the EDID profile when a monitor gives one (a flat panel in its native mode), else `generic_15`, with `auto` and `exact` (`SAFE_START_PROFILE`). With no EDID, a broken EDID, or a DAC whose EDID is digital, the safe start stays `generic_15`. Without both the run cannot start.
+6. `wanted`: the monitor of `display.monitor` (`auto` is the safe default; `flat` is the flat-panel profile of the connector's EDID whatever its class, for an LCD with a VGA input; an unknown id, or `flat` with no listed mode, is the safe default with a notice) and the global picture style and refresh policy.
+7. The guard record from `state/video/guard.toml`. A record that cannot be read is the default record. The file also holds `output`, the connector its last known good was confirmed on (an optional field, written at each confirmation). When the output of this start differs, or the file names none, the guard gets no last known good: it opens the boot prompt and reverts to the safe default for the new output, so a profile confirmed on one connector never drives another display without a prompt.
+8. The library cache. In the list, a scan starts on its own thread and replaces the index when it ends.
+9. The list: a `VideoEngine` for the menu source (320x240, 60 Hz, 4:3, `MENU_SOURCE`). A game: `Session::launch` with the resolved settings, the core options of `data/cores` (OP-055), `RunRateSource::ReadBack` on KMS and `Measured` in the window. A launch that fails ends the run with a relaunch to the list and the reason as a notice.
+10. `Guard::boot`, and the record it returns is written at once (temp file, fsync, rename) before the first modeset. When that write fails (a read-only or full state partition), the boot cannot count itself, so it could fail again and again and never reach safe mode: this start uses the safe default (`Guard::recover`, with a notice and no tone). In a game, `follow_settings` with the game's policy follows.
 
 ## One frame
 
@@ -65,6 +66,13 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 - The quick menu is never a toggle: the session ignores a second hotkey, and the app only opens it (OP-051). Resume, reset and quit go to the session.
 - A notice at the first picture of a game that is filtered, cropped or small, in the words of the video status.
 - `FrameReport::ended` or any `SessionError` (`DisplayStalled` included): the game ends with `quit()`, and the run relaunches to the list, which opens the display again in a new process. This is the one rule for a display that stops.
+
+## Flat panels
+
+- The panel starts in its native mode, so the panel does no scaling. The policy puts the game at the largest whole vertical factor at which its display aspect fits, centred, with black around it. The width follows the core's aspect, so it is often a fraction of the game width: the renderer then uses the sharp bilinear filter, which the video status shows as `sharp` and never as an alert. A 50 Hz game takes a listed 50 Hz mode of the native size.
+- The menu is the 320x240 canvas at one whole scale, centred: 4x, 1280x960 at (320, 60) on 1080p.
+- The display panel shows the panel's name and the mode it starts in as the detail of `auto` in the monitor row; `flat` shows the same for the panel profile.
+- Scanlines follow `scanlines_for`: `auto` is off on a panel.
 
 ## Settings and the guard
 
@@ -95,9 +103,10 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 
 ## Tests
 
-- Unit tests of each module: the record file, the relaunch file, the presets, the settings view, the pages, the navigation, the writer thread, the library numbers, the command line.
+- Unit tests of each module: the detection (`display/tests.rs`: the safe start of a 1080p panel, a 4K panel, a 720p TV, DP and HDMI with an analog EDID, a DAC with a digital EDID, a VGA CRT, a broken EDID and no EDID; the fit to the limits; `flat`), the record file, the relaunch file, the presets, the settings view, the pages, the navigation, the writer thread, the library numbers, the command line.
 - `tests/app/control.rs` (tier 1): the control socket with a real client.
 - Tier 2, ignored in tier 1 and run by `cargo xtask verify --tier 2`, on the fakes of `neptron-testkit` with the built test core:
+  - `panel.rs`: a fake 1080p HDMI panel (EDID in `tests/fixtures/edid`): the boot picks the panel profile in its native mode, the menu at 4x, a game at 4x with black borders, and a change to a CRT preset that reverts with no answer.
   - `end_to_end.rs`: a new boot confirms its settings, the game list, a launch, the mode switch of the core, the quick menu (not a toggle), a display change that reverts with no answer, the same change kept and written to the game's file, the quit with the keep prompt, the save RAM at the quit, and the list again with one boot counted.
   - `recovery.rs`: the 5 s hold of Select and Start from `neptron-input` to `Guard::recover`, in the list and in a game, with the record in safe mode and the tone.
   - `faults.rs`: a display that stops flipping ends the game and relaunches the list with the reason.
@@ -118,7 +127,9 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 - The audio cue of the blind recovery plays only in the game list. In a game the session owns the sink.
 - `screenshot` is not served: the frontend has no PNG encoder.
 - Favourites and recent games are not kept; their lists are empty.
-- The KMS build: the buffers are at most 2560x1200, the connector rule treats the monitor as a CRT, and the GPU caps come from the first connected output. It is not compiled on macOS and has not run.
+- The KMS build: the buffers hold the CRT modes (2560x1200) and the largest listed mode of a detected panel up to 3840x2160, both cut to the GPU caps. The connector rule gets the class of `display.monitor`: a CRT preset, or `auto` with no panel profile, is a CRT. Before the display opens the subconnector is not known, so with several displays connected the class orders the connectors without it. The GPU caps come from the output of the settings or the first connected output. It is not compiled on macOS and has not run.
+- Every GPU entry of the capability table has a 165 MHz pixel clock limit and 1920x1200 at most, made for the analog path. On a digital output a 1440p or 4K panel then runs at its largest listed mode that fits, usually 1080p, with a notice. The table is outside this app.
+- An adapter that shows its own digital EDID with a CRT behind it, and no analog subconnector, is taken for a flat panel. The protections are a monitor preset in `display.monitor`, which always wins, and the boot prompt on a new output.
 - The menu source is 60 Hz also on a 50 Hz profile; the policy picks the mode.
 - `video_state` gives no validator verdicts yet.
 

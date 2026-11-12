@@ -91,7 +91,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         if let Some(notice) = next.as_ref().and_then(|n| n.notice.clone()) {
             found.issues.push((NoticeKind::Error, notice));
         }
-        let detected = Detected::read(&paths.sysfs, &config.output());
+        // The output the backend drives, so the EDID and the class are
+        // those of the display on the wire.
+        let mut detected = Detected::read(
+            &paths.sysfs,
+            &runtime.output,
+            runtime.subconnector.as_deref(),
+        );
+        detected.fit_to(devices.display.caps());
+        found.warn_all(detected.notices.iter().cloned());
         let safe = detected.safe(&presets)?;
         let monitor = match detected.monitor(&config.monitor(), &presets, &safe) {
             Ok(monitor) => monitor,

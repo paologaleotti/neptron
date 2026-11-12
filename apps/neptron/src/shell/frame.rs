@@ -8,6 +8,7 @@ use neptron_input::Hotkey;
 use neptron_types::{Frame, PixelFormat};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
+use neptron_video::RefreshKind;
 
 use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS};
 use crate::outbox::Job;
@@ -157,10 +158,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             return;
         };
         self.picture_noticed = true;
-        let worth =
-            current.chosen.notice.as_ref().is_some_and(|n| {
-                n.fitted || n.cropped_lines > 0 || n.padded_fill_permille.is_some()
-            });
+        // A flat panel scales with the sharp filter by design: that is not
+        // a notice, as the video status shows no alert for it.
+        let panel = current.chosen.proposal.timing.target.kind == RefreshKind::Panel;
+        let worth = current.chosen.notice.as_ref().is_some_and(|n| {
+            (n.fitted && !panel) || n.cropped_lines > 0 || n.padded_fill_permille.is_some()
+        });
         if !worth {
             return;
         }

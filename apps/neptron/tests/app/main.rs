@@ -14,5 +14,6 @@ mod crawler;
 mod end_to_end;
 mod faults;
 mod output;
+mod panel;
 mod recovery;
 mod rig;

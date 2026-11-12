@@ -83,6 +83,9 @@ pub struct Runtime {
     pub quit: Option<Rc<Cell<bool>>>,
     /// The name of the output, for the display panel and the guard record.
     pub output: String,
+    /// The `subconnector` property of the output, when the backend reads
+    /// one: `VGA` names a DAC behind a DisplayPort connector.
+    pub subconnector: Option<String>,
     /// What the backend could not open, as notices for the player: a run
     /// goes on with no sound or no gamepad.
     pub notices: Vec<String>,

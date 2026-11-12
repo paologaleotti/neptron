@@ -16,7 +16,7 @@ use neptron_ui::snapshot::{
 };
 
 use crate::config::Config;
-use crate::display::{AUTO, Detected};
+use crate::display::{AUTO, Detected, FLAT};
 use crate::presets::Presets;
 
 /// The first setting key of an action row. Keys below it are positions in
@@ -187,7 +187,10 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
                     .iter()
                     .position(|n| resolved.value == Value::Text(n.clone()))
                     .unwrap_or(0),
-                options: options.into_iter().map(ChoiceOption::new).collect(),
+                options: options
+                    .into_iter()
+                    .map(|n| name_option(key, n, names.detected))
+                    .collect(),
             }
         }
     };
@@ -227,7 +230,12 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
 fn names_of(key: &str, names: Names<'_>, config: &Config) -> Vec<String> {
     let mut options = vec![AUTO.to_owned()];
     match key {
-        DISPLAY_MONITOR => options.extend(names.presets.profiles().iter().map(|p| p.id.clone())),
+        DISPLAY_MONITOR => {
+            if names.detected.panel.is_some() {
+                options.push(FLAT.to_owned());
+            }
+            options.extend(names.presets.profiles().iter().map(|p| p.id.clone()));
+        }
         DISPLAY_OUTPUT => options.extend(names.detected.outputs.iter().cloned()),
         _ => {}
     }
@@ -236,6 +244,21 @@ fn names_of(key: &str, names: Names<'_>, config: &Config) -> Vec<String> {
         options.push(current);
     }
     options
+}
+
+/// The option of a row that names a thing: `auto` and `flat` of the
+/// monitor row say what they drive, the panel's name and native mode.
+fn name_option(key: &str, name: String, detected: &Detected) -> ChoiceOption {
+    let detail = match (key, name.as_str()) {
+        (DISPLAY_MONITOR, AUTO) => Some(detected.auto_text()),
+        (DISPLAY_MONITOR, FLAT) => detected.flat_text(),
+        _ => None,
+    };
+    let option = ChoiceOption::new(name);
+    match detail {
+        Some(detail) => option.with_detail(detail),
+        None => option,
+    }
 }
 
 /// The option of choice `choice`: for a picture style, with what it gives
@@ -378,6 +401,43 @@ mod tests {
         assert!(options[0].is_enabled());
         assert!(!options[2].is_enabled(), "2x");
         assert_eq!(options[1].detail, "", "a style with no row has no detail");
+    }
+
+    #[test]
+    fn the_monitor_row_names_the_panel_and_its_native_mode() {
+        let config = config();
+        let presets = Presets::default();
+        let edid = include_bytes!("../tests/fixtures/edid/panel_1080p.bin");
+        let platform = neptron_platform::Platform {
+            gpus: Vec::new(),
+            connectors: vec![neptron_platform::Connector {
+                card: "card0".to_owned(),
+                name: "HDMI-A-1".to_owned(),
+                kind: "HDMI-A".to_owned(),
+                status: neptron_platform::ConnectorStatus::Connected,
+                edid: Some(edid.to_vec()),
+            }],
+        };
+        let detected = Detected::of(&platform, "HDMI-A-1", None);
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            styles: &[],
+        };
+        let page = display_page(&config, names);
+        let monitor = page
+            .rows
+            .iter()
+            .find(|r| r.label == "Monitor profile")
+            .expect("the monitor row");
+        let SettingValue::Choice { options, index } = &monitor.value else {
+            panic!("a choice");
+        };
+        assert_eq!(*index, 0);
+        assert_eq!(options[0].label, AUTO);
+        assert_eq!(options[0].detail, "NPT FHD 24  1920x1080 60 Hz");
+        assert_eq!(options[1].label, FLAT);
+        assert_eq!(options.len(), 2, "no preset in this test");
     }
 
     #[test]

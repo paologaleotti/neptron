@@ -9,7 +9,6 @@ use neptron_video::{
 };
 
 use super::{Shell, Stage};
-use crate::display::monitor_setting;
 use crate::outbox::Job;
 
 /// The length of the audio cue of the blind recovery, in milliseconds.
@@ -121,7 +120,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// revert target the guard gives, never the active configuration.
     fn rewrite_global(&mut self, config: &DisplayConfig) {
         let values = [
-            (DISPLAY_MONITOR, monitor_setting(&config.monitor)),
+            (
+                DISPLAY_MONITOR,
+                self.detected.monitor_setting(&config.monitor),
+            ),
             (DISPLAY_STYLE, config.settings.style.key().to_owned()),
             (
                 DISPLAY_REFRESH_POLICY,

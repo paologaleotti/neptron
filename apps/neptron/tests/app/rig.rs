@@ -206,6 +206,7 @@ impl Rig {
             }),
             quit: None,
             output: self.output.clone(),
+            subconnector: None,
             notices: self.notices.clone(),
         };
         let devices = Devices {

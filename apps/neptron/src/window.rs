@@ -61,6 +61,7 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
         }),
         quit: Some(quit.clone()),
         output: "window".to_owned(),
+        subconnector: None,
         notices,
     };
     let devices = Devices {

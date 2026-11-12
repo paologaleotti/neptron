@@ -26,7 +26,8 @@ pub enum MonitorRef {
     },
     /// A profile built from the EDID of a monitor.
     Edid {
-        /// The profile id, `edid_<manufacturer>_<product>`.
+        /// The profile id: `edid_<manufacturer>_<product>` for a CRT,
+        /// `panel_<manufacturer>_<product>` for a flat panel.
         id: String,
     },
 }

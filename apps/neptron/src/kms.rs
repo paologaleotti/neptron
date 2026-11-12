@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use neptron::devices::MaybeSink;
 use neptron::display::{AUTO, Detected};
 use neptron::options::Options;
+use neptron::presets::Presets;
 use neptron::{Devices, NextRun, Runtime, Shell};
 use neptron_audio::{Resampling, Sdl3Sink};
 use neptron_backend::{Clock, InputSource};
@@ -16,11 +17,12 @@ use neptron_session::RunRateSource;
 use neptron_settings::{Schema, Storage, Target};
 use neptron_types::InputEvent;
 
-/// The widest scanout buffer, in pixels: the super width of the policy.
-const BUFFER_WIDTH_MAX_PX: u16 = 2_560;
-/// The tallest scanout buffer, in lines: 576i and the 31 kHz modes of a
-/// PC CRT.
-const BUFFER_HEIGHT_MAX_PX: u16 = 1_200;
+/// The widest scanout buffer of a CRT mode, in pixels: the super width of
+/// the policy.
+const CRT_BUFFER_WIDTH_PX: u16 = 2_560;
+/// The tallest scanout buffer of a CRT mode, in lines: 576i and the 31 kHz
+/// modes of a PC CRT.
+const CRT_BUFFER_HEIGHT_PX: u16 = 1_200;
 
 /// The monotonic clock of the device.
 #[derive(Debug, Clone, Copy)]
@@ -52,24 +54,34 @@ impl InputSource for Inputs {
 /// Runs the frontend on the DRM device that the launcher holds.
 pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
     let paths = &options.paths;
-    let output = Storage::new(paths.config())
+    let global = Storage::new(paths.config())
         .load(&Schema::builtin(), Target::Global)
-        .ok()
-        .and_then(|l| {
-            l.parsed
-                .layer
-                .get(neptron_settings::DISPLAY_OUTPUT)
-                .map(ToString::to_string)
-        })
-        .filter(|o| o != AUTO);
-    let detected = Detected::read(&paths.sysfs, output.as_deref().unwrap_or(AUTO));
+        .ok();
+    let setting = |key: &str| {
+        global
+            .as_ref()
+            .and_then(|l| l.parsed.layer.get(key).map(ToString::to_string))
+            .unwrap_or_else(|| AUTO.to_owned())
+    };
+    let output = Some(setting(neptron_settings::DISPLAY_OUTPUT)).filter(|o| o != AUTO);
+    let monitor = setting(neptron_settings::DISPLAY_MONITOR);
+    // Before the display opens, the subconnector is not known: the class
+    // here only orders the connectors, and the boot reads the class again
+    // for the connector in use.
+    let detected = Detected::read(&paths.sysfs, output.as_deref().unwrap_or(AUTO), None);
+    let presets = Presets::load(&paths.monitors())
+        .map(|(p, _)| p)
+        .unwrap_or_default();
     let caps = detected.caps.unwrap_or(UNKNOWN_GPU_CAPS);
+    // The buffers are made once and must hold every mode of the run: the
+    // CRT modes of a preset the menu can choose, and the panel's modes.
+    let (panel_w, panel_h) = detected.panel_size().unwrap_or((0, 0));
     let config = KmsConfig {
         caps,
         output,
-        crt: true,
-        buffer_width: caps.max_width.min(BUFFER_WIDTH_MAX_PX),
-        buffer_height: caps.max_height.min(BUFFER_HEIGHT_MAX_PX),
+        crt: detected.is_crt(&monitor, &presets),
+        buffer_width: caps.max_width.min(CRT_BUFFER_WIDTH_PX.max(panel_w)),
+        buffer_height: caps.max_height.min(CRT_BUFFER_HEIGHT_PX.max(panel_h)),
         writeback: false,
     };
     let display = match KmsDisplay::from_env(config) {
@@ -80,6 +92,7 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
         }
     };
     let output = display.connector_name().to_owned();
+    let subconnector = display.subconnector().map(str::to_owned);
     // A missing sound device or gamepad subsystem is a notice: the run
     // still shows the picture, reads the keyboards and reaches its guard,
     // so a box with no usable audio does not restart forever.
@@ -114,6 +127,7 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
         }),
         quit: None,
         output,
+        subconnector,
         notices,
     };
     let devices = Devices {
