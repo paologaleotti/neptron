@@ -1,5 +1,7 @@
 //! System and core definitions, parsed from `data/systems` and `data/cores`.
 
+use std::collections::BTreeMap;
+
 use serde::Deserialize;
 
 /// The format version of a system or core file that this crate reads.
@@ -31,6 +33,10 @@ pub struct CoreDef {
     pub systems: Vec<String>,
     /// SPDX licence expression of the core.
     pub licence: String,
+    /// Default core options (key, value), sorted by key. The app passes
+    /// them to the core at launch. Empty when the file has no `options`
+    /// table.
+    pub options: Vec<(String, String)>,
 }
 
 /// The checked set of system and core definitions.
@@ -248,6 +254,8 @@ struct CoreFile {
     library: String,
     systems: Vec<String>,
     licence: String,
+    #[serde(default)]
+    options: BTreeMap<String, String>,
 }
 
 fn parse_system(source: &Source<'_>) -> Result<SystemDef, CatalogError> {
@@ -291,12 +299,19 @@ fn parse_core(source: &Source<'_>) -> Result<CoreDef, CatalogError> {
     if file.systems.is_empty() {
         return Err(empty(source, "systems"));
     }
+    for (key, value) in &file.options {
+        check_option_key(source, key)?;
+        if value.is_empty() || value.contains(['|', ';', '\0']) {
+            return Err(bad_name(source, value, "core option value"));
+        }
+    }
     Ok(CoreDef {
         id: file.id,
         name: file.name,
         library: file.library,
         systems: file.systems,
         licence: file.licence,
+        options: file.options.into_iter().collect(),
     })
 }
 
@@ -345,6 +360,18 @@ fn check_token(source: &Source<'_>, value: &str, what: &'static str) -> Result<(
         Ok(())
     } else {
         Err(bad_name(source, value, what))
+    }
+}
+
+/// A core option key: ASCII letters, digits and `_`, as libretro cores
+/// name them. libretro joins a key and its value with `=` and `;`, so
+/// neither may appear.
+fn check_option_key(source: &Source<'_>, key: &str) -> Result<(), CatalogError> {
+    let ok = !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    if ok {
+        Ok(())
+    } else {
+        Err(bad_name(source, key, "core option key"))
     }
 }
 

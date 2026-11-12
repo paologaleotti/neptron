@@ -5,3 +5,9 @@ name = "Genesis Plus GX"
 library = "genesis_plus_gx_libretro.so"
 systems = ["megadrive"]
 licence = "LicenseRef-GenesisPlusGX"
+
+# No border: 320x224 or 256x224 as the game asks. It is the core's own
+# default, set here so that a change of that default does not change the
+# picture (tests/traces/genesis_plus_gx.trace).
+[options]
+genesis_plus_gx_overscan = "disabled"

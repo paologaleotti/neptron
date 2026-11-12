@@ -6,7 +6,7 @@ The crate reads the folder layout of Batocera and RetroPie: `share/roms/<system>
 
 ## Public API
 
-- `Catalog`: the system and core definitions. `Catalog::builtin()` parses `data/systems` and `data/cores`, which the crate embeds at build time. `system_for_folder`, `core_for`.
+- `Catalog`: the system and core definitions. `Catalog::builtin()` parses `data/systems` and `data/cores`, which the crate embeds at build time. `system_for_folder`, `core_for`. `CoreDef::options` holds the default core options of `data/cores` (the optional `options` table), sorted by key; the app passes them to the core at launch.
 - `scan(roms_root, catalog, cancel, progress)`: builds an `Index` and a `ScanReport`. It checks `cancel` before each directory entry and calls `progress` after each folder.
 - `ScanWorker`: runs `scan` on a thread that it owns. `progress()` and `cancel()` use atomics and never wait. `is_finished()` tells when `join()` returns at once. Drop cancels and joins.
 - `ensure_system_folders(roms_root, catalog)`: makes the empty system folders of the first boot.

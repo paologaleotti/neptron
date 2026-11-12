@@ -5,3 +5,9 @@ name = "FCEUmm"
 library = "fceumm_libretro.so"
 systems = ["nes"]
 licence = "GPL-2.0-or-later"
+
+# The full 256x240 picture: FCEUmm crops 8 lines at the top and at the
+# bottom by default (tests/traces/fceumm.trace).
+[options]
+fceumm_overscan_v_top = "0"
+fceumm_overscan_v_bottom = "0"

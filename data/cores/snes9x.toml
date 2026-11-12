@@ -5,3 +5,8 @@ name = "Snes9x"
 library = "snes9x_libretro.so"
 systems = ["snes"]
 licence = "LicenseRef-Snes9x"
+
+# 224 or 239 lines as the game asks; the default crops every game to 224
+# lines (tests/traces/snes9x.trace).
+[options]
+snes9x_overscan = "auto"

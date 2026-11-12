@@ -270,3 +270,101 @@ fn every_system_needs_exactly_one_core() {
         }
     );
 }
+
+#[test]
+fn core_options_are_read_sorted_by_key() {
+    let text = format!("{CORE_NES}\n[options]\nzeta = \"1\"\nalpha = \"top/bottom\"\n");
+    let catalog = catalog(
+        &ok_systems(),
+        &[src("nescore", &text), src("mdcore", CORE_MD)],
+    )
+    .expect("valid options");
+    let core = catalog.core_for("nes").expect("the core");
+    assert_eq!(
+        core.options,
+        [
+            ("alpha".to_owned(), "top/bottom".to_owned()),
+            ("zeta".to_owned(), "1".to_owned())
+        ]
+    );
+    let md = catalog.core_for("megadrive").expect("the core");
+    assert!(md.options.is_empty(), "no table gives no options");
+}
+
+#[test]
+fn bad_core_options_are_rejected() {
+    for table in [
+        "\"bad key\" = \"1\"",
+        "\"\" = \"1\"",
+        "key = \"\"",
+        "key = \"a|b\"",
+        "key = \"a;b\"",
+        "key = 1",
+    ] {
+        let text = format!("{CORE_NES}\n[options]\n{table}\n");
+        let result = catalog(
+            &ok_systems(),
+            &[src("nescore", &text), src("mdcore", CORE_MD)],
+        );
+        assert!(
+            matches!(
+                result,
+                Err(CatalogError::BadName { .. } | CatalogError::Parse { .. })
+            ),
+            "{table}: {result:?}"
+        );
+    }
+}
+
+/// The `option` lines of a core trace: each key with the values the core
+/// announces.
+fn announced(trace: &str) -> Vec<(String, Vec<String>)> {
+    trace
+        .lines()
+        .filter_map(|line| line.strip_prefix("option "))
+        .filter_map(|rest| {
+            let (key, rest) = rest.split_once(" = ")?;
+            let values = rest.split_once('[')?.1.split_once(']')?.0;
+            Some((
+                key.to_owned(),
+                values.split('|').map(str::to_owned).collect(),
+            ))
+        })
+        .collect()
+}
+
+#[test]
+fn builtin_core_options_are_announced_by_the_cores() {
+    let traces = [
+        (
+            "fceumm",
+            include_str!("../../../../tests/traces/fceumm.trace"),
+        ),
+        (
+            "snes9x",
+            include_str!("../../../../tests/traces/snes9x.trace"),
+        ),
+        (
+            "genesis_plus_gx",
+            include_str!("../../../../tests/traces/genesis_plus_gx.trace"),
+        ),
+    ];
+    let catalog = Catalog::builtin().expect("the built-in definitions are valid");
+    for (id, trace) in traces {
+        let core = catalog
+            .cores()
+            .iter()
+            .find(|c| c.id == id)
+            .expect("the core");
+        assert!(!core.options.is_empty(), "{id} has default options");
+        let announced = announced(trace);
+        for (key, value) in &core.options {
+            let values = announced
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v)
+                .unwrap_or_else(|| panic!("{id} does not announce {key}"));
+            assert!(values.contains(value), "{id}: {key} has no value {value}");
+        }
+    }
+}

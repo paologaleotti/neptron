@@ -12,8 +12,19 @@ One TOML file per libretro core. `neptron-library` embeds these files at build t
 | `library` | string | File name of the core's shared library. |
 | `systems` | list of strings | Systems that the core runs, by the `folder` of `data/systems`. |
 | `licence` | string | SPDX licence expression of the core. A licence with no SPDX id uses a `LicenseRef-` name. |
+| `options` | table of strings, optional | Default core options, `key = "value"`. The frontend passes them to the core at launch. A key is ASCII letters, digits and `_`; a value is not empty and holds no `\|` or `;`. Each key and value must be one that the core announces: check it against the `option` lines of `tests/traces`. |
 
 The format is append-only. A new key gets a default, or a new `format` value. A key is never renamed or removed. The parser rejects an unknown key. Each system has exactly one core.
+
+## Default options
+
+| Core | Options | Why |
+| --- | --- | --- |
+| `fceumm` | `fceumm_overscan_v_top = "0"`, `fceumm_overscan_v_bottom = "0"` | The full 256x240 picture. The core crops 8 lines at each edge by default |
+| `snes9x` | `snes9x_overscan = "auto"` | 224 or 239 lines as the game asks. The default crops to 224 |
+| `genesis_plus_gx` | `genesis_plus_gx_overscan = "disabled"` | No border. This is also the core's default |
+
+The policy crops overscan itself where the mode needs it, so the cores give the whole picture.
 
 ## Sources
 
