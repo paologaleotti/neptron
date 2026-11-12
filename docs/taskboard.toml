@@ -253,7 +253,7 @@ name = "x86_64 image"
 owns = ["os/"]
 needs = ["T23", "T24", "T27"]
 gate = "T3: QEMU boots to the game list; `vkms` writeback equals the golden; boot time recorded"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T29"
@@ -262,7 +262,7 @@ name = "Hardware test kit"
 owns = ["apps/neptronctl/src/selftest", "docs/hardware-checklist.md"]
 needs = ["T23", "T27"]
 gate = "Self-test passes on `vkms`"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "C01"
