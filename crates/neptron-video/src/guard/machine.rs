@@ -443,13 +443,17 @@ impl Guard {
         let (now_ns, went_back) = self.clock(now_ns);
         let health = Health::of(engine);
         let no_picture_ns = watch(&mut self.no_picture_since_ns, health.no_picture(), now_ns);
-        // Every change of the guard ends in `retry`, `set_monitor` or
-        // `set_settings`, and each of them sets the engine's next decision
-        // due. `Odren::on_frame` takes it first and decides on the new
-        // inputs with no debounce; a failed modeset of that decision makes
-        // it due again. So a picture counts only once the engine reports
-        // the decision done: then the picture is of the change, not of the
-        // mode that was on the display before it.
+        // A picture counts only when the engine reports the mode on the
+        // display as the winner of a decision on the inputs it has now
+        // (`Odren::settled`). Every change of the guard ends in `retry`,
+        // `set_monitor` or `set_settings`, and each raises the engine's
+        // input generation or sets a decision due. The engine records the
+        // generation that placed its mode only at a modeset whose read back
+        // holds and at a scale-only change; a failed modeset, a decision
+        // with no winner, a blocked source and a restore leave the old
+        // generation, and a blank leaves no mode. So the old mode never
+        // counts as a picture of the change, also when it still passes the
+        // new inputs.
         let shown = health.picture && health.decided;
         let picture_ns = watch(&mut self.picture_since_ns, shown, now_ns);
         let no_picture = no_picture_ns.is_some_and(|ns| ns >= NO_PICTURE_LIMIT_NS);

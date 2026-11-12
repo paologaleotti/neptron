@@ -1,10 +1,11 @@
 //! Scripted safety scenarios: confirm-or-revert.
 
 use neptron_testkit::{FlipFault, ModeFault};
-use neptron_types::Modeline;
+use neptron_types::{Modeline, Rotation, SourceGeometry};
 use neptron_video::{
-    CONFIRM_WINDOW_NS, ConfirmError, GuardEvent, Health, MODESET_ATTEMPTS, NO_PICTURE_LIMIT_NS,
-    PENDING_LIMIT_NS, Phase, PictureStyle, PromptId, RevertReason, SafeReason, VideoError,
+    CONFIRM_WINDOW_NS, ConfirmError, DisplayConfig, GuardEvent, Health, MODESET_ATTEMPTS,
+    NO_PICTURE_LIMIT_NS, Outcome, PENDING_LIMIT_NS, Phase, PictureStyle, Prompt, PromptId,
+    RevertReason, SafeReason, Unshowable, VideoError,
 };
 
 use crate::guard_rig::{
@@ -427,5 +428,72 @@ fn a_flip_that_never_completes_cannot_be_confirmed_and_the_deadline_reverts() {
     assert!(
         rig.engine.current_refused(),
         "the stuck flip keeps the 31 kHz mode; the session must open the display again"
+    );
+}
+
+/// Proposes `to` from a confirmed `from`, and makes every modeset of the
+/// change fail on the device, so the engine keeps the old mode.
+fn device_errors_on_the_change(from: DisplayConfig, to: DisplayConfig) -> (GuardRig, Prompt) {
+    let mut rig = GuardRig::confirmed_on(from.clone(), from);
+    let prompt = rig.propose(to);
+    let first = rig.fake.next_mode_call();
+    for call in first..first + u64::from(MODESET_ATTEMPTS) {
+        rig.fake.fault_mode(
+            call,
+            ModeFault::Device {
+                reason: "EIO".to_owned(),
+            },
+        );
+    }
+    rig.run_for(CONFIRM_WINDOW_NS / 2);
+    (rig, prompt)
+}
+
+#[test]
+fn the_old_mode_left_by_device_errors_cannot_be_confirmed() {
+    // The winner is 256x448 at about 31.4 kHz; the 15 kHz mode of
+    // generic_15 also passes the arcade monitor.
+    let to = with_style(config(arcade_15_25_31()), PictureStyle::X2);
+    let old = mode_of(&crt_15());
+    let (mut rig, prompt) = device_errors_on_the_change(crt_15(), to.clone());
+    assert_eq!(rig.wire(), Some(old), "the device kept the old mode");
+    assert_ne!(mode_of(&to), old);
+    assert!(
+        Health::of(&rig.engine).picture,
+        "the old mode passes the new inputs"
+    );
+    assert!(!rig.engine.odren().decision_due());
+    assert!(!rig.engine.odren().settled());
+    assert_eq!(
+        rig.guard.confirm(prompt.id, rig.now(), &rig.engine),
+        Err(ConfirmError::NotShown)
+    );
+    rig.run_until(prompt.deadline_ns + FRAME_NS);
+    assert!(rig.event_list().contains(&reverted(RevertReason::Timeout)));
+    assert_eq!(rig.guard.record().last_known_good, Some(crt_15().monitor));
+}
+
+#[test]
+fn a_change_with_no_winner_that_keeps_the_old_mode_cannot_be_confirmed() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    let old = rig.wire();
+    // A turned game has no winner (`Kept(Rotated)`): the old mode stays,
+    // and the new settings still accept it.
+    rig.source = SourceGeometry {
+        rotation: Rotation::R90,
+        ..rig.source
+    };
+    let prompt = rig.propose(with_style(crt_15(), PictureStyle::X2));
+    rig.frame();
+    rig.frame();
+    assert!(matches!(
+        rig.engine.trace().last().unwrap().outcome,
+        Outcome::Kept(Unshowable::Rotated(_))
+    ));
+    assert_eq!(rig.wire(), old);
+    assert!(Health::of(&rig.engine).picture);
+    assert_eq!(
+        rig.guard.confirm(prompt.id, rig.now(), &rig.engine),
+        Err(ConfirmError::NotShown)
     );
 }

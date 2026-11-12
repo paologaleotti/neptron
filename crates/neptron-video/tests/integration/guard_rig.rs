@@ -10,7 +10,7 @@ use neptron_platform::{EdidProfile, TimingFormula};
 use neptron_safety::validate;
 use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
 use neptron_testkit::{FakeDisplay, SimClock};
-use neptron_types::Modeline;
+use neptron_types::{Modeline, SourceGeometry};
 use neptron_video::{
     DisplayConfig, Guard, GuardEvent, GuardRecord, GuardStep, Monitor, PictureStyle,
     PolicySettings, Prompt, RevertReason, VideoEngine, VideoError,
@@ -99,6 +99,8 @@ pub struct GuardRig {
     pub saves: Vec<GuardRecord>,
     /// Errors of `present` and `wait_flip`, in order.
     pub errors: Vec<VideoError>,
+    /// The source of every frame.
+    pub source: SourceGeometry,
 }
 
 impl GuardRig {
@@ -117,6 +119,7 @@ impl GuardRig {
             events: Vec::new(),
             saves: Vec::new(),
             errors: Vec::new(),
+            source: SNES,
         };
         rig.take(step);
         rig
@@ -144,10 +147,11 @@ impl GuardRig {
     /// tick. A frame with no flip moves the clock by one frame.
     pub fn frame(&mut self) {
         let start = self.now();
-        self.engine.begin_frame(SNES);
+        let source = self.source;
+        self.engine.begin_frame(source);
         let result = self
             .engine
-            .present(Some(frame(&SNES)), None)
+            .present(Some(frame(&source)), None)
             .and_then(|_| self.engine.wait_flip().map(|_| ()));
         if let Err(error) = result {
             self.errors.push(error);

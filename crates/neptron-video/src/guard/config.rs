@@ -25,9 +25,8 @@ pub struct Health {
     pub refused: bool,
     /// The output is off ([`VideoEngine::blanked`]).
     pub blanked: bool,
-    /// The engine has decided on its current inputs
-    /// ([`crate::Odren::decision_due`] is false), so the mode on the
-    /// display comes from them.
+    /// The mode on the display is the winner of a decision on the current
+    /// inputs ([`crate::Odren::settled`]).
     pub decided: bool,
 }
 
@@ -42,7 +41,7 @@ impl Health {
             picture: mode_set && !refused && !blanked && !engine.muted(),
             refused,
             blanked,
-            decided: !engine.odren().decision_due(),
+            decided: engine.odren().settled(),
         }
     }
 

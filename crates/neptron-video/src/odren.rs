@@ -89,6 +89,9 @@ pub struct Odren {
     scanlines: ScanlineSettings,
     cache: Cache,
     current: Option<Current>,
+    /// The generation of the inputs whose decision placed `current`. A
+    /// restore of the last good mode keeps the old one.
+    current_generation: u64,
     request: Option<Request>,
     /// Decide on the next frame with no debounce, for this reason.
     redo: Option<Trigger>,
@@ -149,6 +152,7 @@ impl Odren {
             scanlines: ScanlineSettings::OFF,
             cache: Cache::new(),
             current: None,
+            current_generation: 0,
             request: None,
             redo: None,
             commit: None,
@@ -302,6 +306,18 @@ impl Odren {
         self.redo.is_some() || self.commit.is_some()
     }
 
+    /// The mode on the display is the winner of a decision on the current
+    /// inputs: no decision is due, and the last modeset or scale-only
+    /// change was decided after the last change of the monitor, the
+    /// settings, the veto or the driver refusals. False before the first
+    /// mode, after a blank, while the mode of older inputs stays (a modeset
+    /// failed [`MODESET_ATTEMPTS`] times, the decision kept the mode with
+    /// no winner, a restore of the last good mode), and while
+    /// [`Odren::decision_due`] is true.
+    pub fn settled(&self) -> bool {
+        !self.decision_due() && self.current.is_some() && self.current_generation == self.generation
+    }
+
     /// The output is off after a `blank`: no mode, no signal. It stays set
     /// until the next modeset.
     pub fn blanked(&self) -> bool {
@@ -406,6 +422,7 @@ impl Odren {
                 if let Some(current) = &mut self.current {
                     current.chosen = winner;
                     current.source = source;
+                    self.current_generation = self.generation;
                 }
                 self.request = None;
                 self.trace.push(SwitchRecord {
@@ -478,6 +495,7 @@ impl Odren {
                     read_back: *read_back,
                     source: commit.source,
                 });
+                self.current_generation = commit.generation;
                 self.request = None;
                 self.blocked = None;
                 self.failed_attempts = 0;
