@@ -1,14 +1,16 @@
-//! A fake 1080p HDMI panel: the boot picks the panel profile in its
+//! A fake 1080p HDMI panel: the boot asks for the panel profile in its
 //! native mode, the menu sits at one whole scale, a game gets a whole
-//! vertical scale with black borders, and a change to a CRT preset is
-//! taken back with no answer.
+//! vertical scale with black borders, a change to a CRT preset is taken
+//! back with no answer, and an unanswered first boot goes to the 15 kHz
+//! safe start until a press asks again.
 
 use std::path::Path;
 
 use neptron::NextRun;
+use neptron_backend::Clock;
 use neptron_types::{Control, Filter, Rect};
 use neptron_ui::snapshot::SettingValue;
-use neptron_video::Phase;
+use neptron_video::{Phase, SafeReason};
 
 use crate::rig::{Rig, in_child, test_name};
 
@@ -182,4 +184,79 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             rig.finish();
         },
     );
+}
+
+/// A panel mode is never the safe default until it is kept on this
+/// output: an unanswered first boot leaves the panel mode after the
+/// confirm window, a button press asks again, and a kept panel starts the
+/// next boot with no prompt.
+#[test]
+#[ignore = "tier 2"]
+fn an_unconfirmed_panel_leaves_the_wire_and_a_press_asks_again() {
+    let dir = std::env::temp_dir().join(format!("neptron-app-panel-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
+    rig.output = "HDMI-A-1".to_owned();
+
+    rig.boot(None);
+    rig.frames(2);
+    assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+    let panel = rig.display.active_mode().expect("a mode");
+    assert_eq!((panel.hactive, panel.vactive), (1920, 1080));
+    assert_eq!(
+        rig.shell().guard().safe().monitor.profile().id,
+        "generic_15",
+        "an unconfirmed panel is not the safe default"
+    );
+
+    // No answer: the panel mode leaves the wire within the window.
+    rig.frames(CONFIRM_WINDOW_FRAMES);
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Safe(SafeReason::NothingConfirmed)
+    );
+    let safe = rig.display.active_mode().expect("a mode");
+    assert!(safe.line_rate_mhz() < 20_000_000, "15 kHz: {safe:?}");
+    assert_eq!(
+        rig.shell().config().text("display.monitor"),
+        "auto",
+        "the next boot asks for the panel again"
+    );
+
+    // Nothing comes back by itself.
+    rig.frames(120);
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Safe(SafeReason::NothingConfirmed)
+    );
+
+    // A press asks again, with a full window, and a confirmation sticks.
+    rig.tap(&[Control::B]);
+    let Phase::Pending(prompt) = rig.shell().guard().phase() else {
+        panic!("a press asks for the panel again");
+    };
+    assert!(prompt.deadline_ns >= rig.clock.now_ns() + 9_900_000_000);
+    let again = rig.display.active_mode().expect("a mode");
+    assert_eq!((again.hactive, again.vactive), (1920, 1080));
+    rig.keep();
+    assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+    rig.finish();
+    let record = rig.state_file("video/guard.toml");
+    assert!(record.contains("id = \"panel_npt_1080\""), "{record}");
+
+    // A later boot on the same output starts in the panel, no prompt.
+    rig.boot(None);
+    rig.frames(2);
+    assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+    let kept = rig.display.active_mode().expect("a mode");
+    assert_eq!((kept.hactive, kept.vactive), (1920, 1080));
+    assert_eq!(
+        rig.shell().guard().safe().monitor.profile().id,
+        "panel_npt_1080",
+        "a kept panel is the safe default on this output"
+    );
+    rig.finish();
 }

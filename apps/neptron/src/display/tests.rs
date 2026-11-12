@@ -48,23 +48,23 @@ fn broken() -> Vec<u8> {
 
 #[test]
 fn with_no_edid_the_safe_default_is_the_15_khz_start() {
-    let safe = Detected::default().safe(&presets()).expect("safe");
+    let safe = Detected::default().safe(&presets(), None).expect("safe");
     let detected = Detected::default();
     assert_eq!(detected.monitor_setting(&safe.monitor), SAFE_START_PROFILE);
     assert_eq!(safe.settings.style.key(), "auto");
     assert_eq!(safe.settings.refresh.key(), "exact");
     assert_eq!(
-        Detected::default().safe(&Presets::default()),
+        Detected::default().safe(&Presets::default(), None),
         Err(MonitorError::NoSafeProfile)
     );
 }
 
-/// The safe start of each display: `(what, connector type, subconnector,
-/// EDID, safe monitor id)`.
+/// What `auto` drives on each display: `(what, connector type,
+/// subconnector, EDID, monitor id)`.
 type Row<'a> = (&'a str, &'a str, Option<&'a str>, Option<&'a [u8]>, &'a str);
 
 #[test]
-fn the_safe_start_of_each_display() {
+fn auto_and_the_safe_start_of_each_display() {
     let broken = broken();
     let rows: [Row<'_>; 9] = [
         (
@@ -118,8 +118,19 @@ fn the_safe_start_of_each_display() {
         let p = platform(vec![connector(&name, kind, edid)]);
         let mut detected = Detected::of(&p, &name, sub);
         detected.fit_to(&UNKNOWN_GPU_CAPS);
-        let safe = detected.safe(&presets()).expect("safe");
-        assert_eq!(safe.monitor.profile().id, id, "{what}");
+        let auto = detected.monitor(AUTO, &presets()).expect("auto");
+        assert_eq!(auto.profile().id, id, "{what}");
+        // A panel is the safe default only once it is kept on this
+        // output; until then the safe start is the 15 kHz one.
+        let safe = detected.safe(&presets(), None).expect("safe");
+        let unconfirmed = if id.starts_with("panel_") {
+            SAFE_START_PROFILE
+        } else {
+            id
+        };
+        assert_eq!(safe.monitor.profile().id, unconfirmed, "{what}");
+        let kept = detected.safe(&presets(), Some(&auto)).expect("safe");
+        assert_eq!(kept.monitor.profile().id, id, "{what} kept");
         assert_eq!(
             detected.notices.is_empty(),
             !matches!(
@@ -160,7 +171,7 @@ fn a_named_output_never_takes_the_edid_of_another_display() {
         let vga = Detected::of(&p, "VGA-1", None);
         assert_eq!(vga.edid, None, "{status:?}");
         assert_eq!(vga.panel, None, "{status:?}");
-        let safe = vga.safe(&presets()).expect("safe");
+        let safe = vga.safe(&presets(), None).expect("safe");
         assert_eq!(safe.monitor.profile().id, SAFE_START_PROFILE, "{status:?}");
     }
     // A name that no connector has (a window, a typo) takes no EDID
@@ -186,8 +197,12 @@ fn a_1080p_panel_starts_in_its_native_mode() {
     );
     assert!(!detected.is_crt(FLAT, &presets()));
     assert_eq!(detected.panel_size(), Some((1920, 1080)));
-    let safe = detected.safe(&presets()).expect("safe");
-    assert_eq!(detected.monitor_setting(&safe.monitor), AUTO);
+    let auto = detected.monitor(AUTO, &presets()).expect("auto");
+    assert_eq!(detected.monitor_setting(&auto), AUTO);
+    assert!(detected.auto_is_panel());
+    let safe = detected.safe(&presets(), None).expect("safe");
+    assert_eq!(safe.monitor.profile().id, SAFE_START_PROFILE);
+    assert_eq!(detected.monitor_setting(&safe.monitor), SAFE_START_PROFILE);
 }
 
 #[test]
@@ -220,7 +235,7 @@ fn flat_drives_an_lcd_with_a_vga_input_in_its_listed_modes() {
     let p = platform(vec![connector("DP-1", "DP", Some(CRT_ANALOG))]);
     let mut detected = Detected::of(&p, "DP-1", Some("VGA"));
     detected.fit_to(&UNKNOWN_GPU_CAPS);
-    let safe = detected.safe(&presets()).expect("safe");
+    let safe = detected.safe(&presets(), None).expect("safe");
     assert_eq!(
         safe.monitor.profile().id,
         "edid_npt_0071",
@@ -228,13 +243,13 @@ fn flat_drives_an_lcd_with_a_vga_input_in_its_listed_modes() {
     );
     assert_eq!(detected.monitor_setting(&safe.monitor), AUTO);
     assert!(detected.is_crt(AUTO, &presets()));
-    let flat = detected.monitor(FLAT, &presets(), &safe).expect("flat");
+    let flat = detected.monitor(FLAT, &presets()).expect("flat");
     assert_eq!(flat.profile().id, "panel_npt_0071");
     assert_eq!(detected.monitor_setting(&flat), FLAT);
     let entry = MonitorRef::of(&flat);
     assert_eq!(detected.rebuild(&presets(), &entry), Some(flat));
     assert_eq!(
-        Detected::default().monitor(FLAT, &presets(), &safe),
+        Detected::default().monitor(FLAT, &presets()),
         Err(MonitorError::NoPanel)
     );
 }
@@ -242,15 +257,13 @@ fn flat_drives_an_lcd_with_a_vga_input_in_its_listed_modes() {
 #[test]
 fn a_monitor_setting_names_a_preset_or_auto() {
     let detected = Detected::default();
-    let safe = detected.safe(&presets()).expect("safe");
-    let auto = detected.monitor(AUTO, &presets(), &safe).expect("auto");
+    let safe = detected.safe(&presets(), None).expect("safe");
+    let auto = detected.monitor(AUTO, &presets()).expect("auto");
     assert_eq!(auto, safe.monitor);
-    let pc = detected
-        .monitor("pc_31_120", &presets(), &safe)
-        .expect("pc");
+    let pc = detected.monitor("pc_31_120", &presets()).expect("pc");
     assert_eq!(detected.monitor_setting(&pc), "pc_31_120");
     assert_eq!(
-        detected.monitor("gone", &presets(), &safe),
+        detected.monitor("gone", &presets()),
         Err(MonitorError::Unknown("gone".to_owned()))
     );
     assert_eq!(detected.auto_text(), SAFE_START_PROFILE);

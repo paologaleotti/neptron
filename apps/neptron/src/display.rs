@@ -165,22 +165,31 @@ impl Detected {
         self.notices.extend(notices);
     }
 
-    /// The safe default for the detected output: the EDID profile when
-    /// there is EDID (a panel in its native mode), else the 15 kHz safe
-    /// start, with the picture style `auto` and the refresh policy `exact`.
+    /// The safe default for the detected output, with the picture style
+    /// `auto` and the refresh policy `exact`.
+    ///
+    /// - A CRT that gives EDID: its range profile.
+    /// - A flat panel whose profile is `confirmed` (the last known good on
+    ///   this output): the panel in its native mode.
+    /// - Every other case, an unconfirmed panel included: the 15 kHz safe
+    ///   start. An adapter that shows its own digital EDID with a CRT
+    ///   behind it looks like a panel, so a panel mode is never the safe
+    ///   default until the user has kept it on this output.
     ///
     /// # Errors
     ///
     /// [`MonitorError::NoSafeProfile`].
-    pub fn safe(&self, presets: &Presets) -> Result<DisplayConfig, MonitorError> {
+    pub fn safe(
+        &self,
+        presets: &Presets,
+        confirmed: Option<&Monitor>,
+    ) -> Result<DisplayConfig, MonitorError> {
         let monitor = match &self.edid {
-            Some(edid) => Monitor::Edid(edid.clone()),
-            None => Monitor::Profile(
-                presets
-                    .get(SAFE_START_PROFILE)
-                    .cloned()
-                    .ok_or(MonitorError::NoSafeProfile)?,
-            ),
+            Some(edid) if !is_panel(edid) => Monitor::Edid(edid.clone()),
+            Some(edid) if confirmed == Some(&Monitor::Edid(edid.clone())) => {
+                Monitor::Edid(edid.clone())
+            }
+            _ => safe_start(presets)?,
         };
         Ok(DisplayConfig {
             monitor,
@@ -188,20 +197,21 @@ impl Detected {
         })
     }
 
-    /// The monitor that `name` (a value of `display.monitor`) gives.
+    /// The monitor that `name` (a value of `display.monitor`) gives:
+    /// `auto` is the profile of the detected display, or the 15 kHz safe
+    /// start with no EDID.
     ///
     /// # Errors
     ///
     /// [`MonitorError::Unknown`] for an id with no preset,
-    /// [`MonitorError::NoPanel`] for [`FLAT`] with no panel profile.
-    pub fn monitor(
-        &self,
-        name: &str,
-        presets: &Presets,
-        safe: &DisplayConfig,
-    ) -> Result<Monitor, MonitorError> {
+    /// [`MonitorError::NoPanel`] for [`FLAT`] with no panel profile,
+    /// [`MonitorError::NoSafeProfile`] for `auto` with neither.
+    pub fn monitor(&self, name: &str, presets: &Presets) -> Result<Monitor, MonitorError> {
         match name {
-            AUTO => Ok(safe.monitor.clone()),
+            AUTO => match &self.edid {
+                Some(edid) => Ok(Monitor::Edid(edid.clone())),
+                None => safe_start(presets),
+            },
             FLAT => self
                 .panel
                 .clone()
@@ -213,6 +223,11 @@ impl Detected {
                 .map(Monitor::Profile)
                 .ok_or_else(|| MonitorError::Unknown(name.to_owned())),
         }
+    }
+
+    /// Whether `auto` gives a flat panel.
+    pub fn auto_is_panel(&self) -> bool {
+        self.edid.as_ref().is_some_and(is_panel)
     }
 
     /// The monitor of a guard record entry again: a preset by its id, or
@@ -306,6 +321,15 @@ fn profile_of(
             ));
         })
         .ok()
+}
+
+/// The preset of the 15 kHz safe start.
+fn safe_start(presets: &Presets) -> Result<Monitor, MonitorError> {
+    presets
+        .get(SAFE_START_PROFILE)
+        .cloned()
+        .map(Monitor::Profile)
+        .ok_or(MonitorError::NoSafeProfile)
 }
 
 fn is_panel(edid: &EdidProfile) -> bool {

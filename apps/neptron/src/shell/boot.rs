@@ -100,8 +100,18 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         );
         detected.fit_to(devices.display.caps());
         found.warn_all(detected.notices.iter().cloned());
-        let safe = detected.safe(&presets)?;
-        let monitor = match detected.monitor(&config.monitor(), &presets, &safe) {
+        let (record, record_output) = load_record(
+            &paths,
+            &detected,
+            &presets,
+            &runtime.output,
+            next.is_some(),
+            &mut found,
+        );
+        // The record holds a last known good only for this output, so a
+        // panel is the safe default only once the user kept it here.
+        let safe = detected.safe(&presets, record.last_known_good.as_ref())?;
+        let monitor = match detected.monitor(&config.monitor(), &presets) {
             Ok(monitor) => monitor,
             Err(e) => {
                 found.warn(e.to_string());
@@ -113,14 +123,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             safe.settings
         });
         let wanted = DisplayConfig { monitor, settings };
-        let (record, record_output) = load_record(
-            &paths,
-            &detected,
-            &presets,
-            &runtime.output,
-            next.is_some(),
-            &mut found,
-        );
         let scanlines = config.scanlines().unwrap_or_else(|e| {
             found.warn(format!("{e}; no scanlines are drawn"));
             ScanlineSettings::OFF

@@ -3,12 +3,14 @@
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_settings::{DISPLAY_MONITOR, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE, Level, Value};
+use neptron_types::{Control, InputEvent};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_video::{
-    DisplayConfig, Guard, GuardEvent, GuardStep, RevertReason, SafeReason, VideoEngine,
+    DisplayConfig, Guard, GuardEvent, GuardStep, Phase, RevertReason, SafeReason, VideoEngine,
 };
 
 use super::{Shell, Stage};
+use crate::display::{AUTO, SAFE_START_PROFILE};
 use crate::outbox::Job;
 
 /// The length of the audio cue of the blind recovery, in milliseconds.
@@ -82,6 +84,30 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         self.reload_page();
     }
 
+    /// The way back to a flat panel that the 15 kHz safe start leaves
+    /// dark: in safe mode with nothing confirmed on this output and a panel
+    /// detected, a button press (`pressed`, from [`any_press`]) proposes `display.monitor =
+    /// auto` (the panel) under a new prompt with a full window. Returns
+    /// whether it did, so the press does not also move the menu.
+    ///
+    /// Only a press starts it, so a panel mode never comes back with no
+    /// user action; each revert goes back to safe mode.
+    pub(super) fn offer_panel(&mut self, pressed: bool, now_ns: u64) -> bool {
+        let lost = matches!(self.guard.phase(), Phase::Safe(_))
+            && self.guard.record().last_known_good.is_none()
+            && self.detected.auto_is_panel();
+        if !pressed || !lost {
+            return false;
+        }
+        self.change_setting(
+            DISPLAY_MONITOR,
+            Level::Global,
+            Some(Value::Text(AUTO.to_owned())),
+            now_ns,
+        );
+        self.guard.pending().is_some()
+    }
+
     /// The blind recovery hotkey: the safe default, in every screen and
     /// state, also with a dialog open.
     pub(super) fn recover(&mut self, now_ns: u64) {
@@ -118,7 +144,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// Writes the configuration of a reverted boot prompt to the global
     /// settings, so the next boot does not show the change again. It is the
     /// revert target the guard gives, never the active configuration.
+    ///
+    /// When `auto` gives a flat panel and the revert target is the 15 kHz
+    /// safe start, `auto` stays: the next boot asks for the panel again,
+    /// for one confirm window at most, and the failed boots still lead to
+    /// safe mode.
     fn rewrite_global(&mut self, config: &DisplayConfig) {
+        let panel_left = self.detected.auto_is_panel()
+            && self.config.monitor() == AUTO
+            && self.detected.monitor_setting(&config.monitor) == SAFE_START_PROFILE;
         let values = [
             (
                 DISPLAY_MONITOR,
@@ -131,6 +165,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             ),
         ];
         for (key, value) in values {
+            if key == DISPLAY_MONITOR && panel_left {
+                continue;
+            }
             let value = Value::Text(value);
             if self.config.set(Level::Global, key, value.clone()).is_ok() {
                 self.write_setting(Level::Global, key, Some(value));
@@ -182,6 +219,17 @@ fn reverted_text(reason: RevertReason) -> &'static str {
         RevertReason::Superseded => "The display change went back: a new setting replaced it.",
         RevertReason::ClockWentBack => "The display change went back: the clock went back.",
     }
+}
+
+/// Whether `events` hold the press of a button, not a stick move.
+pub(super) fn any_press(events: &[InputEvent]) -> bool {
+    events.iter().any(|e| {
+        e.value != 0
+            && !matches!(
+                e.control,
+                Control::LeftX | Control::LeftY | Control::RightX | Control::RightY
+            )
+    })
 }
 
 fn safe_text(reason: SafeReason) -> &'static str {

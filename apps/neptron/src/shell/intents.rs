@@ -218,7 +218,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     fn display_config(&self) -> Option<DisplayConfig> {
         let monitor = self
             .detected
-            .monitor(&self.config.monitor(), &self.presets, &self.safe)
+            .monitor(&self.config.monitor(), &self.presets)
             .unwrap_or_else(|_| self.safe.monitor.clone());
         let settings = if self.in_game() {
             self.config.policy()

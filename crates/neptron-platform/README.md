@@ -37,7 +37,7 @@ Only `detect` does I/O. Everything else is a pure function over bytes and string
 
 A CRT with a digital EDID builds no CRT profile (`ProfileError::NotAnalog`), so the caller uses its safe start.
 
-**The limit of the rule.** An adapter that presents its own digital EDID, with a CRT behind it, and that reports no analog downstream port, looks like a flat panel. The rule then proposes the adapter's preferred mode (often 1080p) to the CRT. No signal in the EDID tells such an adapter apart from a real panel without making some real panels fail: a missing product name, an unknown manufacturer id and an odd preferred mode are all common on cheap panels and TVs. So the rule adds no guess. The protections are outside it: a monitor preset in `display.monitor` always wins over detection, and the first boot on a new output runs under the boot prompt (confirm or revert).
+**The limit of the rule.** An adapter that presents its own digital EDID, with a CRT behind it, and that reports no analog downstream port, looks like a flat panel. The rule then proposes the adapter's preferred mode (often 1080p) to the CRT. No signal in the EDID tells such an adapter apart from a real panel without making some real panels fail: a missing product name, an unknown manufacturer id and an odd preferred mode are all common on cheap panels and TVs. So the rule adds no guess. The protections are in the app: a monitor preset in `display.monitor` always wins over detection, and a panel mode is never the safe default until the user keeps it on that output, so an unanswered boot prompt leaves the 15 kHz safe start on the wire after one confirm window.
 
 ## The flat-panel profile
 
