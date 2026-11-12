@@ -274,3 +274,23 @@ fn every_listed_mode_has_a_whole_khz_clock() {
         }
     }
 }
+
+#[test]
+fn a_fallback_mode_keeps_a_game_rate_before_a_larger_size() {
+    // HD 530 on DisplayPort: 533.25 MHz. The CTA-861 2160p60 and 2160p50
+    // modes (594 MHz) are out; 2160p30 fits, but it would halve the speed
+    // of a 60 Hz game, so 1080p60 comes first.
+    let dp = GpuCaps {
+        pclock_max_hz: 533_250_000,
+        max_width: 4096,
+        max_height: 2160,
+        ..UNKNOWN_GPU_CAPS
+    };
+    let uhd = panel_profile_from_edid(&blobs::panel_2160p()).unwrap();
+    let fit = uhd.fit_panel(&dp, 3840, 2160).unwrap();
+    let MonitorKind::FlatPanel { modes } = &fit.profile.profile.kind else {
+        panic!("a panel");
+    };
+    assert_eq!(sizes(modes)[0], (1920, 1080, 60_000));
+    assert!(sizes(modes).contains(&(3840, 2160, 30_000)));
+}

@@ -12,7 +12,7 @@ GPU and board detection from sysfs, the capability table, and a monitor profile 
 - `fn display_class(connector_kind, subconnector, &[u8]) -> Result<DisplayClass, EdidError>`: CRT or flat panel, by the rule below.
 - `fn profile_for_display(connector_kind, subconnector, &[u8]) -> Result<EdidProfile, ProfileError>`: the CRT profile or the flat-panel profile, by the class.
 - `fn panel_profile_from_edid(&[u8]) -> Result<EdidProfile, ProfileError>`: a flat-panel profile of the listed modes, the preferred mode first, whatever the input type.
-- `EdidProfile::fit_panel(&GpuCaps, max_width, max_height) -> Option<PanelFit>`: the listed modes that the GPU and the buffers can send. When the preferred mode does not fit, the largest mode that fits comes first, and `PanelFit::native_left_out` names the preferred mode for a notice.
+- `EdidProfile::fit_panel(&GpuCaps, max_width, max_height) -> Option<PanelFit>`: the listed modes that the GPU and the buffers can send. When the preferred mode does not fit, the largest mode of at least 50 Hz that fits comes first (`GAME_RATE_MIN_MHZ`: 2160p30 would halve the speed of a 60 Hz game, so 1080p60 wins over it), then a slower one, and `PanelFit::native_left_out` names the preferred mode for a notice.
 - The pure parsers of sysfs text: `parse_uevent`, `parse_card_name`, `parse_connector_name`, `parse_status`.
 
 Only `detect` does I/O. Everything else is a pure function over bytes and strings.

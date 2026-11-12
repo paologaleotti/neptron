@@ -125,6 +125,10 @@ pub fn panel_profile_from_edid(edid: &[u8]) -> Result<EdidProfile, ProfileError>
     })
 }
 
+/// The lowest field rate of a mode that a fallback prefers, in millihertz:
+/// a 50 Hz game runs at its speed from here up.
+pub const GAME_RATE_MIN_MHZ: u64 = 50_000;
+
 /// A flat-panel profile cut to what the system can send.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PanelFit {
@@ -139,8 +143,10 @@ impl EdidProfile {
     /// The modes of a flat-panel profile no wider than `max_width`, no
     /// taller than `max_height`, and with a pixel clock in the range of
     /// `caps`. When the preferred mode does not fit, the largest mode that
-    /// fits (by area, then the rate nearest the preferred one, then list
-    /// order) comes first, so the policy takes it as the preferred size.
+    /// fits comes first, so the policy takes it as the preferred size: a
+    /// mode of at least [`GAME_RATE_MIN_MHZ`] before a slower one (2160p30
+    /// would halve the speed of a 60 Hz game), then by area, then the rate
+    /// nearest the preferred one, then list order.
     ///
     /// A CRT profile is returned unchanged. `None` when no listed mode
     /// fits.
@@ -167,6 +173,7 @@ impl EdidProfile {
                 .min_by_key(|(i, m)| {
                     let area = u32::from(m.hactive) * u32::from(m.vactive);
                     (
+                        m.field_rate_mhz() < GAME_RATE_MIN_MHZ,
                         std::cmp::Reverse(area),
                         m.field_rate_mhz().abs_diff(native_rate),
                         *i,
