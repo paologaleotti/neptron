@@ -153,7 +153,7 @@ The CRT safety model (rows 4 to 6) asks more than the guard does. These parts ar
 | Any | `recover` | Safe(Recovery); the record is in safe mode | `SafeMode` |
 
 - The guard never uses a time earlier than one it has seen, so a clock that goes back cannot stretch a deadline or start a watch again.
-- `Reverted` carries `rewrite_settings`. It is true when the first change of the pending chain is the boot prompt: the settings files still hold that unconfirmed configuration, and every boot would show it again for up to 10 s. The app then writes `Guard::active()`, the revert target, back to the settings. A change the user asked for in the menus is never in the settings files before `Confirmed`, so its revert writes nothing.
+- `Reverted` carries `rewrite: Option<DisplayConfig>`. It is `Some` when the first change of the pending chain is the boot prompt: the settings files still hold that unconfirmed configuration, and every boot would show it again for up to 10 s. It holds the revert target as the revert set it, so a `follow_settings` after it (the settings of a game) never reaches the global settings. A change the user asked for in the menus is never in the settings files before `Confirmed`, so its revert gives `None`.
 - No valid picture (`Health::no_picture`): the output is off, a refused mode is on the display, or the engine has set no mode. A mode that waits for its first flip is not counted, because a flip can be late.
 - The no-picture watch stops only when a valid picture is seen. A new change, a `propose` while pending or a `follow_settings` does not start it again, so a loop of changes with no picture still reaches the 1 s limit.
 - `confirm` is refused with `ConfirmError` when no prompt is open, the id is another one, the time is at or after the deadline, the engine shows no valid picture, or no `tick` has seen a valid picture of the change (`NotShown`). Nothing changes; the deadline still reverts.
@@ -191,7 +191,7 @@ The CRT safety model (rows 4 to 6) asks more than the guard does. These parts ar
 5. `PromptOpened`: put the confirm dialog in the snapshot with `remaining_ns` from `Prompt::deadline_ns`, map `PromptId` to the UI's `ConfirmId`, stop every key repeat and send nothing for a key held now (OP-048).
 6. `KeepMode`: call `confirm` with the open id and the frame time. A `ConfirmError` keeps the dialog; a `KeepMode` after the deadline is dropped. `RevertMode`: call `decline`.
 7. `Confirmed`: write the changed settings now. The settings files hold a display change only once it is confirmed, so a crash during a pending change leaves the old value.
-8. `Reverted` and `SafeMode`: close the dialog and show a notice. Write no setting, except for `Reverted` with `rewrite_settings`: then write the monitor and the settings of `Guard::active()` to the settings files.
+8. `Reverted` and `SafeMode`: close the dialog and show a notice. Write no setting, except for `Reverted` with `rewrite: Some(config)`: then write the monitor and the settings of that `config` to the global settings. Never write `Guard::active()` for it.
 9. `Hotkey::BlindRecovery`: call `recover`, in every screen and state, also while a dialog is open. On `SafeMode(Recovery)` play the audio cue.
 10. Show safe mode in the display panel while `phase()` is `Safe`.
 

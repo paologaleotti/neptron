@@ -92,7 +92,7 @@ pub enum RevertReason {
 }
 
 /// What the app must act on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GuardEvent {
     /// Show the confirm dialog for this prompt. Stop every key repeat, and
     /// send no action for a key that is held now.
@@ -105,10 +105,11 @@ pub enum GuardEvent {
         /// Why.
         reason: RevertReason,
         /// The change came from the settings files at boot, and they still
-        /// hold it: write [`Guard::active`], the revert target, back to
-        /// them, or every boot shows the change again. When false, write no
-        /// setting.
-        rewrite_settings: bool,
+        /// hold it: write this configuration, the revert target, to the
+        /// global settings, or every boot shows the change again. It is
+        /// captured at the revert, so a later `follow_settings` does not
+        /// change it. `None`: write no setting.
+        rewrite: Option<DisplayConfig>,
     },
     /// The safe default is on the engine. Close any dialog. For
     /// [`SafeReason::Recovery`], play the audio cue.
@@ -540,7 +541,7 @@ impl Guard {
         else {
             return GuardStep::default();
         };
-        let rewrite_settings = *from_settings;
+        let from_settings = *from_settings;
         let before = self.record.clone();
         match fallback.clone() {
             Fallback::Confirmed(config) => {
@@ -554,7 +555,7 @@ impl Guard {
         }
         let event = GuardEvent::Reverted {
             reason,
-            rewrite_settings,
+            rewrite: from_settings.then(|| self.active.clone()),
         };
         self.finish(event, &before)
     }

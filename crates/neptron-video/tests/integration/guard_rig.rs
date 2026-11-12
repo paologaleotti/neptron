@@ -76,7 +76,7 @@ pub fn mode_of(config: &DisplayConfig) -> Modeline {
 pub fn reverted(reason: RevertReason) -> GuardEvent {
     GuardEvent::Reverted {
         reason,
-        rewrite_settings: false,
+        rewrite: None,
     }
 }
 
@@ -186,7 +186,7 @@ impl GuardRig {
     /// The user asks for `config`; returns the prompt it opened.
     pub fn propose(&mut self, config: DisplayConfig) -> Prompt {
         let step = self.guard.propose(config, self.now(), &mut self.engine);
-        let event = step.event;
+        let event = step.event.clone();
         self.take(step);
         match event {
             Some(GuardEvent::PromptOpened(prompt)) => prompt,
@@ -207,7 +207,7 @@ impl GuardRig {
 
     /// The events with no time.
     pub fn event_list(&self) -> Vec<GuardEvent> {
-        self.events.iter().map(|(_, e)| *e).collect()
+        self.events.iter().map(|(_, e)| e.clone()).collect()
     }
 
     /// The time of the first event equal to `event`.

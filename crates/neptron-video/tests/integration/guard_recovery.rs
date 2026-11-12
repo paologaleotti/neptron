@@ -16,7 +16,7 @@ fn assert_recovers(rig: &mut GuardRig) {
     let saves = rig.saves.len();
     rig.recover();
     assert_eq!(
-        rig.events.last().map(|(_, e)| *e),
+        rig.events.last().map(|(_, e)| e.clone()),
         Some(GuardEvent::SafeMode(SafeReason::Recovery))
     );
     assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::Recovery));

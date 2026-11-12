@@ -118,14 +118,14 @@ fn a_change_in_safe_mode_that_reverts_goes_back_to_safe_mode() {
 #[test]
 fn settings_that_differ_from_the_last_known_good_wait_for_a_confirmation() {
     let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), crt_15());
-    let Some(GuardEvent::PromptOpened(prompt)) = rig.event_list().first().copied() else {
+    let Some(GuardEvent::PromptOpened(prompt)) = rig.event_list().first().cloned() else {
         panic!("a prompt at boot");
     };
     rig.run_until(prompt.deadline_ns + FRAME_NS);
     assert!(
         rig.event_list().contains(&GuardEvent::Reverted {
             reason: RevertReason::Timeout,
-            rewrite_settings: true
+            rewrite: Some(crt_31()),
         }),
         "the settings still hold the unconfirmed monitor: the app writes the revert target"
     );
@@ -215,14 +215,14 @@ fn a_boot_prompt_comes_back_on_each_boot_until_the_settings_are_written() {
             .expect("the unconfirmed monitor asks again");
         rig.run_until(prompt.deadline_ns + FRAME_NS);
         let Some(GuardEvent::Reverted {
-            rewrite_settings: true,
+            rewrite: Some(target),
             ..
-        }) = rig.event_list().last().copied()
+        }) = rig.event_list().last().cloned()
         else {
             panic!("the revert of a boot prompt asks for the settings");
         };
         if boot == 1 {
-            written = rig.guard.active().clone();
+            written = target;
         }
     }
 }
@@ -237,8 +237,25 @@ fn a_change_that_replaces_a_boot_prompt_still_asks_for_the_settings() {
         step.event,
         Some(GuardEvent::Reverted {
             reason: RevertReason::Declined,
-            rewrite_settings: true
+            rewrite: Some(crt_31()),
         })
     );
     assert_eq!(rig.guard.active().monitor, pc_31_120());
+}
+
+#[test]
+fn a_game_setting_during_a_boot_prompt_is_not_what_the_app_writes() {
+    let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), crt_15());
+    rig.frame();
+    let game = with_style(crt_31(), PictureStyle::X2).settings;
+    let step = rig.guard.follow_settings(game, &mut rig.engine);
+    assert_eq!(
+        step.event,
+        Some(GuardEvent::Reverted {
+            reason: RevertReason::Superseded,
+            rewrite: Some(crt_31()),
+        }),
+        "the revert target with the global settings, not the game's"
+    );
+    assert_eq!(rig.guard.active().settings, game);
 }
