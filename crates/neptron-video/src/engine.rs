@@ -5,7 +5,7 @@ use neptron_types::{FlipEvent, Frame, Modeline, Scene, SourceGeometry};
 use crate::odren::{AfterModeSet, ModeOrder};
 use crate::{
     Current, Directive, Monitor, Odren, Outcome, Refusal, ScanlineSettings, SwitchTrace,
-    Unshowable, Veto,
+    Unshowable, Veto, VideoStatusText,
 };
 
 /// An error of the engine. The trace has the details of every failed
@@ -127,6 +127,12 @@ impl<D: Display> VideoEngine<D> {
         ui: Option<Frame<'a>>,
     ) -> Scene<'a> {
         self.odren.preview_scene(proposal, source, game, ui)
+    }
+
+    /// Writes the video status of the mode on screen into `out`. See
+    /// [`Odren::video_status`].
+    pub fn video_status<'o>(&self, out: &'o mut VideoStatusText) -> Option<&'o VideoStatusText> {
+        self.odren.video_status(out)
     }
 
     /// Lifts the block of a source after a device error. See

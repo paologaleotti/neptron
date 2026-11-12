@@ -28,6 +28,25 @@ for _ in 0..repeat {                           // 2 for double refresh
 
 `repeat` is `Current::chosen.proposal.timing.repeat()`. The real field rate for frame pacing and audio rate control is `Current::read_back.field_rate_mhz()`.
 
+## The video status
+
+`write_video_status(Option<&StatusInputs>, &mut VideoStatusText) -> Option<&VideoStatusText>` writes the video block of the quick menu and the display panel as text. `Odren::video_status` and `VideoEngine::video_status` call it for the mode on screen; a preview builds `StatusInputs` from a proposal and calls the same function. The app copies the strings into the UI snapshot; the UI parses nothing. The function clears and rewrites caller-owned strings, so a steady frame allocates nothing. Integers only.
+
+| Field | Content | Example |
+| --- | --- | --- |
+| `game` | The source size padded to 10, 10 spaces, the field rate with 3 decimals | `256x224             60.099 Hz` |
+| `mode` | The read back: size and scan suffix padded to 10, line rate in kHz with 2 decimals padded to 10, field rate, two spaces, the rung (`native` for native and interlaced 1:1, `2x`, `3x`, `4x`, `fit`, `panel`) | `768x448p  30.05 kHz 60.099 Hz  2x` |
+| `result` | `exact`, `double refresh`, `cropped N lines`, `small picture N%`, `filtered`, `speed changed (X to Y Hz)`, in that order, joined with `, ` | `cropped 2 lines, speed changed (60.099 to 59.940 Hz)` |
+| `alert` | `filtered` or `speed changed` | |
+
+- `exact`: not fitted, no crop, not padded, and the speed does not change. It combines only with `double refresh`.
+- `double refresh`: the winner shows each frame twice (`Timing::repeat() == 2`), from `exact_x2` or from `native` on its own.
+- `small picture N%`: the fill of a padded winner, rounded to whole percent.
+- `filtered`: the fitted rung.
+- `speed changed`: X is the game's rate, Y the read-back field rate per game frame. It shows when they differ by `REFRESH_MATCH_MHZ` (5 mHz) or more, never on a flat panel (audio rate control absorbs the difference there, as in the policy's notice).
+- Before the first mode is on screen the function returns `None`, and the UI shows no block.
+- The worst mode line, `1920x238p 15.73 kHz 59.9xx Hz  native`, has 37 characters. The longest real results wrap into two lines of 37.
+
 ## The state machine
 
 Each core frame gives one `Directive`:

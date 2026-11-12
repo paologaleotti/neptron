@@ -7,7 +7,8 @@ use crate::cache::Cache;
 use crate::decision::{Decision, Inputs};
 use crate::{
     Chosen, Monitor, Outcome, READ_BACK_RATE_NOTICE_MHZ, ScanlineSettings, SceneInputs,
-    SwitchRecord, SwitchTrace, Trigger, Unshowable, Veto, build_scene,
+    StatusInputs, SwitchRecord, SwitchTrace, Trigger, Unshowable, Veto, VideoStatusText,
+    build_scene, write_video_status,
 };
 
 /// A source that asks for a new mode must stay the same for this many core
@@ -229,6 +230,13 @@ impl Odren {
             scanlines: self.scanlines,
         };
         build_scene(&inputs, game, ui)
+    }
+
+    /// Writes the video status of the mode on screen into `out`, from its
+    /// read back. `None` before the first mode is on screen.
+    pub fn video_status<'o>(&self, out: &'o mut VideoStatusText) -> Option<&'o VideoStatusText> {
+        let inputs = self.current.as_ref().map(StatusInputs::of);
+        write_video_status(inputs.as_ref(), out)
     }
 
     /// The monitor.

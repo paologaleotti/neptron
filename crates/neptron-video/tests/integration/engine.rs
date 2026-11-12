@@ -353,3 +353,28 @@ fn the_overscan_crop_of_the_policy_reaches_the_scene() {
     assert_eq!(scene.dest.h % scene.crop.h, 0);
     assert!(scene.dest.h / scene.crop.h >= 2);
 }
+
+#[test]
+fn the_video_status_shows_the_read_back_and_none_before_it() {
+    let asked = mode_for(generic_15(), native_width(), SNES);
+    let read_back = neptron_types::Modeline {
+        pclock_hz: asked.pclock_hz + 2_000,
+        ..asked
+    };
+    let mut rig = Rig::generic_15(native_width());
+    rig.fake
+        .fault_mode(0, neptron_testkit::ModeFault::ReadBack(read_back));
+    let mut status = neptron_video::VideoStatusText::default();
+    assert!(rig.engine.video_status(&mut status).is_none());
+    rig.frame(SNES);
+    let status = rig.engine.video_status(&mut status).unwrap();
+    assert_eq!(status.game, "256x224             60.099 Hz");
+    let rate = read_back.field_rate_mhz();
+    let expected = format!("{}.{:03} Hz", rate / 1_000, rate % 1_000);
+    assert!(
+        status.mode.contains(&expected),
+        "{} has {expected}",
+        status.mode
+    );
+    assert_ne!(rate, asked.field_rate_mhz());
+}
