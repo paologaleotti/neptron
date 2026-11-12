@@ -4,8 +4,9 @@ The sealed UI: snapshot in, scene and intents out. A 320x240 XRGB8888 canvas, a 
 
 ## Public API sketch
 
-- `Snapshot` (module `snapshot`): what the UI shows. All systems; a `GameWindow` of one game list; a `SettingsPage` of one page (`MenuItem` with a typed `SettingValue` and its source `Level`); monitor profiles, the display, a pending confirm-or-revert, the session, notices. The app fills it. The snapshot and its entry structs are `#[non_exhaustive]`: start from `Snapshot::default()` and the `new` constructors.
+- `Snapshot` (module `snapshot`): what the UI shows. All systems; a `GameWindow` of one game list; a `SettingsPage` of one page (`MenuItem` with a typed `SettingValue` and its source `Level`); monitor profiles, the display, a pending confirm-or-revert, the session, notices, and the video status of the running game. The app fills it. The snapshot and its entry structs are `#[non_exhaustive]`: start from `Snapshot::default()` and the `new` constructors.
 - `ChoiceOption`: one option of a `SettingValue::Choice`. A label, a detail text (for a picture style: the line rate and the field rate it gives), and `unavailable: Option<String>`, the reason why the player cannot choose it now. `ChoiceOption::new(label).with_detail(..).unavailable(..)`; `From<&str>` makes a plain option.
+- `VideoStatus`: the video status of the running game as three texts and a flag: `game`, `mode`, `result` and `alert`. `VideoStatus::new(game, mode, result).with_alert(..)`. See "The video block" below.
 - `Notice` carries a `NoticeId`. Two notices in one snapshot have different ids.
 - `UiAction`: up, down, left, right, accept, back, menu.
 - `Intent` and `Value`: what the app must do (load a game window or a settings page, launch, set or reset a value at a level, run an action, select a profile, keep or revert a mode, resume, quit, dismiss a notice). `Intent` is exhaustive on purpose: a new intent breaks the build of the app until the app handles it.
@@ -86,6 +87,19 @@ The confirm dialog has the buttons Revert and Keep, in that order. The focus sta
 ### The quick menu
 
 Menu during a game opens the quick menu over the paused game. Its rows write at the game level and apply at once. When the player leaves after a change (back, Resume or Quit game), one prompt asks where to keep the changes: This game (the focus), System or All games. For System or All games the UI sends `SetValue` at that level and `ResetValue` at the game level, for each changed row that is in the snapshot and allows the level; a change whose row is gone stays at the game level. The app checks the scopes of every `SetValue` again, as for any other change. Back in the prompt returns to the quick menu. The UI notes at most `MAX_CHANGES` (16) settings per visit; a further one stays at the game level. After Quit game the quick menu waits for the session to end and ignores input, except back: back gives the quick menu back, so a player is never stuck when the app does not stop the game.
+
+### The video block
+
+`Snapshot::video` holds the video status of the running game as text. A formatter in `neptron-video` makes the text from the state of the video engine, and the app copies it into the snapshot each frame. The UI draws the text as it gets it. It decides nothing about the content: it does not parse, compare or round a value, and it does not choose which result is an alert.
+
+| Field | Meaning | Example |
+| --- | --- | --- |
+| `game` | What the core asks for: the source size, then the field rate with three decimals | `256x224  60.099 Hz` |
+| `mode` | The mode on screen as the kernel reports it (size and scan, line rate, field rate with three decimals), then the picture style | `768x448p 30.05 kHz 60.099 Hz  2x` |
+| `result` | The result in words. The formatter joins two or more results with `, ` | `exact`, `double refresh`, `cropped 2 lines`, `filtered`, `speed changed (60.099 to 59.940 Hz)` |
+| `alert` | True when the player must notice the result. The formatter sets it for `filtered` and for `speed changed` | |
+
+What the app supplies each frame: `Some(status)` while a game runs, `None` when no game runs. It keeps one `VideoStatus` and writes new text into its strings (`clear`, then `write!`) when the status changes, so the frame allocates nothing. The screens show the block only while `Snapshot::session` holds a game as well.
 
 ### Notices
 

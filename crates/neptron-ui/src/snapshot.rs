@@ -97,6 +97,9 @@ pub struct Snapshot {
     pub session: Option<SessionInfo>,
     /// Messages for the player, oldest first.
     pub notices: Vec<Notice>,
+    /// What the running game asks for and what the screen shows, as text.
+    /// The screens show it only while [`Snapshot::session`] holds a game.
+    pub video: Option<VideoStatus>,
 }
 
 /// A window of rows of one game list: `rows[0]` is the game at index
@@ -266,6 +269,28 @@ pub struct SessionInfo {
     pub title: String,
     /// True while the core is paused.
     pub paused: bool,
+}
+
+/// The video status of the running game, as text that the app makes. The
+/// UI draws the text and decides nothing about it.
+///
+/// The app keeps one value and writes new text into the same strings when
+/// the status changes, so a frame allocates nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct VideoStatus {
+    /// What the core asks for: the source size and the field rate, for
+    /// example `256x224  60.099 Hz`.
+    pub game: String,
+    /// The mode on screen as the kernel reports it, and the picture style,
+    /// for example `768x448p 30.05 kHz 60.099 Hz  2x`.
+    pub mode: String,
+    /// The result in words, for example `exact`, `filtered` or
+    /// `cropped 2 lines, speed changed (59.940 to 60.000 Hz)`.
+    pub result: String,
+    /// True when the player must notice the result: the UI draws it with
+    /// emphasis.
+    pub alert: bool,
 }
 
 /// The number of a notice, given by the app. Two notices in one snapshot
@@ -491,6 +516,28 @@ impl SessionInfo {
     }
 }
 
+impl VideoStatus {
+    /// A status with its three texts and no alert.
+    pub fn new(
+        game: impl Into<String>,
+        mode: impl Into<String>,
+        result: impl Into<String>,
+    ) -> Self {
+        Self {
+            game: game.into(),
+            mode: mode.into(),
+            result: result.into(),
+            alert: false,
+        }
+    }
+
+    /// The same status with the alert set to `alert`.
+    pub fn with_alert(mut self, alert: bool) -> Self {
+        self.alert = alert;
+        self
+    }
+}
+
 impl Notice {
     /// A message of a kind, with its number.
     pub fn new(id: NoticeId, text: impl Into<String>, kind: NoticeKind) -> Self {
@@ -584,6 +631,15 @@ mod tests {
         assert!(!option.is_enabled());
         assert_eq!(ChoiceOption::from("Auto"), ChoiceOption::new("Auto"));
         assert_eq!(ChoiceOption::from(String::from("Auto")).detail, "");
+    }
+
+    #[test]
+    fn a_video_status_has_no_alert_until_it_is_set() {
+        let status = VideoStatus::new("256x224  60.099 Hz", "768x448p", "exact");
+        assert!(!status.alert);
+        assert_eq!(status.result, "exact");
+        assert!(status.with_alert(true).alert);
+        assert_eq!(Snapshot::default().video, None);
     }
 
     #[test]
