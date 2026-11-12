@@ -649,3 +649,21 @@ Each open point is one section:
 - How to change: see each README. For (4), a linker setting or a patched build script in the Buildroot package of the frontend.
 - Decision:
 
+### OP-070: Licence of the 15 kHz kernel patch set. Must be closed before any image is distributed.
+
+- Raised by: T28
+- Status: open, blocks distribution; waits for an answer from the patch author
+- Default: the repository `D0023R/linux_kernel_15khz` has a GPL-3.0 LICENSE file, and its patches carry no licence line. The Linux kernel is GPL-2.0-only, and GPL-3.0-only code cannot be combined with it. The owner decided (2026-11-12): the images built now include the pinned patch set, because the project is far from a public release. No image with these patches is given to anybody until this point is closed. The owner asked the author to state the licence of the patches: https://github.com/D0023R/linux_kernel_15khz/issues/22
+- Where: `os/patches/linux`, `os/README.md`, the licence notes on the boot partition
+- How to change: when the author states GPL-2.0 for the patches, record the answer here and in `os/README.md` and close the point. With no answer or a GPL-3.0-only answer, build the distributed image without the patches, or write the 15 kHz support again from the kernel documentation.
+- Decision: the owner (2026-11-12): include the patches for now, ask the author, keep this reminder.
+
+### OP-071: Owner decisions on flat panels.
+
+- Raised by: the owner (2026-11-12)
+- Status: decided, change C08 does it
+- Default: flat panels are in the MVP and must be usable. The system detects a flat panel, uses its native mode, and shows the game at its correct shape with a whole vertical factor, centred, with black around it. Pixel exactness matters only on a CRT. On a flat panel a sharp filter is accepted and gives no alert; a blurry picture is never accepted. CRT shaders for flat panels come after the MVP. A VGA output behind a DAC is a CRT: an EDID that says analog input, or a DisplayPort adapter that reports VGA, selects the CRT path. An adapter that presents its own digital EDID cannot be detected; the owner accepts this limit, the user's preset in the settings wins over detection, and the first boot on a new output is under the confirm prompt.
+- Where: `apps/neptron`, `crates/neptron-platform`, `crates/neptron-modeline` (the flat panel path)
+- How to change: see the C08 report and the README of `apps/neptron`.
+- Decision: as above.
+
