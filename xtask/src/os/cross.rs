@@ -140,7 +140,9 @@ impl CrossPlan {
         // The `cc` crate of build scripts looks for these, and else for a
         // cross compiler name that the container does not have.
         let target_cc = format!("CC_{}", self.arch.rust_target().replace('-', "_"));
+        let target_cxx = format!("CXX_{}", self.arch.rust_target().replace('-', "_"));
         let target_ar = format!("AR_{}", self.arch.rust_target().replace('-', "_"));
+        let gxx = format!("{host_bin}/{}-buildroot-linux-gnu-g++", self.arch.name());
         let ar = format!("{host_bin}/{}-buildroot-linux-gnu-ar", self.arch.name());
         for (name, value) in [
             // Every guest build denies warnings. One setting for every
@@ -158,6 +160,7 @@ impl CrossPlan {
             (linker_var, linker),
             ("NEPTRON_LINK_CC".to_owned(), gcc.clone()),
             (target_cc, gcc),
+            (target_cxx, gxx),
             (target_ar, ar),
         ] {
             args.push("--env".to_owned());
@@ -262,6 +265,13 @@ mod tests {
             build.contains(
                 "--env CC_aarch64_unknown_linux_gnu=\
                  /work/out/host/bin/aarch64-buildroot-linux-gnu-gcc"
+            ),
+            "{build}"
+        );
+        assert!(
+            build.contains(
+                "--env CXX_aarch64_unknown_linux_gnu=\
+                 /work/out/host/bin/aarch64-buildroot-linux-gnu-g++"
             ),
             "{build}"
         );
