@@ -68,15 +68,19 @@ state_end() {
 	echo $(($(sectors "$state" start) + $(sectors "$state" size)))
 }
 
-# 0 when the partition holds a filesystem or another signature, 1 when it
-# holds none, 2 when the probe fails (then nothing may be formatted).
+# 0 when the partition holds a filesystem or a partition table, 1 when it
+# holds none, 2 when the probe fails (then nothing may be formatted). blkid
+# also reports the partition entry itself (PART_ENTRY_*), so only TYPE and
+# PTTYPE count.
 signature() {
-	blkid -p "$1" > /dev/null 2>&1
+	found=$(blkid -p -o export "$1" 2>/dev/null)
 	case $? in
-	0) return 0 ;;
+	0) ;;
 	2) return 1 ;;
 	*) return 2 ;;
 	esac
+	echo "$found" | grep -q -e '^TYPE=' -e '^PTTYPE=' && return 0
+	return 1
 }
 
 # A partition 4 that this script made: type 0x07 and its start at the
