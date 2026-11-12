@@ -28,6 +28,12 @@ pub struct CrossPlan {
     /// feature. Every guest build denies warnings; the Buildroot Rust
     /// toolchain has no clippy, so these are rustc's lints only.
     pub lint: bool,
+    /// Link with the compiler behind the Buildroot wrapper. The `sdl3`
+    /// crate adds `/usr/local/lib` to the link search on every Linux host,
+    /// and the wrapper refuses that path as an error. The compiler itself
+    /// links against the sysroot and only warns. Only the builds that link
+    /// SDL3 set it; the compiler of the C code stays the wrapper.
+    pub unwrapped_linker: bool,
 }
 
 impl CrossPlan {
@@ -103,6 +109,11 @@ impl CrossPlan {
             self.arch.rust_target().to_uppercase().replace('-', "_")
         );
         let gcc = format!("{host_bin}/{}-buildroot-linux-gnu-gcc", self.arch.name());
+        let linker = if self.unwrapped_linker {
+            format!("{gcc}.br_real")
+        } else {
+            gcc.clone()
+        };
         // The `cc` crate of build scripts looks for these, and else for a
         // cross compiler name that the container does not have.
         let target_cc = format!("CC_{}", self.arch.rust_target().replace('-', "_"));
@@ -116,7 +127,12 @@ impl CrossPlan {
             ("CARGO_HOME".to_owned(), format!("{HOME}/.cargo")),
             ("CARGO_TARGET_DIR".to_owned(), format!("{HOME}/target")),
             ("CARGO_BUILD_JOBS".to_owned(), cpus.clone()),
-            (linker_var, gcc.clone()),
+            // The pkg-config of the Buildroot output reads the sysroot, so
+            // a crate that links a system library (SDL3) gets the guest's
+            // paths, not the container's.
+            ("PKG_CONFIG".to_owned(), format!("{host_bin}/pkg-config")),
+            ("PKG_CONFIG_ALLOW_CROSS".to_owned(), "1".to_owned()),
+            (linker_var, linker),
             (target_cc, gcc),
             (target_ar, ar),
         ] {
@@ -150,6 +166,7 @@ mod tests {
             features: "gles".to_owned(),
             example: "gles_compare".to_owned(),
             lint: false,
+            unwrapped_linker: false,
         }
     }
 
@@ -244,6 +261,7 @@ mod tests {
             package: "neptron".to_owned(),
             features: "kms".to_owned(),
             lint: true,
+            unwrapped_linker: true,
             ..plan()
         }
         .app_steps();
@@ -268,6 +286,23 @@ mod tests {
             steps
                 .iter()
                 .all(|s| s.iter().any(|a| a == "RUSTFLAGS=-D warnings"))
+        );
+        assert!(
+            steps.iter().all(|s| s
+                .iter()
+                .any(|a| a == "PKG_CONFIG=/work/out/host/bin/pkg-config")),
+            "a linked system library comes from the sysroot"
+        );
+        assert!(
+            steps[1]
+                .join(" ")
+                .contains("LINKER=/work/out/host/bin/aarch64-buildroot-linux-gnu-gcc.br_real"),
+            "{:?}",
+            steps[1]
+        );
+        assert!(
+            !plan().steps()[0].join(" ").contains("br_real"),
+            "the other guest builds keep the wrapper"
         );
     }
 
