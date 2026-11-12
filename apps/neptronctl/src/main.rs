@@ -6,6 +6,7 @@
 
 mod args;
 mod run;
+mod selftest;
 
 use std::process::ExitCode;
 

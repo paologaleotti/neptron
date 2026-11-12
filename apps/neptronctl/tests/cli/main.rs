@@ -276,3 +276,48 @@ fn a_missing_local_file_exits_with_five() {
     assert_eq!(out.status.code(), Some(5));
     assert_eq!(json(&out.stderr)["error"]["code"], "file");
 }
+
+fn monitors_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/monitors")
+}
+
+#[test]
+fn a_selftest_dry_run_prints_the_plan_and_sets_no_mode() {
+    let dir = TempDir::new();
+    let out = neptronctl(
+        &dir.path("c.sock"),
+        &[
+            "selftest",
+            "video",
+            "--profile",
+            "pc_31_120",
+            "--monitors",
+            monitors_dir().to_str().unwrap(),
+            "--sysfs",
+            dir.path("no-sysfs").to_str().unwrap(),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("dry run, no mode is set"), "{text}");
+    assert!(text.contains("Profile pc_31_120 (preset)"), "{text}");
+    assert!(text.contains("480p"), "{text}");
+}
+
+#[test]
+fn a_selftest_with_a_missing_preset_exits_with_six() {
+    let dir = TempDir::new();
+    let out = neptronctl(
+        &dir.path("c.sock"),
+        &[
+            "selftest",
+            "video",
+            "--profile",
+            "no_such_monitor",
+            "--monitors",
+            monitors_dir().to_str().unwrap(),
+        ],
+    );
+    assert_eq!(out.status.code(), Some(6));
+    assert_eq!(json(&out.stderr)["error"]["code"], "selftest_setup");
+}

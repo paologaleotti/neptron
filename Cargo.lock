@@ -612,10 +612,14 @@ name = "neptronctl"
 version = "0.1.0"
 dependencies = [
  "neptron-ipc",
+ "neptron-modeline",
+ "neptron-platform",
+ "neptron-safety",
  "neptron-types",
  "serde",
  "serde_json",
  "thiserror",
+ "toml",
 ]
 
 [[package]]

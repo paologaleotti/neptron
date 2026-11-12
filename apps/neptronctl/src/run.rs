@@ -12,6 +12,7 @@ use neptron_ipc::{
 use serde_json::{Value, json};
 
 use crate::args::{self, Action, Invocation, USAGE};
+use crate::selftest::{self, SelftestError};
 
 /// The process exit codes. Scripts depend on them: add codes, never change
 /// one.
@@ -28,6 +29,8 @@ pub mod exit {
     pub const TRANSPORT: u8 = 4;
     /// A local file cannot be read or written.
     pub const LOCAL_FILE: u8 = 5;
+    /// The self-test cannot start: no profile, no EDID profile.
+    pub const SELFTEST_SETUP: u8 = 6;
 }
 
 /// The client timeout when the command line gives none, in milliseconds.
@@ -90,6 +93,9 @@ fn run(args: &[String], socket_env: Option<OsString>, out: &mut dyn Write) -> Re
         args::parse(args).map_err(|e| Failure::new(exit::USAGE, "usage", e.to_string()))?;
     let command = match &invocation.action {
         Action::Help => return print(out, USAGE.trim_end()),
+        Action::SelftestVideo(video) => {
+            return selftest::video(video, out).map_err(|e| selftest_failure(&e));
+        }
         Action::Call(command) => command.clone(),
         Action::Screenshot { stage, .. } => Command::Screenshot(ScreenshotArgs { stage: *stage }),
         Action::InputScript { file } => Command::InputScript(InputScriptArgs {
@@ -191,6 +197,16 @@ fn client_failure(error: ClientError) -> Failure {
             Failure::new(exit::TRANSPORT, "protocol", error.to_string())
         }
     }
+}
+
+fn selftest_failure(error: &SelftestError) -> Failure {
+    let (exit_code, code) = match error {
+        SelftestError::Preset { .. } | SelftestError::NoEdidProfile { .. } => {
+            (exit::SELFTEST_SETUP, "selftest_setup")
+        }
+        SelftestError::Output { .. } => (exit::LOCAL_FILE, "stdout"),
+    };
+    Failure::new(exit_code, code, error.to_string())
 }
 
 fn print(out: &mut dyn Write, line: &str) -> Result<(), Failure> {

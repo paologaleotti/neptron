@@ -9,6 +9,8 @@ use neptron_ipc::{
 };
 use serde::de::DeserializeOwned;
 
+use crate::selftest::{self, VideoArgs};
+
 /// The usage text.
 pub const USAGE: &str = "\
 usage: neptronctl [--socket PATH] [--timeout-ms N] COMMAND
@@ -28,14 +30,20 @@ Commands:
   settings get KEY [--level LEVEL]
   settings set KEY LEVEL VALUE
   log tail [LINES]
+  selftest video --profile ID|edid [--monitors DIR] [--sysfs DIR]
+                 [--connector NAME]
   help
 
 The socket is --socket, else $NEPTRON_CONTROL_SOCKET, else
 /run/neptron/control.sock. A reply prints as one JSON line on stdout. An
 error prints as one JSON line on stderr.
 
+`selftest video` plans one test mode per mode family of the monitor
+profile and prints the plan; the README describes it.
+
 Exit codes: 0 ok, 1 the server answered an error, 2 usage error,
-3 cannot connect, 4 no response or a broken response, 5 local file error.
+3 cannot connect, 4 no response or a broken response, 5 local file error,
+6 the self-test cannot start.
 ";
 
 /// The wait timeout when the command line gives none, in milliseconds.
@@ -74,6 +82,8 @@ pub enum Action {
         /// The local file.
         file: PathBuf,
     },
+    /// Run the video self-test.
+    SelftestVideo(VideoArgs),
 }
 
 /// A command line that does not follow the usage.
@@ -180,6 +190,9 @@ fn action(words: &[&str]) -> Result<Action, UsageError> {
         ["log", "tail", lines] => call(Command::LogTail(LogTailArgs {
             lines: number("LINES", lines)?,
         })),
+        ["selftest", "video", options @ ..] => Ok(Action::SelftestVideo(
+            selftest::parse_video(options).map_err(|e| usage(&e))?,
+        )),
         _ => Err(usage(&format!("unknown command {:?}", words.join(" ")))),
     }
 }
@@ -317,6 +330,10 @@ mod tests {
             }
         );
         assert_eq!(parse_words("help").unwrap().action, Action::Help);
+        assert!(matches!(
+            parse_words("selftest video --profile ntsc").unwrap().action,
+            Action::SelftestVideo(_)
+        ));
     }
 
     #[test]
@@ -353,6 +370,10 @@ mod tests {
             "settings set k planet 1",
             "log tail all",
             "hello extra",
+            "selftest",
+            "selftest audio",
+            "selftest video",
+            "selftest video --profile Bad",
         ] {
             let err = parse_words(line).unwrap_err();
             assert!(err.0.contains("neptronctl help"), "{line}: {err}");

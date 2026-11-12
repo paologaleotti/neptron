@@ -9,13 +9,19 @@ publish.workspace = true
 
 [dependencies]
 neptron-ipc = { path = "../../crates/neptron-ipc" }
+# The self-test plans its modes with the policy and validates each one.
+neptron-modeline = { path = "../../crates/neptron-modeline" }
+# GPU detection, the capability table and the EDID profile of the
+# self-test.
+neptron-platform = { path = "../../crates/neptron-platform" }
+neptron-safety = { path = "../../crates/neptron-safety" }
+neptron-types = { path = "../../crates/neptron-types" }
 serde.workspace = true
 serde_json.workspace = true
 # The code standards make each crate own a thiserror enum.
 thiserror.workspace = true
-
-[dev-dependencies]
-neptron-types = { path = "../../crates/neptron-types" }
+# The monitor presets are TOML files on the image.
+toml.workspace = true
 
 [lints]
 workspace = true
