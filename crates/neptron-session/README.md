@@ -69,6 +69,7 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 - A writer thread writes the file with `write_save_file` of the host: temp file, fsync, rename, one `.bak`. The session owns it; `quit()` and the drop stop and join it.
 - Two buffers travel between the frame thread and the writer over two bounded one-direction channels. The frame thread copies the save RAM into a free buffer, compares it with the last copy and sends it only when it changed. With no free buffer the flush waits for the next one. The frame thread never blocks.
 - The flush runs every `SAVE_RAM_FLUSH_INTERVAL_NS` (30 s) while the game runs, when the quick menu opens, and at exit. A failed write makes the next flush write again.
+- At exit, `quit()` waits for the writes in flight, sends the save RAM when it changed, joins the writer, and reports the result of that last write in `ExitReport::save`: `Written`, `WriteFailed` (the reason is in `SaveStats::last_error`), `Unchanged`, `Failed` (the copy failed) or `NoSaveRam`.
 
 ## What the app (T27) must do
 

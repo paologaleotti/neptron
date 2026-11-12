@@ -2,7 +2,7 @@
 //! refresh and exit, on the fakes with the test core.
 
 use neptron_backend::Clock;
-use neptron_session::{EndReason, Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SessionError};
+use neptron_session::{EndReason, Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SessionError};
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_video::{
     PictureStyle, PolicySettings, RefreshPolicy, VideoStatusText, scanline_settings,
@@ -243,7 +243,7 @@ fn the_save_ram_is_loaded_at_launch_and_written_at_exit_with_a_backup() {
             rig.run(30);
             assert_eq!(rig.session.save_stats().unwrap().sent, 0);
             let exit = rig.session.quit();
-            assert_eq!(exit.save, Flush::Sent);
+            assert_eq!(exit.save, Flush::Written);
             assert_eq!(exit.save_stats.written, 1);
             assert_eq!(exit.save_stats.failures, 0);
             let mut expected = [7_u8; 64];
@@ -253,6 +253,32 @@ fn the_save_ram_is_loaded_at_launch_and_written_at_exit_with_a_backup() {
                 std::fs::read(dir.join("saves/game.srm.bak")).unwrap(),
                 [7; 64]
             );
+        }
+    );
+}
+
+#[test]
+fn a_failed_write_at_exit_is_reported_and_the_old_file_kept() {
+    with_script!(
+        "a_failed_write_at_exit_is_reported_and_the_old_file_kept",
+        SAVE_SCRIPT,
+        |dir| {
+            let path = write_old_save(dir);
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(30);
+            // A folder in place of the backup makes the write fail before
+            // the new file replaces the old one.
+            let bak = dir.join("saves/game.srm.bak");
+            std::fs::create_dir(&bak).unwrap();
+            std::fs::write(bak.join("inside"), [0]).unwrap();
+            let exit = rig.session.quit();
+            assert_eq!(exit.save, Flush::WriteFailed);
+            assert_eq!(exit.save_stats.written, 0);
+            assert!(matches!(
+                exit.save_stats.last_error,
+                Some(SaveError::Write(_))
+            ));
+            assert_eq!(std::fs::read(&path).unwrap(), [7; 64], "the old file stays");
         }
     );
 }
@@ -323,7 +349,7 @@ fn a_core_shutdown_ends_the_session_and_the_save_ram_is_flushed() {
                 Err(SessionError::Ended)
             ));
             let exit = rig.session.quit();
-            assert_eq!(exit.save, Flush::Sent);
+            assert_eq!(exit.save, Flush::Written);
             assert_eq!(std::fs::read(dir.join("saves/game.srm")).unwrap()[0], 42);
         }
     );

@@ -32,6 +32,12 @@ pub enum Flush {
     Failed,
     /// The core has no save RAM, or the content has no save file.
     NoSaveRam,
+    /// At exit: the writer wrote the save RAM, and has stopped.
+    Written,
+    /// At exit: the save RAM changed but the file does not hold it: the
+    /// last write failed or the writer stopped. [`SaveStats::last_error`]
+    /// has the reason.
+    WriteFailed,
 }
 
 /// The counters and the last error of the save RAM writer.
@@ -82,6 +88,8 @@ pub(crate) struct SaveRamWriter {
     /// The save RAM as the file holds it, or will once the writer is done.
     last: Vec<u8>,
     stats: SaveStats,
+    /// The result of the last write the writer sent back.
+    last_write_ok: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -117,6 +125,7 @@ impl SaveRamWriter {
                 .collect(),
             last,
             stats: SaveStats::default(),
+            last_write_ok: None,
         })
     }
 
@@ -134,20 +143,29 @@ impl SaveRamWriter {
         self.copy_and_send(buffer, copy)
     }
 
-    /// The last flush, at exit: waits for a buffer, sends the save RAM when
-    /// it changed, stops the writer and joins it. The frame loop has
-    /// ended, so the waits here stop no frame.
+    /// The last flush, at exit: waits for the writes in flight, sends the
+    /// save RAM when it changed, stops the writer, joins it, and gives the
+    /// result of that last write: [`Flush::Written`], [`Flush::WriteFailed`],
+    /// [`Flush::Unchanged`], or [`Flush::Failed`] for a failed copy. The
+    /// frame loop has ended, so the waits here stop no frame.
     pub(crate) fn finish(
         &mut self,
         copy: impl FnOnce(&mut Vec<u8>) -> Result<usize, SaveRamError>,
     ) -> Flush {
+        // A write in flight can still fail and clear `last`, so the
+        // comparison below waits for every result first.
         self.collect();
-        let flush = match self.spare.pop().or_else(|| self.wait_for_buffer()) {
+        while self.spare.len() < BUFFERS && self.wait_for_done() {}
+        let flush = match self.spare.pop() {
             Some(buffer) => self.copy_and_send(buffer, copy),
             None => Flush::Busy,
         };
         self.stop();
-        flush
+        match flush {
+            Flush::Sent if self.last_write_ok == Some(true) => Flush::Written,
+            Flush::Sent | Flush::Busy => Flush::WriteFailed,
+            other => other,
+        }
     }
 
     /// Stops the writer after the jobs it has, and joins it.
@@ -222,13 +240,20 @@ impl SaveRamWriter {
         }
     }
 
-    fn wait_for_buffer(&mut self) -> Option<Vec<u8>> {
-        let done = self.done.recv().ok()?;
-        self.take(done);
-        self.spare.pop()
+    /// Waits for one result of the writer. False when the writer has
+    /// stopped.
+    fn wait_for_done(&mut self) -> bool {
+        match self.done.recv() {
+            Ok(done) => {
+                self.take(done);
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     fn take(&mut self, done: Done) {
+        self.last_write_ok = Some(done.result.is_ok());
         match done.result {
             Ok(()) => self.stats.written += 1,
             Err(error) => {
@@ -303,7 +328,7 @@ mod tests {
         std::fs::write(&path, [1, 2, 3, 4]).unwrap();
         let mut writer = SaveRamWriter::start(path.clone(), &[1, 2, 3, 4], 4).unwrap();
         assert_eq!(writer.flush(ram(&[1, 2, 3, 4])), Flush::Unchanged);
-        assert_eq!(writer.finish(ram(&[9, 2, 3, 4])), Flush::Sent);
+        assert_eq!(writer.finish(ram(&[9, 2, 3, 4])), Flush::Written);
         assert_eq!(read(&path), Some(vec![9, 2, 3, 4]));
         assert_eq!(read(&dir.join("game.srm.bak")), Some(vec![1, 2, 3, 4]));
         let stats = writer.stats();
@@ -329,7 +354,7 @@ mod tests {
             let flush = writer.flush(ram(&[value]));
             assert!(matches!(flush, Flush::Sent | Flush::Busy), "{flush:?}");
         }
-        writer.finish(ram(&[200]));
+        assert_eq!(writer.finish(ram(&[200])), Flush::Written);
         assert_eq!(read(&path), Some(vec![200]));
         assert_eq!(writer.stats().failures, 0);
         assert_eq!(writer.stats().written, writer.stats().sent);
@@ -345,10 +370,9 @@ mod tests {
         let mut writer = SaveRamWriter::start(path.clone(), &[], 2).unwrap();
         assert_eq!(writer.flush(ram(&[1, 2])), Flush::Sent);
         while writer.stats().failures == 0 {
-            let buffer = writer.wait_for_buffer().unwrap();
-            writer.spare.push(buffer);
+            assert!(writer.wait_for_done());
         }
-        writer.finish(ram(&[1, 2]));
+        assert_eq!(writer.finish(ram(&[1, 2])), Flush::WriteFailed);
         let stats = writer.stats();
         assert_eq!(
             stats.sent, 2,
