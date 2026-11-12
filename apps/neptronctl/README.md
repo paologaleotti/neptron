@@ -24,7 +24,9 @@ neptronctl [--socket PATH] [--timeout-ms N] COMMAND
   settings set KEY LEVEL VALUE
   log tail [LINES]
   selftest video --profile ID|edid [--monitors DIR] [--sysfs DIR]
-                 [--connector NAME] [--report FILE]
+                 [--connector NAME] [--report FILE] [--device PATH]
+                 [--seconds-per-mode N]
+                 [--i-have-checked-the-monitor ID]
   help
 ```
 
@@ -47,18 +49,45 @@ Scripts and tests depend on these codes. A new code can be added; a code never c
 | 3 | The client cannot connect to the socket | `connect` |
 | 4 | No reply in time, the connection broke, or the reply is not valid | `no_response`, `transport` or `protocol` |
 | 5 | A local file cannot be read or written | `file` or `stdout` |
-| 6 | The self-test cannot start: the preset cannot be read, or there is no EDID profile | `selftest_setup` |
+| 6 | The self-test cannot start: the preset cannot be read, there is no EDID profile, the run is refused, the build has no KMS backend, or the DRM device cannot be used | `selftest_setup` or `selftest_device` |
+| 7 | The self-test ran and a check failed; the report says which | `selftest_failed` |
 
 An error prints one JSON line on stderr: `{"error":{"code":"...","message":"..."}}`.
 
 ## The video self-test
 
-`selftest video` plans one test mode for each mode family that the monitor profile supports, and prints the plan. It does not talk to the control socket.
+`selftest video` plans one test mode for each mode family that the monitor profile supports, prints the plan and writes a JSON report. A dry run is the default: it opens no device and sets no mode. With `--i-have-checked-the-monitor ID` it shows each mode on the DRM device for 10 seconds with its read back, and restores the display at the end.
 
 - `--profile ID`: a preset of the monitor folder, read at run time (`--monitors`, default `/usr/share/neptron/monitors`). `--profile edid`: the profile from the EDID of the connector. There is no default profile.
 - `--sysfs DIR` (default `/sys`): the GPU, its capability table entry and the connector come from sysfs, as in the frontend. With nothing detected, `validate` gets the values of an unknown GPU. The EDID profile also lowers the highest pixel clock to the EDID limit.
 - `--connector NAME`: the connector, for example `DP-1`. Without it, the first connected connector.
 - `--report FILE` (default `neptron-selftest-video.json` in the current folder): the JSON report. The dry run writes it too, with `dry_run` true.
+- `--device PATH` (default `/dev/dri/card0`): the DRM device of the run on a display.
+- `--seconds-per-mode N` (1 to 10, default 10): the display time of each mode. A test option: the check on `vkms` uses 2 s. A person needs the 10 s to read the pattern and to see that the monitor holds the mode.
+- `--i-have-checked-the-monitor ID`: the run on a display. `ID` must be the id of the profile that the dry run prints (for the EDID profile, `edid_<manufacturer>_<product>`), so the person names the monitor whose ranges they checked.
+
+### Safety of the tool
+
+- Every mode is a `ValidatedMode` from the policy and `validate`. The tool has no flag that widens the GPU values or skips the validator. The display gets nothing else, except `blank()`, which turns the output off.
+- The dry run is the default. The run on a display needs the confirmation flag with the profile id; another id is refused.
+- The run is refused when the frontend holds the display: the control socket (`--socket`, `$NEPTRON_CONTROL_SOCKET` or `/run/neptron/control.sock`) accepts a connection, a process named `neptron` or `neptron-launch` runs (`/proc/*/comm`), or `NEPTRON_DRM_FD` is set. The tool runs with the frontend and the launcher stopped and opens the device itself, read and write; it does not run under the launcher, because the launcher would start it again after a failure. The device must be a DRM character device (major 226).
+- The report is written before the device opens, so a report that cannot be written stops the run before any modeset.
+- The connector: `--connector`, else the backend's connector rule. The GPU values and the EDID profile come from the connector that sysfs detection chose; when the backend chooses another one, the run is refused before any modeset.
+- SIGINT, SIGTERM and SIGHUP set a stop flag (`signal-hook`, no `unsafe`). The run reads it before each flip and stops within one flip wait (at most 500 ms on KMS), then turns the output off. SIGKILL runs no code: the kernel closes the descriptor, and the validated test mode can stay on the wire with no picture, or the driver turns the CRTC off.
+- A panic in the dev profile unwinds into the drop of `KmsDisplay`, which turns the plane off with the validated mode kept, or the output off. A release build aborts on a panic; then the last mode on the wire is a validated mode.
+- Limits, each a named constant with its unit: `SECONDS_PER_MODE_MAX_S` (10), `SECONDS_PER_MODE_MIN_S` (1), `FLIP_WAIT_RETRIES` (2), `FLIPS_PER_MODE_MAX` (2000), `FLIPS_MIN` (2), `VBLANK_PERIOD_TOLERANCE_PPM` (10 000), `PATTERN_WIDTH_MAX_PX` (2048).
+
+### On the bench
+
+Build `neptronctl` for Linux with the `kms` feature (the image task installs it; on a development machine, `cargo xtask os selftest-check` builds it for the guest). On the target, as root, with the frontend and the launcher stopped:
+
+```sh
+neptronctl selftest video --profile pc_31_120 --connector DP-1 --report /tmp/dry.json
+neptronctl selftest video --profile pc_31_120 --connector DP-1 --report /tmp/selftest.json \
+    --i-have-checked-the-monitor pc_31_120
+```
+
+The first command is the dry run: it prints the ranges, the GPU values and the modes. The second shows each mode for 10 seconds. The report is the file of `--report`. `docs/hardware-checklist.md` says what to check and what to write down.
 
 The families, in the order they show: `240p`, `288p`, `240p_double_refresh`, `480i`, `576i`, `480p`, `2x`, `super_width_dynamic`, `super_width_fixed`. Each family is a game source and the policy settings that ask for it (`src/selftest/family.rs`). The policy decides the mode (`decide`, then `choose` with `neptron_safety::validate`), and the family takes the winner only when it belongs to the family: for example a 240-line progressive mode with one field per game frame for `240p`. A family with no such winner is "not tested", with the policy's mode and reason. A family whose mode equals the mode of an earlier family is "the same mode as" that family, so no mode shows twice.
 
@@ -113,7 +142,7 @@ The parser is written by hand. The grammar is a few fixed words, and a parser cr
 
 ## Dependencies
 
-`neptron-ipc` for the control API. For the self-test: `neptron-modeline` (the policy), `neptron-safety`, `neptron-types`, `neptron-platform` (detection, capability table, EDID profile) and `toml` (the preset files). `neptron-modeline` links Switchres, so the binary is a combined work under GPL-3.0-or-later, as the frontend is (ADR 0002). The presets stay files on the image and are not embedded (OP-044).
+`neptron-ipc` for the control API. For the self-test: `neptron-modeline` (the policy), `neptron-safety`, `neptron-types`, `neptron-backend` (the `Display` and `Clock` traits), `neptron-platform` (detection, capability table, EDID profile) and `toml` (the preset files). With the `kms` feature: `neptron-kms` and `signal-hook`. For the tests: `neptron-testkit`. `neptron-modeline` links Switchres, so the binary is a combined work under GPL-3.0-or-later, as the frontend is (ADR 0002). The presets stay files on the image and are not embedded (OP-044).
 
 ## Must never depend on
 
@@ -123,8 +152,12 @@ The parser is written by hand. The grammar is a few fixed words, and a parser cr
 ## Rules
 
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
-- No features. The client speaks only the Unix socket; the self-test reads files only.
+- Features: `kms`, off by default. With it, on Linux, `selftest video` shows its modes through `neptron-kms` (`KmsDisplay`), with `signal-hook` for the stop signals. Without it, the run on a display ends with exit code 6 and the dry run works.
 
 ## Status
 
-The control API client is done. `selftest video` plans and prints its modes. `modeline` and a mode test are not written yet.
+The control API client is done. `selftest video` is done, and it runs in the QEMU guest on `vkms` (`cargo xtask os selftest-check`). That run does not pass yet: `neptron-kms` refuses every mode that the policy plans, because Switchres gives a pixel clock that is not a whole number of kHz (for example 25 466 400 Hz for 240p at 120 Hz on `pc_31_120`), and the backend refuses such a clock and never rounds it. The fix belongs to the policy or the backend, not to this tool. The tool is not run on real hardware yet. `modeline` and a mode test are not written yet.
+
+## The copy of the mode conversion in `tools/kms-spike` (OP-060)
+
+The self-test uses `KmsDisplay` of `neptron-kms`, so it has no mode conversion of its own. `tools/kms-spike` keeps its own copy, because its dependency rule allows only `drm`, `neptron-types` and `neptron-safety`. The proposal: keep the spike as it is until the owner has run the hardware checklist with both tools, and compare the two reports for the same modes. Then delete `tools/kms-spike` and its dependency rule in `xtask/src/rules.rs` in one change, because `selftest video` covers what it did (the test modes, the read back, the timing, the restore) through the backend that the product uses. Until then, a change to `ModeRecord` must be made in both places.

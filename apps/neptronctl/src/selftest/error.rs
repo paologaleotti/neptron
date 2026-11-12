@@ -33,4 +33,36 @@ pub enum SelftestError {
         /// The error of the system.
         reason: String,
     },
+    /// The run on a display must not start.
+    #[error("the self-test does not start: {reason}")]
+    Refused {
+        /// Why.
+        reason: String,
+    },
+    /// This build cannot drive a display.
+    #[cfg_attr(all(feature = "kms", target_os = "linux"), allow(dead_code))]
+    #[error("this build of neptronctl has no KMS backend; build it with the kms feature for Linux")]
+    NoKms,
+    /// The DRM device cannot be used.
+    #[cfg_attr(not(all(feature = "kms", target_os = "linux")), allow(dead_code))]
+    #[error("cannot use the DRM device {}: {reason}", path.display())]
+    Device {
+        /// The device node.
+        path: PathBuf,
+        /// What is wrong.
+        reason: String,
+    },
+    /// A stop signal handler cannot be installed.
+    #[cfg_attr(not(all(feature = "kms", target_os = "linux")), allow(dead_code))]
+    #[error("cannot watch the stop signals: {reason}")]
+    Signal {
+        /// The error of the system.
+        reason: String,
+    },
+    /// The self-test ran, and a check failed.
+    #[error("the self-test failed; the report {} says why", report.display())]
+    Failed {
+        /// The report file.
+        report: PathBuf,
+    },
 }

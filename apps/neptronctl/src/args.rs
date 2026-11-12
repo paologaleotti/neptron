@@ -31,7 +31,9 @@ Commands:
   settings set KEY LEVEL VALUE
   log tail [LINES]
   selftest video --profile ID|edid [--monitors DIR] [--sysfs DIR]
-                 [--connector NAME] [--report FILE]
+                 [--connector NAME] [--report FILE] [--device PATH]
+                 [--seconds-per-mode N]
+                 [--i-have-checked-the-monitor ID]
   help
 
 The socket is --socket, else $NEPTRON_CONTROL_SOCKET, else
@@ -39,11 +41,13 @@ The socket is --socket, else $NEPTRON_CONTROL_SOCKET, else
 error prints as one JSON line on stderr.
 
 `selftest video` plans one test mode per mode family of the monitor
-profile and prints the plan; the README describes it.
+profile, prints the plan and writes a JSON report. Only with
+--i-have-checked-the-monitor and the profile id does it show the modes on
+the DRM device; the README describes it.
 
 Exit codes: 0 ok, 1 the server answered an error, 2 usage error,
 3 cannot connect, 4 no response or a broken response, 5 local file error,
-6 the self-test cannot start.
+6 the self-test cannot start, 7 the self-test failed.
 ";
 
 /// The wait timeout when the command line gives none, in milliseconds.

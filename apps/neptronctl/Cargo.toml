@@ -10,7 +10,7 @@ publish.workspace = true
 [features]
 # Off by default: the headless build (T0 to T2) compiles no KMS code. With
 # it, `selftest video` shows its modes on the DRM device.
-kms = ["dep:neptron-kms", "neptron-kms/kms"]
+kms = ["dep:neptron-kms", "neptron-kms/kms", "dep:signal-hook"]
 
 [dependencies]
 neptron-backend = { path = "../../crates/neptron-backend" }
@@ -30,6 +30,9 @@ thiserror.workspace = true
 toml.workspace = true
 
 neptron-kms = { path = "../../crates/neptron-kms", optional = true }
+# Sets the stop flag of the self-test on SIGINT, SIGTERM and SIGHUP with no
+# unsafe code, as the launcher does.
+signal-hook = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The fake display and the simulated clock of the self-test tests.

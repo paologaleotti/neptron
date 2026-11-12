@@ -12,8 +12,6 @@ pub const PATTERN_WIDTH_MAX_PX: u16 = 2_048;
 
 /// Little-endian XRGB8888 white.
 pub const WHITE: u32 = 0x00ff_ffff;
-/// Little-endian XRGB8888 black.
-pub const BLACK: u32 = 0x0000_0000;
 /// The eight colour bars, left to right: white, yellow, cyan, green,
 /// magenta, red, blue, black, at 75 %.
 pub const BARS: [u32; 8] = [
@@ -245,6 +243,8 @@ fn glyph(c: char) -> [u8; GLYPH_H] {
 mod tests {
     use super::*;
     use crate::selftest::family::FAMILIES;
+
+    const BLACK: u32 = 0x0000_0000;
 
     fn mode(w: u16, h: u16, interlace: bool) -> Modeline {
         Modeline {

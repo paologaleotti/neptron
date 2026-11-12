@@ -346,3 +346,83 @@ fn a_selftest_report_that_cannot_be_written_exits_with_five() {
     assert_eq!(out.status.code(), Some(5));
     assert_eq!(json(&out.stderr)["error"]["code"], "file");
 }
+
+fn selftest(dir: &TempDir, extra: &[&str]) -> Output {
+    let monitors = monitors_dir();
+    let sysfs = dir.path("no-sysfs");
+    let report = dir.path("r.json");
+    let mut args = vec![
+        "selftest",
+        "video",
+        "--profile",
+        "pc_31_120",
+        "--monitors",
+        monitors.to_str().unwrap(),
+        "--sysfs",
+        sysfs.to_str().unwrap(),
+        "--report",
+        report.to_str().unwrap(),
+        "--device",
+        "/nonexistent/card0",
+    ];
+    args.extend_from_slice(extra);
+    neptronctl(&dir.path("c.sock"), &args)
+}
+
+#[test]
+fn a_selftest_dry_run_prints_the_confirmation_to_add() {
+    let dir = TempDir::new();
+    let out = selftest(&dir, &[]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        text.contains("--i-have-checked-the-monitor pc_31_120"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_selftest_confirmation_must_name_the_profile() {
+    let dir = TempDir::new();
+    let out = selftest(&dir, &["--i-have-checked-the-monitor", "ntsc"]);
+    assert_eq!(out.status.code(), Some(6), "{out:?}");
+    let error = json(&out.stderr);
+    assert_eq!(error["error"]["code"], "selftest_setup");
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("\"pc_31_120\"")
+    );
+    assert!(!dir.path("r.json").exists(), "a refused run writes nothing");
+}
+
+#[test]
+fn a_selftest_refuses_while_the_frontend_answers() {
+    let dir = TempDir::new();
+    let socket = dir.path("c.sock");
+    let _listener = ControlListener::bind(&socket).unwrap();
+    let out = selftest(&dir, &["--i-have-checked-the-monitor", "pc_31_120"]);
+    assert_eq!(out.status.code(), Some(6), "{out:?}");
+    let message = json(&out.stderr)["error"]["message"].to_string();
+    assert!(message.contains("control socket"), "{message}");
+}
+
+#[cfg(not(all(feature = "kms", target_os = "linux")))]
+#[test]
+fn a_selftest_without_kms_says_so() {
+    let dir = TempDir::new();
+    let out = selftest(&dir, &["--i-have-checked-the-monitor", "pc_31_120"]);
+    assert_eq!(out.status.code(), Some(6), "{out:?}");
+    let message = json(&out.stderr)["error"]["message"].to_string();
+    assert!(message.contains("no KMS backend"), "{message}");
+}
+
+#[cfg(all(feature = "kms", target_os = "linux"))]
+#[test]
+fn a_selftest_on_a_missing_device_exits_with_six() {
+    let dir = TempDir::new();
+    let out = selftest(&dir, &["--i-have-checked-the-monitor", "pc_31_120"]);
+    assert_eq!(out.status.code(), Some(6), "{out:?}");
+    assert_eq!(json(&out.stderr)["error"]["code"], "selftest_device");
+}

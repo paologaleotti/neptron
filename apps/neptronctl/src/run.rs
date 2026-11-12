@@ -29,8 +29,11 @@ pub mod exit {
     pub const TRANSPORT: u8 = 4;
     /// A local file cannot be read or written.
     pub const LOCAL_FILE: u8 = 5;
-    /// The self-test cannot start: no profile, no EDID profile.
+    /// The self-test cannot start: no profile, no EDID profile, the run is
+    /// refused, or the device cannot be used.
     pub const SELFTEST_SETUP: u8 = 6;
+    /// The self-test ran, and a check failed.
+    pub const SELFTEST_FAILED: u8 = 7;
 }
 
 /// The client timeout when the command line gives none, in milliseconds.
@@ -94,7 +97,8 @@ fn run(args: &[String], socket_env: Option<OsString>, out: &mut dyn Write) -> Re
     let command = match &invocation.action {
         Action::Help => return print(out, USAGE.trim_end()),
         Action::SelftestVideo(video) => {
-            return selftest::video(video, out).map_err(|e| selftest_failure(&e));
+            let socket = socket_path(invocation.socket.clone(), socket_env);
+            return selftest::video(video, &socket, out).map_err(|e| selftest_failure(&e));
         }
         Action::Call(command) => command.clone(),
         Action::Screenshot { stage, .. } => Command::Screenshot(ScreenshotArgs { stage: *stage }),
@@ -201,9 +205,13 @@ fn client_failure(error: ClientError) -> Failure {
 
 fn selftest_failure(error: &SelftestError) -> Failure {
     let (exit_code, code) = match error {
-        SelftestError::Preset { .. } | SelftestError::NoEdidProfile { .. } => {
-            (exit::SELFTEST_SETUP, "selftest_setup")
-        }
+        SelftestError::Preset { .. }
+        | SelftestError::NoEdidProfile { .. }
+        | SelftestError::Refused { .. }
+        | SelftestError::NoKms
+        | SelftestError::Signal { .. } => (exit::SELFTEST_SETUP, "selftest_setup"),
+        SelftestError::Device { .. } => (exit::SELFTEST_SETUP, "selftest_device"),
+        SelftestError::Failed { .. } => (exit::SELFTEST_FAILED, "selftest_failed"),
         SelftestError::Output { .. } => (exit::LOCAL_FILE, "stdout"),
         SelftestError::Report { .. } => (exit::LOCAL_FILE, "file"),
     };
