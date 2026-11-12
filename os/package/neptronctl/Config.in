@@ -1,0 +1,8 @@
+config BR2_PACKAGE_NEPTRONCTL
+	bool "neptronctl"
+	depends on BR2_PACKAGE_NEPTRON # data/monitors in /usr/share/neptron
+	help
+	  The NEPTRON command-line client, with the DRM/KMS self-test
+	  (Cargo feature kms), built from this checkout in the release
+	  profile. It reads the monitor presets that the frontend
+	  package installs in /usr/share/neptron/monitors.

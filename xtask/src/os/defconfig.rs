@@ -175,6 +175,7 @@ mod tests {
             "BR2_PACKAGE_EXFATPROGS",
             "BR2_PACKAGE_NEPTRON",
             "BR2_PACKAGE_NEPTRON_LAUNCH",
+            "BR2_PACKAGE_NEPTRONCTL",
         ] {
             assert_eq!(x.get(option).map(String::as_str), Some("y"), "{option}");
         }
