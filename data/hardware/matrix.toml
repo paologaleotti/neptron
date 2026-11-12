@@ -40,13 +40,21 @@ quirks = ["low_pixel_clock_unproven", "interlace_unproven", "interlace_needs_lin
 
 # The limits of a digital link to a flat panel on the HD 530 class. An
 # analog output, also a DP-to-VGA DAC, keeps the values above.
-# HDMI 1.4 and DVI-D: i915 sets a TMDS clock limit of 300 MHz below
-# display version 10 (intel_hdmi_source_max_tmds_clock), so no 4K at
-# 60 Hz on HDMI. Size: Intel ARK, HD Graphics 530, 4096x2304 at 24 Hz on
-# HDMI; 4096x2160 is the cap here, the DCI 4K size.
+# HDMI 1.4: i915 sets a TMDS clock limit of 300 MHz below display
+# version 10 (intel_hdmi_source_max_tmds_clock), so no 4K at 60 Hz on
+# HDMI. Size: Intel ARK, HD Graphics 530, 4096x2304 at 24 Hz on HDMI;
+# 4096x2160 is the cap here, the DCI 4K size.
 [[gpu.digital]]
-connectors = ["HDMI-A", "DVI-D"]
+connectors = ["HDMI-A"]
 pclock_max_hz = 300_000_000
+max_width = 4_096
+max_height = 2_160
+
+# DVI-D: a sink that is not HDMI gets at most 165 MHz from i915
+# (hdmi_port_clock_limit with no HDMI sink), the single-link DVI limit.
+[[gpu.digital]]
+connectors = ["DVI-D"]
+pclock_max_hz = 165_000_000
 max_width = 4_096
 max_height = 2_160
 

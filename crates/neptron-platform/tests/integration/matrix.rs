@@ -311,7 +311,7 @@ fn hd_530_has_digital_limits_for_a_digital_output_only() {
     );
     for (kind, clock) in [
         ("HDMI-A", 300_000_000),
-        ("DVI-D", 300_000_000),
+        ("DVI-D", 165_000_000),
         ("DP", 533_250_000),
     ] {
         let panel = matrix.caps_for_output(&gpu, kind, OutputKind::Digital);
@@ -334,7 +334,7 @@ fn hd_530_has_digital_limits_for_a_digital_output_only() {
         ("VGA", OutputKind::Analog, (165_000_000, 1920, 1200)),
         ("DP", OutputKind::Digital, (533_250_000, 4096, 2160)),
         ("HDMI-A", OutputKind::Digital, (300_000_000, 4096, 2160)),
-        ("DVI-D", OutputKind::Digital, (300_000_000, 4096, 2160)),
+        ("DVI-D", OutputKind::Digital, (165_000_000, 4096, 2160)),
     ] {
         let caps = matrix.caps_for_output(&gpu, kind, output);
         assert_eq!(

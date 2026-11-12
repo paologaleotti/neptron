@@ -43,7 +43,7 @@ Each `[[gpu]]` table is one entry:
 
 | Entry | Source of the values |
 | --- | --- |
-| `intel_gen9` digital limits | HDMI-A and DVI-D: 300 MHz, the TMDS clock limit that i915 sets below display version 10 (`intel_hdmi_source_max_tmds_clock`). DP: 533.25 MHz, 3840x2160 at 60 Hz with CVT reduced blanking, within DisplayPort 1.2 (HBR2, 4 lanes). Size 4096x2160: Intel ARK for HD Graphics 530 gives 4096x2304 on both (24 Hz on HDMI, 60 Hz on DP); the DCI 4K size is the cap here. Not checked on the bench |
+| `intel_gen9` digital limits | HDMI-A: 300 MHz, the TMDS clock limit that i915 sets below display version 10 (`intel_hdmi_source_max_tmds_clock`). DVI-D: 165 MHz, the limit i915 sets for a sink that is not HDMI (`hdmi_port_clock_limit`), single-link DVI. DP: 533.25 MHz, 3840x2160 at 60 Hz with CVT reduced blanking, within DisplayPort 1.2 (HBR2, 4 lanes). Size 4096x2160: Intel ARK for HD Graphics 530 gives 4096x2304 on both (24 Hz on HDMI, 60 Hz on DP); the DCI 4K size is the cap here. Not checked on the bench |
 | `intel_gen9` | Matrix: super resolution default, native low clock to be measured, interlace only with linear or X-tiled scanout and not yet proven. PCI ids of Skylake, Kaby Lake, Amber Lake and Coffee Lake from the Linux file `include/drm/intel/pciids.h`. Whiskey Lake and Comet Lake ids are not listed: those GPUs match `intel_i915` and get its conservative values |
 | `intel_i915` | Matrix: older Intel with native VGA, super resolution only, interlace varies, tier 2. Gen12 and newer on i915 also match it; its values are as conservative as the gen12 row |
 | `intel_xe` | Matrix: gen12 and newer, super resolution, no interlace, tier 3 |
