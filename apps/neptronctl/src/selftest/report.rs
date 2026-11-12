@@ -460,7 +460,7 @@ pub fn read(path: &Path) -> Result<Report, SelftestError> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::path::PathBuf;
 
     use neptron_platform::UNKNOWN_GPU_CAPS;

@@ -64,6 +64,20 @@ The families, in the order they show: `240p`, `288p`, `240p_double_refresh`, `48
 
 On `pc_31_120` with the values of an Intel gen9 GPU the plan is 240p at 120 Hz (`240p_double_refresh`), 480p (`2x` gives the same mode), 768x224 at 120 Hz (`super_width_dynamic`) and 1920x224 at 120 Hz (`super_width_fixed`).
 
+### One mode on the display
+
+`src/selftest/show.rs` runs on any `Display` and `Clock`: the KMS backend in the real run, the fake display of `neptron-testkit` in the tests.
+
+1. `set_mode` with the mode's `ValidatedMode`. On KMS this is a test-only commit, then the real one. `ModeRefused` is a refused test-only commit, and a device error of the operation `modeset commit` (`KMS_COMMIT_OPERATION`) is a refused real commit: a commit is all or nothing, so the mode before stays, and the run goes on with the next mode. Any other error of `set_mode` leaves the display state unknown, and the run stops and turns the output off.
+2. The read back is compared field by field with the request and validated again. A read back that fails `validate` stops the run at once and turns the output off. A read back that differs but passes fails the mode, and the run goes on; the pattern does not show, because it is drawn for the request.
+3. The pattern shows for `seconds_per_mode`: `present`, then `wait_flip`, until the clock passes the time. The pattern is a white border on the outermost pixels of all four edges, a centre cross, eight colour bars at 75 %, and four lines of text: the family, the size and scan, the line and field rates, the pixel clock. The text is a 5x7 font of the tool (`neptron-ui` and its font are only for the app). A mode wider than 2048 pixels (`PATTERN_WIDTH_MAX_PX`) gets a frame of half its width, scaled 2 times with nearest sampling. A failed wait is tried `FLIP_WAIT_RETRIES` (2) more times; then the flip stays queued and the run stops.
+4. The timing comes from the kernel's vblank counter and time stamps of the flip events: the mean vertical blank period over the whole time, the expected period of the mode (a field; for an interlaced mode a field or a frame, whichever is nearer, as `vblank_unit` says), the error in ppm, the pixel clock that the period implies, the flips per second and the vertical blanks with no flip.
+5. The stop flag (SIGINT, SIGTERM, SIGHUP in the real run) is read before each flip and before each mode.
+
+At the end, on a stop and on an error with the display state unknown, the run calls `blank()`: the output goes off. The state before the run cannot be read back and validated through `KmsDisplay`, so no signal is the restore, as the safety model allows. With a flip still queued, the backend refuses the blank as busy and the report says so; the backend's drop then turns the plane off with the validated mode kept, or the output off.
+
+A mode passes when (`src/selftest/verdict.rs`): both commits passed; a mode was read back, equal to the request in every field and valid; the pattern showed for the whole time; at least 2 flips completed (`FLIPS_MIN`); the vertical blank period is within 1 % (`VBLANK_PERIOD_TOLERANCE_PPM`, 10 000 ppm) of the mode's period; and no display error came. Missed vertical blanks do not fail a mode: they show how fast the tool draws (software GL in the QEMU guest misses most), and the period does not depend on them. The run passes when it finished, it had at least one mode, every mode passed, the restore succeeded, and no other error came.
+
 ### The report
 
 One JSON file, written as a temporary file in the same folder, fsync, rename, and fsync of the folder, so a reader sees a whole report or the one before. `report_version` is 1. The format is append-only: a new field gets a new version, and no field is renamed or removed. Every value is an integer or a text: rates in millihertz, times in nanoseconds, clocks in hertz. A value that the run did not measure is `null`.

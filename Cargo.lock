@@ -611,10 +611,13 @@ dependencies = [
 name = "neptronctl"
 version = "0.1.0"
 dependencies = [
+ "neptron-backend",
  "neptron-ipc",
+ "neptron-kms",
  "neptron-modeline",
  "neptron-platform",
  "neptron-safety",
+ "neptron-testkit",
  "neptron-types",
  "serde",
  "serde_json",

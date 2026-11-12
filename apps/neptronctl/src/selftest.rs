@@ -5,8 +5,18 @@ mod args;
 mod error;
 mod family;
 mod monitor;
+// Only the KMS build shows modes on a display; the tests run the display
+// part on every host.
+#[cfg_attr(not(all(feature = "kms", target_os = "linux")), allow(dead_code))]
+mod pattern;
 mod report;
+#[cfg_attr(not(all(feature = "kms", target_os = "linux")), allow(dead_code))]
+mod show;
 mod summary;
+#[cfg_attr(not(all(feature = "kms", target_os = "linux")), allow(dead_code))]
+mod timing;
+#[cfg_attr(not(all(feature = "kms", target_os = "linux")), allow(dead_code))]
+mod verdict;
 
 use std::io::Write;
 
