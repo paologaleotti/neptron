@@ -62,6 +62,9 @@ commands:
   core-trace [--arch A] [--timeout SECS] [--bless] [--dump FRAME[,FRAME...]]
                        run the test ROMs in the real cores in QEMU and compare
                        the traces with tests/traces (tier T4)
+  kms-check [--arch A] [--timeout SECS]
+                       build timing check 7 of neptron-kms for the guest and
+                       run it on vkms in QEMU (tier T3)
 
 environment:
   NEPTRON_BUILD_SLOTS  build slots (default on macOS: 2, elsewhere: no lock)
@@ -130,7 +133,8 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "golden" => Ok(ui::golden(&rest)?),
         "os" => Ok(os::run_os(&rest)?),
         "qemu" => Ok(os::run_qemu(&rest)?),
-        "gles-compare" => Ok(os::run_gles_compare(&rest)?),
+        "gles-compare" => Ok(os::run_guest_check(&os::GLES_COMPARE, &rest)?),
+        "kms-check" => Ok(os::run_guest_check(&os::KMS_CHECK, &rest)?),
         "core-trace" => Ok(os::run_core_trace(&rest)?),
         "check" => passthrough(&["check"], &rest),
         "test" => passthrough(&["nextest", "run"], &rest),

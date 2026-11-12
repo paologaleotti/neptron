@@ -23,23 +23,34 @@ pub struct CrossPlan {
     pub features: String,
     /// The example to build.
     pub example: String,
+    /// Check every target of the package (tests and examples too) before
+    /// the build. The host gates never compile code behind a Linux-only
+    /// feature. Every guest build denies warnings; the Buildroot Rust
+    /// toolchain has no clippy, so these are rustc's lints only.
+    pub lint: bool,
 }
 
 impl CrossPlan {
-    /// The `docker run` arguments of the two steps: the build, then the copy
-    /// of the program to the export directory.
+    /// The `docker run` arguments of the steps: the lint when asked for,
+    /// the build, then the copy of the program to the export directory.
     pub fn steps(&self) -> Vec<Vec<String>> {
         let target = self.arch.rust_target();
+        let mut lint = vec!["cargo", "check", "--locked", "--package", &self.package];
         let mut build = vec!["cargo", "build", "--locked", "--package", &self.package];
         if !self.features.is_empty() {
+            lint.extend(["--features", &self.features]);
             build.extend(["--features", &self.features]);
         }
+        lint.extend(["--all-targets", "--target", target]);
         build.extend(["--example", &self.example, "--target", target]);
         let program = format!("{HOME}/target/{target}/debug/examples/{}", self.example);
-        vec![
-            self.run(&build),
-            self.run(&["cp", &program, "/work/export/"]),
-        ]
+        let mut steps = Vec::with_capacity(3);
+        if self.lint {
+            steps.push(self.run(&lint));
+        }
+        steps.push(self.run(&build));
+        steps.push(self.run(&["cp", &program, "/work/export/"]));
+        steps
     }
 
     fn run(&self, command: &[&str]) -> Vec<String> {
@@ -77,6 +88,9 @@ impl CrossPlan {
         let target_ar = format!("AR_{}", self.arch.rust_target().replace('-', "_"));
         let ar = format!("{host_bin}/{}-buildroot-linux-gnu-ar", self.arch.name());
         for (name, value) in [
+            // Every guest build denies warnings. One setting for every
+            // command keeps the shared cache in the cross volume valid.
+            ("RUSTFLAGS".to_owned(), "-D warnings".to_owned()),
             ("PATH".to_owned(), format!("{host_bin}:/usr/bin:/bin")),
             ("CARGO_HOME".to_owned(), format!("{HOME}/.cargo")),
             ("CARGO_TARGET_DIR".to_owned(), format!("{HOME}/target")),
@@ -114,6 +128,46 @@ mod tests {
             package: "neptron-gfx".to_owned(),
             features: "gles".to_owned(),
             example: "gles_compare".to_owned(),
+            lint: false,
+        }
+    }
+
+    #[test]
+    fn the_lint_checks_every_target_first() {
+        let steps = CrossPlan {
+            lint: true,
+            ..plan()
+        }
+        .steps();
+        assert_eq!(steps.len(), 3);
+        let lint = steps[0].join(" ");
+        assert!(
+            lint.ends_with(
+                "cargo check --locked --package neptron-gfx --features gles --all-targets \
+                 --target aarch64-unknown-linux-gnu"
+            ),
+            "{lint}"
+        );
+        assert!(steps[1].join(" ").contains("cargo build"));
+    }
+
+    #[test]
+    fn every_guest_build_denies_warnings() {
+        let lint = CrossPlan {
+            lint: true,
+            ..plan()
+        };
+        let no_features = CrossPlan {
+            features: String::new(),
+            ..plan()
+        };
+        for p in [plan(), lint, no_features] {
+            for step in p.steps() {
+                assert!(
+                    step.iter().any(|a| a == "RUSTFLAGS=-D warnings"),
+                    "{step:?}"
+                );
+            }
         }
     }
 

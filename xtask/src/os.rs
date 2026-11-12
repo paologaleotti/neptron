@@ -152,12 +152,14 @@ pub enum OsError {
     Repo(#[from] RepoError),
 }
 
-/// The usage text of `os build`, `qemu`, `gles-compare` and `core-trace`.
+/// The usage text of `os build`, `qemu`, `gles-compare`, `kms-check` and
+/// `core-trace`.
 pub const USAGE: &str = "\
 usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [-- make targets...]
        cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
                         [--script FILE | -- command...]
        cargo xtask gles-compare [--arch A] [--timeout SECS]
+       cargo xtask kms-check [--arch A] [--timeout SECS]
        cargo xtask core-trace [--arch A] [--timeout SECS] [--bless]
                               [--dump FRAME[,FRAME...]]";
 
@@ -268,11 +270,77 @@ fn boot(args: &QemuArgs, out: &mut dyn std::io::Write) -> Result<Option<i32>, Os
     result
 }
 
-/// `cargo xtask gles-compare`: builds the `gles_compare` example of
-/// `neptron-gfx` for the guest in the development container, then runs it
-/// in the guest. The exit code is the one of the example.
-pub fn run_gles_compare(args: &[&str]) -> Result<ExitCode, OsError> {
-    let (arch, timeout) = parse_compare_args(args, Arch::default_for(std::env::consts::ARCH))?;
+/// A tier T3 check: an example of a workspace crate, built for the guest
+/// in the development container and run in QEMU.
+#[derive(Debug, Clone, Copy)]
+pub struct GuestCheck {
+    /// The package that holds the example.
+    pub package: &'static str,
+    /// The features the example needs.
+    pub features: &'static str,
+    /// The example.
+    pub example: &'static str,
+    /// The directory under `target/` that receives the program and is
+    /// shared with the guest.
+    pub export: &'static str,
+    /// The guest deadline when `--timeout` is not given.
+    pub default_timeout_secs: u64,
+    /// The guest command, with the program at `/mnt/host/<example>`.
+    pub guest_command: fn(&str) -> Vec<String>,
+    /// Check every target with warnings denied for the guest target first.
+    pub lint: bool,
+}
+
+/// `cargo xtask gles-compare`: the GLES renderer of `neptron-gfx` against
+/// the reference renderer.
+pub const GLES_COMPARE: GuestCheck = GuestCheck {
+    package: "neptron-gfx",
+    features: "gles",
+    example: "gles_compare",
+    export: "gles-compare",
+    // Software GL draws the largest scenes in seconds each.
+    default_timeout_secs: 600,
+    guest_command: plain_command,
+    lint: false,
+};
+
+/// `cargo xtask kms-check`: timing check 7 of `neptron-kms` on `vkms`.
+pub const KMS_CHECK: GuestCheck = GuestCheck {
+    package: "neptron-kms",
+    features: "kms",
+    example: "kms_check",
+    export: "kms-check",
+    // Four modes with about 50 flips each, drawn by software GL in the dev
+    // build at about 4 frames per second.
+    default_timeout_secs: 600,
+    guest_command: launcher_command,
+    // No host gate compiles the Linux code of the kms feature.
+    lint: true,
+};
+
+fn plain_command(program: &str) -> Vec<String> {
+    vec![program.to_owned()]
+}
+
+/// The device open on descriptor 3 and its number in `NEPTRON_DRM_FD`, as
+/// the launcher passes it to the frontend.
+fn launcher_command(program: &str) -> Vec<String> {
+    vec![
+        "sh".to_owned(),
+        "-c".to_owned(),
+        format!("NEPTRON_DRM_FD=3 exec {program} 3<>/dev/dri/card0"),
+    ]
+}
+
+/// Builds the example of `check` for the guest in the development
+/// container, then runs it in the guest. The exit code is the one of the
+/// example.
+pub fn run_guest_check(check: &GuestCheck, args: &[&str]) -> Result<ExitCode, OsError> {
+    let (arch, timeout) = parse_compare_args(
+        args,
+        Arch::default_for(std::env::consts::ARCH),
+        check.default_timeout_secs,
+    )?;
     let repo = Repo::discover()?;
     let cache = Cache::from_env()?;
     host::require_tool(
@@ -285,8 +353,8 @@ pub fn run_gles_compare(args: &[&str]) -> Result<ExitCode, OsError> {
         path: dockerfile.clone(),
         source,
     })?;
-    let export = repo.root.join("target").join("gles-compare");
-    let program = export.join(GLES_COMPARE_EXAMPLE);
+    let export = repo.root.join("target").join(check.export);
+    let program = export.join(check.example);
     std::fs::create_dir_all(&export).map_err(|source| OsError::Io {
         path: export.clone(),
         source,
@@ -304,9 +372,10 @@ pub fn run_gles_compare(args: &[&str]) -> Result<ExitCode, OsError> {
         container: build::container_image(&text),
         repo: repo.root.clone(),
         export: export.clone(),
-        package: "neptron-gfx".to_owned(),
-        features: "gles".to_owned(),
-        example: GLES_COMPARE_EXAMPLE.to_owned(),
+        package: check.package.to_owned(),
+        features: check.features.to_owned(),
+        example: check.example.to_owned(),
+        lint: check.lint,
     };
     {
         // The build reads the toolchains in the Buildroot output, which an
@@ -321,8 +390,9 @@ pub fn run_gles_compare(args: &[&str]) -> Result<ExitCode, OsError> {
         .to_str()
         .ok_or_else(|| OsError::Usage(format!("the path {} is not UTF-8", export.display())))?;
     let timeout = timeout.to_string();
-    let guest_program = format!("/mnt/host/{GLES_COMPARE_EXAMPLE}");
-    run_qemu(&[
+    let guest_program = format!("/mnt/host/{}", check.example);
+    let command = (check.guest_command)(&guest_program);
+    let mut qemu_args = vec![
         "--arch",
         arch.name(),
         "--timeout",
@@ -330,17 +400,18 @@ pub fn run_gles_compare(args: &[&str]) -> Result<ExitCode, OsError> {
         "--share",
         share,
         "--",
-        &guest_program,
-    ])
+    ];
+    qemu_args.extend(command.iter().map(String::as_str));
+    run_qemu(&qemu_args)
 }
 
-const GLES_COMPARE_EXAMPLE: &str = "gles_compare";
-/// Software GL draws the largest scenes in seconds each.
-const GLES_COMPARE_TIMEOUT_SECS: u64 = 600;
-
-fn parse_compare_args(args: &[&str], default_arch: Arch) -> Result<(Arch, u64), OsError> {
+fn parse_compare_args(
+    args: &[&str],
+    default_arch: Arch,
+    default_timeout_secs: u64,
+) -> Result<(Arch, u64), OsError> {
     let mut arch = default_arch;
-    let mut timeout = GLES_COMPARE_TIMEOUT_SECS;
+    let mut timeout = default_timeout_secs;
     let mut it = args.iter();
     while let Some(&arg) = it.next() {
         let value = it
@@ -583,18 +654,52 @@ mod tests {
     }
 
     #[test]
-    fn gles_compare_arguments_parse() {
+    fn guest_check_arguments_parse() {
         assert_eq!(
-            parse_compare_args(&[], Arch::Aarch64).unwrap(),
+            parse_compare_args(&[], Arch::Aarch64, 600).unwrap(),
             (Arch::Aarch64, 600)
         );
         assert_eq!(
-            parse_compare_args(&["--arch", "x86_64", "--timeout", "30"], Arch::Aarch64).unwrap(),
+            parse_compare_args(&["--arch", "x86_64", "--timeout", "30"], Arch::Aarch64, 600)
+                .unwrap(),
             (Arch::X86_64, 30)
         );
         for bad in [&["--timeout", "0"][..], &["--arch"], &["--images", "x"]] {
-            assert!(parse_compare_args(bad, Arch::Aarch64).is_err(), "{bad:?}");
+            assert!(
+                parse_compare_args(bad, Arch::Aarch64, 600).is_err(),
+                "{bad:?}"
+            );
         }
+    }
+
+    #[test]
+    fn gles_compare_runs_its_program_alone() {
+        assert_eq!(GLES_COMPARE.default_timeout_secs, 600);
+        assert_eq!(
+            (GLES_COMPARE.guest_command)("/mnt/host/gles_compare"),
+            ["/mnt/host/gles_compare"]
+        );
+    }
+
+    #[test]
+    fn kms_check_gets_the_device_as_the_launcher_gives_it() {
+        assert_eq!(
+            (KMS_CHECK.package, KMS_CHECK.features, KMS_CHECK.example),
+            ("neptron-kms", "kms", "kms_check")
+        );
+        let command = (KMS_CHECK.guest_command)("/mnt/host/kms_check");
+        assert_eq!(
+            command,
+            [
+                "sh",
+                "-c",
+                "NEPTRON_DRM_FD=3 exec /mnt/host/kms_check 3<>/dev/dri/card0"
+            ]
+        );
+        assert_eq!(
+            qemu::command_script(&command),
+            "sh -c 'NEPTRON_DRM_FD=3 exec /mnt/host/kms_check 3<>/dev/dri/card0'\n"
+        );
     }
 
     #[test]
