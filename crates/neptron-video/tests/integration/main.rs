@@ -13,5 +13,6 @@ mod guard_recovery;
 mod guard_rig;
 mod harness;
 mod inputs;
+mod panel;
 mod scanlines;
 mod stall;
