@@ -5,7 +5,7 @@ use neptron_platform::{
     DisplayClass, EdidError, ProfileError, UNKNOWN_GPU_CAPS, display_class, listed_modes,
     panel_profile_from_edid, profile_for_display,
 };
-use neptron_types::{GpuCaps, Modeline, MonitorKind};
+use neptron_types::{GpuCaps, Modeline, MonitorKind, OutputKind};
 
 use crate::blobs::{self, fix_checksum};
 
@@ -89,6 +89,11 @@ fn the_class_of_each_display() {
     ];
     for (what, kind, sub, edid, class) in rows {
         assert_eq!(edid_class(kind, sub, edid), Ok(class), "{what}");
+        let output = match class {
+            Crt => OutputKind::Analog,
+            FlatPanel => OutputKind::Digital,
+        };
+        assert_eq!(class.output_kind(), output, "{what}");
     }
     assert!(
         matches!(

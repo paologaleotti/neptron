@@ -330,7 +330,7 @@ fn hd_530(connectors: Vec<Connector>) -> Platform {
 fn a_4k_displayport_panel_runs_in_its_native_mode_on_an_hd_530() {
     let p = hd_530(vec![connector("DP-1", "DP", Some(PANEL_2160P_RB))]);
     let mut detected = Detected::of(&p, "DP-1", None);
-    let caps = detected.backend_caps(AUTO, &presets());
+    let caps = detected.backend_caps(AUTO);
     assert_eq!(
         (caps.pclock_max_hz, caps.max_width, caps.max_height),
         (533_250_000, 3840, 2160),
@@ -347,7 +347,7 @@ fn a_4k_hdmi_panel_falls_to_1080p60_not_2160p30() {
     // out, 2160p30 would halve a 60 Hz game.
     let p = hd_530(vec![connector("HDMI-A-1", "HDMI-A", Some(PANEL_2160P))]);
     let mut detected = Detected::of(&p, "HDMI-A-1", None);
-    let caps = detected.backend_caps(AUTO, &presets());
+    let caps = detected.backend_caps(AUTO);
     assert_eq!(caps.pclock_max_hz, 300_000_000);
     detected.fit_to(&caps);
     assert_eq!(detected.auto_text(), "NPT UHD 27  1920x1080 60 Hz");
@@ -362,7 +362,7 @@ fn the_crt_path_keeps_its_caps_and_buffers() {
             kind,
             Some(CRT_ANALOG),
         )]);
-        Detected::of(&p, &format!("{kind}-1"), sub).backend_caps(AUTO, &presets())
+        Detected::of(&p, &format!("{kind}-1"), sub).backend_caps(AUTO)
     };
     let bench = analog("DP", None);
     assert_eq!(
@@ -374,6 +374,176 @@ fn the_crt_path_keeps_its_caps_and_buffers() {
     // A CRT preset on a panel output keeps the analog caps.
     let p = hd_530(vec![connector("DP-1", "DP", Some(PANEL_2160P_RB))]);
     let panel = Detected::of(&p, "DP-1", None);
-    let preset = panel.backend_caps("pc_31_120", &presets());
+    let preset = panel.backend_caps("pc_31_120");
     assert_eq!(preset.pclock_max_hz, 165_000_000);
+}
+
+const PANEL_1440P: &[u8] = include_bytes!("../../tests/fixtures/edid/panel_1440p.bin");
+
+/// An Intel GPU of gen12 or newer on i915: no digital limits in the table.
+fn gen12(connectors: Vec<Connector>) -> Platform {
+    let mut p = hd_530(connectors);
+    p.gpus[0].pci_id = Some(neptron_platform::PciId {
+        vendor: 0x8086,
+        device: 0x9a49,
+    });
+    p
+}
+
+/// What `auto` starts in for `edid` on connector `kind` of `platform`.
+fn start(platform: fn(Vec<Connector>) -> Platform, kind: &str, edid: &[u8]) -> (String, GpuCaps) {
+    let name = format!("{kind}-1");
+    let p = platform(vec![connector(&name, kind, Some(edid))]);
+    let mut detected = Detected::of(&p, &name, None);
+    let caps = detected.backend_caps(AUTO);
+    detected.fit_to(&caps);
+    (detected.auto_text(), caps)
+}
+
+/// What a start shows: (what, GPU, connector type, EDID, `auto` text).
+type StartRow<'a> = (
+    &'a str,
+    fn(Vec<Connector>) -> Platform,
+    &'a str,
+    &'a [u8],
+    &'a str,
+);
+
+#[test]
+fn a_digital_link_takes_the_panel_native_mode_when_the_link_allows_it() {
+    let rows: [StartRow<'_>; 6] = [
+        (
+            "1440p on DP",
+            hd_530,
+            "DP",
+            PANEL_1440P,
+            "NPT QHD 27  2560x1440 59.95 Hz",
+        ),
+        (
+            "1440p on HDMI",
+            hd_530,
+            "HDMI-A",
+            PANEL_1440P,
+            "NPT QHD 27  2560x1440 59.95 Hz",
+        ),
+        (
+            "2160p on DP",
+            hd_530,
+            "DP",
+            PANEL_2160P_RB,
+            "NPT UHD DP  3840x2160 59.99 Hz",
+        ),
+        (
+            "2160p on HDMI 1.4",
+            hd_530,
+            "HDMI-A",
+            PANEL_2160P_RB,
+            "NPT UHD DP  1920x1080 60 Hz",
+        ),
+        (
+            "1440p, no digital limits",
+            gen12,
+            "DP",
+            PANEL_1440P,
+            "NPT QHD 27  1920x1080 60 Hz",
+        ),
+        (
+            "1080p on DP",
+            hd_530,
+            "DP",
+            PANEL_1080P,
+            "NPT FHD 24  1920x1080 60 Hz",
+        ),
+    ];
+    for (what, platform, kind, edid, text) in rows {
+        let (shown, caps) = start(platform, kind, edid);
+        assert_eq!(shown, text, "{what}");
+        assert!(caps.pclock_max_hz >= 165_000_000, "{what}");
+    }
+}
+
+#[test]
+fn the_output_kind_picks_the_limits() {
+    // (what, connector, subconnector, EDID, monitor setting, output kind,
+    // highest pixel clock, buffer size)
+    let analog = (OutputKind::Analog, 165_000_000, (1920, 1200));
+    type Row<'a> = (
+        &'a str,
+        &'a str,
+        Option<&'a str>,
+        &'a [u8],
+        &'a str,
+        (OutputKind, u32, (u16, u16)),
+    );
+    let rows: [Row<'_>; 7] = [
+        (
+            "panel on DP",
+            "DP",
+            None,
+            PANEL_2160P_RB,
+            AUTO,
+            (OutputKind::Digital, 533_250_000, (3840, 2160)),
+        ),
+        (
+            "panel on HDMI",
+            "HDMI-A",
+            None,
+            PANEL_1440P,
+            AUTO,
+            (OutputKind::Digital, 300_000_000, (2560, 1440)),
+        ),
+        (
+            "flat on the same panel",
+            "DP",
+            None,
+            PANEL_1440P,
+            FLAT,
+            (OutputKind::Digital, 533_250_000, (2560, 1440)),
+        ),
+        (
+            "the bench: analog EDID over DP",
+            "DP",
+            None,
+            CRT_ANALOG,
+            AUTO,
+            analog,
+        ),
+        (
+            "flat on the bench keeps the analog limits",
+            "DP",
+            None,
+            CRT_ANALOG,
+            FLAT,
+            analog,
+        ),
+        (
+            "a CRT preset on a panel output",
+            "DP",
+            None,
+            PANEL_1440P,
+            "pc_31_120",
+            analog,
+        ),
+        (
+            "a DAC with a digital EDID",
+            "DP",
+            Some("VGA"),
+            PANEL_1440P,
+            AUTO,
+            analog,
+        ),
+    ];
+    for (what, kind, sub, edid, name, (output, clock, size)) in rows {
+        let connector_name = format!("{kind}-1");
+        let p = hd_530(vec![connector(&connector_name, kind, Some(edid))]);
+        let detected = Detected::of(&p, &connector_name, sub);
+        assert_eq!(detected.output_for(name), output, "{what}");
+        let caps = detected.backend_caps(name);
+        assert_eq!(
+            (caps.pclock_max_hz, (caps.max_width, caps.max_height)),
+            (clock, size),
+            "{what}"
+        );
+    }
+    assert_eq!(Detected::default().output, OutputKind::Analog, "no EDID");
 }

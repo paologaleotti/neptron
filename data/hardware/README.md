@@ -22,7 +22,7 @@ Each `[[gpu]]` table is one entry:
 | `flip_per_field` | bool | The driver signals a page flip per field |
 | `max_width`, `max_height` | integers | Largest mode, in pixels and lines |
 | `quirks` | strings | Known limits and fixes; see `Quirk` in `neptron-platform` |
-| `[[gpu.panel]]` | tables | Optional, added after version 1: the limits of a flat panel on digital connectors. Each has `connectors` (never an analog type), `pclock_max_hz`, `max_width` and `max_height`. They apply only to a display of the flat-panel class (`Matrix::panel_caps_for`); a CRT, also one behind a DAC on the same connector, keeps the values of the entry. The other values of the entry stay |
+| `[[gpu.digital]]` | tables | Optional, added after version 1: the limits of a digital link to a flat panel. Each has `connectors` (never an analog type), `pclock_max_hz`, `max_width` and `max_height`. They apply only to an output of kind `Digital` (`Matrix::caps_for_output`, ADR 0010); an analog output, also a DAC on the same connector, keeps the values of the entry. The other values of the entry stay |
 
 ## Match rules
 
@@ -37,13 +37,13 @@ Each `[[gpu]]` table is one entry:
 - Where the matrix says a capability is not proven, the entry leaves it off and names it in a quirk. The parser refuses an entry with `interlace_unproven` or `interlace_needs_kernel_patch` and interlace on, and an entry with `low_pixel_clock_unproven` and a lowest pixel clock below 25 MHz.
 - `flip_per_field` is false everywhere: no entry has a proof that the driver signals a flip per field.
 - The highest pixel clock (165 MHz) and the largest mode (1920 by 1200) are the unknown-GPU values everywhere except composite. The matrix gives no value for them. They are a conservative default, not a measured limit. They stay the limits of the CRT path on every connector.
-- Panel limits are given only where a source states them. A GPU with none gives a panel its entry's values, so a 1440p or 4K panel there runs in its largest listed mode that fits.
+- Digital limits are given only where a source states them. A GPU with none gives a digital output its entry's values, so a 1440p or 4K panel there runs in its largest listed mode that fits.
 
 ## Sources
 
 | Entry | Source of the values |
 | --- | --- |
-| `intel_gen9` panel limits | HDMI-A and DVI-D: 300 MHz, the TMDS clock limit that i915 sets below display version 10 (`intel_hdmi_source_max_tmds_clock`). DP: 533.25 MHz, 3840x2160 at 60 Hz with CVT reduced blanking, within DisplayPort 1.2 (HBR2, 4 lanes). Size 4096x2160: Intel ARK for HD Graphics 530 gives 4096x2304 on both (24 Hz on HDMI, 60 Hz on DP); the DCI 4K size is the cap here. Not checked on the bench |
+| `intel_gen9` digital limits | HDMI-A and DVI-D: 300 MHz, the TMDS clock limit that i915 sets below display version 10 (`intel_hdmi_source_max_tmds_clock`). DP: 533.25 MHz, 3840x2160 at 60 Hz with CVT reduced blanking, within DisplayPort 1.2 (HBR2, 4 lanes). Size 4096x2160: Intel ARK for HD Graphics 530 gives 4096x2304 on both (24 Hz on HDMI, 60 Hz on DP); the DCI 4K size is the cap here. Not checked on the bench |
 | `intel_gen9` | Matrix: super resolution default, native low clock to be measured, interlace only with linear or X-tiled scanout and not yet proven. PCI ids of Skylake, Kaby Lake, Amber Lake and Coffee Lake from the Linux file `include/drm/intel/pciids.h`. Whiskey Lake and Comet Lake ids are not listed: those GPUs match `intel_i915` and get its conservative values |
 | `intel_i915` | Matrix: older Intel with native VGA, super resolution only, interlace varies, tier 2. Gen12 and newer on i915 also match it; its values are as conservative as the gen12 row |
 | `intel_xe` | Matrix: gen12 and newer, super resolution, no interlace, tier 3 |

@@ -1,7 +1,7 @@
 //! The class of a display (CRT or flat panel) from its connector and its
 //! EDID, and the flat-panel profile of the modes an EDID lists.
 
-use neptron_types::{GpuCaps, Modeline, MonitorKind, MonitorProfile};
+use neptron_types::{GpuCaps, Modeline, MonitorKind, MonitorProfile, OutputKind};
 
 use crate::edid::EdidError;
 use crate::modes::listed_modes;
@@ -15,6 +15,18 @@ pub enum DisplayClass {
     Crt,
     /// A display that takes only its listed modes.
     FlatPanel,
+}
+
+impl DisplayClass {
+    /// The kind of link to a display of this class: a flat panel is on a
+    /// digital link, a CRT (also an LCD with a VGA input) on an analog
+    /// one.
+    pub fn output_kind(self) -> OutputKind {
+        match self {
+            DisplayClass::Crt => OutputKind::Analog,
+            DisplayClass::FlatPanel => OutputKind::Digital,
+        }
+    }
 }
 
 /// The connector types (the sysfs name without its index) that carry only

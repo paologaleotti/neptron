@@ -66,7 +66,7 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
         .unwrap_or_default();
     // The buffers are made once, at the size of the largest mode the caps
     // allow, so the boot cuts the panel's modes to them.
-    let caps = detected.backend_caps(&monitor, &presets);
+    let caps = detected.backend_caps(&monitor);
     let config = KmsConfig {
         caps,
         output,

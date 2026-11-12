@@ -38,13 +38,13 @@ max_width = 1920
 max_height = 1200
 quirks = ["low_pixel_clock_unproven", "interlace_unproven", "interlace_needs_linear_scanout"]
 
-# The limits of a flat panel on the digital outputs of the HD 530 class.
-# A CRT, also one behind a DP-to-VGA DAC, keeps the values above.
+# The limits of a digital link to a flat panel on the HD 530 class. An
+# analog output, also a DP-to-VGA DAC, keeps the values above.
 # HDMI 1.4 and DVI-D: i915 sets a TMDS clock limit of 300 MHz below
 # display version 10 (intel_hdmi_source_max_tmds_clock), so no 4K at
 # 60 Hz on HDMI. Size: Intel ARK, HD Graphics 530, 4096x2304 at 24 Hz on
 # HDMI; 4096x2160 is the cap here, the DCI 4K size.
-[[gpu.panel]]
+[[gpu.digital]]
 connectors = ["HDMI-A", "DVI-D"]
 pclock_max_hz = 300_000_000
 max_width = 4_096
@@ -54,7 +54,7 @@ max_height = 2_160
 # at 60 Hz on DP. 533.25 MHz is 3840x2160 at 60 Hz with CVT reduced
 # blanking, the timing that 4K DP monitors list. The CTA-861 timing of
 # 594 MHz stays out.
-[[gpu.panel]]
+[[gpu.digital]]
 connectors = ["DP"]
 pclock_max_hz = 533_250_000
 max_width = 4_096

@@ -4,10 +4,10 @@
 use std::path::Path;
 
 use neptron_platform::{
-    Connector, ConnectorStatus, EdidProfile, Matrix, Platform, panel_profile_from_edid,
-    profile_for_display,
+    Connector, ConnectorStatus, DisplayClass, EdidProfile, Matrix, Platform, display_class,
+    panel_profile_from_edid, profile_for_display,
 };
-use neptron_types::{GpuCaps, Modeline, MonitorKind};
+use neptron_types::{GpuCaps, Modeline, MonitorKind, OutputKind};
 use neptron_video::{DisplayConfig, Monitor, PolicySettings, policy_settings};
 
 use crate::presets::Presets;
@@ -59,9 +59,12 @@ pub struct Detected {
     /// The capabilities of the GPU of that output, from the capability
     /// table; `None` when nothing was detected.
     pub caps: Option<GpuCaps>,
-    /// The capabilities of a flat panel on that output: `caps` with the
-    /// digital limits of the table (`Matrix::panel_caps_for`).
-    pub panel_caps: Option<GpuCaps>,
+    /// The kind of link of that output, by the class rule: digital only
+    /// for a flat panel on a digital link, else analog.
+    pub output: OutputKind,
+    /// The capabilities of that output as a digital link: `caps` with the
+    /// digital limits of the table (`Matrix::caps_for_output`).
+    pub digital_caps: Option<GpuCaps>,
     /// What the player must know about the detection: a panel mode above
     /// the limits, an EDID that gives no profile.
     pub notices: Vec<String>,
@@ -119,13 +122,26 @@ impl Detected {
         let matrix = Matrix::builtin().ok();
         let gpu = chosen.and_then(|c| Some((platform.gpu_of(c)?, c.kind.as_str())));
         let caps = gpu.and_then(|(g, kind)| Some(matrix.as_ref()?.caps_for(g, kind)));
-        let panel_caps = gpu.and_then(|(g, kind)| Some(matrix.as_ref()?.panel_caps_for(g, kind)));
+        let digital_caps = gpu.and_then(|(g, kind)| {
+            Some(
+                matrix
+                    .as_ref()?
+                    .caps_for_output(g, kind, OutputKind::Digital),
+            )
+        });
+        let output = source
+            .and_then(|c| {
+                let sub = if Some(c) == named { subconnector } else { None };
+                display_class(&c.kind, sub, c.edid.as_deref()?).ok()
+            })
+            .map_or(OutputKind::Analog, DisplayClass::output_kind);
         Self {
             outputs: connected.iter().map(|c| c.name.clone()).collect(),
             edid,
             panel,
             caps,
-            panel_caps,
+            output,
+            digital_caps,
             notices,
         }
     }
@@ -283,25 +299,38 @@ impl Detected {
         self.panel.as_ref().map(describe)
     }
 
+    /// The kind of link that `name` (a value of `display.monitor`) drives:
+    /// digital only when the output is a digital link to a flat panel and
+    /// `name` gives that panel (`auto` or `flat`). A CRT preset on a
+    /// digital output is ambiguous, so it is analog, and `flat` on an
+    /// analog output stays analog.
+    pub fn output_for(&self, name: &str) -> OutputKind {
+        match (self.output, name) {
+            (OutputKind::Digital, AUTO | FLAT) => OutputKind::Digital,
+            _ => OutputKind::Analog,
+        }
+    }
+
     /// The caps of the KMS display for `name` (a value of
     /// `display.monitor`), with the scanout buffer size as the largest
-    /// mode. A CRT gets the table's caps and buffers of 2560x1200 at most,
-    /// as before panels. A flat panel gets the digital limits of the table,
-    /// and buffers that also hold its largest listed mode within the panel
-    /// limits, so no listed mode is refused for its size. Each value is cut
-    /// to the caps. With no table entry, the unknown-GPU caps.
-    pub fn backend_caps(&self, name: &str, presets: &Presets) -> GpuCaps {
-        let crt = self.is_crt(name, presets);
-        let caps = if crt {
-            self.caps
+    /// mode. An analog output gets the table's caps and buffers of
+    /// 2560x1200 at most, as before panels. A digital link to a flat panel
+    /// gets the table's digital limits, and buffers that also hold the
+    /// panel's largest listed mode within the panel limits, so no listed
+    /// mode is refused for its size. Each value is cut to the caps. With
+    /// no table entry, the unknown-GPU caps.
+    pub fn backend_caps(&self, name: &str) -> GpuCaps {
+        let digital = self.output_for(name) == OutputKind::Digital;
+        let caps = if digital {
+            self.digital_caps.or(self.caps)
         } else {
-            self.panel_caps.or(self.caps)
+            self.caps
         }
         .unwrap_or(neptron_platform::UNKNOWN_GPU_CAPS);
-        let (panel_w, panel_h) = if crt {
-            (0, 0)
-        } else {
+        let (panel_w, panel_h) = if digital {
             self.panel_size().unwrap_or((0, 0))
+        } else {
+            (0, 0)
         };
         GpuCaps {
             max_width: caps.max_width.min(CRT_BUFFER_WIDTH_PX.max(panel_w)),

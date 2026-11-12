@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use neptron_platform::{Gpu, Matrix, MatrixError, PciId, Quirk, UNKNOWN_GPU_CAPS, detect};
+use neptron_types::OutputKind;
 
 fn pci_gpu(driver: &str, vendor: u16, device: u16) -> Gpu {
     Gpu {
@@ -299,7 +300,7 @@ fn the_more_precise_entry_wins() {
 }
 
 #[test]
-fn hd_530_has_digital_limits_for_a_flat_panel_only() {
+fn hd_530_has_digital_limits_for_a_digital_output_only() {
     let matrix = Matrix::builtin().unwrap();
     let gpu = pci_gpu("i915", 0x8086, 0x1912);
     let analog = matrix.caps_for(&gpu, "DP");
@@ -313,7 +314,7 @@ fn hd_530_has_digital_limits_for_a_flat_panel_only() {
         ("DVI-D", 300_000_000),
         ("DP", 533_250_000),
     ] {
-        let panel = matrix.panel_caps_for(&gpu, kind);
+        let panel = matrix.caps_for_output(&gpu, kind, OutputKind::Digital);
         assert_eq!(
             (panel.pclock_max_hz, panel.max_width, panel.max_height),
             (clock, 4096, 2160),
@@ -323,41 +324,63 @@ fn hd_530_has_digital_limits_for_a_flat_panel_only() {
         assert_eq!(panel.interlace, analog.interlace, "{kind}");
     }
     assert_eq!(
-        matrix.panel_caps_for(&gpu, "VGA"),
+        matrix.caps_for_output(&gpu, "VGA", OutputKind::Digital),
         matrix.caps_for(&gpu, "VGA")
     );
+    // The table of output kind against limits on the bench GPU.
+    for (kind, output, limits) in [
+        ("DP", OutputKind::Analog, (165_000_000, 1920, 1200)),
+        ("HDMI-A", OutputKind::Analog, (165_000_000, 1920, 1200)),
+        ("VGA", OutputKind::Analog, (165_000_000, 1920, 1200)),
+        ("DP", OutputKind::Digital, (533_250_000, 4096, 2160)),
+        ("HDMI-A", OutputKind::Digital, (300_000_000, 4096, 2160)),
+        ("DVI-D", OutputKind::Digital, (300_000_000, 4096, 2160)),
+    ] {
+        let caps = matrix.caps_for_output(&gpu, kind, output);
+        assert_eq!(
+            (caps.pclock_max_hz, caps.max_width, caps.max_height),
+            limits,
+            "{kind} {output:?}"
+        );
+        if output == OutputKind::Analog {
+            assert_eq!(caps, matrix.caps_for(&gpu, kind), "{kind}");
+        }
+    }
     let gen12 = pci_gpu("i915", 0x8086, 0x9a49);
     assert_eq!(
-        matrix.panel_caps_for(&gen12, "HDMI-A"),
+        matrix.caps_for_output(&gen12, "HDMI-A", OutputKind::Digital),
         matrix.caps_for(&gen12, "HDMI-A"),
         "no cited limit, no change"
     );
     let bochs = pci_gpu("bochs-drm", 0x1234, 0x1111);
-    assert_eq!(matrix.panel_caps_for(&bochs, "Virtual"), UNKNOWN_GPU_CAPS);
+    assert_eq!(
+        matrix.caps_for_output(&bochs, "Virtual", OutputKind::Digital),
+        UNKNOWN_GPU_CAPS
+    );
 }
 
 #[test]
-fn panel_limit_rules() {
-    let panel = |body: &str| format!("{}\n[[gpu.panel]]\n{body}\n", table(""));
+fn digital_limit_rules() {
+    let panel = |body: &str| format!("{}\n[[gpu.digital]]\n{body}\n", table(""));
     let ok = panel(
         "connectors = [\"HDMI-A\"]\npclock_max_hz = 300_000_000\nmax_width = 4096\nmax_height = 2160",
     );
     assert!(Matrix::parse(&ok).is_ok());
     assert_eq!(
         entry_rule(&ok.replace("[\"HDMI-A\"]", "[\"VGA\"]")),
-        "a panel limit names no connector, or an analog connector"
+        "a digital limit names no connector, or an analog connector"
     );
     assert_eq!(
         entry_rule(&ok.replace("[\"HDMI-A\"]", "[]")),
-        "a panel limit names no connector, or an analog connector"
+        "a digital limit names no connector, or an analog connector"
     );
     assert_eq!(
         entry_rule(&ok.replace("pclock_max_hz = 300_000_000", "pclock_max_hz = 1_000")),
-        "a panel limit has a pixel clock below pclock_min_hz, or a size of 0"
+        "a digital limit has a pixel clock below pclock_min_hz, or a size of 0"
     );
     assert_eq!(
         entry_rule(&ok.replace("max_width = 4096", "max_width = 0")),
-        "a panel limit has a pixel clock below pclock_min_hz, or a size of 0"
+        "a digital limit has a pixel clock below pclock_min_hz, or a size of 0"
     );
     assert!(matches!(
         Matrix::parse(&ok.replace("max_height = 2160", "max_height = 2160\ncolour = 1")),
