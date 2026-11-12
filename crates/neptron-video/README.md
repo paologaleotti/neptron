@@ -116,6 +116,7 @@ The guard owns a `DisplayConfig`: the monitor and the policy settings. Only the 
 | `SAFE_MODE_FAILED_BOOTS` | 2 | Failed boots in a row before the next boot starts in safe mode |
 | `GOOD_BOOT_PICTURE_NS` | 10 s | A picture of the confirmed configuration this long makes the boot good |
 | `NO_PICTURE_LIMIT_NS` | 1 s | No valid picture this long makes the guard leave the configuration |
+| `PENDING_LIMIT_NS` | 30 s | Changes with no confirmation, one after the other, revert at the latest this long after the first |
 
 The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `neptron-input`. It sends one `Hotkey::BlindRecovery`, and the app calls `Guard::recover`.
 
@@ -132,7 +133,7 @@ The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `
 | Boot | the settings' monitor is the last known good | Confirmed | none |
 | Boot | otherwise | Pending, reverts to the last known good or to the safe default | `PromptOpened` |
 | Confirmed or Safe | `propose` of a new configuration | Pending | `PromptOpened` |
-| Pending | `propose` of another configuration | Pending with a new id and deadline, same revert target | `PromptOpened` |
+| Pending | `propose` of another configuration | Pending with a new id and deadline (no later than 30 s after the first change), same revert target | `PromptOpened` |
 | Pending | `propose` of the confirmed configuration, or `follow_settings` | Confirmed | `Reverted(Superseded)` |
 | Pending | `confirm` with the open id, before the deadline, with a picture that a `tick` has seen since the change | Confirmed; the monitor is last known good; `failed_boots` 0; safe mode off | `Confirmed` |
 | Pending | `decline` | the revert target | `Reverted(Declined)` |
@@ -143,6 +144,7 @@ The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `
 | Any | `recover` | Safe(Recovery); the record is in safe mode | `SafeMode` |
 
 - No valid picture (`Health::no_picture`): the output is off, a refused mode is on the display, or the engine has set no mode. A mode that waits for its first flip is not counted, because a flip can be late.
+- The no-picture watch stops only when a valid picture is seen. A new change, a `propose` while pending or a `follow_settings` does not start it again, so a loop of changes with no picture still reaches the 1 s limit.
 - `confirm` is refused with `ConfirmError` when no prompt is open, the id is another one, the time is at or after the deadline, the engine shows no valid picture, or no `tick` has seen a valid picture of the change (`NotShown`). Nothing changes; the deadline still reverts.
 - A picture counts for the guard only when the engine has decided on the guard's inputs (`Health::decided`, from `Odren::decision_due`). Every change of the guard sets a decision due, and a failed modeset of that decision makes it due again. Until then, the mode on the display can be the old one, which the user must not confirm by accident.
 - A revert to the safe default (from a pending change that began in safe mode) goes back to the same `SafeReason`.

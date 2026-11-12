@@ -23,6 +23,14 @@ pub use record::GuardRecord;
 /// comes back.
 pub const CONFIRM_WINDOW_NS: u64 = 10_000_000_000;
 
+/// The longest time that changes with no confirmation can stay, one after
+/// the other, in nanoseconds. Each new change gets a new prompt, but its
+/// deadline never passes the start of the first change plus this time, so
+/// a loop of changes (from the control protocol, or a held key) cannot
+/// keep an unconfirmed mode on the tube. Three confirm windows leave time
+/// to step through the picture style rows of the Display panel.
+pub const PENDING_LIMIT_NS: u64 = 3 * CONFIRM_WINDOW_NS;
+
 /// Boots in a row that never reach a confirmed picture before the next
 /// boot starts in safe mode.
 pub const SAFE_MODE_FAILED_BOOTS: u32 = 2;
@@ -33,8 +41,8 @@ pub const SAFE_MODE_FAILED_BOOTS: u32 = 2;
 pub const GOOD_BOOT_PICTURE_NS: u64 = 10_000_000_000;
 
 /// How long the engine may report no valid picture (the output is off, a
-/// mode the inputs refuse is on the display, or no mode is set) before the guard leaves the
-/// configuration that causes it, in nanoseconds. The engine walks its
+/// mode the inputs refuse is on the display, or no mode is set) before the
+/// guard leaves the configuration that causes it, in nanoseconds. The engine walks its
 /// candidate list and retries device errors within a few frames, so a
 /// shorter limit would revert on a transient state.
 pub const NO_PICTURE_LIMIT_NS: u64 = 1_000_000_000;

@@ -2,7 +2,7 @@ use neptron_backend::Display;
 
 use super::{
     CONFIRM_WINDOW_NS, DisplayConfig, GOOD_BOOT_PICTURE_NS, GuardRecord, Health,
-    NO_PICTURE_LIMIT_NS, SAFE_MODE_FAILED_BOOTS,
+    NO_PICTURE_LIMIT_NS, PENDING_LIMIT_NS, SAFE_MODE_FAILED_BOOTS,
 };
 use crate::{PolicySettings, VideoEngine};
 
@@ -158,7 +158,12 @@ pub enum ConfirmError {
 #[derive(Debug, Clone)]
 enum State {
     Confirmed,
-    Pending { prompt: Prompt, fallback: Fallback },
+    Pending {
+        prompt: Prompt,
+        fallback: Fallback,
+        /// When the first of the changes with no confirmation came.
+        since_ns: u64,
+    },
     Safe(SafeReason),
 }
 
@@ -219,7 +224,7 @@ impl Guard {
                 }),
                 None => Fallback::Safe(SafeReason::NothingConfirmed),
             };
-            Some(guard.open_prompt(wanted, fallback, now_ns, engine))
+            Some(guard.open_prompt(wanted, fallback, now_ns, now_ns, engine))
         };
         let save = Some(guard.record.clone());
         (guard, GuardStep { event, save })
@@ -267,8 +272,9 @@ impl Guard {
     /// `now_ns` plus [`CONFIRM_WINDOW_NS`] unless the user confirms it.
     ///
     /// A change while another one is pending replaces it with a new prompt
-    /// and a new deadline; a revert still restores the configuration that
-    /// was confirmed before both. The confirmed configuration itself ends
+    /// and a new deadline, but no later than [`PENDING_LIMIT_NS`] after the
+    /// first change with no confirmation; a revert still restores the
+    /// configuration that was confirmed before both. The confirmed configuration itself ends
     /// the pending change with no prompt.
     pub fn propose<D: Display>(
         &mut self,
@@ -276,10 +282,12 @@ impl Guard {
         now_ns: u64,
         engine: &mut VideoEngine<D>,
     ) -> GuardStep {
-        let fallback = match &self.state {
-            State::Confirmed => Fallback::Confirmed(self.active.clone()),
-            State::Pending { fallback, .. } => fallback.clone(),
-            State::Safe(reason) => Fallback::Safe(*reason),
+        let (fallback, since_ns) = match &self.state {
+            State::Confirmed => (Fallback::Confirmed(self.active.clone()), now_ns),
+            State::Pending {
+                fallback, since_ns, ..
+            } => (fallback.clone(), *since_ns),
+            State::Safe(reason) => (Fallback::Safe(*reason), now_ns),
         };
         if let Fallback::Confirmed(confirmed) = &fallback
             && *confirmed == config
@@ -292,7 +300,7 @@ impl Guard {
             self.apply(engine);
             return GuardStep::event(GuardEvent::Reverted(RevertReason::Superseded));
         }
-        GuardStep::event(self.open_prompt(config, fallback, now_ns, engine))
+        GuardStep::event(self.open_prompt(config, fallback, since_ns, now_ns, engine))
     }
 
     /// The user keeps the pending change `id`. Its monitor becomes the last
@@ -368,7 +376,7 @@ impl Guard {
         if matches!(self.state, State::Confirmed) && self.active.settings != settings {
             self.active.settings = settings;
             engine.set_settings(settings);
-            self.reset_watch();
+            self.picture_since_ns = None;
         }
         step
     }
@@ -441,15 +449,21 @@ impl Guard {
         &mut self,
         target: DisplayConfig,
         fallback: Fallback,
+        since_ns: u64,
         now_ns: u64,
         engine: &mut VideoEngine<D>,
     ) -> GuardEvent {
         self.last_prompt = self.last_prompt.wrapping_add(1);
+        let window_end_ns = now_ns.saturating_add(CONFIRM_WINDOW_NS);
         let prompt = Prompt {
             id: PromptId(self.last_prompt),
-            deadline_ns: now_ns.saturating_add(CONFIRM_WINDOW_NS),
+            deadline_ns: window_end_ns.min(since_ns.saturating_add(PENDING_LIMIT_NS)),
         };
-        self.state = State::Pending { prompt, fallback };
+        self.state = State::Pending {
+            prompt,
+            fallback,
+            since_ns,
+        };
         self.active = target;
         self.apply(engine);
         GuardEvent::PromptOpened(prompt)
@@ -496,15 +510,12 @@ impl Guard {
         GuardEvent::SafeMode(reason)
     }
 
+    /// A picture must be seen again for the new inputs. The no-picture
+    /// watch goes on: only a valid picture stops it, so a loop of changes
+    /// with no picture cannot hold off the guard.
     fn apply<D: Display>(&mut self, engine: &mut VideoEngine<D>) {
         self.active.apply_to(engine);
-        self.reset_watch();
-    }
-
-    /// The watches judge one configuration; a new one starts them again.
-    fn reset_watch(&mut self) {
         self.picture_since_ns = None;
-        self.no_picture_since_ns = None;
     }
 
     fn finish(&self, event: GuardEvent, before: &GuardRecord) -> GuardStep {

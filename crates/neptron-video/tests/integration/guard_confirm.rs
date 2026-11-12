@@ -4,12 +4,12 @@ use neptron_testkit::ModeFault;
 use neptron_types::Modeline;
 use neptron_video::{
     CONFIRM_WINDOW_NS, ConfirmError, GuardEvent, Health, MODESET_ATTEMPTS, NO_PICTURE_LIMIT_NS,
-    Phase, PictureStyle, PromptId, RevertReason, SafeReason,
+    PENDING_LIMIT_NS, Phase, PictureStyle, PromptId, RevertReason, SafeReason,
 };
 
 use crate::guard_rig::{
-    FRAME_NS, GuardRig, arcade_15_25_31, config, crt_15, crt_31, dead_edid, mode_of, pc_31_120,
-    with_style,
+    FRAME_NS, GuardRig, arcade_15_25_31, config, confirmed, crt_15, crt_31, dead_edid, mode_of,
+    pc_31_120, with_style,
 };
 
 /// Two frames: the watch starts at the first frame that sees the state.
@@ -318,4 +318,66 @@ fn device_errors_during_a_revert_end_with_the_output_off() {
         calls <= 2 * u64::from(MODESET_ATTEMPTS + 1),
         "no retry storm: {calls} set_mode calls"
     );
+}
+
+#[test]
+fn a_propose_loop_with_no_picture_still_reverts() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    let start = rig.now();
+    let styles = [PictureStyle::X2, PictureStyle::X3];
+    for round in 0..8 {
+        rig.propose(with_style(config(dead_edid()), styles[round % 2]));
+        rig.run_for(NO_PICTURE_LIMIT_NS / 2);
+        if rig.guard.phase() == Phase::Confirmed {
+            break;
+        }
+    }
+    let reverted = rig
+        .time_of(GuardEvent::Reverted(RevertReason::NoPicture))
+        .expect("the loop does not hold a change with no picture");
+    assert!(reverted <= start + NO_PICTURE_LIMIT_NS + FRAME_SLACK_NS);
+    rig.frame();
+    assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
+}
+
+#[test]
+fn a_propose_loop_cannot_hold_a_change_past_the_pending_limit() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    let start = rig.now();
+    let styles = [PictureStyle::X2, PictureStyle::Native];
+    let mut round = 0;
+    while rig.guard.phase() != Phase::Confirmed || round == 0 {
+        let prompt = rig.propose(with_style(crt_31(), styles[round % 2]));
+        assert!(prompt.deadline_ns <= start + PENDING_LIMIT_NS);
+        rig.run_for(CONFIRM_WINDOW_NS / 2);
+        round += 1;
+        assert!(rig.now() < start + 2 * PENDING_LIMIT_NS, "no end");
+    }
+    let reverted = rig
+        .time_of(GuardEvent::Reverted(RevertReason::Timeout))
+        .unwrap();
+    assert!(reverted >= start + PENDING_LIMIT_NS);
+    assert!(reverted <= start + PENDING_LIMIT_NS + FRAME_SLACK_NS);
+    assert_eq!(rig.guard.active(), &crt_15());
+}
+
+#[test]
+fn a_settings_loop_with_no_picture_still_gives_way_to_the_safe_default() {
+    let dead = config(dead_edid());
+    let mut rig = GuardRig::boot(confirmed(dead_edid()), dead.clone(), crt_15());
+    let start = rig.now();
+    let styles = [PictureStyle::X2, PictureStyle::X3];
+    for round in 0..8 {
+        let step = rig.guard.follow_settings(
+            with_style(dead.clone(), styles[round % 2]).settings,
+            &mut rig.engine,
+        );
+        rig.take(step);
+        rig.run_for(NO_PICTURE_LIMIT_NS / 2);
+    }
+    let safe = rig
+        .time_of(GuardEvent::SafeMode(SafeReason::NoValidMode))
+        .expect("the loop does not hold a configuration with no picture");
+    assert!(safe <= start + NO_PICTURE_LIMIT_NS + FRAME_SLACK_NS);
+    assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
 }
