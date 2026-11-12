@@ -91,11 +91,11 @@ pub fn run(args: &[&str]) -> Result<ExitCode, VerifyError> {
 }
 
 /// Highest tier that this version of xtask can run.
-const MAX_TIER: u8 = 1;
+const MAX_TIER: u8 = 2;
 
 /// Time budget of each tier in seconds, from the verification ladder. The
 /// length follows `MAX_TIER`, so every tier that `plan` accepts has a budget.
-const TIER_BUDGET_SECONDS: [f64; MAX_TIER as usize + 1] = [60.0, 120.0];
+const TIER_BUDGET_SECONDS: [f64; MAX_TIER as usize + 1] = [60.0, 120.0, 300.0];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
@@ -164,6 +164,15 @@ const STEPS: &[Step] = &[
         tier: 1,
         action: Action::Cargo(&["test", "--workspace", "--doc"]),
         builds: true,
+    },
+    Step {
+        name: "app",
+        tier: 2,
+        // The frontend on the fakes: the end-to-end runs and the UI
+        // crawler. They are the ignored tests of the app, so tier 1 skips
+        // them; the test binary is built in tier 1.
+        action: Action::Cargo(&["nextest", "run", "-p", "neptron", "--run-ignored", "only"]),
+        builds: false,
     },
 ];
 
@@ -255,10 +264,23 @@ mod tests {
     }
 
     #[test]
+    fn tier_two_runs_the_app_on_the_fakes_after_tier_one() {
+        let steps = plan(2).unwrap();
+        assert_eq!(names(&steps).last(), Some(&"app"));
+        assert!(names(&steps).contains(&"test"));
+        let app = steps.iter().find(|s| s.name == "app").unwrap();
+        let Action::Cargo(args) = app.action else {
+            panic!("app is a cargo step");
+        };
+        assert_eq!(args[..2], ["nextest", "run"]);
+        assert!(args.contains(&"neptron") && args.contains(&"only"));
+    }
+
+    #[test]
     fn missing_tiers_are_an_error() {
         assert!(matches!(
-            plan(2),
-            Err(VerifyError::UnknownTier { tier: 2, max: 1 })
+            plan(3),
+            Err(VerifyError::UnknownTier { tier: 3, max: 2 })
         ));
     }
 
