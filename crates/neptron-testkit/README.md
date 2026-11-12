@@ -39,6 +39,7 @@ Code that passes on the fake display must also work on the KMS backend. The KMS 
 - `blank` with a flip pending returns `DisplayError::Device` as busy. After a blank, `present` and `wait_flip` return `NoMode` and the next `set_mode` is a real modeset. The KMS backend never takes its same-mode shortcut after a blank.
 - `wait_flip` is bounded. On a timeout or another wait error it returns `DisplayError::Device` and the flip stays queued: a later `wait_flip` returns its event, and until then `present` and `set_mode` are busy. `FlipFault::Lost` never lands, `FlipFault::Slow { timeouts }` lands after `timeouts` timed-out waits, and `FlipFault::WaitFails` fails one wait at once. A timed-out wait moves the simulated clock by `DisplayOptions::flip_timeout_ns`.
 - A failed `set_mode` keeps the old mode active.
+- `set_mode` refuses a mode whose pixel clock is not a whole number of kHz with `DisplayError::ModeRefused`, after the busy check, and never rounds it. The kernel's mode record holds the clock in kHz, and the KMS backend refuses such a mode in `ModeRecord::from_validated`. Both use `Modeline::pclock_is_whole_khz`.
 - Interlaced flips follow `GpuCaps::flip_per_field`: one flip per field with it, one flip per frame without it.
 
 ## Render modes and memory per frame

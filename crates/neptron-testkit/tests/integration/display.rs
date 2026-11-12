@@ -345,6 +345,37 @@ fn mode_faults_can_match_the_requested_mode() {
 }
 
 #[test]
+fn a_clock_that_is_not_whole_khz_is_refused_and_the_mode_stays() {
+    let clock = SimClock::new();
+    let mut display = timing_only(&clock, DisplayOptions::default());
+    display.set_mode(&mode(MODE_240P)).unwrap();
+    let odd = Modeline {
+        pclock_hz: MODE_240P.pclock_hz + 400,
+        ..MODE_240P
+    };
+    // The validator judges the monitor and the GPU, not the step of the
+    // kernel's clock field, so the token exists.
+    let token = mode(odd);
+    // A read back fault for the mode does not apply: the refusal comes
+    // first, as in the KMS backend.
+    display.fault_requested_mode(odd, ModeFault::ReadBack(MODE_240P));
+    assert_eq!(
+        display.set_mode(&token),
+        Err(DisplayError::ModeRefused {
+            mode: odd,
+            reason: "the pixel clock 6700400 Hz is not a whole number of kHz".to_owned(),
+        })
+    );
+    assert_eq!(display.active_mode(), Some(MODE_240P));
+    assert!(frame(&mut display).is_ok());
+    let whole = Modeline {
+        pclock_hz: MODE_240P.pclock_hz + 1_000,
+        ..MODE_240P
+    };
+    assert_eq!(display.set_mode(&mode(whole)), Ok(whole));
+}
+
+#[test]
 fn the_mode_read_back_sets_the_flip_times() {
     let clock = SimClock::new();
     let mut display = timing_only(&clock, DisplayOptions::default());

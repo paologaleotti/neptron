@@ -52,6 +52,10 @@ pub const DEFAULT_FLIP_TIMEOUT_NS: u64 = 100_000_000;
 ///   return [`DisplayError::NoMode`].
 /// - `set_mode` returns the mode read back: the validated mode, unless a
 ///   [`ModeFault::ReadBack`] says otherwise.
+/// - `set_mode` refuses a mode whose pixel clock is not a whole number of
+///   kHz with [`DisplayError::ModeRefused`] and keeps the active mode, as
+///   the KMS backend does: the kernel's mode record holds kHz. The busy
+///   check comes first, and no fault applies to such a mode.
 /// - One flip can be queued at a time. A second `present`, or a `set_mode`,
 ///   while a flip is queued returns [`DisplayError::Device`], as a KMS
 ///   driver returns `EBUSY`. `wait_flip` with no flip queued returns
@@ -429,6 +433,15 @@ impl State {
     ) -> Result<Modeline, DisplayError> {
         if self.pending.is_some() {
             return Err(busy("set_mode"));
+        }
+        if !requested.pclock_is_whole_khz() {
+            return Err(DisplayError::ModeRefused {
+                mode: *requested,
+                reason: format!(
+                    "the pixel clock {} Hz is not a whole number of kHz",
+                    requested.pclock_hz
+                ),
+            });
         }
         let fault = self.mode_faults.get(&call).or_else(|| {
             self.requested_faults
