@@ -96,3 +96,11 @@ Run the steps with the real frontend path (`KmsDisplay::from_env` from the launc
 - [ ] A save file survives a power cut during play.
 - [ ] The measured run rate in the window on a real desktop.
 
+## T26 safety behaviours
+
+- [ ] On the SyncMaster 740s: a monitor or style change with no button press reverts after 10 s.
+- [ ] A confirmation keeps the change, and the mode is the same after a reboot.
+- [ ] Kill the frontend twice before 10 s of picture: the third start comes up in the safe default.
+- [ ] Hold Select+Start for 5 s with no picture (output off, and during an open confirm dialog): the safe default comes back with the audio cue.
+- [ ] A pending change to a monitor with no valid mode turns the output off, and the old mode comes back after about 1 s.
+

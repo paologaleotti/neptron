@@ -604,3 +604,12 @@ Each open point is one section:
 - How to change: the limits are named constants in `crates/neptron-session`. A default geometry per system in the core data removes the launch settle.
 - Decision:
 
+### OP-065: Guard choices and what the app must do.
+
+- Raised by: T26 and its three reviews
+- Status: open, input for T27; points 1 to 4 need a look from the owner
+- Default: (1) the guard covers the monitor and the policy settings the user changes. The connector (`display.output`) and geometry offsets are not under it; the app must put a connector change under the same prompt. (2) Last known good holds the monitor only, because the policy settings resolve per game. It is recorded only on a confirmation. (3) Blind recovery persists safe mode until the user confirms a configuration. (4) Limits: confirm window 10 s; a chain of changes with no confirmation ends 30 s after its first change (`PENDING_LIMIT_NS`); 1 s of no valid picture reverts a pending change or goes to the safe default (`NO_PICTURE_LIMIT_NS`); a boot is good after 10 s of picture. (5) A confirmation counts only after the engine placed a mode for the current inputs and a frame showed it (`Odren::settled`). A mode left on screen by device errors can never be confirmed. (6) When a decline or a game setting meets persistent device errors, a valid but unconfirmed mode can stay on screen with no good boot recorded; repeated boots like this go to safe mode. (7) In safe mode with no picture the guard does nothing more: no signal is the safe state. (8) The app gives every guard call the same clock read of the frame; an earlier time reverts a pending change. (9) A revert of a boot prompt carries the configuration the app must write to the global settings (`rewrite`); the app never writes `Guard::active()`. (10) The app builds the safe default for the detected output and stores the record (profile id and kind) with temp file, fsync, rename, before the first modeset. (11) Recovery before `Guard::boot` belongs to the launcher. (12) T27 needs one end-to-end test from the 5 s hold in `neptron-input` to `Guard::recover`.
+- Where: `crates/neptron-video/src/guard`, `crates/neptron-video/README.md` (The guard; Narrower than the safety model)
+- How to change: the limits are named constants in `guard.rs`. A connector field in `DisplayConfig` puts the output under the guard.
+- Decision:
+
