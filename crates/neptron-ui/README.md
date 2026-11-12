@@ -96,8 +96,8 @@ Menu during a game opens the quick menu over the paused game. Its rows write at 
 | --- | --- | --- |
 | `game` | What the core asks for: the source size, then the field rate | `256x224             60.099 Hz` |
 | `mode` | The mode on screen as the kernel reports it: the size with its scan suffix, the line rate, the field rate, then two spaces and the picture style | `768x448p  30.05 kHz 60.099 Hz  2x` |
-| `result` | The result in words. The formatter joins two or more results with `, ` | `exact`, `cropped 2 lines, speed changed (60.099 to 59.940 Hz)` |
-| `alert` | True when the player must notice the result. The formatter sets it for `filtered` and for `speed changed` | |
+| `result` | The result in words. The formatter joins two or more results with `, `. An alert result starts with the mark `[!] ` | `exact`, `[!] cropped 2 lines, speed (60.099 to 59.940 Hz)` |
+| `alert` | True when the player must notice the result. The formatter sets it for `filtered` and for `speed` | |
 
 The formatter writes fixed columns, so that the field rates of the two lines are one under the other:
 
@@ -105,7 +105,8 @@ The formatter writes fixed columns, so that the field rates of the two lines are
 - Columns 11 to 20: the line rate, padded with spaces to 10 characters. It is in kHz with two decimals (`30.05 kHz`). On the game line these columns are spaces.
 - Then the field rate in Hz with three decimals (`60.099 Hz`). The mode line uses the rate read back from the kernel, never the requested one.
 - On the mode line only: two spaces, then the picture style (`2x`, `native`).
-- The results, in this order when there are more than one: `exact`, `double refresh`, `cropped N lines`, `small picture`, `filtered`, `speed changed (X to Y Hz)`. X is the rate of the game and Y the rate on screen, both with three decimals.
+- When `alert` is true: the mark `[!] ` first. It is not a result word, and no `, ` follows it.
+- The results, in this order when there are more than one: `exact`, `double refresh`, `cropped N lines`, `small picture N%`, `filtered`, `speed (X to Y Hz)`. X is the rate of the game and Y the rate on screen, both with three decimals.
 
 The worst case of the mode line is `1920x238p 15.73 kHz 59.940 Hz  native`: 37 characters, which is the width of the value column. A field rate of 100 Hz or more adds one character: with the style `native` the line then has 38 characters and is cut with `...`.
 
@@ -123,9 +124,9 @@ Mode     768x448p  30.05 kHz 60.099 Hz  2x
          (second line of the result, empty here)
 ```
 
-The layout is fixed: the result always starts on its own line under the mode text, and the block always has two lines for it. A digit or a result that changes never moves a line or the menu rows, which reads better on a 15 kHz CRT than a result that jumps between line 2 and line 3. An alert result is drawn in the `warning` colour of the skin (orange in the default skin), which differs from the amber focus colour, so it never reads as a focused row. The block is not focusable and takes no input: the cursor starts on the first menu row, and Up from it stays there. Without a status the block is absent and the quick menu is the same as without this feature. A screen shows the block only when at least 2 rows of its page fit under it. With the default skin the quick menu shows all its rows; with 24 px rows it shows 3 of its 5 rows and scrolls.
+The layout is fixed: the result always starts on its own line under the mode text, and the block always has two lines for it. A digit or a result that changes never moves a line or the menu rows, which reads better on a 15 kHz CRT than a result that jumps between line 2 and line 3. An alert result carries the mark `[!] ` from the formatter and is drawn in the `warning` colour of the skin (orange in the default skin), which differs from the amber focus colour, so it never reads as a focused row. The block is not focusable and takes no input: the cursor starts on the first menu row, and Up from it stays there. Without a status the block is absent and the quick menu is the same as without this feature. A screen shows the block only when at least 2 rows of its page fit under it. With the default skin the quick menu shows all its rows; with 24 px rows it shows 3 of its 5 rows and scrolls.
 
-Lengths at 320x240 with the default skin: the value column starts after a name column of 9 characters and holds 37 characters (222 px). `game` and `mode` fit when they have 37 characters or fewer; a longer one is cut and ends with `...`. `result` wraps at spaces onto two lines of 37 characters; text left over after the second line is cut with `...`. The longest realistic texts fit: `1920x238p 15.73 kHz 59.940 Hz  native` (37) and `cropped 2 lines, speed changed (60.099 to 59.940 Hz)` (52, two lines). A skin with a larger padding gives fewer characters. The UI never wraps `game` or `mode`, and never draws outside the block.
+Lengths at 320x240 with the default skin: the value column starts after a name column of 9 characters and holds 37 characters (222 px). `game` and `mode` fit when they have 37 characters or fewer; a longer one is cut and ends with `...`. `result` wraps at spaces onto two lines of 37 characters; text left over after the second line is cut with `...`. The longest realistic texts fit: `1920x238p 15.73 kHz 59.940 Hz  native` (37), and results with the mark such as `[!] double refresh, small picture 100%, speed (57.500 to 50.082 Hz)` (67, 33 and 33 characters on two lines). A test in `neptron-video` checks the longest real results. A skin with a larger padding gives fewer characters. The UI never wraps `game` or `mode`, and never draws outside the block.
 
 The tree gives each line one label row with a stable id as the label and the whole text as the value, also when the drawing is cut: `video/game` (`screens::VIDEO_GAME_ROW`), `video/mode` (`VIDEO_MODE_ROW`) and `video/result` (`VIDEO_RESULT_ROW`). The heading is a label row "Video".
 

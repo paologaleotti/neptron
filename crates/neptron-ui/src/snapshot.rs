@@ -286,7 +286,7 @@ pub struct VideoStatus {
     /// for example `768x448p 30.05 kHz 60.099 Hz  2x`.
     pub mode: String,
     /// The result in words, for example `exact`, `filtered` or
-    /// `cropped 2 lines, speed changed (59.940 to 60.000 Hz)`.
+    /// `[!] cropped 2 lines, speed (59.940 to 60.000 Hz)`.
     pub result: String,
     /// True when the player must notice the result: the UI draws it with
     /// emphasis.

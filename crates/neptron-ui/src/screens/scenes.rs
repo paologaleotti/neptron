@@ -490,7 +490,7 @@ pub(super) fn filtered_status() -> VideoStatus {
     VideoStatus::new(
         "320x224             59.923 Hz",
         "640x480p  31.47 kHz 59.923 Hz  2x",
-        "filtered",
+        "[!] filtered",
     )
     .with_alert(true)
 }
@@ -501,7 +501,7 @@ pub(super) fn long_status() -> VideoStatus {
     VideoStatus::new(
         "256x240             60.099 Hz",
         "1920x238p 15.73 kHz 59.940 Hz  native",
-        "cropped 2 lines, speed changed (60.099 to 59.940 Hz)",
+        "[!] cropped 2 lines, speed (60.099 to 59.940 Hz)",
     )
     .with_alert(true)
 }
@@ -512,7 +512,7 @@ pub(super) fn slowed_status() -> VideoStatus {
     VideoStatus::new(
         "320x240             60.099 Hz",
         "640x480p  31.47 kHz 59.940 Hz  2x",
-        "speed changed (60.099 to 59.940 Hz)",
+        "[!] speed (60.099 to 59.940 Hz)",
     )
     .with_alert(true)
 }
