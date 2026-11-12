@@ -1,0 +1,40 @@
+#!/bin/sh
+# Starts the launcher with the frontend, in the development variant. It
+# replaces the launch script of the release image.
+#
+# The hot folder /state/hot holds binaries and data that `cargo xtask os
+# push` uploads: bin/neptron, bin/neptron-launch, bin/neptronctl and
+# share/neptron. Each one that is there replaces the one of the image. The
+# file /state/hot/DISABLED, or no folder, gives the image's own again.
+#
+# The launcher and the frontend write to /state/log/neptron.log, on the
+# state partition, so the log survives a crash and a power cut. The file
+# moves to neptron.log.1 when it is over 4 MiB at a start.
+#
+# While /run/neptron/hold exists the launcher does not start, so a bench
+# tool can take the display, or `os push` can replace the launcher.
+
+LOG_MAX_BYTES=4194304
+hot=/state/hot
+log_dir=/state/log
+log=$log_dir/neptron.log
+
+mkdir -p /run/neptron "$log_dir"
+while [ -e /run/neptron/hold ]; do
+	sleep 1
+done
+
+launcher=/usr/bin/neptron-launch
+frontend=/usr/bin/neptron
+data=/usr/share/neptron
+if [ -d "$hot" ] && [ ! -e "$hot/DISABLED" ]; then
+	[ -x "$hot/bin/neptron-launch" ] && launcher=$hot/bin/neptron-launch
+	[ -x "$hot/bin/neptron" ] && frontend=$hot/bin/neptron
+	[ -d "$hot/share/neptron" ] && data=$hot/share/neptron
+fi
+
+if [ -f "$log" ] && [ "$(wc -c < "$log")" -gt "$LOG_MAX_BYTES" ]; then
+	mv "$log" "$log.1"
+fi
+echo "launch: $(cat /proc/uptime | cut -d' ' -f1) s after boot: launcher $launcher, frontend $frontend, data $data" >> "$log"
+exec "$launcher" -- "$frontend" --backend kms --data "$data" >> "$log" 2>&1

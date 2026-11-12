@@ -1,0 +1,3 @@
+This is the development variant of the NEPTRON PC image: SSH with one
+public key, DHCP on eth0, the control commands, the hot folder
+/state/hot and the log /state/log/neptron.log. It is not for release.

@@ -4,8 +4,11 @@
 # The release image has none of this.
 #
 # An SSH server that accepts only the public key given at build time, and
-# no password; a DHCP client on the first Ethernet port; and the control
-# commands of the frontend that change it (Cargo feature control).
+# no password; a DHCP client on the first Ethernet port; the control
+# commands of the frontend that change it (Cargo feature control); and the
+# overlay board/pc/dev-overlay: the hot folder for `cargo xtask os push`,
+# the log file on the state partition, and the address of eth0.
 BR2_PACKAGE_DROPBEAR=y
 BR2_SYSTEM_DHCP="eth0"
 BR2_PACKAGE_NEPTRON_CONTROL=y
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/rootfs-overlay $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/rootfs-overlay $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/dev-overlay"

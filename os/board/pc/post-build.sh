@@ -52,10 +52,15 @@ if grep -qx 'BR2_PACKAGE_DROPBEAR=y' "$BR2_CONFIG"; then
 	echo 'DROPBEAR_ARGS="-s"' > "$target/etc/default/dropbear"
 else
 	for path in usr/sbin/dropbear root/.ssh etc/default/dropbear etc/init.d/S50dropbear \
-		etc/init.d/S50telnet usr/sbin/telnetd; do
+		etc/init.d/S50telnet usr/sbin/telnetd etc/neptron/development \
+		etc/profile.d/neptron-hot.sh etc/init.d/S41neptron-address; do
 		if [ -e "$target/$path" ] || [ -L "$target/$path" ]; then
-			echo "post-build: the release image holds /$path; build it in a clean output" >&2
+			echo "post-build: the release image holds /$path of the development variant; build it in a clean output" >&2
 			exit 1
 		fi
 	done
+	if grep -q /state/hot "$target/usr/libexec/neptron/launch"; then
+		echo "post-build: the release launch script reads the hot folder of the development variant" >&2
+		exit 1
+	fi
 fi
