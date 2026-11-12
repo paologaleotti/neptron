@@ -11,7 +11,7 @@ use super::request::{self, ALLOW_MODESET, Request};
 
 impl Drop for KmsDisplay {
     fn drop(&mut self) {
-        if self.active.is_some() {
+        if self.wire.on_wire().is_some() {
             if self.state.is_pending() {
                 let limit = Duration::from_millis(FLIP_WAIT_LIMIT_MS);
                 // A pending flip makes the commits below fail with EBUSY;

@@ -5,19 +5,23 @@ use neptron_backend::DisplayError;
 use neptron_safety::ValidatedMode;
 use neptron_types::{Filter, Modeline, Rect, Scanlines, Scene};
 
-use super::display::{Active, KmsDisplay, render_error};
+use super::display::{KmsDisplay, render_error};
 use super::request::{self, ALLOW_MODESET, Refusal, Request};
-use crate::{ModeRecord, PlaneRect};
+use crate::{ModeRecord, NextStep, PlaneRect};
 
 impl KmsDisplay {
     /// Commits `mode`, test-only first, and returns the mode read back.
     pub(super) fn commit_mode(&mut self, mode: &ValidatedMode) -> Result<Modeline, DisplayError> {
         self.state.check_set_mode()?;
         let m = *mode.mode();
-        if let Some(active) = self.active
-            && active.requested == m
-        {
-            return Ok(active.readback);
+        match self.wire.next_step(&m) {
+            NextStep::Reuse(readback) => return Ok(readback),
+            NextStep::ReadAgain => {
+                let readback = self.read_mode()?;
+                self.wire.read_back(readback);
+                return Ok(readback);
+            }
+            NextStep::Commit => {}
         }
         let refused = |reason: String| DisplayError::ModeRefused { mode: m, reason };
         let record = ModeRecord::from_validated(mode).map_err(|e| refused(e.to_string()))?;
@@ -64,12 +68,12 @@ impl KmsDisplay {
         if let Some(old) = self.front.replace(bo) {
             self.gbm.release(old);
         }
+        // The mode is on the wire now, whatever the readback gives: a later
+        // request for another mode must commit, and drop must restore.
+        self.wire.committed(m);
         self.state.mode_committed();
         let readback = self.read_mode()?;
-        self.active = Some(Active {
-            requested: m,
-            readback,
-        });
+        self.wire.read_back(readback);
         Ok(readback)
     }
 

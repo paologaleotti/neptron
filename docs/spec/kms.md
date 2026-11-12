@@ -52,13 +52,13 @@ Every commit uses the atomic API. A commit is all or nothing: when the kernel re
 **`set_mode(mode)`**
 
 1. A flip is pending: `DisplayError::Device`, nothing changes (OP-032, as the fake display). The engine calls `wait_flip` first.
-2. The mode equals the mode set now: no commit. The call returns the mode read back before.
+2. The mode equals the mode set now: no commit. The call returns the mode read back before. When that readback failed (step 8), the call reads the mode back again, still with no commit.
 3. The kernel mode record is built from the `ValidatedMode` and from nothing else (see "The kernel mode record"). A pixel clock that is not a whole number of kHz, and a mode larger than the buffers, give `DisplayError::ModeRefused`, with no commit.
 4. The renderer draws a black frame of the new size, and the backend takes its buffer.
 5. One request holds: the connector on the CRTC, the writeback connector on the CRTC when writeback is on, the mode blob and `ACTIVE` 1 on the CRTC, and the plane (framebuffer, CRTC, source and destination rectangles).
 6. A test-only commit with `ALLOW_MODESET`. A refusal is `DisplayError::ModeRefused` with the kernel's error. The old mode stays.
 7. The real commit with `ALLOW_MODESET`, blocking. When it returns, the mode is on the wire. A refusal here is `DisplayError::Device`; the old mode stays, because the commit is all or nothing.
-8. The backend reads the mode of the CRTC back, converts it to a `Modeline` and returns it. A mode that cannot be read or converted is `DisplayError::Device`.
+8. The backend records the new mode as the mode on the wire, then reads the mode of the CRTC back, converts it to a `Modeline` and returns it. A mode that cannot be read or converted is `DisplayError::Device`, and the new mode stays recorded as on the wire: a later request for the old mode is a real commit, and the restore at drop runs (`WireMode`).
 
 `ALLOW_MODESET` is set only here, and only for a mode that differs from the mode set now. No other commit of the backend can change a mode.
 

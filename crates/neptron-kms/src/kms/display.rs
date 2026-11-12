@@ -12,7 +12,7 @@ use super::device::{self, Card, Objects, PLANE_FB_ID};
 use super::events;
 use super::ffi::{self, Bo, Gbm, LinearBy};
 use super::request::{self, NONBLOCK, PAGE_FLIP_EVENT, Request};
-use crate::{FlipState, VblankCounter};
+use crate::{FlipState, VblankCounter, WireMode};
 
 /// What the caller decides for the display. The backend decides nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,19 +46,12 @@ pub struct KmsDisplay {
     pub(super) objects: Objects,
     pub(super) config: KmsConfig,
     pub(super) state: FlipState,
-    pub(super) active: Option<Active>,
+    pub(super) wire: WireMode,
     pub(super) framebuffers: [Option<(usize, u32)>; FB_SLOTS],
     pub(super) front: Option<Bo>,
     pub(super) queued: Option<Bo>,
     pub(super) counter: VblankCounter,
     pub(super) driver: String,
-}
-
-/// The mode on the wire.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Active {
-    pub requested: Modeline,
-    pub readback: Modeline,
 }
 
 /// Framebuffers kept, one per GBM buffer. Mesa's GBM surface has at most
@@ -124,7 +117,7 @@ impl KmsDisplay {
             objects,
             config,
             state: FlipState::new(),
-            active: None,
+            wire: WireMode::new(),
             framebuffers: [None; FB_SLOTS],
             front: None,
             queued: None,
@@ -227,10 +220,9 @@ impl Display for KmsDisplay {
 
     fn present(&mut self, scene: &Scene) -> Result<(), DisplayError> {
         self.state.check_present()?;
-        let Some(active) = self.active else {
+        let Some(m) = self.wire.on_wire() else {
             return Err(DisplayError::NoMode);
         };
-        let m = active.requested;
         self.renderer
             .draw_to_window(scene, u32::from(m.hactive), u32::from(m.vactive))
             .map_err(render_error)?;

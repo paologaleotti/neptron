@@ -22,6 +22,8 @@ mod mode_record;
 mod request;
 #[forbid(unsafe_code)]
 mod sequence;
+#[forbid(unsafe_code)]
+mod wire_mode;
 
 pub use connector::{ChoiceError, ConnectorClass, ConnectorFacts, choose};
 pub use flip_state::FlipState;
@@ -33,3 +35,4 @@ pub use kms::{
 pub use layout::{PlaneRect, TooLarge};
 pub use mode_record::{ModeRecord, ModeRecordError};
 pub use sequence::VblankCounter;
+pub use wire_mode::{NextStep, WireMode};

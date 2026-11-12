@@ -43,7 +43,7 @@ impl KmsDisplay {
                 reason: e.to_string(),
             }
         };
-        let Some(active) = self.active else {
+        let Some(mode) = self.wire.on_wire() else {
             return Err(DisplayError::NoMode);
         };
         if self.state.is_pending() {
@@ -58,10 +58,7 @@ impl KmsDisplay {
                 reason: "writeback is off in the configuration".to_owned(),
             });
         };
-        let (w, h) = (
-            u32::from(active.requested.hactive),
-            u32::from(active.requested.vactive),
-        );
+        let (w, h) = (u32::from(mode.hactive), u32::from(mode.vactive));
         let mut buffer = self
             .card
             .create_dumb_buffer((w, h), DrmFourcc::Xrgb8888, 32)
