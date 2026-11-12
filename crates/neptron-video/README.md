@@ -36,7 +36,7 @@ for _ in 0..repeat {                           // 2 for double refresh
 | Field | Content | Example |
 | --- | --- | --- |
 | `game` | The source size padded to 10, 10 spaces, the field rate with 3 decimals | `256x224             60.099 Hz` |
-| `mode` | The read back: size and scan suffix padded to 10 (one space after a size of 10 characters), line rate in kHz with 2 decimals padded to 10, field rate, two spaces, the rung (`native` for native and interlaced 1:1, `2x`, `3x`, `4x`, `fit`, `panel`) | `768x448p  30.05 kHz 60.099 Hz  2x` |
+| `mode` | The read back: size and scan suffix padded to 10 (one space after a size of 10 characters), line rate in kHz with 2 decimals (1 decimal from 100 kHz up) padded to 10, field rate, two spaces, the rung (`native` for native and interlaced 1:1, `2x`, `3x`, `4x`, `fit`, `panel`) | `768x448p  30.05 kHz 60.099 Hz  2x` |
 | `result` | `exact`, `sharp`, `double refresh`, `cropped N lines`, `small picture N%`, `filtered`, `speed (X to Y Hz)`, in that order, joined with `, `. An alert result starts with `ALERT_MARK`, `[!] ` | `[!] cropped 2 lines, speed (60.099 to 59.940 Hz)` |
 | `alert` | `filtered` or `speed`, never on a flat panel | |
 
@@ -50,7 +50,7 @@ for _ in 0..repeat {                           // 2 for double refresh
 - `speed`: the speed of the game changes. X is the game's rate, Y the read-back field rate per game frame. It shows when they differ by `REFRESH_MATCH_MHZ` (5 mHz) or more, never on a flat panel (audio rate control absorbs the difference there, as in the policy's notice).
 - Before the first mode is on screen the function returns `None`, and the UI shows no block.
 - `[!] ` starts the result when `alert` is true, so the alert shows also where its colour is hard to tell apart. The mark is not a result word and has no `, ` after it.
-- The worst mode line, `1920x238p 15.73 kHz 59.9xx Hz  native`, has 37 characters. A 1080p panel, `1920x1080p 67.50 kHz 60.000 Hz  panel`, has 37 too. A 4K panel at 135 kHz has 38; no GPU entry of the capability table sends that mode today. The longest real results, with the mark, wrap into two lines of 37: `[!] double refresh, small picture 100%, speed (57.500 to 50.082 Hz)` gives 33 and 33 characters, and `[!] double refresh, cropped 16 lines, speed (100.000 to 60.099 Hz)` gives 37 and 28. The word is `speed` and not `speed changed`, because with `speed changed` and the mark the first of these needs three lines.
+- The worst mode line, `1920x238p 15.73 kHz 59.9xx Hz  native`, has 37 characters. A 1080p panel, `1920x1080p 67.50 kHz 60.000 Hz  panel`, has 37 too. A 2160p panel, `3840x2160p 133.3 kHz 59.997 Hz  panel`, has 37: from 100 kHz up the line rate has one decimal. The longest real results, with the mark, wrap into two lines of 37: `[!] double refresh, small picture 100%, speed (57.500 to 50.082 Hz)` gives 33 and 33 characters, and `[!] double refresh, cropped 16 lines, speed (100.000 to 60.099 Hz)` gives 37 and 28. The word is `speed` and not `speed changed`, because with `speed changed` and the mark the first of these needs three lines.
 
 ## The state machine
 

@@ -214,11 +214,20 @@ fn hz_number(out: &mut String, mhz: u64) -> std::fmt::Result {
     write!(out, "{}.{:03}", mhz / 1_000, mhz % 1_000)
 }
 
-/// `15.73 kHz` from millihertz, rounded to 10 Hz, a half up.
+/// `15.73 kHz` from millihertz, rounded to 10 Hz, a half up. From
+/// 100 kHz up, one decimal (`133.3 kHz`, rounded to 100 Hz), so the
+/// column stays 9 characters and a 2160p panel mode line fits 37.
 fn khz(out: &mut String, mhz: u64) -> std::fmt::Result {
     let centi_khz = (mhz + 5_000) / 10_000;
+    if centi_khz >= CENTI_KHZ_ONE_DECIMAL {
+        let deci_khz = (mhz + 50_000) / 100_000;
+        return write!(out, "{}.{} kHz", deci_khz / 10, deci_khz % 10);
+    }
     write!(out, "{}.{:02} kHz", centi_khz / 100, centi_khz % 100)
 }
+
+/// 100 kHz in units of 10 Hz: from here the line rate has one decimal.
+const CENTI_KHZ_ONE_DECIMAL: u64 = 10_000;
 
 #[cfg(test)]
 mod tests {
@@ -436,6 +445,30 @@ mod tests {
     }
 
     #[test]
+    fn a_2160p_mode_line_fits_37_characters() {
+        let (p, _) = winner();
+        // 533.25 MHz over 4000 clocks is 133.3125 kHz: one decimal from
+        // 100 kHz up keeps the column at 9 characters.
+        let shown = mode(3840, 2160, 533_250_000, 4_000, 2_222);
+        let inputs = StatusInputs {
+            source: &SNES,
+            mode: &shown,
+            rung: Rung::Panel,
+            proposal: &p,
+        };
+        let mut out = VideoStatusText::default();
+        write_video_status(Some(&inputs), &mut out).unwrap();
+        assert_eq!(out.mode, "3840x2160p 133.3 kHz 59.997 Hz  panel");
+        assert_eq!(out.mode.len(), 37);
+        let mut text = String::new();
+        khz(&mut text, 99_995_000).unwrap();
+        assert_eq!(
+            text, "100.0 kHz",
+            "99.995 kHz rounds up to the one-decimal form"
+        );
+    }
+
+    #[test]
     fn the_speed_compares_the_read_back_rate() {
         let (base, rung) = winner();
         let p = same_speed(base);
@@ -544,7 +577,7 @@ mod tests {
         assert_eq!(out, "15.74 kHz");
         out.clear();
         khz(&mut out, 100_000_000).unwrap();
-        assert_eq!(out, "100.00 kHz");
+        assert_eq!(out, "100.0 kHz", "one decimal from 100 kHz up");
     }
 
     #[test]

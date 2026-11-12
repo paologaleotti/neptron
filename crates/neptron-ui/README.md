@@ -102,7 +102,7 @@ Menu during a game opens the quick menu over the paused game. Its rows write at 
 The formatter writes fixed columns, so that the field rates of the two lines are one under the other:
 
 - Columns 1 to 10: the size, padded with spaces to 10 characters. The mode size ends with the scan suffix: `p` for progressive, `i` for interlaced (`768x448p`, `640x480i`).
-- Columns 11 to 20: the line rate, padded with spaces to 10 characters. It is in kHz with two decimals (`30.05 kHz`). On the game line these columns are spaces.
+- Columns 11 to 20: the line rate, padded with spaces to 10 characters. It is in kHz with two decimals (`30.05 kHz`), and with one decimal from 100 kHz up (`133.3 kHz`, a 2160p panel), so it stays 9 characters. On the game line these columns are spaces.
 - Then the field rate in Hz with three decimals (`60.099 Hz`). The mode line uses the rate read back from the kernel, never the requested one.
 - On the mode line only: two spaces, then the picture style (`2x`, `native`).
 - When `alert` is true: the mark `[!] ` first. It is not a result word, and no `, ` follows it.
