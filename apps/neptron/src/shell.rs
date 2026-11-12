@@ -81,8 +81,11 @@ pub struct Runtime {
     pub pace: Box<dyn FnMut(u64)>,
     /// Set when the user closes the window; `None` on a device.
     pub quit: Option<Rc<Cell<bool>>>,
-    /// The name of the output, for the display panel.
+    /// The name of the output, for the display panel and the guard record.
     pub output: String,
+    /// What the backend could not open, as notices for the player: a run
+    /// goes on with no sound or no gamepad.
+    pub notices: Vec<String>,
 }
 
 /// How a run ends.

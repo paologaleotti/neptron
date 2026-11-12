@@ -4,6 +4,7 @@
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use neptron::devices::MaybeSink;
 use neptron::display::{AUTO, Detected};
 use neptron::options::Options;
 use neptron::{Devices, NextRun, Runtime, Shell};
@@ -35,13 +36,15 @@ impl Clock for Monotonic {
 
 /// The gamepads and the keyboards as one source.
 struct Inputs {
-    pads: neptron_input::SdlGamepads,
+    pads: Option<neptron_input::SdlGamepads>,
     keyboards: neptron_input::EvdevKeyboards,
 }
 
 impl InputSource for Inputs {
     fn poll(&mut self, out: &mut Vec<InputEvent>) {
-        self.pads.poll(out);
+        if let Some(pads) = &mut self.pads {
+            pads.poll(out);
+        }
         self.keyboards.poll(out);
     }
 }
@@ -77,18 +80,24 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
         }
     };
     let output = display.connector_name().to_owned();
+    // A missing sound device or gamepad subsystem is a notice: the run
+    // still shows the picture, reads the keyboards and reaches its guard,
+    // so a box with no usable audio does not restart forever.
+    let mut notices = Vec::new();
     let audio = match Sdl3Sink::open() {
-        Ok(sink) => sink,
+        Ok(sink) => MaybeSink::Device(sink),
         Err(e) => {
-            eprintln!("neptron: cannot open the audio: {e}");
-            return ExitCode::FAILURE;
+            eprintln!("neptron: cannot open the audio, the run has no sound: {e}");
+            notices.push(format!("No sound: the audio device did not open ({e})."));
+            MaybeSink::Silent
         }
     };
     let pads = match neptron_input::SdlGamepads::open() {
-        Ok(pads) => pads,
+        Ok(pads) => Some(pads),
         Err(e) => {
-            eprintln!("neptron: cannot open the gamepads: {e}");
-            return ExitCode::FAILURE;
+            eprintln!("neptron: cannot open the gamepads, the run reads keyboards only: {e}");
+            notices.push(format!("No gamepads: they did not open ({e})."));
+            None
         }
     };
     let clock = Monotonic {
@@ -105,6 +114,7 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
         }),
         quit: None,
         output,
+        notices,
     };
     let devices = Devices {
         display,

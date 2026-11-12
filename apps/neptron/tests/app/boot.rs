@@ -40,3 +40,26 @@ fn a_guard_record_that_cannot_be_written_starts_the_safe_default() {
     // run ends all the same.
     let _late_failures = shell.finish();
 }
+
+#[test]
+fn a_missing_device_is_a_notice_and_the_run_goes_on() {
+    let dir = std::env::temp_dir().join(format!("neptron-app-devices-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    rig.notices = vec!["No sound: the audio device did not open.".to_owned()];
+    rig.boot(None);
+    let shown = rig
+        .shell()
+        .snapshot()
+        .notices
+        .iter()
+        .any(|n| n.text.starts_with("No sound"));
+    assert!(shown);
+    assert!(
+        rig.state_file("video/guard.toml")
+            .contains("failed_boots = 1")
+    );
+    rig.finish();
+}

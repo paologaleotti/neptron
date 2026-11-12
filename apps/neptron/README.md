@@ -35,6 +35,8 @@ Before a relaunch the run writes `run/next.toml` (the relaunch file, `relaunch.r
 
 ## Boot, before the first frame
 
+The guard boots, and its record is written, before every step that can fail for a reason other than the display, so a start that fails later still counts. A sound device or a gamepad subsystem that does not open is a notice, and the run goes on with no sound or with keyboards only (`devices::MaybeSink`). A game run follows a relaunch file, so the run before it counted the boot already.
+
 1. The settings: `global.toml`, and for a game its system and game files. A file that cannot be read is an empty layer and a notice.
 2. The monitor presets from `data/monitors` at run time (OP-044): the binary embeds no GPL data. A bad file is left out with a notice.
 3. The detected output from sysfs: the connected connectors, the EDID profile, the GPU caps of the capability table.

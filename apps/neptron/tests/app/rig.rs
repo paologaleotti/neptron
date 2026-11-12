@@ -38,6 +38,8 @@ const SINK_CAPACITY_FRAMES: usize = 6_144;
 /// The fakes and the folders of a run, kept across the runs of one test,
 /// as the launcher keeps the device across the runs of a boot.
 pub struct Rig {
+    /// What the backend could not open, for the runtime.
+    pub notices: Vec<String>,
     /// The name of the output the runtime reports.
     pub output: String,
     pub paths: Paths,
@@ -129,6 +131,7 @@ impl Rig {
             .expect("the core link");
         let clock = SimClock::starting_at(1_000_000);
         Self {
+            notices: Vec::new(),
             output: "fake-1".to_owned(),
             display: FakeDisplay::new(clock.clone(), CAPS_LOW_CLOCK),
             audio: FakeAudio::new(clock.clone(), DEVICE_RATE_HZ, SINK_CAPACITY_FRAMES),
@@ -151,6 +154,7 @@ impl Rig {
             }),
             quit: None,
             output: self.output.clone(),
+            notices: self.notices.clone(),
         };
         let devices = Devices {
             display: self.display.clone(),

@@ -14,7 +14,9 @@ use neptron_settings::Storage;
 use neptron_ui::screens::Screens;
 use neptron_ui::snapshot::{DisplayInfo, NoticeKind, ProfileEntry, ProfileId};
 use neptron_ui::{CpuCanvas, Snapshot, Theme, UiFrame};
-use neptron_video::{DisplayConfig, Guard, GuardRecord, VideoEngine, VideoStatusText};
+use neptron_video::{
+    DisplayConfig, Guard, GuardRecord, ScanlineSettings, VideoEngine, VideoStatusText,
+};
 
 use super::{ControlInput, Devices, GameStage, ListStage, Runtime, Shell, Stage};
 use crate::config::{Config, GameContext};
@@ -74,7 +76,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         next: Option<NextRun>,
     ) -> Result<Booted<D, S, I, C>, BootError> {
         let mut found = Found { issues: Vec::new() };
-        let catalog = Catalog::builtin()?;
+        found.warn_all(runtime.notices.iter().cloned());
+        // The guard boots and its record is written before every step
+        // that can fail for a reason other than the display, so a start
+        // that fails later still counts as a boot.
         let presets = load_presets(&paths.monitors(), &mut found);
         let game = next.as_ref().and_then(|n| n.game.clone());
         let context = game.as_ref().map(|g| GameContext {
@@ -95,10 +100,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 safe.monitor.clone()
             }
         };
-        let wanted = DisplayConfig {
-            monitor,
-            settings: config.global_policy()?,
-        };
+        let settings = config.global_policy().unwrap_or_else(|e| {
+            found.warn(format!("{e}; the safe picture style applies"));
+            safe.settings
+        });
+        let wanted = DisplayConfig { monitor, settings };
         let (record, record_output) = load_record(
             &paths,
             &detected,
@@ -107,30 +113,23 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             next.is_some(),
             &mut found,
         );
-        let (mut library, issue) = Library::load(catalog, &paths.library_cache());
-        found.warn_all(issue);
-        let outbox = Outbox::start(Places {
-            config: paths.config(),
-            record: paths.guard_record(),
-            cache: paths.library_cache(),
-        })
-        .map_err(BootError::Writer)?;
+        let scanlines = config.scanlines().unwrap_or_else(|e| {
+            found.warn(format!("{e}; no scanlines are drawn"));
+            ScanlineSettings::OFF
+        });
         let frame = Rc::new(Cell::new(0));
         let queue = Rc::new(RefCell::new(VecDeque::new()));
         let input = ControlInput::new(devices.input, queue.clone(), frame.clone());
 
         let now_ns = devices.clock.now_ns();
-        let (stage, guard, mut step) = match &game {
+        let (stage, guard, mut step, library) = match &game {
             None => {
-                if let Err(e) = library.start_scan(paths.roms()) {
-                    found.warn(format!("the game scan did not start: {e}"));
-                }
                 let mut engine =
                     VideoEngine::new(devices.display, wanted.monitor.clone(), wanted.settings);
-                engine.set_scanlines(config.scanlines()?);
+                engine.set_scanlines(scanlines);
+                let (guard, step) = Guard::boot(record, wanted, safe.clone(), now_ns, &mut engine);
                 let mut hotkeys = Hotkeys::new();
                 hotkeys.set_start_hold_ns(config.start_hold_ns());
-                let (guard, step) = Guard::boot(record, wanted, safe.clone(), now_ns, &mut engine);
                 let list = ListStage {
                     engine,
                     input,
@@ -139,9 +138,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                     hotkeys,
                     fired: Vec::new(),
                 };
-                (Stage::List(Box::new(list)), guard, step)
+                (Stage::List(Box::new(list)), guard, step, None)
             }
+            // A game run follows a relaunch file, so the run before it
+            // has counted this boot already.
             Some(reference) => {
+                let (library, issue) = Library::load(Catalog::builtin()?, &paths.library_cache());
+                found.warn_all(issue);
                 let launched = launch(
                     &paths,
                     &library,
@@ -172,12 +175,30 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                     now_ns,
                     game.session.video_mut(),
                 );
-                (Stage::Game(Box::new(game)), guard, step)
+                (Stage::Game(Box::new(game)), guard, step, Some(library))
             }
         };
         let unrecorded = step.save.take().and_then(|saved| {
             record::save(&paths.guard_record(), &saved, record_output.as_deref()).err()
         });
+        let library = match library {
+            Some(library) => library,
+            None => {
+                let (mut library, issue) =
+                    Library::load(Catalog::builtin()?, &paths.library_cache());
+                found.warn_all(issue);
+                if let Err(e) = library.start_scan(paths.roms()) {
+                    found.warn(format!("the game scan did not start: {e}"));
+                }
+                library
+            }
+        };
+        let outbox = Outbox::start(Places {
+            config: paths.config(),
+            record: paths.guard_record(),
+            cache: paths.library_cache(),
+        })
+        .map_err(BootError::Writer)?;
         let theme = load_theme(&paths.skin(), &mut found);
         let mut shell = Shell {
             paths,

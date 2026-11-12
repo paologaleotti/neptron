@@ -11,6 +11,7 @@
 pub mod atomic;
 pub mod config;
 pub mod control;
+pub mod devices;
 pub mod display;
 pub mod library;
 pub mod nav;

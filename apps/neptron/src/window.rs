@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use std::rc::Rc;
 use std::time::Duration;
 
+use neptron::devices::MaybeSink;
 use neptron::options::Options;
 use neptron::{Devices, NextRun, Runtime, Shell};
 use neptron_audio::{Resampling, Sdl3Sink};
@@ -38,11 +39,13 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let mut notices = Vec::new();
     let audio = match Sdl3Sink::open() {
-        Ok(sink) => sink,
+        Ok(sink) => MaybeSink::Device(sink),
         Err(e) => {
-            eprintln!("neptron: cannot open the audio: {e}");
-            return ExitCode::FAILURE;
+            eprintln!("neptron: cannot open the audio, the run has no sound: {e}");
+            notices.push(format!("No sound: the audio device did not open ({e})."));
+            MaybeSink::Silent
         }
     };
     let clock = display.clock();
@@ -58,6 +61,7 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
         }),
         quit: Some(quit.clone()),
         output: "window".to_owned(),
+        notices,
     };
     let devices = Devices {
         display,
