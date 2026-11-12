@@ -226,7 +226,7 @@ name = "Session"
 owns = ["crates/neptron-session"]
 needs = ["T06", "T16", "T17", "T18", "T22"]
 gate = "Timing check 6; scripted session"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T26"
@@ -308,4 +308,22 @@ owns = ["crates/neptron-ui", "the status formatter in crates/neptron-video (with
 needs = ["T20", "T22"]
 gate = "T1; scenes and goldens viewed"
 status = "merged"
+
+[[task]]
+id = "C06"
+wave = 4
+name = "Alert mark in the video status; warning and error colours in the skin"
+owns = ["crates/neptron-ui", "crates/neptron-video/src/status.rs"]
+needs = ["C05", "T22"]
+gate = "T1; scenes and goldens viewed; the old skin version still loads"
+status = "in_progress"
+
+[[task]]
+id = "C07"
+wave = 4
+name = "Contract change: Display::blank and the bounded flip wait"
+owns = ["crates/neptron-backend", "crates/neptron-testkit", "crates/neptron-kms", "crates/neptron-video (engine only)", "docs/adr"]
+needs = ["T22", "T23"]
+gate = "T1; kms-check; an ADR; every caller fixed"
+status = "in_progress"
 

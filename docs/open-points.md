@@ -503,7 +503,7 @@ Each open point is one section:
 - Default: the SNES and Mega Drive builds of the 240p Test Suite contain backgrounds from Sonic (Sega) and Kiki Kaikai (Taito) and "Donna" art with no stated licence. They are in no commit. `cargo xtask core-trace` reads them from `~/.cache/neptron/test-roms` and checks their SHA-256. A missing file fails the run with a line that names it. The NES build (240p-test-mini v0.23, GPL-2.0-or-later, own art) is in the repository. A machine without the two files, a CI runner too, cannot pass tier T4.
 - Where: `tests/roms/README.md`, `xtask/src/os/core_trace.rs`
 - How to change: (a) accept the two files in the repository with an ADR; (b) keep them outside, as now; (c) build the suite from its GPL source with that art removed or replaced, which needs the SNES and Mega Drive toolchains and new traces.
-- Decision:
+- Decision: the owner (2026-11-12): a ROM with a clear open licence for all its content can be in the repository; any other ROM stays outside and is downloaded to the development machine for the tests. The NES build (GPL-2.0-or-later, own art) stays in. The SNES and Mega Drive builds hold art with no licence from its owners, so they stay outside, as now.
 
 ### OP-054: Non-commercial cores in a distributed image.
 
@@ -512,7 +512,7 @@ Each open point is one section:
 - Default: the Buildroot packages for Snes9x and Genesis Plus GX exist and only the two QEMU test images enable them. Those images are not distributed. Both licences forbid sale and commercial use. Genesis Plus GX also links LGPL code (Nuked OPN2). FCEUmm is GPL-2.0-or-later.
 - Where: `os/package/libretro-*`, `data/cores`
 - How to change: ship the cores in a free image with the licence texts and the `make legal-info` output; or download them at first boot; or use other cores (bsnes, BlastEm).
-- Decision:
+- Decision: the owner (2026-11-12): the product is open source and not commercial, so an image can hold Snes9x and Genesis Plus GX. The image must carry the licence texts and the `make legal-info` output, and must never be sold. T28 does this.
 
 ### OP-055: What the real cores report, and the options for the full picture.
 
@@ -530,7 +530,7 @@ Each open point is one section:
 - Default: (1) on a 31 kHz monitor the `native` style takes double refresh on its own when the game's lines at the game's rate do not fill the range, and gives a notice. (2) The overscan crop bound is 8 lines per edge, the crop is symmetric, and an odd miss costs one extra line. (3) A padded exact mode is used only when the game fills at least 75 percent of the picture lines; a smaller fill ranks after it. (4) The standard border heights 224 and 240 come first, so a 192-line game gets 448 lines before 400. (5) Donkey Kong with `native` on `pc_31_120` shows at full height at 121.212 Hz with a crop of 8 lines per edge. (6) A double rate that the user asks for (`exact_x2`) ranks like a forced rate, before any fill comparison.
 - Where: `crates/neptron-modeline/src/policy/crt.rs`, `crates/neptron-modeline/src/policy/choose.rs`, `crates/neptron-modeline/README.md` (Order, Known limits)
 - How to change: the bounds are named constants (`OVERSCAN_CROP_MAX_LINES_PER_EDGE`, `PADDED_FILL_MIN_PERCENT`, `BORDER_LINES`). The order is in `native_key` and `entry`. Each rule has a table row in `tests/integration/policy_table.rs`.
-- Decision:
+- Decision: the owner (2026-11-12): accepted as built.
 
 ### OP-057: A crop at the bound can hide game content on arcade boards.
 
@@ -548,7 +548,7 @@ Each open point is one section:
 - Default: (1) the result words sit on their own two lines under the mode line, because the mode text already uses 32 to 37 of the 37 characters at 320 pixels. The block always has five lines, so the menu rows never move. (2) An alert result (filtered, speed changed) shows in the focus colour of the skin, amber in the default skin. The skin has no warning colour, and the alert is not in the accessibility tree. (3) The display panel drops its Mode line during a game, because the block shows the mode read back from the kernel. (4) A screen shows the block only when at least 2 rows of its page fit under it; with 24-pixel rows the display panel shows no block and the quick menu scrolls. (5) The UI part is merged; the formatter that fills the text is in `neptron-video` (T22), and the app (T27) copies it into the snapshot each frame.
 - Where: `crates/neptron-ui/src/screens/video.rs`, `crates/neptron-ui/README.md` (the contract of the text)
 - How to change: a warning colour is a new field of the skin and a new version of the skin format. A cheaper mark is a text prefix from the formatter, for example `! filtered`, with no UI change.
-- Decision:
+- Decision: the owner (2026-11-12): the layout stays. An alert gets a text mark `[!]` from the formatter and its own warning colour. The palette also gets a red error colour for errors. Change C06 does this with a new version of the skin format.
 
 ### OP-059: The bounded flip wait is not in the `Display` contract or the fake.
 
