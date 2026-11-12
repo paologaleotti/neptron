@@ -470,14 +470,16 @@ mod linux {
                 .map_err(|e| e.to_string()),
         );
         check.report(
-            "blank: a second descriptor sees the CRTC inactive with no mode and no plane",
+            "blank: a second descriptor sees the CRTC inactive with no mode, no plane and \
+             no connector",
             match (
                 probe.crtc_prop(crtc, b"ACTIVE"),
                 probe.crtc_prop(crtc, b"MODE_ID"),
                 probe.mode_of(crtc),
                 probe.plane_fb(crtc),
+                probe.connector_crtc(display.connector_name()),
             ) {
-                (Ok(0), Ok(0), Ok(None), Ok(None)) => Ok(String::new()),
+                (Ok(0), Ok(0), Ok(None), Ok(None), Ok(0)) => Ok(String::new()),
                 other => Err(format!("{other:?}")),
             },
         );
@@ -1091,6 +1093,29 @@ mod linux {
         /// id) or `ACTIVE`.
         fn crtc_prop(&self, crtc_id: u32, name: &[u8]) -> Result<u64, String> {
             let handle: crtc::Handle = drm::control::from_u32(crtc_id).ok_or("CRTC id 0")?;
+            self.prop_of(handle, name)
+        }
+
+        /// The `CRTC_ID` property of the connector named `connector`, such
+        /// as `Virtual-1`: 0 when the connector is detached.
+        fn connector_crtc(&self, connector: &str) -> Result<u64, String> {
+            let res = self.resource_handles().map_err(|e| e.to_string())?;
+            for &handle in res.connectors() {
+                let info = self
+                    .get_connector(handle, false)
+                    .map_err(|e| e.to_string())?;
+                if format!("{}-{}", info.interface().as_str(), info.interface_id()) == connector {
+                    return self.prop_of(handle, b"CRTC_ID");
+                }
+            }
+            Err(format!("no connector {connector}"))
+        }
+
+        fn prop_of<T: drm::control::ResourceHandle>(
+            &self,
+            handle: T,
+            name: &[u8],
+        ) -> Result<u64, String> {
             let set = self.get_properties(handle).map_err(|e| e.to_string())?;
             let (ids, values) = set.as_props_and_values();
             for (&id, &value) in ids.iter().zip(values) {
@@ -1099,10 +1124,7 @@ mod linux {
                     return Ok(value);
                 }
             }
-            Err(format!(
-                "the CRTC has no {} property",
-                String::from_utf8_lossy(name)
-            ))
+            Err(format!("no {} property", String::from_utf8_lossy(name)))
         }
 
         fn crtc_modes(&self) -> Vec<Option<Modeline>> {
