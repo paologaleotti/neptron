@@ -327,3 +327,12 @@ needs = ["T22", "T23"]
 gate = "T1; kms-check; an ADR; every caller fixed"
 status = "merged"
 
+[[task]]
+id = "C08"
+wave = 6
+name = "Flat panels: detect an HD panel, use its native mode, whole-scale games with black borders"
+owns = ["apps/neptron", "crates/neptron-platform", "crates/neptron-video (monitor only)"]
+needs = ["T27"]
+gate = "T1 and T2; a tier 2 case on a fake HD panel; scenes or captures viewed"
+status = "in_progress"
+
