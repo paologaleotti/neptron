@@ -1,6 +1,6 @@
 # os
 
-The Buildroot br2-external tree of NEPTRON. It defines the OS images. Today it has the two QEMU targets that tier T3 runs on. The real x86\_64 and Raspberry Pi images come later and share this tree.
+The Buildroot br2-external tree of NEPTRON. It defines the OS images: the x86\_64 PC image, which is the USB image for the i3-6100T and also the image that QEMU boots for the x86\_64 checks, and the aarch64 QEMU test image that tier T3 runs on a Mac. The Raspberry Pi image comes later and shares this tree.
 
 ## Pinned versions
 
@@ -8,6 +8,8 @@ The Buildroot br2-external tree of NEPTRON. It defines the OS images. Today it h
 | --- | --- | --- |
 | Buildroot | 2026.08.1, the newest stable release on 2026-11-11 | Tag commit `7fdeadb3b9f12f78e5fccca914d7fef47090ab9a`; `buildroot-2026.08.1.tar.gz` SHA-256 `38a6c152490096018720a9ade379ee1e571c9bf5f93a3657a166566945a98b0d`, from the signed release announcement. `Dockerfile` fetches and checks it |
 | Linux | 6.18.63, the newest 6.18 LTS release on 2026-11-11 | SHA-256 in `patches/linux/linux.hash`, from kernel.org |
+| 15 kHz patch set (PC image) | `D0023R/linux_kernel_15khz`, folder `linux-6.18`, commit `8c96dd9f0b343a6d1ef3c61041783ee106957886` (2026-11-07) | The nine patch URLs in the defconfig name the commit; their SHA-256 values are in `patches/linux/linux.hash`. See the licence question below |
+| Crates of the frontend and the launcher | `Cargo.lock` of the checkout | `cargo vendor --locked` checks each crate against its SHA-256 in `Cargo.lock`, and the build then runs offline. There is no `.hash` file for them in this tree |
 | C library | glibc, from the Buildroot toolchain | Buildroot 2026.08.1 |
 | Container base | `debian:trixie-slim` | Image digest in `Dockerfile` |
 
@@ -17,31 +19,83 @@ Buildroot 2026.08.1 is a bug-fix release of 2026.08. It is not in the repository
 
 | Path | Contents |
 | --- | --- |
-| `external.desc`, `external.mk`, `Config.in` | The br2-external tree, name `NEPTRON` |
-| `configs/neptron_qemu_aarch64_defconfig` | QEMU `virt` machine, 64-bit Arm. Runs with the hypervisor on an Apple Silicon Mac |
-| `configs/neptron_qemu_x86_64_defconfig` | QEMU `q35` machine, x86-64. Runs with KVM on Linux CI |
-| `board/qemu/video.config` | Kernel fragment: `vkms`, and debugfs for its CRCs. No fbdev emulation and no framebuffer console |
-| `board/qemu/input.config` | Kernel fragment: `uinput` |
-| `board/qemu/sound.config` | Kernel fragment: `snd-dummy`, `snd-aloop` |
-| `board/qemu/host.config` | Kernel fragment: the QEMU firmware config in sysfs, and 9p |
+| `external.desc`, `external.mk`, `Config.in` | The br2-external tree, name `NEPTRON`. `external.mk` also holds the shared rules of the packages that build the Rust workspace |
+| `configs/neptron_pc_x86_64_defconfig` | The PC image, x86-64. It boots from a USB stick (BIOS or UEFI) and in QEMU (`q35`) |
+| `configs/neptron_pc_x86_64_dev.fragment` | The development variant: SSH with one public key, DHCP, the `control` feature |
+| `configs/neptron_pc_x86_64_no15khz.fragment` | The PC image without the 15 kHz patch set |
+| `configs/neptron_qemu_aarch64_defconfig` | The QEMU test image, `virt` machine, 64-bit Arm. Runs with the hypervisor on an Apple Silicon Mac |
+| `board/pc/*.config` | Kernel fragments of the PC image, one for each concern: `video`, `console`, `input`, `sound`, `storage`, `network` |
+| `board/pc/busybox.config` | BusyBox fragment of the PC image: no telnet server, no web server, no cron |
+| `board/pc/grub.cfg`, `genimage.cfg`, `post-build.sh`, `post-image.sh` | The boot configuration and the USB image |
+| `board/pc/LICENCES.txt` | The licence notes of the image, on the boot partition and in `/usr/share/licenses` |
+| `board/pc/rootfs-overlay` | The init table of the PC image, and the script that loads the QEMU modules |
+| `board/qemu/*.config` | Kernel fragments of the aarch64 test image; `host.config` (firmware config in sysfs, 9p) is in the PC image too |
+| `board/qemu/rootfs-overlay` | The init table of the aarch64 test image: a console shell, and the launcher for a boot check only |
 | `board/common/busybox.config` | BusyBox fragment: the `timeout` applet |
-| `board/common/rootfs-overlay` | `inittab` for BusyBox init, and the init scripts that mount debugfs and run the command from the host |
-| `patches/` | The global patch and hash directory. It holds the kernel hashes |
-| `package/` | NEPTRON packages. `libretro-fceumm`, `libretro-snes9x` and `libretro-genesis-plus-gx` are the three MVP cores; see below. `neptron-vkms-probe` is a test tool for `vkms`; see below |
+| `board/common/rootfs-overlay` | The init scripts of both images: debugfs and 9p, the state and share partitions, the launcher, and the commands from the host |
+| `patches/` | The global patch and hash directory. It holds the kernel hashes and the hashes of the 15 kHz patch set |
+| `package/` | NEPTRON packages: the frontend `neptron`, the launcher `neptron-launch`, the client `neptronctl`, the three MVP cores, and the test tools `neptron-vkms-probe` and `neptron-capture` |
 
-The kernel configuration of each QEMU target is the Buildroot QEMU configuration (`board/qemu/aarch64-virt/linux.config` or `board/qemu/x86_64/linux.config` in the Buildroot tree) plus the four fragments in `board/qemu`, one for each concern.
+The kernel of the aarch64 test image is the Buildroot QEMU configuration (`board/qemu/aarch64-virt/linux.config` in the Buildroot tree) plus the four fragments in `board/qemu`. The kernel of the PC image is the `x86_64` defconfig of the kernel plus the fragments in `board/pc` and `board/qemu/host.config`.
 
-## The images
+## The PC image
 
-Both QEMU targets have:
+`cargo xtask os build --arch x86_64` writes `~/.cache/neptron/buildroot/images/x86_64/neptron-x86_64.img`, one disk image for BIOS and UEFI.
+
+**Disk layout.** MBR partition table. The disk signature is fixed for each build variant (`4e505452` release, `4e505444` development, `4e50544e` release without the 15 kHz patches, `4e505445` development without them), so the root PARTUUID of a variant never changes.
+
+| Partition | Filesystem | Size | Contents |
+| --- | --- | --- | --- |
+| (before 1 MiB) | | | The GRUB boot sector and core image for BIOS |
+| 1 boot | FAT32, label `NEPTRONBOOT`, type `0x0c`, active | 64 MiB | `EFI/BOOT/bootx64.efi` and `grub.cfg` for UEFI, `boot/grub/grub.cfg` for BIOS, `bzImage`, `LICENCES.txt`, `legal/` |
+| 2 root | EROFS (LZ4HC), read-only | 384 MiB | The OS, the frontend, the cores, `/usr/share/neptron` |
+| 3 state | ext4, label `neptron-state` | 256 MiB | Settings, saves, the guard record, the library cache |
+| 4 share | exFAT, label `NEPTRON` | The rest of the stick | `roms/<system>`, `bios`. Not in the image: see below |
+
+The definition asks for no share partition in the image: the first boot makes it. `S06neptron-storage` finds the disk that holds the root filesystem. When it has no partition 4 and at least 64 MiB free after the state partition, the script appends partition 4 (type `0x07`) over the free space with `sfdisk --force --no-reread --append` (the disk is in use, and the other partitions stay as they are), adds it to the kernel with `partx`, formats it exFAT, and mounts it. A partition 4 that exists is never formatted again, also when it does not mount, because it can hold the games of the user; then `/share` is a RAM folder and the script logs why. After the share is mounted, the script makes `roms/<system>` for each system of `data/systems`, and `bios`. Copy ROMs into `roms/nes`, `roms/snes` or `roms/megadrive` from any computer.
+
+**Boot.** GRUB, `timeout=0`, no menu and no video module, so it sets no display mode. The kernel command line is `root=PARTUUID=<signature>-02 rootfstype=erofs ro rootwait quiet console=ttyS0,115200 panic=10`. The kernel has the USB, SATA, NVMe and virtio disk drivers, EROFS, ext4, exFAT and FAT built in. There is no initramfs.
+
+**The kernel sets no mode of its own** (the safety model, layer 8). There is no virtual terminal (`CONFIG_VT` off, which needs `CONFIG_EXPERT`), no fbdev emulation, no `CONFIG_FB`, no framebuffer console, no `simpledrm`, no firmware framebuffer device and no DRM panic screen. i915 is built in. amdgpu, radeon and vkms are modules. The kernel log goes to the first serial port only.
+
+**Init.** BusyBox init with `mdev`. There is no getty and no login on any console. The init scripts mount the partitions and `/run` (tmpfs). Then init starts `/usr/libexec/neptron/launch`, which makes `/run/neptron` and runs `neptron-launch -- /usr/bin/neptron --backend kms`. The launcher holds the DRM descriptor and starts the frontend again when it ends. Init starts the launcher again when it ends. The frontend reads its folders from the image defaults: `/share`, `/state`, `/usr/share/neptron`, `/usr/lib/libretro`, `/run/neptron`.
+
+**Packages.** Mesa 26.1 with LLVM: the iris driver for Intel gen8 and later (the HD 530 of the i3-6100T), llvmpipe, and softpipe; EGL, OpenGL ES and GBM. SDL3 with KMS/DRM and OpenGL ES, without libudev, and alsa-lib. libdrm. The three cores. The frontend, the launcher, `neptronctl` (with the `kms` feature, for the bench self-test), `neptron-vkms-probe` and `neptron-capture`. e2fsprogs, exfatprogs, and the basic and partition tools of util-linux, for the partitions. There is no firmware file: i915 drives the display without its DMC firmware, which is not loaded, and amdgpu does not work without its firmware (see "Licences").
+
+**The frontend, the launcher and `neptronctl`** are Buildroot packages that build this checkout (`package/neptron`, `package/neptron-launch`, `package/neptronctl`). `xtask` mounts the checkout read-only at `/src/repo`. Each package copies it without `target/`, `.worktrees/` and `.git`, runs `cargo vendor --locked`, and builds offline in the workspace release profile (fat LTO, one codegen unit, `panic = "abort"`). The sdl3 crate adds `/usr/local/lib` to the link search on every Linux host, and the Buildroot compiler wrapper refuses that path. `package/neptron/link-filter.sh` drops only that path and links with the wrapper. With `panic = "abort"` no destructor runs. The launcher keeps its descriptor open, so the framebuffers and the mode stay on the wire until the next frontend commits (`docs/spec/kms.md`).
+
+**The QEMU link.** The PC image boots in QEMU as on a PC. Its QEMU hooks act only when the QEMU firmware config exists, and a PC does not have one. `S07neptron-qemu` loads `vkms`, `snd-dummy` and `snd-aloop`. `S99neptron-run` runs the command of `cargo xtask qemu` instead of the launcher. The `once` entry `host-run check` runs the boot check beside the launcher. On x86\_64, `cargo xtask qemu` with no command gives no shell: the image has none.
+
+### The 15 kHz kernel patch set
+
+The PC kernel applies the nine patches of `D0023R/linux_kernel_15khz`, folder `linux-6.18`, at commit `8c96dd9f0b343a6d1ef3c61041783ee106957886`. All nine apply to 6.18.63 with no offset and no fuzz. Patch 09 (i915 gen9 interlace) acts only with `i915.no_ytiled_scanout=1`, which the image does not set.
+
+**Open licence question.** The `LICENSE` file of the patch repository says GPL-3.0, and the kernel is GPL-2.0 only. The owner has asked the author to clarify. **No image built with these patches may be distributed until that is resolved.** `cargo xtask os build --arch x86_64 --no-kernel-15khz` builds the image without them, in its own output. The defconfig, `patches/linux/linux.hash` and `board/pc/LICENCES.txt` repeat this note.
+
+### Variants
+
+| Command | Output | What differs |
+| --- | --- | --- |
+| `cargo xtask os build --arch x86_64` | `images/x86_64` | The release image |
+| `cargo xtask os build --arch x86_64 --dev-key ~/.ssh/bench.pub` | `images/x86_64-dev` | Dropbear with password logins off (`-s`) and only that public key in `/root/.ssh/authorized_keys`; DHCP on `eth0`; the `control` feature of the frontend |
+| `cargo xtask os build --arch x86_64 --no-kernel-15khz` | `images/x86_64-no15khz` | No 15 kHz patches. It combines with `--dev-key` |
+
+The key file must hold one public key and lie outside the checkout. No key is in the repository. Each variant has its own Buildroot output volume, so no file of the development variant can reach the release image. The release post-build fails when it finds an SSH or telnet server.
+
+On the development variant, a bench tool that needs the display (the self-test of `neptronctl`) runs only while the frontend and the launcher are stopped. Over SSH: `touch /run/neptron/hold && kill $(pidof neptron-launch)`, then for example `neptronctl selftest video --profile generic_15`. The launcher forwards SIGTERM to the frontend, waits for it and exits, and the descriptor closes. Init starts the launch script again, and the script waits while `/run/neptron/hold` exists. `rm /run/neptron/hold` starts the launcher again. The file is on a RAM file system, so a restart always starts the frontend.
+
+**Write the image to a USB stick.** macOS: `diskutil list`, then `diskutil unmountDisk /dev/diskN` and `sudo dd if=$HOME/.cache/neptron/buildroot/images/x86_64/neptron-x86_64.img of=/dev/rdiskN bs=4m`. Linux: `sudo dd if=.../neptron-x86_64.img of=/dev/sdX bs=4M conv=fsync status=progress`. Check the device name twice: `dd` overwrites the whole disk.
+
+## The aarch64 test image
 
 - BusyBox init, with `mdev` for device nodes. There is no udev daemon and no systemd.
 - A root shell on the serial console, with no login.
 - An ext4 root filesystem, 256 MB, on a virtio disk. QEMU runs it in snapshot mode, so a run never changes the image.
-- libdrm with its test programs (`modetest`), and `neptron-vkms-probe`.
+- libdrm with its test programs (`modetest`), `neptron-vkms-probe` and `neptron-capture`.
 - Mesa with the softpipe software renderer: EGL, OpenGL ES and GBM, and `kmscube`.
 - SDL3 with the KMS/DRM video driver and OpenGL ES, without libudev, and alsa-lib.
 - The libretro cores FCEUmm, Snes9x and Genesis Plus GX in `/usr/lib/libretro`, with the library names of `data/cores`.
+- The frontend, the launcher and `neptronctl`. Init starts the launcher only for a boot check (`launch-for-check`), so the other checks get the display.
 
 The build also installs the Rust toolchain of Buildroot (`host-rustc`, the prebuilt `rust-bin`, with the standard library for the target) in the output, not in the image. `cargo xtask gles-compare` uses it with the Buildroot C toolchain as the linker to build Rust programs for the guest. This toolchain (Rust 1.97.1 in Buildroot 2026.08.1) is not the one that `rust-toolchain.toml` pins for the host (1.97.0); the two can drift apart when Buildroot is bumped.
 
@@ -50,7 +104,8 @@ The build also installs the Rust toolchain of Buildroot (`host-rustc`, the prebu
 All commands go through `xtask`.
 
 ```text
-cargo xtask os build --arch aarch64              build the image
+cargo xtask os build --arch aarch64              build the aarch64 test image
+cargo xtask os build --arch x86_64               build the PC image (see "Variants" for the others)
 cargo xtask os build --arch aarch64 -- linux-reconfigure
                                                  rebuild the kernel after a change to its fragment
 cargo xtask os build -- neptron-vkms-probe-rebuild
@@ -60,16 +115,18 @@ cargo xtask qemu --script test.sh --share dir    run a script; dir is read-only 
 cargo xtask qemu                                 interactive console; Ctrl-A then X stops QEMU
 cargo xtask gles-compare                         build the GLES comparison for the guest and run it
 cargo xtask core-trace                           run the test ROMs in the real cores (tier T4)
+cargo xtask os boot-check --arch x86_64 [--firmware uefi]
+                                                 boot the image to the game list and compare the picture (tier T3)
 ```
 
-`os build` builds the development container from `Dockerfile`, then runs Buildroot in it with 4 jobs, 4 CPUs and 6 GB of memory. A machine-wide lock allows one Buildroot build at a time. Buildroot does not see a change to a kernel fragment, or to the source of a package in `package/`, by itself: give the `-reconfigure` or `-rebuild` target as above.
+`os build` builds the development container from `Dockerfile`, then runs Buildroot in it with 4 jobs, 4 CPUs and 6 GB of memory. It runs `make legal-info` before the build, because the image carries the licence texts and the manifest. A machine-wide lock allows one Buildroot build at a time. Buildroot does not see a change to a kernel fragment, or to the source of a package in `package/`, by itself: give the `-reconfigure` or `-rebuild` target as above.
 
 `qemu` boots the image with 2 GB of memory and 2 CPUs. A machine-wide lock allows one guest at a time. On macOS QEMU runs under `taskpolicy -c utility`. The aarch64 guest uses the hypervisor on an Apple Silicon Mac and KVM on an aarch64 Linux host. The x86\_64 guest uses KVM on an x86-64 Linux host. Everywhere else QEMU emulates the CPU, which is too slow for routine use: on a Mac, use the aarch64 target.
 
 How a command runs:
 
 1. `xtask` writes the command as a shell script and gives it to QEMU as the firmware config entry `opt/neptron/run`. Two more entries carry a new random nonce (`opt/neptron/nonce`) and the deadline in seconds (`opt/neptron/timeout`, from `--timeout`, default 120).
-2. The init script `S99neptron-run` prints `NEPTRON-BEGIN <nonce> <uptime>`, runs the script under `timeout -s KILL <deadline>`, prints `NEPTRON-END <nonce> <exit code>` and reboots. `-no-reboot` turns the reboot into a QEMU exit. A command over its deadline ends with exit code 137, and the guest stops even when no host process watches it.
+2. The init script `S99neptron-run` (through `/usr/libexec/neptron/host-run run`) prints `NEPTRON-BEGIN <nonce> <uptime>`, runs the script under `timeout -s KILL <deadline>`, prints `NEPTRON-END <nonce> <exit code>` and reboots. `-no-reboot` turns the reboot into a QEMU exit. A command over its deadline ends with exit code 137, and the guest stops even when no host process watches it.
 3. `xtask` accepts only markers with its nonce, so output that contains the marker text does not end the run. It prints the lines between the markers, the time to the first marker and the guest uptime, and exits with the exit code of the command. It writes the whole console to `target/qemu/<arch>-console.log`.
 4. `xtask` stops QEMU 30 s after the deadline, and at once on SIGTERM, SIGHUP or SIGINT. It removes its script on exit, and the next run removes scripts that a killed run left.
 
@@ -83,9 +140,9 @@ One package for each core, pinned to an exact upstream commit, with the SHA-256 
 | `libretro-snes9x` | `libretro/snes9x` `fae2fea08f74180759ef540ee94259213f503480` | `snes9x_libretro.so` | `LicenseRef-Snes9x (non-commercial)`, file `LICENSE` |
 | `libretro-genesis-plus-gx` | `libretro/Genesis-Plus-GX` `b9c2316441978d4015ba30e9a95d9b0e6f8ee981` | `genesis_plus_gx_libretro.so` | `LicenseRef-GenesisPlusGX (non-commercial)`, file `LICENSE.txt` |
 
-These are the commits that `data/cores/README.md` names. Each package runs the upstream libretro makefile with `platform=unix` and the Buildroot cross toolchain, and installs the library in `/usr/lib/libretro`. The makefiles ask git for the version, and the build directory is no git checkout, so each package gives `GIT_VERSION` from its pin. The packages have no architecture-specific flags, so the same files build for both targets. Only the aarch64 image has been built.
+These are the commits that `data/cores/README.md` names. Each package runs the upstream libretro makefile with `platform=unix` and the Buildroot cross toolchain, and installs the library in `/usr/lib/libretro`. The makefiles ask git for the version, and the build directory is no git checkout, so each package gives `GIT_VERSION` from its pin. The packages have no architecture-specific flags, so the same files build for both targets.
 
-Snes9x and Genesis Plus GX allow non-commercial use only. `make legal-info` lists the licence of each package. Whether an image ships them is a decision of the owner; the QEMU images are test images and are not distributed.
+Snes9x and Genesis Plus GX allow non-commercial use only. The owner decided (OP-054): NEPTRON is open source and not commercial, so the image holds them, with their licence texts and the `make legal-info` output, and it is never sold. `board/pc/LICENCES.txt` says so on the boot partition.
 
 ## neptron-vkms-probe
 
@@ -110,10 +167,24 @@ On an Apple Silicon Mac, on 2026-11-11, with the aarch64 image:
 - EGL on the Mesa surfaceless platform with no device gives OpenGL ES 2 on softpipe. `cargo xtask gles-compare` uses it: an image build that adds `host-rustc` took 4 min, the cross build of the comparison 7 s from cold, and the guest run under 10 s.
 - The three cores (2026-11-11): the incremental `os build` that added them took 130 s. The root filesystem went from 28,922 KiB to 44,717 KiB used. The libraries are 4.3 MiB (`fceumm_libretro.so`), 2.7 MiB (`snes9x_libretro.so`) and 12.0 MiB (`genesis_plus_gx_libretro.so`). `neptron-vkms-probe` passes on the new image.
 
+On the same Mac, on 2026-11-12 and 2026-11-13, with the PC image and the aarch64 image that hold the frontend:
+
+- `cargo xtask os boot-check --arch x86_64` passes with BIOS (SeaBIOS) and with UEFI (EDK II): the firmware boots the USB image from a USB stick on xHCI through GRUB, the kernel mounts the EROFS root by PARTUUID, init starts the launcher, and the frontend shows the first-boot picture. The `vkms` writeback picture equals `tests/golden/boot-game-list.ppm` byte for byte. Under CPU emulation (TCG, single thread for an x86 guest on an Arm host) over eight runs the first frame of the frontend came at a guest uptime of 12.2 to 46.0 s, and the notice at 20.3 to 47.4 s, which is 24.4 to 55.7 s after QEMU started. The last runs on the final image: BIOS 15.4 s and 23.6 s, UEFI 16.5 s and 24.6 s. These are emulated times; they vary with the load of the machine, and they say nothing about the i3-6100T.
+- `cargo xtask os boot-check --arch aarch64` passes with the hypervisor: first frame at a guest uptime of 0.64 s, the notice at 11.43 s (after the 10 s of the boot prompt), and the same picture byte for byte. These are times of a virtual machine, not hardware times.
+- The picture is the 320x240 menu in the 1280x240 super-resolution mode that the safe start profile `generic_15` gives on `vkms` (26.027 MHz, 15.66 kHz, 60 Hz): the empty home screen with the notice that the display change went back. On a first boot nothing is confirmed, so the guard opens the boot prompt, reverts to the safe default after 10 s, and shows that notice until the player presses OK. The check waits for that notice because it has no timer.
+- The share partition: on a copy of the image with 1 GiB of free space after the state partition, the first boot made `/dev/sda4`, formatted it exFAT and mounted it at `/share`. The second boot of such a disk was not run: QEMU runs in snapshot mode, so the disk forgets the first boot.
+- After `kill -ABRT` of the frontend on the aarch64 image, while the launcher lives, the CRTC stays active with the 1280x240 mode and the plane keeps the framebuffer of the dead frontend; the launcher starts a new frontend 250 ms later (its crash backoff), and the mode is the same.
+- The 15 kHz patch set applies in Buildroot, and the patched kernel builds and boots in both boot checks.
+- `kms-check`, `gles-compare` and `core-trace` pass on the aarch64 image that holds the frontend; `os app-check` passes for aarch64 and x86\_64.
+
 Not verified:
 
-- The x86\_64 image was never built or booted. Its defconfig resolves in Buildroot with every option set. On a Mac it runs only under CPU emulation; it is meant for Linux CI with KVM. `-vga none` keeps the q35 VGA card away from `card0`, but this is not checked on x86\_64.
-- SDL3, ALSA (`snd-dummy`, `snd-aloop`) and `uinput` are in the image, but no program used them at run time.
+- Anything on the i3-6100T: iris on the HD 530, the DP-to-VGA bridge, the sound card, USB pads, the boot from a real stick, the boot time. See `docs/hardware-checklist.md`.
+- The x86\_64 checks under KVM. `kms-check`, `gles-compare` and `core-trace` on the x86\_64 image (they need KVM to be quick; the PC image has the same hooks).
+- The development variant and the image without the 15 kHz patches were not built.
+- The images come from an output that was built up step by step (the defconfig changed several times). Buildroot does not rebuild a package when its options change; `mesa3d` and `util-linux` needed a `-dirclean` by hand. A build of the release image in an empty output was not done; it takes about 5 hours.
+
+Build time, PC image, 4 jobs: the first full build with LLVM, clang and the 15 kHz kernel took 17,419 s (4 h 50 min; host LLVM and clang take most of it). A rebuild of the frontend and the launcher from clean (fat LTO), with the image, takes about 5 min (309 s); the aarch64 build that added the frontend, the launcher, `neptronctl` and `neptron-capture` took 301 s. The kernel `bzImage` is 14.2 MiB. `rootfs.erofs` is 158 MiB; the target directory is 330 MiB, of which LLVM is 74 MiB and the unused clang libraries 104 MiB (see the open points). The USB image file is 739,246,080 bytes (705 MiB); most of it is the free space of the fixed partitions, so it compresses well.
 
 Build time and size, aarch64, 4 jobs: the first full build took 48 min (toolchain, host tools, kernel, BusyBox). Mesa, SDL3 and kmscube added 19 min. A kernel reconfigure, or a change to the overlay or to a package of this tree, takes about 1 min. The kernel `Image` is 13.3 MB. The root filesystem has 28 MB used of 256 MB. The guest uses about 100 MB of memory after boot.
 
@@ -127,12 +198,16 @@ Nothing large is in the repository.
 | --- | --- |
 | Downloads | Docker volume `neptron-br-dl` |
 | Compiler cache | Docker volume `neptron-br-ccache` |
-| Buildroot output | Docker volume `neptron-br-out-<arch>` |
+| Buildroot output | Docker volume `neptron-br-out-<variant>`: `aarch64`, `x86_64`, `x86_64-dev`, `x86_64-no15khz`, `x86_64-dev-no15khz` |
 | Cargo registry and target directory of the guest builds | Docker volume `neptron-cross-<arch>` |
-| Images for QEMU | `~/.cache/neptron/buildroot/images/<arch>` (`NEPTRON_CACHE_DIR` moves `~/.cache/neptron`) |
+| Images | `~/.cache/neptron/buildroot/images/<variant>` (`NEPTRON_CACHE_DIR` moves `~/.cache/neptron`) |
 
 The downloads, the compiler cache and the output are Docker volumes because Buildroot needs a case-sensitive filesystem and the macOS default is not. All worktrees share them. `NEPTRON_OS_IMAGES` or `--images` boots an images directory from somewhere else, for example the base image that CI publishes.
 
 ## Licences
 
-The files of this tree are `MIT OR Apache-2.0`, as the rest of NEPTRON. Buildroot is GPL-2.0-or-later. It runs as a build tool and is not part of the repository. The packages in the images keep their own licences, which `make legal-info` lists.
+The files of this tree are `MIT OR Apache-2.0`, as the rest of NEPTRON. Buildroot is GPL-2.0-or-later. It runs as a build tool and is not part of the repository. The packages in the images keep their own licences, which `make legal-info` lists. The PC image carries the manifest and the licence texts on its boot partition (`legal/`) and in `/usr/share/licenses`, with the notes of `board/pc/LICENCES.txt`. The source tarballs of the GPL and LGPL packages are in `legal-info/sources` of the Buildroot output; they must be published with an image. The frontend and launcher packages do not copy their source there: it is this repository.
+
+The 15 kHz patch set has an open licence question (see "The 15 kHz kernel patch set"): no image built with it may be distributed until the author answers.
+
+No firmware file is in the image. For a later decision: the i915 files of `linux-firmware` are under `LICENSE.i915` (Intel: redistribution in binary form allowed, no modification and no reverse engineering), and the amdgpu files under `LICENSE.amdgpu` (AMD: terms of the same kind). Neither is an open source licence.
