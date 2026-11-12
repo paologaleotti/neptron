@@ -2,6 +2,12 @@
 # Starts the launcher with the frontend on the DRM device. The frontend
 # reads its folders from the image defaults: /share, /state,
 # /usr/share/neptron, /usr/lib/libretro and the RAM folder /run/neptron.
+#
+# While /run/neptron/hold exists the launcher does not start, so a bench
+# tool can take the display: create the file, then stop the launcher.
 
 mkdir -p /run/neptron
+while [ -e /run/neptron/hold ]; do
+	sleep 1
+done
 exec /usr/bin/neptron-launch -- /usr/bin/neptron --backend kms
