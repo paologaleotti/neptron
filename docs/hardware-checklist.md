@@ -88,3 +88,11 @@ Run the steps with the real frontend path (`KmsDisplay::from_env` from the launc
 - [ ] The same three checks on the Raspberry Pi 3 (vc4).
 - [ ] A flip whose wait times out at 500 ms on a real driver: the event of the late flip comes on the next `wait_flip`, and `present` and `set_mode` stay busy until then.
 
+## T25 session
+
+- [ ] A real game on KMS: one modeset at launch for Genesis Plus GX, and no audio gap at launch or at a mode switch.
+- [ ] Double refresh on the 31 kHz CRT: the motion is smooth and the speed is right.
+- [ ] The quick menu over a frozen frame on a CRT.
+- [ ] A save file survives a power cut during play.
+- [ ] The measured run rate in the window on a real desktop.
+

@@ -585,3 +585,22 @@ Each open point is one section:
 - Where: `crates/neptron-video/src/odren.rs`, `crates/neptron-video/src/engine.rs`, `docs/adr/0007-bounded-flip-wait-and-blank.md`
 - How to change: for (1), the session or the app opens the display again after N `PendingFlip` errors in a row. For (5), skip the debounce when `refused_on_screen` is on.
 - Decision:
+
+### OP-063: Timing check 6 with late flips is weaker than the plan text.
+
+- Raised by: T25 review
+- Status: open, needs a look from the owner
+- Default: the plan asks that the audio buffer stays inside its bounds over 100,000 frames, late vblanks included, in well under a second. With the 32 ms audio target, two late flips a few seconds apart run the queue dry, because the rate control recovers with a 6.4 s time constant. The long run with late flips asserts that every underrun follows two late flips in the 10 s before it. The runs without late flips assert no underrun. The two 100,000-frame runs take about 67 s each in the dev profile, so they are ignored tests: `cargo xtask test -p neptron-session --run-ignored only -E 'test(hundred_thousand)'`. The tier runs cover 30 simulated seconds per case with the strict assertions.
+- Where: `crates/neptron-session/tests/integration/timing.rs`, `docs/spec/pacing-audio.md`
+- How to change: a larger audio target level (more latency, more margin), or a faster recovery after an underrun.
+- Decision:
+
+### OP-064: Session choices for the app.
+
+- Raised by: T25 and its review
+- Status: open, input for T27
+- Default: (1) at launch the core runs up to 30 frames with no display until its source is the same for 6 frames, so the first mode is right (Genesis Plus GX). (2) A frame with more than 288 lines counts as interlaced. (3) Save RAM is flushed every 30 s when it changed, when the menu opens and at exit; a save file longer than the core's save RAM keeps its tail. (4) After 10 frames in a row with no flip the session ends with `DisplayStalled`; with wait timeouts that is about 5 s. (5) While the output is off, `run_frame` returns at once and the app paces the loop. (6) A core option that the core refuses is counted and not reported per key. (7) Two contents with the same file stem share one `.srm`. (8) "No allocation in a steady frame" holds by construction and has no test. (9) The frame after a resume goes out as silence.
+- Where: `crates/neptron-session/README.md` (the list "what the app calls")
+- How to change: the limits are named constants in `crates/neptron-session`. A default geometry per system in the core data removes the launch settle.
+- Decision:
+

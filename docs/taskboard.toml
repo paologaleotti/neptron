@@ -226,7 +226,7 @@ name = "Session"
 owns = ["crates/neptron-session"]
 needs = ["T06", "T16", "T17", "T18", "T22"]
 gate = "Timing check 6; scripted session"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T26"
