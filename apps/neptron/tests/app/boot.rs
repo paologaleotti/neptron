@@ -42,6 +42,24 @@ fn a_guard_record_that_cannot_be_written_starts_the_safe_default() {
 }
 
 #[test]
+fn every_mode_on_the_wire_is_in_the_log() {
+    let dir = std::env::temp_dir().join(format!("neptron-app-modelog-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    rig.boot(None);
+    rig.frames(2);
+    let lines = rig.shell().log_lines(100);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("mode set: ") && l.contains("; read back Modeline")),
+        "{lines:?}"
+    );
+}
+
+#[test]
 fn a_missing_device_is_a_notice_and_the_run_goes_on() {
     let dir = std::env::temp_dir().join(format!("neptron-app-devices-{}", std::process::id()));
     // A leftover of an earlier run with the same process id; absence is fine.

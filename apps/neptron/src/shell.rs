@@ -303,8 +303,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         messages
     }
 
-    /// Adds a line to the log of the control protocol.
+    /// Adds a line to the log of the control protocol, and writes it to
+    /// standard error, which the image keeps in its log file.
     fn log(&mut self, line: String) {
+        eprintln!("neptron: {line}");
         if self.log.len() == LOG_LINES {
             self.log.pop_front();
         }

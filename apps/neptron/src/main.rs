@@ -24,6 +24,17 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // On a bench the binary can come from another folder than the image's
+    // own; the log says which one runs, with which data.
+    let program = std::env::current_exe()
+        .map_or_else(|e| format!("unknown ({e})"), |p| p.display().to_string());
+    eprintln!(
+        "neptron: {program} starts; data {}, cores {}, state {}, share {}",
+        options.paths.data.display(),
+        options.paths.cores.display(),
+        options.paths.state.display(),
+        options.paths.share.display()
+    );
     match options.backend.or(DEFAULT_BACKEND) {
         #[cfg(all(feature = "kms", target_os = "linux"))]
         Some(Backend::Kms) => kms::run(&options, take_next(&options.paths)),

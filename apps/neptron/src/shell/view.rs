@@ -62,6 +62,16 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
         self.shown_mode = read_back;
         self.shown_safe = safe;
+        let line = match self.engine().and_then(|e| e.current()) {
+            Some(current) => format!(
+                "mode set: {:?}; read back {:?}{}",
+                current.chosen,
+                current.read_back,
+                if safe { " (safe mode)" } else { "" }
+            ),
+            None => "no mode on the wire".to_owned(),
+        };
+        self.log(line);
         let mut text = read_back
             .map(|m| {
                 let rate = m.field_rate_mhz();
