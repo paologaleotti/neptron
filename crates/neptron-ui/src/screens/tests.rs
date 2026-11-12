@@ -1499,11 +1499,12 @@ fn long_video_text_is_cut_and_stays_in_its_line() {
 }
 
 #[test]
-fn an_alert_result_has_the_focus_colour() {
+fn an_alert_result_has_the_warning_colour() {
     let theme = Theme::default();
+    assert_ne!(theme.colors.warning, theme.colors.focus);
     for (status, colour) in [
         (exact_status(), theme.colors.text),
-        (filtered_status(), theme.colors.focus),
+        (filtered_status(), theme.colors.warning),
     ] {
         let mut run = Run::new();
         let snap = in_game_with(status.clone());

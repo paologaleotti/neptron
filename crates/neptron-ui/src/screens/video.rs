@@ -121,9 +121,8 @@ fn field(frame: &mut UiFrame, theme: &Theme, rect: Rect, name: &str, id: &str, v
 
 /// Draws the result in the value column of `first` and, when the text needs
 /// it and the block has it, of `second`. Text left over ends with an
-/// ellipsis. An alert result is drawn in the focus colour: the palette has
-/// no warning colour, and the focus colour is its most visible text colour
-/// on a panel.
+/// ellipsis. An alert result is drawn in the warning colour, which differs
+/// from the focus colour, so it never reads as a focused row.
 fn result(
     frame: &mut UiFrame,
     theme: &Theme,
@@ -132,7 +131,7 @@ fn result(
     status: &VideoStatus,
 ) {
     let color = if status.alert {
-        theme.colors.focus
+        theme.colors.warning
     } else {
         theme.colors.text
     };
