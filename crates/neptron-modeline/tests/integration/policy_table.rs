@@ -1151,8 +1151,12 @@ fn the_padded_native_mode_keeps_its_padding() {
         (proposal.placement.dest.y, proposal.placement.scale.y),
         (127, Some(1))
     );
-    // Not a fall to another rung, and not a changed rate.
-    assert_eq!(notice(&plan, considered), None);
+    // Not a fall to another rung and not a changed rate, but a small
+    // picture: the notice gives its fill, 224 of 478 lines.
+    let n = notice(&plan, considered).expect("a padded winner gives a notice");
+    assert_eq!(n.padded_fill_permille, Some(468));
+    assert!(!n.fitted && !n.style_fallback && !n.double_refresh);
+    assert_eq!(n.cropped_lines, 0);
     // arcade_31 has no range at 120.198 Hz, so native has no double
     // refresh target; the plan does not list it as skipped, because the
     // refresh policy did not ask for it.

@@ -37,7 +37,7 @@ Safe Switchres wrapper, monitor profiles and the ODREN policy: from source geome
 | 5 | `solve` | The width by the horizontal strategy, and the modeline from Switchres. |
 | 6 | `choose` | The validator walks the proposals in order. |
 | 7 | `switch_for` | A winner equal to the current mode changes only scale and crop. |
-| 8 | `notice` | A notice when the winner is the fitted rung, when the game runs at a rate other than its own, when the dynamic super width replaced the width strategy of the settings, when `native` took double refresh on its own, or when the winner is not on the style's own rung. |
+| 8 | `notice` | A notice when the winner is the fitted rung, when the game runs at a rate other than its own, when the dynamic super width replaced the width strategy of the settings, when `native` took double refresh on its own, when the winner is not on the style's own rung, when an overscan crop hides lines, or when the winner is padded. |
 
 ### Rules
 
@@ -83,7 +83,16 @@ Where the Definition allows two readings, the policy takes the one below. Each i
    Commit `token.mode()` of the winner, never `proposal.mode`: only the token is the mode the validator approved.
 2. Call `switch_for` with the current mode. `ScaleOnly`: change only crop, destination and filter. `Modeset`: commit after the debounce.
 3. Build each `Scene` from the winner's `Placement`, with its crop: a cropped placement is a part of the frame, not a frame of another size. Run the core one frame per `Timing::repeat()` flips. When `Timing::changes_speed()`, the game runs at `field_rate_mhz / repeat`; audio rate control follows the field rate.
-4. Show `notice` in the quick menu. A `Notice` holds flags and rates only, no text: it says that the rung is fitted, that the rate changed, that the width strategy was replaced, that `native` took double refresh, that the style fell to another rung, or how many source lines an overscan crop hides. The reasons are in the plan: each `Considered` before the winner has its `Dropped` reason or its `Padding`, `Choice::refused` has the validator's reason for each refused proposal, and `Plan::skipped` has the refresh targets no range covers. The UI builds its "why" text from those, and logs each `Considered` with its `Display` line.
+4. Show `notice` in the quick menu. A `Notice` holds flags and numbers only, no text: it carries every alert the app must show. The texts it supports:
+   - `fitted`: "Filtered picture".
+   - `cropped_lines`: "N edge lines hidden".
+   - `padded_fill_permille`: "Small picture" with the percentage of the picture lines that the game fills.
+   - `double_refresh`: double refresh, each frame shown twice, at the same game speed.
+   - `style_fallback`: the picture style could not be shown, and another rung is shown.
+   - `game_mhz` and `shown_mhz`: the game runs at a rate other than its own.
+   - `strategy_replaced`: the width strategy was replaced.
+
+   The reasons are in the plan: each `Considered` before the winner has its `Dropped` reason or its `Padding`, `Choice::refused` has the validator's reason for each refused proposal, and `Plan::skipped` has the refresh targets no range covers. The UI builds its "why" text from those, and logs each `Considered` with its `Display` line.
 5. Apply the EDID pixel clock limit to the GPU caps first (`EdidProfile::limit_caps`, OP-013).
 6. Cache the plan by source geometry and settings. A decision takes tens of microseconds in the dev profile, so it can run on the frame thread, but a cache keeps the Switchres lock off the frame for a repeated geometry.
 

@@ -72,6 +72,10 @@ pub struct Notice {
     /// Source lines that the overscan crop hides, both edges together; 0
     /// when none.
     pub cropped_lines: u16,
+    /// The winner is padded: the game fills this share of the picture
+    /// lines, in per mille (`Padding::fill_permille`), so the picture is
+    /// small. `None` when the winner is not padded.
+    pub padded_fill_permille: Option<u16>,
 }
 
 /// One row of the picture style list of the Display panel.
@@ -137,8 +141,8 @@ pub fn switch_for(current: Option<&Modeline>, winner: &Modeline) -> Switch {
 /// is the fitted rung, when the game runs at a rate other than its own,
 /// when the dynamic super width replaced the horizontal strategy of the
 /// settings, when the `native` style took double refresh on its own, when
-/// the winner is not on the style's own rung, or when an overscan crop
-/// hides source lines. Double refresh that the
+/// the winner is not on the style's own rung, when an overscan crop
+/// hides source lines, or when the winner is padded. Double refresh that the
 /// refresh policy asks for shows each frame twice at the game's own rate,
 /// so it needs no notice. A flat panel needs none for its rate: audio rate
 /// control absorbs the difference.
@@ -151,12 +155,16 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
     let double_refresh = timing.target.kind == RefreshKind::NativeDouble;
     let style_fallback = !on_own_rung(plan, plan.style, considered.rung);
     let cropped_lines = proposal.overscan_crop.map_or(0, |crop| crop.lines());
+    let padded_fill_permille = proposal
+        .padding
+        .map(|pad| u16::try_from(pad.fill_permille()).unwrap_or(u16::MAX));
     let any = fitted
         || refresh_differs
         || strategy_replaced.is_some()
         || double_refresh
         || style_fallback
-        || cropped_lines > 0;
+        || cropped_lines > 0
+        || padded_fill_permille.is_some();
     any.then(|| Notice {
         fitted,
         game_mhz: timing.game_mhz,
@@ -165,6 +173,7 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         double_refresh,
         style_fallback,
         cropped_lines,
+        padded_fill_permille,
     })
 }
 

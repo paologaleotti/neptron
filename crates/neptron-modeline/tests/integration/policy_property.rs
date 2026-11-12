@@ -8,8 +8,8 @@
 //! winner: a doubled or forced rate that the policy asks for wins whenever
 //! an exact mode at it validates; a progressive source never gets an
 //! interlaced fit while a progressive exact mode validates; the notice
-//! says "fitted" exactly for a fitted winner and gives the cropped lines
-//! exactly when a crop exists.
+//! says "fitted" exactly for a fitted winner, gives the fill exactly for a
+//! padded winner, and gives the cropped lines exactly when a crop exists.
 
 use neptron_modeline::policy::{
     Considered, HorizontalStrategy, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OrientedSource, PictureStyle,
@@ -313,13 +313,25 @@ fn check_no_interlaced_fit<V>(
     Ok(())
 }
 
-/// (c) The notice says "fitted" exactly for a fitted winner, and gives the
-/// cropped lines exactly when the winner has a crop.
+/// (c) The notice says "fitted" exactly for a fitted winner, gives the
+/// fill exactly when the winner is padded, and gives the cropped lines
+/// exactly when the winner has a crop.
 fn check_notice<V>(plan: &Plan, w: &Winner<'_, V>) -> Result<(), String> {
     let n = notice(plan, w.considered);
     let fitted = n.is_some_and(|n| n.fitted);
     if fitted != w.considered.rung.is_fitted() {
         return Err(format!("notice fitted {fitted} for {}", w.considered));
+    }
+    let padded = n.and_then(|n| n.padded_fill_permille);
+    let fill = w
+        .proposal
+        .padding
+        .map(|p| u16::try_from(p.fill_permille()).unwrap_or(u16::MAX));
+    if padded != fill {
+        return Err(format!(
+            "notice fill {padded:?}, the winner {fill:?}: {}",
+            w.considered
+        ));
     }
     let cropped = n.map_or(0, |n| n.cropped_lines);
     let crop = w.proposal.overscan_crop.map_or(0, |c| c.lines());
