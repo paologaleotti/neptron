@@ -52,6 +52,9 @@ commands:
   os build [--arch A] [--jobs N] [-- make targets...]
                        build the QEMU image of target A (aarch64, x86_64)
                        with Buildroot in the development container
+  os app-check [--arch A]
+                       check (warnings denied) and build the frontend with
+                       kms and the launcher for Linux in the container
   qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
        [--script FILE | -- command...]
                        boot the QEMU image; run the command in the guest

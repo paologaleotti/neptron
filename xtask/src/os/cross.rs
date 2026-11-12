@@ -53,6 +53,27 @@ impl CrossPlan {
         steps
     }
 
+    /// The `docker run` arguments that check and build the binaries of the
+    /// package: the lint when asked for, then `cargo build --bins`. The
+    /// example and the export are not used.
+    pub fn app_steps(&self) -> Vec<Vec<String>> {
+        let target = self.arch.rust_target();
+        let mut lint = vec!["cargo", "check", "--locked", "--package", &self.package];
+        let mut build = vec!["cargo", "build", "--locked", "--package", &self.package];
+        if !self.features.is_empty() {
+            lint.extend(["--features", &self.features]);
+            build.extend(["--features", &self.features]);
+        }
+        lint.extend(["--all-targets", "--target", target]);
+        build.extend(["--bins", "--target", target]);
+        let mut steps = Vec::with_capacity(2);
+        if self.lint {
+            steps.push(self.run(&lint));
+        }
+        steps.push(self.run(&build));
+        steps
+    }
+
     fn run(&self, command: &[&str]) -> Vec<String> {
         let arch = self.arch.name();
         let host_bin = "/work/out/host/bin";
@@ -214,6 +235,39 @@ mod tests {
                  --target aarch64-unknown-linux-gnu"
             ),
             "{build}"
+        );
+    }
+
+    #[test]
+    fn the_app_steps_check_then_build_the_binaries() {
+        let steps = CrossPlan {
+            package: "neptron".to_owned(),
+            features: "kms".to_owned(),
+            lint: true,
+            ..plan()
+        }
+        .app_steps();
+        assert_eq!(steps.len(), 2);
+        assert!(
+            steps[0].join(" ").ends_with(
+                "cargo check --locked --package neptron --features kms --all-targets \
+                 --target aarch64-unknown-linux-gnu"
+            ),
+            "{:?}",
+            steps[0]
+        );
+        assert!(
+            steps[1].join(" ").ends_with(
+                "cargo build --locked --package neptron --features kms --bins \
+                 --target aarch64-unknown-linux-gnu"
+            ),
+            "{:?}",
+            steps[1]
+        );
+        assert!(
+            steps
+                .iter()
+                .all(|s| s.iter().any(|a| a == "RUSTFLAGS=-D warnings"))
         );
     }
 

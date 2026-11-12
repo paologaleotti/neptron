@@ -159,6 +159,7 @@ usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [-- make targets.
        cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
                         [--script FILE | -- command...]
        cargo xtask gles-compare [--arch A] [--timeout SECS]
+       cargo xtask os app-check [--arch A]
        cargo xtask kms-check [--arch A] [--timeout SECS]
        cargo xtask core-trace [--arch A] [--timeout SECS] [--bless]
                               [--dump FRAME[,FRAME...]]";
@@ -167,6 +168,7 @@ usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [-- make targets.
 pub fn run_os(args: &[&str]) -> Result<ExitCode, OsError> {
     match args.split_first() {
         Some((&"build", rest)) => build(rest),
+        Some((&"app-check", rest)) => app_check(rest),
         _ => Err(OsError::Usage("unknown os subcommand".to_owned())),
     }
 }
@@ -336,6 +338,60 @@ fn launcher_command(program: &str) -> Vec<String> {
              NEPTRON_DRM_FD=3 {program} 3<>/dev/dri/card0; exit $(($? + f))"
         ),
     ]
+}
+
+/// The packages of `os app-check`: the frontend with its device backend,
+/// and the launcher. No host gate compiles the Linux code of the `kms`
+/// feature.
+pub const APP_CHECK_PACKAGES: [(&str, &str); 2] = [("neptron", "kms"), ("neptron-launch", "")];
+
+/// `cargo xtask os app-check`: checks every target (warnings denied) and
+/// builds the binaries of the frontend with `kms` and of the launcher for
+/// Linux, in the development container with the Buildroot toolchains.
+pub fn app_check(args: &[&str]) -> Result<ExitCode, OsError> {
+    let (arch, _) = parse_compare_args(args, Arch::default_for(std::env::consts::ARCH), 1)?;
+    let repo = Repo::discover()?;
+    let cache = Cache::from_env()?;
+    host::require_tool(
+        "docker",
+        "install Docker (macOS: Docker Desktop) to build for the guest",
+    )?;
+    check_docker_daemon()?;
+    let dockerfile = repo.root.join("Dockerfile");
+    let text = std::fs::read_to_string(&dockerfile).map_err(|source| OsError::Io {
+        path: dockerfile.clone(),
+        source,
+    })?;
+    let export = repo.root.join("target").join("app-check");
+    std::fs::create_dir_all(&export).map_err(|source| OsError::Io {
+        path: export.clone(),
+        source,
+    })?;
+    let container = build::container_image(&text);
+    // The build reads the toolchains in the Buildroot output, which an os
+    // build changes.
+    let _lock = MachineLock::take(&cache.build_lock(), "Buildroot build")?;
+    build::build_container(&build::container_build(&container), &dockerfile)?;
+    for (package, features) in APP_CHECK_PACKAGES {
+        let plan = cross::CrossPlan {
+            arch,
+            container: container.clone(),
+            repo: repo.root.clone(),
+            export: export.clone(),
+            package: package.to_owned(),
+            features: features.to_owned(),
+            example: String::new(),
+            lint: true,
+        };
+        for step in plan.app_steps() {
+            run_step(Command::new("docker").args(step))?;
+        }
+    }
+    println!(
+        "app-check: neptron (kms) and neptron-launch check and build for {}",
+        arch.rust_target()
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Builds the example of `check` for the guest in the development
