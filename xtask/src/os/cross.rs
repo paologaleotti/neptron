@@ -103,7 +103,36 @@ impl CrossPlan {
         steps
     }
 
+    /// The `docker run` arguments that build one binary of the package for
+    /// `os push` in the bench profile, then copy it to the export
+    /// directory. The bench profile is the release profile with the
+    /// changes of [`BENCH_PROFILE`].
+    pub fn bench_steps(&self, bin: &str) -> Vec<Vec<String>> {
+        let target = self.arch.rust_target();
+        let mut build = vec![
+            "cargo",
+            "build",
+            "--locked",
+            "--release",
+            "--package",
+            &self.package,
+        ];
+        if !self.features.is_empty() {
+            build.extend(["--features", &self.features]);
+        }
+        build.extend(["--bin", bin, "--target", target]);
+        let program = format!("{HOME}/target/{target}/release/{bin}");
+        vec![
+            self.run_with(&BENCH_PROFILE, &build),
+            self.run(&["cp", &program, "/work/export/"]),
+        ]
+    }
+
     fn run(&self, command: &[&str]) -> Vec<String> {
+        self.run_with(&[], command)
+    }
+
+    fn run_with(&self, profile: &[(&str, &str)], command: &[&str]) -> Vec<String> {
         let arch = self.arch.name();
         let host_bin = "/work/out/host/bin";
         let cpus = DEFAULT_JOBS.to_string();
@@ -166,11 +195,29 @@ impl CrossPlan {
             args.push("--env".to_owned());
             args.push(format!("{name}={value}"));
         }
+        for (name, value) in profile {
+            args.push("--env".to_owned());
+            args.push(format!("{name}={value}"));
+        }
         args.push(self.container.clone());
         args.extend(command.iter().map(|s| (*s).to_owned()));
         args
     }
 }
+
+/// The release profile of the workspace with these changes is the bench
+/// profile of `os push`: no LTO and parallel code generation, so a warm
+/// build of the frontend takes about a minute, and line tables and no strip,
+/// so a backtrace names files and lines. `panic = "abort"` stays: the panic
+/// hook prints the backtrace before the abort, and a panic must not unwind
+/// into a core.
+pub const BENCH_PROFILE: [(&str, &str); 5] = [
+    ("CARGO_PROFILE_RELEASE_LTO", "off"),
+    ("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "16"),
+    ("CARGO_PROFILE_RELEASE_INCREMENTAL", "true"),
+    ("CARGO_PROFILE_RELEASE_DEBUG", "line-tables-only"),
+    ("CARGO_PROFILE_RELEASE_STRIP", "none"),
+];
 
 /// The home of the build user in the container. The cross volume is
 /// mounted here: Docker fills a new volume from this directory of the
@@ -414,6 +461,46 @@ mod tests {
             steps
                 .iter()
                 .all(|s| s.iter().any(|a| a == "RUSTFLAGS=-D warnings"))
+        );
+    }
+
+    #[test]
+    fn the_bench_build_is_the_release_profile_with_line_tables_and_no_lto() {
+        let p = CrossPlan {
+            arch: Arch::X86_64,
+            package: "neptron".to_owned(),
+            features: "kms,control".to_owned(),
+            filtered_linker: true,
+            ..plan()
+        };
+        let steps = p.bench_steps("neptron");
+        assert_eq!(steps.len(), 2);
+        let build = steps[0].join(" ");
+        assert!(
+            build.ends_with(
+                "cargo build --locked --release --package neptron --features kms,control \
+                 --bin neptron --target x86_64-unknown-linux-gnu"
+            ),
+            "{build}"
+        );
+        for (name, value) in BENCH_PROFILE {
+            assert!(build.contains(&format!("--env {name}={value}")), "{build}");
+        }
+        assert!(build.contains("RUSTFLAGS=-D warnings"), "{build}");
+        assert!(
+            !build.contains("PANIC"),
+            "the bench profile keeps panic = abort"
+        );
+        assert!(
+            steps[1].join(" ").ends_with(
+                "cp /home/br/target/x86_64-unknown-linux-gnu/release/neptron /work/export/"
+            ),
+            "{:?}",
+            steps[1]
+        );
+        assert!(
+            !plan().steps()[0].join(" ").contains("CARGO_PROFILE"),
+            "the other guest builds keep their profile"
         );
     }
 

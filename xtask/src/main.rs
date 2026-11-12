@@ -69,6 +69,15 @@ commands:
                        boot the image in QEMU to the game list, compare the
                        vkms writeback picture with its golden image and
                        record the boot time (tier T3)
+  os push --host H [--user U] [--port P] [--data] [--no-restart]
+                       build the frontend, the launcher and neptronctl in the
+                       bench profile and put them in the hot folder of a PC
+                       that runs the development variant, over SSH
+  os logs --host H [--user U] [--port P] [--follow]
+                       print the log of the launcher and the frontend, and
+                       dmesg, of that PC
+  os ssh --host H [--user U] [--port P] -- command...
+                       run a command on that PC
   qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
        [--disk FILE] [--ssh-port PORT] [--beside-launcher]
        [--script FILE | -- command...]
