@@ -335,7 +335,7 @@ mod linux {
                 &format!("{name}: flips"),
                 flips(&mut display, &scene, &test.mode),
             );
-            contract_with_mode(&mut check, &mut display, &scene, &valid, name);
+            contract_with_mode(&mut check, &mut display, &probe, &scene, &valid, name);
         }
 
         if let Some(first) = modes.first().and_then(TestMode::validated) {
@@ -393,6 +393,7 @@ mod linux {
     fn contract_with_mode(
         check: &mut Check,
         display: &mut KmsDisplay,
+        probe: &Probe,
         scene: &Scene<'_>,
         valid: &ValidatedMode,
         name: &str,
@@ -420,12 +421,18 @@ mod linux {
                 .map(|_| String::new())
                 .map_err(|e| e.to_string()),
         );
+        // Each modeset makes a new mode blob, so an unchanged MODE_ID of the
+        // CRTC proves that no modeset commit ran.
+        let crtc = display.crtc_id();
+        let before = probe.mode_blob(crtc);
+        let result = display.set_mode(valid);
+        let after = probe.mode_blob(crtc);
         check.report(
             &format!("{name}: set_mode with the same mode makes no commit"),
-            display
-                .set_mode(valid)
-                .map(|_| String::new())
-                .map_err(|e| e.to_string()),
+            match (result, before, after) {
+                (Ok(_), Ok(b), Ok(a)) if a == b && b != 0 => Ok(format!("MODE_ID stays {b}")),
+                other => Err(format!("{other:?}")),
+            },
         );
     }
 
@@ -778,6 +785,20 @@ mod linux {
                 profile: profile("pc_31_120"),
             },
             TestMode {
+                name: "480p, positive sync",
+                mode: Modeline {
+                    hsync_positive: true,
+                    vsync_positive: true,
+                    ..line(
+                        25_175_000,
+                        [640, 656, 724, 800],
+                        [480, 482, 485, 525],
+                        false,
+                    )
+                },
+                profile: profile("pc_31_120"),
+            },
+            TestMode {
                 name: "1920x240",
                 mode: line(40_200_000, [1920, 2004, 2196, 2556], v240, false),
                 profile: profile("generic_15"),
@@ -967,7 +988,23 @@ mod linux {
         fn open() -> std::io::Result<Probe> {
             let p = Probe(OpenOptions::new().read(true).write(true).open(DEVICE)?);
             drm::Device::set_client_capability(&p, drm::ClientCapability::UniversalPlanes, true)?;
+            // The atomic properties, such as MODE_ID, show only with it.
+            drm::Device::set_client_capability(&p, drm::ClientCapability::Atomic, true)?;
             Ok(p)
+        }
+
+        /// The blob id in the CRTC's MODE_ID property.
+        fn mode_blob(&self, crtc_id: u32) -> Result<u64, String> {
+            let handle: crtc::Handle = drm::control::from_u32(crtc_id).ok_or("CRTC id 0")?;
+            let set = self.get_properties(handle).map_err(|e| e.to_string())?;
+            let (ids, values) = set.as_props_and_values();
+            for (&id, &value) in ids.iter().zip(values) {
+                let info = self.get_property(id).map_err(|e| e.to_string())?;
+                if info.name().to_bytes() == b"MODE_ID" {
+                    return Ok(value);
+                }
+            }
+            Err("the CRTC has no MODE_ID property".to_owned())
         }
 
         fn crtc_modes(&self) -> Vec<Option<Modeline>> {

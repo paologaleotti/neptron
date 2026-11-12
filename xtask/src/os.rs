@@ -310,9 +310,9 @@ pub const KMS_CHECK: GuestCheck = GuestCheck {
     features: "kms",
     example: "kms_check",
     export: "kms-check",
-    // Four modes with about 50 flips each, drawn by software GL in the dev
+    // Five modes with about 50 flips each, drawn by software GL in the dev
     // build at about 4 frames per second.
-    default_timeout_secs: 600,
+    default_timeout_secs: 900,
     guest_command: launcher_command,
     // No host gate compiles the Linux code of the kms feature.
     lint: true,
