@@ -23,7 +23,7 @@ pub use gpu::{
     parse_card_name, parse_connector_name, parse_status, parse_uevent,
 };
 pub use matrix::{
-    GpuEntry, MATRIX_VERSION, Matrix, MatrixError, Quirk, UNKNOWN_GPU_CAPS,
+    GpuEntry, MATRIX_VERSION, Matrix, MatrixError, PanelLimits, Quirk, UNKNOWN_GPU_CAPS,
     UNKNOWN_GPU_PCLOCK_MIN_HZ,
 };
 pub use modes::{CTA_MODES, DMT_MODES, ListedModes, listed_modes};

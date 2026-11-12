@@ -5,7 +5,7 @@ GPU and board detection from sysfs, the capability table, and a monitor profile 
 ## Public API
 
 - `fn detect(&Path) -> Result<Platform, SysfsError>`: reads `class/drm` under a root path (`/sys` on a running system). `Platform` lists each `Gpu` (driver, PCI id, device tree compatible strings) and each `Connector` (name, type, status, EDID).
-- `Matrix::builtin()`, `Matrix::parse(&str)`: the capability table of `data/hardware/matrix.toml`, checked. `Matrix::lookup(&Gpu, connector_kind)` gives the entry; `Matrix::caps_for` gives its `GpuCaps`, or `UNKNOWN_GPU_CAPS`.
+- `Matrix::builtin()`, `Matrix::parse(&str)`: the capability table of `data/hardware/matrix.toml`, checked. `Matrix::lookup(&Gpu, connector_kind)` gives the entry; `Matrix::caps_for` gives its `GpuCaps`, or `UNKNOWN_GPU_CAPS`. `Matrix::panel_caps_for` gives the caps of a flat panel: the entry's caps with its `PanelLimits` for that connector, when it has them.
 - `fn parse_edid(&[u8]) -> Result<Edid, EdidError>`: the strict EDID parser.
 - `fn profile_from_edid(&[u8]) -> Result<EdidProfile, ProfileError>`: a one-range CRT `MonitorProfile`, with the highest pixel clock beside it. `EdidProfile::limit_caps` lowers the GPU's highest pixel clock to it.
 - `fn listed_modes(&[u8]) -> Result<ListedModes, EdidError>`: the identity, the product name and the progressive modes an EDID lists.

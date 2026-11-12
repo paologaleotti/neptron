@@ -297,3 +297,70 @@ fn the_more_precise_entry_wins() {
     assert_eq!(matrix.lookup(&gpu, "VGA").unwrap().id, "two");
     assert_eq!(matrix.lookup(&gpu, "DP").unwrap().id, "one");
 }
+
+#[test]
+fn hd_530_has_digital_limits_for_a_flat_panel_only() {
+    let matrix = Matrix::builtin().unwrap();
+    let gpu = pci_gpu("i915", 0x8086, 0x1912);
+    let analog = matrix.caps_for(&gpu, "DP");
+    assert_eq!(
+        (analog.pclock_max_hz, analog.max_width, analog.max_height),
+        (165_000_000, 1920, 1200),
+        "the CRT path keeps its limits on every connector"
+    );
+    for (kind, clock) in [
+        ("HDMI-A", 300_000_000),
+        ("DVI-D", 300_000_000),
+        ("DP", 533_250_000),
+    ] {
+        let panel = matrix.panel_caps_for(&gpu, kind);
+        assert_eq!(
+            (panel.pclock_max_hz, panel.max_width, panel.max_height),
+            (clock, 4096, 2160),
+            "{kind}"
+        );
+        assert_eq!(panel.pclock_min_hz, analog.pclock_min_hz, "{kind}");
+        assert_eq!(panel.interlace, analog.interlace, "{kind}");
+    }
+    assert_eq!(
+        matrix.panel_caps_for(&gpu, "VGA"),
+        matrix.caps_for(&gpu, "VGA")
+    );
+    let gen12 = pci_gpu("i915", 0x8086, 0x9a49);
+    assert_eq!(
+        matrix.panel_caps_for(&gen12, "HDMI-A"),
+        matrix.caps_for(&gen12, "HDMI-A"),
+        "no cited limit, no change"
+    );
+    let bochs = pci_gpu("bochs-drm", 0x1234, 0x1111);
+    assert_eq!(matrix.panel_caps_for(&bochs, "Virtual"), UNKNOWN_GPU_CAPS);
+}
+
+#[test]
+fn panel_limit_rules() {
+    let panel = |body: &str| format!("{}\n[[gpu.panel]]\n{body}\n", table(""));
+    let ok = panel(
+        "connectors = [\"HDMI-A\"]\npclock_max_hz = 300_000_000\nmax_width = 4096\nmax_height = 2160",
+    );
+    assert!(Matrix::parse(&ok).is_ok());
+    assert_eq!(
+        entry_rule(&ok.replace("[\"HDMI-A\"]", "[\"VGA\"]")),
+        "a panel limit names no connector, or an analog connector"
+    );
+    assert_eq!(
+        entry_rule(&ok.replace("[\"HDMI-A\"]", "[]")),
+        "a panel limit names no connector, or an analog connector"
+    );
+    assert_eq!(
+        entry_rule(&ok.replace("pclock_max_hz = 300_000_000", "pclock_max_hz = 1_000")),
+        "a panel limit has a pixel clock below pclock_min_hz, or a size of 0"
+    );
+    assert_eq!(
+        entry_rule(&ok.replace("max_width = 4096", "max_width = 0")),
+        "a panel limit has a pixel clock below pclock_min_hz, or a size of 0"
+    );
+    assert!(matches!(
+        Matrix::parse(&ok.replace("max_height = 2160", "max_height = 2160\ncolour = 1")),
+        Err(MatrixError::Parse { .. })
+    ));
+}

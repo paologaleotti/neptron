@@ -6,6 +6,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::gpu::Gpu;
+use crate::panel::ANALOG_CONNECTOR_KINDS;
 
 /// The capabilities of a GPU that matches no entry of the table.
 ///
@@ -59,6 +60,26 @@ pub struct GpuEntry {
     pub caps: GpuCaps,
     /// Known limits and fixes.
     pub quirks: Vec<Quirk>,
+    /// The limits of a flat panel on digital connectors, when a source
+    /// gives them. They apply only to a display of the flat-panel class;
+    /// a CRT, also one behind a DAC on the same connector, keeps `caps`.
+    pub panel: Vec<PanelLimits>,
+}
+
+/// The highest pixel clock and the largest mode of a flat panel on some
+/// digital connectors of a GPU. The other values of [`GpuEntry::caps`]
+/// stay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelLimits {
+    /// The connector types, for example `HDMI-A` or `DP`. Never an analog
+    /// one.
+    pub connectors: Vec<String>,
+    /// The highest pixel clock, in hertz.
+    pub pclock_max_hz: u32,
+    /// The widest mode, in pixels.
+    pub max_width: u16,
+    /// The tallest mode, in lines.
+    pub max_height: u16,
 }
 
 /// A known limit or fix of a GPU.
@@ -188,6 +209,30 @@ impl Matrix {
             .max_by_key(|entry| entry.precision())
     }
 
+    /// The capabilities of a flat panel on `gpu` and a connector of type
+    /// `connector_kind`: [`Matrix::caps_for`] with the highest pixel clock
+    /// and the largest mode of the entry's panel limits for that
+    /// connector, when it has them. Only for a display of the flat-panel
+    /// class.
+    pub fn panel_caps_for(&self, gpu: &Gpu, connector_kind: &str) -> GpuCaps {
+        let Some(entry) = self.lookup(gpu, connector_kind) else {
+            return UNKNOWN_GPU_CAPS;
+        };
+        match entry
+            .panel
+            .iter()
+            .find(|p| p.connectors.iter().any(|c| c == connector_kind))
+        {
+            Some(limits) => GpuCaps {
+                pclock_max_hz: limits.pclock_max_hz,
+                max_width: limits.max_width,
+                max_height: limits.max_height,
+                ..entry.caps
+            },
+            None => entry.caps,
+        }
+    }
+
     /// The capabilities of `gpu` on a connector of type `connector_kind`:
     /// those of its entry, or [`UNKNOWN_GPU_CAPS`].
     pub fn caps_for(&self, gpu: &Gpu, connector_kind: &str) -> GpuCaps {
@@ -274,6 +319,18 @@ struct EntryFile {
     max_width: u16,
     max_height: u16,
     quirks: Vec<Quirk>,
+    /// Added after version 1 was written; optional, so older files read.
+    #[serde(default)]
+    panel: Vec<PanelFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelFile {
+    connectors: Vec<String>,
+    pclock_max_hz: u32,
+    max_width: u16,
+    max_height: u16,
 }
 
 impl TryFrom<EntryFile> for GpuEntry {
@@ -298,6 +355,16 @@ impl TryFrom<EntryFile> for GpuEntry {
             of_compatible: file.of_compatible,
             connectors: file.connectors,
             quirks: file.quirks,
+            panel: file
+                .panel
+                .into_iter()
+                .map(|p| PanelLimits {
+                    connectors: p.connectors,
+                    pclock_max_hz: p.pclock_max_hz,
+                    max_width: p.max_width,
+                    max_height: p.max_height,
+                })
+                .collect(),
         };
         if let Some(rule) = broken_rule(&entry) {
             return Err(MatrixError::Entry { id: entry.id, rule });
@@ -348,8 +415,28 @@ fn broken_rule(entry: &GpuEntry) -> Option<&'static str> {
             "fixed_pixel_clock with two pixel clock limits",
         ),
     ];
+    let panel_connector = entry.panel.iter().any(|p| {
+        p.connectors.is_empty()
+            || p.connectors
+                .iter()
+                .any(|c| ANALOG_CONNECTOR_KINDS.contains(&c.as_str()))
+    });
+    let panel_values = entry.panel.iter().any(|p| {
+        p.pclock_max_hz < caps.pclock_min_hz.max(1) || p.max_width == 0 || p.max_height == 0
+    });
+    let panel_rules = [
+        (
+            panel_connector,
+            "a panel limit names no connector, or an analog connector",
+        ),
+        (
+            panel_values,
+            "a panel limit has a pixel clock below pclock_min_hz, or a size of 0",
+        ),
+    ];
     rules
         .into_iter()
+        .chain(panel_rules)
         .find_map(|(broken, rule)| broken.then_some(rule))
 }
 
