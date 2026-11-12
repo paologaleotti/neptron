@@ -23,9 +23,9 @@ pub struct VideoStatusText {
     pub mode: String,
     /// The result in words, joined with `, `, in the order `exact`,
     /// `double refresh`, `cropped N lines`, `small picture N%`, `filtered`,
-    /// `speed changed (X to Y Hz)`.
+    /// `speed (X to Y Hz)`. An alert result starts with [`ALERT_MARK`].
     pub result: String,
-    /// The player must notice the result: `filtered` or `speed changed`.
+    /// The player must notice the result: `filtered` or `speed`.
     pub alert: bool,
 }
 
@@ -52,6 +52,10 @@ pub struct StatusInputs<'a> {
 /// The width of the size column and of the line rate column, in
 /// characters.
 pub const STATUS_COLUMN_CHARS: usize = 10;
+
+/// The start of an alert result. It marks the alert also on a screen or a
+/// skin where its colour is hard to tell apart.
+pub const ALERT_MARK: &str = "[!] ";
 
 impl<'a> StatusInputs<'a> {
     /// The inputs of the mode on screen.
@@ -116,6 +120,10 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
     let speed_changed = timing.target.kind != RefreshKind::Panel
         && shown_mhz.abs_diff(game_mhz) >= REFRESH_MATCH_MHZ;
     let exact = !fitted && cropped == 0 && small.is_none() && !speed_changed;
+    let alert = fitted || speed_changed;
+    if alert {
+        out.push_str(ALERT_MARK);
+    }
 
     if exact {
         push_word(out, |s| s.write_str("exact"));
@@ -134,19 +142,20 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
     }
     if speed_changed {
         push_word(out, |s| {
-            s.write_str("speed changed (")?;
+            s.write_str("speed (")?;
             hz_number(s, game_mhz)?;
             s.write_str(" to ")?;
             hz_number(s, shown_mhz)?;
             s.write_str(" Hz)")
         });
     }
-    fitted || speed_changed
+    alert
 }
 
-/// Appends one result word, after `, ` when one is there already.
+/// Appends one result word, after `, ` when a word is there already. The
+/// alert mark is not a word.
 fn push_word(out: &mut String, write: impl FnOnce(&mut String) -> std::fmt::Result) {
-    if !out.is_empty() {
+    if !out.is_empty() && out != ALERT_MARK {
         out.push_str(", ");
     }
     // Writing into a String cannot fail.
@@ -295,7 +304,7 @@ mod tests {
             ("double", doubled, rung, "exact, double refresh", false),
             ("cropped", cropped, rung, "cropped 16 lines", false),
             ("small", small, rung, "small picture 47%", false),
-            ("filtered", base, Rung::Fitted, "filtered", true),
+            ("filtered", base, Rung::Fitted, "[!] filtered", true),
             ("speed", fast, rung, "", true),
         ];
         for (name, proposal, rung, words, alert) in table {
@@ -303,7 +312,7 @@ mod tests {
             if name == "speed" {
                 let shown = mode.field_rate_mhz();
                 let expected = format!(
-                    "speed changed (59.940 to {}.{:03} Hz)",
+                    "[!] speed (59.940 to {}.{:03} Hz)",
                     shown / 1_000,
                     shown % 1_000
                 );
@@ -327,7 +336,7 @@ mod tests {
         assert_eq!(
             text,
             format!(
-                "cropped 2 lines, speed changed (60.099 to {}.{:03} Hz)",
+                "[!] cropped 2 lines, speed (60.099 to {}.{:03} Hz)",
                 shown / 1_000,
                 shown % 1_000
             )
@@ -340,7 +349,7 @@ mod tests {
             "double refresh, small picture 75%"
         );
         let (text, alert) = result(&p, Rung::Fitted, &p.mode);
-        assert_eq!(text, "double refresh, small picture 75%, filtered");
+        assert_eq!(text, "[!] double refresh, small picture 75%, filtered");
         assert!(alert);
     }
 
@@ -352,7 +361,7 @@ mod tests {
         p.timing.game_mhz = u32::try_from(shown - (REFRESH_MATCH_MHZ - 1)).unwrap();
         assert_eq!(result(&p, rung, &base.mode).0, "exact");
         p.timing.game_mhz = u32::try_from(shown - REFRESH_MATCH_MHZ).unwrap();
-        assert!(result(&p, rung, &base.mode).0.starts_with("speed changed"));
+        assert!(result(&p, rung, &base.mode).0.starts_with("[!] speed ("));
         p.timing.target.kind = RefreshKind::Panel;
         assert_eq!(
             result(&p, Rung::Panel, &base.mode),
@@ -365,7 +374,7 @@ mod tests {
         let (base, rung) = winner();
         let p = same_speed(base);
         let drifted = at_rate(p.mode, 59_000);
-        assert!(result(&p, rung, &drifted).0.starts_with("speed changed"));
+        assert!(result(&p, rung, &drifted).0.starts_with("[!] speed ("));
     }
 
     fn mode(hactive: u16, vactive: u16, pclock_hz: u32, htotal: u16, vtotal: u16) -> Modeline {
@@ -526,15 +535,22 @@ mod tests {
         let mut small_double = double(base);
         small_double.timing.game_mhz = 57_500;
         small_double.padding = Some(padding(144, 480));
+        // A fill of 995 per mille or more rounds to the widest percent.
+        let mut full_double = small_double;
+        full_double.padding = Some(padding(478, 480));
         let mut fitted_double = double(base);
         fitted_double.timing.game_mhz = 100_000;
         let cases = [
             (cropped_double, rung, fast),
             (small_double, rung, at_rate(base.mode, 100_000)),
+            (full_double, rung, at_rate(base.mode, 100_000)),
             (fitted_double, Rung::Fitted, fast),
         ];
+        let (full, _) = result(&full_double, rung, &at_rate(base.mode, 100_000));
+        assert!(full.contains("small picture 100%,"), "{full}");
         for (proposal, rung, mode) in cases {
-            let (text, _) = result(&proposal, rung, &mode);
+            let (text, alert) = result(&proposal, rung, &mode);
+            assert!(alert && text.starts_with(ALERT_MARK), "{text}");
             assert!(text.len() <= 74, "{text}");
             let lines = wrap(&text, 37);
             assert!(lines.len() <= 2, "{lines:?}");

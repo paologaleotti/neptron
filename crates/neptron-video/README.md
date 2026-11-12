@@ -36,8 +36,8 @@ for _ in 0..repeat {                           // 2 for double refresh
 | --- | --- | --- |
 | `game` | The source size padded to 10, 10 spaces, the field rate with 3 decimals | `256x224             60.099 Hz` |
 | `mode` | The read back: size and scan suffix padded to 10, line rate in kHz with 2 decimals padded to 10, field rate, two spaces, the rung (`native` for native and interlaced 1:1, `2x`, `3x`, `4x`, `fit`, `panel`) | `768x448p  30.05 kHz 60.099 Hz  2x` |
-| `result` | `exact`, `double refresh`, `cropped N lines`, `small picture N%`, `filtered`, `speed changed (X to Y Hz)`, in that order, joined with `, ` | `cropped 2 lines, speed changed (60.099 to 59.940 Hz)` |
-| `alert` | `filtered` or `speed changed` | |
+| `result` | `exact`, `double refresh`, `cropped N lines`, `small picture N%`, `filtered`, `speed (X to Y Hz)`, in that order, joined with `, `. An alert result starts with `ALERT_MARK`, `[!] ` | `[!] cropped 2 lines, speed (60.099 to 59.940 Hz)` |
+| `alert` | `filtered` or `speed` | |
 
 - `exact`: not fitted, no crop, not padded, and the speed does not change. It combines only with `double refresh`.
 - A fractional horizontal scale under a fixed super width counts as `exact`: the lines are exact, and the horizontal axis of a CRT is analog, so it has no pixel grid to miss.
@@ -45,9 +45,10 @@ for _ in 0..repeat {                           // 2 for double refresh
 - `double refresh`: the winner shows each frame twice (`Timing::repeat() == 2`), from `exact_x2` or from `native` on its own.
 - `small picture N%`: the fill of a padded winner, rounded to whole percent.
 - `filtered`: the fitted rung.
-- `speed changed`: X is the game's rate, Y the read-back field rate per game frame. It shows when they differ by `REFRESH_MATCH_MHZ` (5 mHz) or more, never on a flat panel (audio rate control absorbs the difference there, as in the policy's notice).
+- `speed`: the speed of the game changes. X is the game's rate, Y the read-back field rate per game frame. It shows when they differ by `REFRESH_MATCH_MHZ` (5 mHz) or more, never on a flat panel (audio rate control absorbs the difference there, as in the policy's notice).
 - Before the first mode is on screen the function returns `None`, and the UI shows no block.
-- The worst mode line, `1920x238p 15.73 kHz 59.9xx Hz  native`, has 37 characters. The longest real results wrap into two lines of 37.
+- `[!] ` starts the result when `alert` is true, so the alert shows also where its colour is hard to tell apart. The mark is not a result word and has no `, ` after it.
+- The worst mode line, `1920x238p 15.73 kHz 59.9xx Hz  native`, has 37 characters. The longest real results, with the mark, wrap into two lines of 37: `[!] double refresh, small picture 100%, speed (57.500 to 50.082 Hz)` gives 33 and 33 characters, and `[!] double refresh, cropped 16 lines, speed (100.000 to 60.099 Hz)` gives 37 and 28. The word is `speed` and not `speed changed`, because with `speed changed` and the mark the first of these needs three lines.
 
 ## The state machine
 
