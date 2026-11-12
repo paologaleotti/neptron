@@ -138,6 +138,7 @@ impl Screens {
         match self.stack.last_mut() {
             Some(Screen::Games(list)) => list.sync(snap),
             Some(Screen::Options(options)) => options.sync(snap),
+            Some(Screen::QuickMenu(menu)) => menu.sync(snap, &self.theme),
             _ => {}
         }
         self.confirm.follow(snap.confirm.as_ref());

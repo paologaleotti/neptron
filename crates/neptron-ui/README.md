@@ -57,7 +57,7 @@ The UI has no clock and takes no time step. Key repeat comes from the app: while
 - The stack: home, then a game list, then the game. Over the game: the quick menu, from it the display panel or the grid pattern, from a choice row the list of its options. From home: the display panel, then options or the grid pattern. `MAX_DEPTH` is 8; the deepest path is 6.
 - On top of every screen: the confirm dialog while the snapshot holds a pending confirmation (also over a running game), else the oldest notice that the player has not dismissed (not while a game runs alone: the canvas is opaque and would hide the game).
 
-The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `display`, `options`, `pattern/grid`, `confirm` and `notice`. Under a dialog the tree holds the rows of the dialog only, and the hint band shows the hints of the dialog: "Accept: revert" and "Right, then Accept: keep" for the confirm dialog, "Accept: OK" for a notice, "Accept: choose" and "Back: cancel" for the prompt of the quick menu.
+The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `display`, `options`, `pattern/grid`, `confirm` and `notice`. The rows of the video block have the ids `video/game`, `video/mode` and `video/result` as their labels (see "The video block"). Under a dialog the tree holds the rows of the dialog only, and the hint band shows the hints of the dialog: "Accept: revert" and "Right, then Accept: keep" for the confirm dialog, "Accept: OK" for a notice, "Accept: choose" and "Back: cancel" for the prompt of the quick menu.
 
 ### Ids that the UI and the app share
 
@@ -101,6 +101,22 @@ Menu during a game opens the quick menu over the paused game. Its rows write at 
 
 What the app supplies each frame: `Some(status)` while a game runs, `None` when no game runs. It keeps one `VideoStatus` and writes new text into its strings (`clear`, then `write!`) when the status changes, so the frame allocates nothing. The screens show the block only while `Snapshot::session` holds a game as well.
 
+The quick menu shows the block above its rows: a framed box with the heading "Video" and four lines of 12 pixels (one glyph box, for every row height of the skin).
+
+```
+Video
+Game     256x224  60.099 Hz
+Mode     768x448p 30.05 kHz 60.099 Hz  2x
+         exact
+         (second line of the result, empty here)
+```
+
+The layout is fixed: the result always starts on its own line under the mode text, and the block always has two lines for it. A digit or a result that changes never moves a line or the menu rows, which reads better on a 15 kHz CRT than a result that jumps between line 2 and line 3. An alert result is drawn in the focus colour of the skin (amber in the default skin); the skin has no warning colour yet (see the open points of change C05). The block is not focusable and takes no input: the cursor starts on the first menu row, and Up from it stays there. Without a status the block is absent and the quick menu is the same as without this feature.
+
+Lengths at 320x240 with the default skin: the value column starts after a name column of 9 characters and holds 37 characters (222 px). `game` and `mode` fit when they have 37 characters or fewer; a longer one is cut and ends with `...`. `result` wraps at spaces onto two lines of 37 characters; text left over after the second line is cut with `...`. The longest realistic texts fit: `1920x238p 15.73 kHz 59.940 Hz  native` (37) and `cropped 2 lines, speed changed (60.099 to 59.940 Hz)` (52, two lines). A skin with a larger padding gives fewer characters. The UI never wraps `game` or `mode`, and never draws outside the block.
+
+The tree gives each line one label row with a stable id as the label and the whole text as the value, also when the drawing is cut: `video/game` (`screens::VIDEO_GAME_ROW`), `video/mode` (`VIDEO_MODE_ROW`) and `video/result` (`VIDEO_RESULT_ROW`). The heading is a label row "Video".
+
 ### Notices
 
 A notice shows as a dialog with one button, oldest first. Accept or back sends `DismissNotice(id)`, and the UI hides that notice until the app removes it from the snapshot. The UI shows the notice after the newest one the player dismissed: the notices are oldest first, so the ones before it were dismissed too. It remembers 8 dismissed ids; when all 8 are still in the snapshot, it forgets the oldest one, which stays hidden behind a newer dismissed one. The app adds new notices at the end. A failed launch is a notice of kind `Error`.
@@ -115,7 +131,7 @@ The screens use the templates on a dark background: a title band with a two-pixe
 
 ### Scenes
 
-Every screen state that matters is a scene with a golden image: `screens/home`, `screens/home-empty`, `screens/games-top`, `screens/games-middle` (a title too long for its row), `screens/games-end`, `screens/games-one`, `screens/games-empty`, `screens/display`, `screens/display-style` (a picture style the monitor cannot show), `screens/confirm-10s`, `screens/confirm-3s`, `screens/notice` (a game that did not start), `screens/quick-menu`, `screens/quick-menu-keep` and `pattern/grid`. Each scene drives a `Screens` with fixture data and actions, as the app does. A new scene needs a golden image in `crates/neptron-ui/tests/golden/<name>.ppm`: look at it with `cargo xtask shot <name>` first, then write it with `cargo xtask golden --bless <name>`.
+Every screen state that matters is a scene with a golden image: `screens/home`, `screens/home-empty`, `screens/games-top`, `screens/games-middle` (a title too long for its row), `screens/games-end`, `screens/games-one`, `screens/games-empty`, `screens/display`, `screens/display-style` (a picture style the monitor cannot show), `screens/confirm-10s`, `screens/confirm-3s`, `screens/notice` (a game that did not start), `screens/quick-menu`, `screens/quick-menu-keep`, `screens/quick-menu-video` (the video block, exact), `screens/quick-menu-video-filtered` (an alert), `screens/quick-menu-video-long` (a full mode line and a result on two lines) and `pattern/grid`. Each scene drives a `Screens` with fixture data and actions, as the app does. A new scene needs a golden image in `crates/neptron-ui/tests/golden/<name>.ppm`: look at it with `cargo xtask shot <name>` first, then write it with `cargo xtask golden --bless <name>`.
 
 ## Skin
 
@@ -131,7 +147,7 @@ The format is binary PPM (`P6`, maxval 255): the header `P6\n320 240\n255\n`, th
 
 `UiScene`, `UiTree` and the intent list keep their memory on `clear()`. Text goes into the store of the scene; numbers are formatted with `StackText` on the stack. `CpuCanvas` makes its buffer once in `new()`; drawing writes into it. A unit test draws every registered scene twice and checks that no buffer grew or moved. That test is a proxy: the crate forbids `unsafe`, so it cannot install a counting allocator. Fixture data of the scenes (the `Vec<MenuItem>` of a scene) is made when the scene is built and is not part of the frame.
 
-For the router, the tests prove three things about the scene, the tree, the intent list and the screen stack: a static screen or overlay keeps their capacity after its first frame; a round trip from the top of a 10,000-game list to its end and back keeps it after one warm-up round trip; and a confirmation, a notice and the quick menu that open and close over a game keep it after one warm-up round. What can still grow: a frame with more or longer text than any frame before it grows the scene and the tree once, to the new size; opening the quick menu allocates one box for its state, which is freed when it closes; the snapshot belongs to the app and is not counted.
+For the router, the tests prove three things about the scene, the tree, the intent list and the screen stack: a static screen or overlay keeps their capacity after its first frame; a round trip from the top of a 10,000-game list to its end and back keeps it after one warm-up round trip; and a confirmation, a notice and the quick menu that open and close over a game keep it after one warm-up round, with and without the video block. What can still grow: a frame with more or longer text than any frame before it grows the scene and the tree once, to the new size; opening the quick menu allocates one box for its state, which is freed when it closes; the snapshot belongs to the app and is not counted.
 
 ## Why no `embedded-graphics`
 

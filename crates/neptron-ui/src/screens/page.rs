@@ -44,6 +44,17 @@ impl Page {
         }
     }
 
+    /// Moves the page into a box at the top of `area` and keeps the cursor.
+    pub(super) fn place(&mut self, area: Rect, theme: &Theme) {
+        let (list_box, list) = chrome::rows_box(area, theme, chrome::box_rows(area, theme));
+        let cursor = self.list.cursor();
+        self.list = SettingsList::new(list, theme.row_height_px()).with_pickers();
+        // The rows may not be loaded now; the next action clamps the cursor
+        // to the rows it sees, as without a move.
+        self.list.select(cursor, usize::MAX);
+        self.list_box = list_box;
+    }
+
     pub(super) fn id(&self) -> PageId {
         self.id
     }

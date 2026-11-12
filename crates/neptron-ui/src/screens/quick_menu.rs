@@ -3,6 +3,7 @@
 //! changes when the player leaves.
 
 use crate::frame::UiFrame;
+use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
 use crate::snapshot::{Level, SettingKey, Snapshot};
@@ -13,6 +14,7 @@ use super::chrome::{self, Layout};
 use super::overlays::draw_dialog;
 use super::page::{Page, PageEvent};
 use super::router::{Nav, Target};
+use super::video;
 use super::{GRID_PATTERN, OPEN_DISPLAY, QUICK_MENU_PAGE, QUIT_GAME, RESUME};
 
 /// The settings changed in one visit of the quick menu that the prompt can
@@ -39,6 +41,9 @@ pub(super) struct QuickMenu {
     /// and takes only back, which gives the menu back if the app did not
     /// stop the game.
     quitting: bool,
+    content: Rect,
+    /// True while the layout has the video block above the rows.
+    video: bool,
 }
 
 impl QuickMenu {
@@ -48,7 +53,25 @@ impl QuickMenu {
             changes: [None; MAX_CHANGES],
             prompt: None,
             quitting: false,
+            content: layout.content,
+            video: false,
         }
+    }
+
+    /// Puts the video block above the rows while the snapshot has a video
+    /// status, and removes it when it has none.
+    pub(super) fn sync(&mut self, snap: &Snapshot, theme: &Theme) {
+        let video = video::status(snap).is_some();
+        if video == self.video {
+            return;
+        }
+        self.video = video;
+        let area = if video {
+            video::below(self.content)
+        } else {
+            self.content
+        };
+        self.page.place(area, theme);
     }
 
     /// Notes a change at the game level, made here or in a screen opened
@@ -147,6 +170,9 @@ impl QuickMenu {
             "Accept: choose",
             "Back: resume",
         );
+        if let Some(status) = video::status(snap).filter(|_| self.video) {
+            video::draw(frame, theme, self.content, status);
+        }
         self.page.draw(snap, theme, frame);
         if let Some((dialog, _)) = &self.prompt {
             frame.tree.clear();

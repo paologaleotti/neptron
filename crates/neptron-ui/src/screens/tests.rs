@@ -13,10 +13,12 @@ use crate::theme::Theme;
 use super::game_list::{PREFETCH_ROWS, WINDOW_ROWS};
 use super::overlays::QUIET_FRAMES_BEFORE_MOVE;
 use super::scenes::{
-    LONG_LIST, MEGA_DRIVE, REFRESH, SNES, STYLE, TO_DISPLAY, in_game, window, with_display,
-    with_systems,
+    LONG_LIST, MEGA_DRIVE, REFRESH, SNES, STYLE, TO_DISPLAY, exact_status, filtered_status,
+    in_game, in_game_with, long_status, window, with_display, with_systems,
 };
-use super::{DISPLAY_PAGE, QUICK_MENU_PAGE, Screens};
+use super::{
+    DISPLAY_PAGE, QUICK_MENU_PAGE, Screens, VIDEO_GAME_ROW, VIDEO_MODE_ROW, VIDEO_RESULT_ROW,
+};
 
 pub(super) struct Run {
     pub screens: Screens,
@@ -857,7 +859,8 @@ fn a_static_screen_allocates_nothing_after_its_first_frame() {
     let mut noticed = with_systems();
     noticed.notices = vec![notice(1, "The scan found 12 new games.")];
     let (_, games) = snes_list();
-    let cases: [(&Snapshot, &[UiAction], &str); 9] = [
+    let video = in_game_with(long_status());
+    let cases: [(&Snapshot, &[UiAction], &str); 11] = [
         (&with_systems(), &[], "home"),
         (&Snapshot::default(), &[], "home"),
         (&games, &[Down, Accept], "games"),
@@ -866,6 +869,8 @@ fn a_static_screen_allocates_nothing_after_its_first_frame() {
         (&noticed, &[], "notice"),
         (&quick, &[Menu], "quick-menu"),
         (&quick, &[Menu, Down, Accept], "options"),
+        (&video, &[Menu], "quick-menu"),
+        (&video, &[Menu, Down, Accept], "options"),
         (
             &with_display(),
             &[
@@ -895,7 +900,7 @@ mod fuzz {
     use crate::screens::{GRID_PATTERN, OPEN_DISPLAY, QUIT_GAME, RESUME};
     use crate::snapshot::{
         ActionId, ChoiceOption, DisplayInfo, GameEntry, MenuItem, PageId, ProfileEntry, ProfileId,
-        Scopes, SettingKey, SettingValue, SystemEntry, SystemId,
+        Scopes, SettingKey, SettingValue, SystemEntry, SystemId, VideoStatus,
     };
     use crate::theme::SAFE_AREA;
     use crate::{CpuCanvas, WidgetKind};
@@ -1044,6 +1049,10 @@ mod fuzz {
             }
             if self.chance(30) {
                 snap.session = Some(SessionInfo::new(GameId(1), self.text()));
+            }
+            if self.chance(40) {
+                let status = VideoStatus::new(self.text(), self.text(), self.text());
+                snap.video = Some(status.with_alert(self.chance(50)));
             }
             snap.notices = (0..self.below(3))
                 .map(|i| {
@@ -1305,8 +1314,14 @@ fn overlay_round_trip(run: &mut Run, base: &Snapshot, round: u32) {
 
 #[test]
 fn overlays_that_open_and_close_allocate_nothing_after_a_warm_up() {
+    for snap in [in_game(), in_game_with(long_status())] {
+        overlays_allocate_nothing_after_a_warm_up(&snap);
+    }
+}
+
+fn overlays_allocate_nothing_after_a_warm_up(snap: &Snapshot) {
     let mut run = Run::new();
-    let snap = in_game();
+    let snap = snap.clone();
     run.step(&snap, &[]);
     overlay_round_trip(&mut run, &snap, 1);
     let before = (capacities(&run.frame), run.screens.stack_capacity());
@@ -1318,5 +1333,170 @@ fn overlays_that_open_and_close_allocate_nothing_after_a_warm_up() {
             before,
             "round {round}"
         );
+    }
+}
+
+fn video_rows(run: &Run) -> Vec<(&str, Option<&str>)> {
+    run.frame
+        .tree
+        .rows()
+        .filter(|r| r.label.starts_with("video/") || r.label == "Video")
+        .map(|r| (r.label, r.value))
+        .collect()
+}
+
+#[test]
+fn the_quick_menu_shows_the_video_block_only_with_a_status() {
+    let (run, _) = quick_menu();
+    assert!(video_rows(&run).is_empty());
+
+    let mut run = Run::new();
+    let snap = in_game_with(exact_status());
+    run.step(&snap, &[]);
+    run.step(&snap, &[Menu]);
+    assert_eq!(run.screen(), "quick-menu");
+    assert_eq!(
+        video_rows(&run),
+        [
+            ("Video", None),
+            (VIDEO_GAME_ROW, Some("256x224  60.099 Hz")),
+            (VIDEO_MODE_ROW, Some("768x448p 30.05 kHz 60.099 Hz  2x")),
+            (VIDEO_RESULT_ROW, Some("exact")),
+        ]
+    );
+    assert!(run.frame.tree.rows().all(|r| !r.clipped));
+}
+
+#[test]
+fn the_video_block_takes_no_focus_and_changes_no_navigation() {
+    let paths: [&[UiAction]; 7] = [
+        &[],
+        &[Up, Up],
+        &[Down, Down, Down, Down, Down, Down],
+        &[Down, Up, Up, Accept],
+        &TO_FORCE_60,
+        &[Down, Down, Down, Down, Accept, Up, Accept, Back],
+        &[Left, Right, Menu, Back],
+    ];
+    for path in paths {
+        let (mut plain, snap) = quick_menu();
+        let mut run = Run::new();
+        let with = in_game_with(long_status());
+        run.step(&with, &[]);
+        run.step(&with, &[Menu]);
+        assert_eq!(run.focused(), Some("Resume"));
+        for &action in path.iter().chain(&[Back, Accept, Back]) {
+            plain.step(&snap, &[action]);
+            run.step(&with, &[action]);
+            assert_eq!(run.screen(), plain.screen(), "{path:?} {action:?}");
+            assert_eq!(run.focused(), plain.focused(), "{path:?} {action:?}");
+            assert_eq!(run.intents(), plain.intents(), "{path:?} {action:?}");
+            assert_eq!(run.screens.shows_ui(), plain.screens.shows_ui());
+        }
+    }
+}
+
+#[test]
+fn a_status_that_comes_or_goes_keeps_the_cursor() {
+    let (mut run, mut snap) = quick_menu();
+    run.step(&snap, &[Down, Down]);
+    assert_eq!(run.focused(), Some("Refresh"));
+    snap.video = Some(filtered_status());
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some("Refresh"));
+    assert_eq!(video_rows(&run).len(), 4);
+    run.step(&snap, &[Down]);
+    snap.video = None;
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some("Display"));
+    assert!(video_rows(&run).is_empty());
+}
+
+/// The text runs of the frame with their left edge, top edge and width.
+fn text_runs(run: &Run) -> Vec<(i32, i32, u32, &str)> {
+    let scene = &run.frame.scene;
+    scene
+        .commands()
+        .iter()
+        .filter_map(|c| match *c {
+            crate::DrawCommand::Text { x, y, span, .. } => {
+                let text = scene.text(span);
+                Some((x, y, crate::font::text_width(text), text))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn long_video_text_is_cut_and_stays_in_its_line() {
+    const LONG: &str = "1920x240p 15.73 kHz 59.940 Hz  native  and much more text after it";
+    let mut status = long_status();
+    status.game = LONG.into();
+    status.mode = LONG.into();
+    status.result = format!("{LONG} {LONG}");
+    let mut run = Run::new();
+    let snap = in_game_with(status.clone());
+    run.step(&snap, &[]);
+    run.step(&snap, &[Menu]);
+    let rows: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.label.starts_with("video/"))
+        .collect();
+    assert_eq!(rows.len(), 3);
+    for row in &rows {
+        assert!(row.clipped, "{row:?}");
+        let inside: Vec<_> = text_runs(&run)
+            .into_iter()
+            .filter(|&(x, y, _, _)| {
+                x >= row.rect.x
+                    && i64::from(y) >= i64::from(row.rect.y)
+                    && i64::from(y) < row.rect.bottom()
+            })
+            .collect();
+        assert!(!inside.is_empty(), "{row:?}");
+        for (x, _, w, text) in inside {
+            assert!(
+                i64::from(x) + i64::from(w) <= row.rect.right(),
+                "{text:?} leaves {row:?}"
+            );
+        }
+    }
+    assert_eq!(rows[2].value, Some(status.result.as_str()));
+    let ellipses = text_runs(&run)
+        .iter()
+        .filter(|&&(_, _, _, t)| t == crate::text::ELLIPSIS)
+        .count();
+    assert_eq!(ellipses, 3, "one cut for each field");
+    let menu_top = run
+        .frame
+        .tree
+        .rows()
+        .find(|r| r.label == "Resume")
+        .map(|r| r.rect.y);
+    assert!(menu_top.is_some_and(|top| i64::from(top) > rows[2].rect.bottom()));
+}
+
+#[test]
+fn an_alert_result_has_the_focus_colour() {
+    let theme = Theme::default();
+    for (status, colour) in [
+        (exact_status(), theme.colors.text),
+        (filtered_status(), theme.colors.focus),
+    ] {
+        let mut run = Run::new();
+        let snap = in_game_with(status.clone());
+        run.step(&snap, &[]);
+        run.step(&snap, &[Menu]);
+        let scene = &run.frame.scene;
+        let drawn = scene.commands().iter().find_map(|c| match *c {
+            crate::DrawCommand::Text { color, span, .. } if scene.text(span) == status.result => {
+                Some(color)
+            }
+            _ => None,
+        });
+        assert_eq!(drawn, Some(colour), "{}", status.result);
     }
 }

@@ -104,7 +104,13 @@ pub(super) fn hints(frame: &mut UiFrame, theme: &Theme, left: &str, right: &str)
 /// A framed box at the top of `area` that holds `rows` rows of the theme,
 /// and the rectangle of those rows inside it.
 pub(super) fn rows_box(area: Rect, theme: &Theme, rows: u32) -> (Rect, Rect) {
-    let row = theme.row_height_px();
+    lines_box(area, theme.row_height_px(), rows)
+}
+
+/// A framed box at the top of `area` that holds `rows` lines of `row` pixels
+/// each, as many as fit, and the rectangle of those lines inside it.
+pub(super) fn lines_box(area: Rect, row: u32, rows: u32) -> (Rect, Rect) {
+    let row = row.max(1);
     let rows = rows.min(area.h.saturating_sub(BOX_EDGE_H_PX) / row);
     let outer = Rect::new(
         area.x,
@@ -208,7 +214,7 @@ pub(super) fn field(frame: &mut UiFrame, theme: &Theme, rect: Rect, name: &str, 
 }
 
 /// Width of the name column of a [`field`], in characters.
-const FIELD_NAME_CHARS: usize = 9;
+pub(super) const FIELD_NAME_CHARS: usize = 9;
 
 /// Draws `message` wrapped into the lines of `rect`, one line per row of
 /// the theme. The last line that fits ends with an ellipsis when text is
@@ -261,6 +267,21 @@ pub(super) fn offset(x: i32, by: u32) -> i32 {
 /// more text follows the line and has no room. The tree gets the whole
 /// line, marked as clipped.
 fn label_cut(frame: &mut UiFrame, rect: Rect, color: Color, line: &str) {
+    draw_cut(frame, rect, color, line);
+    frame.tree.push(TreeRow {
+        widget: WidgetKind::Label,
+        label: line,
+        value: None,
+        source: None,
+        rect,
+        focused: false,
+        clipped: true,
+    });
+}
+
+/// Draws `line` followed by an ellipsis, cut so that both fit in `rect`,
+/// and adds no tree row.
+pub(super) fn draw_cut(frame: &mut UiFrame, rect: Rect, color: Color, line: &str) {
     let room = font::chars_in(rect.w).saturating_sub(text::ELLIPSIS.len());
     let end = line
         .char_indices()
@@ -275,15 +296,6 @@ fn label_cut(frame: &mut UiFrame, rect: Rect, color: Color, line: &str) {
         rect.h,
     );
     text::draw_in(&mut frame.scene, dots, Align::Left, color, text::ELLIPSIS);
-    frame.tree.push(TreeRow {
-        widget: WidgetKind::Label,
-        label: line,
-        value: None,
-        source: None,
-        rect,
-        focused: false,
-        clipped: true,
-    });
 }
 
 #[cfg(test)]

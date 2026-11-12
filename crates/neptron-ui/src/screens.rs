@@ -18,6 +18,7 @@ mod pattern;
 mod quick_menu;
 mod router;
 mod scenes;
+mod video;
 
 #[cfg(test)]
 mod tests;
@@ -48,6 +49,16 @@ pub const QUIT_GAME: ActionId = ActionId(RESERVED_ID_MIN + 2);
 pub const OPEN_DISPLAY: ActionId = ActionId(RESERVED_ID_MIN + 3);
 /// A menu row that shows the grid test pattern.
 pub const GRID_PATTERN: ActionId = ActionId(RESERVED_ID_MIN + 4);
+
+/// The label of the tree row with the video status line of the game: what
+/// the core asks for. Its value is [`crate::snapshot::VideoStatus::game`].
+pub const VIDEO_GAME_ROW: &str = "video/game";
+/// The label of the tree row with the mode on screen. Its value is
+/// [`crate::snapshot::VideoStatus::mode`].
+pub const VIDEO_MODE_ROW: &str = "video/mode";
+/// The label of the tree row with the result in words. Its value is
+/// [`crate::snapshot::VideoStatus::result`].
+pub const VIDEO_RESULT_ROW: &str = "video/result";
 
 /// The scenes of the screens, added to the registry after the template
 /// scenes.

@@ -4,12 +4,12 @@
 use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::registry::SceneDef;
-use crate::snapshot::SessionInfo;
 use crate::snapshot::{
     ChoiceOption, ConfirmId, DisplayInfo, GameEntry, GameId, GameSource, GameWindow, Level,
     MenuItem, Notice, NoticeId, NoticeKind, PendingConfirm, ProfileEntry, ProfileId, Scopes,
     SettingKey, SettingValue, SettingsPage, Snapshot, SystemEntry, SystemId,
 };
+use crate::snapshot::{SessionInfo, VideoStatus};
 use crate::theme::Theme;
 
 use super::game_list::WINDOW_ROWS;
@@ -74,6 +74,18 @@ pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
         name: "screens/quick-menu-keep",
         build: quick_menu_keep,
+    },
+    SceneDef {
+        name: "screens/quick-menu-video",
+        build: quick_menu_video,
+    },
+    SceneDef {
+        name: "screens/quick-menu-video-filtered",
+        build: quick_menu_video_filtered,
+    },
+    SceneDef {
+        name: "screens/quick-menu-video-long",
+        build: quick_menu_video_long,
     },
     SceneDef {
         name: "pattern/grid",
@@ -439,6 +451,62 @@ fn quick_menu_keep(frame: &mut UiFrame, theme: &Theme) {
         refresh.source = Level::Game;
     }
     screens.update(&snap, &[UiAction::Back], frame);
+}
+
+/// A game at its exact rate on a 2x mode.
+pub(super) fn exact_status() -> VideoStatus {
+    VideoStatus::new(
+        "256x224  60.099 Hz",
+        "768x448p 30.05 kHz 60.099 Hz  2x",
+        "exact",
+    )
+}
+
+/// A game that the mode cannot show at an integer scale.
+pub(super) fn filtered_status() -> VideoStatus {
+    VideoStatus::new(
+        "320x224  59.923 Hz",
+        "640x480p 31.47 kHz 59.923 Hz  2x",
+        "filtered",
+    )
+    .with_alert(true)
+}
+
+/// The longest status of the fixtures: a mode line that fills its column
+/// and a result that needs two lines.
+pub(super) fn long_status() -> VideoStatus {
+    VideoStatus::new(
+        "256x240  60.099 Hz",
+        "1920x238p 15.73 kHz 59.940 Hz  native",
+        "cropped 2 lines, speed changed (60.099 to 59.940 Hz)",
+    )
+    .with_alert(true)
+}
+
+/// A snapshot of a running game with the quick menu page and `status`.
+pub(super) fn in_game_with(status: VideoStatus) -> Snapshot {
+    let mut snap = in_game();
+    snap.video = Some(status);
+    snap
+}
+
+fn quick_menu_with(frame: &mut UiFrame, theme: &Theme, status: VideoStatus) {
+    let snap = in_game_with(status);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[], frame);
+    screens.update(&snap, &[UiAction::Menu], frame);
+}
+
+fn quick_menu_video(frame: &mut UiFrame, theme: &Theme) {
+    quick_menu_with(frame, theme, exact_status());
+}
+
+fn quick_menu_video_filtered(frame: &mut UiFrame, theme: &Theme) {
+    quick_menu_with(frame, theme, filtered_status());
+}
+
+fn quick_menu_video_long(frame: &mut UiFrame, theme: &Theme) {
+    quick_menu_with(frame, theme, long_status());
 }
 
 fn grid(frame: &mut UiFrame, theme: &Theme) {
