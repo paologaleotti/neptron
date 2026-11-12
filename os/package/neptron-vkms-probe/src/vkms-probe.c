@@ -4,7 +4,8 @@
 // reports what the driver does with them: the test-only and the real commit,
 // the mode read back, vblank periods, flip events, frame CRCs and the
 // writeback picture. It is a test tool for the QEMU images; it changes no
-// state that outlives it.
+// state that outlives it. It refuses every device whose driver is not vkms,
+// before its first commit.
 //
 // It reports and does not judge the timing: periods are per vblank sequence
 // step, from the event timestamps, next to the period that the mode gives.
@@ -147,6 +148,15 @@ static int setup(struct kms *k, const char *device)
 	}
 	printf("driver: %s %d.%d.%d (%s)\n", ver->name, ver->version_major,
 	       ver->version_minor, ver->version_patchlevel, ver->desc);
+	// The probe commits modelines that no validator has seen. On a real
+	// GPU that drives a monitor this is unsafe, so it runs on vkms only.
+	if (strcmp(ver->name, "vkms") != 0) {
+		printf("FAIL: the driver of %s is %s, not vkms; the probe runs only on vkms\n",
+		       device, ver->name);
+		failures++;
+		drmFreeVersion(ver);
+		return -1;
+	}
 	drmFreeVersion(ver);
 
 	if (drmSetClientCap(k->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) ||

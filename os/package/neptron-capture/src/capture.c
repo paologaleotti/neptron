@@ -6,6 +6,12 @@
 // the vkms driver in QEMU (`cargo xtask os boot-check`).
 //
 // Usage: neptron-capture [--screen ID] [--timeout-ms N] [--settle-ms N]
+//                        [--device PATH]
+//
+// It runs on vkms only. Before it waits, stops a process or commits, it
+// opens the device (default /dev/dri/card0) and exits unless the driver is
+// vkms: on a PC the device drives a monitor, and a stopped frontend would
+// leave the picture frozen.
 //
 // Only the DRM master can commit, and the launcher holds master for the
 // frontend. So the tool stops the frontend and the launcher (SIGSTOP), takes
@@ -211,7 +217,7 @@ static pid_t find_process(const char *name, pid_t parent)
 }
 
 // The number of the descriptor of pid that is open on the DRM device, or -1.
-static int find_drm_fd(pid_t pid)
+static int find_drm_fd(pid_t pid, const char *device)
 {
 	char path[64];
 	DIR *dir;
@@ -231,12 +237,35 @@ static int find_drm_fd(pid_t pid)
 		if (n <= 0)
 			continue;
 		target[n] = '\0';
-		if (strcmp(target, DRM_PATH) == 0)
+		if (strcmp(target, device) == 0)
 			found = (int)strtol(e->d_name, NULL, 10);
 	}
 	if (dir)
 		closedir(dir);
 	return found;
+}
+
+// 0 when the DRM driver of path is vkms, else 1 with a FAIL line.
+static int require_vkms(const char *path)
+{
+	drmVersion *ver;
+	int fd = open(path, O_RDONLY | O_CLOEXEC);
+	int ok;
+
+	if (fd < 0)
+		return failed(path, errno);
+	ver = drmGetVersion(fd);
+	close(fd);
+	if (!ver) {
+		printf("FAIL: %s is not a DRM device; the capture runs only on vkms\n", path);
+		return 1;
+	}
+	ok = strcmp(ver->name, "vkms") == 0;
+	if (!ok)
+		printf("FAIL: the driver of %s is %s, not vkms; the capture runs only on vkms\n",
+		       path, ver->name);
+	drmFreeVersion(ver);
+	return ok ? 0 : 1;
 }
 
 static uint32_t prop_id(int fd, uint32_t obj, uint32_t type, const char *name)
@@ -428,7 +457,7 @@ static int capture(int fd)
 
 int main(int argc, char **argv)
 {
-	const char *screen = NULL;
+	const char *screen = NULL, *device = DRM_PATH;
 	unsigned timeout_ms = 300000, settle_ms = 2000;
 	pid_t launcher, frontend;
 	int pidfd, drm_fd, fd;
@@ -440,12 +469,17 @@ int main(int argc, char **argv)
 			timeout_ms = (unsigned)strtoul(argv[++i], NULL, 10);
 		else if (strcmp(argv[i], "--settle-ms") == 0 && i + 1 < argc)
 			settle_ms = (unsigned)strtoul(argv[++i], NULL, 10);
+		else if (strcmp(argv[i], "--device") == 0 && i + 1 < argc)
+			device = argv[++i];
 		else {
-			printf("usage: neptron-capture [--screen ID] [--timeout-ms N] [--settle-ms N]\n");
+			printf("usage: neptron-capture [--screen ID] [--timeout-ms N] [--settle-ms N] "
+			       "[--device PATH]\n");
 			return 2;
 		}
 	}
 	setvbuf(stdout, NULL, _IOLBF, 0);
+	if (require_vkms(device))
+		return 1;
 
 	if (screen) {
 		uint64_t deadline = now_ms() + timeout_ms;
@@ -476,9 +510,9 @@ int main(int argc, char **argv)
 	// next vblank.
 	sleep_ms(FLIP_SETTLE_MS);
 
-	drm_fd = find_drm_fd(launcher);
+	drm_fd = find_drm_fd(launcher, device);
 	if (drm_fd < 0) {
-		printf("FAIL: the launcher holds no descriptor on %s\n", DRM_PATH);
+		printf("FAIL: the launcher holds no descriptor on %s\n", device);
 		return 1;
 	}
 	pidfd = (int)syscall(SYS_pidfd_open, launcher, 0);
