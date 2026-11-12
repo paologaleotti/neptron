@@ -91,7 +91,8 @@ fn write_mode(mode: &Modeline, rung: Rung, out: &mut String) {
     column(out, |s| khz(s, mode.line_rate_mhz()));
     hz(out, mode.field_rate_mhz());
     out.push_str("  ");
-    out.push_str(rung_label(rung));
+    // Writing into a String cannot fail.
+    let _ = write_rung(out, rung);
 }
 
 /// Writes the result words and returns the alert flag.
@@ -147,15 +148,14 @@ fn push_word(out: &mut String, write: impl FnOnce(&mut String) -> std::fmt::Resu
 
 /// The short name of a rung on the mode line. Interlaced 1:1 shows the
 /// game's own lines, so it is `native`; the `i` of the mode says the scan.
-fn rung_label(rung: Rung) -> &'static str {
+/// A multiple is `{n}x`, at most `255x`, so no label is longer than
+/// `native`.
+fn write_rung(out: &mut String, rung: Rung) -> std::fmt::Result {
     match rung {
-        Rung::Native | Rung::Interlaced => "native",
-        Rung::Multiple(2) => "2x",
-        Rung::Multiple(3) => "3x",
-        Rung::Multiple(4) => "4x",
-        Rung::Multiple(_) => "multiple",
-        Rung::Fitted => "fit",
-        Rung::Panel => "panel",
+        Rung::Native | Rung::Interlaced => out.write_str("native"),
+        Rung::Multiple(n) => write!(out, "{n}x"),
+        Rung::Fitted => out.write_str("fit"),
+        Rung::Panel => out.write_str("panel"),
     }
 }
 
@@ -428,6 +428,28 @@ mod tests {
             out.mode
         );
         assert_eq!(out.mode.len(), 37, "{}", out.mode);
+    }
+
+    #[test]
+    fn every_rung_label_is_at_most_as_long_as_native() {
+        let label = |rung| {
+            let mut out = String::new();
+            write_rung(&mut out, rung).unwrap();
+            out
+        };
+        assert_eq!(label(Rung::Multiple(2)), "2x");
+        assert_eq!(label(Rung::Multiple(5)), "5x");
+        assert_eq!(label(Rung::Interlaced), "native");
+        assert_eq!(label(Rung::Fitted), "fit");
+        assert_eq!(label(Rung::Panel), "panel");
+        let rungs = [
+            Rung::Native,
+            Rung::Interlaced,
+            Rung::Multiple(u8::MAX),
+            Rung::Fitted,
+            Rung::Panel,
+        ];
+        assert!(rungs.into_iter().all(|r| label(r).len() <= "native".len()));
     }
 
     #[test]
