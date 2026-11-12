@@ -107,9 +107,10 @@ pub fn listed_modes(bytes: &[u8]) -> Result<ListedModes, EdidError> {
 type TableMode = (u16, u16, u32, [u16; 3], [u16; 3], (bool, bool));
 
 /// The CTA-861 video codes that this parser turns into modes, with the
-/// timings of CTA-861-G table 1, at the integer rate (60 Hz, not
-/// 59.94 Hz): 1 (640x480p60), 2 and 3 (720x480p60), 4 (1280x720p60),
-/// 16 (1920x1080p60), 17 and 18 (720x576p50), 19 (1280x720p50), 31
+/// timings of CTA-861-G table 1. Codes 1 (640x480, 25.175 MHz) and 2 and
+/// 3 (720x480, 27 MHz) take their 59.94 Hz clock. The HD codes take the
+/// integer rate, not the 1000/1001 variant: 4 (1280x720p60), 16
+/// (1920x1080p60), 17 and 18 (720x576p50), 19 (1280x720p50), 31
 /// (1920x1080p50), 95 (3840x2160p30), 96 (3840x2160p50) and 97
 /// (3840x2160p60).
 pub const CTA_MODES: [(u8, TableMode); 12] = [

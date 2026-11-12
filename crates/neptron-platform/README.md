@@ -29,7 +29,7 @@ Only `detect` does I/O. Everything else is a pure function over bytes and string
 
 `display_class` decides, in this order:
 
-1. An EDID that fails the structural checks (length, header, checksums, version, manufacturer, descriptor layout) gives an error. The caller has no EDID and uses its safe start (`generic_15`), as with no EDID at all.
+1. An EDID that fails the structural checks (length, header, the checksum of the base block or of any extension block, version, manufacturer, descriptor layout) gives an error. EDID 1.0 to 1.2 is refused as a version: only 1.3 and 1.4 are read. The caller has no EDID and uses its safe start (`generic_15`), as with no EDID at all.
 2. An analog input (byte 0x14, bit 7 clear) is a CRT, on any connector. An active DP-to-VGA or HDMI-to-VGA adapter passes the EDID of the monitor behind it, so a `DP-n` or `HDMI-A-n` with an analog EDID is a CRT behind a DAC. An LCD with a VGA input also has an analog EDID and takes the CRT path; that is correct, it accepts the modes in its ranges.
 3. A downstream port type (the `subconnector` property of a DP or DVI-I connector) of `VGA` or `DVI-A` is a CRT, even with a digital EDID: the adapter is a DAC.
 4. An analog-only connector (`VGA`, `DVI-A`, `Composite`, `SVIDEO`, `Component`, `DIN`, `TV`, `DPI`) is a CRT, even with a digital EDID.
@@ -42,7 +42,7 @@ A CRT with a digital EDID builds no CRT profile (`ProfileError::NotAnalog`), so 
 ## The flat-panel profile
 
 - Id: `panel_<manufacturer>_<product code>`, for example `panel_npt_1080`. The prefix keeps a CRT profile and a panel profile of the same EDID apart in the guard record.
-- Modes, each once, progressive only, in this order: the detailed timings of the base block (the first is the preferred mode), the detailed timings of the CTA-861 extension blocks, the CTA-861 video codes of `CTA_MODES` (640x480p60, 720x480p60, 720p60, 1080p60, 576p50, 720p50, 1080p50, 2160p30, 2160p50, 2160p60, at the integer rate), the standard timings that name a 60 Hz mode of `DMT_MODES`, and the established timings 640x480, 800x600 and 1024x768 at 60 Hz.
+- Modes, each once, progressive only, in this order: the detailed timings of the base block (the first is the preferred mode), the detailed timings of the CTA-861 extension blocks, the CTA-861 video codes of `CTA_MODES` (640x480 and 720x480 at their 59.94 Hz clocks of 25.175 and 27 MHz; 720p60, 1080p60, 576p50, 720p50, 1080p50, 2160p30, 2160p50 and 2160p60 at the integer rate), the standard timings that name a 60 Hz mode of `DMT_MODES`, and the established timings 640x480, 800x600 and 1024x768 at 60 Hz.
 - Not read: interlaced timings, standard timings at other rates or sizes, other video codes (59.94 Hz variants included), the other established timings, DisplayID and HDMI Forum blocks. A CTA-861 block whose offsets point outside the block gives no modes.
 - The content of the range limits descriptor is not read: a panel is driven only in its listed modes. So a panel EDID whose range limits descriptor the CRT parser refuses (a CVT limit on the active pixels, a padding byte out of the specification) still gives a panel profile.
 - The highest pixel clock is the clock of the fastest listed mode, so `limit_caps` never removes a listed mode.
