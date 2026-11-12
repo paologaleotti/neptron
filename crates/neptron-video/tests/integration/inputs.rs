@@ -413,3 +413,26 @@ fn a_device_error_on_a_monitor_modeset_then_success() {
     assert!(passes(&generic_15(), &rig.current_mode()));
     assert!(!rig.engine.current_refused());
 }
+
+#[test]
+fn retry_gives_a_new_blank_attempt() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(SNES);
+    for call in 0..u64::from(MODESET_ATTEMPTS) {
+        rig.fake.fault_blank(call, "EIO".to_owned());
+    }
+    rig.engine.set_monitor(edid(2_000_000));
+    for _ in 0..MODESET_ATTEMPTS {
+        assert_eq!(rig.frame(SNES).directive, Directive::Blank);
+    }
+    assert_ne!(rig.frame(SNES).directive, Directive::Blank, "the bound");
+    assert!(rig.engine.current_refused());
+    rig.engine.retry();
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Blank);
+    assert_eq!(
+        rig.engine.present(Some(frame(&SNES)), None),
+        Err(VideoError::NoMode)
+    );
+    assert!(rig.engine.blanked());
+    assert_eq!(rig.fake.blank_calls().len(), MODESET_ATTEMPTS as usize + 1);
+}

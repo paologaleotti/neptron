@@ -31,7 +31,7 @@ When no valid mode exists for the inputs, the engine reports `current_refused()`
 6. The engine blanks when no valid mode exists for the inputs:
    - The mode on the display is refused (`current_refused()`), and the decision ends with no winner: the frame gets `Directive::Blank`, and the next `present` calls `blank()`.
    - The driver reads back a mode the engine refuses, and no restore follows (there is no last good mode, or the inputs now refuse it), or the restore fails or its read back does not hold: the same `present` calls `blank()`, so the refused mode does not stay on the wire.
-   - A blank that succeeds forgets the mode, turns `current_refused()` off and `blanked()` on, and adds an `Outcome::Blanked` record to the trace. A failed blank adds `Outcome::BlankFailed` and is tried again on the next frame, up to `MODESET_ATTEMPTS` in all, then `current_refused()` stays on for the guard.
+   - A blank that succeeds forgets the mode, turns `current_refused()` off and `blanked()` on, and adds an `Outcome::Blanked` record to the trace. A failed blank adds `Outcome::BlankFailed` and is tried again on the next frame, up to `MODESET_ATTEMPTS` in all, then `current_refused()` stays on for the guard. An input change or `retry()` starts a new count.
    - The next valid decision sets a mode again with a normal modeset, and `blanked()` turns off.
 
 ## Consequences

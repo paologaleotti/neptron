@@ -191,13 +191,14 @@ impl Odren {
     }
 
     /// Lifts the block of a source whose `set_mode` failed on the device,
-    /// and the count of failed attempts. The next frame decides again with
-    /// no debounce. The session calls it when the player asks (for example
+    /// and the counts of failed modeset and blank attempts. The next frame
+    /// decides again with no debounce. The session calls it when the player asks (for example
     /// when the quick menu closes); the engine never retries a blocked
     /// source by itself.
     pub fn retry(&mut self) {
         self.blocked = None;
         self.failed_attempts = 0;
+        self.blank_failures = 0;
         self.redo = Some(Trigger::Retry);
     }
 
