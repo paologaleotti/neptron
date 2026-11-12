@@ -4,11 +4,20 @@
 
 use neptron_types::{Filter, Frame, Modeline, PixelFormat, Rect, Scanlines, Scene};
 
-/// The widest frame the pattern draws, in pixels. A wider mode gets a
-/// frame of half its width, scaled 2 times by the renderer with nearest
-/// sampling, so the GLES limit on the source side times the destination
-/// side holds for every mode up to 4096 pixels.
-pub const PATTERN_WIDTH_MAX_PX: u16 = 2_048;
+/// The widest texture side that every supported GPU takes, in texels:
+/// `GL_MAX_TEXTURE_SIZE` of vc4 on the Raspberry Pi. The GPUs of the
+/// x86 targets take more. `KmsDisplay` does not report the value of the
+/// GPU at hand, so the pattern keeps to the smallest one.
+pub const TEXTURE_SIDE_MAX_TEXELS: u16 = 2_048;
+/// Texels per frame pixel: the GLES renderer uploads each byte of a row as
+/// one `LUMINANCE` texel, so an XRGB8888 pixel takes 4.
+pub const TEXELS_PER_PIXEL: u16 = 4;
+/// The widest frame the pattern draws, in pixels: one texture row. A
+/// wider mode gets a frame narrower by a whole factor, which the renderer
+/// scales back with nearest sampling. The source side times the
+/// destination side then stays far below the GLES axis limit of 2^23
+/// (512 times 3840).
+pub const PATTERN_WIDTH_MAX_PX: u16 = TEXTURE_SIDE_MAX_TEXELS / TEXELS_PER_PIXEL;
 
 /// Little-endian XRGB8888 white.
 pub const WHITE: u32 = 0x00ff_ffff;
@@ -40,11 +49,7 @@ impl Pattern {
     /// Draws the pattern for `mode` with `lines` of text at the top left.
     /// It allocates the frame once; the display loop reuses it.
     pub fn draw(mode: &Modeline, lines: &[String]) -> Self {
-        let width = if mode.hactive > PATTERN_WIDTH_MAX_PX {
-            mode.hactive.div_ceil(2)
-        } else {
-            mode.hactive
-        };
+        let width = mode.hactive.div_ceil(width_factor(mode.hactive));
         let height = mode.vactive;
         let mut pattern = Self {
             pixels: vec![0; usize::from(width) * usize::from(height) * BYTES_PER_PIXEL],
@@ -113,15 +118,13 @@ impl Pattern {
         self.fill(0, h - 1, w, 1, WHITE);
         self.fill(0, 0, 1, h, WHITE);
         self.fill(w - 1, 0, 1, h, WHITE);
-        let sx = (usize::from(self.mode_width) / TEXT_REFERENCE_W_PX).max(1);
+        // The text has the size of a 320x240 picture on the mode; a frame
+        // narrower than the mode by a factor holds it in fewer pixels.
+        let factor = usize::from(self.mode_width).div_ceil(w);
+        let sx = (usize::from(self.mode_width) / TEXT_REFERENCE_W_PX)
+            .div_ceil(factor)
+            .max(1);
         let sy = (h / TEXT_REFERENCE_H_PX).max(1);
-        // A frame of half the mode width is scaled 2 times, so its text is
-        // half as wide in frame pixels.
-        let sx = if self.width < self.mode_width {
-            sx.div_ceil(2)
-        } else {
-            sx
-        };
         for (row, line) in lines.iter().enumerate() {
             let y = (TEXT_MARGIN_PX + row * (GLYPH_H + 2)) * sy;
             self.text(TEXT_MARGIN_PX * sx, y, sx, sy, line);
@@ -154,6 +157,19 @@ impl Pattern {
             }
         }
     }
+}
+
+/// The whole factor by which the frame is narrower than a mode of `width`
+/// pixels: the smallest that divides the width and brings it to at most
+/// [`PATTERN_WIDTH_MAX_PX`], so the scale is exact. A width with no such
+/// divisor gets the smallest factor that fits; the last frame column then
+/// covers a little less than the others.
+pub fn width_factor(width: u16) -> u16 {
+    let fits = |k: u16| width.div_ceil(k) <= PATTERN_WIDTH_MAX_PX;
+    let smallest = (1..=width.max(1)).find(|&k| fits(k)).unwrap_or(1);
+    (smallest..=smallest.saturating_mul(2))
+        .find(|&k| width.is_multiple_of(k) && fits(k))
+        .unwrap_or(smallest)
 }
 
 /// The text lines of a mode: the family title, the size and scan, the
@@ -281,13 +297,13 @@ mod tests {
 
     #[test]
     fn the_cross_is_at_the_centre() {
-        let p = Pattern::draw(&mode(640, 480, false), &[]);
-        assert_eq!(p.pixel(320, 240), Some(WHITE));
-        assert_eq!(p.pixel(320 - 80, 240), Some(WHITE));
-        assert_eq!(p.pixel(320 + 80, 240), Some(WHITE));
-        assert_eq!(p.pixel(320, 240 - 60), Some(WHITE));
-        assert_eq!(p.pixel(320, 240 + 60), Some(WHITE));
-        assert_eq!(p.pixel(321, 241), Some(BLACK));
+        let p = Pattern::draw(&mode(480, 480, false), &[]);
+        assert_eq!(p.pixel(240, 240), Some(WHITE));
+        assert_eq!(p.pixel(240 - 60, 240), Some(WHITE));
+        assert_eq!(p.pixel(240 + 60, 240), Some(WHITE));
+        assert_eq!(p.pixel(240, 240 - 60), Some(WHITE));
+        assert_eq!(p.pixel(240, 240 + 60), Some(WHITE));
+        assert_eq!(p.pixel(241, 241), Some(BLACK));
     }
 
     #[test]
@@ -315,25 +331,48 @@ mod tests {
         let p = Pattern::draw(&mode(1280, 240, false), &[]);
         let scene = p.scene();
         let game = scene.game.unwrap();
-        assert_eq!((game.width, game.height), (1280, 240));
-        assert_eq!(game.data.len(), 1280 * 240 * 4);
+        assert_eq!((game.width, game.height), (320, 240), "1280 / 4");
+        assert_eq!(game.data.len(), 320 * 240 * 4);
         assert_eq!((scene.dest.w, scene.dest.h), (1280, 240));
         assert_eq!(scene.filter, Filter::Nearest);
         assert!(scene.ui.is_none());
     }
 
     #[test]
-    fn a_very_wide_mode_gets_a_frame_of_half_its_width() {
+    fn a_wide_mode_gets_a_frame_narrower_by_a_whole_factor() {
         let p = Pattern::draw(&mode(3840, 240, false), &["X".to_owned()]);
         let scene = p.scene();
-        assert_eq!(scene.game.unwrap().width, 1920);
+        assert_eq!(scene.game.unwrap().width, 480);
         assert_eq!(scene.dest.w, 3840);
-        assert_eq!(p.pixel(1919, 5), Some(WHITE), "the right border");
+        assert_eq!(p.pixel(479, 5), Some(WHITE), "the right border");
+    }
+
+    #[test]
+    fn the_width_factor_keeps_the_frame_inside_one_texture_row() {
+        assert_eq!(PATTERN_WIDTH_MAX_PX, 512);
+        for (width, factor) in [
+            (320, 1),
+            (512, 1),
+            (640, 2),
+            (683, 2),
+            (768, 2),
+            (1280, 4),
+            (1536, 3),
+            (1920, 4),
+            (3840, 8),
+        ] {
+            assert_eq!(width_factor(width), factor, "{width}");
+        }
+        for width in 1..=4096u16 {
+            let k = width_factor(width);
+            assert!(width.div_ceil(k) <= PATTERN_WIDTH_MAX_PX, "{width}");
+            assert!(u32::from(width.div_ceil(k)) * u32::from(width) <= 1 << 23);
+        }
     }
 
     #[test]
     fn an_interlaced_mode_draws_both_fields() {
-        let p = Pattern::draw(&mode(640, 480, true), &[]);
+        let p = Pattern::draw(&mode(480, 480, true), &[]);
         assert_eq!(p.scene().game.unwrap().height, 480);
         assert_eq!(p.pixel(10, 479), Some(WHITE));
     }
