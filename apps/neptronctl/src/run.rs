@@ -205,6 +205,7 @@ fn selftest_failure(error: &SelftestError) -> Failure {
             (exit::SELFTEST_SETUP, "selftest_setup")
         }
         SelftestError::Output { .. } => (exit::LOCAL_FILE, "stdout"),
+        SelftestError::Report { .. } => (exit::LOCAL_FILE, "file"),
     };
     Failure::new(exit_code, code, error.to_string())
 }

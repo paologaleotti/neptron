@@ -31,7 +31,7 @@ Commands:
   settings set KEY LEVEL VALUE
   log tail [LINES]
   selftest video --profile ID|edid [--monitors DIR] [--sysfs DIR]
-                 [--connector NAME]
+                 [--connector NAME] [--report FILE]
   help
 
 The socket is --socket, else $NEPTRON_CONTROL_SOCKET, else

@@ -25,4 +25,12 @@ pub enum SelftestError {
         /// The error of the system.
         reason: String,
     },
+    /// The report cannot be written.
+    #[error("cannot write the report {}: {reason}", path.display())]
+    Report {
+        /// The report file.
+        path: PathBuf,
+        /// The error of the system.
+        reason: String,
+    },
 }

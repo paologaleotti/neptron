@@ -24,7 +24,7 @@ neptronctl [--socket PATH] [--timeout-ms N] COMMAND
   settings set KEY LEVEL VALUE
   log tail [LINES]
   selftest video --profile ID|edid [--monitors DIR] [--sysfs DIR]
-                 [--connector NAME]
+                 [--connector NAME] [--report FILE]
   help
 ```
 
@@ -58,10 +58,40 @@ An error prints one JSON line on stderr: `{"error":{"code":"...","message":"..."
 - `--profile ID`: a preset of the monitor folder, read at run time (`--monitors`, default `/usr/share/neptron/monitors`). `--profile edid`: the profile from the EDID of the connector. There is no default profile.
 - `--sysfs DIR` (default `/sys`): the GPU, its capability table entry and the connector come from sysfs, as in the frontend. With nothing detected, `validate` gets the values of an unknown GPU. The EDID profile also lowers the highest pixel clock to the EDID limit.
 - `--connector NAME`: the connector, for example `DP-1`. Without it, the first connected connector.
+- `--report FILE` (default `neptron-selftest-video.json` in the current folder): the JSON report. The dry run writes it too, with `dry_run` true.
 
 The families, in the order they show: `240p`, `288p`, `240p_double_refresh`, `480i`, `576i`, `480p`, `2x`, `super_width_dynamic`, `super_width_fixed`. Each family is a game source and the policy settings that ask for it (`src/selftest/family.rs`). The policy decides the mode (`decide`, then `choose` with `neptron_safety::validate`), and the family takes the winner only when it belongs to the family: for example a 240-line progressive mode with one field per game frame for `240p`. A family with no such winner is "not tested", with the policy's mode and reason. A family whose mode equals the mode of an earlier family is "the same mode as" that family, so no mode shows twice.
 
 On `pc_31_120` with the values of an Intel gen9 GPU the plan is 240p at 120 Hz (`240p_double_refresh`), 480p (`2x` gives the same mode), 768x224 at 120 Hz (`super_width_dynamic`) and 1920x224 at 120 Hz (`super_width_fixed`).
+
+### The report
+
+One JSON file, written as a temporary file in the same folder, fsync, rename, and fsync of the folder, so a reader sees a whole report or the one before. `report_version` is 1. The format is append-only: a new field gets a new version, and no field is renamed or removed. Every value is an integer or a text: rates in millihertz, times in nanoseconds, clocks in hertz. A value that the run did not measure is `null`.
+
+| Field | Meaning |
+| --- | --- |
+| `report_version` | 1 |
+| `tool` | `name` and `version` of the program |
+| `dry_run` | True when no mode was set |
+| `state` | `planned` (dry run), `running` (written before the first mode and after each mode), `finished`, `stopped` |
+| `pass` | True when every mode passed and the restore succeeded; `null` in a dry run and while running |
+| `seconds_per_mode` | The display time of each mode |
+| `profile` | `id`, `source` (`preset` or `edid`), `edid_pclock_max_hz`, and the whole `profile` with its ranges |
+| `caps` | The GPU values that `validate` got |
+| `gpu` | From sysfs: `card`, `driver`, `pci_id`, the capability table `table_entry` and `table_name` (`null` for an unknown GPU), the `connector` and its `connector_status` |
+| `display` | From the KMS backend: `device`, `driver`, `connector`, `linear_by_modifier` |
+| `families[]` | Each family: `family`, `result` (`planned`, `same_as`, `unsupported`), `same_as`, `reason` |
+| `modes[].family`, `.title`, `.policy` | The family, the text on the pattern, and the policy facts: `source`, `style`, `refresh_policy`, `horizontal`, `rung`, `refresh_kind`, `repeat`, `width_rule` |
+| `modes[].request`, `.request_rates` | The mode that `validate` approved, with `line_rate_mhz` and `field_rate_mhz` |
+| `modes[].test_only_commit`, `.commit` | `result` (`passed`, `refused`, `failed`, `not_sent`, `unknown`) and `detail` |
+| `modes[].readback` | The mode the kernel reports after the commit |
+| `modes[].readback_equal`, `.readback_differences[]` | Equal in every field, and each field that differs: `field`, `requested`, `read_back` (a flag is 0 or 1) |
+| `modes[].readback_valid`, `.readback_rejection` | The read back passes `validate`, or why not |
+| `modes[].shown_ns` | How long the pattern showed |
+| `modes[].timing` | `flips`, `vblanks`, `missed_vblanks`, `flips_per_second_mhz`, `vblank_period_ns`, `expected_period_ns`, `vblank_unit` (`field` or `frame`), `period_error_ppm`, `implied_pclock_hz` |
+| `modes[].errors`, `.pass`, `.failures` | Display errors in the mode, the verdict, and each check that failed |
+| `restore` | `method` (`blank`), `ok`, `error`; `null` when no mode was set |
+| `stopped`, `errors` | Why the run stopped early, and errors outside one mode |
 
 ## Argument parsing
 

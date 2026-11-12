@@ -7,6 +7,8 @@ use std::path::PathBuf;
 pub const DEFAULT_MONITORS_DIR: &str = "/usr/share/neptron/monitors";
 /// The sysfs root for the GPU and EDID detection.
 pub const DEFAULT_SYSFS_DIR: &str = "/sys";
+/// The report file when the command line names none.
+pub const DEFAULT_REPORT_PATH: &str = "neptron-selftest-video.json";
 /// The value of `--profile` that takes the profile from the monitor's EDID.
 pub const EDID_PROFILE: &str = "edid";
 
@@ -21,6 +23,8 @@ pub struct VideoArgs {
     pub sysfs: PathBuf,
     /// The connector named with `--connector`.
     pub connector: Option<String>,
+    /// The report file.
+    pub report: PathBuf,
 }
 
 /// The monitor profile of the run.
@@ -39,6 +43,7 @@ pub fn parse(words: &[&str]) -> Result<VideoArgs, String> {
     let mut monitors = PathBuf::from(DEFAULT_MONITORS_DIR);
     let mut sysfs = PathBuf::from(DEFAULT_SYSFS_DIR);
     let mut connector = None;
+    let mut report = PathBuf::from(DEFAULT_REPORT_PATH);
     let mut rest = words;
     while let Some((flag, tail)) = rest.split_first() {
         let Some((value, tail)) = tail.split_first() else {
@@ -49,6 +54,7 @@ pub fn parse(words: &[&str]) -> Result<VideoArgs, String> {
             "--monitors" => monitors = PathBuf::from(value),
             "--sysfs" => sysfs = PathBuf::from(value),
             "--connector" => connector = Some((*value).to_owned()),
+            "--report" => report = PathBuf::from(value),
             other => return Err(format!("selftest video has no option {other:?}")),
         }
         rest = tail;
@@ -58,6 +64,7 @@ pub fn parse(words: &[&str]) -> Result<VideoArgs, String> {
         monitors,
         sysfs,
         connector,
+        report,
     })
 }
 
@@ -91,18 +98,20 @@ mod tests {
         assert_eq!(args.monitors, PathBuf::from(DEFAULT_MONITORS_DIR));
         assert_eq!(args.sysfs, PathBuf::from(DEFAULT_SYSFS_DIR));
         assert_eq!(args.connector, None);
+        assert_eq!(args.report, PathBuf::from(DEFAULT_REPORT_PATH));
     }
 
     #[test]
     fn every_option_parses() {
         let args = parse(&words(
-            "--profile edid --monitors /m --sysfs /s --connector DP-1",
+            "--profile edid --monitors /m --sysfs /s --connector DP-1 --report /r.json",
         ))
         .unwrap();
         assert_eq!(args.profile, ProfileChoice::Edid);
         assert_eq!(args.monitors, PathBuf::from("/m"));
         assert_eq!(args.sysfs, PathBuf::from("/s"));
         assert_eq!(args.connector.as_deref(), Some("DP-1"));
+        assert_eq!(args.report, PathBuf::from("/r.json"));
     }
 
     #[test]
@@ -113,7 +122,7 @@ mod tests {
             "--profile ../etc/passwd",
             "--profile PC",
             "--profile pc_31_120 --warp 9",
-            "--profile pc_31_120 --connector",
+            "--profile pc_31_120 --report",
         ] {
             assert!(parse(&words(line)).is_err(), "{line}");
         }
