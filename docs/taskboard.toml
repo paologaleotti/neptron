@@ -262,7 +262,7 @@ name = "Hardware test kit"
 owns = ["apps/neptronctl/src/selftest", "docs/hardware-checklist.md"]
 needs = ["T23", "T27"]
 gate = "Self-test passes on `vkms`"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C01"

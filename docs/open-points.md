@@ -685,3 +685,12 @@ Each open point is one section:
 - How to change: the bounds are named constants in `clock.rs`.
 - Decision:
 
+### OP-074: The hardware self-test: choices and limits.
+
+- Raised by: T29 and its review
+- Status: open, for the bench
+- Default: (1) `neptronctl selftest video` runs with the frontend and the launcher stopped and opens the DRM node itself. The dry run is the default; the real run needs `--i-have-checked-the-monitor <profile id>`. (2) Every run ends with the output off, because the backend gives no way to read the earlier state and validate it. (3) `tools/kms-spike` stays until the owner has run both tools on the bench and compared the reports (OP-060); then the spike and its rule in `xtask/src/rules.rs` can go. (4) The test pattern is at most 512 pixels wide (the texture limit of the smallest supported GPU, vc4) and is scaled by a whole factor on wider modes. A `KmsDisplay` accessor for the real texture size would lift this. (5) Missed vblanks are recorded and do not fail a mode. (6) For an unknown GPU the interlace timing unit is assumed and the report says so (`unit_assumed`). (7) The vkms gate `cargo xtask os selftest-check` passes: 2 profiles, 4 modes each, 0 failures. (8) The image must hold `neptronctl` with the `kms` feature; T28 adds it.
+- Where: `apps/neptronctl/src/selftest`, `apps/neptronctl/README.md` (the report schema), `docs/hardware-checklist.md`
+- How to change: the pass rules are named constants in the self-test.
+- Decision:
+
