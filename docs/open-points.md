@@ -540,3 +540,12 @@ Each open point is one section:
 - Where: `crates/neptron-modeline/README.md` (Known limits)
 - How to change: a per-system or per-game crop bound in the core or game metadata; or a setting that turns the crop off, at the cost of a padded or filtered picture.
 - Decision:
+
+### OP-058: Layout and alert of the video status block.
+
+- Raised by: C05 and its review
+- Status: open, needs a look from the owner
+- Default: (1) the result words sit on their own two lines under the mode line, because the mode text already uses 32 to 37 of the 37 characters at 320 pixels. The block always has five lines, so the menu rows never move. (2) An alert result (filtered, speed changed) shows in the focus colour of the skin, amber in the default skin. The skin has no warning colour, and the alert is not in the accessibility tree. (3) The display panel drops its Mode line during a game, because the block shows the mode read back from the kernel. (4) A screen shows the block only when at least 2 rows of its page fit under it; with 24-pixel rows the display panel shows no block and the quick menu scrolls. (5) The UI part is merged; the formatter that fills the text is in `neptron-video` (T22), and the app (T27) copies it into the snapshot each frame.
+- Where: `crates/neptron-ui/src/screens/video.rs`, `crates/neptron-ui/README.md` (the contract of the text)
+- How to change: a warning colour is a new field of the skin and a new version of the skin format. A cheaper mark is a text prefix from the formatter, for example `! filtered`, with no UI change.
+- Decision:
