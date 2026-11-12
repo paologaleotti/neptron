@@ -91,7 +91,7 @@ impl ModeRecord {
     /// number of kHz.
     pub fn from_validated(mode: &ValidatedMode) -> Result<ModeRecord, ModeRecordError> {
         let m = mode.mode();
-        if !m.pclock_hz.is_multiple_of(HZ_PER_KHZ) {
+        if !m.pclock_is_whole_khz() {
             return Err(ModeRecordError::ClockNotWholeKhz {
                 pclock_hz: m.pclock_hz,
             });
