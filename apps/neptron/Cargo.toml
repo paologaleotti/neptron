@@ -9,10 +9,44 @@ publish.workspace = true
 
 [features]
 # Off by default: the headless build (T0 to T2) compiles no SDL3, EGL or KMS code.
-kms = []
-window = []
+kms = [
+    "dep:neptron-kms",
+    "neptron-kms/kms",
+    "neptron-audio/sdl3",
+    "neptron-input/sdl3",
+    "neptron-input/evdev",
+]
+window = ["dep:neptron-window", "neptron-window/sdl3", "neptron-audio/sdl3"]
+# The control commands that change the frontend: input, clock, launch and
+# settings writes. Release images leave it off.
+control = []
 
 [dependencies]
+neptron-audio = { path = "../../crates/neptron-audio" }
+neptron-backend = { path = "../../crates/neptron-backend" }
+neptron-input = { path = "../../crates/neptron-input" }
+neptron-ipc = { path = "../../crates/neptron-ipc" }
+neptron-library = { path = "../../crates/neptron-library" }
+neptron-platform = { path = "../../crates/neptron-platform" }
+neptron-session = { path = "../../crates/neptron-session" }
+neptron-settings = { path = "../../crates/neptron-settings" }
+neptron-types = { path = "../../crates/neptron-types" }
+neptron-ui = { path = "../../crates/neptron-ui" }
+neptron-video = { path = "../../crates/neptron-video" }
+# The guard record and the relaunch file are small TOML files.
+serde.workspace = true
+serde_json.workspace = true
+# The code standards make each crate own a thiserror enum.
+thiserror.workspace = true
+toml = { workspace = true, features = ["display"] }
+neptron-kms = { path = "../../crates/neptron-kms", optional = true }
+neptron-window = { path = "../../crates/neptron-window", optional = true }
+
+[dev-dependencies]
+# The tier 2 runs: the built test core through the real host.
+neptron-testcore = { path = "../../crates/neptron-testcore" }
+# The fake display, fake audio, scripted input and simulated clock.
+neptron-testkit = { path = "../../crates/neptron-testkit" }
 
 [lints]
 workspace = true

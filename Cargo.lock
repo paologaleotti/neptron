@@ -348,6 +348,27 @@ dependencies = [
 [[package]]
 name = "neptron"
 version = "0.1.0"
+dependencies = [
+ "neptron-audio",
+ "neptron-backend",
+ "neptron-input",
+ "neptron-ipc",
+ "neptron-kms",
+ "neptron-library",
+ "neptron-platform",
+ "neptron-session",
+ "neptron-settings",
+ "neptron-testcore",
+ "neptron-testkit",
+ "neptron-types",
+ "neptron-ui",
+ "neptron-video",
+ "neptron-window",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "toml",
+]
 
 [[package]]
 name = "neptron-audio"
