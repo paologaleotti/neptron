@@ -6,7 +6,7 @@ use std::os::linux::fs::MetadataExt as _;
 use std::os::unix::fs::FileTypeExt as _;
 
 use drm::control::{
-    Device as ControlDevice, ResourceHandle, ResourceHandles, connector, crtc, plane,
+    Device as ControlDevice, ResourceHandle, ResourceHandles, connector, crtc, plane, property,
 };
 use drm::{ClientCapability, Device};
 
@@ -95,6 +95,8 @@ impl Card {
 pub(super) struct Objects {
     pub connector: u32,
     pub connector_name: String,
+    /// The `subconnector` property of the connector, by its enum name.
+    pub subconnector: Option<String>,
     pub crtc: u32,
     pub plane: u32,
     pub props: Props,
@@ -202,6 +204,7 @@ pub(super) fn select(
     Ok(Objects {
         connector: info.handle().into(),
         connector_name: name,
+        subconnector: subconnector(card, info.handle()),
         crtc: crtc.into(),
         plane: plane.into(),
         props: Props {
@@ -213,6 +216,31 @@ pub(super) fn select(
         writeback,
     })
 }
+
+/// The enum name of the `subconnector` property: the downstream port type
+/// of a DisplayPort connector (`VGA` behind a DAC) or the signal of a DVI-I
+/// connector. `None` when the connector has no such property or a read
+/// fails: the property is a hint for the caller's class, and the EDID
+/// still decides without it.
+fn subconnector(card: &Card, handle: connector::Handle) -> Option<String> {
+    let set = card.get_properties(handle).ok()?;
+    let (ids, values) = set.as_props_and_values();
+    ids.iter().zip(values).find_map(|(&id, &value)| {
+        let info = card.get_property(id).ok()?;
+        if info.name().to_bytes() != SUBCONNECTOR.as_bytes() {
+            return None;
+        }
+        let property::ValueType::Enum(names) = info.value_type() else {
+            return None;
+        };
+        names
+            .get_value_from_raw_value(value)
+            .map(|v| v.name().to_string_lossy().into_owned())
+    })
+}
+
+/// The name of the connector property that gives the downstream port type.
+const SUBCONNECTOR: &str = "subconnector";
 
 fn current_crtc(card: &Card, info: &connector::Info) -> Result<Option<crtc::Handle>, KmsError> {
     let Some(enc) = info.current_encoder() else {

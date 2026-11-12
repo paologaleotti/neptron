@@ -131,6 +131,14 @@ impl KmsDisplay {
         &self.objects.connector_name
     }
 
+    /// The `subconnector` property of the connector in use, by its enum
+    /// name: `VGA`, `DVI-D`, `HDMI`, `DP`, `Native`, `Unknown` for
+    /// DisplayPort, `DVI-D` or `DVI-A` for DVI-I. `None` when the
+    /// connector has none.
+    pub fn subconnector(&self) -> Option<&str> {
+        self.objects.subconnector.as_deref()
+    }
+
     /// The kernel id of the CRTC in use.
     pub fn crtc_id(&self) -> u32 {
         self.objects.crtc
