@@ -497,3 +497,26 @@ fn a_change_with_no_winner_that_keeps_the_old_mode_cannot_be_confirmed() {
         Err(ConfirmError::NotShown)
     );
 }
+
+#[test]
+fn a_revert_gives_the_restored_configuration_its_own_no_picture_limit() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    rig.propose(config(dead_edid()));
+    rig.run_for(NO_PICTURE_LIMIT_NS - 3 * FRAME_NS);
+    let first = rig.fake.next_mode_call();
+    rig.fake.fault_mode(
+        first,
+        ModeFault::Device {
+            reason: "EIO".to_owned(),
+        },
+    );
+    rig.run_for(10 * FRAME_NS);
+    let events = rig.event_list();
+    assert!(events.contains(&reverted(RevertReason::NoPicture)));
+    assert!(
+        !events.contains(&GuardEvent::SafeMode(SafeReason::NoValidMode)),
+        "one transient error on the restore modeset is not a failure of the confirmed configuration"
+    );
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
+}

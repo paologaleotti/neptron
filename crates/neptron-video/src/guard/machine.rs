@@ -543,6 +543,9 @@ impl Guard {
         };
         let from_settings = *from_settings;
         let before = self.record.clone();
+        // The restored configuration gets its own no-picture limit: the
+        // time with no picture belonged to the change.
+        self.no_picture_since_ns = None;
         match fallback.clone() {
             Fallback::Confirmed(config) => {
                 self.state = State::Confirmed;
@@ -578,8 +581,8 @@ impl Guard {
     }
 
     /// A picture must be seen again for the new inputs. The no-picture
-    /// watch goes on: only a valid picture stops it, so a loop of changes
-    /// with no picture cannot hold off the guard.
+    /// watch goes on: only a valid picture or a revert stops it, so a loop
+    /// of changes with no picture cannot hold off the guard.
     fn apply<D: Display>(&mut self, engine: &mut VideoEngine<D>) {
         self.active.apply_to(engine);
         self.picture_since_ns = None;
