@@ -157,7 +157,8 @@ static void print_uptime(const char *what)
 		fclose(f);
 	}
 	text[strcspn(text, " \n")] = '\0';
-	printf("%s uptime %s\n", what, text);
+	// The frontend logs to the same console and can leave a line open.
+	printf("\n%s uptime %s\n", what, text);
 	fflush(stdout);
 }
 
@@ -417,7 +418,7 @@ static int capture(int fd)
 			ppm[size++] = row[x * 4];
 		}
 	}
-	printf("NEPTRON-CAPTURE-BEGIN %u %u\n", w, h);
+	printf("\nNEPTRON-CAPTURE-BEGIN %u %u\n", w, h);
 	print_base64(ppm, size);
 	printf("NEPTRON-CAPTURE-END\n");
 	fflush(stdout);

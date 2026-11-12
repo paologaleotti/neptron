@@ -11,7 +11,9 @@
 # On a PC there is no firmware config, and the script exits at once.
 #
 # The markers carry the nonce of the run, so output of the script cannot end
-# the run. The guest enforces the deadline itself, so it stops in time even
+# the run. Each marker starts on a new line: the shell prompt of the test
+# image and the log of the frontend share the console and can leave a line
+# open. The guest enforces the deadline itself, so it stops in time even
 # when the host process is gone.
 
 entry=$1
@@ -23,9 +25,9 @@ cp "$fw/$entry/raw" "$script"
 nonce=$(cat "$fw/nonce/raw")
 deadline=$(cat "$fw/timeout/raw")
 read -r uptime _ < /proc/uptime
-echo "NEPTRON-BEGIN $nonce $uptime"
+printf '\nNEPTRON-BEGIN %s %s\n' "$nonce" "$uptime"
 (cd / && timeout -s KILL "$deadline" sh "$script") < /dev/null 2>&1
 code=$?
 [ "$code" -eq 137 ] && echo "neptron-run: exit code 137: the deadline of $deadline s, or another SIGKILL"
-echo "NEPTRON-END $nonce $code"
+printf '\nNEPTRON-END %s %s\n' "$nonce" "$code"
 reboot -f

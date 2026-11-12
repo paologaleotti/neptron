@@ -35,10 +35,11 @@ pub const GOLDEN: &str = "os/tests/golden/boot-game-list.ppm";
 pub const CAPTURE_BEGIN: &str = "NEPTRON-CAPTURE-BEGIN";
 /// The marker line after the picture.
 pub const CAPTURE_END: &str = "NEPTRON-CAPTURE-END";
-/// The line that `neptron-capture` prints when the screen is on show.
-pub const SCREEN_LINE: &str = "screen";
-/// The line that `neptron-capture` prints at the first frame.
-pub const FIRST_FRAME_LINE: &str = "frame 1";
+/// What `neptron-capture` prints, then the uptime, when the screen is on
+/// show.
+pub const SCREEN_LINE: &str = "screen notice uptime ";
+/// What `neptron-capture` prints, then the uptime, at the first frame.
+pub const FIRST_FRAME_LINE: &str = "frame 1 uptime ";
 /// The disk image of the x86-64 target in the images directory.
 pub const X86_64_DISK: &str = "neptron-x86_64.img";
 
@@ -202,13 +203,9 @@ pub fn parse_output(lines: &[String]) -> Result<CheckOutput, CaptureError> {
             picture = Some(Vec::new());
         } else if let Some(rest) = line.strip_prefix("mode ") {
             out.mode = Some(rest.to_owned());
-        } else if let Some(rest) = line.strip_prefix(FIRST_FRAME_LINE)
-            && let Some(uptime) = rest.strip_prefix(" uptime ")
-        {
+        } else if let Some(uptime) = after(line, FIRST_FRAME_LINE) {
             out.first_frame_uptime_ms = transcript::parse_uptime_ms(uptime);
-        } else if let Some(rest) = line.strip_prefix(SCREEN_LINE)
-            && let Some((_, uptime)) = rest.split_once(" uptime ")
-        {
+        } else if let Some(uptime) = after(line, SCREEN_LINE) {
             out.screen_uptime_ms = transcript::parse_uptime_ms(uptime);
         }
     }
@@ -216,6 +213,12 @@ pub fn parse_output(lines: &[String]) -> Result<CheckOutput, CaptureError> {
         return Err(CaptureError::Unterminated);
     }
     Ok(out)
+}
+
+/// The rest of `line` after `mark`. The frontend writes its log to the same
+/// console, and a log line without its end can come before the mark.
+fn after<'a>(line: &'a str, mark: &str) -> Option<&'a str> {
+    line.find(mark).map(|at| &line[at + mark.len()..])
 }
 
 /// Decodes standard base64 lines with `=` padding.
@@ -343,7 +346,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
         output
             .lines
             .iter()
-            .find(|(_, l)| l.starts_with(prefix))
+            .find(|(_, l)| l.contains(prefix))
             .map(|(at, _)| *at)
     };
     let first_frame_host = host_time(FIRST_FRAME_LINE);
@@ -708,8 +711,8 @@ mod tests {
     fn the_output_gives_the_uptime_the_mode_and_the_picture() {
         let out = parse_output(&strings(&[
             "neptron: some log line",
-            "frame 1 uptime 9.87",
-            "screen home uptime 12.34",
+            "ALSA lib pcm.c:8787:(snd_pcm_recover) [error.pcm] frame 1 uptime 9.87",
+            "screen notice uptime 12.34",
             "mode 320x240 clock 6700 kHz",
             "NEPTRON-CAPTURE-BEGIN 1 1",
             "UDYKMSAx",
