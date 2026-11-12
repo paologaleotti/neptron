@@ -33,12 +33,19 @@ root=$(mountpoint -d /)
 root_dir=$(readlink -f "/sys/dev/block/$root")
 disk=${root_dir%/*}
 
+# e2fsck -p exits with 0 (clean), 1 or 2 (errors corrected); 4 and above
+# leave errors, and then the state partition is not mounted for writing.
 state=$(partition "$disk" 3)
 if [ -n "$state" ]; then
-	# A power cut can leave the journal to replay; -p fixes only what is
-	# safe to fix without a person.
-	e2fsck -p "$state" || echo "neptron-storage: e2fsck $state exited with $?"
-	mount -t ext4 -o noatime "$state" /state || mount -t tmpfs -o mode=0755 state /state
+	e2fsck -p "$state"
+	code=$?
+	if [ "$code" -ge 4 ]; then
+		echo "neptron-storage: e2fsck $state left errors (exit $code); /state is a RAM folder"
+		mount -t tmpfs -o mode=0755 state /state
+	elif ! mount -t ext4 -o noatime "$state" /state; then
+		echo "neptron-storage: $state does not mount; /state is a RAM folder"
+		mount -t tmpfs -o mode=0755 state /state
+	fi
 else
 	echo "neptron-storage: no state partition, /state is a RAM folder"
 	mount -t tmpfs -o mode=0755 state /state
