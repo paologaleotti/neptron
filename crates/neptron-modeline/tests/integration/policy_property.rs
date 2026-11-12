@@ -23,7 +23,7 @@ use crate::presets::{
     all_presets, edid_caps, gpu_table, open_caps, panel_1080, pc_crt_30_71, unknown_gpu,
 };
 
-/// Sources per profile and GPU. With 27 profiles, 4 GPUs, 5 styles and 4
+/// Sources per profile and GPU, one in four near the lines a range holds. With 27 profiles, 4 GPUs, 5 styles and 4
 /// refresh policies this is 43,200 decisions.
 const SOURCES_PER_PROFILE: usize = 20;
 
@@ -56,6 +56,42 @@ impl Lcg {
     fn pick<T: Copy>(&mut self, items: &[T]) -> T {
         items[self.next() as usize % items.len()]
     }
+}
+
+/// A source whose lines miss what one range of a CRT profile holds by 1
+/// to 16 lines, so that a crop of 1 to 8 lines per edge applies: at the
+/// game's rate, at twice it (the rate of `exact_x2`), or at 2x. `None` on
+/// a panel or for a range with no progressive window.
+fn near_capacity_source(rng: &mut Lcg, profile: &MonitorProfile) -> Option<SourceGeometry> {
+    let MonitorKind::Crt { ranges } = &profile.kind else {
+        return None;
+    };
+    let range = ranges[rng.next() as usize % ranges.len()];
+    if range.progressive_lines_min == 0 || range.v_max_mhz < range.v_min_mhz {
+        return None;
+    }
+    let rate = rng.range(range.v_min_mhz.max(1), range.v_max_mhz.max(1));
+    let blank_ns = u128::from(range.v_front_porch_ns)
+        + u128::from(range.v_sync_ns)
+        + u128::from(range.v_back_porch_ns);
+    let blank = (blank_ns * u128::from(range.h_max_mhz)).div_ceil(1_000_000_000_000);
+    let lines = u128::from(range.h_max_mhz / rate).saturating_sub(blank);
+    let capacity = u64::try_from(lines)
+        .unwrap_or(u64::MAX)
+        .min(u64::from(range.progressive_lines_max));
+    let (game_rate, height) = match rng.range(0, 2) {
+        0 => (rate, capacity + rng.range(1, 16)),
+        1 => (rate / 2, capacity + rng.range(1, 16)),
+        _ => (rate, capacity / 2 + rng.range(1, 8)),
+    };
+    Some(SourceGeometry {
+        width: rng.range(64, 1_024) as u16,
+        height: u16::try_from(height).ok()?,
+        refresh_mhz: u32::try_from(game_rate).ok()?.max(1),
+        aspect_milli: 1_333,
+        interlaced: false,
+        rotation: Rotation::R0,
+    })
 }
 
 /// A source of a usual shape, or one time in eight a value at an extreme:
@@ -312,7 +348,11 @@ fn the_policy_is_safe_and_deterministic_over_random_sources() {
         for (gpu, caps) in gpus() {
             let caps = if *edid { edid_caps(caps) } else { caps };
             for _ in 0..SOURCES_PER_PROFILE {
-                let source = random_source(&mut rng);
+                let near = rng.range(0, 3) == 0;
+                let source = near
+                    .then(|| near_capacity_source(&mut rng, profile))
+                    .flatten()
+                    .unwrap_or_else(|| random_source(&mut rng));
                 for settings in every_setting(&mut rng) {
                     let case = format!("{} {gpu} {source:?} {settings:?}", profile.id);
                     let empty = source.width == 0 || source.height == 0 || source.refresh_mhz == 0;

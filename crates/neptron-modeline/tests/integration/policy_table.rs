@@ -269,6 +269,41 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
+        // exact_x2 is the user's choice of rate, as a forced rate is: it
+        // ranks before every mode at another rate, also for native. 560
+        // lines at 59.923 Hz on the EDID bench profile: at 119.846 Hz the
+        // range holds floor(71,000 / 119.846) = 592 lines less
+        // ceil(641.081 us x 71 kHz) = 46 of blanking, 546. 14 lines too
+        // many: 7 per edge, inside the bound of 8, leave 546. At 59.923 Hz,
+        // 560 lines fit with no crop, but the asked double rate wins.
+        Row {
+            source: source(256, 560, 59_923),
+            style: PictureStyle::Native,
+            refresh: RefreshPolicy::ExactX2,
+            mode: "256x546p",
+            kind: RefreshKind::Double,
+            rate_mhz: 119_846,
+            ..row(
+                "style_native_exact_x2_keeps_the_asked_rate",
+                pc_crt_30_71(),
+                edid_caps(open_caps()),
+            )
+        },
+        // The double rate that native takes on its own is not an asked
+        // rate: 400 lines at 60 Hz on the EDID bench profile fill 400 of
+        // ceil(30,000 / 60) - 20 = 480 picture lines (83 %), so native stays
+        // at the game's rate, although 400 lines fit at 120 Hz too.
+        Row {
+            source: source(256, 400, 60_000),
+            style: PictureStyle::Native,
+            mode: "256x400p",
+            rate_mhz: 60_000,
+            ..row(
+                "style_native_double_only_when_needed",
+                pc_crt_30_71(),
+                edid_caps(open_caps()),
+            )
+        },
         // Auto on the same monitor: 2x, 448 lines in 478.
         Row {
             rung: Rung::Multiple(2),

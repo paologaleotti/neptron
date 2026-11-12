@@ -40,9 +40,10 @@ pub(crate) struct Crt<'a> {
 /// rate when the refresh policy did not ask for it; rung 3; every padded
 /// exact mode, the fuller first; the fitted rung.
 ///
-/// For every style, an exact mode at a forced rate (`force_50`,
-/// `force_60`) ranks before every exact mode at another rate: the forced
-/// rate is the user's choice of speed, so no fill comparison overrides it.
+/// For every style, an exact mode at the asked rate (`exact_x2`,
+/// `force_50`, `force_60`) ranks before every exact mode at another rate:
+/// the asked rate is the user's choice, so no fill comparison and no crop
+/// overrides it.
 pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
     let style = crt.settings.style;
     let rungs = walk_ladder(style);
@@ -198,7 +199,7 @@ fn fitted_at_capacity(
     Ok(matches!(outcomes.last(), Some(Ok(_))).then_some(outcomes))
 }
 
-/// Band (exact at a forced rate, other exact, fitted), group, then four
+/// Band (exact at the asked rate, other exact, fitted), group, then four
 /// places: the entries sort by it.
 type Key = (u8, u8, usize, usize, usize, usize);
 
@@ -212,8 +213,13 @@ fn entry(
     outcome: Outcome,
 ) -> (Key, Considered) {
     let rank = padded_rank(&outcome);
-    let forced = matches!(target.kind, RefreshKind::Forced50 | RefreshKind::Forced60);
-    let band = u8::from(!forced);
+    // NativeDouble stays out: native takes it on its own, the user did not
+    // ask for it.
+    let asked_rate = matches!(
+        target.kind,
+        RefreshKind::Forced50 | RefreshKind::Forced60 | RefreshKind::Double
+    );
+    let band = u8::from(!asked_rate);
     let key = match (rung.is_fitted(), style) {
         (true, _) => (2, 0, tier, 0, place, sub),
         (false, PictureStyle::Native) => native_key(band, rung, rank, (tier, place, sub)),
