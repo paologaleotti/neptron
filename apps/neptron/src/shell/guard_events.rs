@@ -85,20 +85,32 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     }
 
     /// The way back to a flat panel that the 15 kHz safe start leaves
-    /// dark: in safe mode with nothing confirmed on this output and a panel
-    /// detected, a button press (`pressed`, from [`any_press`]) proposes `display.monitor =
-    /// auto` (the panel) under a new prompt with a full window. Returns
-    /// whether it did, so the press does not also move the menu.
+    /// dark. It proposes `display.monitor = auto` (the panel) under a new
+    /// prompt with a full window when all hold:
     ///
-    /// Only a press starts it, so a panel mode never comes back with no
-    /// user action; each revert goes back to safe mode.
+    /// - `pressed`: a fresh press of a button ([`any_press`]);
+    /// - the guard is in safe mode, not after a blind recovery, which
+    ///   always ends in the safe start;
+    /// - nothing is confirmed on this output;
+    /// - `display.monitor` is `auto` and gives a panel: an explicit preset
+    ///   is never overridden;
+    /// - no offer came yet in this run, and the run has had fewer than
+    ///   [`PANEL_WINDOWS_PER_RUN`] panel windows (the boot prompt counts).
+    ///
+    /// Returns whether it did, so that press does not also move the menu.
+    /// After the one offer every press goes to the menu.
     pub(super) fn offer_panel(&mut self, pressed: bool, now_ns: u64) -> bool {
-        let lost = matches!(self.guard.phase(), Phase::Safe(_))
+        let safe = matches!(self.guard.phase(), Phase::Safe(r) if r != SafeReason::Recovery);
+        let lost = safe
             && self.guard.record().last_known_good.is_none()
-            && self.detected.auto_is_panel();
-        if !pressed || !lost {
+            && self.detected.auto_is_panel()
+            && self.config.monitor() == AUTO;
+        let left = !self.panel_offered && self.panel_windows < PANEL_WINDOWS_PER_RUN;
+        if !pressed || !lost || !left {
             return false;
         }
+        self.panel_offered = true;
+        self.panel_windows = self.panel_windows.saturating_add(1);
         self.change_setting(
             DISPLAY_MONITOR,
             Level::Global,
@@ -221,10 +233,18 @@ fn reverted_text(reason: RevertReason) -> &'static str {
     }
 }
 
-/// Whether `events` hold the press of a button, not a stick move.
+/// The panel windows a run can open at most: the boot prompt of a panel
+/// and one offer after it.
+pub const PANEL_WINDOWS_PER_RUN: u8 = 2;
+
+/// The value of a fresh press; a key repeat is 2.
+const PRESS_VALUE: i16 = 1;
+
+/// Whether `events` hold a fresh press of a button: not a release, not a
+/// key repeat, not a stick move.
 pub(super) fn any_press(events: &[InputEvent]) -> bool {
     events.iter().any(|e| {
-        e.value != 0
+        e.value == PRESS_VALUE
             && !matches!(
                 e.control,
                 Control::LeftX | Control::LeftY | Control::RightX | Control::RightY

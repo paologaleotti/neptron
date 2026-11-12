@@ -15,7 +15,7 @@ use neptron_ui::screens::Screens;
 use neptron_ui::snapshot::{DisplayInfo, NoticeKind, ProfileEntry, ProfileId};
 use neptron_ui::{CpuCanvas, Snapshot, Theme, UiFrame};
 use neptron_video::{
-    DisplayConfig, Guard, GuardRecord, ScanlineSettings, VideoEngine, VideoStatusText,
+    DisplayConfig, Guard, GuardEvent, GuardRecord, ScanlineSettings, VideoEngine, VideoStatusText,
 };
 
 use super::{ControlInput, Devices, GameStage, ListStage, Runtime, Shell, Stage};
@@ -188,6 +188,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 (Stage::Game(Box::new(game)), guard, step, Some(library))
             }
         };
+        let boot_panel_prompt = matches!(step.event, Some(GuardEvent::PromptOpened(_)))
+            && detected.auto_is_panel()
+            && config.monitor() == crate::display::AUTO;
         let unrecorded = step.save.take().and_then(|saved| {
             record::save(&paths.guard_record(), &saved, record_output.as_deref()).err()
         });
@@ -235,6 +238,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             shown_safe: false,
             now_ns,
             menu_hotkey: false,
+            panel_windows: u8::from(boot_panel_prompt),
+            panel_offered: false,
             picture_noticed: false,
             next_notice: 1,
             frame,

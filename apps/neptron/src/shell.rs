@@ -136,6 +136,11 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
     shown_safe: bool,
     now_ns: u64,
     menu_hotkey: bool,
+    /// Panel windows of this run: the boot prompt of a panel and the one
+    /// offer of `offer_panel`.
+    panel_windows: u8,
+    /// `offer_panel` has fired in this run.
+    panel_offered: bool,
     picture_noticed: bool,
     next_notice: u32,
     frame: Rc<Cell<u64>>,

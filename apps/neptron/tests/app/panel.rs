@@ -8,6 +8,7 @@ use std::path::Path;
 
 use neptron::NextRun;
 use neptron_backend::Clock;
+use neptron_input::BLIND_RECOVERY_HOLD_NS;
 use neptron_types::{Control, Filter, Rect};
 use neptron_ui::snapshot::SettingValue;
 use neptron_video::{Phase, SafeReason};
@@ -16,6 +17,8 @@ use crate::rig::{Rig, in_child, test_name};
 
 /// Frames of 10 s at 60 Hz, the confirm window, and a margin.
 const CONFIRM_WINDOW_FRAMES: u32 = 660;
+/// The frames of the blind recovery hold at 60 Hz, and a margin.
+const HOLD_FRAMES: u32 = (BLIND_RECOVERY_HOLD_NS / 16_000_000) as u32 + 30;
 
 /// The EDID of a 1080p HDMI monitor that also lists 1080p50, 720p and
 /// 576p50, made from the specifications.
@@ -257,6 +260,140 @@ fn an_unconfirmed_panel_leaves_the_wire_and_a_press_asks_again() {
         rig.shell().guard().safe().monitor.profile().id,
         "panel_npt_1080",
         "a kept panel is the safe default on this output"
+    );
+    rig.finish();
+}
+
+/// A rig on a fresh folder with the fake 1080p panel on `HDMI-A-1`.
+fn panel_rig(name: &str) -> Rig {
+    let dir = std::env::temp_dir().join(format!("neptron-app-{name}-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
+    rig.output = "HDMI-A-1".to_owned();
+    rig
+}
+
+/// Boots and lets the boot prompt of the panel time out.
+fn boot_into_the_safe_start(rig: &mut Rig) {
+    rig.boot(None);
+    rig.frames(2);
+    assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+    rig.frames(CONFIRM_WINDOW_FRAMES);
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Safe(SafeReason::NothingConfirmed)
+    );
+}
+
+/// The panel offer comes once per run: a press after a reverted offer
+/// moves the menu and leaves the safe start on the wire.
+#[test]
+#[ignore = "tier 2"]
+fn the_panel_is_offered_once_per_run() {
+    let mut rig = panel_rig("offer-once");
+    boot_into_the_safe_start(&mut rig);
+    // A key repeat is not a press.
+    let now = rig.clock.now_ns();
+    rig.input.set(now, 0, Control::Down, 2);
+    rig.frames(3);
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Safe(SafeReason::NothingConfirmed),
+        "a repeat offers nothing"
+    );
+    rig.input.set(rig.clock.now_ns(), 0, Control::Down, 0);
+    rig.frames(2);
+    rig.tap(&[Control::B]);
+    assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+    rig.frames(CONFIRM_WINDOW_FRAMES);
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Safe(SafeReason::NothingConfirmed)
+    );
+    // The reverts show notices; each press that closes one reaches the
+    // menu and offers nothing.
+    assert_eq!(rig.screen(), "notice");
+    for _ in 0..4 {
+        if rig.screen() != "notice" {
+            break;
+        }
+        rig.tap(&[Control::A]);
+        assert_eq!(
+            rig.shell().guard().phase(),
+            Phase::Safe(SafeReason::NothingConfirmed),
+            "no second offer in a run"
+        );
+    }
+    assert_ne!(rig.screen(), "notice", "the presses reach the menu");
+    let before = rig.focused();
+    rig.tap(&[Control::Down]);
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Safe(SafeReason::NothingConfirmed)
+    );
+    assert_ne!(rig.focused(), before, "the press moves the menu");
+    let safe = rig.display.active_mode().expect("a mode");
+    assert!(safe.line_rate_mhz() < 20_000_000, "15 kHz: {safe:?}");
+    rig.finish();
+}
+
+/// After a blind recovery the safe start stays: no press offers the panel.
+#[test]
+#[ignore = "tier 2"]
+fn a_blind_recovery_ends_the_panel_offers() {
+    let mut rig = panel_rig("offer-recovery");
+    rig.boot(None);
+    rig.frames(2);
+    rig.hold(&[Control::Select, Control::Start]);
+    rig.until(HOLD_FRAMES, "the recovery", |r| {
+        r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
+    });
+    rig.release(&[Control::Select, Control::Start]);
+    rig.frames(2);
+    rig.finish();
+
+    rig.boot(None);
+    rig.frames(2);
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Safe(SafeReason::Recovery)
+    );
+    rig.tap(&[Control::Down]);
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Safe(SafeReason::Recovery),
+        "a press after a recovery offers nothing"
+    );
+    rig.finish();
+}
+
+/// An explicit monitor preset is never overridden by the panel offer.
+#[test]
+#[ignore = "tier 2"]
+fn an_explicit_preset_gets_no_panel_offer() {
+    let mut rig = panel_rig("offer-preset");
+    let config = rig.paths.config();
+    std::fs::create_dir_all(&config).expect("the config folder");
+    std::fs::write(
+        config.join("global.toml"),
+        "schema_version = 1\n\n[display]\nmonitor = \"generic_15\"\n",
+    )
+    .expect("the settings");
+    rig.boot(None);
+    rig.frames(2);
+    rig.frames(CONFIRM_WINDOW_FRAMES);
+    assert!(
+        matches!(rig.shell().guard().phase(), Phase::Safe(_)),
+        "{:?}",
+        rig.shell().guard().phase()
+    );
+    rig.tap(&[Control::Down]);
+    assert!(
+        matches!(rig.shell().guard().phase(), Phase::Safe(_)),
+        "no offer over generic_15"
     );
     rig.finish();
 }
