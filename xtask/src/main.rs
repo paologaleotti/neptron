@@ -50,7 +50,7 @@ commands:
                        compare UI scenes with their golden images; --bless
                        writes the golden of each scene that differs
   os build [--arch A] [--jobs N] [--dev-key FILE] [--no-kernel-15khz]
-           [-- make targets...]
+           [--output NAME] [-- make targets...]
                        build the image of target A with Buildroot in the
                        development container: the aarch64 QEMU test image,
                        or the x86_64 PC image (a USB image that also boots

@@ -36,6 +36,9 @@ pub struct BuildArgs {
     /// Leave out the pinned 15 kHz kernel patch set, which the PC image
     /// applies (`--no-kernel-15khz`).
     pub no_kernel_15khz: bool,
+    /// A name for the output volume and the images directory, in place of
+    /// the variant name, for a build in an empty output (`--output`).
+    pub output: Option<String>,
 }
 
 impl BuildArgs {
@@ -48,6 +51,7 @@ impl BuildArgs {
             targets: Vec::new(),
             dev_key: None,
             no_kernel_15khz: false,
+            output: None,
         };
         let mut it = args.iter();
         while let Some(&arg) = it.next() {
@@ -56,6 +60,19 @@ impl BuildArgs {
                 "--jobs" => out.jobs = positive(value(&mut it, "--jobs")?, "--jobs")?,
                 "--dev-key" => out.dev_key = Some(PathBuf::from(value(&mut it, "--dev-key")?)),
                 "--no-kernel-15khz" => out.no_kernel_15khz = true,
+                "--output" => {
+                    let name = value(&mut it, "--output")?;
+                    let plain = !name.is_empty()
+                        && name.bytes().all(|b| {
+                            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_'
+                        });
+                    if !plain {
+                        return Err(OsError::Usage(format!(
+                            "--output takes lowercase letters, digits, - and _, not {name:?}"
+                        )));
+                    }
+                    out.output = Some(name.to_owned());
+                }
                 "--" => {
                     out.targets = it.map(|s| (*s).to_owned()).collect();
                     break;
@@ -95,6 +112,9 @@ impl BuildArgs {
     /// `-no15khz` for the kernel without the 15 kHz patch set. The variants never share an output, so no
     /// file of a variant can reach the release image.
     pub fn variant(&self) -> String {
+        if let Some(output) = &self.output {
+            return output.clone();
+        }
         let mut name = self.arch.name().to_owned();
         if self.dev_key.is_some() {
             name.push_str(DEV_SUFFIX);
@@ -481,6 +501,25 @@ mod tests {
                     .lines()
                     .any(|l| l.starts_with("sha256  ") && l.ends_with(&format!("  {file}"))),
                 "no hash for {file}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_output_name_gives_a_volume_and_images_of_their_own() {
+        let p = plan(&["--arch", "x86_64", "--output", "x86_64-clean"]);
+        assert_eq!(p.args.variant(), "x86_64-clean");
+        assert!(
+            p.steps()[0]
+                .join(" ")
+                .contains("--volume neptron-br-out-x86_64-clean:/work/out"),
+            "{:?}",
+            p.steps()[0]
+        );
+        for bad in ["", "X86", "a b", "../x", "x/y"] {
+            assert!(
+                BuildArgs::parse(&["--output", bad], Arch::X86_64).is_err(),
+                "{bad:?}"
             );
         }
     }

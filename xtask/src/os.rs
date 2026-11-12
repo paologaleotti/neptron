@@ -159,7 +159,7 @@ pub enum OsError {
 /// `core-trace`.
 pub const USAGE: &str = "\
 usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [--dev-key FILE]
-                            [--no-kernel-15khz] [-- make targets...]
+                            [--no-kernel-15khz] [--output NAME] [-- make targets...]
        cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
                         [--disk FILE] [--ssh-port PORT] [--beside-launcher]
                         [--script FILE | -- command...]
