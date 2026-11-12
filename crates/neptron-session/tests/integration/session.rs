@@ -3,6 +3,7 @@
 
 use neptron_backend::Clock;
 use neptron_session::{EndReason, Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SessionError};
+use neptron_testkit::{DisplayOptions, Render};
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_video::{
     PictureStyle, PolicySettings, RefreshPolicy, VideoStatusText, scanline_settings,
@@ -310,12 +311,22 @@ fn a_failed_write_at_exit_is_reported_and_the_old_file_kept() {
 
 #[test]
 fn the_save_ram_is_flushed_on_the_timer_when_it_changed() {
+    // More than 30 s of frames: a small frame and no scene record keep it
+    // fast, and nothing here reads a picture.
+    let script = SAVE_SCRIPT.replace("geometry 256 224", "geometry 128 112");
     with_script!(
         "the_save_ram_is_flushed_on_the_timer_when_it_changed",
-        SAVE_SCRIPT,
+        &script,
         |dir| {
             write_old_save(dir);
-            let mut rig = Rig::launch(dir, Setup::default());
+            let setup = Setup {
+                display: DisplayOptions {
+                    render: Render::Off,
+                    ..DisplayOptions::default()
+                },
+                ..Setup::default()
+            };
+            let mut rig = Rig::launch(dir, setup);
             let due = rig.clock.now_ns() + SAVE_RAM_FLUSH_INTERVAL_NS;
             while rig.clock.now_ns() < due {
                 rig.run(1);

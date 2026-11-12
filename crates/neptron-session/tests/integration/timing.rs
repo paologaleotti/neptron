@@ -33,9 +33,12 @@ const LATE_FLIP_NS: u64 = 40_000_000;
 /// The largest ratio deviation of the rate control: 0.5%.
 const MAX_DEVIATION: f64 = 0.005;
 
+/// The script of a timing run at `fps_mhz`. The frame is small, so the
+/// test core draws it fast; the pacing and the audio do not depend on the
+/// frame size.
 fn script(fps_mhz: u32, sample_rate_hz: u32) -> String {
     format!(
-        "neptron-testcore 1\npixel_format rgb565\ngeometry 256 224 1333\n\
+        "neptron-testcore 1\npixel_format rgb565\ngeometry 128 112 1333\n\
          timing {fps_mhz} {sample_rate_hz}\n"
     )
 }
