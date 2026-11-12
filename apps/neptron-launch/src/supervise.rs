@@ -57,12 +57,13 @@ pub fn supervise<F: Frontend, T: Time>(
             .run()
             .map_err(|source| SuperviseError::Run { runs, source })?;
         runs += 1;
-        let ran_ns = time.now_ns().saturating_sub(started_ns);
+        let now_ns = time.now_ns();
+        let ran_ns = now_ns.saturating_sub(started_ns);
         let exit = Exit::of_code(code);
-        match backoff.after(exit, ran_ns) {
+        match backoff.after(exit, ran_ns, now_ns) {
             Next::Stop => return Ok(runs),
             Next::Restart { after_ns } => {
-                if exit == Exit::Crash {
+                if after_ns > 0 {
                     eprintln!(
                         "neptron-launch: the frontend ended with {code:?} after {} ms, crash {} in a row; start again in {} ms",
                         ran_ns / 1_000_000,
@@ -153,6 +154,17 @@ mod tests {
         ]);
         assert_eq!(result.expect("a quit"), 3);
         assert!(waits.is_empty());
+    }
+
+    #[test]
+    fn a_relaunch_loop_backs_off_on_the_simulated_clock() {
+        let mut script: Vec<(u64, io::Result<Option<i32>>)> = (0..12)
+            .map(|_| (1_000_000, Ok(Some(RELAUNCH_EXIT_CODE))))
+            .collect();
+        script.push((1_000_000, Ok(Some(0))));
+        let (result, waits) = run(script);
+        assert_eq!(result.expect("a quit"), 13);
+        assert_eq!(waits, [BACKOFF_FIRST_NS, 2 * BACKOFF_FIRST_NS]);
     }
 
     #[test]

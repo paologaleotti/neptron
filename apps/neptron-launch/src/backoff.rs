@@ -17,6 +17,14 @@ pub const BACKOFF_MAX_NS: u64 = 8_000_000_000;
 /// next crash waits [`BACKOFF_FIRST_NS`] again.
 pub const STABLE_RUN_NS: u64 = 30_000_000_000;
 
+/// The window in which relaunches are counted, in nanoseconds.
+pub const RELAUNCH_WINDOW_NS: u64 = 10_000_000_000;
+
+/// The most relaunches in [`RELAUNCH_WINDOW_NS`] that start at once. A
+/// frontend that relaunches more often is in a loop, and each further
+/// relaunch counts as a crash with its wait.
+pub const RELAUNCHES_MAX: usize = 10;
+
 /// How one run of the frontend ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Exit {
@@ -42,9 +50,11 @@ pub enum Next {
 
 /// The restart policy. It counts crashes in a row and nothing else: the
 /// failed boots and the safe mode belong to the frontend's guard.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Backoff {
     crashes: u32,
+    /// The end times of the relaunches in the window, oldest first.
+    relaunches: std::collections::VecDeque<u64>,
 }
 
 impl Exit {
@@ -69,11 +79,17 @@ impl Backoff {
         self.crashes
     }
 
-    /// What follows a run that ended with `exit` after `ran_ns`.
-    pub fn after(&mut self, exit: Exit, ran_ns: u64) -> Next {
+    /// What follows a run that ended with `exit` at `now_ns` after
+    /// `ran_ns`.
+    pub fn after(&mut self, exit: Exit, ran_ns: u64, now_ns: u64) -> Next {
         if ran_ns >= STABLE_RUN_NS {
             self.crashes = 0;
         }
+        let exit = if exit == Exit::Relaunch && !self.relaunch_fits(now_ns) {
+            Exit::Crash
+        } else {
+            exit
+        };
         match exit {
             Exit::Quit => Next::Stop,
             Exit::Relaunch => Next::Restart { after_ns: 0 },
@@ -86,6 +102,26 @@ impl Backoff {
                 Next::Restart { after_ns }
             }
         }
+    }
+}
+
+impl Backoff {
+    /// Counts a relaunch at `now_ns`: true while the window holds at most
+    /// [`RELAUNCHES_MAX`] of them.
+    fn relaunch_fits(&mut self, now_ns: u64) -> bool {
+        while self
+            .relaunches
+            .front()
+            .is_some_and(|t| now_ns.saturating_sub(*t) >= RELAUNCH_WINDOW_NS)
+        {
+            self.relaunches.pop_front();
+        }
+        self.relaunches.push_back(now_ns);
+        if self.relaunches.len() > RELAUNCHES_MAX {
+            self.relaunches.pop_front();
+            return false;
+        }
+        true
     }
 }
 
@@ -106,7 +142,7 @@ mod tests {
     fn crashes_in_a_row_double_the_wait_up_to_the_limit() {
         let mut backoff = Backoff::new();
         let waits: Vec<u64> = (0..10)
-            .map(|_| match backoff.after(Exit::Crash, 1_000_000) {
+            .map(|_| match backoff.after(Exit::Crash, 1_000_000, 0) {
                 Next::Restart { after_ns } => after_ns,
                 Next::Stop => panic!("a crash restarts"),
             })
@@ -133,10 +169,10 @@ mod tests {
     fn a_stable_run_starts_the_series_again() {
         let mut backoff = Backoff::new();
         for _ in 0..4 {
-            let _ = backoff.after(Exit::Crash, 0);
+            let _ = backoff.after(Exit::Crash, 0, 0);
         }
         assert_eq!(
-            backoff.after(Exit::Crash, STABLE_RUN_NS),
+            backoff.after(Exit::Crash, STABLE_RUN_NS, 0),
             Next::Restart {
                 after_ns: BACKOFF_FIRST_NS
             }
@@ -147,14 +183,14 @@ mod tests {
     #[test]
     fn a_relaunch_restarts_at_once_and_keeps_the_count() {
         let mut backoff = Backoff::new();
-        let _ = backoff.after(Exit::Crash, 0);
+        let _ = backoff.after(Exit::Crash, 0, 0);
         assert_eq!(
-            backoff.after(Exit::Relaunch, 0),
+            backoff.after(Exit::Relaunch, 0, 0),
             Next::Restart { after_ns: 0 }
         );
         assert_eq!(backoff.crashes(), 1, "a relaunch is no crash");
         assert_eq!(
-            backoff.after(Exit::Crash, 0),
+            backoff.after(Exit::Crash, 0, 0),
             Next::Restart {
                 after_ns: 2 * BACKOFF_FIRST_NS
             }
@@ -162,7 +198,37 @@ mod tests {
     }
 
     #[test]
+    fn more_relaunches_than_the_window_allows_back_off() {
+        let mut backoff = Backoff::new();
+        let ms = 1_000_000;
+        for i in 0..RELAUNCHES_MAX as u64 {
+            assert_eq!(
+                backoff.after(Exit::Relaunch, ms, i * ms),
+                Next::Restart { after_ns: 0 }
+            );
+        }
+        assert_eq!(
+            backoff.after(Exit::Relaunch, ms, 20 * ms),
+            Next::Restart {
+                after_ns: BACKOFF_FIRST_NS
+            },
+            "the eleventh relaunch in 10 s is a crash"
+        );
+        assert_eq!(
+            backoff.after(Exit::Relaunch, ms, 21 * ms),
+            Next::Restart {
+                after_ns: 2 * BACKOFF_FIRST_NS
+            }
+        );
+        assert_eq!(
+            backoff.after(Exit::Relaunch, ms, 21 * ms + RELAUNCH_WINDOW_NS),
+            Next::Restart { after_ns: 0 },
+            "the window has passed"
+        );
+    }
+
+    #[test]
     fn a_quit_stops() {
-        assert_eq!(Backoff::new().after(Exit::Quit, 0), Next::Stop);
+        assert_eq!(Backoff::new().after(Exit::Quit, 0, 0), Next::Stop);
     }
 }

@@ -26,7 +26,7 @@ The image starts it from BusyBox init: `neptron-launch -- /usr/bin/neptron --bac
 | Code 75 (`RELAUNCH_EXIT_CODE`, `EX_TEMPFAIL`) | Starts it again at once. The frontend uses it for a planned relaunch: into a game, or back to the game list |
 | Any other code, or a signal | A crash: starts it again after a wait |
 
-The wait after a crash is 250 ms, and it doubles with each crash in a row up to 8 s (`BACKOFF_FIRST_NS`, `BACKOFF_MAX_NS`). A run of 30 s or more (`STABLE_RUN_NS`) ends the series, so the next crash waits 250 ms again.
+A frontend that relaunches more than 10 times in 10 s (`RELAUNCHES_MAX`, `RELAUNCH_WINDOW_NS`) is in a loop: each further relaunch counts as a crash and waits. The wait after a crash is 250 ms, and it doubles with each crash in a row up to 8 s (`BACKOFF_FIRST_NS`, `BACKOFF_MAX_NS`). A run of 30 s or more (`STABLE_RUN_NS`) ends the series, so the next crash waits 250 ms again.
 
 The launcher keeps the device open the whole time. The kernel removes the framebuffers and some drivers switch the CRTC off only when the last holder closes the descriptor, so the last validated mode stays on the wire across a crash, a relaunch and a restart (`docs/spec/kms.md`).
 
