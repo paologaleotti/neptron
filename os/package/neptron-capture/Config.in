@@ -1,0 +1,9 @@
+config BR2_PACKAGE_NEPTRON_CAPTURE
+	bool "neptron-capture"
+	depends on BR2_TOOLCHAIN_HAS_THREADS # libdrm
+	select BR2_PACKAGE_LIBDRM
+	help
+	  Waits until the frontend shows a screen, then takes the
+	  writeback picture of the display that the launcher holds
+	  and prints it. A test tool for vkms in QEMU, for the boot
+	  check.
