@@ -265,6 +265,10 @@ impl Display for KmsDisplay {
             }),
         }
     }
+
+    fn blank(&mut self) -> Result<(), DisplayError> {
+        self.commit_blank()
+    }
 }
 
 impl KmsDisplay {

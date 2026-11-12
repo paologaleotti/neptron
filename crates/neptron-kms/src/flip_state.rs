@@ -1,9 +1,10 @@
 use neptron_backend::DisplayError;
 
 /// The order rules of the `Display` calls, as the fake display of
-/// `neptron-testkit` has them: no present or mode change while a flip is
-/// pending (a nonblocking atomic commit would get `EBUSY`), no wait
-/// without a queued flip, and nothing before the first mode.
+/// `neptron-testkit` has them: no present, mode change or blank while a
+/// flip is pending (a nonblocking atomic commit would get `EBUSY`), no wait
+/// without a queued flip, and nothing before the first mode or after a
+/// blank.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FlipState {
     mode_set: bool,
@@ -37,6 +38,18 @@ impl FlipState {
     pub fn check_set_mode(&self) -> Result<(), DisplayError> {
         if self.pending {
             return Err(busy("set_mode"));
+        }
+        Ok(())
+    }
+
+    /// Checks that `blank` may commit.
+    ///
+    /// # Errors
+    ///
+    /// [`DisplayError::Device`] while a flip is pending.
+    pub fn check_blank(&self) -> Result<(), DisplayError> {
+        if self.pending {
+            return Err(busy("blank"));
         }
         Ok(())
     }
@@ -79,6 +92,11 @@ impl FlipState {
     /// A mode change completed.
     pub fn mode_committed(&mut self) {
         self.mode_set = true;
+    }
+
+    /// The output is off: no mode until the next mode change.
+    pub fn blanked(&mut self) {
+        self.mode_set = false;
     }
 
     /// A flip was queued.
@@ -136,6 +154,37 @@ mod tests {
         s.flip_done();
         assert_eq!(s.check_present(), Ok(()));
         assert_eq!(s.check_set_mode(), Ok(()));
+    }
+
+    #[test]
+    fn a_pending_flip_blocks_blank() {
+        let mut s = FlipState::new();
+        assert_eq!(s.check_blank(), Ok(()), "a blank needs no mode");
+        s.mode_committed();
+        s.flip_queued();
+        assert!(matches!(
+            s.check_blank(),
+            Err(DisplayError::Device {
+                operation: "blank",
+                ..
+            })
+        ));
+        s.flip_done();
+        assert_eq!(s.check_blank(), Ok(()));
+    }
+
+    #[test]
+    fn after_a_blank_only_set_mode_and_blank_work() {
+        let mut s = FlipState::new();
+        s.mode_committed();
+        s.blanked();
+        assert!(!s.has_mode());
+        assert_eq!(s.check_present(), Err(DisplayError::NoMode));
+        assert_eq!(s.check_wait(), Err(DisplayError::NoMode));
+        assert_eq!(s.check_set_mode(), Ok(()));
+        assert_eq!(s.check_blank(), Ok(()));
+        s.mode_committed();
+        assert_eq!(s.check_present(), Ok(()));
     }
 
     #[test]

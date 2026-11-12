@@ -1,5 +1,6 @@
 //! The defined state at drop: the last validated mode with no picture, or
-//! no signal.
+//! no signal. After a blank no mode is on the wire, and drop commits
+//! nothing.
 
 use std::os::fd::AsFd as _;
 use std::time::Duration;
@@ -54,20 +55,13 @@ impl KmsDisplay {
         let Err(first) = request::test_then_commit(&plane_off, &self.card, 0) else {
             return Ok(());
         };
-        let mut off = Request::new();
-        off.add(o.connector, o.props.connector_crtc_id, 0);
-        if let Some(wb) = o.writeback {
-            off.add(wb.connector, wb.crtc_id, 0);
-        }
-        off.add(o.crtc, o.props.crtc_mode_id, 0);
-        off.add(o.crtc, o.props.crtc_active, 0);
-        off.add(o.plane, o.props.plane[PLANE_FB_ID], 0);
-        off.add(o.plane, o.props.plane[PLANE_CRTC_ID], 0);
-        request::test_then_commit(&off, &self.card, ALLOW_MODESET).map_err(|second| {
-            format!(
-                "the plane-off commit failed ({first:?}) and the output-off commit failed \
+        request::test_then_commit(&self.off_request(), &self.card, ALLOW_MODESET).map_err(
+            |second| {
+                format!(
+                    "the plane-off commit failed ({first:?}) and the output-off commit failed \
                      too ({second:?})"
-            )
-        })
+                )
+            },
+        )
     }
 }

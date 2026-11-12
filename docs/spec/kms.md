@@ -60,7 +60,16 @@ Every commit uses the atomic API. A commit is all or nothing: when the kernel re
 7. The real commit with `ALLOW_MODESET`, blocking. When it returns, the mode is on the wire. A refusal here is `DisplayError::Device`; the old mode stays, because the commit is all or nothing.
 8. The backend records the new mode as the mode on the wire, then reads the mode of the CRTC back, converts it to a `Modeline` and returns it. A mode that cannot be read or converted is `DisplayError::Device`, and the new mode stays recorded as on the wire: a later request for the old mode is a real commit, and the restore at drop runs (`WireMode`).
 
-`ALLOW_MODESET` is set only here, and only for a mode that differs from the mode set now. No other commit of the backend can change a mode.
+`ALLOW_MODESET` is set only here, in `blank` and in the output-off commit of the restore. Only this path writes a non-zero `MODE_ID`, and only a blob of `ModeRecord::from_validated`, for a mode that differs from the mode set now. No other commit of the backend can change a mode.
+
+**`blank()`**
+
+1. A flip is pending: `DisplayError::Device`, nothing changes (the busy rule of `set_mode`). The engine calls `wait_flip` first.
+2. One request turns the output off: the connector and, when writeback is on, the writeback connector detached (`CRTC_ID` 0), `MODE_ID` 0 and `ACTIVE` 0 on the CRTC, `FB_ID` 0 and `CRTC_ID` 0 on the plane. Every value is 0, so the request cannot set a mode. It is the same request as the output-off commit of the restore (`output_off`).
+3. A test-only commit with `ALLOW_MODESET`, then the real commit, blocking. A refusal is `DisplayError::Device`, and nothing changes, because a commit is all or nothing.
+4. The backend records that no mode is on the wire (`WireMode::blanked`) and gives the buffer that was on the screen back to the surface. Then `present`, `wait_flip` and `capture` return `NoMode`, the next `set_mode` is a real commit (step 2 of `set_mode` never applies), and drop makes no commit.
+
+A blank before the first mode, or a second blank, makes the same commit and succeeds. On x86 the first one switches off the mode that i915 inherited from the firmware.
 
 **`present(scene)`**
 
@@ -84,7 +93,7 @@ When the event comes, the buffer that was on the screen goes back to the GBM sur
 
 The `Display` contract states this bounded wait (ADR 0007), and the fake display of `neptron-testkit` follows it: on a timeout `wait_flip` returns `DisplayError::Device`, the flip can still complete, a later `wait_flip` returns its event, and until then `set_mode` and `present` return `DisplayError::Device` as busy. A failed event read also keeps the flip pending.
 
-`wait_flip` with no flip queued is `DisplayError::Device` and does not block, and before the first `set_mode` it is `DisplayError::NoMode`, as on the fake display.
+`wait_flip` with no flip queued is `DisplayError::Device` and does not block, and before the first `set_mode` and after a `blank` it is `DisplayError::NoMode`, as on the fake display.
 
 **Interlace.** `GpuCaps::flip_per_field` comes from the capability table (`neptron-platform`), not from the backend. The backend passes the kernel's flip events on as they come: one event per vblank that the driver signals. On hardware with `flip_per_field`, the driver signals each field, and a flip can complete at each field. Without it, the driver signals each frame. The backend does not change the cadence and does not drop events. The engine, which reads the same capability, paces the core.
 
@@ -104,14 +113,14 @@ The conversion back (the readback) refuses a kernel mode with a flag or a field 
 | --- | --- |
 | `ModeRefused` | The mode cannot be expressed for the kernel (clock not a whole kHz), is larger than the buffers, or the test-only commit refused it. Nothing changed |
 | `SceneRefused` | The renderer refuses the scene, with the reasons of the reference renderer, or a limit of the GLES renderer |
-| `NoMode` | `present` or `wait_flip` before the first `set_mode` |
-| `Device` | A flip is pending (`present`, `set_mode`), no flip is queued (`wait_flip`), a flip did not complete in time, the real commit, the readback, the GL context, the GBM surface or the event read failed |
+| `NoMode` | `present` or `wait_flip` before the first `set_mode` or after a `blank` |
+| `Device` | A flip is pending (`present`, `set_mode`, `blank`), the blank commit failed, no flip is queued (`wait_flip`), a flip did not complete in time, the real commit, the readback, the GL context, the GBM surface or the event read failed |
 
 Errors of `open` and `from_env` are `KmsError`: the descriptor, the device, the connector choice, the CRTC, the plane, a property that is missing, the buffers and the renderer.
 
 ## Restore
 
-**At drop.** When the display drops after a mode was set, the backend makes one commit, test-only first: the plane off (no framebuffer, no CRTC) and the CRTC with its mode. The last validated mode stays on the wire with a black picture, which is the state the supervisor rule wants (CRT safety model, layer 7: the mode stays across a restart of the frontend). When that commit fails, for example because a driver needs a primary plane on an active CRTC, the backend switches the output off (no mode, no plane): no signal is safe for every display. Then it removes its framebuffers and returns the buffers. A display that never set a mode makes no commit at drop.
+**At drop.** When the display drops after a mode was set, the backend makes one commit, test-only first: the plane off (no framebuffer, no CRTC) and the CRTC with its mode. The last validated mode stays on the wire with a black picture, which is the state the supervisor rule wants (CRT safety model, layer 7: the mode stays across a restart of the frontend). When that commit fails, for example because a driver needs a primary plane on an active CRTC, the backend switches the output off (no mode, no plane): no signal is safe for every display. The output-off commit is the request of `blank`. Then the backend removes its framebuffers and returns the buffers. A display that never set a mode, or whose last change was a `blank`, makes no commit at drop: the output is off already.
 
 **A panic.** In the dev profile a panic unwinds, the display drops, and the restore above runs. In the release profile a panic aborts, and no code runs. Then:
 
@@ -146,7 +155,8 @@ Timing check 7 runs in the aarch64 QEMU guest on `vkms`, with Mesa softpipe for 
 4. The writeback picture equals the reference renderer's output for the same scene, byte for byte in the colour bytes, for two nearest scenes with the UI in each test mode. In each mode with a whole vertical multiple of 2 (480p, 480i), a scene with black scanlines at 50 % gives the same writeback picture as the reference renderer and as `GlesRenderer::render` (the read-back path): the window path and the read-back path share one draw function, and this proves it on the output.
 5. Flips: 30 presents with `wait_flip` in each progressive mode. The sequence grows by at least one per flip, the time grows, and the mean time per vblank is within 1 % of the period of the mode. Missed vblanks are counted and printed, not failed: the guest is not real time.
 6. `set_mode` with the mode that is on the wire makes no commit: the CRTC's `MODE_ID` blob id stays the same, while every modeset makes a new blob. The errors of the contract: `present` and `set_mode` while a flip is pending, `wait_flip` with no flip queued, `present` and `wait_flip` before the first mode, a mode larger than the buffers, all as the fake display.
-7. Drop: after the display drops, the CRTC keeps the last mode with no plane, or is off.
+7. Blank: with a flip pending it is a device error. Then it succeeds, and a second descriptor sees the CRTC with `ACTIVE` 0, `MODE_ID` 0, no mode and no plane. `present` and `wait_flip` give `NoMode`, and a second blank succeeds. `set_mode` of the mode set before the blank commits (a blob in `MODE_ID` again), its read back equals the request field by field, a second descriptor reads the same mode, and a flip completes.
+8. Drop: after the display drops, the CRTC keeps the last mode with no plane, or is off.
 
 What the run showed (aarch64 guest, Mesa softpipe, kernel 6.18): every check passes. Mesa's GBM on `vkms` takes no modifiers, so the buffers are linear through the usage flag. The flip period equals the period of each progressive mode to 0 ppm; 480i gives one vblank per 8.33 ms, twice the field rate (OP-030). The dev build draws about four frames per second with software GL, so most vblanks have no flip; the check counts them and does not fail on them. The kernel logs "Overflow of CRC buffer" while the CRC file is open and not read; the check reads the newest entries after the picture settles.
 

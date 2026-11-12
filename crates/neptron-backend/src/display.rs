@@ -4,13 +4,16 @@ use neptron_types::{FlipEvent, GpuCaps, Modeline, Scene};
 /// A display output: KMS, a desktop window or a test fake.
 ///
 /// The only way to change the mode is [`Display::set_mode`], and it takes a
-/// [`ValidatedMode`] only.
+/// [`ValidatedMode`] only. [`Display::blank`] turns the output off and sets
+/// no mode.
 pub trait Display {
     /// What the output can drive.
     fn caps(&self) -> &GpuCaps;
 
     /// Programs `mode` and returns the mode the driver reports back, which
-    /// can differ from `mode`, for example in the pixel clock.
+    /// can differ from `mode`, for example in the pixel clock. After a
+    /// [`Display::blank`] it is always a real modeset, also for the mode
+    /// that was set before the blank.
     ///
     /// # Errors
     ///
@@ -24,8 +27,8 @@ pub trait Display {
     ///
     /// # Errors
     ///
-    /// [`DisplayError::NoMode`] before the first `set_mode`,
-    /// [`DisplayError::SceneRefused`] when the scene does not fit the mode
+    /// [`DisplayError::NoMode`] before the first `set_mode` and after a
+    /// `blank`, [`DisplayError::SceneRefused`] when the scene does not fit the mode
     /// or its frames, [`DisplayError::Device`] while a flip is queued
     /// (busy) or when the device fails.
     fn present(&mut self, scene: &Scene) -> Result<(), DisplayError>;
@@ -35,17 +38,37 @@ pub trait Display {
     ///
     /// When the limit passes first, it returns [`DisplayError::Device`]
     /// and the flip stays queued: it can still complete, a later
-    /// `wait_flip` returns its event, and until then `present` and
-    /// `set_mode` return [`DisplayError::Device`] as busy. Any other error
+    /// `wait_flip` returns its event, and until then `present`,
+    /// `set_mode` and `blank` return [`DisplayError::Device`] as busy. Any other error
     /// of the wait also keeps the flip queued. A backend never drops a
     /// queued flip.
     ///
     /// # Errors
     ///
-    /// [`DisplayError::NoMode`] before the first `set_mode`,
-    /// [`DisplayError::Device`] with no flip queued, when the limit
-    /// passes, or when the device fails.
+    /// [`DisplayError::NoMode`] before the first `set_mode` and after a
+    /// `blank`, [`DisplayError::Device`] with no flip queued, when the
+    /// limit passes, or when the device fails.
     fn wait_flip(&mut self) -> Result<FlipEvent, DisplayError>;
+
+    /// Turns the output off: no sync and no picture, until the next
+    /// [`Display::set_mode`]. It is the one call that changes the display
+    /// without a [`ValidatedMode`], and it carries no mode.
+    ///
+    /// While the output is off, `present` and `wait_flip` return
+    /// [`DisplayError::NoMode`], as before the first `set_mode`, and no
+    /// mode is read back. The next `set_mode` is a real modeset with its
+    /// read back. A blank of an output that is off, or that never had a
+    /// mode, turns it off again and succeeds.
+    ///
+    /// With a flip queued, `blank` follows the busy rule of `set_mode`: it
+    /// returns [`DisplayError::Device`] and changes nothing. The caller
+    /// waits for the flip first.
+    ///
+    /// # Errors
+    ///
+    /// [`DisplayError::Device`] while a flip is queued, or when the device
+    /// fails. On an error the output keeps its state.
+    fn blank(&mut self) -> Result<(), DisplayError>;
 }
 
 /// An error of a [`Display`] backend.

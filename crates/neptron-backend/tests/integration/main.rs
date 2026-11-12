@@ -32,6 +32,9 @@ impl Display for Unset {
     fn wait_flip(&mut self) -> Result<FlipEvent, DisplayError> {
         Err(DisplayError::NoMode)
     }
+    fn blank(&mut self) -> Result<(), DisplayError> {
+        Ok(())
+    }
 }
 
 /// A sink that takes at most four frames.
@@ -78,6 +81,7 @@ fn traits_work_as_trait_objects() {
     let mut display: Box<dyn Display> = Box::new(Unset);
     assert_eq!(display.caps(), &CAPS);
     assert_eq!(display.wait_flip(), Err(DisplayError::NoMode));
+    assert_eq!(display.blank(), Ok(()));
 
     let mut audio: Box<dyn AudioSink> = Box::new(Small { queued: 0 });
     assert_eq!(audio.write(&[0; 7]), 3);

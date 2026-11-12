@@ -50,9 +50,9 @@ pub const WINDOW_CAPS: GpuCaps = GpuCaps {
 ///
 /// # Errors
 ///
-/// After a failed `set_mode` at a new active size the old mode is gone,
-/// and `present` and `wait_flip` return [`DisplayError::NoMode`] until a
-/// mode is set. When SDL cannot make a renderer it closes the window; the
+/// After a failed `set_mode` at a new active size, and after
+/// [`Display::blank`], the old mode is gone, and `present` and `wait_flip`
+/// return [`DisplayError::NoMode`] until a mode is set. When SDL cannot make a renderer it closes the window; the
 /// next `set_mode` opens a new one.
 pub struct WindowDisplay {
     output: Output,
@@ -209,6 +209,23 @@ impl Display for WindowDisplay {
             time_ns: self.clock.now_ns(),
             sequence: self.sequence,
         })
+    }
+
+    /// Shows black once and drops the renderer, so the window holds no
+    /// mode. A window has no sync to turn off.
+    fn blank(&mut self) -> Result<(), DisplayError> {
+        let output = std::mem::replace(&mut self.output, Output::Closed);
+        let Output::Ready(mut screen) = output else {
+            self.output = output;
+            return Ok(());
+        };
+        screen.buffer.fill(0);
+        if let Err(e) = screen.upload().and_then(|()| screen.gpu.show()) {
+            self.output = Output::Ready(screen);
+            return Err(e);
+        }
+        self.output = Output::Idle(screen.gpu.into_window());
+        Ok(())
     }
 }
 

@@ -49,6 +49,7 @@ The window presents with the desktop's vsync. `wait_flip` shows the frame for `r
 - `set_mode` takes a `ValidatedMode`, like every display. It returns the mode unchanged: a window has no timings to read back. It refuses an active area above 4096 pixels on either axis.
 - `WINDOW_CAPS` takes every pixel clock (a window has none), and takes interlaced modes. It shows an interlaced mode as one progressive picture and flips once per field.
 - `present` renders the scene with one `ReferenceRenderer` into a buffer made at `set_mode`, and uploads it to a streaming texture. A new active size makes a new renderer, texture and buffer. The same size keeps them.
+- `blank` shows black once and drops the renderer and the buffer. `present` and `wait_flip` then return `NoMode`, and the next `set_mode` makes a new renderer. A window has no sync to turn off.
 - When SDL cannot make a renderer, it closes the window, because it takes the window by value. That `set_mode` returns `DisplayError::Device`, and the next `set_mode` opens a new window.
 
 ## Keyboard

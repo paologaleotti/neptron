@@ -11,13 +11,14 @@ On every host (pure, no I/O):
 - `PlaneRect::for_mode`: the part of the scanout buffers a mode shows.
 - `VblankCounter`: the kernel's 32-bit vblank count as 64 bits.
 - `FlipState`: the order rules of the `Display` calls, the same as the fake display of `neptron-testkit`.
-- Inside the crate: `Request`, an atomic request in fixed arrays.
+- `WireMode`: the mode on the wire and what `set_mode` must do for a request; after a blank, every request commits.
+- Inside the crate: `Request`, an atomic request in fixed arrays, and `output_off`, the request that turns the output off.
 
 On Linux with the `kms` feature:
 
 - `KmsDisplay::from_env(KmsConfig) -> Result<KmsDisplay, KmsError>`: the display on the descriptor in `NEPTRON_DRM_FD` (`DRM_FD_ENV`). This is the path of the frontend (T27). A process takes the descriptor once.
 - `KmsDisplay::open(OwnedFd, KmsConfig)`: the same on a descriptor the caller opened (tests, tools).
-- `impl Display for KmsDisplay`: `caps`, `set_mode`, `present`, `wait_flip`.
+- `impl Display for KmsDisplay`: `caps`, `set_mode`, `present`, `wait_flip`, `blank`.
 - `KmsDisplay::capture() -> Result<Capture, DisplayError>`: the composed picture through a writeback connector, when `KmsConfig::writeback` is on. For tests and the self-test, not for the frame loop.
 - `connector_name()`, `crtc_id()`, `driver_name()`, `linear_by_modifier()`: for logs and reports.
 - `KmsConfig { caps, output, crt, buffer_width, buffer_height, writeback }`: everything the caller decides. The buffers have the size of the largest mode the caller will set; the backend makes them once.
@@ -40,11 +41,11 @@ let flip = display.wait_flip()?;
 
 ## How it works
 
-- Atomic API only. `set_mode` sends a test-only commit, then the real one, with `ALLOW_MODESET`, and only when the mode differs from the mode on the wire. `present` sends a nonblocking commit with a page-flip event that changes only the plane's framebuffer.
+- Atomic API only. `set_mode` sends a test-only commit, then the real one, with `ALLOW_MODESET`, and only when the mode differs from the mode on the wire. `present` sends a nonblocking commit with a page-flip event that changes only the plane's framebuffer. `blank` sends one commit, test-only first, with `ALLOW_MODESET`, that detaches the connectors and the plane and sets `MODE_ID` 0 and `ACTIVE` 0; it is busy while a flip is pending. `MODE_ID` is only ever a blob of `ModeRecord::from_validated`, or 0.
 - Buffers: one GBM surface, XRGB8888, linear (the modifier list `[LINEAR]`, or the linear usage flag when the driver takes no modifiers), at the configured size, made at open. `neptron-gfx` draws into it through EGL on GBM (`GlesRenderer::on_gbm`, `draw_to_window`). A mode shows the last rows of the buffer, where the window surface stores a picture drawn at the GL origin.
 - Flips: `wait_flip` polls with a bound and reads only readable data. A flip that does not come within `FLIP_WAIT_LIMIT_MS` is an error, not a hang, and stays pending.
 - The present path allocates nothing: the atomic request is fixed arrays (`drm-ffi`), the framebuffers of the GBM buffers are kept in a table of four, and the event read uses a stack buffer.
-- Drop: with a mode set, the plane goes off and the validated mode stays on the wire; when the driver refuses that, the output goes off. A panic in the dev profile unwinds into this drop. In the release profile a panic aborts; then every mode that ever reached the kernel is validated, the images have no console that sets a mode, and the launcher's descriptor keeps the mode on the wire.
+- Drop: after a blank, nothing. With a mode set, the plane goes off and the validated mode stays on the wire; when the driver refuses that, the output goes off. A panic in the dev profile unwinds into this drop. In the release profile a panic aborts; then every mode that ever reached the kernel is validated, the images have no console that sets a mode, and the launcher's descriptor keeps the mode on the wire.
 
 ## The T3 check
 
@@ -72,7 +73,7 @@ let flip = display.wait_flip()?;
 
 ## Tests
 
-- Tier 1, every host: the connector rule (named, one connected, analog without EDID, class by profile, fallbacks, errors, type numbers), the mode record (each field and flag, the kHz refusal, the readback refusals), the plane rectangles, the vblank counter across a wrap, the order rules of the calls, the fixed atomic request (grouping, overflow).
+- Tier 1, every host: the connector rule (named, one connected, analog without EDID, class by profile, fallbacks, errors, type numbers), the mode record (each field and flag, the kHz refusal, the readback refusals), the plane rectangles, the vblank counter across a wrap, the order rules of the calls (blank included), the mode on the wire after a blank, the fixed atomic request (grouping, overflow, the output-off request).
 - Tier 3: `cargo xtask kms-check`.
 
 ## Status

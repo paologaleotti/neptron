@@ -1,12 +1,15 @@
-//! `set_mode`: the one path that changes the mode on the wire.
+//! `set_mode` and `blank`: the only paths that change the mode on the
+//! wire. `MODE_ID` gets a blob of a `ModeRecord::from_validated`, or 0.
 
 use drm::control::{Device as _, crtc};
 use neptron_backend::DisplayError;
 use neptron_safety::ValidatedMode;
 use neptron_types::{Filter, Modeline, Rect, Scanlines, Scene};
 
+use super::device::{PLANE_CRTC_ID, PLANE_FB_ID};
 use super::display::{KmsDisplay, render_error};
 use super::request::{self, ALLOW_MODESET, Refusal, Request};
+use crate::request::{OutputIds, output_off};
 use crate::{ModeRecord, NextStep, PlaneRect};
 
 impl KmsDisplay {
@@ -68,6 +71,38 @@ impl KmsDisplay {
         let readback = self.read_mode()?;
         self.wire.read_back(readback);
         Ok(readback)
+    }
+
+    /// Turns the output off in one commit, test-only first. A refusal
+    /// changes nothing, because a commit is all or nothing.
+    pub(super) fn commit_blank(&mut self) -> Result<(), DisplayError> {
+        self.state.check_blank()?;
+        request::test_then_commit(&self.off_request(), &self.card, ALLOW_MODESET)
+            .map_err(|refusal| refusal.device("blank commit"))?;
+        self.wire.blanked();
+        self.state.blanked();
+        // The blocking commit returned, so the plane no longer reads the
+        // buffer.
+        if let Some(old) = self.front.take() {
+            self.gbm.release(old);
+        }
+        Ok(())
+    }
+
+    /// The request that turns this output off.
+    pub(super) fn off_request(&self) -> Request {
+        let o = &self.objects;
+        output_off(&OutputIds {
+            connector: o.connector,
+            connector_crtc_id: o.props.connector_crtc_id,
+            writeback: o.writeback.map(|wb| (wb.connector, wb.crtc_id)),
+            crtc: o.crtc,
+            crtc_mode_id: o.props.crtc_mode_id,
+            crtc_active: o.props.crtc_active,
+            plane: o.plane,
+            plane_fb_id: o.props.plane[PLANE_FB_ID],
+            plane_crtc_id: o.props.plane[PLANE_CRTC_ID],
+        })
     }
 
     fn modeset_request(&self, blob: u64, fb: u32, rect: &PlaneRect) -> Request {

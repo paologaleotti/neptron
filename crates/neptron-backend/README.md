@@ -4,7 +4,7 @@ The traits that hide display, audio, input and clock behind one interface, so th
 
 ## Public API
 
-- `trait Display`: `caps() -> &GpuCaps`, `set_mode(&ValidatedMode) -> Result<Modeline, DisplayError>` (returns the mode the driver reports back), `present(&Scene)` (queues one flip), `wait_flip() -> Result<FlipEvent, DisplayError>`.
+- `trait Display`: `caps() -> &GpuCaps`, `set_mode(&ValidatedMode) -> Result<Modeline, DisplayError>` (returns the mode the driver reports back), `present(&Scene)` (queues one flip), `wait_flip() -> Result<FlipEvent, DisplayError>` (bounded: on a timeout the flip stays queued and `present`, `set_mode` and `blank` are busy until a later wait returns its event), `blank() -> Result<(), DisplayError>` (the output off until the next `set_mode`, which is then always a real modeset; the one display change without a `ValidatedMode`).
 - `enum DisplayError` (`thiserror`, `#[non_exhaustive]`): `ModeRefused`, `SceneRefused`, `NoMode`, `Device`. Each variant carries what the driver or the device reported.
 - `trait AudioSink`: `rate_hz()`, `queued_frames()`, `write(&[i16]) -> usize`. Interleaved 16-bit stereo; `write` never blocks.
 - `trait InputSource`: `poll(&mut Vec<InputEvent>)` appends the events since the last call, already mapped to the RetroPad.

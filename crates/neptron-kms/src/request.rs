@@ -83,6 +83,44 @@ impl Request {
     }
 }
 
+/// The object and property ids that [`output_off`] sets.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OutputIds {
+    pub connector: u32,
+    /// The connector's `CRTC_ID` property.
+    pub connector_crtc_id: u32,
+    /// The writeback connector and its `CRTC_ID` property, when it is
+    /// routed.
+    pub writeback: Option<(u32, u32)>,
+    pub crtc: u32,
+    /// The CRTC's `MODE_ID` property.
+    pub crtc_mode_id: u32,
+    /// The CRTC's `ACTIVE` property.
+    pub crtc_active: u32,
+    pub plane: u32,
+    /// The plane's `FB_ID` property.
+    pub plane_fb_id: u32,
+    /// The plane's `CRTC_ID` property.
+    pub plane_crtc_id: u32,
+}
+
+/// The request that turns the output off: the connectors detached, the CRTC
+/// with no mode and inactive, the plane with no framebuffer and no CRTC.
+/// Every value is 0, so this request can never set a mode. It needs
+/// `ALLOW_MODESET`.
+pub(crate) fn output_off(ids: &OutputIds) -> Request {
+    let mut req = Request::new();
+    req.add(ids.connector, ids.connector_crtc_id, 0);
+    if let Some((connector, crtc_id)) = ids.writeback {
+        req.add(connector, crtc_id, 0);
+    }
+    req.add(ids.crtc, ids.crtc_mode_id, 0);
+    req.add(ids.crtc, ids.crtc_active, 0);
+    req.add(ids.plane, ids.plane_fb_id, 0);
+    req.add(ids.plane, ids.plane_crtc_id, 0);
+    req
+}
+
 /// A request had more objects or properties than its fixed arrays. It is
 /// never sent; this is a fault of the backend, not of the mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -130,6 +168,37 @@ mod tests {
             (p.objects[0], p.counts[0], p.props[0], p.values[0]),
             (10, 1, 1, 100)
         );
+    }
+
+    fn ids(writeback: Option<(u32, u32)>) -> OutputIds {
+        OutputIds {
+            connector: 10,
+            connector_crtc_id: 11,
+            writeback,
+            crtc: 30,
+            crtc_mode_id: 31,
+            crtc_active: 32,
+            plane: 40,
+            plane_fb_id: 41,
+            plane_crtc_id: 42,
+        }
+    }
+
+    #[test]
+    fn output_off_detaches_everything_with_zeros() {
+        let p = output_off(&ids(None)).parts().unwrap();
+        assert_eq!(&p.objects[..p.n_objects], &[10, 30, 40]);
+        assert_eq!(&p.counts[..p.n_objects], &[1, 2, 2]);
+        assert_eq!(&p.props[..p.n_props], &[11, 31, 32, 41, 42]);
+        assert!(p.values[..p.n_props].iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    fn output_off_detaches_the_writeback_connector_too() {
+        let p = output_off(&ids(Some((20, 21)))).parts().unwrap();
+        assert_eq!(&p.objects[..p.n_objects], &[10, 20, 30, 40]);
+        assert_eq!(&p.props[..p.n_props], &[11, 21, 31, 32, 41, 42]);
+        assert!(p.values[..p.n_props].iter().all(|&v| v == 0));
     }
 
     #[test]

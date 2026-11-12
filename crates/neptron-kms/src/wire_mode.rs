@@ -8,7 +8,8 @@ use neptron_types::Modeline;
 /// once, and [`read_back`](Self::read_back) adds the readback when it
 /// comes. A failed readback leaves the mode on the wire with no readback:
 /// a request for another mode is then a real commit, and a request for the
-/// same mode reads it back again.
+/// same mode reads it back again. After [`blanked`](Self::blanked) no mode
+/// is on the wire: every request commits, and drop has nothing to restore.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WireMode {
     on_wire: Option<Modeline>,
@@ -49,6 +50,12 @@ impl WireMode {
     /// readback yet.
     pub fn committed(&mut self, mode: Modeline) {
         self.on_wire = Some(mode);
+        self.readback = None;
+    }
+
+    /// A blank commit succeeded: the output is off, with no mode.
+    pub fn blanked(&mut self) {
+        self.on_wire = None;
         self.readback = None;
     }
 
@@ -117,6 +124,21 @@ mod tests {
         assert_eq!(w.next_step(&mode(320)), NextStep::ReadAgain);
         w.read_back(mode(320));
         assert_eq!(w.next_step(&mode(320)), NextStep::Reuse(mode(320)));
+    }
+
+    #[test]
+    fn after_a_blank_the_same_mode_commits_again() {
+        let mut w = WireMode::new();
+        w.committed(mode(640));
+        w.read_back(mode(640));
+        w.blanked();
+        assert_eq!(w.on_wire(), None);
+        assert_eq!(w.next_step(&mode(640)), NextStep::Commit);
+        w.blanked();
+        assert_eq!(w.next_step(&mode(640)), NextStep::Commit);
+        w.committed(mode(640));
+        w.read_back(mode(640));
+        assert_eq!(w.next_step(&mode(640)), NextStep::Reuse(mode(640)));
     }
 
     #[test]

@@ -6,9 +6,9 @@
 //! It commits real modes through `KmsDisplay`, reads each mode back and
 //! compares it field by field, checks the frame CRC after each switch,
 //! compares the writeback picture with the reference renderer, measures the
-//! flips, checks the error contract of the fake display, checks that no
-//! modeset happens before the first commit, and checks the state after
-//! drop. Each check prints `PASS` or `FAIL`. The exit code is the number of
+//! flips, checks the error contract of the fake display, turns the output
+//! off and on again, checks that no modeset happens before the first
+//! commit, and checks the state after drop. Each check prints `PASS` or `FAIL`. The exit code is the number of
 //! failed checks.
 //!
 //! Two short runs come first, each in its own process because a process
@@ -354,6 +354,7 @@ mod linux {
                     }
                 }),
             );
+            blank_contract(&mut check, &mut display, &probe, &scene, &first);
         }
 
         let last = probe.mode_of(display.crtc_id());
@@ -424,15 +425,108 @@ mod linux {
         // Each modeset makes a new mode blob, so an unchanged MODE_ID of the
         // CRTC proves that no modeset commit ran.
         let crtc = display.crtc_id();
-        let before = probe.mode_blob(crtc);
+        let before = probe.crtc_prop(crtc, b"MODE_ID");
         let result = display.set_mode(valid);
-        let after = probe.mode_blob(crtc);
+        let after = probe.crtc_prop(crtc, b"MODE_ID");
         check.report(
             &format!("{name}: set_mode with the same mode makes no commit"),
             match (result, before, after) {
                 (Ok(_), Ok(b), Ok(a)) if a == b && b != 0 => Ok(format!("MODE_ID stays {b}")),
                 other => Err(format!("{other:?}")),
             },
+        );
+    }
+
+    /// `blank` with a flip pending is busy. Then it turns the output off,
+    /// and `set_mode` of the same mode commits again.
+    fn blank_contract(
+        check: &mut Check,
+        display: &mut KmsDisplay,
+        probe: &Probe,
+        scene: &Scene<'_>,
+        valid: &ValidatedMode,
+    ) {
+        let crtc = display.crtc_id();
+        if let Err(e) = display.present(scene) {
+            check.report("blank: present", Err(e.to_string()));
+            return;
+        }
+        check.report(
+            "blank while a flip is pending is a device error",
+            is_device(display.blank()),
+        );
+        check.report(
+            "blank: the pending flip completes",
+            display
+                .wait_flip()
+                .map(|_| String::new())
+                .map_err(|e| e.to_string()),
+        );
+        check.report(
+            "blank succeeds",
+            display
+                .blank()
+                .map(|()| String::new())
+                .map_err(|e| e.to_string()),
+        );
+        check.report(
+            "blank: a second descriptor sees the CRTC inactive with no mode and no plane",
+            match (
+                probe.crtc_prop(crtc, b"ACTIVE"),
+                probe.crtc_prop(crtc, b"MODE_ID"),
+                probe.mode_of(crtc),
+                probe.plane_fb(crtc),
+            ) {
+                (Ok(0), Ok(0), Ok(None), Ok(None)) => Ok(String::new()),
+                other => Err(format!("{other:?}")),
+            },
+        );
+        check.report(
+            "present after blank is NoMode",
+            expect_eq(display.present(scene), Err(DisplayError::NoMode)),
+        );
+        check.report(
+            "wait_flip after blank is NoMode",
+            expect_eq(display.wait_flip(), Err(DisplayError::NoMode)),
+        );
+        check.report(
+            "a second blank succeeds",
+            display
+                .blank()
+                .map(|()| String::new())
+                .map_err(|e| e.to_string()),
+        );
+        // MODE_ID is 0 after the blank, so a blob there now proves that
+        // set_mode made a real commit for the mode set before the blank.
+        let readback = display.set_mode(valid);
+        check.report(
+            "set_mode after blank commits the same mode again",
+            match (&readback, probe.crtc_prop(crtc, b"MODE_ID")) {
+                (Ok(_), Ok(blob)) if blob != 0 => Ok(format!("MODE_ID {blob}")),
+                other => Err(format!("{other:?}")),
+            },
+        );
+        check.report(
+            "set_mode after blank: the read back equals the request",
+            match &readback {
+                Ok(m) => same_mode(valid.mode(), m),
+                Err(e) => Err(e.to_string()),
+            },
+        );
+        check.report(
+            "set_mode after blank: a second descriptor reads the same mode",
+            match probe.mode_of(crtc) {
+                Ok(Some(m)) => same_mode(valid.mode(), &m),
+                other => Err(format!("{other:?}")),
+            },
+        );
+        check.report(
+            "set_mode after blank: a flip completes",
+            display
+                .present(scene)
+                .and_then(|()| display.wait_flip())
+                .map(|_| String::new())
+                .map_err(|e| e.to_string()),
         );
     }
 
@@ -993,18 +1087,22 @@ mod linux {
             Ok(p)
         }
 
-        /// The blob id in the CRTC's MODE_ID property.
-        fn mode_blob(&self, crtc_id: u32) -> Result<u64, String> {
+        /// The value of the CRTC property `name`, such as `MODE_ID` (a blob
+        /// id) or `ACTIVE`.
+        fn crtc_prop(&self, crtc_id: u32, name: &[u8]) -> Result<u64, String> {
             let handle: crtc::Handle = drm::control::from_u32(crtc_id).ok_or("CRTC id 0")?;
             let set = self.get_properties(handle).map_err(|e| e.to_string())?;
             let (ids, values) = set.as_props_and_values();
             for (&id, &value) in ids.iter().zip(values) {
                 let info = self.get_property(id).map_err(|e| e.to_string())?;
-                if info.name().to_bytes() == b"MODE_ID" {
+                if info.name().to_bytes() == name {
                     return Ok(value);
                 }
             }
-            Err("the CRTC has no MODE_ID property".to_owned())
+            Err(format!(
+                "the CRTC has no {} property",
+                String::from_utf8_lossy(name)
+            ))
         }
 
         fn crtc_modes(&self) -> Vec<Option<Modeline>> {

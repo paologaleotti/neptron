@@ -88,6 +88,12 @@ impl Screen {
         self.front_shown = true;
     }
 
+    /// The output is off: nothing is on screen until a flip in the next
+    /// mode.
+    pub(crate) fn blank(&mut self) {
+        self.front_shown = false;
+    }
+
     /// The frame on screen, or `None` before the first flip in the mode or
     /// with rendering off.
     pub(crate) fn shown(&mut self) -> Option<RgbImage> {

@@ -40,6 +40,10 @@ impl Display for Recording {
     fn wait_flip(&mut self) -> Result<FlipEvent, DisplayError> {
         self.inner.wait_flip()
     }
+
+    fn blank(&mut self) -> Result<(), DisplayError> {
+        self.inner.blank()
+    }
 }
 
 struct Rig {

@@ -18,6 +18,17 @@ pub struct ModeRecord {
     pub result: Result<Modeline, DisplayError>,
 }
 
+/// One call of `blank`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlankRecord {
+    /// The call number, from 0.
+    pub call: u64,
+    /// When the call started, in nanoseconds.
+    pub time_ns: u64,
+    /// What the call returned.
+    pub result: Result<(), DisplayError>,
+}
+
 /// One mode that the display took.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModeSwitch {
@@ -121,7 +132,13 @@ impl FakeDisplay {
             .collect()
     }
 
-    /// The mode on the display now, as read back.
+    /// Every `blank` call, in order, with its result.
+    pub fn blank_calls(&self) -> Vec<BlankRecord> {
+        self.lock().blanks.clone()
+    }
+
+    /// The mode on the display now, as read back. `None` before the first
+    /// mode and after a `blank`.
     pub fn active_mode(&self) -> Option<Modeline> {
         self.lock().active.as_ref().map(|a| a.mode)
     }

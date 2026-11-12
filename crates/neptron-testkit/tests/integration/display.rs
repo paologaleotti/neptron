@@ -809,3 +809,69 @@ fn clones_share_the_records() {
     boxed.set_mode(&mode(MODE_240P)).unwrap();
     assert_eq!(probe.active_mode(), Some(MODE_240P));
 }
+
+#[test]
+fn blank_turns_the_output_off_until_the_next_mode() {
+    let clock = SimClock::new();
+    let mut display = FakeDisplay::new(clock.clone(), CAPS_LOW_CLOCK);
+    assert_eq!(display.blank(), Ok(()), "a blank with no mode succeeds");
+    display.set_mode(&mode(MODE_240P)).unwrap();
+    frame(&mut display).unwrap();
+    let last = frame(&mut display).unwrap();
+    assert!(display.screen().is_some());
+    clock.advance(PERIOD_240P_NS);
+    let blanked_ns = clock.now_ns();
+    assert_eq!(display.blank(), Ok(()));
+    assert_eq!(display.active_mode(), None);
+    assert_eq!(display.screen(), None);
+    assert_eq!(display.present(&empty()), Err(DisplayError::NoMode));
+    assert_eq!(display.wait_flip(), Err(DisplayError::NoMode));
+    assert_eq!(display.blank(), Ok(()), "a second blank succeeds");
+    let calls = display.blank_calls();
+    assert_eq!(calls.len(), 3);
+    assert_eq!((calls[1].call, calls[1].time_ns), (1, blanked_ns));
+    assert!(calls.iter().all(|c| c.result.is_ok()));
+
+    clock.advance(10 * PERIOD_240P_NS);
+    assert_eq!(display.set_mode(&mode(MODE_240P)), Ok(MODE_240P));
+    assert_eq!(display.mode_calls().len(), 2, "the same mode sets again");
+    let next = frame(&mut display).unwrap();
+    // No blank comes while the output is off.
+    assert_eq!(next.sequence, last.sequence + 2);
+}
+
+#[test]
+fn blank_with_a_flip_queued_is_busy() {
+    let clock = SimClock::new();
+    let mut display = timing_only(&clock, DisplayOptions::default());
+    display.set_mode(&mode(MODE_240P)).unwrap();
+    display.present(&empty()).unwrap();
+    assert_eq!(
+        display.blank(),
+        Err(DisplayError::Device {
+            operation: "blank",
+            reason: "a flip is already queued".to_owned(),
+        })
+    );
+    assert_eq!(display.active_mode(), Some(MODE_240P));
+    display.wait_flip().unwrap();
+    assert_eq!(display.blank(), Ok(()));
+    assert_eq!(display.active_mode(), None);
+}
+
+#[test]
+fn a_failed_blank_keeps_the_mode() {
+    let clock = SimClock::new();
+    let mut display = timing_only(&clock, DisplayOptions::default());
+    display.set_mode(&mode(MODE_240P)).unwrap();
+    display.fault_blank(0, "EIO".to_owned());
+    let failed = Err(DisplayError::Device {
+        operation: "blank",
+        reason: "EIO".to_owned(),
+    });
+    assert_eq!(display.blank(), failed);
+    assert_eq!(display.active_mode(), Some(MODE_240P));
+    frame(&mut display).unwrap();
+    assert_eq!(display.blank_calls()[0].result, failed);
+    assert_eq!(display.blank(), Ok(()));
+}

@@ -5,7 +5,7 @@ mod record;
 mod screen;
 mod timing;
 
-pub use record::{FrameRecord, ModeRecord, ModeSwitch, SceneSummary};
+pub use record::{BlankRecord, FrameRecord, ModeRecord, ModeSwitch, SceneSummary};
 pub use timing::Jitter;
 
 use std::collections::BTreeMap;
@@ -59,16 +59,22 @@ pub const DEFAULT_FLIP_TIMEOUT_NS: u64 = 100_000_000;
 ///   event.
 /// - A failed `wait_flip` keeps the flip queued, as the bounded wait of the
 ///   contract says. Only a wait that returns the event ends it.
+/// - `blank` with a flip queued returns [`DisplayError::Device`] as busy.
+///   Otherwise it drops the active mode: `present` and `wait_flip` return
+///   [`DisplayError::NoMode`] until the next `set_mode`, the screen is
+///   black, and no blank comes until then. The sequence numbers go on from
+///   the last blank before it. [`FakeDisplay::blank_calls`] records each
+///   call.
 /// - A scene that the reference renderer refuses returns
 ///   [`DisplayError::SceneRefused`].
 /// - `caps` returns the capabilities given to the constructor.
 ///
 /// # Faults
 ///
-/// [`FakeDisplay::fault_mode`] and [`FakeDisplay::fault_flip`] script
-/// failures by call number, and [`FakeDisplay::fault_requested_mode`] by
+/// [`FakeDisplay::fault_mode`], [`FakeDisplay::fault_flip`] and
+/// [`FakeDisplay::fault_blank`] script failures by call number, and [`FakeDisplay::fault_requested_mode`] by
 /// the mode asked for. [`DisplayOptions::late_flips`] adds seeded late
-/// flips. A failed `set_mode` keeps the mode that was active.
+/// flips. A failed `set_mode` or `blank` keeps the mode that was active.
 ///
 /// # Sharing
 ///
@@ -221,10 +227,13 @@ impl FakeDisplay {
                 active: None,
                 next_k: 1,
                 pending: None,
+                sequence_base: 0,
                 mode_faults: BTreeMap::new(),
+                blank_faults: BTreeMap::new(),
                 requested_faults: Vec::new(),
                 flip_faults: BTreeMap::new(),
                 modes: Vec::new(),
+                blanks: Vec::new(),
                 frames: Vec::new(),
                 screen: Screen::default(),
             })),
@@ -246,6 +255,12 @@ impl FakeDisplay {
             .requested_faults
             .retain(|(mode, _)| *mode != requested);
         state.requested_faults.push((requested, fault));
+    }
+
+    /// Scripts a device error, with `reason`, for the `blank` call number
+    /// `call` (from 0). The output keeps its state.
+    pub fn fault_blank(&self, call: u64, reason: String) {
+        self.lock().blank_faults.insert(call, reason);
     }
 
     /// Scripts a fault of the frame with present number `index` (from 0).
@@ -346,6 +361,20 @@ impl Display for FakeDisplay {
         let clock = self.clock.clone();
         self.lock().wait_flip(&clock)
     }
+
+    fn blank(&mut self) -> Result<(), DisplayError> {
+        let clock = self.clock.clone();
+        let mut state = self.lock();
+        let time_ns = clock.now_ns();
+        let call = state.blanks.len() as u64;
+        let result = state.blank(time_ns, call);
+        state.blanks.push(BlankRecord {
+            call,
+            time_ns,
+            result: result.clone(),
+        });
+        result
+    }
 }
 
 #[derive(Debug)]
@@ -355,10 +384,14 @@ struct State {
     /// The first blank of the active mode that a new flip can land on.
     next_k: u64,
     pending: Option<Pending>,
+    /// The sequence number of the last blank before the output went off.
+    sequence_base: u64,
     mode_faults: BTreeMap<u64, ModeFault>,
+    blank_faults: BTreeMap<u64, String>,
     requested_faults: Vec<(Modeline, ModeFault)>,
     flip_faults: BTreeMap<u64, FlipFault>,
     modes: Vec<ModeRecord>,
+    blanks: Vec<BlankRecord>,
     frames: Vec<FrameRecord>,
     screen: Screen,
 }
@@ -417,10 +450,9 @@ impl State {
             }
         };
         let now = clock.now_ns();
-        let sequence_base = self
-            .active
-            .as_ref()
-            .map_or(0, |a| a.grid.sequence(a.grid.count_until(now)));
+        let sequence_base = self.active.as_ref().map_or(self.sequence_base, |a| {
+            a.grid.sequence(a.grid.count_until(now))
+        });
         let rate_mhz = self
             .options
             .refresh_mhz
@@ -555,6 +587,20 @@ impl State {
             }
         }
         outcome
+    }
+
+    fn blank(&mut self, now: u64, call: u64) -> Result<(), DisplayError> {
+        if self.pending.is_some() {
+            return Err(busy("blank"));
+        }
+        if let Some(reason) = self.blank_faults.get(&call) {
+            return Err(device("blank", reason.clone()));
+        }
+        if let Some(active) = self.active.take() {
+            self.sequence_base = active.grid.sequence(active.grid.count_until(now));
+        }
+        self.screen.blank();
+        Ok(())
     }
 
     fn random_late(&self, index: u64) -> u64 {
