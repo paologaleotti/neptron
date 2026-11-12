@@ -61,6 +61,8 @@ The size comes from the last frame, because some cores send a new size without t
 
 The session follows what the engine reports. A present or wait error ends the frame's flips and is in `FrameReport::display_error`; the engine keeps a timed-out flip queued and drains it at the next present. Each frame makes at most one bounded wait per flip, so a failing display never hangs or spins the loop. After `FLIPLESS_FRAMES_LIMIT` (10) frames in a row with no completed flip, `run_frame` returns `SessionError::DisplayStalled` and the session ends. With the 500 ms bounded wait of KMS, this is at most about 5 s.
 
+When the inputs refuse the mode on the display and no mode is valid, the engine turns the output off (`Display::blank`). The core then waits with the game frozen, the audio is muted, and `FrameReport::blanked` is set. These frames are not a stall, and no flip paces them: `run_frame` returns at once, and the caller paces the loop until the engine sets a mode again (an input change from the safety layer, or `retry`).
+
 ## Save RAM
 
 - Launch reads `<save_dir>/<content stem>.srm` into the core. A save file that exists but cannot be read stops the launch, so the session never writes over a file it did not load.
@@ -74,7 +76,7 @@ The session follows what the engine reports. A present or wait error ends the fr
 2. `Session::launch`. On `LaunchError`, go back to the game list with a notice.
 3. Each frame: build the UI snapshot from `paused()`, `video_status`, `message()`, `host().options()`, then let the UI update with the navigation of `input_events()`, draw the canvas, and call `run_frame(Some(canvas))` (or `None` when nothing is drawn).
 4. `FrameReport::menu_opened`: show the quick menu. The UI intent "resume" calls `resume()`, "reset" calls `reset()`, "quit" calls `quit()`. A second quick menu hotkey while it is open is ignored by the session.
-5. `FrameReport::blind_recovery`, `video().current_refused()`: pass to the safety layer (T26).
+5. `FrameReport::blind_recovery`, `FrameReport::blanked`, `video().current_refused()`: pass to the safety layer (T26). While `blanked`, pace the loop with the clock.
 6. `FrameReport::ended`, `SessionError`: call `quit()` and re-execute for the game list.
 7. Make the save folder writable. The session makes it when it is missing.
 
@@ -93,7 +95,7 @@ The session follows what the engine reports. A present or wait error ends the fr
 - Unit tests: the source and the launch settle, the button mask, the frame copy, the save RAM writer (backup, unchanged, many flushes, failed write, failed copy), the message cut.
 - `tests/integration/session.rs`, the scripted session with the test core through the real host: one frame per flip, the input of each frame, the quick menu (pause, no toggle, UI over the frozen frame, the mask on resume), the Start hold, the blind recovery under the menu, save RAM at launch, on the timer, at the menu and at exit, a core shutdown, double refresh, scanline settings and video status, core options, a timing change.
 - `tests/integration/launch.rs`: the first mode for the Genesis Plus GX geometry, and the two modesets without the settle.
-- `tests/integration/faults.rs`: a lost flip, a failed present and wait, a display that stops flipping.
+- `tests/integration/faults.rs`: a slow flip, a failed present and wait, a display that stops flipping, the output turned off and on again.
 - `tests/integration/timing.rs`: timing check 6 at 50.00, 59.94 and 60.10 Hz with jitter, with late flips, and with a display rate that differs from the mode (measured run rate). 30 simulated seconds each in the tier. Two 100,000-frame runs (about 28 simulated minutes, 100 s each in the dev profile) are ignored tests: with jitter only, and with one late flip in a thousand.
 
 ```sh

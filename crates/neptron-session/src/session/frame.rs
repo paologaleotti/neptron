@@ -21,7 +21,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     ///    and Start together, or the Start hold, open the quick menu, which
     ///    pauses the core. A second quick menu hotkey while it is open does
     ///    nothing: the menu is never a toggle; [`Session::resume`] closes it.
-    /// 2. Runs one core frame, unless the menu is open.
+    /// 2. Runs one core frame, unless the menu is open or the engine has
+    ///    turned the output off (`blanked`).
     /// 3. Gives the engine the source, then presents the frame and waits for
     ///    its flip: once, or twice for double refresh. The audio is muted
     ///    while the engine asks for it, while the menu is open and while the
@@ -38,7 +39,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// [`SessionError::Core`] when the host fails, and
     /// [`SessionError::DisplayStalled`] after [`FLIPLESS_FRAMES_LIMIT`]
     /// frames in a row with no completed flip. The display errors of one
-    /// frame are in its report.
+    /// frame are in its report. A frame with the output off is not a stall:
+    /// it returns at once with `blanked`, and the caller paces the loop
+    /// until the engine sets a mode again.
     pub fn run_frame(&mut self, ui: Option<Frame<'_>>) -> Result<FrameReport, SessionError> {
         if self.state == State::Ended {
             return Err(SessionError::Ended);
@@ -53,10 +56,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             menu_opened: false,
             blind_recovery: None,
             ended: None,
+            blanked: false,
         };
         self.read_input(now_ns, &mut report);
 
-        if self.state == State::Running {
+        // With the output off nothing paces the core, so it waits with the
+        // game frozen until the engine sets a mode again.
+        if self.state == State::Running && !self.engine.blanked() {
             for port in 0..CORE_PORTS {
                 let pad = self.mask.pad(&self.ports, port);
                 // `port` is below the host's port count.
@@ -85,6 +91,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             }
         }
         self.show(ui, &mut report);
+        report.blanked = self.engine.blanked();
         let mute = self.must_mute();
         if let Some(audio) = self.audio.as_mut().filter(|_| !mute) {
             audio.unmute();
@@ -175,7 +182,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     }
 
     fn must_mute(&self) -> bool {
-        self.state != State::Running || self.engine.muted() || self.engine.current_refused()
+        self.state != State::Running
+            || self.engine.muted()
+            || self.engine.current_refused()
+            || self.engine.blanked()
     }
 
     /// Presents the picture and waits for the flip, once per flip of a core
@@ -261,6 +271,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     }
 
     fn check_stall(&mut self, report: &FrameReport) -> Result<(), SessionError> {
+        if report.blanked {
+            self.counters.blanked_frames += 1;
+            self.flipless = 0;
+            return Ok(());
+        }
         if report.flips > 0 {
             self.flipless = 0;
             return Ok(());

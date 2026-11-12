@@ -18,6 +18,8 @@ neptron-video = { path = "../neptron-video" }
 thiserror.workspace = true
 
 [dev-dependencies]
+# The rejection of a veto that turns the output off.
+neptron-safety = { path = "../neptron-safety" }
 # The scripted sessions run the built test core through the real host.
 neptron-testcore = { path = "../neptron-testcore" }
 # The fake display, fake audio, scripted input and simulated clock, and the

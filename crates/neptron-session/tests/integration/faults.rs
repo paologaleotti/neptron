@@ -3,9 +3,11 @@
 //! display that stops flipping (a flip that never completes stays queued)
 //! ends the session after a bounded number of frames.
 
+use neptron_safety::Rejection;
 use neptron_session::{FLIPLESS_FRAMES_LIMIT, SessionError};
 use neptron_testkit::{DEFAULT_FLIP_TIMEOUT_NS, FlipFault};
-use neptron_video::VideoError;
+use neptron_types::Modeline;
+use neptron_video::{Directive, VideoError};
 
 use crate::harness::{Rig, Setup};
 use crate::with_script;
@@ -126,6 +128,55 @@ fn a_display_that_stops_flipping_ends_the_session_in_bounded_time() {
                 rig.session.run_frame(None),
                 Err(SessionError::Ended)
             ));
+        }
+    );
+}
+
+/// The inputs refuse the mode on screen and no mode is valid: the engine
+/// turns the output off. The core waits with the game frozen and the audio
+/// muted, the frames do not count as a stall, and the game goes on when
+/// the inputs give a valid mode again.
+#[test]
+fn with_the_output_off_the_core_waits_and_the_session_goes_on() {
+    with_script!(
+        "with_the_output_off_the_core_waits_and_the_session_goes_on",
+        SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(20);
+            let frozen = rig.session.counters().core_frames;
+            rig.session
+                .video_mut()
+                .set_veto(Box::new(|mode: &Modeline| {
+                    Err(Rejection::NotAPanelMode {
+                        mode: *mode,
+                        panel_modes: 0,
+                    })
+                }));
+            let report = rig.session.run_frame(None).unwrap();
+            assert_eq!(report.directive, Directive::Blank);
+            assert!(report.blanked);
+            let audio_frames = rig.session.audio_stats().unwrap().frames;
+            for _ in 0..2 * FLIPLESS_FRAMES_LIMIT {
+                let report = rig.session.run_frame(None).unwrap();
+                assert!(report.blanked);
+                assert!(!report.ran_core);
+                assert_eq!(report.flips, 0);
+            }
+            assert_eq!(rig.display.active_mode(), None, "the output is off");
+            assert_eq!(rig.session.counters().core_frames, frozen + 1);
+            assert_eq!(rig.session.audio_stats().unwrap().frames, audio_frames);
+            assert_eq!(rig.session.counters().flipless_frames, 0);
+
+            rig.session
+                .video_mut()
+                .set_veto(Box::new(|_: &Modeline| Ok(())));
+            let report = rig.session.run_frame(None).unwrap();
+            assert!(!report.blanked);
+            assert_eq!(report.flips, 1);
+            rig.run(10);
+            assert_eq!(rig.session.counters().core_frames, frozen + 1 + 10);
+            assert!(rig.display.active_mode().is_some());
         }
     );
 }

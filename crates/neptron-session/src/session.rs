@@ -20,7 +20,8 @@ use crate::{Counters, ExitReport, Flush, RunRateSource, SaveStats};
 /// [`SessionError::DisplayStalled`](crate::SessionError::DisplayStalled).
 /// A bounded flip wait (500 ms on KMS) makes this at most a few seconds.
 /// The engine keeps a flip that timed out queued until a wait returns it,
-/// so a flip that needs a few waits passes.
+/// so a flip that needs a few waits passes. A frame with the output off
+/// (`FrameReport::blanked`) does not count.
 pub const FLIPLESS_FRAMES_LIMIT: u32 = 10;
 
 /// The events of one poll that the session keeps room for. A poll with more

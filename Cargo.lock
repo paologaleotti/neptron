@@ -485,6 +485,7 @@ dependencies = [
  "neptron-backend",
  "neptron-input",
  "neptron-libretro",
+ "neptron-safety",
  "neptron-testcore",
  "neptron-testkit",
  "neptron-types",

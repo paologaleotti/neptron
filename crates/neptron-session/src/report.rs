@@ -23,6 +23,11 @@ pub struct FrameReport {
     pub blind_recovery: Option<u8>,
     /// The session ended in this frame.
     pub ended: Option<EndReason>,
+    /// The engine has turned the output off: the inputs refuse the mode on
+    /// the display and no valid mode exists. The core waits, the audio is
+    /// muted, and no flip paces the loop, so the caller must. An input
+    /// change (the safety layer's revert) or `retry` sets a mode again.
+    pub blanked: bool,
 }
 
 /// Why a session ended.
@@ -44,8 +49,10 @@ pub struct Counters {
     pub loop_frames: u64,
     /// Flips that completed.
     pub flips: u64,
-    /// Loop frames with no completed flip.
+    /// Loop frames with no completed flip, the output on.
     pub flipless_frames: u64,
+    /// Loop frames with the output off.
+    pub blanked_frames: u64,
     /// Frames the host refused (`Video::Rejected`).
     pub frame_faults: u64,
     /// Frames with no new picture (`Video::Duplicate` or `Video::Missing`).
