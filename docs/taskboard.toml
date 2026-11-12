@@ -244,7 +244,7 @@ name = "App wiring and launcher"
 owns = ["apps/neptron", "apps/neptron-launch", "xtask/src/verify"]
 needs = ["T10", "T11", "T12", "T13", "T20", "T25", "T26"]
 gate = "T2 end to end: list, launch, mode switches, quick menu, quit; UI crawler"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T28"
