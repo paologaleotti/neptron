@@ -517,6 +517,7 @@ mod tests {
         for row in rows {
             let m = table_mode(row);
             assert!(m.hsync_end <= m.htotal && m.vsync_end <= m.vtotal, "{m:?}");
+            assert!(m.pclock_is_whole_khz(), "{m:?}");
             let rate = m.field_rate_mhz();
             assert!(
                 [30_000, 50_000, 60_000]

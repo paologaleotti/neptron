@@ -267,3 +267,16 @@ fn an_unreadable_sysfs_detects_nothing() {
         Detected::default()
     );
 }
+
+#[test]
+fn every_mode_of_the_fixtures_has_a_whole_khz_clock() {
+    for edid in [PANEL_1080P, PANEL_2160P, TV_720P, CRT_ANALOG] {
+        let panel = panel_profile_from_edid(edid).expect("a panel profile");
+        let MonitorKind::FlatPanel { modes } = panel.profile.kind else {
+            panic!("a panel");
+        };
+        for mode in modes {
+            assert!(mode.pclock_is_whole_khz(), "{mode:?}");
+        }
+    }
+}

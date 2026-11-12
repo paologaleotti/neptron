@@ -258,3 +258,19 @@ fn a_1080p_panel_fits_the_unknown_gpu() {
     assert_eq!(fit.native_left_out, None);
     assert_eq!(fit.profile, fhd);
 }
+
+#[test]
+fn every_listed_mode_has_a_whole_khz_clock() {
+    // A detailed timing counts its clock in 10 kHz and the timing tables
+    // in kHz, so every listed mode is whole kHz, as the backends ask.
+    for edid in [
+        blobs::panel_1080p(),
+        blobs::panel_2160p(),
+        blobs::tv_720p(),
+        blobs::pc_crt_30_71(),
+    ] {
+        for mode in listed_modes(&edid).unwrap().modes {
+            assert!(mode.pclock_is_whole_khz(), "{mode:?}");
+        }
+    }
+}
