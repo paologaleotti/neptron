@@ -10,7 +10,7 @@ use neptron::options::Options;
 use neptron::presets::Presets;
 use neptron::{Devices, NextRun, Runtime, Shell};
 use neptron_audio::{Resampling, Sdl3Sink};
-use neptron_backend::{Clock, InputSource};
+use neptron_backend::{Clock, Display, InputSource};
 use neptron_kms::{KmsConfig, KmsDisplay};
 use neptron_session::RunRateSource;
 use neptron_settings::{Schema, Storage, Target};
@@ -75,7 +75,7 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
         buffer_height: caps.max_height,
         writeback: false,
     };
-    let display = match KmsDisplay::from_env(config) {
+    let mut display = match KmsDisplay::from_env(config) {
         Ok(display) => display,
         Err(e) => {
             eprintln!("neptron: cannot open the display: {e}");
@@ -84,6 +84,12 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
     };
     let output = display.connector_name().to_owned();
     let subconnector = display.subconnector().map(str::to_owned);
+    // The kernel reports the subconnector only now: a DAC behind the DP
+    // connector, or a digital adapter with no EDID, makes the output
+    // analog, and the CRT path must not run with the digital limits.
+    let driven = Detected::read(&paths.sysfs, &output, subconnector.as_deref());
+    let policy = driven.policy_caps(display.caps());
+    display.lower_caps(&policy);
     // A missing sound device or gamepad subsystem is a notice: the run
     // still shows the picture, reads the keyboards and reaches its guard,
     // so a box with no usable audio does not restart forever.

@@ -567,3 +567,33 @@ fn before_the_display_opens_the_caps_follow_the_profile() {
     let named = Detected::of(&p2, "VGA-1", None);
     assert_eq!(named.backend_caps(AUTO).pclock_max_hz, 165_000_000);
 }
+
+#[test]
+fn an_analog_output_never_runs_with_the_digital_limits() {
+    // The display opened with the digital caps of a DP panel EDID, then
+    // the kernel reports a VGA subconnector: a DAC. The policy gets the
+    // analog caps.
+    let p = hd_530(vec![connector("DP-1", "DP", Some(PANEL_1440P))]);
+    let before = Detected::of(&p, AUTO, None);
+    let opened = before.backend_caps(AUTO);
+    assert_eq!(opened.pclock_max_hz, 533_250_000);
+    let after = Detected::of(&p, "DP-1", Some("VGA"));
+    assert_eq!(after.output, OutputKind::Analog);
+    let policy = after.policy_caps(&opened);
+    assert_eq!(
+        (policy.pclock_max_hz, policy.max_width, policy.max_height),
+        (165_000_000, 1920, 1200)
+    );
+    assert_eq!(policy.pclock_min_hz, opened.pclock_min_hz);
+    // A digital adapter with no EDID, opened ahead of a panel: analog.
+    let bare = hd_530(vec![
+        connector("DP-1", "DP", None),
+        connector("HDMI-A-1", "HDMI-A", Some(PANEL_1440P)),
+    ]);
+    let adapter = Detected::of(&bare, "DP-1", None);
+    assert_eq!(adapter.output, OutputKind::Analog);
+    assert_eq!(adapter.policy_caps(&opened).pclock_max_hz, 165_000_000);
+    // A digital panel keeps the caps the display opened with.
+    let panel = Detected::of(&p, "DP-1", None);
+    assert_eq!(panel.policy_caps(&opened), opened);
+}

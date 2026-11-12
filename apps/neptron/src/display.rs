@@ -311,6 +311,25 @@ impl Detected {
         }
     }
 
+    /// The caps the policy and the validator get from a display opened
+    /// with `opened`. When the output in use is analog, the highest pixel
+    /// clock and the largest mode are cut to the analog caps of the table,
+    /// so no CRT path runs with the digital limits: a DAC that the kernel
+    /// reports only after the display opened, or a digital adapter with no
+    /// EDID. A digital output keeps `opened`.
+    pub fn policy_caps(&self, opened: &GpuCaps) -> GpuCaps {
+        if self.output == OutputKind::Digital {
+            return *opened;
+        }
+        let analog = self.caps.unwrap_or(neptron_platform::UNKNOWN_GPU_CAPS);
+        GpuCaps {
+            pclock_max_hz: opened.pclock_max_hz.min(analog.pclock_max_hz),
+            max_width: opened.max_width.min(analog.max_width),
+            max_height: opened.max_height.min(analog.max_height),
+            ..*opened
+        }
+    }
+
     /// The caps of the KMS display for `name` (a value of
     /// `display.monitor`), with the scanout buffer size as the largest
     /// mode. An analog output gets the table's caps and buffers of

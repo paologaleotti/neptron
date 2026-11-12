@@ -25,7 +25,7 @@ The detection already has a class rule (`display_class` in `neptron-platform`): 
 - A 4K DisplayPort panel on an HD 530 runs at its native 3840x2160; on HDMI 1.4 (300 MHz) it runs at 1080p60.
 - Only `intel_gen9` has digital limits today, from i915 and Intel ARK. Every other GPU gives a digital output its analog values until a source gives its limits.
 - The kernel does not report a connector's link limit as a property; it prunes the connector's mode list. The DRM framebuffer limit (`mode_config` max width and height) is larger than the scanout of a plane on gen9, so the table values are used, and the test-only commit catches the rest.
-- Before the display opens the subconnector is not known: a DisplayPort connector with a digital EDID gets the digital caps even when the boot then finds a `VGA` subconnector. The CRT path there is bounded by the validator, the rails and the `generic_15` safe start, but its caps are the digital ones.
+- Before the display opens the subconnector is not known, so a DisplayPort connector with a digital EDID opens with the digital caps and buffers. Right after the open the app reads the class of the driven connector again, with its subconnector; when the output is analog (a `VGA` subconnector, or a digital adapter with no EDID), it lowers the caps that the policy and the validator get to the analog ones (`KmsDisplay::lower_caps`). So no CRT path runs with the digital limits; only the buffers stay larger.
 
 ## Alternatives
 
