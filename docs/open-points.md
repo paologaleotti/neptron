@@ -508,7 +508,7 @@ Each open point is one section:
 ### OP-054: Non-commercial cores in a distributed image.
 
 - Raised by: T24
-- Status: open, needs a decision from the owner before the first release
+- Status: decided
 - Default: the Buildroot packages for Snes9x and Genesis Plus GX exist and only the two QEMU test images enable them. Those images are not distributed. Both licences forbid sale and commercial use. Genesis Plus GX also links LGPL code (Nuked OPN2). FCEUmm is GPL-2.0-or-later.
 - Where: `os/package/libretro-*`, `data/cores`
 - How to change: ship the cores in a free image with the licence texts and the `make legal-info` output; or download them at first boot; or use other cores (bsnes, BlastEm).
@@ -701,5 +701,14 @@ Each open point is one section:
 - Default: (1) Class rule: an EDID that says analog input, a `subconnector` of VGA or DVI-A, or an analog connector type is a CRT; every other digital EDID on a digital connector is a flat panel. A named or driven output uses only its own EDID. A preset in `display.monitor` wins; `flat` forces the panel path. (2) An adapter that shows its own digital EDID with a CRT behind it looks like a panel (accepted by the owner). The protection: the 15 kHz safe start is the fallback until a panel is confirmed on its output; a run opens at most two panel windows of 10 s, the boot prompt and one offer on a fresh button press; never after a blind recovery; never over an explicit preset. An unconfirmed first boot on a real panel shows no picture until that press. After two unconfirmed boots the start is in safe mode. (3) Limits by output kind (ADR 0010): analog keeps the old values; digital on Intel gen9: HDMI 300 MHz, DVI-D 165 MHz, DisplayPort 533.25 MHz, size 4096x2160. Other GPUs have no digital limits yet, so their panels run at 1080p or less. After the display opens on an analog output, the caps are cut to the analog values. (4) When the native mode does not fit, a mode of 50 Hz or more comes before a larger slower one: a 4K panel on HDMI 1.4 runs at 1080p60 with a notice. (5) Picture: the native mode, the largest whole vertical factor, the game's shape, centred, black around it. The horizontal axis uses sharp bilinear; an axis with a scale between 1 and 2 uses nearest; the status says `exact` or `sharp`, never an alert. A true downscale (a source taller than the panel mode) keeps sharp bilinear and can blur; no MVP source does that at 720p or more. (6) Not parsed from the EDID: interlaced modes, 59.94 Hz variants of most CTA codes, other standard timings, DisplayID. EDID 1.0 to 1.2 or a bad extension checksum gives the safe start, so such a panel shows no picture. (7) When the large buffers of a 4K panel cannot be allocated, the start fails; a retry at the smaller size needs an optional fallback size in `KmsConfig`. (8) The pre-open connector choice does not know the subconnector. (9) No pixel-exact option on a panel, and no CRT shaders (after the MVP). (10) `docs/definition` says "EDID from any connector" and "a flat panel gets built-in scanlines"; the code is stricter on the first and follows OP-052 on the second.
 - Where: `crates/neptron-platform` (class, panel profile, matrix), `apps/neptron` (display, shell), `crates/neptron-modeline/src/policy` (panel placement), `data/hardware/matrix.toml`, `docs/adr/0010-output-kind-picks-the-gpu-limits.md`
 - How to change: digital limits per GPU go in `[[gpu.digital]]` of the matrix with their source. The offer count is `PANEL_WINDOWS_PER_RUN`.
+- Decision:
+
+### OP-076: The first boot shows a confirm prompt also when nothing would change.
+
+- Raised by: T28 review
+- Status: open, needs a look from the owner
+- Default: with no confirmed record, `Guard::boot` opens the boot prompt for the wanted configuration and reverts to the safe default after 10 s. When the wanted and the safe configuration are the same (a monitor with EDID on first boot, or vkms with `generic_15`), the prompt "reverts" to the same mode and a notice says "The display change went back: it was not kept in time." until the user presses OK. Nothing is wrong on the wire, but the text confuses. The boot-check golden shows this notice.
+- Where: `crates/neptron-video/src/guard/machine.rs` (`Guard::boot`), `apps/neptron` (the notice), `os/tests/golden/boot-game-list.ppm`
+- How to change: when the wanted configuration equals the safe default, open no prompt and record nothing as confirmed; or keep the prompt and give the notice another text. A change in the guard needs a review, and the golden changes with it.
 - Decision:
 
