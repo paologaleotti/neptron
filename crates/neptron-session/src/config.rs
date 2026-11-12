@@ -46,7 +46,7 @@ pub struct Devices<S, I, C> {
     pub audio: S,
     /// The input source. The session polls it once per frame.
     pub input: I,
-    /// The clock of the hotkey holds.
+    /// The clock of the hotkey holds and the save RAM timer.
     pub clock: C,
 }
 

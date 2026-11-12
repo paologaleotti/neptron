@@ -1,5 +1,7 @@
 use neptron_video::{Directive, Outcome, VideoError};
 
+use crate::{Flush, SaveStats};
+
 /// What one call of [`Session::run_frame`](crate::Session::run_frame) did.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameReport {
@@ -69,6 +71,10 @@ pub struct Counters {
 /// What [`Session::quit`](crate::Session::quit) did.
 #[derive(Debug)]
 pub struct ExitReport {
+    /// The last flush of the save RAM.
+    pub save: Flush,
+    /// The counters of the save RAM writer, with the last error.
+    pub save_stats: SaveStats,
     /// The counters of the session.
     pub counters: Counters,
 }

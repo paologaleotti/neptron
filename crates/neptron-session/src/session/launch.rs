@@ -1,35 +1,49 @@
-//! Launch: open the core, load the content, settle the source, start the
-//! audio.
+//! Launch: open the core, load the content and the save RAM, settle the
+//! source, start the audio and the save RAM writer.
+
+use std::path::PathBuf;
 
 use neptron_audio::{AudioPipeline, CoreTiming, FlipRateMeter};
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::{Hotkeys, PortStates};
-use neptron_libretro::{ContentRequest, Host, HostConfig, MESSAGE_MAX_BYTES};
+use neptron_libretro::{
+    ContentRequest, Host, HostConfig, MESSAGE_MAX_BYTES, read_save_file, save_file_path,
+};
 use neptron_video::VideoEngine;
 
 use super::{INPUT_EVENTS_CAPACITY, Session, State};
 use crate::pads::PadMask;
 use crate::picture::Picture;
+use crate::save::{SAVE_RAM_FLUSH_INTERVAL_NS, SaveRamWriter};
 use crate::source::{LaunchSettle, source_geometry};
 use crate::{Counters, Devices, GameLaunch, LaunchError, SessionOptions, VideoSetup};
+
+/// The save file of a game and what it held at launch.
+struct SaveFile {
+    path: PathBuf,
+    loaded: Vec<u8>,
+    ram_bytes: usize,
+}
 
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// Launches a game.
     ///
     /// 1. Makes the save folder, opens the core, sets the core options and
     ///    loads the content.
-    /// 2. Runs the core with no display until its source settles (see
+    /// 2. Reads the save file and loads it into the core's save RAM.
+    /// 3. Runs the core with no display until its source settles (see
     ///    [`LAUNCH_STABLE_FRAMES`](crate::LAUNCH_STABLE_FRAMES)), so the
     ///    first mode is the game's mode. The audio of these frames is
     ///    dropped and the core reads no input.
-    /// 3. Starts the audio pipeline at the core's own rate.
+    /// 4. Starts the audio pipeline at the core's own rate and the save
+    ///    RAM writer thread.
     ///
     /// The first [`Session::run_frame`] sets the first mode. Launch is not
     /// part of the frame loop, so its file reads are here.
     ///
     /// # Errors
     ///
-    /// [`LaunchError`].
+    /// [`LaunchError`]. The save file is never written by a failed launch.
     pub fn launch(
         game: &GameLaunch<'_>,
         video: VideoSetup<D>,
@@ -55,6 +69,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             extensions: game.extensions,
         });
         let av = host.load_game(request)?;
+        let save = load_save_file(&mut host, game)?;
 
         let mut engine = VideoEngine::new(video.display, video.monitor, video.policy);
         engine.set_scanlines(video.scanlines);
@@ -86,6 +101,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             run_rate: options.run_rate,
             meter: FlipRateMeter::new(),
             refused_run_rate: None,
+            writer: None,
+            next_flush_ns: 0,
             message: String::with_capacity(MESSAGE_MAX_BYTES),
             message_frames: 0,
             flipless: 0,
@@ -108,6 +125,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         )
         .map_err(LaunchError::Audio)?;
         session.audio = Some(pipeline);
+        if let Some(save) = save {
+            let writer = SaveRamWriter::start(save.path, &save.loaded, save.ram_bytes)
+                .map_err(LaunchError::Writer)?;
+            session.writer = Some(writer);
+        }
+        session.next_flush_ns = session
+            .clock
+            .now_ns()
+            .saturating_add(SAVE_RAM_FLUSH_INTERVAL_NS);
         Ok(session)
     }
 
@@ -122,4 +148,30 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             }
         }
     }
+}
+
+/// Reads the save file into the core's save RAM. `None` when the core has
+/// no save RAM or the content has no file name.
+fn load_save_file(host: &mut Host, game: &GameLaunch<'_>) -> Result<Option<SaveFile>, LaunchError> {
+    let mut scratch = Vec::new();
+    let ram_bytes = host
+        .copy_save_ram(&mut scratch)
+        .map_err(LaunchError::SaveRam)?;
+    let path = game
+        .content
+        .and_then(|content| save_file_path(game.save_dir, content));
+    let (Some(path), true) = (path, ram_bytes > 0) else {
+        return Ok(None);
+    };
+    let loaded = read_save_file(&path)
+        .map_err(LaunchError::ReadSave)?
+        .unwrap_or_default();
+    if !loaded.is_empty() {
+        host.load_save_ram(&loaded).map_err(LaunchError::SaveRam)?;
+    }
+    Ok(Some(SaveFile {
+        path,
+        loaded,
+        ram_bytes,
+    }))
 }

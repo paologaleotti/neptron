@@ -4,7 +4,8 @@
 //! [`Session`] runs one game. The display is the master clock: each
 //! [`Session::run_frame`] runs one core frame and presents it on one flip,
 //! or on two flips for double refresh. The audio follows the run rate of
-//! the mode on screen with dynamic rate control.
+//! the mode on screen with dynamic rate control. The save RAM goes to a
+//! writer thread on a timer, when the quick menu opens, and at exit.
 
 #![forbid(unsafe_code)]
 
@@ -13,6 +14,7 @@ mod error;
 mod pads;
 mod picture;
 mod report;
+mod save;
 mod session;
 mod source;
 
@@ -20,6 +22,7 @@ pub use config::{Devices, GameLaunch, RunRateSource, SessionOptions, VideoSetup}
 pub use error::{LaunchError, SessionError};
 pub use pads::CORE_PORTS;
 pub use report::{Counters, EndReason, ExitReport, FrameReport};
+pub use save::{Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SaveStats};
 pub use session::{FLIPLESS_FRAMES_LIMIT, Session};
 pub use source::{
     INTERLACE_MIN_LINES, LAUNCH_SETTLE_MAX_FRAMES, LAUNCH_STABLE_FRAMES, source_geometry,

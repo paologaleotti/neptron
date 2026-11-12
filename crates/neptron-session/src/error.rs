@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
 use neptron_audio::AudioError;
-use neptron_libretro::{LoadError, OpenError, RunError};
+use neptron_libretro::{LoadError, OpenError, RunError, SaveFileError, SaveRamError};
 use neptron_video::VideoError;
 
-/// Why a game could not launch.
+/// Why a game could not launch. Nothing was written; the save file, if
+/// any, is as it was.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum LaunchError {
@@ -23,6 +24,16 @@ pub enum LaunchError {
     /// The core could not load the content.
     #[error("the core cannot load the content: {0}")]
     Load(#[from] LoadError),
+    /// The save file exists but cannot be read. The session does not start,
+    /// so it cannot write over a save file it did not load.
+    #[error("cannot read the save file: {0}")]
+    ReadSave(#[source] SaveFileError),
+    /// The save RAM of the core could not be read or written.
+    #[error("cannot use the save RAM of the core: {0}")]
+    SaveRam(#[source] SaveRamError),
+    /// The save RAM writer thread could not start.
+    #[error("cannot start the save RAM writer: {0}")]
+    Writer(#[source] std::io::Error),
     /// A core frame failed while the source settled.
     #[error("the core failed in a frame at launch: {0}")]
     Run(#[source] RunError),
@@ -32,7 +43,8 @@ pub enum LaunchError {
 }
 
 /// Why the session cannot go on. The caller ends it with
-/// [`Session::quit`](crate::Session::quit).
+/// [`Session::quit`](crate::Session::quit), which still flushes the save
+/// RAM.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum SessionError {

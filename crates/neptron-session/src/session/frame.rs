@@ -9,6 +9,7 @@ use neptron_video::{Directive, VideoError};
 
 use super::{FLIPLESS_FRAMES_LIMIT, Session, State};
 use crate::pads::CORE_PORTS;
+use crate::save::SAVE_RAM_FLUSH_INTERVAL_NS;
 use crate::source::source_geometry;
 use crate::{Counters, EndReason, FrameReport, RunRateSource, SessionError};
 
@@ -27,6 +28,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     ///    inputs refuse the mode on screen.
     /// 4. Ends the core frame of the audio pipeline, at the run rate of the
     ///    mode on screen.
+    /// 5. Sends the save RAM to the writer thread when the timer is due.
     ///
     /// No allocation and no file I/O in a steady frame.
     ///
@@ -89,6 +91,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         }
         self.update_run_rate();
 
+        if self.state == State::Running && now_ns >= self.next_flush_ns {
+            self.flush_save_ram();
+            self.next_flush_ns = now_ns.saturating_add(SAVE_RAM_FLUSH_INTERVAL_NS);
+        }
         self.message_frames = self.message_frames.saturating_sub(1);
         self.check_stall(&report)?;
         Ok(report)
@@ -157,12 +163,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         }
     }
 
-    /// Opens the quick menu: the core stops and the audio fades out.
+    /// Opens the quick menu: the core stops, the audio fades out, and the
+    /// save RAM goes to the writer, in case the player turns the machine
+    /// off from the menu.
     fn pause(&mut self) {
         self.state = State::Paused;
         if let Some(audio) = &mut self.audio {
             audio.mute();
         }
+        self.flush_save_ram();
     }
 
     fn must_mute(&self) -> bool {
@@ -241,6 +250,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 self.refused_run_rate = Some(run_rate);
                 self.counters.refused_run_rates += 1;
             }
+        }
+    }
+
+    fn flush_save_ram(&mut self) {
+        let host = &mut self.host;
+        if let Some(writer) = &mut self.writer {
+            writer.flush(|out| host.copy_save_ram(out));
         }
     }
 

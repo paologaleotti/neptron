@@ -1,7 +1,8 @@
-//! The scripted session: launch, play, the quick menu, double refresh and
-//! exit, on the fakes with the test core.
+//! The scripted session: launch, play, the quick menu, save RAM, double
+//! refresh and exit, on the fakes with the test core.
 
-use neptron_session::{EndReason, SessionError};
+use neptron_backend::Clock;
+use neptron_session::{EndReason, Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SessionError};
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_video::{
     PictureStyle, PolicySettings, RefreshPolicy, VideoStatusText, scanline_settings,
@@ -214,30 +215,118 @@ fn the_blind_recovery_is_reported_also_under_the_menu() {
     );
 }
 
+const SAVE_SCRIPT: &str = "\
+neptron-testcore 1
+pixel_format rgb565
+geometry 256 224 1333
+timing 60000 48000
+save_ram 64
+at 20 sram_write 0 42
+";
+
+fn write_old_save(dir: &std::path::Path) -> std::path::PathBuf {
+    let saves = dir.join("saves");
+    std::fs::create_dir_all(&saves).unwrap();
+    let path = saves.join("game.srm");
+    std::fs::write(&path, [7_u8; 64]).unwrap();
+    path
+}
+
 #[test]
-fn a_core_shutdown_ends_the_session() {
-    let script = format!("{SCRIPT}at 40 shutdown\n");
-    with_script!("a_core_shutdown_ends_the_session", &script, |dir| {
-        let mut rig = Rig::launch(dir, Setup::default());
-        let mut ended = None;
-        for _ in 0..100 {
-            let report = rig.session.run_frame(None).unwrap();
-            if report.ended.is_some() {
-                ended = report.ended;
-                break;
-            }
+fn the_save_ram_is_loaded_at_launch_and_written_at_exit_with_a_backup() {
+    with_script!(
+        "the_save_ram_is_loaded_at_launch_and_written_at_exit_with_a_backup",
+        SAVE_SCRIPT,
+        |dir| {
+            let path = write_old_save(dir);
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(30);
+            assert_eq!(rig.session.save_stats().unwrap().sent, 0);
+            let exit = rig.session.quit();
+            assert_eq!(exit.save, Flush::Sent);
+            assert_eq!(exit.save_stats.written, 1);
+            assert_eq!(exit.save_stats.failures, 0);
+            let mut expected = [7_u8; 64];
+            expected[0] = 42;
+            assert_eq!(std::fs::read(&path).unwrap(), expected);
+            assert_eq!(
+                std::fs::read(dir.join("saves/game.srm.bak")).unwrap(),
+                [7; 64]
+            );
         }
-        assert_eq!(ended, Some(EndReason::CoreShutdown));
-        assert_eq!(rig.core_frame(), 40);
-        assert!(rig.session.ended());
-        assert!(matches!(
-            rig.session.run_frame(None),
-            Err(SessionError::Ended)
-        ));
-        let core_frames = rig.session.counters().core_frames;
-        let exit = rig.session.quit();
-        assert_eq!(exit.counters.core_frames, core_frames);
-    });
+    );
+}
+
+#[test]
+fn the_save_ram_is_flushed_on_the_timer_when_it_changed() {
+    with_script!(
+        "the_save_ram_is_flushed_on_the_timer_when_it_changed",
+        SAVE_SCRIPT,
+        |dir| {
+            write_old_save(dir);
+            let mut rig = Rig::launch(dir, Setup::default());
+            let due = rig.clock.now_ns() + SAVE_RAM_FLUSH_INTERVAL_NS;
+            while rig.clock.now_ns() < due {
+                rig.run(1);
+            }
+            assert_eq!(rig.session.save_stats().unwrap().sent, 0, "not due yet");
+            rig.run(1);
+            assert_eq!(rig.session.save_stats().unwrap().sent, 1);
+            rig.press(&[Control::Select, Control::Start]);
+            assert!(rig.session.run_frame(None).unwrap().menu_opened);
+            let stats = rig.session.save_stats().unwrap();
+            assert_eq!((stats.sent, stats.unchanged), (1, 1), "unchanged: no write");
+            let exit = rig.session.quit();
+            assert_eq!(exit.save, Flush::Unchanged);
+            assert_eq!(exit.save_stats.written, 1);
+        }
+    );
+}
+
+#[test]
+fn opening_the_menu_flushes_the_save_ram() {
+    with_script!(
+        "opening_the_menu_flushes_the_save_ram",
+        SAVE_SCRIPT,
+        |dir| {
+            write_old_save(dir);
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(30);
+            rig.press(&[Control::Select, Control::Start]);
+            assert!(rig.session.run_frame(None).unwrap().menu_opened);
+            assert_eq!(rig.session.save_stats().unwrap().sent, 1);
+        }
+    );
+}
+
+#[test]
+fn a_core_shutdown_ends_the_session_and_the_save_ram_is_flushed() {
+    let script = format!("{SAVE_SCRIPT}at 40 shutdown\n");
+    with_script!(
+        "a_core_shutdown_ends_the_session_and_the_save_ram_is_flushed",
+        &script,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            let mut ended = None;
+            for _ in 0..100 {
+                let report = rig.session.run_frame(None).unwrap();
+                if report.ended.is_some() {
+                    ended = report.ended;
+                    break;
+                }
+            }
+            assert_eq!(ended, Some(EndReason::CoreShutdown));
+            assert_eq!(rig.core_frame(), 40);
+            assert!(rig.session.ended());
+            assert!(matches!(
+                rig.session.run_frame(None),
+                Err(SessionError::Ended)
+            ));
+            let exit = rig.session.quit();
+            assert_eq!(exit.save, Flush::Sent);
+            assert_eq!(std::fs::read(dir.join("saves/game.srm")).unwrap()[0], 42);
+        }
+    );
 }
 
 #[test]

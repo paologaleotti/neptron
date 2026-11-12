@@ -12,7 +12,8 @@ use neptron_video::{Outcome, VideoEngine, VideoStatusText};
 
 use crate::pads::PadMask;
 use crate::picture::Picture;
-use crate::{Counters, ExitReport, RunRateSource};
+use crate::save::SaveRamWriter;
+use crate::{Counters, ExitReport, Flush, RunRateSource, SaveStats};
 
 /// Loop frames in a row with no completed flip before
 /// [`Session::run_frame`] gives up with
@@ -27,7 +28,7 @@ pub const FLIPLESS_FRAMES_LIMIT: u32 = 10;
 const INPUT_EVENTS_CAPACITY: usize = 256;
 
 /// One game, from launch to exit: the core host, the ODREN engine on the
-/// display, the audio pipeline and the input.
+/// display, the audio pipeline, the input and the save RAM writer.
 ///
 /// The display is the master clock. [`Session::run_frame`] runs one core
 /// frame and presents it on one flip, or on two flips for double refresh.
@@ -55,6 +56,10 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     run_rate: RunRateSource,
     meter: FlipRateMeter,
     refused_run_rate: Option<u64>,
+    /// `None` when the core has no save RAM or the content has no save
+    /// file, and after the last flush.
+    writer: Option<SaveRamWriter>,
+    next_flush_ns: u64,
     message: String,
     message_frames: u32,
     flipless: u32,
@@ -115,9 +120,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         self.hotkeys.set_start_hold_ns(hold_ns);
     }
 
-    /// Ends the session. Dropping the session unloads the core.
-    pub fn quit(self) -> ExitReport {
+    /// Ends the session: the last save RAM flush, then the writer thread
+    /// stops and joins. Dropping the session unloads the core.
+    pub fn quit(mut self) -> ExitReport {
+        let (save, save_stats) = self.finish_writer();
         ExitReport {
+            save,
+            save_stats,
             counters: self.counters,
         }
     }
@@ -199,8 +208,31 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         self.audio.as_ref().map(AudioPipeline::run_rate_mhz)
     }
 
+    /// The counters of the save RAM writer. `None` when the game has no
+    /// save RAM, and after the last flush.
+    pub fn save_stats(&self) -> Option<&SaveStats> {
+        self.writer.as_ref().map(SaveRamWriter::stats)
+    }
+
     /// The counters of the session.
     pub fn counters(&self) -> &Counters {
         &self.counters
+    }
+
+    fn finish_writer(&mut self) -> (Flush, SaveStats) {
+        let Some(mut writer) = self.writer.take() else {
+            return (Flush::NoSaveRam, SaveStats::default());
+        };
+        let host = &mut self.host;
+        let flush = writer.finish(|out| host.copy_save_ram(out));
+        (flush, writer.take_stats())
+    }
+}
+
+impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Drop for Session<D, S, I, C> {
+    fn drop(&mut self) {
+        // A session dropped without `quit` still flushes its save RAM. Drop
+        // has no caller to report to; `quit` returns the result.
+        let _ = self.finish_writer();
     }
 }
