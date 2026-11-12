@@ -335,6 +335,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
             timeout_secs: args.timeout_secs,
         }),
         share: None,
+        ssh_port: None,
     };
     let policy = LoadPolicy::from_env().map_err(|e| OsError::Usage(e.to_string()))?;
     let mut cmd = super::under_load_policy(&policy, args.arch.qemu_binary());

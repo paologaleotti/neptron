@@ -160,7 +160,8 @@ pub const USAGE: &str = "\
 usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [--dev-key FILE]
                             [--no-kernel-15khz] [-- make targets...]
        cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
-                        [--disk FILE] [--script FILE | -- command...]
+                        [--disk FILE] [--ssh-port PORT] [--beside-launcher]
+                        [--script FILE | -- command...]
        cargo xtask gles-compare [--arch A] [--timeout SECS]
        cargo xtask os app-check [--arch A]
        cargo xtask os selftest-check [--arch A] [--timeout SECS]
@@ -256,7 +257,11 @@ fn boot(args: &QemuArgs, out: &mut dyn std::io::Write) -> Result<Option<i32>, Os
         }
     }
     .map(|script| GuestJob {
-        entry: qemu::RUN_ENTRY,
+        entry: if args.beside_launcher {
+            qemu::CHECK_ENTRY
+        } else {
+            qemu::RUN_ENTRY
+        },
         script,
         nonce: transcript::new_nonce(),
         timeout_secs: args.timeout.as_secs(),
@@ -275,6 +280,7 @@ fn boot(args: &QemuArgs, out: &mut dyn std::io::Write) -> Result<Option<i32>, Os
         },
         job,
         share: args.share.clone(),
+        ssh_port: args.ssh_port,
     };
     let policy = LoadPolicy::from_env().map_err(|e| OsError::Usage(e.to_string()))?;
     let mut cmd = under_load_policy(&policy, args.arch.qemu_binary());

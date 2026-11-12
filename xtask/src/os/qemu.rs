@@ -50,13 +50,20 @@ pub struct QemuArgs {
     /// A disk image that the BIOS boots as a USB stick, with the writes
     /// kept in the file. x86-64 only.
     pub disk: Option<PathBuf>,
+    /// A host port on 127.0.0.1 that QEMU forwards to port 22 of the
+    /// guest, on an emulated Ethernet card with user networking.
+    pub ssh_port: Option<u16>,
+    /// Run the command beside the launcher (the boot check entry), not
+    /// instead of it.
+    pub beside_launcher: bool,
     /// What to do in the guest.
     pub job: Job,
 }
 
 impl QemuArgs {
     /// Parses `[--arch A] [--images DIR] [--timeout SECS] [--share DIR]
-    /// [--disk FILE] [--script FILE | -- command...]`.
+    /// [--disk FILE] [--ssh-port PORT] [--beside-launcher]
+    /// [--script FILE | -- command...]`.
     pub fn parse(args: &[&str], default_arch: Arch) -> Result<Self, OsError> {
         let mut out = Self {
             arch: default_arch,
@@ -64,6 +71,8 @@ impl QemuArgs {
             timeout: DEFAULT_TIMEOUT,
             share: None,
             disk: None,
+            ssh_port: None,
+            beside_launcher: false,
             job: Job::Interactive,
         };
         let mut it = args.iter();
@@ -78,6 +87,22 @@ impl QemuArgs {
                 "--images" => out.images = Some(PathBuf::from(value()?)),
                 "--share" => out.share = Some(PathBuf::from(value()?)),
                 "--disk" => out.disk = Some(PathBuf::from(value()?)),
+                "--ssh-port" => {
+                    let text = value()?;
+                    out.ssh_port = Some(match text.parse::<u16>() {
+                        Ok(port) if port > 0 => port,
+                        _ => {
+                            return Err(OsError::BadNumber {
+                                flag: "--ssh-port",
+                                value: text.to_owned(),
+                            });
+                        }
+                    });
+                }
+                "--beside-launcher" => {
+                    out.beside_launcher = true;
+                    continue;
+                }
                 "--timeout" => {
                     let text = value()?;
                     match text.parse::<u64>() {
@@ -178,6 +203,8 @@ pub struct QemuPlan {
     pub job: Option<GuestJob>,
     /// The host directory shared over 9p.
     pub share: Option<PathBuf>,
+    /// The host port forwarded to SSH in the guest; `None` for no network.
+    pub ssh_port: Option<u16>,
 }
 
 impl QemuPlan {
@@ -255,7 +282,14 @@ impl QemuPlan {
         if !keep_writes {
             push(&["-snapshot"]);
         }
-        push(&["-nic", "none", "-no-reboot"]);
+        match self.ssh_port {
+            Some(port) => push(&[
+                "-nic",
+                &format!("user,model=e1000e,hostfwd=tcp:127.0.0.1:{port}-:22"),
+            ]),
+            None => push(&["-nic", "none"]),
+        }
+        push(&["-no-reboot"]);
         // Without a display card vkms is the only DRM device, card0. The q35
         // machine adds a VGA card unless it is told not to.
         push(&["-vga", "none"]);
@@ -341,6 +375,7 @@ mod tests {
                 timeout_secs: 120,
             }),
             share: None,
+            ssh_port: None,
         }
     }
 
@@ -526,6 +561,40 @@ mod tests {
         .unwrap();
         assert_eq!(a.disk, Some(PathBuf::from("/s/copy.img")));
         assert!(joined(&plan(Arch::X86_64, Accel::Tcg, true)).contains("-snapshot"));
+    }
+
+    #[test]
+    fn a_network_run_forwards_a_local_port_to_ssh() {
+        let mut p = plan(Arch::X86_64, Accel::Tcg, true);
+        p.ssh_port = Some(2222);
+        let s = joined(&p);
+        assert!(
+            s.contains("-nic user,model=e1000e,hostfwd=tcp:127.0.0.1:2222-:22 -no-reboot"),
+            "{s}"
+        );
+        assert!(!s.contains("-nic none"), "{s}");
+        assert!(joined(&plan(Arch::X86_64, Accel::Tcg, true)).contains("-nic none -no-reboot"));
+        let a = QemuArgs::parse(
+            &[
+                "--ssh-port",
+                "2222",
+                "--beside-launcher",
+                "--",
+                "sleep",
+                "60",
+            ],
+            Arch::X86_64,
+        )
+        .unwrap();
+        assert_eq!(a.ssh_port, Some(2222));
+        assert!(a.beside_launcher);
+        for bad in [
+            &["--ssh-port", "0"][..],
+            &["--ssh-port", "x"],
+            &["--ssh-port", "70000"],
+        ] {
+            assert!(QemuArgs::parse(bad, Arch::X86_64).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
