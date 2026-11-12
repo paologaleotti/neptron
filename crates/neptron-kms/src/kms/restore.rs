@@ -14,8 +14,13 @@ impl Drop for KmsDisplay {
         if self.wire.on_wire().is_some() {
             if self.state.is_pending() {
                 let limit = Duration::from_millis(FLIP_WAIT_LIMIT_MS);
-                // A pending flip makes the commits below fail with EBUSY;
-                // when it does not come, the fallback below still runs.
+                // The restore commits below are blocking. With a flip
+                // pending, the kernel holds a blocking commit until the
+                // flip is done, bounded only by the kernel's own commit
+                // timeout (10 s in the DRM atomic helpers). Reading the
+                // event first, within FLIP_WAIT_LIMIT_MS, keeps that wait
+                // short and gives the buffer back. When the event does not
+                // come, the restore still runs and the kernel bounds it.
                 if let Ok(Some(_)) = events::wait_flip(&self.card, self.objects.crtc, limit) {
                     self.flip_done();
                 }
