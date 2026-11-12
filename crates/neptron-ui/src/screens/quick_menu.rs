@@ -59,9 +59,10 @@ impl QuickMenu {
     }
 
     /// Puts the video block above the rows while the snapshot has a video
-    /// status, and removes it when it has none.
+    /// status and the block leaves room for the rows, and removes it
+    /// otherwise.
     pub(super) fn sync(&mut self, snap: &Snapshot, theme: &Theme) {
-        let video = video::status(snap).is_some();
+        let video = video::status(snap).is_some() && video::fits(self.content, theme);
         if video == self.video {
             return;
         }

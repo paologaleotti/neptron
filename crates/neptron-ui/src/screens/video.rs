@@ -27,10 +27,19 @@ const LINES: u32 = 5;
 const LINE_PX: u32 = font::GLYPH_HEIGHT;
 /// Space between the block and the box under it, in pixels.
 const GAP_PX: u32 = 4;
+/// The fewest rows that a page keeps under the block. A screen with less
+/// room shows no block, so the player can always see and move the cursor.
+const MIN_PAGE_ROWS: u32 = 2;
 
 /// The video status to show: the one of the snapshot while a game runs.
 pub(super) fn status(snap: &Snapshot) -> Option<&VideoStatus> {
     snap.session.as_ref().and(snap.video.as_ref())
+}
+
+/// True when a block at the top of `area` leaves room for
+/// [`MIN_PAGE_ROWS`] rows of a page under it.
+pub(super) fn fits(area: Rect, theme: &Theme) -> bool {
+    chrome::box_rows(below(area), theme) >= MIN_PAGE_ROWS
 }
 
 /// The area under a block at the top of `area`.

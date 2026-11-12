@@ -29,7 +29,8 @@ const GAP_PX: u32 = 4;
 ///
 /// While a game runs with a video status, the info box shows the output
 /// and the monitor, and the video block under it shows the mode as the
-/// kernel reports it.
+/// kernel reports it. A skin with rows too tall for the block keeps the
+/// panel without it.
 pub(super) struct DisplayPanel {
     page: Page,
     content: Rect,
@@ -47,12 +48,32 @@ struct Places {
 }
 
 impl Places {
+    /// The places with the video block when `video` is true and the block
+    /// leaves room for the rows, else the places without it.
     fn new(content: Rect, theme: &Theme, video: bool) -> Self {
-        let lines = if video {
-            INFO_LINES_WITH_VIDEO
-        } else {
-            INFO_LINES
-        };
+        if video {
+            let (info_box, info, rest) = Self::info(content, theme, INFO_LINES_WITH_VIDEO);
+            if video::fits(rest, theme) {
+                return Self {
+                    info_box,
+                    info,
+                    video: Some(rest),
+                    page: video::below(rest),
+                };
+            }
+        }
+        let (info_box, info, rest) = Self::info(content, theme, INFO_LINES);
+        Self {
+            info_box,
+            info,
+            video: None,
+            page: rest,
+        }
+    }
+
+    /// The info box of `lines` lines at the top of `content`, its lines,
+    /// and the area under it.
+    fn info(content: Rect, theme: &Theme, lines: u32) -> (Rect, Rect, Rect) {
         let (info_box, info) = chrome::rows_box(content, theme, lines);
         let below = info_box.h.saturating_add(GAP_PX).min(content.h);
         let rest = Rect::new(
@@ -61,12 +82,7 @@ impl Places {
             content.w,
             content.h.saturating_sub(below),
         );
-        Self {
-            info_box,
-            info,
-            video: video.then_some(rest),
-            page: if video { video::below(rest) } else { rest },
-        }
+        (info_box, info, rest)
     }
 }
 
@@ -81,15 +97,15 @@ impl DisplayPanel {
         }
     }
 
-    /// Shows the video block while the snapshot has a video status, and
-    /// removes it when it has none.
+    /// Shows the video block while the snapshot has a video status and the
+    /// block leaves room for the rows, and removes it otherwise.
     pub(super) fn sync(&mut self, snap: &Snapshot, theme: &Theme) {
-        let video = video::status(snap).is_some();
-        if video == self.places.video.is_some() {
+        let places = Places::new(self.content, theme, video::status(snap).is_some());
+        if places == self.places {
             return;
         }
-        self.places = Places::new(self.content, theme, video);
-        self.page.place(self.places.page, theme);
+        self.places = places;
+        self.page.place(places.page, theme);
     }
 
     pub(super) fn handle(

@@ -1572,3 +1572,77 @@ fn the_video_block_changes_no_navigation_of_the_display_panel() {
         }
     }
 }
+
+/// Checks that the rows of the settings list sit inside the content area
+/// under every box above them, and that the focused row is one of them.
+fn assert_rows_in_their_box(run: &Run, theme: &Theme, what: &str) {
+    let content = super::chrome::Layout::new(theme).content;
+    let above = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::Label && content.contains(&r.rect))
+        .map(|r| r.rect.bottom())
+        .max()
+        .unwrap_or(i64::from(content.y));
+    let rows: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::SettingsList)
+        .collect();
+    assert!(!rows.is_empty(), "{what}");
+    for row in &rows {
+        assert!(content.contains(&row.rect), "{what}: {row:?} {content:?}");
+        assert!(
+            i64::from(row.rect.y) > above,
+            "{what}: {row:?} under {above}"
+        );
+    }
+    assert!(rows.iter().any(|r| r.focused), "{what}: no focused row");
+}
+
+#[test]
+fn the_largest_skin_keeps_the_rows_in_their_box() {
+    let theme = Theme::new(
+        Theme::default().colors,
+        crate::theme::ROW_HEIGHT_MAX_PX,
+        crate::theme::PADDING_MAX_PX,
+    )
+    .expect("the limits are valid");
+    for status in [None, Some(long_status())] {
+        let what = if status.is_some() { "status" } else { "none" };
+        let mut snap = in_game();
+        snap.video = status;
+        let mut run = Run {
+            screens: Screens::new(theme.clone()),
+            frame: UiFrame::new(),
+        };
+        run.step(&snap, &[]);
+        run.step(&snap, &[Menu]);
+        let rows = |run: &Run| {
+            run.frame
+                .tree
+                .rows()
+                .filter(|r| r.widget == crate::WidgetKind::SettingsList)
+                .count()
+        };
+        let (block, visible) = if snap.video.is_some() { (4, 3) } else { (0, 5) };
+        assert_eq!(video_rows(&run).len(), block, "{what}");
+        assert_eq!(rows(&run), visible, "{what}");
+        for step in 0..6 {
+            assert_rows_in_their_box(&run, &theme, &format!("quick menu {what} {step}"));
+            run.step(&snap, &[Down]);
+        }
+        run.step(&snap, &[Up, Accept]);
+        snap.settings = with_display().settings;
+        run.step(&snap, &[]);
+        assert_eq!(run.screen(), "display");
+        assert!(video_rows(&run).is_empty(), "no room for the block: {what}");
+        assert_eq!(field(&run, "Mode"), Some("640x480 59.94 Hz"));
+        for step in 0..6 {
+            assert_rows_in_their_box(&run, &theme, &format!("display {what} {step}"));
+            run.step(&snap, &[Down]);
+        }
+    }
+}
