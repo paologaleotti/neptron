@@ -1,6 +1,6 @@
 //! The UI crawler: it walks every menu path with the D-pad, accept and
 //! back only, and reads the UI tree of the control protocol. It fails on a
-//! dead end, on clipped text of a menu row, on a row outside the
+//! dead end, on clipped text of any row, on a row outside the
 //! overscan-safe area, and on a schema setting it could not reach.
 
 use std::collections::BTreeSet;
@@ -108,13 +108,11 @@ fn crawl(rig: &mut Rig, found: &mut Found, depth: usize) {
             "{screen}: the row {:?} is outside the safe area",
             row.label
         );
-        if row.setting.is_some() {
-            assert!(
-                !row.clipped,
-                "{screen}: the setting row {:?} is clipped",
-                row.label
-            );
-        }
+        assert!(
+            !row.clipped,
+            "{screen}: the row {:?} is clipped: {row:?}",
+            row.label
+        );
     }
     if depth == DEPTH_MAX || LEAVES.contains(&screen.as_str()) {
         return;

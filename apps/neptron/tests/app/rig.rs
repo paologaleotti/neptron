@@ -89,6 +89,56 @@ pub fn in_child(test: &str, body: impl FnOnce(&Path)) {
     );
 }
 
+/// The variable that gives a child of [`in_children`] its stage.
+const STAGE_ENV: &str = "NEPTRON_TEST_STAGE";
+
+/// Runs `body` in `stages` child processes one after the other, on one
+/// folder, each with its stage number: one process holds one core, so a
+/// chain of runs through two games needs a process for each run, as the
+/// launcher gives it.
+pub fn in_children(test: &str, stages: u32, body: impl Fn(&Path, u32)) {
+    if let Some(stage) = std::env::var_os(STAGE_ENV) {
+        let stage: u32 = stage
+            .to_str()
+            .and_then(|s| s.parse().ok())
+            .expect("a stage");
+        let path = std::env::var_os(SCRIPT_ENV).expect("the script");
+        let dir = PathBuf::from(path).parent().expect("the folder").to_owned();
+        body(&dir, stage);
+        std::fs::write(dir.join(format!("done-{stage}")), test).expect("the marker");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!(
+        "neptron-app-{}-{}",
+        std::process::id(),
+        test.replace("::", "-")
+    ));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let script = dir.join("script.ntc");
+    std::fs::write(&script, SCRIPT).expect("the script");
+    for stage in 0..stages {
+        let status = Command::new(std::env::current_exe().expect("the test binary"))
+            .args([
+                test,
+                "--exact",
+                "--include-ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(SCRIPT_ENV, &script)
+            .env(STAGE_ENV, stage.to_string())
+            .status()
+            .expect("start the child");
+        assert!(status.success(), "stage {stage} of {test} failed");
+        assert!(
+            dir.join(format!("done-{stage}")).exists(),
+            "stage {stage} ran no test"
+        );
+    }
+}
+
 /// The test's path in the binary.
 pub fn test_name(module: &str, function: &str) -> String {
     let module = module.split_once("::").map_or("", |(_, rest)| rest);
@@ -127,8 +177,10 @@ impl Rig {
         std::fs::create_dir_all(&nes).expect("roms");
         std::fs::write(nes.join("Test Game.nes"), b"test core content").expect("a game");
         std::fs::create_dir_all(&paths.cores).expect("cores");
-        std::os::unix::fs::symlink(core_path(), paths.cores.join("fceumm_libretro.so"))
-            .expect("the core link");
+        let link = paths.cores.join("fceumm_libretro.so");
+        if !link.exists() {
+            std::os::unix::fs::symlink(core_path(), link).expect("the core link");
+        }
         let clock = SimClock::starting_at(1_000_000);
         Self {
             notices: Vec::new(),

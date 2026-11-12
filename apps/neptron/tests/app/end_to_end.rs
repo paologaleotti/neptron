@@ -7,7 +7,7 @@ use neptron_types::Control;
 use neptron_ui::snapshot::SettingValue;
 use neptron_video::Phase;
 
-use crate::rig::{Rig, in_child, test_name};
+use crate::rig::{Rig, in_child, in_children, test_name};
 
 /// Frames of 10 s at 60 Hz, the confirm window, and a margin.
 const CONFIRM_WINDOW_FRAMES: u32 = 660;
@@ -176,6 +176,57 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             assert!(
                 record.contains("failed_boots = 1"),
                 "one boot counted: {record}"
+            );
+        },
+    );
+}
+
+/// A relaunch is not a new boot: a chain of runs through two games, each
+/// run in its own process as the launcher starts it, counts one boot and
+/// never reaches safe mode.
+#[test]
+#[ignore = "tier 2"]
+fn a_chain_of_two_games_counts_one_boot() {
+    in_children(
+        &test_name(module_path!(), "a_chain_of_two_games_counts_one_boot"),
+        5,
+        |dir, stage| {
+            let mut rig = Rig::new(dir);
+            let game = NextRun {
+                game: Some(neptron::relaunch::GameRef {
+                    system: "nes".to_owned(),
+                    path: "nes/Test Game.nes".to_owned(),
+                }),
+                notice: None,
+            };
+            let list = NextRun {
+                game: None,
+                notice: None,
+            };
+            match stage {
+                0 => {
+                    rig.boot(None);
+                    rig.frames(2);
+                    rig.keep();
+                }
+                1 | 3 => rig.boot(Some(game)),
+                _ => rig.boot(Some(list)),
+            }
+            rig.frames(5);
+            assert_eq!(rig.shell().in_game(), stage % 2 == 1, "stage {stage}");
+            assert_eq!(
+                rig.shell().guard().phase(),
+                Phase::Confirmed,
+                "stage {stage}"
+            );
+            rig.finish();
+            // The confirmation of stage 0 clears the count; every later run
+            // continues that boot, which counts once.
+            let count = if stage == 0 { 0 } else { 1 };
+            let record = rig.state_file("video/guard.toml");
+            assert!(
+                record.contains(&format!("failed_boots = {count}")),
+                "stage {stage}: {record}"
             );
         },
     );
