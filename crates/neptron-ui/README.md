@@ -16,7 +16,7 @@ The sealed UI: snapshot in, scene and intents out. A 320x240 XRGB8888 canvas, a 
 - `font`: Spleen 6x12, printable ASCII and Latin-1, 6x12 glyph box, 6 px advance, capitals 8 px tall. Other characters draw `?`.
 - `text`: `fit`, `draw_in` (cut with `...`, aligned, reports clipping), `wrap`, `StackText` (formatting with no allocation), `value_text`.
 - `skin`: `parse(text) -> Result<Theme, SkinError>` reads a skin file (see "Skin" below).
-- `theme`: `Theme` and `SAFE_AREA` (5% overscan margin: 16 px left and right, 12 px top and bottom). `Theme::new(palette, row_height_px, padding_px)` refuses sizes outside `ROW_HEIGHT_MIN_PX..=ROW_HEIGHT_MAX_PX` (12 to 24) and above `PADDING_MAX_PX` (16) with a `ThemeError`, so a bad skin fails once at load. Inside these limits no layout sum can overflow, and the templates use saturating maths on every count and rectangle that comes from the caller. A test with a fixed seed draws all five templates with random themes, rectangles, counts and values.
+- `theme`: `Palette` (ten colours: `background`, `panel`, `border`, `text`, `text_dim`, `focus`, `focus_text`, `accent`, `warning` for a result the player must notice, `error` for something that failed), `Theme` and `SAFE_AREA` (5% overscan margin: 16 px left and right, 12 px top and bottom). `Theme::new(palette, row_height_px, padding_px)` refuses sizes outside `ROW_HEIGHT_MIN_PX..=ROW_HEIGHT_MAX_PX` (12 to 24) and above `PADDING_MAX_PX` (16) with a `ThemeError`, so a bad skin fails once at load. Inside these limits no layout sum can overflow, and the templates use saturating maths on every count and rectangle that comes from the caller. A test with a fixed seed draws all five templates with random themes, rectangles, counts and values.
 - `widgets`: `List`, `SettingsList`, `Dialog`, `Grid`, `Slider`. Each holds only its cursor or focus. `handle(action, ...)` returns an event (`SettingsList` returns ready intents); `draw(frame, theme, data)` adds commands and tree rows. A `List` row that is not available is dim, and grey instead of the focus colour when focused. `SettingsList::with_pickers()` makes accept on a choice row give `SettingsEvent::Pick` instead of a change.
 - `registry`: `SceneDef { name, build }`, `scenes()`, `find()`, `render()`. The template scenes are `widgets/*` and `font/ascii`.
 - `golden`: the golden image format and a bit-exact comparison with a readable difference.
@@ -147,7 +147,18 @@ Every screen state that matters is a scene with a golden image: `screens/home`, 
 
 ## Skin
 
-`data/skins/default/skin.toml` holds the colours and sizes of the built-in skin. It is a small subset of TOML: a top-level `version`, a `[colors]` table with the eight palette colours as `"#RRGGBB"`, and a `[sizes]` table with `row_height_px` and `padding_px`. The app reads the file and passes the text to `skin::parse`, which makes the theme through `Theme::new`. A missing or unknown key, a bad colour or number, a size outside the theme limits, or a version other than `SKIN_VERSION` is refused with a `SkinError` that names the line or the key. A later format adds keys under a new version. A test checks that the committed file gives `Theme::default()`. Images, fonts and sounds of a skin come after the MVP.
+`data/skins/default/skin.toml` holds the colours and sizes of the built-in skin. It is a small subset of TOML: a top-level `version`, a `[colors]` table with the palette colours as `"#RRGGBB"`, and a `[sizes]` table with `row_height_px` and `padding_px`. The app reads the file and passes the text to `skin::parse`, which makes the theme through `Theme::new`. A missing or unknown key, a bad colour or number, a size outside the theme limits, or a version outside `SKIN_VERSION_OLDEST..=SKIN_VERSION` is refused with a `SkinError` that names the line or the key. The parser checks the version when it reads it, so a newer file gets the version error and not an error for one of its new keys.
+
+The format is append-only: a new version adds keys and never renames or removes one. Every key of the version of the file is required.
+
+| Version | Colours | Sizes |
+| --- | --- | --- |
+| 1 | `background`, `panel`, `border`, `text`, `text_dim`, `focus`, `focus_text`, `accent` | `row_height_px`, `padding_px` |
+| 2 | Version 1, plus `warning` and `error` | As version 1 |
+
+A version 1 file still loads. It gets `warning` and `error` from `Palette::default()`, and a `warning` or `error` key in it is an unknown key. The committed file is version 2, and a test checks that it gives `Theme::default()`. Images, fonts and sounds of a skin come after the MVP.
+
+The default colours of version 2: `warning` is orange `#FF8020` and `error` is a light red `#FF6060`. `warning` is 19 degrees of hue away from the amber focus bar (`#F0C030`) and has two thirds of its luminance, so warning text does not read as a focused row. Both stay readable on the panel (contrast 5.7:1 and 4.9:1), and dark text on them reads at 7.3:1 and 6.2:1. The red has green and blue in it: pure red text smears on a CRT and has low luminance.
 
 ## Golden images
 

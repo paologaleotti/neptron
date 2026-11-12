@@ -4,15 +4,21 @@
 //!
 //! The file is a subset of TOML: comments, a top-level `version`, and the
 //! tables `[colors]` and `[sizes]` with `key = value` lines. A colour is a
-//! string `"#RRGGBB"`; a size is a decimal integer. Every key is required,
-//! and an unknown key is refused, so a typing error never passes silently.
-//! A later format adds keys under a new version.
+//! string `"#RRGGBB"`; a size is a decimal integer. Every key of the
+//! version is required, and an unknown key is refused, so a typing error
+//! never passes silently.
+//!
+//! The format is append-only: a later version adds keys and never renames
+//! or removes one. Version 1 has eight colours. Version 2 adds `warning` and
+//! `error`; a version 1 file gets their values from [`Palette::default`].
 
 use crate::geom::Color;
 use crate::theme::{Palette, Theme, ThemeError};
 
-/// The skin format version that [`parse`] reads.
-pub const SKIN_VERSION: u32 = 1;
+/// The newest skin format version that [`parse`] reads.
+pub const SKIN_VERSION: u32 = 2;
+/// The oldest skin format version that [`parse`] reads.
+pub const SKIN_VERSION_OLDEST: u32 = 1;
 
 /// Why a skin file was refused. Each error names the line or the key.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -70,12 +76,16 @@ pub enum SkinError {
         key: &'static str,
     },
     /// The file has a format version that this build cannot read.
-    #[error("skin version {found} is not supported; this build reads version {supported}")]
+    #[error(
+        "skin version {found} is not supported; this build reads versions {oldest} to {newest}"
+    )]
     Version {
         /// The version in the file.
         found: u32,
-        /// The version this build reads.
-        supported: u32,
+        /// The oldest version this build reads.
+        oldest: u32,
+        /// The newest version this build reads.
+        newest: u32,
     },
     /// A size is outside the limits of the theme.
     #[error(transparent)]
@@ -130,26 +140,29 @@ impl Table {
     }
 }
 
-const COLOR_KEYS: [&str; 8] = [
-    "background",
-    "panel",
-    "border",
-    "text",
-    "text_dim",
-    "focus",
-    "focus_text",
-    "accent",
-];
+/// A colour key: its name in `[colors]`, its path for an error, and the
+/// first format version that has it.
+struct ColorKey {
+    name: &'static str,
+    path: &'static str,
+    since: u32,
+}
 
-const COLOR_PATHS: [&str; 8] = [
-    "colors.background",
-    "colors.panel",
-    "colors.border",
-    "colors.text",
-    "colors.text_dim",
-    "colors.focus",
-    "colors.focus_text",
-    "colors.accent",
+const fn key(name: &'static str, path: &'static str, since: u32) -> ColorKey {
+    ColorKey { name, path, since }
+}
+
+const COLOR_KEYS: [ColorKey; 10] = [
+    key("background", "colors.background", 1),
+    key("panel", "colors.panel", 1),
+    key("border", "colors.border", 1),
+    key("text", "colors.text", 1),
+    key("text_dim", "colors.text_dim", 1),
+    key("focus", "colors.focus", 1),
+    key("focus_text", "colors.focus_text", 1),
+    key("accent", "colors.accent", 1),
+    key("warning", "colors.warning", 2),
+    key("error", "colors.error", 2),
 ];
 
 #[derive(Default)]
@@ -168,12 +181,17 @@ impl Fields {
         };
         match table {
             Table::Top if key == "version" => {
-                put(&mut self.version, number(value, line)?, key, line)
+                let version = number(value, line)?;
+                put(&mut self.version, version, key, line)?;
+                supported(version)
             }
             Table::Colors => {
+                // TOML puts top-level keys before the first table, so the
+                // version is known here. Without one, `finish` reports it.
+                let version = self.version.unwrap_or(SKIN_VERSION);
                 let slot = COLOR_KEYS
                     .iter()
-                    .position(|k| *k == key)
+                    .position(|k| k.name == key && k.since <= version)
                     .and_then(|i| self.colors.get_mut(i))
                     .ok_or_else(unknown)?;
                 put(slot, color(value, line)?, key, line)
@@ -192,15 +210,28 @@ impl Fields {
         let version = self
             .version
             .ok_or(SkinError::MissingKey { key: "version" })?;
-        if version != SKIN_VERSION {
-            return Err(SkinError::Version {
-                found: version,
-                supported: SKIN_VERSION,
-            });
-        }
-        let mut colors = [Color::BLACK; COLOR_KEYS.len()];
-        for ((slot, value), key) in colors.iter_mut().zip(self.colors).zip(COLOR_PATHS) {
-            *slot = value.ok_or(SkinError::MissingKey { key })?;
+        supported(version)?;
+        let defaults = Palette::default();
+        let mut colors = [
+            defaults.background,
+            defaults.panel,
+            defaults.border,
+            defaults.text,
+            defaults.text_dim,
+            defaults.focus,
+            defaults.focus_text,
+            defaults.accent,
+            defaults.warning,
+            defaults.error,
+        ];
+        for ((slot, value), key) in colors.iter_mut().zip(self.colors).zip(&COLOR_KEYS) {
+            match value {
+                Some(value) => *slot = value,
+                None if key.since <= version => {
+                    return Err(SkinError::MissingKey { key: key.path });
+                }
+                None => {}
+            }
         }
         let [
             background,
@@ -211,6 +242,8 @@ impl Fields {
             focus,
             focus_text,
             accent,
+            warning,
+            error,
         ] = colors;
         let palette = Palette {
             background,
@@ -221,6 +254,8 @@ impl Fields {
             focus,
             focus_text,
             accent,
+            warning,
+            error,
         };
         let row = self.row_height_px.ok_or(SkinError::MissingKey {
             key: "sizes.row_height_px",
@@ -229,6 +264,18 @@ impl Fields {
             key: "sizes.padding_px",
         })?;
         Ok(Theme::new(palette, row, padding)?)
+    }
+}
+
+fn supported(version: u32) -> Result<(), SkinError> {
+    if (SKIN_VERSION_OLDEST..=SKIN_VERSION).contains(&version) {
+        Ok(())
+    } else {
+        Err(SkinError::Version {
+            found: version,
+            oldest: SKIN_VERSION_OLDEST,
+            newest: SKIN_VERSION,
+        })
     }
 }
 
@@ -324,45 +371,45 @@ mod tests {
             (
                 replace("accent = \"#50C8F0\"", "accent = \"#50C8F\""),
                 SkinError::BadColor {
-                    line: 20,
+                    line: 23,
                     value: "\"#50C8F\"".into(),
                 },
             ),
             (
                 replace("accent = \"#50C8F0\"", "accent = #50C8F0"),
-                SkinError::Syntax { line: 20 },
+                SkinError::Syntax { line: 23 },
             ),
             (
                 replace("accent =", "accnet ="),
                 SkinError::UnknownKey {
-                    line: 20,
+                    line: 23,
                     key: "accnet".into(),
                 },
             ),
             (
                 replace("[sizes]", "[layout]"),
                 SkinError::UnknownTable {
-                    line: 22,
+                    line: 27,
                     name: "layout".into(),
                 },
             ),
             (
                 replace("padding_px = 4", "padding_px = 4\nrow_height_px = 12"),
                 SkinError::DuplicateKey {
-                    line: 25,
+                    line: 30,
                     key: "row_height_px".into(),
                 },
             ),
             (
                 replace("padding_px = 4", "padding_px = -4"),
                 SkinError::BadNumber {
-                    line: 24,
+                    line: 29,
                     value: "-4".into(),
                 },
             ),
             (
                 replace("padding_px = 4", "padding_px"),
-                SkinError::Syntax { line: 24 },
+                SkinError::Syntax { line: 29 },
             ),
         ];
         for (skin, expected) in cases {
@@ -378,19 +425,114 @@ mod tests {
                 key: "colors.text_dim"
             })
         );
+        for found in [0, 3] {
+            assert_eq!(
+                parse(&replace("version = 2", &format!("version = {found}"))),
+                Err(SkinError::Version {
+                    found,
+                    oldest: 1,
+                    newest: 2
+                })
+            );
+        }
+        assert_eq!(parse(""), Err(SkinError::MissingKey { key: "version" }));
+    }
+
+    /// A version 1 file as it was committed before version 2.
+    const VERSION_1_SKIN: &str = "\
+version = 1
+
+[colors]
+background = \"#101428\"
+panel = \"#202848\"
+border = \"#6070A0\"
+text = \"#E8E8E8\"
+text_dim = \"#9098B0\"
+focus = \"#F0C030\"
+focus_text = \"#101428\"
+accent = \"#50C8F0\"
+
+[sizes]
+row_height_px = 12
+padding_px = 4
+";
+
+    #[test]
+    fn a_version_1_file_gets_the_default_warning_and_error_colours() {
+        assert_eq!(parse(VERSION_1_SKIN), Ok(Theme::default()));
+        let skin = VERSION_1_SKIN.replace("#E8E8E8", "#FFFFFF");
+        let theme = parse(&skin).expect("valid");
+        assert_eq!(theme.colors.text, Color::rgb(0xFF, 0xFF, 0xFF));
+        assert_eq!(theme.colors.warning, Palette::default().warning);
+        assert_eq!(theme.colors.error, Palette::default().error);
+    }
+
+    #[test]
+    fn a_version_1_file_has_no_warning_or_error_key() {
+        for key in ["warning", "error"] {
+            let skin = VERSION_1_SKIN.replace(
+                "accent = \"#50C8F0\"",
+                &format!("accent = \"#50C8F0\"\n{key} = \"#FF8020\""),
+            );
+            assert_eq!(
+                parse(&skin),
+                Err(SkinError::UnknownKey {
+                    line: 12,
+                    key: key.into(),
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn a_version_2_file_gives_the_warning_and_error_colours() {
+        let skin = replace("warning = \"#FF8020\"", "warning = \"#123456\"");
+        let skin = skin.replacen("error = \"#FF6060\"", "error = \"#ABCDEF\"", 1);
+        let theme = parse(&skin).expect("valid");
+        assert_eq!(theme.colors.warning, Color::rgb(0x12, 0x34, 0x56));
+        assert_eq!(theme.colors.error, Color::rgb(0xAB, 0xCD, 0xEF));
+    }
+
+    #[test]
+    fn a_version_2_file_needs_valid_warning_and_error_colours() {
         assert_eq!(
-            parse(&replace("version = 1", "version = 2")),
-            Err(SkinError::Version {
-                found: 2,
-                supported: 1
+            parse(&replace("warning = \"#FF8020\"\n", "")),
+            Err(SkinError::MissingKey {
+                key: "colors.warning"
             })
         );
-        assert_eq!(parse(""), Err(SkinError::MissingKey { key: "version" }));
+        assert_eq!(
+            parse(&replace("error = \"#FF6060\"\n", "")),
+            Err(SkinError::MissingKey {
+                key: "colors.error"
+            })
+        );
+        assert_eq!(
+            parse(&replace("error = \"#FF6060\"", "error = \"red\"")),
+            Err(SkinError::BadColor {
+                line: 25,
+                value: "\"red\"".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_newer_version_is_refused_before_its_keys() {
+        let skin =
+            replace("version = 2", "version = 3").replacen("[sizes]", "[sizes]\nglow_px = 2", 1);
+        assert_eq!(
+            parse(&skin),
+            Err(SkinError::Version {
+                found: 3,
+                oldest: 1,
+                newest: 2
+            })
+        );
     }
 
     #[test]
     fn a_version_key_inside_a_table_is_unknown() {
-        let skin = replace("[sizes]", "[sizes]\nversion = 1");
+        let skin = replace("[sizes]", "[sizes]\nversion = 2");
         assert!(matches!(parse(&skin), Err(SkinError::UnknownKey { .. })));
     }
 }

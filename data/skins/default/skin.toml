@@ -6,8 +6,11 @@
 #
 # Colours are "#RRGGBB". Sizes are in pixels of the 320x240 canvas:
 # row_height_px is 12 to 24, padding_px is 0 to 16.
+#
+# The format is append-only. Version 2 adds the colours warning and error.
+# A version 1 file has no such keys and gets the built-in values.
 
-version = 1
+version = 2
 
 [colors]
 background = "#101428"
@@ -18,6 +21,8 @@ text_dim = "#9098B0"
 focus = "#F0C030"
 focus_text = "#101428"
 accent = "#50C8F0"
+warning = "#FF8020"
+error = "#FF6060"
 
 [sizes]
 row_height_px = 12

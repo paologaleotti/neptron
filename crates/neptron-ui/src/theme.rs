@@ -48,6 +48,12 @@ pub struct Palette {
     pub focus_text: Color,
     /// Values, slider fill and title bars.
     pub accent: Color,
+    /// Text that the player must notice, for example a video result that
+    /// changes the picture or the speed, and the title bar of a warning.
+    /// It differs from `focus`, so a warning never reads as a focused row.
+    pub warning: Color,
+    /// Text and title bars of an error: something failed.
+    pub error: Color,
 }
 
 /// The colours and sizes that the widget templates use. The sizes are
@@ -130,6 +136,8 @@ impl Default for Palette {
             focus: Color::rgb(0xF0, 0xC0, 0x30),
             focus_text: Color::rgb(0x10, 0x14, 0x28),
             accent: Color::rgb(0x50, 0xC8, 0xF0),
+            warning: Color::rgb(0xFF, 0x80, 0x20),
+            error: Color::rgb(0xFF, 0x60, 0x60),
         }
     }
 }
