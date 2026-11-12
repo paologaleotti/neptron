@@ -7,6 +7,8 @@
 //! feature; `docs/spec/kms.md` defines it.
 
 #[forbid(unsafe_code)]
+mod caps;
+#[forbid(unsafe_code)]
 mod connector;
 #[forbid(unsafe_code)]
 mod device_node;
@@ -27,6 +29,7 @@ mod sequence;
 #[forbid(unsafe_code)]
 mod wire_mode;
 
+pub use caps::lowered_caps;
 pub use connector::{ChoiceError, ConnectorClass, ConnectorFacts, choose};
 pub use device_node::{DRM_MAJOR, STANDARD_FD_MAX, is_drm_node, major};
 pub use flip_state::FlipState;

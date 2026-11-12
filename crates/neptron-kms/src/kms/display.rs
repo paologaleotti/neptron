@@ -139,6 +139,14 @@ impl KmsDisplay {
         self.objects.subconnector.as_deref()
     }
 
+    /// Lowers the caps that [`Display::caps`] reports to `limit`: the
+    /// highest pixel clock and the largest mode, never up. The buffers
+    /// stay. The caller decides it, for an output that turns out to be
+    /// analog after the display opened with digital limits.
+    pub fn lower_caps(&mut self, limit: &GpuCaps) {
+        self.config.caps = crate::lowered_caps(&self.config.caps, limit);
+    }
+
     /// The kernel id of the CRTC in use.
     pub fn crtc_id(&self) -> u32 {
         self.objects.crtc

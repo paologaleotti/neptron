@@ -21,6 +21,7 @@ On Linux with the `kms` feature:
 - `impl Display for KmsDisplay`: `caps`, `set_mode`, `present`, `wait_flip`, `blank`.
 - `KmsDisplay::capture() -> Result<Capture, DisplayError>`: the composed picture through a writeback connector, when `KmsConfig::writeback` is on. For tests and the self-test, not for the frame loop.
 - `connector_name()`, `crtc_id()`, `driver_name()`, `linear_by_modifier()`: for logs and reports.
+- `lower_caps(&GpuCaps)`: lowers the highest pixel clock and the largest mode that `caps()` reports, never up (`lowered_caps`, pure, on every host). The buffers stay. The app uses it when the output is analog after the display opened with digital limits.
 - `subconnector()`: the enum name of the connector's `subconnector` property, when it has one. On DisplayPort it is the downstream port type that the kernel reads from the DPCD (`VGA` for a DP-to-VGA DAC, `HDMI`, `DVI-D`, `DP`, `Native`, `Unknown`); i915 attaches it to every DP connector but eDP. On DVI-I it is `DVI-D` or `DVI-A`. The backend only reads it; the caller decides the class of the display with it. A failed read gives `None`.
 - `KmsConfig { caps, output, crt, buffer_width, buffer_height, writeback }`: everything the caller decides. The buffers have the size of the largest mode the caller will set; the backend makes them once.
 - Limits: `FLIP_WAIT_LIMIT_MS` (500), `WRITEBACK_WAIT_LIMIT_MS` (1000).
