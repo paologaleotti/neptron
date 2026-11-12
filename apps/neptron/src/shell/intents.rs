@@ -45,6 +45,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 let names = Names {
                     presets: &self.presets,
                     detected: &self.detected,
+                    styles: &[],
                 };
                 let found = pages::entry(&self.config, key)
                     .and_then(|e| Some((e.key, pages::value_of(e, value, names, &self.config)?)));

@@ -4,6 +4,7 @@
 
 use neptron::{NextRun, Outcome};
 use neptron_types::Control;
+use neptron_ui::snapshot::SettingValue;
 use neptron_video::Phase;
 
 use crate::rig::{Rig, in_child, test_name};
@@ -95,6 +96,21 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
                 "quick-menu",
                 "a second hotkey does not close it"
             );
+
+            // The picture styles show what they give on this monitor.
+            let style = rig
+                .shell()
+                .snapshot()
+                .settings
+                .rows
+                .iter()
+                .find(|r| r.label == "Picture style")
+                .map(|r| r.value.clone());
+            let Some(SettingValue::Choice { options, .. }) = style else {
+                panic!("the style row: {style:?}");
+            };
+            assert!(options[0].detail.contains("kHz"), "{options:?}");
+            assert!(options.iter().any(|o| !o.is_enabled()), "{options:?}");
 
             // A display change with no answer goes back after 10 s.
             rig.focus("Picture style");

@@ -77,6 +77,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 - `PromptOpened` puts the confirm dialog in the snapshot with the guard's deadline. `KeepMode` calls `confirm` with the open prompt; a confirmation after the deadline is dropped. `RevertMode` calls `decline`.
 - `Reverted { rewrite: Some(config) }`: the monitor, picture style and refresh policy of that configuration go to the global settings, never `Guard::active()`.
 - `SafeMode(Recovery)` plays a short tone in the game list. The display panel shows "(safe mode)" after the mode while the guard is in safe mode.
+- The picture style options show the line rate and the field rate of the mode each style gives, and a style the monitor cannot show is grey with "Not available on this monitor". Both come from `VideoEngine::style_rows` for the source on screen (the game, or the menu source), the same policy, caps and validator as the run.
 - The display panel writes the global level; the quick menu writes the game level, and its keep prompt moves a change to the system or global level.
 - Every write (settings, the guard record, the library cache) goes to the writer thread (`outbox.rs`) over a bounded channel. A full channel keeps the job in a backlog on the frame thread, in order; nothing is dropped. The frame thread does no file I/O.
 
@@ -115,7 +116,6 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 
 - The output connector is not an input of the guard, and a new connector needs the display opened again, so the display panel shows it read-only and `settings_set display.output` is refused. It changes in `global.toml` or `neptron.toml` and takes effect at the next start, where the guard record's output check below opens the boot prompt.
 - The audio cue of the blind recovery plays only in the game list. In a game the session owns the sink.
-- The picture style options do not show the line rate or grey out a style the monitor cannot show (`style_rows`). A style with no picture reverts after 1 s.
 - `screenshot` is not served: the frontend has no PNG encoder.
 - Favourites and recent games are not kept; their lists are empty.
 - The KMS build: the buffers are at most 2560x1200, the connector rule treats the monitor as a CRT, and the GPU caps come from the first connected output. It is not compiled on macOS and has not run.

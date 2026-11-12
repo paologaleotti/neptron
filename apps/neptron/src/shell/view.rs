@@ -10,9 +10,9 @@ use neptron_ui::snapshot::{
 use neptron_video::{Phase, VideoStatusText};
 
 use super::boot::{game_name, profile_id};
-use super::{Shell, Stage};
+use super::{MENU_SOURCE, Shell, Stage};
 use crate::display::monitor_setting;
-use crate::pages::{self, Names};
+use crate::pages::{self, Names, StyleOption};
 
 /// What the confirm dialog says.
 const CONFIRM_TEXT: &str = "Keep the new picture?\nNo answer brings the old one back.";
@@ -99,15 +99,59 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
 
     /// Puts the rows of `page` in the snapshot.
     pub(super) fn load_page(&mut self, page: PageId) {
+        let styles = self.style_options();
         let names = Names {
             presets: &self.presets,
             detected: &self.detected,
+            styles: &styles,
         };
         self.snap.settings = match page {
             DISPLAY_PAGE => pages::display_page(&self.config, names),
             QUICK_MENU_PAGE => pages::quick_menu_page(&self.config, names),
             other => SettingsPage::new(other, "", Vec::new()),
         };
+    }
+
+    /// What each picture style gives for the source on screen, from the
+    /// same policy, caps and validator as the run (`style_rows`): the game
+    /// in a game, the menu source in the list.
+    fn style_options(&self) -> Vec<StyleOption> {
+        let (engine, source) = match &self.stage {
+            Stage::List(list) => (&list.engine, MENU_SOURCE),
+            Stage::Game(game) => (game.session.video(), game.session.source()),
+            Stage::Ended => return Vec::new(),
+        };
+        let Ok(rows) = engine.style_rows(&source) else {
+            return Vec::new();
+        };
+        rows.iter()
+            .map(|row| {
+                let mode = row
+                    .winner
+                    .and_then(|i| row.plan.considered.get(i))
+                    .and_then(|c| c.outcome.as_ref().ok())
+                    .map(|p| p.mode);
+                let detail = mode
+                    .map(|m| {
+                        let line = m.line_rate_mhz();
+                        let field = m.field_rate_mhz();
+                        format!(
+                            "{}.{:02} kHz  {}.{:02} Hz",
+                            line / 1_000_000,
+                            line % 1_000_000 / 10_000,
+                            field / 1_000,
+                            field % 1_000 / 10
+                        )
+                    })
+                    .unwrap_or_default();
+                StyleOption {
+                    key: row.style.key(),
+                    detail,
+                    unavailable: (!row.available)
+                        .then(|| "Not available on this monitor".to_owned()),
+                }
+            })
+            .collect()
     }
 
     /// Builds the loaded page again after a change of the settings.

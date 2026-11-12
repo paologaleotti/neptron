@@ -52,6 +52,21 @@ pub struct Names<'a> {
     pub presets: &'a Presets,
     /// The detected outputs.
     pub detected: &'a Detected,
+    /// What each picture style gives on the monitor now, from the engine's
+    /// `style_rows`. A style with no entry shows as a plain option.
+    pub styles: &'a [StyleOption],
+}
+
+/// What one picture style gives, for its option in the menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StyleOption {
+    /// The style, as the schema names it.
+    pub key: &'static str,
+    /// The line rate and the field rate of its mode, for example
+    /// `15.73 kHz  59.94 Hz`; empty when nothing wins.
+    pub detail: String,
+    /// Why the player cannot choose it, `None` when the player can.
+    pub unavailable: Option<String>,
 }
 
 /// Which level a page reads and writes.
@@ -160,7 +175,10 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
                 .iter()
                 .position(|c| resolved.value == Value::Text((*c).to_owned()))
                 .unwrap_or(0),
-            options: choices.iter().map(|c| ChoiceOption::new(*c)).collect(),
+            options: choices
+                .iter()
+                .map(|c| choice_option(key, c, names.styles))
+                .collect(),
         },
         Kind::Name { .. } => {
             let options = names_of(key, names, config);
@@ -220,6 +238,25 @@ fn names_of(key: &str, names: Names<'_>, config: &Config) -> Vec<String> {
     options
 }
 
+/// The option of choice `choice`: for a picture style, with what it gives
+/// on the monitor now.
+fn choice_option(key: &str, choice: &str, styles: &[StyleOption]) -> ChoiceOption {
+    let option = ChoiceOption::new(choice);
+    if key != DISPLAY_STYLE {
+        return option;
+    }
+    match styles.iter().find(|s| s.key == choice) {
+        Some(style) => {
+            let option = option.with_detail(style.detail.clone());
+            match &style.unavailable {
+                Some(reason) => option.unavailable(reason.clone()),
+                None => option,
+            }
+        }
+        None => option,
+    }
+}
+
 fn unit(key: &str) -> &'static str {
     match key {
         DISPLAY_SCANLINE_STRENGTH => "%",
@@ -254,6 +291,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
+            styles: &[],
         };
         let page = display_page(&config, names);
         assert!(page.is_for(DISPLAY_PAGE));
@@ -281,6 +319,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
+            styles: &[],
         };
         let style = config.schema().get(DISPLAY_STYLE).expect("style");
         assert_eq!(
@@ -305,6 +344,43 @@ mod tests {
     }
 
     #[test]
+    fn picture_styles_show_their_rates_and_grey_out_what_the_monitor_cannot_show() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let styles = [
+            StyleOption {
+                key: "auto",
+                detail: "15.73 kHz  59.94 Hz".to_owned(),
+                unavailable: None,
+            },
+            StyleOption {
+                key: "2x",
+                detail: String::new(),
+                unavailable: Some("Not available on this monitor".to_owned()),
+            },
+        ];
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            styles: &styles,
+        };
+        let page = quick_menu_page(&config, names);
+        let style = page
+            .rows
+            .iter()
+            .find(|r| r.label == "Picture style")
+            .expect("the style row");
+        let SettingValue::Choice { options, .. } = &style.value else {
+            panic!("a choice");
+        };
+        assert_eq!(options[0].detail, "15.73 kHz  59.94 Hz");
+        assert!(options[0].is_enabled());
+        assert!(!options[2].is_enabled(), "2x");
+        assert_eq!(options[1].detail, "", "a style with no row has no detail");
+    }
+
+    #[test]
     fn the_quick_menu_has_its_actions_around_the_game_settings() {
         let config = config();
         let presets = Presets::default();
@@ -312,6 +388,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
+            styles: &[],
         };
         let page = quick_menu_page(&config, names);
         assert_eq!(page.rows.len(), QUICK_MENU_KEYS.len() + 3);
