@@ -64,6 +64,11 @@ pub fn video(args: &VideoArgs, socket: &Path, out: &mut dyn Write) -> Result<(),
     if let Some(reason) = preflight::refusal(confirmed, &setup.profile.id, modes.len(), &frontend) {
         return Err(SelftestError::Refused { reason });
     }
+    let device_card = preflight::card_of(&args.device);
+    if let Some(reason) = preflight::card_refusal(device_card.as_deref(), setup.gpu.card.as_deref())
+    {
+        return Err(SelftestError::Refused { reason });
+    }
     on_device(args, &setup, &outcomes, &modes, out)
 }
 

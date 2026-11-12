@@ -76,6 +76,30 @@ pub fn connector_refusal(detected: Option<&str>, backend: &str) -> Option<String
     }
 }
 
+/// Why the device of `--device` cannot be used, or `None`. The GPU values
+/// come from the card that sysfs detection chose; the device must be the
+/// node of the same card. `device_card` is the file name of the device
+/// node with links followed, such as `card0`.
+pub fn card_refusal(device_card: Option<&str>, detected: Option<&str>) -> Option<String> {
+    match (device_card, detected) {
+        (Some(device), Some(card)) if device != card => Some(format!(
+            "the GPU values are for {card}, but the device is {device}; name the device of \
+             {card} with --device, or the connector of {device} with --connector"
+        )),
+        _ => None,
+    }
+}
+
+/// The card name of a device node: the file name of the path with links
+/// followed, such as `card0` for `/dev/dri/by-path/...-card`. A path that
+/// cannot be resolved gives its own file name.
+pub fn card_of(device: &Path) -> Option<String> {
+    let resolved = std::fs::canonicalize(device).unwrap_or_else(|_| device.to_owned());
+    resolved
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+}
+
 /// Looks at the control socket, the processes under `proc_root` and the
 /// environment.
 pub fn look(socket: &Path, proc_root: &Path) -> Frontend {
@@ -169,6 +193,29 @@ mod tests {
         assert_eq!(connector_refusal(None, "Virtual-1"), None);
         let why = connector_refusal(Some("VGA-1"), "DP-1").unwrap();
         assert!(why.contains("--connector"), "{why}");
+    }
+
+    #[test]
+    fn the_device_must_be_the_card_of_the_gpu_values() {
+        assert_eq!(card_refusal(Some("card0"), Some("card0")), None);
+        assert_eq!(card_refusal(Some("card1"), None), None);
+        assert_eq!(card_refusal(None, Some("card0")), None);
+        let why = card_refusal(Some("card1"), Some("card0")).unwrap();
+        assert!(why.contains("card0") && why.contains("--device"), "{why}");
+    }
+
+    #[test]
+    fn the_card_of_a_device_follows_links() {
+        let dir = std::env::temp_dir().join(format!("neptronctl-card-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("card1"), b"").unwrap();
+        std::os::unix::fs::symlink(dir.join("card1"), dir.join("by-path-card")).unwrap();
+        assert_eq!(card_of(&dir.join("by-path-card")).as_deref(), Some("card1"));
+        assert_eq!(
+            card_of(Path::new("/nonexistent/card7")).as_deref(),
+            Some("card7")
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

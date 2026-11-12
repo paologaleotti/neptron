@@ -426,3 +426,35 @@ fn a_selftest_on_a_missing_device_exits_with_six() {
     assert_eq!(out.status.code(), Some(6), "{out:?}");
     assert_eq!(json(&out.stderr)["error"]["code"], "selftest_device");
 }
+
+#[test]
+fn a_selftest_refuses_a_device_of_another_card() {
+    let dir = TempDir::new();
+    let tree = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/neptron-platform/tests/fixtures/sysfs/i3_6100t_vga");
+    let out = neptronctl(
+        &dir.path("c.sock"),
+        &[
+            "selftest",
+            "video",
+            "--profile",
+            "pc_31_120",
+            "--monitors",
+            monitors_dir().to_str().unwrap(),
+            "--sysfs",
+            tree.to_str().unwrap(),
+            "--report",
+            dir.path("r.json").to_str().unwrap(),
+            "--device",
+            "/nonexistent/card1",
+            "--i-have-checked-the-monitor",
+            "pc_31_120",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(6), "{out:?}");
+    let message = json(&out.stderr)["error"]["message"].to_string();
+    assert!(
+        message.contains("card0") && message.contains("card1"),
+        "{message}"
+    );
+}
