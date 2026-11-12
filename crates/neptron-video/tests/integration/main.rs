@@ -7,6 +7,7 @@
 mod check5;
 mod engine;
 mod faults;
+mod guard_boot;
 mod guard_confirm;
 mod guard_rig;
 mod harness;
