@@ -31,6 +31,11 @@ pub struct VideoStatusText {
 
 /// What the status is made from: the source of the core, the mode on
 /// screen and the winner that gave it.
+///
+/// [`StatusInputs::of`] takes the read back of the mode on screen. Inputs
+/// built by hand from a proposal show a requested mode: that is for the
+/// preview of the Display panel only, and the app must never put such a
+/// status in the running game's status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StatusInputs<'a> {
     /// The source the core asks for.
@@ -63,7 +68,9 @@ impl<'a> StatusInputs<'a> {
 /// Writes the video status into `out` and returns it, or returns `None`
 /// with `out` unchanged when `inputs` is `None`: before the driver reads a
 /// mode back there is no status, and the UI shows no block. The run and the
-/// preview both come here.
+/// preview both come here. For the running game, pass inputs from
+/// [`StatusInputs::of`] (or call `Odren::video_status`): inputs from a
+/// proposal show a requested mode and are for the preview only.
 pub fn write_video_status<'o>(
     inputs: Option<&StatusInputs<'_>>,
     out: &'o mut VideoStatusText,

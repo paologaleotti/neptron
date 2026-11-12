@@ -40,6 +40,8 @@ for _ in 0..repeat {                           // 2 for double refresh
 | `alert` | `filtered` or `speed changed` | |
 
 - `exact`: not fitted, no crop, not padded, and the speed does not change. It combines only with `double refresh`.
+- A fractional horizontal scale under a fixed super width counts as `exact`: the lines are exact, and the horizontal axis of a CRT is analog, so it has no pixel grid to miss.
+- `StatusInputs` built from a proposal show a requested mode. That is for the preview of the Display panel only; the running game's status always comes from `Odren::video_status`, from the read back.
 - `double refresh`: the winner shows each frame twice (`Timing::repeat() == 2`), from `exact_x2` or from `native` on its own.
 - `small picture N%`: the fill of a padded winner, rounded to whole percent.
 - `filtered`: the fitted rung.
