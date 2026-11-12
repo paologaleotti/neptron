@@ -118,7 +118,9 @@ where
         None => (None, None),
     };
     let outcome = neptron::run(&mut shell, port.as_mut());
-    drop(server);
+    if let (Some(server), Some(port)) = (server, port) {
+        server.stop(port);
+    }
     let messages = shell.finish();
     end(&options.paths, outcome, messages)
 }

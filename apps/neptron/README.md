@@ -80,7 +80,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 
 ## Control protocol
 
-`control.rs`: the socket thread accepts one connection at a time (read and write timeouts of 2 s, socket file mode 0600) and sends each command to the frame thread over a bounded channel. The frame thread answers between two frames. `wait` stays on the frame thread until its condition holds or its time ends.
+`control.rs`: the socket thread accepts one connection at a time (read and write timeouts of 2 s, socket file mode 0600) and sends each command to the frame thread over a bounded channel. The frame thread answers between two frames. `wait` stays on the frame thread until its condition holds or its time ends; a `timeout_ms` above 60 s (`WAIT_TIMEOUT_MAX_MS`) is cut to it. At the end of a run `ControlServer::stop` answers every open wait and queued command with `unavailable`, closes the frame thread's side, and stops the socket thread, which ends a connection between two request lines, so a waiting or busy client never delays the end of a run.
 
 | Command | Served |
 | --- | --- |

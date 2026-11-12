@@ -6,6 +6,7 @@
 //! answers between two frames and never waits on the socket. A `wait`
 //! stays on the frame thread until its condition holds or its time ends.
 
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,7 +20,7 @@ use neptron_ipc::{
     InputQueued, InputScriptArgs, InputSendArgs, ListenError, LogLines, LogTailArgs, Reply,
     ScreenshotArgs, ScriptQueued, SessionLaunchArgs, SessionState, SessionStatus, SettingLevel,
     SettingValue, SettingWritten, SettingsGetArgs, SettingsSetArgs, Stats, UiRow, UiTree,
-    VideoState, WaitArgs, WaitCondition, dispatch, serve_stream,
+    VideoState, WaitArgs, WaitCondition, dispatch, serve_lines,
 };
 use neptron_settings::Level;
 use neptron_types::Rect;
@@ -38,6 +39,10 @@ const STREAM_TIMEOUT: Duration = Duration::from_secs(2);
 const ACCEPT_POLL: Duration = Duration::from_millis(50);
 /// The wait commands that can wait at once.
 const WAITS_MAX: usize = 8;
+/// The longest wait a client can ask for, in milliseconds. A longer
+/// `timeout_ms` is cut to it, so a socket thread never waits days for an
+/// answer.
+pub const WAIT_TIMEOUT_MAX_MS: u32 = 60_000;
 
 /// One command for the frame thread and where its answer goes.
 struct Request {
@@ -105,6 +110,18 @@ impl ControlServer {
     }
 }
 
+impl ControlServer {
+    /// Ends the control protocol at the end of a run: every open wait and
+    /// queued command gets `unavailable`, the frame thread's side closes,
+    /// and the socket thread stops and joins. A waiting client is answered
+    /// at once, and a busy client is closed at its next line.
+    pub fn stop(self, mut port: ControlPort) {
+        port.close();
+        drop(port);
+        drop(self);
+    }
+}
+
 impl Drop for ControlServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
@@ -159,6 +176,25 @@ impl ControlPort {
         });
     }
 
+    /// The `wait` commands that wait on the frame thread now.
+    pub fn open_waits(&self) -> usize {
+        self.waits.len()
+    }
+
+    /// Answers every open wait and every queued command with
+    /// `unavailable`: the run ends.
+    pub fn close(&mut self) {
+        for wait in self.waits.drain(..) {
+            // A client that left needs no answer.
+            let _ = wait.answer.try_send(Err(unavailable("the run has ended")));
+        }
+        while let Ok(request) = self.requests.try_recv() {
+            let _ = request
+                .answer
+                .try_send(Err(unavailable("the run has ended")));
+        }
+    }
+
     fn add_wait(
         &mut self,
         args: WaitArgs,
@@ -171,7 +207,8 @@ impl ControlPort {
         }
         self.waits.push(Waiting {
             until: args.until,
-            deadline_ns: now_ns.saturating_add(u64::from(args.timeout_ms) * 1_000_000),
+            deadline_ns: now_ns
+                .saturating_add(u64::from(args.timeout_ms.min(WAIT_TIMEOUT_MAX_MS)) * 1_000_000),
             answer,
         });
     }
@@ -356,7 +393,10 @@ impl Forward<'_> {
     fn call(&self, command: Command) -> Result<Reply, ErrorBody> {
         let (answer, rx) = mpsc::sync_channel(1);
         let wait = match &command {
-            Command::Wait(args) => Duration::from_millis(u64::from(args.timeout_ms)) + ANSWER_WAIT,
+            Command::Wait(args) => {
+                Duration::from_millis(u64::from(args.timeout_ms.min(WAIT_TIMEOUT_MAX_MS)))
+                    + ANSWER_WAIT
+            }
             _ => ANSWER_WAIT,
         };
         match self.tx.try_send(Request { command, answer }) {
@@ -457,9 +497,14 @@ fn accept_loop(listener: &ControlListener, tx: &SyncSender<Request>, stop: &Atom
                     .and_then(|()| stream.set_read_timeout(Some(STREAM_TIMEOUT)))
                     .and_then(|()| stream.set_write_timeout(Some(STREAM_TIMEOUT)));
                 if setup.is_ok() {
-                    // A connection ends on a read timeout, a closed peer or
-                    // a bad line; the next client gets a new one.
-                    let _ = serve_stream(&stream, &mut Forward { tx });
+                    let mut reader = StopReader {
+                        inner: BufReader::new(&stream),
+                        stop,
+                    };
+                    let mut writer = &stream;
+                    // A connection ends on a read timeout, a closed peer, a
+                    // bad line or the stop; the next client gets a new one.
+                    let _ = serve_lines(&mut reader, &mut writer, &mut Forward { tx });
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -467,6 +512,35 @@ fn accept_loop(listener: &ControlListener, tx: &SyncSender<Request>, stop: &Atom
             }
             Err(_) => std::thread::sleep(ACCEPT_POLL),
         }
+    }
+}
+
+/// A reader that ends its stream when the stop is set, so the server
+/// loop stops between two request lines.
+struct StopReader<'a, R> {
+    inner: R,
+    stop: &'a AtomicBool,
+}
+
+impl<R: Read> Read for StopReader<'_, BufReader<R>> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.stop.load(Ordering::Relaxed) {
+            return Ok(0);
+        }
+        self.inner.read(buf)
+    }
+}
+
+impl<R: Read> BufRead for StopReader<'_, BufReader<R>> {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        if self.stop.load(Ordering::Relaxed) {
+            return Ok(&[]);
+        }
+        self.inner.fill_buf()
+    }
+
+    fn consume(&mut self, amount: usize) {
+        self.inner.consume(amount);
     }
 }
 
