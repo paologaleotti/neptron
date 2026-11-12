@@ -157,7 +157,8 @@ pub fn guest_script(timeout_secs: u64) -> String {
 pub struct CheckOutput {
     /// Guest uptime when the frontend reported its first frame, in ms.
     pub first_frame_uptime_ms: Option<u64>,
-    /// Guest uptime when the frontend reported the game list, in ms.
+    /// Guest uptime when the frontend showed the first-boot notice over the
+    /// game list, in ms.
     pub screen_uptime_ms: Option<u64>,
     /// The picture, a binary PPM file.
     pub picture: Option<Vec<u8>>,
@@ -502,7 +503,7 @@ impl Report<'_> {
             ms(self.parsed.first_frame_uptime_ms)
         ));
         text.push_str(&format!(
-            "  game list on screen: {} after QEMU start, guest uptime {}\n",
+            "  first-boot notice on screen: {} after QEMU start, guest uptime {}\n",
             host(self.screen_host),
             ms(self.parsed.screen_uptime_ms)
         ));
@@ -814,7 +815,9 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("61.005 s after QEMU start, guest uptime 5.250 s"),
+            text.contains(
+                "first-boot notice on screen: 61.005 s after QEMU start, guest uptime 5.250 s"
+            ),
             "{text}"
         );
         assert!(text.ends_with("boot-check x86_64-bios: PASS\n"), "{text}");
