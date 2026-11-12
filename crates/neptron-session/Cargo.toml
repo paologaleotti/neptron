@@ -8,6 +8,21 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+neptron-audio = { path = "../neptron-audio" }
+neptron-backend = { path = "../neptron-backend" }
+neptron-input = { path = "../neptron-input" }
+neptron-libretro = { path = "../neptron-libretro" }
+neptron-types = { path = "../neptron-types" }
+neptron-video = { path = "../neptron-video" }
+# The code standards make each crate own a thiserror enum.
+thiserror.workspace = true
+
+[dev-dependencies]
+# The scripted sessions run the built test core through the real host.
+neptron-testcore = { path = "../neptron-testcore" }
+# The fake display, fake audio, scripted input and simulated clock, and the
+# monitor presets.
+neptron-testkit = { path = "../neptron-testkit" }
 
 [lints]
 workspace = true

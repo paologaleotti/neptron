@@ -480,6 +480,17 @@ dependencies = [
 [[package]]
 name = "neptron-session"
 version = "0.1.0"
+dependencies = [
+ "neptron-audio",
+ "neptron-backend",
+ "neptron-input",
+ "neptron-libretro",
+ "neptron-testcore",
+ "neptron-testkit",
+ "neptron-types",
+ "neptron-video",
+ "thiserror",
+]
 
 [[package]]
 name = "neptron-settings"
