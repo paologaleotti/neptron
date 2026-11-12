@@ -118,7 +118,7 @@ impl Detected {
         let panel = source
             .and_then(|c| c.edid.as_deref())
             .and_then(|e| panel_profile_from_edid(e).ok());
-        let chosen = named.or_else(|| connected.first().copied());
+        let chosen = named.or(source).or_else(|| connected.first().copied());
         let matrix = Matrix::builtin().ok();
         let gpu = chosen.and_then(|c| Some((platform.gpu_of(c)?, c.kind.as_str())));
         let caps = gpu.and_then(|(g, kind)| Some(matrix.as_ref()?.caps_for(g, kind)));

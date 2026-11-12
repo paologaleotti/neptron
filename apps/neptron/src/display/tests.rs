@@ -547,3 +547,23 @@ fn the_output_kind_picks_the_limits() {
     }
     assert_eq!(Detected::default().output, OutputKind::Analog, "no EDID");
 }
+
+#[test]
+fn before_the_display_opens_the_caps_follow_the_profile() {
+    // auto with a VGA output first: the caps come from the HDMI panel that
+    // gave the profile, not from the first connected output.
+    let p = hd_530(vec![
+        connector("HDMI-A-1", "HDMI-A", Some(PANEL_1440P)),
+        connector("VGA-1", "VGA", None),
+    ]);
+    let mut p2 = p.clone();
+    p2.connectors.reverse();
+    let auto = Detected::of(&p2, AUTO, None);
+    assert_eq!(
+        auto.digital_caps.map(|c| c.pclock_max_hz),
+        Some(300_000_000)
+    );
+    assert_eq!(auto.backend_caps(AUTO).pclock_max_hz, 300_000_000);
+    let named = Detected::of(&p2, "VGA-1", None);
+    assert_eq!(named.backend_caps(AUTO).pclock_max_hz, 165_000_000);
+}
