@@ -45,9 +45,14 @@ impl Arch {
         }
     }
 
-    /// The Buildroot defconfig of the QEMU target, in `os/configs`.
-    pub fn defconfig(self) -> String {
-        format!("neptron_qemu_{}_defconfig", self.name())
+    /// The Buildroot defconfig of the target, in `os/configs`. The x86-64
+    /// target is the PC image: the same image boots from a USB stick and in
+    /// QEMU.
+    pub fn defconfig(self) -> &'static str {
+        match self {
+            Self::Aarch64 => "neptron_qemu_aarch64_defconfig",
+            Self::X86_64 => "neptron_pc_x86_64_defconfig",
+        }
     }
 
     /// The kernel file in the Buildroot images directory.

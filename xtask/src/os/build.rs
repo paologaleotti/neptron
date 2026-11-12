@@ -87,7 +87,7 @@ impl BuildPlan {
     /// extra targets, build everything, copy the images out.
     pub fn steps(&self) -> Vec<Vec<String>> {
         let jobs = format!("BR2_JLEVEL={}", self.args.jobs);
-        let mut steps = vec![self.make(&["BR2_EXTERNAL=/src/os", &self.args.arch.defconfig()])];
+        let mut steps = vec![self.make(&["BR2_EXTERNAL=/src/os", self.args.arch.defconfig()])];
         for target in &self.args.targets {
             steps.push(self.make(&[&jobs, target]));
         }

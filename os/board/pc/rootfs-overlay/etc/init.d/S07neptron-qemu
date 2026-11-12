@@ -1,0 +1,13 @@
+#!/bin/sh
+# In a QEMU run of `cargo xtask` (the firmware config has the NEPTRON
+# entries), loads the virtual display and the dummy sound card. On a PC the
+# firmware config does not exist, and these modules never load: vkms would
+# be a second display, and the dummy card would take the place of the real
+# one.
+
+[ "$1" = start ] || exit 0
+[ -d /sys/firmware/qemu_fw_cfg/by_name/opt/neptron ] || exit 0
+
+modprobe vkms
+modprobe snd-dummy
+modprobe snd-aloop

@@ -1,0 +1,87 @@
+#!/bin/sh
+# Mounts the state partition (ext4) at /state and the share partition
+# (exFAT) at /share. They are partitions 3 and 4 of the disk that holds the
+# root filesystem, so another disk with the same layout is never used. When
+# the boot disk has no such partition (a QEMU run that boots the root
+# filesystem alone), a RAM folder takes its place and nothing is kept.
+#
+# The image has no share partition. On the first boot it is made from the
+# free space after the state partition and formatted exFAT, as the
+# definition asks. A partition 4 that exists is never formatted again, also
+# when it does not mount: it can hold the games of the user.
+
+[ "$1" = start ] || exit 0
+
+# The read-only root of the PC image has the mount points already.
+mkdir -p /state /share 2>/dev/null
+
+partition() {
+	disk=$1
+	number=$2
+	for file in "$disk"/*/partition; do
+		[ -r "$file" ] || continue
+		if [ "$(cat "$file")" = "$number" ]; then
+			dir=${file%/partition}
+			echo "/dev/${dir##*/}"
+			return 0
+		fi
+	done
+	return 1
+}
+
+root=$(mountpoint -d /)
+root_dir=$(readlink -f "/sys/dev/block/$root")
+disk=${root_dir%/*}
+
+state=$(partition "$disk" 3)
+if [ -n "$state" ]; then
+	# A power cut can leave the journal to replay; -p fixes only what is
+	# safe to fix without a person.
+	e2fsck -p "$state" || echo "neptron-storage: e2fsck $state exited with $?"
+	mount -t ext4 -o noatime "$state" /state || mount -t tmpfs -o mode=0755 state /state
+else
+	echo "neptron-storage: no state partition, /state is a RAM folder"
+	mount -t tmpfs -o mode=0755 state /state
+fi
+
+# The smallest free space that becomes a share partition, in 512-byte
+# sectors (64 MiB).
+SHARE_MIN_SECTORS=131072
+
+make_share() {
+	state_dir=/sys/class/block/${state#/dev/}
+	disk_sectors=$(cat "$disk/size")
+	state_end=$(($(cat "$state_dir/start") + $(cat "$state_dir/size")))
+	free=$((disk_sectors - state_end))
+	if [ "$free" -lt "$SHARE_MIN_SECTORS" ]; then
+		echo "neptron-storage: $free free sectors after the state partition, no share partition made"
+		return 1
+	fi
+	echo "neptron-storage: first boot, making the share partition from $free free sectors"
+	echo ',,7' | sfdisk --quiet --append "/dev/${disk##*/}" || return 1
+	share=$(partition "$disk" 4) || {
+		echo "neptron-storage: the kernel does not see the new partition yet; it is used after a restart"
+		return 1
+	}
+	mkfs.exfat -L NEPTRON "$share"
+}
+
+share=$(partition "$disk" 4)
+if [ -z "$share" ] && [ -n "$state" ] && make_share; then
+	share=$(partition "$disk" 4)
+fi
+if [ -n "$share" ]; then
+	mount -t exfat -o noatime,iocharset=utf8 "$share" /share || mount -t tmpfs -o mode=0755 share /share
+else
+	echo "neptron-storage: no share partition, /share is a RAM folder"
+	mount -t tmpfs -o mode=0755 share /share
+fi
+
+# One ROM folder for each system of the image, as the definition asks for
+# the first boot. The names are the file names of data/systems.
+for system in /usr/share/neptron/systems/*.toml; do
+	[ -e "$system" ] || continue
+	name=${system##*/}
+	mkdir -p "/share/roms/${name%.toml}"
+done
+mkdir -p /share/bios

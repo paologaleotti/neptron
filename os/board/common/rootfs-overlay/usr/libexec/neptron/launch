@@ -1,0 +1,7 @@
+#!/bin/sh
+# Starts the launcher with the frontend on the DRM device. The frontend
+# reads its folders from the image defaults: /share, /state,
+# /usr/share/neptron, /usr/lib/libretro and the RAM folder /run/neptron.
+
+mkdir -p /run/neptron
+exec /usr/bin/neptron-launch -- /usr/bin/neptron --backend kms

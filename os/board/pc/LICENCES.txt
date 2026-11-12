@@ -1,0 +1,59 @@
+NEPTRON licence notes
+=====================
+
+NEPTRON is open source and not commercial. This image is free of charge.
+Nobody may sell it, or sell a device or a service because it holds it.
+
+The NEPTRON programs (the frontend `neptron` and the launcher
+`neptron-launch`) are under the MIT licence or the Apache License 2.0,
+at your option.
+
+The image also holds other software. Each package keeps its own licence.
+The folder `legal` on this partition lists them:
+
+- `legal/manifest.csv`: every package, its version, its licence and its
+  licence files. It is the output of `make legal-info` of Buildroot.
+- `legal/licenses/<package>`: the licence texts of each package.
+
+The same texts are in `/usr/share/licenses` inside the image.
+
+The monitor presets in `/usr/share/neptron/monitors` come from Switchres
+and are under the GNU General Public License 2.0 or later. The frontend
+reads them at run time and does not contain them.
+
+Libretro cores
+--------------
+
+- FCEUmm (`fceumm_libretro.so`): GNU General Public License 2.0 or later.
+- Snes9x (`snes9x_libretro.so`): the Snes9x licence. It allows use and
+  copies free of charge, and it does not allow commercial use or sale.
+- Genesis Plus GX (`genesis_plus_gx_libretro.so`): the Genesis Plus GX
+  licence. It allows use and copies free of charge, and it does not allow
+  commercial use or sale. It also contains code under the GNU Lesser
+  General Public License 2.1.
+
+The owner of NEPTRON decided (open point OP-054) that a free, open
+source image can hold Snes9x and Genesis Plus GX, with their licence
+texts and this list, and that the image is never sold.
+
+The kernel and the 15 kHz patch set
+-----------------------------------
+
+The kernel is Linux 6.18 (GNU General Public License 2.0 only) with the
+15 kHz patch set of D0023R (github.com/D0023R/linux_kernel_15khz).
+
+OPEN LICENCE QUESTION: the LICENSE file of the patch repository says GNU
+General Public License 3.0, and the kernel is GPL-2.0 only. The owner of
+NEPTRON has asked the author to clarify. Until that is resolved, no image
+built with these patches may be distributed. Build without them with
+`cargo xtask os build --arch x86_64 --no-kernel-15khz`.
+
+Source code
+-----------
+
+The image contains software under the GNU General Public License and
+the GNU Lesser General Public License. The source code of each of these
+packages, at the version and with the patches that the image uses, is
+part of the `make legal-info` output that is published with each image.
+
+The image contains no game and no BIOS file.

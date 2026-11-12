@@ -1,0 +1,5 @@
+#!/bin/sh
+# Starts the launcher in the QEMU test image, only for a boot check.
+
+[ -r /sys/firmware/qemu_fw_cfg/by_name/opt/neptron/check/raw ] || exit 0
+exec /usr/libexec/neptron/launch

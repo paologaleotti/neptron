@@ -1,0 +1,70 @@
+BR2_x86_64=y
+BR2_CCACHE=y
+BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_NEPTRON_PATH)/patches"
+BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
+BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
+BR2_TOOLCHAIN_BUILDROOT_CXX=y
+BR2_KERNEL_HEADERS_AS_KERNEL=y
+BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_18=y
+BR2_TARGET_GENERIC_HOSTNAME="neptron"
+BR2_TARGET_GENERIC_ISSUE="NEPTRON"
+BR2_INIT_BUSYBOX=y
+BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_MDEV=y
+# BR2_TARGET_GENERIC_GETTY is not set
+# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set
+BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/busybox.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/busybox.config"
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/rootfs-overlay $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/rootfs-overlay"
+BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/post-build.sh"
+BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/post-image.sh"
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.18.63"
+BR2_LINUX_KERNEL_DEFCONFIG="x86_64"
+# The 15 kHz patch set of D0023R, pinned; see os/patches/linux/linux.hash.
+# LICENCE QUESTION: the LICENSE file of the patch repository says GPL-3.0,
+# and the kernel is GPL-2.0 only. The owner has asked the author to clarify.
+# No image built with these patches may be distributed until that is
+# resolved. `cargo xtask os build --no-kernel-15khz` builds without them.
+BR2_LINUX_KERNEL_PATCH="https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/01_linux_15khz.patch https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/02_linux_15khz_interlaced_mode_fix.patch https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/03_linux_15khz_dcn1_dcn2_dcn3_interlaced_mode_fix.patch https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/04_linux_15khz_dce_interlaced_mode_fix.patch https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/05_linux_15khz_amdgpu_pll_fix.patch https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/06_linux_switchres_kms_drm_modesetting.patch https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/07_linux_15khz_fix_ddc.patch https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/08_linux_15khz_interlace_force_even.patch https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/09_linux_15khz_i915_gen9_interlace.patch"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/video.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/console.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/input.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/sound.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/storage.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/network.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/qemu/host.config"
+BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y
+BR2_LINUX_KERNEL_NEEDS_HOST_LIBELF=y
+BR2_TARGET_ROOTFS_EXT2=y
+BR2_TARGET_ROOTFS_EXT2_4=y
+BR2_TARGET_ROOTFS_EXT2_SIZE="384M"
+BR2_TARGET_ROOTFS_EROFS=y
+# BR2_TARGET_ROOTFS_TAR is not set
+BR2_TARGET_GRUB2=y
+BR2_TARGET_GRUB2_I386_PC=y
+BR2_TARGET_GRUB2_X86_64_EFI=y
+BR2_TARGET_GRUB2_BUILTIN_MODULES_PC="boot linux fat part_msdos normal biosdisk"
+BR2_TARGET_GRUB2_BUILTIN_MODULES_EFI="boot linux fat part_msdos normal"
+BR2_PACKAGE_HOST_GENIMAGE=y
+BR2_PACKAGE_HOST_DOSFSTOOLS=y
+BR2_PACKAGE_HOST_MTOOLS=y
+BR2_PACKAGE_HOST_EXFATPROGS=y
+BR2_PACKAGE_HOST_E2FSPROGS=y
+BR2_PACKAGE_E2FSPROGS=y
+BR2_PACKAGE_EXFATPROGS=y
+BR2_PACKAGE_UTIL_LINUX=y
+BR2_PACKAGE_UTIL_LINUX_BINARIES=y
+BR2_PACKAGE_LIBDRM=y
+BR2_PACKAGE_NEPTRON_VKMS_PROBE=y
+BR2_PACKAGE_NEPTRON_CAPTURE=y
+BR2_PACKAGE_LIBRETRO_FCEUMM=y
+BR2_PACKAGE_LIBRETRO_SNES9X=y
+BR2_PACKAGE_LIBRETRO_GENESIS_PLUS_GX=y
+BR2_PACKAGE_MESA3D=y
+BR2_PACKAGE_MESA3D_LLVM=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_IRIS=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_LLVMPIPE=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SOFTPIPE=y
+BR2_PACKAGE_MESA3D_OPENGL_EGL=y
+BR2_PACKAGE_MESA3D_OPENGL_ES=y
+BR2_PACKAGE_ALSA_LIB=y
+BR2_PACKAGE_SDL3=y
+BR2_PACKAGE_SDL3_KMSDRM=y
+BR2_PACKAGE_SDL3_OPENGLES=y
+BR2_PACKAGE_HOST_RUSTC=y
+BR2_PACKAGE_NEPTRON=y
+BR2_PACKAGE_NEPTRON_LAUNCH=y

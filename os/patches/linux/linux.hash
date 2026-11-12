@@ -5,3 +5,21 @@ sha256  81764a545072d160748beff4d9de2e7d95aa9f16e8261110288f067a2cc61d71  linux-
 sha256  fb5a425bd3b3cd6071a3a9aff9909a859e7c1158d54d32e07658398cd67eb6a0  COPYING
 sha256  8780e78a1a737e127f25a65f6d95269bffd36158dc261114de7859b490bfc5aa  LICENSES/preferred/GPL-2.0
 sha256  8e378ab93586eb55135d3bc119cce787f7324f48394777d00c34fa3d0be3303f  LICENSES/exceptions/Linux-syscall-note
+
+# The 15 kHz patch set, folder linux-6.18 of D0023R/linux_kernel_15khz at
+# commit 8c96dd9f0b343a6d1ef3c61041783ee106957886 (2026-11-07, "Updated for
+# kernel 6.18.62"). All nine apply to 6.18.63 with no offset and no fuzz.
+# The PC image applies them.
+#
+# LICENCE QUESTION: the LICENSE file of that repository says GPL-3.0, and
+# the kernel is GPL-2.0 only. The owner has asked the author to clarify. No
+# image built with these patches may be distributed until that is resolved.
+sha256  be375404c851afe3c11f5cb84bb0afde857caf034a97f28635512f1ba0e8a8fe  01_linux_15khz.patch
+sha256  533060d4c332f48fba91bf9d8b57347ea6c738b45b1e4a3725c2af6b641f9504  02_linux_15khz_interlaced_mode_fix.patch
+sha256  ed78e234c7c7377c14d5b87bbccad70effefb2d467c9bc4a53417eca98be92de  03_linux_15khz_dcn1_dcn2_dcn3_interlaced_mode_fix.patch
+sha256  afc29a09f6407541de7082f1b786ca955dff0bb5b048feedcb8365b9bdd7cdb8  04_linux_15khz_dce_interlaced_mode_fix.patch
+sha256  f117c05896d93c4893a400727752bd3644633f20599fa4394f3e32c0d0ed643c  05_linux_15khz_amdgpu_pll_fix.patch
+sha256  93f6733afa949445ba4439bd7c8dda822908c0843831f0617e83d02875dc247e  06_linux_switchres_kms_drm_modesetting.patch
+sha256  c3e51719e634a9fc4f9bce7e6a6b5150c11b19e8e6b401ef80b7a5d6f612239d  07_linux_15khz_fix_ddc.patch
+sha256  5a2c36fe4e4be1b9c357e8206936876e91dde54762026465dfb057aa0bcc1058  08_linux_15khz_interlace_force_even.patch
+sha256  0f0a979daec9cfd34ae4fb0d311698c20b73783e937040c5cfd785ec68bab8fe  09_linux_15khz_i915_gen9_interlace.patch

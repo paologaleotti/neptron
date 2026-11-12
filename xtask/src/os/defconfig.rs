@@ -1,5 +1,6 @@
-//! Reads Buildroot defconfig files, so that tests can check the two QEMU
-//! targets against each other and against the pinned hashes.
+//! Reads Buildroot defconfig files, so that tests can check the aarch64
+//! QEMU test image and the x86-64 PC image against each other and against
+//! the pinned hashes.
 
 use std::collections::BTreeMap;
 
@@ -50,21 +51,19 @@ mod tests {
         assert_eq!(o.len(), 3);
     }
 
-    /// Options that must be equal in both QEMU targets, because they are
-    /// decisions of the OS layer and not of the architecture.
-    const SHARED: [&str; 12] = [
+    /// Options that must be equal in both targets, because they are
+    /// decisions of the OS layer and not of the architecture or the board.
+    const SHARED: [&str; 10] = [
         "BR2_TOOLCHAIN_BUILDROOT_GLIBC",
+        "BR2_TOOLCHAIN_BUILDROOT_CXX",
         "BR2_INIT_BUSYBOX",
         "BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_MDEV",
         "BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE",
         "BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_18",
-        "BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES",
-        "BR2_ROOTFS_OVERLAY",
         "BR2_GLOBAL_PATCH_DIR",
         "BR2_DOWNLOAD_FORCE_CHECK_HASHES",
         "BR2_TARGET_GENERIC_GETTY",
         "BR2_TARGET_ROOTFS_EXT2_4",
-        "BR2_TARGET_ROOTFS_EXT2_SIZE",
     ];
 
     #[test]
@@ -98,8 +97,12 @@ mod tests {
         }
     }
 
+    fn fragment(rel: &str) -> BTreeMap<String, String> {
+        parse(&std::fs::read_to_string(os_dir().join(rel)).unwrap())
+    }
+
     #[test]
-    fn each_kernel_fragment_holds_its_concern() {
+    fn each_kernel_fragment_of_the_qemu_image_holds_its_concern() {
         let fragments = &defconfig(Arch::Aarch64)["BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES"];
         for (file, option) in [
             ("video.config", "CONFIG_DRM_VKMS"),
@@ -109,13 +112,116 @@ mod tests {
         ] {
             let rel = format!("board/qemu/{file}");
             assert!(fragments.contains(&rel), "{rel} is not in the defconfig");
-            let options = parse(&std::fs::read_to_string(os_dir().join(&rel)).unwrap());
-            assert_eq!(options.get(option).map(String::as_str), Some("y"), "{rel}");
+            assert_eq!(
+                fragment(&rel).get(option).map(String::as_str),
+                Some("y"),
+                "{rel}"
+            );
         }
-        let video =
-            parse(&std::fs::read_to_string(os_dir().join("board/qemu/video.config")).unwrap());
+        let video = fragment("board/qemu/video.config");
         assert_eq!(video["CONFIG_DRM_FBDEV_EMULATION"], "n");
         assert_eq!(video["CONFIG_FRAMEBUFFER_CONSOLE"], "n");
+    }
+
+    #[test]
+    fn each_kernel_fragment_of_the_pc_image_holds_its_concern() {
+        let fragments = &defconfig(Arch::X86_64)["BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES"];
+        for (file, option, value) in [
+            ("pc/video.config", "CONFIG_DRM_I915", "y"),
+            ("pc/video.config", "CONFIG_DRM_AMDGPU", "m"),
+            ("pc/video.config", "CONFIG_DRM_VKMS", "m"),
+            ("pc/console.config", "CONFIG_VT", "n"),
+            ("pc/input.config", "CONFIG_INPUT_EVDEV", "y"),
+            ("pc/sound.config", "CONFIG_SND_HDA_INTEL", "y"),
+            ("pc/sound.config", "CONFIG_SND_DUMMY", "m"),
+            ("pc/storage.config", "CONFIG_EROFS_FS", "y"),
+            ("pc/storage.config", "CONFIG_EXFAT_FS", "y"),
+            ("pc/storage.config", "CONFIG_USB_STORAGE", "y"),
+            ("pc/network.config", "CONFIG_E1000E", "y"),
+            ("qemu/host.config", "CONFIG_FW_CFG_SYSFS", "y"),
+        ] {
+            let rel = format!("board/{file}");
+            assert!(fragments.contains(&rel), "{rel} is not in the defconfig");
+            assert_eq!(
+                fragment(&rel).get(option).map(String::as_str),
+                Some(value),
+                "{rel} {option}"
+            );
+        }
+        // The kernel sets no mode of its own (the safety model, layer 8).
+        let video = fragment("board/pc/video.config");
+        for option in [
+            "CONFIG_DRM_FBDEV_EMULATION",
+            "CONFIG_FRAMEBUFFER_CONSOLE",
+            "CONFIG_FB",
+            "CONFIG_DRM_SIMPLEDRM",
+            "CONFIG_SYSFB_SIMPLEFB",
+            "CONFIG_DRM_PANIC",
+        ] {
+            assert_eq!(video[option], "n", "{option}");
+        }
+        assert_eq!(fragment("board/pc/console.config")["CONFIG_EXPERT"], "y");
+    }
+
+    #[test]
+    fn the_pc_image_boots_with_grub_on_bios_and_uefi_and_has_no_login() {
+        let x = defconfig(Arch::X86_64);
+        for option in [
+            "BR2_TARGET_GRUB2_I386_PC",
+            "BR2_TARGET_GRUB2_X86_64_EFI",
+            "BR2_TARGET_ROOTFS_EROFS",
+            "BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_IRIS",
+            "BR2_PACKAGE_UTIL_LINUX_BINARIES",
+            "BR2_PACKAGE_EXFATPROGS",
+            "BR2_PACKAGE_NEPTRON",
+            "BR2_PACKAGE_NEPTRON_LAUNCH",
+        ] {
+            assert_eq!(x.get(option).map(String::as_str), Some("y"), "{option}");
+        }
+        assert_eq!(x["BR2_TARGET_GENERIC_GETTY"], "n");
+        assert_eq!(x["BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW"], "n");
+        for absent in [
+            "BR2_PACKAGE_DROPBEAR",
+            "BR2_PACKAGE_NEPTRON_CONTROL",
+            "BR2_SYSTEM_DHCP",
+        ] {
+            assert!(
+                !x.contains_key(absent),
+                "{absent} is in the release defconfig"
+            );
+        }
+        let inittab =
+            std::fs::read_to_string(os_dir().join("board/pc/rootfs-overlay/etc/inittab")).unwrap();
+        let entries: Vec<&str> = inittab.lines().filter(|l| !l.starts_with('#')).collect();
+        assert!(
+            !entries
+                .iter()
+                .any(|l| l.contains("getty") || l.contains("/bin/sh")),
+            "{inittab}"
+        );
+        assert!(
+            inittab.contains("::respawn:/usr/libexec/neptron/launch"),
+            "{inittab}"
+        );
+        let grub = std::fs::read_to_string(os_dir().join("board/pc/grub.cfg")).unwrap();
+        assert!(grub.contains("set timeout=0"), "{grub}");
+        assert!(grub.contains("root=PARTUUID=@SIGNATURE@-02"), "{grub}");
+        let genimage = std::fs::read_to_string(os_dir().join("board/pc/genimage.cfg")).unwrap();
+        assert!(
+            genimage.contains("disk-signature = @SIGNATURE@"),
+            "{genimage}"
+        );
+        assert!(
+            !genimage.contains("partition share {"),
+            "the first boot makes the share partition"
+        );
+        let post_image = std::fs::read_to_string(os_dir().join("board/pc/post-image.sh")).unwrap();
+        for signature in ["4e505452", "4e505444", "4e50544e", "4e505445"] {
+            assert!(
+                post_image.contains(&format!("signature={signature}")),
+                "{signature}"
+            );
+        }
     }
 
     /// The core packages, their make prefix, and the library that
