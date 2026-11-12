@@ -30,7 +30,7 @@ When no valid mode exists for the inputs, the engine reports `current_refused()`
 5. The KMS backend blanks with one atomic commit, test-only first, with `ALLOW_MODESET`: the connector and the writeback connector detached (`CRTC_ID` 0), the CRTC with `MODE_ID` 0 and `ACTIVE` 0, the plane with `FB_ID` 0 and `CRTC_ID` 0. The drop restore uses the same request when the driver refuses the plane-off commit. `MODE_ID` is only ever a blob from `ModeRecord::from_validated`, or 0. After a blank, `WireMode` has no mode on the wire, so the next `set_mode` commits, and drop makes no commit.
 6. The engine blanks when no valid mode exists for the inputs:
    - The mode on the display is refused (`current_refused()`), and the decision ends with no winner: the frame gets `Directive::Blank`, and the next `present` calls `blank()`.
-   - The restore of the last good mode fails, or its read back does not hold: the same `present` calls `blank()`.
+   - The driver reads back a mode the engine refuses, and no restore follows (there is no last good mode, or the inputs now refuse it), or the restore fails or its read back does not hold: the same `present` calls `blank()`, so the refused mode does not stay on the wire.
    - A blank that succeeds forgets the mode, turns `current_refused()` off and `blanked()` on, and adds an `Outcome::Blanked` record to the trace. A failed blank adds `Outcome::BlankFailed` and is tried again on the next frame, up to `MODESET_ATTEMPTS` in all, then `current_refused()` stays on for the guard.
    - The next valid decision sets a mode again with a normal modeset, and `blanked()` turns off.
 

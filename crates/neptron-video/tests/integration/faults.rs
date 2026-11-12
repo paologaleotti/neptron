@@ -436,13 +436,48 @@ fn a_restore_never_sets_a_mode_the_new_monitor_refuses() {
     assert_eq!(calls.len(), 2, "no restore of {old:?}");
     assert_eq!(calls[1].requested, new);
     assert!(rig.engine.current().is_none());
-    assert!(rig.engine.current_refused());
     assert!(
         rig.engine
             .trace()
             .records()
             .any(|r| matches!(r.outcome, Outcome::Kept(Unshowable::CurrentRefused(_))))
     );
+    // The refused read back does not stay on the wire: the same present
+    // turns the output off.
+    assert_eq!(rig.fake.blank_calls().len(), 1);
+    assert_eq!(rig.fake.active_mode(), None);
+    assert!(rig.engine.blanked());
+    assert!(!rig.engine.current_refused());
+    assert_eq!(rig.engine.trace().last().unwrap().outcome, Outcome::Blanked);
+}
+
+#[test]
+fn a_refused_read_back_of_the_first_mode_is_blanked_in_the_same_present() {
+    let mut rig = Rig::generic_15(native_width());
+    let asked = mode_for(generic_15(), native_width(), SNES);
+    let wrong = Modeline {
+        hactive: asked.hactive - 8,
+        ..asked
+    };
+    rig.fake.fault_mode(0, ModeFault::ReadBack(wrong));
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Modeset);
+    assert_eq!(
+        rig.engine.present(Some(frame(&SNES)), None),
+        Err(VideoError::NoMode)
+    );
+    assert_eq!(rig.fake.mode_calls().len(), 1, "no mode to restore");
+    assert_eq!(rig.fake.blank_calls().len(), 1);
+    assert_eq!(rig.fake.active_mode(), None);
+    assert!(rig.engine.blanked());
+    assert!(!rig.engine.current_refused());
+    // The next frame tries the next proposal, a real modeset after the
+    // blank, or keeps the output off.
+    let _ = rig.try_frame(SNES);
+    if let Some(current) = rig.engine.current() {
+        assert_ne!(current.read_back, wrong);
+        assert!(!rig.engine.blanked());
+        assert_eq!(rig.fake.active_mode(), Some(current.read_back));
+    }
 }
 
 #[test]

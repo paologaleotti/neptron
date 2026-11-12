@@ -505,10 +505,12 @@ impl Odren {
 
     /// The last good mode, validated again with the current inputs, to set
     /// after a refused read back. With no good mode, or one the inputs now
-    /// refuse, the engine sets nothing and forgets its mode: the display
-    /// holds a mode it does not know, and `current_refused` says so.
+    /// refuse, the engine sets nothing, forgets its mode, and turns the
+    /// output off in the same present: the refused read back must not stay
+    /// on the wire.
     fn restore_order(&mut self, trigger: Trigger) -> AfterModeSet {
         let Some(current) = &self.current else {
+            self.blank_due = self.blank_failures < MODESET_ATTEMPTS;
             return AfterModeSet::Done;
         };
         match self.inputs.check(current.chosen.token.mode()) {
@@ -531,6 +533,7 @@ impl Odren {
                     ..record
                 });
                 self.current = None;
+                self.blank_due = self.blank_failures < MODESET_ATTEMPTS;
                 AfterModeSet::Done
             }
         }

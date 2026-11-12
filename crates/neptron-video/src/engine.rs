@@ -142,9 +142,10 @@ impl<D: Display> VideoEngine<D> {
     ///
     /// A failed modeset keeps the mode on screen; the result and the trace
     /// say so, and the frame is presented in the old mode. When no valid
-    /// mode exists ([`Directive::Blank`], or a failed restore), it turns the
-    /// output off with `Display::blank` and returns [`VideoError::NoMode`];
-    /// [`VideoEngine::blanked`] and the trace say so.
+    /// mode exists ([`Directive::Blank`], or a refused read back with no good
+    /// restore), it turns the output off with `Display::blank` and returns
+    /// [`VideoError::NoMode`]; [`VideoEngine::blanked`] and the trace say
+    /// so.
     ///
     /// # Errors
     ///
