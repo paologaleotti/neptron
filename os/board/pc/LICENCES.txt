@@ -4,9 +4,14 @@ NEPTRON licence notes
 NEPTRON is open source and not commercial. This image is free of charge.
 Nobody may sell it, or sell a device or a service because it holds it.
 
-The NEPTRON programs (the frontend `neptron` and the launcher
-`neptron-launch`) are under the MIT licence or the Apache License 2.0,
-at your option.
+The NEPTRON programs are under the MIT licence or the Apache License
+2.0, at your option:
+
+- `neptron`: the frontend.
+- `neptron-launch`: the launcher.
+- `neptronctl`: the command-line client and the self-test of the bench.
+- `neptron-capture` and `neptron-vkms-probe`: test tools for the
+  virtual display of QEMU. They refuse to run on any other display.
 
 The image also holds other software. Each package keeps its own licence.
 The folder `legal` on this partition lists them:
