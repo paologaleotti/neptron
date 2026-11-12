@@ -1,6 +1,6 @@
 # 0009: A mode for a display has a pixel clock in whole kHz
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-12
 - Task: C09
 

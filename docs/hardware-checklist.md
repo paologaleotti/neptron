@@ -114,3 +114,8 @@ Run the steps with the real frontend path (`KmsDisplay::from_env` from the launc
 - [ ] A connector change in `global.toml` gives the boot prompt.
 - [ ] The window build shows the UI and a game on macOS.
 
+## C09 whole-kHz pixel clocks
+
+- [ ] On a 15 kHz CRT: a Mega Drive game at 320x224 on `generic_15` (horizontal total 411, was 416). The picture is centred and has the right width. Record the position against a console or a test pattern.
+- [ ] On a 31 kHz monitor: a narrow mode (a Game Gear game on `arcade_31`). The picture is centred and stable.
+

@@ -340,8 +340,8 @@ status = "in_progress"
 id = "C09"
 wave = 6
 name = "Pixel clocks in whole kHz: the policy gives modes the KMS backend can set"
-owns = ["crates/neptron-modeline", "crates/neptron-testkit", "crates/neptron-backend", "docs/adr"]
+owns = ["crates/neptron-modeline", "crates/neptron-testkit", "crates/neptron-backend", "crates/neptron-types (the clock check)", "crates/neptron-kms (the shared check)", "crates/neptron-video (the trace golden)", "docs/adr"]
 needs = ["C02", "T23"]
 gate = "T1 and T2; every golden change explained; the selftest vkms gate passes after T29 rebases"
-status = "in_progress"
+status = "merged"
 
