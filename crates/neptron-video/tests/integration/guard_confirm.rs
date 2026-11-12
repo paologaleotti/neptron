@@ -9,7 +9,7 @@ use neptron_video::{
 
 use crate::guard_rig::{
     FRAME_NS, GuardRig, arcade_15_25_31, config, confirmed, crt_15, crt_31, dead_edid, mode_of,
-    pc_31_120, with_style,
+    pc_31_120, reverted, with_style,
 };
 
 /// Two frames: the watch starts at the first frame that sees the state.
@@ -37,7 +37,7 @@ fn a_change_with_no_confirmation_reverts_at_the_deadline() {
     assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
 
     rig.run_until(prompt.deadline_ns + 1);
-    let reverted = rig.time_of(GuardEvent::Reverted(RevertReason::Timeout));
+    let reverted = rig.time_of(reverted(RevertReason::Timeout));
     assert!(reverted.is_some_and(|t| t >= prompt.deadline_ns));
     rig.frame();
     assert_eq!(rig.guard.phase(), Phase::Confirmed);
@@ -67,7 +67,7 @@ fn a_confirmed_change_stays_and_becomes_last_known_good() {
     assert!(
         !rig.event_list()
             .iter()
-            .any(|e| matches!(e, GuardEvent::Reverted(_)))
+            .any(|e| matches!(e, GuardEvent::Reverted { .. }))
     );
 }
 
@@ -150,10 +150,7 @@ fn a_declined_change_reverts_at_once() {
     let prompt = rig.propose(crt_31());
     rig.frame();
     let step = rig.guard.decline(prompt.id, &mut rig.engine).unwrap();
-    assert_eq!(
-        step.event,
-        Some(GuardEvent::Reverted(RevertReason::Declined))
-    );
+    assert_eq!(step.event, Some(reverted(RevertReason::Declined)));
     assert_eq!(step.save, None);
     rig.frame();
     assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
@@ -200,10 +197,7 @@ fn choosing_the_confirmed_configuration_ends_the_pending_change() {
     rig.propose(crt_31());
     rig.frame();
     let step = rig.guard.propose(crt_15(), rig.now(), &mut rig.engine);
-    assert_eq!(
-        step.event,
-        Some(GuardEvent::Reverted(RevertReason::Superseded))
-    );
+    assert_eq!(step.event, Some(reverted(RevertReason::Superseded)));
     assert_eq!(rig.guard.phase(), Phase::Confirmed);
     let again = rig.guard.propose(crt_15(), rig.now(), &mut rig.engine);
     assert_eq!(again.event, None, "no change, no prompt");
@@ -216,10 +210,7 @@ fn a_settings_change_with_no_confirmation_ends_a_pending_change() {
     rig.frame();
     let x3 = with_style(crt_15(), PictureStyle::X3);
     let step = rig.guard.follow_settings(x3.settings, &mut rig.engine);
-    assert_eq!(
-        step.event,
-        Some(GuardEvent::Reverted(RevertReason::Superseded))
-    );
+    assert_eq!(step.event, Some(reverted(RevertReason::Superseded)));
     assert_eq!(
         rig.guard.active(),
         &x3,
@@ -244,9 +235,7 @@ fn a_blank_during_a_pending_change_reverts_after_the_limit() {
     ));
 
     rig.run_for(NO_PICTURE_LIMIT_NS + FRAME_SLACK_NS);
-    let reverted = rig
-        .time_of(GuardEvent::Reverted(RevertReason::NoPicture))
-        .unwrap();
+    let reverted = rig.time_of(reverted(RevertReason::NoPicture)).unwrap();
     assert!(reverted >= blank_at + NO_PICTURE_LIMIT_NS - FRAME_SLACK_NS);
     assert!(reverted < prompt.deadline_ns, "before the deadline");
     assert_eq!(rig.guard.phase(), Phase::Confirmed);
@@ -275,7 +264,7 @@ fn a_revert_target_that_the_inputs_now_refuse_is_never_set() {
     rig.run_for(CONFIRM_WINDOW_NS + NO_PICTURE_LIMIT_NS + FRAME_SLACK_NS);
 
     let events = rig.event_list();
-    assert!(events.contains(&GuardEvent::Reverted(RevertReason::Timeout)));
+    assert!(events.contains(&reverted(RevertReason::Timeout)));
     assert!(events.contains(&GuardEvent::SafeMode(SafeReason::NoValidMode)));
     let mode_31 = mode_of(&crt_31());
     assert!(
@@ -309,7 +298,7 @@ fn device_errors_during_a_revert_end_with_the_output_off() {
     rig.run_for(4 * NO_PICTURE_LIMIT_NS);
 
     let events = rig.event_list();
-    assert!(events.contains(&GuardEvent::Reverted(RevertReason::Timeout)));
+    assert!(events.contains(&reverted(RevertReason::Timeout)));
     assert!(events.contains(&GuardEvent::SafeMode(SafeReason::NoValidMode)));
     assert_eq!(rig.wire(), None, "the refused 31 kHz mode left the wire");
     assert!(rig.engine.blanked());
@@ -333,7 +322,7 @@ fn a_propose_loop_with_no_picture_still_reverts() {
         }
     }
     let reverted = rig
-        .time_of(GuardEvent::Reverted(RevertReason::NoPicture))
+        .time_of(reverted(RevertReason::NoPicture))
         .expect("the loop does not hold a change with no picture");
     assert!(reverted <= start + NO_PICTURE_LIMIT_NS + FRAME_SLACK_NS);
     rig.frame();
@@ -353,9 +342,7 @@ fn a_propose_loop_cannot_hold_a_change_past_the_pending_limit() {
         round += 1;
         assert!(rig.now() < start + 2 * PENDING_LIMIT_NS, "no end");
     }
-    let reverted = rig
-        .time_of(GuardEvent::Reverted(RevertReason::Timeout))
-        .unwrap();
+    let reverted = rig.time_of(reverted(RevertReason::Timeout)).unwrap();
     assert!(reverted >= start + PENDING_LIMIT_NS);
     assert!(reverted <= start + PENDING_LIMIT_NS + FRAME_SLACK_NS);
     assert_eq!(rig.guard.active(), &crt_15());
@@ -389,10 +376,7 @@ fn time_that_goes_backwards_reverts_a_pending_change() {
     rig.run_for(CONFIRM_WINDOW_NS / 2);
     let back = rig.now() - CONFIRM_WINDOW_NS / 4;
     let step = rig.guard.tick(back, &mut rig.engine);
-    assert_eq!(
-        step.event,
-        Some(GuardEvent::Reverted(RevertReason::ClockWentBack))
-    );
+    assert_eq!(step.event, Some(reverted(RevertReason::ClockWentBack)));
     rig.frame();
     assert_eq!(rig.guard.phase(), Phase::Confirmed);
     assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
@@ -433,10 +417,7 @@ fn a_flip_that_never_completes_cannot_be_confirmed_and_the_deadline_reverts() {
     ));
 
     rig.run_until(prompt.deadline_ns + FRAME_NS);
-    assert!(
-        rig.event_list()
-            .contains(&GuardEvent::Reverted(RevertReason::Timeout))
-    );
+    assert!(rig.event_list().contains(&reverted(RevertReason::Timeout)));
     assert!(
         rig.errors
             .iter()

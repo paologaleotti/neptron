@@ -100,8 +100,16 @@ pub enum GuardEvent {
     /// The user kept the change. Write the changed settings now: the
     /// settings files hold a display change only once it is confirmed.
     Confirmed,
-    /// The pending change went back. Close the dialog; write no setting.
-    Reverted(RevertReason),
+    /// The pending change went back. Close the dialog.
+    Reverted {
+        /// Why.
+        reason: RevertReason,
+        /// The change came from the settings files at boot, and they still
+        /// hold it: write [`Guard::active`], the revert target, back to
+        /// them, or every boot shows the change again. When false, write no
+        /// setting.
+        rewrite_settings: bool,
+    },
     /// The safe default is on the engine. Close any dialog. For
     /// [`SafeReason::Recovery`], play the audio cue.
     SafeMode(SafeReason),
@@ -168,8 +176,17 @@ enum State {
         fallback: Fallback,
         /// When the first of the changes with no confirmation came.
         since_ns: u64,
+        /// The first of them came from the settings files at boot.
+        from_settings: bool,
     },
     Safe(SafeReason),
+}
+
+/// Changes with no confirmation, one after the other.
+#[derive(Debug, Clone, Copy)]
+struct Chain {
+    since_ns: u64,
+    from_settings: bool,
 }
 
 /// What a revert restores.
@@ -230,7 +247,11 @@ impl Guard {
                 }),
                 None => Fallback::Safe(SafeReason::NothingConfirmed),
             };
-            Some(guard.open_prompt(wanted, fallback, now_ns, now_ns, engine))
+            let chain = Chain {
+                since_ns: now_ns,
+                from_settings: true,
+            };
+            Some(guard.open_prompt(wanted, fallback, chain, now_ns, engine))
         };
         let save = Some(guard.record.clone());
         (guard, GuardStep { event, save })
@@ -289,12 +310,25 @@ impl Guard {
         engine: &mut VideoEngine<D>,
     ) -> GuardStep {
         let (now_ns, _) = self.clock(now_ns);
-        let (fallback, since_ns) = match &self.state {
-            State::Confirmed => (Fallback::Confirmed(self.active.clone()), now_ns),
+        let new_chain = Chain {
+            since_ns: now_ns,
+            from_settings: false,
+        };
+        let (fallback, chain) = match &self.state {
+            State::Confirmed => (Fallback::Confirmed(self.active.clone()), new_chain),
             State::Pending {
-                fallback, since_ns, ..
-            } => (fallback.clone(), *since_ns),
-            State::Safe(reason) => (Fallback::Safe(*reason), now_ns),
+                fallback,
+                since_ns,
+                from_settings,
+                ..
+            } => (
+                fallback.clone(),
+                Chain {
+                    since_ns: *since_ns,
+                    from_settings: *from_settings,
+                },
+            ),
+            State::Safe(reason) => (Fallback::Safe(*reason), new_chain),
         };
         if let Fallback::Confirmed(confirmed) = &fallback
             && *confirmed == config
@@ -302,12 +336,9 @@ impl Guard {
             if matches!(self.state, State::Confirmed) {
                 return GuardStep::default();
             }
-            self.state = State::Confirmed;
-            self.active = config;
-            self.apply(engine);
-            return GuardStep::event(GuardEvent::Reverted(RevertReason::Superseded));
+            return self.revert(RevertReason::Superseded, engine);
         }
-        GuardStep::event(self.open_prompt(config, fallback, since_ns, now_ns, engine))
+        GuardStep::event(self.open_prompt(config, fallback, chain, now_ns, engine))
     }
 
     /// The user keeps the pending change `id`. Its monitor becomes the last
@@ -469,7 +500,7 @@ impl Guard {
         &mut self,
         target: DisplayConfig,
         fallback: Fallback,
-        since_ns: u64,
+        chain: Chain,
         now_ns: u64,
         engine: &mut VideoEngine<D>,
     ) -> GuardEvent {
@@ -477,12 +508,13 @@ impl Guard {
         let window_end_ns = now_ns.saturating_add(CONFIRM_WINDOW_NS);
         let prompt = Prompt {
             id: PromptId(self.last_prompt),
-            deadline_ns: window_end_ns.min(since_ns.saturating_add(PENDING_LIMIT_NS)),
+            deadline_ns: window_end_ns.min(chain.since_ns.saturating_add(PENDING_LIMIT_NS)),
         };
         self.state = State::Pending {
             prompt,
             fallback,
-            since_ns,
+            since_ns: chain.since_ns,
+            from_settings: chain.from_settings,
         };
         self.active = target;
         self.apply(engine);
@@ -496,9 +528,15 @@ impl Guard {
         reason: RevertReason,
         engine: &mut VideoEngine<D>,
     ) -> GuardStep {
-        let State::Pending { fallback, .. } = &self.state else {
+        let State::Pending {
+            fallback,
+            from_settings,
+            ..
+        } = &self.state
+        else {
             return GuardStep::default();
         };
+        let rewrite_settings = *from_settings;
         let before = self.record.clone();
         match fallback.clone() {
             Fallback::Confirmed(config) => {
@@ -510,7 +548,11 @@ impl Guard {
                 self.enter_safe(safe_reason, engine);
             }
         }
-        self.finish(GuardEvent::Reverted(reason), &before)
+        let event = GuardEvent::Reverted {
+            reason,
+            rewrite_settings,
+        };
+        self.finish(event, &before)
     }
 
     /// Gives the safe default to the engine, also when it is there

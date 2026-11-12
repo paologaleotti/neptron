@@ -123,8 +123,11 @@ fn settings_that_differ_from_the_last_known_good_wait_for_a_confirmation() {
     };
     rig.run_until(prompt.deadline_ns + FRAME_NS);
     assert!(
-        rig.event_list()
-            .contains(&GuardEvent::Reverted(RevertReason::Timeout))
+        rig.event_list().contains(&GuardEvent::Reverted {
+            reason: RevertReason::Timeout,
+            rewrite_settings: true
+        }),
+        "the settings still hold the unconfirmed monitor: the app writes the revert target"
     );
     assert_eq!(rig.guard.phase(), Phase::Confirmed);
     assert_eq!(
@@ -191,4 +194,51 @@ fn safe_mode_keeps_the_settings_of_the_safe_default() {
     let step = rig.guard.follow_settings(x2, &mut rig.engine);
     assert_eq!(step, Default::default());
     assert_eq!(rig.engine.odren().settings(), &crt_15().settings);
+}
+
+#[test]
+fn a_boot_prompt_comes_back_on_each_boot_until_the_settings_are_written() {
+    let record = confirmed(pc_31_120());
+    let mut written = crt_15();
+    for boot in 0..3 {
+        let mut rig = GuardRig::boot(record.clone(), written.clone(), crt_15());
+        if boot == 2 {
+            assert_eq!(rig.guard.phase(), Phase::Confirmed, "no prompt any more");
+            assert_eq!(rig.wire(), None);
+            rig.frame();
+            assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
+            break;
+        }
+        let prompt = rig
+            .guard
+            .pending()
+            .expect("the unconfirmed monitor asks again");
+        rig.run_until(prompt.deadline_ns + FRAME_NS);
+        let Some(GuardEvent::Reverted {
+            rewrite_settings: true,
+            ..
+        }) = rig.event_list().last().copied()
+        else {
+            panic!("the revert of a boot prompt asks for the settings");
+        };
+        if boot == 1 {
+            written = rig.guard.active().clone();
+        }
+    }
+}
+
+#[test]
+fn a_change_that_replaces_a_boot_prompt_still_asks_for_the_settings() {
+    let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), crt_15());
+    rig.frame();
+    let prompt = rig.propose(with_style(crt_15(), PictureStyle::X2));
+    let step = rig.guard.decline(prompt.id, &mut rig.engine).unwrap();
+    assert_eq!(
+        step.event,
+        Some(GuardEvent::Reverted {
+            reason: RevertReason::Declined,
+            rewrite_settings: true
+        })
+    );
+    assert_eq!(rig.guard.active().monitor, pc_31_120());
 }

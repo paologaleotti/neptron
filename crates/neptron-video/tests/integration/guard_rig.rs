@@ -13,7 +13,7 @@ use neptron_testkit::{FakeDisplay, SimClock};
 use neptron_types::Modeline;
 use neptron_video::{
     DisplayConfig, Guard, GuardEvent, GuardRecord, GuardStep, Monitor, PictureStyle,
-    PolicySettings, Prompt, VideoEngine, VideoError,
+    PolicySettings, Prompt, RevertReason, VideoEngine, VideoError,
 };
 
 use crate::harness::{SNES, frame, generic_15, mode_for, native_width};
@@ -69,6 +69,15 @@ pub fn with_style(config: DisplayConfig, style: PictureStyle) -> DisplayConfig {
 /// The mode the policy gives the test source under `config`.
 pub fn mode_of(config: &DisplayConfig) -> Modeline {
     mode_for(config.monitor.clone(), config.settings, SNES)
+}
+
+/// The revert of a change the user asked for: the settings files never
+/// held it, so the app writes nothing.
+pub fn reverted(reason: RevertReason) -> GuardEvent {
+    GuardEvent::Reverted {
+        reason,
+        rewrite_settings: false,
+    }
 }
 
 /// A record whose last known good is `monitor`.

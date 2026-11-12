@@ -58,7 +58,7 @@ fn recovery_while_a_confirmation_is_open() {
     assert!(
         !rig.event_list()
             .iter()
-            .any(|e| matches!(e, GuardEvent::Reverted(_))),
+            .any(|e| matches!(e, GuardEvent::Reverted { .. })),
         "the closed prompt does not revert later"
     );
     assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::Recovery));
