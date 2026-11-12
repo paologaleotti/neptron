@@ -104,7 +104,8 @@ fn on_device(
 
 /// The report goes out before the device opens, so a report that cannot
 /// be written stops the run before any modeset. The signals are watched
-/// before the first modeset.
+/// before the first modeset. A failure between the two writes the report
+/// again as stopped, with the reason.
 #[cfg(all(feature = "kms", target_os = "linux"))]
 fn on_device(
     args: &VideoArgs,
@@ -117,23 +118,35 @@ fn on_device(
     plan.display.device = Some(args.device.display().to_string());
     plan.modes.clear();
     report::write(&args.report, &plan)?;
-    let stop = device::stop_flag()?;
-    let crt = matches!(setup.profile.kind, neptron_types::MonitorKind::Crt { .. });
-    let mut display = device::open(
-        &args.device,
-        args.connector.clone(),
-        crt,
-        setup.caps,
-        on_display::buffer_size(modes, &setup.caps),
-    )?;
-    let facts = device::facts(&args.device, &display);
-    if let Some(reason) = facts
-        .connector
-        .as_deref()
-        .and_then(|c| preflight::connector_refusal(setup.gpu.connector.as_deref(), c))
-    {
-        return Err(SelftestError::Refused { reason });
-    }
+    let started = (|| -> Result<_, SelftestError> {
+        let stop = device::stop_flag()?;
+        let crt = matches!(setup.profile.kind, neptron_types::MonitorKind::Crt { .. });
+        let display = device::open(
+            &args.device,
+            args.connector.clone(),
+            crt,
+            setup.caps,
+            on_display::buffer_size(modes, &setup.caps),
+        )?;
+        let facts = device::facts(&args.device, &display);
+        if let Some(reason) = facts
+            .connector
+            .as_deref()
+            .and_then(|c| preflight::connector_refusal(setup.gpu.connector.as_deref(), c))
+        {
+            return Err(SelftestError::Refused { reason });
+        }
+        Ok((stop, display, facts))
+    })();
+    let (stop, mut display, facts) = match started {
+        Ok(started) => started,
+        Err(e) => {
+            // The error is what the caller must see; a report that cannot
+            // be written now only keeps the `running` report of before.
+            let _ = report::write(&args.report, &on_display::stopped_before_display(&plan, &e));
+            return Err(e);
+        }
+    };
     let clock = device::Monotonic::new();
     on_display::run(
         &mut display,

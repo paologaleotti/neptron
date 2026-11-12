@@ -109,6 +109,18 @@ pub fn buffer_size(modes: &[PlannedMode], caps: &neptron_types::GpuCaps) -> (u16
     )
 }
 
+/// The report of a run that stopped after the first report was written
+/// and before the first modeset: the plan with `state` `stopped`, the
+/// reason, and no pass. A refusal then reads differently from a crash,
+/// which leaves `state` `running`.
+pub fn stopped_before_display(plan: &Report, reason: &SelftestError) -> Report {
+    let mut report = plan.clone();
+    report.state = RunState::Stopped;
+    report.stopped = Some(reason.to_string());
+    report.pass = Some(false);
+    report
+}
+
 /// Puts the result of the display run into the report and judges it.
 pub fn finish(report: &mut Report, shown: Shown) {
     report.modes = shown.modes;
@@ -277,6 +289,26 @@ mod tests {
         assert_eq!(report.restore, None);
         assert!(text.contains("FAIL (stopped)"), "{text}");
         assert!(text.contains("no mode was set"), "{text}");
+    }
+
+    #[test]
+    fn a_run_refused_before_the_first_modeset_is_written_as_stopped() {
+        let dir = temp_dir("refused-late");
+        let path = dir.join("report.json");
+        let setup = setup("pc_31_120");
+        let plan = Report::planned(&setup, &[], 10, false);
+        assert_eq!(plan.state, RunState::Running);
+        let reason = SelftestError::Device {
+            path: PathBuf::from("/dev/dri/card9"),
+            reason: "No such file".into(),
+        };
+        report::write(&path, &stopped_before_display(&plan, &reason)).unwrap();
+        let back = report::read(&path).unwrap();
+        assert_eq!(back.state, RunState::Stopped);
+        assert_eq!(back.pass, Some(false));
+        assert!(back.stopped.unwrap().contains("/dev/dri/card9"));
+        assert_eq!(back.restore, None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
