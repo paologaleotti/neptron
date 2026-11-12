@@ -553,11 +553,11 @@ Each open point is one section:
 ### OP-059: The bounded flip wait is not in the `Display` contract or the fake.
 
 - Raised by: T23 and its review
-- Status: open, a contract change for wave 4 (before T25 and T26 rely on it)
+- Status: closed
 - Default: `KmsDisplay::wait_flip` waits at most `FLIP_WAIT_LIMIT_MS` (500 ms). On a timeout it returns `DisplayError::Device` and the flip stays queued: it can still complete, and until then `present` and `set_mode` return `Device` as busy. `FakeDisplay` drops the pending flip on `FlipFault::Lost`, so the next `present` works. The two differ.
 - Where: `crates/neptron-backend/src/display.rs`, `crates/neptron-testkit/src/display.rs`, `docs/spec/` (the KMS backend spec, steps 2 and 8)
 - How to change: one small branch with an ADR. Add the sentence to the `wait_flip` doc. In the fake, `Lost` keeps the flip pending and returns `Device`; add `FlipFault::Slow { timeouts }`. Update the fake's README section "What the real backend must match". The same branch can add `Display::blank()` (output off: CRTC ACTIVE 0, MODE_ID 0), which the engine and T26 need when no valid mode exists.
-- Decision:
+- Decision: done in C07 with ADR 0007. The fake keeps a flip queued after any failed wait, `FlipFault::Slow` exists, and `Display::blank()` is in the contract, the fake, the KMS backend, the window and the engine.
 
 ### OP-060: Smaller points of the KMS backend.
 
@@ -575,4 +575,13 @@ Each open point is one section:
 - Default: (1) the engine draws no scanlines until the session calls `set_scanlines` with the settings. (2) When no valid mode exists, the engine reports `current_refused()` and cannot turn the output off, because the `Display` contract has no `blank()` (see OP-059). (3) The video status text comes from `Odren::video_status` (the read back); a status built from a proposal is for the Display panel preview only and must not go in the running game's snapshot. (4) On the mode line an interlaced 1:1 mode shows `native`, the fitted rung shows `fit`, a flat panel shows `panel`, and a multiple shows `Nx`. (5) `exact` shows when there is no fit, no crop, no padding and no speed change; a fractional horizontal scale under a fixed super width still counts as exact. (6) `double refresh` shows also when the user asked for it. (7) A field rate of 100 Hz or more makes the mode line 38 characters, and the UI cuts it.
 - Where: `crates/neptron-video/src/odren.rs`, `crates/neptron-video/src/status.rs`, `crates/neptron-video/README.md`
 - How to change: the labels and words are in `rung_label` and `write_result`. Scanline settings can move into `VideoEngine::new`.
+- Decision:
+
+### OP-062: Engine behaviour around the blank, for the session and the guard.
+
+- Raised by: C07 and its review
+- Status: open, input for T25, T26 and T27
+- Default: (1) a flip that never completes stops the output: each frame waits up to 500 ms on KMS and returns `PendingFlip`, and the engine does not recover alone. (2) After device errors block a source, the blank frame clears the block, so one more `set_mode` attempt follows (`MODESET_ATTEMPTS + 1` in all). (3) The engine also blanks when a valid mode exists but device errors stop it from replacing a refused mode on screen. (4) A blank that fails is tried up to `MODESET_ATTEMPTS` times; an input change or `retry()` starts a new count. (5) While a refused mode is on screen and a geometry change waits for its debounce, the refused mode stays for up to `DEBOUNCE_FRAMES - 1` frames, with `current_refused()` on.
+- Where: `crates/neptron-video/src/odren.rs`, `crates/neptron-video/src/engine.rs`, `docs/adr/0007-bounded-flip-wait-and-blank.md`
+- How to change: for (1), the session or the app opens the display again after N `PendingFlip` errors in a row. For (5), skip the debounce when `refused_on_screen` is on.
 - Decision:

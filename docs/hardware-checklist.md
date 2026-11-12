@@ -79,3 +79,12 @@ Run the steps with the real frontend path (`KmsDisplay::from_env` from the launc
 - [ ] Restore at a normal exit: the plane goes off and the last validated mode stays on the wire (or the output goes off, if i915 refuses an active CRTC with no primary plane). Record which.
 - [ ] Restore after a panic in the release build (abort), with the launcher holding the descriptor: the mode and the last picture stay; the respawned frontend sets the last validated mode again.
 - [ ] Restore after a kill with no launcher (the frontend opened the device itself): record whether i915 keeps the CRTC on with no plane, or switches it off.
+
+## C07 blank and the bounded flip wait
+
+- [ ] `blank` on i915 with the real CRT: the CRTC goes inactive, the monitor shows no sync and goes to standby with no damage.
+- [ ] `set_mode` after a blank brings the picture back, with the read back equal to the request.
+- [ ] A blank before the first mode turns off the mode that i915 inherited from the firmware.
+- [ ] The same three checks on the Raspberry Pi 3 (vc4).
+- [ ] A flip whose wait times out at 500 ms on a real driver: the event of the late flip comes on the next `wait_flip`, and `present` and `set_mode` stay busy until then.
+

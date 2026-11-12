@@ -235,7 +235,7 @@ name = "Safety behaviours"
 owns = ["crates/neptron-video/src/guard"]
 needs = ["T08", "T22"]
 gate = "Scripted safety scenarios"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "T27"
@@ -325,5 +325,5 @@ name = "Contract change: Display::blank and the bounded flip wait"
 owns = ["crates/neptron-backend", "crates/neptron-testkit", "crates/neptron-kms", "crates/neptron-video (engine only)", "docs/adr"]
 needs = ["T22", "T23"]
 gate = "T1; kms-check; an ADR; every caller fixed"
-status = "in_progress"
+status = "merged"
 
