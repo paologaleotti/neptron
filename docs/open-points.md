@@ -375,7 +375,7 @@ Each open point is one section:
 ### OP-040: The zip path of the libretro host is not tested with a real core library.
 
 - Raised by: T16
-- Status: open
+- Status: closed by T24. All three real cores load a zipped ROM, with the same frame and audio hashes as the plain ROM
 - Default: `neptron-testcore` reports `need_fullpath = true`, so the test with the real library checks only the typed `ZipNeedsFullPath` error. A fake core inside the crate tests the zip success path through the same dispatch code. The real cores (FCEUmm, Snes9x, Genesis Plus GX) are not checked.
 - Where: `crates/neptron-libretro/tests`, `crates/neptron-testcore`
 - How to change: add a `content-data` script keyword to the test core. With it the core sends `SET_CONTENT_INFO_OVERRIDE` for its extension and reads the data with `GET_GAME_INFO_EXT`. T24 runs the real cores.
@@ -495,3 +495,30 @@ Each open point is one section:
 - Where: `crates/neptron-types/src/scanline.rs`, `crates/neptron-settings/src/builtin.rs`, `docs/adr/0006-scanlines-in-scene.md`
 - How to change: edit the named constants. A new scanline kind is a new variant of `ScanlineKind`. CRT shaders for flat panels (mask, glow, curvature) need one more field in `Scene`, a post-process stage in the GLES renderer, and a tolerance comparison in place of the byte-equal one.
 - Decision: the owner asked for a researched default for VGA monitors; 75 percent. Shaders for flat panels come after the MVP.
+
+### OP-053: Two test ROMs hold art of other owners, so they are outside the repository.
+
+- Raised by: T24 review
+- Status: open, needs a decision from the owner
+- Default: the SNES and Mega Drive builds of the 240p Test Suite contain backgrounds from Sonic (Sega) and Kiki Kaikai (Taito) and "Donna" art with no stated licence. They are in no commit. `cargo xtask core-trace` reads them from `~/.cache/neptron/test-roms` and checks their SHA-256. A missing file fails the run with a line that names it. The NES build (240p-test-mini v0.23, GPL-2.0-or-later, own art) is in the repository. A machine without the two files, a CI runner too, cannot pass tier T4.
+- Where: `tests/roms/README.md`, `xtask/src/os/core_trace.rs`
+- How to change: (a) accept the two files in the repository with an ADR; (b) keep them outside, as now; (c) build the suite from its GPL source with that art removed or replaced, which needs the SNES and Mega Drive toolchains and new traces.
+- Decision:
+
+### OP-054: Non-commercial cores in a distributed image.
+
+- Raised by: T24
+- Status: open, needs a decision from the owner before the first release
+- Default: the Buildroot packages for Snes9x and Genesis Plus GX exist and only the two QEMU test images enable them. Those images are not distributed. Both licences forbid sale and commercial use. Genesis Plus GX also links LGPL code (Nuked OPN2). FCEUmm is GPL-2.0-or-later.
+- Where: `os/package/libretro-*`, `data/cores`
+- How to change: ship the cores in a free image with the licence texts and the `make legal-info` output; or download them at first boot; or use other cores (bsnes, BlastEm).
+- Decision:
+
+### OP-055: What the real cores report, and the options for the full picture.
+
+- Raised by: T24
+- Status: open, input for T25 and T27
+- Default: the cores run with their default options. FCEUmm crops NES to 256x224 (8 lines at the top and at the bottom). Snes9x gives 224 lines always. Genesis Plus GX reports 256x192 at load and changes to 320x224 at frame 4, so the first mode choice at launch can be wrong for 4 frames. No real core used save RAM, because no test ROM has it. The host serves no `SET_SERIALIZATION_QUIRKS`, which matters when save states come. The traces are expected to be equal on x86_64; nobody has run it.
+- Where: `tests/traces/README.md`, `data/cores`
+- How to change: default options per system in the core metadata (it has no field for them yet): `fceumm_overscan_v_top=0` and `fceumm_overscan_v_bottom=0` give 256x240; `snes9x_overscan=auto` gives 224 or 239 lines as the game asks; `genesis_plus_gx_overscan=disabled` gives 320x224 and `top/bottom` gives 320x240 with the border. The session starts from the system's default geometry, or waits for the first frames before it commits a mode.
+- Decision:

@@ -217,7 +217,7 @@ name = "Three real cores and test ROMs"
 owns = ["os/package/libretro-*", "tests/roms", "tests/traces"]
 needs = ["T14", "T16"]
 gate = "T4 frame hashes; traces committed"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T25"
