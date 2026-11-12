@@ -35,6 +35,13 @@ pub const PANEL_WIDTH_MAX_PX: u16 = 3_840;
 /// The tallest flat-panel mode the frontend sets, in lines.
 pub const PANEL_HEIGHT_MAX_PX: u16 = 2_160;
 
+/// The widest scanout buffer of a CRT mode, in pixels: the super width of
+/// the policy.
+pub const CRT_BUFFER_WIDTH_PX: u16 = 2_560;
+/// The tallest scanout buffer of a CRT mode, in lines: 576i and the 31 kHz
+/// modes of a PC CRT.
+pub const CRT_BUFFER_HEIGHT_PX: u16 = 1_200;
+
 /// What the frontend found about the outputs at start.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Detected {
@@ -52,6 +59,9 @@ pub struct Detected {
     /// The capabilities of the GPU of that output, from the capability
     /// table; `None` when nothing was detected.
     pub caps: Option<GpuCaps>,
+    /// The capabilities of a flat panel on that output: `caps` with the
+    /// digital limits of the table (`Matrix::panel_caps_for`).
+    pub panel_caps: Option<GpuCaps>,
     /// What the player must know about the detection: a panel mode above
     /// the limits, an EDID that gives no profile.
     pub notices: Vec<String>,
@@ -106,15 +116,16 @@ impl Detected {
             .and_then(|c| c.edid.as_deref())
             .and_then(|e| panel_profile_from_edid(e).ok());
         let chosen = named.or_else(|| connected.first().copied());
-        let caps = chosen.and_then(|c| {
-            let gpu = platform.gpu_of(c)?;
-            Matrix::builtin().ok().map(|m| m.caps_for(gpu, &c.kind))
-        });
+        let matrix = Matrix::builtin().ok();
+        let gpu = chosen.and_then(|c| Some((platform.gpu_of(c)?, c.kind.as_str())));
+        let caps = gpu.and_then(|(g, kind)| Some(matrix.as_ref()?.caps_for(g, kind)));
+        let panel_caps = gpu.and_then(|(g, kind)| Some(matrix.as_ref()?.panel_caps_for(g, kind)));
         Self {
             outputs: connected.iter().map(|c| c.name.clone()).collect(),
             edid,
             panel,
             caps,
+            panel_caps,
             notices,
         }
     }
@@ -270,6 +281,33 @@ impl Detected {
     /// panel profile.
     pub fn flat_text(&self) -> Option<String> {
         self.panel.as_ref().map(describe)
+    }
+
+    /// The caps of the KMS display for `name` (a value of
+    /// `display.monitor`), with the scanout buffer size as the largest
+    /// mode. A CRT gets the table's caps and buffers of 2560x1200 at most,
+    /// as before panels. A flat panel gets the digital limits of the table,
+    /// and buffers that also hold its largest listed mode within the panel
+    /// limits, so no listed mode is refused for its size. Each value is cut
+    /// to the caps. With no table entry, the unknown-GPU caps.
+    pub fn backend_caps(&self, name: &str, presets: &Presets) -> GpuCaps {
+        let crt = self.is_crt(name, presets);
+        let caps = if crt {
+            self.caps
+        } else {
+            self.panel_caps.or(self.caps)
+        }
+        .unwrap_or(neptron_platform::UNKNOWN_GPU_CAPS);
+        let (panel_w, panel_h) = if crt {
+            (0, 0)
+        } else {
+            self.panel_size().unwrap_or((0, 0))
+        };
+        GpuCaps {
+            max_width: caps.max_width.min(CRT_BUFFER_WIDTH_PX.max(panel_w)),
+            max_height: caps.max_height.min(CRT_BUFFER_HEIGHT_PX.max(panel_h)),
+            ..caps
+        }
     }
 
     /// Whether the display that `name` (a value of `display.monitor`)

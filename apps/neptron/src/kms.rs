@@ -12,17 +12,9 @@ use neptron::{Devices, NextRun, Runtime, Shell};
 use neptron_audio::{Resampling, Sdl3Sink};
 use neptron_backend::{Clock, InputSource};
 use neptron_kms::{KmsConfig, KmsDisplay};
-use neptron_platform::UNKNOWN_GPU_CAPS;
 use neptron_session::RunRateSource;
 use neptron_settings::{Schema, Storage, Target};
 use neptron_types::InputEvent;
-
-/// The widest scanout buffer of a CRT mode, in pixels: the super width of
-/// the policy.
-const CRT_BUFFER_WIDTH_PX: u16 = 2_560;
-/// The tallest scanout buffer of a CRT mode, in lines: 576i and the 31 kHz
-/// modes of a PC CRT.
-const CRT_BUFFER_HEIGHT_PX: u16 = 1_200;
 
 /// The monotonic clock of the device.
 #[derive(Debug, Clone, Copy)]
@@ -72,16 +64,15 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
     let presets = Presets::load(&paths.monitors())
         .map(|(p, _)| p)
         .unwrap_or_default();
-    let caps = detected.caps.unwrap_or(UNKNOWN_GPU_CAPS);
-    // The buffers are made once and must hold every mode of the run: the
-    // CRT modes of a preset the menu can choose, and the panel's modes.
-    let (panel_w, panel_h) = detected.panel_size().unwrap_or((0, 0));
+    // The buffers are made once, at the size of the largest mode the caps
+    // allow, so the boot cuts the panel's modes to them.
+    let caps = detected.backend_caps(&monitor, &presets);
     let config = KmsConfig {
         caps,
         output,
         crt: detected.is_crt(&monitor, &presets),
-        buffer_width: caps.max_width.min(CRT_BUFFER_WIDTH_PX.max(panel_w)),
-        buffer_height: caps.max_height.min(CRT_BUFFER_HEIGHT_PX.max(panel_h)),
+        buffer_width: caps.max_width,
+        buffer_height: caps.max_height,
         writeback: false,
     };
     let display = match KmsDisplay::from_env(config) {

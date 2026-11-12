@@ -313,3 +313,67 @@ fn every_mode_of_the_fixtures_has_a_whole_khz_clock() {
         }
     }
 }
+
+const PANEL_2160P_RB: &[u8] = include_bytes!("../../tests/fixtures/edid/panel_2160p_rb.bin");
+
+/// An HD 530, the GPU of the bench.
+fn hd_530(connectors: Vec<Connector>) -> Platform {
+    let mut p = platform(connectors);
+    p.gpus[0].pci_id = Some(neptron_platform::PciId {
+        vendor: 0x8086,
+        device: 0x1912,
+    });
+    p
+}
+
+#[test]
+fn a_4k_displayport_panel_runs_in_its_native_mode_on_an_hd_530() {
+    let p = hd_530(vec![connector("DP-1", "DP", Some(PANEL_2160P_RB))]);
+    let mut detected = Detected::of(&p, "DP-1", None);
+    let caps = detected.backend_caps(AUTO, &presets());
+    assert_eq!(
+        (caps.pclock_max_hz, caps.max_width, caps.max_height),
+        (533_250_000, 3840, 2160),
+        "the buffers hold the native mode"
+    );
+    detected.fit_to(&caps);
+    assert_eq!(detected.auto_text(), "NPT UHD DP  3840x2160 59.99 Hz");
+    assert!(detected.notices.is_empty(), "{:?}", detected.notices);
+}
+
+#[test]
+fn a_4k_hdmi_panel_falls_to_1080p60_not_2160p30() {
+    // HDMI 1.4 on the HD 530: 300 MHz. 2160p60 and 2160p50 (594 MHz) are
+    // out, 2160p30 would halve a 60 Hz game.
+    let p = hd_530(vec![connector("HDMI-A-1", "HDMI-A", Some(PANEL_2160P))]);
+    let mut detected = Detected::of(&p, "HDMI-A-1", None);
+    let caps = detected.backend_caps(AUTO, &presets());
+    assert_eq!(caps.pclock_max_hz, 300_000_000);
+    detected.fit_to(&caps);
+    assert_eq!(detected.auto_text(), "NPT UHD 27  1920x1080 60 Hz");
+    assert_eq!(detected.notices.len(), 1, "{:?}", detected.notices);
+}
+
+#[test]
+fn the_crt_path_keeps_its_caps_and_buffers() {
+    let analog = |kind: &str, sub| {
+        let p = hd_530(vec![connector(
+            &format!("{kind}-1"),
+            kind,
+            Some(CRT_ANALOG),
+        )]);
+        Detected::of(&p, &format!("{kind}-1"), sub).backend_caps(AUTO, &presets())
+    };
+    let bench = analog("DP", None);
+    assert_eq!(
+        (bench.pclock_max_hz, bench.max_width, bench.max_height),
+        (165_000_000, 1920, 1200),
+        "the DP-to-VGA bench"
+    );
+    assert_eq!(analog("VGA", None), bench);
+    // A CRT preset on a panel output keeps the analog caps.
+    let p = hd_530(vec![connector("DP-1", "DP", Some(PANEL_2160P_RB))]);
+    let panel = Detected::of(&p, "DP-1", None);
+    let preset = panel.backend_caps("pc_31_120", &presets());
+    assert_eq!(preset.pclock_max_hz, 165_000_000);
+}
