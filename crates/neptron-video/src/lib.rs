@@ -13,6 +13,7 @@
 mod cache;
 mod decision;
 mod engine;
+mod guard;
 mod monitor;
 mod odren;
 mod scene;
@@ -23,6 +24,11 @@ mod trace;
 pub use cache::CACHE_ENTRIES;
 pub use decision::{Chosen, Refusal, Unshowable, Veto};
 pub use engine::{Presented, VideoEngine, VideoError};
+pub use guard::{
+    CONFIRM_WINDOW_NS, ConfirmError, DisplayConfig, GOOD_BOOT_PICTURE_NS, Guard, GuardEvent,
+    GuardRecord, GuardStep, Health, NO_PICTURE_LIMIT_NS, Phase, Prompt, PromptId, RevertReason,
+    SAFE_MODE_FAILED_BOOTS, SafeReason,
+};
 pub use monitor::Monitor;
 pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
 pub use scene::{SceneInputs, build_scene};

@@ -1,11 +1,12 @@
 # neptron-video
 
-The ODREN engine: core geometry to policy to safety to display. Debounce, commit, mute and the switch trace. The `guard` module (task T26) will hold confirm-or-revert, last known good and safe mode.
+The ODREN engine: core geometry to policy to safety to display. Debounce, commit, mute and the switch trace. The `guard` module holds confirm-or-revert, last known good, safe mode and blind recovery.
 
 ## Public API
 
 - `Odren`: the state machine. It does no I/O and holds no display. `on_frame(SourceGeometry) -> Directive` takes the source of one core frame. `set_monitor`, `set_settings` and `set_veto` change its inputs; `set_scanlines` changes the scene only; `retry()` lifts a blocked source and starts new counts of modeset and blank attempts. `scene(game, ui)` and `preview_scene(&Proposal, &SourceGeometry, game, ui)` build the scene of the mode on screen and of a Display panel row through the same function. `current()`, `current_refused()`, `blanked()`, `trace()`, `muted()`, `style_rows(&SourceGeometry)` read it.
 - `VideoEngine<D: Display>`: `Odren` on a display. `new(display, Monitor, PolicySettings)`, `begin_frame(SourceGeometry) -> Directive`, `present(game, ui) -> Result<Presented, VideoError>`, `wait_flip() -> Result<FlipEvent, VideoError>`, `muted()`, `current()`, `current_refused()`, `blanked()`, `trace()`, `style_rows`, `set_monitor`, `set_settings`, `set_veto`, `set_scanlines`, `preview_scene`, `retry()`, `display()`.
+- `Guard`: confirm-or-revert, last known good, safe mode and blind recovery over the engine's inputs. `DisplayConfig`, `Health`, `GuardRecord`, `GuardStep`, `GuardEvent`, `Phase`, `Prompt`, `PromptId`, `SafeReason`, `RevertReason`, `ConfirmError`. See "The guard".
 - `Monitor`: `Profile(MonitorProfile)` or `Edid(EdidProfile)`. `caps_for(&GpuCaps)` applies the EDID pixel clock limit (`EdidProfile::limit_caps`).
 - `policy_settings(style, refresh_policy, horizontal) -> Result<PolicySettings, SettingsError>`: from the values of `display.style` and `display.refresh_policy`.
 - `scanline_settings(mode, strength_percent) -> Result<ScanlineSettings, SettingsError>`: from the values of `display.scanlines` and `display.scanline_strength`. Until the session calls `set_scanlines`, the engine draws none (`ScanlineSettings::OFF`).
@@ -100,12 +101,85 @@ The engine detects the case, turns the output off when no valid mode exists, and
 
 What the callers must do:
 
-- T26 (`guard`) reads `current_refused()` and `blanked()` after each input change and each frame. When either is on and no modeset follows, it reverts to the last confirmed inputs, or to safe mode, with `set_monitor` and `set_settings`. `current_refused()` on after failed blanks means a refused mode is still on the wire.
+- The guard reads `current_refused()` and `blanked()` after each frame. When either stays on for `NO_PICTURE_LIMIT_NS`, it reverts to the last confirmed inputs, or to the safe default. `current_refused()` on after failed blanks means a refused mode is still on the wire. See "The guard".
 - T25 (session) shows no game picture as confirmed while either is on, keeps the audio muted, and passes the state to the guard and to the control protocol.
 
-## Seam for `guard` (T26)
+## The guard
 
-The guard reverts by giving the engine its old inputs again: `set_monitor` or `set_settings` with the last confirmed values decide again on the next frame, with no debounce. It reads `current()`, `current_refused()`, `blanked()` and `trace()` to see which mode is on screen, or that the output is off, and why. Blind recovery sets the safe monitor the same way.
+`Guard` decides and does no I/O. It changes the display only through the inputs of the engine: `retry`, `set_monitor` and `set_settings`. Every mode it causes is therefore a winner that the validator accepted for the current monitor, and a revert target that the current inputs refuse is never set: the engine blanks or picks another valid mode. It reads `current()`, `current_refused()`, `blanked()` and `muted()` through `Health::of`. It never calls the display.
+
+The guard owns a `DisplayConfig`: the monitor and the policy settings. Only the monitor is last known good, because the policy settings resolve per game.
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `CONFIRM_WINDOW_NS` | 10 s | A change the user asks for reverts unless confirmed in this time |
+| `SAFE_MODE_FAILED_BOOTS` | 2 | Failed boots in a row before the next boot starts in safe mode |
+| `GOOD_BOOT_PICTURE_NS` | 10 s | A picture of the confirmed configuration this long makes the boot good |
+| `NO_PICTURE_LIMIT_NS` | 1 s | No valid picture this long makes the guard leave the configuration |
+
+The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `neptron-input`. It sends one `Hotkey::BlindRecovery`, and the app calls `Guard::recover`.
+
+### States
+
+- **Confirmed.** The engine has the confirmed configuration.
+- **Pending.** A change waits for a confirmation, with a `Prompt` (id and deadline). It keeps what a revert restores: the configuration confirmed before it, or the safe default when the guard came from safe mode.
+- **Safe.** The engine has the safe default, with a `SafeReason`: `FailedBoots`, `Recovery`, `NoValidMode` or `NothingConfirmed`.
+
+| From | Call or condition | To | Event |
+| --- | --- | --- | --- |
+| Boot | `failed_boots` at least 2 | Safe(FailedBoots) | `SafeMode` |
+| Boot | the record is in safe mode | Safe(Recovery) | `SafeMode` |
+| Boot | the settings' monitor is the last known good | Confirmed | none |
+| Boot | otherwise | Pending, reverts to the last known good or to the safe default | `PromptOpened` |
+| Confirmed or Safe | `propose` of a new configuration | Pending | `PromptOpened` |
+| Pending | `propose` of another configuration | Pending with a new id and deadline, same revert target | `PromptOpened` |
+| Pending | `propose` of the confirmed configuration, or `follow_settings` | Confirmed | `Reverted(Superseded)` |
+| Pending | `confirm` with the open id, before the deadline, with a picture | Confirmed; the monitor is last known good; `failed_boots` 0; safe mode off | `Confirmed` |
+| Pending | `decline` | the revert target | `Reverted(Declined)` |
+| Pending | `tick` at or after the deadline | the revert target | `Reverted(Timeout)` |
+| Pending | `tick`: no valid picture for 1 s | the revert target | `Reverted(NoPicture)` |
+| Confirmed | `tick`: no valid picture for 1 s | Safe(NoValidMode) | `SafeMode` |
+| Confirmed | `tick`: a picture for 10 s, first time in the boot | Confirmed; `failed_boots` 0 | `GoodBoot` |
+| Any | `recover` | Safe(Recovery); the record is in safe mode | `SafeMode` |
+
+- No valid picture (`Health::no_picture`): the output is off, a refused mode is on the display, or the engine has set no mode. A mode that waits for its first flip is not counted, because a flip can be late.
+- `confirm` is refused with `ConfirmError` when no prompt is open, the id is another one, the time is at or after the deadline, or the engine shows no valid picture. Nothing changes; the deadline still reverts.
+- A revert to the safe default (from a pending change that began in safe mode) goes back to the same `SafeReason`.
+- In Safe, `follow_settings` changes nothing: the safe default keeps its settings. The guard does nothing more when the safe default gives no picture: no signal is safe, and the engine bounds its own attempts.
+- Every change to the engine starts with `retry`, so a blocked source or exhausted blank attempts get a new set. A recovery in any state therefore reaches the display also while it is blank, while a refused mode stays after failed blanks, and before the first frame.
+
+### Last known good and failed boots
+
+`GuardRecord` is plain data: `last_known_good: Option<Monitor>`, `failed_boots`, `safe_mode`. It is kept apart from the user settings.
+
+- Recorded only when the user confirms. A long stable picture makes the boot good, but records nothing.
+- `failed_boots` goes up by one at each `Guard::boot`, before the first mode, and goes to 0 at a confirmation or a good boot. A boot that crashes or hangs before 10 s of picture is a failed boot. A boot in safe mode never counts as good, so safe mode stays until the user confirms a configuration.
+- `safe_mode` is set by a recovery and by safe mode after failed boots. Only a confirmation clears it.
+- The guard never clears `last_known_good`. The app gives `None` when it cannot build the stored profile again.
+
+### Engine states
+
+| Engine | What the guard does | Left to the session |
+| --- | --- | --- |
+| `current_refused()` on | Counts it as no picture. After 1 s: reverts a pending change, or goes to the safe default | Muting the audio and showing no picture as confirmed |
+| `blanked()` on | The same | The same |
+| Failed blanks (`current_refused()` stays on) | The same; the new inputs and `retry` give a new set of blank attempts | |
+| No mode set (no winner at launch, a blocked source) | The same | |
+| `retry()` | Calls it on every change it makes | Calls it when the player asks, for example when the quick menu closes |
+| A flip that never completes (`PendingFlip`, OP-062 point 1) | Nothing: the mode on the wire is valid. `muted()` stays on after a modeset, so a confirmation is refused and the deadline reverts. The revert waits for the flip like any modeset | Opening the display again after a number of `PendingFlip` errors |
+
+### What the app must do
+
+1. At boot, before the first frame: load the record (a record that cannot be read is `GuardRecord::default()`), build `wanted` from the settings and `safe` for the detected output, call `Guard::boot`, and write the record it returns before the first modeset.
+2. Write every `GuardStep::save` with temp file, fsync, rename, off the frame thread.
+3. Call `tick` once per frame, after `present`, also when it failed. The time is the clock of the frame loop.
+4. Send every display change the user asks for (monitor profile, picture style, refresh policy, also through the control protocol) to `propose`, and every settings change that needs no confirmation (the resolved settings of a game) to `follow_settings`. Never call `set_monitor` or `set_settings` of the engine directly.
+5. `PromptOpened`: put the confirm dialog in the snapshot with `remaining_ns` from `Prompt::deadline_ns`, map `PromptId` to the UI's `ConfirmId`, stop every key repeat and send nothing for a key held now (OP-048).
+6. `KeepMode`: call `confirm` with the open id and the frame time. A `ConfirmError` keeps the dialog; a `KeepMode` after the deadline is dropped. `RevertMode`: call `decline`.
+7. `Confirmed`: write the changed settings now. The settings files hold a display change only once it is confirmed, so a crash during a pending change leaves the old value.
+8. `Reverted` and `SafeMode`: close the dialog and show a notice. Write no setting.
+9. `Hotkey::BlindRecovery`: call `recover`, in every screen and state, also while a dialog is open. On `SafeMode(Recovery)` play the audio cue.
+10. Show safe mode in the display panel while `phase()` is `Safe`.
 
 ## Must never depend on
 
@@ -126,4 +200,6 @@ The guard reverts by giving the engine its old inputs again: `set_monitor` or `s
 - `tests/integration/faults.rs`: a veto that refuses, no winner, each `DisplayError` of `set_mode`, `present` and `wait_flip`, a read back that differs, a restore validated again, the read back of a restore, a failed restore and its blank, `retry()`, the read-back rate note, calls out of order.
 - `tests/integration/inputs.rs`: a monitor change and a settings change in a game, a stale token after an input change, an unapplied or failed monitor modeset, the attempt bound, `current_refused()`, the blank when no valid mode exists and the modeset after it, a failed blank and its bound, a blank after a queued flip, the EDID pixel clock limit.
 - `tests/integration/stall.rs`: waits that time out with the flip still queued (`FlipFault::Slow` and `FlipFault::Lost` of the fake display).
+- `tests/integration/guard_confirm.rs`: timeout revert, confirmation, refused confirmations, decline, a new change while one is pending, the confirmed configuration chosen again, a settings change during a pending change, a blank during a pending change, a revert target the inputs refuse, device errors during a revert.
+- The guard rig checks after every frame that a mode on the wire passes the validator for the current monitor, unless the engine reports it as refused.
 - `tests/integration/check5.rs`: timing check 5. Two scripted cores (SNES under a fixed super width, Mega Drive under the native width) change width, lines, scan and rate at given frames. The list of switches must equal `tests/golden/switch_trace.txt`, and every frame checks the mute and the debounce. The golden holds the modes the policy picks on `generic_15`; a policy change shows as a diff to check line by line.
