@@ -11,8 +11,11 @@ publish.workspace = true
 # The DRM node check and the standard descriptor limit that the frontend's
 # backend applies to the same descriptor. Default features: no DRM code.
 neptron-kms = { path = "../../crates/neptron-kms" }
-# Clears close-on-exec on the device descriptor with no unsafe code.
-rustix.workspace = true
+# Clears close-on-exec on the device descriptor and forwards a stop signal
+# to the frontend, with no unsafe code.
+rustix = { workspace = true, features = ["process"] }
+# Sets a flag on SIGTERM and SIGINT with no unsafe code, as xtask does.
+signal-hook.workspace = true
 # The code standards make each crate own a thiserror enum.
 thiserror.workspace = true
 

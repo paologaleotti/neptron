@@ -30,6 +30,8 @@ A frontend that relaunches more than 10 times in 10 s (`RELAUNCHES_MAX`, `RELAUN
 
 The launcher keeps the device open the whole time. The kernel removes the framebuffers and some drivers switch the CRTC off only when the last holder closes the descriptor, so the last validated mode stays on the wire across a crash, a relaunch and a restart (`docs/spec/kms.md`).
 
+SIGTERM or SIGINT stops the launcher cleanly: it forwards SIGTERM to the frontend once, waits for it to end, starts no new run and exits. No orphan frontend keeps DRM master. The launcher looks at its child and at the signal every 20 ms (`CHILD_POLL`). The flag comes from `signal-hook` and the forward from `rustix`, both workspace dependencies, with no `unsafe` code.
+
 A frontend that cannot start stops the launcher with an error. The init system restarts the launcher, which opens the device again.
 
 ## What it does not do
@@ -38,7 +40,6 @@ A frontend that cannot start stops the launcher with an error. The init system r
 - It reads no input. The blind recovery before `Guard::boot` is the frontend's job: the frontend boots the guard before its first frame, and from that first frame the input hotkeys count the 5 s hold of Select and Start, also for a combination held from power-on (the input sources report the keys held when they open). The gap is the start time of the frontend, about one second.
 - A failed boot is counted by the frontend, not here. The frontend writes its guard record, with this start counted, before the first modeset and before every step that can fail for a reason other than the display; a missing sound device or gamepad does not stop it. So a frontend that keeps failing after that write starts in safe mode at its third start (two failed boots, then safe mode). A start that fails before the write is not counted: the display cannot open (`KmsDisplay::from_env`), or no safe monitor profile is installed. Such a start sets no mode, and the launcher keeps the last mode on the wire while it restarts the frontend with its backoff.
 - It sets no mode and makes no commit. Blanking an analog output before the first frontend commits (the safety model, "Shortening the 31 kHz window on x86") needs DRM code here and is not done in the MVP.
-- It handles no signal. A `SIGTERM` stops the launcher; the frontend keeps running until it exits.
 
 ## Must never depend on
 
@@ -49,7 +50,7 @@ A frontend that cannot start stops the launcher with an error. The init system r
 
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
 - No features.
-- Dependencies: `neptron-kms` with default features for the DRM node check (no DRM code compiles), `rustix` to clear close-on-exec, `thiserror`.
+- Dependencies: `neptron-kms` with default features for the DRM node check (no DRM code compiles), `rustix` (`process`) to clear close-on-exec and to forward a signal, `signal-hook` for the stop flag, `thiserror`.
 
 ## Tests
 

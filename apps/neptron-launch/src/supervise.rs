@@ -13,6 +13,9 @@ pub trait Frontend {
     ///
     /// The process could not start, or the wait failed.
     fn run(&mut self) -> io::Result<Option<i32>>;
+
+    /// A stop signal came: the supervisor starts no new run.
+    fn stopping(&self) -> bool;
 }
 
 /// The time of the supervisor: a monotonic clock and a wait.
@@ -37,7 +40,8 @@ pub enum SuperviseError {
     },
 }
 
-/// Runs the frontend until it quits with exit code 0. A crash starts it
+/// Runs the frontend until it quits with exit code 0, or until a stop
+/// signal ends the run that holds it. A crash starts it
 /// again after the wait of the [`Backoff`]; a relaunch starts it again at
 /// once. Returns the number of runs.
 ///
@@ -59,6 +63,9 @@ pub fn supervise<F: Frontend, T: Time>(
         runs += 1;
         let now_ns = time.now_ns();
         let ran_ns = now_ns.saturating_sub(started_ns);
+        if frontend.stopping() {
+            return Ok(runs);
+        }
         let exit = Exit::of_code(code);
         match backoff.after(exit, ran_ns, now_ns) {
             Next::Stop => return Ok(runs),
@@ -73,6 +80,9 @@ pub fn supervise<F: Frontend, T: Time>(
                 }
                 if after_ns > 0 {
                     time.wait_ns(after_ns);
+                }
+                if frontend.stopping() {
+                    return Ok(runs);
                 }
             }
         }
@@ -89,14 +99,22 @@ mod tests {
     struct FakeFrontend<'a> {
         script: Vec<(u64, io::Result<Option<i32>>)>,
         clock: &'a std::cell::Cell<u64>,
+        /// The run after which a stop signal comes.
+        stop_after: Option<usize>,
+        runs: usize,
     }
 
     impl Frontend for FakeFrontend<'_> {
         fn run(&mut self) -> io::Result<Option<i32>> {
             assert!(!self.script.is_empty(), "the script ended");
+            self.runs += 1;
             let (ran_ns, result) = self.script.remove(0);
             self.clock.set(self.clock.get() + ran_ns);
             result
+        }
+
+        fn stopping(&self) -> bool {
+            self.stop_after.is_some_and(|n| self.runs >= n)
         }
     }
 
@@ -117,10 +135,19 @@ mod tests {
     }
 
     fn run(script: Vec<(u64, io::Result<Option<i32>>)>) -> (Result<u64, SuperviseError>, Vec<u64>) {
+        run_stopping(script, None)
+    }
+
+    fn run_stopping(
+        script: Vec<(u64, io::Result<Option<i32>>)>,
+        stop_after: Option<usize>,
+    ) -> (Result<u64, SuperviseError>, Vec<u64>) {
         let clock = std::cell::Cell::new(0);
         let mut frontend = FakeFrontend {
             script,
             clock: &clock,
+            stop_after,
+            runs: 0,
         };
         let mut time = FakeTime {
             clock: &clock,
@@ -165,6 +192,20 @@ mod tests {
         let (result, waits) = run(script);
         assert_eq!(result.expect("a quit"), 13);
         assert_eq!(waits, [BACKOFF_FIRST_NS, 2 * BACKOFF_FIRST_NS]);
+    }
+
+    #[test]
+    fn a_stop_signal_ends_the_supervisor_after_the_run() {
+        let (result, waits) = run_stopping(
+            vec![
+                (1_000, Ok(Some(1))),
+                (1_000, Ok(None)),
+                (1_000, Ok(Some(0))),
+            ],
+            Some(2),
+        );
+        assert_eq!(result.expect("a stop"), 2, "no third run after the signal");
+        assert_eq!(waits, [BACKOFF_FIRST_NS]);
     }
 
     #[test]
