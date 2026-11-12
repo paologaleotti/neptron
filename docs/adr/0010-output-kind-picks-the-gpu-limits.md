@@ -1,6 +1,6 @@
 # 0010: The output kind picks the GPU limits
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-12
 - Task: C08
 

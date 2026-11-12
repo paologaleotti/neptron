@@ -331,10 +331,10 @@ status = "merged"
 id = "C08"
 wave = 6
 name = "Flat panels: detect an HD panel, use its native mode, whole-scale games with black borders"
-owns = ["apps/neptron", "crates/neptron-platform", "crates/neptron-video (monitor only)"]
+owns = ["apps/neptron", "crates/neptron-platform", "crates/neptron-video (monitor, status)", "crates/neptron-types (output kind)", "crates/neptron-kms (subconnector, lower_caps)", "crates/neptron-modeline (panel filter)", "data/hardware", "docs/adr"]
 needs = ["T27"]
 gate = "T1 and T2; a tier 2 case on a fake HD panel; scenes or captures viewed"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C09"

@@ -418,3 +418,16 @@ These need a Raspberry Pi 3 or a 15 kHz display (a SCART TV or an arcade monitor
   - Do: a release build, and the CPU share of `AudioPipeline::end_frame` with Sinc.
   - Expect: 3 to 4 % of one core.
   - Record: the share. Use Polynomial if it is over budget.
+
+## C08 flat panels
+
+Each check is `needs-hardware`.
+
+- [ ] The bench (DP-to-VGA bridge, SyncMaster 740s). Do: start with `display.monitor = "auto"` and read the display panel. Expect: the CRT path, never the panel path; the limits are 165 MHz and 1920x1200. Record: the `subconnector` value and the profile id.
+- [ ] An HDMI 1080p panel on the HD 530. Do: first boot with no settings. Expect: 1920x1080 at 60 Hz under the confirm prompt, the menu at 4x and centred; after a confirmation, the next boot has no prompt. A SNES game is 1194x896, centred, sharp, with black around it. Record: the mode line of the Video block.
+- [ ] The same panel, no confirmation. Do: let the prompt time out, then press a button once. Expect: no picture after 10 s, the prompt again after the press, and no further offer in that run.
+- [ ] A 4K panel on DisplayPort. Expect: 3840x2160 at 60 Hz. Record: whether the start succeeds and the frame times.
+- [ ] A 4K panel on HDMI. Expect: 1920x1080 at 60 Hz with the notice.
+- [ ] A 720p TV. Expect: 1280x720, and 50 Hz for a PAL game.
+- [ ] An HDMI-to-VGA adapter with its own digital EDID, with a PC monitor behind it, never a 15 kHz tube. Expect: at most two windows of the panel mode, then the safe start. Record: what the monitor shows.
+
