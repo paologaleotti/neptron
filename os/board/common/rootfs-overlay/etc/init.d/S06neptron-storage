@@ -7,8 +7,10 @@
 #
 # The image has no share partition. On the first boot it is made from the
 # free space after the state partition and formatted exFAT, as the
-# definition asks. A partition 4 that exists is never formatted again, also
-# when it does not mount: it can hold the games of the user.
+# definition asks. A partition is formatted only when it holds no
+# filesystem signature at all: after the stick was written again with a new
+# image, the old share is still on the disk at the same start, and the
+# partition made again over it finds it and keeps it with its games.
 
 [ "$1" = start ] || exit 0
 
@@ -32,6 +34,7 @@ partition() {
 root=$(mountpoint -d /)
 root_dir=$(readlink -f "/sys/dev/block/$root")
 disk=${root_dir%/*}
+disk_dev=/dev/${disk##*/}
 
 # e2fsck -p exits with 0 (clean), 1 or 2 (errors corrected); 4 and above
 # leave errors, and then the state partition is not mounted for writing.
@@ -54,38 +57,83 @@ fi
 # The smallest free space that becomes a share partition, in 512-byte
 # sectors (64 MiB).
 SHARE_MIN_SECTORS=131072
+# sfdisk starts a new partition on the next 1 MiB boundary, in sectors.
+ALIGN_SECTORS=2048
 
-make_share() {
-	state_dir=/sys/class/block/${state#/dev/}
-	disk_sectors=$(cat "$disk/size")
-	state_end=$(($(cat "$state_dir/start") + $(cat "$state_dir/size")))
-	free=$((disk_sectors - state_end))
+sectors() {
+	cat "/sys/class/block/${1#/dev/}/$2"
+}
+
+state_end() {
+	echo $(($(sectors "$state" start) + $(sectors "$state" size)))
+}
+
+# 0 when the partition holds a filesystem or another signature, 1 when it
+# holds none, 2 when the probe fails (then nothing may be formatted).
+signature() {
+	blkid -p "$1" > /dev/null 2>&1
+	case $? in
+	0) return 0 ;;
+	2) return 1 ;;
+	*) return 2 ;;
+	esac
+}
+
+# A partition 4 that this script made: type 0x07 and its start at the
+# first 1 MiB boundary after the state partition.
+is_our_share() {
+	start=$(sectors "$1" start)
+	end=$(state_end)
+	[ "$(sfdisk --part-type "$disk_dev" 4 2>/dev/null)" = 7 ] &&
+		[ "$start" -ge "$end" ] && [ "$start" -lt $((end + ALIGN_SECTORS)) ]
+}
+
+make_partition() {
+	free=$(($(cat "$disk/size") - $(state_end)))
 	if [ "$free" -lt "$SHARE_MIN_SECTORS" ]; then
 		echo "neptron-storage: $free free sectors after the state partition, no share partition made"
 		return 1
 	fi
-	echo "neptron-storage: first boot, making the share partition from $free free sectors"
+	echo "neptron-storage: making partition 4 from $free free sectors"
 	# The root and state partitions of this disk are mounted, so sfdisk
 	# refuses the disk unless forced, and the kernel cannot read the whole
 	# table again. Appending partition 4 leaves the other partitions as
 	# they are, and partx adds only the new one to the kernel.
-	echo ',,7' | sfdisk --quiet --force --no-reread --append "/dev/${disk##*/}" || return 1
-	partx --add --nr 4 "/dev/${disk##*/}" || return 1
-	share=$(partition "$disk" 4) || {
-		echo "neptron-storage: the kernel does not see the new partition yet; it is used after a restart"
+	echo ',,7' | sfdisk --quiet --force --no-reread --append "$disk_dev" || return 1
+	partx --add --nr 4 "$disk_dev" || {
+		echo "neptron-storage: the kernel does not see partition 4; the next boot uses it"
 		return 1
 	}
+}
+
+# Formats partition 4 only when it is ours and holds no signature at all.
+# A partition that holds anything is mounted as it is, never formatted.
+prepare_share() {
+	signature "$share"
+	case $? in
+	0) return 0 ;;
+	2)
+		echo "neptron-storage: cannot probe $share; it is not formatted"
+		return 1
+		;;
+	esac
+	if ! is_our_share "$share"; then
+		echo "neptron-storage: $share holds no filesystem and is not the share partition of this image; it is not formatted"
+		return 1
+	fi
+	echo "neptron-storage: $share holds no filesystem; formatting it exFAT"
 	mkfs.exfat -L NEPTRON "$share"
 }
 
 share=$(partition "$disk" 4)
-if [ -z "$share" ] && [ -n "$state" ] && make_share; then
+if [ -z "$share" ] && [ -n "$state" ] && make_partition; then
 	share=$(partition "$disk" 4)
 fi
-if [ -n "$share" ]; then
-	mount -t exfat -o noatime,iocharset=utf8 "$share" /share || mount -t tmpfs -o mode=0755 share /share
+if [ -n "$share" ] && prepare_share &&
+	mount -t exfat -o noatime,iocharset=utf8 "$share" /share; then
+	echo "neptron-storage: $share mounted at /share"
 else
-	echo "neptron-storage: no share partition, /share is a RAM folder"
+	echo "neptron-storage: no usable share partition, /share is a RAM folder"
 	mount -t tmpfs -o mode=0755 share /share
 fi
 
