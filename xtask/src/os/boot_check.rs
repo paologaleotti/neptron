@@ -485,8 +485,14 @@ impl Report<'_> {
         let host =
             |d: Option<Duration>| ms(d.map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)));
         let mut text = String::new();
+        let kind = match self.accel {
+            Accel::Tcg => "emulated CPU: emulated times, not hardware times",
+            Accel::Hvf | Accel::Kvm => {
+                "virtual machine: times of a virtual machine, not hardware times"
+            }
+        };
         text.push_str(&format!(
-            "boot-check {}: QEMU {} (emulated time, not a hardware time)\n",
+            "boot-check {}: QEMU {} ({kind})\n",
             self.label,
             self.accel.name()
         ));
@@ -804,7 +810,7 @@ mod tests {
         }
         .text();
         assert!(
-            text.contains("emulated time, not a hardware time"),
+            text.contains("QEMU tcg (emulated CPU: emulated times, not hardware times)"),
             "{text}"
         );
         assert!(
