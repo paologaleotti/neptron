@@ -242,6 +242,68 @@ fn a_read_back_with_another_pixel_clock_is_kept() {
     }
 }
 
+/// A veto that refuses only `mode`.
+fn veto_only(mode: Modeline) -> neptron_video::Veto {
+    Box::new(move |m: &Modeline| if *m == mode { refuse_all(m) } else { Ok(()) })
+}
+
+#[test]
+fn a_refused_read_back_of_the_same_requested_mode_is_set_again() {
+    let mut rig = Rig::generic_15(native_width());
+    let asked = mode_for(generic_15(), native_width(), MD_H40);
+    let rounded = Modeline {
+        pclock_hz: asked.pclock_hz + 1,
+        ..asked
+    };
+    rig.fake.fault_mode(0, ModeFault::ReadBack(rounded));
+    rig.frame(MD_H40);
+    rig.engine.set_veto(veto_only(rounded));
+    assert!(rig.engine.current_refused());
+    let step = rig.frame(MD_H40);
+    assert_eq!(step.directive, Directive::Modeset, "not a rescale");
+    assert_eq!(rig.fake.mode_calls()[1].requested, asked);
+    assert_eq!(rig.engine.current().unwrap().read_back, asked);
+    assert!(!rig.engine.current_refused());
+}
+
+#[test]
+fn a_driver_that_always_rounds_to_a_refused_mode_ends_after_the_candidates() {
+    let mut rig = Rig::generic_15(native_width());
+    let asked = mode_for(generic_15(), native_width(), MD_H40);
+    let rounded = Modeline {
+        pclock_hz: asked.pclock_hz + 1,
+        ..asked
+    };
+    rig.fake
+        .fault_requested_mode(asked, ModeFault::ReadBack(rounded));
+    rig.frame(MD_H40);
+    rig.engine.set_veto(veto_only(rounded));
+    for _ in 0..20 {
+        // A frame with no mode returns NoMode; the test counts set_mode calls.
+        let _ = rig.try_frame(MD_H40).map(drop);
+    }
+    let asks = rig
+        .fake
+        .mode_calls()
+        .iter()
+        .filter(|c| c.requested == asked)
+        .count();
+    assert_eq!(asks, 2, "set again once, then refused by the driver");
+    match rig.engine.current() {
+        Some(current) => {
+            assert_ne!(current.read_back, rounded);
+            assert!(!rig.engine.current_refused());
+        }
+        None => assert!(rig.engine.current_refused()),
+    }
+    let calls = rig.fake.mode_calls().len();
+    for _ in 0..5 {
+        // As above: only the set_mode calls count.
+        let _ = rig.try_frame(MD_H40).map(drop);
+    }
+    assert_eq!(rig.fake.mode_calls().len(), calls, "no set_mode storm");
+}
+
 #[test]
 fn a_failed_restore_is_an_error_and_the_engine_decides_again() {
     let mut rig = Rig::generic_15(native_width());

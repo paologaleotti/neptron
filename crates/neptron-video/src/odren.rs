@@ -359,15 +359,13 @@ impl Odren {
             }
             return Directive::Kept;
         };
-        let current = self.current.as_ref().map(|c| c.chosen.token.mode());
-        match switch_for(current, winner.token.mode()) {
+        match self.switch_to(&winner) {
             Switch::ScaleOnly => {
                 let record = self.record(trigger, request, Some(winner.clone()), None);
                 if let Some(current) = &mut self.current {
                     current.chosen = winner;
                     current.source = source;
                 }
-                self.refused_on_screen = false;
                 self.request = None;
                 self.trace.push(SwitchRecord {
                     outcome: Outcome::ScaleOnly,
@@ -391,6 +389,26 @@ impl Odren {
                 Directive::Modeset
             }
         }
+    }
+
+    /// Step 7, judged on the mode on the display. `switch_for` compares
+    /// the requested modes, but the display holds the read back, which the
+    /// driver may have rounded. When the inputs refuse the mode on the
+    /// display, a winner equal to the requested mode is set again, so that
+    /// a refused mode never stays on screen behind a scale-only change.
+    /// The read back of that modeset is checked as usual, and a refused one
+    /// leaves the candidate list with the next one following, so the loop
+    /// ends with the list.
+    fn switch_to(&self, winner: &Chosen) -> Switch {
+        let Some(current) = &self.current else {
+            return Switch::Modeset;
+        };
+        let on_screen_refused =
+            self.refused_on_screen || self.inputs.check(&current.read_back).is_err();
+        if on_screen_refused {
+            return Switch::Modeset;
+        }
+        switch_for(Some(current.chosen.token.mode()), winner.token.mode())
     }
 
     /// Takes the result of `set_mode` for the pending modeset.
