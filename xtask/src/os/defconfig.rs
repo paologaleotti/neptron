@@ -157,10 +157,28 @@ mod tests {
             "CONFIG_DRM_SIMPLEDRM",
             "CONFIG_SYSFB_SIMPLEFB",
             "CONFIG_DRM_PANIC",
+            "CONFIG_DRM_EFIDRM",
+            "CONFIG_DRM_VESADRM",
+            "CONFIG_DRM_CLIENT_LOG",
         ] {
             assert_eq!(video[option], "n", "{option}");
         }
         assert_eq!(fragment("board/pc/console.config")["CONFIG_EXPERT"], "y");
+        let post_build = std::fs::read_to_string(os_dir().join("board/pc/post-build.sh")).unwrap();
+        for name in [
+            "VT FB DRM_FBDEV_EMULATION FRAMEBUFFER_CONSOLE DRM_SIMPLEDRM",
+            "SYSFB_SIMPLEFB",
+            "DRM_SIMPLEDRM",
+            "DRM_PANIC",
+            "DRM_EFIDRM",
+            "DRM_VESADRM",
+            "DRM_CLIENT_LOG",
+        ] {
+            assert!(
+                post_build.contains(name),
+                "post-build does not check {name}"
+            );
+        }
     }
 
     #[test]
