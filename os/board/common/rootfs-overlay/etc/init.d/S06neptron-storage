@@ -88,7 +88,8 @@ signature() {
 is_our_share() {
 	start=$(sectors "$1" start)
 	end=$(state_end)
-	[ "$(sfdisk --part-type "$disk_dev" 4 2>/dev/null)" = 7 ] &&
+	# sfdisk prints the MBR type with a leading space (" 7").
+	[ "$(sfdisk --part-type "$disk_dev" 4 2>/dev/null | tr -d ' ')" = 7 ] &&
 		[ "$start" -ge "$end" ] && [ "$start" -lt $((end + ALIGN_SECTORS)) ]
 }
 
