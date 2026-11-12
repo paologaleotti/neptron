@@ -100,7 +100,7 @@ On `pc_31_120` with the values of an Intel gen9 GPU the plan is 240p at 120 Hz (
 1. `set_mode` with the mode's `ValidatedMode`. On KMS this is a test-only commit, then the real one. `ModeRefused` is a refused test-only commit, and a device error of the operation `modeset commit` (`KMS_COMMIT_OPERATION`) is a refused real commit: a commit is all or nothing, so the mode before stays, and the run goes on with the next mode. Any other error of `set_mode` leaves the display state unknown, and the run stops and turns the output off.
 2. The read back is compared field by field with the request and validated again. A read back that fails `validate` stops the run at once and turns the output off. A read back that differs but passes fails the mode, and the run goes on; the pattern does not show, because it is drawn for the request.
 3. The pattern shows for `seconds_per_mode`: `present`, then `wait_flip`, until the clock passes the time. The pattern is a white border on the outermost pixels of all four edges, a centre cross, eight colour bars at 75 %, and four lines of text: the family, the size and scan, the line and field rates, the pixel clock. The text is a 5x7 font of the tool (`neptron-ui` and its font are only for the app). The frame is at most 512 pixels wide (`PATTERN_WIDTH_MAX_PX`): the GLES renderer uploads each byte of a row as one texel, so a pixel takes 4 texels (`TEXELS_PER_PIXEL`), and 2048 texels (`TEXTURE_SIDE_MAX_TEXELS`) is the `GL_MAX_TEXTURE_SIZE` of vc4, the smallest of the supported GPUs. A wider mode gets a frame narrower by a whole factor (`width_factor`: the smallest that divides the width, when one fits), which the renderer scales back with nearest sampling. The border stays on the outermost pixels of the mode, and no present fails on the texture size. A failed wait is tried `FLIP_WAIT_RETRIES` (2) more times; then the flip stays queued and the run stops.
-4. The timing comes from the kernel's vblank counter and time stamps of the flip events: the mean vertical blank period over the whole time, the expected period of the mode (a field; for an interlaced mode a field or a frame, whichever is nearer, as `vblank_unit` says), the error in ppm, the pixel clock that the period implies, the flips per second and the vertical blanks with no flip.
+4. The timing comes from the kernel's vblank counter and time stamps of the flip events: the mean vertical blank period over the whole time, the expected period of the mode (a field; for an interlaced mode a field when the capability table gives `flip_per_field`, and a frame when it does not; for a GPU that the table does not know, the nearer of the two, with `unit_assumed` true; `vblank_unit` says which), the error in ppm, the pixel clock that the period implies, the flips per second and the vertical blanks with no flip.
 5. The stop flag (SIGINT, SIGTERM, SIGHUP in the real run) is read before each flip and before each mode.
 
 At the end, on a stop and on an error with the display state unknown, the run calls `blank()`: the output goes off. The state before the run cannot be read back and validated through `KmsDisplay`, so no signal is the restore, as the safety model allows. With a flip still queued, the backend refuses the blank as busy and the report says so; the backend's drop then turns the plane off with the validated mode kept, or the output off.
@@ -109,11 +109,11 @@ A mode passes when (`src/selftest/verdict.rs`): both commits passed; a mode was 
 
 ### The report
 
-One JSON file, written as a temporary file in the same folder, fsync, rename, and fsync of the folder, so a reader sees a whole report or the one before. `report_version` is 1. The format is append-only: a new field gets a new version, and no field is renamed or removed. Every value is an integer or a text: rates in millihertz, times in nanoseconds, clocks in hertz. A value that the run did not measure is `null`.
+One JSON file, written as a temporary file in the same folder, fsync, rename, and fsync of the folder, so a reader sees a whole report or the one before. `report_version` is 2; version 2 adds `timing.unit_assumed`, and a version 1 report reads it as false. The format is append-only: a new field gets a new version, and no field is renamed or removed. Every value is an integer or a text: rates in millihertz, times in nanoseconds, clocks in hertz. A value that the run did not measure is `null`.
 
 | Field | Meaning |
 | --- | --- |
-| `report_version` | 1 |
+| `report_version` | 2 |
 | `tool` | `name` and `version` of the program |
 | `dry_run` | True when no mode was set |
 | `state` | `planned` (dry run), `running` (written before the first mode and after each mode), `finished`, `stopped` |
@@ -131,7 +131,7 @@ One JSON file, written as a temporary file in the same folder, fsync, rename, an
 | `modes[].readback_equal`, `.readback_differences[]` | Equal in every field, and each field that differs: `field`, `requested`, `read_back` (a flag is 0 or 1) |
 | `modes[].readback_valid`, `.readback_rejection` | The read back passes `validate`, or why not |
 | `modes[].shown_ns` | How long the pattern showed |
-| `modes[].timing` | `flips`, `vblanks`, `missed_vblanks`, `flips_per_second_mhz`, `vblank_period_ns`, `expected_period_ns`, `vblank_unit` (`field` or `frame`), `period_error_ppm`, `implied_pclock_hz` |
+| `modes[].timing` | `flips`, `vblanks`, `missed_vblanks`, `flips_per_second_mhz`, `vblank_period_ns`, `expected_period_ns`, `vblank_unit` (`field` or `frame`), `period_error_ppm`, `implied_pclock_hz`, `unit_assumed` (version 2) |
 | `modes[].errors`, `.pass`, `.failures` | Display errors in the mode, the verdict, and each check that failed |
 | `restore` | `method` (`blank`), `ok`, `error`; `null` when no mode was set |
 | `stopped`, `errors` | Why the run stopped early, and errors outside one mode |

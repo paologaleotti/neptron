@@ -14,6 +14,7 @@ use super::family::{PlannedMode, describe};
 use super::monitor::Setup;
 use super::report::{self, DisplayReport, ModeReport, Report, RunState};
 use super::show::{Run, Shown};
+use super::timing::BlankUnit;
 use super::verdict::judge_run;
 
 /// Everything the run needs besides the display.
@@ -66,6 +67,10 @@ pub fn run<D: Display, C: Clock>(
         profile: &inputs.setup.profile,
         caps: &inputs.setup.caps,
         seconds_per_mode: seconds,
+        blank_unit: BlankUnit::of_caps(
+            inputs.setup.caps.flip_per_field,
+            inputs.setup.gpu.table_entry.is_some(),
+        ),
         stop: inputs.stop,
     };
     let mut progress = report.clone();

@@ -160,6 +160,7 @@ mod tests {
                 vblank_unit: Some("field".into()),
                 period_error_ppm: Some(0),
                 implied_pclock_hz: Some(25_175_000),
+                unit_assumed: false,
             }),
             errors: Vec::new(),
             pass: None,

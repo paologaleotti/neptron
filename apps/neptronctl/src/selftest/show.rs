@@ -12,7 +12,7 @@ use neptron_types::{FlipEvent, GpuCaps, Modeline, MonitorProfile};
 use super::family::PlannedMode;
 use super::pattern::{Pattern, label_lines};
 use super::report::{FieldDifference, ModeReport, RestoreReport, RunState, Step, StepResult};
-use super::timing::stats;
+use super::timing::{BlankUnit, stats};
 use super::verdict::judge_mode;
 
 /// The operation name of a refused real commit in `neptron-kms`. The
@@ -50,6 +50,9 @@ pub struct Run<'a, C: Clock> {
     pub caps: &'a GpuCaps,
     /// The display time of each mode.
     pub seconds_per_mode: u32,
+    /// What one vertical blank of an interlaced mode is; `None` when the
+    /// capability table does not say.
+    pub blank_unit: Option<BlankUnit>,
     /// Set by a stop signal. The loop reads it before each flip.
     pub stop: &'a AtomicBool,
 }
@@ -193,7 +196,7 @@ impl<C: Clock> Run<'_, C> {
             }
         }
         report.shown_ns = Some(self.clock.now_ns().saturating_sub(start));
-        report.timing = Some(stats(&flips, mode));
+        report.timing = Some(stats(&flips, mode, self.blank_unit));
         result
     }
 }
@@ -281,6 +284,7 @@ mod tests {
         profile: MonitorProfile,
         caps: GpuCaps,
         modes: Vec<PlannedMode>,
+        blank_unit: Option<BlankUnit>,
         stop: AtomicBool,
     }
 
@@ -302,6 +306,7 @@ mod tests {
             profile,
             caps,
             modes,
+            blank_unit: None,
             stop: AtomicBool::new(false),
         }
     }
@@ -317,6 +322,7 @@ mod tests {
                 profile: &self.profile,
                 caps: &self.caps,
                 seconds_per_mode: 10,
+                blank_unit: self.blank_unit,
                 stop: &self.stop,
             };
             let mut calls = 0;
@@ -382,10 +388,30 @@ mod tests {
         assert_eq!(i.pass, Some(true), "{:?}", i.failures);
         let t = i.timing.as_ref().unwrap();
         assert_eq!(t.vblank_unit.as_deref(), Some("field"));
+        assert!(t.unit_assumed, "the GPU is not in the table");
         assert!(
             t.missed_vblanks > 0,
             "a flip lands once per frame without flip_per_field"
         );
+    }
+
+    #[test]
+    fn a_gpu_of_the_table_that_flips_per_field_is_measured_per_field() {
+        let caps = GpuCaps {
+            pclock_min_hz: 0,
+            interlace: true,
+            flip_per_field: true,
+            ..UNKNOWN_GPU_CAPS
+        };
+        let mut b = bench("generic_15", caps);
+        b.blank_unit = BlankUnit::of_caps(caps.flip_per_field, true);
+        let (shown, _) = b.run();
+        let i = shown.modes.iter().find(|m| m.family == "480i").unwrap();
+        assert_eq!(i.pass, Some(true), "{:?}", i.failures);
+        let t = i.timing.as_ref().unwrap();
+        assert_eq!(t.vblank_unit.as_deref(), Some("field"));
+        assert!(!t.unit_assumed);
+        assert_eq!(t.missed_vblanks, 0);
     }
 
     #[test]

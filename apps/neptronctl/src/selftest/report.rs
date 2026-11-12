@@ -13,7 +13,7 @@ use super::family::{Outcome, PlannedMode, PolicyFacts};
 use super::monitor::Setup;
 
 /// The version of the report format.
-pub const REPORT_VERSION: u32 = 1;
+pub const REPORT_VERSION: u32 = 2;
 
 /// The whole report of one run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,6 +262,11 @@ pub struct TimingReport {
     pub period_error_ppm: Option<u64>,
     /// The pixel clock that the measured period gives, in hertz.
     pub implied_pclock_hz: Option<u64>,
+    /// Version 2: true when an interlaced mode's unit is the nearer of
+    /// field and frame, because the capability table does not know the
+    /// GPU. A version 1 report reads as false.
+    #[serde(default)]
+    pub unit_assumed: bool,
 }
 
 /// How the display was left.
@@ -519,7 +524,7 @@ pub(crate) mod tests {
         assert_eq!(read(&path).unwrap(), report);
         let value: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(value["report_version"], 1);
+        assert_eq!(value["report_version"], 2);
         assert_eq!(value["state"], "planned");
         assert_eq!(value["profile"]["id"], "generic_15");
         assert!(value["modes"][0]["request"]["pclock_hz"].is_u64());
