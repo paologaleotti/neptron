@@ -14,10 +14,15 @@ use super::qemu::{Job, QemuArgs};
 use super::{Arch, OsError, build, cross};
 use crate::repo::Repo;
 
-/// The profiles the check runs: a 31 kHz PC monitor and the 15 kHz safe
-/// start. On `vkms` the GPU is unknown, so both get the conservative GPU
-/// values.
-pub const PROFILES: [&str; 2] = ["pc_31_120", "generic_15"];
+/// The profiles the check runs, each with the number of modes its plan
+/// has: a 31 kHz PC monitor and the 15 kHz safe start. On `vkms` the GPU
+/// is unknown, so both get the conservative GPU values. A run with fewer
+/// modes fails, so a family that stops showing is found.
+pub const PROFILES: [(&str, usize); 2] = [("pc_31_120", 4), ("generic_15", 4)];
+/// The driver of the guest's display.
+pub const GUEST_DRIVER: &str = "vkms";
+/// The text that the refused run must give on standard error.
+pub const REFUSAL_TEXT: &str = "the confirmation names \\\"not_";
 /// The display time of each mode in the guest, in seconds: enough flips
 /// for the period with software GL in the dev build.
 pub const SECONDS_PER_MODE_S: u32 = 2;
@@ -33,6 +38,7 @@ const GUEST_DIR: &str = "/mnt/host";
 const REPORT_LINE: &str = "selftest-report";
 const EXIT_LINE: &str = "selftest-exit";
 const REFUSAL_LINE: &str = "selftest-refusal-exit";
+const REFUSAL_ERROR_LINE: &str = "selftest-refusal-error";
 
 /// Runs the check: build, guest run, report checks. The exit code is 0
 /// when every report passes.
@@ -58,7 +64,8 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
     )?;
     build_program(&repo.root, &cache, arch, &share)?;
     let script = work.join("run.sh");
-    super::write_file(&script, &guest_script(&PROFILES, SECONDS_PER_MODE_S))?;
+    let names: Vec<&str> = PROFILES.iter().map(|(name, _)| *name).collect();
+    super::write_file(&script, &guest_script(&names, SECONDS_PER_MODE_S))?;
     let qemu = QemuArgs {
         arch,
         images: None,
@@ -90,15 +97,17 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
 }
 
 /// The guest script: a refused run (a confirmation that names another
-/// profile), then each profile on `vkms`, each followed by its exit code
-/// and its report on one line.
+/// profile) with its exit code and its standard error, then each profile
+/// on `vkms`, each followed by its exit code and its report on one line.
 pub fn guest_script(profiles: &[&str], seconds: u32) -> String {
     let program = format!("{GUEST_DIR}/{PACKAGE}");
     let common = format!("--monitors {GUEST_DIR}/monitors --device /dev/dri/card0");
     let mut s = String::from("f=0\n");
     s.push_str(&format!(
         "{program} selftest video --profile {p} {common} --report /tmp/refused.json \
-         --i-have-checked-the-monitor not_{p}\necho \"{REFUSAL_LINE} $?\"\n",
+         --i-have-checked-the-monitor not_{p} 2>/tmp/refused.err\n\
+         echo \"{REFUSAL_LINE} $?\"\n\
+         printf '{REFUSAL_ERROR_LINE} '; tr -d '\\n' < /tmp/refused.err; echo\n",
         p = profiles.first().copied().unwrap_or("pc_31_120"),
     ));
     for p in profiles {
@@ -124,6 +133,8 @@ pub struct Output {
     pub exits: Vec<(String, i32)>,
     /// The exit code of the refused run.
     pub refusal: Option<i32>,
+    /// The standard error of the refused run.
+    pub refusal_error: Option<String>,
     /// A report line that is not JSON.
     pub broken: Vec<String>,
     /// Every other line: the tool's own text.
@@ -146,6 +157,11 @@ impl Output {
                         .push(((*profile).to_owned(), code.trim().parse().unwrap_or(-1)));
                 }
                 [REFUSAL_LINE, code] => out.refusal = code.trim().parse().ok(),
+                [REFUSAL_ERROR_LINE, ..] => {
+                    out.refusal_error = line
+                        .strip_prefix(REFUSAL_ERROR_LINE)
+                        .map(|rest| rest.trim().to_owned());
+                }
                 _ => out.other.push(line.to_owned()),
             }
         }
@@ -154,9 +170,9 @@ impl Output {
 }
 
 /// Every failure of the output: a profile with no report or no exit code
-/// 0, a broken report line, a refusal that did not refuse, and each
-/// failure of a report.
-pub fn check_output(output: &Output, profiles: &[&str]) -> Vec<String> {
+/// 0, a broken report line, a refusal that did not refuse or gave another
+/// reason, and each failure of a report.
+pub fn check_output(output: &Output, profiles: &[(&str, usize)]) -> Vec<String> {
     let mut failures = Vec::new();
     if output.refusal != Some(REFUSED_EXIT_CODE) {
         failures.push(format!(
@@ -164,10 +180,20 @@ pub fn check_output(output: &Output, profiles: &[&str]) -> Vec<String> {
             output.refusal
         ));
     }
+    if !output
+        .refusal_error
+        .as_deref()
+        .is_some_and(|e| e.contains(REFUSAL_TEXT))
+    {
+        failures.push(format!(
+            "the refused run did not name the confirmation: {:?}",
+            output.refusal_error
+        ));
+    }
     for profile in &output.broken {
         failures.push(format!("{profile}: the report line is not JSON"));
     }
-    for p in profiles {
+    for (p, expected_modes) in profiles {
         match output.exits.iter().find(|(name, _)| name == p) {
             Some((_, 0)) => {}
             Some((_, code)) => failures.push(format!("{p}: neptronctl exited with {code}")),
@@ -176,7 +202,7 @@ pub fn check_output(output: &Output, profiles: &[&str]) -> Vec<String> {
         match output.reports.iter().find(|(name, _)| name == p) {
             Some((_, report)) => {
                 failures.extend(
-                    check_report(report)
+                    check_report(report, *expected_modes)
                         .into_iter()
                         .map(|f| format!("{p}: {f}")),
                 );
@@ -187,17 +213,22 @@ pub fn check_output(output: &Output, profiles: &[&str]) -> Vec<String> {
     failures
 }
 
-/// The failures of one report: the run on a display finished and passed,
-/// with at least one mode; every mode passed with its read back equal to
-/// the request and valid; the output went off at the end.
-pub fn check_report(report: &Value) -> Vec<String> {
+/// The failures of one report: the run on `vkms` finished and passed,
+/// with `expected_modes` modes, as many as its plan has; every mode passed
+/// with its read back equal to the request and valid; the output went off
+/// at the end.
+pub fn check_report(report: &Value, expected_modes: usize) -> Vec<String> {
     let mut failures = Vec::new();
     let mut expect = |ok: bool, what: &str| {
         if !ok {
             failures.push(what.to_owned());
         }
     };
-    expect(report["report_version"] == 1, "report_version is not 1");
+    expect(report["report_version"] == 2, "report_version is not 2");
+    expect(
+        report["display"]["driver"] == GUEST_DRIVER,
+        "the display driver is not vkms",
+    );
     expect(report["dry_run"] == false, "the run was a dry run");
     expect(report["state"] == "finished", "the run did not finish");
     expect(report["pass"] == true, "the report does not pass");
@@ -206,7 +237,15 @@ pub fn check_report(report: &Value) -> Vec<String> {
         "the restore did not succeed",
     );
     let modes = report["modes"].as_array().map_or(&[][..], Vec::as_slice);
-    expect(!modes.is_empty(), "no mode ran");
+    let planned = report["families"]
+        .as_array()
+        .map_or(0, |f| f.iter().filter(|f| f["result"] == "planned").count());
+    if modes.len() != expected_modes || planned != expected_modes {
+        failures.push(format!(
+            "{} modes ran and {planned} were planned, not {expected_modes}",
+            modes.len()
+        ));
+    }
     for m in modes {
         let family = m["family"].as_str().unwrap_or("?");
         if m["pass"] != true {
@@ -292,8 +331,10 @@ mod tests {
     fn good_report() -> Value {
         let mode = json!({"pclock_hz": 25_000_000, "hactive": 640});
         json!({
-            "report_version": 1,
+            "report_version": 2,
             "dry_run": false,
+            "display": {"driver": "vkms"},
+            "families": [{"family": "480p", "result": "planned"}, {"family": "2x", "result": "same_as"}],
             "state": "finished",
             "pass": true,
             "restore": {"method": "blank", "ok": true, "error": null},
@@ -314,8 +355,9 @@ mod tests {
         let s = guest_script(&["pc_31_120", "generic_15"], 2);
         assert!(s.starts_with("f=0\n"));
         assert!(s.contains(
-            "--report /tmp/refused.json --i-have-checked-the-monitor not_pc_31_120\n\
-             echo \"selftest-refusal-exit $?\""
+            "--report /tmp/refused.json --i-have-checked-the-monitor not_pc_31_120 \
+             2>/tmp/refused.err\necho \"selftest-refusal-exit $?\"\n\
+             printf 'selftest-refusal-error '; tr -d '\\n' < /tmp/refused.err; echo\n"
         ));
         for p in ["pc_31_120", "generic_15"] {
             assert!(
@@ -335,12 +377,14 @@ mod tests {
     #[test]
     fn the_output_is_taken_apart() {
         let text = format!(
-            "Showing 4 modes\nselftest-refusal-exit 6\nselftest-exit pc_31_120 0\n\
+            "Showing 4 modes\nselftest-refusal-exit 6\nselftest-refusal-error {{\"error\"}}\n\
+             selftest-exit pc_31_120 0\n\
              selftest-report pc_31_120 {}\nselftest-report generic_15 {{broken\n",
             good_report()
         );
         let out = Output::parse(&text);
         assert_eq!(out.refusal, Some(6));
+        assert_eq!(out.refusal_error.as_deref(), Some("{\"error\"}"));
         assert_eq!(out.exits, [("pc_31_120".to_owned(), 0)]);
         assert_eq!(out.reports.len(), 1);
         assert_eq!(out.broken, ["generic_15"]);
@@ -353,9 +397,13 @@ mod tests {
             reports: vec![("a".into(), good_report())],
             exits: vec![("a".into(), 0)],
             refusal: Some(REFUSED_EXIT_CODE),
+            refusal_error: Some(
+                r#"{"error":{"code":"selftest_setup","message":"the self-test does not start: the confirmation names \"not_a\", but"}}"#
+                    .into(),
+            ),
             ..Output::default()
         };
-        assert!(check_output(&out, &["a"]).is_empty());
+        assert_eq!(check_output(&out, &[("a", 1)]), Vec::<String>::new());
     }
 
     #[test]
@@ -366,9 +414,10 @@ mod tests {
             broken: vec!["b".into()],
             ..Output::default()
         };
-        let failures = check_output(&out, &["a", "b"]);
+        let failures = check_output(&out, &[("a", 1), ("b", 1)]);
         for part in [
             "exited with Some(0)",
+            "did not name the confirmation",
             "b: the report line is not JSON",
             "a: neptronctl exited with 7",
             "a: no report",
@@ -383,14 +432,18 @@ mod tests {
 
     #[test]
     fn a_report_fails_on_each_broken_field() {
-        assert!(check_report(&good_report()).is_empty());
+        assert_eq!(check_report(&good_report(), 1), Vec::<String>::new());
         type Breaks = fn(&mut Value);
-        let cases: [(&str, Breaks); 7] = [
+        let cases: [(&str, Breaks); 9] = [
+            ("report_version", |r| r["report_version"] = json!(1)),
+            ("not vkms", |r| r["display"]["driver"] = json!("i915")),
             ("dry run", |r| r["dry_run"] = json!(true)),
             ("did not finish", |r| r["state"] = json!("stopped")),
             ("does not pass", |r| r["pass"] = json!(false)),
             ("restore", |r| r["restore"]["ok"] = json!(false)),
-            ("no mode", |r| r["modes"] = json!([])),
+            ("0 modes ran and 1 were planned, not 1", |r| {
+                r["modes"] = json!([])
+            }),
             ("480p: the mode failed", |r| {
                 r["modes"][0]["pass"] = json!(false)
             }),
@@ -401,12 +454,23 @@ mod tests {
         for (what, breaks) in cases {
             let mut r = good_report();
             breaks(&mut r);
-            let failures = check_report(&r);
+            let failures = check_report(&r, 1);
             assert!(
                 failures.iter().any(|f| f.contains(what)),
                 "{what}: {failures:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_run_with_fewer_modes_than_the_plan_fails() {
+        let failures = check_report(&good_report(), 4);
+        assert!(
+            failures
+                .iter()
+                .any(|f| f.contains("1 modes ran and 1 were planned, not 4")),
+            "{failures:?}"
+        );
     }
 
     #[test]
