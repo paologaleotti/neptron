@@ -76,9 +76,15 @@ pub enum MonitorError {
 }
 
 impl Detected {
-    /// What `platform` shows for the output `output` (`auto` names none),
-    /// with the `subconnector` property of that output when the backend
-    /// read it. An EDID that gives no profile is skipped, with a notice
+    /// What `platform` shows for the output `output`, with the
+    /// `subconnector` property of that output when the backend read it.
+    ///
+    /// A named output (the connector the backend drives, or the one the
+    /// settings name) uses only its own EDID, whatever its status: a VGA
+    /// output with no EDID is often `unknown`, and it must never get the
+    /// profile of another display. A name that no connector has gives no
+    /// EDID. Only `auto` takes the first connected display that gives a
+    /// profile. An EDID that gives no profile is skipped, with a notice
     /// when it is the EDID of the named output.
     pub fn of(platform: &Platform, output: &str, subconnector: Option<&str>) -> Self {
         let connected: Vec<_> = platform
@@ -86,16 +92,15 @@ impl Detected {
             .iter()
             .filter(|c| c.status == ConnectorStatus::Connected)
             .collect();
-        let named = connected.iter().find(|c| c.name == output).copied();
+        let named = platform.connectors.iter().find(|c| c.name == output);
         let mut notices = Vec::new();
         let (source, edid) = match named {
-            // The named output is the one the display drives: its own EDID
-            // or none, never the EDID of another display.
             Some(c) => (Some(c), profile_of(c, subconnector, &mut notices)),
-            None => connected
+            None if output == AUTO => connected
                 .iter()
                 .find_map(|c| profile_of(c, None, &mut Vec::new()).map(|p| (Some(*c), Some(p))))
                 .unwrap_or((None, None)),
+            None => (None, None),
         };
         let panel = source
             .and_then(|c| c.edid.as_deref())

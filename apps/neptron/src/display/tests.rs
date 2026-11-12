@@ -147,6 +147,26 @@ fn a_named_output_never_takes_the_edid_of_another_display() {
         Some("panel_npt_1080")
     );
     assert_eq!(vga.outputs, ["HDMI-A-1", "VGA-1"]);
+    // A VGA output with no EDID is often `unknown` (a 15 kHz CRT), and a
+    // named output can be `disconnected`: neither takes the panel's EDID.
+    for status in [ConnectorStatus::Unknown, ConnectorStatus::Disconnected] {
+        let p = platform(vec![
+            connector("HDMI-A-1", "HDMI-A", Some(PANEL_1080P)),
+            Connector {
+                status,
+                ..connector("VGA-1", "VGA", None)
+            },
+        ]);
+        let vga = Detected::of(&p, "VGA-1", None);
+        assert_eq!(vga.edid, None, "{status:?}");
+        assert_eq!(vga.panel, None, "{status:?}");
+        let safe = vga.safe(&presets()).expect("safe");
+        assert_eq!(safe.monitor.profile().id, SAFE_START_PROFILE, "{status:?}");
+    }
+    // A name that no connector has (a window, a typo) takes no EDID
+    // either; only `auto` looks at the other displays.
+    let window = Detected::of(&p, "window", None);
+    assert_eq!(window.edid, None);
 }
 
 #[test]
