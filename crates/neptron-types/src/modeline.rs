@@ -40,6 +40,17 @@ pub struct Modeline {
 }
 
 impl Modeline {
+    /// The step of a pixel clock that a display can take, in hertz. The
+    /// kernel's mode record (`struct drm_mode_modeinfo`) holds the clock in
+    /// kHz, so a display backend refuses any other clock and never rounds.
+    pub const PCLOCK_STEP_HZ: u32 = 1_000;
+
+    /// The pixel clock is a whole number of kHz ([`Self::PCLOCK_STEP_HZ`]),
+    /// so a display can take it as it is.
+    pub fn pclock_is_whole_khz(&self) -> bool {
+        self.pclock_hz.is_multiple_of(Self::PCLOCK_STEP_HZ)
+    }
+
     /// The horizontal line rate, in millihertz: `pclock_hz / htotal`.
     ///
     /// The result is rounded to the nearest millihertz, with a half rounded
@@ -155,6 +166,17 @@ mod tests {
         // 1 Hz / 2 000 = 0.5 mHz rounds up; 1 Hz / 3 000 = 0.33 mHz rounds down.
         assert_eq!(mode(1, 2000, 1).line_rate_mhz(), 1);
         assert_eq!(mode(1, 3000, 1).line_rate_mhz(), 0);
+    }
+
+    #[test]
+    fn only_a_clock_in_whole_khz_is_whole_khz() {
+        assert!(mode(25_175_000, 800, 525).pclock_is_whole_khz());
+        assert!(mode(1_000, 800, 525).pclock_is_whole_khz());
+        assert!(mode(0, 800, 525).pclock_is_whole_khz());
+        assert!(!mode(25_466_400, 800, 525).pclock_is_whole_khz());
+        assert!(!mode(25_175_001, 800, 525).pclock_is_whole_khz());
+        assert!(!mode(999, 800, 525).pclock_is_whole_khz());
+        assert!(!mode(u32::MAX, 800, 525).pclock_is_whole_khz());
     }
 
     #[test]
