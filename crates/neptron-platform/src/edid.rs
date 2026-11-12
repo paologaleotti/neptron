@@ -234,17 +234,17 @@ pub fn parse_edid(bytes: &[u8]) -> Result<Edid, EdidError> {
 }
 
 const HEADER: [u8; 8] = [0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00];
-const MANUFACTURER_OFFSET: usize = 0x08;
-const PRODUCT_OFFSET: usize = 0x0a;
+pub(crate) const MANUFACTURER_OFFSET: usize = 0x08;
+pub(crate) const PRODUCT_OFFSET: usize = 0x0a;
 const VERSION_OFFSET: usize = 0x12;
 const REVISION_OFFSET: usize = 0x13;
-const INPUT_OFFSET: usize = 0x14;
-const INPUT_DIGITAL_BIT: u8 = 0x80;
+pub(crate) const INPUT_OFFSET: usize = 0x14;
+pub(crate) const INPUT_DIGITAL_BIT: u8 = 0x80;
 const FEATURES_OFFSET: usize = 0x18;
 const CONTINUOUS_BIT: u8 = 0x01;
-const DESCRIPTOR_OFFSETS: [usize; 4] = [0x36, 0x48, 0x5a, 0x6c];
-const DESCRIPTOR_LEN: usize = 18;
-const EXTENSION_COUNT_OFFSET: usize = 0x7e;
+pub(crate) const DESCRIPTOR_OFFSETS: [usize; 4] = [0x36, 0x48, 0x5a, 0x6c];
+pub(crate) const DESCRIPTOR_LEN: usize = 18;
+pub(crate) const EXTENSION_COUNT_OFFSET: usize = 0x7e;
 
 const TAG_RANGE_LIMITS: u8 = 0xfd;
 const TAG_DUMMY: u8 = 0x10;
@@ -267,7 +267,7 @@ const CVT_ACTIVE_PIXELS_UNIT: u32 = 8;
 
 /// Checks the length, the header and every block checksum, and returns the
 /// base block.
-fn check_blocks(bytes: &[u8]) -> Result<&[u8], EdidError> {
+pub(crate) fn check_blocks(bytes: &[u8]) -> Result<&[u8], EdidError> {
     if bytes.len() < EDID_BLOCK_LEN {
         return Err(EdidError::Length {
             len: bytes.len(),
@@ -296,7 +296,7 @@ fn check_blocks(bytes: &[u8]) -> Result<&[u8], EdidError> {
     Ok(base)
 }
 
-fn check_version(base: &[u8]) -> Result<u8, EdidError> {
+pub(crate) fn check_version(base: &[u8]) -> Result<u8, EdidError> {
     let version = base[VERSION_OFFSET];
     let revision = base[REVISION_OFFSET];
     if version != 1 || !(3..=4).contains(&revision) {
@@ -305,7 +305,7 @@ fn check_version(base: &[u8]) -> Result<u8, EdidError> {
     Ok(revision)
 }
 
-fn manufacturer(base: &[u8]) -> Result<String, EdidError> {
+pub(crate) fn manufacturer(base: &[u8]) -> Result<String, EdidError> {
     let raw = u16::from_be_bytes([base[MANUFACTURER_OFFSET], base[MANUFACTURER_OFFSET + 1]]);
     if raw & 0x8000 != 0 {
         return Err(EdidError::Manufacturer { raw });
@@ -354,7 +354,7 @@ fn range_limits(base: &[u8], revision: u8) -> Result<Option<RangeLimits>, EdidEr
 
 /// Checks the reserved bytes and the tag of a display descriptor, and
 /// returns the tag.
-fn check_display_descriptor(
+pub(crate) fn check_display_descriptor(
     descriptor: &[u8],
     offset: usize,
     revision: u8,

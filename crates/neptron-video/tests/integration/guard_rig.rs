@@ -36,7 +36,8 @@ pub fn dead_edid() -> Monitor {
     Monitor::Edid(EdidProfile {
         profile: monitor_preset("pc_31_120").unwrap(),
         pclock_max_hz: 2_000_000,
-        formula: TimingFormula::DefaultGtf,
+        formula: Some(TimingFormula::DefaultGtf),
+        name: None,
     })
 }
 

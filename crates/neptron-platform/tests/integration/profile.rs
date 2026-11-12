@@ -10,7 +10,8 @@ fn pc_crt_30_to_71_khz_profile() {
     let built = profile_from_edid(&blobs::pc_crt_30_71()).unwrap();
     assert_eq!(built.profile.id, "edid_npt_0071");
     assert_eq!(built.pclock_max_hz, 100_000_000);
-    assert_eq!(built.formula, TimingFormula::DefaultGtf);
+    assert_eq!(built.formula, Some(TimingFormula::DefaultGtf));
+    assert_eq!(built.name.as_deref(), Some("TEST CRT 17"));
     let MonitorKind::Crt { ranges } = built.profile.kind else {
         panic!("not a CRT profile");
     };

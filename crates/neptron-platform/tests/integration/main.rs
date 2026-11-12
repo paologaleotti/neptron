@@ -6,5 +6,6 @@
 mod blobs;
 mod edid;
 mod matrix;
+mod panel;
 mod profile;
 mod sysfs;

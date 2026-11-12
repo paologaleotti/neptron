@@ -133,3 +133,193 @@ pub fn with(mut bytes: Vec<u8>, offset: usize, value: u8) -> Vec<u8> {
     fix_checksum(&mut bytes, offset / 128);
     bytes
 }
+
+/// The 18 bytes of a detailed timing descriptor: pixel clock in kHz (a
+/// whole number of 10 kHz), then active, front porch, sync and total on
+/// each axis, and the sync polarities (digital separate sync).
+#[allow(clippy::too_many_arguments)]
+pub fn dtd(
+    pclock_khz: u32,
+    h: [u16; 4],
+    v: [u16; 4],
+    hsync_positive: bool,
+    vsync_positive: bool,
+) -> [u8; 18] {
+    let [ha, hf, hs, ht] = h;
+    let [va, vf, vs, vt] = v;
+    let (hb, vb) = (ht - ha, vt - va);
+    let clock = u16::try_from(pclock_khz / 10).expect("clock").to_le_bytes();
+    let lo = |x: u16| (x & 0xff) as u8;
+    let mut flags = 0x18;
+    if vsync_positive {
+        flags |= 0x04;
+    }
+    if hsync_positive {
+        flags |= 0x02;
+    }
+    [
+        clock[0],
+        clock[1],
+        lo(ha),
+        lo(hb),
+        ((ha >> 8) << 4 | (hb >> 8)) as u8,
+        lo(va),
+        lo(vb),
+        ((va >> 8) << 4 | (vb >> 8)) as u8,
+        lo(hf),
+        lo(hs),
+        ((vf & 0x0f) << 4 | (vs & 0x0f)) as u8,
+        ((hf >> 8) << 6 | (hs >> 8) << 4 | (vf >> 4) << 2 | (vs >> 4)) as u8,
+        0x10,
+        0x09,
+        0x00,
+        0,
+        0,
+        flags,
+    ]
+}
+
+/// 1920x1080 at 60 Hz, CTA-861 code 16.
+pub fn dtd_1080p60() -> [u8; 18] {
+    dtd(
+        148_500,
+        [1920, 88, 44, 2200],
+        [1080, 4, 5, 1125],
+        true,
+        true,
+    )
+}
+
+/// 1920x1080 at 50 Hz, CTA-861 code 31.
+pub fn dtd_1080p50() -> [u8; 18] {
+    dtd(
+        148_500,
+        [1920, 528, 44, 2640],
+        [1080, 4, 5, 1125],
+        true,
+        true,
+    )
+}
+
+/// 3840x2160 at 60 Hz, CTA-861 code 97.
+pub fn dtd_2160p60() -> [u8; 18] {
+    dtd(
+        594_000,
+        [3840, 176, 88, 4400],
+        [2160, 8, 10, 2250],
+        true,
+        true,
+    )
+}
+
+/// 1280x720 at 60 Hz, CTA-861 code 4.
+pub fn dtd_720p60() -> [u8; 18] {
+    dtd(74_250, [1280, 110, 40, 1650], [720, 5, 5, 750], true, true)
+}
+
+/// 1920x1080 interlaced at 60 Hz, CTA-861 code 5.
+pub fn dtd_1080i60() -> [u8; 18] {
+    let mut d = dtd(74_250, [1920, 88, 44, 2200], [540, 2, 5, 562], true, true);
+    d[17] |= 0x80;
+    d
+}
+
+/// The base block of an EDID 1.4 display with a digital input (HDMI, 8
+/// bits per colour), manufacturer `NPT`, product `product`. Descriptor 1
+/// is `preferred`, descriptor 2 a range limits descriptor with formula
+/// "range limits only" when `range` is set, else a dummy, descriptor 3 the
+/// name, descriptor 4 a dummy. `extensions` blocks follow.
+pub fn digital_base(product: u16, preferred: [u8; 18], name: &str, range: bool) -> Vec<u8> {
+    let mut b = pc_crt_30_71();
+    b[0x0a..0x0c].copy_from_slice(&product.to_le_bytes());
+    b[at::REVISION] = 0x04;
+    // Digital input, 8 bits per colour, HDMI-a.
+    b[at::INPUT] = 0xa2;
+    // RGB 4:4:4 and YCrCb, preferred timing native, not continuous.
+    b[at::FEATURES] = 0x0a;
+    // No established timings; standard timings 1920x1080 and 1280x720 at
+    // 60 Hz (16:9), then unused.
+    b[0x23..0x26].fill(0);
+    b[0x26..0x36].fill(0x01);
+    b[0x26..0x2a].copy_from_slice(&[209, 0xc0, 129, 0xc0]);
+    b[at::DESCRIPTOR_1..at::DESCRIPTOR_1 + 18].copy_from_slice(&preferred);
+    let d2 = at::DESCRIPTOR_2;
+    b[d2..d2 + 18].fill(0);
+    if range {
+        b[d2..d2 + 18].copy_from_slice(&[
+            0x00, 0x00, 0x00, 0xfd, 0x00, 24, 75, 15, 140, 60, 0x01, 0x0a, 0x20, 0x20, 0x20, 0x20,
+            0x20, 0x20,
+        ]);
+    } else {
+        b[d2 + 3] = 0x10;
+    }
+    let d3 = at::DESCRIPTOR_3;
+    let mut text = [b' '; 13];
+    let bytes = name.as_bytes();
+    text[..bytes.len()].copy_from_slice(bytes);
+    if bytes.len() < 13 {
+        text[bytes.len()] = b'\n';
+    }
+    b[d3..d3 + 5].copy_from_slice(&[0, 0, 0, 0xfc, 0]);
+    b[d3 + 5..d3 + 18].copy_from_slice(&text);
+    b[at::EXTENSIONS] = 0;
+    fix_checksum(&mut b, 0);
+    b
+}
+
+/// `base` with one CTA-861 extension block: a video data block with
+/// `codes`, then the detailed timings `dtds`.
+pub fn with_cta(mut base: Vec<u8>, codes: &[u8], dtds: &[[u8; 18]]) -> Vec<u8> {
+    let mut ext = vec![0u8; 128];
+    ext[0] = 0x02;
+    ext[1] = 0x03;
+    let start = 4 + 1 + codes.len();
+    ext[2] = u8::try_from(start).expect("offset");
+    ext[3] = 0x40;
+    ext[4] = (2 << 5) | u8::try_from(codes.len()).expect("codes");
+    ext[5..start].copy_from_slice(codes);
+    for (i, d) in dtds.iter().enumerate() {
+        ext[start + i * 18..start + (i + 1) * 18].copy_from_slice(d);
+    }
+    base[at::EXTENSIONS] += 1;
+    fix_checksum(&mut base, 0);
+    base.extend_from_slice(&ext);
+    let block = base.len() / 128 - 1;
+    fix_checksum(&mut base, block);
+    base
+}
+
+/// A 1080p HDMI monitor: 1920x1080 at 60 Hz preferred, range limits, and
+/// a CTA-861 block with 1080p60, 1080p50, 720p60, 720p50 and 576p50, and
+/// 1080p50 as a detailed timing.
+pub fn panel_1080p() -> Vec<u8> {
+    with_cta(
+        digital_base(0x1080, dtd_1080p60(), "NPT FHD 24", true),
+        &[16 | 0x80, 31, 4, 19, 17],
+        &[dtd_1080p50()],
+    )
+}
+
+/// A 4K monitor: 3840x2160 at 60 Hz preferred, range limits, and a
+/// CTA-861 block with 2160p60, 2160p50, 2160p30, 1080p60 and 1080p50.
+pub fn panel_2160p() -> Vec<u8> {
+    with_cta(
+        digital_base(0x2160, dtd_2160p60(), "NPT UHD 27", true),
+        &[97, 96, 95, 16, 31],
+        &[],
+    )
+}
+
+/// An HD-ready TV: EDID 1.3, no range limits, 720p60 preferred, 1080i as
+/// the second detailed timing, and a CTA-861 block with 720p60, 720p50,
+/// 1080i (code 5, not read) and 576p50.
+pub fn tv_720p() -> Vec<u8> {
+    let mut b = digital_base(0x0720, dtd_720p60(), "NPT TV", false);
+    b[at::REVISION] = 0x03;
+    // EDID 1.3 has no colour depth or interface bits.
+    b[at::INPUT] = 0x80;
+    b[0x26..0x36].fill(0x01);
+    b[at::DESCRIPTOR_4..at::DESCRIPTOR_4 + 18].copy_from_slice(&dtd_1080i60());
+    fix_checksum(&mut b, 0);
+    with_cta(b, &[4 | 0x80, 19, 5, 17], &[])
+}

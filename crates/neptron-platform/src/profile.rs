@@ -5,19 +5,26 @@ use thiserror::Error;
 
 use crate::edid::{EdidError, RangeLimits, TimingFormula, parse_edid};
 use crate::gtf;
+use crate::modes::listed_modes;
 
 /// A monitor profile built from an EDID, with the pixel clock limit that a
 /// profile cannot hold.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdidProfile {
-    /// A CRT profile with one range. Its id is `edid_` and the manufacturer
-    /// id and the product code, for example `edid_npt_0071`.
+    /// A CRT profile with one range, id `edid_` and the manufacturer id and
+    /// the product code, for example `edid_npt_0071`; or a flat-panel
+    /// profile of the listed modes, id `panel_` and the same, for example
+    /// `panel_npt_1080`.
     pub profile: MonitorProfile,
     /// The highest pixel clock the monitor accepts, in hertz. Apply it with
-    /// [`EdidProfile::limit_caps`].
+    /// [`EdidProfile::limit_caps`]. For a flat panel it is the clock of its
+    /// fastest listed mode.
     pub pclock_max_hz: u32,
-    /// The timing formula the EDID names. The profile does not use it.
-    pub formula: TimingFormula,
+    /// The timing formula of the range limits descriptor of a CRT profile.
+    /// The profile does not use it. `None` for a flat panel.
+    pub formula: Option<TimingFormula>,
+    /// The product name of the EDID, when it gives one.
+    pub name: Option<String>,
 }
 
 /// Why no profile can be built from an EDID.
@@ -49,6 +56,13 @@ pub enum ProfileError {
     /// The EDID has no range limits descriptor.
     #[error("EDID of {id} has no range limits descriptor")]
     NoRangeLimits {
+        /// The id the profile would have.
+        id: String,
+    },
+    /// The EDID lists no progressive mode that the parser reads, so no
+    /// flat-panel profile can be built.
+    #[error("EDID of {id} lists no progressive mode that NEPTRON reads")]
+    NoListedModes {
         /// The id the profile would have.
         id: String,
     },
@@ -120,7 +134,8 @@ pub fn profile_from_edid(bytes: &[u8]) -> Result<EdidProfile, ProfileError> {
             },
         },
         pclock_max_hz: limits.pclock_max_hz,
-        formula: limits.formula,
+        formula: Some(limits.formula),
+        name: listed_modes(bytes).ok().and_then(|l| l.name),
     })
 }
 

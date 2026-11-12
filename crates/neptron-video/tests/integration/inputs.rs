@@ -21,7 +21,8 @@ fn edid(pclock_max_hz: u32) -> Monitor {
     Monitor::Edid(EdidProfile {
         profile: monitor_preset("pc_31_120").unwrap(),
         pclock_max_hz,
-        formula: TimingFormula::DefaultGtf,
+        formula: Some(TimingFormula::DefaultGtf),
+        name: None,
     })
 }
 

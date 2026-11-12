@@ -10,7 +10,9 @@ use neptron_types::{GpuCaps, MonitorProfile};
 pub enum Monitor {
     /// A preset of `data/monitors` or a custom profile.
     Profile(MonitorProfile),
-    /// A profile built from the EDID of a PC CRT.
+    /// A profile built from the EDID of the connected display: a CRT
+    /// profile from its range limits, or a flat-panel profile from its
+    /// listed modes.
     Edid(EdidProfile),
 }
 
@@ -61,7 +63,8 @@ mod tests {
         let monitor = Monitor::Edid(EdidProfile {
             profile: profile(),
             pclock_max_hz: 140_000_000,
-            formula: TimingFormula::DefaultGtf,
+            formula: Some(TimingFormula::DefaultGtf),
+            name: None,
         });
         let caps = monitor.caps_for(&GPU);
         assert_eq!(caps.pclock_max_hz, 140_000_000);
@@ -74,7 +77,8 @@ mod tests {
         let monitor = Monitor::Edid(EdidProfile {
             profile: profile(),
             pclock_max_hz: 500_000_000,
-            formula: TimingFormula::DefaultGtf,
+            formula: Some(TimingFormula::DefaultGtf),
+            name: None,
         });
         assert_eq!(monitor.caps_for(&GPU), GPU);
     }
