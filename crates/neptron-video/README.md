@@ -139,10 +139,12 @@ The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `
 | Pending | `decline` | the revert target | `Reverted(Declined)` |
 | Pending | `tick` at or after the deadline | the revert target | `Reverted(Timeout)` |
 | Pending | `tick`: no valid picture for 1 s | the revert target | `Reverted(NoPicture)` |
+| Pending | `tick` with a time earlier than one the guard has seen | the revert target | `Reverted(ClockWentBack)` |
 | Confirmed | `tick`: no valid picture for 1 s | Safe(NoValidMode) | `SafeMode` |
 | Confirmed | `tick`: a picture for 10 s, first time in the boot | Confirmed; `failed_boots` 0 | `GoodBoot` |
 | Any | `recover` | Safe(Recovery); the record is in safe mode | `SafeMode` |
 
+- The guard never uses a time earlier than one it has seen, so a clock that goes back cannot stretch a deadline or start a watch again.
 - No valid picture (`Health::no_picture`): the output is off, a refused mode is on the display, or the engine has set no mode. A mode that waits for its first flip is not counted, because a flip can be late.
 - The no-picture watch stops only when a valid picture is seen. A new change, a `propose` while pending or a `follow_settings` does not start it again, so a loop of changes with no picture still reaches the 1 s limit.
 - `confirm` is refused with `ConfirmError` when no prompt is open, the id is another one, the time is at or after the deadline, the engine shows no valid picture, or no `tick` has seen a valid picture of the change (`NotShown`). Nothing changes; the deadline still reverts.

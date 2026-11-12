@@ -25,6 +25,8 @@ pub struct Guard {
     /// The boot reached a confirmed picture.
     boot_good: bool,
     last_prompt: u32,
+    /// The latest time any call gave. The guard never uses an earlier one.
+    latest_ns: u64,
     /// Since when the engine shows a picture, with no break.
     picture_since_ns: Option<u64>,
     /// Since when the engine shows no valid picture, with no break.
@@ -84,6 +86,9 @@ pub enum RevertReason {
     /// A settings change that needs no confirmation came while the change
     /// was pending, or the user chose the confirmed configuration again.
     Superseded,
+    /// The time of a call was earlier than the time of a call before it,
+    /// so the guard cannot measure the confirm window any more.
+    ClockWentBack,
 }
 
 /// What the app must act on.
@@ -205,6 +210,7 @@ impl Guard {
             record,
             boot_good: false,
             last_prompt: 0,
+            latest_ns: now_ns,
             picture_since_ns: None,
             no_picture_since_ns: None,
         };
@@ -282,6 +288,7 @@ impl Guard {
         now_ns: u64,
         engine: &mut VideoEngine<D>,
     ) -> GuardStep {
+        let (now_ns, _) = self.clock(now_ns);
         let (fallback, since_ns) = match &self.state {
             State::Confirmed => (Fallback::Confirmed(self.active.clone()), now_ns),
             State::Pending {
@@ -319,6 +326,7 @@ impl Guard {
         engine: &VideoEngine<D>,
     ) -> Result<GuardStep, ConfirmError> {
         let prompt = self.open_prompt_id(id)?;
+        let (now_ns, _) = self.clock(now_ns);
         if now_ns >= prompt.deadline_ns {
             return Err(ConfirmError::Expired {
                 deadline_ns: prompt.deadline_ns,
@@ -393,13 +401,15 @@ impl Guard {
     /// Takes the state of the engine after the present of a frame, at
     /// `now_ns`. Call it once per frame, also when the present failed.
     ///
-    /// - A pending change reverts at its deadline, or when it gives no
-    ///   valid picture for [`NO_PICTURE_LIMIT_NS`].
+    /// - A pending change reverts at its deadline, when it gives no valid
+    ///   picture for [`NO_PICTURE_LIMIT_NS`], or when `now_ns` is earlier
+    ///   than a time the guard has seen.
     /// - The confirmed configuration that gives no valid picture for
     ///   [`NO_PICTURE_LIMIT_NS`] gives way to the safe default.
     /// - The confirmed configuration that shows a picture for
     ///   [`GOOD_BOOT_PICTURE_NS`] makes the boot good.
     pub fn tick<D: Display>(&mut self, now_ns: u64, engine: &mut VideoEngine<D>) -> GuardStep {
+        let (now_ns, went_back) = self.clock(now_ns);
         let health = Health::of(engine);
         let no_picture_ns = watch(&mut self.no_picture_since_ns, health.no_picture(), now_ns);
         // Every change of the guard ends in `retry`, `set_monitor` or
@@ -413,6 +423,7 @@ impl Guard {
         let picture_ns = watch(&mut self.picture_since_ns, shown, now_ns);
         let no_picture = no_picture_ns.is_some_and(|ns| ns >= NO_PICTURE_LIMIT_NS);
         match &self.state {
+            State::Pending { .. } if went_back => self.revert(RevertReason::ClockWentBack, engine),
             State::Pending { prompt, .. } if now_ns >= prompt.deadline_ns => {
                 self.revert(RevertReason::Timeout, engine)
             }
@@ -430,6 +441,15 @@ impl Guard {
             }
             _ => GuardStep::default(),
         }
+    }
+
+    /// The time to use for `now_ns`: never earlier than a time already
+    /// seen, so a clock that goes back cannot stretch a deadline or start
+    /// a watch again. Also says whether it went back.
+    fn clock(&mut self, now_ns: u64) -> (u64, bool) {
+        let went_back = now_ns < self.latest_ns;
+        self.latest_ns = self.latest_ns.max(now_ns);
+        (self.latest_ns, went_back)
     }
 
     fn open_prompt_id(&self, id: PromptId) -> Result<Prompt, ConfirmError> {

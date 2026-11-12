@@ -381,3 +381,39 @@ fn a_settings_loop_with_no_picture_still_gives_way_to_the_safe_default() {
     assert!(safe <= start + NO_PICTURE_LIMIT_NS + FRAME_SLACK_NS);
     assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
 }
+
+#[test]
+fn time_that_goes_backwards_reverts_a_pending_change() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    rig.propose(crt_31());
+    rig.run_for(CONFIRM_WINDOW_NS / 2);
+    let back = rig.now() - CONFIRM_WINDOW_NS / 4;
+    let step = rig.guard.tick(back, &mut rig.engine);
+    assert_eq!(
+        step.event,
+        Some(GuardEvent::Reverted(RevertReason::ClockWentBack))
+    );
+    rig.frame();
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
+}
+
+#[test]
+fn time_that_goes_backwards_does_not_hold_off_the_no_picture_limit() {
+    let dead = config(dead_edid());
+    let mut rig = GuardRig::boot(confirmed(dead_edid()), dead, crt_15());
+    rig.frame();
+    let start = rig.now();
+    let late = start + NO_PICTURE_LIMIT_NS / 2;
+    let step = rig.guard.tick(late, &mut rig.engine);
+    assert_eq!(step.event, None);
+    // The clock falls back to before the watch began, then goes on.
+    let step = rig.guard.tick(start - FRAME_NS, &mut rig.engine);
+    assert_eq!(step.event, None);
+    let step = rig.guard.tick(start + NO_PICTURE_LIMIT_NS, &mut rig.engine);
+    assert_eq!(
+        step.event,
+        Some(GuardEvent::SafeMode(SafeReason::NoValidMode)),
+        "the time before the jump still counts"
+    );
+}
