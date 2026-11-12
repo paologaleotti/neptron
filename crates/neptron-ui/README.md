@@ -94,10 +94,22 @@ Menu during a game opens the quick menu over the paused game. Its rows write at 
 
 | Field | Meaning | Example |
 | --- | --- | --- |
-| `game` | What the core asks for: the source size, then the field rate with three decimals | `256x224  60.099 Hz` |
-| `mode` | The mode on screen as the kernel reports it (size and scan, line rate, field rate with three decimals), then the picture style | `768x448p 30.05 kHz 60.099 Hz  2x` |
-| `result` | The result in words. The formatter joins two or more results with `, ` | `exact`, `double refresh`, `cropped 2 lines`, `filtered`, `speed changed (60.099 to 59.940 Hz)` |
+| `game` | What the core asks for: the source size, then the field rate | `256x224             60.099 Hz` |
+| `mode` | The mode on screen as the kernel reports it: the size with its scan suffix, the line rate, the field rate, then two spaces and the picture style | `768x448p  30.05 kHz 60.099 Hz  2x` |
+| `result` | The result in words. The formatter joins two or more results with `, ` | `exact`, `cropped 2 lines, speed changed (60.099 to 59.940 Hz)` |
 | `alert` | True when the player must notice the result. The formatter sets it for `filtered` and for `speed changed` | |
+
+The formatter writes fixed columns, so that the field rates of the two lines are one under the other:
+
+- Columns 1 to 10: the size, padded with spaces to 10 characters. The mode size ends with the scan suffix: `p` for progressive, `i` for interlaced (`768x448p`, `640x480i`).
+- Columns 11 to 20: the line rate, padded with spaces to 10 characters. It is in kHz with two decimals (`30.05 kHz`). On the game line these columns are spaces.
+- Then the field rate in Hz with three decimals (`60.099 Hz`). The mode line uses the rate read back from the kernel, never the requested one.
+- On the mode line only: two spaces, then the picture style (`2x`, `native`).
+- The results, in this order when there are more than one: `exact`, `double refresh`, `cropped N lines`, `small picture`, `filtered`, `speed changed (X to Y Hz)`. X is the rate of the game and Y the rate on screen, both with three decimals.
+
+The worst case of the mode line is `1920x238p 15.73 kHz 59.940 Hz  native`: 37 characters, which is the width of the value column. A field rate of 100 Hz or more adds one character: with the style `native` the line then has 38 characters and is cut with `...`.
+
+Before the video engine reads the mode back from the kernel, the app sends no status (`None`), and the block does not show. So the block never shows a requested mode as if it were on screen.
 
 What the app supplies each frame: `Some(status)` while a game runs, `None` when no game runs. It keeps one `VideoStatus` and writes new text into its strings (`clear`, then `write!`) when the status changes, so the frame allocates nothing. The screens show the block only while `Snapshot::session` holds a game as well.
 
@@ -105,8 +117,8 @@ The quick menu shows the block above its rows, and the display panel shows it un
 
 ```
 Video
-Game     256x224  60.099 Hz
-Mode     768x448p 30.05 kHz 60.099 Hz  2x
+Game     256x224             60.099 Hz
+Mode     768x448p  30.05 kHz 60.099 Hz  2x
          exact
          (second line of the result, empty here)
 ```
@@ -131,7 +143,7 @@ The screens use the templates on a dark background: a title band with a two-pixe
 
 ### Scenes
 
-Every screen state that matters is a scene with a golden image: `screens/home`, `screens/home-empty`, `screens/games-top`, `screens/games-middle` (a title too long for its row), `screens/games-end`, `screens/games-one`, `screens/games-empty`, `screens/display`, `screens/display-style` (a picture style the monitor cannot show), `screens/confirm-10s`, `screens/confirm-3s`, `screens/notice` (a game that did not start), `screens/quick-menu`, `screens/quick-menu-keep`, `screens/quick-menu-video` (the video block, exact), `screens/quick-menu-video-filtered` (an alert), `screens/quick-menu-video-long` (a full mode line and a result on two lines), `screens/display-video` (the display panel during a game, with the video block) and `pattern/grid`. Each scene drives a `Screens` with fixture data and actions, as the app does. A new scene needs a golden image in `crates/neptron-ui/tests/golden/<name>.ppm`: look at it with `cargo xtask shot <name>` first, then write it with `cargo xtask golden --bless <name>`.
+Every screen state that matters is a scene with a golden image: `screens/home`, `screens/home-empty`, `screens/games-top`, `screens/games-middle` (a title too long for its row), `screens/games-end`, `screens/games-one`, `screens/games-empty`, `screens/display`, `screens/display-style` (a picture style the monitor cannot show), `screens/confirm-10s`, `screens/confirm-3s`, `screens/notice` (a game that did not start), `screens/quick-menu`, `screens/quick-menu-keep`, `screens/quick-menu-video` (the video block, exact), `screens/quick-menu-video-filtered` (an alert), `screens/quick-menu-video-long` (a full mode line and a result on two lines), `screens/display-video` (the display panel during a game, with the video block of a 31 kHz mode) and `pattern/grid`. Each scene drives a `Screens` with fixture data and actions, as the app does. A new scene needs a golden image in `crates/neptron-ui/tests/golden/<name>.ppm`: look at it with `cargo xtask shot <name>` first, then write it with `cargo xtask golden --bless <name>`.
 
 ## Skin
 

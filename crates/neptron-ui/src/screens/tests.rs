@@ -1360,12 +1360,30 @@ fn the_quick_menu_shows_the_video_block_only_with_a_status() {
         video_rows(&run),
         [
             ("Video", None),
-            (VIDEO_GAME_ROW, Some("256x224  60.099 Hz")),
-            (VIDEO_MODE_ROW, Some("768x448p 30.05 kHz 60.099 Hz  2x")),
+            (VIDEO_GAME_ROW, Some("256x224             60.099 Hz")),
+            (VIDEO_MODE_ROW, Some("768x448p  30.05 kHz 60.099 Hz  2x")),
             (VIDEO_RESULT_ROW, Some("exact")),
         ]
     );
     assert!(run.frame.tree.rows().all(|r| !r.clipped));
+}
+
+#[test]
+fn the_fixture_columns_fit_the_value_column() {
+    for status in [exact_status(), filtered_status(), long_status()] {
+        let mut run = Run::new();
+        let snap = in_game_with(status.clone());
+        run.step(&snap, &[]);
+        run.step(&snap, &[Menu]);
+        let clipped: Vec<_> = run
+            .frame
+            .tree
+            .rows()
+            .filter(|r| r.label == VIDEO_GAME_ROW || r.label == VIDEO_MODE_ROW)
+            .map(|r| r.clipped)
+            .collect();
+        assert_eq!(clipped, [false, false], "{status:?}");
+    }
 }
 
 #[test]
@@ -1524,7 +1542,7 @@ fn the_display_panel_shows_the_video_block_while_a_game_runs() {
     assert_eq!(field(&run, "Mode"), None, "the block shows the mode");
     assert_eq!(
         field(&run, VIDEO_MODE_ROW),
-        Some("768x448p 30.05 kHz 60.099 Hz  2x")
+        Some("768x448p  30.05 kHz 60.099 Hz  2x")
     );
     assert_eq!(run.focused(), Some("Output"));
     let block = run

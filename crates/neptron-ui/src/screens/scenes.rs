@@ -460,8 +460,8 @@ fn quick_menu_keep(frame: &mut UiFrame, theme: &Theme) {
 /// A game at its exact rate on a 2x mode.
 pub(super) fn exact_status() -> VideoStatus {
     VideoStatus::new(
-        "256x224  60.099 Hz",
-        "768x448p 30.05 kHz 60.099 Hz  2x",
+        "256x224             60.099 Hz",
+        "768x448p  30.05 kHz 60.099 Hz  2x",
         "exact",
     )
 }
@@ -469,8 +469,8 @@ pub(super) fn exact_status() -> VideoStatus {
 /// A game that the mode cannot show at an integer scale.
 pub(super) fn filtered_status() -> VideoStatus {
     VideoStatus::new(
-        "320x224  59.923 Hz",
-        "640x480p 31.47 kHz 59.923 Hz  2x",
+        "320x224             59.923 Hz",
+        "640x480p  31.47 kHz 59.923 Hz  2x",
         "filtered",
     )
     .with_alert(true)
@@ -480,9 +480,20 @@ pub(super) fn filtered_status() -> VideoStatus {
 /// and a result that needs two lines.
 pub(super) fn long_status() -> VideoStatus {
     VideoStatus::new(
-        "256x240  60.099 Hz",
+        "256x240             60.099 Hz",
         "1920x238p 15.73 kHz 59.940 Hz  native",
         "cropped 2 lines, speed changed (60.099 to 59.940 Hz)",
+    )
+    .with_alert(true)
+}
+
+/// A game slowed to the rate of a 31 kHz mode that the fixture monitor
+/// `pc_31_120` shows.
+pub(super) fn slowed_status() -> VideoStatus {
+    VideoStatus::new(
+        "320x240             60.099 Hz",
+        "640x480p  31.47 kHz 59.940 Hz  2x",
+        "speed changed (60.099 to 59.940 Hz)",
     )
     .with_alert(true)
 }
@@ -513,9 +524,10 @@ fn quick_menu_video_long(frame: &mut UiFrame, theme: &Theme) {
     quick_menu_with(frame, theme, long_status());
 }
 
-/// The display panel opened from the quick menu, with the video block.
+/// The display panel opened from the quick menu, with the video block of
+/// a 31 kHz mode.
 fn display_video(frame: &mut UiFrame, theme: &Theme) {
-    let mut snap = in_game_with(long_status());
+    let mut snap = in_game_with(slowed_status());
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &[], frame);
     let to_display = [
