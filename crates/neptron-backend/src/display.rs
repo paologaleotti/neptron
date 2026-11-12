@@ -15,9 +15,17 @@ pub trait Display {
     /// [`Display::blank`] it is always a real modeset, also for the mode
     /// that was set before the blank.
     ///
+    /// The pixel clock of `mode` must be a whole number of kHz
+    /// ([`Modeline::pclock_is_whole_khz`]): the kernel's mode record holds
+    /// the clock in kHz. A backend refuses any other mode with
+    /// [`DisplayError::ModeRefused`], changes nothing, and never rounds the
+    /// clock, because a rounded mode is not the mode that passed
+    /// validation. The caller makes whole-kHz modes.
+    ///
     /// # Errors
     ///
-    /// [`DisplayError::ModeRefused`] when the driver refuses the mode,
+    /// [`DisplayError::ModeRefused`] when the pixel clock is not a whole
+    /// number of kHz or the driver refuses the mode,
     /// [`DisplayError::Device`] while a flip is queued (busy) or when the
     /// device fails. On an error the mode that was active stays.
     fn set_mode(&mut self, mode: &ValidatedMode) -> Result<Modeline, DisplayError>;
