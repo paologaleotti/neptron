@@ -1,0 +1,11 @@
+# The development variant of the PC image, for the hardware tests. It is
+# merged on top of neptron_pc_x86_64_defconfig by
+# `cargo xtask os build --arch x86_64 --dev-key FILE`, in its own output.
+# The release image has none of this.
+#
+# An SSH server that accepts only the public key given at build time, and
+# no password; a DHCP client on the first Ethernet port; and the control
+# commands of the frontend that change it (Cargo feature control).
+BR2_PACKAGE_DROPBEAR=y
+BR2_SYSTEM_DHCP="eth0"
+BR2_PACKAGE_NEPTRON_CONTROL=y

@@ -1,0 +1,6 @@
+# The PC image without the 15 kHz kernel patch set, merged on top of
+# neptron_pc_x86_64_defconfig by
+# `cargo xtask os build --arch x86_64 --no-kernel-15khz`, in its own output.
+# For a comparison with the patched kernel, and for a distributed image
+# while the licence of the patch set is not clear (see the defconfig).
+BR2_LINUX_KERNEL_PATCH=""

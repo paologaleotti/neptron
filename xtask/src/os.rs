@@ -156,7 +156,8 @@ pub enum OsError {
 /// The usage text of `os build`, `qemu`, `gles-compare`, `kms-check` and
 /// `core-trace`.
 pub const USAGE: &str = "\
-usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [-- make targets...]
+usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [--dev-key FILE]
+                            [--no-kernel-15khz] [-- make targets...]
        cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
                         [--script FILE | -- command...]
        cargo xtask gles-compare [--arch A] [--timeout SECS]
@@ -548,7 +549,7 @@ fn remove_stale_scripts(run_dir: &std::path::Path) {
 }
 
 fn build(args: &[&str]) -> Result<ExitCode, OsError> {
-    let args = BuildArgs::parse(args, Arch::default_for(std::env::consts::ARCH))?;
+    let mut args = BuildArgs::parse(args, Arch::default_for(std::env::consts::ARCH))?;
     let repo = Repo::discover()?;
     let cache = Cache::from_env()?;
     host::require_tool(
@@ -561,9 +562,26 @@ fn build(args: &[&str]) -> Result<ExitCode, OsError> {
         path: dockerfile.clone(),
         source,
     })?;
+    if let Some(key) = &mut args.dev_key {
+        // Docker mounts only absolute paths.
+        *key = std::fs::canonicalize(&*key).map_err(|source| OsError::Io {
+            path: key.clone(),
+            source,
+        })?;
+        let key = key.clone();
+        let text = std::fs::read_to_string(&key).map_err(|source| OsError::Io {
+            path: key.clone(),
+            source,
+        })?;
+        let checkout = std::fs::canonicalize(&repo.root).unwrap_or_else(|_| repo.root.clone());
+        if let Some(problem) = build::dev_key_problem(&key, &checkout, &text) {
+            return Err(OsError::Usage(problem));
+        }
+    }
+    let images = cache.images(args.arch).with_file_name(args.variant());
     let plan = BuildPlan {
-        external: repo.root.join("os"),
-        images: cache.images(args.arch),
+        checkout: repo.root.clone(),
+        images,
         container: build::container_image(&text),
         args,
     };

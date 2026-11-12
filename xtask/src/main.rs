@@ -49,9 +49,15 @@ commands:
   golden [--bless] [scene...]
                        compare UI scenes with their golden images; --bless
                        writes the golden of each scene that differs
-  os build [--arch A] [--jobs N] [-- make targets...]
-                       build the QEMU image of target A (aarch64, x86_64)
-                       with Buildroot in the development container
+  os build [--arch A] [--jobs N] [--dev-key FILE] [--no-kernel-15khz]
+           [-- make targets...]
+                       build the image of target A with Buildroot in the
+                       development container: the aarch64 QEMU test image,
+                       or the x86_64 PC image (a USB image that also boots
+                       in QEMU); --dev-key FILE adds SSH with that public
+                       key and the control commands, --no-kernel-15khz
+                       leaves out the 15 kHz kernel patches; each variant
+                       has its own output
   os app-check [--arch A]
                        check (warnings denied) and build the frontend with
                        kms and the launcher for Linux in the container
