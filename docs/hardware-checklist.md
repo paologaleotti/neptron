@@ -104,3 +104,13 @@ Run the steps with the real frontend path (`KmsDisplay::from_env` from the launc
 - [ ] Hold Select+Start for 5 s with no picture (output off, and during an open confirm dialog): the safe default comes back with the audio cue.
 - [ ] A pending change to a monitor with no valid mode turns the output off, and the old mode comes back after about 1 s.
 
+## T27 app and launcher
+
+- [ ] The KMS build of the frontend runs on the x86_64 image and shows the game list (after T28).
+- [ ] The launcher's descriptor survives a frontend crash and a relaunch on i915, and the mode stays on the wire.
+- [ ] The launcher forwards SIGTERM, and the frontend leaves a validated mode on the wire.
+- [ ] Blind recovery from a gamepad and from a keyboard on the image, also with the combination held from power-on.
+- [ ] A box with no sound device boots and shows the "No sound" notice.
+- [ ] A connector change in `global.toml` gives the boot prompt.
+- [ ] The window build shows the UI and a game on macOS.
+

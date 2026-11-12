@@ -20,6 +20,7 @@ All builds and tests go through `xtask`. Do not call `cargo` directly for a buil
 | --- | --- |
 | `cargo xtask verify --tier 0` | fmt, dependency rules, `unsafe` allow-list, licences, clippy with warnings denied |
 | `cargo xtask verify --tier 1` | tier 0, plus every test through `cargo nextest`, plus doctests |
+| `cargo xtask verify --tier 2` | tier 1, plus the end-to-end run of the app and the UI crawler, headless |
 | `cargo xtask check -p <crate>` | `cargo check` for one crate |
 | `cargo xtask test -p <crate>` | `cargo nextest run` for one crate |
 | `cargo xtask clippy -p <crate>` | `cargo clippy` for one crate, tests included |
@@ -27,7 +28,7 @@ All builds and tests go through `xtask`. Do not call `cargo` directly for a buil
 | `cargo xtask worktree new <task>` | a task worktree with a cloned `target/` |
 | `cargo xtask worktree cache-check` | proves that a cloned `target/` compiles no dependency again |
 
-`verify` writes `target/verify/report.json` and prints a summary with the build time. Tier 2 and tier 3 come later. `cargo xtask help` lists the other commands (`font`, `shot`, `gallery`, `golden`, `bindgen`, `monitors`, `window-smoke`). `xtask/README.md` describes every check.
+`verify` writes `target/verify/report.json` and prints a summary with the build time. Tier 3 runs in QEMU through its own commands (`kms-check`, `gles-compare`, `core-trace`, `os app-check`). `cargo xtask help` lists the other commands (`font`, `shot`, `gallery`, `golden`, `bindgen`, `monitors`, `window-smoke`). `xtask/README.md` describes every check.
 
 On macOS, xtask runs every command under `taskpolicy -c utility` and holds one of 2 build slots with `CARGO_BUILD_JOBS=5`. `NEPTRON_BUILD_SLOTS` and `NEPTRON_BUILD_JOBS` change this.
 
