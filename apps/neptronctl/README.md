@@ -156,7 +156,7 @@ The parser is written by hand. The grammar is a few fixed words, and a parser cr
 
 ## Status
 
-The control API client is done. `selftest video` is done, and it runs in the QEMU guest on `vkms` (`cargo xtask os selftest-check`). That run does not pass yet: `neptron-kms` refuses every mode that the policy plans, because Switchres gives a pixel clock that is not a whole number of kHz (for example 25 466 400 Hz for 240p at 120 Hz on `pc_31_120`), and the backend refuses such a clock and never rounds it. The fix belongs to the policy or the backend, not to this tool. The tool is not run on real hardware yet. `modeline` and a mode test are not written yet.
+The control API client is done. `selftest video` is done, and it runs in the QEMU guest on `vkms` (`cargo xtask os selftest-check`). The policy gives every CRT mode a pixel clock in whole kHz (ADR 0009), which the KMS backend takes as it is. The tool is not run on real hardware yet. `modeline` and a mode test are not written yet.
 
 ## The copy of the mode conversion in `tools/kms-spike` (OP-060)
 
