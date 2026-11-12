@@ -656,7 +656,7 @@ Each open point is one section:
 - Default: the repository `D0023R/linux_kernel_15khz` has a GPL-3.0 LICENSE file, and its patches carry no licence line. The Linux kernel is GPL-2.0-only, and GPL-3.0-only code cannot be combined with it. The owner decided (2026-11-12): the images built now include the pinned patch set, because the project is far from a public release. No image with these patches is given to anybody until this point is closed. The owner asked the author to state the licence of the patches: https://github.com/D0023R/linux_kernel_15khz/issues/22
 - Where: `os/patches/linux`, `os/README.md`, the licence notes on the boot partition
 - How to change: when the author states GPL-2.0 for the patches, record the answer here and in `os/README.md` and close the point. With no answer or a GPL-3.0-only answer, build the distributed image without the patches, or write the 15 kHz support again from the kernel documentation.
-- Decision: the owner (2026-11-12): include the patches for now, ask the author, keep this reminder.
+- Decision: the owner (2026-11-12): include the patches for now, ask the author, keep this reminder. Plan agreed with the owner: (1) keep the pinned set in private images for now. (2) On the bench, run the self-test also on a kernel built without the patches, and record which modes the unpatched driver refuses (pixel clock floor, interlace). NEPTRON sets every mode through atomic KMS and uses super-width modes, so it needs only that the driver accepts its modes, not the console and mode-table parts of the set. (3) Write only the needed change as our own patch, from the kernel source and documentation and without the text of the set, keep it in `os/patches` under GPL-2.0, and remove the pinned set. A copy or an adapted copy of the set does not clear the licence. If the author states GPL-2.0 first, the pinned set can stay. The files of the set are not committed to this repository; the pin is a commit id and hashes.
 
 ### OP-071: Owner decisions on flat panels.
 
@@ -666,4 +666,13 @@ Each open point is one section:
 - Where: `apps/neptron`, `crates/neptron-platform`, `crates/neptron-modeline` (the flat panel path)
 - How to change: see the C08 report and the README of `apps/neptron`.
 - Decision: as above.
+
+### OP-072: Build cache strategy, locally and in CI.
+
+- Raised by: the owner (2026-11-12)
+- Status: open, the local part exists, the CI part is a task for after the MVP
+- Default: what exists locally: Docker volumes hold the Buildroot downloads (`neptron-br-dl`), the compiler cache (`neptron-br-ccache`, `BR2_CCACHE=y`), the Buildroot output per target (`neptron-br-out-<arch>`) and the Cargo registry and target directory of the guest builds (`neptron-cross-<arch>`). All worktrees share them. A second image build reuses the output volume and builds only what changed, so the long first build (toolchain, LLVM, Mesa, kernel) happens once per target and per version pin. Each task worktree gets its `target/` as a clone of main's. The development container is tagged by the hash of its Dockerfile. What does not exist: CI itself; a published base image or toolchain for CI; a cache key rule; a check that a change of one package does not rebuild the world.
+- Where: `xtask/src/os/build.rs`, `os/README.md` (the table of volumes), `docs/plan/09-...` (CI)
+- How to change: (1) CI on x86_64 Linux runners with hardware virtualisation, so the x86_64 guest checks run fast. (2) Restore and save the four caches in CI with keys from the pins: the downloads by the hash of the `.hash` files, the output volume by the hash of the defconfig, the kernel and Mesa pins and the Dockerfile, the compiler cache by branch with a fallback to main. (3) Publish the built toolchain and the base image (everything except the frontend) as a CI artifact; a normal change then builds only the frontend package and the image step. `--images` and `NEPTRON_OS_IMAGES` already boot an images directory from elsewhere. (4) Build the frontend package from the Cargo cache volume so a Rust change compiles only changed crates in the release profile. (5) Never delete the volumes in a routine clean; give `cargo xtask os` a command that reports their sizes and a separate, explicit one that prunes. (6) Measure and record the time of a cold build, a warm build and a frontend-only build per target.
+- Decision:
 
