@@ -120,7 +120,9 @@ impl GlesRenderer {
     /// becomes the front buffer of the GBM surface. The pixels are the
     /// pixels of [`render`](Self::render). A window surface stores the last
     /// GL row first, so the picture is in the last `height` rows of the
-    /// surface buffer. The rest of the surface is black.
+    /// surface buffer. The rest of the surface is black. An output with a
+    /// zero side draws nothing and does not swap: the surface keeps its
+    /// front buffer, as `render` leaves its output unchanged.
     ///
     /// # Errors
     ///
@@ -136,7 +138,9 @@ impl GlesRenderer {
         if !self.context.has_window() {
             return Err(GlesError::NoWindow);
         }
-        self.draw(scene, width, height, Surface::Window)?;
+        if !self.draw(scene, width, height, Surface::Window)? {
+            return Ok(());
+        }
         self.context.swap()
     }
 
