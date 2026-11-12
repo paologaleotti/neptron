@@ -3,11 +3,18 @@
 //! passes the validator, every game rectangle lies inside its mode, every
 //! whole-scale claim holds exactly, no fitted proposal comes before a pixel
 //! exact one, the `native` style never scales the game's lines by a whole
-//! multiple above 1 on a CRT, and the decision is deterministic.
+//! multiple above 1 on a CRT, and the decision is deterministic. Each
+//! source runs with every picture style and every refresh policy. On the
+//! winner: a doubled or forced rate that the policy asks for wins whenever
+//! an exact mode at it validates; a progressive source never gets an
+//! interlaced fit while a progressive exact mode validates; the notice
+//! says "fitted" exactly for a fitted winner and gives the cropped lines
+//! exactly when a crop exists.
 
 use neptron_modeline::policy::{
     Considered, HorizontalStrategy, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OrientedSource, PictureStyle,
-    Plan, PolicyError, PolicySettings, Proposal, RefreshPolicy, Rung, choose, decide,
+    Plan, PolicyError, PolicySettings, Proposal, RefreshKind, RefreshPolicy, Rung, Winner, choose,
+    decide, notice,
 };
 use neptron_safety::validate;
 use neptron_types::{GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry, ui_dest_fill};
@@ -16,9 +23,16 @@ use crate::presets::{
     all_presets, edid_caps, gpu_table, open_caps, panel_1080, pc_crt_30_71, unknown_gpu,
 };
 
-/// Sources per profile and GPU. With 27 profiles and 4 GPUs this is 4,320
-/// decisions.
-const SOURCES_PER_PROFILE: usize = 40;
+/// Sources per profile and GPU. With 27 profiles, 4 GPUs, 5 styles and 4
+/// refresh policies this is 43,200 decisions.
+const SOURCES_PER_PROFILE: usize = 20;
+
+const REFRESH_POLICIES: [RefreshPolicy; 4] = [
+    RefreshPolicy::Exact,
+    RefreshPolicy::ExactX2,
+    RefreshPolicy::Force50,
+    RefreshPolicy::Force60,
+];
 
 const SEED: u64 = 0x4e45_5054_524f_4e15;
 
@@ -71,23 +85,32 @@ fn random_source(rng: &mut Lcg) -> SourceGeometry {
     }
 }
 
-fn random_settings(rng: &mut Lcg) -> PolicySettings {
-    PolicySettings {
-        style: rng.pick(&PictureStyle::ALL),
-        refresh: rng.pick(&[
-            RefreshPolicy::Exact,
-            RefreshPolicy::ExactX2,
-            RefreshPolicy::Force50,
-            RefreshPolicy::Force60,
-        ]),
-        horizontal: rng.pick(&[
-            None,
-            Some(HorizontalStrategy::Native),
-            Some(HorizontalStrategy::DynamicSuperWidth),
-            Some(HorizontalStrategy::FixedSuperWidth { width: 2_560 }),
-        ]),
-        ..PolicySettings::default()
-    }
+/// The settings of one source with a random horizontal strategy, for
+/// every picture style and every refresh policy.
+fn every_setting(rng: &mut Lcg) -> Vec<PolicySettings> {
+    let horizontal = random_horizontal(rng);
+    PictureStyle::ALL
+        .into_iter()
+        .flat_map(|style| {
+            REFRESH_POLICIES
+                .into_iter()
+                .map(move |refresh| PolicySettings {
+                    style,
+                    refresh,
+                    horizontal,
+                    ..PolicySettings::default()
+                })
+        })
+        .collect()
+}
+
+fn random_horizontal(rng: &mut Lcg) -> Option<HorizontalStrategy> {
+    rng.pick(&[
+        None,
+        Some(HorizontalStrategy::Native),
+        Some(HorizontalStrategy::DynamicSuperWidth),
+        Some(HorizontalStrategy::FixedSuperWidth { width: 2_560 }),
+    ])
 }
 
 fn gpus() -> Vec<(String, GpuCaps)> {
@@ -197,6 +220,78 @@ fn check_plan(plan: &Plan, profile: &MonitorProfile, caps: &GpuCaps) -> Result<(
     if let Some(w) = choice.winner {
         validate(&w.proposal.mode, profile, caps)
             .map_err(|e| format!("winner {} refused: {e}", w.considered))?;
+        let valid = |p: &Proposal| validate(&p.mode, profile, caps).is_ok();
+        check_asked_rate(plan, &w, valid)?;
+        check_no_interlaced_fit(plan, &w, valid)?;
+        check_notice(plan, &w)?;
+    }
+    Ok(())
+}
+
+/// (a) With `exact_x2`, `force_50` or `force_60`, the asked rate wins
+/// whenever an exact mode at it validates: the user's choice of rate is
+/// never dropped for a mode at another rate.
+fn check_asked_rate<V>(
+    plan: &Plan,
+    w: &Winner<'_, V>,
+    valid: impl Fn(&Proposal) -> bool,
+) -> Result<(), String> {
+    let asked = match plan.refresh {
+        RefreshPolicy::Exact => return Ok(()),
+        RefreshPolicy::ExactX2 => RefreshKind::Double,
+        RefreshPolicy::Force50 => RefreshKind::Forced50,
+        RefreshPolicy::Force60 => RefreshKind::Forced60,
+    };
+    let exists = plan
+        .proposals()
+        .any(|(_, c, p)| !c.rung.is_fitted() && c.target.kind == asked && valid(p));
+    if exists && w.considered.target.kind != asked {
+        return Err(format!(
+            "winner {} is not at the asked {asked}, an exact mode there validates",
+            w.considered
+        ));
+    }
+    Ok(())
+}
+
+/// (b) A progressive source never gets an interlaced fit while a
+/// progressive exact mode validates.
+fn check_no_interlaced_fit<V>(
+    plan: &Plan,
+    w: &Winner<'_, V>,
+    valid: impl Fn(&Proposal) -> bool,
+) -> Result<(), String> {
+    let interlaced_fit = w.considered.rung.is_fitted() && w.proposal.mode.interlace;
+    if plan.source.interlaced || !interlaced_fit {
+        return Ok(());
+    }
+    let progressive_exact = plan
+        .proposals()
+        .any(|(_, c, p)| !c.rung.is_fitted() && !p.mode.interlace && valid(p));
+    if progressive_exact {
+        return Err(format!(
+            "winner {} is an interlaced fit, a progressive exact mode validates",
+            w.considered
+        ));
+    }
+    Ok(())
+}
+
+/// (c) The notice says "fitted" exactly for a fitted winner, and gives the
+/// cropped lines exactly when the winner has a crop.
+fn check_notice<V>(plan: &Plan, w: &Winner<'_, V>) -> Result<(), String> {
+    let n = notice(plan, w.considered);
+    let fitted = n.is_some_and(|n| n.fitted);
+    if fitted != w.considered.rung.is_fitted() {
+        return Err(format!("notice fitted {fitted} for {}", w.considered));
+    }
+    let cropped = n.map_or(0, |n| n.cropped_lines);
+    let crop = w.proposal.overscan_crop.map_or(0, |c| c.lines());
+    if cropped != crop {
+        return Err(format!(
+            "notice crops {cropped} lines, the winner {crop}: {}",
+            w.considered
+        ));
     }
     Ok(())
 }
@@ -218,33 +313,34 @@ fn the_policy_is_safe_and_deterministic_over_random_sources() {
             let caps = if *edid { edid_caps(caps) } else { caps };
             for _ in 0..SOURCES_PER_PROFILE {
                 let source = random_source(&mut rng);
-                let settings = random_settings(&mut rng);
-                let case = format!("{} {gpu} {source:?} {settings:?}", profile.id);
-                let empty = source.width == 0 || source.height == 0 || source.refresh_mhz == 0;
-                let plan = match decide(&source, &settings, profile, &caps) {
-                    Ok(plan) => plan,
-                    Err(PolicyError::EmptySource { .. }) if empty => {
-                        empty_sources += 1;
-                        continue;
+                for settings in every_setting(&mut rng) {
+                    let case = format!("{} {gpu} {source:?} {settings:?}", profile.id);
+                    let empty = source.width == 0 || source.height == 0 || source.refresh_mhz == 0;
+                    let plan = match decide(&source, &settings, profile, &caps) {
+                        Ok(plan) => plan,
+                        Err(PolicyError::EmptySource { .. }) if empty => {
+                            empty_sources += 1;
+                            continue;
+                        }
+                        Err(e) => {
+                            failures.push(format!("{case}: {e}"));
+                            continue;
+                        }
+                    };
+                    decisions += 1;
+                    let again = decide(&source, &settings, profile, &caps);
+                    if again.as_ref() != Ok(&plan) {
+                        failures.push(format!("{case}: two decisions differ"));
                     }
-                    Err(e) => {
+                    if let Err(e) = check_plan(&plan, profile, &caps) {
                         failures.push(format!("{case}: {e}"));
-                        continue;
                     }
-                };
-                decisions += 1;
-                let again = decide(&source, &settings, profile, &caps);
-                if again.as_ref() != Ok(&plan) {
-                    failures.push(format!("{case}: two decisions differ"));
-                }
-                if let Err(e) = check_plan(&plan, profile, &caps) {
-                    failures.push(format!("{case}: {e}"));
-                }
-                if choose(&plan, |m| validate(m, profile, &caps))
-                    .winner
-                    .is_some()
-                {
-                    winners += 1;
+                    if choose(&plan, |m| validate(m, profile, &caps))
+                        .winner
+                        .is_some()
+                    {
+                        winners += 1;
+                    }
                 }
             }
         }
@@ -257,7 +353,7 @@ fn the_policy_is_safe_and_deterministic_over_random_sources() {
     );
     assert_eq!(
         decisions + empty_sources,
-        profiles.len() * 4 * SOURCES_PER_PROFILE
+        profiles.len() * 4 * SOURCES_PER_PROFILE * PictureStyle::ALL.len() * REFRESH_POLICIES.len()
     );
     assert!(empty_sources > 0, "no source with a zero value was drawn");
     // Most random sources fit some mode; a policy that drops everything

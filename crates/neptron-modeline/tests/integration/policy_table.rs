@@ -586,6 +586,22 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
+        // A 152-line game at 55 Hz on generic_15 stays native progressive.
+        // 152 lines are below the 192 minimum: centred in 224, which the
+        // range holds at 55 Hz (floor(15,750 / 55) = 286 less 21 = 265).
+        // 2x needs 304: 132 source lines fit, 10 per edge, above the bound.
+        // The fill is 152 of 265 picture lines (57 %): padded, but exact,
+        // so no fit. Width: 256 x 224 x 4 / (3 x 152 x 1.333) = 377.4.
+        Row {
+            source: source(256, 152, 55_000),
+            mode: "377x224p",
+            rate_mhz: 55_000,
+            ..row(
+                "short_game_at_55_hz_stays_native",
+                preset("generic_15"),
+                open_caps(),
+            )
+        },
         // Sources that do not fit, more lines than progressive allows:
         // 480 progressive lines on 15 kHz are rung 3.
         Row {
