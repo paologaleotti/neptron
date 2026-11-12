@@ -1,5 +1,5 @@
 //! Shared plain data: modeline, CRT range, monitor profile, GPU capabilities,
-//! source geometry, frame, scene and backend events. Plain data with serde,
+//! output kind, source geometry, frame, scene and backend events. Plain data with serde,
 //! no I/O.
 //!
 //! Every contract value is an integer: frequencies in millihertz (or hertz
@@ -11,6 +11,7 @@ mod event;
 mod gpu;
 mod modeline;
 mod monitor;
+mod output;
 mod scanline;
 mod scene;
 mod source;
@@ -19,6 +20,7 @@ pub use event::{Control, FlipEvent, InputEvent};
 pub use gpu::GpuCaps;
 pub use modeline::Modeline;
 pub use monitor::{CrtRange, MonitorKind, MonitorProfile};
+pub use output::OutputKind;
 pub use scanline::{
     CRT_15KHZ_CLASS_MAX_LINE_RATE_MHZ, ScanlineKind, ScanlineMode, Scanlines, ScreenClass,
     scanlines_for,
