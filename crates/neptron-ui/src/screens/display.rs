@@ -13,38 +13,83 @@ use crate::theme::Theme;
 use super::chrome::{self, Layout};
 use super::page::{Page, PageEvent};
 use super::router::{Nav, Target};
+use super::video;
 use super::{DISPLAY_PAGE, GRID_PATTERN};
 
 /// The lines of the box that shows the output, the mode and the monitor.
 const INFO_LINES: u32 = 3;
+/// The lines of that box while the video block shows the mode instead.
+const INFO_LINES_WITH_VIDEO: u32 = 2;
 /// Space between the boxes, in pixels.
 const GAP_PX: u32 = 4;
 
 /// The display panel. It writes at the global level: the output and the
 /// monitor are global, and the picture style of one game is changed from
 /// the quick menu.
+///
+/// While a game runs with a video status, the info box shows the output
+/// and the monitor, and the video block under it shows the mode as the
+/// kernel reports it.
 pub(super) struct DisplayPanel {
     page: Page,
-    info_box: Rect,
-    info: Rect,
+    content: Rect,
+    places: Places,
 }
 
-impl DisplayPanel {
-    pub(super) fn new(layout: &Layout, theme: &Theme) -> Self {
-        let content = layout.content;
-        let (info_box, info) = chrome::rows_box(content, theme, INFO_LINES);
-        let below = info_box.h + GAP_PX;
-        let area = Rect::new(
+/// Where the boxes of the panel are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Places {
+    info_box: Rect,
+    info: Rect,
+    /// The area of the video block, `None` without it.
+    video: Option<Rect>,
+    page: Rect,
+}
+
+impl Places {
+    fn new(content: Rect, theme: &Theme, video: bool) -> Self {
+        let lines = if video {
+            INFO_LINES_WITH_VIDEO
+        } else {
+            INFO_LINES
+        };
+        let (info_box, info) = chrome::rows_box(content, theme, lines);
+        let below = info_box.h.saturating_add(GAP_PX).min(content.h);
+        let rest = Rect::new(
             content.x,
             chrome::offset(content.y, below),
             content.w,
             content.h.saturating_sub(below),
         );
         Self {
-            page: Page::new(DISPLAY_PAGE, Level::Global, area, theme),
             info_box,
             info,
+            video: video.then_some(rest),
+            page: if video { video::below(rest) } else { rest },
         }
+    }
+}
+
+impl DisplayPanel {
+    pub(super) fn new(layout: &Layout, theme: &Theme) -> Self {
+        let content = layout.content;
+        let places = Places::new(content, theme, false);
+        Self {
+            page: Page::new(DISPLAY_PAGE, Level::Global, places.page, theme),
+            content,
+            places,
+        }
+    }
+
+    /// Shows the video block while the snapshot has a video status, and
+    /// removes it when it has none.
+    pub(super) fn sync(&mut self, snap: &Snapshot, theme: &Theme) {
+        let video = video::status(snap).is_some();
+        if video == self.places.video.is_some() {
+            return;
+        }
+        self.places = Places::new(self.content, theme, video);
+        self.page.place(self.places.page, theme);
     }
 
     pub(super) fn handle(
@@ -82,7 +127,8 @@ impl DisplayPanel {
             "Accept: change",
             "Back: return",
         );
-        chrome::boxed(frame, theme, self.info_box);
+        let places = &self.places;
+        chrome::boxed(frame, theme, places.info_box);
         let (output, mode) = snap
             .display
             .as_ref()
@@ -95,17 +141,25 @@ impl DisplayPanel {
         let line = |i: u32| {
             chrome::padded(
                 Rect::new(
-                    self.info.x,
-                    chrome::offset(self.info.y, i * row),
-                    self.info.w,
+                    places.info.x,
+                    chrome::offset(places.info.y, i * row),
+                    places.info.w,
                     row,
                 ),
                 theme,
             )
         };
         chrome::field(frame, theme, line(0), "Output", output);
-        chrome::field(frame, theme, line(1), "Mode", mode);
-        chrome::field(frame, theme, line(2), "Monitor", monitor);
+        match (places.video, video::status(snap)) {
+            (Some(area), Some(status)) => {
+                chrome::field(frame, theme, line(1), "Monitor", monitor);
+                video::draw(frame, theme, area, status);
+            }
+            _ => {
+                chrome::field(frame, theme, line(1), "Mode", mode);
+                chrome::field(frame, theme, line(2), "Monitor", monitor);
+            }
+        }
         self.page.draw(snap, theme, frame);
     }
 }

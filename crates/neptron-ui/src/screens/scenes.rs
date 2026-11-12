@@ -88,6 +88,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: quick_menu_video_long,
     },
     SceneDef {
+        name: "screens/display-video",
+        build: display_video,
+    },
+    SceneDef {
         name: "pattern/grid",
         build: grid,
     },
@@ -507,6 +511,23 @@ fn quick_menu_video_filtered(frame: &mut UiFrame, theme: &Theme) {
 
 fn quick_menu_video_long(frame: &mut UiFrame, theme: &Theme) {
     quick_menu_with(frame, theme, long_status());
+}
+
+/// The display panel opened from the quick menu, with the video block.
+fn display_video(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = in_game_with(long_status());
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[], frame);
+    let to_display = [
+        UiAction::Menu,
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Accept,
+    ];
+    screens.update(&snap, &to_display, frame);
+    snap.settings = with_display().settings;
+    screens.update(&snap, &[UiAction::Down, UiAction::Down], frame);
 }
 
 fn grid(frame: &mut UiFrame, theme: &Theme) {

@@ -6,7 +6,7 @@ use crate::input::UiAction::{self, Accept, Back, Down, Left, Menu, Right, Up};
 use crate::intent::{Intent, Value};
 use crate::snapshot::{
     ConfirmId, GameId, GameSource, GameWindow, Level, Notice, NoticeId, NoticeKind, PendingConfirm,
-    SessionInfo, SettingsPage, Snapshot,
+    SessionInfo, SettingsPage, Snapshot, VideoStatus,
 };
 use crate::theme::Theme;
 
@@ -860,7 +860,7 @@ fn a_static_screen_allocates_nothing_after_its_first_frame() {
     noticed.notices = vec![notice(1, "The scan found 12 new games.")];
     let (_, games) = snes_list();
     let video = in_game_with(long_status());
-    let cases: [(&Snapshot, &[UiAction], &str); 11] = [
+    let cases: [(&Snapshot, &[UiAction], &str); 12] = [
         (&with_systems(), &[], "home"),
         (&Snapshot::default(), &[], "home"),
         (&games, &[Down, Accept], "games"),
@@ -871,6 +871,7 @@ fn a_static_screen_allocates_nothing_after_its_first_frame() {
         (&quick, &[Menu, Down, Accept], "options"),
         (&video, &[Menu], "quick-menu"),
         (&video, &[Menu, Down, Accept], "options"),
+        (&video, &[Menu, Down, Down, Down, Accept], "display"),
         (
             &with_display(),
             &[
@@ -1498,5 +1499,76 @@ fn an_alert_result_has_the_focus_colour() {
             _ => None,
         });
         assert_eq!(drawn, Some(colour), "{}", status.result);
+    }
+}
+
+/// A run on the display panel, opened from the quick menu of a game with
+/// `status`.
+fn display_in_game(status: Option<VideoStatus>) -> (Run, Snapshot) {
+    let mut run = Run::new();
+    let mut snap = in_game();
+    snap.video = status;
+    run.step(&snap, &[]);
+    run.step(&snap, &[Menu, Down, Down, Down, Accept]);
+    snap.settings = with_display().settings;
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "display");
+    (run, snap)
+}
+
+#[test]
+fn the_display_panel_shows_the_video_block_while_a_game_runs() {
+    let (run, _) = display_in_game(Some(exact_status()));
+    assert_eq!(field(&run, "Output"), Some("VGA-1"));
+    assert_eq!(field(&run, "Monitor"), Some("pc_31_120"));
+    assert_eq!(field(&run, "Mode"), None, "the block shows the mode");
+    assert_eq!(
+        field(&run, VIDEO_MODE_ROW),
+        Some("768x448p 30.05 kHz 60.099 Hz  2x")
+    );
+    assert_eq!(run.focused(), Some("Output"));
+    let block = run
+        .frame
+        .tree
+        .rows()
+        .find(|r| r.label == VIDEO_RESULT_ROW)
+        .map(|r| r.rect.bottom());
+    let first_row = run
+        .frame
+        .tree
+        .rows()
+        .find(|r| r.label == "Output" && r.widget == crate::WidgetKind::SettingsList)
+        .map(|r| i64::from(r.rect.y));
+    assert!(block < first_row, "{block:?} {first_row:?}");
+
+    let (run, _) = display_in_game(None);
+    assert!(video_rows(&run).is_empty());
+    assert_eq!(field(&run, "Mode"), Some("640x480 59.94 Hz"));
+
+    let mut run = Run::new();
+    let mut snap = with_display();
+    snap.video = Some(exact_status());
+    run.step(&snap, &TO_DISPLAY);
+    assert!(video_rows(&run).is_empty(), "no game runs");
+}
+
+#[test]
+fn the_video_block_changes_no_navigation_of_the_display_panel() {
+    let paths: [&[UiAction]; 4] = [
+        &[Up, Down, Down, Down, Down, Down, Down],
+        &[Down, Down, Accept, Down, Accept],
+        &[Down, Down, Down, Down, Accept, Back],
+        &[Right, Left, Back, Back],
+    ];
+    for path in paths {
+        let (mut plain, snap) = display_in_game(None);
+        let (mut run, with) = display_in_game(Some(long_status()));
+        for &action in path {
+            plain.step(&snap, &[action]);
+            run.step(&with, &[action]);
+            assert_eq!(run.screen(), plain.screen(), "{path:?} {action:?}");
+            assert_eq!(run.focused(), plain.focused(), "{path:?} {action:?}");
+            assert_eq!(run.intents(), plain.intents(), "{path:?} {action:?}");
+        }
     }
 }

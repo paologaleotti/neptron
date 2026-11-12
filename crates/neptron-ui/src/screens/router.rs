@@ -139,6 +139,7 @@ impl Screens {
             Some(Screen::Games(list)) => list.sync(snap),
             Some(Screen::Options(options)) => options.sync(snap),
             Some(Screen::QuickMenu(menu)) => menu.sync(snap, &self.theme),
+            Some(Screen::Display(panel)) => panel.sync(snap, &self.theme),
             _ => {}
         }
         self.confirm.follow(snap.confirm.as_ref());
