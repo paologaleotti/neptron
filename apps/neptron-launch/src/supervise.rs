@@ -1,0 +1,185 @@
+//! The supervisor loop: start the frontend, wait for it, start it again.
+
+use std::io;
+
+use crate::backoff::{Backoff, Exit, Next};
+
+/// The frontend process, as the supervisor sees it.
+pub trait Frontend {
+    /// Starts a new run and waits for its end. It gives the exit code, or
+    /// `None` when a signal ended the process.
+    ///
+    /// # Errors
+    ///
+    /// The process could not start, or the wait failed.
+    fn run(&mut self) -> io::Result<Option<i32>>;
+}
+
+/// The time of the supervisor: a monotonic clock and a wait.
+pub trait Time {
+    /// Monotonic nanoseconds.
+    fn now_ns(&self) -> u64;
+    /// Waits `ns` nanoseconds.
+    fn wait_ns(&mut self, ns: u64);
+}
+
+/// Why the supervisor stopped.
+#[derive(Debug, thiserror::Error)]
+pub enum SuperviseError {
+    /// The frontend could not start, or the wait for it failed.
+    #[error("cannot run the frontend after {runs} runs: {source}")]
+    Run {
+        /// The runs that started before the failure.
+        runs: u64,
+        /// The error of the system.
+        #[source]
+        source: io::Error,
+    },
+}
+
+/// Runs the frontend until it quits with exit code 0. A crash starts it
+/// again after the wait of the [`Backoff`]; a relaunch starts it again at
+/// once. Returns the number of runs.
+///
+/// # Errors
+///
+/// [`SuperviseError::Run`] when the frontend cannot start. The init system
+/// then restarts the launcher, which opens the device again.
+pub fn supervise<F: Frontend, T: Time>(
+    frontend: &mut F,
+    time: &mut T,
+    backoff: &mut Backoff,
+) -> Result<u64, SuperviseError> {
+    let mut runs = 0u64;
+    loop {
+        let started_ns = time.now_ns();
+        let code = frontend
+            .run()
+            .map_err(|source| SuperviseError::Run { runs, source })?;
+        runs += 1;
+        let ran_ns = time.now_ns().saturating_sub(started_ns);
+        let exit = Exit::of_code(code);
+        match backoff.after(exit, ran_ns) {
+            Next::Stop => return Ok(runs),
+            Next::Restart { after_ns } => {
+                if exit == Exit::Crash {
+                    eprintln!(
+                        "neptron-launch: the frontend ended with {code:?} after {} ms, crash {} in a row; start again in {} ms",
+                        ran_ns / 1_000_000,
+                        backoff.crashes(),
+                        after_ns / 1_000_000
+                    );
+                }
+                if after_ns > 0 {
+                    time.wait_ns(after_ns);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backoff::{BACKOFF_FIRST_NS, RELAUNCH_EXIT_CODE, STABLE_RUN_NS};
+
+    /// A frontend that ends each run with the next scripted result after a
+    /// scripted run time on the simulated clock.
+    struct FakeFrontend<'a> {
+        script: Vec<(u64, io::Result<Option<i32>>)>,
+        clock: &'a std::cell::Cell<u64>,
+    }
+
+    impl Frontend for FakeFrontend<'_> {
+        fn run(&mut self) -> io::Result<Option<i32>> {
+            assert!(!self.script.is_empty(), "the script ended");
+            let (ran_ns, result) = self.script.remove(0);
+            self.clock.set(self.clock.get() + ran_ns);
+            result
+        }
+    }
+
+    struct FakeTime<'a> {
+        clock: &'a std::cell::Cell<u64>,
+        waits: Vec<u64>,
+    }
+
+    impl Time for FakeTime<'_> {
+        fn now_ns(&self) -> u64 {
+            self.clock.get()
+        }
+
+        fn wait_ns(&mut self, ns: u64) {
+            self.waits.push(ns);
+            self.clock.set(self.clock.get() + ns);
+        }
+    }
+
+    fn run(script: Vec<(u64, io::Result<Option<i32>>)>) -> (Result<u64, SuperviseError>, Vec<u64>) {
+        let clock = std::cell::Cell::new(0);
+        let mut frontend = FakeFrontend {
+            script,
+            clock: &clock,
+        };
+        let mut time = FakeTime {
+            clock: &clock,
+            waits: Vec::new(),
+        };
+        let result = supervise(&mut frontend, &mut time, &mut Backoff::new());
+        (result, time.waits)
+    }
+
+    #[test]
+    fn crashes_restart_with_a_growing_wait_until_a_quit() {
+        let (result, waits) = run(vec![
+            (1_000, Ok(Some(101))),
+            (1_000, Ok(None)),
+            (1_000, Ok(Some(1))),
+            (1_000, Ok(Some(0))),
+        ]);
+        assert_eq!(result.expect("a quit"), 4);
+        assert_eq!(
+            waits,
+            [BACKOFF_FIRST_NS, 2 * BACKOFF_FIRST_NS, 4 * BACKOFF_FIRST_NS]
+        );
+    }
+
+    #[test]
+    fn relaunches_restart_at_once() {
+        let (result, waits) = run(vec![
+            (1_000, Ok(Some(RELAUNCH_EXIT_CODE))),
+            (1_000, Ok(Some(RELAUNCH_EXIT_CODE))),
+            (1_000, Ok(Some(0))),
+        ]);
+        assert_eq!(result.expect("a quit"), 3);
+        assert!(waits.is_empty());
+    }
+
+    #[test]
+    fn a_long_run_resets_the_wait() {
+        let (result, waits) = run(vec![
+            (1_000, Ok(Some(1))),
+            (1_000, Ok(Some(1))),
+            (STABLE_RUN_NS, Ok(Some(1))),
+            (1_000, Ok(Some(0))),
+        ]);
+        assert_eq!(result.expect("a quit"), 4);
+        assert_eq!(
+            waits,
+            [BACKOFF_FIRST_NS, 2 * BACKOFF_FIRST_NS, BACKOFF_FIRST_NS]
+        );
+    }
+
+    #[test]
+    fn a_frontend_that_cannot_start_stops_the_supervisor() {
+        let (result, _) = run(vec![
+            (1_000, Ok(Some(1))),
+            (0, Err(io::Error::from(io::ErrorKind::NotFound))),
+        ]);
+        let Err(SuperviseError::Run { runs, source }) = result else {
+            panic!("a start failure is an error");
+        };
+        assert_eq!(runs, 1);
+        assert_eq!(source.kind(), io::ErrorKind::NotFound);
+    }
+}
