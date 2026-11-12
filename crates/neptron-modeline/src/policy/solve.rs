@@ -1,5 +1,6 @@
-use neptron_types::{CrtRange, GpuCaps, MonitorProfile, Rotation, SourceGeometry};
+use neptron_types::{CrtRange, GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry};
 
+use super::clock::whole_khz;
 use super::crt::Crt;
 use super::padding::padding;
 use super::placement::{Vertical, crt_placement};
@@ -165,7 +166,7 @@ impl Ask<'_> {
         // from the profile, so it drops this candidate and the walk goes on.
         // Every other solver error is an error of the profile or the
         // settings and stops the plan.
-        let list = match modelines_with(&request, self.profile, &caps, &self.settings.solver) {
+        let mut list = match modelines_with(&request, self.profile, &caps, &self.settings.solver) {
             Ok(list) => list,
             Err(ModelineError::Convert {
                 error: ConvertError::Timing { field, value, max },
@@ -173,6 +174,14 @@ impl Ask<'_> {
             }) => return Ok(Err(Dropped::TimingOutOfRange { field, value, max })),
             Err(error) => return Err(error),
         };
+        let ranges = match &self.profile.kind {
+            MonitorKind::Crt { ranges } => ranges.as_slice(),
+            MonitorKind::FlatPanel { .. } => &[],
+        };
+        for candidate in &mut list {
+            let range = ranges.get(candidate.range_index);
+            candidate.modeline = whole_khz(candidate.modeline, range);
+        }
         Ok(self.pick(&list, width))
     }
 

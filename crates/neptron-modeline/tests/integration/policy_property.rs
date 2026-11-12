@@ -230,12 +230,35 @@ fn check_native(considered: &Considered, proposal: &Proposal) -> Result<(), Stri
     }
 }
 
+/// A CRT proposal has a pixel clock in whole kHz, as a display takes it,
+/// and its rates are the rates of that clock and its totals: the mode the
+/// policy proposes is the mode the kernel reads back.
+fn check_clock(p: &Proposal) -> Result<(), String> {
+    if !p.mode.pclock_is_whole_khz() {
+        return Err(format!(
+            "pixel clock {} Hz is not whole kHz",
+            p.mode.pclock_hz
+        ));
+    }
+    let rates = (p.timing.line_rate_mhz, p.timing.field_rate_mhz);
+    let of_mode = (p.mode.line_rate_mhz(), p.mode.field_rate_mhz());
+    if rates != of_mode {
+        return Err(format!(
+            "timing rates {rates:?} mHz are not the rates {of_mode:?} mHz of the mode"
+        ));
+    }
+    Ok(())
+}
+
 fn check_plan(plan: &Plan, profile: &MonitorProfile, caps: &GpuCaps) -> Result<(), String> {
     let crt = matches!(profile.kind, MonitorKind::Crt { .. });
     let mut fitted_seen = None;
     for (index, considered, proposal) in plan.proposals() {
         check_placement(proposal, &plan.source, crt)
             .map_err(|e| format!("#{index} {considered}: {e}"))?;
+        if crt {
+            check_clock(proposal).map_err(|e| format!("#{index} {considered}: {e}"))?;
+        }
         if crt && plan.style == PictureStyle::Native {
             check_native(considered, proposal)
                 .map_err(|e| format!("#{index} {considered}: {e}"))?;

@@ -64,6 +64,14 @@ fn outcome(source: &SourceGeometry, profile: &MonitorProfile, caps: &GpuCaps) ->
     };
     let p = w.proposal;
     let m = &p.mode;
+    // The rule of every display backend: the kernel's mode record holds
+    // the clock in kHz, and a backend refuses any other clock.
+    assert!(
+        m.pclock_is_whole_khz(),
+        "{}: the winner's pixel clock {} Hz is not whole kHz",
+        profile.id,
+        m.pclock_hz
+    );
     let d = &p.placement.dest;
     let crop = p
         .overscan_crop

@@ -24,6 +24,7 @@
 //! crate: the engine runs step 6 with `neptron_safety::validate`.
 
 mod choose;
+mod clock;
 mod crt;
 mod ladder;
 mod padding;
