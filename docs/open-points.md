@@ -613,3 +613,30 @@ Each open point is one section:
 - How to change: the limits are named constants in `guard.rs`. A connector field in `DisplayConfig` puts the output under the guard.
 - Decision:
 
+### OP-066: User override of the safety limits, with warnings.
+
+- Raised by: the owner (2026-11-12), in a side session
+- Status: open, after the MVP
+- Default: no switch turns the validator off. The override is the monitor profile, which is a file loaded at run time.
+- Where: `crates/neptron-safety`, `crates/neptron-modeline`, `data/monitors`, the display panel
+- How to change: (1) a "custom monitor" editor in the UI for the line rate, field rate and sync ranges, with a warning text, under confirm-or-revert; (2) a tolerance setting for small misses outside the range, with the `[!]` alert; (3) a per-game override of the mode choice, saved by the user.
+- Decision:
+
+### OP-067: Hardware-rendered (GPU) cores, and which emulators are supported.
+
+- Raised by: the owner (2026-11-12), in a side session
+- Status: open, after the MVP
+- Default: the MVP host takes software frames only. Direction: libretro cores only, and no standalone emulators, because they open the display themselves and go around the mode control and the safety path.
+- Where: `crates/neptron-libretro`, `crates/neptron-gfx`, `data/cores`
+- How to change: add the libretro hardware render interface to `neptron-libretro` (context create, reset, destroy; protect the GL state of the renderer), a desktop OpenGL context through EGL next to GLES in `neptron-gfx`, the internal resolution per core in the core files (1x for a CRT so nothing is filtered), and Vulkan later. Size: about one wave. The target is the cores that Batocera and RePlayOS offer, for example Dreamcast and GameCube.
+- Decision:
+
+### OP-068: 16:9 content with no per-game list.
+
+- Raised by: the owner (2026-11-12), in a side session
+- Status: open, after the MVP
+- Default: the frame fills the 4:3 tube. The policy assumes a 4:3 monitor. The project ships no per-game patch; files per system and per core are acceptable.
+- Where: `crates/neptron-modeline` (policy), `crates/neptron-types` (the destination in `Scene`), `crates/neptron-settings`, the quick menu
+- How to change: a monitor aspect setting (4:3 or 16:9 tube); read the aspect ratio that the core reports in its geometry, also when it changes while the game runs; letterbox or fill as picture options; for GPU cores the core renders at the letterbox size so the picture stays exact. An anamorphic game (16:9 chosen in the game's own menu, output still a 4:3 frame) sends no signal, so the user sets "Aspect: 16:9" in the quick menu, and it is saved for that game as a user setting.
+- Decision:
+
