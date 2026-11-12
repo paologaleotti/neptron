@@ -3,12 +3,13 @@
 use neptron_testkit::ModeFault;
 use neptron_types::Modeline;
 use neptron_video::{
-    CONFIRM_WINDOW_NS, ConfirmError, GuardEvent, MODESET_ATTEMPTS, NO_PICTURE_LIMIT_NS, Phase,
-    PictureStyle, PromptId, RevertReason, SafeReason,
+    CONFIRM_WINDOW_NS, ConfirmError, GuardEvent, Health, MODESET_ATTEMPTS, NO_PICTURE_LIMIT_NS,
+    Phase, PictureStyle, PromptId, RevertReason, SafeReason,
 };
 
 use crate::guard_rig::{
-    FRAME_NS, GuardRig, config, crt_15, crt_31, dead_edid, mode_of, pc_31_120, with_style,
+    FRAME_NS, GuardRig, arcade_15_25_31, config, crt_15, crt_31, dead_edid, mode_of, pc_31_120,
+    with_style,
 };
 
 /// Two frames: the watch starts at the first frame that sees the state.
@@ -116,6 +117,30 @@ fn a_confirmation_before_the_new_mode_flips_is_refused() {
     };
     assert!(health.refused);
     rig.frame();
+    assert!(rig.guard.confirm(prompt.id, rig.now(), &rig.engine).is_ok());
+}
+
+#[test]
+fn a_confirmation_before_a_frame_of_the_change_is_refused() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    let old = rig.wire();
+    let multi = with_style(config(arcade_15_25_31()), PictureStyle::X2);
+    let prompt = rig.propose(multi.clone());
+    assert!(
+        Health::of(&rig.engine).picture,
+        "the old mode is valid for the new monitor, so the engine shows a picture"
+    );
+    assert_eq!(
+        rig.guard.confirm(prompt.id, rig.now(), &rig.engine),
+        Err(ConfirmError::NotShown)
+    );
+    assert_eq!(rig.guard.phase(), Phase::Pending(prompt));
+    assert!(rig.engine.odren().decision_due());
+
+    rig.frame();
+    assert!(!rig.engine.odren().decision_due());
+    assert_ne!(rig.wire(), old, "the frame set the mode of the change");
+    assert_eq!(rig.wire(), Some(mode_of(&multi)));
     assert!(rig.guard.confirm(prompt.id, rig.now(), &rig.engine).is_ok());
 }
 

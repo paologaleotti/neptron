@@ -293,6 +293,15 @@ impl Odren {
         self.refused_on_screen
     }
 
+    /// The engine has not yet decided on its current inputs: an input
+    /// change or `retry` waits for the next frame, a modeset of that
+    /// decision failed and is tried again on the next frame, or a modeset
+    /// waits for its present. While it is false, the mode on the display
+    /// is the result of a decision on the current inputs.
+    pub fn decision_due(&self) -> bool {
+        self.redo.is_some() || self.commit.is_some()
+    }
+
     /// The output is off after a `blank`: no mode, no signal. It stays set
     /// until the next modeset.
     pub fn blanked(&self) -> bool {

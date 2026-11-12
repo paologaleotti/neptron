@@ -148,6 +148,11 @@ pub enum ConfirmError {
         /// What the engine shows.
         health: Health,
     },
+    /// No tick has seen a valid picture of the change since it was given
+    /// to the engine: the picture on the display can still be the old
+    /// mode.
+    #[error("no frame has shown the change yet")]
+    NotShown,
 }
 
 #[derive(Debug, Clone)]
@@ -296,8 +301,9 @@ impl Guard {
     /// # Errors
     ///
     /// [`ConfirmError`] when no change waits, `id` is not the open one,
-    /// `now_ns` is at or after the deadline, or the engine shows no valid
-    /// picture. The guard does not change.
+    /// `now_ns` is at or after the deadline, the engine shows no valid
+    /// picture, or no [`Guard::tick`] has seen a valid picture of the
+    /// change since it was given to the engine. The guard does not change.
     pub fn confirm<D: Display>(
         &mut self,
         id: PromptId,
@@ -314,6 +320,9 @@ impl Guard {
         let health = Health::of(engine);
         if !health.picture {
             return Err(ConfirmError::NoPicture { health });
+        }
+        if self.picture_since_ns.is_none() {
+            return Err(ConfirmError::NotShown);
         }
         self.state = State::Confirmed;
         self.boot_good = true;
@@ -385,7 +394,15 @@ impl Guard {
     pub fn tick<D: Display>(&mut self, now_ns: u64, engine: &mut VideoEngine<D>) -> GuardStep {
         let health = Health::of(engine);
         let no_picture_ns = watch(&mut self.no_picture_since_ns, health.no_picture(), now_ns);
-        let picture_ns = watch(&mut self.picture_since_ns, health.picture, now_ns);
+        // Every change of the guard ends in `retry`, `set_monitor` or
+        // `set_settings`, and each of them sets the engine's next decision
+        // due. `Odren::on_frame` takes it first and decides on the new
+        // inputs with no debounce; a failed modeset of that decision makes
+        // it due again. So a picture counts only once the engine reports
+        // the decision done: then the picture is of the change, not of the
+        // mode that was on the display before it.
+        let shown = health.picture && health.decided;
+        let picture_ns = watch(&mut self.picture_since_ns, shown, now_ns);
         let no_picture = no_picture_ns.is_some_and(|ns| ns >= NO_PICTURE_LIMIT_NS);
         match &self.state {
             State::Pending { prompt, .. } if now_ns >= prompt.deadline_ns => {

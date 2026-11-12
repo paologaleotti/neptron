@@ -25,6 +25,11 @@ pub fn pc_31_120() -> Monitor {
     Monitor::Profile(monitor_preset("pc_31_120").unwrap())
 }
 
+/// A multisync arcade monitor: 15, 25 and 31 kHz.
+pub fn arcade_15_25_31() -> Monitor {
+    Monitor::Profile(monitor_preset("arcade_15_25_31").unwrap())
+}
+
 /// A monitor that accepts no mode of the GPU: its highest pixel clock is
 /// below every mode of the policy.
 pub fn dead_edid() -> Monitor {

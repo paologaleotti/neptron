@@ -4,7 +4,7 @@ The ODREN engine: core geometry to policy to safety to display. Debounce, commit
 
 ## Public API
 
-- `Odren`: the state machine. It does no I/O and holds no display. `on_frame(SourceGeometry) -> Directive` takes the source of one core frame. `set_monitor`, `set_settings` and `set_veto` change its inputs; `set_scanlines` changes the scene only; `retry()` lifts a blocked source and starts new counts of modeset and blank attempts. `scene(game, ui)` and `preview_scene(&Proposal, &SourceGeometry, game, ui)` build the scene of the mode on screen and of a Display panel row through the same function. `current()`, `current_refused()`, `blanked()`, `trace()`, `muted()`, `style_rows(&SourceGeometry)` read it.
+- `Odren`: the state machine. It does no I/O and holds no display. `on_frame(SourceGeometry) -> Directive` takes the source of one core frame. `set_monitor`, `set_settings` and `set_veto` change its inputs; `set_scanlines` changes the scene only; `retry()` lifts a blocked source and starts new counts of modeset and blank attempts. `scene(game, ui)` and `preview_scene(&Proposal, &SourceGeometry, game, ui)` build the scene of the mode on screen and of a Display panel row through the same function. `current()`, `current_refused()`, `blanked()`, `decision_due()`, `trace()`, `muted()`, `style_rows(&SourceGeometry)` read it. `decision_due()` is true from an input change or `retry()` until a frame has decided on the new inputs and its modeset has not failed.
 - `VideoEngine<D: Display>`: `Odren` on a display. `new(display, Monitor, PolicySettings)`, `begin_frame(SourceGeometry) -> Directive`, `present(game, ui) -> Result<Presented, VideoError>`, `wait_flip() -> Result<FlipEvent, VideoError>`, `muted()`, `current()`, `current_refused()`, `blanked()`, `trace()`, `style_rows`, `set_monitor`, `set_settings`, `set_veto`, `set_scanlines`, `preview_scene`, `retry()`, `display()`.
 - `Guard`: confirm-or-revert, last known good, safe mode and blind recovery over the engine's inputs. `DisplayConfig`, `Health`, `GuardRecord`, `GuardStep`, `GuardEvent`, `Phase`, `Prompt`, `PromptId`, `SafeReason`, `RevertReason`, `ConfirmError`. See "The guard".
 - `Monitor`: `Profile(MonitorProfile)` or `Edid(EdidProfile)`. `caps_for(&GpuCaps)` applies the EDID pixel clock limit (`EdidProfile::limit_caps`).
@@ -134,7 +134,7 @@ The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `
 | Confirmed or Safe | `propose` of a new configuration | Pending | `PromptOpened` |
 | Pending | `propose` of another configuration | Pending with a new id and deadline, same revert target | `PromptOpened` |
 | Pending | `propose` of the confirmed configuration, or `follow_settings` | Confirmed | `Reverted(Superseded)` |
-| Pending | `confirm` with the open id, before the deadline, with a picture | Confirmed; the monitor is last known good; `failed_boots` 0; safe mode off | `Confirmed` |
+| Pending | `confirm` with the open id, before the deadline, with a picture that a `tick` has seen since the change | Confirmed; the monitor is last known good; `failed_boots` 0; safe mode off | `Confirmed` |
 | Pending | `decline` | the revert target | `Reverted(Declined)` |
 | Pending | `tick` at or after the deadline | the revert target | `Reverted(Timeout)` |
 | Pending | `tick`: no valid picture for 1 s | the revert target | `Reverted(NoPicture)` |
@@ -143,7 +143,8 @@ The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `
 | Any | `recover` | Safe(Recovery); the record is in safe mode | `SafeMode` |
 
 - No valid picture (`Health::no_picture`): the output is off, a refused mode is on the display, or the engine has set no mode. A mode that waits for its first flip is not counted, because a flip can be late.
-- `confirm` is refused with `ConfirmError` when no prompt is open, the id is another one, the time is at or after the deadline, or the engine shows no valid picture. Nothing changes; the deadline still reverts.
+- `confirm` is refused with `ConfirmError` when no prompt is open, the id is another one, the time is at or after the deadline, the engine shows no valid picture, or no `tick` has seen a valid picture of the change (`NotShown`). Nothing changes; the deadline still reverts.
+- A picture counts for the guard only when the engine has decided on the guard's inputs (`Health::decided`, from `Odren::decision_due`). Every change of the guard sets a decision due, and a failed modeset of that decision makes it due again. Until then, the mode on the display can be the old one, which the user must not confirm by accident.
 - A revert to the safe default (from a pending change that began in safe mode) goes back to the same `SafeReason`.
 - In Safe, `follow_settings` changes nothing: the safe default keeps its settings. The guard does nothing more when the safe default gives no picture: no signal is safe, and the engine bounds its own attempts.
 - Every change to the engine starts with `retry`, so a blocked source or exhausted blank attempts get a new set. A recovery in any state therefore reaches the display also while it is blank, while a refused mode stays after failed blanks, and before the first frame.
