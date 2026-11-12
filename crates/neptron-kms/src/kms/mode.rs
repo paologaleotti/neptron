@@ -51,19 +51,12 @@ impl KmsDisplay {
         // The CRTC state holds its own reference to the blob. A blob that
         // cannot be freed here is freed when the descriptor closes.
         let _ = self.card.destroy_property_blob(blob);
-        match result {
-            Ok(()) => {}
-            Err(Refusal::Test(e)) => {
-                self.gbm.release(bo);
-                return Err(refused(format!("the test-only commit failed: {e}")));
-            }
-            Err(Refusal::Commit(e)) => {
-                self.gbm.release(bo);
-                return Err(DisplayError::Device {
-                    operation: "modeset commit",
-                    reason: e.to_string(),
-                });
-            }
+        if let Err(refusal) = result {
+            self.gbm.release(bo);
+            return Err(match refusal {
+                Refusal::Test(e) => refused(format!("the test-only commit failed: {e}")),
+                other => other.device("modeset commit"),
+            });
         }
         if let Some(old) = self.front.replace(bo) {
             self.gbm.release(old);

@@ -233,12 +233,9 @@ impl Display for KmsDisplay {
             self.objects.props.plane[PLANE_FB_ID],
             u64::from(fb),
         );
-        if let Err(e) = request::commit(&req, &self.card, NONBLOCK | PAGE_FLIP_EVENT) {
+        if let Err(refusal) = request::commit(&req, &self.card, NONBLOCK | PAGE_FLIP_EVENT) {
             self.gbm.release(bo);
-            return Err(DisplayError::Device {
-                operation: "page flip commit",
-                reason: e.to_string(),
-            });
+            return Err(refusal.device("page flip commit"));
         }
         self.queued = Some(bo);
         self.state.flip_queued();

@@ -97,7 +97,7 @@ impl KmsDisplay {
         req.add(wb.connector, wb.fb_id, u64::from(fb));
         req.add(wb.connector, wb.out_fence_ptr, slot.as_ptr() as u64);
         request::test_then_commit(&req, &self.card, 0)
-            .map_err(|e| device("writeback commit", format!("{e:?}")))?;
+            .map_err(|refusal| refusal.device("writeback commit"))?;
         let fence = ffi::take_fence(slot.load(Ordering::SeqCst))
             .ok_or_else(|| device("writeback commit", "the kernel gave no fence".to_owned()))?;
         let limit = Duration::from_millis(WRITEBACK_WAIT_LIMIT_MS);

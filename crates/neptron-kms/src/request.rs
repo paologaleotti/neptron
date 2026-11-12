@@ -63,13 +63,16 @@ impl Request {
     }
 
     /// The object ids, the property count of each object, the property
-    /// ids and the values, as the atomic ioctl takes them. `None` when
-    /// [`add`](Self::add) ran out of room.
-    pub(crate) fn parts(&self) -> Option<Parts> {
+    /// ids and the values, as the atomic ioctl takes them.
+    ///
+    /// # Errors
+    ///
+    /// [`RequestFull`] when [`add`](Self::add) ran out of room.
+    pub(crate) fn parts(&self) -> Result<Parts, RequestFull> {
         if self.overflow {
-            return None;
+            return Err(RequestFull);
         }
-        Some(Parts {
+        Ok(Parts {
             objects: self.objects,
             counts: self.counts,
             props: self.props,
@@ -79,6 +82,15 @@ impl Request {
         })
     }
 }
+
+/// A request had more objects or properties than its fixed arrays. It is
+/// never sent; this is a fault of the backend, not of the mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "the atomic request needs more than {OBJECTS_MAX} objects or {PROPS_MAX} properties; it was \
+     not sent"
+)]
+pub(crate) struct RequestFull;
 
 /// A copy of the arrays of a [`Request`], which the ioctl may write.
 pub(crate) struct Parts {
@@ -112,6 +124,7 @@ mod tests {
         let mut r = Request::new();
         r.add(10, 1, 100);
         let p = r.parts().unwrap();
+        assert!(Request::new().parts().is_ok());
         assert_eq!((p.n_objects, p.n_props), (1, 1));
         assert_eq!(
             (p.objects[0], p.counts[0], p.props[0], p.values[0]),
@@ -126,7 +139,11 @@ mod tests {
             r.add(1, i, 0);
         }
         assert!(r.overflow);
-        assert!(r.parts().is_none());
+        assert_eq!(r.parts().err(), Some(RequestFull));
+        assert_eq!(
+            RequestFull.to_string(),
+            "the atomic request needs more than 4 objects or 16 properties; it was not sent"
+        );
         let mut r = Request::new();
         for i in 0..=OBJECTS_MAX as u32 {
             r.add(i, 1, 0);
