@@ -142,6 +142,7 @@ The CRT safety model (rows 4 to 6) asks more than the guard does. These parts ar
 | Boot | otherwise | Pending, reverts to the last known good or to the safe default | `PromptOpened` |
 | Confirmed or Safe | `propose` of a new configuration | Pending | `PromptOpened` |
 | Pending | `propose` of another configuration | Pending with a new id and deadline (no later than 30 s after the first change), same revert target | `PromptOpened` |
+| Pending | `propose` at or after the pending deadline | the revert target; the change is not applied | `Reverted(Timeout)` |
 | Pending | `propose` of the confirmed configuration, or `follow_settings` | the revert target | `Reverted(Superseded)` |
 | Pending | `confirm` with the open id, before the deadline, with a picture that a `tick` has seen since the change | Confirmed; the monitor is last known good; `failed_boots` 0; safe mode off | `Confirmed` |
 | Pending | `decline` | the revert target | `Reverted(Declined)` |

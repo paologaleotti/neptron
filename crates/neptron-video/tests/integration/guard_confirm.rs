@@ -520,3 +520,41 @@ fn a_revert_gives_the_restored_configuration_its_own_no_picture_limit() {
     assert_eq!(rig.guard.phase(), Phase::Confirmed);
     assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
 }
+
+#[test]
+fn a_change_after_the_pending_limit_reverts_and_is_not_applied() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    let start = rig.now();
+    let styles = [PictureStyle::X2, PictureStyle::Native];
+    let mut round = 0;
+    while rig.now() + CONFIRM_WINDOW_NS / 2 < start + PENDING_LIMIT_NS {
+        rig.propose(with_style(crt_31(), styles[round % 2]));
+        rig.run_for(CONFIRM_WINDOW_NS / 2);
+        round += 1;
+    }
+    rig.propose(crt_31());
+    rig.run_before(start + PENDING_LIMIT_NS);
+    assert!(matches!(rig.guard.phase(), Phase::Pending(_)));
+    // The limit passes with no tick between, and a change comes.
+    rig.clock.advance(start + PENDING_LIMIT_NS - rig.now());
+    let calls = rig.fake.mode_calls().len();
+    let step = rig
+        .guard
+        .propose(config(arcade_15_25_31()), rig.now(), &mut rig.engine);
+    assert_eq!(step.event, Some(reverted(RevertReason::Timeout)));
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    assert_eq!(rig.engine.odren().monitor(), &crt_15().monitor);
+    rig.frame();
+    assert!(
+        rig.fake.mode_calls()[calls..]
+            .iter()
+            .all(|c| c.requested == mode_of(&crt_15())),
+        "the late change never reaches the display"
+    );
+    let fresh = rig.propose(crt_31());
+    assert_eq!(
+        fresh.deadline_ns,
+        rig.now() + CONFIRM_WINDOW_NS,
+        "a new chain"
+    );
+}

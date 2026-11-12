@@ -302,7 +302,8 @@ impl Guard {
     /// A change while another one is pending replaces it with a new prompt
     /// and a new deadline, but no later than [`PENDING_LIMIT_NS`] after the
     /// first change with no confirmation; a revert still restores the
-    /// configuration that was confirmed before both. The confirmed configuration itself ends
+    /// configuration that was confirmed before both. A change at or after
+    /// the deadline of the pending one reverts it and is not applied. The confirmed configuration itself ends
     /// the pending change with no prompt.
     pub fn propose<D: Display>(
         &mut self,
@@ -311,6 +312,13 @@ impl Guard {
         engine: &mut VideoEngine<D>,
     ) -> GuardStep {
         let (now_ns, _) = self.clock(now_ns);
+        // The deadline of a prompt is never after the chain limit, so this
+        // also ends a chain at its limit when no tick came in between.
+        if let State::Pending { prompt, .. } = &self.state
+            && now_ns >= prompt.deadline_ns
+        {
+            return self.revert(RevertReason::Timeout, engine);
+        }
         let new_chain = Chain {
             since_ns: now_ns,
             from_settings: false,
