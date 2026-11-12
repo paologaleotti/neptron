@@ -68,6 +68,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: notice,
     },
     SceneDef {
+        name: "screens/notice-warning",
+        build: notice_warning,
+    },
+    SceneDef {
         name: "screens/quick-menu",
         build: quick_menu,
     },
@@ -385,17 +389,32 @@ fn confirm_3s(frame: &mut UiFrame, theme: &Theme) {
 }
 
 fn notice(frame: &mut UiFrame, theme: &Theme) {
+    notice_over_list(
+        frame,
+        theme,
+        "Astro Racer did not start: the core for this system is missing.",
+        NoticeKind::Error,
+    );
+}
+
+fn notice_warning(frame: &mut UiFrame, theme: &Theme) {
+    notice_over_list(
+        frame,
+        theme,
+        "The monitor cannot show 50 Hz. Astro Racer runs at 60 Hz, a little faster.",
+        NoticeKind::Warning,
+    );
+}
+
+/// A notice over the NES list, after a launch from it.
+fn notice_over_list(frame: &mut UiFrame, theme: &Theme, text: &str, kind: NoticeKind) {
     let mut snap = with_systems();
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &[UiAction::Accept], frame);
     let nes = GameSource::System(NES);
     snap.games = window(nes, 0, 312, WINDOW_ROWS);
     screens.update(&snap, &[UiAction::Down, UiAction::Accept], frame);
-    snap.notices = vec![Notice::new(
-        NoticeId(1),
-        "Astro Racer did not start: the core for this system is missing.",
-        NoticeKind::Error,
-    )];
+    snap.notices = vec![Notice::new(NoticeId(1), text, kind)];
     screens.update(&snap, &[], frame);
 }
 

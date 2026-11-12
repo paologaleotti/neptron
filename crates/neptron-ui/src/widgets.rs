@@ -12,7 +12,7 @@ mod list;
 mod settings_list;
 mod slider;
 
-pub use dialog::{DIALOG_WIDTH_PX, Dialog, DialogContent, DialogEvent};
+pub use dialog::{DIALOG_WIDTH_PX, Dialog, DialogContent, DialogEvent, DialogTone};
 pub use grid::{Grid, GridCell, GridEvent, MAX_COLUMNS};
 pub use list::{List, ListEvent, ListItem, MAX_VISIBLE_ROWS, SCROLLBAR_WIDTH_PX};
 pub use settings_list::{SettingsEvent, SettingsList, source_label};
@@ -77,8 +77,8 @@ mod tests {
         use crate::snapshot::{ActionId, Level, MenuItem, Scopes, SettingKey, SettingValue};
         use crate::theme::{PADDING_MAX_PX, Palette, ROW_HEIGHT_MAX_PX, ROW_HEIGHT_MIN_PX, Theme};
         use crate::widgets::{
-            Dialog, DialogContent, Grid, GridCell, List, ListItem, SettingsList, Slider,
-            SliderValue,
+            Dialog, DialogContent, DialogTone, Grid, GridCell, List, ListItem, SettingsList,
+            Slider, SliderValue,
         };
 
         const SEED: u64 = 0x5EED_0007_C0FF_EE00;
@@ -245,6 +245,7 @@ mod tests {
                     title: "A title",
                     message: &message,
                     buttons: &buttons,
+                    tone: DialogTone::Normal,
                 };
                 dialog.draw(&mut frame, &theme, &content);
 

@@ -8,7 +8,8 @@ use crate::text::{self, Align};
 use crate::theme::{SAFE_AREA, Theme};
 use crate::tree::{TreeRow, WidgetKind};
 use crate::widgets::{
-    Dialog, DialogContent, Grid, GridCell, List, ListItem, SettingsList, Slider, SliderValue,
+    Dialog, DialogContent, DialogTone, Grid, GridCell, List, ListItem, SettingsList, Slider,
+    SliderValue,
 };
 
 use super::SceneDef;
@@ -208,6 +209,7 @@ fn dialog(frame: &mut UiFrame, theme: &Theme) {
         title: "Keep this video mode?",
         message: "320x240 at 59.92 Hz on VGA-1.\nThe old mode comes back in 10 seconds.",
         buttons: &["Keep", "Revert"],
+        tone: DialogTone::Normal,
     };
     Dialog::new(1).draw(frame, theme, &content);
 }

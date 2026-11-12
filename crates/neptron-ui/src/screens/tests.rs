@@ -661,6 +661,33 @@ fn notices_wait_while_a_game_runs_and_yield_to_a_confirmation() {
     assert_eq!(run.screen(), "notice");
 }
 
+#[test]
+fn the_title_bar_of_a_notice_has_the_colour_of_its_kind() {
+    let theme = Theme::default();
+    let kinds = [
+        (NoticeKind::Info, "Note", theme.colors.accent),
+        (NoticeKind::Warning, "Warning", theme.colors.warning),
+        (NoticeKind::Error, "Error", theme.colors.error),
+    ];
+    for (kind, title, colour) in kinds {
+        let (mut run, mut snap) = snes_list();
+        snap.notices = vec![Notice::new(NoticeId(1), "Text", kind)];
+        run.step(&snap, &[]);
+        let bar = run
+            .frame
+            .tree
+            .rows()
+            .find(|r| r.label == title)
+            .map(|r| r.rect)
+            .expect("title row");
+        let fill = run.frame.scene.commands().iter().find_map(|c| match *c {
+            crate::DrawCommand::Rect { rect, color } if rect == bar => Some(color),
+            _ => None,
+        });
+        assert_eq!(fill, Some(colour), "{title}");
+    }
+}
+
 /// A run with the quick menu open over a running game.
 fn quick_menu() -> (Run, Snapshot) {
     let mut run = Run::new();

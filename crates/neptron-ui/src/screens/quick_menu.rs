@@ -8,7 +8,7 @@ use crate::input::UiAction;
 use crate::intent::{Intent, Value};
 use crate::snapshot::{Level, SettingKey, Snapshot};
 use crate::theme::Theme;
-use crate::widgets::{Dialog, DialogContent, DialogEvent};
+use crate::widgets::{Dialog, DialogContent, DialogEvent, DialogTone};
 
 use super::chrome::{self, Layout};
 use super::overlays::draw_dialog;
@@ -182,6 +182,7 @@ impl QuickMenu {
                 title: "Keep the changes?",
                 message: "Keep the new settings for this game only, for all games of this system, or for all games?",
                 buttons: &KEEP_BUTTONS,
+                tone: DialogTone::Normal,
             };
             draw_dialog(dialog, &content, theme, frame);
             chrome::hints(frame, theme, "Accept: choose", "Back: cancel");

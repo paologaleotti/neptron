@@ -10,7 +10,7 @@ use crate::intent::Intent;
 use crate::snapshot::{ConfirmId, Notice, NoticeId, NoticeKind, PendingConfirm, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
-use crate::widgets::{Dialog, DialogContent, DialogEvent};
+use crate::widgets::{Dialog, DialogContent, DialogEvent, DialogTone};
 
 use super::chrome;
 
@@ -151,6 +151,7 @@ impl Confirm {
             title: "Keep this picture?",
             message: message.as_str(),
             buttons: &CONFIRM_BUTTONS,
+            tone: DialogTone::Normal,
         };
         draw_dialog(&self.dialog, &content, theme, frame);
         if self.answered {
@@ -204,15 +205,16 @@ impl Notices {
     }
 
     pub(super) fn draw(&self, notice: &Notice, theme: &Theme, frame: &mut UiFrame) {
-        let title = match notice.kind {
-            NoticeKind::Info => "Note",
-            NoticeKind::Warning => "Warning",
-            NoticeKind::Error => "Error",
+        let (title, tone) = match notice.kind {
+            NoticeKind::Info => ("Note", DialogTone::Normal),
+            NoticeKind::Warning => ("Warning", DialogTone::Warning),
+            NoticeKind::Error => ("Error", DialogTone::Error),
         };
         let content = DialogContent {
             title,
             message: &notice.text,
             buttons: &["OK"],
+            tone,
         };
         draw_dialog(&self.dialog, &content, theme, frame);
         chrome::hints(frame, theme, "Accept: OK", "");

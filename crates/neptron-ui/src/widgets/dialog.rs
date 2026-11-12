@@ -24,6 +24,21 @@ pub struct DialogContent<'a> {
     pub message: &'a str,
     /// The button labels, left to right.
     pub buttons: &'a [&'a str],
+    /// The colour of the title bar.
+    pub tone: DialogTone,
+}
+
+/// How serious a [`Dialog`] is. It sets the colour of the title bar, so a
+/// warning or an error reads as one before the player reads the text.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DialogTone {
+    /// A question or a note: the accent colour.
+    #[default]
+    Normal,
+    /// Something the player should know: the warning colour.
+    Warning,
+    /// Something failed: the error colour.
+    Error,
 }
 
 /// What one action did to a [`Dialog`].
@@ -100,7 +115,12 @@ impl Dialog {
         );
         let inner = area.inset(BORDER_PX);
         let title = Rect::new(inner.x, inner.y, inner.w, row);
-        frame.scene.rect(title, theme.colors.accent);
+        let bar = match content.tone {
+            DialogTone::Normal => theme.colors.accent,
+            DialogTone::Warning => theme.colors.warning,
+            DialogTone::Error => theme.colors.error,
+        };
+        frame.scene.rect(title, bar);
         let title_box = Rect::new(
             add(title.x, theme.padding_px()),
             title.y,
@@ -264,6 +284,7 @@ mod tests {
         title: "Keep this mode?",
         message: "The picture reverts in 10 seconds unless you keep it.",
         buttons: &["Keep", "Revert"],
+        tone: DialogTone::Normal,
     };
 
     #[test]
@@ -312,6 +333,26 @@ mod tests {
         );
         let area = Dialog::layout(&CONTENT, &Theme::default());
         assert!(frame.tree.rows().all(|r| area.contains(&r.rect)));
+    }
+
+    #[test]
+    fn the_tone_sets_the_colour_of_the_title_bar() {
+        let theme = Theme::default();
+        let tones = [
+            (DialogTone::Normal, theme.colors.accent),
+            (DialogTone::Warning, theme.colors.warning),
+            (DialogTone::Error, theme.colors.error),
+        ];
+        for (tone, colour) in tones {
+            let mut frame = UiFrame::new();
+            Dialog::new(0).draw(&mut frame, &theme, &DialogContent { tone, ..CONTENT });
+            let bar = frame.tree.rows().next().expect("title row").rect;
+            let fill = frame.scene.commands().iter().find_map(|c| match *c {
+                crate::DrawCommand::Rect { rect, color } if rect == bar => Some(color),
+                _ => None,
+            });
+            assert_eq!(fill, Some(colour), "{tone:?}");
+        }
     }
 
     #[test]
