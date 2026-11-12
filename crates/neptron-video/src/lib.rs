@@ -5,7 +5,8 @@
 //! frame and the results of the display calls. [`VideoEngine`] applies its
 //! directives to a [`neptron_backend::Display`]. Only a `ValidatedMode`
 //! reaches `Display::set_mode`, and the engine sets only the token that
-//! `neptron_safety::validate` returned for the winner.
+//! `neptron_safety::validate` returned for the winner. `Display::blank`
+//! carries no mode; the engine calls it only when no valid mode exists.
 
 #![forbid(unsafe_code)]
 

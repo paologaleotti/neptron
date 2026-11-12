@@ -21,7 +21,7 @@ pub const DEBOUNCE_FRAMES: u32 = 3;
 /// transient device error clears within three frames; a lasting one must
 /// not cost a `set_mode` call on every frame. After the last attempt the
 /// mode on screen stays, and `current_refused` tells whether the inputs
-/// refuse it.
+/// refuse it. A `blank` that fails on the device is tried as often.
 pub const MODESET_ATTEMPTS: u32 = 3;
 
 /// The mode on screen and the game's place in it.
@@ -54,6 +54,10 @@ pub enum Directive {
     /// The engine has no mode for the source, and the mode on screen stays.
     /// The trace has the reason.
     Kept,
+    /// No valid mode exists for the inputs, and the mode on the display is
+    /// one they refuse: the next present turns the output off, with no
+    /// mode, and returns `NoMode`. The trace has the reason and the result.
+    Blank,
 }
 
 /// What the display does after a `set_mode` result.
@@ -99,6 +103,12 @@ pub struct Odren {
     /// The mode on the display is one the inputs refuse, or one the engine
     /// does not know after a failed restore.
     refused_on_screen: bool,
+    /// The next present turns the output off.
+    blank_due: bool,
+    /// The output is off after a `blank`, until the next modeset.
+    blanked: bool,
+    /// Failed `blank` calls since the last input change or modeset.
+    blank_failures: u32,
     muted: bool,
     /// The last good mode that the executor sets again.
     restoring: Option<Modeline>,
@@ -146,6 +156,9 @@ impl Odren {
             failed_attempts: 0,
             frame: 0,
             refused_on_screen: false,
+            blank_due: false,
+            blanked: false,
+            blank_failures: 0,
             muted: false,
             restoring: None,
             awaiting_flip: None,
@@ -271,11 +284,23 @@ impl Odren {
 
     /// The mode on the display is one that the current inputs refuse, or
     /// one the engine does not know (a read back it refused, with no good
-    /// mode to restore). It stays set until a valid mode is on screen. The
-    /// session and the guard must read it: the engine cannot blank the
-    /// output by itself.
+    /// mode to restore). It stays set until a valid mode is on screen or
+    /// the output is off. When no valid mode exists, the engine turns the
+    /// output off ([`Directive::Blank`]); when that fails
+    /// [`MODESET_ATTEMPTS`] times, it stays set, and the guard must act.
     pub fn current_refused(&self) -> bool {
         self.refused_on_screen
+    }
+
+    /// The output is off after a `blank`: no mode, no signal. It stays set
+    /// until the next modeset.
+    pub fn blanked(&self) -> bool {
+        self.blanked
+    }
+
+    /// The next present turns the output off.
+    pub(crate) fn blank_due(&self) -> bool {
+        self.blank_due
     }
 
     /// Audio must be silent now: a modeset is due or the new mode has not
@@ -310,7 +335,13 @@ impl Odren {
         if let Some(stale) = self.commit.take() {
             self.keep_trigger(stale.record.trigger);
         }
-        let directive = self.step(source);
+        let mut directive = self.step(source);
+        self.blank_due = self.refused_on_screen
+            && matches!(directive, Directive::Kept | Directive::Steady)
+            && self.blank_failures < MODESET_ATTEMPTS;
+        if self.blank_due {
+            directive = Directive::Blank;
+        }
         if directive == Directive::Modeset {
             self.muted = true;
         } else if self.awaiting_flip.is_none() {
@@ -417,6 +448,9 @@ impl Odren {
             return AfterModeSet::Done;
         };
         let requested = *commit.chosen.token.mode();
+        if result.is_ok() {
+            self.blanked = false;
+        }
         match result {
             Ok(read_back) if self.read_back_holds(&requested, read_back) => {
                 let drift = requested
@@ -437,6 +471,7 @@ impl Odren {
                 self.request = None;
                 self.blocked = None;
                 self.failed_attempts = 0;
+                self.blank_failures = 0;
                 self.refused_on_screen = false;
                 AfterModeSet::Done
             }
@@ -503,8 +538,8 @@ impl Odren {
 
     /// Takes the result of setting the last good mode again. Its read back
     /// must hold as for a modeset. Otherwise the mode on the display is
-    /// not known, so the engine forgets its mode and decides again on the
-    /// next frame.
+    /// not known, so the engine forgets its mode, turns the output off in
+    /// the same present, and decides again on the next frame.
     pub(crate) fn on_restore(&mut self, result: &Result<Modeline, DisplayError>) {
         let restoring = self.restoring.take();
         let held = match (result, restoring) {
@@ -531,9 +566,53 @@ impl Odren {
             self.trace.push(record);
         }
         self.refused_on_screen = true;
+        self.blank_due = self.blank_failures < MODESET_ATTEMPTS;
         self.current = None;
         self.awaiting_flip = None;
         self.muted = false;
+    }
+
+    /// Takes the result of `blank`. A blank that succeeds forgets the mode:
+    /// the output is off, which every display takes. A failed one leaves
+    /// the refused mode on the display, and the next frame tries again, up
+    /// to [`MODESET_ATTEMPTS`] in all.
+    pub(crate) fn on_blank(&mut self, result: &Result<(), DisplayError>) {
+        self.blank_due = false;
+        let previous = self.current.as_ref().map(|c| *c.chosen.token.mode());
+        let outcome = match result {
+            Ok(()) => {
+                self.blanked = true;
+                self.blank_failures = 0;
+                self.refused_on_screen = false;
+                self.current = None;
+                self.awaiting_flip = None;
+                Outcome::Blanked
+            }
+            Err(error) => {
+                self.blank_failures += 1;
+                Outcome::BlankFailed(error.clone())
+            }
+        };
+        // A blank is due only while `refused_on_screen` is set, and each
+        // path that sets it pushes a record first, so `last` is there.
+        let Some(last) = self.trace.last() else {
+            return;
+        };
+        let record = SwitchRecord {
+            decided_frame: self.frame,
+            count: 1,
+            shown_frame: None,
+            gap_ns: None,
+            previous,
+            winner: None,
+            read_back: None,
+            rate_drift_mhz: None,
+            outcome,
+            dropped: Vec::new(),
+            refused: Vec::new(),
+            ..last.clone()
+        };
+        self.trace.push(record);
     }
 
     /// Takes a completed flip. The first flip in a new mode ends the mute.
@@ -587,6 +666,8 @@ impl Odren {
 
     fn invalidate(&mut self, trigger: Trigger) {
         self.failed_attempts = 0;
+        self.blank_failures = 0;
+        self.blank_due = false;
         self.generation += 1;
         self.commit = None;
         self.cache.clear();

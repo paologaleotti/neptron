@@ -1,5 +1,6 @@
 //! A monitor or settings change during a game, and the EDID limit.
 
+use neptron_backend::DisplayError;
 use neptron_platform::{EdidProfile, TimingFormula};
 use neptron_safety::Rejection;
 use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
@@ -112,7 +113,7 @@ fn an_edid_limit_below_every_mode_keeps_the_screen_dark() {
 }
 
 #[test]
-fn a_monitor_that_refuses_the_mode_on_screen_is_reported_until_a_valid_mode() {
+fn a_monitor_that_refuses_the_mode_on_screen_blanks_the_output_until_a_valid_mode() {
     let mut rig = Rig::generic_15(native_width());
     rig.frame(SNES);
     let mode = rig.current_mode();
@@ -128,22 +129,113 @@ fn a_monitor_that_refuses_the_mode_on_screen_is_reported_until_a_valid_mode() {
         record.outcome,
         Outcome::Kept(Unshowable::CurrentRefused(Refusal::Validator(_)))
     ));
-    assert_eq!(rig.frame(SNES).directive, Directive::Kept);
-    assert_eq!(
-        rig.current_mode(),
-        mode,
-        "the engine has no blank operation"
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Blank);
+    assert!(
+        rig.fake.blank_calls().is_empty(),
+        "begin_frame calls nothing"
     );
     assert_eq!(
-        rig.engine.trace().last().unwrap().outcome,
-        Outcome::Kept(Unshowable::NoWinner)
+        rig.engine.present(Some(frame(&SNES)), None),
+        Err(VideoError::NoMode)
     );
+    let records: Vec<_> = rig.engine.trace().records().collect();
+    let [.., no_winner, blanked] = records[..] else {
+        panic!("{records:?}");
+    };
+    assert_eq!(no_winner.outcome, Outcome::Kept(Unshowable::NoWinner));
+    assert_eq!(blanked.outcome, Outcome::Blanked);
+    assert_eq!(blanked.previous, Some(mode));
+    assert_eq!(rig.fake.blank_calls().len(), 1);
+    assert_eq!(rig.fake.active_mode(), None);
+    assert!(rig.engine.blanked());
+    assert!(!rig.engine.current_refused());
+    assert!(rig.engine.current().is_none());
+    for _ in 0..5 {
+        assert_eq!(rig.try_frame(SNES), Err(VideoError::NoMode));
+    }
+    assert_eq!(rig.fake.blank_calls().len(), 1, "one blank");
+    assert!(rig.fake.mode_calls().len() == 1, "no mode while blank");
+
+    rig.engine.set_monitor(generic_15());
+    assert_eq!(rig.frame(SNES).directive, Directive::Modeset);
+    assert!(!rig.engine.blanked());
+    assert_eq!(rig.current_mode(), mode);
+    assert_eq!(
+        rig.fake.mode_calls().len(),
+        2,
+        "the same mode is set again after the blank"
+    );
+    assert_eq!(rig.fake.active_mode(), Some(mode));
+}
+
+#[test]
+fn a_failed_blank_is_tried_again_up_to_the_bound() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(SNES);
+    let mode = rig.current_mode();
+    for call in 0..u64::from(MODESET_ATTEMPTS) {
+        rig.fake.fault_blank(call, "EIO".to_owned());
+    }
+    rig.engine.set_monitor(edid(2_000_000));
+    for attempt in 0..MODESET_ATTEMPTS {
+        assert_eq!(rig.engine.begin_frame(SNES), Directive::Blank);
+        rig.engine.present(Some(frame(&SNES)), None).unwrap();
+        rig.engine.wait_flip().unwrap();
+        let record = rig.engine.trace().last().unwrap();
+        assert!(
+            matches!(
+                record.outcome,
+                Outcome::BlankFailed(DisplayError::Device { .. })
+            ),
+            "attempt {attempt}: {record:?}"
+        );
+        assert!(rig.engine.current_refused());
+        assert!(!rig.engine.blanked());
+    }
     for _ in 0..5 {
         assert_eq!(rig.frame(SNES).directive, Directive::Steady);
-        assert!(rig.engine.current_refused());
     }
-    rig.engine.set_monitor(generic_15());
-    assert!(!rig.engine.current_refused());
+    assert_eq!(rig.fake.blank_calls().len(), MODESET_ATTEMPTS as usize);
+    assert!(rig.engine.current_refused(), "the guard must act");
+    assert_eq!(rig.fake.active_mode(), Some(mode));
+    rig.engine.set_monitor(edid(2_000_000));
+    assert_eq!(
+        rig.engine.begin_frame(SNES),
+        Directive::Blank,
+        "a new count"
+    );
+    assert_eq!(
+        rig.engine.present(Some(frame(&SNES)), None),
+        Err(VideoError::NoMode)
+    );
+    assert!(rig.engine.blanked());
+}
+
+#[test]
+fn a_blank_waits_for_a_queued_flip_first() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(SNES);
+    let index = rig.fake.next_present_index();
+    rig.fake.fault_flip(index, FlipFault::Slow { timeouts: 2 });
+    rig.engine.begin_frame(SNES);
+    rig.engine.present(Some(frame(&SNES)), None).unwrap();
+    assert!(rig.engine.wait_flip().is_err());
+    rig.engine.set_monitor(edid(2_000_000));
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Blank);
+    assert!(matches!(
+        rig.engine.present(Some(frame(&SNES)), None),
+        Err(VideoError::PendingFlip(_))
+    ));
+    assert!(rig.fake.blank_calls().is_empty(), "never busy");
+    assert_eq!(rig.engine.begin_frame(SNES), Directive::Blank);
+    assert_eq!(
+        rig.engine.present(Some(frame(&SNES)), None),
+        Err(VideoError::NoMode)
+    );
+    let calls = rig.fake.blank_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].result, Ok(()));
+    assert!(rig.engine.blanked());
 }
 
 #[test]
@@ -280,8 +372,13 @@ fn a_device_error_on_a_monitor_modeset_is_tried_again_up_to_the_bound() {
     for _ in 0..MODESET_ATTEMPTS {
         assert_eq!(rig.frame(SNES).directive, Directive::Modeset);
     }
+    assert!(rig.engine.current_refused(), "the 31 kHz mode is still on");
+    // The new monitor refuses the mode on screen, and the valid mode
+    // cannot be set: the output goes off.
+    assert_eq!(rig.try_frame(SNES), Err(VideoError::NoMode));
+    assert!(rig.engine.blanked());
     for _ in 0..5 {
-        assert_eq!(rig.frame(SNES).directive, Directive::Steady);
+        assert_eq!(rig.try_frame(SNES), Err(VideoError::NoMode));
     }
     let asked = rig
         .fake
@@ -289,8 +386,15 @@ fn a_device_error_on_a_monitor_modeset_is_tried_again_up_to_the_bound() {
         .iter()
         .filter(|c| c.requested == new)
         .count();
-    assert_eq!(asked, MODESET_ATTEMPTS as usize);
-    assert!(rig.engine.current_refused(), "the 31 kHz mode is still on");
+    // With no mode on screen the next frame is a launch: one more attempt,
+    // then the source stays blocked.
+    assert_eq!(asked, MODESET_ATTEMPTS as usize + 1, "no retry storm");
+    assert_eq!(rig.fake.blank_calls().len(), 1);
+    assert_eq!(rig.fake.active_mode(), None);
+    rig.engine.set_monitor(pc_31_120());
+    rig.frame(SNES);
+    assert!(!rig.engine.blanked());
+    assert!(passes(&pc_31_120(), &rig.current_mode()));
 }
 
 #[test]

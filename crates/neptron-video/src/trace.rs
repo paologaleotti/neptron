@@ -53,6 +53,11 @@ pub enum Outcome {
         /// The mode the driver reported.
         read_back: Modeline,
     },
+    /// No valid mode exists for the inputs, and the output was turned off
+    /// with `blank`. No mode is on the display.
+    Blanked,
+    /// `blank` failed. The refused mode stays on the display.
+    BlankFailed(DisplayError),
 }
 
 /// One decision that changed something or failed: what was asked, what
@@ -208,6 +213,8 @@ impl fmt::Display for Outcome {
                 read_back.vactive,
                 scan(read_back)
             ),
+            Self::Blanked => f.write_str("output off: no valid mode"),
+            Self::BlankFailed(error) => write!(f, "blank failed: {error}"),
         }
     }
 }

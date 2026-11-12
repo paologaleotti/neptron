@@ -294,8 +294,13 @@ fn a_driver_that_always_rounds_to_a_refused_mode_ends_after_the_candidates() {
             assert_ne!(current.read_back, rounded);
             assert!(!rig.engine.current_refused());
         }
-        None => assert!(rig.engine.current_refused()),
+        None => {
+            assert!(rig.engine.blanked(), "no valid mode: the output is off");
+            assert!(!rig.engine.current_refused());
+            assert_eq!(rig.fake.active_mode(), None);
+        }
     }
+    assert!(rig.fake.blank_calls().len() <= 1, "no blank storm");
     let calls = rig.fake.mode_calls().len();
     for _ in 0..5 {
         // As above: only the set_mode calls count.
@@ -326,7 +331,14 @@ fn a_failed_restore_is_an_error_and_the_engine_decides_again() {
     let error = rig.engine.present(Some(frame(&MD_H32)), None).unwrap_err();
     assert!(matches!(error, VideoError::RestoreFailed { read_back, .. } if read_back == wrong));
     assert!(rig.engine.current().is_none(), "the mode is not known");
-    assert!(rig.engine.current_refused());
+    assert!(
+        rig.engine.blanked(),
+        "the same present turned the output off"
+    );
+    assert!(!rig.engine.current_refused());
+    assert_eq!(rig.fake.active_mode(), None);
+    assert_eq!(rig.fake.blank_calls().len(), 1);
+    assert_eq!(rig.engine.trace().last().unwrap().outcome, Outcome::Blanked);
     // The driver refused the only mode of this source, so the engine has
     // none, says so, and guesses nothing.
     assert_eq!(rig.try_frame(MD_H32), Err(VideoError::NoMode));
@@ -337,6 +349,8 @@ fn a_failed_restore_is_an_error_and_the_engine_decides_again() {
     assert_eq!(rig.current_mode(), good);
     assert_eq!(rig.fake.active_mode(), Some(good));
     assert!(!rig.engine.current_refused());
+    assert!(!rig.engine.blanked());
+    assert_eq!(rig.fake.blank_calls().len(), 1);
 }
 
 #[test]
@@ -455,7 +469,9 @@ fn the_read_back_of_a_restore_is_checked_like_a_modeset() {
         rig.engine.current().is_none(),
         "the restored mode did not hold"
     );
-    assert!(rig.engine.current_refused());
+    assert!(rig.engine.blanked());
+    assert!(!rig.engine.current_refused());
+    assert_eq!(rig.fake.active_mode(), None, "the output is off");
     assert!(rig.engine.trace().records().any(|r| r.outcome
         == Outcome::ReadBackRefused {
             read_back: wrong(good)

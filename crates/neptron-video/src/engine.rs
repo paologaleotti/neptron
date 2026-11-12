@@ -14,8 +14,8 @@ use crate::{
 #[non_exhaustive]
 pub enum VideoError {
     /// No mode is set, so there is nothing to present on: no frame came
-    /// yet, the engine has no mode for the source, or the last modeset
-    /// failed with no mode before it.
+    /// yet, the engine has no mode for the source, the last modeset
+    /// failed with no mode before it, or the output is off after a blank.
     #[error("no mode is set")]
     NoMode,
     /// `wait_flip` was called with no flip queued.
@@ -141,7 +141,10 @@ impl<D: Display> VideoEngine<D> {
     /// flip of the game frame and the UI canvas.
     ///
     /// A failed modeset keeps the mode on screen; the result and the trace
-    /// say so, and the frame is presented in the old mode.
+    /// say so, and the frame is presented in the old mode. When no valid
+    /// mode exists ([`Directive::Blank`], or a failed restore), it turns the
+    /// output off with `Display::blank` and returns [`VideoError::NoMode`];
+    /// [`VideoEngine::blanked`] and the trace say so.
     ///
     /// # Errors
     ///
@@ -159,7 +162,9 @@ impl<D: Display> VideoEngine<D> {
             modeset: None,
         };
         presented.drained_flip = self.drain_flip()?;
-        presented.modeset = self.modeset()?;
+        let modeset = self.modeset();
+        self.blank_if_due();
+        presented.modeset = modeset?;
         let scene = self.odren.scene(game, ui).ok_or(VideoError::NoMode)?;
         self.display.present(&scene).map_err(VideoError::Present)?;
         self.flip_pending = true;
@@ -188,6 +193,12 @@ impl<D: Display> VideoEngine<D> {
     /// known. See [`Odren::current_refused`].
     pub fn current_refused(&self) -> bool {
         self.odren.current_refused()
+    }
+
+    /// The output is off: no valid mode existed, and the engine called
+    /// `Display::blank`. See [`Odren::blanked`].
+    pub fn blanked(&self) -> bool {
+        self.odren.blanked()
     }
 
     /// The mode on screen.
@@ -263,6 +274,15 @@ impl<D: Display> VideoEngine<D> {
             }
         }
         Ok(outcome)
+    }
+
+    /// The one call of `Display::blank`. A queued flip was waited for
+    /// before, in the same present.
+    fn blank_if_due(&mut self) {
+        if self.odren.blank_due() {
+            let result = self.display.blank();
+            self.odren.on_blank(&result);
+        }
     }
 
     /// The one call of `Display::set_mode`. It sets nothing for an order

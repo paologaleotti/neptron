@@ -4,8 +4,8 @@ The ODREN engine: core geometry to policy to safety to display. Debounce, commit
 
 ## Public API
 
-- `Odren`: the state machine. It does no I/O and holds no display. `on_frame(SourceGeometry) -> Directive` takes the source of one core frame. `set_monitor`, `set_settings` and `set_veto` change its inputs; `set_scanlines` changes the scene only; `retry()` lifts a blocked source. `scene(game, ui)` and `preview_scene(&Proposal, &SourceGeometry, game, ui)` build the scene of the mode on screen and of a Display panel row through the same function. `current()`, `current_refused()`, `trace()`, `muted()`, `style_rows(&SourceGeometry)` read it.
-- `VideoEngine<D: Display>`: `Odren` on a display. `new(display, Monitor, PolicySettings)`, `begin_frame(SourceGeometry) -> Directive`, `present(game, ui) -> Result<Presented, VideoError>`, `wait_flip() -> Result<FlipEvent, VideoError>`, `muted()`, `current()`, `current_refused()`, `trace()`, `style_rows`, `set_monitor`, `set_settings`, `set_veto`, `set_scanlines`, `preview_scene`, `retry()`, `display()`.
+- `Odren`: the state machine. It does no I/O and holds no display. `on_frame(SourceGeometry) -> Directive` takes the source of one core frame. `set_monitor`, `set_settings` and `set_veto` change its inputs; `set_scanlines` changes the scene only; `retry()` lifts a blocked source. `scene(game, ui)` and `preview_scene(&Proposal, &SourceGeometry, game, ui)` build the scene of the mode on screen and of a Display panel row through the same function. `current()`, `current_refused()`, `blanked()`, `trace()`, `muted()`, `style_rows(&SourceGeometry)` read it.
+- `VideoEngine<D: Display>`: `Odren` on a display. `new(display, Monitor, PolicySettings)`, `begin_frame(SourceGeometry) -> Directive`, `present(game, ui) -> Result<Presented, VideoError>`, `wait_flip() -> Result<FlipEvent, VideoError>`, `muted()`, `current()`, `current_refused()`, `blanked()`, `trace()`, `style_rows`, `set_monitor`, `set_settings`, `set_veto`, `set_scanlines`, `preview_scene`, `retry()`, `display()`.
 - `Monitor`: `Profile(MonitorProfile)` or `Edid(EdidProfile)`. `caps_for(&GpuCaps)` applies the EDID pixel clock limit (`EdidProfile::limit_caps`).
 - `policy_settings(style, refresh_policy, horizontal) -> Result<PolicySettings, SettingsError>`: from the values of `display.style` and `display.refresh_policy`.
 - `scanline_settings(mode, strength_percent) -> Result<ScanlineSettings, SettingsError>`: from the values of `display.scanlines` and `display.scanline_strength`. Until the session calls `set_scanlines`, the engine draws none (`ScanlineSettings::OFF`).
@@ -61,12 +61,13 @@ Each core frame gives one `Directive`:
 | `Waiting` | A new source needs a new mode, and it has been the same for fewer than `DEBOUNCE_FRAMES` (3) core frames | One flip in the old mode; the frame is shown whole in the old destination |
 | `Modeset` | The new source held for 3 frames, or at launch, or after a monitor, settings or driver retry (no debounce for these) | Mute; `set_mode` with the winner's token; one flip; unmute at that flip |
 | `Kept` | The source is turned, the policy gives no plan, or every proposal is refused | The mode on screen stays; the trace says why. Before the first mode, `present` returns `NoMode` |
+| `Blank` | The inputs refuse the mode on the display (`current_refused()`), and the decision gives no mode to set: no winner, or a source blocked after device errors | `present` calls `Display::blank`, records `Blanked` or `BlankFailed`, and returns `NoMode` |
 
 Rules:
 
 - The engine sets `token.mode()` of the winner, the `ValidatedMode` that `neptron_safety::validate` returned. `proposal.mode` never reaches the display.
 - The validator is `neptron_safety::validate` with the monitor's caps, after an optional veto that can only refuse more (`set_veto`). The same check runs for the Display panel rows (`style_rows`), so the preview and the run give one answer.
-- No winner: the mode on screen stays, and the trace records `Kept` with every refusal. The engine never guesses a mode.
+- No winner: the mode on screen stays, and the trace records `Kept` with every refusal. The engine never guesses a mode. When the inputs also refuse the mode on screen, the engine turns the output off (`Blank`).
 - A turned game (`Rotation` other than `R0`) is `Kept(Rotated)`: `Scene` has no rotation in the MVP.
 - Decisions are cached by source (`CACHE_ENTRIES`, 8). A monitor, settings or veto change clears the cache. The steady state does no decision and no allocation.
 - A token reaches `set_mode` only through `VideoEngine::set_mode`, and only while the inputs that validated it are current. Each change of the monitor, the settings, the veto or the driver refusals raises a generation and drops the pending modeset; a token travels with its generation (`ModeOrder`), and `Odren::authorize` refuses an older one.
@@ -80,7 +81,8 @@ Rules:
 | `set_mode` returns `ModeRefused` | The mode on screen stays (the `Display` contract). The engine stores the mode as refused by the driver, and the next frame tries the next proposal with no debounce (`Trigger::Retry`). A monitor change forgets the refused modes |
 | `set_mode` returns `Device` or another error, for a geometry or launch modeset | The mode on screen stays. The engine blocks the source until the source on screen comes back, the monitor or the settings change, or the session calls `retry()`. No retry storm |
 | The same, for a monitor, settings or retry modeset | The engine tries again on the next frame, up to `MODESET_ATTEMPTS` (3) attempts in all, then keeps the mode on screen; `current_refused()` tells whether the inputs refuse it |
-| `set_mode` reads back a mode of another size or scan, or one the validator refuses | The engine stores the mode as refused by the driver, validates the last good mode again with the current inputs and restores it only with that new token. The read back of the restore must hold like a modeset. When the last good mode is refused, or the restore fails or reads back wrong, the engine sets nothing more, forgets its mode, sets `current_refused()`, and the next frame decides again; a failed `set_mode` there gives `RestoreFailed` |
+| `set_mode` reads back a mode of another size or scan, or one the validator refuses | The engine stores the mode as refused by the driver, validates the last good mode again with the current inputs and restores it only with that new token. The read back of the restore must hold like a modeset. When the last good mode is refused, the engine sets nothing more, forgets its mode, sets `current_refused()`, and the next frame decides again. When the restore fails or reads back wrong, the same present also turns the output off with `blank`; a failed `set_mode` there gives `RestoreFailed` |
+| `blank` fails | The trace records `BlankFailed`, and `current_refused()` stays on. The next frame tries again, up to `MODESET_ATTEMPTS` (3) attempts in all; an input change starts a new count |
 | A flip is queued before a present or a modeset | The engine waits for it first, because the display refuses `set_mode` and `present` while a flip is pending (OP-032). `Presented::drained_flip` gives the event |
 | A wait fails (`wait_flip` or that drain) | The flip stays queued until a wait returns its event, because the `Display` contract bounds the wait and never drops a queued flip. While it is queued, `present` sets and queues nothing and returns `PendingFlip`; a modeset happens on a later frame. A flip that never completes gives `PendingFlip` on every frame. The mute stays until a flip in the new mode completes |
 | `present` fails | `VideoError::Present`; no flip is queued |
@@ -88,20 +90,22 @@ Rules:
 
 ## A mode the inputs refuse
 
-The `Display` contract has no operation that blanks the output, so the engine cannot make the output safe by itself. It detects and exposes the case:
+The engine detects the case, turns the output off when no valid mode exists, and exposes both states:
 
 - `set_monitor`, `set_settings` and `set_veto` judge the mode on the display with the new inputs. A refusal is recorded as `Kept(CurrentRefused)` with the reason, and `current_refused()` turns on.
 - A failed or refused restore leaves a mode the engine does not know on the display, with no current mode. `current_refused()` turns on too.
-- `current_refused()` stays on until a valid mode is on screen: a modeset or restore whose read back holds, or a scale-only change to a winner the inputs accept.
+- When the next decision gives no mode to set (`Kept`, or `Steady` on a blocked source), the frame gets `Directive::Blank`, and its `present` calls `Display::blank` once. A failed restore blanks in the same present. `blank` carries no mode: it is the one display change without a `ValidatedMode`.
+- A blank that succeeds forgets the mode, records `Blanked`, turns `current_refused()` off and `blanked()` on. `present` returns `NoMode` until a mode is set. A later valid decision (a new source, an input change, `retry()`) sets a mode with a normal modeset, which is a real commit on every backend, and `blanked()` turns off.
+- `current_refused()` stays on until a valid mode is on screen or the output is off: a modeset or restore whose read back holds, a scale-only change to a winner the inputs accept, or a blank. It stays on after `MODESET_ATTEMPTS` failed blanks.
 
 What the callers must do:
 
-- T26 (`guard`) reads `current_refused()` after each input change and each frame. When it is on and no modeset follows, it reverts to the last confirmed inputs, or to safe mode, with `set_monitor` and `set_settings`.
-- T25 (session) shows no game picture as confirmed while it is on, keeps the audio muted, and passes the state to the guard and to the control protocol.
+- T26 (`guard`) reads `current_refused()` and `blanked()` after each input change and each frame. When either is on and no modeset follows, it reverts to the last confirmed inputs, or to safe mode, with `set_monitor` and `set_settings`. `current_refused()` on after failed blanks means a refused mode is still on the wire.
+- T25 (session) shows no game picture as confirmed while either is on, keeps the audio muted, and passes the state to the guard and to the control protocol.
 
 ## Seam for `guard` (T26)
 
-The guard reverts by giving the engine its old inputs again: `set_monitor` or `set_settings` with the last confirmed values decide again on the next frame, with no debounce. It reads `current()`, `current_refused()` and `trace()` to see which mode is on screen and why. Blind recovery sets the safe monitor the same way.
+The guard reverts by giving the engine its old inputs again: `set_monitor` or `set_settings` with the last confirmed values decide again on the next frame, with no debounce. It reads `current()`, `current_refused()`, `blanked()` and `trace()` to see which mode is on screen, or that the output is off, and why. Blind recovery sets the safe monitor the same way.
 
 ## Must never depend on
 
@@ -119,7 +123,7 @@ The guard reverts by giving the engine its old inputs again: `set_monitor` or `s
 - Unit tests: the cache, the scene builder, the monitor caps, the settings mapping.
 - Unit test of `Odren`: an order from older inputs is not authorized.
 - `tests/integration/engine.rs`: launch, steady state, flicker, debounce, scale only, mute order, double refresh, the queued flip before a modeset, the trace, merged scale-only records, a turned game, the Display panel rows.
-- `tests/integration/faults.rs`: a veto that refuses, no winner, each `DisplayError` of `set_mode`, `present` and `wait_flip`, a read back that differs, a restore validated again, the read back of a restore, a failed restore, `retry()`, the read-back rate note, calls out of order.
-- `tests/integration/inputs.rs`: a monitor change and a settings change in a game, a stale token after an input change, an unapplied or failed monitor modeset, the attempt bound, `current_refused()`, the EDID pixel clock limit.
+- `tests/integration/faults.rs`: a veto that refuses, no winner, each `DisplayError` of `set_mode`, `present` and `wait_flip`, a read back that differs, a restore validated again, the read back of a restore, a failed restore and its blank, `retry()`, the read-back rate note, calls out of order.
+- `tests/integration/inputs.rs`: a monitor change and a settings change in a game, a stale token after an input change, an unapplied or failed monitor modeset, the attempt bound, `current_refused()`, the blank when no valid mode exists and the modeset after it, a failed blank and its bound, a blank after a queued flip, the EDID pixel clock limit.
 - `tests/integration/stall.rs`: waits that time out with the flip still queued (`FlipFault::Slow` and `FlipFault::Lost` of the fake display).
 - `tests/integration/check5.rs`: timing check 5. Two scripted cores (SNES under a fixed super width, Mega Drive under the native width) change width, lines, scan and rate at given frames. The list of switches must equal `tests/golden/switch_trace.txt`, and every frame checks the mute and the debounce. The golden holds the modes the policy picks on `generic_15`; a policy change shows as a diff to check line by line.
