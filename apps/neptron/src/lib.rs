@@ -6,7 +6,13 @@
 #![forbid(unsafe_code)]
 
 pub mod atomic;
+pub mod config;
+pub mod display;
+pub mod library;
+pub mod nav;
 pub mod options;
+pub mod outbox;
+pub mod pages;
 pub mod paths;
 pub mod presets;
 pub mod record;
