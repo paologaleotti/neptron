@@ -175,13 +175,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 (Stage::Game(Box::new(game)), guard, step)
             }
         };
-        if let Some(saved) = step.save.take()
-            && let Err(e) = record::save(&paths.guard_record(), &saved, record_output.as_deref())
-        {
-            found.warn(format!(
-                "cannot write the guard record before the first mode: {e}"
-            ));
-        }
+        let unrecorded = step.save.take().and_then(|saved| {
+            record::save(&paths.guard_record(), &saved, record_output.as_deref()).err()
+        });
         let theme = load_theme(&paths.skin(), &mut found);
         let mut shell = Shell {
             paths,
@@ -218,6 +214,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         };
         shell.first_snapshot();
         shell.on_guard(step, now_ns);
+        if let Some(e) = unrecorded {
+            // A boot that cannot count itself could fail again and again
+            // and never reach safe mode, so it starts in the safe default.
+            shell.safe_for_this_run(format!(
+                "Safe mode: the guard record cannot be written ({e}). This start uses the safe picture."
+            ));
+        }
         if shell.in_game() {
             let settings = shell.config.policy()?;
             if let Some(step) =

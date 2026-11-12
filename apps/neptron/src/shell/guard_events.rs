@@ -91,6 +91,23 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
     }
 
+    /// Puts the safe default on the engine for this run, with `notice`.
+    /// The guard records safe mode, so the next start that can write its
+    /// record starts in it too, until the user confirms a configuration.
+    pub(super) fn safe_for_this_run(&mut self, notice: String) {
+        if let Some(step) = self.with_engine(|guard, engine| guard.recover(engine)) {
+            if let Some(record) = step.save {
+                self.outbox.send(Job::Record {
+                    record,
+                    output: self.record_output.clone(),
+                });
+            }
+            self.roll_back();
+            self.snap.confirm = None;
+            self.notice(NoticeKind::Warning, notice);
+        }
+    }
+
     /// Takes back every display change that waited for a confirmation, the
     /// newest first.
     fn roll_back(&mut self) {

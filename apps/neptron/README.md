@@ -43,7 +43,7 @@ Before a relaunch the run writes `run/next.toml` (the relaunch file, `relaunch.r
 6. The guard record from `state/video/guard.toml`. A record that cannot be read is the default record. The file also holds `output`, the connector its last known good was confirmed on (an optional field, written at each confirmation). When the output of this start differs, or the file names none, the guard gets no last known good: it opens the boot prompt and reverts to the safe default for the new output, so a profile confirmed on one connector never drives another display without a prompt.
 7. The library cache. In the list, a scan starts on its own thread and replaces the index when it ends.
 8. The list: a `VideoEngine` for the menu source (320x240, 60 Hz, 4:3, `MENU_SOURCE`). A game: `Session::launch` with the resolved settings, the core options of `data/cores` (OP-055), `RunRateSource::ReadBack` on KMS and `Measured` in the window. A launch that fails ends the run with a relaunch to the list and the reason as a notice.
-9. `Guard::boot`, and the record it returns is written at once (temp file, fsync, rename) before the first modeset. In a game, `follow_settings` with the game's policy follows.
+9. `Guard::boot`, and the record it returns is written at once (temp file, fsync, rename) before the first modeset. When that write fails (a read-only or full state partition), the boot cannot count itself, so it could fail again and again and never reach safe mode: this start uses the safe default (`Guard::recover`, with a notice and no tone). In a game, `follow_settings` with the game's policy follows.
 
 ## One frame
 
