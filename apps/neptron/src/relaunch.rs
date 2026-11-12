@@ -43,6 +43,40 @@ pub struct GameRef {
     pub path: String,
 }
 
+impl GameRef {
+    /// Checks that the game stays inside the ROM folder: the system is a
+    /// plain id, and the path is relative, with no empty, `.` or `..`
+    /// part. The run joins the path to the ROM folder, so anything else
+    /// could name a file anywhere.
+    ///
+    /// # Errors
+    ///
+    /// The reason as text.
+    pub fn check(&self) -> Result<(), String> {
+        let id_ok = !self.system.is_empty()
+            && self
+                .system
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
+        if !id_ok {
+            return Err(format!("the system {:?} is not an id", self.system));
+        }
+        let parts_ok = !self.path.is_empty()
+            && !self.path.contains(['\\', '\0'])
+            && self
+                .path
+                .split('/')
+                .all(|part| !part.is_empty() && part != "." && part != "..");
+        if !parts_ok {
+            return Err(format!(
+                "the game path {:?} is not a relative path inside the ROM folder",
+                self.path
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Why the relaunch file was not used. The run then starts as a new boot
 /// with the game list.
 #[derive(Debug, thiserror::Error)]
@@ -99,6 +133,9 @@ pub fn take(path: &Path) -> Result<Option<NextRun>, RelaunchError> {
             file.version
         )));
     }
+    if let Some(game) = &file.next.game {
+        game.check().map_err(RelaunchError::Parse)?;
+    }
     Ok(Some(file.next))
 }
 
@@ -136,6 +173,36 @@ mod tests {
         };
         write(&path, &next).expect("write");
         assert_eq!(take(&path).expect("take"), Some(next));
+    }
+
+    #[test]
+    fn a_game_path_outside_the_rom_folder_is_refused() {
+        for (system, path) in [
+            ("nes", "/etc/passwd"),
+            ("nes", "nes/../../state/config/global.toml"),
+            ("nes", "../nes/Game.nes"),
+            ("nes", ""),
+            ("nes", "nes/./Game.nes"),
+            ("nes", "nes\\..\\..\\Game.nes"),
+            ("nes", "nes/Game\0.nes"),
+            ("../x", "nes/Game.nes"),
+            ("", "nes/Game.nes"),
+        ] {
+            let path_file = temp("outside.toml");
+            let next = NextRun {
+                game: Some(GameRef {
+                    system: system.to_owned(),
+                    path: path.to_owned(),
+                }),
+                notice: None,
+            };
+            write(&path_file, &next).expect("write");
+            assert!(
+                matches!(take(&path_file), Err(RelaunchError::Parse(_))),
+                "{system} {path}"
+            );
+            assert!(!path_file.exists());
+        }
     }
 
     #[test]

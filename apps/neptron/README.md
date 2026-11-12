@@ -29,7 +29,7 @@ One run is one process. It shows the game list, or it runs one game, because `ne
 | Quit: the window was closed | 0 | Stops |
 | The run cannot start (`BootError`) | 1 | Starts it again after its backoff |
 
-Before a relaunch the run writes `run/next.toml` (the relaunch file, `relaunch.rs`): the game to launch, or none for the list, and a notice for the player. The next run takes and removes it. The run folder is a RAM file system (`/run/neptron` on the image), so a power cut leaves no file.
+Before a relaunch the run writes `run/next.toml` (the relaunch file, `relaunch.rs`): the game to launch, or none for the list, and a notice for the player. The next run takes and removes it. A game path must be relative, with no empty, `.` or `..` part, and the system a plain id (`GameRef::check`): the run joins it to the ROM folder. A file that fails the check is removed, and the start is a new boot to the game list. The run folder is a RAM file system (`/run/neptron` on the image), so a power cut leaves no file.
 
 **A relaunch is not a new boot.** `Guard::boot` counts one failed boot for each start. A run that starts from a relaunch file gives back the count of the run before (`record::for_continued_boot`), so quick game changes never reach safe mode. A crash, a power cut or a restart of the launcher leaves no relaunch file, and that start counts.
 
