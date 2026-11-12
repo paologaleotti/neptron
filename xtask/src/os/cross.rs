@@ -80,6 +80,29 @@ impl CrossPlan {
         steps
     }
 
+    /// The `docker run` arguments that check the package when asked for,
+    /// build its binary `bin`, and copy it to the export directory. The
+    /// example is not used.
+    pub fn bin_steps(&self, bin: &str) -> Vec<Vec<String>> {
+        let target = self.arch.rust_target();
+        let mut lint = vec!["cargo", "check", "--locked", "--package", &self.package];
+        let mut build = vec!["cargo", "build", "--locked", "--package", &self.package];
+        if !self.features.is_empty() {
+            lint.extend(["--features", &self.features]);
+            build.extend(["--features", &self.features]);
+        }
+        lint.extend(["--all-targets", "--target", target]);
+        build.extend(["--bin", bin, "--target", target]);
+        let program = format!("{HOME}/target/{target}/debug/{bin}");
+        let mut steps = Vec::with_capacity(3);
+        if self.lint {
+            steps.push(self.run(&lint));
+        }
+        steps.push(self.run(&build));
+        steps.push(self.run(&["cp", &program, "/work/export/"]));
+        steps
+    }
+
     fn run(&self, command: &[&str]) -> Vec<String> {
         let arch = self.arch.name();
         let host_bin = "/work/out/host/bin";
@@ -303,6 +326,46 @@ mod tests {
         assert!(
             !plan().steps()[0].join(" ").contains("br_real"),
             "the other guest builds keep the wrapper"
+        );
+    }
+
+    #[test]
+    fn the_bin_steps_check_build_and_copy_one_binary() {
+        let steps = CrossPlan {
+            package: "neptronctl".to_owned(),
+            features: "kms".to_owned(),
+            lint: true,
+            ..plan()
+        }
+        .bin_steps("neptronctl");
+        assert_eq!(steps.len(), 3);
+        assert!(
+            steps[0].join(" ").ends_with(
+                "cargo check --locked --package neptronctl --features kms --all-targets \
+                 --target aarch64-unknown-linux-gnu"
+            ),
+            "{:?}",
+            steps[0]
+        );
+        assert!(
+            steps[1].join(" ").ends_with(
+                "cargo build --locked --package neptronctl --features kms --bin neptronctl \
+                 --target aarch64-unknown-linux-gnu"
+            ),
+            "{:?}",
+            steps[1]
+        );
+        assert!(
+            steps[2].join(" ").ends_with(
+                "cp /home/br/target/aarch64-unknown-linux-gnu/debug/neptronctl /work/export/"
+            ),
+            "{:?}",
+            steps[2]
+        );
+        assert!(
+            steps
+                .iter()
+                .all(|s| s.iter().any(|a| a == "RUSTFLAGS=-D warnings"))
         );
     }
 

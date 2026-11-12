@@ -55,6 +55,9 @@ commands:
   os app-check [--arch A]
                        check (warnings denied) and build the frontend with
                        kms and the launcher for Linux in the container
+  os selftest-check [--arch A] [--timeout SECS]
+                       build neptronctl with kms for the guest, run
+                       `selftest video` on vkms in QEMU and check the reports
   qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
        [--script FILE | -- command...]
                        boot the QEMU image; run the command in the guest

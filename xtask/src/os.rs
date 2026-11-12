@@ -14,6 +14,7 @@ mod defconfig;
 mod guest;
 mod host;
 mod qemu;
+mod selftest_check;
 mod trace;
 mod transcript;
 
@@ -160,6 +161,7 @@ usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [-- make targets.
                         [--script FILE | -- command...]
        cargo xtask gles-compare [--arch A] [--timeout SECS]
        cargo xtask os app-check [--arch A]
+       cargo xtask os selftest-check [--arch A] [--timeout SECS]
        cargo xtask kms-check [--arch A] [--timeout SECS]
        cargo xtask core-trace [--arch A] [--timeout SECS] [--bless]
                               [--dump FRAME[,FRAME...]]";
@@ -169,6 +171,7 @@ pub fn run_os(args: &[&str]) -> Result<ExitCode, OsError> {
     match args.split_first() {
         Some((&"build", rest)) => build(rest),
         Some((&"app-check", rest)) => app_check(rest),
+        Some((&"selftest-check", rest)) => selftest_check::run(rest),
         _ => Err(OsError::Usage("unknown os subcommand".to_owned())),
     }
 }
