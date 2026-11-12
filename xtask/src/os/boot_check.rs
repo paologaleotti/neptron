@@ -132,12 +132,17 @@ impl BootCheckArgs {
 
 /// The guest script: wait for the game list, then print the picture. The
 /// capture tool gets the deadline less a margin, so it reports a missing
-/// screen itself before the guest deadline kills it.
+/// screen itself before the guest deadline kills it. When it fails, the
+/// script asks the frontend what it shows, for the console log.
 pub fn guest_script(timeout_secs: u64) -> String {
     let wait_ms = timeout_secs.saturating_sub(GUEST_MARGIN_SECS).max(1) * 1000;
     format!(
         "neptron-capture --screen {GAME_LIST_SCREEN} --timeout-ms {wait_ms} \
-         --settle-ms {SETTLE_MS}\n"
+         --settle-ms {SETTLE_MS} && exit 0\n\
+         for command in 'ui tree' 'video state' 'session state' stats 'log tail 40'; do\n\
+         \techo \"neptronctl $command:\"; neptronctl $command\n\
+         done\n\
+         exit 1\n"
     )
 }
 
@@ -662,10 +667,15 @@ mod tests {
 
     #[test]
     fn the_guest_script_waits_for_the_game_list_inside_the_deadline() {
-        assert_eq!(
-            guest_script(900),
-            "neptron-capture --screen home --timeout-ms 870000 --settle-ms 3000\n"
+        let script = guest_script(900);
+        assert!(
+            script.starts_with(
+                "neptron-capture --screen home --timeout-ms 870000 --settle-ms 3000 && exit 0\n"
+            ),
+            "{script}"
         );
+        assert!(script.contains("neptronctl $command"), "{script}");
+        assert!(script.ends_with("exit 1\n"), "{script}");
         assert!(guest_script(10).contains("--timeout-ms 1000 "));
     }
 
