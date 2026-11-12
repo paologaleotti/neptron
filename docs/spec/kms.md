@@ -13,7 +13,7 @@ The backend executes and decides nothing. The engine (`neptron-video`) decides w
 
 ## Device and connector
 
-**The device.** In the product, the launcher (`neptron-launch`) opens the DRM device and passes the open descriptor to the frontend. The frontend finds its number in the environment variable `NEPTRON_DRM_FD`. `KmsDisplay::from_env` reads it once per process: a second call is an error, because one descriptor has one owner (`OwnedFd`). The descriptor must be a character device of the DRM major number (226), or the call fails. The descriptor and the launcher's own descriptor share one open file description, so they share DRM master, framebuffers and buffer handles.
+**The device.** In the product, the launcher (`neptron-launch`) opens the DRM device and passes the open descriptor to the frontend. The frontend finds its number in the environment variable `NEPTRON_DRM_FD`. `KmsDisplay::from_env` takes it once per process: a second call is an error, because one descriptor has one owner (`OwnedFd`). Every check runs before the process owns the descriptor: the numbers 0, 1 and 2 (the standard streams) are refused, and the descriptor must be open and a character device of the DRM major number (226), read through `/proc/self/fd`. A refused descriptor stays open and untouched, and a refused call does not count as the one take. The descriptor and the launcher's own descriptor share one open file description, so they share DRM master, framebuffers and buffer handles.
 
 `KmsDisplay::open` takes an `OwnedFd` directly, for tests and tools.
 
@@ -140,7 +140,7 @@ A capture is a test and diagnostic tool (T3, T28, the self-test of T29). It allo
 
 Timing check 7 runs in the aarch64 QEMU guest on `vkms`, with Mesa softpipe for GL: `cargo xtask kms-check`. The program `examples/kms_check.rs` gets the device from the shell as the launcher gives it (`NEPTRON_DRM_FD=3`, the device open on descriptor 3) and checks:
 
-1. No modeset before the first commit: after `from_env` the CRTC has no mode and is not active, as before.
+1. No modeset before the first commit: after `from_env` the CRTC has no mode and is not active, as before. Two short runs before the main one: with a pipe on descriptor 3, `from_env` gives `NotDrm`, the pipe stays open and readable, and a second call gives `NotDrm` again (not `LauncherFdTaken`); with `NEPTRON_DRM_FD=1`, `from_env` gives `StandardFd` and standard output still works.
 2. For each test mode (240p at 6.7 MHz, 640x480 at 31 kHz, 1920x240 super width, 480i): `set_mode` succeeds, the mode it returns equals the request field by field, and a second read of the CRTC through another descriptor gives the same mode.
 3. The frame CRC from debugfs after each switch: stable over several frames of a still picture, different for a different picture, and equal when the same mode and picture come back.
 4. The writeback picture equals the reference renderer's output for the same scene, byte for byte in the colour bytes, for two nearest scenes with the UI in each test mode. In each mode with a whole vertical multiple of 2 (480p, 480i), a scene with black scanlines at 50 % gives the same writeback picture as the reference renderer and as `GlesRenderer::render` (the read-back path): the window path and the read-back path share one draw function, and this proves it on the output.

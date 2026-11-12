@@ -3,6 +3,7 @@
 
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::linux::fs::MetadataExt as _;
+use std::os::unix::fs::FileTypeExt as _;
 
 use drm::control::{
     Device as ControlDevice, ResourceHandle, ResourceHandles, connector, crtc, plane,
@@ -10,7 +11,7 @@ use drm::control::{
 use drm::{ClientCapability, Device};
 
 use super::KmsError;
-use crate::{ConnectorClass, ConnectorFacts, choose};
+use crate::{ConnectorClass, ConnectorFacts, DRM_MAJOR, choose, is_drm_node};
 
 /// An open DRM device. It owns its descriptor.
 pub(super) struct Card(OwnedFd);
@@ -24,8 +25,6 @@ impl AsFd for Card {
 impl Device for Card {}
 impl ControlDevice for Card {}
 
-/// The major number of DRM device nodes.
-const DRM_MAJOR: u64 = 226;
 /// `DRM_PLANE_TYPE_PRIMARY`
 const PLANE_TYPE_PRIMARY: u64 = 1;
 
@@ -36,9 +35,7 @@ impl Card {
         let meta = file
             .metadata()
             .map_err(KmsError::io("read the descriptor"))?;
-        let major = (meta.st_rdev() >> 8) & 0xfff;
-        if !std::os::unix::fs::FileTypeExt::is_char_device(&meta.file_type()) || major != DRM_MAJOR
-        {
+        if !is_drm_node(meta.file_type().is_char_device(), meta.st_rdev()) {
             return Err(KmsError::NotDrm {
                 reason: format!("not a character device of major {DRM_MAJOR}"),
             });

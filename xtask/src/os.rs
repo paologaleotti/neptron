@@ -322,13 +322,19 @@ fn plain_command(program: &str) -> Vec<String> {
     vec![program.to_owned()]
 }
 
-/// The device open on descriptor 3 and its number in `NEPTRON_DRM_FD`, as
-/// the launcher passes it to the frontend.
+/// Two refusal runs, then the check with the device open on descriptor 3
+/// and its number in `NEPTRON_DRM_FD`, as the launcher passes it. A pipe on
+/// descriptor 3 and standard output must be refused before the process
+/// owns them. The exit code is the sum of failures.
 fn launcher_command(program: &str) -> Vec<String> {
     vec![
         "sh".to_owned(),
         "-c".to_owned(),
-        format!("NEPTRON_DRM_FD=3 exec {program} 3<>/dev/dri/card0"),
+        format!(
+            "f=0; echo neptron-pipe | NEPTRON_DRM_FD=3 {program} --not-drm 3<&0 || f=$((f+1)); \
+             NEPTRON_DRM_FD=1 {program} --standard-fd || f=$((f+1)); \
+             NEPTRON_DRM_FD=3 {program} 3<>/dev/dri/card0; exit $(($? + f))"
+        ),
     ]
 }
 
@@ -688,18 +694,16 @@ mod tests {
             ("neptron-kms", "kms", "kms_check")
         );
         let command = (KMS_CHECK.guest_command)("/mnt/host/kms_check");
-        assert_eq!(
-            command,
-            [
-                "sh",
-                "-c",
-                "NEPTRON_DRM_FD=3 exec /mnt/host/kms_check 3<>/dev/dri/card0"
-            ]
-        );
-        assert_eq!(
-            qemu::command_script(&command),
-            "sh -c 'NEPTRON_DRM_FD=3 exec /mnt/host/kms_check 3<>/dev/dri/card0'\n"
-        );
+        assert_eq!(command[..2], ["sh", "-c"]);
+        let script = &command[2];
+        for part in [
+            "echo neptron-pipe | NEPTRON_DRM_FD=3 /mnt/host/kms_check --not-drm 3<&0",
+            "NEPTRON_DRM_FD=1 /mnt/host/kms_check --standard-fd",
+            "NEPTRON_DRM_FD=3 /mnt/host/kms_check 3<>/dev/dri/card0; exit $(($? + f))",
+        ] {
+            assert!(script.contains(part), "{script}");
+        }
+        assert!(qemu::command_script(&command).starts_with("sh -c 'f=0; "));
     }
 
     #[test]

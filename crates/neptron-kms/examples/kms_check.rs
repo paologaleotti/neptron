@@ -10,6 +10,11 @@
 //! modeset happens before the first commit, and checks the state after
 //! drop. Each check prints `PASS` or `FAIL`. The exit code is the number of
 //! failed checks.
+//!
+//! Two short runs come first, each in its own process because a process
+//! takes the launcher descriptor once: `--not-drm` with descriptor 3 a pipe,
+//! and `--standard-fd` with `NEPTRON_DRM_FD=1`. Both must be refused before
+//! the process owns the descriptor.
 
 #![forbid(unsafe_code)]
 
@@ -18,7 +23,11 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     #[cfg(target_os = "linux")]
     {
-        let failed = linux::run();
+        let failed = match std::env::args().nth(1).as_deref() {
+            Some("--not-drm") => linux::not_drm(),
+            Some("--standard-fd") => linux::standard_fd(),
+            _ => linux::run(),
+        };
         println!("kms-check: {failed} failed");
         ExitCode::from(u8::try_from(failed).unwrap_or(u8::MAX))
     }
@@ -98,6 +107,72 @@ mod linux {
         }
     }
 
+    fn config() -> KmsConfig {
+        KmsConfig {
+            caps: CAPS,
+            output: None,
+            crt: true,
+            buffer_width: BUFFER_WIDTH,
+            buffer_height: BUFFER_HEIGHT,
+            writeback: true,
+        }
+    }
+
+    /// Descriptor 3 is a pipe that holds `PIPE_TEXT`. The backend refuses
+    /// it, leaves it open and usable, and does not mark the launcher
+    /// descriptor as taken.
+    pub fn not_drm() -> u32 {
+        let mut check = Check { failed: 0 };
+        check.report(
+            "a pipe as the launcher descriptor is NotDrm",
+            match KmsDisplay::from_env(config()) {
+                Err(KmsError::NotDrm { reason }) => Ok(reason),
+                other => Err(format!("{:?}", other.err())),
+            },
+        );
+        check.report(
+            "the refused pipe stays open and usable",
+            std::fs::read_to_string("/proc/self/fd/3")
+                .map_err(|e| e.to_string())
+                .and_then(|text| {
+                    if text.trim() == PIPE_TEXT {
+                        Ok(format!("read {text:?}"))
+                    } else {
+                        Err(format!("read {text:?}"))
+                    }
+                }),
+        );
+        check.report(
+            "a refused descriptor is not marked as taken",
+            match KmsDisplay::from_env(config()) {
+                Err(KmsError::NotDrm { .. }) => Ok(String::new()),
+                other => Err(format!("{:?}", other.err())),
+            },
+        );
+        check.failed
+    }
+
+    /// `NEPTRON_DRM_FD=1`: the backend refuses standard output and leaves
+    /// it working.
+    pub fn standard_fd() -> u32 {
+        let mut check = Check { failed: 0 };
+        check.report(
+            "standard output as the launcher descriptor is StandardFd",
+            match KmsDisplay::from_env(config()) {
+                Err(KmsError::StandardFd { fd: 1 }) => Ok(String::new()),
+                other => Err(format!("{:?}", other.err())),
+            },
+        );
+        check.report(
+            "standard output still works after the refusal",
+            Ok(String::new()),
+        );
+        check.failed
+    }
+
+    /// What the guest command writes into the pipe of `--not-drm`.
+    const PIPE_TEXT: &str = "neptron-pipe";
+
     pub fn run() -> u32 {
         let mut check = Check { failed: 0 };
         let probe = match Probe::open() {
@@ -116,14 +191,7 @@ mod linux {
                 Err(format!("{before:?}"))
             },
         );
-        let config = KmsConfig {
-            caps: CAPS,
-            output: None,
-            crt: true,
-            buffer_width: BUFFER_WIDTH,
-            buffer_height: BUFFER_HEIGHT,
-            writeback: true,
-        };
+        let config = config();
         let mut display = match KmsDisplay::from_env(config.clone()) {
             Ok(d) => d,
             Err(e) => {

@@ -9,6 +9,8 @@
 #[forbid(unsafe_code)]
 mod connector;
 #[forbid(unsafe_code)]
+mod device_node;
+#[forbid(unsafe_code)]
 mod flip_state;
 #[cfg(all(feature = "kms", target_os = "linux"))]
 mod kms;
@@ -26,6 +28,7 @@ mod sequence;
 mod wire_mode;
 
 pub use connector::{ChoiceError, ConnectorClass, ConnectorFacts, choose};
+pub use device_node::{DRM_MAJOR, STANDARD_FD_MAX, is_drm_node, major};
 pub use flip_state::FlipState;
 #[cfg(all(feature = "kms", target_os = "linux"))]
 pub use kms::{

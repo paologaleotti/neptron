@@ -20,6 +20,13 @@ pub enum KmsError {
         /// The descriptor number.
         fd: i32,
     },
+    /// The number names standard input, output or error, which other code
+    /// owns.
+    #[error("descriptor {fd} is a standard stream, not a DRM device from the launcher")]
+    StandardFd {
+        /// The descriptor number.
+        fd: i32,
+    },
     /// The launcher's descriptor was taken before in this process.
     #[error("descriptor {fd} from NEPTRON_DRM_FD was taken before; it has one owner")]
     LauncherFdTaken {

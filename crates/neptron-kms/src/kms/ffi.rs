@@ -7,7 +7,8 @@
 
 use std::ffi::c_void;
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
-use std::path::PathBuf;
+use std::os::linux::fs::MetadataExt as _;
+use std::os::unix::fs::FileTypeExt as _;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -15,6 +16,7 @@ use gbm_sys as gbm;
 use neptron_gfx::gles::GbmTarget;
 
 use super::KmsError;
+use crate::{DRM_MAJOR, STANDARD_FD_MAX, is_drm_node};
 
 /// How the buffers were made linear.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,22 +30,34 @@ pub enum LinearBy {
 
 /// Takes the descriptor `fd` that the launcher passed, once per process.
 ///
-/// The launcher contract: the number in `NEPTRON_DRM_FD` names a descriptor
+/// The launcher contract: the number in `NEPTRON_DRM_FD` names a DRM device
 /// that the launcher opened for this process and that no other code of the
-/// process uses.
+/// process uses. Every check runs before the process owns the descriptor,
+/// so a wrong number is refused and its descriptor stays open and
+/// untouched, and the one-owner flag is set only for a DRM device.
 pub(super) fn take_launcher_fd(fd: RawFd) -> Result<OwnedFd, KmsError> {
     if fd < 0 {
         return Err(KmsError::NotOpen { fd });
     }
-    if !PathBuf::from(format!("/proc/self/fd/{fd}")).exists() {
-        return Err(KmsError::NotOpen { fd });
+    if fd <= STANDARD_FD_MAX {
+        return Err(KmsError::StandardFd { fd });
+    }
+    // stat through /proc follows the descriptor to its file and borrows
+    // nothing.
+    let meta =
+        std::fs::metadata(format!("/proc/self/fd/{fd}")).map_err(|_| KmsError::NotOpen { fd })?;
+    if !is_drm_node(meta.file_type().is_char_device(), meta.st_rdev()) {
+        return Err(KmsError::NotDrm {
+            reason: format!("descriptor {fd} is not a character device of major {DRM_MAJOR}"),
+        });
     }
     if LAUNCHER_FD_TAKEN.swap(true, Ordering::SeqCst) {
         return Err(KmsError::LauncherFdTaken { fd });
     }
-    // SAFETY: /proc/self/fd shows that fd is open. The launcher contract
-    // says that no other code of the process owns it, and the flag above
-    // lets the process take it only once, so this OwnedFd is its one owner.
+    // SAFETY: /proc/self/fd shows that fd is open and a DRM device. The
+    // launcher contract says that no other code of the process owns it,
+    // and the flag above lets the process take it only once, so this
+    // OwnedFd is its one owner.
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
