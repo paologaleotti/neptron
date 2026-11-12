@@ -291,7 +291,11 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
                 FirmwareKind::Bios => Firmware::Bios,
                 FirmwareKind::Uefi => uefi_firmware(&qemu_path, &out_dir)?,
             };
-            Boot::UsbDisk { image, firmware }
+            Boot::UsbDisk {
+                image,
+                firmware,
+                keep_writes: false,
+            }
         }
         Arch::Aarch64 => {
             for file in [args.arch.kernel_image(), qemu::ROOTFS] {

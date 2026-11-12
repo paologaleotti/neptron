@@ -70,7 +70,7 @@ commands:
                        vkms writeback picture with its golden image and
                        record the boot time (tier T3)
   qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
-       [--script FILE | -- command...]
+       [--disk FILE] [--script FILE | -- command...]
                        boot the QEMU image; run the command in the guest
                        and exit with its exit code, or give a console
   gles-compare [--arch A] [--timeout SECS]

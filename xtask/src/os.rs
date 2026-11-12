@@ -160,7 +160,7 @@ pub const USAGE: &str = "\
 usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [--dev-key FILE]
                             [--no-kernel-15khz] [-- make targets...]
        cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
-                        [--script FILE | -- command...]
+                        [--disk FILE] [--script FILE | -- command...]
        cargo xtask gles-compare [--arch A] [--timeout SECS]
        cargo xtask os app-check [--arch A]
        cargo xtask os selftest-check [--arch A] [--timeout SECS]
@@ -208,10 +208,18 @@ fn boot(args: &QemuArgs, out: &mut dyn std::io::Write) -> Result<Option<i32>, Os
         std::env::consts::ARCH,
         host::kvm_available(),
     );
-    let required = [
-        images.join(args.arch.kernel_image()),
-        images.join(qemu::ROOTFS),
-    ];
+    if args.disk.is_some() && args.arch != Arch::X86_64 {
+        return Err(OsError::Usage(
+            "--disk boots a PC disk image: give --arch x86_64".to_owned(),
+        ));
+    }
+    let required = match &args.disk {
+        Some(disk) => vec![disk.clone()],
+        None => vec![
+            images.join(args.arch.kernel_image()),
+            images.join(qemu::ROOTFS),
+        ],
+    };
     for file in required {
         if !file.is_file() {
             return Err(OsError::NoImage {
@@ -257,7 +265,14 @@ fn boot(args: &QemuArgs, out: &mut dyn std::io::Write) -> Result<Option<i32>, Os
         arch: args.arch,
         accel,
         images,
-        boot: qemu::Boot::Kernel,
+        boot: match &args.disk {
+            Some(image) => qemu::Boot::UsbDisk {
+                image: image.clone(),
+                firmware: qemu::Firmware::Bios,
+                keep_writes: true,
+            },
+            None => qemu::Boot::Kernel,
+        },
         job,
         share: args.share.clone(),
     };

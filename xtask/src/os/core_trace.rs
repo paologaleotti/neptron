@@ -112,6 +112,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
         images: None,
         timeout,
         share: Some(share.clone()),
+        disk: None,
         job: Job::Script(script),
     };
     let mut console = Vec::new();

@@ -47,19 +47,23 @@ pub struct QemuArgs {
     pub timeout: Duration,
     /// A host directory to share read-only at `/mnt/host`.
     pub share: Option<PathBuf>,
+    /// A disk image that the BIOS boots as a USB stick, with the writes
+    /// kept in the file. x86-64 only.
+    pub disk: Option<PathBuf>,
     /// What to do in the guest.
     pub job: Job,
 }
 
 impl QemuArgs {
     /// Parses `[--arch A] [--images DIR] [--timeout SECS] [--share DIR]
-    /// [--script FILE | -- command...]`.
+    /// [--disk FILE] [--script FILE | -- command...]`.
     pub fn parse(args: &[&str], default_arch: Arch) -> Result<Self, OsError> {
         let mut out = Self {
             arch: default_arch,
             images: None,
             timeout: DEFAULT_TIMEOUT,
             share: None,
+            disk: None,
             job: Job::Interactive,
         };
         let mut it = args.iter();
@@ -73,6 +77,7 @@ impl QemuArgs {
                 "--arch" => out.arch = Arch::parse(value()?)?,
                 "--images" => out.images = Some(PathBuf::from(value()?)),
                 "--share" => out.share = Some(PathBuf::from(value()?)),
+                "--disk" => out.disk = Some(PathBuf::from(value()?)),
                 "--timeout" => {
                     let text = value()?;
                     match text.parse::<u64>() {
@@ -138,6 +143,9 @@ pub enum Boot {
         image: PathBuf,
         /// The firmware.
         firmware: Firmware,
+        /// Keep the writes of the guest in the image. Only for a copy:
+        /// every other boot runs in snapshot mode.
+        keep_writes: bool,
     },
 }
 
@@ -213,7 +221,9 @@ impl QemuPlan {
                     &format!("{blk_device},drive=root"),
                 ]);
             }
-            Boot::UsbDisk { image, firmware } => {
+            Boot::UsbDisk {
+                image, firmware, ..
+            } => {
                 if let Firmware::Uefi { code, vars } = firmware {
                     let code = format!(
                         "if=pflash,format=raw,unit=0,readonly=on,file={}",
@@ -233,8 +243,19 @@ impl QemuPlan {
                 ]);
             }
         }
-        // The base image stays unchanged: guest writes go to a temporary overlay.
-        push(&["-snapshot", "-nic", "none", "-no-reboot"]);
+        // The base image stays unchanged: guest writes go to a temporary
+        // overlay, unless the run asks to keep them in its copy.
+        let keep_writes = matches!(
+            self.boot,
+            Boot::UsbDisk {
+                keep_writes: true,
+                ..
+            }
+        );
+        if !keep_writes {
+            push(&["-snapshot"]);
+        }
+        push(&["-nic", "none", "-no-reboot"]);
         // Without a display card vkms is the only DRM device, card0. The q35
         // machine adds a VGA card unless it is told not to.
         push(&["-vga", "none"]);
@@ -445,6 +466,7 @@ mod tests {
         p.boot = Boot::UsbDisk {
             image: PathBuf::from("/img/neptron-x86_64.img"),
             firmware: Firmware::Bios,
+            keep_writes: false,
         };
         let s = joined(&p);
         assert!(
@@ -470,6 +492,7 @@ mod tests {
                 code: PathBuf::from("/q/edk2-x86_64-code.fd"),
                 vars: PathBuf::from("/t/vars.fd"),
             },
+            keep_writes: false,
         };
         let s = joined(&p);
         assert!(
@@ -479,6 +502,30 @@ mod tests {
             ),
             "{s}"
         );
+    }
+
+    #[test]
+    fn a_disk_run_keeps_its_writes_and_every_other_run_does_not() {
+        let mut p = plan(Arch::X86_64, Accel::Tcg, true);
+        p.boot = Boot::UsbDisk {
+            image: PathBuf::from("/s/copy.img"),
+            firmware: Firmware::Bios,
+            keep_writes: true,
+        };
+        let s = joined(&p);
+        assert!(!s.contains("-snapshot"), "{s}");
+        assert!(s.contains("-nic none -no-reboot"), "{s}");
+        assert!(
+            s.contains("file=/s/copy.img,if=none,format=raw,id=usb"),
+            "{s}"
+        );
+        let a = QemuArgs::parse(
+            &["--arch", "x86_64", "--disk", "/s/copy.img", "--", "true"],
+            Arch::Aarch64,
+        )
+        .unwrap();
+        assert_eq!(a.disk, Some(PathBuf::from("/s/copy.img")));
+        assert!(joined(&plan(Arch::X86_64, Accel::Tcg, true)).contains("-snapshot"));
     }
 
     #[test]
