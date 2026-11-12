@@ -107,7 +107,7 @@ static BUILTIN: [Entry; 7] = [
     },
     Entry {
         key: INPUT_MENU_HOLD_START_SECONDS,
-        label: "Hold Start for quick menu",
+        label: "Hold Start for menu",
         kind: Kind::Int {
             min: 0,
             max: MENU_HOLD_START_MAX_SECONDS,
