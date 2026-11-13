@@ -158,7 +158,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         };
         match result {
             Ok(scanned) => {
-                let job = Job::Cache(Box::new(self.library.index().clone()));
+                let job = Job::Cache {
+                    index: Box::new(self.library.index().clone()),
+                    full_scan: scanned.kind != ScanKind::Check,
+                };
                 self.outbox.send(job);
                 self.snap.systems = self.library.systems();
                 // The rows of the same list around the old ones, so the

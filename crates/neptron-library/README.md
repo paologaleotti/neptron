@@ -33,7 +33,7 @@ The rule is sound because a folder's time changes when an entry in it is made, r
 
 - A time is trusted only when it is at least `MTIME_TRUST_WINDOW_NS` (2 s) older than the scan. File systems keep times at a coarse step (exFAT 10 ms, ext4 the kernel tick, FAT 2 s), and an entry made in the same step after the read would leave the time as it was. A newer time is stamped as untrusted, and the next refresh reads that folder again. A clock set back makes every time untrusted, which costs a read and loses nothing.
 - The content of a file does not change its folder's time. A refresh does not see a file that grows after the scan (a network copy that is still running). Its size stays the old one until a scan reads the folder. The list shows the game all the same; only the size is old.
-- Another operating system may not change the time of an exFAT folder when it adds a file (not verified for Windows and macOS). The app therefore uses `refresh` only within one power cycle, where every change comes through the Linux driver of the device, and a full `scan` at each new boot.
+- Another operating system may not change the time of an exFAT folder when it adds a file (not verified for Windows and macOS). The app therefore uses `refresh` only when a full `scan` of this power cycle reached the cache, where every change since came through the Linux driver of the device, and a full `scan` otherwise.
 - Equal times are compared, not their order, so a RAM folder made again at boot gets new times and is read again.
 
 ## Where the cache lives

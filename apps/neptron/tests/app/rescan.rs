@@ -196,3 +196,48 @@ fn a_quit_during_a_rescan_stops_it() {
     // The end of the run cancels the scan and joins its thread.
     rig.finish();
 }
+
+/// Sets the time of the NES folder to an old, fixed time, as a PC that
+/// adds a file on exFAT may leave it.
+fn age_nes_folder(rig: &Rig) {
+    let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+    std::fs::File::open(rig.paths.roms().join("nes"))
+        .and_then(|f| f.set_modified(old))
+        .expect("set the folder time");
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn a_return_with_no_scan_in_this_power_cycle_reads_every_folder() {
+    let dir = fresh("rescan-cycle");
+    let mut rig = Rig::new(&dir);
+    age_nes_folder(&rig);
+    rig.boot(None);
+    rig.frames(2);
+    rig.keep();
+    rig.until(600, "the first scan", |r| nes_games(r) == 1);
+    rig.finish();
+
+    // Power off: the run folder is a RAM folder. A PC adds a game and
+    // leaves the folder time as it was.
+    // The run folder may not exist yet; absence is a cleared folder too.
+    let _ = std::fs::remove_dir_all(&rig.paths.run);
+    std::fs::create_dir_all(&rig.paths.run).expect("the run folder");
+    add_game(&rig, "nes/Alpha Game.nes");
+    age_nes_folder(&rig);
+
+    // Power on: a game starts before the first scan ends, so no cache is
+    // written in this power cycle.
+    rig.boot(None);
+    rig.finish();
+
+    // The return from the game.
+    rig.boot(Some(NextRun {
+        game: None,
+        notice: None,
+    }));
+    rig.until(600, "the scan", |r| !r.shell().library().scanning());
+    rig.frames(1);
+    assert_eq!(nes_games(&mut rig), 2, "the new game is listed");
+    rig.finish();
+}

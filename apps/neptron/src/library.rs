@@ -24,12 +24,15 @@ pub struct Library {
 /// Why a scan runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanKind {
-    /// The game list of a new boot. Every folder is read, because the
-    /// stick may have been changed on another computer, whose exFAT driver
-    /// may leave the folder times as they were.
+    /// The game list of a new boot, or of a return when no scan of every
+    /// folder reached the cache in this power cycle. Every folder is read,
+    /// because the stick may have been changed on another computer, whose
+    /// exFAT driver may leave the folder times as they were.
     Boot,
-    /// A return to the game list in the same power cycle, after a game.
-    /// Only the folders whose time changed are read.
+    /// A return to the game list after a game, when a scan of every
+    /// folder reached the cache in this power cycle
+    /// ([`crate::Paths::library_scanned`]). Only the folders whose time
+    /// changed are read.
     Check,
     /// The player asked for it. Every folder is read.
     Rescan,

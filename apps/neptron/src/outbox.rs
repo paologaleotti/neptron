@@ -54,7 +54,14 @@ pub enum Job {
         place: Option<record::Place>,
     },
     /// Write the library index cache.
-    Cache(Box<Index>),
+    Cache {
+        /// The index.
+        index: Box<Index>,
+        /// The index comes from a scan that read every folder. After the
+        /// cache, the writer then marks the run folder (see
+        /// [`Places::scanned`]).
+        full_scan: bool,
+    },
 }
 
 /// The frame thread's side of the writer thread. Drop or
@@ -76,6 +83,9 @@ pub struct Places {
     pub record: PathBuf,
     /// The library cache file.
     pub cache: PathBuf,
+    /// The marker in the run folder (a RAM folder): a full scan of this
+    /// power cycle reached the cache.
+    pub scanned: PathBuf,
 }
 
 impl Outbox {
@@ -193,7 +203,13 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, failures: &SyncSender<Strin
             }
             Job::Record { record: r, place } => record::save(&places.record, r, place.as_ref())
                 .map_err(|e| format!("cannot write the guard record: {e}")),
-            Job::Cache(index) => write_cache(&places.cache, index),
+            Job::Cache { index, full_scan } => write_cache(&places.cache, index).and_then(|()| {
+                if *full_scan {
+                    mark_scanned(&places.scanned)
+                } else {
+                    Ok(())
+                }
+            }),
         };
         if let Err(message) = result {
             // A full channel drops the message: the frame thread shows the
@@ -212,6 +228,17 @@ fn write_cache(path: &std::path::Path, index: &Index) -> Result<(), String> {
     }
     neptron_library::cache::write(path, index)
         .map_err(|e| format!("cannot write the library cache: {e}"))
+}
+
+/// Makes the marker of a full scan. It holds nothing: its presence in the
+/// RAM folder is the fact.
+fn mark_scanned(path: &std::path::Path) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("cannot make the run folder {}: {e}", dir.display()))?;
+    }
+    std::fs::write(path, b"")
+        .map_err(|e| format!("cannot mark the scan in {}: {e}", path.display()))
 }
 
 impl FileTarget {
@@ -236,6 +263,7 @@ mod tests {
             config: dir.join("config"),
             record: dir.join("video").join("guard.toml"),
             cache: dir.join("cache").join("library.cache"),
+            scanned: dir.join("run").join("library-scanned"),
         }
     }
 
@@ -261,6 +289,42 @@ mod tests {
         assert!(text.contains("scanline_strength = 30"), "{text}");
         let record = std::fs::read_to_string(&places.record).expect("record");
         assert!(record.contains("failed_boots = 1"), "{record}");
+    }
+
+    #[test]
+    fn only_the_cache_of_a_full_scan_marks_the_run_folder() {
+        let places = places("scanned");
+        let outbox = Outbox::start(places.clone()).expect("start");
+        let mut outbox = outbox;
+        outbox.send(Job::Cache {
+            index: Box::default(),
+            full_scan: false,
+        });
+        assert!(outbox.finish().is_empty());
+        assert!(places.cache.exists());
+        assert!(!places.scanned.exists());
+        let mut outbox = Outbox::start(places.clone()).expect("start");
+        outbox.send(Job::Cache {
+            index: Box::default(),
+            full_scan: true,
+        });
+        assert!(outbox.finish().is_empty());
+        assert!(places.scanned.exists());
+    }
+
+    #[test]
+    fn a_failed_cache_write_does_not_mark_the_run_folder() {
+        let places = places("scanned-fail");
+        let dir = places.cache.parent().expect("dir").to_owned();
+        std::fs::create_dir_all(dir.parent().expect("dir")).expect("dir");
+        std::fs::write(&dir, b"a file where the folder must be").expect("file");
+        let mut outbox = Outbox::start(places.clone()).expect("start");
+        outbox.send(Job::Cache {
+            index: Box::default(),
+            full_scan: true,
+        });
+        assert_eq!(outbox.finish().len(), 1);
+        assert!(!places.scanned.exists());
     }
 
     #[test]

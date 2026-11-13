@@ -225,9 +225,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 let (mut library, issue) =
                     Library::load(Catalog::builtin()?, &paths.library_cache());
                 found.warn_all(issue);
-                // A relaunch file means the same power cycle: every change
-                // since the last scan came through this device.
-                let kind = if next.is_some() {
+                // A relaunch file and the marker of a full scan mean that
+                // the cache comes from this power cycle: every change since
+                // came through this device. A cache of an earlier power
+                // cycle may miss a change made on another computer, whose
+                // exFAT driver may leave the folder times.
+                let kind = if next.is_some() && paths.library_scanned().exists() {
                     ScanKind::Check
                 } else {
                     ScanKind::Boot
@@ -242,6 +245,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             config: paths.config(),
             record: paths.guard_record(),
             cache: paths.library_cache(),
+            scanned: paths.library_scanned(),
         })
         .map_err(BootError::Writer)?;
         let theme = load_theme(&paths.skin(), &mut found);

@@ -73,6 +73,13 @@ impl Paths {
         self.data.join("skins").join("default").join("skin.toml")
     }
 
+    /// `run/library-scanned`: present when a scan of every folder reached
+    /// the library cache in this power cycle. The run folder is a RAM
+    /// folder, so a new power cycle starts with no marker.
+    pub fn library_scanned(&self) -> PathBuf {
+        self.run.join("library-scanned")
+    }
+
     /// `run/next.toml`, the relaunch file.
     pub fn relaunch(&self) -> PathBuf {
         self.run.join("next.toml")
