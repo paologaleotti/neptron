@@ -58,7 +58,10 @@ const FAKES: &[(&str, &str)] = &[
     ("sync", "echo sync >> \"$LOG\""),
     ("chown", "echo \"chown $*\" >> \"$LOG\""),
     ("date", "echo DATE"),
-    ("mkfs.exfat", "echo \"mkfs.exfat $*\" >> \"$LOG\""),
+    (
+        "mkfs.exfat",
+        "echo \"mkfs.exfat $*\" >> \"$LOG\"; exit \"${FAKE_MKFS_EXIT:-0}\"",
+    ),
     (
         "blockdev",
         "echo \"blockdev $*\" >> \"$LOG\"; exit \"${FAKE_FLUSH_EXIT:-0}\"",
@@ -84,6 +87,7 @@ const FAKES: &[(&str, &str)] = &[
          case \" $* \" in\n\
          *' --dump '*)\n\
          \tn=$(cat \"$R/dump-fails\" 2>/dev/null || echo 0)\n\
+         \t[ \"$FAKE_DUMP_ALWAYS_FAILS\" = yes ] && n=1\n\
          \tif [ \"$n\" -gt 0 ]; then\n\
          \t\techo $((n - 1)) > \"$R/dump-fails\"\n\
          \t\techo 'dump fails' >> \"$LOG\"\n\
@@ -237,9 +241,32 @@ impl Run {
         disk.write_all(b"EXFAT   ").unwrap();
     }
 
-    /// Runs the script with `start` and the test folder, and returns what
-    /// it did.
+    /// Runs the script with `start` and the test folder, and removes the
+    /// folder.
     fn start(self) -> Outcome {
+        self.boot(&[])
+    }
+
+    /// Writes the marker as the script writes it for partition 4 at the
+    /// planned start over all the free space.
+    fn write_marker(&self) {
+        std::fs::create_dir_all(self.path("state")).unwrap();
+        std::fs::write(
+            self.path("state/share-pending"),
+            format!("partition 4 made at DATE\nstart={PLANNED}\nsize={FREE_SECTORS}\n"),
+        )
+        .unwrap();
+    }
+
+    /// One boot: runs the script with `start`, the test folder, and the
+    /// variables of the run and `extra`, and returns what it did. The
+    /// folder stays, so a second boot sees the disk and the state partition
+    /// of the first; the call logs start empty.
+    fn boot(&self, extra: &[(&str, &str)]) -> Outcome {
+        for file in ["log", "usleeps", "addpart-calls", "dump-fails"] {
+            // A file that is not there is the state wanted.
+            let _ = std::fs::remove_file(self.path(file));
+        }
         let path = format!(
             "{}:{}",
             self.path("bin").display(),
@@ -254,12 +281,13 @@ impl Run {
             .env("FAKE_ROOT", &self.dir)
             .env("GRAIN_START", GRAIN_4_MIB_START.to_string())
             .env("DISK_SECTORS", DISK_SECTORS.to_string())
-            .envs(self.env.iter().map(|(k, v)| (k, v)))
+            .envs(self.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+            .envs(extra.iter().copied())
             .stdin(Stdio::null())
             .output()
             .unwrap();
         let read = |rel: &str| std::fs::read_to_string(self.path(rel)).unwrap_or_default();
-        let outcome = Outcome {
+        Outcome {
             ok: out.status.success(),
             console: String::from_utf8_lossy(&out.stdout).into_owned()
                 + &String::from_utf8_lossy(&out.stderr),
@@ -267,10 +295,14 @@ impl Run {
             status: read("run/neptron/storage.toml"),
             state_log: read("state/log/storage.log"),
             marker: self.path("state/share-pending").exists(),
-        };
+        }
+    }
+}
+
+impl Drop for Run {
+    fn drop(&mut self) {
         // A folder left in the system temp folder does no harm.
         let _ = std::fs::remove_dir_all(&self.dir);
-        outcome
     }
 }
 
@@ -327,6 +359,11 @@ impl Outcome {
     /// reason is in syslog, on the console, and in the storage log when
     /// `/state` is on the disk.
     fn assert_share_ram(&self, reason: &str) -> String {
+        self.assert_share_ram_with(reason, 0)
+    }
+
+    /// As [`Self::assert_share_ram`], with `mkfs` calls of mkfs.exfat.
+    fn assert_share_ram_with(&self, reason: &str, mkfs: usize) -> String {
         assert!(self.ok, "{self:#?}");
         let share_reason = self
             .status
@@ -356,7 +393,7 @@ impl Outcome {
             );
         }
         assert_eq!(self.calls("mount -t exfat"), 0, "{self:#?}");
-        assert_eq!(self.calls("mkfs.exfat"), 0, "{self:#?}");
+        assert_eq!(self.calls("mkfs.exfat"), mkfs, "{self:#?}");
         assert_eq!(
             self.calls("mount -t tmpfs"),
             1 + usize::from(state_ram),
@@ -909,4 +946,136 @@ fn the_storage_log_keeps_the_last_lines_only() {
         lines.last().unwrap().ends_with("sda4 mounted at /share"),
         "{out:#?}"
     );
+}
+
+// The format rules: each test fails when its rule is gone from the script.
+
+/// A refusal to format partition 4: `/share` is a RAM folder with
+/// `reason`, and the marker stays.
+fn format_refused(run: Run, reason: &str) {
+    let out = run.start();
+    out.assert_share_ram(reason);
+    assert!(out.marker, "a refusal keeps the marker: {out:#?}");
+}
+
+/// An empty partition 4 at `start` of `kind`, in the table and in the
+/// kernel, with the marker of the planned partition.
+fn marked_partition_4(name: &str, start: u64, kind: &str) -> Run {
+    let run = Run::new(name);
+    run.table_partition_4(start, DISK_SECTORS - start, kind);
+    run.add_partition(4, start, DISK_SECTORS - start);
+    run.write_marker();
+    run
+}
+
+#[test]
+fn a_marked_partition_4_of_another_type_is_not_formatted() {
+    format_refused(
+        marked_partition_4("format-type", PLANNED, "83"),
+        "its type or its start is not those of the share partition of this image",
+    );
+}
+
+#[test]
+fn a_marked_partition_4_at_another_start_is_not_formatted() {
+    format_refused(
+        marked_partition_4("format-start", PLANNED + 2048, "7"),
+        "its type or its start is not those of the share partition of this image",
+    );
+}
+
+#[test]
+fn a_marked_partition_4_that_does_not_read_is_not_formatted() {
+    let run = marked_partition_4("format-read", PLANNED, "7");
+    // dd cannot read a folder, as it cannot read a bad stick.
+    std::fs::remove_file(run.path("dev/sda4")).unwrap();
+    std::fs::create_dir(run.path("dev/sda4")).unwrap();
+    format_refused(run, "its first 16 MiB do not read cleanly");
+}
+
+fn backup_boot_sector(sector: usize) {
+    let run = marked_partition_4(&format!("format-backup-{sector}"), PLANNED, "7");
+    let mut bytes = vec![0_u8; (sector + 1) * 512];
+    bytes[sector * 512 + 3..sector * 512 + 11].copy_from_slice(b"EXFAT   ");
+    std::fs::write(run.path("dev/sda4"), bytes).unwrap();
+    format_refused(
+        run,
+        &format!(
+            "it holds an exFAT backup boot sector (sector {sector}), so it is a damaged share"
+        ),
+    );
+}
+
+#[test]
+fn an_exfat_backup_boot_sector_at_sector_12_stops_a_format() {
+    backup_boot_sector(12);
+}
+
+#[test]
+fn an_exfat_backup_boot_sector_at_sector_24_stops_a_format() {
+    backup_boot_sector(24);
+}
+
+#[test]
+fn an_exfat_backup_boot_sector_at_sector_48_stops_a_format() {
+    backup_boot_sector(48);
+}
+
+#[test]
+fn an_exfat_backup_boot_sector_at_sector_96_stops_a_format() {
+    backup_boot_sector(96);
+}
+
+#[test]
+fn a_failed_format_is_a_reason_and_keeps_the_marker() {
+    let run = marked_partition_4("format-fails", PLANNED, "7").set("FAKE_MKFS_EXIT", "1");
+    let out = run.start();
+    out.assert_share_ram_with("mkfs.exfat failed on ", 1);
+    assert!(out.marker, "the next boot tries again: {out:#?}");
+}
+
+#[test]
+fn a_marker_that_cannot_be_written_stops_the_partition() {
+    let run = Run::new("marker-unwritable");
+    // A folder in the place of the marker file: the write fails, also for
+    // root.
+    std::fs::create_dir_all(run.path("state/share-pending")).unwrap();
+    let out = run.start();
+    out.assert_share_ram("share-pending cannot be written, so no share partition is made");
+    assert_eq!(out.calls("sfdisk"), 0, "{out:#?}");
+}
+
+#[test]
+fn a_table_that_cannot_be_read_before_sfdisk_stops_the_partition() {
+    let out = Run::new("table-unreadable")
+        .set("FAKE_DUMP_ALWAYS_FAILS", "yes")
+        .start();
+    out.assert_share_ram("cannot be read, so no share partition is made");
+    assert_eq!(out.calls("sfdisk"), 0, "{out:#?}");
+    assert!(!out.marker, "{out:#?}");
+}
+
+/// Boot 1 cannot read the table back, so the marker stays; at boot 2 the
+/// kernel has read the table, and partition 4 is there.
+fn second_boot_after_an_unread_table(name: &str, boot_2: &[(&str, &str)]) -> Outcome {
+    let run = Run::new(name);
+    let first = run.boot(&[("FAKE_DUMP_FAILS_AFTER_WRITE", "99")]);
+    first.assert_share_ram("the partition table cannot be read back after sfdisk");
+    assert!(first.marker, "{first:#?}");
+    run.add_partition(4, PLANNED, FREE_SECTORS);
+    run.boot(boot_2)
+}
+
+#[test]
+fn a_kept_marker_lets_the_next_boot_format_an_empty_partition_4() {
+    let second = second_boot_after_an_unread_table("two-boots-empty", &[]);
+    second.assert_share_mounted(true);
+    assert_eq!(second.calls("sfdisk"), 0, "{second:#?}");
+}
+
+#[test]
+fn a_kept_marker_never_formats_a_partition_4_with_a_filesystem() {
+    let second =
+        second_boot_after_an_unread_table("two-boots-filesystem", &[("FAKE_BLKID", "TYPE=exfat")]);
+    second.assert_share_mounted(false);
 }
