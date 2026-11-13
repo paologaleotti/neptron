@@ -1,23 +1,30 @@
 #!/bin/sh
-# Sets the mixer of each sound card to a known state, so that the volume
-# of the frontend, which scales the samples in software, has the full
-# range. The kernel leaves an HDA codec at its reset state: the DAC at
-# the bottom of its range and the output pins muted.
+# Sets the mixer of each sound card to a known state, so that the
+# volume of the frontend, which scales the samples in software, has the
+# full range. The kernel leaves an HDA codec at its reset state: the DAC
+# at the bottom of its range and the output pins muted.
 #
-# Each playback control of a fixed list goes to 0 dB and is unmuted. 0 dB
-# and not 100%: a control whose range goes above 0 dB would add gain and
-# could clip. The HDMI codec makes one 'IEC958' switch for each HDMI or
-# DisplayPort PCM, and every index of it is unmuted on every card, so
-# each digital output plays when it is chosen. Input controls (Mic, Line, CD, Beep, the boosts) stay as
-# they are: on an HDA codec the Line and Mic playback volumes mix an input
-# into the output. The step runs in the background, so a slow codec never
-# delays the boot.
+# Each playback control of a fixed list goes to 0 dB and is unmuted.
+# 0 dB and not 100%: a control whose range goes above 0 dB would add
+# gain and could clip. The HDMI codec makes one 'IEC958' switch for each
+# HDMI or DisplayPort PCM; every index of it is unmuted on every card,
+# so each digital output plays when it is chosen.
+#
+# Input controls (Mic, Line, CD, Beep, the boosts) stay as they are: on
+# an HDA codec the Line and Mic playback volumes mix an input into the
+# output.
+#
+# The step runs in the background, so a slow codec never delays the
+# boot. After the first card it waits a short time for later cards (a
+# USB card, a second codec), within the same bound.
 
 [ "$1" = start ] || exit 0
 [ -x /usr/bin/amixer ] || exit 0
 
-CONTROLS='Master PCM Front Surround Center LFE Side Headphone Speaker Line_Out IEC958'
+CONTROLS='Master PCM Front Surround Center LFE Side Headphone Speaker'
+CONTROLS="$CONTROLS Line_Out IEC958"
 WAIT_FOR_CARD_S=10
+SETTLE_S=2
 
 set_card() {
 	card=$1
@@ -42,6 +49,12 @@ set_all() {
 	while ! ls -d /proc/asound/card[0-9]* >/dev/null 2>&1; do
 		tries=$((tries + 1))
 		[ "$tries" -le "$WAIT_FOR_CARD_S" ] || exit 0
+		sleep 1
+	done
+	settle=0
+	while [ "$settle" -lt "$SETTLE_S" ] && [ "$tries" -lt "$WAIT_FOR_CARD_S" ]; do
+		settle=$((settle + 1))
+		tries=$((tries + 1))
 		sleep 1
 	done
 	for dir in /proc/asound/card[0-9]*; do
