@@ -10,7 +10,10 @@
 //! the guard counts no failed boot, because its record is not written yet.
 
 use neptron_backend::Clock;
-use neptron_kms::{ConnectorClass, ConnectorFacts, choose};
+use neptron_kms::{ConnectorClass, ConnectorFacts, DVI_I_TYPE, choose};
+
+/// The sysfs type name of a DVI-I connector, DRM type [`DVI_I_TYPE`].
+const DVI_I_KIND: &str = "DVI-I";
 use neptron_platform::{ConnectorStatus, Platform};
 
 /// The longest wait at start for a connected display, in nanoseconds.
@@ -57,7 +60,14 @@ pub fn display_ready(platform: &Platform) -> bool {
         .connectors
         .iter()
         .map(|c| {
-            let class = connector_class(&c.kind);
+            // DVI-I carries both signals: the open classes it by its EDID
+            // (`of_connector`), so the wait does the same. sysfs gives no
+            // subconnector.
+            let class = if c.kind == DVI_I_KIND {
+                ConnectorClass::of_connector(DVI_I_TYPE, None, c.edid.as_deref())
+            } else {
+                connector_class(&c.kind)
+            };
             ConnectorFacts {
                 name: c.name.clone(),
                 class,
@@ -262,6 +272,25 @@ mod tests {
             let p = platform(vec![connector("X-1", kind, Unknown, false)]);
             assert!(display_ready(&p), "{kind}");
         }
+    }
+
+    /// The class of DVI-I is the one of the open (`of_connector`): the EDID
+    /// decides, so a DVI-I panel whose status is unknown is ready, as a
+    /// DVI-D panel is, and a DVI-I CRT in that state is not.
+    #[test]
+    fn a_dvi_i_connector_takes_the_class_of_its_edid() {
+        use ConnectorStatus::Unknown;
+        let panel: &[u8] = include_bytes!("../tests/fixtures/edid/panel_1080p.bin");
+        let crt: &[u8] = include_bytes!("../tests/fixtures/edid/crt_analog.bin");
+        let with = |edid: &[u8]| Connector {
+            edid: Some(edid.to_vec()),
+            ..connector("DVI-I-1", "DVI-I", Unknown, false)
+        };
+        assert!(display_ready(&platform(vec![with(panel)])));
+        assert!(!display_ready(&platform(vec![with(crt)])));
+        assert!(!display_ready(&platform(vec![connector(
+            "DVI-I-1", "DVI-I", Unknown, false
+        )])));
     }
 
     #[test]

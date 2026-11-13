@@ -30,7 +30,7 @@ mod sequence;
 mod wire_mode;
 
 pub use caps::lowered_caps;
-pub use connector::{ChoiceError, ConnectorClass, ConnectorFacts, choose};
+pub use connector::{ChoiceError, ConnectorClass, ConnectorFacts, DVI_I_TYPE, choose};
 pub use device_node::{DRM_MAJOR, STANDARD_FD_MAX, is_drm_node, major};
 pub use flip_state::FlipState;
 #[cfg(all(feature = "kms", target_os = "linux"))]
