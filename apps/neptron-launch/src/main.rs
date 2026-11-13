@@ -7,6 +7,7 @@
 mod args;
 mod backoff;
 mod device;
+mod stopping;
 mod supervise;
 
 use std::ffi::OsString;
@@ -20,6 +21,7 @@ use rustix::process::{Pid, Signal, kill_process};
 
 use backoff::Backoff;
 use device::{DRM_FD_ENV, Device};
+use stopping::{STOP_WAIT_NS, StopAction, Stopping};
 use supervise::{Frontend, Time, supervise};
 
 fn main() -> ExitCode {
@@ -49,6 +51,7 @@ fn main() -> ExitCode {
         args: options.args,
         fd: device.as_ref().map(Device::fd),
         stop,
+        stop_wait: Duration::from_nanos(STOP_WAIT_NS),
     };
     let mut time = MonotonicTime {
         start: Instant::now(),
@@ -76,12 +79,15 @@ struct Process {
     fd: Option<i32>,
     /// Set by SIGTERM or SIGINT.
     stop: Arc<AtomicBool>,
+    /// The wait between the forwarded SIGTERM and SIGKILL.
+    stop_wait: Duration,
 }
 
 impl Frontend for Process {
     /// Runs the child to its end. A stop signal is forwarded to it as
     /// SIGTERM once, and the launcher waits for it, so no orphan keeps DRM
-    /// master.
+    /// master. A child still there after the stop wait gets SIGKILL: a
+    /// frontend stuck inside a core never reads its stop flag.
     fn run(&mut self) -> io::Result<Option<i32>> {
         let mut command = Command::new(&self.program);
         command.args(&self.args);
@@ -89,14 +95,24 @@ impl Frontend for Process {
             command.env(DRM_FD_ENV, fd.to_string());
         }
         let mut child = command.spawn()?;
-        let mut forwarded = false;
+        let start = Instant::now();
+        let wait_ns = u64::try_from(self.stop_wait.as_nanos()).unwrap_or(u64::MAX);
+        let mut stopping = Stopping::new(wait_ns);
         loop {
             if let Some(status) = child.try_wait()? {
                 return Ok(status.code());
             }
-            if !forwarded && self.stopping() {
-                forwarded = true;
-                kill_process(Pid::from_child(&child), Signal::TERM)?;
+            let now_ns = u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            match stopping.next(self.stopping(), now_ns) {
+                StopAction::Wait => {}
+                StopAction::Term => kill_process(Pid::from_child(&child), Signal::TERM)?,
+                StopAction::Kill => {
+                    eprintln!(
+                        "neptron-launch: the frontend did not end {} ms after SIGTERM; SIGKILL",
+                        self.stop_wait.as_millis()
+                    );
+                    kill_process(Pid::from_child(&child), Signal::KILL)?;
+                }
             }
             std::thread::sleep(CHILD_POLL);
         }
@@ -134,6 +150,7 @@ mod tests {
             args: vec!["-c".into(), script.into()],
             fd,
             stop: Arc::new(AtomicBool::new(false)),
+            stop_wait: Duration::from_nanos(STOP_WAIT_NS),
         }
     }
 
@@ -153,6 +170,42 @@ mod tests {
             start.elapsed()
         );
         assert!(child.stopping());
+    }
+
+    #[test]
+    fn a_child_that_ignores_sigterm_gets_sigkill_after_the_stop_wait() {
+        let ready =
+            std::env::temp_dir().join(format!("neptron-launch-ignore-{}", std::process::id()));
+        // A leftover of an earlier run with the same process id; absence is fine.
+        let _ = std::fs::remove_file(&ready);
+        // The shell ignores SIGTERM before it says it is ready, so the stop
+        // comes only after the trap is set.
+        let mut child = shell(
+            &format!("trap '' TERM; : > {}; while :; do :; done", ready.display()),
+            None,
+        );
+        child.stop_wait = Duration::from_millis(300);
+        let stop = Arc::clone(&child.stop);
+        let runner = std::thread::spawn(move || child.run());
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !ready.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the child did not start"
+            );
+            std::thread::yield_now();
+        }
+        let stopped = std::time::Instant::now();
+        stop.store(true, Ordering::Relaxed);
+        let code = runner.join().expect("the runner").expect("run");
+        assert_eq!(code, None, "SIGKILL ends it");
+        let after = stopped.elapsed();
+        assert!(
+            after >= Duration::from_millis(300) && after < Duration::from_secs(10),
+            "SIGTERM was ignored and SIGKILL came after the wait: {after:?}"
+        );
+        // The file is the test's own; a failed removal leaves a temp file.
+        let _ = std::fs::remove_file(&ready);
     }
 
     #[test]
