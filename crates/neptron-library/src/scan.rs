@@ -3,12 +3,15 @@
 //! The scan reads directory entries and their types only. It never opens,
 //! changes or deletes a file.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::SystemTime;
 
 use crate::catalog::Catalog;
+use crate::folders::{FolderStamp, Mtime, parent, trusted};
 use crate::index::{Game, Index, MAX_TEXT_BYTES, SystemGames};
 
 /// The deepest folder level under a system folder that the scan reads.
@@ -25,6 +28,9 @@ pub struct ScanProgress {
     pub folders: u32,
     /// Games found so far.
     pub games: u32,
+    /// Folders whose games came from the earlier index, unread, because
+    /// their stamp had not changed.
+    pub kept: u32,
 }
 
 /// What the scan saw but did not put in the index.
@@ -44,7 +50,9 @@ pub struct ScanReport {
     pub bad_names: u32,
     /// Folders deeper than [`MAX_FOLDER_DEPTH`].
     pub too_deep: u32,
-    /// Folders or entries that could not be read, with the error.
+    /// Folders or entries that could not be read, with the error. A folder
+    /// or a file that is gone when the scan reaches it is not an error: a
+    /// copy or a removal over the network can run during the scan.
     pub unreadable: Vec<Unreadable>,
     /// Errors that did not fit in `unreadable`.
     pub more_unreadable: u32,
@@ -62,7 +70,7 @@ pub struct Unreadable {
 /// The result of a complete scan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanOutcome {
-    /// Every game found.
+    /// Every game found, with the stamps of the folders.
     pub index: Index,
     /// What the scan did not put in the index.
     pub report: ScanReport,
@@ -91,7 +99,7 @@ pub enum ScanError {
 }
 
 /// Scans `roms_root` (the `share/roms/` folder) for the games of every
-/// system in `catalog`.
+/// system in `catalog`, and reads every folder.
 ///
 /// The scan checks `cancel` before each directory entry and returns
 /// [`ScanError::Cancelled`] when it is set. It calls `progress` after each
@@ -115,6 +123,40 @@ pub fn scan(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(ScanProgress),
 ) -> Result<ScanOutcome, ScanError> {
+    refresh(
+        roms_root,
+        catalog,
+        &Index::new(),
+        SystemTime::now(),
+        cancel,
+        progress,
+    )
+}
+
+/// Scans `roms_root` as [`scan`] does, but takes the games of a folder from
+/// `previous` when the folder's stamp in `previous` equals its
+/// modification time now. `now` is the time of the scan, for
+/// [`crate::trusted`].
+///
+/// Rules on top of those of [`scan`]:
+/// - `roms_root` is always read, so a new, removed or renamed system folder
+///   is always found.
+/// - Every known folder gets one `stat`. A folder with no stamp, an
+///   untrusted stamp or another time is read; its new subfolders are read,
+///   and its known subfolders are checked in turn. A folder that is gone
+///   loses its games.
+/// - A kept folder keeps its games and its sizes from `previous`, and its
+///   subfolders are checked one by one, because an entry made in a
+///   subfolder does not change the time of the folder above it.
+/// - The [`ScanReport`] counts only the folders that were read.
+pub fn refresh(
+    roms_root: &Path,
+    catalog: &Catalog,
+    previous: &Index,
+    now: SystemTime,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(ScanProgress),
+) -> Result<ScanOutcome, ScanError> {
     let mut scanner = Scanner {
         catalog,
         cancel,
@@ -122,10 +164,13 @@ pub fn scan(
         report: ScanReport::default(),
         counts: ScanProgress::default(),
         games: vec![Vec::new(); catalog.systems().len()],
+        stamps: Vec::new(),
+        known: Known::of(previous, catalog),
+        now: Mtime::of(now),
     };
     let mut folders = scanner.read_root(roms_root)?;
     while let Some(folder) = folders.pop() {
-        scanner.read_folder(folder, &mut folders)?;
+        scanner.visit(folder, &mut folders)?;
     }
     Ok(scanner.finish())
 }
@@ -163,6 +208,27 @@ struct Scanner<'a> {
     report: ScanReport,
     counts: ScanProgress,
     games: Vec<Vec<Game>>,
+    stamps: Vec<FolderStamp>,
+    known: Known<'a>,
+    now: Mtime,
+}
+
+/// The earlier index, by folder: the stamp, the games and the subfolders
+/// of each folder that it read.
+struct Known<'a> {
+    previous: &'a Index,
+    games: HashMap<&'a str, Vec<&'a Game>>,
+    children: HashMap<&'a str, Vec<&'a str>>,
+}
+
+/// What one `stat` of a folder found.
+enum Look {
+    /// The time equals the trusted stamp: the games are kept.
+    Same(Mtime),
+    /// The folder must be read; the time to stamp it with, if any.
+    Read(Option<Mtime>),
+    /// The folder is gone.
+    Gone,
 }
 
 impl Scanner<'_> {
@@ -202,23 +268,115 @@ impl Scanner<'_> {
         Ok(folders)
     }
 
-    fn read_folder(&mut self, folder: Folder, folders: &mut Vec<Folder>) -> Result<(), ScanError> {
+    /// Checks the stamp of `folder` and keeps or reads it.
+    fn visit(&mut self, folder: Folder, folders: &mut Vec<Folder>) -> Result<(), ScanError> {
+        self.check_cancel()?;
+        match self.look(&folder) {
+            Look::Gone => Ok(()),
+            Look::Same(mtime) => {
+                self.keep(&folder, folders);
+                self.stamp(&folder, Some(mtime));
+                Ok(())
+            }
+            Look::Read(mtime) => {
+                let read = self.read_folder(&folder, folders)?;
+                self.stamp(&folder, mtime.filter(|_| read));
+                Ok(())
+            }
+        }
+    }
+
+    /// One `stat` of the folder, which does not follow a link. The time is
+    /// read before the entries, so an entry made during the read changes
+    /// the time that a later refresh compares.
+    fn look(&mut self, folder: &Folder) -> Look {
+        let mtime = match fs::symlink_metadata(&folder.path).and_then(|m| m.modified()) {
+            Ok(time) => Mtime::of(time),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Look::Gone,
+            // The read that follows reports the error, or reads the folder
+            // when only the time is missing.
+            Err(_) => return Look::Read(None),
+        };
+        let stamped = self
+            .known
+            .previous
+            .folder(&folder.relative)
+            .and_then(|f| f.mtime);
+        if stamped == Some(mtime) {
+            Look::Same(mtime)
+        } else {
+            Look::Read(trusted(mtime, self.now))
+        }
+    }
+
+    /// Takes the games of an unchanged folder from the earlier index, and
+    /// queues its known subfolders for their own check.
+    fn keep(&mut self, folder: &Folder, folders: &mut Vec<Folder>) {
+        let known = &self.known;
+        if let Some(list) = self.games.get_mut(folder.system) {
+            for game in known
+                .games
+                .get(folder.relative.as_str())
+                .into_iter()
+                .flatten()
+            {
+                list.push((*game).clone());
+                bump(&mut self.counts.games);
+            }
+        }
+        for child in known
+            .children
+            .get(folder.relative.as_str())
+            .into_iter()
+            .flatten()
+        {
+            let name = child.rsplit('/').next().unwrap_or(child);
+            folders.push(Folder {
+                path: folder.path.join(name),
+                relative: (*child).to_owned(),
+                system: folder.system,
+                depth: folder.depth + 1,
+            });
+        }
+        bump(&mut self.counts.kept);
+        (self.progress)(self.counts);
+    }
+
+    fn stamp(&mut self, folder: &Folder, mtime: Option<Mtime>) {
+        self.stamps.push(FolderStamp {
+            path: folder.relative.clone(),
+            mtime,
+        });
+    }
+
+    /// Reads the entries of a folder. Returns false when the folder could
+    /// not be read or is gone.
+    fn read_folder(
+        &mut self,
+        folder: &Folder,
+        folders: &mut Vec<Folder>,
+    ) -> Result<bool, ScanError> {
         let entries = match fs::read_dir(&folder.path) {
             Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
             Err(e) => {
                 self.unreadable(&folder.path, &e);
-                return Ok(());
+                return Ok(false);
             }
         };
+        let mut whole = true;
         for entry in entries {
             self.check_cancel()?;
             match entry {
-                Ok(entry) => self.read_entry(&folder, &entry, folders),
-                Err(e) => self.unreadable(&folder.path, &e),
+                Ok(entry) => self.read_entry(folder, &entry, folders),
+                Err(e) => {
+                    whole = false;
+                    self.unreadable(&folder.path, &e);
+                }
             }
         }
         self.tick_folder();
-        Ok(())
+        Ok(whole)
     }
 
     fn read_entry(&mut self, folder: &Folder, entry: &fs::DirEntry, folders: &mut Vec<Folder>) {
@@ -240,11 +398,11 @@ impl Scanner<'_> {
                 bump(&mut self.report.too_deep);
             }
         } else if kind.is_file() {
-            self.add_file(folder.system, &name, relative);
+            self.add_file(folder.system, entry, &name, relative);
         }
     }
 
-    fn add_file(&mut self, system: usize, name: &str, relative: String) {
+    fn add_file(&mut self, system: usize, entry: &fs::DirEntry, name: &str, relative: String) {
         let accepted = name.rsplit_once('.').filter(|(stem, ext)| {
             !stem.is_empty()
                 && self
@@ -253,12 +411,23 @@ impl Scanner<'_> {
                     .get(system)
                     .is_some_and(|s| s.accepts_extension(ext))
         });
-        match (accepted, self.games.get_mut(system)) {
-            (Some((stem, _)), Some(list)) => {
-                list.push(Game::new(stem.to_owned(), relative));
-                bump(&mut self.counts.games);
+        let Some((stem, _)) = accepted else {
+            bump(&mut self.report.ignored_files);
+            return;
+        };
+        // The entry type came from the directory; the size needs a `stat`,
+        // which does not follow a link.
+        let size = match entry.metadata() {
+            Ok(meta) => meta.len(),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return,
+            Err(e) => {
+                self.unreadable(&entry.path(), &e);
+                return;
             }
-            _ => bump(&mut self.report.ignored_files),
+        };
+        if let Some(list) = self.games.get_mut(system) {
+            list.push(Game::new(stem.to_owned(), relative).with_size(size));
+            bump(&mut self.counts.games);
         }
     }
 
@@ -322,8 +491,36 @@ impl Scanner<'_> {
             .map(|(system, games)| SystemGames::new(system.folder.clone(), games))
             .collect();
         ScanOutcome {
-            index: Index::from_systems(lists),
+            index: Index::from_systems(lists).with_folders(self.stamps),
             report: self.report,
+        }
+    }
+}
+
+impl<'a> Known<'a> {
+    /// Groups the games and the folder stamps of `previous` by folder.
+    /// Games of a system that `catalog` does not have are dropped.
+    fn of(previous: &'a Index, catalog: &Catalog) -> Self {
+        let mut games: HashMap<&str, Vec<&Game>> = HashMap::new();
+        for system in previous.systems() {
+            if catalog.system(system.system()).is_none() {
+                continue;
+            }
+            for game in system.games() {
+                games.entry(parent(game.path())).or_default().push(game);
+            }
+        }
+        let mut children: HashMap<&str, Vec<&str>> = HashMap::new();
+        for folder in previous.folders() {
+            let path = folder.path.as_str();
+            if path.contains('/') {
+                children.entry(parent(path)).or_default().push(path);
+            }
+        }
+        Self {
+            previous,
+            games,
+            children,
         }
     }
 }

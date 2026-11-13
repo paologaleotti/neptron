@@ -1,5 +1,6 @@
 use super::format::encode as encode_raw;
 use super::*;
+use crate::folders::{FolderStamp, Mtime};
 use crate::index::{Game, MAX_TEXT_BYTES, SystemGames};
 use crate::test_dir::TestDir;
 
@@ -17,13 +18,38 @@ fn sample() -> Index {
             system.to_owned(),
             names
                 .iter()
-                .map(|n| Game::new((*n).to_owned(), format!("{system}/{n}.rom")))
+                .enumerate()
+                .map(|(i, n)| {
+                    Game::new((*n).to_owned(), format!("{system}/{n}.rom"))
+                        .with_size(1_000 + i as u64)
+                })
                 .collect(),
         )
+    };
+    let stamp = |path: &str, mtime| FolderStamp {
+        path: path.to_owned(),
+        mtime,
     };
     Index::from_systems(vec![
         games("nes", &["Contra", "Mega Man 2", "Écran"]),
         games("megadrive", &["Sonic", "Gunstar Heroes"]),
+    ])
+    .with_folders(vec![
+        stamp(
+            "nes",
+            Some(Mtime {
+                secs: 1_700_000_000,
+                nanos: 5,
+            }),
+        ),
+        stamp("nes/usa", None),
+        stamp(
+            "megadrive",
+            Some(Mtime {
+                secs: -3,
+                nanos: 999_999_999,
+            }),
+        ),
     ])
 }
 
@@ -69,7 +95,7 @@ fn round_trip_keeps_the_index() {
 fn header_has_the_documented_layout() {
     let bytes = encode(&sample());
     assert_eq!(&bytes[..8], b"NEPTRIDX");
-    assert_eq!(bytes[8..12], 1u32.to_le_bytes());
+    assert_eq!(bytes[8..12], 2u32.to_le_bytes());
     assert_eq!(
         bytes[12..20],
         ((bytes.len() - HEADER_BYTES) as u64).to_le_bytes()
@@ -105,13 +131,13 @@ fn every_single_bit_flip_is_rejected() {
 #[test]
 fn version_mismatch_is_rejected() {
     let mut bytes = encode(&sample());
-    bytes[8..12].copy_from_slice(&2u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
     let err = decode(&bytes).expect_err("another version");
     assert!(matches!(
         err,
         CacheError::Version {
-            found: 2,
-            expected: 1
+            found: 3,
+            expected: 2
         }
     ));
 }
@@ -199,6 +225,7 @@ fn systems_payload(entries: &[&[u8]]) -> Vec<u8> {
     for id in entries {
         p.extend_from_slice(&system_entry(id));
     }
+    p.extend_from_slice(&0u32.to_le_bytes());
     p
 }
 
@@ -260,24 +287,13 @@ fn one_game(system: &str, name: &str, path: &str) -> Vec<u8> {
     p.extend_from_slice(&1u32.to_le_bytes());
     put(&mut p, name);
     put(&mut p, path);
+    p.extend_from_slice(&7u64.to_le_bytes());
+    p.extend_from_slice(&0u32.to_le_bytes());
     p
 }
 
 #[test]
 fn game_paths_must_stay_inside_the_system_folder() {
-    // An empty path makes the game smaller than any valid game, so the
-    // game count check refuses it first.
-    let err = decode(&with_payload(&one_game("nes", "a", ""))).expect_err("empty path");
-    assert!(
-        matches!(
-            err,
-            CacheError::Malformed {
-                what: "game count",
-                ..
-            }
-        ),
-        "{err}"
-    );
     let err = decode(&with_payload(&one_game("nes", "abcd", ""))).expect_err("empty path");
     assert!(
         matches!(
@@ -324,6 +340,83 @@ fn game_paths_must_stay_inside_the_system_folder() {
             "{path}"
         );
     }
+}
+
+#[test]
+fn a_game_smaller_than_the_smallest_valid_game_is_refused_by_the_count() {
+    let mut p = 1u32.to_le_bytes().to_vec();
+    p.extend_from_slice(&3u32.to_le_bytes());
+    p.extend_from_slice(b"nes");
+    p.extend_from_slice(&1u32.to_le_bytes());
+    p.extend_from_slice(&[0; 19]);
+    let err = decode(&with_payload(&p)).expect_err("too short");
+    assert!(
+        matches!(
+            err,
+            CacheError::Malformed {
+                what: "game count",
+                ..
+            }
+        ),
+        "{err}"
+    );
+}
+
+/// A payload with no systems and the folder `path` with `trust`, `secs`
+/// and `nanos`, after the folders of `before`.
+fn folder_payload(before: &[&str], path: &str, trust: u8, secs: i64, nanos: u32) -> Vec<u8> {
+    let mut p = 0u32.to_le_bytes().to_vec();
+    p.extend_from_slice(&(before.len() as u32 + 1).to_le_bytes());
+    let mut put = |path: &str, trust: u8, secs: i64, nanos: u32| {
+        p.extend_from_slice(&(path.len() as u32).to_le_bytes());
+        p.extend_from_slice(path.as_bytes());
+        p.push(trust);
+        p.extend_from_slice(&secs.to_le_bytes());
+        p.extend_from_slice(&nanos.to_le_bytes());
+    };
+    for b in before {
+        put(b, 1, 1, 0);
+    }
+    put(path, trust, secs, nanos);
+    p
+}
+
+#[test]
+fn folder_stamps_are_checked() {
+    let malformed = |p: Vec<u8>, what: &str| {
+        let err = decode(&with_payload(&p)).expect_err(what);
+        assert!(
+            matches!(err, CacheError::Malformed { what: w, .. } if w == what),
+            "{what}: {err}"
+        );
+    };
+    // An empty path makes the folder smaller than any valid folder.
+    malformed(folder_payload(&[], "", 1, 1, 0), "folder count");
+    for path in [
+        "psx", "nes/", "nes//a", "nes/..", "nes/.", "/nes", "nes/a\0",
+    ] {
+        malformed(folder_payload(&[], path, 1, 1, 0), "folder path");
+    }
+    malformed(folder_payload(&["nes"], "nes", 1, 1, 0), "folder path");
+    malformed(folder_payload(&["nes/b"], "nes/a", 1, 1, 0), "folder path");
+    malformed(folder_payload(&[], "nes", 2, 1, 0), "folder time");
+    malformed(
+        folder_payload(&[], "nes", 1, 1, 1_000_000_000),
+        "folder time",
+    );
+    malformed(folder_payload(&[], "nes", 0, 1, 0), "folder time");
+    let mut huge = 0u32.to_le_bytes().to_vec();
+    huge.extend_from_slice(&u32::MAX.to_le_bytes());
+    malformed(huge, "folder count");
+    for (before, path) in [(&[][..], "NES"), (&["genesis"][..], "megadrive/a/b")] {
+        let index = decode(&with_payload(&folder_payload(before, path, 1, -5, 7))).expect(path);
+        assert_eq!(
+            index.folder(path).and_then(|f| f.mtime),
+            Some(Mtime { secs: -5, nanos: 7 })
+        );
+    }
+    let index = decode(&with_payload(&folder_payload(&[], "nes", 0, 0, 0))).expect("untrusted");
+    assert_eq!(index.folder("nes").map(|f| f.mtime), Some(None));
 }
 
 #[test]
@@ -493,7 +586,7 @@ fn ten_thousand_games_round_trip() {
     let games = (0..10_000)
         .map(|i| {
             let name = format!("Game number {i:05} (USA)");
-            Game::new(name.clone(), format!("snes/{name}.sfc"))
+            Game::new(name.clone(), format!("snes/{name}.sfc")).with_size(i)
         })
         .collect();
     let index = Index::from_systems(vec![SystemGames::new("snes".into(), games)]);

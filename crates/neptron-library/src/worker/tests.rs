@@ -28,6 +28,7 @@ fn progress_reaches_the_final_counts() {
     let done = ScanProgress {
         folders: 4,
         games: 4,
+        kept: 0,
     };
     // The counts only grow, so the loop ends when the scan reports its last folder.
     while worker.progress() != done {
@@ -60,4 +61,38 @@ fn cancelled_worker_ends() {
         Ok(_) | Err(ScanError::Cancelled) => {}
         Err(e) => panic!("unexpected error {e}"),
     }
+}
+
+#[test]
+fn a_refresh_worker_gives_the_same_games() {
+    let dir = fixture();
+    let first = ScanWorker::spawn(dir.path().to_path_buf(), catalog())
+        .expect("the thread starts")
+        .join()
+        .expect("the scan completes");
+    // Far enough after the scan that every folder time is trusted.
+    let later = SystemTime::now() + std::time::Duration::from_secs(3600);
+    let worker = ScanWorker::spawn_refresh(
+        dir.path().to_path_buf(),
+        catalog(),
+        first.index.clone(),
+        later,
+    )
+    .expect("the thread starts");
+    let outcome = worker.join().expect("the refresh completes");
+    assert_eq!(outcome.index.systems(), first.index.systems());
+    assert!(outcome.index.folders().iter().all(|f| f.mtime.is_some()));
+}
+
+#[test]
+fn drop_of_a_refresh_worker_cancels_and_joins() {
+    let dir = fixture();
+    let worker = ScanWorker::spawn_refresh(
+        dir.path().to_path_buf(),
+        catalog(),
+        Index::new(),
+        SystemTime::now(),
+    )
+    .expect("the thread starts");
+    drop(worker);
 }

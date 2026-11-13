@@ -4,9 +4,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread::{self, JoinHandle};
+use std::time::SystemTime;
 
 use crate::catalog::Catalog;
-use crate::scan::{ScanError, ScanOutcome, ScanProgress, scan};
+use crate::index::Index;
+use crate::scan::{ScanError, ScanOutcome, ScanProgress, refresh, scan};
 
 /// Runs [`scan`] on a thread that it owns.
 ///
@@ -26,18 +28,42 @@ struct Shared {
     cancel: AtomicBool,
     folders: AtomicU32,
     games: AtomicU32,
+    kept: AtomicU32,
 }
 
 impl ScanWorker {
-    /// Starts a scan of `roms_root` on a new thread.
+    /// Starts a scan of `roms_root` on a new thread. It reads every folder.
     pub fn spawn(roms_root: PathBuf, catalog: Catalog) -> Result<Self, ScanError> {
+        Self::start(move |cancel, report| scan(&roms_root, &catalog, cancel, report))
+    }
+
+    /// Starts a [`refresh`] of `roms_root` against `previous` on a new
+    /// thread: only the folders whose stamps changed are read. `now` is the
+    /// time of the scan.
+    pub fn spawn_refresh(
+        roms_root: PathBuf,
+        catalog: Catalog,
+        previous: Index,
+        now: SystemTime,
+    ) -> Result<Self, ScanError> {
+        Self::start(move |cancel, report| {
+            refresh(&roms_root, &catalog, &previous, now, cancel, report)
+        })
+    }
+
+    fn start<F>(work: F) -> Result<Self, ScanError>
+    where
+        F: FnOnce(&AtomicBool, &mut dyn FnMut(ScanProgress)) -> Result<ScanOutcome, ScanError>
+            + Send
+            + 'static,
+    {
         let shared = Arc::new(Shared::default());
         let theirs = Arc::clone(&shared);
         let thread = thread::Builder::new()
             .name("neptron-scan".into())
             .spawn(move || {
                 let mut report = |p: ScanProgress| theirs.store(p);
-                scan(&roms_root, &catalog, &theirs.cancel, &mut report)
+                work(&theirs.cancel, &mut report)
             })
             .map_err(ScanError::Spawn)?;
         Ok(Self {
@@ -46,12 +72,13 @@ impl ScanWorker {
         })
     }
 
-    /// The newest progress of the scan. The two counts can come from two
+    /// The newest progress of the scan. The counts can come from two
     /// neighbouring folders, which is close enough for a progress display.
     pub fn progress(&self) -> ScanProgress {
         ScanProgress {
             folders: self.shared.folders.load(Ordering::Relaxed),
             games: self.shared.games.load(Ordering::Relaxed),
+            kept: self.shared.kept.load(Ordering::Relaxed),
         }
     }
 
@@ -91,6 +118,7 @@ impl Shared {
     fn store(&self, progress: ScanProgress) {
         self.folders.store(progress.folders, Ordering::Relaxed);
         self.games.store(progress.games, Ordering::Relaxed);
+        self.kept.store(progress.kept, Ordering::Relaxed);
     }
 }
 

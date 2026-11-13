@@ -21,13 +21,13 @@ pub use format::{CACHE_VERSION, HEADER_BYTES, MAGIC};
 /// The largest cache file that [`read`] accepts and [`write`] writes, in
 /// bytes.
 ///
-/// A game takes about 130 bytes in the file with typical No-Intro names
-/// (a 50-byte name and a 70-byte path), so 16 MiB holds about 130,000
-/// games, more than a complete set of every cartridge system. Such a file
-/// decodes to about 30 MiB. The worst case is a crafted file of 16 MiB
-/// with the smallest valid games (12 bytes each): about 1.4 million
-/// entries of 48 bytes, two small heap strings each and the sort buffer,
-/// about 160 MiB for a short time at start. That fits a device with
+/// A game takes about 140 bytes in the file with typical No-Intro names
+/// (a 50-byte name, a 70-byte path and the size), so 16 MiB holds about
+/// 120,000 games, more than a complete set of every cartridge system. Such
+/// a file decodes to about 30 MiB. The worst case is a crafted file of
+/// 16 MiB with the smallest valid games (20 bytes each): about 840,000
+/// entries of 56 bytes, two small heap strings each and the sort buffer,
+/// less than 160 MiB for a short time at start. That fits a device with
 /// 512 MB of memory. A larger library gets no cache and is scanned at
 /// each start.
 pub const MAX_CACHE_BYTES: u64 = 16 * 1024 * 1024;

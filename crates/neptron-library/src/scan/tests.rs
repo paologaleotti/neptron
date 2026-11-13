@@ -331,3 +331,254 @@ fn zip_files_are_games_and_are_not_opened() {
     assert_eq!(paths(index, "snes"), ["snes/usa/Mario World.zip"]);
     assert_eq!(outcome.report.ignored_files, 1);
 }
+
+/// The time `T0 + secs`, with `T0` an old, fixed time.
+fn t(secs: u64) -> SystemTime {
+    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000 + secs)
+}
+
+/// Sets the modification time of the folder `relative` of `dir`, so a test
+/// does not depend on the time step of the file system.
+fn set_mtime(dir: &TestDir, relative: &str, at: SystemTime) {
+    fs::File::open(dir.path().join(relative))
+        .and_then(|f| f.set_modified(at))
+        .expect("set the folder time");
+}
+
+fn write(dir: &TestDir, relative: &str, bytes: &[u8]) {
+    fs::write(dir.path().join(relative), bytes).expect("write the file");
+}
+
+/// The tree of the refresh tests, every folder at `t(0)`.
+fn refresh_fixture() -> TestDir {
+    let dir = TestDir::new("refresh");
+    dir.file("nes/sub/b.nes");
+    dir.dir("snes");
+    write(&dir, "nes/a.nes", b"aaaa");
+    write(&dir, "snes/c.sfc", b"cc");
+    for folder in ["nes/sub", "nes", "snes"] {
+        set_mtime(&dir, folder, t(0));
+    }
+    dir
+}
+
+fn refresh_at(
+    root: &Path,
+    previous: &Index,
+    now: SystemTime,
+) -> (Result<ScanOutcome, ScanError>, ScanProgress) {
+    let mut last = ScanProgress::default();
+    let result = refresh(
+        root,
+        &catalog(),
+        previous,
+        now,
+        &AtomicBool::new(false),
+        &mut |p| last = p,
+    );
+    (result, last)
+}
+
+fn sizes<'a>(index: &'a Index, system: &str) -> Vec<(&'a str, u64)> {
+    index
+        .system(system)
+        .map(|s| s.games().iter().map(|g| (g.path(), g.size())).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_scan_stamps_every_folder_and_sizes_every_game() {
+    let dir = refresh_fixture();
+    let (outcome, progress) = refresh_at(dir.path(), &Index::new(), t(3600));
+    let index = outcome.expect("the scan").index;
+    let stamped: Vec<(&str, bool)> = index
+        .folders()
+        .iter()
+        .map(|f| (f.path.as_str(), f.mtime.is_some()))
+        .collect();
+    assert_eq!(stamped, [("nes", true), ("nes/sub", true), ("snes", true)]);
+    assert_eq!(
+        index.folder("nes").and_then(|f| f.mtime),
+        Some(crate::Mtime::of(t(0)))
+    );
+    assert_eq!(
+        sizes(&index, "nes"),
+        [("nes/a.nes", 4), ("nes/sub/b.nes", 0)]
+    );
+    assert_eq!((progress.folders, progress.kept), (4, 0));
+}
+
+#[test]
+fn a_refresh_reads_only_the_folders_that_changed() {
+    let dir = refresh_fixture();
+    let first = refresh_at(dir.path(), &Index::new(), t(3600))
+        .0
+        .expect("scan");
+    write(&dir, "nes/d.nes", b"ddd");
+    set_mtime(&dir, "nes", t(10));
+    let (outcome, progress) = refresh_at(dir.path(), &first.index, t(7200));
+    let index = outcome.expect("refresh").index;
+    assert_eq!(
+        sizes(&index, "nes"),
+        [("nes/a.nes", 4), ("nes/sub/b.nes", 0), ("nes/d.nes", 3)]
+    );
+    assert_eq!(sizes(&index, "snes"), [("snes/c.sfc", 2)]);
+    // The root and `nes` are read; `nes/sub` and `snes` are kept.
+    assert_eq!((progress.folders, progress.kept, progress.games), (2, 2, 4));
+    let again = refresh_at(dir.path(), &index, t(7300)).0.expect("refresh");
+    assert_eq!(again.index, index);
+}
+
+#[test]
+fn an_entry_in_a_subfolder_is_found_under_a_kept_folder() {
+    let dir = refresh_fixture();
+    let first = refresh_at(dir.path(), &Index::new(), t(3600))
+        .0
+        .expect("scan");
+    dir.file("nes/sub/e.nes");
+    set_mtime(&dir, "nes/sub", t(10));
+    set_mtime(&dir, "nes", t(0));
+    let (outcome, progress) = refresh_at(dir.path(), &first.index, t(7200));
+    assert_eq!(
+        names(&outcome.expect("refresh").index, "nes"),
+        ["a", "b", "e"]
+    );
+    assert_eq!((progress.folders, progress.kept), (2, 2));
+}
+
+#[test]
+fn a_new_folder_is_read_with_its_subfolders() {
+    let dir = refresh_fixture();
+    let first = refresh_at(dir.path(), &Index::new(), t(3600))
+        .0
+        .expect("scan");
+    dir.file("nes/new/deep/f.nes");
+    dir.file("megadrive/g.md");
+    set_mtime(&dir, "nes", t(10));
+    let index = refresh_at(dir.path(), &first.index, t(7200))
+        .0
+        .expect("refresh")
+        .index;
+    assert_eq!(names(&index, "nes"), ["a", "b", "f"]);
+    assert_eq!(names(&index, "megadrive"), ["g"]);
+    assert!(index.folder("nes/new/deep").is_some());
+}
+
+#[test]
+fn a_time_inside_the_trust_window_is_read_again() {
+    let dir = refresh_fixture();
+    let first = refresh_at(dir.path(), &Index::new(), t(1)).0.expect("scan");
+    assert!(first.index.folders().iter().all(|f| f.mtime.is_none()));
+    // An entry made in the same time step as the scan: the time stays.
+    dir.file("nes/h.nes");
+    set_mtime(&dir, "nes", t(0));
+    let (outcome, progress) = refresh_at(dir.path(), &first.index, t(3600));
+    assert_eq!(
+        names(&outcome.expect("refresh").index, "nes"),
+        ["a", "b", "h"]
+    );
+    assert_eq!((progress.folders, progress.kept), (4, 0));
+}
+
+#[test]
+fn removed_files_and_folders_lose_their_games() {
+    let dir = refresh_fixture();
+    let first = refresh_at(dir.path(), &Index::new(), t(3600))
+        .0
+        .expect("scan");
+    fs::remove_file(dir.path().join("nes/a.nes")).expect("remove");
+    set_mtime(&dir, "nes", t(10));
+    fs::remove_dir_all(dir.path().join("snes")).expect("remove the system folder");
+    let index = refresh_at(dir.path(), &first.index, t(7200))
+        .0
+        .expect("refresh")
+        .index;
+    assert_eq!(names(&index, "nes"), ["b"]);
+    assert!(index.system("snes").is_none());
+    assert!(index.folder("snes").is_none());
+}
+
+#[test]
+fn a_folder_gone_under_a_kept_folder_loses_its_games() {
+    // A RAM folder or a stick pulled and put back can lose a folder while
+    // the time of the folder above stays.
+    let dir = refresh_fixture();
+    let first = refresh_at(dir.path(), &Index::new(), t(3600))
+        .0
+        .expect("scan");
+    fs::remove_dir_all(dir.path().join("nes/sub")).expect("remove");
+    set_mtime(&dir, "nes", t(0));
+    let (outcome, progress) = refresh_at(dir.path(), &first.index, t(7200));
+    let index = outcome.expect("refresh").index;
+    assert_eq!(names(&index, "nes"), ["a"]);
+    assert!(index.folder("nes/sub").is_none());
+    assert_eq!((progress.folders, progress.kept), (1, 2));
+}
+
+#[test]
+fn a_refresh_of_a_missing_root_is_an_error() {
+    let dir = refresh_fixture();
+    let first = refresh_at(dir.path(), &Index::new(), t(3600))
+        .0
+        .expect("scan");
+    let (outcome, _) = refresh_at(&dir.path().join("absent"), &first.index, t(7200));
+    assert!(matches!(outcome, Err(ScanError::Root { .. })));
+}
+
+#[test]
+fn cancel_during_a_refresh_stops_it() {
+    let dir = refresh_fixture();
+    let first = refresh_at(dir.path(), &Index::new(), t(3600))
+        .0
+        .expect("scan");
+    let cancel = AtomicBool::new(false);
+    let mut reports = 0;
+    let result = refresh(
+        dir.path(),
+        &catalog(),
+        &first.index,
+        t(7200),
+        &cancel,
+        &mut |_| {
+            reports += 1;
+            cancel.store(true, Ordering::Relaxed);
+        },
+    );
+    assert!(matches!(result, Err(ScanError::Cancelled)));
+    assert_eq!(reports, 1, "the refresh stops after the root");
+}
+
+#[test]
+fn a_kept_folder_keeps_the_old_size_and_a_scan_finds_the_new_one() {
+    // A network copy grows a file after the scan listed it. The time of
+    // its folder does not change, so only a scan of every folder sees it.
+    let dir = refresh_fixture();
+    let first = refresh_at(dir.path(), &Index::new(), t(3600))
+        .0
+        .expect("scan");
+    write(&dir, "nes/a.nes", b"aaaaaaaa");
+    set_mtime(&dir, "nes", t(0));
+    let kept = refresh_at(dir.path(), &first.index, t(7200))
+        .0
+        .expect("refresh");
+    assert_eq!(sizes(&kept.index, "nes")[0], ("nes/a.nes", 4));
+    let full = refresh_at(dir.path(), &Index::new(), t(7200))
+        .0
+        .expect("scan");
+    assert_eq!(sizes(&full.index, "nes")[0], ("nes/a.nes", 8));
+}
+
+#[test]
+fn a_partial_zip_is_listed_and_not_opened() {
+    let dir = refresh_fixture();
+    write(&dir, "nes/partial.zip", b"PK\x03\x04 cut here");
+    let index = refresh_at(dir.path(), &Index::new(), t(3600))
+        .0
+        .expect("scan")
+        .index;
+    let game = index
+        .system("nes")
+        .and_then(|s| s.games().iter().find(|g| g.is_zip()))
+        .expect("the zip is listed");
+    assert_eq!(game.size(), 13);
+}

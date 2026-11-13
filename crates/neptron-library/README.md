@@ -7,10 +7,11 @@ The crate reads the folder layout of Batocera and RetroPie: `share/roms/<system>
 ## Public API
 
 - `Catalog`: the system and core definitions. `Catalog::builtin()` parses `data/systems` and `data/cores`, which the crate embeds at build time. `system_for_folder`, `core_for`. `CoreDef::options` holds the default core options of `data/cores` (the optional `options` table), sorted by key; the app passes them to the core at launch.
-- `scan(roms_root, catalog, cancel, progress)`: builds an `Index` and a `ScanReport`. It checks `cancel` before each directory entry and calls `progress` after each folder.
-- `ScanWorker`: runs `scan` on a thread that it owns. `progress()` and `cancel()` use atomics and never wait. `is_finished()` tells when `join()` returns at once. Drop cancels and joins.
+- `scan(roms_root, catalog, cancel, progress)`: builds an `Index` and a `ScanReport`. It reads every folder. It checks `cancel` before each directory entry and calls `progress` after each folder.
+- `refresh(roms_root, catalog, previous, now, cancel, progress)`: the same result as `scan`, but it keeps the games of each folder whose stamp in `previous` has not changed, and reads only the other folders. See "Change detection".
+- `ScanWorker`: runs `scan` (`spawn`) or `refresh` (`spawn_refresh`) on a thread that it owns. `progress()` and `cancel()` use atomics and never wait. `is_finished()` tells when `join()` returns at once. Drop cancels and joins.
 - `ensure_system_folders(roms_root, catalog)`: makes the empty system folders of the first boot.
-- `Index` and `SystemGames`: the query side. `systems()`, `system(id)`, `count(id)`, `page(id, start, len)`. Queries do no I/O and return slices of the index, so they allocate nothing.
+- `Index` and `SystemGames`: the query side. The index also holds the folder stamps of the scan (`folders()`, `folder(path)`). `Game::size()` is the file size when the scan read the folder. `systems()`, `system(id)`, `count(id)`, `page(id, start, len)`. Queries do no I/O and return slices of the index, so they allocate nothing.
 - `cache::load`, `cache::read`, `cache::write`, `cache::encode`, `cache::decode`: the index cache.
 
 The cache load and the scan both do file I/O, so neither runs on the frame thread.
@@ -18,6 +19,21 @@ The cache load and the scan both do file I/O, so neither runs on the frame threa
 ## Owning a ScanWorker
 
 `Drop` of a `ScanWorker` cancels the scan and joins its thread. The scan stops at its next directory entry, but an entry read on a dead or slow disk can block for a long time, and the join waits for it. So the frame thread never drops a running worker. It calls `cancel()` and hands the worker to a thread that may block, for example the thread that owns the background work, which drops or joins it there. The frame thread only calls `progress()`, `is_finished()`, and `join()` after `is_finished()` is true.
+
+## Change detection
+
+A scan stamps each folder that it reads with the folder's modification time, read with `stat` before the entries (`FolderStamp`). A `refresh` against an earlier index then does this:
+
+1. It always reads `share/roms/`, so a new, removed or renamed system folder is always found.
+2. It gives every known folder one `stat`. A folder whose time equals its stamp keeps its games and their sizes, unread. Its known subfolders are checked in turn, because an entry made in a subfolder does not change the time of the folder above it.
+3. It reads every other folder: a new folder, a folder with another time, a folder with no stamp. A folder that is gone loses its games.
+
+The rule is sound because a folder's time changes when an entry in it is made, removed or renamed, on ext4, tmpfs and the Linux exFAT driver. Its limits:
+
+- A time is trusted only when it is at least `MTIME_TRUST_WINDOW_NS` (2 s) older than the scan. File systems keep times at a coarse step (exFAT 10 ms, ext4 the kernel tick, FAT 2 s), and an entry made in the same step after the read would leave the time as it was. A newer time is stamped as untrusted, and the next refresh reads that folder again. A clock set back makes every time untrusted, which costs a read and loses nothing.
+- The content of a file does not change its folder's time. A refresh does not see a file that grows after the scan (a network copy that is still running). Its size stays the old one until a scan reads the folder. The list shows the game all the same; only the size is old.
+- Another operating system may not change the time of an exFAT folder when it adds a file (not verified for Windows and macOS). The app therefore uses `refresh` only within one power cycle, where every change comes through the Linux driver of the device, and a full `scan` at each new boot.
+- Equal times are compared, not their order, so a RAM folder made again at boot gets new times and is read again.
 
 ## Where the cache lives
 
@@ -55,16 +71,18 @@ One binary file, all integers little-endian:
 | Offset | Size | Field |
 | --- | --- | --- |
 | 0 | 8 | magic `NEPTRIDX` |
-| 8 | 4 | format version, now 1 |
+| 8 | 4 | format version, now 2 |
 | 12 | 8 | payload length in bytes |
 | 20 | 4 | CRC-32 (IEEE) of the payload |
-| 24 | n | payload: system count, then per system its id, its game count, and per game its name and path. A count is a `u32`; a string is a `u32` byte length and UTF-8 bytes. |
+| 24 | n | payload: system count, then per system its id, its game count, and per game its name, path and size (`u64`). Then the folder count, and per folder its path, a trust byte (1 or 0), the seconds (`i64`) and nanoseconds (`u32`) of its time (both 0 when the byte is 0). A count is a `u32`; a string is a `u32` byte length and UTF-8 bytes. |
 
-`cache::load` deletes a file that has another magic or version, a wrong length or checksum, a payload that does not parse, more than `MAX_CACHE_BYTES` (16 MiB), a system that the catalog does not have, or a game path that is empty, absolute, has an empty, `.` or `..` part, or does not start with a folder of its system. It returns `CacheLoad::Discarded` with the reason, and the caller scans again. A new layout gets a new version number; an old file is then discarded and rebuilt. `cache::write` removes any entry at the temporary path, makes the temporary file with `create_new` (so it never follows a link), fsyncs it, renames it and fsyncs the folder.
+Version 1 had no sizes and no folders; a file of version 1 is discarded and rebuilt by the next scan.
 
-Every loop and allocation of the decoder has a bound: the system count is at most the number of systems in the catalog, each game count is at most the bytes left divided by 12 (the smallest valid game), each string is at most 4096 bytes and the bytes left. Each system id is looked up once. A hostile file with a valid checksum therefore decodes in time linear in its size.
+`cache::load` deletes a file that has another magic or version, a wrong length or checksum, a payload that does not parse, more than `MAX_CACHE_BYTES` (16 MiB), a system that the catalog does not have, a game path that is empty, absolute, has an empty, `.` or `..` part, or does not start with a folder of its system, or a folder path that is not a system folder or a folder inside one, or that does not rise strictly from the one before. It returns `CacheLoad::Discarded` with the reason, and the caller scans again. A new layout gets a new version number; an old file is then discarded and rebuilt. `cache::write` removes any entry at the temporary path, makes the temporary file with `create_new` (so it never follows a link), fsyncs it, renames it and fsyncs the folder.
 
-`MAX_CACHE_BYTES` is 16 MiB. With typical No-Intro names a game takes about 130 bytes, so the limit holds about 130,000 games, more than a complete set of every cartridge system; such a file decodes to about 30 MiB. The worst case is a crafted 16 MiB file of the smallest valid games: about 1.4 million entries, about 160 MiB for a short time at start, which fits a device with 512 MB of memory. A larger library gets no cache and is scanned at each start.
+Every loop and allocation of the decoder has a bound: the system count is at most the number of systems in the catalog, each game count is at most the bytes left divided by 20 (the smallest valid game), the folder count at most the bytes left divided by 18 (the smallest valid folder), each string is at most 4096 bytes and the bytes left. Each system id is looked up once. A hostile file with a valid checksum therefore decodes in time linear in its size.
+
+`MAX_CACHE_BYTES` is 16 MiB. With typical No-Intro names a game takes about 140 bytes, so the limit holds about 120,000 games, more than a complete set of every cartridge system; such a file decodes to about 30 MiB. The worst case is a crafted 16 MiB file of the smallest valid games: about 840,000 entries, less than 160 MiB for a short time at start, which fits a device with 512 MB of memory. A larger library gets no cache and is scanned at each start.
 
 ## Frame budget
 

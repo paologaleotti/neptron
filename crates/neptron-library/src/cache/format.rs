@@ -8,27 +8,42 @@
 //! | 20 | 4 | CRC-32 of the payload |
 //! | 24 | n | payload |
 //!
-//! Payload of version 1: a `u32` system count, then for each system its id
+//! Payload of version 2: a `u32` system count, then for each system its id
 //! (a string) and a `u32` game count, then for each game its name and its
-//! path (two strings). A string is a `u32` byte length and UTF-8 bytes.
+//! path (two strings) and its size (`u64`). Then a `u32` folder count, and
+//! for each folder its path (a string), a trust byte (1: the time is
+//! trusted, 0: it is not and the time fields are 0), the seconds (`i64`)
+//! and the nanoseconds (`u32`) of its time. The folders are sorted by path,
+//! each path once. A string is a `u32` byte length and UTF-8 bytes.
+//!
+//! Version 1 had no sizes and no folders. A file of version 1 is discarded
+//! and the scan writes version 2.
 
 use super::CacheError;
 use super::crc32::crc32;
 use crate::catalog::{Catalog, SystemDef};
+use crate::folders::{FolderStamp, Mtime};
 use crate::index::{Game, Index, MAX_TEXT_BYTES, SystemGames};
 
 /// The first 8 bytes of a cache file.
 pub const MAGIC: [u8; 8] = *b"NEPTRIDX";
 
 /// The format version that this crate writes and reads.
-pub const CACHE_VERSION: u32 = 1;
+pub const CACHE_VERSION: u32 = 2;
 
 /// The size of the header in bytes.
 pub const HEADER_BYTES: usize = 24;
 
-/// The bytes of the smallest valid game: two length fields, a 1-byte name
-/// and a 3-byte path such as `s/n`.
-const MIN_GAME_BYTES: usize = 4 + 1 + 4 + 3;
+/// The bytes of the smallest valid game: two length fields, a 1-byte name,
+/// a 3-byte path such as `s/n` and the size.
+const MIN_GAME_BYTES: usize = 4 + 1 + 4 + 3 + 8;
+
+/// The bytes of the smallest valid folder: a length field, a 1-byte path,
+/// the trust byte and the time.
+const MIN_FOLDER_BYTES: usize = 4 + 1 + 1 + 8 + 4;
+
+/// Nanoseconds in a second: the nanoseconds of a time are below it.
+const NANOS_PER_SECOND: u32 = 1_000_000_000;
 
 pub(super) fn encode(index: &Index) -> Vec<u8> {
     let mut payload = Vec::new();
@@ -39,7 +54,19 @@ pub(super) fn encode(index: &Index) -> Vec<u8> {
         for game in system.games() {
             put_str(&mut payload, game.name());
             put_str(&mut payload, game.path());
+            payload.extend_from_slice(&game.size().to_le_bytes());
         }
+    }
+    put_count(&mut payload, index.folders().len());
+    for folder in index.folders() {
+        put_str(&mut payload, &folder.path);
+        let (trust, time) = match folder.mtime {
+            Some(t) => (1u8, t),
+            None => (0u8, Mtime { secs: 0, nanos: 0 }),
+        };
+        payload.push(trust);
+        payload.extend_from_slice(&time.secs.to_le_bytes());
+        payload.extend_from_slice(&time.nanos.to_le_bytes());
     }
     let mut out = Vec::with_capacity(HEADER_BYTES + payload.len());
     out.extend_from_slice(&MAGIC);
@@ -91,14 +118,51 @@ pub(super) fn decode(bytes: &[u8], catalog: &Catalog) -> Result<Index, CacheErro
             if !path_is_inside(&path, system) {
                 return Err(r.malformed("game path"));
             }
-            games.push(Game::new(name, path));
+            let size = r.u64("game size")?;
+            games.push(Game::new(name, path).with_size(size));
         }
         systems.push(SystemGames::new(id, games));
     }
+    let folders = read_folders(&mut r, catalog)?;
     if r.at != payload.len() {
         return Err(r.malformed("trailing bytes"));
     }
-    Ok(Index::from_systems(systems))
+    Ok(Index::from_systems(systems).with_folders(folders))
+}
+
+/// The folder stamps. Each path must be a system folder of `catalog`, or a
+/// folder inside one, and the paths must rise strictly.
+fn read_folders(r: &mut Reader<'_>, catalog: &Catalog) -> Result<Vec<FolderStamp>, CacheError> {
+    let count = r.count(MIN_FOLDER_BYTES, "folder count")?;
+    let mut folders: Vec<FolderStamp> = Vec::with_capacity(count);
+    for _ in 0..count {
+        let path = r.string("folder path")?;
+        let inside = catalog.systems().iter().any(|s| folder_is_inside(&path, s));
+        let rises = folders.last().is_none_or(|f| f.path < path);
+        if !inside || !rises {
+            return Err(r.malformed("folder path"));
+        }
+        let trust = r.u8("folder trust")?;
+        let secs = r.i64("folder time")?;
+        let nanos = r.u32("folder time")?;
+        let mtime = match trust {
+            1 if nanos < NANOS_PER_SECOND => Some(Mtime { secs, nanos }),
+            0 if secs == 0 && nanos == 0 => None,
+            _ => return Err(r.malformed("folder time")),
+        };
+        folders.push(FolderStamp { path, mtime });
+    }
+    Ok(folders)
+}
+
+/// True when `path` is a folder name or alias of `system`, alone or
+/// followed by subfolders, with no empty, `.` or `..` part and no NUL byte.
+fn folder_is_inside(path: &str, system: &SystemDef) -> bool {
+    let mut parts = path.split('/');
+    let folder_ok = parts
+        .next()
+        .is_some_and(|f| system.folder_names().any(|n| n.eq_ignore_ascii_case(f)));
+    folder_ok && parts.all(|p| !p.is_empty() && p != "." && p != ".." && !p.contains('\0'))
 }
 
 /// True when `path` is relative, starts with a folder name or alias of
@@ -175,11 +239,28 @@ struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
-    fn u32(&mut self, what: &'static str) -> Result<u32, CacheError> {
-        let raw = self.take(4, what)?;
-        let mut out = [0u8; 4];
+    fn bytes<const N: usize>(&mut self, what: &'static str) -> Result<[u8; N], CacheError> {
+        let raw = self.take(N, what)?;
+        let mut out = [0u8; N];
         out.copy_from_slice(raw);
-        Ok(u32::from_le_bytes(out))
+        Ok(out)
+    }
+
+    fn u8(&mut self, what: &'static str) -> Result<u8, CacheError> {
+        let [byte] = self.bytes(what)?;
+        Ok(byte)
+    }
+
+    fn u32(&mut self, what: &'static str) -> Result<u32, CacheError> {
+        self.bytes(what).map(u32::from_le_bytes)
+    }
+
+    fn u64(&mut self, what: &'static str) -> Result<u64, CacheError> {
+        self.bytes(what).map(u64::from_le_bytes)
+    }
+
+    fn i64(&mut self, what: &'static str) -> Result<i64, CacheError> {
+        self.bytes(what).map(i64::from_le_bytes)
     }
 
     /// A count of items that each take at least `min_bytes`. A count that

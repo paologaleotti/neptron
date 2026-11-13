@@ -3,6 +3,8 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
+use crate::folders::FolderStamp;
+
 /// The longest name or path, in bytes, that the index holds.
 ///
 /// The scan skips a game with a longer path, and the cache rejects a longer
@@ -14,6 +16,7 @@ pub const MAX_TEXT_BYTES: usize = 4096;
 pub struct Game {
     name: String,
     path: String,
+    size: u64,
 }
 
 /// The games of one system, in sort order.
@@ -23,14 +26,17 @@ pub struct SystemGames {
     games: Vec<Game>,
 }
 
-/// Every game that a scan found, by system.
+/// Every game that a scan found, by system, and the stamps of the folders
+/// that the scan read.
 ///
 /// Only systems with at least one game are in the index. Systems keep the
 /// order in which they were given, and the games of a system are sorted by
-/// [`compare_names`], then by path.
+/// [`compare_names`], then by path. The folder stamps are sorted by path.
+/// An index with no stamps makes a refresh read every folder.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Index {
     systems: Vec<SystemGames>,
+    folders: Vec<FolderStamp>,
 }
 
 /// The sort order of game names.
@@ -44,9 +50,26 @@ pub fn compare_names(a: &str, b: &str) -> Ordering {
 }
 
 impl Game {
-    /// Makes a game from its display name and its path relative to `share/roms/`.
+    /// Makes a game from its display name and its path relative to
+    /// `share/roms/`, with a size of 0 bytes.
     pub fn new(name: String, path: String) -> Self {
-        Self { name, path }
+        Self {
+            name,
+            path,
+            size: 0,
+        }
+    }
+
+    /// The same game with a file size in bytes.
+    pub fn with_size(mut self, size: u64) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// The file size in bytes when the scan read its folder. A file that a
+    /// network copy still writes can grow after that.
+    pub fn size(&self) -> u64 {
+        self.size
     }
 
     /// Display name: the file name with no extension.
@@ -141,7 +164,33 @@ impl Index {
                 m.games.sort_by(order);
             }
         }
-        Self { systems: merged }
+        Self {
+            systems: merged,
+            folders: Vec::new(),
+        }
+    }
+
+    /// The same index with the stamps of the folders that the scan read.
+    /// They are sorted by path here; of two stamps with one path the first
+    /// stays.
+    pub fn with_folders(mut self, mut folders: Vec<FolderStamp>) -> Self {
+        folders.sort_by(|a, b| a.path.cmp(&b.path));
+        folders.dedup_by(|b, a| a.path == b.path);
+        self.folders = folders;
+        self
+    }
+
+    /// The stamps of the folders that the scan read, sorted by path.
+    pub fn folders(&self) -> &[FolderStamp] {
+        &self.folders
+    }
+
+    /// The stamp of the folder at `path`.
+    pub fn folder(&self, path: &str) -> Option<&FolderStamp> {
+        self.folders
+            .binary_search_by(|f| f.path.as_str().cmp(path))
+            .ok()
+            .and_then(|i| self.folders.get(i))
     }
 
     /// Every system with games.
