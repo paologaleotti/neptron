@@ -19,8 +19,8 @@ use crate::repo::Repo;
 pub const HOT_BIN: &str = "/state/hot/bin";
 /// The folder of the hot data files on the PC.
 pub const HOT_DATA: &str = "/state/hot/share/neptron";
-/// The log of the launcher and the frontend on the PC.
-pub const LOG: &str = "/state/log/neptron.log";
+/// The current log file that svlogd keeps on the PC.
+pub const LOG: &str = "/state/log/neptron/current";
 /// The known-hosts file of the bench, in the cache directory.
 pub const KNOWN_HOSTS: &str = "bench_known_hosts";
 
@@ -543,7 +543,7 @@ mod tests {
             "{RESTART_SCRIPT}"
         );
         assert!(RESTART_SCRIPT.ends_with("start again'"), "{RESTART_SCRIPT}");
-        assert!(logs_script(true).contains("tail -n 200 -f /state/log/neptron.log"));
+        assert!(logs_script(true).contains("tail -n 200 -f /state/log/neptron/current"));
         assert!(logs_script(false).contains("dmesg"));
     }
 }

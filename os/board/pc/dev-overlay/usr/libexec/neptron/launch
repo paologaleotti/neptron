@@ -7,19 +7,22 @@
 # share/neptron. Each one that is there replaces the one of the image. The
 # file /state/hot/DISABLED, or no folder, gives the image's own again.
 #
-# The launcher and the frontend write to /state/log/neptron.log, on the
-# state partition, so the log survives a crash and a power cut. The file
-# moves to neptron.log.1 when it is over 4 MiB at a start.
+# The output of the launcher and the frontend goes to svlogd, which keeps
+# it in /state/log/neptron on the state partition, so the log survives a
+# crash and a power cut. svlogd moves the file "current" aside at 4 MiB
+# and keeps two old files, also within one life of the launcher, so the
+# log never fills the partition.
 #
 # While /run/neptron/hold exists the launcher does not start, so a bench
 # tool can take the display, or `os push` can replace the launcher.
 
-LOG_MAX_BYTES=4194304
 hot=/state/hot
-log_dir=/state/log
-log=$log_dir/neptron.log
+log_dir=/state/log/neptron
 
 mkdir -p /run/neptron "$log_dir"
+# svlogd reads its limits from the file config of its folder: size in
+# bytes, number of old files.
+printf 's4194304\nn2\n' > "$log_dir/config"
 while [ -e /run/neptron/hold ]; do
 	sleep 1
 done
@@ -33,8 +36,9 @@ if [ -d "$hot" ] && [ ! -e "$hot/DISABLED" ]; then
 	[ -d "$hot/share/neptron" ] && data=$hot/share/neptron
 fi
 
-if [ -f "$log" ] && [ "$(wc -c < "$log")" -gt "$LOG_MAX_BYTES" ]; then
-	mv "$log" "$log.1"
-fi
-echo "launch: $(cat /proc/uptime | cut -d' ' -f1) s after boot: launcher $launcher, frontend $frontend, data $data" >> "$log"
-exec "$launcher" -- "$frontend" --backend kms --data "$data" >> "$log" 2>&1
+# The launcher is not exec'd: the shell waits for the pipe, and ends when
+# the launcher ends and svlogd has written the rest.
+{
+	echo "launch: $(cut -d' ' -f1 /proc/uptime) s after boot: launcher $launcher, frontend $frontend, data $data"
+	exec "$launcher" -- "$frontend" --backend kms --data "$data" 2>&1
+} | svlogd "$log_dir"
