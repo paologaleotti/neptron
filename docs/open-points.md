@@ -885,3 +885,12 @@ Each open point is one section:
 - How to change: C16: judge the partition step by its result, attach the partition in the same boot, adopt an existing share as it is, no silent exit, messages to the system log, and a tier 3 case with an old share on the disk.
 - Decision: the owner: the share partition must always work (2026-11-13).
 
+### OP-096: The Raspberry Pi image: composite first, GPIO DACs later.
+
+- Raised by: the owner (2026-11-13)
+- Status: open, the spec is in work as P01
+- Default: no Raspberry Pi image exists. The owner's decisions for the first one: composite video is the default output, NTSC at 60 Hz, and the user can change the standard (PAL at 50 Hz, PAL at 60 Hz and the others the hardware gives); the picture must be as sharp as composite allows; it must work on a 15 kHz tube through composite. The GPIO DACs (VGA666, RGB-Pi, Pi2SCART) are not in the first image; they need a line in the boot configuration on the card, as `docs/definition/05-crt-safety-model.md` describes.
+- Where: `docs/spec/raspberry-pi.md`, `os/` (a new board), `crates/neptron-modeline` and `crates/neptron-video` (an output with fixed timings), `data/hardware/matrix.toml`
+- How to change: P01 writes the spec and the plan; the build tasks follow it.
+- Decision: the owner asked for it after the PC round (2026-11-13).
+

@@ -417,3 +417,12 @@ needs = ["C15"]
 gate = "T1 and T2; boot checks by the orchestrator"
 status = "in_progress"
 
+[[task]]
+id = "P01"
+wave = 10
+name = "Raspberry Pi image with composite video: the spec and the plan (spec first, no code)"
+owns = ["docs/spec/raspberry-pi.md"]
+needs = ["C16", "C17"]
+gate = "a spec the owner accepts; open questions listed"
+status = "in_progress"
+
