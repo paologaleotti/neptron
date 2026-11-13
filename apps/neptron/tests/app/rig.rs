@@ -210,6 +210,7 @@ impl Rig {
                 let _ = clock.advance_to(until_ns);
             }),
             quit: Some(self.stop.clone()),
+            log: None,
             output: self.output.clone(),
             subconnector: None,
             notices: self.notices.clone(),

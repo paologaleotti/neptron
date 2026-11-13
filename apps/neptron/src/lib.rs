@@ -14,6 +14,7 @@ pub mod control;
 pub mod devices;
 pub mod display;
 pub mod library;
+pub mod logbook;
 pub mod nav;
 pub mod options;
 pub mod outbox;

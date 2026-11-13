@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use neptron::devices::MaybeSink;
 use neptron::display::{AUTO, Detected};
+use neptron::logbook::LogLines;
 use neptron::options::Options;
 use neptron::presets::Presets;
 use neptron::{Devices, NextRun, Runtime, Shell};
@@ -46,7 +47,12 @@ impl InputSource for Inputs {
 }
 
 /// Runs the frontend on the DRM device that the launcher holds.
-pub fn run(options: &Options, next: Option<NextRun>, stop: Arc<AtomicBool>) -> ExitCode {
+pub fn run(
+    options: &Options,
+    next: Option<NextRun>,
+    stop: Arc<AtomicBool>,
+    log: LogLines,
+) -> ExitCode {
     let paths = &options.paths;
     let global = Storage::new(paths.config())
         .load(&Schema::builtin(), Target::Global)
@@ -125,6 +131,7 @@ pub fn run(options: &Options, next: Option<NextRun>, stop: Arc<AtomicBool>) -> E
             }
         }),
         quit: Some(stop),
+        log: Some(log),
         output,
         subconnector,
         notices,

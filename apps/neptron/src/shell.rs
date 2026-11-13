@@ -84,6 +84,9 @@ pub struct Runtime {
     /// Set when the run must end as a quit: SIGTERM, SIGINT, or a closed
     /// window. `None` for a run that only ends by itself.
     pub quit: Option<Arc<AtomicBool>>,
+    /// The log of the run off the frame thread; `None` keeps the lines in
+    /// the protocol log only.
+    pub log: Option<crate::logbook::LogLines>,
     /// The name of the output, for the display panel and the guard record.
     pub output: String,
     /// The `subconnector` property of the output, when the backend reads
@@ -306,10 +309,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         messages
     }
 
-    /// Adds a line to the log of the control protocol, and writes it to
-    /// standard error, which the image keeps in its log file.
+    /// Adds a line to the log of the control protocol, and queues it for
+    /// the log of the run. The frame thread never writes it itself.
     fn log(&mut self, line: String) {
-        eprintln!("neptron: {line}");
+        if let Some(log) = &self.runtime.log {
+            log.send(format!("neptron: {line}"));
+        }
         if self.log.len() == LOG_LINES {
             self.log.pop_front();
         }

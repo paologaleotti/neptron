@@ -108,6 +108,11 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 | `clock_step` | `unavailable`: the binary runs in real time. The tier 2 tests step the simulated clock themselves |
 | `screenshot` | `unavailable`: no PNG encoder in the frontend yet |
 
+## The log and the stop
+
+- The lines of the protocol log (guard events, notices, every mode set with its read back) also go to the log of the run. The frame thread queues each line in a bounded channel (`logbook.rs`, 256 lines) and never waits: a full channel drops the line and counts it. A writer thread writes the lines to standard error; a failed write loses the line and never stops the run or panics. At start the log names the binary and the folders.
+- SIGTERM and SIGINT set a stop flag (`stop.rs`), registered before any SDL code starts, so SDL3 installs no handler of its own for them. The frame loop reads the flag at each frame and ends the run as a quit: save RAM and settings written, the display dropped by its rules, exit code 0.
+
 ## Tests
 
 - Unit tests of each module: the detection (`display/tests.rs`: the safe start of a 1080p panel, a 4K panel, a 720p TV, DP and HDMI with an analog EDID, a DAC with a digital EDID, a VGA CRT, a broken EDID and no EDID; the fit to the limits; `flat`), the record file, the relaunch file, the presets, the settings view, the pages, the navigation, the writer thread, the library numbers, the command line.

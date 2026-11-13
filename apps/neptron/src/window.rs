@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use neptron::devices::MaybeSink;
+use neptron::logbook::LogLines;
 use neptron::options::Options;
 use neptron::{Devices, NextRun, Runtime, Shell};
 use neptron_audio::{Resampling, Sdl3Sink};
@@ -31,7 +32,12 @@ impl InputSource for WindowInput {
 }
 
 /// Runs the frontend in a desktop window.
-pub fn run(options: &Options, next: Option<NextRun>, quit: Arc<AtomicBool>) -> ExitCode {
+pub fn run(
+    options: &Options,
+    next: Option<NextRun>,
+    quit: Arc<AtomicBool>,
+    log: LogLines,
+) -> ExitCode {
     let (display, pad) = match neptron_window::open("NEPTRON") {
         Ok(window) => window,
         Err(e) => {
@@ -59,6 +65,7 @@ pub fn run(options: &Options, next: Option<NextRun>, quit: Arc<AtomicBool>) -> E
             }
         }),
         quit: Some(quit.clone()),
+        log: Some(log),
         output: "window".to_owned(),
         subconnector: None,
         notices,

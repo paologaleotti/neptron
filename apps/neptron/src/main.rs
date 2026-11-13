@@ -24,17 +24,6 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    // On a bench the binary can come from another folder than the image's
-    // own; the log says which one runs, with which data.
-    let program = std::env::current_exe()
-        .map_or_else(|e| format!("unknown ({e})"), |p| p.display().to_string());
-    eprintln!(
-        "neptron: {program} starts; data {}, cores {}, state {}, share {}",
-        options.paths.data.display(),
-        options.paths.cores.display(),
-        options.paths.state.display(),
-        options.paths.share.display()
-    );
     // Before any SDL code starts: SDL leaves a signal alone when it has a
     // handler already.
     let stop = match neptron::stop::stop_flag() {
@@ -44,13 +33,27 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match options.backend.or(DEFAULT_BACKEND) {
+    // The log of the run leaves the frame thread through a bounded queue;
+    // a writer thread writes it to standard error.
+    let (log, log_writer) = neptron::logbook::to_stderr();
+    // On a bench the binary can come from another folder than the image's
+    // own; the log says which one runs, with which data.
+    let program = std::env::current_exe()
+        .map_or_else(|e| format!("unknown ({e})"), |p| p.display().to_string());
+    log.send(format!(
+        "neptron: {program} starts; data {}, cores {}, state {}, share {}",
+        options.paths.data.display(),
+        options.paths.cores.display(),
+        options.paths.state.display(),
+        options.paths.share.display()
+    ));
+    let code = match options.backend.or(DEFAULT_BACKEND) {
         #[cfg(all(feature = "kms", target_os = "linux"))]
-        Some(Backend::Kms) => kms::run(&options, take_next(&options.paths), stop),
+        Some(Backend::Kms) => kms::run(&options, take_next(&options.paths), stop, log),
         #[cfg(feature = "window")]
-        Some(Backend::Window) => window::run(&options, take_next(&options.paths), stop),
+        Some(Backend::Window) => window::run(&options, take_next(&options.paths), stop, log),
         other => {
-            drop(stop);
+            drop((stop, log));
             eprintln!(
                 "neptron: this build has no {} backend; build it with the feature `window` or `kms`",
                 match other {
@@ -61,7 +64,11 @@ fn main() -> ExitCode {
             );
             ExitCode::FAILURE
         }
-    }
+    };
+    // Every sending side is gone with the run; the writer ends after the
+    // queued lines.
+    log_writer.finish();
+    code
 }
 
 /// The backend of a run with no `--backend`: KMS on the device, the window
