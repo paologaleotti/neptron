@@ -9,12 +9,12 @@ Game lifecycle: launch, the display-locked loop, pause, quick menu, exit and sav
 - `Session<D: Display, S: AudioSink, I: InputSource, C: Clock>`: one game, from launch to exit. The same type runs the real cores and the test core, on KMS, the window or the fakes.
   - `launch(&GameLaunch, VideoSetup<D>, Devices<S, I, C>, SessionOptions) -> Result<Session, LaunchError>`.
   - `run_frame(ui: Option<Frame>) -> Result<FrameReport, SessionError>`: one frame of the loop.
-  - `resume()`, `reset()`, `set_start_hold_ns(ns)`, `quit() -> ExitReport`.
-  - Reads for the UI snapshot and the control API: `paused()`, `ended()`, `video_status(&mut VideoStatusText)`, `video()`, `last_frame()`, `source()`, `input_events()`, `ports()`, `message()`, `host()` (system info, core options), `core_logs()`, `audio_stats()`, `audio_sink()`, `run_rate_mhz()`, `save_stats()`, `counters()`.
+  - `resume()`, `reset()`, `set_start_hold_ns(ns)`, `set_volume_percent(percent)`, `quit() -> ExitReport`.
+  - Reads for the UI snapshot and the control API: `paused()`, `ended()`, `video_status(&mut VideoStatusText)`, `video()`, `last_frame()`, `source()`, `input_events()`, `ports()`, `message()`, `host()` (system info, core options), `core_logs()`, `audio_stats()`, `audio_sink()`, `volume_percent()`, `run_rate_mhz()`, `save_stats()`, `counters()`.
   - Live changes: `video_mut()` (`set_settings`, `set_scanlines`, `set_monitor`, `retry` of the engine), `host_mut()` (`set_option`).
 - `GameLaunch`: the core, the content, the extensions, the BIOS and save folders, the core option values.
 - `VideoSetup<D>`: the display, the monitor, the policy settings and the scanline settings. The scanline settings are part of the launch because the engine draws none until it gets them.
-- `Devices<S, I, C>`, `SessionOptions` (`Resampling`, `RunRateSource`, the Start hold), `RunRateSource::{ReadBack, Measured}`.
+- `Devices<S, I, C>`, `SessionOptions` (`Resampling`, `RunRateSource`, the Start hold, the volume in percent), `RunRateSource::{ReadBack, Measured}`.
 - `FrameReport`, `EndReason`, `Counters`, `ExitReport`, `Flush`, `SaveStats`, `SaveError`, `LaunchError`, `SessionError`.
 - `source_geometry(width, height, &GameGeometry, &Timing) -> SourceGeometry`, and the constants `LAUNCH_STABLE_FRAMES`, `LAUNCH_SETTLE_MAX_FRAMES`, `INTERLACE_MIN_LINES`, `FLIPLESS_FRAMES_LIMIT`, `SAVE_RAM_FLUSH_INTERVAL_NS`, `CORE_PORTS`.
 
@@ -37,6 +37,7 @@ save RAM to the writer when the timer is due
 - While the quick menu is open, the session presents the last frame under the UI and does not run the core. The audio is muted and `end_frame` is not called (the pipeline primes again on resume, OP-042).
 - The run rate for audio rate control is the field rate of the mode read back over the flips per core frame (`RunRateSource::ReadBack`, KMS), or the flip rate from `FlipRateMeter` (`RunRateSource::Measured`, the desktop window).
 - While `current_refused()` of the engine is on, the session mutes the audio and presents no game picture.
+- The user volume (`audio.volume`, `docs/spec/audio-settings.md`) is a gain in the pipeline, apart from the mute. The pipeline starts at `SessionOptions::volume_percent` with no ramp; `set_volume_percent` changes it live with a 20 ms ramp; a new pipeline for a core timing change keeps it. A sink that stops taking data (a lost device) only costs the frames it does not take: the loop never waits on it.
 - No allocation and no file I/O in a steady frame. The buffers (input events, hotkeys, the last frame, the message, the save RAM copies) are made at launch. A core timing change makes a new audio pipeline, as the spec says.
 
 ## Launch: the first mode

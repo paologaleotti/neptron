@@ -9,3 +9,4 @@ mod harness;
 mod launch;
 mod session;
 mod timing;
+mod volume;

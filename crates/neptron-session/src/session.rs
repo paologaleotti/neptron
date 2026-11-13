@@ -202,6 +202,23 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         self.audio.as_ref().map(AudioPipeline::stats)
     }
 
+    /// Sets the user volume in percent, live: the gain ramps to it over
+    /// [`VOLUME_RAMP_MS`](neptron_audio::VOLUME_RAMP_MS), with no device
+    /// opened again. 100 is the core's own level, 0 is silence, more than
+    /// 100 is 100. The mute of the quick menu and of a mode switch stays
+    /// as it is. Nothing happens after the audio was lost.
+    pub fn set_volume_percent(&mut self, percent: u32) {
+        if let Some(audio) = &mut self.audio {
+            audio.set_volume_percent(percent);
+        }
+    }
+
+    /// The user volume the audio is at or ramps to, in percent. `None`
+    /// after the audio was lost.
+    pub fn volume_percent(&self) -> Option<u32> {
+        self.audio.as_ref().map(AudioPipeline::volume_percent)
+    }
+
     /// The audio sink. `None` after the audio was lost.
     pub fn audio_sink(&self) -> Option<&S> {
         self.audio.as_ref().map(AudioPipeline::sink)

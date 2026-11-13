@@ -123,7 +123,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             timing.frame_rate_mhz,
             session.resampling,
         )
-        .map_err(LaunchError::Audio)?;
+        .map_err(LaunchError::Audio)?
+        .with_volume_percent(options.volume_percent);
         session.audio = Some(pipeline);
         if let Some(save) = save {
             let writer = SaveRamWriter::start(save.path, &save.loaded, save.ram_bytes)

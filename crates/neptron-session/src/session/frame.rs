@@ -339,8 +339,9 @@ fn retime<S: AudioSink>(
     } else {
         core.frame_rate_mhz
     };
+    let volume = old.volume_percent();
     match AudioPipeline::new(old.into_sink(), core, run_rate, resampling) {
-        Ok(pipeline) => *audio = Some(pipeline),
+        Ok(pipeline) => *audio = Some(pipeline.with_volume_percent(volume)),
         Err(_) => counters.audio_lost = true,
     }
 }

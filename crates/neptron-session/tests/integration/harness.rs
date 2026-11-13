@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use neptron_audio::Resampling;
-use neptron_backend::Clock;
+use neptron_backend::{AudioSink, Clock};
 use neptron_session::{Devices, GameLaunch, RunRateSource, Session, SessionOptions, VideoSetup};
 use neptron_testcore::{PixelFormat as CoreFormat, SCRIPT_ENV, Size, expected_hash, hash};
 use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
@@ -132,6 +132,8 @@ pub struct Setup {
     pub run_rate: RunRateSource,
     pub start_hold_ns: u64,
     pub core_options: Vec<(String, String)>,
+    pub volume_percent: u32,
+    pub keep_samples: bool,
 }
 
 impl Default for Setup {
@@ -147,6 +149,8 @@ impl Default for Setup {
             run_rate: RunRateSource::ReadBack,
             start_hold_ns: 0,
             core_options: Vec::new(),
+            volume_percent: 100,
+            keep_samples: false,
         }
     }
 }
@@ -160,6 +164,49 @@ pub struct Rig {
     pub session: TestSession,
 }
 
+/// Launches the test core with the script in `dir` and the default setup
+/// on `audio`, a sink of the test's own type, made on the session's
+/// clock.
+pub fn launch_on<S: AudioSink>(
+    dir: &Path,
+    audio: impl FnOnce(&SimClock) -> S,
+) -> (Session<FakeDisplay, S, ScriptedInput, SimClock>, SimClock) {
+    let setup = Setup::default();
+    let clock = SimClock::starting_at(START_NS);
+    let display = FakeDisplay::with_options(clock.clone(), setup.caps, setup.display);
+    let save_dir = dir.join("saves");
+    let content = dir.join("game.ntc");
+    let extensions = ["ntc".to_owned()];
+    let core = core_path();
+    let system_dir = dir.join("bios");
+    let game = GameLaunch {
+        core: &core,
+        content: Some(&content),
+        extensions: &extensions,
+        system_dir: &system_dir,
+        save_dir: &save_dir,
+        core_options: &setup.core_options,
+    };
+    let video = VideoSetup {
+        display,
+        monitor: Monitor::Profile(monitor_preset(setup.monitor).expect("monitor preset")),
+        policy: setup.policy,
+        scanlines: setup.scanlines,
+    };
+    let devices = Devices {
+        audio: audio(&clock),
+        input: ScriptedInput::new(clock.clone(), Vec::new()),
+        clock: clock.clone(),
+    };
+    let options = SessionOptions {
+        resampling: setup.resampling,
+        run_rate: setup.run_rate,
+        ..SessionOptions::default()
+    };
+    let session = Session::launch(&game, video, devices, options).expect("launch");
+    (session, clock)
+}
+
 impl Rig {
     /// Launches the test core with the script in `dir`.
     pub fn launch(dir: &Path, setup: Setup) -> Self {
@@ -171,7 +218,7 @@ impl Rig {
             AudioOptions {
                 capacity_frames: SINK_CAPACITY_FRAMES,
                 device_rate_mhz: setup.device_rate_mhz,
-                keep_samples: false,
+                keep_samples: setup.keep_samples,
             },
         );
         let input = ScriptedInput::new(clock.clone(), Vec::new());
@@ -203,6 +250,7 @@ impl Rig {
             resampling: setup.resampling,
             run_rate: setup.run_rate,
             start_hold_ns: setup.start_hold_ns,
+            volume_percent: setup.volume_percent,
         };
         let session = Session::launch(&game, video, devices, options).expect("launch");
         Self {

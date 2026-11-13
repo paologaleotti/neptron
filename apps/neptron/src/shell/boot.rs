@@ -406,6 +406,7 @@ fn launch<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone>(
         resampling: runtime.resampling,
         run_rate: runtime.run_rate,
         start_hold_ns: config.start_hold_ns(),
+        ..SessionOptions::default()
     };
     let session = Session::launch(&game, video, devices, options)
         .map_err(|e| format!("{name} did not start: {e}."))?;

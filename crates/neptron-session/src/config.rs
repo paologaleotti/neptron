@@ -59,6 +59,9 @@ pub struct SessionOptions {
     pub run_rate: RunRateSource,
     /// From `input.menu_hold_start_seconds`, in nanoseconds. 0 is off.
     pub start_hold_ns: u64,
+    /// From `audio.volume`, in percent: 100 is the core's own level, 0 is
+    /// silence. The pipeline starts at it with no ramp.
+    pub volume_percent: u32,
 }
 
 /// Where the session takes the run rate (core frames per second of real
@@ -79,6 +82,7 @@ impl Default for SessionOptions {
             resampling: Resampling::Sinc,
             run_rate: RunRateSource::ReadBack,
             start_hold_ns: 0,
+            volume_percent: neptron_audio::VOLUME_MAX_PERCENT,
         }
     }
 }
