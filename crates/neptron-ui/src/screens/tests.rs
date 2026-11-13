@@ -120,7 +120,12 @@ fn home_with_no_systems_says_where_the_games_go() {
     let mut run = Run::new();
     run.step(&Snapshot::default(), &[Down, Up, Back, Menu]);
     assert_eq!(run.screen(), "home");
-    assert_eq!(run.focused(), Some("Display"));
+    assert_eq!(run.focused(), Some("Settings"));
+    assert_eq!(
+        run.frame.tree.focused().and_then(|r| r.kind),
+        Some(crate::RowKind::Page),
+        "the same row rule as the home with games"
+    );
     let text = run.labels().join(" ");
     for folder in ["roms/nes", "roms/snes", "roms/megadrive", ".zip"] {
         assert!(text.contains(folder), "{folder} is missing from {text:?}");
@@ -130,6 +135,18 @@ fn home_with_no_systems_says_where_the_games_go() {
         "{:?}",
         run.labels()
     );
+
+    // Settings and every panel are one press away on a new stick.
+    let empty = Snapshot {
+        settings: with_display().settings,
+        ..Snapshot::default()
+    };
+    run.step(&empty, &[Accept]);
+    assert_eq!(run.screen(), "settings");
+    run.step(&empty, &[Accept]);
+    assert_eq!(run.screen(), "display");
+    run.step(&empty, &[Back, Back]);
+    assert_eq!((run.screen(), run.focused()), ("home", Some("Settings")));
 }
 
 #[test]

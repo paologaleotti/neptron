@@ -52,7 +52,6 @@ pub struct List {
     row_height_px: u32,
     cursor: usize,
     top: usize,
-    arrows: bool,
 }
 
 impl<'a> ListItem<'a> {
@@ -84,16 +83,7 @@ impl List {
             row_height_px: row_height_px.max(1),
             cursor: 0,
             top: 0,
-            arrows: true,
         }
-    }
-
-    /// The same list, with no arrow on its [`RowKind::Page`] rows. Only the
-    /// home screen with no games uses it: its one row is in a golden image
-    /// of tier 3 that a change must not touch.
-    pub fn without_arrows(mut self) -> Self {
-        self.arrows = false;
-        self
     }
 
     /// The area of the list.
@@ -178,7 +168,7 @@ impl List {
                 row.w.saturating_sub(2 * theme.padding_px()),
                 row.h,
             );
-            let arrow = self.arrows && entry.enabled && entry.kind == RowKind::Page;
+            let arrow = entry.enabled && entry.kind == RowKind::Page;
             let inner = if arrow {
                 let arrow_color = if focused {
                     color
@@ -460,20 +450,6 @@ mod tests {
                 Rect::new(right + 2, 16, 1, 3),
                 Rect::new(right + 3, 17, 1, 1),
             ]
-        );
-    }
-
-    #[test]
-    fn a_list_without_arrows_draws_none_and_keeps_the_kind() {
-        let l = list().without_arrows();
-        let mut frame = UiFrame::new();
-        l.draw(&mut frame, &Theme::default(), 1, |_| {
-            ListItem::page("Display")
-        });
-        assert_eq!(rects(&frame).len(), 1, "the focus bar only");
-        assert_eq!(
-            frame.tree.focused().and_then(|r| r.kind),
-            Some(RowKind::Page)
         );
     }
 

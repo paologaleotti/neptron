@@ -11,10 +11,10 @@ use crate::text::StackText;
 use crate::theme::Theme;
 use crate::widgets::{List, ListEvent, ListItem};
 
+use super::SETTINGS_PAGE;
 use super::chrome::{self, Layout};
 use super::page::crumb;
 use super::router::{Nav, Target};
-use super::{DISPLAY_PAGE, SETTINGS_PAGE};
 
 /// The text of the home screen when no system has games: what a new user
 /// sees first. The folder names are those of the system definitions.
@@ -31,15 +31,11 @@ enum Row {
     Favourites,
     Recents,
     Settings,
-    /// The one row of the home screen with no systems.
-    Display,
 }
 
 /// The home screen. With no systems it shows the empty-state text and one
-/// row, the display panel, at the bottom: a new user can fix the picture
-/// before any game plays a sound. That screen is in the golden image of the
-/// tier 3 boot check, so its row keeps the look it has there, with no
-/// arrow.
+/// row, Settings, at the bottom: a new user can fix the picture and the
+/// sound before any game is there.
 pub(super) struct Home {
     list: List,
     list_box: Rect,
@@ -56,7 +52,7 @@ impl Home {
         Self {
             list: List::new(list, row),
             list_box,
-            alone: List::new(alone, row).without_arrows(),
+            alone: List::new(alone, row),
             alone_box,
         }
     }
@@ -76,18 +72,11 @@ impl Home {
             }),
             Some(Row::Favourites) => Nav::Open(Target::Games(GameSource::Favourites)),
             Some(Row::Recents) => Nav::Open(Target::Games(GameSource::Recents)),
-            Some(row @ (Row::Settings | Row::Display)) => {
-                let page = if row == Row::Settings {
-                    SETTINGS_PAGE
-                } else {
-                    DISPLAY_PAGE
-                };
-                Nav::Open(Target::Page {
-                    page,
-                    level: Level::Global,
-                    label: crumb(label(snap, row)),
-                })
-            }
+            Some(Row::Settings) => Nav::Open(Target::Page {
+                page: SETTINGS_PAGE,
+                level: Level::Global,
+                label: crumb(label(snap, Row::Settings)),
+            }),
             None => Nav::Stay,
         }
     }
@@ -116,7 +105,7 @@ impl Home {
             );
             chrome::boxed(frame, theme, self.alone_box);
             self.alone.draw(frame, theme, 1, |_| {
-                ListItem::page(label(snap, Row::Display))
+                ListItem::page(label(snap, Row::Settings))
             });
             return;
         }
@@ -155,7 +144,7 @@ fn row_count(snap: &Snapshot) -> usize {
 fn row(snap: &Snapshot, index: usize) -> Option<Row> {
     let systems = snap.systems.len();
     if systems == 0 {
-        return (index == 0).then_some(Row::Display);
+        return (index == 0).then_some(Row::Settings);
     }
     match index.checked_sub(systems) {
         None => Some(Row::System(index)),
@@ -172,6 +161,5 @@ fn label(snap: &Snapshot, row: Row) -> &str {
         Row::Favourites => "Favourites",
         Row::Recents => "Recent games",
         Row::Settings => "Settings",
-        Row::Display => "Display",
     }
 }
