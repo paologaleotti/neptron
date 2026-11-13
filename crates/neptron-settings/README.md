@@ -23,8 +23,8 @@ Typed settings schema, three-level resolution (game, system, global, default) an
 | `input.menu_hold_start_seconds` | whole number of seconds, 0 to 10 (`MENU_HOLD_START_MAX_SECONDS`), 0 is off | global | `0` | none |
 | `display.scanlines` | `auto`, `off`, `on` | game, system, global | `auto` | none |
 | `display.scanline_strength` | integer, 0 to 100 (percent) | game, system, global | `75` | none |
-| `audio.volume` | integer, 0 to 100 (percent; 100 is the core's own level) | game, system, global | `100` | none |
-| `audio.output` | text (`auto` or a playback device as the audio backend lists it, such as `HDA Intel PCH:ALC221 Analog`), 1 to 128 bytes | global | `auto` | none |
+| `audio.volume` | integer, 0 to 100 (percent; 100 is the core's own level and, with the mixer at 0 dB, the full output) | game, system, global | `80` | none |
+| `audio.output` | text (`auto` or a playback device as the audio backend lists it, on ALSA a PCM name such as `hw:CARD=PCH,DEV=0`), 1 to 128 bytes | global | `auto` | none |
 
 Each entry has `applies_to`: the displays on which it has an effect (`AppliesTo::Every` or `AppliesTo::Crt`). `display.style` and `display.refresh_policy` apply to a CRT only: the flat-panel path scales the game into a mode that the panel lists and ignores both. The scanline settings apply to every display, because `on` draws scanlines on a panel at a whole vertical multiple. The settings screen, the quick menu and the UI crawler read this one field, so a row with no effect on the display shows as disabled with its reason. It is not part of the file format.
 

@@ -49,7 +49,7 @@ fn the_audio_panel_writes_the_volume_and_the_output_to_the_global_file() {
             let config = rig.shell().config().clone();
             assert_eq!(
                 config.get(Level::Global, AUDIO_VOLUME),
-                Some(&Value::Int(90))
+                Some(&Value::Int(70))
             );
             assert_eq!(
                 config.get(Level::Global, AUDIO_OUTPUT),
@@ -58,7 +58,7 @@ fn the_audio_panel_writes_the_volume_and_the_output_to_the_global_file() {
             rig.finish();
             let file = std::fs::read_to_string(rig.paths.config().join("global.toml"))
                 .expect("the global file");
-            assert!(file.contains("volume = 90"), "{file}");
+            assert!(file.contains("volume = 70"), "{file}");
             assert!(file.contains("output = \"hw:CARD=Device,DEV=0\""), "{file}");
         },
     );
@@ -88,18 +88,18 @@ fn the_quick_menu_volume_reaches_the_game_at_once() {
                 1 => {
                     rig.boot(Some(game()));
                     rig.frames(30);
-                    assert_eq!(rig.shell().game_volume_percent(), Some(100));
+                    assert_eq!(rig.shell().game_volume_percent(), Some(80));
                     rig.tap(&[Control::Select, Control::Start]);
                     rig.frames(1);
                     assert_eq!(rig.screen(), "quick-menu");
                     rig.focus("Volume");
                     rig.tap(&[Control::Left]);
-                    assert_eq!(rig.shell().game_volume_percent(), Some(95));
+                    assert_eq!(rig.shell().game_volume_percent(), Some(75));
                     rig.tap(&[Control::Left]);
-                    assert_eq!(rig.shell().game_volume_percent(), Some(90));
+                    assert_eq!(rig.shell().game_volume_percent(), Some(70));
                     assert_eq!(
                         rig.shell().config().get(Level::Game, AUDIO_VOLUME),
-                        Some(&Value::Int(90))
+                        Some(&Value::Int(70))
                     );
                 }
                 _ => {
@@ -107,7 +107,7 @@ fn the_quick_menu_volume_reaches_the_game_at_once() {
                     rig.frames(30);
                     assert_eq!(
                         rig.shell().game_volume_percent(),
-                        Some(90),
+                        Some(70),
                         "the next run of the game resolves its volume"
                     );
                 }

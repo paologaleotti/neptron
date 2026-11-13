@@ -401,7 +401,7 @@ mod tests {
         assert_eq!(
             page.rows[0].value,
             SettingValue::Number {
-                value: 100,
+                value: 80,
                 min: 0,
                 max: 100,
                 step: 5,

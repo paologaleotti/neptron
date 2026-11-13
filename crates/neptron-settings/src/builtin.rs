@@ -68,8 +68,13 @@ pub const AUDIO_VOLUME: &str = "audio.volume";
 /// The highest volume, in percent: unity gain.
 pub const AUDIO_VOLUME_MAX_PERCENT: i64 = 100;
 
-/// The key of the playback device: `auto` (the system default device) or the name of a
-/// device as the audio backend lists it, such as `HDA Intel PCH:ALC221 Analog`.
+/// The default volume, in percent: -5.8 dB. The image sets the mixer to 0 dB, so 100 is the
+/// full output of the codec, loud for a game whose samples reach full scale; 80 starts lower
+/// and leaves the player room to go up.
+pub const AUDIO_VOLUME_DEFAULT_PERCENT: i64 = 80;
+
+/// The key of the playback device: `auto` (the automatic choice) or the name of a device as
+/// the audio backend lists it: on ALSA a PCM name such as `hw:CARD=PCH,DEV=0`.
 pub const AUDIO_OUTPUT: &str = "audio.output";
 
 /// The longest playback device name that [`AUDIO_OUTPUT`] holds, in bytes.
@@ -168,7 +173,7 @@ static BUILTIN: [Entry; 9] = [
         kind: Kind::Int {
             min: 0,
             max: AUDIO_VOLUME_MAX_PERCENT,
-            default: AUDIO_VOLUME_MAX_PERCENT,
+            default: AUDIO_VOLUME_DEFAULT_PERCENT,
         },
         levels: Levels::ALL,
         live: true,
@@ -259,7 +264,7 @@ mod tests {
         assert_eq!(default(INPUT_MENU_HOLD_START_SECONDS), "0");
         assert_eq!(default(DISPLAY_SCANLINES), "auto");
         assert_eq!(default(DISPLAY_SCANLINE_STRENGTH), "75");
-        assert_eq!(default(AUDIO_VOLUME), "100");
+        assert_eq!(default(AUDIO_VOLUME), "80");
         assert_eq!(default(AUDIO_OUTPUT), "auto");
     }
 
@@ -272,7 +277,7 @@ mod tests {
             Kind::Int {
                 min: 0,
                 max: 100,
-                default: 100
+                default: 80
             }
         );
         assert_eq!(entry.levels, Levels::ALL);
@@ -341,7 +346,7 @@ mod tests {
         let resolved = resolve_key(&schema, &none, AUDIO_VOLUME).unwrap();
         assert_eq!(
             (resolved.value, resolved.source),
-            (Value::Int(100), Source::Default)
+            (Value::Int(80), Source::Default)
         );
     }
 
@@ -354,18 +359,18 @@ mod tests {
         assert_eq!(entry.safety, Safety::None);
         let change = Change::Set {
             key: AUDIO_OUTPUT,
-            value: Value::Text("HDA Intel PCH:ALC221 Analog".into()),
+            value: Value::Text("hw:CARD=PCH,DEV=0".into()),
         };
         let out = edit(&schema, Level::Global, "", &[change]).unwrap();
         assert_eq!(
             out,
-            "schema_version = 1\n\n[audio]\noutput = \"HDA Intel PCH:ALC221 Analog\"\n"
+            "schema_version = 1\n\n[audio]\noutput = \"hw:CARD=PCH,DEV=0\"\n"
         );
         let parsed = parse_layer(&schema, Level::Global, &out);
         assert_eq!(parsed.issues, []);
         assert_eq!(
             parsed.layer.get(AUDIO_OUTPUT),
-            Some(&Value::Text("HDA Intel PCH:ALC221 Analog".into()))
+            Some(&Value::Text("hw:CARD=PCH,DEV=0".into()))
         );
         for level in [Level::System, Level::Game] {
             let parsed = parse_layer(&schema, level, "[audio]\noutput = \"auto\"\n");
