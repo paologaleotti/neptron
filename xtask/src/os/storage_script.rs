@@ -1092,3 +1092,19 @@ fn after_a_table_off_the_plan_the_next_boot_states_the_fact() {
         .assert_share_ram("is empty and has no /state/share-pending, so it is left untouched");
     assert!(!reason.contains("not made by this system"), "{second:#?}");
 }
+
+/// A partition 4 with a filesystem never needs the format permission
+/// again: the marker goes even when the mount fails.
+#[test]
+fn a_filesystem_on_partition_4_removes_the_marker_also_with_no_mount() {
+    let run = marked_partition_4("signature-marker", PLANNED, "7")
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .set("FAKE_MOUNT_EXFAT_EXIT", "32");
+    let out = run.start();
+    assert!(out.status.contains("sda4 does not mount\""), "{out:#?}");
+    assert!(!out.marker, "{out:#?}");
+    assert!(
+        out.log.contains("logger -t neptron-storage partition 4 holds a filesystem, so /state/share-pending is removed"),
+        "{out:#?}"
+    );
+}

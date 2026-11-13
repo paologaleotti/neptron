@@ -405,7 +405,16 @@ wait_node() {
 prepare_share() {
 	signature "$share"
 	case $? in
-	0) return 0 ;;
+	0)
+		# A partition with a filesystem never needs the permission to
+		# format again, also when its mount fails.
+		if [ -e "$MARKER" ]; then
+			rm -f "$MARKER"
+			sync
+			log "partition 4 holds a filesystem, so /state/share-pending is removed"
+		fi
+		return 0
+		;;
 	2)
 		say "the share partition $share was left untouched: blkid could not probe it cleanly"
 		return 1
