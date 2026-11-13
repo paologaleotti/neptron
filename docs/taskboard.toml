@@ -345,3 +345,12 @@ needs = ["C02", "T23"]
 gate = "T1 and T2; every golden change explained; the selftest vkms gate passes after T29 rebases"
 status = "merged"
 
+[[task]]
+id = "C10"
+wave = 7
+name = "Defects found by tracing the flows: confirm dialog, prompts, notices, storage fallback, launcher"
+owns = ["apps/neptron", "apps/neptron-launch", "crates/neptron-ui", "crates/neptron-session", "crates/neptron-video", "crates/neptron-platform", "crates/neptron-kms"]
+needs = ["T27", "T28", "C08"]
+gate = "T1 and T2; a failing test first for each defect"
+status = "in_progress"
+
