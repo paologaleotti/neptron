@@ -13,7 +13,8 @@ Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 - The volume: `gain_q24(percent)`, the cubic curve `(v / 100)^3` in Q24 fixed point, and `scale(sample, gain)`; `VOLUME_MAX_PERCENT`, `GAIN_UNITY_Q24`, `VOLUME_RAMP_MS`. At 100 the stage is skipped, so the output is bit for bit the same as with no volume.
 - `FlipRateMeter`: the run rate from flip times, for the desktop window.
 - `AudioStats`, `AudioError`, and the limits as named constants.
-- With the `sdl3` feature: `Sdl3Sink: AudioSink`, `SinkError`.
+- The output device: the trait `AudioOutputs` (driver, raw device names, open of the default or a named device), and the pure `open_output(outputs, setting)`, which opens the named device or falls back to the default one with an `OutputNotice`, and never changes the setting. `menu_outputs(driver, raw)` gives the menu options: for ALSA one option per card, labelled with the card name, because SDL 3.4 opens the card's default PCM for every device of a card. `OutputChoice`, `OpenedOutput`, `OpenedDevice`, `OutputError`, `AUTO_OUTPUT`, `ALSA_DRIVER`.
+- With the `sdl3` feature: `Sdl3Sink: AudioSink`, `Sdl3Outputs: AudioOutputs`, `SinkError`.
 
 ## How the session uses it
 
@@ -31,7 +32,7 @@ Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 
 ## Tests
 
-- Unit tests: the law, the rates and their limits, conversions and fades, the gain curve and its ramp, the pipeline on `FakeAudio` (priming, restart, mute, unmute, overrun, dropped input, volume, a lost device), the flip rate meter.
+- Unit tests: the law, the rates and their limits, conversions and fades, the gain curve and its ramp, the output choice on a fake `AudioOutputs` (labels, `auto`, a named device, an absent one, one that does not open, no device, a list that fails, a device lost during a run), the pipeline on `FakeAudio` (priming, restart, mute, unmute, overrun, dropped input, volume, a lost device), the flip rate meter.
 - `tests/integration`: the audio part of timing check 6 on `FakeAudio` and `SimClock`, with no sleep. The polynomial runs last 120 simulated seconds, about 19 time constants of the law; the sinc runs last 30 s, because the filter costs 21% of real time in the dev profile. The full ten-minute run of check 6 is an ignored test:
 
 ```sh
