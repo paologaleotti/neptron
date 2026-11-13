@@ -1,5 +1,7 @@
 //! When the frontend starts again after it exits: the backoff.
 
+use crate::power::Power;
+
 /// The exit code with which the frontend asks to be started again at once,
 /// for a planned relaunch: into a game, or back to the game list. The
 /// frontend has the same number in `neptron::RELAUNCH_EXIT_CODE`. 75 is
@@ -11,6 +13,17 @@ pub const RELAUNCH_EXIT_CODE: i32 = 75;
 /// `neptron::display_wait::NO_DISPLAY_EXIT_CODE`. 69 is `EX_UNAVAILABLE`
 /// of `sysexits.h`.
 pub const NO_DISPLAY_EXIT_CODE: i32 = 69;
+
+/// The exit code of a frontend that ended its run cleanly for a reboot of
+/// the machine. The frontend has the same number in
+/// `neptron::power::REBOOT_EXIT_CODE`. 80 and 81 are free in
+/// `sysexits.h`, below the codes of a shell (126 and up) and of a signal.
+pub const REBOOT_EXIT_CODE: i32 = 80;
+
+/// The exit code of a frontend that ended its run cleanly for a power-off
+/// of the machine. The frontend has the same number in
+/// `neptron::power::POWER_OFF_EXIT_CODE`.
+pub const POWER_OFF_EXIT_CODE: i32 = 81;
 
 /// The wait before a restart after [`NO_DISPLAY_EXIT_CODE`], in
 /// nanoseconds. The frontend has waited for the display already, so the
@@ -77,6 +90,10 @@ pub enum Exit {
     /// [`NO_DISPLAY_EXIT_CODE`]: no display answered. Start the frontend
     /// again after [`NO_DISPLAY_WAIT_NS`]. It is no crash and no relaunch.
     NoDisplay,
+    /// [`REBOOT_EXIT_CODE`]: start no new run; reboot the machine.
+    Reboot,
+    /// [`POWER_OFF_EXIT_CODE`]: start no new run; turn the machine off.
+    PowerOff,
     /// Any other exit code, or a signal.
     Crash,
 }
@@ -91,6 +108,8 @@ pub enum Next {
     },
     /// Stop the launcher.
     Stop,
+    /// Start no new run, and ask init for a reboot or a power-off.
+    Power(Power),
 }
 
 /// The restart policy. It counts crashes in a row and nothing else: the
@@ -109,6 +128,8 @@ impl Exit {
             Some(0) => Self::Quit,
             Some(RELAUNCH_EXIT_CODE) => Self::Relaunch,
             Some(NO_DISPLAY_EXIT_CODE) => Self::NoDisplay,
+            Some(REBOOT_EXIT_CODE) => Self::Reboot,
+            Some(POWER_OFF_EXIT_CODE) => Self::PowerOff,
             _ => Self::Crash,
         }
     }
@@ -138,6 +159,8 @@ impl Backoff {
         };
         match exit {
             Exit::Quit => Next::Stop,
+            Exit::Reboot => Next::Power(Power::Reboot),
+            Exit::PowerOff => Next::Power(Power::PowerOff),
             Exit::Relaunch => Next::Restart { after_ns: 0 },
             Exit::NoDisplay => Next::Restart {
                 after_ns: NO_DISPLAY_WAIT_NS,
@@ -182,6 +205,8 @@ mod tests {
     fn exit_codes_map_to_exits() {
         assert_eq!(Exit::of_code(Some(0)), Exit::Quit);
         assert_eq!(Exit::of_code(Some(RELAUNCH_EXIT_CODE)), Exit::Relaunch);
+        assert_eq!(Exit::of_code(Some(REBOOT_EXIT_CODE)), Exit::Reboot);
+        assert_eq!(Exit::of_code(Some(POWER_OFF_EXIT_CODE)), Exit::PowerOff);
         assert_eq!(Exit::of_code(Some(1)), Exit::Crash);
         assert_eq!(Exit::of_code(Some(101)), Exit::Crash, "a Rust panic");
         assert_eq!(Exit::of_code(None), Exit::Crash, "a signal");
@@ -193,7 +218,7 @@ mod tests {
         let waits: Vec<u64> = (0..10)
             .map(|_| match backoff.after(Exit::Crash, 1_000_000, 0) {
                 Next::Restart { after_ns } => after_ns,
-                Next::Stop => panic!("a crash restarts"),
+                Next::Stop | Next::Power(_) => panic!("a crash restarts"),
             })
             .collect();
         assert_eq!(
@@ -316,5 +341,23 @@ mod tests {
     #[test]
     fn a_quit_stops() {
         assert_eq!(Backoff::new().after(Exit::Quit, 0, 0), Next::Stop);
+    }
+
+    #[test]
+    fn a_power_request_starts_no_run_and_counts_no_crash() {
+        let mut backoff = Backoff::new();
+        assert!(matches!(
+            backoff.after(Exit::Crash, 0, 0),
+            Next::Restart { .. }
+        ));
+        assert_eq!(
+            backoff.after(Exit::Reboot, 0, 0),
+            Next::Power(Power::Reboot)
+        );
+        assert_eq!(
+            backoff.after(Exit::PowerOff, 0, 0),
+            Next::Power(Power::PowerOff)
+        );
+        assert_eq!(backoff.crashes(), 1, "the crash count stays");
     }
 }

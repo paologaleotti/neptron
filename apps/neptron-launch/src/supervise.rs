@@ -3,6 +3,7 @@
 use std::io;
 
 use crate::backoff::{Backoff, Exit, Next, NoDisplayLog};
+use crate::power::Power;
 
 /// The frontend process, as the supervisor sees it.
 pub trait Frontend {
@@ -26,6 +27,16 @@ pub trait Time {
     fn wait_ns(&mut self, ns: u64);
 }
 
+/// How the supervisor ended with no error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ended {
+    /// The runs of the frontend.
+    pub runs: u64,
+    /// The reboot or the power-off that the last run asked for. `None`
+    /// after a quit or a stop signal.
+    pub power: Option<Power>,
+}
+
 /// Why the supervisor stopped.
 #[derive(Debug, thiserror::Error)]
 pub enum SuperviseError {
@@ -40,10 +51,10 @@ pub enum SuperviseError {
     },
 }
 
-/// Runs the frontend until it quits with exit code 0, or until a stop
-/// signal ends the run that holds it. A crash starts it
-/// again after the wait of the [`Backoff`]; a relaunch starts it again at
-/// once. Returns the number of runs.
+/// Runs the frontend until it quits with exit code 0, asks for a reboot or
+/// a power-off, or until a stop signal ends the run that holds it. A crash
+/// starts it again after the wait of the [`Backoff`]; a relaunch starts it
+/// again at once. A stop signal wins over a request of the last run.
 ///
 /// # Errors
 ///
@@ -53,7 +64,7 @@ pub fn supervise<F: Frontend, T: Time>(
     frontend: &mut F,
     time: &mut T,
     backoff: &mut Backoff,
-) -> Result<u64, SuperviseError> {
+) -> Result<Ended, SuperviseError> {
     let mut runs = 0u64;
     let mut no_display_log = NoDisplayLog::new();
     loop {
@@ -64,12 +75,14 @@ pub fn supervise<F: Frontend, T: Time>(
         runs += 1;
         let now_ns = time.now_ns();
         let ran_ns = now_ns.saturating_sub(started_ns);
+        let ended = |power| Ok(Ended { runs, power });
         if frontend.stopping() {
-            return Ok(runs);
+            return ended(None);
         }
         let exit = Exit::of_code(code);
         match backoff.after(exit, ran_ns, now_ns) {
-            Next::Stop => return Ok(runs),
+            Next::Stop => return ended(None),
+            Next::Power(power) => return ended(Some(power)),
             Next::Restart { after_ns } => {
                 if exit == Exit::NoDisplay {
                     if no_display_log.due(now_ns) {
@@ -92,7 +105,7 @@ pub fn supervise<F: Frontend, T: Time>(
                     time.wait_ns(after_ns);
                 }
                 if frontend.stopping() {
-                    return Ok(runs);
+                    return ended(None);
                 }
             }
         }
@@ -103,8 +116,8 @@ pub fn supervise<F: Frontend, T: Time>(
 mod tests {
     use super::*;
     use crate::backoff::{
-        BACKOFF_FIRST_NS, NO_DISPLAY_EXIT_CODE, NO_DISPLAY_WAIT_NS, RELAUNCH_EXIT_CODE,
-        STABLE_RUN_NS,
+        BACKOFF_FIRST_NS, NO_DISPLAY_EXIT_CODE, NO_DISPLAY_WAIT_NS, POWER_OFF_EXIT_CODE,
+        REBOOT_EXIT_CODE, RELAUNCH_EXIT_CODE, STABLE_RUN_NS,
     };
 
     /// A frontend that ends each run with the next scripted result after a
@@ -147,14 +160,16 @@ mod tests {
         }
     }
 
-    fn run(script: Vec<(u64, io::Result<Option<i32>>)>) -> (Result<u64, SuperviseError>, Vec<u64>) {
+    fn run(
+        script: Vec<(u64, io::Result<Option<i32>>)>,
+    ) -> (Result<Ended, SuperviseError>, Vec<u64>) {
         run_stopping(script, None)
     }
 
     fn run_stopping(
         script: Vec<(u64, io::Result<Option<i32>>)>,
         stop_after: Option<usize>,
-    ) -> (Result<u64, SuperviseError>, Vec<u64>) {
+    ) -> (Result<Ended, SuperviseError>, Vec<u64>) {
         let clock = std::cell::Cell::new(0);
         let mut frontend = FakeFrontend {
             script,
@@ -177,7 +192,7 @@ mod tests {
         script.push((1_000, Ok(Some(101))));
         script.push((1_000, Ok(Some(0))));
         let (result, waits) = run(script);
-        assert_eq!(result.expect("a quit"), 7);
+        assert_eq!(result.expect("a quit"), quit(7));
         assert_eq!(
             waits,
             [
@@ -200,7 +215,7 @@ mod tests {
             (1_000, Ok(Some(1))),
             (1_000, Ok(Some(0))),
         ]);
-        assert_eq!(result.expect("a quit"), 4);
+        assert_eq!(result.expect("a quit"), quit(4));
         assert_eq!(
             waits,
             [BACKOFF_FIRST_NS, 2 * BACKOFF_FIRST_NS, 4 * BACKOFF_FIRST_NS]
@@ -214,7 +229,7 @@ mod tests {
             (1_000, Ok(Some(RELAUNCH_EXIT_CODE))),
             (1_000, Ok(Some(0))),
         ]);
-        assert_eq!(result.expect("a quit"), 3);
+        assert_eq!(result.expect("a quit"), quit(3));
         assert!(waits.is_empty());
     }
 
@@ -225,7 +240,7 @@ mod tests {
             .collect();
         script.push((1_000_000, Ok(Some(0))));
         let (result, waits) = run(script);
-        assert_eq!(result.expect("a quit"), 13);
+        assert_eq!(result.expect("a quit"), quit(13));
         assert_eq!(waits, [BACKOFF_FIRST_NS, 2 * BACKOFF_FIRST_NS]);
     }
 
@@ -239,7 +254,11 @@ mod tests {
             ],
             Some(2),
         );
-        assert_eq!(result.expect("a stop"), 2, "no third run after the signal");
+        assert_eq!(
+            result.expect("a stop"),
+            quit(2),
+            "no third run after the signal"
+        );
         assert_eq!(waits, [BACKOFF_FIRST_NS]);
     }
 
@@ -251,11 +270,41 @@ mod tests {
             (STABLE_RUN_NS, Ok(Some(1))),
             (1_000, Ok(Some(0))),
         ]);
-        assert_eq!(result.expect("a quit"), 4);
+        assert_eq!(result.expect("a quit"), quit(4));
         assert_eq!(
             waits,
             [BACKOFF_FIRST_NS, 2 * BACKOFF_FIRST_NS, BACKOFF_FIRST_NS]
         );
+    }
+
+    fn quit(runs: u64) -> Ended {
+        Ended { runs, power: None }
+    }
+
+    #[test]
+    fn a_power_request_ends_the_supervisor_with_no_restart_and_no_wait() {
+        for (code, power) in [
+            (REBOOT_EXIT_CODE, Power::Reboot),
+            (POWER_OFF_EXIT_CODE, Power::PowerOff),
+        ] {
+            // The script has no run after the request: a restart would
+            // panic in the fake frontend.
+            let (result, waits) = run(vec![(1_000, Ok(Some(1))), (1_000, Ok(Some(code)))]);
+            assert_eq!(
+                result.expect("a request"),
+                Ended {
+                    runs: 2,
+                    power: Some(power)
+                }
+            );
+            assert_eq!(waits, [BACKOFF_FIRST_NS], "only the crash waited");
+        }
+    }
+
+    #[test]
+    fn a_stop_signal_wins_over_a_power_request() {
+        let (result, _) = run_stopping(vec![(1_000, Ok(Some(POWER_OFF_EXIT_CODE)))], Some(1));
+        assert_eq!(result.expect("a stop"), quit(1));
     }
 
     #[test]
