@@ -361,7 +361,7 @@ name = "Defects of the first hardware session: panel menu rows, start before the
 owns = ["apps/neptron", "apps/neptron-launch", "crates/neptron-ui", "crates/neptron-settings", "crates/neptron-kms", "os"]
 needs = ["T28", "C08"]
 gate = "T1 and T2; a failing test first for each defect"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C12"
