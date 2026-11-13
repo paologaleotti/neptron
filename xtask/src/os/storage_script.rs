@@ -1714,3 +1714,89 @@ fn an_old_share_before_partition_4_is_never_offered_a_format() {
         "an exFAT boot sector starts at sector {PLANNED} of the disk"
     )));
 }
+
+/// Sectors in one MiB.
+const MIB_SECTORS: u64 = 2048;
+
+impl Run {
+    /// A disk whose free space is an empty partition 4 of type 7 at the
+    /// planned start with `sectors`, in the table and in the kernel, with
+    /// no marker.
+    fn with_large_partition_4(name: &str, sectors: u64) -> Self {
+        let run = Run::new(name);
+        std::fs::write(
+            run.path("sys/devices/blk/sda/size"),
+            format!("{}\n", PLANNED + sectors),
+        )
+        .unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(run.path("dev/sda"))
+            .unwrap()
+            .set_len((PLANNED + sectors) * 512)
+            .unwrap();
+        run.table_partition_4(PLANNED, sectors, "7");
+        run.add_partition(4, PLANNED, sectors);
+        run
+    }
+}
+
+/// The boot that only makes the offer scans the first 256 MiB after the
+/// planned start; the request boot scans the first 4 GiB of partition 4
+/// before the format.
+#[test]
+fn the_offer_scans_256_mib_and_the_request_scans_4_gib() {
+    let sectors = 512 * MIB_SECTORS;
+    let within = Run::with_large_partition_4("scan-offer-within", sectors);
+    within.exfat_at(PLANNED + 255 * MIB_SECTORS);
+    within
+        .start()
+        .assert_no_offer(Some("an exFAT boot sector starts at sector"));
+
+    let beyond = Run::with_large_partition_4("scan-offer-beyond", sectors);
+    beyond.exfat_at(PLANNED + 256 * MIB_SECTORS);
+    let offered = beyond.boot(&[]);
+    assert!(offered.offer().is_some(), "{offered:#?}");
+    beyond.write_request(&beyond.sda4(), PLANNED, sectors, "7");
+    beyond.boot(&[]).assert_request_refused(&format!(
+        "an exFAT boot sector starts at sector {} of the disk",
+        PLANNED + 256 * MIB_SECTORS
+    ));
+}
+
+#[test]
+fn the_request_scan_ends_after_4_gib_of_partition_4() {
+    let sectors = 4097 * MIB_SECTORS;
+    for (name, at, refused) in [
+        ("scan-request-last", PLANNED + 4095 * MIB_SECTORS, true),
+        ("scan-request-after", PLANNED + 4096 * MIB_SECTORS, false),
+    ] {
+        let run = Run::with_large_partition_4(name, sectors);
+        run.exfat_at(at);
+        run.write_request(&run.sda4(), PLANNED, sectors, "7");
+        let out = run.boot(&[]);
+        if refused {
+            out.assert_request_refused(&format!("starts at sector {at} of the disk"));
+        } else {
+            assert_eq!(out.calls("mkfs.exfat"), 1, "{name}: {out:#?}");
+        }
+    }
+}
+
+/// One process reads each step of the scan: the boot cost is the number
+/// of steps.
+#[test]
+fn a_boot_name_is_one_dd_that_seeks_to_its_byte() {
+    let text = script();
+    let body: String = text
+        .split("boot_name() {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}").next())
+        .expect("boot_name")
+        .to_owned();
+    assert_eq!(body.matches("dd ").count(), 1, "{body}");
+    assert!(
+        body.contains("bs=1 skip=$(($2 * 512 + 3)) count=8"),
+        "{body}"
+    );
+}

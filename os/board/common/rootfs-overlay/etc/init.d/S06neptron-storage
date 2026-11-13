@@ -185,6 +185,10 @@ EXFAT_BACKUP_SECTORS="12 24 48 96"
 # makes partition 4, in sectors (4 GiB): layouts of other image versions
 # place the share start within this distance.
 OLD_SHARE_SCAN_SECTORS=8388608
+# A boot that only offers a format scans this far after the planned start
+# for an old share, in sectors (256 MiB); the boot of the request scans
+# OLD_SHARE_SCAN_SECTORS of partition 4 before it formats.
+OFFER_SCAN_SECTORS=524288
 # addpart gives partition 4 to the kernel at most this many times, with
 # this pause between two tries, in microseconds: a slow stick can still be
 # busy with the write of the table.
@@ -226,9 +230,10 @@ planned_start() {
 }
 
 # The 8 bytes of the file system name of the boot sector at sector $2 of
-# device $1 (offset 3 of the sector).
+# device $1 (offset 3 of the sector). One dd seeks to the byte: the scans
+# for an old share run it thousands of times at boot.
 boot_name() {
-	dd if="$1" bs=512 skip="$2" count=1 2>/dev/null | dd bs=1 skip=3 count=8 2>/dev/null
+	dd if="$1" bs=1 skip=$(($2 * 512 + 3)) count=8 2>/dev/null
 }
 
 # 0 when blkid finds a filesystem or a partition table on $1, 1 when it
@@ -509,9 +514,12 @@ format_exfat() {
 # same start, size and type.
 
 # Why partition 4 ($1) may not be formatted for the user, as the end of a
-# sentence that starts with its name, or nothing. read_table has read the
-# table.
+# sentence that starts with its name, or nothing. $2 is offer or request:
+# the scan for an old share ends OFFER_SCAN_SECTORS after the planned
+# start for an offer, OLD_SHARE_SCAN_SECTORS after the start of
+# partition 4 for a request. read_table has read the table.
 user_format_refusal() {
+	scan=$2
 	if [ "$state_writable" != yes ]; then
 		echo "cannot be offered a format: the state partition is not mounted"
 		return
@@ -567,7 +575,11 @@ user_format_refusal() {
 	done
 	# An old share can start before partition 4, at the planned start,
 	# and run into it, so the scan starts there.
-	to=$(($2 + OLD_SHARE_SCAN_SECTORS))
+	if [ "$scan" = request ]; then
+		to=$(($2 + OLD_SHARE_SCAN_SECTORS))
+	else
+		to=$(($(planned_start) + OFFER_SCAN_SECTORS))
+	fi
 	[ "$to" -gt $(($2 + $3)) ] && to=$(($2 + $3))
 	inside=$(exfat_from "$(planned_start)" "$to")
 	if [ -n "$inside" ]; then
@@ -582,7 +594,7 @@ note_offer() {
 		log "no format is offered: the partition table of $disk_dev cannot be read"
 		return
 	fi
-	why=$(user_format_refusal "$1")
+	why=$(user_format_refusal "$1" offer)
 	if [ -n "$why" ]; then
 		log "the share partition $1 $why"
 		return
@@ -619,7 +631,7 @@ request_mismatch() {
 		echo "it names start $req_start, size $req_size and type $req_type, but the table holds partition 4 as (${now:-nothing})"
 		return
 	fi
-	why=$(user_format_refusal "$1")
+	why=$(user_format_refusal "$1" request)
 	[ -n "$why" ] && echo "$1 $why"
 }
 
