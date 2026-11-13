@@ -104,6 +104,7 @@ impl Screens {
     pub fn update(&mut self, snap: &Snapshot, actions: &[UiAction], out: &mut UiFrame) {
         out.clear();
         self.follow(snap);
+        self.confirm.begin_frame();
         for &action in actions {
             self.handle(action, snap, &mut out.intents);
             self.follow(snap);

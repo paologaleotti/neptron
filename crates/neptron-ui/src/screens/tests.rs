@@ -462,9 +462,26 @@ fn keep_needs_a_move_to_keep_then_accept() {
     assert_eq!(run.focused(), Some("Keep"));
     run.step(&snap, &[Accept]);
     assert_eq!(run.intents(), [Intent::KeepMode]);
-    run.step(&snap, &[Accept, Back, Left, Accept]);
-    assert!(run.intents().is_empty());
     assert!(message(&run).contains("One moment."));
+}
+
+#[test]
+fn one_answer_per_frame_and_the_dialog_takes_input_again_while_it_stays() {
+    let (mut run, snap) = confirming(10 * SECOND_NS);
+    release(&mut run, &snap);
+    run.step(&snap, &[Right, Accept, Back, Left, Accept]);
+    assert_eq!(run.intents(), [Intent::KeepMode]);
+    assert!(message(&run).contains("One moment."));
+
+    // The app refused the keep: the same confirmation is still in the
+    // snapshot, so the player can keep again.
+    run.step(&snap, &[]);
+    assert!(message(&run).contains("comes back in 10 s."));
+    assert_eq!(run.focused(), Some("Keep"));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::KeepMode]);
+    run.step(&snap, &[Left, Accept]);
+    assert_eq!(run.intents(), [Intent::RevertMode]);
 }
 
 #[test]

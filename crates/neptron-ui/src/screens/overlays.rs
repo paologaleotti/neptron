@@ -50,8 +50,10 @@ const DISMISSED_SLOTS: usize = 8;
 /// new confirmation, accept on Revert or back reverts, and only right then
 /// accept keeps. A confirmation is new when its id differs from the one of
 /// the last frame, or when the last frame had none. After one answer the
-/// dialog ignores input until the snapshot drops the confirmation or holds
-/// a new one.
+/// dialog ignores the other actions of that frame. The app carries out the
+/// answer in the same frame: when the next snapshot still holds the same
+/// confirmation, the app refused the keep, and the dialog takes input
+/// again, with the focus where it was.
 ///
 /// A held direction must not move the focus to Keep: after a confirmation
 /// appears, the dialog ignores left and right until it has seen
@@ -88,6 +90,11 @@ impl Confirm {
             *self = Self::new();
             self.id = id;
         }
+    }
+
+    /// Takes an answer again: called once per frame, before its actions.
+    pub(super) fn begin_frame(&mut self) {
+        self.answered = false;
     }
 
     /// Counts the frames in a row with no direction action, once per frame
