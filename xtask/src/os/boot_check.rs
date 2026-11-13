@@ -743,7 +743,7 @@ const SHARE_ROOM_BYTES: u64 = 128 * 1024 * 1024;
 /// A copy of the disk `image` in `out_dir`, with [`SHARE_ROOM_BYTES`] of
 /// zeros after its end. The copy is a clone on APFS; the image stays as it
 /// is. Returns the path of the copy.
-fn disk_with_share_room(image: &Path, out_dir: &Path) -> Result<PathBuf, OsError> {
+pub(super) fn disk_with_share_room(image: &Path, out_dir: &Path) -> Result<PathBuf, OsError> {
     let io = |path: &Path| {
         let path = path.to_owned();
         move |source| OsError::Io { path, source }

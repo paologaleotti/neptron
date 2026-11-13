@@ -19,6 +19,7 @@ mod host;
 mod network_share;
 mod qemu;
 mod selftest_check;
+mod share_check;
 #[cfg(test)]
 mod storage_script;
 mod trace;
@@ -172,6 +173,7 @@ usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [--dev-key FILE]
        cargo xtask os selftest-check [--arch A] [--timeout SECS]
        cargo xtask os boot-check [--arch A] [--firmware bios|uefi] [--timeout SECS]
                                  [--images DIR] [--bless]
+       cargo xtask os share-check [--arch x86_64] [--timeout SECS] [--images DIR]
        cargo xtask os push --host H [--user U] [--port P] [--data] [--no-restart]
        cargo xtask os logs --host H [--user U] [--port P] [--follow]
        cargo xtask os ssh --host H [--user U] [--port P] -- command...
@@ -186,6 +188,7 @@ pub fn run_os(args: &[&str]) -> Result<ExitCode, OsError> {
         Some((&"app-check", rest)) => app_check(rest),
         Some((&"selftest-check", rest)) => selftest_check::run(rest),
         Some((&"boot-check", rest)) => boot_check::run(rest),
+        Some((&"share-check", rest)) => share_check::run(rest),
         Some((&sub @ ("push" | "logs" | "ssh"), rest)) => bench::run(sub, rest),
         _ => Err(OsError::Usage("unknown os subcommand".to_owned())),
     }
