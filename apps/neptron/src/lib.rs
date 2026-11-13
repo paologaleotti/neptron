@@ -26,6 +26,7 @@ pub mod record;
 pub mod relaunch;
 pub mod shell;
 pub mod stop;
+pub mod storage;
 
 pub use paths::Paths;
 pub use relaunch::{NextRun, RELAUNCH_EXIT_CODE};

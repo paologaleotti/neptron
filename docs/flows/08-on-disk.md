@@ -12,7 +12,7 @@ flowchart LR
     DISK --> P2["2: root, EROFS, 384 MiB<br/>read-only"]
     DISK --> P3["3: state, ext4, 256 MiB in the image<br/>label neptron-state, at /state"]
     DISK -->|"made at the first boot"| P4["4: share, exFAT, rest of the disk<br/>label NEPTRON, at /share"]
-    RAM["RAM file system"] --> RUN["/run/neptron<br/>next.toml, hold, control.sock"]
+    RAM["RAM file system"] --> RUN["/run/neptron<br/>next.toml, storage.toml, hold, control.sock"]
 ```
 
 ### The state partition
@@ -78,6 +78,7 @@ flowchart LR
 | `/state/saves/<system>/<game>.srm.bak` | The save RAM before the last write | As above | As above | Only the backup |
 | `/state/cache/library.cache` | The game index | The writer thread, after a scan | Temp file, sync, rename, sync of the folder. At most `MAX_CACHE_BYTES` = 16 MiB | Nothing: the list is empty until the scan ends, then the scan fills it |
 | `/state/share-pending` | The first-boot marker: `partition 4 made at <date>` | `S06neptron-storage` | `echo` and `sync` | Partition 4 is not formatted while it is empty. See [Power-on](01-power-on.md) |
+| `/run/neptron/storage.toml` | What `S06neptron-storage` mounted at `/state` and `/share`: `state`, `share` (`partition` or `ram`), `state_reason`, `share_reason` | `S06neptron-storage` at boot | A plain write before the frontend starts | RAM only. No file: no notice |
 | `/run/neptron/next.toml` | The relaunch file: `version` = 1, the game (`system`, `path`) or none, a `notice` | The frontend at the end of a run, before exit 75 | `atomic::write` | RAM only. A start with no file is a new boot |
 | `/run/neptron/hold` | Present: the launch script does not start the launcher | The `stop` script, the bench tools | `touch` | RAM only |
 | `/run/neptron/control.sock` | The control socket (`DEFAULT_SOCKET_PATH`) | The frontend | | See [Control and bench](09-control-and-bench.md) |
@@ -132,8 +133,8 @@ Hand edits: the files are plain TOML. A hand edit takes effect at the next start
 | A save RAM write fails during play | When the last flush at the end of the game also fails, the list shows `The game was not saved: <error>.` On a stop by SIGTERM, the log gets `neptron: The game was not saved: <error>.` A failure that a later write repaired gives no notice. | Free space; the `.bak` holds the save before the last write |
 | A power cut during play | The save RAM since the last flush is lost, at most 30 s of play. The `.srm` holds the old or the new content, never a broken one. `next.toml` is gone, so the next start is a new boot | None needed |
 | The library cache is damaged or of another version | Warning: `library cache: <error>`. The list fills when the scan ends | None needed |
-| `/state` is a RAM folder (e2fsck failed, no partition 3) | No notice on screen. Settings, saves, the guard record and the cache work in RAM and are lost at power off | Repair the ext4 partition on a Linux PC |
-| `/share` is a RAM folder | No notice on screen. The game list is empty | See [Power-on](01-power-on.md), "What can go wrong" |
+| `/state` is a RAM folder (e2fsck failed, no partition 3) | A Warning notice with the reason, until OK, and the safe picture: a guard record in RAM counts no boot. Settings, saves, the guard record and the cache work in RAM and are lost at power off | Repair the ext4 partition on a Linux PC |
+| `/share` is a RAM folder | A Warning notice with the reason, until OK. The game list is empty | See [Power-on](01-power-on.md), "What can go wrong" |
 | A re-flash with `dd` | The state partition is new: settings, saves and the guard record are gone. The share is kept when it starts at the planned place (see [Power-on](01-power-on.md)) | Copy `/state/saves` off before a re-flash (development image: over SSH) |
 
 ## Source

@@ -28,6 +28,7 @@ use crate::paths::Paths;
 use crate::presets::Presets;
 use crate::record;
 use crate::relaunch::{GameRef, NextRun};
+use crate::storage::StorageStatus;
 
 /// A run that cannot start. The binary reports it and exits; the launcher
 /// starts it again after its backoff.
@@ -196,9 +197,30 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         let boot_panel_prompt = matches!(step.event, Some(GuardEvent::PromptOpened(_)))
             && detected.auto_is_panel()
             && config.monitor() == crate::display::AUTO;
-        let unrecorded = step.save.take().and_then(|saved| {
-            record::save(&paths.guard_record(), &saved, record_place.as_ref()).err()
-        });
+        let storage = match StorageStatus::read(&paths.run) {
+            Ok(status) => status,
+            Err(e) => {
+                found.warn(e.to_string());
+                None
+            }
+        };
+        let saved = step
+            .save
+            .take()
+            .map(|saved| record::save(&paths.guard_record(), &saved, record_place.as_ref()));
+        // A record in a RAM folder is lost at power-off, so the boot counts
+        // nothing that the next power-on sees: the same case as a failed
+        // write.
+        let unrecorded = match (saved, &storage) {
+            (Some(Err(e)), _) => Some(format!(
+                "Safe mode: the guard record cannot be written ({e}). This start uses the safe picture."
+            )),
+            (_, Some(status)) if status.state_in_ram() => Some(
+                "Safe mode: the guard record is in a RAM folder and is lost at power-off. This start uses the safe picture."
+                    .to_owned(),
+            ),
+            _ => None,
+        };
         let library = match library {
             Some(library) => library,
             None => {
@@ -255,12 +277,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         };
         shell.first_snapshot();
         shell.on_guard(step, now_ns);
-        if let Some(e) = unrecorded {
+        if let Some(text) = unrecorded {
             // A boot that cannot count itself could fail again and again
             // and never reach safe mode, so it starts in the safe default.
-            shell.safe_for_this_run(format!(
-                "Safe mode: the guard record cannot be written ({e}). This start uses the safe picture."
-            ));
+            shell.safe_for_this_run(text);
+        }
+        for text in storage.iter().flat_map(StorageStatus::notices) {
+            shell.log(format!("storage: {text}"));
+            found.issues.push((NoticeKind::Warning, text));
         }
         if shell.in_game() {
             let settings = shell.config.policy()?;

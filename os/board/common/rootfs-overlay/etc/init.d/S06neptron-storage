@@ -8,11 +8,37 @@
 # The image has no share partition. On the first boot it is made from the
 # free space after the state partition and formatted exFAT, as the
 # definition asks; the rules are below.
+#
+# The frontend cannot see a RAM folder, so the script writes what it
+# mounted, and why, to /run/neptron/storage.toml (a RAM file system: the
+# file is new at each boot). The frontend shows a notice for each RAM
+# folder and starts in the safe picture when /state is one.
 
 [ "$1" = start ] || exit 0
 
 # The read-only root of the PC image has the mount points already.
 mkdir -p /state /share 2>/dev/null
+
+STATUS_DIR=/run/neptron
+STATUS=$STATUS_DIR/storage.toml
+
+# Logs one line and keeps it as the reason of the next RAM folder.
+say() {
+	echo "neptron-storage: $1"
+	last=$1
+}
+
+# Mounts a RAM folder at $1 and notes it, with the last line as the reason.
+ram_folder() {
+	mount -t tmpfs -o mode=0755 "${1#/}" "$1"
+	reason=$(printf '%s' "$last" | tr -d '"\\')
+	case $1 in
+	/state) state_kind=ram state_reason=$reason ;;
+	/share) share_kind=ram share_reason=$reason ;;
+	esac
+}
+state_kind=partition
+share_kind=partition
 
 partition() {
 	disk=$1
@@ -40,17 +66,17 @@ if [ -n "$state" ]; then
 	e2fsck -p "$state"
 	code=$?
 	if [ "$code" -ge 4 ]; then
-		echo "neptron-storage: e2fsck $state left errors (exit $code); /state is a RAM folder"
-		mount -t tmpfs -o mode=0755 state /state
+		say "e2fsck $state left errors (exit $code); /state is a RAM folder"
+		ram_folder /state
 	elif ! mount -t ext4 -o noatime "$state" /state; then
-		echo "neptron-storage: $state does not mount; /state is a RAM folder"
-		mount -t tmpfs -o mode=0755 state /state
+		say "$state does not mount; /state is a RAM folder"
+		ram_folder /state
 	else
 		state_writable=yes
 	fi
 else
-	echo "neptron-storage: no state partition, /state is a RAM folder"
-	mount -t tmpfs -o mode=0755 state /state
+	say "no state partition, /state is a RAM folder"
+	ram_folder /state
 fi
 
 # The share partition (partition 4) is made and formatted by this script
@@ -169,19 +195,19 @@ old_share() {
 
 make_partition() {
 	if [ "$state_writable" != yes ]; then
-		echo "neptron-storage: the state partition is not mounted, so no share partition is made"
+		say "the state partition is not mounted, so no share partition is made"
 		return 1
 	fi
 	free=$(($(cat "$disk/size") - $(state_end)))
 	if [ "$free" -lt "$SHARE_MIN_SECTORS" ]; then
-		echo "neptron-storage: $free free sectors after the state partition, no share partition made"
+		say "$free free sectors after the state partition, no share partition made"
 		return 1
 	fi
 	found=$(old_share)
 	end=$(state_end)
 	planned=$(( (end + ALIGN_SECTORS - 1) / ALIGN_SECTORS * ALIGN_SECTORS ))
 	if [ -n "$found" ] && [ "$found" != "$planned" ]; then
-		echo "neptron-storage: an old exFAT share starts at sector $found, not at $planned; no share partition made, the disk is left untouched"
+		say "an old exFAT share starts at sector $found, not at $planned; no share partition made, the disk is left untouched"
 		return 1
 	fi
 	echo "neptron-storage: making partition 4 from $free free sectors"
@@ -192,7 +218,7 @@ make_partition() {
 	# they are, and partx adds only the new one to the kernel.
 	echo ',,7' | sfdisk --quiet --force --no-reread --append "$disk_dev" || return 1
 	partx --add --nr 4 "$disk_dev" || {
-		echo "neptron-storage: the kernel does not see partition 4; the next boot uses it"
+		say "the kernel does not see partition 4; the next boot uses it"
 		return 1
 	}
 }
@@ -204,25 +230,36 @@ prepare_share() {
 	case $? in
 	0) return 0 ;;
 	2)
-		echo "neptron-storage: the share partition $share was left untouched: blkid could not probe it cleanly"
+		say "the share partition $share was left untouched: blkid could not probe it cleanly"
 		return 1
 		;;
 	esac
 	reason=$(format_refusal "$share")
 	if [ -n "$reason" ]; then
-		echo "neptron-storage: the share partition $share was left untouched: $reason"
+		say "the share partition $share was left untouched: $reason"
 		return 1
 	fi
 	echo "neptron-storage: $share holds no filesystem; formatting it exFAT"
-	mkfs.exfat -L NEPTRON "$share"
+	mkfs.exfat -L NEPTRON "$share" || {
+		say "mkfs.exfat failed on $share"
+		return 1
+	}
 }
 
+last="no share partition"
 share=$(partition "$disk" 4)
 if [ -z "$share" ] && [ -n "$state" ] && make_partition; then
 	share=$(partition "$disk" 4)
 fi
-if [ -n "$share" ] && prepare_share &&
-	mount -t exfat -o noatime,iocharset=utf8 "$share" /share; then
+mounted=no
+if [ -n "$share" ] && prepare_share; then
+	if mount -t exfat -o noatime,iocharset=utf8 "$share" /share; then
+		mounted=yes
+	else
+		say "$share does not mount"
+	fi
+fi
+if [ "$mounted" = yes ]; then
 	echo "neptron-storage: $share mounted at /share"
 	if [ -e "$MARKER" ]; then
 		rm -f "$MARKER"
@@ -230,8 +267,16 @@ if [ -n "$share" ] && prepare_share &&
 	fi
 else
 	echo "neptron-storage: no usable share partition, /share is a RAM folder"
-	mount -t tmpfs -o mode=0755 share /share
+	ram_folder /share
 fi
+
+mkdir -p "$STATUS_DIR"
+{
+	echo "state = \"$state_kind\""
+	[ "$state_kind" = ram ] && echo "state_reason = \"$state_reason\""
+	echo "share = \"$share_kind\""
+	[ "$share_kind" = ram ] && echo "share_reason = \"$share_reason\""
+} > "$STATUS"
 
 # One ROM folder for each system of the image, as the definition asks for
 # the first boot. The names are the file names of data/systems.

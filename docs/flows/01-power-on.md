@@ -156,8 +156,8 @@ Which mode stays on the wire until the first commit depends on the driver. The h
 | Result | What the user sees |
 | --- | --- |
 | `/state` on disk, `/share` on disk | Normal. Settings, saves and the guard record are kept. The game list shows the ROMs of `/share/roms`. |
-| `/state` is a RAM folder | Nothing on screen says so. Settings, saves and the guard record are lost at power off. No share partition is made. |
-| `/share` is a RAM folder | Nothing on screen says so. The ROM folders are empty, so the game list has no games. |
+| `/state` is a RAM folder | A Warning notice that stays until OK: "The state partition is not in use (<reason>). Settings, saves and display choices are lost at power-off." The frontend starts in the safe picture (the guard record in RAM counts no boot). Settings, saves and the guard record are lost at power off. No share partition is made. |
+| `/share` is a RAM folder | A Warning notice that stays until OK: "The share partition is not in use (<reason>). The game folder is empty, and files copied to it are lost at power-off." The ROM folders are empty, so the game list has no games. |
 
 The script writes one line for each decision to the console (`ttyS0`). The lines start with `neptron-storage:`.
 
@@ -192,6 +192,7 @@ The disk signature is fixed for each build variant: `4e505452` (release), `4e505
 | Partition 4, empty | Formatted | Marker there, type 7, start in the first 1 MiB after state, first 16 MiB read cleanly, no exFAT backup boot sector | `READ_CHECK_MIB` = 16, `EXFAT_BACKUP_SECTORS` = 12 24 48 96 | `mkfs.exfat -L NEPTRON`. Line: `neptron-storage: <dev> holds no filesystem; formatting it exFAT` |
 | Partition 4 | `/share` RAM folder | One rule fails | | Line: `neptron-storage: the share partition <dev> was left untouched: <reason>`. The reasons are in "What can go wrong" |
 | Mounted | Marker removed | The mount worked and the marker exists | | `rm -f /state/share-pending`, `sync`. Line: `neptron-storage: <dev> mounted at /share` |
+| Any | Status file | Always | | `/run/neptron/storage.toml`: `state` and `share`, each `partition` or `ram`, and `state_reason` or `share_reason` for a RAM folder: the last `neptron-storage:` line before it. The frontend reads it at boot (`StorageStatus::read`), logs `neptron: storage: <notice>` and shows the notice. |
 | Any | ROM folders | Always, also on a RAM folder | | `mkdir -p /share/roms/<id>` for each `/usr/share/neptron/systems/<id>.toml` (`megadrive`, `nes`, `snes`), and `mkdir -p /share/bios` |
 
 ### Launcher
@@ -250,7 +251,7 @@ Nothing in the release image starts a shutdown: no code calls `poweroff` or `reb
 | Partition 4 does not read cleanly | `... left untouched: its first 16 MiB do not read cleanly`. | Replace the stick. |
 | Partition 4 has a damaged exFAT main boot sector and a good backup | `... left untouched: it holds an exFAT backup boot sector (sector <n>), so it is a damaged share`. Empty game list. | Repair the share with an exFAT tool on a PC. |
 | `blkid` cannot probe partition 4 cleanly | `... left untouched: blkid could not probe it cleanly`. | Check the stick on a PC. |
-| `e2fsck` cannot repair the state partition | `/state` is a RAM folder: no line on screen. Settings, saves and the guard record of this boot are lost at power off. The guard starts with no record. | Repair or re-create the ext4 state partition on a Linux PC. |
+| `e2fsck` cannot repair the state partition | `/state` is a RAM folder. The notice "The state partition is not in use (e2fsck <dev> left errors (exit <code>); /state is a RAM folder). ..." stays until OK, and the start uses the safe picture. Settings, saves and the guard record of this boot are lost at power off. The guard starts with no record. | Repair or re-create the ext4 state partition on a Linux PC. |
 | `/dev/dri/card0` is missing or is not the GPU | The launcher exits 1 at each start, init starts it again. No picture from NEPTRON. The launcher has no wait of its own for this case. | Needs a shell; check the driver and the device node. |
 | The frontend crashes in a loop | The last mode stays on the wire while the launcher waits 250 ms, then up to 8 s. Each start counts as a boot for the [guard](03-guard.md). After `SAFE_MODE_FAILED_BOOTS` = 2 failed boots the next start is in safe mode. | Wait for safe mode, or see [What happens when](10-what-happens-when.md). |
 | A frontend stuck in a core at shutdown | SIGKILL 5 s after the SIGTERM. The save RAM since the last flush is lost. | None needed. The shutdown goes on. |

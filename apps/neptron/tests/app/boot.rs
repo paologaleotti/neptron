@@ -94,3 +94,44 @@ fn a_missing_device_is_a_notice_and_the_run_goes_on() {
     );
     rig.finish();
 }
+
+#[test]
+fn a_state_partition_in_ram_is_a_notice_and_the_safe_default() {
+    let dir = std::env::temp_dir().join(format!("neptron-app-storage-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    std::fs::create_dir_all(&rig.paths.run).expect("the run folder");
+    std::fs::write(
+        rig.paths.run.join("storage.toml"),
+        "state = \"ram\"\nstate_reason = \"/dev/sda3 does not mount\"\nshare = \"partition\"\n",
+    )
+    .expect("the status");
+    rig.boot(None);
+    assert!(
+        matches!(rig.shell().guard().phase(), Phase::Safe(_)),
+        "an unrecorded boot: {:?}",
+        rig.shell().guard().phase()
+    );
+    let notices: Vec<String> = rig
+        .shell()
+        .snapshot()
+        .notices
+        .iter()
+        .map(|n| n.text.clone())
+        .collect();
+    assert!(
+        notices
+            .iter()
+            .any(|n| n.contains("state partition is not in use (/dev/sda3 does not mount)")),
+        "{notices:?}"
+    );
+    let lines = rig.shell().log_lines(100);
+    assert!(
+        lines.iter().any(|l| l.contains("/dev/sda3 does not mount")),
+        "{lines:?}"
+    );
+    rig.frames(2);
+    rig.finish();
+}
