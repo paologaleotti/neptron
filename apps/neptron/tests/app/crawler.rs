@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 
 use neptron::NextRun;
-use neptron::pages::{NOT_USED_ON_A_PANEL, RESCAN_LABEL};
+use neptron::pages::{NOT_USED_ON_A_PANEL, REBOOT_LABEL, RESCAN_LABEL, SHUT_DOWN_LABEL};
 use neptron_settings::{DisplayClass, Schema};
 use neptron_types::Control;
 use neptron_ui::RowKind;
@@ -30,8 +30,16 @@ const LEAVES: [&str; 4] = ["games", "options", "pattern/grid", "quick-menu/keep"
 
 /// Rows the crawler never accepts: they end the menu or the run, or, for
 /// the rescan row, open a notice when the scan ends, which takes the next
-/// press of the crawl. `rescan.rs` presses that row.
-const NEVER_ACCEPT: [&str; 3] = ["Resume", "Quit game", RESCAN_LABEL];
+/// press of the crawl. `rescan.rs` presses that row. `Reboot` and `Shut
+/// down` open a confirm question that is no screen of the stack, and a
+/// confirm ends the run; `system.rs` presses them.
+const NEVER_ACCEPT: [&str; 5] = [
+    "Resume",
+    "Quit game",
+    RESCAN_LABEL,
+    REBOOT_LABEL,
+    SHUT_DOWN_LABEL,
+];
 
 /// The deepest path from home or the quick menu.
 const DEPTH_MAX: usize = 4;
@@ -118,6 +126,7 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
         "display",
         "audio",
         "library",
+        "system",
         "options",
         "pattern/grid",
         "quick-menu",
@@ -129,10 +138,12 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
             found.screens
         );
     }
-    assert!(
-        found.labels.contains(RESCAN_LABEL),
-        "the rescan row is on no screen"
-    );
+    for label in [RESCAN_LABEL, REBOOT_LABEL, SHUT_DOWN_LABEL] {
+        assert!(
+            found.labels.contains(label),
+            "the row {label} is on no screen"
+        );
+    }
     for entry in Schema::builtin().entries() {
         assert!(
             found.labels.contains(entry.label),

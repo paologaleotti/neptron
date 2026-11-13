@@ -1,0 +1,71 @@
+//! A reboot or a power-off from the System panel. The frontend ends its
+//! run as a quit and exits with a code that asks the launcher for it; the
+//! launcher asks init, and init runs the shutdown steps of the image. The
+//! frontend itself never stops the machine.
+
+use std::ffi::OsStr;
+
+use crate::shell::Outcome;
+
+/// The exit code that asks the launcher for a reboot. It equals
+/// `REBOOT_EXIT_CODE` of `neptron-launch`: 80, free in `sysexits.h`.
+pub const REBOOT_EXIT_CODE: u8 = 80;
+
+/// The exit code that asks the launcher for a power-off. It equals
+/// `POWER_OFF_EXIT_CODE` of `neptron-launch`: 81.
+pub const POWER_OFF_EXIT_CODE: u8 = 81;
+
+/// The environment variable that a launcher with power control sets for
+/// the frontend. It equals `POWER_ENV` of `neptron-launch`.
+pub const POWER_ENV: &str = "NEPTRON_POWER";
+
+/// True when `value`, the value of [`POWER_ENV`], says that the launcher
+/// carries out a reboot or a power-off. Only `1` does: a run with no
+/// launcher, or a launcher with no power control, has no value.
+pub fn control_from(value: Option<&OsStr>) -> bool {
+    value.is_some_and(|v| v == "1")
+}
+
+/// The exit code of a run that ends with `outcome` for a reboot or a
+/// power-off. `None` for a quit or a relaunch.
+pub fn exit_code(outcome: &Outcome) -> Option<u8> {
+    match outcome {
+        Outcome::Reboot => Some(REBOOT_EXIT_CODE),
+        Outcome::PowerOff => Some(POWER_OFF_EXIT_CODE),
+        Outcome::Quit | Outcome::Relaunch(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_power_outcome_has_its_code_and_the_others_none() {
+        assert_eq!(exit_code(&Outcome::Reboot), Some(REBOOT_EXIT_CODE));
+        assert_eq!(exit_code(&Outcome::PowerOff), Some(POWER_OFF_EXIT_CODE));
+        assert_eq!(exit_code(&Outcome::Quit), None);
+        let list = crate::NextRun {
+            game: None,
+            notice: None,
+        };
+        assert_eq!(exit_code(&Outcome::Relaunch(list)), None);
+    }
+
+    #[test]
+    fn only_the_value_one_gives_power_control() {
+        assert!(control_from(Some(OsStr::new("1"))));
+        for value in [None, Some(""), Some("0"), Some("yes"), Some("1 ")] {
+            assert!(!control_from(value.map(OsStr::new)), "{value:?}");
+        }
+    }
+
+    #[test]
+    fn the_codes_are_new_codes_below_those_of_a_shell() {
+        for code in [REBOOT_EXIT_CODE, POWER_OFF_EXIT_CODE] {
+            assert!(![0, 1, 2, 69, 75, 101].contains(&code), "{code}");
+            assert!(code < 126, "{code}");
+        }
+        assert_ne!(REBOOT_EXIT_CODE, POWER_OFF_EXIT_CODE);
+    }
+}

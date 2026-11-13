@@ -98,6 +98,10 @@ pub struct Runtime {
     /// The playback devices the audio backend listed at start, as the
     /// options of the audio output row after `auto`.
     pub audio_outputs: Vec<neptron_audio::OutputDevice>,
+    /// True when the launcher carries out a reboot or a power-off
+    /// ([`crate::power::POWER_ENV`]). Else the rows of the System panel
+    /// are disabled.
+    pub power: bool,
 }
 
 /// How a run ends.
@@ -107,6 +111,10 @@ pub enum Outcome {
     Relaunch(NextRun),
     /// Stop: the user closed the window.
     Quit,
+    /// Stop, and ask the launcher to reboot the machine.
+    Reboot,
+    /// Stop, and ask the launcher to turn the machine off.
+    PowerOff,
 }
 
 /// The input of a run with the events of the control protocol added: the

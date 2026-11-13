@@ -1095,6 +1095,16 @@ mod tests {
                 "apps/neptron-launch/src/backoff.rs",
                 "NO_DISPLAY_EXIT_CODE",
             ),
+            (
+                "apps/neptron/src/power.rs",
+                "apps/neptron-launch/src/backoff.rs",
+                "REBOOT_EXIT_CODE",
+            ),
+            (
+                "apps/neptron/src/power.rs",
+                "apps/neptron-launch/src/backoff.rs",
+                "POWER_OFF_EXIT_CODE",
+            ),
         ] {
             assert_eq!(
                 const_value(frontend, name),
@@ -1102,5 +1112,51 @@ mod tests {
                 "{name}"
             );
         }
+        let codes: Vec<i64> = [
+            "RELAUNCH_EXIT_CODE",
+            "NO_DISPLAY_EXIT_CODE",
+            "REBOOT_EXIT_CODE",
+            "POWER_OFF_EXIT_CODE",
+        ]
+        .iter()
+        .map(|name| const_value("apps/neptron-launch/src/backoff.rs", name))
+        .collect();
+        for (i, code) in codes.iter().enumerate() {
+            assert!(
+                (3..126).contains(code),
+                "{code} is 0, 1, 2 or a code of a shell or a signal"
+            );
+            assert!(!codes[i + 1..].contains(code), "{code} is used twice");
+        }
+    }
+
+    /// The string of `pub const <name>: &str = "<text>";` in a source file
+    /// of the workspace.
+    fn const_text(rel: &str, name: &str) -> String {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(rel);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let prefix = format!("pub const {name}: &str = \"");
+        let line = text
+            .lines()
+            .find_map(|l| l.trim_start().strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("{rel} has no {name}"));
+        line.strip_suffix("\";")
+            .unwrap_or_else(|| panic!("{rel}: {line}"))
+            .to_owned()
+    }
+
+    #[test]
+    fn the_frontend_and_the_launcher_agree_on_the_power_variable() {
+        let frontend = const_text("apps/neptron/src/power.rs", "POWER_ENV");
+        assert_eq!(
+            frontend,
+            const_text("apps/neptron-launch/src/power.rs", "POWER_ENV")
+        );
+        assert_eq!(frontend, "NEPTRON_POWER");
+        assert_eq!(
+            const_text("apps/neptron-launch/src/power.rs", "POWER_ENV_ON"),
+            "1",
+            "the value that neptron::power::control_from takes"
+        );
     }
 }

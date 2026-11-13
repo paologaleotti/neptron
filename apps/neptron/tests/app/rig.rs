@@ -64,6 +64,9 @@ pub struct Rig {
     pub shell: Option<Box<TestShell>>,
     /// The stop flag of the runtime, as SIGTERM and SIGINT set it.
     pub stop: Arc<AtomicBool>,
+    /// Power control, as a launcher with `--power` gives it. On by
+    /// default, as on the image.
+    pub power: bool,
 }
 
 /// Runs `body` in a child process of the test binary with the test core's
@@ -208,6 +211,7 @@ impl Rig {
             paths,
             shell: None,
             stop: Arc::new(AtomicBool::new(false)),
+            power: true,
         }
     }
 
@@ -227,6 +231,7 @@ impl Rig {
             subconnector: None,
             notices: self.notices.clone(),
             audio_outputs: audio_outputs(),
+            power: self.power,
         };
         let devices = Devices {
             display: self.display.clone(),

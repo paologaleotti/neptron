@@ -27,6 +27,8 @@ One run is one process. It shows the game list, or it runs one game, because `ne
 | --- | --- | --- |
 | Relaunch: a launch from the list, the end of a game, a game that did not start | 75 (`RELAUNCH_EXIT_CODE`) | Starts the next run at once |
 | Quit: the window was closed | 0 | Stops |
+| Reboot: `Settings > System > Reboot`, confirmed (`Outcome::Reboot`) | 80 (`power::REBOOT_EXIT_CODE`) | With `--power`: asks init for a reboot |
+| Power-off: `Settings > System > Shut down`, confirmed (`Outcome::PowerOff`) | 81 (`power::POWER_OFF_EXIT_CODE`) | With `--power`: asks init for a power-off |
 | The run cannot start (`BootError`) | 1 | Starts it again after its backoff |
 
 Before a relaunch the run writes `run/next.toml` (the relaunch file, `relaunch.rs`): the game to launch, or none for the list, and a notice for the player. The next run takes and removes it. A game path must be relative, with no empty, `.` or `..` part, and the system a plain id (`GameRef::check`): the run joins it to the ROM folder. A file that fails the check is removed, and the start is a new boot to the game list. The run folder is a RAM file system (`/run/neptron` on the image), so a power cut leaves no file.
@@ -98,6 +100,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 - The display panel writes the global level; the quick menu writes the game level, and its keep prompt moves a change to the system or global level.
 - A row whose setting does not apply to the display of the run (`applies_to` in the schema) is disabled with the reason `Not used on a flat panel`. The class is that of the monitor the guard gave the engine. On a flat panel these are the picture style and the refresh policy.
 - The audio panel (home, `Audio`) writes `audio.volume` and `audio.output` at the global level. The quick menu has a `Volume` row. A volume change reaches the running game at once (`Session::set_volume_percent`); in the game list it only reaches the file. A new output takes effect at the next run, which is a new process.
+- The System panel (`Settings > System`, `pages::system_page`) holds `Reboot` and `Shut down`, each behind a confirm question with the focus on `Cancel`. A confirm ends the run as a quit (`Shell::finish` writes the queued settings and the guard record, the threads are joined, the display is left as after a quit: the last validated mode, held by the launcher) with `Outcome::Reboot` or `Outcome::PowerOff`, and the binary exits with code 80 or 81 (`power::exit_code`). The rows are enabled only in the game list and only when the launcher gave power control (`NEPTRON_POWER=1`, read into `Runtime::power` by the KMS backend; the window backend never has it). In a game the reason is `Not during a game`: the player quits the game first, so its save RAM is written by its own quit. With no power control the reason is `Needs the launcher`. The app checks both rules again when the action arrives.
 - Every write (settings, the guard record, the library cache) goes to the writer thread (`outbox.rs`) over a bounded channel. A full channel keeps the job in a backlog on the frame thread, in order; nothing is dropped. The frame thread does no file I/O.
 
 ## Control protocol
@@ -127,7 +130,8 @@ Each frame reads the clock once and gives that time to every guard call, the hot
   - `recovery.rs`: the 5 s hold of Select and Start from `neptron-input` to `Guard::recover`, in the list and in a game, with the record in safe mode and the tone.
   - `faults.rs`: a display that stops flipping ends the game and relaunches the list with the reason.
   - `audio.rs`: the audio panel writes the volume and the output to `global.toml`; the quick menu volume reaches the game at once, and the next run of the game starts at it.
-  - `crawler.rs`: the UI crawler. It walks every menu path from home and from the quick menu with the D-pad, accept and back only, through the UI tree of the control protocol. It fails on a dead end, on a clipped settings row, on a row outside the overscan-safe area, on a schema setting that no screen shows, and on a setting row whose disabled state does not follow `applies_to`. It runs twice: on the CRT of the 15 kHz safe start, where no row is disabled, and on a 1080p panel, where only the picture style and the refresh policy are.
+  - `system.rs`: confirm `Reboot` ends the run with `Outcome::Reboot` (code 80), confirm `Shut down` with `Outcome::PowerOff` (code 81) after a volume change that reaches `global.toml`; cancel and back change nothing; in a game and with no power control both rows are disabled and ask nothing.
+  - `crawler.rs`: the UI crawler. It walks every menu path from home and from the quick menu with the D-pad, accept and back only, through the UI tree of the control protocol. It fails on a dead end, on a clipped settings row, on a row outside the overscan-safe area, on a schema setting that no screen shows, and on a setting row whose disabled state does not follow `applies_to`. It reaches the System panel and never accepts `Reboot` or `Shut down`. It runs twice: on the CRT of the 15 kHz safe start, where no row is disabled, and on a 1080p panel, where only the picture style and the refresh policy are.
 
 ## Must never depend on
 

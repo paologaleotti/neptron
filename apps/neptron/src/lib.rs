@@ -21,6 +21,7 @@ pub mod options;
 pub mod outbox;
 pub mod pages;
 pub mod paths;
+pub mod power;
 pub mod presets;
 pub mod record;
 pub mod relaunch;

@@ -110,9 +110,12 @@ fn end(paths: &Paths, outcome: Outcome, messages: Vec<String>) -> ExitCode {
     for message in messages {
         say!("neptron: {message}");
     }
+    if let Some(code) = neptron::power::exit_code(&outcome) {
+        return ExitCode::from(code);
+    }
     match outcome {
-        Outcome::Quit => ExitCode::SUCCESS,
         Outcome::Relaunch(next) => relaunch(paths, &next),
+        Outcome::Quit | Outcome::Reboot | Outcome::PowerOff => ExitCode::SUCCESS,
     }
 }
 

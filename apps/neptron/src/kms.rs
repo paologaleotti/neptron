@@ -154,6 +154,7 @@ pub fn run(
         subconnector,
         notices,
         audio_outputs: opened.outputs,
+        power: neptron::power::control_from(std::env::var_os(neptron::power::POWER_ENV).as_deref()),
     };
     let devices = Devices {
         display,

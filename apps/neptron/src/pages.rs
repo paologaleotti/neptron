@@ -10,7 +10,7 @@ use neptron_settings::{
 use neptron_ui::Value as UiValue;
 use neptron_ui::screens::{
     AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
-    SETTINGS_PAGE, VIDEO_PAGE,
+    SETTINGS_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
 };
 use neptron_ui::snapshot::{
     ActionId, ChoiceOption, Level as UiLevel, MenuItem, PageId, Scopes, SettingKey, SettingValue,
@@ -39,6 +39,27 @@ pub const SCANNING_REASON: &str = "Scanning...";
 /// The reason that the rescan row is disabled in a game: a game run lists
 /// no games, and the return to the list checks the folders.
 pub const RESCAN_IN_GAME: &str = "Not during a game";
+
+/// The action of the `Reboot` row of the System panel.
+pub const REBOOT: ActionId = ActionId(2);
+
+/// The action of the `Shut down` row of the System panel.
+pub const POWER_OFF: ActionId = ActionId(3);
+
+/// The label of the row that reboots the machine.
+pub const REBOOT_LABEL: &str = "Reboot";
+
+/// The label of the row that turns the machine off.
+pub const SHUT_DOWN_LABEL: &str = "Shut down";
+
+/// The reason that the rows of the System panel are disabled in a game:
+/// the player quits the game first, so its quit writes the save RAM.
+pub const POWER_IN_GAME: &str = "Not during a game";
+
+/// The reason that the rows of the System panel are disabled in a run
+/// that no launcher with power control started: the desktop window, or
+/// the frontend alone on a bench.
+pub const POWER_NO_LAUNCHER: &str = "Needs the launcher";
 
 /// The reason that a row shows when its setting has no effect on the flat
 /// panel that the run drives. It fits the value and source columns of a row.
@@ -164,6 +185,35 @@ pub fn rescan_row(scanning: bool, in_game: bool) -> MenuItem {
 /// panel is listed in a game too, where its row is disabled.
 pub fn library_page(scanning: bool, in_game: bool) -> SettingsPage {
     SettingsPage::new(LIBRARY_PAGE, "Library", vec![rescan_row(scanning, in_game)])
+}
+
+/// The rows of the System panel: reboot and shut down, each behind a
+/// confirm question. With no power control (`power`) both are disabled;
+/// in a game too, and the panel is still listed.
+pub fn system_page(in_game: bool, power: bool) -> SettingsPage {
+    let reason = match (power, in_game) {
+        (false, _) => Some(POWER_NO_LAUNCHER),
+        (true, true) => Some(POWER_IN_GAME),
+        (true, false) => None,
+    };
+    let rows = [
+        action(6, REBOOT_LABEL, REBOOT).with_confirm(
+            "Reboot NEPTRON?",
+            "Settings and saves are written first. Then the machine starts again.",
+        ),
+        action(7, SHUT_DOWN_LABEL, POWER_OFF).with_confirm(
+            "Shut down NEPTRON?",
+            "Settings and saves are written first. Then the machine turns off.",
+        ),
+    ];
+    let rows = rows
+        .into_iter()
+        .map(|row| match reason {
+            Some(reason) => row.unavailable(reason),
+            None => row,
+        })
+        .collect();
+    SettingsPage::new(SYSTEM_PAGE, "System", rows)
 }
 
 /// The rows of the video page of the quick menu: the display settings of
@@ -448,6 +498,50 @@ mod tests {
             assert_eq!(in_game.unavailable.as_deref(), Some(RESCAN_IN_GAME));
         }
         const { assert!(RESCAN_GAMES.0 < neptron_ui::screens::RESERVED_ID_MIN) };
+    }
+
+    #[test]
+    fn the_system_rows_ask_first_and_are_disabled_in_a_game_or_with_no_launcher() {
+        let page = system_page(false, true);
+        assert!(page.is_for(SYSTEM_PAGE));
+        let rows: Vec<_> = page
+            .rows
+            .iter()
+            .map(|r| (r.label.as_str(), &r.value, r.unavailable.as_deref()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (REBOOT_LABEL, &SettingValue::Action(REBOOT), None),
+                (SHUT_DOWN_LABEL, &SettingValue::Action(POWER_OFF), None),
+            ]
+        );
+        let questions: Vec<_> = page
+            .rows
+            .iter()
+            .map(|r| r.confirm.as_ref().map(|c| c.question.as_str()))
+            .collect();
+        assert_eq!(
+            questions,
+            [Some("Reboot NEPTRON?"), Some("Shut down NEPTRON?")]
+        );
+        for (in_game, power, reason) in [
+            (true, true, POWER_IN_GAME),
+            (false, false, POWER_NO_LAUNCHER),
+            (true, false, POWER_NO_LAUNCHER),
+        ] {
+            let page = system_page(in_game, power);
+            assert!(
+                page.rows
+                    .iter()
+                    .all(|r| r.unavailable.as_deref() == Some(reason)),
+                "{in_game} {power}"
+            );
+        }
+        for id in [REBOOT, POWER_OFF] {
+            assert!(id.0 < neptron_ui::screens::RESERVED_ID_MIN);
+            assert_ne!(id, RESCAN_GAMES);
+        }
     }
 
     #[test]
@@ -755,6 +849,7 @@ mod tests {
             quick_menu_page(&config, names),
             display_page(&config, names),
             library_page(false, false),
+            system_page(false, true),
         ]
         .iter()
         .flat_map(|page| page.rows.iter().map(|r| r.key))

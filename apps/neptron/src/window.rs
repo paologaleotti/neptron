@@ -75,6 +75,8 @@ pub fn run(
         subconnector: None,
         notices,
         audio_outputs: opened.outputs,
+        // A desktop run never turns off the computer it runs on.
+        power: false,
     };
     let devices = Devices {
         display,

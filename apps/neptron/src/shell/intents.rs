@@ -65,6 +65,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 }
             }
             Intent::Action(pages::RESCAN_GAMES) => self.rescan_games(),
+            Intent::Action(pages::REBOOT) => self.end_for(Outcome::Reboot),
+            Intent::Action(pages::POWER_OFF) => self.end_for(Outcome::PowerOff),
             Intent::Action(_) => {}
             Intent::SelectProfile(id) => {
                 let profile = self.presets.profiles().get(id.0 as usize);
@@ -135,6 +137,19 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             ),
         }
         self.reload_page();
+    }
+
+    /// Ends the run for a reboot or a power-off, as a quit: the caller
+    /// writes the settings and joins the threads, and the launcher asks
+    /// init. Ignored during a game, whose save RAM only its own quit
+    /// writes in full, with no power control, and after the run has an
+    /// outcome.
+    fn end_for(&mut self, outcome: Outcome) {
+        if !matches!(self.stage, Stage::List(_)) || !self.runtime.power || self.outcome.is_some() {
+            return;
+        }
+        self.log(format!("{outcome:?} from the System panel"));
+        self.outcome = Some(outcome);
     }
 
     /// Ends the game and the run, with a relaunch to the game list.
