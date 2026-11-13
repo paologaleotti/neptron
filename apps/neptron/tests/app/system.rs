@@ -2,7 +2,7 @@
 //! outcome that the launcher turns into a reboot or a power-off.
 
 use neptron::pages::{POWER_IN_GAME, POWER_NO_LAUNCHER, REBOOT_LABEL, SHUT_DOWN_LABEL};
-use neptron::power::{POWER_OFF_EXIT_CODE, REBOOT_EXIT_CODE, exit_code};
+use neptron::power::{POWER_OFF_EXIT_CODE, PowerRequest, REBOOT_EXIT_CODE, exit_code};
 use neptron::{NextRun, Outcome};
 use neptron_settings::{AUDIO_VOLUME, Level, Value};
 use neptron_types::Control;
@@ -177,8 +177,14 @@ fn in_a_game_both_rows_are_disabled() {
                 rig.tap(&[Control::A]);
                 assert_eq!(rig.screen(), "system", "a disabled row asks nothing");
             }
-            // An action that reached the app anyway does nothing in a game.
-            rig.frames(10);
+            // A request that reaches the app anyway, as the intent of the
+            // row would, does nothing in a game: the frames panic when the
+            // run ends.
+            for request in [PowerRequest::Reboot, PowerRequest::PowerOff] {
+                rig.shell().request_power(request);
+                rig.frames(10);
+            }
+            assert!(rig.shell().in_game());
             rig.finish();
         },
     );
@@ -198,7 +204,12 @@ fn with_no_launcher_both_rows_are_disabled() {
             rig.focus(SHUT_DOWN_LABEL);
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "system");
-            rig.frames(10);
+            // A request that reaches the app anyway does nothing with no
+            // power control: the frames panic when the run ends.
+            for request in [PowerRequest::Reboot, PowerRequest::PowerOff] {
+                rig.shell().request_power(request);
+                rig.frames(10);
+            }
             rig.finish();
         },
     );

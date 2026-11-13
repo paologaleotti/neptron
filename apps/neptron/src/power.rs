@@ -26,6 +26,33 @@ pub fn control_from(value: Option<&OsStr>) -> bool {
     value.is_some_and(|v| v == "1")
 }
 
+/// A reboot or a power-off that the System panel asks the run for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerRequest {
+    /// Start the machine again.
+    Reboot,
+    /// Turn the machine off.
+    PowerOff,
+}
+
+impl PowerRequest {
+    /// The outcome of a run that ends for this request.
+    pub fn outcome(self) -> Outcome {
+        match self {
+            Self::Reboot => Outcome::Reboot,
+            Self::PowerOff => Outcome::PowerOff,
+        }
+    }
+}
+
+/// Whether a run takes a power request: only in the game list
+/// (`in_list`), whose run holds no game with save RAM that only its own
+/// quit writes in full; only with power control from the launcher
+/// (`control`); and only while the run has no outcome yet (`ended`).
+pub fn takes_request(in_list: bool, control: bool, ended: bool) -> bool {
+    in_list && control && !ended
+}
+
 /// The exit code of a run that ends with `outcome` for a reboot or a
 /// power-off. `None` for a quit or a relaunch.
 pub fn exit_code(outcome: &Outcome) -> Option<u8> {
@@ -50,6 +77,25 @@ mod tests {
             notice: None,
         };
         assert_eq!(exit_code(&Outcome::Relaunch(list)), None);
+    }
+
+    #[test]
+    fn a_request_is_taken_only_in_the_list_with_control_and_no_outcome() {
+        assert!(takes_request(true, true, false));
+        for (in_list, control, ended) in [
+            (false, true, false),
+            (true, false, false),
+            (true, true, true),
+            (false, false, false),
+            (false, true, true),
+        ] {
+            assert!(
+                !takes_request(in_list, control, ended),
+                "{in_list} {control} {ended}"
+            );
+        }
+        assert_eq!(PowerRequest::Reboot.outcome(), Outcome::Reboot);
+        assert_eq!(PowerRequest::PowerOff.outcome(), Outcome::PowerOff);
     }
 
     #[test]
