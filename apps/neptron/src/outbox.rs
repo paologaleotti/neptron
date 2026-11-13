@@ -19,6 +19,9 @@ const CHANNEL_JOBS: usize = 16;
 /// The failure messages the channel back holds. More are dropped and
 /// counted.
 const FAILURE_MESSAGES: usize = 16;
+/// The results of format request writes the channel back holds. The run
+/// sends one request and waits for its result before it sends another.
+const REQUEST_RESULTS: usize = 1;
 
 /// The settings file of one level.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +69,8 @@ pub enum Job {
     /// Write the request for the format of the share partition at the next
     /// boot (see [`Places::share_request`]), with the write rule of user
     /// data: the storage script formats only what a whole request names.
+    /// Its result comes back through [`Outbox::request_result`], not as a
+    /// failure message.
     ShareFormatRequest {
         /// The text of the request file.
         text: String,
@@ -78,6 +83,7 @@ pub enum Job {
 pub struct Outbox {
     jobs: Option<SyncSender<Job>>,
     failures: Receiver<String>,
+    requests: Receiver<Result<(), String>>,
     backlog: VecDeque<Job>,
     thread: Option<JoinHandle<()>>,
 }
@@ -107,12 +113,18 @@ impl Outbox {
     pub fn start(places: Places) -> std::io::Result<Self> {
         let (jobs, rx) = mpsc::sync_channel::<Job>(CHANNEL_JOBS);
         let (tx_fail, failures) = mpsc::sync_channel::<String>(FAILURE_MESSAGES);
+        let (tx_request, requests) = mpsc::sync_channel(REQUEST_RESULTS);
+        let replies = Replies {
+            failures: tx_fail,
+            requests: tx_request,
+        };
         let thread = std::thread::Builder::new()
             .name("neptron-writer".to_owned())
-            .spawn(move || write_jobs(&places, &rx, &tx_fail))?;
+            .spawn(move || write_jobs(&places, &rx, &replies))?;
         Ok(Self {
             jobs: Some(jobs),
             failures,
+            requests,
             backlog: VecDeque::new(),
             thread: Some(thread),
         })
@@ -160,6 +172,17 @@ impl Outbox {
         }
     }
 
+    /// The result of the last [`Job::ShareFormatRequest`], once the writer
+    /// thread has carried it out. It never waits. A writer thread that has
+    /// stopped gives an error: the request will never be written.
+    pub fn request_result(&mut self) -> Option<Result<(), String>> {
+        match self.requests.try_recv() {
+            Ok(result) => Some(result),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(Err("the writer thread stopped".to_owned())),
+        }
+    }
+
     /// Writes the backlog, stops the thread and waits for every write.
     /// For the end of a run, off the frame loop.
     pub fn finish(mut self) -> Vec<String> {
@@ -191,7 +214,13 @@ impl Drop for Outbox {
     }
 }
 
-fn write_jobs(places: &Places, jobs: &Receiver<Job>, failures: &SyncSender<String>) {
+/// The writer thread's channels back to the frame thread.
+struct Replies {
+    failures: SyncSender<String>,
+    requests: SyncSender<Result<(), String>>,
+}
+
+fn write_jobs(places: &Places, jobs: &Receiver<Job>, replies: &Replies) {
     let schema = Schema::builtin();
     let storage = Storage::new(&places.config);
     for job in jobs {
@@ -214,12 +243,17 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, failures: &SyncSender<Strin
             Job::Record { record: r, place } => record::save(&places.record, r, place.as_ref())
                 .map_err(|e| format!("cannot write the guard record: {e}")),
             Job::ShareFormatRequest { text } => {
-                crate::atomic::write(&places.share_request, text.as_bytes()).map_err(|e| {
-                    format!(
-                        "cannot write the format request {}: {e}",
-                        places.share_request.display()
-                    )
-                })
+                let result =
+                    crate::atomic::write(&places.share_request, text.as_bytes()).map_err(|e| {
+                        format!(
+                            "cannot write the format request {}: {e}",
+                            places.share_request.display()
+                        )
+                    });
+                // The run sends one request and waits for this result, so
+                // the channel has room; a run that has ended reads nothing.
+                let _ = replies.requests.try_send(result);
+                continue;
             }
             Job::Cache { index, full_scan } => write_cache(&places.cache, index).and_then(|()| {
                 if *full_scan {
@@ -232,7 +266,7 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, failures: &SyncSender<Strin
         if let Err(message) = result {
             // A full channel drops the message: the frame thread shows the
             // first ones, and the next write tries again.
-            let _ = failures.try_send(message);
+            let _ = replies.failures.try_send(message);
         }
     }
 }
@@ -293,6 +327,13 @@ mod tests {
         outbox.send(Job::ShareFormatRequest {
             text: "device=/dev/sda4\n".to_owned(),
         });
+        let result = loop {
+            if let Some(result) = outbox.request_result() {
+                break result;
+            }
+            std::thread::yield_now();
+        };
+        assert_eq!(result, Ok(()));
         assert!(outbox.finish().is_empty());
         assert_eq!(
             std::fs::read_to_string(&places.share_request).expect("the request"),
@@ -301,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn a_format_request_that_cannot_be_written_is_a_message() {
+    fn a_format_request_that_cannot_be_written_comes_back_as_its_result() {
         let places = places("request-fail");
         let dir = places.share_request.parent().expect("dir").to_owned();
         std::fs::create_dir_all(dir.parent().expect("dir")).expect("dir");
@@ -310,12 +351,18 @@ mod tests {
         outbox.send(Job::ShareFormatRequest {
             text: "device=/dev/sda4\n".to_owned(),
         });
-        let messages = outbox.finish();
-        assert_eq!(messages.len(), 1, "{messages:?}");
+        let result = loop {
+            if let Some(result) = outbox.request_result() {
+                break result;
+            }
+            std::thread::yield_now();
+        };
+        let message = result.expect_err("the write fails");
         assert!(
-            messages[0].contains("cannot write the format request"),
-            "{messages:?}"
+            message.contains("cannot write the format request"),
+            "{message}"
         );
+        assert!(outbox.finish().is_empty(), "no second message");
     }
 
     #[test]

@@ -293,6 +293,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             log: VecDeque::new(),
             record_place,
             share_offer,
+            format_request: super::FormatRequest::None,
             outcome: None,
         };
         shell.first_snapshot();

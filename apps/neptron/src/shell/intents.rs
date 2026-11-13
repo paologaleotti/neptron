@@ -172,10 +172,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     }
 
     /// Asks the storage script for the format of the share partition that
-    /// it offered at this boot: the request file goes to the writer thread
-    /// and the run ends with a reboot, as for [`Self::request_power`].
-    /// The frontend never formats; the script checks the disk again at the
-    /// next boot. Ignored with no offer, and when the run takes no reboot.
+    /// it offered at this boot: the request file goes to the writer thread,
+    /// and the run ends with a reboot, as for [`Self::request_power`], only
+    /// once the writer has written it ([`Self::poll_format_request`]). The
+    /// frontend never formats; the script checks the disk again at the next
+    /// boot. Ignored with no offer, while a request waits or after one
+    /// failed, and when the run takes no reboot.
     ///
     /// The `Format share` row calls it through its intent. It is
     /// public for the tier 2 tests.
@@ -183,7 +185,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         let Some(offer) = self.share_offer.clone() else {
             return;
         };
-        if !power::takes_request(self.run_state()) {
+        if self.format_request != super::FormatRequest::None
+            || !power::takes_request(self.run_state())
+        {
             return;
         }
         self.log(format!(
@@ -193,7 +197,33 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         self.outbox.send(Job::ShareFormatRequest {
             text: offer.request_text(),
         });
-        self.request_power(PowerRequest::Reboot);
+        self.format_request = super::FormatRequest::Waiting;
+    }
+
+    /// Takes the result of a waiting format request: a written request file
+    /// ends the run with a reboot; a failed write ends nothing, shows a
+    /// Warning notice, and disables the row for this run. It never waits.
+    pub(super) fn poll_format_request(&mut self) {
+        if self.format_request != super::FormatRequest::Waiting {
+            return;
+        }
+        match self.outbox.request_result() {
+            None => {}
+            Some(Ok(())) => {
+                self.format_request = super::FormatRequest::None;
+                self.log("the format request is written".to_owned());
+                self.request_power(PowerRequest::Reboot);
+            }
+            Some(Err(e)) => {
+                self.format_request = super::FormatRequest::Failed;
+                self.log(format!("the format request was not written: {e}"));
+                self.notice(
+                    NoticeKind::Warning,
+                    pages::FORMAT_NOT_SAVED_NOTICE.to_owned(),
+                );
+                self.reload_page();
+            }
+        }
     }
 
     /// What the run is doing, for a power request.

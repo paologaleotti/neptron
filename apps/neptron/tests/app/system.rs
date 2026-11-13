@@ -2,7 +2,8 @@
 //! outcome that the launcher turns into a reboot or a power-off.
 
 use neptron::pages::{
-    FORMAT_SHARE_LABEL, POWER_IN_GAME, POWER_NO_LAUNCHER, REBOOT_LABEL, SHUT_DOWN_LABEL,
+    FORMAT_NOT_SAVED, FORMAT_NOT_SAVED_NOTICE, FORMAT_SHARE_LABEL, POWER_IN_GAME,
+    POWER_NO_LAUNCHER, REBOOT_LABEL, SHUT_DOWN_LABEL,
 };
 use neptron::power::{POWER_OFF_EXIT_CODE, PowerRequest, REBOOT_EXIT_CODE, exit_code};
 use neptron::{NextRun, Outcome};
@@ -47,6 +48,9 @@ fn reasons(rig: &mut Rig) -> Vec<Option<String>> {
         .collect()
 }
 
+/// The frames that [`confirm`] waits for the end of the run at most.
+const FRAMES_TO_THE_END: u32 = 1_000;
+
 /// Confirms the row `label`: accept, right to its button, accept. Returns
 /// the outcome of the run.
 fn confirm(rig: &mut Rig, label: &str) -> Outcome {
@@ -59,8 +63,10 @@ fn confirm(rig: &mut Rig, label: &str) -> Outcome {
     rig.hold(&[Control::A]);
     // Each frame that can end the run keeps its picture, so a test can
     // look at the last one.
+    // A format ends the run only when the writer thread has written the
+    // request file, a few frames later.
     let mut outcome = None;
-    for _ in 0..4 {
+    for _ in 0..FRAMES_TO_THE_END {
         rig.display.capture(rig.display.next_present_index());
         outcome = rig.shell().step();
         if outcome.is_some() {
@@ -541,6 +547,11 @@ fn confirm_format_writes_the_request_and_ends_with_the_reboot_code() {
             assert!(!rig.paths.share_format_request().exists());
             let outcome = confirm(&mut rig, FORMAT_SHARE_LABEL);
             assert_eq!(outcome, Outcome::Reboot);
+            assert_eq!(
+                std::fs::read_to_string(rig.paths.share_format_request()).expect("the request"),
+                REQUEST,
+                "the run ends only after the request is written"
+            );
             assert_eq!(exit_code(&outcome), Some(REBOOT_EXIT_CODE));
             assert_eq!(rig.screen(), "confirm-action/working");
             let tree = rig.tree();
@@ -663,6 +674,55 @@ fn with_no_launcher_the_format_row_is_disabled() {
             rig.frames(10);
             rig.finish();
             assert!(!rig.paths.share_format_request().exists());
+        },
+    );
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn a_request_that_is_not_saved_keeps_the_run_and_says_so() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "a_request_that_is_not_saved_keeps_the_run_and_says_so",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            offered(&mut rig);
+            // A folder with a file in the place of the request: the rename
+            // of the written file fails.
+            let request = rig.paths.share_format_request();
+            std::fs::create_dir_all(&request).expect("the folder");
+            std::fs::write(request.join("keep"), b"").expect("a file");
+            rig.focus(FORMAT_SHARE_LABEL);
+            rig.tap(&[Control::A]);
+            rig.tap(&[Control::Right]);
+            rig.tap(&[Control::A]);
+            // The frames panic when the run ends.
+            rig.until(1_000, "the notice", |r| {
+                r.shell()
+                    .snapshot()
+                    .notices
+                    .iter()
+                    .any(|n| n.text == FORMAT_NOT_SAVED_NOTICE)
+            });
+            rig.frames(10);
+            dismiss_notices(&mut rig);
+            assert_eq!(rig.screen(), "system");
+            let row = rig
+                .shell()
+                .snapshot()
+                .settings
+                .rows
+                .iter()
+                .find(|r| r.label == FORMAT_SHARE_LABEL)
+                .cloned()
+                .expect("the format row");
+            assert_eq!(row.unavailable.as_deref(), Some(FORMAT_NOT_SAVED));
+            rig.shell().request_share_format();
+            rig.frames(10);
+            rig.finish();
+            assert!(request.is_dir(), "nothing replaced the folder");
         },
     );
 }

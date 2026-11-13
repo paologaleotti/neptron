@@ -173,7 +173,21 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
     /// The format of the share partition that the storage script offers
     /// at this boot.
     share_offer: Option<crate::storage::FormatOffer>,
+    format_request: FormatRequest,
     outcome: Option<Outcome>,
+}
+
+/// Where the format request of this run is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FormatRequest {
+    /// None was asked for.
+    None,
+    /// The writer thread has the request file; the reboot waits for its
+    /// result.
+    Waiting,
+    /// The request file was not written: nothing is formatted, and the row
+    /// stays disabled in this run.
+    Failed,
 }
 
 /// What the run shows.

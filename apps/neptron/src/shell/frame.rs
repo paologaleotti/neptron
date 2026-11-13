@@ -26,6 +26,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         while let Some(message) = self.outbox.failure() {
             self.notice(NoticeKind::Error, message);
         }
+        self.poll_format_request();
         self.poll_library();
         match self.stage {
             Stage::List(_) => self.list_frame(now_ns),
