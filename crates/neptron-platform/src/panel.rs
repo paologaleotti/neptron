@@ -214,11 +214,11 @@ impl EdidProfile {
     }
 
     /// The first listed mode of a flat-panel profile: the mode the panel
-    /// starts in. `None` for a CRT profile.
+    /// starts in. `None` for a CRT or a TV profile.
     pub fn panel_mode(&self) -> Option<&Modeline> {
         match &self.profile.kind {
             MonitorKind::FlatPanel { modes } => modes.first(),
-            MonitorKind::Crt { .. } => None,
+            MonitorKind::Crt { .. } | MonitorKind::Tv { .. } => None,
         }
     }
 }

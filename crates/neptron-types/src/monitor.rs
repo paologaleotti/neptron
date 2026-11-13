@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::Modeline;
+use crate::{Modeline, TvStandard};
 
 /// One operating range of a CRT: the fields of one Switchres `crt_range`
 /// line, in integer units.
@@ -47,8 +47,8 @@ pub struct CrtRange {
 
 /// What kind of display a profile describes.
 ///
-/// In TOML and JSON the variant is the key of a table: `kind.crt.ranges`
-/// or `kind.flat_panel.modes`.
+/// In TOML and JSON the variant is the key of a table: `kind.crt.ranges`,
+/// `kind.flat_panel.modes` or `kind.tv.standard`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MonitorKind {
@@ -61,6 +61,12 @@ pub enum MonitorKind {
     FlatPanel {
         /// The modes the panel accepts.
         modes: Vec<Modeline>,
+    },
+    /// A TV on a composite encoder that accepts only the two modes of its
+    /// standard ([`TvStandard::modes`]).
+    Tv {
+        /// The broadcast standard of the encoder.
+        standard: TvStandard,
     },
 }
 

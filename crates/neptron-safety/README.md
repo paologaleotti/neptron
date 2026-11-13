@@ -4,9 +4,9 @@ The CRT safety validator. `validate` is the only way to make a `ValidatedMode`, 
 
 ## Public API
 
-- `struct ValidatedMode`: private field, no `Default`, no public constructor, no `Deserialize`. `mode()` gives the `Modeline` that passed.
+- `struct ValidatedMode`: private fields, no `Default`, no public constructor, no `Deserialize`. `mode()` gives the `Modeline` that passed. `tv_standard()` gives the `TvStandard` of a TV profile, and `None` for every other kind; only `validate` sets it, so the standard that reaches a backend is the one that was validated with the mode.
 - `fn validate(&Modeline, &MonitorProfile, &GpuCaps) -> Result<ValidatedMode, Rejection>`: judges the modeline it gets and changes nothing.
-- `enum Rejection`: one variant per check. Each variant carries the value it found and the limit: `Malformed`, `LineRate`, `FieldRate`, `LineCount`, `SyncWidth`, `Porch`, `PixelClock`, `Interlace`, `HardRail`, `NotAPanelMode`.
+- `enum Rejection`: one variant per check. Each variant carries the value it found and the limit: `Malformed`, `LineRate`, `FieldRate`, `LineCount`, `SyncWidth`, `Porch`, `PixelClock`, `Interlace`, `HardRail`, `NotAPanelMode`, `NotATvMode`.
 - `enum Axis`, `enum PorchEdge`, `enum InterlaceLimit`: the details of some rejections.
 
 `Rejection` implements `Display` and `std::error::Error` by hand, because the crate cannot depend on `thiserror`.
@@ -18,8 +18,9 @@ The checks run in this order. The first one that fails gives the rejection.
 1. Structure (`Malformed`): the pixel clock is not 0, `hactive` and `vactive` are not 0, and on each axis `active <= sync_start <= sync_end <= total`.
 2. GPU (`PixelClock`, `Interlace` by the GPU): the pixel clock is inside the GPU range, and an interlaced mode needs a GPU that sends interlace.
 3. Flat panel (`NotAPanelMode`): the mode is one of the listed modes, field for field. No other check applies to a panel.
-4. CRT ranges: one range of the profile must accept the whole mode. The checks of a range, in order: line rate, field rate, active lines, horizontal sync, vertical sync, the four porches. When no range accepts the mode, the rejection comes from the closest range: the one that failed at the latest stage (each value is one stage, low and high together), and among those the one whose broken limit is nearest to the value of the mode.
-5. Hard rails (`HardRail`): the mode must also pass the rails of the class of its line rate. A custom CRT profile cannot widen them. A flat-panel profile skips the rails: it is matched exactly against its own listed modes, so a custom file with a flat-panel profile is not held by the rails. Above 40 kHz no rail applies and the profile is the only limit.
+4. TV (`NotATvMode`): the mode is one of the two modes of the standard of the profile (`TvStandard::modes`), field for field. Then the mode must also pass the hard rails of its class (step 6), as a second opinion against a mistake in the table. The four table modes are all in the 15 kHz class. ADR 0012 records this arm.
+5. CRT ranges: one range of the profile must accept the whole mode. The checks of a range, in order: line rate, field rate, active lines, horizontal sync, vertical sync, the four porches. When no range accepts the mode, the rejection comes from the closest range: the one that failed at the latest stage (each value is one stage, low and high together), and among those the one whose broken limit is nearest to the value of the mode.
+6. Hard rails (`HardRail`): the mode must also pass the rails of the class of its line rate. A custom CRT profile cannot widen them. A flat-panel profile skips the rails: it is matched exactly against its own listed modes, so a custom file with a flat-panel profile is not held by the rails. Above 40 kHz no rail applies and the profile is the only limit.
 
 ### Units and rounding
 

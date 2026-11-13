@@ -38,7 +38,7 @@ fn ranges(id: &str) -> Vec<CrtRange> {
         .unwrap_or_else(|| panic!("no preset {id}"));
     match profile.kind {
         MonitorKind::Crt { ranges } => ranges,
-        MonitorKind::FlatPanel { .. } => panic!("{id} is not a CRT"),
+        MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => panic!("{id} is not a CRT"),
     }
 }
 

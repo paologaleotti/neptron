@@ -1423,6 +1423,11 @@ fn an_empty_source_or_profile_is_an_error() {
         ),
         Err(PolicyError::EmptyProfile { .. })
     ));
+    let tv = neptron_types::TvStandard::Ntsc.profile();
+    assert!(matches!(
+        decide(&snes(), &PolicySettings::default(), &tv, &open_caps()),
+        Err(PolicyError::EmptyProfile { profile }) if profile == "tv_ntsc"
+    ));
 }
 
 /// One row of the drop table: a rung at the game's rate, and the reason

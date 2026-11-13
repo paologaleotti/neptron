@@ -147,7 +147,8 @@ impl ScanlineMode {
 impl ScreenClass {
     /// The class of `mode` on a monitor of `kind`. A CRT mode is in the
     /// 15 kHz class when its line rate is below
-    /// [`CRT_15KHZ_CLASS_MAX_LINE_RATE_MHZ`].
+    /// [`CRT_15KHZ_CLASS_MAX_LINE_RATE_MHZ`]. A TV is a 15 kHz screen:
+    /// every broadcast standard has a line rate near 15.7 kHz.
     pub fn of(kind: &MonitorKind, mode: &Modeline) -> Self {
         match kind {
             MonitorKind::FlatPanel { .. } => ScreenClass::FlatPanel,
@@ -155,6 +156,7 @@ impl ScreenClass {
                 ScreenClass::Crt15khz
             }
             MonitorKind::Crt { .. } => ScreenClass::Crt31khz,
+            MonitorKind::Tv { .. } => ScreenClass::Crt15khz,
         }
     }
 }
@@ -312,5 +314,12 @@ mod tests {
         let edge = mode(20_000_000, 1_000);
         assert_eq!(edge.line_rate_mhz(), CRT_15KHZ_CLASS_MAX_LINE_RATE_MHZ);
         assert_eq!(ScreenClass::of(&crt, &edge), ScreenClass::Crt31khz);
+        let tv = MonitorKind::Tv {
+            standard: crate::TvStandard::Pal,
+        };
+        assert_eq!(
+            ScreenClass::of(&tv, &crate::TV_625_288P),
+            ScreenClass::Crt15khz
+        );
     }
 }

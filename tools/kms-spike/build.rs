@@ -58,7 +58,7 @@ fn load(dir: &Path) -> Result<Presets, Box<dyn Error>> {
             toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         match profile.kind {
             MonitorKind::Crt { ranges } => presets.push((profile.id, ranges)),
-            MonitorKind::FlatPanel { .. } => {
+            MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => {
                 return Err(format!("{}: a preset must be a CRT", path.display()).into());
             }
         }

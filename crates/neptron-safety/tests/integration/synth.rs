@@ -24,7 +24,9 @@ pub fn presets() -> Vec<MonitorProfile> {
 pub fn ranges(profile: &MonitorProfile) -> &[CrtRange] {
     match &profile.kind {
         MonitorKind::Crt { ranges } => ranges,
-        MonitorKind::FlatPanel { .. } => panic!("{} is not a CRT", profile.id),
+        MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => {
+            panic!("{} is not a CRT", profile.id)
+        }
     }
 }
 

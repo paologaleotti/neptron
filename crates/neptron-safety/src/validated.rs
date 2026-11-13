@@ -1,4 +1,4 @@
-use neptron_types::{GpuCaps, Modeline, MonitorKind, MonitorProfile};
+use neptron_types::{GpuCaps, Modeline, MonitorKind, MonitorProfile, TvStandard};
 
 use crate::measure::Measure;
 use crate::rails::check_rails;
@@ -19,18 +19,26 @@ use crate::{InterlaceLimit, Rejection};
 ///
 /// ```compile_fail,E0451
 /// fn forge(mode: neptron_types::Modeline) -> neptron_safety::ValidatedMode {
-///     neptron_safety::ValidatedMode { mode }
+///     neptron_safety::ValidatedMode { mode, tv: None }
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ValidatedMode {
     mode: Modeline,
+    tv: Option<TvStandard>,
 }
 
 impl ValidatedMode {
     /// The modeline that passed the checks.
     pub fn mode(&self) -> &Modeline {
         &self.mode
+    }
+
+    /// The TV standard the mode was validated with: the standard of a TV
+    /// profile, `None` for every other kind. A backend sets it with the
+    /// mode.
+    pub fn tv_standard(&self) -> Option<TvStandard> {
+        self.tv
     }
 }
 
@@ -48,15 +56,26 @@ pub fn validate(
 ) -> Result<ValidatedMode, Rejection> {
     check_structure(mode)?;
     check_gpu(mode, caps)?;
-    match &profile.kind {
+    let tv = match &profile.kind {
         MonitorKind::Crt { ranges } => {
             let measure = Measure::of(mode);
             check_ranges(&measure, ranges)?;
             check_rails(&measure)?;
+            None
         }
-        MonitorKind::FlatPanel { modes } => check_panel(mode, modes)?,
-    }
-    Ok(ValidatedMode { mode: *mode })
+        MonitorKind::FlatPanel { modes } => {
+            check_panel(mode, modes)?;
+            None
+        }
+        MonitorKind::Tv { standard } => {
+            check_tv(mode, *standard)?;
+            // A second opinion: a mistake in the fixed table cannot reach
+            // the wire.
+            check_rails(&Measure::of(mode))?;
+            Some(*standard)
+        }
+    };
+    Ok(ValidatedMode { mode: *mode, tv })
 }
 
 fn check_gpu(mode: &Modeline, caps: &GpuCaps) -> Result<(), Rejection> {
@@ -83,6 +102,18 @@ fn check_panel(mode: &Modeline, modes: &[Modeline]) -> Result<(), Rejection> {
         Err(Rejection::NotAPanelMode {
             mode: *mode,
             panel_modes: modes.len(),
+        })
+    }
+}
+
+/// A TV takes only the two modes of its standard, field for field.
+fn check_tv(mode: &Modeline, standard: TvStandard) -> Result<(), Rejection> {
+    if standard.modes().contains(mode) {
+        Ok(())
+    } else {
+        Err(Rejection::NotATvMode {
+            mode: *mode,
+            standard,
         })
     }
 }
@@ -344,5 +375,163 @@ mod tests {
         );
         let progressive = panel(vec![vga()]);
         assert!(validate(&vga(), &progressive, &no_interlace).is_ok());
+    }
+
+    /// The GPU entry `pi_vc4_composite`: one pixel clock, interlace.
+    const VEC: GpuCaps = GpuCaps {
+        pclock_min_hz: 13_500_000,
+        pclock_max_hz: 13_500_000,
+        interlace: true,
+        flip_per_field: false,
+        max_width: 720,
+        max_height: 576,
+    };
+
+    #[test]
+    fn each_standard_accepts_its_two_modes_and_carries_the_standard() {
+        for standard in TvStandard::ALL {
+            for mode in standard.modes() {
+                let validated = validate(&mode, &standard.profile(), &VEC).unwrap();
+                assert_eq!(validated.mode(), &mode);
+                assert_eq!(validated.tv_standard(), Some(standard));
+            }
+        }
+        let crt = validate(&mode_240p(), &generic_15(), &LOW_CLOCK).unwrap();
+        assert_eq!(crt.tv_standard(), None);
+        let flat = validate(&vga(), &panel(vec![vga()]), &CAPS).unwrap();
+        assert_eq!(flat.tv_standard(), None);
+    }
+
+    #[test]
+    fn a_standard_refuses_the_modes_of_the_other_line_system() {
+        for standard in TvStandard::ALL {
+            let other = if standard.lines() == 525 {
+                TvStandard::Pal
+            } else {
+                TvStandard::Ntsc
+            };
+            for mode in other.modes() {
+                assert_eq!(
+                    validate(&mode, &standard.profile(), &VEC),
+                    Err(Rejection::NotATvMode { mode, standard })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_tv_refuses_every_changed_field() {
+        let wide = GpuCaps {
+            pclock_min_hz: 1_000_000,
+            ..CAPS
+        };
+        let base = neptron_types::TV_525_240P;
+        let changed = [
+            Modeline {
+                pclock_hz: 13_501_000,
+                ..base
+            },
+            Modeline {
+                pclock_hz: 13_499_000,
+                ..base
+            },
+            Modeline {
+                hactive: 716,
+                ..base
+            },
+            Modeline {
+                hsync_start: 735,
+                ..base
+            },
+            Modeline {
+                hsync_end: 799,
+                ..base
+            },
+            Modeline {
+                htotal: 864,
+                ..base
+            },
+            Modeline {
+                vactive: 239,
+                ..base
+            },
+            Modeline {
+                vsync_start: 244,
+                ..base
+            },
+            Modeline {
+                vsync_end: 247,
+                ..base
+            },
+            Modeline {
+                vtotal: 263,
+                ..base
+            },
+            Modeline {
+                interlace: true,
+                ..base
+            },
+            Modeline {
+                doublescan: true,
+                ..base
+            },
+            Modeline {
+                hsync_positive: true,
+                ..base
+            },
+            Modeline {
+                vsync_positive: true,
+                ..base
+            },
+        ];
+        let profile = TvStandard::Ntsc.profile();
+        for mode in changed {
+            assert_eq!(
+                validate(&mode, &profile, &wide),
+                Err(Rejection::NotATvMode {
+                    mode,
+                    standard: TvStandard::Ntsc
+                }),
+                "{mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_tv_mode_passes_the_15_khz_rails() {
+        for mode in [
+            neptron_types::TV_525_240P,
+            neptron_types::TV_525_480I,
+            neptron_types::TV_625_288P,
+            neptron_types::TV_625_576I,
+        ] {
+            let measure = Measure::of(&mode);
+            assert!(measure.line_rate_mhz < crate::class::CLASS_25_KHZ_MIN_LINE_RATE_MHZ);
+            assert_eq!(check_rails(&measure), Ok(()), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn gpu_limits_come_before_the_tv_table() {
+        let profile = TvStandard::Pal.profile();
+        assert_eq!(
+            validate(&neptron_types::TV_625_288P, &profile, &CAPS),
+            Err(Rejection::PixelClock {
+                value_hz: 13_500_000,
+                min_hz: 25_000_000,
+                max_hz: 400_000_000
+            })
+        );
+        let no_interlace = GpuCaps {
+            interlace: false,
+            ..VEC
+        };
+        assert_eq!(
+            validate(&neptron_types::TV_625_576I, &profile, &no_interlace),
+            Err(Rejection::Interlace {
+                forbidden_by: InterlaceLimit::Gpu
+            })
+        );
+        assert!(validate(&neptron_types::TV_625_288P, &profile, &no_interlace).is_ok());
     }
 }

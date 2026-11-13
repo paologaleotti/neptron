@@ -103,6 +103,9 @@ pub fn decide(
     match &profile.kind {
         MonitorKind::Crt { ranges } if ranges.is_empty() => Err(empty()),
         MonitorKind::FlatPanel { modes } if modes.is_empty() => Err(empty()),
+        // The policy has no plan for a TV: it gives no mode, as for a
+        // profile with no range.
+        MonitorKind::Tv { .. } => Err(empty()),
         MonitorKind::Crt { ranges } => crt::crt_plan(&crt::Crt {
             source,
             settings,

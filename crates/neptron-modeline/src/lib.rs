@@ -75,6 +75,11 @@ pub fn modelines_with(
 fn crt_ranges(profile: &MonitorProfile) -> Result<&[CrtRange], ModelineError> {
     let ranges = match &profile.kind {
         MonitorKind::Crt { ranges } => ranges,
+        MonitorKind::Tv { .. } => {
+            return Err(ModelineError::NoRanges {
+                profile: profile.id.clone(),
+            });
+        }
         MonitorKind::FlatPanel { .. } => {
             return Err(ModelineError::FlatPanel {
                 profile: profile.id.clone(),

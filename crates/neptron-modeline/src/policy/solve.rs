@@ -176,7 +176,7 @@ impl Ask<'_> {
         };
         let ranges = match &self.profile.kind {
             MonitorKind::Crt { ranges } => ranges.as_slice(),
-            MonitorKind::FlatPanel { .. } => &[],
+            MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => &[],
         };
         for candidate in &mut list {
             let range = ranges.get(candidate.range_index);

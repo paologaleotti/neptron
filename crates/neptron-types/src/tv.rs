@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::Modeline;
+use crate::{Modeline, MonitorKind, MonitorProfile};
 
 /// The pixel clock of every TV mode, in hertz: the 13.5 MHz sample clock
 /// of ITU-R BT.601. The composite encoder of the Raspberry Pi runs its
@@ -153,7 +153,25 @@ impl TvStandard {
             [TV_625_288P, TV_625_576I]
         }
     }
+
+    /// The monitor profile of a TV with this standard. Its id is
+    /// `tv_<key>`, so that a record that keeps only the id keeps the
+    /// standard too.
+    pub fn profile(self) -> MonitorProfile {
+        MonitorProfile {
+            id: format!("{TV_PROFILE_ID_PREFIX}{}", self.key()),
+            kind: MonitorKind::Tv { standard: self },
+        }
+    }
+
+    /// The standard of a profile id that [`Self::profile`] made.
+    pub fn from_profile_id(id: &str) -> Option<TvStandard> {
+        id.strip_prefix(TV_PROFILE_ID_PREFIX)
+            .and_then(Self::from_key)
+    }
 }
+
+const TV_PROFILE_ID_PREFIX: &str = "tv_";
 
 const fn tv_mode(h: [u16; 4], v: [u16; 4], interlace: bool) -> Modeline {
     Modeline {
@@ -328,5 +346,24 @@ mod tests {
         assert_eq!(TvStandard::from_key("auto"), None);
         assert_eq!(TvStandard::from_key("NTSC"), None);
         assert_eq!(TvStandard::from_key(""), None);
+    }
+
+    #[test]
+    fn a_profile_id_carries_the_standard() {
+        let profile = TvStandard::Pal60.profile();
+        assert_eq!(profile.id, "tv_pal_60");
+        assert_eq!(
+            profile.kind,
+            MonitorKind::Tv {
+                standard: TvStandard::Pal60
+            }
+        );
+        for s in TvStandard::ALL {
+            assert_eq!(TvStandard::from_profile_id(&s.profile().id), Some(s));
+        }
+        assert_eq!(TvStandard::from_profile_id("ntsc"), None);
+        assert_eq!(TvStandard::from_profile_id("tv_"), None);
+        assert_eq!(TvStandard::from_profile_id("tv_auto"), None);
+        assert_eq!(TvStandard::from_profile_id("generic_15"), None);
     }
 }

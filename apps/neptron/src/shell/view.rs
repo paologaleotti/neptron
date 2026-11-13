@@ -146,7 +146,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     pub(super) fn display_class(&self) -> DisplayClass {
         match self.guard.active().monitor.profile().kind {
             MonitorKind::FlatPanel { .. } => DisplayClass::FlatPanel,
-            MonitorKind::Crt { .. } => DisplayClass::Crt,
+            MonitorKind::Crt { .. } | MonitorKind::Tv { .. } => DisplayClass::Crt,
         }
     }
 

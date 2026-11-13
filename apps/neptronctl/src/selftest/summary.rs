@@ -28,6 +28,9 @@ fn write_plan(s: &mut String, setup: &Setup, outcomes: &[Outcome]) -> std::fmt::
         MonitorKind::FlatPanel { modes } => {
             writeln!(s, "  flat panel with {} modes", modes.len())?;
         }
+        MonitorKind::Tv { standard } => {
+            writeln!(s, "  TV, standard {}", standard.key())?;
+        }
     }
     if let Some(limit) = setup.edid_pclock_max_hz {
         writeln!(s, "  EDID pixel clock limit: {}", mhz(limit))?;
@@ -156,5 +159,21 @@ mod tests {
         ] {
             assert!(text.contains(part), "{part}\n{text}");
         }
+    }
+
+    #[test]
+    fn the_plan_text_names_the_standard_of_a_tv() {
+        let setup = Setup {
+            profile: neptron_types::TvStandard::Pal.profile(),
+            source: "preset",
+            edid_pclock_max_hz: None,
+            caps: UNKNOWN_GPU_CAPS,
+            gpu: GpuFacts::default(),
+        };
+        let text = plan_text(&setup, &plan(&setup.profile, &setup.caps));
+        assert!(
+            text.contains("Profile tv_pal (preset)\n  TV, standard pal\n"),
+            "{text}"
+        );
     }
 }

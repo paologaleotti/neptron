@@ -68,7 +68,7 @@ fn load(dir: &Path) -> Result<Vec<CrtRange>, Box<dyn Error>> {
             toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         match profile.kind {
             MonitorKind::Crt { ranges: r } => ranges.extend(r),
-            MonitorKind::FlatPanel { .. } => {
+            MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => {
                 return Err(format!("{}: a preset must be a CRT", path.display()).into());
             }
         }

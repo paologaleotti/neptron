@@ -214,6 +214,13 @@ fn enum_wire_names_are_pinned() {
 fn monitor_kind_is_externally_tagged_in_snake_case() {
     let crt = MonitorKind::Crt { ranges: vec![] };
     let panel = MonitorKind::FlatPanel { modes: vec![] };
+    let tv = MonitorKind::Tv {
+        standard: TvStandard::Ntsc443,
+    };
+    assert_eq!(
+        serde_json::to_string(&tv).unwrap(),
+        r#"{"tv":{"standard":"ntsc_443"}}"#
+    );
     assert_eq!(
         serde_json::to_string(&crt).unwrap(),
         r#"{"crt":{"ranges":[]}}"#
@@ -240,4 +247,19 @@ fn tv_standards_serialise_as_their_keys() {
         (TvStandard::Mono60, "mono_60"),
         (TvStandard::Mono50, "mono_50"),
     ]);
+}
+
+#[test]
+fn tv_profile_reads_from_toml_and_round_trips_through_json() {
+    let text = "id = \"tv_pal\"\n\n[kind.tv]\nstandard = \"pal\"\n";
+    let profile: MonitorProfile = toml::from_str(text).unwrap();
+    assert_eq!(profile, TvStandard::Pal.profile());
+    let json = serde_json::to_string(&profile).unwrap();
+    assert_eq!(json, r#"{"id":"tv_pal","kind":{"tv":{"standard":"pal"}}}"#);
+    assert_eq!(
+        serde_json::from_str::<MonitorProfile>(&json).unwrap(),
+        profile
+    );
+    let unknown = text.replace("\"pal\"", "\"pal_b\"");
+    assert!(toml::from_str::<MonitorProfile>(&unknown).is_err());
 }

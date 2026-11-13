@@ -10,7 +10,9 @@ use crate::presets::{all_presets, modeline_text, open_caps, preset, source};
 fn ranges(profile: &MonitorProfile) -> Vec<CrtRange> {
     match &profile.kind {
         MonitorKind::Crt { ranges } => ranges.clone(),
-        MonitorKind::FlatPanel { .. } => panic!("{} is not a CRT", profile.id),
+        MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => {
+            panic!("{} is not a CRT", profile.id)
+        }
     }
 }
 
@@ -158,6 +160,17 @@ fn a_flat_panel_is_an_error() {
         modelines(&source(320, 240, 60_000), &panel, &open_caps()),
         Err(ModelineError::FlatPanel {
             profile: "panel".into()
+        })
+    );
+}
+
+#[test]
+fn a_tv_has_no_crt_range() {
+    let tv = neptron_types::TvStandard::Ntsc.profile();
+    assert_eq!(
+        modelines(&source(320, 240, 60_000), &tv, &open_caps()),
+        Err(ModelineError::NoRanges {
+            profile: "tv_ntsc".into()
         })
     );
 }

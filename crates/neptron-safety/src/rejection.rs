@@ -1,6 +1,6 @@
 use std::fmt;
 
-use neptron_types::Modeline;
+use neptron_types::{Modeline, TvStandard};
 
 /// Why `validate` refuses a mode. Each variant carries the value it found
 /// and the limit it checked the value against.
@@ -98,6 +98,14 @@ pub enum Rejection {
         mode: Modeline,
         /// How many modes the panel profile lists.
         panel_modes: usize,
+    },
+    /// The profile is a TV and the mode is not one of the two modes of
+    /// its standard.
+    NotATvMode {
+        /// The mode that was asked for.
+        mode: Modeline,
+        /// The standard of the profile.
+        standard: TvStandard,
     },
 }
 
@@ -203,6 +211,14 @@ impl fmt::Display for Rejection {
                 f,
                 "{}x{} at {} Hz pixel clock is not one of the {panel_modes} panel modes",
                 mode.hactive, mode.vactive, mode.pclock_hz
+            ),
+            Rejection::NotATvMode { mode, standard } => write!(
+                f,
+                "{}x{} at {} Hz pixel clock is not one of the two {} modes",
+                mode.hactive,
+                mode.vactive,
+                mode.pclock_hz,
+                standard.key()
             ),
         }
     }
@@ -337,6 +353,13 @@ mod tests {
                     panel_modes: 3,
                 },
                 "720x480 at 13500000 Hz pixel clock is not one of the 3 panel modes",
+            ),
+            (
+                Rejection::NotATvMode {
+                    mode: neptron_types::TV_625_288P,
+                    standard: TvStandard::NtscJ,
+                },
+                "720x288 at 13500000 Hz pixel clock is not one of the two ntsc_j modes",
             ),
         ];
         for (rejection, message) in cases {

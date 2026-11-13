@@ -411,7 +411,7 @@ impl Detected {
             .flatten()
             .filter_map(|e| match &e.profile.kind {
                 MonitorKind::FlatPanel { modes } => Some(modes),
-                MonitorKind::Crt { .. } => None,
+                MonitorKind::Crt { .. } | MonitorKind::Tv { .. } => None,
             })
             .flatten()
             .filter(|m| m.hactive <= PANEL_WIDTH_MAX_PX && m.vactive <= PANEL_HEIGHT_MAX_PX);

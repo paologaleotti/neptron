@@ -88,7 +88,7 @@ mod tests {
         assert_eq!(p.id, "pc_31_120");
         match p.kind {
             MonitorKind::Crt { ranges } => assert_eq!(ranges.len(), 2),
-            MonitorKind::FlatPanel { .. } => panic!("a preset is a CRT"),
+            MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => panic!("a preset is a CRT"),
         }
     }
 
