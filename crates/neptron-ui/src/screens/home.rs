@@ -1,5 +1,5 @@
 //! The home screen: the systems that contain games, the favourites, the
-//! recent games, and the display panel.
+//! recent games, the display panel and the audio panel.
 
 use core::fmt::Write;
 
@@ -29,10 +29,12 @@ enum Row {
     Favourites,
     Recents,
     Display,
+    Audio,
 }
 
 /// The home screen. With no systems it shows the empty-state text and one
-/// row, the display panel, at the bottom.
+/// row, the display panel, at the bottom: a new user can fix the picture
+/// before any game plays a sound.
 pub(super) struct Home {
     list: List,
     list_box: Rect,
@@ -70,6 +72,7 @@ impl Home {
             Some(Row::Favourites) => Nav::Open(Target::Games(GameSource::Favourites)),
             Some(Row::Recents) => Nav::Open(Target::Games(GameSource::Recents)),
             Some(Row::Display) => Nav::Open(Target::Display),
+            Some(Row::Audio) => Nav::Open(Target::Audio),
             None => Nav::Stay,
         }
     }
@@ -123,6 +126,7 @@ impl Home {
                 Some(Row::Favourites) => "Favourites",
                 Some(Row::Recents) => "Recent games",
                 Some(Row::Display) => "Display",
+                Some(Row::Audio) => "Audio",
                 None => "",
             };
             ListItem {
@@ -137,7 +141,7 @@ impl Home {
 fn row_count(snap: &Snapshot) -> usize {
     match snap.systems.len() {
         0 => 1,
-        systems => systems.saturating_add(3),
+        systems => systems.saturating_add(4),
     }
 }
 
@@ -151,6 +155,7 @@ fn row(snap: &Snapshot, index: usize) -> Option<Row> {
         Some(0) => Some(Row::Favourites),
         Some(1) => Some(Row::Recents),
         Some(2) => Some(Row::Display),
+        Some(3) => Some(Row::Audio),
         Some(_) => None,
     }
 }

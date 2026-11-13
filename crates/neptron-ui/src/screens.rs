@@ -3,10 +3,11 @@
 //! frame. Each screen registers its scenes in [`SCENES`].
 //!
 //! The UI and the app agree on a few numbers: the pages of the display
-//! panel and of the quick menu, and the menu actions that the UI carries out
+//! panel, the audio panel and the quick menu, and the menu actions that the UI carries out
 //! itself. They are at [`RESERVED_ID_MIN`] and above; the app numbers its
 //! own pages and actions below it.
 
+mod audio;
 mod chrome;
 mod display;
 mod game_list;
@@ -40,6 +41,10 @@ pub const DISPLAY_PAGE: PageId = PageId(RESERVED_ID_MIN + 1);
 /// written at the game level, with rows for [`RESUME`], [`OPEN_DISPLAY`]
 /// and [`QUIT_GAME`].
 pub const QUICK_MENU_PAGE: PageId = PageId(RESERVED_ID_MIN + 2);
+
+/// The page of the audio panel: the volume and the output device, written
+/// at the global level.
+pub const AUDIO_PAGE: PageId = PageId(RESERVED_ID_MIN + 3);
 
 /// A menu row that closes the quick menu and continues the game.
 pub const RESUME: ActionId = ActionId(RESERVED_ID_MIN + 1);

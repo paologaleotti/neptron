@@ -13,11 +13,13 @@ use crate::theme::Theme;
 use super::game_list::{PREFETCH_ROWS, WINDOW_ROWS};
 use super::overlays::QUIET_FRAMES_BEFORE_MOVE;
 use super::scenes::{
-    LONG_LIST, MEGA_DRIVE, REFRESH, SNES, STYLE, TO_DISPLAY, exact_status, filtered_status,
-    in_game, in_game_with, long_status, window, with_display, with_systems,
+    AUDIO_OUTPUT, LONG_LIST, MEGA_DRIVE, REFRESH, SNES, STYLE, TO_AUDIO, TO_DISPLAY, VOLUME,
+    exact_status, filtered_status, in_game, in_game_with, long_status, volume_row, window,
+    with_audio, with_display, with_systems,
 };
 use super::{
-    DISPLAY_PAGE, QUICK_MENU_PAGE, Screens, VIDEO_GAME_ROW, VIDEO_MODE_ROW, VIDEO_RESULT_ROW,
+    AUDIO_PAGE, DISPLAY_PAGE, QUICK_MENU_PAGE, Screens, VIDEO_GAME_ROW, VIDEO_MODE_ROW,
+    VIDEO_RESULT_ROW,
 };
 
 pub(super) struct Run {
@@ -79,7 +81,7 @@ fn snes_list() -> (Run, Snapshot) {
 }
 
 #[test]
-fn home_lists_the_systems_then_favourites_recents_and_display() {
+fn home_lists_the_systems_then_favourites_recents_display_and_audio() {
     let mut run = Run::new();
     run.step(&with_systems(), &[]);
     assert_eq!(run.screen(), "home");
@@ -99,6 +101,7 @@ fn home_lists_the_systems_then_favourites_recents_and_display() {
             ("Favourites", None),
             ("Recent games", None),
             ("Display", None),
+            ("Audio", None),
         ]
     );
     assert_eq!(run.focused(), Some("Nintendo Entertainment System"));
@@ -1713,4 +1716,103 @@ fn the_largest_skin_keeps_the_rows_in_their_box() {
             run.step(&snap, &[Down]);
         }
     }
+}
+
+#[test]
+fn the_audio_panel_asks_for_its_page_and_returns_home() {
+    let mut run = Run::new();
+    let mut snap = with_audio();
+    let page = core::mem::take(&mut snap.settings);
+    run.step(&snap, &TO_AUDIO);
+    assert_eq!(run.screen(), "audio");
+    assert_eq!(run.intents(), [Intent::LoadSettings { page: AUDIO_PAGE }]);
+    snap.settings = page;
+    run.step(&snap, &[]);
+    assert!(run.intents().is_empty());
+    assert!(
+        run.labels().ends_with(&["Volume", "Audio output"]),
+        "{:?}",
+        run.labels()
+    );
+    assert_eq!(run.focused(), Some("Volume"));
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "home");
+    assert_eq!(run.focused(), Some("Audio"));
+}
+
+#[test]
+fn the_volume_steps_by_5_at_the_global_level() {
+    let mut run = Run::new();
+    let snap = with_audio();
+    run.step(&snap, &TO_AUDIO);
+    run.step(&snap, &[Right]);
+    assert_eq!(
+        run.intents(),
+        [Intent::SetValue {
+            key: VOLUME,
+            level: Level::Global,
+            value: Value::Number(80),
+        }]
+    );
+    run.step(&snap, &[Left]);
+    assert_eq!(
+        run.intents(),
+        [Intent::SetValue {
+            key: VOLUME,
+            level: Level::Global,
+            value: Value::Number(70),
+        }]
+    );
+    run.step(&snap, &[Accept]);
+    assert!(run.intents().is_empty(), "accept changes no number");
+    assert_eq!(run.screen(), "audio");
+}
+
+#[test]
+fn the_audio_output_applies_from_its_option_list_with_auto_first() {
+    let mut run = Run::new();
+    let snap = with_audio();
+    run.step(&snap, &TO_AUDIO);
+    run.step(&snap, &[Down, Right]);
+    assert!(run.intents().is_empty(), "a choice never changes in place");
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.screen(), "options");
+    let labels = run.labels();
+    let auto = labels.iter().position(|l| *l == "auto").expect("auto");
+    assert_eq!(
+        labels[auto..auto + 3],
+        ["auto", "HDA Intel PCH", "USB Audio"]
+    );
+    assert_eq!(run.focused(), Some("HDA Intel PCH"));
+    run.step(&snap, &[Up, Accept]);
+    assert_eq!(
+        run.intents(),
+        [Intent::SetValue {
+            key: AUDIO_OUTPUT,
+            level: Level::Global,
+            value: Value::Choice(0),
+        }]
+    );
+}
+
+#[test]
+fn the_quick_menu_volume_writes_the_game_level_at_once() {
+    let mut run = Run::new();
+    let mut snap = in_game();
+    snap.settings.rows.insert(
+        3,
+        volume_row(60, Level::System, crate::snapshot::Scopes::ALL),
+    );
+    run.step(&snap, &[]);
+    run.step(&snap, &[Menu, Down, Down, Down]);
+    assert_eq!(run.focused(), Some("Volume"));
+    run.step(&snap, &[Left]);
+    assert_eq!(
+        run.intents(),
+        [Intent::SetValue {
+            key: VOLUME,
+            level: Level::Game,
+            value: Value::Number(55),
+        }]
+    );
 }

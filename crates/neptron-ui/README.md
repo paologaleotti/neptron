@@ -28,7 +28,7 @@ The sealed UI: snapshot in, scene and intents out. A 320x240 XRGB8888 canvas, a 
 The UI chooses the view; the app owns the data. A screen asks for the data of its view with an intent, and the app answers in a later snapshot:
 
 - `Intent::LoadGames { source, first, count }` asks for rows of a game list. `GameSource` is `System(id)`, `Favourites` or `Recents`. The app puts a window of rows around them in `Snapshot::games`: a `GameWindow` with its `source`, the index `first` of its first row, the `total` of the list, and the rows. A list of 10,000 games costs a window of rows, not 10,000 copies, and the snapshot is passed by reference, never copied per frame.
-- `Intent::LoadSettings { page }` asks for the rows of a settings page. The UI names two pages, `screens::DISPLAY_PAGE` and `screens::QUICK_MENU_PAGE`; the app numbers other pages below `screens::RESERVED_ID_MIN`. The app puts the rows in `Snapshot::settings`, a `SettingsPage` with its `page`.
+- `Intent::LoadSettings { page }` asks for the rows of a settings page. The UI names three pages, `screens::DISPLAY_PAGE`, `screens::AUDIO_PAGE` and `screens::QUICK_MENU_PAGE`; the app numbers other pages below `screens::RESERVED_ID_MIN`. The app puts the rows in `Snapshot::settings`, a `SettingsPage` with its `page`.
 - Systems, profiles, display, confirm and session are small and always complete.
 
 `GameWindow::is_for`, `covers` and `SettingsPage::is_for` let a screen tell old data from current data. A screen asks again in each frame until the snapshot answers, at most one request per frame, and never while the snapshot holds what it needs. The app must drop a request that is already in flight, so the repeats cost nothing. This keeps the UI free of I/O and the app free of screen logic. The other option, a snapshot with every list complete, copies or holds the whole library for each frame, so it was not taken.
@@ -55,16 +55,17 @@ The UI has no clock and takes no time step. Key repeat comes from the app: while
 - Accept opens, plays or chooses. Back closes the screen on top; on home it does nothing.
 - Up and down move one row; left and right move one page in a list. Lists stop at their ends and do not wrap, so a held direction stops at the last row.
 - Menu in a game list adds the focused game to the favourites or removes it. Menu on a settings row removes a value set at the level of the screen, so the row inherits again.
-- The stack: home, then a game list, then the game. Over the game: the quick menu, from it the display panel or the grid pattern, from a choice row the list of its options. From home: the display panel, then options or the grid pattern. `MAX_DEPTH` is 8; the deepest path is 6.
+- The stack: home, then a game list, then the game. Over the game: the quick menu, from it the display panel or the grid pattern, from a choice row the list of its options. From home: the display panel, then options or the grid pattern; or the audio panel, then options. `MAX_DEPTH` is 8; the deepest path is 6.
 - On top of every screen: the confirm dialog while the snapshot holds a pending confirmation (also over a running game), else the oldest notice that the player has not dismissed (not while a game runs alone: the canvas is opaque and would hide the game).
 
-The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `display`, `options`, `pattern/grid`, `confirm` and `notice`. The rows of the video block have the ids `video/game`, `video/mode` and `video/result` as their labels (see "The video block"). Under a dialog the tree holds the rows of the dialog only, and the hint band shows the hints of the dialog: "Accept: revert" and "Right, then Accept: keep" for the confirm dialog, "Accept: OK" for a notice, "Accept: choose" and "Back: cancel" for the prompt of the quick menu.
+The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `display`, `audio`, `options`, `pattern/grid`, `confirm` and `notice`. The rows of the video block have the ids `video/game`, `video/mode` and `video/result` as their labels (see "The video block"). Under a dialog the tree holds the rows of the dialog only, and the hint band shows the hints of the dialog: "Accept: revert" and "Right, then Accept: keep" for the confirm dialog, "Accept: OK" for a notice, "Accept: choose" and "Back: cancel" for the prompt of the quick menu.
 
 ### Ids that the UI and the app share
 
 | Id | Value | Use |
 | --- | --- | --- |
 | `DISPLAY_PAGE` | `PageId(RESERVED_ID_MIN + 1)` | The rows of the display panel: output, monitor, picture style, refresh policy, and a `GRID_PATTERN` row. Written at the global level |
+| `AUDIO_PAGE` | `PageId(RESERVED_ID_MIN + 3)` | The rows of the audio panel: volume and output device. Written at the global level |
 | `QUICK_MENU_PAGE` | `PageId(RESERVED_ID_MIN + 2)` | The rows of the quick menu: the settings of the game and the rows below. Written at the game level |
 | `RESUME` | `ActionId(RESERVED_ID_MIN + 1)` | Close the quick menu: `Intent::Resume` |
 | `QUIT_GAME` | `ActionId(RESERVED_ID_MIN + 2)` | Stop the game: `Intent::QuitGame` |
@@ -75,7 +76,11 @@ The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-m
 
 ### Home and the game list
 
-Home lists the systems with their game counts, then Favourites, Recent games and Display. With no systems it says where the games go (`roms/nes`, `roms/snes`, `roms/megadrive` on the share partition) and keeps the Display row, so a new user can still fix the picture.
+Home lists the systems with their game counts, then Favourites, Recent games, Display and Audio. With no systems it says where the games go (`roms/nes`, `roms/snes`, `roms/megadrive` on the share partition) and keeps the Display row only, so a new user can still fix the picture; no game plays a sound yet.
+
+### The audio panel
+
+The audio panel shows the rows of `AUDIO_PAGE` in one framed page, written at the global level: the volume as a number row (left and right step it) and the output device as a choice row, whose options open in a list (`docs/spec/audio-settings.md`). The app fills the rows; the UI draws them as any settings page.
 
 The game list reads a window of rows. It needs the visible rows and `PREFETCH_ROWS` (32) rows on each side of them. While the snapshot holds that range it asks for nothing. When it does not, it asks for `WINDOW_ROWS` (128) rows centred on the visible rows, once per frame, until the snapshot holds them. The margin is larger than a page, so a step or a page jump shows rows of the old window while the new one loads. A jump past the window shows `...` rows until the data comes. While the snapshot holds a window of a different list, the cursor stays where it is and the list draws no rows. An empty list says why it is empty. The focused title shows in full on two lines under the list.
 
@@ -145,7 +150,7 @@ The screens use the templates on a dark background: a title band with a two-pixe
 
 ### Scenes
 
-Every screen state that matters is a scene with a golden image: `screens/home`, `screens/home-empty`, `screens/games-top`, `screens/games-middle` (a title too long for its row), `screens/games-end`, `screens/games-one`, `screens/games-empty`, `screens/display`, `screens/display-style` (a picture style the monitor cannot show), `screens/confirm-10s`, `screens/confirm-3s`, `screens/notice` (a game that did not start, an error), `screens/notice-warning` (a warning), `screens/quick-menu`, `screens/quick-menu-keep`, `screens/quick-menu-video` (the video block, exact), `screens/quick-menu-video-filtered` (an alert, in the warning colour), `screens/quick-menu-video-long` (a full mode line and a result on two lines), `screens/display-video` (the display panel during a game, with the video block of a 31 kHz mode) and `pattern/grid`. Each scene drives a `Screens` with fixture data and actions, as the app does. A new scene needs a golden image in `crates/neptron-ui/tests/golden/<name>.ppm`: look at it with `cargo xtask shot <name>` first, then write it with `cargo xtask golden --bless <name>`.
+Every screen state that matters is a scene with a golden image: `screens/home`, `screens/home-empty`, `screens/games-top`, `screens/games-middle` (a title too long for its row), `screens/games-end`, `screens/games-one`, `screens/games-empty`, `screens/display`, `screens/display-style` (a picture style the monitor cannot show), `screens/confirm-10s`, `screens/confirm-3s`, `screens/notice` (a game that did not start, an error), `screens/notice-warning` (a warning), `screens/quick-menu`, `screens/quick-menu-keep`, `screens/quick-menu-video` (the video block, exact), `screens/quick-menu-video-filtered` (an alert, in the warning colour), `screens/quick-menu-video-long` (a full mode line and a result on two lines), `screens/display-video` (the display panel during a game, with the video block of a 31 kHz mode), `pattern/grid`, `screens/audio` (the audio panel), `screens/audio-output` (the options of the output device) and `screens/quick-menu-volume` (the volume row of a game, set for its system). Each scene drives a `Screens` with fixture data and actions, as the app does. A new scene needs a golden image in `crates/neptron-ui/tests/golden/<name>.ppm`: look at it with `cargo xtask shot <name>` first, then write it with `cargo xtask golden --bless <name>`.
 
 ## Skin
 

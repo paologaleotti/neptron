@@ -7,6 +7,7 @@ use crate::intent::Intent;
 use crate::snapshot::{GameSource, Level, PageId, SettingKey, Snapshot};
 use crate::theme::Theme;
 
+use super::audio::AudioPanel;
 use super::chrome::{self, Layout};
 use super::display::DisplayPanel;
 use super::game_list::GameList;
@@ -50,6 +51,7 @@ pub(super) enum Nav {
 pub(super) enum Target {
     Games(GameSource),
     Display,
+    Audio,
     QuickMenu,
     /// The options of a choice row of a page, written at a level.
     Options {
@@ -64,6 +66,7 @@ pub(super) enum Screen {
     Home(Home),
     Games(GameList),
     Display(DisplayPanel),
+    Audio(AudioPanel),
     Options(Options),
     /// Boxed: its list of changes makes it much larger than the others.
     QuickMenu(Box<QuickMenu>),
@@ -165,6 +168,7 @@ impl Screens {
             Some(Screen::Home(home)) => home.handle(action, snap),
             Some(Screen::Games(list)) => list.handle(action, snap, out),
             Some(Screen::Display(panel)) => panel.handle(action, snap, out),
+            Some(Screen::Audio(panel)) => panel.handle(action, snap, out),
             Some(Screen::Options(options)) => options.handle(action, snap, out),
             Some(Screen::QuickMenu(menu)) => menu.handle(action, snap, out),
             Some(Screen::Grid) => pattern::handle(action),
@@ -195,6 +199,7 @@ impl Screens {
         let screen = match target {
             Target::Games(source) => Screen::Games(GameList::new(source, layout, theme)),
             Target::Display => Screen::Display(DisplayPanel::new(layout, theme)),
+            Target::Audio => Screen::Audio(AudioPanel::new(layout, theme)),
             Target::QuickMenu => Screen::QuickMenu(Box::new(QuickMenu::new(layout, theme))),
             Target::Options { page, key, level } => {
                 Screen::Options(Options::new(page, key, level, layout, theme))
@@ -208,6 +213,7 @@ impl Screens {
         match self.stack.last()? {
             Screen::Games(list) => list.request(snap),
             Screen::Display(panel) => panel.request(snap),
+            Screen::Audio(panel) => panel.request(snap),
             Screen::Options(options) => options.request(snap),
             Screen::QuickMenu(menu) => menu.request(snap),
             Screen::Home(_) | Screen::Grid | Screen::Game => None,
@@ -227,6 +233,10 @@ impl Screens {
             }
             Some(Screen::Display(panel)) => {
                 out.tree.set_screen("display");
+                panel.draw(snap, theme, out);
+            }
+            Some(Screen::Audio(panel)) => {
+                out.tree.set_screen("audio");
                 panel.draw(snap, theme, out);
             }
             Some(Screen::Options(options)) => {

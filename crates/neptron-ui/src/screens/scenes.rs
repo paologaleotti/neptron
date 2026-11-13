@@ -15,7 +15,8 @@ use crate::theme::Theme;
 use super::game_list::WINDOW_ROWS;
 use super::router::Screen;
 use super::{
-    DISPLAY_PAGE, GRID_PATTERN, OPEN_DISPLAY, QUICK_MENU_PAGE, QUIT_GAME, RESUME, Screens,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PATTERN, OPEN_DISPLAY, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
+    Screens,
 };
 
 pub(super) const SCENES: &[SceneDef] = &[
@@ -103,6 +104,18 @@ pub(super) const SCENES: &[SceneDef] = &[
         name: "pattern/grid",
         build: grid,
     },
+    SceneDef {
+        name: "screens/audio",
+        build: audio,
+    },
+    SceneDef {
+        name: "screens/audio-output",
+        build: audio_output,
+    },
+    SceneDef {
+        name: "screens/quick-menu-volume",
+        build: quick_menu_volume,
+    },
 ];
 
 /// The settings of the fixtures.
@@ -110,9 +123,22 @@ pub(super) const OUTPUT: SettingKey = SettingKey(1);
 pub(super) const MONITOR: SettingKey = SettingKey(2);
 pub(super) const STYLE: SettingKey = SettingKey(3);
 pub(super) const REFRESH: SettingKey = SettingKey(4);
+pub(super) const VOLUME: SettingKey = SettingKey(6);
+pub(super) const AUDIO_OUTPUT: SettingKey = SettingKey(7);
 
 /// The path from home to the display panel with the fixture systems.
 pub(super) const TO_DISPLAY: [UiAction; 6] = [
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+];
+
+/// The path from home to the audio panel with the fixture systems.
+pub(super) const TO_AUDIO: [UiAction; 7] = [
+    UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
@@ -591,4 +617,92 @@ fn grid(frame: &mut UiFrame, theme: &Theme) {
         UiAction::Accept,
     ];
     screens.update(&snap, &to_grid, frame);
+}
+
+/// The volume row at `percent`, from `source`, written at the levels of
+/// `scopes`.
+pub(super) fn volume_row(percent: i64, source: Level, scopes: Scopes) -> MenuItem {
+    setting(
+        VOLUME,
+        "Volume",
+        SettingValue::Number {
+            value: percent,
+            min: 0,
+            max: 100,
+            step: 5,
+            unit: "%".to_owned(),
+        },
+        source,
+        scopes,
+    )
+}
+
+/// The rows of the audio page: the volume, and the output device on a PC
+/// with an HDA card and a USB card, as SDL's ALSA backend lists them.
+pub(super) fn audio_rows() -> Vec<MenuItem> {
+    let global = Scopes {
+        global: true,
+        ..Scopes::NONE
+    };
+    let mut output = setting(
+        AUDIO_OUTPUT,
+        "Audio output",
+        choice(
+            1,
+            vec![
+                ChoiceOption::new("auto").with_detail("System default"),
+                ChoiceOption::new("HDA Intel PCH").with_detail("ALC221 Analog"),
+                ChoiceOption::new("USB Audio").with_detail("USB Audio"),
+            ],
+        ),
+        Level::Global,
+        global,
+    );
+    output.live = false;
+    vec![volume_row(75, Level::Global, global), output]
+}
+
+/// A snapshot with the fixture systems and the audio page.
+pub(super) fn with_audio() -> Snapshot {
+    let mut snap = with_systems();
+    snap.settings = SettingsPage::new(AUDIO_PAGE, "Audio", audio_rows());
+    snap
+}
+
+fn audio(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_audio();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_AUDIO, frame);
+    screens.update(&snap, &[], frame);
+}
+
+fn audio_output(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_audio();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_AUDIO, frame);
+    screens.update(&snap, &[UiAction::Down, UiAction::Accept], frame);
+    screens.update(&snap, &[UiAction::Down], frame);
+}
+
+/// The quick menu with the volume of the game, set for its system.
+fn quick_menu_volume(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = in_game();
+    let at = snap
+        .settings
+        .rows
+        .iter()
+        .position(|r| r.key == SettingKey(11))
+        .unwrap_or(snap.settings.rows.len());
+    snap.settings
+        .rows
+        .insert(at, volume_row(60, Level::System, Scopes::ALL));
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[], frame);
+    let to_volume = [
+        UiAction::Menu,
+        UiAction::Down,
+        UiAction::Down,
+        UiAction::Down,
+    ];
+    screens.update(&snap, &to_volume, frame);
 }
