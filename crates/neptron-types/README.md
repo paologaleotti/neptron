@@ -9,6 +9,7 @@ Every contract value is an integer. Frequencies are in millihertz (`_mhz`), or i
 - `Modeline`: integer timings as DRM gets them. `line_rate_mhz()` and `field_rate_mhz()` round to the nearest millihertz and return 0 for a zero total.
 - `CrtRange`: one Switchres `crt_range` line in integer units.
 - `MonitorKind` (`Crt { ranges }` or `FlatPanel { modes }`) and `MonitorProfile { id, kind }`. In TOML the variant is a table key: `[[kind.crt.ranges]]`. The presets in `data/monitors/` use this shape.
+- `TvStandard` (ten broadcast standards of a composite encoder, `TvStandard::ALL`) with `lines()`, `kms_name()` (the value of the connector property `TV mode`), `key()` and `from_key()` (the name in settings and files, also its serde name), and `modes()` (the progressive and the interlaced mode of its line system). The four modes are `TV_525_240P`, `TV_525_480I`, `TV_625_288P` and `TV_625_576I`, all at `TV_PCLOCK_HZ` (13.5 MHz), with the values that the Linux kernel gives the Raspberry Pi composite encoder. ADR 0012 records them and their sources.
 - `GpuCaps`: pixel clock range, interlace, flip per field, maximum size.
 - `OutputKind` (`Analog`, the default, or `Digital`): the kind of link from an output to its display, decided once from the class rule of the detection. It picks which GPU limits bound a mode: the careful CRT limits on an analog output, the limits of the link and the scanout on a digital link to a flat panel. ADR 0010 records it.
 - `Rotation` (counter-clockwise, as in libretro) and `SourceGeometry`.

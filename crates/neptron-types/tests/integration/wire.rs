@@ -1,6 +1,6 @@
 use neptron_types::{
     Control, CrtRange, Filter, InputEvent, Modeline, MonitorKind, MonitorProfile, PixelFormat,
-    Rotation, ScanlineKind, ScanlineMode, Scanlines, ScreenClass, SourceGeometry,
+    Rotation, ScanlineKind, ScanlineMode, Scanlines, ScreenClass, SourceGeometry, TvStandard,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -222,4 +222,22 @@ fn monitor_kind_is_externally_tagged_in_snake_case() {
         serde_json::to_string(&panel).unwrap(),
         r#"{"flat_panel":{"modes":[]}}"#
     );
+}
+
+#[test]
+fn tv_standards_serialise_as_their_keys() {
+    let cases: Vec<(TvStandard, &str)> = TvStandard::ALL.iter().map(|s| (*s, s.key())).collect();
+    pin(&cases);
+    pin(&[
+        (TvStandard::Ntsc, "ntsc"),
+        (TvStandard::NtscJ, "ntsc_j"),
+        (TvStandard::Ntsc443, "ntsc_443"),
+        (TvStandard::Pal60, "pal_60"),
+        (TvStandard::PalM, "pal_m"),
+        (TvStandard::Pal, "pal"),
+        (TvStandard::PalN, "pal_n"),
+        (TvStandard::Secam, "secam"),
+        (TvStandard::Mono60, "mono_60"),
+        (TvStandard::Mono50, "mono_50"),
+    ]);
 }

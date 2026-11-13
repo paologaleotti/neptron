@@ -1,5 +1,5 @@
 //! Shared plain data: modeline, CRT range, monitor profile, GPU capabilities,
-//! output kind, source geometry, frame, scene and backend events. Plain data with serde,
+//! output kind, TV standard, source geometry, frame, scene and backend events. Plain data with serde,
 //! no I/O.
 //!
 //! Every contract value is an integer: frequencies in millihertz (or hertz
@@ -15,6 +15,7 @@ mod output;
 mod scanline;
 mod scene;
 mod source;
+mod tv;
 
 pub use event::{Control, FlipEvent, InputEvent};
 pub use gpu::GpuCaps;
@@ -27,3 +28,4 @@ pub use scanline::{
 };
 pub use scene::{Filter, Frame, PixelFormat, Rect, Scene, ui_dest_fill, ui_dest_uniform};
 pub use source::{Rotation, SourceGeometry};
+pub use tv::{TV_525_240P, TV_525_480I, TV_625_288P, TV_625_576I, TV_PCLOCK_HZ, TvStandard};
