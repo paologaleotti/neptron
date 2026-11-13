@@ -801,7 +801,7 @@ Each open point is one section:
 - Default: not added. The display works without it; only the low-power states of the display are lost. The i915 driver is built into the kernel and asks for the file before the root file system mounts, so a file in `/lib/firmware` does not help.
 - Where: `os/board/pc` (kernel config), `os/board/pc/LICENCES.txt`
 - How to change: (a) put the file inside the kernel image with `CONFIG_EXTRA_FIRMWARE`, which places an Intel binary inside the GPL-2.0 kernel image and needs a licence check; (b) build i915 as a module, which changes a recorded design choice; (c) keep it out.
-- Decision:
+- Decision: Owner, 2026-11-13: leave it out.
 
 ### OP-087: Which HDMI or DisplayPort audio output has the monitor.
 
@@ -810,7 +810,7 @@ Each open point is one section:
 - Default: the files in `/proc/asound` do not map a monitor (ELD) to its PCM when a card has more HDMI/DP outputs than monitors. Then the list shows `HDMI/DP 1` to `n` with no monitor name, and `auto` takes the analog output. On the bench (one monitor, three outputs) the owner chooses `HDMI/DP 1` once.
 - Where: `crates/neptron-audio/src/alsa.rs`, `docs/spec/audio-settings.md`
 - How to change: read the `ELD` control of each PCM through `/dev/snd/controlC<N>` (an ioctl in the unsafe module of `neptron-audio`, with a new dependency such as `rustix`), or read the HDMI jack switches of the input devices. Both give the exact mapping. Then `auto` can follow the monitor in use.
-- Decision:
+- Decision: Owner, 2026-11-13: do it after the Raspberry Pi work.
 
 ### OP-088: Later steps of the audio settings.
 
@@ -856,7 +856,7 @@ Each open point is one section:
 - Default: not built: a settings row "Network share" (the hook is the off switch file and `S45neptron-share restart`); the address of the machine shown in the UI; WS-Discovery, so the machine shows in the Windows network view (needs a new package); Wi-Fi; shares for saves, states and config, which `docs/definition/10-os-layer.md` describes; DHCP for a USB network adapter plugged in after boot; a clean power-off on the release image. On Windows 11 a plain open of the share in Explorer probably shows an error and no prompt; the ways that work are in the spec. The check for `inet dhcp` in `os/board/common/post-build.sh` can never fail after the fixed write above it and can go.
 - Where: `os/`, `docs/spec/network-share.md`, `crates/neptron-ui`
 - How to change: one task per step.
-- Decision:
+- Decision: Owner, 2026-11-13: a second share for saves and states is wanted (task C19, after the Raspberry Pi work); config stays local.
 
 ### OP-093: The control protocol does not give the kind of a UI row.
 
@@ -892,5 +892,32 @@ Each open point is one section:
 - Default: no Raspberry Pi image exists. The owner's decisions for the first one: composite video is the default output, NTSC at 60 Hz, and the user can change the standard (PAL at 50 Hz, PAL at 60 Hz and the others the hardware gives); the picture must be as sharp as composite allows; it must work on a 15 kHz tube through composite. The GPIO DACs (VGA666, RGB-Pi, Pi2SCART) are not in the first image; they need a line in the boot configuration on the card, as `docs/definition/05-crt-safety-model.md` describes.
 - Where: `docs/spec/raspberry-pi.md`, `os/` (a new board), `crates/neptron-modeline` and `crates/neptron-video` (an output with fixed timings), `data/hardware/matrix.toml`
 - How to change: P01 writes the spec and the plan; the build tasks follow it.
-- Decision: the owner asked for it after the PC round (2026-11-13).
+- Decision: the owner asked for it after the PC round (2026-11-13). Owner, 2026-11-13: the test board is a Pi 3 B+; HDMI on the Pi is in the first image as a flat panel; the default standard stays NTSC; the default width rule is `aspect`, because the picture must have the right size and shape; the names NTSC and PAL are used only for composite, other outputs show lines and rates.
+
+### OP-097: Picture size and position on a TV-class CRT (overscan).
+
+- Raised by: the owner (2026-11-13)
+- Status: open, a design is wanted before the MVP is called done
+- Default: a CRT TV hides part of the picture at its edges, on composite and on RGB alike (a PC monitor does not). Today the only allowance is the 5 % safe area of the UI theme, on every output. On composite the menu is placed 640 samples wide, which keeps its text 10 % from the side edges; the top and the bottom have only the theme's margin. A game is placed as its console placed it. No setting moves or sizes the picture.
+- Where: `crates/neptron-ui` (the theme's safe area), `crates/neptron-modeline` (on RGB the porches of the modeline set the size and the position at no cost in sharpness; on composite only the placement inside the fixed 720 samples can change), the settings schema
+- How to change: one setting for the menu's safe area on a 15 kHz profile, and picture position and size settings: through the timings on RGB, through the placement on composite. Check on the owner's tube first what is cut.
+- Decision:
+
+### OP-098: A TV standard that follows the game on composite.
+
+- Raised by: the Raspberry Pi spec (2026-11-13)
+- Status: open, after the first composite image
+- Default: the TV standard is one setting; a 50 Hz game on a 60 Hz standard runs with the speed alert, and the reverse. The signal does not change by itself.
+- Where: `crates/neptron-video` (the guard), `crates/neptron-modeline/src/policy/tv.rs`, the settings
+- How to change: a second standard for 50 Hz games that the player has confirmed once on this TV; the guard then allows the change between the two confirmed standards with no prompt. It needs its own safety rule and an ADR.
+- Decision: the owner: keep it as an open point (2026-11-13).
+
+### OP-099: A picture width per system on composite.
+
+- Raised by: the review of the TV policy (2026-11-13)
+- Status: open
+- Default: a 4:3 console picture of 224 to 240 lines gets the width that the common consoles had (644 samples at 525 lines). The Neo Geo draws its 320 pixels at 6 MHz, which is 720 samples, so it comes out about 11 % narrow.
+- Where: `data/systems`, `crates/neptron-modeline/src/policy/tv/width.rs`
+- How to change: a pixel clock or an active picture time per system in the systems data, used by the width rule.
+- Decision:
 

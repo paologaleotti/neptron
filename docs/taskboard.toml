@@ -480,3 +480,12 @@ needs = ["P03", "P05"]
 gate = "T2"
 status = "pending"
 
+[[task]]
+id = "C19"
+wave = 11
+name = "A second network share for saves and states (OP-092)"
+owns = ["os", "docs/spec/network-share.md", "xtask/src/os"]
+needs = ["C13", "P06"]
+gate = "T1; the boot checks and the share check"
+status = "pending"
+
