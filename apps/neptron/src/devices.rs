@@ -205,8 +205,8 @@ mod tests {
         assert_eq!(
             audio.notices,
             [
-                "The audio output \"Analog (HDA Intel PCH)\" did not open (busy). Another output plays.",
-                "No sound: the audio device did not open (busy; busy).",
+                "The audio output \"Analog (HDA Intel PCH)\" did not open (busy).",
+                "No sound: the audio device did not open (busy).",
             ]
         );
         assert!(

@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use crate::{Monitor, OutputDevice};
+use crate::{Monitor, OutputDevice, OutputKind};
 
 /// The prefix of a stored ALSA name: `hw:CARD=<id>,DEV=<n>`.
 pub const ALSA_NAME_PREFIX: &str = "hw:";
@@ -26,7 +26,8 @@ pub struct AlsaText {
 
 impl AlsaText {
     /// Reads the text under `root` (`/proc/asound` on a device), with a
-    /// lossy UTF-8 conversion. A missing or unreadable file is empty text, so the list is empty or shorter,
+    /// lossy UTF-8 conversion. A missing or unreadable file is empty
+    /// text, so the list is empty or shorter,
     /// and nothing stops the start.
     pub fn read(root: &Path) -> Self {
         // Lossy: one bad byte in a monitor name must not drop its ELD.
@@ -156,6 +157,17 @@ pub fn is_digital(pcm: &AlsaPcm) -> bool {
     pcm.id.starts_with("HDMI") || pcm.id.starts_with("DP") || pcm.id.contains("DisplayPort")
 }
 
+/// True for an S/PDIF PCM: its id or name holds `Digital`, `S/PDIF`,
+/// `SPDIF` or `IEC958`. It is not an analog output.
+pub fn is_spdif(pcm: &AlsaPcm) -> bool {
+    [pcm.id.as_str(), pcm.name.as_str()].iter().any(|text| {
+        let upper = text.to_ascii_uppercase();
+        ["DIGITAL", "S/PDIF", "SPDIF", "IEC958"]
+            .iter()
+            .any(|word| upper.contains(word))
+    })
+}
+
 /// The stored name of a PCM: `hw:CARD=<id>,DEV=<n>`.
 pub fn alsa_name(card_id: &str, device: u32) -> String {
     format!("{ALSA_NAME_PREFIX}CARD={card_id},DEV={device}")
@@ -184,8 +196,13 @@ pub fn open_name(name: &str) -> String {
 pub fn alsa_outputs(text: &AlsaText) -> Vec<OutputDevice> {
     let cards = parse_cards(&text.cards);
     let pcms = parse_pcms(&text.pcm);
+    let hdmi_cards = cards
+        .iter()
+        .filter(|c| pcms.iter().any(|p| p.card == c.index && is_digital(p)))
+        .count();
     let mut listed = Vec::new();
     let mut last = Vec::new();
+    let mut k = 0;
     for card in &cards {
         let elds: Vec<Eld> = text
             .elds
@@ -198,60 +215,70 @@ pub fn alsa_outputs(text: &AlsaText) -> Vec<OutputDevice> {
             .iter()
             .filter(|p| p.card == card.index && is_digital(p))
             .count();
-        let mut k = 0;
+        // One card with HDMI PCMs counts them per card; with two or more
+        // cards the count runs across them, so the labels differ early.
+        if hdmi_cards < 2 {
+            k = 0;
+        }
         for pcm in pcms.iter().filter(|p| p.card == card.index) {
-            let name = alsa_name(&card.id, pcm.device);
-            if !is_digital(pcm) {
-                listed.push(Labelled {
-                    head: "Analog".to_owned(),
-                    tail: card.name.clone(),
-                    card_id: card.id.clone(),
-                    device: OutputDevice {
-                        name,
-                        label: String::new(),
-                        detail: pcm.name.clone(),
-                        monitor: Monitor::NotDigital,
-                    },
-                });
-                continue;
-            }
-            k += 1;
-            let numbered = |detail: String, monitor: Monitor| Labelled {
-                head: format!("HDMI/DP {k}"),
-                tail: card.name.clone(),
+            let entry = |head: String, tail: &str, detail: String, monitor, kind| Labelled {
+                head,
+                tail: tail.to_owned(),
                 card_id: card.id.clone(),
+                pcm_name: pcm.name.clone(),
+                device_number: pcm.device,
                 device: OutputDevice {
-                    name: name.clone(),
+                    name: alsa_name(&card.id, pcm.device),
                     label: String::new(),
                     detail,
                     monitor,
+                    kind,
                 },
             };
-            let entry = match (elds.len(), digital) {
-                (0, _) => numbered("Nothing connected".to_owned(), Monitor::Absent),
+            if !is_digital(pcm) {
+                let (head, kind) = if is_spdif(pcm) {
+                    ("Digital", OutputKind::Digital)
+                } else {
+                    ("Analog", OutputKind::Analog)
+                };
+                listed.push(entry(
+                    head.to_owned(),
+                    &card.name,
+                    pcm.name.clone(),
+                    Monitor::NotDigital,
+                    kind,
+                ));
+                continue;
+            }
+            k += 1;
+            let numbered = |detail: &str, monitor| {
+                entry(
+                    format!("HDMI/DP {k}"),
+                    &card.name,
+                    detail.to_owned(),
+                    monitor,
+                    OutputKind::Hdmi,
+                )
+            };
+            let item = match (elds.len(), digital) {
+                (0, _) => numbered("Nothing connected", Monitor::Absent),
                 (1, 1) => match elds[0].name.clone() {
-                    Some(monitor) => Labelled {
-                        head: monitor.clone(),
-                        tail: "HDMI/DP".to_owned(),
-                        card_id: card.id.clone(),
-                        device: OutputDevice {
-                            name: name.clone(),
-                            label: String::new(),
-                            detail: pcm.name.clone(),
-                            monitor: Monitor::Present(Some(monitor)),
-                        },
-                    },
-                    None => numbered(pcm.name.clone(), Monitor::Present(None)),
+                    Some(monitor) => entry(
+                        monitor.clone(),
+                        "HDMI/DP",
+                        "Monitor connected".to_owned(),
+                        Monitor::Present(Some(monitor)),
+                        OutputKind::Hdmi,
+                    ),
+                    None => numbered("Monitor connected", Monitor::Present(None)),
                 },
-                (v, h) if v == h => {
-                    numbered("Monitor connected".to_owned(), Monitor::Present(None))
-                }
-                _ => numbered(pcm.name.clone(), Monitor::Unknown),
+                (v, h) if v == h => numbered("Monitor connected", Monitor::Present(None)),
+                _ => numbered("", Monitor::Unknown),
             };
-            if entry.device.monitor == Monitor::Absent {
-                last.push(entry);
+            if item.device.monitor == Monitor::Absent {
+                last.push(item);
             } else {
-                listed.push(entry);
+                listed.push(item);
             }
         }
     }
@@ -259,32 +286,65 @@ pub fn alsa_outputs(text: &AlsaText) -> Vec<OutputDevice> {
     label_all(listed)
 }
 
-/// A device whose label is still to be made: `<head> (<tail>)`.
+/// A device whose label is still to be made: `<head> (<tail>)`, with
+/// what can tell two equal labels apart.
 struct Labelled {
     head: String,
     tail: String,
     card_id: String,
+    pcm_name: String,
+    device_number: u32,
     device: OutputDevice,
 }
 
-/// Gives each device its label, `<head> (<tail>)`, and adds the card id
-/// to the brackets of every label that two devices share.
+impl Labelled {
+    /// The label with the brackets at `level`: 0 the tail, 1 the card id
+    /// too, 2 the PCM name too, 3 the device number too.
+    fn label(&self, level: u8) -> String {
+        let mut inside = self.tail.clone();
+        if level >= 1 {
+            inside = format!("{inside}, {}", self.card_id);
+        }
+        if level >= 2 {
+            inside = format!("{inside}, {}", self.pcm_name);
+        }
+        if level >= 3 {
+            inside = format!("{inside}, {}", self.device_number);
+        }
+        format!("{} ({inside})", self.head)
+    }
+}
+
+/// The most that [`Labelled::label`] adds to the brackets.
+const LABEL_LEVEL_MAX: u8 = 3;
+
+/// Gives each device its label. A label that two devices share gets more
+/// in its brackets, step by step, until it is unique.
 fn label_all(entries: Vec<Labelled>) -> Vec<OutputDevice> {
-    let plain: Vec<String> = entries
-        .iter()
-        .map(|e| format!("{} ({})", e.head, e.tail))
-        .collect();
+    let mut levels = vec![0u8; entries.len()];
+    for _ in 0..LABEL_LEVEL_MAX {
+        let labels: Vec<String> = entries
+            .iter()
+            .zip(&levels)
+            .map(|(e, level)| e.label(*level))
+            .collect();
+        let mut changed = false;
+        for (i, label) in labels.iter().enumerate() {
+            if labels.iter().filter(|l| *l == label).count() > 1 && levels[i] < LABEL_LEVEL_MAX {
+                levels[i] += 1;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
     entries
         .into_iter()
-        .zip(&plain)
-        .map(|(mut e, label)| {
-            let shared = plain.iter().filter(|p| *p == label).count() > 1;
-            e.device.label = if shared {
-                format!("{} ({}, {})", e.head, e.tail, e.card_id)
-            } else {
-                label.clone()
-            };
-            e.device
+        .zip(levels)
+        .map(|(e, level)| {
+            let label = e.label(level);
+            OutputDevice { label, ..e.device }
         })
         .collect()
 }
@@ -292,6 +352,7 @@ fn label_all(entries: Vec<Labelled>) -> Vec<OutputDevice> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::OutputKind;
 
     /// The text of the bench PC on 2026-11-13: one HDA card, a DELL
     /// monitor on DisplayPort, three HDMI PCMs.
@@ -380,12 +441,14 @@ mod tests {
                     "Analog (HDA Intel PCH)",
                     "ALC221 Analog"
                 ),
-                ("hw:CARD=PCH,DEV=3", "HDMI/DP 1 (HDA Intel PCH)", "HDMI 0"),
-                ("hw:CARD=PCH,DEV=7", "HDMI/DP 2 (HDA Intel PCH)", "HDMI 1"),
-                ("hw:CARD=PCH,DEV=8", "HDMI/DP 3 (HDA Intel PCH)", "HDMI 2"),
+                ("hw:CARD=PCH,DEV=3", "HDMI/DP 1 (HDA Intel PCH)", ""),
+                ("hw:CARD=PCH,DEV=7", "HDMI/DP 2 (HDA Intel PCH)", ""),
+                ("hw:CARD=PCH,DEV=8", "HDMI/DP 3 (HDA Intel PCH)", ""),
             ]
         );
         assert_eq!(devices[0].monitor, Monitor::NotDigital);
+        assert_eq!(devices[0].kind, OutputKind::Analog);
+        assert!(devices[1..].iter().all(|d| d.kind == OutputKind::Hdmi));
         assert!(devices[1..].iter().all(|d| d.monitor == Monitor::Unknown));
     }
 
@@ -395,7 +458,11 @@ mod tests {
         assert_eq!(
             view(&devices),
             [
-                ("hw:CARD=HDMI,DEV=3", "SONY TV (HDMI/DP)", "HDMI 0"),
+                (
+                    "hw:CARD=HDMI,DEV=3",
+                    "SONY TV (HDMI/DP)",
+                    "Monitor connected"
+                ),
                 (
                     "hw:CARD=Device,DEV=0",
                     "Analog (USB Audio Device)",
@@ -531,6 +598,93 @@ mod tests {
         assert_eq!(parsed.name.as_deref(), Some("TV \u{FFFD}X"));
         // A leftover folder in the temp dir does no harm.
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_spdif_pcm_is_digital_and_equal_labels_get_the_pcm_name() {
+        let text = AlsaText {
+            cards: " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n".to_owned(),
+            pcm: "00-00: ALC892 Analog : ALC892 Analog : playback 1 : capture 1\n00-01: ALC892 Digital : ALC892 Digital : playback 1\n00-02: ALC892 Alt Analog : ALC892 Alt Analog : playback 1 : capture 1\n".to_owned(),
+            elds: Vec::new(),
+        };
+        let devices = alsa_outputs(&text);
+        assert_eq!(
+            view(&devices),
+            [
+                (
+                    "hw:CARD=PCH,DEV=0",
+                    "Analog (HDA Intel PCH, PCH, ALC892 Analog)",
+                    "ALC892 Analog"
+                ),
+                (
+                    "hw:CARD=PCH,DEV=1",
+                    "Digital (HDA Intel PCH)",
+                    "ALC892 Digital"
+                ),
+                (
+                    "hw:CARD=PCH,DEV=2",
+                    "Analog (HDA Intel PCH, PCH, ALC892 Alt Analog)",
+                    "ALC892 Alt Analog"
+                ),
+            ]
+        );
+        let kinds: Vec<_> = devices.iter().map(|d| d.kind).collect();
+        assert_eq!(
+            kinds,
+            [OutputKind::Analog, OutputKind::Digital, OutputKind::Analog]
+        );
+        for id in ["S/PDIF", "SPDIF Out", "IEC958", "Realtek Digital"] {
+            let pcm = AlsaPcm {
+                card: 0,
+                device: 1,
+                id: id.to_owned(),
+                name: id.to_owned(),
+            };
+            assert!(is_spdif(&pcm), "{id}");
+        }
+    }
+
+    #[test]
+    fn labels_equal_after_the_pcm_name_get_the_device_number() {
+        let text = AlsaText {
+            cards: " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n".to_owned(),
+            pcm: "00-00: Out : Out : playback 1\n00-01: Out : Out : playback 1\n".to_owned(),
+            elds: Vec::new(),
+        };
+        let labels: Vec<String> = alsa_outputs(&text).into_iter().map(|d| d.label).collect();
+        assert_eq!(
+            labels,
+            [
+                "Analog (HDA Intel PCH, PCH, Out, 0)",
+                "Analog (HDA Intel PCH, PCH, Out, 1)"
+            ]
+        );
+    }
+
+    #[test]
+    fn hdmi_outputs_of_two_cards_are_numbered_across_the_cards() {
+        let text = AlsaText {
+            cards: " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n 1 [NVidia         ]: HDA-Intel - HDA NVidia\n".to_owned(),
+            pcm: "00-00: ALC892 Analog : ALC892 Analog : playback 1\n00-03: HDMI 0 : HDMI 0 : playback 1\n01-03: HDMI 0 : HDMI 0 : playback 1\n01-07: HDMI 1 : HDMI 1 : playback 1\n".to_owned(),
+            elds: vec![(0, "monitor_present 1\neld_valid 1\n".to_owned())],
+        };
+        let labels: Vec<String> = alsa_outputs(&text).into_iter().map(|d| d.label).collect();
+        assert_eq!(
+            labels,
+            [
+                "Analog (HDA Intel PCH)",
+                "HDMI/DP 1 (HDA Intel PCH)",
+                "HDMI/DP 2 (HDA NVidia)",
+                "HDMI/DP 3 (HDA NVidia)",
+            ]
+        );
+        let short: Vec<String> = labels
+            .iter()
+            .map(|l| l.chars().take(14).collect())
+            .collect();
+        for (i, label) in short.iter().enumerate() {
+            assert!(!short[..i].contains(label), "{short:?}");
+        }
     }
 
     #[test]

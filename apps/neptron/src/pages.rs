@@ -54,7 +54,7 @@ pub const QUICK_MENU_KEYS: [&str; 5] = [
 ];
 
 /// The detail of the `auto` option of the audio output.
-const AUTO_OUTPUT_DETAIL: &str = "System default";
+const AUTO_OUTPUT_DETAIL: &str = "Automatic";
 /// The detail of a stored output that the backend did not list.
 const MISSING_OUTPUT_DETAIL: &str = "Not connected";
 
@@ -421,9 +421,9 @@ mod tests {
         assert_eq!(
             shown,
             [
-                ("auto", "System default"),
+                ("auto", "Automatic"),
                 ("Analog (HDA Intel PCH)", "ALC221 Analog"),
-                ("DELL U2724D (HDMI/DP)", "HDMI 0"),
+                ("DELL U2724D (HDMI/DP)", "Monitor connected"),
             ]
         );
         assert!(!page.rows[1].live);

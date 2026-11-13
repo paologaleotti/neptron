@@ -6,7 +6,9 @@ use neptron_backend::AudioSink;
 use sdl3::audio::{AudioDevice, AudioDeviceID, AudioFormat, AudioSpec, AudioStreamOwner};
 
 use crate::alsa::{AlsaText, alsa_outputs, open_name};
-use crate::{ALSA_DRIVER, AudioOutputs, Monitor, OutputDevice, OutputError, check_device_rate};
+use crate::{
+    ALSA_DRIVER, AudioOutputs, Monitor, OutputDevice, OutputError, OutputKind, check_device_rate,
+};
 
 /// The most frames the sink queues, in milliseconds: twice the control
 /// span. SDL's stream has no limit of its own.
@@ -328,6 +330,7 @@ impl AudioOutputs for Sdl3Outputs {
                 name,
                 detail: String::new(),
                 monitor: Monitor::NotDigital,
+                kind: OutputKind::Other,
             })
             .collect())
     }
