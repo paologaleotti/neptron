@@ -139,6 +139,11 @@ pub fn run(
             None
         }
     };
+    let failed = std::env::var_os(neptron::power::POWER_FAILED_ENV);
+    if let Some(text) = neptron::power::failed_notice(failed.as_deref()) {
+        crate::say!("neptron: {text}");
+        notices.push(text.to_owned());
+    }
     let runtime = Runtime {
         run_rate: RunRateSource::ReadBack,
         resampling: Resampling::Sinc,

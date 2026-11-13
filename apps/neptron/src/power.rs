@@ -21,6 +21,33 @@ pub const POWER_OFF_EXIT_CODE: u8 = 81;
 /// the frontend. It equals `POWER_ENV` of `neptron-launch`.
 pub const POWER_ENV: &str = "NEPTRON_POWER";
 
+/// The environment variable with which the launcher tells this start that
+/// the reboot or the power-off of the run before failed. It equals
+/// `POWER_FAILED_ENV` of `neptron-launch`.
+pub const POWER_FAILED_ENV: &str = "NEPTRON_POWER_FAILED";
+
+/// The value of [`POWER_FAILED_ENV`] after a failed reboot. It equals
+/// `REBOOT_FAILED` of `neptron-launch`.
+pub const REBOOT_FAILED: &str = "reboot";
+
+/// The value of [`POWER_FAILED_ENV`] after a failed power-off. It equals
+/// `POWER_OFF_FAILED` of `neptron-launch`.
+pub const POWER_OFF_FAILED: &str = "power-off";
+
+/// The Warning notice for `value`, the value of [`POWER_FAILED_ENV`]: the
+/// machine still runs after the player asked for a reboot or a power-off.
+/// `None` with no value or an unknown one.
+pub fn failed_notice(value: Option<&OsStr>) -> Option<&'static str> {
+    let value = value?;
+    if value == REBOOT_FAILED {
+        Some("The restart did not work.")
+    } else if value == POWER_OFF_FAILED {
+        Some("The shut down did not work.")
+    } else {
+        None
+    }
+}
+
 /// True when `value`, the value of [`POWER_ENV`], says that the launcher
 /// carries out a reboot or a power-off. Only `1` does: a run with no
 /// launcher, or a launcher with no power control, has no value.
@@ -172,6 +199,21 @@ mod tests {
             !gives_back_boot(true, Phase::Confirmed),
             "a good boot counts nothing"
         );
+    }
+
+    #[test]
+    fn a_failed_request_of_the_run_before_gives_its_notice() {
+        assert_eq!(
+            failed_notice(Some(OsStr::new("reboot"))),
+            Some("The restart did not work.")
+        );
+        assert_eq!(
+            failed_notice(Some(OsStr::new("power-off"))),
+            Some("The shut down did not work.")
+        );
+        for value in [None, Some(""), Some("halt")] {
+            assert_eq!(failed_notice(value.map(OsStr::new)), None, "{value:?}");
+        }
     }
 
     #[test]

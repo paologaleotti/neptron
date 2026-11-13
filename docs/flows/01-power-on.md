@@ -97,7 +97,7 @@ stateDiagram-v2
     Running --> Stopped : Quit, exit 0
     Running --> Power : Reboot exit 80 or PowerOff exit 81
     Power --> Stopped : with --power, the command ran and the stop signal of init came
-    Power --> Failed : the command failed, or no stop in 30 s
+    Power --> Running : the command failed, or no stop in 30 s; the next start gets NEPTRON_POWER_FAILED
     Power --> Stopped : no --power
     Running --> Term : SIGTERM or SIGINT to the launcher
     Term --> Stopped : frontend ends
@@ -220,7 +220,7 @@ The disk signature is fixed for each build variant: `4e505452` (release), `4e505
 | `Running` | `Failed` | The frontend program cannot start (spawn or wait fails) | | Launcher exit 1. Line: `neptron-launch: cannot run the frontend after <n> runs: <error>` |
 | `Running` | `Power` | Frontend exit code 80 or 81, and no stop signal during the run | `REBOOT_EXIT_CODE` = 80, `POWER_OFF_EXIT_CODE` = 81 | No new run, no wait, no crash counted. With `--power`: line `neptron-launch: the frontend asks for a reboot; /sbin/reboot` (or `a power-off; /sbin/poweroff`), and the command runs once. BusyBox without `-f` only signals init (SIGTERM for reboot, SIGUSR2 for poweroff) |
 | `Power` | `Stopped` | With `--power`: the command exited 0 and SIGTERM came (from the stop script) | `POWER_STOP_WAIT_NS` = 30 s | Launcher exit 0. Line: `neptron-launch: init stops the launcher for a reboot` |
-| `Power` | `Failed` | With `--power`: the command did not start, exited non-zero, or no SIGTERM came within 30 s | `POWER_STOP_WAIT_NS` = 30 s | The machine still runs. Launcher exit 1. Line: `neptron-launch: <error>; exit 1, init starts the launcher again`. Init starts the launch script again and the menus come back |
+| `Power` | `Running` | With `--power`: the command did not start, exited non-zero, or no SIGTERM came within 30 s | `POWER_STOP_WAIT_NS` = 30 s, `POWER_FAILED_ENV` = `NEPTRON_POWER_FAILED` | The machine still runs. Line: `neptron-launch: <error>; the frontend starts again and says so`. The launcher starts the frontend again at once with the device open; that start only gets `NEPTRON_POWER_FAILED=reboot` or `=power-off`, and shows the Warning notice `The restart did not work.` or `The shut down did not work.` |
 | `Power` | `Stopped` | No `--power` | | Launcher exit 0, nothing runs. Line: `neptron-launch: the frontend asks for a power-off, and the launcher has no --power; it stops` |
 
 Exit codes of the frontend, as the launcher sees them:
@@ -236,7 +236,7 @@ Exit codes of the frontend, as the launcher sees them:
 | 2 | A wrong command line | Crash, backoff |
 | 101 or a signal | A panic or a kill | Crash, backoff |
 
-Exit codes of the launcher: 0 after a quit or a stop, 1 after a device error, a start failure or a failed power request, 2 for a wrong command line (also `--power` with `--no-device`). Init starts the launch script again in every case.
+Exit codes of the launcher: 0 after a quit or a stop, 1 after a device error or a start failure, 2 for a wrong command line (also `--power` with `--no-device`). Init starts the launch script again in every case.
 
 ### Shutdown
 

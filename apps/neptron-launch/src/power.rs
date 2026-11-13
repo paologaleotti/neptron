@@ -17,6 +17,18 @@ pub const POWER_ENV: &str = "NEPTRON_POWER";
 /// The value of [`POWER_ENV`] when the launcher has power control.
 pub const POWER_ENV_ON: &str = "1";
 
+/// The environment variable that tells the frontend that the reboot or
+/// the power-off it asked for in its run before failed, with
+/// [`REBOOT_FAILED`] or [`POWER_OFF_FAILED`]. Only the next start gets it.
+/// The frontend has the same name in `neptron::power::POWER_FAILED_ENV`.
+pub const POWER_FAILED_ENV: &str = "NEPTRON_POWER_FAILED";
+
+/// The value of [`POWER_FAILED_ENV`] after a failed reboot.
+pub const REBOOT_FAILED: &str = "reboot";
+
+/// The value of [`POWER_FAILED_ENV`] after a failed power-off.
+pub const POWER_OFF_FAILED: &str = "power-off";
+
 /// The BusyBox command that asks init for a reboot. Without `-f` it only
 /// signals init, which runs the shutdown steps first.
 pub const REBOOT_COMMAND: &str = "/sbin/reboot";
@@ -75,6 +87,14 @@ impl Power {
         match self {
             Self::Reboot => REBOOT_COMMAND,
             Self::PowerOff => POWER_OFF_COMMAND,
+        }
+    }
+
+    /// The value of [`POWER_FAILED_ENV`] after this request failed.
+    pub fn failed_value(self) -> &'static str {
+        match self {
+            Self::Reboot => REBOOT_FAILED,
+            Self::PowerOff => POWER_OFF_FAILED,
         }
     }
 

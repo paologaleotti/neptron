@@ -1146,6 +1146,17 @@ mod tests {
     }
 
     #[test]
+    fn the_frontend_and_the_launcher_agree_on_the_failed_power_variable() {
+        for name in ["POWER_FAILED_ENV", "REBOOT_FAILED", "POWER_OFF_FAILED"] {
+            assert_eq!(
+                const_text("apps/neptron/src/power.rs", name),
+                const_text("apps/neptron-launch/src/power.rs", name),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn the_frontend_and_the_launcher_agree_on_the_power_variable() {
         let frontend = const_text("apps/neptron/src/power.rs", "POWER_ENV");
         assert_eq!(

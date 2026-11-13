@@ -23,7 +23,7 @@ use rustix::process::{Pid, Signal, kill_process};
 
 use backoff::Backoff;
 use device::{DRM_FD_ENV, Device, DeviceError};
-use power::{POWER_ENV, POWER_ENV_ON, Power};
+use power::{POWER_ENV, POWER_ENV_ON, POWER_FAILED_ENV, Power};
 use stopping::{STOP_WAIT_NS, StopAction, Stopping};
 use supervise::{Ended, Frontend, Time, supervise};
 
@@ -56,25 +56,42 @@ fn main() -> ExitCode {
         args: options.args,
         fd: device.as_ref().map(Device::fd),
         power: options.power,
+        power_failed: None,
         stop: Arc::clone(&stop),
         stop_wait: Duration::from_nanos(STOP_WAIT_NS),
     };
     // The device stays open until the launcher exits, also during a power
     // request: the last validated mode stays on the wire until init stops
     // the launcher.
-    match supervise(&mut frontend, &mut time, &mut Backoff::new()) {
-        Ok(Ended { runs, power: None }) => {
-            say!("neptron-launch: the frontend ended after {runs} runs");
-            ExitCode::SUCCESS
-        }
-        Ok(Ended {
-            power: Some(power), ..
-        }) => carry_out(power, options.power, power::run_command, &mut time, &stop),
-        Err(e) => {
-            say!("neptron-launch: {e}");
-            ExitCode::FAILURE
+    let mut backoff = Backoff::new();
+    loop {
+        match supervise(&mut frontend, &mut time, &mut backoff) {
+            Ok(Ended { runs, power: None }) => {
+                say!("neptron-launch: the frontend ended after {runs} runs");
+                return ExitCode::SUCCESS;
+            }
+            Ok(Ended {
+                power: Some(power), ..
+            }) => match carry_out(power, options.power, power::run_command, &mut time, &stop) {
+                AfterPower::Stop => return ExitCode::SUCCESS,
+                AfterPower::Failed => frontend.power_failed = Some(power),
+            },
+            Err(e) => {
+                say!("neptron-launch: {e}");
+                return ExitCode::FAILURE;
+            }
         }
     }
+}
+
+/// What the launcher does after a power request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfterPower {
+    /// Stop, as after a quit.
+    Stop,
+    /// The request failed and the machine still runs: start the frontend
+    /// again, and tell it.
+    Failed,
 }
 
 /// Writes a line to standard error. A failed write loses the line: the
@@ -95,20 +112,21 @@ use say;
 /// control, or after a stop signal, the launcher stops as after a quit.
 ///
 /// A request that fails leaves the machine running. The launcher then
-/// exits with an error, so init starts it again and the menus come back.
+/// starts the frontend again, with [`POWER_FAILED_ENV`] for that start, so
+/// the menus come back with a word about it.
 fn carry_out(
     power: Power,
     control: bool,
     run: impl FnOnce(&'static str) -> io::Result<Option<i32>>,
     time: &mut impl Time,
     stop: &AtomicBool,
-) -> ExitCode {
+) -> AfterPower {
     if !control {
         say!(
             "neptron-launch: the frontend asks for {}, and the launcher has no --power; it stops",
             power.name()
         );
-        return ExitCode::SUCCESS;
+        return AfterPower::Stop;
     }
     // A stop between the end of the run and here comes from init or a
     // bench tool, which stops the launcher for its own reason: it wins.
@@ -117,7 +135,7 @@ fn carry_out(
             "neptron-launch: the frontend asks for {}, and a stop signal came first; it stops",
             power.name()
         );
-        return ExitCode::SUCCESS;
+        return AfterPower::Stop;
     }
     say!(
         "neptron-launch: the frontend asks for {}; {}",
@@ -130,11 +148,11 @@ fn carry_out(
                 "neptron-launch: init stops the launcher for {}",
                 power.name()
             );
-            ExitCode::SUCCESS
+            AfterPower::Stop
         }
         Err(e) => {
-            say!("neptron-launch: {e}; exit 1, init starts the launcher again");
-            ExitCode::FAILURE
+            say!("neptron-launch: {e}; the frontend starts again and says so");
+            AfterPower::Failed
         }
     }
 }
@@ -186,6 +204,9 @@ struct Process {
     /// True when the launcher has power control: the frontend gets
     /// [`POWER_ENV`].
     power: bool,
+    /// The power request that failed before this start: the next start
+    /// only gets [`POWER_FAILED_ENV`].
+    power_failed: Option<Power>,
     /// Set by SIGTERM or SIGINT.
     stop: Arc<AtomicBool>,
     /// The wait between the forwarded SIGTERM and SIGKILL.
@@ -208,6 +229,10 @@ impl Frontend for Process {
         } else {
             command.env_remove(POWER_ENV);
         }
+        match self.power_failed.take() {
+            Some(power) => command.env(POWER_FAILED_ENV, power.failed_value()),
+            None => command.env_remove(POWER_FAILED_ENV),
+        };
         let mut child = command.spawn()?;
         let start = Instant::now();
         let wait_ns = u64::try_from(self.stop_wait.as_nanos()).unwrap_or(u64::MAX);
@@ -270,6 +295,7 @@ mod tests {
             args: vec!["-c".into(), script.into()],
             fd,
             power: false,
+            power_failed: None,
             stop: Arc::new(AtomicBool::new(false)),
             stop_wait: Duration::from_nanos(STOP_WAIT_NS),
         }
@@ -283,6 +309,21 @@ mod tests {
         assert_eq!(on.run().expect("run"), Some(0));
         let check_unset = format!("test -z \"${{{POWER_ENV}+set}}\"");
         assert_eq!(shell(&check_unset, None).run().expect("run"), Some(0));
+    }
+
+    #[test]
+    fn only_the_start_after_a_failed_request_learns_of_it() {
+        let check = format!(
+            "test \"${POWER_FAILED_ENV}\" = {}",
+            Power::PowerOff.failed_value()
+        );
+        let mut child = shell(&check, None);
+        child.power_failed = Some(Power::PowerOff);
+        assert_eq!(child.run().expect("run"), Some(0));
+        assert_eq!(child.power_failed, None, "one start only");
+        let unset = format!("test -z \"${{{POWER_FAILED_ENV}+set}}\"");
+        child.args = vec!["-c".into(), unset.into()];
+        assert_eq!(child.run().expect("run"), Some(0));
     }
 
     #[test]
@@ -303,17 +344,17 @@ mod tests {
             &mut waits,
             &stop,
         );
-        assert_eq!(code, ExitCode::SUCCESS);
+        assert_eq!(code, AfterPower::Stop);
         assert_eq!(runs, [power::POWER_OFF_COMMAND]);
         assert_eq!(waits.waits, [power::POWER_STOP_WAIT_NS]);
     }
 
     #[test]
-    fn a_failed_power_request_exits_with_an_error_so_init_restarts_the_launcher() {
+    fn a_failed_power_request_starts_the_frontend_again() {
         let stop = AtomicBool::new(false);
         let mut clock = Waits(Vec::new());
         let failed = carry_out(Power::Reboot, true, |_| Ok(Some(1)), &mut clock, &stop);
-        assert_eq!(failed, ExitCode::FAILURE);
+        assert_eq!(failed, AfterPower::Failed);
         let missing = carry_out(
             Power::Reboot,
             true,
@@ -321,12 +362,12 @@ mod tests {
             &mut clock,
             &stop,
         );
-        assert_eq!(missing, ExitCode::FAILURE);
+        assert_eq!(missing, AfterPower::Failed);
         assert!(clock.0.is_empty(), "no wait after a failed command");
         let no_stop = carry_out(Power::Reboot, true, |_| Ok(Some(0)), &mut clock, &stop);
         assert_eq!(
             no_stop,
-            ExitCode::FAILURE,
+            AfterPower::Failed,
             "init never stopped the launcher"
         );
         assert_eq!(clock.0, [power::POWER_STOP_WAIT_NS]);
@@ -344,7 +385,7 @@ mod tests {
                 &mut clock,
                 &stop,
             );
-            assert_eq!(code, ExitCode::SUCCESS);
+            assert_eq!(code, AfterPower::Stop);
         }
         assert!(clock.0.is_empty(), "no wait after a stop");
     }
@@ -360,7 +401,7 @@ mod tests {
             &mut clock,
             &stop,
         );
-        assert_eq!(code, ExitCode::SUCCESS);
+        assert_eq!(code, AfterPower::Stop);
         assert!(clock.0.is_empty());
     }
 

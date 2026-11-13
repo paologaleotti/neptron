@@ -43,7 +43,7 @@ A frontend that cannot start stops the launcher with an error. The init system r
 
 The launcher does not call the `reboot` system call. It runs the BusyBox command (`REBOOT_COMMAND` `/sbin/reboot`, `POWER_OFF_COMMAND` `/sbin/poweroff`) with no `-f`, which only signals init. Init then runs the shutdown entries of `inittab`: the stop script, `rcK` (the share server stops), `umount -a -r`, and then it turns the machine off or reboots it. The stop script sends SIGTERM to the launcher, so after the command the launcher waits for that stop, at most 30 s (`POWER_STOP_WAIT_NS`), with the device open: the last validated mode of the menus stays on the wire until then, as during a stop today. On the stop it exits with code 0.
 
-When the command does not start, fails, or no stop comes in 30 s, the machine still runs. The launcher logs one line and exits with code 1. Init starts the launch script again, and the menus come back. Lines: `neptron-launch: the frontend asks for a power-off; /sbin/poweroff`, then `neptron-launch: init stops the launcher for a power-off`, or `neptron-launch: <error>; exit 1, init starts the launcher again`.
+When the command does not start, fails, or no stop comes in 30 s, the machine still runs. The launcher logs one line and starts the frontend again at once, with the device still open and the same backoff. That start only gets `NEPTRON_POWER_FAILED=reboot` or `=power-off` (`POWER_FAILED_ENV`, `REBOOT_FAILED`, `POWER_OFF_FAILED`), and the frontend shows the Warning notice `The restart did not work.` or `The shut down did not work.`. Lines: `neptron-launch: the frontend asks for a power-off; /sbin/poweroff`, then `neptron-launch: init stops the launcher for a power-off`, or `neptron-launch: <error>; the frontend starts again and says so`.
 
 A stop signal that comes before the end of the run, or before the command, wins: the launcher then runs no command.
 
@@ -63,7 +63,7 @@ A stop signal that comes before the end of the run, or before the command, wins:
 
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
 - No features.
-- The exit codes 75, 69, 80 and 81 and the name `NEPTRON_POWER` are also in the frontend. A test of `xtask` holds them equal.
+- The exit codes 75, 69, 80 and 81, the names `NEPTRON_POWER` and `NEPTRON_POWER_FAILED`, and the values of the second are also in the frontend. A test of `xtask` holds them equal.
 - Dependencies: `neptron-kms` with default features for the DRM node check (no DRM code compiles), `rustix` (`process`) to clear close-on-exec and to forward a signal, `signal-hook` for the stop flag, `thiserror`.
 
 ## Tests
@@ -74,7 +74,7 @@ A stop signal that comes before the end of the run, or before the command, wins:
 - `args.rs`: `--power` needs a device.
 - `device.rs`: a regular file and `/dev/null` are refused, a missing device, close-on-exec cleared.
 - `stopping.rs`: SIGTERM once at the stop, SIGKILL once after the wait, counted from the SIGTERM, with simulated times.
-- `main.rs`: a power request exits 0 on the stop, a failed request or no stop exits 1, no `--power` runs nothing, a stop before the command runs nothing; the frontend gets `NEPTRON_POWER` only with power control; a real child process reports its exit code and a signal, reads the descriptor of the launcher under its number, and a child that ignores SIGTERM gets SIGKILL after a short stop wait; a stop signal ends the backoff wait at once; a device that does not open gives the wait before the exit.
+- `main.rs`: a power request stops on the stop signal, a failed request or no stop starts the frontend again, only the start after a failed request gets `NEPTRON_POWER_FAILED`, no `--power` runs nothing, a stop before the command runs nothing; the frontend gets `NEPTRON_POWER` only with power control; a real child process reports its exit code and a signal, reads the descriptor of the launcher under its number, and a child that ignores SIGTERM gets SIGKILL after a short stop wait; a stop signal ends the backoff wait at once; a device that does not open gives the wait before the exit.
 
 ## Status
 
