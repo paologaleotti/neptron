@@ -89,6 +89,19 @@ const CHILD_POLL: Duration = Duration::from_millis(20);
 /// would start it in a tight loop.
 const DEVICE_MISSING_WAIT_NS: u64 = 2_000_000_000;
 
+/// Waits `ns` with `sleep`, in steps of [`CHILD_POLL`], and ends at once
+/// when `stop` is set: init must not wait for the backoff to stop the
+/// launcher. The steps add up to `ns` with no stop.
+fn wait_or_stop(ns: u64, stop: &AtomicBool, mut sleep: impl FnMut(u64)) {
+    let step_ns = u64::try_from(CHILD_POLL.as_nanos()).unwrap_or(u64::MAX);
+    let mut left = ns;
+    while left > 0 && !stop.load(Ordering::Relaxed) {
+        let step = left.min(step_ns);
+        sleep(step);
+        left -= step;
+    }
+}
+
 /// Opens the DRM device at `path`, when there is one. A failure is logged
 /// in one line and followed by [`DEVICE_MISSING_WAIT_NS`] on `time`.
 fn open_device(path: Option<&Path>, time: &mut impl Time) -> Result<Option<Device>, DeviceError> {
@@ -170,17 +183,10 @@ impl Time for MonotonicTime {
         u64::try_from(self.start.elapsed().as_nanos()).unwrap_or(u64::MAX)
     }
 
-    /// Waits `ns`, in steps of [`CHILD_POLL`], and ends at once on a stop
-    /// signal: init must not wait for the backoff to stop the launcher.
     fn wait_ns(&mut self, ns: u64) {
-        let end = Instant::now() + Duration::from_nanos(ns);
-        while !self.stop.load(Ordering::Relaxed) {
-            let left = end.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return;
-            }
-            std::thread::sleep(left.min(CHILD_POLL));
-        }
+        wait_or_stop(ns, &self.stop, |step| {
+            std::thread::sleep(Duration::from_nanos(step));
+        });
     }
 }
 
@@ -255,24 +261,39 @@ mod tests {
         let _ = std::fs::remove_file(&ready);
     }
 
+    /// Runs `wait_or_stop` for `ns` on a simulated clock, with the stop
+    /// flag set when the clock reaches `stop_at_ns`. Returns the time the
+    /// wait took on that clock.
+    fn simulated_wait(ns: u64, stop_at_ns: Option<u64>) -> u64 {
+        let stop = AtomicBool::new(false);
+        let mut clock = 0;
+        wait_or_stop(ns, &stop, |step| {
+            clock += step;
+            if stop_at_ns.is_some_and(|at| clock >= at) {
+                stop.store(true, Ordering::Relaxed);
+            }
+        });
+        clock
+    }
+
     #[test]
-    fn a_stop_signal_ends_the_backoff_wait_at_once() {
-        let stop = Arc::new(AtomicBool::new(false));
-        let mut time = MonotonicTime {
-            start: Instant::now(),
-            stop: Arc::clone(&stop),
-        };
-        let start = Instant::now();
-        time.wait_ns(60_000_000);
-        assert!(start.elapsed() >= Duration::from_millis(60), "a full wait");
-        stop.store(true, Ordering::Relaxed);
-        let start = Instant::now();
-        time.wait_ns(8_000_000_000);
+    fn the_backoff_wait_runs_its_time_with_no_stop() {
+        assert_eq!(simulated_wait(8_000_000_000, None), 8_000_000_000);
+        assert_eq!(simulated_wait(5_000_000, None), 5_000_000);
+    }
+
+    #[test]
+    fn a_stop_during_the_backoff_wait_ends_it_within_one_poll() {
+        let poll = u64::try_from(CHILD_POLL.as_nanos()).unwrap();
+        let waited = simulated_wait(8_000_000_000, Some(1_000_000_000));
         assert!(
-            start.elapsed() < Duration::from_secs(1),
-            "{:?}",
-            start.elapsed()
+            waited >= 1_000_000_000 && waited < 1_000_000_000 + poll,
+            "{waited}"
         );
+        let stop = AtomicBool::new(true);
+        let mut slept = 0;
+        wait_or_stop(8_000_000_000, &stop, |step| slept += step);
+        assert_eq!(slept, 0, "a stop before the wait ends it at once");
     }
 
     /// A clock that records its waits.
