@@ -58,34 +58,32 @@ jobs:
             device:
               - 'os/**'
               - 'Dockerfile'
-              - 'Cargo.lock'
               - '.github/image-targets.json'
               - '.github/workflows/images.yml'
               - 'xtask/src/os.rs'
               - 'xtask/src/os/**'
-              - 'apps/neptron/**'
               - 'apps/neptron-launch/**'
-              - 'apps/neptronctl/**'
               - 'crates/neptron-kms/**'
               - 'crates/neptron-gfx/**'
               - 'crates/neptron-input/**'
               - 'crates/neptron-audio/**'
               - 'crates/neptron-libretro/**'
               - 'crates/neptron-libretro-sys/**'
-              - 'tests/roms/**'
-              - 'tests/traces/**'
-              - 'data/**'
       - name: Decide the targets
         id: decide
         env:
           DEVICE: ${{ steps.changes.outputs.device }}
           EVENT: ${{ github.event_name }}
+          WANTED: ${{ github.event.inputs.images }}
         run: |
           matrix=$(jq -c '{include: [.targets[] | select(.enabled)]}' .github/image-targets.json)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           if [ "$EVENT" = pull_request ] && [ "$DEVICE" != true ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "No change to the OS or the device crates: no image build." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$WANTED" = false ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "The manual run asked for no image build." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
