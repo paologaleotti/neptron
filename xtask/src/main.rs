@@ -74,8 +74,9 @@ commands:
                        bench profile and put them in the hot folder of a PC
                        that runs the development variant, over SSH
   os logs --host H [--user U] [--port P] [--follow]
-                       print the log of the launcher and the frontend, and
-                       dmesg, of that PC
+                       print the log of the launcher and the frontend, the
+                       lines of the storage script in syslog, and dmesg, of
+                       that PC
   os ssh --host H [--user U] [--port P] -- command...
                        run a command on that PC
   qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
