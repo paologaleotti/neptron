@@ -132,36 +132,46 @@ impl KmsDisplay {
     }
 
     /// The mode the kernel stores for the CRTC, after a check that the
-    /// connector's `TV mode` value is the standard `tv` on that mode.
-    fn read_back(&self, tv: Option<TvStandard>) -> Result<Modeline, DisplayError> {
+    /// connector's `TV mode` value is the standard `tv` on that mode. A
+    /// failed check marks the wire, so that the next request for the same
+    /// mode and standard commits again instead of reading back again.
+    fn read_back(&mut self, tv: Option<TvStandard>) -> Result<Modeline, DisplayError> {
         let readback = self.read_mode()?;
-        if let Some(standard) = tv {
-            let failed = |reason: String| DisplayError::Device {
-                operation: "read the TV standard back",
-                reason,
-            };
-            let property = self
-                .objects
-                .tv_mode
-                .as_ref()
-                .ok_or_else(|| failed("the connector has no TV mode property".to_owned()))?;
-            let handle: connector::Handle = drm::control::from_u32(self.objects.connector)
-                .ok_or_else(|| failed("connector id 0".to_owned()))?;
-            let set = self
-                .card
-                .get_properties(handle)
-                .map_err(|e| failed(e.to_string()))?;
-            let (ids, values) = set.as_props_and_values();
-            let value = ids
-                .iter()
-                .zip(values)
-                .find(|(id, _)| u32::from(**id) == property.prop)
-                .map(|(_, &value)| value)
-                .ok_or_else(|| failed("the connector reports no TV mode value".to_owned()))?;
-            tv::check_readback(standard, value, property, &readback)
-                .map_err(|e| failed(e.to_string()))?;
+        if let Some(standard) = tv
+            && let Err(e) = self.check_tv(standard, &readback)
+        {
+            self.wire.recommit();
+            return Err(e);
         }
         Ok(readback)
+    }
+
+    /// Checks that the connector's `TV mode` value is `standard` on the
+    /// mode `readback`.
+    fn check_tv(&self, standard: TvStandard, readback: &Modeline) -> Result<(), DisplayError> {
+        let failed = |reason: String| DisplayError::Device {
+            operation: "read the TV standard back",
+            reason,
+        };
+        let property = self
+            .objects
+            .tv_mode
+            .as_ref()
+            .ok_or_else(|| failed("the connector has no TV mode property".to_owned()))?;
+        let handle: connector::Handle = drm::control::from_u32(self.objects.connector)
+            .ok_or_else(|| failed("connector id 0".to_owned()))?;
+        let set = self
+            .card
+            .get_properties(handle)
+            .map_err(|e| failed(e.to_string()))?;
+        let (ids, values) = set.as_props_and_values();
+        let value = ids
+            .iter()
+            .zip(values)
+            .find(|(id, _)| u32::from(**id) == property.prop)
+            .map(|(_, &value)| value)
+            .ok_or_else(|| failed("the connector reports no TV mode value".to_owned()))?;
+        tv::check_readback(standard, value, property, readback).map_err(|e| failed(e.to_string()))
     }
 
     /// The mode the kernel stores for the CRTC.

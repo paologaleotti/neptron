@@ -12,12 +12,14 @@ use neptron_types::{Modeline, TvStandard};
 /// once, and [`read_back`](Self::read_back) adds the readback when it
 /// comes. A failed readback leaves the mode on the wire with no readback:
 /// a request for another mode is then a real commit, and a request for the
-/// same mode reads it back again. After [`blanked`](Self::blanked) no mode
+/// same mode reads it back again. After [`recommit`](Self::recommit), a
+/// request for the same mode commits again. After [`blanked`](Self::blanked) no mode
 /// is on the wire: every request commits, and drop has nothing to restore.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WireMode {
     on_wire: Option<(Modeline, Option<TvStandard>)>,
     readback: Option<Modeline>,
+    recommit: bool,
 }
 
 /// What `set_mode` does for a requested mode.
@@ -38,12 +40,13 @@ impl WireMode {
         WireMode {
             on_wire: None,
             readback: None,
+            recommit: false,
         }
     }
 
     /// The step for `requested` with the TV standard `tv`.
     pub fn next_step(&self, requested: &Modeline, tv: Option<TvStandard>) -> NextStep {
-        let same = self.on_wire == Some((*requested, tv));
+        let same = !self.recommit && self.on_wire == Some((*requested, tv));
         match self.readback {
             Some(r) if same => NextStep::Reuse(r),
             None if same => NextStep::ReadAgain,
@@ -56,12 +59,23 @@ impl WireMode {
     pub fn committed(&mut self, mode: Modeline, tv: Option<TvStandard>) {
         self.on_wire = Some((mode, tv));
         self.readback = None;
+        self.recommit = false;
+    }
+
+    /// The state on the wire is not what was committed, as a TV standard
+    /// read back that differs: the mode stays on the wire, and the next
+    /// request for it commits again. Reading back again would give the same
+    /// answer for ever.
+    pub fn recommit(&mut self) {
+        self.readback = None;
+        self.recommit = true;
     }
 
     /// A blank commit succeeded: the output is off, with no mode.
     pub fn blanked(&mut self) {
         self.on_wire = None;
         self.readback = None;
+        self.recommit = false;
     }
 
     /// The kernel reported `readback` for the mode on the wire.
@@ -198,6 +212,29 @@ mod tests {
             w.next_step(&TV_625_288P, Some(TvStandard::Pal)),
             NextStep::Commit
         );
+    }
+
+    #[test]
+    fn after_a_wrong_standard_read_back_the_same_request_commits_again() {
+        let m = TV_525_240P;
+        let mut w = WireMode::new();
+        w.committed(m, Some(TvStandard::Pal60));
+        w.recommit();
+        assert_eq!(w.on_wire(), Some(m));
+        assert_eq!(w.tv_standard(), Some(TvStandard::Pal60));
+        assert_eq!(w.next_step(&m, Some(TvStandard::Pal60)), NextStep::Commit);
+        assert_eq!(w.next_step(&m, Some(TvStandard::Pal60)), NextStep::Commit);
+        w.committed(m, Some(TvStandard::Pal60));
+        assert_eq!(
+            w.next_step(&m, Some(TvStandard::Pal60)),
+            NextStep::ReadAgain
+        );
+        w.read_back(m);
+        assert_eq!(w.next_step(&m, Some(TvStandard::Pal60)), NextStep::Reuse(m));
+        w.recommit();
+        w.blanked();
+        w.committed(m, None);
+        assert_eq!(w.next_step(&m, None), NextStep::ReadAgain);
     }
 
     #[test]
