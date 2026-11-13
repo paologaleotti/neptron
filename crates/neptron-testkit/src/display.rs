@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use neptron_backend::{Clock, Display, DisplayError};
 use neptron_safety::ValidatedMode;
-use neptron_types::{FlipEvent, GpuCaps, Modeline, Scene};
+use neptron_types::{FlipEvent, GpuCaps, Modeline, Scene, TvStandard};
 
 use crate::{RgbImage, SimClock, rng};
 
@@ -56,6 +56,14 @@ pub const DEFAULT_FLIP_TIMEOUT_NS: u64 = 100_000_000;
 ///   kHz with [`DisplayError::ModeRefused`] and keeps the active mode, as
 ///   the KMS backend does: the kernel's mode record holds kHz. The busy
 ///   check comes first, and no fault applies to such a mode.
+/// - `set_mode` refuses a mode with a TV standard
+///   ([`ValidatedMode::tv_standard`]) that is not in
+///   [`DisplayOptions::tv_standards`], or that is not one of the two
+///   modes of its standard, with [`DisplayError::ModeRefused`], and keeps
+///   the active mode, as the KMS backend does for a connector without
+///   that `TV mode` value. The pixel clock check comes first, and no
+///   fault applies to such a mode. Each call records the standard, and a
+///   change of the standard alone is a modeset.
 /// - One flip can be queued at a time. A second `present`, or a `set_mode`,
 ///   while a flip is queued returns [`DisplayError::Device`], as a KMS
 ///   driver returns `EBUSY`. `wait_flip` with no flip queued returns
@@ -110,6 +118,10 @@ pub struct DisplayOptions {
     /// How long `wait_flip` waits for a flip before it times out, in
     /// nanoseconds.
     pub flip_timeout_ns: u64,
+    /// The TV standards the connector can set: the values of its `TV
+    /// mode` property. Empty, the default, is a connector with no such
+    /// property, as HDMI or vkms.
+    pub tv_standards: Vec<TvStandard>,
 }
 
 /// What the fake display does with each scene. Every mode checks the
@@ -210,6 +222,7 @@ impl Default for DisplayOptions {
             refresh_mhz: None,
             modeset_ns: 0,
             flip_timeout_ns: DEFAULT_FLIP_TIMEOUT_NS,
+            tv_standards: Vec::new(),
         }
     }
 }
@@ -323,11 +336,12 @@ impl Display for FakeDisplay {
         let mut state = self.lock();
         let time_ns = clock.now_ns();
         let call = state.modes.len() as u64;
-        let result = state.set_mode(&clock, &self.caps, call, mode.mode());
+        let result = state.set_mode(&clock, &self.caps, call, mode.mode(), mode.tv_standard());
         state.modes.push(ModeRecord {
             call,
             time_ns,
             requested: *mode.mode(),
+            tv_standard: mode.tv_standard(),
             result: result.clone(),
         });
         result
@@ -403,6 +417,7 @@ struct State {
 #[derive(Debug)]
 struct Active {
     mode: Modeline,
+    tv_standard: Option<TvStandard>,
     grid: Grid,
     /// Blanks from one flip opportunity to the next: 2 for an interlaced
     /// mode when the driver flips once per frame, 1 otherwise.
@@ -430,6 +445,7 @@ impl State {
         caps: &GpuCaps,
         call: u64,
         requested: &Modeline,
+        tv_standard: Option<TvStandard>,
     ) -> Result<Modeline, DisplayError> {
         if self.pending.is_some() {
             return Err(busy("set_mode"));
@@ -441,6 +457,12 @@ impl State {
                     "the pixel clock {} Hz is not a whole number of kHz",
                     requested.pclock_hz
                 ),
+            });
+        }
+        if let Some(reason) = tv_refusal(requested, tv_standard, &self.options.tv_standards) {
+            return Err(DisplayError::ModeRefused {
+                mode: *requested,
+                reason,
             });
         }
         let fault = self.mode_faults.get(&call).or_else(|| {
@@ -485,6 +507,7 @@ impl State {
         self.screen.set_mode(&active, self.options.render);
         self.active = Some(Active {
             mode: active,
+            tv_standard,
             grid,
             flip_interval,
         });
@@ -629,6 +652,36 @@ impl State {
     }
 }
 
+/// Why a connector that offers `offered` refuses `mode` with
+/// `tv_standard`, as the KMS backend and the kernel refuse it. `None` when
+/// it takes the mode.
+fn tv_refusal(
+    mode: &Modeline,
+    tv_standard: Option<TvStandard>,
+    offered: &[TvStandard],
+) -> Option<String> {
+    let standard = tv_standard?;
+    if offered.is_empty() {
+        return Some("the connector has no TV mode property".to_owned());
+    }
+    if !offered.contains(&standard) {
+        return Some(format!(
+            "the connector has no TV mode value {} for {} lines",
+            standard.kms_name(),
+            standard.lines()
+        ));
+    }
+    if !standard.modes().contains(mode) {
+        return Some(format!(
+            "{}x{} is not a {} mode",
+            mode.hactive,
+            mode.vactive,
+            standard.key()
+        ));
+    }
+    None
+}
+
 fn busy(operation: &'static str) -> DisplayError {
     device(operation, "a flip is already queued".to_owned())
 }
@@ -649,4 +702,47 @@ fn grid_error(e: GridError, rate_mhz: u64) -> DisplayError {
         ),
     };
     device("set_mode", reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use neptron_types::{TV_525_240P, TV_525_480I, TV_625_288P};
+
+    use super::*;
+
+    #[test]
+    fn a_mode_without_a_standard_needs_no_tv_property() {
+        assert_eq!(tv_refusal(&TV_525_240P, None, &[]), None);
+        assert_eq!(tv_refusal(&TV_525_240P, None, &[TvStandard::Ntsc]), None);
+    }
+
+    #[test]
+    fn a_standard_needs_its_value_on_the_connector() {
+        let ntsc = Some(TvStandard::Ntsc);
+        assert_eq!(
+            tv_refusal(&TV_525_240P, ntsc, &[]),
+            Some("the connector has no TV mode property".to_owned())
+        );
+        assert_eq!(
+            tv_refusal(&TV_525_240P, Some(TvStandard::Pal60), &[TvStandard::Pal]),
+            Some("the connector has no TV mode value PAL for 525 lines".to_owned())
+        );
+        assert_eq!(tv_refusal(&TV_525_480I, ntsc, &TvStandard::ALL), None);
+    }
+
+    #[test]
+    fn a_standard_takes_only_its_table_modes() {
+        assert_eq!(
+            tv_refusal(&TV_625_288P, Some(TvStandard::Ntsc), &TvStandard::ALL),
+            Some("720x288 is not a ntsc mode".to_owned())
+        );
+        let shifted = Modeline {
+            hsync_start: 735,
+            ..TV_525_240P
+        };
+        assert_eq!(
+            tv_refusal(&shifted, Some(TvStandard::Ntsc), &TvStandard::ALL),
+            Some("720x240 is not a ntsc mode".to_owned())
+        );
+    }
 }

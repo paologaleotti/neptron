@@ -1,7 +1,7 @@
 //! What the fake display records, and the queries on it.
 
 use neptron_backend::DisplayError;
-use neptron_types::{Filter, FlipEvent, Modeline, PixelFormat, Rect, Scene};
+use neptron_types::{Filter, FlipEvent, Modeline, PixelFormat, Rect, Scene, TvStandard};
 
 use super::FakeDisplay;
 
@@ -14,6 +14,8 @@ pub struct ModeRecord {
     pub time_ns: u64,
     /// The mode the caller asked for.
     pub requested: Modeline,
+    /// The TV standard the caller asked for with the mode.
+    pub tv_standard: Option<TvStandard>,
     /// The mode read back, or the error the call returned.
     pub result: Result<Modeline, DisplayError>,
 }
@@ -36,6 +38,8 @@ pub struct ModeSwitch {
     pub time_ns: u64,
     /// The mode the caller asked for.
     pub requested: Modeline,
+    /// The TV standard set with the mode.
+    pub tv_standard: Option<TvStandard>,
     /// The mode read back, which sets the flip times.
     pub active: Modeline,
 }
@@ -126,6 +130,7 @@ impl FakeDisplay {
                 Some(ModeSwitch {
                     time_ns: r.time_ns,
                     requested: r.requested,
+                    tv_standard: r.tv_standard,
                     active: *active,
                 })
             })
@@ -141,6 +146,12 @@ impl FakeDisplay {
     /// mode and after a `blank`.
     pub fn active_mode(&self) -> Option<Modeline> {
         self.lock().active.as_ref().map(|a| a.mode)
+    }
+
+    /// The TV standard on the display now. `None` with no mode, after a
+    /// `blank`, or for a mode without a standard.
+    pub fn active_tv_standard(&self) -> Option<TvStandard> {
+        self.lock().active.as_ref().and_then(|a| a.tv_standard)
     }
 
     /// Every `present` call, in order, with its flip.
