@@ -107,15 +107,16 @@ impl BuildArgs {
         fragments
     }
 
-    /// The name of the build output and of the images directory: the
-    /// architecture, with `-dev` for the development variant and
-    /// `-no15khz` for the kernel without the 15 kHz patch set. The variants never share an output, so no
-    /// file of a variant can reach the release image.
+    /// The name of the images directory: the `--output` name or the
+    /// architecture, with `-dev` for the development variant and `-no15khz`
+    /// for the kernel without the 15 kHz patch set. Without `--output` it
+    /// also names the output volume, so the variants never share an output
+    /// and no file of a variant can reach the release image.
     pub fn variant(&self) -> String {
-        if let Some(output) = &self.output {
-            return output.clone();
-        }
-        let mut name = self.arch.name().to_owned();
+        let mut name = self
+            .output
+            .clone()
+            .unwrap_or_else(|| self.arch.name().to_owned());
         if self.dev_key.is_some() {
             name.push_str(DEV_SUFFIX);
         }
@@ -123,6 +124,15 @@ impl BuildArgs {
             name.push_str(NO_15KHZ_SUFFIX);
         }
         name
+    }
+
+    /// The name of the Buildroot output volume: the `--output` name as it
+    /// is, or else the variant name. With `--output` a variant can build in
+    /// an output that it does not own; its images still go to the folder of
+    /// [`variant`](Self::variant), so they never replace the images of
+    /// another variant.
+    pub fn volume(&self) -> String {
+        self.output.clone().unwrap_or_else(|| self.variant())
     }
 }
 
@@ -224,7 +234,7 @@ impl BuildPlan {
     }
 
     fn run(&self, command: &[&str]) -> Vec<String> {
-        let variant = self.args.variant();
+        let volume = self.args.volume();
         let mut args = strings(&["run", "--rm"]);
         args.push("--cpus".to_owned());
         args.push(self.args.jobs.to_string());
@@ -234,7 +244,7 @@ impl BuildPlan {
         for (source, target) in [
             (DL_VOLUME.to_owned(), "/work/dl"),
             (CCACHE_VOLUME.to_owned(), "/home/br/.buildroot-ccache"),
-            (format!("{OUT_VOLUME_PREFIX}{variant}"), "/work/out"),
+            (format!("{OUT_VOLUME_PREFIX}{volume}"), "/work/out"),
             (format!("{}", self.checkout.display()), checkout.as_str()),
             (format!("{}", self.images.display()), "/work/images"),
         ] {
@@ -509,6 +519,28 @@ mod tests {
     fn an_output_name_gives_a_volume_and_images_of_their_own() {
         let p = plan(&["--arch", "x86_64", "--output", "x86_64-clean"]);
         assert_eq!(p.args.variant(), "x86_64-clean");
+        assert_eq!(p.args.volume(), "x86_64-clean");
+        let dev = plan(&[
+            "--arch",
+            "x86_64",
+            "--output",
+            "x86_64",
+            "--dev-key",
+            "/k.pub",
+        ]);
+        assert_eq!(
+            dev.args.volume(),
+            "x86_64",
+            "the dev build uses the release output"
+        );
+        assert_eq!(dev.args.variant(), "x86_64-dev", "its images stay apart");
+        assert!(
+            dev.steps()[0]
+                .join(" ")
+                .contains("--volume neptron-br-out-x86_64:/work/out"),
+            "{:?}",
+            dev.steps()[0]
+        );
         assert!(
             p.steps()[0]
                 .join(" ")
