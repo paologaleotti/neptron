@@ -92,7 +92,7 @@ use say;
 /// Carries out the reboot or the power-off that the frontend asked for,
 /// when the launcher has power control (`control`): it asks init with
 /// `run`, then waits for the stop signal of the shutdown. With no power
-/// control the launcher stops as after a quit.
+/// control, or after a stop signal, the launcher stops as after a quit.
 ///
 /// A request that fails leaves the machine running. The launcher then
 /// exits with an error, so init starts it again and the menus come back.
@@ -106,6 +106,15 @@ fn carry_out(
     if !control {
         say!(
             "neptron-launch: the frontend asks for {}, and the launcher has no --power; it stops",
+            power.name()
+        );
+        return ExitCode::SUCCESS;
+    }
+    // A stop between the end of the run and here comes from init or a
+    // bench tool, which stops the launcher for its own reason: it wins.
+    if stop.load(Ordering::Relaxed) {
+        say!(
+            "neptron-launch: the frontend asks for {}, and a stop signal came first; it stops",
             power.name()
         );
         return ExitCode::SUCCESS;
@@ -321,6 +330,23 @@ mod tests {
             "init never stopped the launcher"
         );
         assert_eq!(clock.0, [power::POWER_STOP_WAIT_NS]);
+    }
+
+    #[test]
+    fn a_stop_that_came_before_the_command_wins_and_runs_nothing() {
+        let stop = AtomicBool::new(true);
+        let mut clock = Waits(Vec::new());
+        for power in [Power::Reboot, Power::PowerOff] {
+            let code = carry_out(
+                power,
+                true,
+                |c| panic!("{c} must not run after a stop"),
+                &mut clock,
+                &stop,
+            );
+            assert_eq!(code, ExitCode::SUCCESS);
+        }
+        assert!(clock.0.is_empty(), "no wait after a stop");
     }
 
     #[test]
