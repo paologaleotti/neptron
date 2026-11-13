@@ -142,6 +142,7 @@ fn setting(key: u32, label: &str, value: SettingValue, source: Level) -> MenuIte
         },
         live: true,
         unavailable: None,
+        confirm: None,
     }
 }
 

@@ -176,6 +176,22 @@ pub struct MenuItem {
     /// panel`. The row shows the reason in place of its value and takes no
     /// change. `None` when the row is enabled.
     pub unavailable: Option<String>,
+    /// The question an action row asks before the UI sends its action.
+    /// `None` sends the action at once.
+    pub confirm: Option<Confirmation>,
+}
+
+/// The question that an action row asks before the UI sends its action: a
+/// dialog with the buttons `Cancel`, which has the focus, and the label of
+/// the row. For an action that the player cannot take back, such as a
+/// power-off.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Confirmation {
+    /// The title of the dialog, for example `Shut down NEPTRON?`.
+    pub question: String,
+    /// The message of the dialog: what the action does.
+    pub message: String,
 }
 
 /// The value of a settings row, with what the UI needs to change it.
@@ -445,7 +461,17 @@ impl MenuItem {
             scopes: Scopes::NONE,
             live: false,
             unavailable: None,
+            confirm: None,
         }
+    }
+
+    /// The same row, with a confirm question before its action.
+    pub fn with_confirm(mut self, question: impl Into<String>, message: impl Into<String>) -> Self {
+        self.confirm = Some(Confirmation {
+            question: question.into(),
+            message: message.into(),
+        });
+        self
     }
 
     /// The same row, disabled for `reason`.

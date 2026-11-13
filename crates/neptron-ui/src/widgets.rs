@@ -259,6 +259,7 @@ mod tests {
                         scopes: Scopes::ALL,
                         live: true,
                         unavailable: None,
+                        confirm: None,
                     })
                     .collect();
                 let mut settings = SettingsList::new(rng.rect(), rng.u32());

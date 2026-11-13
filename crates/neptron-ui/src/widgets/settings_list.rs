@@ -430,6 +430,7 @@ mod tests {
             scopes: ALL,
             live: true,
             unavailable: None,
+            confirm: None,
         }
     }
 

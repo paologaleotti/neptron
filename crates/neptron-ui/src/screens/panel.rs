@@ -14,7 +14,7 @@ use super::chrome::{self, Layout};
 use super::page::{Crumb, Page};
 use super::router::Nav;
 use super::video;
-use super::{AUDIO_PAGE, LIBRARY_PAGE, VIDEO_PAGE};
+use super::{AUDIO_PAGE, LIBRARY_PAGE, SYSTEM_PAGE, VIDEO_PAGE};
 
 /// The screen id of a page that has no id of its own.
 const PAGE_SCREEN: &str = "page";
@@ -52,6 +52,7 @@ impl PagePanel {
         match self.page.id() {
             AUDIO_PAGE => "audio",
             LIBRARY_PAGE => "library",
+            SYSTEM_PAGE => "system",
             VIDEO_PAGE => "quick-menu/video",
             _ => PAGE_SCREEN,
         }
@@ -67,6 +68,7 @@ impl PagePanel {
     /// the snapshot has a video status and the block leaves room for the
     /// rows, and removes it otherwise.
     pub(super) fn sync(&mut self, snap: &Snapshot, theme: &Theme) {
+        self.page.follow(snap);
         let video =
             self.wants_video && video::status(snap).is_some() && video::fits(self.content, theme);
         if video == self.video {

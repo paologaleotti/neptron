@@ -13,9 +13,10 @@ use crate::theme::Theme;
 use super::game_list::{PREFETCH_ROWS, WINDOW_ROWS};
 use super::overlays::QUIET_FRAMES_BEFORE_MOVE;
 use super::scenes::{
-    AUDIO_OUTPUT, LONG_LIST, MEGA_DRIVE, REFRESH, SETTINGS_ROW, SNES, STYLE, TO_AUDIO, TO_DISPLAY,
-    TO_GAME_DISPLAY, TO_VIDEO, VOLUME, exact_status, filtered_status, in_game, in_game_with,
-    long_status, video_page, volume_row, window, with_audio, with_display, with_systems,
+    AUDIO_OUTPUT, LONG_LIST, MEGA_DRIVE, REBOOT, REFRESH, SETTINGS_ROW, SNES, STYLE, TO_AUDIO,
+    TO_DISPLAY, TO_GAME_DISPLAY, TO_SYSTEM, TO_VIDEO, VOLUME, exact_status, filtered_status,
+    in_game, in_game_with, long_status, video_page, volume_row, window, with_audio, with_display,
+    with_system, with_systems,
 };
 use super::{
     AUDIO_PAGE, DISPLAY_PAGE, QUICK_MENU_PAGE, Screens, VIDEO_GAME_ROW, VIDEO_MODE_ROW, VIDEO_PAGE,
@@ -2352,8 +2353,146 @@ fn the_library_panel_is_a_page_of_the_settings_page() {
     let page = Some(crate::RowKind::Page);
     assert_eq!(
         panels,
-        [("Display", page), ("Audio", page), ("Library", page)]
+        [
+            ("Display", page),
+            ("Audio", page),
+            ("Library", page),
+            ("System", page)
+        ]
     );
+}
+
+#[test]
+fn the_system_panel_is_the_last_page_of_the_settings_page() {
+    let mut run = Run::new();
+    let snap = with_system(None);
+    run.step(&snap, &TO_SYSTEM);
+    assert_eq!(run.screen(), "system");
+    assert_eq!(title(&run), ("Settings > System", None));
+    assert_eq!(run.focused(), Some("Reboot"));
+    let rows: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::SettingsList)
+        .map(|r| (r.label, r.kind))
+        .collect();
+    let action = Some(crate::RowKind::Action);
+    assert_eq!(rows, [("Reboot", action), ("Shut down", action)]);
+    run.step(&snap, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("System")));
+    let empty = with_systems();
+    let mut run = Run::new();
+    run.step(&empty, &TO_SYSTEM);
+    assert_eq!(
+        run.intents(),
+        [Intent::LoadSettings {
+            page: super::SYSTEM_PAGE
+        }]
+    );
+}
+
+#[test]
+fn a_confirm_question_opens_with_the_focus_on_cancel_and_sends_nothing() {
+    let mut run = Run::new();
+    let snap = with_system(None);
+    run.step(&snap, &TO_SYSTEM);
+    run.step(&snap, &[Down, Accept]);
+    assert_eq!(run.intents(), []);
+    assert_eq!(run.screen(), "confirm-action");
+    assert_eq!(run.focused(), Some("Cancel"));
+    assert_eq!(
+        run.labels()[..4],
+        [
+            "Shut down NEPTRON?",
+            "Settings and saves are written first. Then the machine turns off.",
+            "Cancel",
+            "Shut down"
+        ]
+    );
+    assert_eq!(hints(&run), ["Accept: choose", "Back: cancel"]);
+    // Accept on Cancel closes the question with no intent.
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), []);
+    assert_eq!((run.screen(), run.focused()), ("system", Some("Shut down")));
+    // Back closes it too, and does not leave the panel.
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.screen(), "confirm-action");
+    run.step(&snap, &[Back]);
+    assert_eq!(run.intents(), []);
+    assert_eq!((run.screen(), run.focused()), ("system", Some("Shut down")));
+}
+
+#[test]
+fn only_right_then_accept_sends_the_action_of_the_row_once() {
+    let mut run = Run::new();
+    let snap = with_system(None);
+    run.step(&snap, &TO_SYSTEM);
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.screen(), "confirm-action");
+    assert_eq!(run.labels().first().copied(), Some("Reboot NEPTRON?"));
+    run.step(&snap, &[Right]);
+    assert_eq!(run.focused(), Some("Reboot"));
+    assert_eq!(run.intents(), []);
+    run.step(&snap, &[Accept, Accept]);
+    assert_eq!(
+        run.intents(),
+        [Intent::Action(REBOOT)],
+        "the second accept opens a new question, with the focus on Cancel"
+    );
+    assert_eq!(run.screen(), "confirm-action");
+    assert_eq!(run.focused(), Some("Cancel"));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), []);
+    assert_eq!(run.screen(), "system");
+}
+
+#[test]
+fn a_row_that_goes_away_or_is_disabled_closes_its_question() {
+    let mut run = Run::new();
+    let snap = with_system(None);
+    run.step(&snap, &TO_SYSTEM);
+    run.step(&snap, &[Accept, Right]);
+    assert_eq!(run.screen(), "confirm-action");
+    let disabled = with_system(Some("Not during a game"));
+    run.step(&disabled, &[]);
+    assert_eq!(run.screen(), "system", "no question over a disabled row");
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "system", "the old question stays closed");
+    run.step(&disabled, &[Accept]);
+    assert_eq!(run.intents(), [], "a disabled row asks nothing");
+    run.step(&snap, &[Accept]);
+    assert_eq!(
+        run.intents(),
+        [],
+        "a new question, with the focus on Cancel"
+    );
+    assert_eq!(run.focused(), Some("Cancel"));
+    let mut gone = with_system(None);
+    gone.settings.rows.clear();
+    run.step(&gone, &[Right, Accept]);
+    assert_eq!(run.intents(), []);
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "system");
+}
+
+#[test]
+fn a_disabled_system_row_opens_no_question() {
+    let mut run = Run::new();
+    let snap = with_system(Some("Not during a game"));
+    run.step(&snap, &TO_SYSTEM);
+    run.step(&snap, &[Accept, Down, Accept]);
+    assert_eq!(run.intents(), []);
+    assert_eq!(run.screen(), "system");
+    let values: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::SettingsList)
+        .map(|r| (r.value, r.kind))
+        .collect();
+    let disabled = (Some("Not during a game"), Some(crate::RowKind::Disabled));
+    assert_eq!(values, [disabled, disabled]);
 }
 
 #[test]

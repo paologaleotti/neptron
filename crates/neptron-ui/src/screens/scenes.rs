@@ -16,7 +16,7 @@ use super::game_list::WINDOW_ROWS;
 use super::router::Screen;
 use super::{
     AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
-    SETTINGS_PAGE, Screens, VIDEO_PAGE,
+    SETTINGS_PAGE, SYSTEM_PAGE, Screens, VIDEO_PAGE,
 };
 
 pub(super) const SCENES: &[SceneDef] = &[
@@ -128,6 +128,14 @@ pub(super) const SCENES: &[SceneDef] = &[
         name: "screens/library-scanning",
         build: library_scanning,
     },
+    SceneDef {
+        name: "screens/system",
+        build: system,
+    },
+    SceneDef {
+        name: "screens/system-shutdown-confirm",
+        build: system_shutdown_confirm,
+    },
 ];
 
 /// The settings of the fixtures.
@@ -183,6 +191,63 @@ pub(super) const TO_LIBRARY: [UiAction; 9] = [
     UiAction::Down,
     UiAction::Accept,
 ];
+
+/// The path from home to the System panel with the fixture systems.
+pub(super) const TO_SYSTEM: [UiAction; 10] = [
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+];
+
+/// The action of the fixture `Reboot` row.
+pub(super) const REBOOT: crate::snapshot::ActionId = crate::snapshot::ActionId(2);
+/// The action of the fixture `Shut down` row.
+pub(super) const SHUT_DOWN: crate::snapshot::ActionId = crate::snapshot::ActionId(3);
+
+/// The rows of the System panel as the app gives them, enabled or
+/// disabled for `reason`.
+pub(super) fn system_rows(reason: Option<&str>) -> Vec<MenuItem> {
+    let rows = [
+        (
+            10,
+            "Reboot",
+            REBOOT,
+            "Reboot NEPTRON?",
+            "Settings and saves are written first. Then the machine starts again.",
+        ),
+        (
+            11,
+            "Shut down",
+            SHUT_DOWN,
+            "Shut down NEPTRON?",
+            "Settings and saves are written first. Then the machine turns off.",
+        ),
+    ];
+    rows.into_iter()
+        .map(|(key, label, action, question, message)| {
+            let row = MenuItem::new(SettingKey(key), label, SettingValue::Action(action))
+                .with_confirm(question, message);
+            match reason {
+                Some(reason) => row.unavailable(reason),
+                None => row,
+            }
+        })
+        .collect()
+}
+
+/// The fixture systems with the System panel in the snapshot.
+pub(super) fn with_system(reason: Option<&str>) -> Snapshot {
+    let mut snap = with_systems();
+    snap.settings = SettingsPage::new(SYSTEM_PAGE, "System", system_rows(reason));
+    snap
+}
 
 /// The path from a running game to the video page of the quick menu.
 pub(super) const TO_VIDEO: [UiAction; 4] = [
@@ -462,6 +527,22 @@ fn library_scanning(frame: &mut UiFrame, theme: &Theme) {
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &TO_LIBRARY, frame);
     screens.update(&snap, &[], frame);
+}
+
+/// The System panel with the focus on `Shut down`.
+fn system(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_system(None);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_SYSTEM, frame);
+    screens.update(&snap, &[UiAction::Down], frame);
+}
+
+/// The confirm question of `Shut down`, with the focus on `Cancel`.
+fn system_shutdown_confirm(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_system(None);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_SYSTEM, frame);
+    screens.update(&snap, &[UiAction::Down, UiAction::Accept], frame);
 }
 
 /// The change that the confirm scenes wait for.

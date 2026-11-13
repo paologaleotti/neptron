@@ -66,6 +66,10 @@ pub const VIDEO_PAGE: PageId = PageId(RESERVED_ID_MIN + 6);
 /// of the app, written at the global level.
 pub const LIBRARY_PAGE: PageId = PageId(RESERVED_ID_MIN + 7);
 
+/// The System panel: the rows of the app that reboot and turn off the
+/// machine.
+pub const SYSTEM_PAGE: PageId = PageId(RESERVED_ID_MIN + 8);
+
 /// One row of the Settings page: a panel and the page it opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Panel {
@@ -92,6 +96,10 @@ pub static SETTINGS_PANELS: &[Panel] = &[
     Panel {
         label: "Library",
         page: LIBRARY_PAGE,
+    },
+    Panel {
+        label: "System",
+        page: SYSTEM_PAGE,
     },
 ];
 
