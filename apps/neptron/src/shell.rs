@@ -313,8 +313,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         let mut messages = Vec::new();
         if let Stage::Game(game) = stage {
             let report = game.session.quit();
-            if let Some(error) = report.save_stats.last_error {
-                messages.push(format!("the last save RAM write failed: {error}"));
+            if let Some(text) = intents::lost_save(&report) {
+                messages.push(text);
             }
         }
         messages.extend(outbox.finish());

@@ -1,6 +1,7 @@
 //! The intents of the UI, and the settings changes they ask for.
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_session::{ExitReport, Flush};
 use neptron_settings::{
     AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, INPUT_MENU_HOLD_START_SECONDS, Level, Safety,
     Value,
@@ -114,12 +115,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             return;
         };
         let report = game.session.quit();
-        let notice = notice.or_else(|| {
-            report
-                .save_stats
-                .last_error
-                .map(|e| format!("The game was not saved: {e}."))
-        });
+        let notice = notice.or_else(|| lost_save(&report));
         self.outcome = Some(Outcome::Relaunch(NextRun { game: None, notice }));
     }
 
@@ -261,6 +257,58 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 }
             }
             Stage::Ended => {}
+        }
+    }
+}
+
+/// The notice of a save RAM that the save file does not hold at the end of
+/// the game. Only the last flush decides: a failed write in the game that a
+/// later write repaired lost nothing.
+pub(super) fn lost_save(report: &ExitReport) -> Option<String> {
+    if !matches!(report.save, Flush::Failed | Flush::WriteFailed) {
+        return None;
+    }
+    Some(match &report.save_stats.last_error {
+        Some(e) => format!("The game was not saved: {e}."),
+        None => "The game was not saved: the last write did not finish.".to_owned(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use neptron_session::{Counters, Flush, SaveError, SaveStats};
+
+    use super::*;
+
+    fn report(save: Flush, last_error: Option<SaveError>) -> ExitReport {
+        ExitReport {
+            save,
+            save_stats: SaveStats {
+                last_error,
+                ..SaveStats::default()
+            },
+            counters: Counters::default(),
+        }
+    }
+
+    fn copy_error() -> Option<SaveError> {
+        Some(SaveError::WriterStopped {
+            path: "game.srm".into(),
+        })
+    }
+
+    #[test]
+    fn a_failure_that_a_later_write_repaired_is_not_a_lost_save() {
+        assert_eq!(lost_save(&report(Flush::Written, copy_error())), None);
+        assert_eq!(lost_save(&report(Flush::Unchanged, copy_error())), None);
+        assert_eq!(lost_save(&report(Flush::NoSaveRam, None)), None);
+    }
+
+    #[test]
+    fn a_failed_last_flush_is_a_lost_save() {
+        for flush in [Flush::Failed, Flush::WriteFailed] {
+            let text = lost_save(&report(flush, copy_error())).expect("a notice");
+            assert!(text.starts_with("The game was not saved: "), "{text}");
         }
     }
 }
