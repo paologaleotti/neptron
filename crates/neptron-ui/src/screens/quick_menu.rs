@@ -1,21 +1,20 @@
-//! The quick menu over a paused game: the rows of the quick menu page,
+//! The quick menu over a paused game: the first page of the quick menu,
 //! written at the game level, and the prompt that asks where to keep the
-//! changes when the player leaves.
+//! changes when the player leaves. The pages that open from it note their
+//! changes here too.
 
 use crate::frame::UiFrame;
-use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
-use crate::snapshot::{Level, MenuItem, SettingKey, SettingValue, Snapshot};
+use crate::snapshot::{Level, MenuItem, Scopes, SettingKey, SettingValue, Snapshot};
 use crate::theme::Theme;
 use crate::widgets::{Dialog, DialogContent, DialogEvent, DialogTone};
 
 use super::chrome::{self, Layout};
 use super::overlays::draw_dialog;
 use super::page::{Page, PageEvent};
-use super::router::{Nav, Target};
-use super::video;
-use super::{DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME};
+use super::router::Nav;
+use super::{QUICK_MENU_PAGE, QUIT_GAME, RESUME};
 
 /// The settings changed in one visit of the quick menu that the prompt can
 /// move. A further setting stays at the game level.
@@ -33,17 +32,18 @@ enum Leave {
     Quit,
 }
 
+/// A change at the game level that the prompt can move: the setting, its
+/// value, and the levels its row allows, read when the change was made.
+type Change = (SettingKey, Value, Scopes);
+
 pub(super) struct QuickMenu {
     page: Page,
-    changes: [Option<(SettingKey, Value)>; MAX_CHANGES],
+    changes: [Option<Change>; MAX_CHANGES],
     prompt: Option<(Dialog, Leave)>,
     /// True after a quit request: the menu waits for the session to end
     /// and takes only back, which gives the menu back if the app did not
     /// stop the game.
     quitting: bool,
-    content: Rect,
-    /// True while the layout has the video block above the rows.
-    video: bool,
 }
 
 impl QuickMenu {
@@ -53,45 +53,37 @@ impl QuickMenu {
             changes: [None; MAX_CHANGES],
             prompt: None,
             quitting: false,
-            content: layout.content,
-            video: false,
         }
-    }
-
-    /// Puts the video block above the rows while the snapshot has a video
-    /// status and the block leaves room for the rows, and removes it
-    /// otherwise.
-    pub(super) fn sync(&mut self, snap: &Snapshot, theme: &Theme) {
-        let video = video::status(snap).is_some() && video::fits(self.content, theme);
-        if video == self.video {
-            return;
-        }
-        self.video = video;
-        let area = if video {
-            video::below(self.content)
-        } else {
-            self.content
-        };
-        self.page.place(area, theme);
     }
 
     /// Notes a change at the game level, made here or in a screen opened
     /// from here, so the prompt can move it on leaving. A reset removes the
     /// note: the value inherits again and there is nothing to move.
-    pub(super) fn record(&mut self, intent: &Intent) {
+    ///
+    /// The scopes come from the row of the change in `snap`: the page that
+    /// made the change is in the snapshot of its frame, and the prompt may
+    /// open later on a page that does not hold the row. A row that is not
+    /// there allows no level, so its change stays at the game level.
+    pub(super) fn record(&mut self, intent: &Intent, snap: &Snapshot) {
         match *intent {
             Intent::SetValue {
                 key,
                 level: Level::Game,
                 value,
             } => {
+                let scopes = snap
+                    .settings
+                    .rows
+                    .iter()
+                    .find(|r| r.key == key)
+                    .map_or(Scopes::NONE, |r| r.scopes);
                 let slot = self
                     .changes
                     .iter()
-                    .position(|c| c.is_some_and(|(k, _)| k == key))
+                    .position(|c| c.is_some_and(|(k, _, _)| k == key))
                     .or_else(|| self.changes.iter().position(Option::is_none));
                 if let Some(entry) = slot.and_then(|i| self.changes.get_mut(i)) {
-                    *entry = Some((key, value));
+                    *entry = Some((key, value, scopes));
                 }
             }
             Intent::ResetValue {
@@ -99,7 +91,7 @@ impl QuickMenu {
                 level: Level::Game,
             } => {
                 for entry in &mut self.changes {
-                    if entry.is_some_and(|(k, _)| k == key) {
+                    if entry.is_some_and(|(k, _, _)| k == key) {
                         *entry = None;
                     }
                 }
@@ -139,18 +131,7 @@ impl QuickMenu {
         match self.page.handle(action, snap) {
             PageEvent::Back | PageEvent::Reserved(RESUME) => self.ask(Leave::Resume, snap, out),
             PageEvent::Reserved(QUIT_GAME) => self.ask(Leave::Quit, snap, out),
-            PageEvent::Open(DISPLAY_PAGE) => Nav::Open(Target::Display),
-            PageEvent::Open(GRID_PAGE) => Nav::Open(Target::Grid),
-            PageEvent::Intent(intent) => {
-                out.push(intent);
-                Nav::Stay
-            }
-            PageEvent::Pick(key) => Nav::Open(Target::Options {
-                page: QUICK_MENU_PAGE,
-                key,
-                level: Level::Game,
-            }),
-            PageEvent::Open(_) | PageEvent::Reserved(_) | PageEvent::Stay => Nav::Stay,
+            event => self.page.nav(event, out),
         }
     }
 
@@ -171,9 +152,6 @@ impl QuickMenu {
             self.page.hint(snap),
             "Back: resume",
         );
-        if let Some(status) = video::status(snap).filter(|_| self.video) {
-            video::draw(frame, theme, self.content, status);
-        }
         self.page.draw(snap, theme, frame);
         if let Some((dialog, _)) = &self.prompt {
             frame.tree.clear();
@@ -214,12 +192,12 @@ impl QuickMenu {
 
     /// Forgets the noted changes that the app took back: the guard reverts
     /// a display change that the player did not keep, and the row then
-    /// shows the value in effect. A change whose row is not in the
-    /// snapshot stays noted.
-    fn forget_taken_back(&mut self, snap: &Snapshot) {
-        let rows = self.page.rows(snap);
+    /// shows the value in effect. A change whose row is not in the page of
+    /// the snapshot stays noted.
+    pub(super) fn forget_taken_back(&mut self, snap: &Snapshot) {
+        let rows = &snap.settings.rows;
         for entry in &mut self.changes {
-            let gone = entry.is_some_and(|(key, value)| {
+            let gone = entry.is_some_and(|(key, value, _)| {
                 rows.iter()
                     .find(|r| r.key == key)
                     .is_some_and(|row| !holds(row, value))
@@ -231,19 +209,13 @@ impl QuickMenu {
     }
 
     /// Moves every noted change from the game level to `level`, when the
-    /// row of the change is in the snapshot and allows that level. A change
-    /// whose row is gone stays at the game level, the narrowest one. The
-    /// game level is where the changes are, so for it there is nothing to
-    /// send.
+    /// row of the change allowed that level. A change whose row did not
+    /// stays at the game level, the narrowest one. The game level is where
+    /// the changes are, so for it there is nothing to send.
     fn keep_at(&mut self, level: Level, snap: &Snapshot, out: &mut Vec<Intent>) {
         self.forget_taken_back(snap);
-        let rows = self.page.rows(snap);
-        for (key, value) in self.changes.iter_mut().filter_map(Option::take) {
-            let allowed = rows
-                .iter()
-                .find(|r| r.key == key)
-                .is_some_and(|r| r.scopes.allows(level));
-            if level == Level::Game || !allowed {
+        for (key, value, scopes) in self.changes.iter_mut().filter_map(Option::take) {
+            if level == Level::Game || !scopes.allows(level) {
                 continue;
             }
             out.push(Intent::SetValue { key, level, value });

@@ -34,6 +34,9 @@ fn the_audio_panel_writes_the_volume_and_the_output_to_the_global_file() {
             rig.until(600, "the scan", |r| {
                 !r.shell().snapshot().systems.is_empty()
             });
+            rig.focus("Settings");
+            rig.tap(&[Control::A]);
+            assert_eq!(rig.screen(), "settings");
             rig.focus("Audio");
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "audio");

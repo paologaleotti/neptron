@@ -99,6 +99,8 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             rig.until(600, "the scan", |r| {
                 !r.shell().snapshot().systems.is_empty()
             });
+            rig.focus("Settings");
+            rig.tap(&[Control::A]);
             rig.focus("Display");
             rig.tap(&[Control::A]);
             let monitor = rig

@@ -10,11 +10,11 @@ use crate::intent::Intent;
 use crate::snapshot::{Level, Snapshot};
 use crate::theme::Theme;
 
+use super::DISPLAY_PAGE;
 use super::chrome::{self, Layout};
-use super::page::{Page, PageEvent};
-use super::router::{Nav, Target};
+use super::page::{Crumb, Page};
+use super::router::Nav;
 use super::video;
-use super::{DISPLAY_PAGE, GRID_PAGE};
 
 /// The lines of the box that shows the output, the mode and the monitor.
 const INFO_LINES: u32 = 3;
@@ -33,6 +33,7 @@ const GAP_PX: u32 = 4;
 /// panel without it.
 pub(super) struct DisplayPanel {
     page: Page,
+    label: Crumb,
     content: Rect,
     places: Places,
 }
@@ -87,11 +88,13 @@ impl Places {
 }
 
 impl DisplayPanel {
-    pub(super) fn new(layout: &Layout, theme: &Theme) -> Self {
+    /// The display panel, opened from the row `label`.
+    pub(super) fn new(label: Crumb, layout: &Layout, theme: &Theme) -> Self {
         let content = layout.content;
         let places = Places::new(content, theme, false);
         Self {
             page: Page::new(DISPLAY_PAGE, Level::Global, places.page, theme),
+            label,
             content,
             places,
         }
@@ -114,20 +117,8 @@ impl DisplayPanel {
         snap: &Snapshot,
         out: &mut Vec<Intent>,
     ) -> Nav {
-        match self.page.handle(action, snap) {
-            PageEvent::Back => Nav::Back,
-            PageEvent::Intent(intent) => {
-                out.push(intent);
-                Nav::Stay
-            }
-            PageEvent::Pick(key) => Nav::Open(Target::Options {
-                page: self.page.id(),
-                key,
-                level: self.page.level(),
-            }),
-            PageEvent::Open(GRID_PAGE) => Nav::Open(Target::Grid),
-            PageEvent::Open(_) | PageEvent::Reserved(_) | PageEvent::Stay => Nav::Stay,
-        }
+        let event = self.page.handle(action, snap);
+        self.page.nav(event, out)
     }
 
     pub(super) fn request(&self, snap: &Snapshot) -> Option<Intent> {
@@ -138,7 +129,7 @@ impl DisplayPanel {
         chrome::frame(
             frame,
             theme,
-            "Display",
+            self.label.as_str(),
             "",
             self.page.hint(snap),
             "Back: return",

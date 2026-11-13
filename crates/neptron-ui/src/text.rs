@@ -159,6 +159,14 @@ impl<const N: usize> StackText<N> {
     }
 }
 
+impl<const N: usize> PartialEq for StackText<N> {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl<const N: usize> Eq for StackText<N> {}
+
 impl<const N: usize> Default for StackText<N> {
     fn default() -> Self {
         Self::new()

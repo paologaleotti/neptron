@@ -13,12 +13,12 @@ use crate::theme::Theme;
 use super::game_list::{PREFETCH_ROWS, WINDOW_ROWS};
 use super::overlays::QUIET_FRAMES_BEFORE_MOVE;
 use super::scenes::{
-    AUDIO_OUTPUT, LONG_LIST, MEGA_DRIVE, REFRESH, SNES, STYLE, TO_AUDIO, TO_DISPLAY, VOLUME,
-    exact_status, filtered_status, in_game, in_game_with, long_status, volume_row, window,
-    with_audio, with_display, with_systems,
+    AUDIO_OUTPUT, LONG_LIST, MEGA_DRIVE, REFRESH, SETTINGS_ROW, SNES, STYLE, TO_AUDIO, TO_DISPLAY,
+    TO_GAME_DISPLAY, TO_VIDEO, VOLUME, exact_status, filtered_status, in_game, in_game_with,
+    long_status, video_page, volume_row, window, with_audio, with_display, with_systems,
 };
 use super::{
-    AUDIO_PAGE, DISPLAY_PAGE, QUICK_MENU_PAGE, Screens, VIDEO_GAME_ROW, VIDEO_MODE_ROW,
+    AUDIO_PAGE, DISPLAY_PAGE, QUICK_MENU_PAGE, Screens, VIDEO_GAME_ROW, VIDEO_MODE_ROW, VIDEO_PAGE,
     VIDEO_RESULT_ROW,
 };
 
@@ -81,7 +81,7 @@ fn snes_list() -> (Run, Snapshot) {
 }
 
 #[test]
-fn home_lists_the_systems_then_favourites_recents_display_and_audio() {
+fn home_lists_the_systems_then_favourites_recents_and_settings() {
     let mut run = Run::new();
     run.step(&with_systems(), &[]);
     assert_eq!(run.screen(), "home");
@@ -100,9 +100,16 @@ fn home_lists_the_systems_then_favourites_recents_display_and_audio() {
             ("Mega Drive", Some("1 game")),
             ("Favourites", None),
             ("Recent games", None),
-            ("Display", None),
-            ("Audio", None),
+            ("Settings", None),
         ]
+    );
+    assert!(
+        run.frame
+            .tree
+            .rows()
+            .filter(|r| r.widget == crate::WidgetKind::List)
+            .all(|r| r.kind == Some(crate::RowKind::Page)),
+        "every home row opens a page"
     );
     assert_eq!(run.focused(), Some("Nintendo Entertainment System"));
     assert!(run.intents().is_empty());
@@ -361,7 +368,11 @@ fn the_display_panel_asks_for_its_page_and_shows_the_mode() {
     assert_eq!(field(&run, "Monitor"), Some("pc_31_120"));
     assert_eq!(run.focused(), Some("Output"));
     run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "settings");
+    assert_eq!(run.focused(), Some("Display"));
+    run.step(&snap, &[Back]);
     assert_eq!(run.screen(), "home");
+    assert_eq!(run.focused(), Some("Settings"));
 }
 
 #[test]
@@ -772,8 +783,39 @@ fn quick_menu() -> (Run, Snapshot) {
     (run, snap)
 }
 
-/// The path from the top of the quick menu to "Force 60 Hz".
-const TO_FORCE_60: [UiAction; 7] = [Down, Down, Accept, Down, Down, Down, Accept];
+/// A run on the video page of the quick menu of a game with `status`: the
+/// run, the snapshot with the first page of the quick menu, and the
+/// snapshot with the video page.
+fn video_menu(status: Option<VideoStatus>) -> (Run, Snapshot, Snapshot) {
+    let mut run = Run::new();
+    let mut first = in_game();
+    first.video = status;
+    run.step(&first, &[]);
+    run.step(&first, &TO_VIDEO);
+    assert_eq!(run.intents(), [Intent::LoadSettings { page: VIDEO_PAGE }]);
+    let mut video = first.clone();
+    video.settings = video_page();
+    run.step(&video, &[]);
+    assert_eq!(run.screen(), "quick-menu/video");
+    (run, first, video)
+}
+
+/// The path from the top of the video page to "Force 60 Hz".
+const TO_FORCE_60: [UiAction; 6] = [Down, Accept, Down, Down, Down, Accept];
+
+/// Changes the refresh policy to "Force 60 Hz" on the video page, the app
+/// applies it, and the player goes back to the first page of the quick
+/// menu. Returns the snapshot of the first page.
+fn force_60_and_back() -> (Run, Snapshot) {
+    let (mut run, first, video) = video_menu(None);
+    run.step(&video, &TO_FORCE_60);
+    assert_eq!(run.intents(), [force_60(Level::Game)]);
+    run.step(&with_force_60(&video), &[Back]);
+    assert_eq!(run.screen(), "quick-menu");
+    run.step(&first, &[]);
+    assert_eq!(run.focused(), Some("Video"), "the row the player came from");
+    (run, first)
+}
 
 fn force_60(level: Level) -> Intent {
     Intent::SetValue {
@@ -827,10 +869,15 @@ fn quit_stops_the_game_and_the_list_comes_back() {
 
 #[test]
 fn a_change_in_the_quick_menu_is_written_for_the_game() {
-    let (mut run, snap) = quick_menu();
-    run.step(&snap, &TO_FORCE_60);
+    let (mut run, _, video) = video_menu(None);
+    run.step(&video, &TO_FORCE_60);
     assert_eq!(run.intents(), [force_60(Level::Game)]);
-    assert_eq!(run.screen(), "quick-menu");
+    assert_eq!(run.screen(), "quick-menu/video");
+    assert_eq!(
+        run.focused(),
+        Some("Refresh"),
+        "the row the player came from"
+    );
 }
 
 /// `snap` after the app applied "Force 60 Hz" at the game level.
@@ -847,21 +894,19 @@ fn with_force_60(snap: &Snapshot) -> Snapshot {
 
 #[test]
 fn a_change_that_the_app_took_back_is_not_kept() {
-    let (mut run, snap) = quick_menu();
-    run.step(&snap, &TO_FORCE_60);
+    let (mut run, first, video) = video_menu(None);
+    run.step(&video, &TO_FORCE_60);
     assert_eq!(run.intents(), [force_60(Level::Game)]);
-    // The guard reverted the change: the snapshot holds the old value.
-    run.step(&snap, &[Back]);
+    // The guard reverted the change: the video page holds the old value
+    // when the player leaves it.
+    run.step(&video, &[Back]);
+    run.step(&first, &[Back]);
     assert_eq!(run.intents(), [Intent::Resume], "nothing is left to keep");
 
-    let (mut run, snap) = quick_menu();
-    run.step(&snap, &TO_FORCE_60);
-    let applied = with_force_60(&snap);
-    run.step(&applied, &[Back]);
+    // The first page does not hold the row, so a kept change stays noted.
+    let (mut run, first) = force_60_and_back();
+    run.step(&first, &[Back]);
     assert_eq!(run.screen(), "quick-menu/keep");
-    // The change went back while the prompt was open.
-    run.step(&snap, &[Right, Right, Accept]);
-    assert_eq!(run.intents(), [Intent::Resume]);
 }
 
 #[test]
@@ -871,9 +916,7 @@ fn leaving_after_a_change_asks_where_to_keep_it() {
         (&[Right, Accept][..], Level::System),
         (&[Right, Right, Accept][..], Level::Global),
     ] {
-        let (mut run, snap) = quick_menu();
-        run.step(&snap, &TO_FORCE_60);
-        let snap = with_force_60(&snap);
+        let (mut run, snap) = force_60_and_back();
         run.step(&snap, &[Back]);
         assert_eq!(run.screen(), "quick-menu/keep");
         assert_eq!(run.focused(), Some("This game"));
@@ -897,13 +940,12 @@ fn leaving_after_a_change_asks_where_to_keep_it() {
 
 #[test]
 fn back_in_the_prompt_returns_to_the_quick_menu() {
-    let (mut run, snap) = quick_menu();
-    run.step(&snap, &TO_FORCE_60);
-    let snap = with_force_60(&snap);
+    let (mut run, snap) = force_60_and_back();
     run.step(&snap, &[Back, Back]);
     assert!(run.intents().is_empty());
     assert_eq!(run.screen(), "quick-menu");
-    run.step(&snap, &[Up, Down, Down, Down, Down, Accept]);
+    assert_eq!(run.focused(), Some("Video"));
+    run.step(&snap, &[Down, Down, Accept]);
     assert_eq!(run.screen(), "quick-menu/keep");
     run.step(&snap, &[Accept]);
     assert_eq!(run.intents(), [Intent::QuitGame]);
@@ -911,7 +953,7 @@ fn back_in_the_prompt_returns_to_the_quick_menu() {
 
 #[test]
 fn a_reset_leaves_nothing_to_keep() {
-    let (mut run, snap) = quick_menu();
+    let (mut run, first, snap) = video_menu(None);
     run.step(&snap, &TO_FORCE_60);
     let mut reset = snap.clone();
     if let Some(row) = reset.settings.rows.iter_mut().find(|r| r.key == REFRESH) {
@@ -926,6 +968,7 @@ fn a_reset_leaves_nothing_to_keep() {
         }]
     );
     run.step(&snap, &[Back]);
+    run.step(&first, &[Back]);
     assert_eq!(run.intents(), [Intent::Resume]);
 }
 
@@ -933,9 +976,20 @@ fn a_reset_leaves_nothing_to_keep() {
 fn the_display_panel_opens_from_the_quick_menu_and_returns_to_it() {
     let (mut run, mut snap) = quick_menu();
     run.step(&snap, &[Down, Down, Down, Accept]);
+    assert_eq!(run.screen(), "settings");
+    assert!(run.intents().is_empty(), "the UI shows the Settings page");
+    run.step(&snap, &[Accept]);
     assert_eq!(run.screen(), "display");
     assert_eq!(run.intents(), [Intent::LoadSettings { page: DISPLAY_PAGE }]);
     snap.settings = with_display().settings;
+    run.step(&snap, &[Down, Right]);
+    assert!(
+        run.intents().is_empty(),
+        "a choice of the display panel never changes in place"
+    );
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "settings");
+    assert_eq!(run.focused(), Some("Display"));
     run.step(&snap, &[Back]);
     assert_eq!(run.screen(), "quick-menu");
     assert_eq!(
@@ -963,8 +1017,13 @@ fn the_grid_pattern_opens_from_the_display_panel_and_the_quick_menu() {
     assert_eq!(run.screen(), "display");
 
     let (mut run, mut snap) = quick_menu();
-    if let Some(display) = snap.settings.rows.iter_mut().find(|r| r.label == "Display") {
-        display.value = crate::snapshot::SettingValue::Page(super::GRID_PAGE);
+    if let Some(row) = snap
+        .settings
+        .rows
+        .iter_mut()
+        .find(|r| r.key == SETTINGS_ROW)
+    {
+        row.value = crate::snapshot::SettingValue::Page(super::GRID_PAGE);
     }
     run.step(&snap, &[Down, Down, Down, Accept]);
     assert_eq!(run.screen(), "pattern/grid");
@@ -1003,14 +1062,14 @@ fn a_static_screen_allocates_nothing_after_its_first_frame() {
         (&confirm, &TO_DISPLAY, "confirm"),
         (&noticed, &[], "notice"),
         (&quick, &[Menu], "quick-menu"),
-        (&quick, &[Menu, Down, Accept], "options"),
-        (&video, &[Menu], "quick-menu"),
-        (&video, &[Menu, Down, Accept], "options"),
-        (&video, &[Menu, Down, Down, Down, Accept], "display"),
+        (&quick, &[Menu, Down, Down, Down, Accept], "settings"),
+        (&video, &TO_VIDEO, "quick-menu/video"),
+        (&video, &[Menu, Down, Down, Down, Accept, Down], "settings"),
+        (&video, &TO_GAME_DISPLAY, "display"),
         (
             &with_display(),
             &[
-                Down, Down, Down, Down, Down, Accept, Down, Down, Down, Down, Accept,
+                Down, Down, Down, Down, Down, Accept, Accept, Down, Down, Down, Down, Accept,
             ],
             "pattern/grid",
         ),
@@ -1028,6 +1087,18 @@ fn a_static_screen_allocates_nothing_after_its_first_frame() {
         }
         assert_eq!(capacities(&run.frame), before, "{screen}");
         assert_eq!(run.screens.stack_capacity(), stack, "{screen}");
+    }
+
+    // A page of the quick menu with its rows, and the options of one row.
+    for path in [&[][..], &[Down, Accept]] {
+        let (mut run, _, snap) = video_menu(Some(long_status()));
+        run.step(&snap, path);
+        run.step(&snap, &[]);
+        let before = capacities(&run.frame);
+        for _ in 0..10 {
+            run.step(&snap, &[]);
+        }
+        assert_eq!(capacities(&run.frame), before, "{}", run.screen());
     }
 }
 
@@ -1353,30 +1424,40 @@ fn a_dialog_shows_its_own_hints() {
     run.step(&snap, &[]);
     assert_eq!(hints(&run), ["Accept: OK"]);
 
-    let (mut run, snap) = quick_menu();
-    run.step(&snap, &TO_FORCE_60);
-    run.step(&with_force_60(&snap), &[Back]);
+    let (mut run, snap) = force_60_and_back();
+    run.step(&snap, &[Back]);
     assert_eq!(hints(&run), ["Accept: choose", "Back: cancel"]);
 }
 
 #[test]
+fn the_hint_follows_the_focused_row_of_the_quick_menu() {
+    let (mut run, snap) = quick_menu();
+    let expected = [
+        ("Resume", "Accept: choose"),
+        ("Volume", "Left/Right: change"),
+        ("Video", "Accept: open"),
+        ("Settings", "Accept: open"),
+        ("Quit game", "Accept: choose"),
+    ];
+    for (row, hint) in expected {
+        assert_eq!(run.focused(), Some(row));
+        assert_eq!(hints(&run), [hint, "Back: resume"], "on {row}");
+        run.step(&snap, &[Down]);
+    }
+}
+
+#[test]
 fn a_focused_disabled_row_has_no_accept_hint() {
-    let mut run = Run::new();
-    let mut snap = in_game();
+    let (mut run, _, mut snap) = video_menu(None);
     for row in &mut snap.settings.rows {
         if row.key == STYLE {
             *row = row.clone().unavailable("Not used on a flat panel");
         }
     }
     run.step(&snap, &[]);
-    run.step(&snap, &[Menu]);
-    assert_eq!(hints(&run), ["Accept: choose", "Back: resume"], "on Resume");
+    assert_eq!(hints(&run), ["Back: return"], "on the disabled style row");
     run.step(&snap, &[Down]);
-    assert_eq!(hints(&run), ["Back: resume"], "on the disabled style row");
-    run.step(&snap, &[Down]);
-    assert_eq!(hints(&run), ["Accept: open", "Back: resume"], "on Refresh");
-    run.step(&snap, &[Down]);
-    assert_eq!(hints(&run), ["Accept: open", "Back: resume"], "on Display");
+    assert_eq!(hints(&run), ["Accept: open", "Back: return"], "on Refresh");
 }
 
 #[test]
@@ -1390,14 +1471,46 @@ fn the_hint_of_a_number_row_names_left_and_right() {
 }
 
 #[test]
-fn a_change_whose_row_is_gone_stays_for_the_game() {
-    let (mut run, mut snap) = quick_menu();
-    run.step(&snap, &TO_FORCE_60);
-    snap.settings.rows.retain(|r| r.key != REFRESH);
-    run.step(&snap, &[Back]);
+fn a_change_whose_row_allows_no_wider_level_stays_for_the_game() {
+    let (mut run, first, mut video) = video_menu(None);
+    if let Some(row) = video.settings.rows.iter_mut().find(|r| r.key == REFRESH) {
+        row.scopes = crate::snapshot::Scopes {
+            game: true,
+            ..crate::snapshot::Scopes::NONE
+        };
+    }
+    run.step(&video, &TO_FORCE_60);
+    run.step(&with_force_60(&video), &[Back]);
+    run.step(&first, &[Back]);
     assert_eq!(run.screen(), "quick-menu/keep");
-    run.step(&snap, &[Right, Accept]);
+    run.step(&first, &[Right, Accept]);
     assert_eq!(run.intents(), [Intent::Resume]);
+}
+
+#[test]
+fn the_options_of_a_sub_page_wait_for_it_and_their_change_can_move() {
+    let (mut run, first, video) = video_menu(None);
+    run.step(&video, &[Down, Accept]);
+    // The page went out of the snapshot before the choice.
+    run.step(&first, &[Down, Down, Down, Accept]);
+    assert_eq!(run.intents(), [Intent::LoadSettings { page: VIDEO_PAGE }]);
+    run.step(&video, &[Down, Down, Down, Accept]);
+    assert_eq!(run.intents(), [force_60(Level::Game)]);
+    run.step(&with_force_60(&video), &[Back]);
+    run.step(&first, &[Back]);
+    run.step(&first, &[Right, Right, Accept]);
+    assert_eq!(
+        run.intents(),
+        [
+            force_60(Level::Global),
+            Intent::ResetValue {
+                key: REFRESH,
+                level: Level::Game
+            },
+            Intent::Resume
+        ],
+        "the scopes come from the page of the change"
+    );
 }
 
 #[test]
@@ -1509,21 +1622,35 @@ fn video_rows(run: &Run) -> Vec<(&str, Option<&str>)> {
     run.frame
         .tree
         .rows()
-        .filter(|r| r.label.starts_with("video/") || r.label == "Video")
+        // A row of the quick menu and the title band can say "Video" too.
+        .filter(|r| {
+            r.label.starts_with("video/")
+                || (r.label == "Video"
+                    && r.widget == crate::WidgetKind::Label
+                    && r.rect.y > crate::theme::SAFE_AREA.y)
+        })
         .map(|r| (r.label, r.value))
         .collect()
 }
 
 #[test]
-fn the_quick_menu_shows_the_video_block_only_with_a_status() {
-    let (run, _) = quick_menu();
+fn the_video_page_shows_the_video_block_only_with_a_status() {
+    let (run, _) = {
+        let mut run = Run::new();
+        let snap = in_game_with(exact_status());
+        run.step(&snap, &[]);
+        run.step(&snap, &[Menu]);
+        (run, snap)
+    };
+    assert_eq!(run.screen(), "quick-menu");
+    assert!(
+        video_rows(&run).is_empty(),
+        "the block is on the video page"
+    );
+    let (run, _, _) = video_menu(None);
     assert!(video_rows(&run).is_empty());
 
-    let mut run = Run::new();
-    let snap = in_game_with(exact_status());
-    run.step(&snap, &[]);
-    run.step(&snap, &[Menu]);
-    assert_eq!(run.screen(), "quick-menu");
+    let (run, _, _) = video_menu(Some(exact_status()));
     assert_eq!(
         video_rows(&run),
         [
@@ -1539,10 +1666,7 @@ fn the_quick_menu_shows_the_video_block_only_with_a_status() {
 #[test]
 fn the_fixture_columns_fit_the_value_column() {
     for status in [exact_status(), filtered_status(), long_status()] {
-        let mut run = Run::new();
-        let snap = in_game_with(status.clone());
-        run.step(&snap, &[]);
-        run.step(&snap, &[Menu]);
+        let (run, _, _) = video_menu(Some(status.clone()));
         let clipped: Vec<_> = run
             .frame
             .tree
@@ -1562,16 +1686,13 @@ fn the_video_block_takes_no_focus_and_changes_no_navigation() {
         &[Down, Down, Down, Down, Down, Down],
         &[Down, Up, Up, Accept],
         &TO_FORCE_60,
-        &[Down, Down, Down, Down, Accept, Up, Accept, Back],
+        &[Down, Accept, Up, Accept, Back],
         &[Left, Right, Menu, Back],
     ];
     for path in paths {
-        let (mut plain, snap) = quick_menu();
-        let mut run = Run::new();
-        let with = in_game_with(long_status());
-        run.step(&with, &[]);
-        run.step(&with, &[Menu]);
-        assert_eq!(run.focused(), Some("Resume"));
+        let (mut plain, _, snap) = video_menu(None);
+        let (mut run, _, with) = video_menu(Some(long_status()));
+        assert_eq!(run.focused(), Some("Picture style"));
         for &action in path.iter().chain(&[Back, Accept, Back]) {
             plain.step(&snap, &[action]);
             run.step(&with, &[action]);
@@ -1585,17 +1706,17 @@ fn the_video_block_takes_no_focus_and_changes_no_navigation() {
 
 #[test]
 fn a_status_that_comes_or_goes_keeps_the_cursor() {
-    let (mut run, mut snap) = quick_menu();
-    run.step(&snap, &[Down, Down]);
+    let (mut run, _, mut snap) = video_menu(None);
+    run.step(&snap, &[Down]);
     assert_eq!(run.focused(), Some("Refresh"));
     snap.video = Some(filtered_status());
     run.step(&snap, &[]);
     assert_eq!(run.focused(), Some("Refresh"));
     assert_eq!(video_rows(&run).len(), 4);
-    run.step(&snap, &[Down]);
+    run.step(&snap, &[Up]);
     snap.video = None;
     run.step(&snap, &[]);
-    assert_eq!(run.focused(), Some("Display"));
+    assert_eq!(run.focused(), Some("Picture style"));
     assert!(video_rows(&run).is_empty());
 }
 
@@ -1622,10 +1743,7 @@ fn long_video_text_is_cut_and_stays_in_its_line() {
     status.game = LONG.into();
     status.mode = LONG.into();
     status.result = format!("{LONG} {LONG}");
-    let mut run = Run::new();
-    let snap = in_game_with(status.clone());
-    run.step(&snap, &[]);
-    run.step(&snap, &[Menu]);
+    let (run, _, _) = video_menu(Some(status.clone()));
     let rows: Vec<_> = run
         .frame
         .tree
@@ -1661,7 +1779,7 @@ fn long_video_text_is_cut_and_stays_in_its_line() {
         .frame
         .tree
         .rows()
-        .find(|r| r.label == "Resume")
+        .find(|r| r.label == "Picture style")
         .map(|r| r.rect.y);
     assert!(menu_top.is_some_and(|top| i64::from(top) > rows[2].rect.bottom()));
 }
@@ -1674,10 +1792,7 @@ fn an_alert_result_has_the_warning_colour() {
         (exact_status(), theme.colors.text),
         (filtered_status(), theme.colors.warning),
     ] {
-        let mut run = Run::new();
-        let snap = in_game_with(status.clone());
-        run.step(&snap, &[]);
-        run.step(&snap, &[Menu]);
+        let (run, _, _) = video_menu(Some(status.clone()));
         let scene = &run.frame.scene;
         let drawn = scene.commands().iter().find_map(|c| match *c {
             crate::DrawCommand::Text { color, span, .. } if scene.text(span) == status.result => {
@@ -1696,7 +1811,7 @@ fn display_in_game(status: Option<VideoStatus>) -> (Run, Snapshot) {
     let mut snap = in_game();
     snap.video = status;
     run.step(&snap, &[]);
-    run.step(&snap, &[Menu, Down, Down, Down, Accept]);
+    run.step(&snap, &TO_GAME_DISPLAY);
     snap.settings = with_display().settings;
     run.step(&snap, &[]);
     assert_eq!(run.screen(), "display");
@@ -1814,14 +1929,27 @@ fn the_largest_skin_keeps_the_rows_in_their_box() {
                 .filter(|r| r.widget == crate::WidgetKind::SettingsList)
                 .count()
         };
-        let (block, visible) = if snap.video.is_some() { (4, 3) } else { (0, 5) };
-        assert_eq!(video_rows(&run).len(), block, "{what}");
-        assert_eq!(rows(&run), visible, "{what}");
+        assert!(video_rows(&run).is_empty(), "{what}");
+        assert_eq!(rows(&run), 5, "{what}");
         for step in 0..6 {
             assert_rows_in_their_box(&run, &theme, &format!("quick menu {what} {step}"));
             run.step(&snap, &[Down]);
         }
-        run.step(&snap, &[Up, Accept]);
+        let first = snap.clone();
+        run.step(&snap, &[Up, Up, Accept]);
+        snap.settings = video_page();
+        run.step(&snap, &[]);
+        assert_eq!(run.screen(), "quick-menu/video");
+        let block = if snap.video.is_some() { 4 } else { 0 };
+        assert_eq!(video_rows(&run).len(), block, "{what}");
+        assert_eq!(rows(&run), 2, "{what}");
+        for step in 0..3 {
+            assert_rows_in_their_box(&run, &theme, &format!("video page {what} {step}"));
+            run.step(&snap, &[Down]);
+        }
+        run.step(&snap, &[Back]);
+        snap = first;
+        run.step(&snap, &[Down, Accept, Accept]);
         snap.settings = with_display().settings;
         run.step(&snap, &[]);
         assert_eq!(run.screen(), "display");
@@ -1835,7 +1963,7 @@ fn the_largest_skin_keeps_the_rows_in_their_box() {
 }
 
 #[test]
-fn the_audio_panel_asks_for_its_page_and_returns_home() {
+fn the_audio_panel_asks_for_its_page_and_returns_to_settings() {
     let mut run = Run::new();
     let mut snap = with_audio();
     let page = core::mem::take(&mut snap.settings);
@@ -1852,8 +1980,11 @@ fn the_audio_panel_asks_for_its_page_and_returns_home() {
     );
     assert_eq!(run.focused(), Some("Volume"));
     run.step(&snap, &[Back]);
-    assert_eq!(run.screen(), "home");
+    assert_eq!(run.screen(), "settings");
     assert_eq!(run.focused(), Some("Audio"));
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "home");
+    assert_eq!(run.focused(), Some("Settings"));
 }
 
 #[test]
@@ -1919,12 +2050,11 @@ fn the_audio_output_applies_from_its_option_list_with_auto_first() {
 fn the_quick_menu_volume_writes_the_game_level_at_once() {
     let mut run = Run::new();
     let mut snap = in_game();
-    snap.settings.rows.insert(
-        3,
-        volume_row(60, Level::System, crate::snapshot::Scopes::ALL),
-    );
+    if let Some(volume) = snap.settings.rows.iter_mut().find(|r| r.key == VOLUME) {
+        *volume = volume_row(60, Level::System, crate::snapshot::Scopes::ALL);
+    }
     run.step(&snap, &[]);
-    run.step(&snap, &[Menu, Down, Down, Down]);
+    run.step(&snap, &[Menu, Down]);
     assert_eq!(run.focused(), Some("Volume"));
     run.step(&snap, &[Left]);
     assert_eq!(
@@ -1935,4 +2065,67 @@ fn the_quick_menu_volume_writes_the_game_level_at_once() {
             value: Value::Number(55),
         }]
     );
+}
+
+#[test]
+fn back_closes_one_level_and_gives_the_focus_back_to_its_row() {
+    let mut run = Run::new();
+    let snap = with_audio();
+    run.step(&snap, &TO_AUDIO);
+    run.step(&snap, &[Down, Accept]);
+    assert_eq!(run.screen(), "options");
+    assert_eq!(run.focused(), Some("HDMI/DP 1 (HDA Intel PCH)"));
+    run.step(&snap, &[Back]);
+    assert_eq!(
+        (run.screen(), run.focused()),
+        ("audio", Some("Audio output"))
+    );
+    run.step(&snap, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("Audio")));
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "home");
+    assert_eq!(run.focused(), Some("Settings"));
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "home", "back on home does nothing");
+
+    // In a game: the quick menu, Settings, the display panel, its options.
+    let (mut run, first) = quick_menu();
+    let mut display = first.clone();
+    display.settings = with_display().settings;
+    run.step(&first, &[Down, Down, Down, Accept, Accept]);
+    run.step(&display, &[Down, Down, Accept]);
+    assert_eq!(run.screen(), "options");
+    run.step(&display, &[Back]);
+    assert_eq!(
+        (run.screen(), run.focused()),
+        ("display", Some("Picture style"))
+    );
+    run.step(&display, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("Display")));
+    run.step(&display, &[Back]);
+    run.step(&first, &[]);
+    assert_eq!(
+        (run.screen(), run.focused()),
+        ("quick-menu", Some("Settings"))
+    );
+}
+
+#[test]
+fn a_page_that_is_not_loaded_takes_only_back() {
+    let (mut run, first, video) = video_menu(None);
+    run.step(&video, &[Down]);
+    run.step(&video, &[Back]);
+    // The first page is not in the snapshot yet.
+    run.step(&video, &[Up, Up, Down, Accept]);
+    assert_eq!(run.screen(), "quick-menu");
+    assert_eq!(
+        run.intents(),
+        [Intent::LoadSettings {
+            page: QUICK_MENU_PAGE
+        }]
+    );
+    run.step(&first, &[]);
+    assert_eq!(run.focused(), Some("Video"), "the cursor did not move");
+    run.step(&video, &[Back]);
+    assert_eq!(run.intents(), [Intent::Resume], "back still works");
 }

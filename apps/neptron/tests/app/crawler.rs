@@ -107,11 +107,13 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
     for screen in [
         "home",
         "games",
+        "settings",
         "display",
         "audio",
         "options",
         "pattern/grid",
         "quick-menu",
+        "quick-menu/video",
     ] {
         assert!(
             found.screens.contains(screen),

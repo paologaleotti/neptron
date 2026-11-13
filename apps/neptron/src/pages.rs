@@ -9,7 +9,8 @@ use neptron_settings::{
 };
 use neptron_ui::Value as UiValue;
 use neptron_ui::screens::{
-    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME, SETTINGS_PAGE,
+    VIDEO_PAGE,
 };
 use neptron_ui::snapshot::{
     ActionId, ChoiceOption, Level as UiLevel, MenuItem, PageId, Scopes, SettingKey, SettingValue,
@@ -43,9 +44,8 @@ pub const RESCAN_IN_GAME: &str = "Not during a game";
 /// panel that the run drives. It fits the value and source columns of a row.
 pub const NOT_USED_ON_A_PANEL: &str = "Not used on a flat panel";
 
-/// The rows of the display panel, written at the global level. The
-/// display panel is the one settings page that home reaches, so it also
-/// holds the global settings that are not about the picture.
+/// The rows of the display panel, written at the global level. It also
+/// holds the global settings that are not about the picture or the sound.
 pub const DISPLAY_KEYS: [&str; 7] = [
     DISPLAY_OUTPUT,
     DISPLAY_MONITOR,
@@ -59,13 +59,16 @@ pub const DISPLAY_KEYS: [&str; 7] = [
 /// The rows of the audio panel, written at the global level.
 pub const AUDIO_KEYS: [&str; 2] = [AUDIO_VOLUME, AUDIO_OUTPUT];
 
-/// The settings rows of the quick menu, written at the game level.
-pub const QUICK_MENU_KEYS: [&str; 5] = [
+/// The settings rows of the first page of the quick menu, written at the
+/// game level.
+pub const QUICK_MENU_KEYS: [&str; 1] = [AUDIO_VOLUME];
+
+/// The rows of the video page of the quick menu, written at the game level.
+pub const VIDEO_KEYS: [&str; 4] = [
     DISPLAY_STYLE,
     DISPLAY_REFRESH_POLICY,
     DISPLAY_SCANLINES,
     DISPLAY_SCANLINE_STRENGTH,
-    AUDIO_VOLUME,
 ];
 
 /// The detail of the `auto` option of the audio output.
@@ -132,7 +135,8 @@ pub fn audio_page(config: &Config, names: Names<'_>) -> SettingsPage {
     SettingsPage::new(AUDIO_PAGE, "Audio", rows)
 }
 
-/// The rows of the quick menu.
+/// The rows of the first page of the quick menu: resume, the volume of the
+/// game, the video page, the Settings page and quit.
 pub fn quick_menu_page(config: &Config, names: Names<'_>) -> SettingsPage {
     let mut rows = vec![action(1, "Resume", RESUME)];
     rows.extend(
@@ -140,7 +144,8 @@ pub fn quick_menu_page(config: &Config, names: Names<'_>) -> SettingsPage {
             .iter()
             .filter_map(|key| row(config, names, key, View::Game)),
     );
-    rows.push(page_row(2, "Display", DISPLAY_PAGE));
+    rows.push(page_row(2, "Video", VIDEO_PAGE));
+    rows.push(page_row(5, "Settings", SETTINGS_PAGE));
     rows.push(action(3, "Quit game", QUIT_GAME));
     SettingsPage::new(QUICK_MENU_PAGE, "Quick menu", rows)
 }
@@ -153,6 +158,16 @@ pub fn rescan_row(scanning: bool, in_game: bool) -> MenuItem {
         (true, false) => action(4, SCANNING_LABEL, RESCAN_GAMES).unavailable(SCANNING_LABEL),
         (false, false) => action(4, RESCAN_LABEL, RESCAN_GAMES),
     }
+}
+
+/// The rows of the video page of the quick menu: the display settings of
+/// the game.
+pub fn video_page(config: &Config, names: Names<'_>) -> SettingsPage {
+    let rows = VIDEO_KEYS
+        .iter()
+        .filter_map(|key| row(config, names, key, View::Game))
+        .collect();
+    SettingsPage::new(VIDEO_PAGE, "Video", rows)
 }
 
 /// The schema entry of a row key.
@@ -618,7 +633,7 @@ mod tests {
             class: DisplayClass::Crt,
             outputs: &[],
         };
-        let page = quick_menu_page(&config, names);
+        let page = video_page(&config, names);
         let style = page
             .rows
             .iter()
@@ -688,6 +703,7 @@ mod tests {
             for page in [
                 display_page(&config, names),
                 quick_menu_page(&config, names),
+                video_page(&config, names),
             ] {
                 for row in page.rows.iter().filter(|r| r.key.0 < ACTION_KEY_BASE) {
                     let entry = entry(&config, row.key).expect("a setting");
@@ -704,7 +720,7 @@ mod tests {
             class: DisplayClass::FlatPanel,
             outputs: &[],
         };
-        let page = quick_menu_page(&config, names);
+        let page = video_page(&config, names);
         let disabled: Vec<_> = page
             .rows
             .iter()
@@ -727,8 +743,26 @@ mod tests {
             outputs: &[],
         };
         let page = quick_menu_page(&config, names);
-        assert_eq!(page.rows.len(), QUICK_MENU_KEYS.len() + 3);
-        assert_eq!(page.rows[0].value, SettingValue::Action(RESUME));
-        assert!(page.rows[1].scopes.game);
+        let rows: Vec<_> = page
+            .rows
+            .iter()
+            .map(|r| (r.label.as_str(), &r.value))
+            .collect();
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows[0], ("Resume", &SettingValue::Action(RESUME)));
+        assert_eq!(rows[1].0, "Volume");
+        assert!(page.rows[1].scopes.game, "the volume of the game");
+        assert_eq!(rows[2], ("Video", &SettingValue::Page(VIDEO_PAGE)));
+        assert_eq!(rows[3], ("Settings", &SettingValue::Page(SETTINGS_PAGE)));
+        assert_eq!(rows[4], ("Quit game", &SettingValue::Action(QUIT_GAME)));
+        let keys: Vec<_> = page.rows.iter().map(|r| r.key).collect();
+        let mut unique = keys.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), keys.len(), "one key per row");
+        let video = video_page(&config, names);
+        assert!(video.is_for(VIDEO_PAGE));
+        assert_eq!(video.rows.len(), VIDEO_KEYS.len());
+        assert!(video.rows.iter().all(|r| r.scopes.game));
     }
 }

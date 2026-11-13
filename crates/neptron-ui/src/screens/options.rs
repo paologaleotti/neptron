@@ -14,6 +14,7 @@ use crate::tree::{RowKind, TreeRow, WidgetKind};
 use crate::widgets::{List, ListEvent, ListItem};
 
 use super::chrome::{self, Layout};
+use super::page::Crumb;
 use super::router::Nav;
 
 /// Lines of the box under the list that shows the detail or the reason of
@@ -30,6 +31,7 @@ const MARK_COLUMN_PX: u32 = 8;
 const MARK_PX: u32 = 4;
 
 pub(super) struct Options {
+    label: Crumb,
     page: PageId,
     key: SettingKey,
     level: Level,
@@ -42,10 +44,13 @@ pub(super) struct Options {
 }
 
 impl Options {
+    /// The options of the row `key` of `page`, whose label is `label`,
+    /// written at `level`.
     pub(super) fn new(
         page: PageId,
         key: SettingKey,
         level: Level,
+        label: Crumb,
         layout: &Layout,
         theme: &Theme,
     ) -> Self {
@@ -65,6 +70,7 @@ impl Options {
             rows.h,
         );
         Self {
+            label,
             page,
             key,
             level,
@@ -124,8 +130,14 @@ impl Options {
 
     pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, frame: &mut UiFrame) {
         let choice = self.choice(snap);
-        let title = choice.map_or("Options", |(item, _, _)| item.label.as_str());
-        chrome::frame(frame, theme, title, "", "Accept: use", "Back: cancel");
+        chrome::frame(
+            frame,
+            theme,
+            self.label.as_str(),
+            "",
+            "Accept: use",
+            "Back: cancel",
+        );
         chrome::boxed(frame, theme, self.list_box);
         chrome::boxed(frame, theme, self.help_box);
         let Some((_, index, options)) = choice else {

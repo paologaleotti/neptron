@@ -7,18 +7,21 @@ use crate::intent::Intent;
 use crate::snapshot::{GameSource, Level, PageId, SettingKey, Snapshot};
 use crate::theme::Theme;
 
-use super::audio::AudioPanel;
 use super::chrome::{self, Layout};
 use super::display::DisplayPanel;
 use super::game_list::GameList;
 use super::home::Home;
 use super::options::Options;
 use super::overlays::{Confirm, Notices};
+use super::page::Crumb;
+use super::panel::PagePanel;
 use super::pattern;
 use super::quick_menu::QuickMenu;
+use super::settings::SettingsMenu;
+use super::{DISPLAY_PAGE, GRID_PAGE, SETTINGS_PAGE};
 
 /// The deepest screen stack. The longest path is home, game list, game,
-/// quick menu, display panel, option list: six screens.
+/// quick menu, Settings, display panel, option list: seven screens.
 pub const MAX_DEPTH: usize = 8;
 
 /// The screens and their state. The app makes one at launch, keeps it, and
@@ -50,23 +53,29 @@ pub(super) enum Nav {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Target {
     Games(GameSource),
-    Display,
-    Audio,
     QuickMenu,
-    /// The options of a choice row of a page, written at a level.
+    /// A page, opened from the row `label`, that writes at `level`. A
+    /// reserved page id opens the screen of the UI with that id.
+    Page {
+        page: PageId,
+        level: Level,
+        label: Crumb,
+    },
+    /// The options of the choice row `label` of a page, written at a level.
     Options {
         page: PageId,
         key: SettingKey,
         level: Level,
+        label: Crumb,
     },
-    Grid,
 }
 
 pub(super) enum Screen {
     Home(Home),
     Games(GameList),
+    Settings(SettingsMenu),
     Display(DisplayPanel),
-    Audio(AudioPanel),
+    Page(PagePanel),
     Options(Options),
     /// Boxed: its list of changes makes it much larger than the others.
     QuickMenu(Box<QuickMenu>),
@@ -142,8 +151,8 @@ impl Screens {
         match self.stack.last_mut() {
             Some(Screen::Games(list)) => list.sync(snap),
             Some(Screen::Options(options)) => options.sync(snap),
-            Some(Screen::QuickMenu(menu)) => menu.sync(snap, &self.theme),
             Some(Screen::Display(panel)) => panel.sync(snap, &self.theme),
+            Some(Screen::Page(panel)) => panel.sync(snap, &self.theme),
             _ => {}
         }
         self.confirm.follow(snap.confirm.as_ref());
@@ -168,8 +177,9 @@ impl Screens {
         let nav = match self.stack.last_mut() {
             Some(Screen::Home(home)) => home.handle(action, snap),
             Some(Screen::Games(list)) => list.handle(action, snap, out),
+            Some(Screen::Settings(menu)) => menu.handle(action),
             Some(Screen::Display(panel)) => panel.handle(action, snap, out),
-            Some(Screen::Audio(panel)) => panel.handle(action, snap, out),
+            Some(Screen::Page(panel)) => panel.handle(action, snap, out),
             Some(Screen::Options(options)) => options.handle(action, snap, out),
             Some(Screen::QuickMenu(menu)) => menu.handle(action, snap, out),
             Some(Screen::Grid) => pattern::handle(action),
@@ -178,17 +188,33 @@ impl Screens {
         };
         if let Some(menu) = self.quick_menu() {
             for intent in out.get(first_new..).unwrap_or(&[]) {
-                menu.record(intent);
+                menu.record(intent, snap);
             }
         }
         match nav {
             Nav::Stay => {}
-            Nav::Back => {
-                if self.stack.len() > 1 {
-                    self.stack.pop();
-                }
-            }
+            Nav::Back => self.back(snap),
             Nav::Open(target) => self.open(target),
+        }
+    }
+
+    /// Closes the screen on top. The screen under it keeps its cursor, so
+    /// the focus is on the row that opened the closed screen.
+    ///
+    /// A settings page closes only on back, in a frame of its own, so the
+    /// snapshot still holds its rows: the quick menu under it forgets the
+    /// changes on that page that the app took back.
+    fn back(&mut self, snap: &Snapshot) {
+        if self.stack.len() <= 1 {
+            return;
+        }
+        let page = matches!(
+            self.stack.last(),
+            Some(Screen::Page(_) | Screen::Display(_))
+        );
+        self.stack.pop();
+        if page && let Some(menu) = self.quick_menu() {
+            menu.forget_taken_back(snap);
         }
     }
 
@@ -199,13 +225,29 @@ impl Screens {
         let (layout, theme) = (&self.layout, &self.theme);
         let screen = match target {
             Target::Games(source) => Screen::Games(GameList::new(source, layout, theme)),
-            Target::Display => Screen::Display(DisplayPanel::new(layout, theme)),
-            Target::Audio => Screen::Audio(AudioPanel::new(layout, theme)),
             Target::QuickMenu => Screen::QuickMenu(Box::new(QuickMenu::new(layout, theme))),
-            Target::Options { page, key, level } => {
-                Screen::Options(Options::new(page, key, level, layout, theme))
+            Target::Page {
+                page: GRID_PAGE, ..
+            } => Screen::Grid,
+            Target::Page {
+                page: SETTINGS_PAGE,
+                label,
+                ..
+            } => Screen::Settings(SettingsMenu::new(label, layout, theme)),
+            Target::Page {
+                page: DISPLAY_PAGE,
+                label,
+                ..
+            } => Screen::Display(DisplayPanel::new(label, layout, theme)),
+            Target::Page { page, level, label } => {
+                Screen::Page(PagePanel::new(page, level, label, layout, theme))
             }
-            Target::Grid => Screen::Grid,
+            Target::Options {
+                page,
+                key,
+                level,
+                label,
+            } => Screen::Options(Options::new(page, key, level, label, layout, theme)),
         };
         self.stack.push(screen);
     }
@@ -214,10 +256,10 @@ impl Screens {
         match self.stack.last()? {
             Screen::Games(list) => list.request(snap),
             Screen::Display(panel) => panel.request(snap),
-            Screen::Audio(panel) => panel.request(snap),
+            Screen::Page(panel) => panel.request(snap),
             Screen::Options(options) => options.request(snap),
             Screen::QuickMenu(menu) => menu.request(snap),
-            Screen::Home(_) | Screen::Grid | Screen::Game => None,
+            Screen::Home(_) | Screen::Settings(_) | Screen::Grid | Screen::Game => None,
         }
     }
 
@@ -232,12 +274,16 @@ impl Screens {
                 out.tree.set_screen("games");
                 list.draw(snap, theme, layout, out);
             }
+            Some(Screen::Settings(menu)) => {
+                out.tree.set_screen("settings");
+                menu.draw(theme, out);
+            }
             Some(Screen::Display(panel)) => {
                 out.tree.set_screen("display");
                 panel.draw(snap, theme, out);
             }
-            Some(Screen::Audio(panel)) => {
-                out.tree.set_screen("audio");
+            Some(Screen::Page(panel)) => {
+                out.tree.set_screen(panel.screen_id());
                 panel.draw(snap, theme, out);
             }
             Some(Screen::Options(options)) => {

@@ -94,6 +94,8 @@ fn a_rescan_shows_a_new_game_and_keeps_the_focus() {
 #[ignore = "tier 2"]
 fn the_rescan_row_of_the_display_panel_finds_a_new_game() {
     let mut rig = list_with_two_games(&fresh("rescan-row"));
+    rig.focus("Settings");
+    rig.tap(&[Control::A]);
     rig.focus("Display");
     rig.tap(&[Control::A]);
     assert_eq!(rig.screen(), "display");

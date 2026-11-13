@@ -98,6 +98,9 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             );
 
             // The picture styles show what they give on this monitor.
+            rig.focus("Video");
+            rig.tap(&[Control::A]);
+            assert_eq!(rig.screen(), "quick-menu/video");
             let style = rig
                 .shell()
                 .snapshot()
@@ -137,7 +140,7 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             // The same change kept reaches the game's settings file.
             assert_eq!(rig.screen(), "notice");
             rig.tap(&[Control::A]);
-            assert_eq!(rig.screen(), "quick-menu");
+            assert_eq!(rig.screen(), "quick-menu/video");
             rig.focus("Picture style");
             rig.tap(&[Control::A]);
             rig.focus("native");
@@ -147,6 +150,9 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             assert_eq!(rig.shell().config().text("display.style"), "native");
 
             // Quit: the quick menu asks where to keep the change.
+            rig.tap(&[Control::B]);
+            assert_eq!(rig.screen(), "quick-menu");
+            assert_eq!(rig.focused().as_deref(), Some("Video"));
             rig.focus("Quit game");
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "quick-menu/keep");

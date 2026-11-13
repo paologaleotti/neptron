@@ -1,16 +1,36 @@
 //! A settings page of the app in a framed box: the rows of the display
-//! panel and of the quick menu.
+//! panel, of the quick menu and of every other page.
+
+use core::fmt::Write;
 
 use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
 use crate::snapshot::{ActionId, Level, MenuItem, PageId, SettingKey, SettingValue, Snapshot};
+use crate::text::StackText;
 use crate::theme::Theme;
 use crate::widgets::{SettingsEvent, SettingsList};
 
 use super::RESERVED_ID_MIN;
 use super::chrome;
+use super::router::{Nav, Target};
+
+/// The longest part of a breadcrumb that a screen keeps, in bytes. A row
+/// label is shorter: the label column holds 19 characters.
+const CRUMB_BYTES: usize = 64;
+
+/// The label of the row that opened a screen: its part of the breadcrumb.
+/// It lives on the stack, so opening a screen allocates nothing for it.
+pub(super) type Crumb = StackText<CRUMB_BYTES>;
+
+/// `text` as a [`Crumb`], cut at a character boundary when it is longer.
+pub(super) fn crumb(text: &str) -> Crumb {
+    let mut crumb = Crumb::new();
+    // `StackText` never fails; it drops what does not fit.
+    let _ = crumb.write_str(text);
+    crumb
+}
 
 /// What one action did to a [`Page`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,12 +39,12 @@ pub(super) enum PageEvent {
     Back,
     /// A change or an action of the app.
     Intent(Intent),
-    /// The player wants to see the options of this choice.
-    Pick(SettingKey),
+    /// The player wants to see the options of this choice row.
+    Pick(SettingKey, Crumb),
     /// A menu action that the UI carries out itself.
     Reserved(ActionId),
-    /// The player wants to see this page.
-    Open(PageId),
+    /// The player wants to see this page, from the row with this label.
+    Open(PageId, Crumb),
 }
 
 pub(super) struct Page {
@@ -61,10 +81,6 @@ impl Page {
         self.id
     }
 
-    pub(super) fn level(&self) -> Level {
-        self.level
-    }
-
     /// The rows of the page, or none while the snapshot holds a different
     /// page.
     pub(super) fn rows<'a>(&self, snap: &'a Snapshot) -> &'a [MenuItem] {
@@ -95,14 +111,42 @@ impl Page {
                 PageEvent::Reserved(id)
             }
             SettingsEvent::Intent(intent) => PageEvent::Intent(intent),
-            SettingsEvent::Pick(i) => rows
-                .get(i)
-                .map_or(PageEvent::Stay, |row| PageEvent::Pick(row.key)),
-            SettingsEvent::Open(i) => match rows.get(i).map(|row| &row.value) {
-                Some(SettingValue::Page(page)) => PageEvent::Open(*page),
-                _ => PageEvent::Stay,
+            SettingsEvent::Pick(i) => rows.get(i).map_or(PageEvent::Stay, |row| {
+                PageEvent::Pick(row.key, crumb(&row.label))
+            }),
+            SettingsEvent::Open(i) => match rows.get(i) {
+                Some(row) => match row.value {
+                    SettingValue::Page(page) => PageEvent::Open(page, crumb(&row.label)),
+                    _ => PageEvent::Stay,
+                },
+                None => PageEvent::Stay,
             },
             SettingsEvent::None | SettingsEvent::Moved => PageEvent::Stay,
+        }
+    }
+
+    /// Where `event` takes the player: back, a change of the app in `out`,
+    /// the options of a row or a page at the level of this page. A
+    /// reserved action is for the screen to carry out, and stays here.
+    pub(super) fn nav(&self, event: PageEvent, out: &mut Vec<Intent>) -> Nav {
+        match event {
+            PageEvent::Back => Nav::Back,
+            PageEvent::Intent(intent) => {
+                out.push(intent);
+                Nav::Stay
+            }
+            PageEvent::Pick(key, label) => Nav::Open(Target::Options {
+                page: self.id,
+                key,
+                level: self.level,
+                label,
+            }),
+            PageEvent::Open(page, label) => Nav::Open(Target::Page {
+                page,
+                level: self.level,
+                label,
+            }),
+            PageEvent::Reserved(_) | PageEvent::Stay => Nav::Stay,
         }
     }
 

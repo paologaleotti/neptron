@@ -14,7 +14,10 @@ use crate::theme::Theme;
 
 use super::game_list::WINDOW_ROWS;
 use super::router::Screen;
-use super::{AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME, Screens};
+use super::{
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME, SETTINGS_PAGE,
+    Screens, VIDEO_PAGE,
+};
 
 pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
@@ -24,6 +27,10 @@ pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
         name: "screens/home-empty",
         build: home_empty,
+    },
+    SceneDef {
+        name: "screens/settings",
+        build: settings,
     },
     SceneDef {
         name: "screens/games-top",
@@ -123,8 +130,8 @@ pub(super) const REFRESH: SettingKey = SettingKey(4);
 pub(super) const VOLUME: SettingKey = SettingKey(6);
 pub(super) const AUDIO_OUTPUT: SettingKey = SettingKey(7);
 
-/// The path from home to the display panel with the fixture systems.
-pub(super) const TO_DISPLAY: [UiAction; 6] = [
+/// The path from home to the Settings page with the fixture systems.
+pub(super) const TO_SETTINGS: [UiAction; 6] = [
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
@@ -133,14 +140,45 @@ pub(super) const TO_DISPLAY: [UiAction; 6] = [
     UiAction::Accept,
 ];
 
+/// The path from home to the display panel with the fixture systems.
+pub(super) const TO_DISPLAY: [UiAction; 7] = [
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+    UiAction::Accept,
+];
+
 /// The path from home to the audio panel with the fixture systems.
-pub(super) const TO_AUDIO: [UiAction; 7] = [
+pub(super) const TO_AUDIO: [UiAction; 8] = [
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
+    UiAction::Accept,
     UiAction::Down,
+    UiAction::Accept,
+];
+
+/// The path from a running game to the video page of the quick menu.
+pub(super) const TO_VIDEO: [UiAction; 4] = [
+    UiAction::Menu,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+];
+
+/// The path from a running game to the display panel, through the
+/// Settings page of the quick menu.
+pub(super) const TO_GAME_DISPLAY: [UiAction; 6] = [
+    UiAction::Menu,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
     UiAction::Accept,
 ];
 
@@ -219,6 +257,14 @@ fn home(frame: &mut UiFrame, theme: &Theme) {
 fn home_empty(frame: &mut UiFrame, theme: &Theme) {
     let mut screens = Screens::new(theme.clone());
     screens.update(&Snapshot::default(), &[], frame);
+}
+
+/// The Settings page, with the focus on the audio panel.
+fn settings(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_systems();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_SETTINGS, frame);
+    screens.update(&snap, &[UiAction::Down], frame);
 }
 
 /// The game list of `system` at `cursor`, with the window the screen asks
@@ -441,26 +487,42 @@ fn notice_over_list(frame: &mut UiFrame, theme: &Theme, text: &str, kind: Notice
     screens.update(&snap, &[], frame);
 }
 
-/// The rows of the quick menu page: the display settings of the game, and
-/// the rows the UI carries out itself.
+/// The row of the fixture quick menu that opens the video page.
+pub(super) const VIDEO_ROW: SettingKey = SettingKey(13);
+/// The row of the fixture quick menu that opens the Settings page.
+pub(super) const SETTINGS_ROW: SettingKey = SettingKey(14);
+
+/// The rows of the first page of the quick menu: resume, the volume of the
+/// game, the video page, the Settings page and quit.
 pub(super) fn quick_rows() -> Vec<MenuItem> {
+    let action = |key, label, id| MenuItem::new(SettingKey(key), label, SettingValue::Action(id));
+    let page = |key, label, id| MenuItem::new(key, label, SettingValue::Page(id));
+    vec![
+        action(10, "Resume", RESUME),
+        volume_row(80, Level::Default, Scopes::ALL),
+        page(VIDEO_ROW, "Video", VIDEO_PAGE),
+        page(SETTINGS_ROW, "Settings", SETTINGS_PAGE),
+        action(12, "Quit game", QUIT_GAME),
+    ]
+}
+
+/// The rows of the video page of the quick menu: the display settings of
+/// the game, with the picture style set for its system.
+pub(super) fn video_rows() -> Vec<MenuItem> {
     let mut rows = display_rows(Scopes::ALL);
     rows.retain(|r| r.key == STYLE || r.key == REFRESH);
     if let Some(style) = rows.iter_mut().find(|r| r.key == STYLE) {
         style.source = Level::System;
     }
-    let action = |key, label, id| MenuItem::new(SettingKey(key), label, SettingValue::Action(id));
-    rows.insert(0, action(10, "Resume", RESUME));
-    rows.push(MenuItem::new(
-        SettingKey(11),
-        "Display",
-        SettingValue::Page(DISPLAY_PAGE),
-    ));
-    rows.push(action(12, "Quit game", QUIT_GAME));
     rows
 }
 
-/// A snapshot of a running game with the quick menu page.
+/// The video page of the quick menu.
+pub(super) fn video_page() -> SettingsPage {
+    SettingsPage::new(VIDEO_PAGE, "Video", video_rows())
+}
+
+/// A snapshot of a running game with the first page of the quick menu.
 pub(super) fn in_game() -> Snapshot {
     let mut snap = with_display();
     snap.session = Some(SessionInfo::new(GameId(1), "Astro Racer"));
@@ -468,34 +530,48 @@ pub(super) fn in_game() -> Snapshot {
     snap
 }
 
+/// The first page of the quick menu, with the focus on the video page.
 fn quick_menu(frame: &mut UiFrame, theme: &Theme) {
     let snap = in_game();
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &[], frame);
-    screens.update(&snap, &[UiAction::Menu, UiAction::Down], frame);
+    screens.update(
+        &snap,
+        &[UiAction::Menu, UiAction::Down, UiAction::Down],
+        frame,
+    );
 }
 
-/// The quick menu on a flat panel: the picture style and the refresh
-/// policy have no effect there, so both rows are disabled with the reason.
+/// The video page of the quick menu, opened over the game of `snap`. The
+/// scene then puts the rows of the video page in `snap`, as the app does.
+fn video_page_of(frame: &mut UiFrame, theme: &Theme, snap: &mut Snapshot) -> Screens {
+    let mut screens = Screens::new(theme.clone());
+    screens.update(snap, &[], frame);
+    screens.update(snap, &TO_VIDEO, frame);
+    snap.settings = video_page();
+    screens.update(snap, &[], frame);
+    screens
+}
+
+/// The video page of the quick menu on a flat panel: the picture style and
+/// the refresh policy have no effect there, so both rows are disabled with
+/// the reason.
 fn quick_menu_panel(frame: &mut UiFrame, theme: &Theme) {
     let mut snap = in_game();
+    let mut screens = video_page_of(frame, theme, &mut snap);
     for row in &mut snap.settings.rows {
         if row.key == STYLE || row.key == REFRESH {
             *row = row.clone().unavailable("Not used on a flat panel");
         }
     }
-    let mut screens = Screens::new(theme.clone());
-    screens.update(&snap, &[], frame);
-    screens.update(&snap, &[UiAction::Menu, UiAction::Down], frame);
+    screens.update(&snap, &[UiAction::Down], frame);
 }
 
+/// The keep prompt after a change of the refresh policy on the video page.
 fn quick_menu_keep(frame: &mut UiFrame, theme: &Theme) {
     let mut snap = in_game();
-    let mut screens = Screens::new(theme.clone());
-    screens.update(&snap, &[], frame);
+    let mut screens = video_page_of(frame, theme, &mut snap);
     let force_60 = [
-        UiAction::Menu,
-        UiAction::Down,
         UiAction::Down,
         UiAction::Accept,
         UiAction::Down,
@@ -514,6 +590,8 @@ fn quick_menu_keep(frame: &mut UiFrame, theme: &Theme) {
         };
         refresh.source = Level::Game;
     }
+    screens.update(&snap, &[UiAction::Back], frame);
+    snap.settings = in_game().settings;
     screens.update(&snap, &[UiAction::Back], frame);
 }
 
@@ -565,11 +643,10 @@ pub(super) fn in_game_with(status: VideoStatus) -> Snapshot {
     snap
 }
 
+/// The video page of the quick menu with the video block of `status`.
 fn quick_menu_with(frame: &mut UiFrame, theme: &Theme, status: VideoStatus) {
-    let snap = in_game_with(status);
-    let mut screens = Screens::new(theme.clone());
-    screens.update(&snap, &[], frame);
-    screens.update(&snap, &[UiAction::Menu], frame);
+    let mut snap = in_game_with(status);
+    video_page_of(frame, theme, &mut snap);
 }
 
 fn quick_menu_video(frame: &mut UiFrame, theme: &Theme) {
@@ -590,14 +667,7 @@ fn display_video(frame: &mut UiFrame, theme: &Theme) {
     let mut snap = in_game_with(slowed_status());
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &[], frame);
-    let to_display = [
-        UiAction::Menu,
-        UiAction::Down,
-        UiAction::Down,
-        UiAction::Down,
-        UiAction::Accept,
-    ];
-    screens.update(&snap, &to_display, frame);
+    screens.update(&snap, &TO_GAME_DISPLAY, frame);
     snap.settings = with_display().settings;
     screens.update(&snap, &[UiAction::Down, UiAction::Down], frame);
 }
@@ -689,22 +759,10 @@ fn audio_output(frame: &mut UiFrame, theme: &Theme) {
 /// The quick menu with the volume of the game, set for its system.
 fn quick_menu_volume(frame: &mut UiFrame, theme: &Theme) {
     let mut snap = in_game();
-    let at = snap
-        .settings
-        .rows
-        .iter()
-        .position(|r| r.key == SettingKey(11))
-        .unwrap_or(snap.settings.rows.len());
-    snap.settings
-        .rows
-        .insert(at, volume_row(60, Level::System, Scopes::ALL));
+    if let Some(volume) = snap.settings.rows.iter_mut().find(|r| r.key == VOLUME) {
+        *volume = volume_row(60, Level::System, Scopes::ALL);
+    }
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &[], frame);
-    let to_volume = [
-        UiAction::Menu,
-        UiAction::Down,
-        UiAction::Down,
-        UiAction::Down,
-    ];
-    screens.update(&snap, &to_volume, frame);
+    screens.update(&snap, &[UiAction::Menu, UiAction::Down], frame);
 }

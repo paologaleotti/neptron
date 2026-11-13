@@ -1,18 +1,20 @@
 //! The home screen: the systems that contain games, the favourites, the
-//! recent games, the display panel and the audio panel.
+//! recent games and the Settings page.
 
 use core::fmt::Write;
 
 use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
-use crate::snapshot::{GameSource, Snapshot};
+use crate::snapshot::{GameSource, Level, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
 use crate::widgets::{List, ListEvent, ListItem};
 
 use super::chrome::{self, Layout};
+use super::page::crumb;
 use super::router::{Nav, Target};
+use super::{DISPLAY_PAGE, SETTINGS_PAGE};
 
 /// The text of the home screen when no system has games: what a new user
 /// sees first. The folder names are those of the system definitions.
@@ -28,13 +30,16 @@ enum Row {
     System(usize),
     Favourites,
     Recents,
+    Settings,
+    /// The one row of the home screen with no systems.
     Display,
-    Audio,
 }
 
 /// The home screen. With no systems it shows the empty-state text and one
 /// row, the display panel, at the bottom: a new user can fix the picture
-/// before any game plays a sound.
+/// before any game plays a sound. That screen is in the golden image of the
+/// tier 3 boot check, so its row keeps the look it has there, with no
+/// arrow.
 pub(super) struct Home {
     list: List,
     list_box: Rect,
@@ -71,8 +76,18 @@ impl Home {
             }),
             Some(Row::Favourites) => Nav::Open(Target::Games(GameSource::Favourites)),
             Some(Row::Recents) => Nav::Open(Target::Games(GameSource::Recents)),
-            Some(Row::Display) => Nav::Open(Target::Display),
-            Some(Row::Audio) => Nav::Open(Target::Audio),
+            Some(row @ (Row::Settings | Row::Display)) => {
+                let page = if row == Row::Settings {
+                    SETTINGS_PAGE
+                } else {
+                    DISPLAY_PAGE
+                };
+                Nav::Open(Target::Page {
+                    page,
+                    level: Level::Global,
+                    label: crumb(label(snap, row)),
+                })
+            }
             None => Nav::Stay,
         }
     }
@@ -100,8 +115,9 @@ impl Home {
                 NO_GAMES,
             );
             chrome::boxed(frame, theme, self.alone_box);
-            self.alone
-                .draw(frame, theme, 1, |_| ListItem::page("Display"));
+            self.alone.draw(frame, theme, 1, |_| {
+                ListItem::page(label(snap, Row::Display))
+            });
             return;
         }
         chrome::boxed(frame, theme, self.list_box);
@@ -121,17 +137,9 @@ impl Home {
                 .and_then(|slot| counts.get(slot))
                 .map(StackText::as_str)
                 .filter(|s| !s.is_empty());
-            let label = match row(snap, i) {
-                Some(Row::System(s)) => snap.systems.get(s).map_or("", |s| s.name.as_str()),
-                Some(Row::Favourites) => "Favourites",
-                Some(Row::Recents) => "Recent games",
-                Some(Row::Display) => "Display",
-                Some(Row::Audio) => "Audio",
-                None => "",
-            };
             ListItem {
                 detail,
-                ..ListItem::page(label)
+                ..ListItem::page(row(snap, i).map_or("", |r| label(snap, r)))
             }
         });
     }
@@ -140,7 +148,7 @@ impl Home {
 fn row_count(snap: &Snapshot) -> usize {
     match snap.systems.len() {
         0 => 1,
-        systems => systems.saturating_add(4),
+        systems => systems.saturating_add(3),
     }
 }
 
@@ -153,8 +161,17 @@ fn row(snap: &Snapshot, index: usize) -> Option<Row> {
         None => Some(Row::System(index)),
         Some(0) => Some(Row::Favourites),
         Some(1) => Some(Row::Recents),
-        Some(2) => Some(Row::Display),
-        Some(3) => Some(Row::Audio),
+        Some(2) => Some(Row::Settings),
         Some(_) => None,
+    }
+}
+
+fn label(snap: &Snapshot, row: Row) -> &str {
+    match row {
+        Row::System(s) => snap.systems.get(s).map_or("", |s| s.name.as_str()),
+        Row::Favourites => "Favourites",
+        Row::Recents => "Recent games",
+        Row::Settings => "Settings",
+        Row::Display => "Display",
     }
 }
