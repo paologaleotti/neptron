@@ -12,7 +12,12 @@
 # The frontend cannot see a RAM folder, so the script writes what it
 # mounted, and why, to /run/neptron/storage.toml (a RAM file system: the
 # file is new at each boot). The frontend shows a notice for each RAM
-# folder, with the reason. Every line of the script also goes to syslog
+# folder, with the reason. When an empty partition 4 stays unused only
+# because the rules below forbid this script to format it, the file also
+# names it as an offer (share_fix): the user may ask for its format in
+# Settings > System. The frontend then writes a request file on the state
+# partition and reboots, and the next boot checks the disk again before
+# it formats; this script stays the only code that formats. Every line of the script also goes to syslog
 # with the tag neptron-storage, because the console of a PC is not kept,
 # and, when /state is mounted, to /state/log/storage.log, because /var/log
 # is a RAM folder.
@@ -52,6 +57,17 @@ share=
 last=
 entry=
 boot_lines=
+format_request=no
+req_device=
+req_start=
+req_size=
+req_type=
+request_result=
+request_reason=
+fix_device=
+fix_start=
+fix_size=
+fix_type=
 
 # Logs one line to the console and to syslog, and keeps it for the storage
 # log. syslogd starts before this script (S01syslogd); without it, the line
@@ -189,6 +205,11 @@ NODE_WAIT_STEP_US=100000
 # partition ends before 2 TiB.
 MBR_LAST_SECTOR=4294967294
 MARKER=$STATE/share-pending
+# The format request of the user, which the frontend writes.
+REQUEST=$STATE/share-format-request
+# MBR types of an extended partition: it holds other partitions, so it is
+# never formatted.
+EXTENDED_TYPES="5 f 85"
 
 sectors() {
 	cat "$R/sys/class/block/${1##*/}/$2"
@@ -300,13 +321,13 @@ format_refusal() {
 	done
 }
 
-# The first sector of the free space after the state partition that holds
-# an exFAT boot sector, at a 1 MiB boundary, or nothing.
-old_share() {
-	disk_sectors=$(cat "$disk/size")
-	sector=$(planned_start)
+# The first sector from sector $1 of the disk, before sector $2 and at
+# most OLD_SHARE_SCAN_SECTORS on, that holds an exFAT boot sector at a
+# 1 MiB boundary, or nothing.
+exfat_from() {
+	sector=$1
 	scan_end=$((sector + OLD_SHARE_SCAN_SECTORS))
-	[ "$scan_end" -gt "$disk_sectors" ] && scan_end=$disk_sectors
+	[ "$scan_end" -gt "$2" ] && scan_end=$2
 	while [ "$sector" -lt "$scan_end" ]; do
 		if [ "$(boot_name "$disk_dev" "$sector")" = "EXFAT   " ]; then
 			echo "$sector"
@@ -314,6 +335,12 @@ old_share() {
 		fi
 		sector=$((sector + ALIGN_SECTORS))
 	done
+}
+
+# The first sector of the free space after the state partition that holds
+# an exFAT boot sector, at a 1 MiB boundary, or nothing.
+old_share() {
+	exfat_from "$(planned_start)" "$(cat "$disk/size")"
 }
 
 # Writes partition 4 to the table on the disk.
@@ -423,6 +450,11 @@ wait_node() {
 # Prepares partition 4 for the mount: a partition with a filesystem stays
 # as it is; an empty one is formatted only by the rules above.
 prepare_share() {
+	if [ "$format_request" = yes ]; then
+		format_request=checked
+		format_for_request "$share" && return 0
+		[ "$request_result" = failed ] && return 1
+	fi
 	signature "$share"
 	case $? in
 	0)
@@ -443,14 +475,221 @@ prepare_share() {
 	reason=$(format_refusal "$share")
 	if [ -n "$reason" ]; then
 		say "the share partition $share $reason"
+		note_offer "$share"
 		return 1
 	fi
 	log "$share holds no filesystem; formatting it exFAT"
-	mkfs.exfat -L NEPTRON "$share" || {
-		say "mkfs.exfat failed on $share"
+	format_exfat "$share" || {
+		note_offer "$share"
 		return 1
 	}
 }
+
+# Formats $1 exFAT. The only call of mkfs.exfat in this script.
+format_exfat() {
+	mkfs.exfat -L NEPTRON "$1" || {
+		say "mkfs.exfat failed on $1"
+		return 1
+	}
+}
+
+# The format that the user may ask for in Settings > System (the offer)
+# and the format of the request that follows it obey these rules, on the
+# disk as it is at that moment. The partition is partition 4 of the boot
+# disk, and the kernel and the table on the disk agree on its start and
+# size; the table is an MBR table; the partition is no extended partition;
+# it lies wholly after the state partition, which is mounted, so the
+# request has a place; blkid finds no filesystem or partition table on it
+# and its probe is clean; its first 16 MiB read cleanly; it holds no exFAT
+# backup boot sector; and no exFAT boot sector starts at a 1 MiB boundary
+# in its first 4 GiB, which would be an old share inside it. Its type and
+# its start may differ from the plan, and no marker is needed: the user
+# decides. A request formats only the partition that it names, with the
+# same start, size and type.
+
+# Why partition 4 ($1) may not be formatted for the user, as the end of a
+# sentence that starts with its name, or nothing. read_table has read the
+# table.
+user_format_refusal() {
+	if [ "$state_writable" != yes ]; then
+		echo "cannot be offered a format: the state partition is not mounted"
+		return
+	fi
+	if ! printf '%s\n' "$table" | grep -qx 'label: dos'; then
+		echo "cannot be offered a format: the partition table is not an MBR table"
+		return
+	fi
+	now=$(entry_of_table)
+	if [ -z "$now" ]; then
+		echo "cannot be offered a format: the partition table has no partition 4"
+		return
+	fi
+	# shellcheck disable=SC2086 # the three numbers of the entry
+	set -- "$1" $now
+	start=$(sectors "$1" start)
+	size=$(sectors "$1" size)
+	if [ "$2" != "$start" ] || [ "$3" != "$size" ]; then
+		echo "cannot be offered a format: the partition table names start $2 and size $3, the kernel start $start and size $size"
+		return
+	fi
+	for kind in $EXTENDED_TYPES; do
+		if [ "$(printf '%s' "$4" | tr 'A-F' 'a-f')" = "$kind" ]; then
+			echo "cannot be offered a format: it is an extended partition (type $4)"
+			return
+		fi
+	done
+	disk_sectors=$(cat "$disk/size")
+	if [ "$2" -lt "$(state_end)" ] || [ $(($2 + $3)) -gt "$disk_sectors" ]; then
+		echo "cannot be offered a format: it does not lie wholly after the state partition"
+		return
+	fi
+	signature "$1"
+	case $? in
+	0)
+		echo "cannot be offered a format: it holds a filesystem or a partition table"
+		return
+		;;
+	2)
+		echo "cannot be offered a format: blkid could not probe it cleanly"
+		return
+		;;
+	esac
+	if ! dd if="$1" of=/dev/null bs=1M count="$READ_CHECK_MIB" 2>/dev/null; then
+		echo "cannot be offered a format: its first $READ_CHECK_MIB MiB do not read cleanly"
+		return
+	fi
+	for backup in $EXFAT_BACKUP_SECTORS; do
+		if [ "$(boot_name "$1" "$backup")" = "EXFAT   " ]; then
+			echo "cannot be offered a format: it holds an exFAT backup boot sector (sector $backup), so it is a damaged share"
+			return
+		fi
+	done
+	inside=$(exfat_from "$2" $(($2 + $3)))
+	if [ -n "$inside" ]; then
+		echo "cannot be offered a format: an exFAT boot sector starts at sector $inside of the disk, inside it, so it can hold an old share"
+	fi
+}
+
+# Notes partition 4 ($1) as the format offer of storage.toml when every
+# rule above holds, and logs why when one does not.
+note_offer() {
+	if ! read_table; then
+		log "no format is offered: the partition table of $disk_dev cannot be read"
+		return
+	fi
+	why=$(user_format_refusal "$1")
+	if [ -n "$why" ]; then
+		log "the share partition $1 $why"
+		return
+	fi
+	# shellcheck disable=SC2086 # the three numbers of the entry
+	set -- "$1" $(entry_of_table)
+	fix_device=$1 fix_start=$2 fix_size=$3 fix_type=$4
+	log "a format of $1 (start $2, size $3, type $4) is offered in Settings > System"
+}
+
+# Why the request does not name partition 4 ($1) as it is now, or
+# nothing. read_table has read the table.
+request_mismatch() {
+	for number in "$req_start" "$req_size"; do
+		case $number in
+		'' | *[!0-9]*)
+			echo "it names no valid start and size"
+			return
+			;;
+		esac
+	done
+	case $req_type in
+	'' | *[!0-9a-fA-F]*)
+		echo "it names no valid type"
+		return
+		;;
+	esac
+	if [ "$req_device" != "$1" ]; then
+		echo "it names ${req_device:-no device}, not partition 4 of the boot disk ($1)"
+		return
+	fi
+	now=$(entry_of_table)
+	if [ "$now" != "$req_start $req_size $req_type" ]; then
+		echo "it names start $req_start, size $req_size and type $req_type, but the table holds partition 4 as (${now:-nothing})"
+		return
+	fi
+	why=$(user_format_refusal "$1")
+	[ -n "$why" ] && echo "$1 $why"
+}
+
+# Notes that the request was not carried out, and why.
+request_refused() {
+	request_result=refused
+	request_reason=$1
+	log "the format request is refused: $1"
+}
+
+# Sets the type of partition 4 in the table on the disk to 7. As for the
+# append of the partition, the exit status of sfdisk proves nothing: the
+# table read back after a flush of the cache decides.
+set_share_type() {
+	output=$(sfdisk --force --no-reread --no-tell-kernel --lock=nonblock \
+		--part-type "$disk_dev" 4 7 2>&1)
+	code=$?
+	log "sfdisk --part-type $disk_dev 4 7 exit $code${output:+: $(printf '%s' "$output" | tr '\n' ' ')}"
+	flushed=$(blockdev --flushbufs "$disk_dev" 2>&1)
+	log "blockdev --flushbufs exit $?${flushed:+: $(printf '%s' "$flushed" | tr '\n' ' ')}"
+	if ! read_table; then
+		request_refused "the partition table cannot be read back after the type change"
+		return 1
+	fi
+	now=$(entry_of_table)
+	if [ "$now" != "$req_start $req_size 7" ]; then
+		request_refused "after the type change the table holds partition 4 as (${now:-nothing}), not ($req_start $req_size 7)"
+		return 1
+	fi
+}
+
+# Formats partition 4 ($1) for the request of the user, when every rule
+# holds on the disk as it is now. The request is the user's permission to
+# format one exact partition; it proves nothing about the disk. Returns 0
+# when the partition is formatted.
+format_for_request() {
+	if ! read_table; then
+		request_refused "the partition table of $disk_dev cannot be read"
+		return 1
+	fi
+	why=$(request_mismatch "$1")
+	if [ -n "$why" ]; then
+		request_refused "$why"
+		return 1
+	fi
+	if [ "$(printf '%s' "$req_type" | tr 'A-F' 'a-f')" != 7 ]; then
+		set_share_type || return 1
+	fi
+	log "$1 is formatted exFAT on the request of the user"
+	if ! format_exfat "$1"; then
+		request_result=failed
+		request_reason="mkfs.exfat failed on $1"
+		note_offer "$1"
+		return 1
+	fi
+	request_result=done
+}
+
+# A format request of the user names one partition. It is removed before
+# anything else is done for the share, so a request that fails, or a boot
+# that stops on the way, cannot format at a later boot.
+if [ "$state_writable" = yes ] && [ -e "$REQUEST" ]; then
+	req_device=$(sed -n 's/^device=//p' "$REQUEST" 2>/dev/null | head -n 1)
+	req_start=$(sed -n 's/^start=//p' "$REQUEST" 2>/dev/null | head -n 1)
+	req_size=$(sed -n 's/^size=//p' "$REQUEST" 2>/dev/null | head -n 1)
+	req_type=$(sed -n 's/^type=//p' "$REQUEST" 2>/dev/null | head -n 1)
+	rm -f "$REQUEST"
+	sync
+	if [ -e "$REQUEST" ]; then
+		log "$REQUEST cannot be removed, so the format request is not used"
+	else
+		format_request=yes
+		log "format request of the user for ${req_device:-no device}: start ${req_start:-none}, size ${req_size:-none}, type ${req_type:-none}; $REQUEST removed"
+	fi
+fi
 
 # Each way that ends with no share device names its reason with say.
 last=
@@ -491,6 +730,9 @@ else
 	log "/share is a RAM folder: $last"
 	ram_folder share
 fi
+if [ "$format_request" = yes ]; then
+	request_refused "no partition 4 reached the checks: ${last:-no reason}"
+fi
 
 status() {
 	echo "state = \"$state_kind\""
@@ -500,6 +742,19 @@ status() {
 	echo "share = \"$share_kind\""
 	if [ "$share_kind" = ram ]; then
 		echo "share_reason = \"$share_reason\""
+		if [ -n "$fix_device" ]; then
+			echo "share_fix = \"format\""
+			echo "share_fix_device = \"$(printf '%s' "$fix_device" | tr -d '"\\')\""
+			echo "share_fix_start = $fix_start"
+			echo "share_fix_size = $fix_size"
+			echo "share_fix_type = \"$fix_type\""
+		fi
+	fi
+	if [ -n "$request_result" ]; then
+		echo "share_format = \"$request_result\""
+		if [ "$request_result" != done ]; then
+			echo "share_format_reason = \"$(printf '%s' "$request_reason" | tr -d '"\\')\""
+		fi
 	fi
 }
 if ! { mkdir -p "$STATUS_DIR" && status > "$STATUS"; }; then

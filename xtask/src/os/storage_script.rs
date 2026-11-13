@@ -94,6 +94,12 @@ const FAKES: &[(&str, &str)] = &[
          \t\techo 'sfdisk: cannot open /dev/sda: Input/output error' >&2; exit 1\n\
          \tfi\n\
          \techo dump >> \"$LOG\"; cat \"$R/table\"; exit 0 ;;\n\
+         *' --part-type '*' 4 7 '*)\n\
+         \techo \"sfdisk-set-type $*\" >> \"$LOG\"\n\
+         \tif [ \"${FAKE_RETYPE_WRITES:-yes}\" = yes ]; then\n\
+         \t\tsed -i.bak 's/^\\(.*sda4 : .*type=\\)[0-9a-fA-F]*$/\\17/' \"$R/table\"\n\
+         \tfi\n\
+         \texit \"${FAKE_RETYPE_EXIT:-0}\" ;;\n\
          *' --part-type '*) grep -q '4 : .*type=7' \"$R/table\" && echo ' 7'; exit 0 ;;\n\
          esac\n\
          read -r line\n\
@@ -296,6 +302,7 @@ impl Run {
             state_log: read("state/log/storage.log"),
             marker: self.path("state/share-pending").exists(),
             marker_text: read("state/share-pending"),
+            request: self.path("state/share-format-request").exists(),
         }
     }
 }
@@ -317,6 +324,7 @@ struct Outcome {
     state_log: String,
     marker: bool,
     marker_text: String,
+    request: bool,
 }
 
 impl Outcome {
@@ -1150,4 +1158,548 @@ fn a_marker_of_another_size_allows_no_format() {
 #[test]
 fn a_marker_that_names_no_partition_allows_no_format() {
     marker_mismatch("marker-old", "partition 4 made at DATE\n");
+}
+
+// The format offer and the format request of the user. Each test fails
+// when its rule is gone from the script.
+
+impl Run {
+    /// An empty partition 4 at `start` of `kind` to the end of the disk, in
+    /// the table and in the kernel, with no marker.
+    fn empty_partition_4(name: &str, start: u64, kind: &str) -> Self {
+        let run = Run::new(name);
+        run.table_partition_4(start, DISK_SECTORS - start, kind);
+        run.add_partition(4, start, DISK_SECTORS - start);
+        run
+    }
+
+    /// The device path of partition 4, as the script names it.
+    fn sda4(&self) -> String {
+        format!("{}/dev/sda4", self.dir.display())
+    }
+
+    /// Writes the format request as the frontend writes it.
+    fn write_request(&self, device: &str, start: u64, size: u64, kind: &str) {
+        std::fs::create_dir_all(self.path("state")).unwrap();
+        std::fs::write(
+            self.path("state/share-format-request"),
+            format!("device={device}\nstart={start}\nsize={size}\ntype={kind}\n"),
+        )
+        .unwrap();
+    }
+
+    /// The request of the offer for the planned partition 4.
+    fn request_planned(&self, kind: &str) {
+        self.write_request(&self.sda4(), PLANNED, FREE_SECTORS, kind);
+    }
+}
+
+impl Outcome {
+    /// The value of `key` in the status file, without quotes.
+    fn status_value(&self, key: &str) -> Option<String> {
+        self.status
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{key} = ")))
+            .map(|v| v.trim_matches('"').to_owned())
+    }
+
+    /// The offer of the status file: device, start, size, type.
+    fn offer(&self) -> Option<(String, String, String, String)> {
+        let fix = self.status_value("share_fix")?;
+        assert_eq!(fix, "format", "{self:#?}");
+        let get = |key| {
+            self.status_value(key)
+                .unwrap_or_else(|| panic!("no {key}: {self:#?}"))
+        };
+        Some((
+            get("share_fix_device"),
+            get("share_fix_start"),
+            get("share_fix_size"),
+            get("share_fix_type"),
+        ))
+    }
+
+    /// `/share` is a RAM folder and no format is offered; the log says why
+    /// when `why` is given.
+    fn assert_no_offer(&self, why: Option<&str>) {
+        assert!(self.status.contains("share = \"ram\""), "{self:#?}");
+        assert_eq!(self.offer(), None, "{self:#?}");
+        assert!(!self.status.contains("share_fix"), "{self:#?}");
+        if let Some(why) = why {
+            assert!(
+                self.log
+                    .contains(&format!("cannot be offered a format: {why}")),
+                "{why}: {self:#?}"
+            );
+        }
+    }
+
+    /// The share partition was formatted on the request and mounted.
+    fn assert_formatted_on_request(&self) {
+        assert!(self.ok, "{self:#?}");
+        assert_eq!(self.calls("mount -t exfat"), 1, "{self:#?}");
+        assert_eq!(self.calls("mkfs.exfat"), 1, "{self:#?}");
+        assert!(
+            self.state_log.contains("sda4 mounted at /share"),
+            "{self:#?}"
+        );
+        assert!(!self.request, "the request is removed: {self:#?}");
+        assert_eq!(
+            self.status, "state = \"partition\"\nshare = \"partition\"\nshare_format = \"done\"\n",
+            "{self:#?}"
+        );
+        assert!(
+            self.log
+                .contains("is formatted exFAT on the request of the user"),
+            "{self:#?}"
+        );
+    }
+
+    /// The request was refused with `why`, the request file is gone, and
+    /// nothing was formatted.
+    fn assert_request_refused(&self, why: &str) {
+        assert!(self.ok, "{self:#?}");
+        assert!(!self.request, "the request is removed: {self:#?}");
+        assert_eq!(self.calls("mkfs.exfat"), 0, "{self:#?}");
+        assert_eq!(
+            self.status_value("share_format").as_deref(),
+            Some("refused"),
+            "{self:#?}"
+        );
+        let reason = self
+            .status_value("share_format_reason")
+            .unwrap_or_else(|| panic!("no reason: {self:#?}"));
+        assert!(reason.contains(why), "{why}: {self:#?}");
+        assert!(
+            self.state_log
+                .contains(&format!("the format request is refused: {reason}")),
+            "{self:#?}"
+        );
+    }
+}
+
+#[test]
+fn an_empty_partition_4_with_no_marker_is_offered_a_format() {
+    let run = Run::new("offer-no-marker").with_partition_4();
+    let out = run.boot(&[]);
+    out.assert_share_ram("is empty and has no /state/share-pending");
+    assert_eq!(
+        out.offer(),
+        Some((
+            run.sda4(),
+            PLANNED.to_string(),
+            FREE_SECTORS.to_string(),
+            "7".to_owned()
+        )),
+        "{out:#?}"
+    );
+    assert!(
+        out.state_log.contains("is offered in Settings > System"),
+        "{out:#?}"
+    );
+}
+
+#[test]
+fn an_empty_partition_4_of_another_type_is_offered_a_format() {
+    let run = Run::empty_partition_4("offer-type", PLANNED, "83");
+    let out = run.start();
+    out.assert_share_ram("is empty and has no /state/share-pending");
+    let (_, start, _, kind) = out.offer().expect("an offer");
+    assert_eq!((start.as_str(), kind.as_str()), ("10240", "83"), "{out:#?}");
+}
+
+#[test]
+fn an_empty_partition_4_at_another_start_is_offered_a_format() {
+    let start = PLANNED + 2048;
+    let run = Run::empty_partition_4("offer-start", start, "7");
+    let out = run.start();
+    let (_, offered, size, _) = out.offer().expect("an offer");
+    assert_eq!(offered, start.to_string(), "{out:#?}");
+    assert_eq!(size, (DISK_SECTORS - start).to_string(), "{out:#?}");
+}
+
+#[test]
+fn an_empty_partition_4_with_a_marker_of_another_size_is_offered_a_format() {
+    let run = marked_partition_4("offer-marker", PLANNED, "7");
+    std::fs::write(
+        run.path("state/share-pending"),
+        format!("start={PLANNED}\nsize=1\n"),
+    )
+    .unwrap();
+    let out = run.start();
+    out.assert_share_ram("/state/share-pending does not name start");
+    assert!(out.offer().is_some(), "{out:#?}");
+}
+
+#[test]
+fn a_failed_format_is_offered_again() {
+    let run = marked_partition_4("offer-mkfs", PLANNED, "7").set("FAKE_MKFS_EXIT", "1");
+    let out = run.start();
+    out.assert_share_ram_with("mkfs.exfat failed on ", 1);
+    assert!(out.offer().is_some(), "{out:#?}");
+}
+
+#[test]
+fn a_damaged_share_is_never_offered_a_format() {
+    for sector in [12_usize, 96] {
+        let run = Run::new(&format!("no-offer-backup-{sector}")).with_partition_4();
+        let mut bytes = vec![0_u8; (sector + 1) * 512];
+        bytes[sector * 512 + 3..sector * 512 + 11].copy_from_slice(b"EXFAT   ");
+        std::fs::write(run.path("dev/sda4"), bytes).unwrap();
+        run.start().assert_no_offer(Some(&format!(
+            "it holds an exFAT backup boot sector (sector {sector})"
+        )));
+    }
+}
+
+#[test]
+fn a_partition_4_that_does_not_read_is_never_offered_a_format() {
+    let run = Run::new("no-offer-read").with_partition_4();
+    // dd cannot read a folder, as it cannot read a bad stick.
+    std::fs::remove_file(run.path("dev/sda4")).unwrap();
+    std::fs::create_dir(run.path("dev/sda4")).unwrap();
+    run.start()
+        .assert_no_offer(Some("its first 16 MiB do not read cleanly"));
+}
+
+#[test]
+fn an_unclean_probe_is_never_offered_a_format() {
+    Run::new("no-offer-unclean")
+        .set("FAKE_BLKID_ERROR", "blkid: read error")
+        .with_partition_4()
+        .start()
+        .assert_no_offer(None);
+}
+
+#[test]
+fn a_filesystem_that_does_not_mount_is_never_offered_a_format() {
+    let run = Run::new("no-offer-mount")
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .set("FAKE_MOUNT_EXFAT_EXIT", "32")
+        .with_partition_4();
+    let out = run.start();
+    assert!(out.status.contains("sda4 does not mount\""), "{out:#?}");
+    out.assert_no_offer(None);
+}
+
+#[test]
+fn an_old_share_inside_an_empty_partition_4_is_never_offered_a_format() {
+    let run = Run::new("no-offer-inside").with_partition_4();
+    run.exfat_at(PLANNED + 4096);
+    run.start().assert_no_offer(Some(&format!(
+        "an exFAT boot sector starts at sector {} of the disk, inside it",
+        PLANNED + 4096
+    )));
+}
+
+#[test]
+fn an_extended_partition_4_is_never_offered_a_format() {
+    for kind in ["5", "f", "85"] {
+        Run::empty_partition_4(&format!("no-offer-extended-{kind}"), PLANNED, kind)
+            .start()
+            .assert_no_offer(Some(&format!("it is an extended partition (type {kind})")));
+    }
+}
+
+#[test]
+fn a_partition_4_the_kernel_and_the_table_disagree_on_is_never_offered_a_format() {
+    let run = Run::new("no-offer-disagree");
+    run.table_partition_4(PLANNED, FREE_SECTORS - 2048, "7");
+    run.add_partition(4, PLANNED, FREE_SECTORS);
+    run.start().assert_no_offer(Some(&format!(
+        "the partition table names start {PLANNED} and size {}, the kernel start {PLANNED} and size {FREE_SECTORS}",
+        FREE_SECTORS - 2048
+    )));
+}
+
+#[test]
+fn a_partition_4_over_the_state_partition_is_never_offered_a_format() {
+    let start = STATE_START + 2048;
+    Run::empty_partition_4("no-offer-overlap", start, "7")
+        .start()
+        .assert_no_offer(Some("it does not lie wholly after the state partition"));
+}
+
+#[test]
+fn a_table_that_is_not_mbr_is_never_offered_a_format() {
+    let run = Run::new("no-offer-gpt").with_partition_4();
+    let table = std::fs::read_to_string(run.path("table"))
+        .unwrap()
+        .replace("label: dos", "label: gpt");
+    std::fs::write(run.path("table"), table).unwrap();
+    run.start()
+        .assert_no_offer(Some("the partition table is not an MBR table"));
+}
+
+#[test]
+fn with_no_state_partition_mounted_no_format_is_offered() {
+    Run::new("no-offer-state")
+        .set("FAKE_MOUNT_EXT4_EXIT", "32")
+        .with_partition_4()
+        .start()
+        .assert_no_offer(Some("the state partition is not mounted"));
+}
+
+/// The states with no partition 4, which a format cannot fix.
+#[test]
+fn states_with_no_partition_4_have_no_offer() {
+    let small = Run::new("no-offer-small");
+    std::fs::write(
+        small.path("sys/devices/blk/sda/size"),
+        format!("{}\n", PLANNED + 1000),
+    )
+    .unwrap();
+    let elsewhere = Run::new("no-offer-elsewhere");
+    elsewhere.exfat_at(PLANNED + 4096);
+    let no_state = Run::new("no-offer-no-3");
+    std::fs::remove_dir_all(no_state.path("sys/devices/blk/sda/sda3")).unwrap();
+    let whole = Run::new("no-offer-whole");
+    std::fs::remove_file(whole.path("sys/devices/blk/sda/sda2/partition")).unwrap();
+    for run in [
+        small,
+        elsewhere,
+        no_state,
+        whole,
+        Run::new("no-offer-unreadable").set("FAKE_DUMP_ALWAYS_FAILS", "yes"),
+        Run::new("no-offer-unmounted").set("FAKE_MOUNT_EXT4_EXIT", "32"),
+    ] {
+        run.start().assert_no_offer(None);
+    }
+}
+
+#[test]
+fn a_partition_with_a_filesystem_has_no_offer() {
+    let out = Run::new("no-offer-fs")
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .with_partition_4()
+        .start();
+    out.assert_share_mounted(false);
+    assert!(!out.status.contains("share_fix"), "{out:#?}");
+}
+
+#[test]
+fn a_request_for_the_offered_partition_formats_and_mounts_it() {
+    let run = Run::new("request-good").with_partition_4();
+    run.request_planned("7");
+    let out = run.start();
+    out.assert_formatted_on_request();
+    assert_eq!(out.calls("sfdisk-set-type"), 0, "{out:#?}");
+    // The request goes before anything is done for the share.
+    let removed = out.first("logger -t neptron-storage format request of the user for ");
+    assert!(removed < out.first("mkfs.exfat"), "{out:#?}");
+    assert!(
+        out.log.lines().nth(removed - 1) == Some("sync"),
+        "the removal is synced: {out:#?}"
+    );
+}
+
+#[test]
+fn a_request_for_a_partition_4_of_another_type_sets_type_7_then_formats() {
+    let run = Run::empty_partition_4("request-type", PLANNED, "83");
+    run.request_planned("83");
+    let out = run.boot(&[]);
+    out.assert_formatted_on_request();
+    assert_eq!(out.calls("sfdisk-set-type"), 1, "{out:#?}");
+    let set = out.first("sfdisk-set-type");
+    assert!(
+        out.log.lines().nth(set).is_some_and(|l| l
+            .contains("--no-reread --no-tell-kernel --lock=nonblock --part-type")
+            && l.ends_with("/dev/sda 4 7")),
+        "{out:#?}"
+    );
+    let flush = out
+        .log
+        .lines()
+        .skip(set)
+        .position(|l| l.starts_with("blockdev --flushbufs"));
+    assert!(flush.is_some(), "{out:#?}");
+    assert!(set < out.first("mkfs.exfat"), "{out:#?}");
+    let table = std::fs::read_to_string(run.path("table")).unwrap();
+    assert!(
+        table.contains(&format!(
+            "start={PLANNED:>12}, size={FREE_SECTORS:>12}, type=7"
+        )),
+        "{table}"
+    );
+}
+
+#[test]
+fn a_type_change_that_does_not_reach_the_table_formats_nothing() {
+    let run = Run::empty_partition_4("request-type-lost", PLANNED, "83")
+        .set("FAKE_RETYPE_WRITES", "no")
+        .set("FAKE_RETYPE_EXIT", "0");
+    run.request_planned("83");
+    run.start()
+        .assert_request_refused("after the type change the table holds partition 4 as");
+}
+
+#[test]
+fn a_request_whose_numbers_do_not_match_the_disk_formats_nothing() {
+    for (name, start, size, kind, why) in [
+        (
+            "request-size",
+            PLANNED,
+            FREE_SECTORS - 1,
+            "7",
+            "it names start",
+        ),
+        (
+            "request-start",
+            PLANNED + 2048,
+            FREE_SECTORS,
+            "7",
+            "it names start",
+        ),
+        (
+            "request-type-other",
+            PLANNED,
+            FREE_SECTORS,
+            "83",
+            "and type 83",
+        ),
+        ("request-bad-number", PLANNED, 0, "x", "no valid type"),
+    ] {
+        let run = Run::new(name).with_partition_4();
+        run.write_request(&run.sda4(), start, size, kind);
+        let out = run.start();
+        out.assert_request_refused(why);
+        out.assert_share_ram("is empty and has no /state/share-pending");
+        assert!(out.offer().is_some(), "the offer stays: {out:#?}");
+    }
+}
+
+#[test]
+fn a_request_with_no_valid_numbers_formats_nothing() {
+    let run = Run::new("request-garbage").with_partition_4();
+    std::fs::create_dir_all(run.path("state")).unwrap();
+    std::fs::write(
+        run.path("state/share-format-request"),
+        format!("device={}\nstart=10240; mkfs\n", run.sda4()),
+    )
+    .unwrap();
+    run.start()
+        .assert_request_refused("it names no valid start and size");
+}
+
+#[test]
+fn a_request_for_another_device_formats_nothing() {
+    let run = Run::new("request-device").with_partition_4();
+    run.write_request("/dev/sdb4", PLANNED, FREE_SECTORS, "7");
+    run.start()
+        .assert_request_refused("it names /dev/sdb4, not partition 4 of the boot disk");
+}
+
+#[test]
+fn a_request_for_a_partition_that_now_holds_a_filesystem_formats_nothing() {
+    let run = Run::new("request-filesystem")
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .with_partition_4();
+    run.request_planned("7");
+    let out = run.start();
+    assert!(!out.request, "{out:#?}");
+    assert_eq!(out.calls("mkfs.exfat"), 0, "{out:#?}");
+    assert!(
+        out.status
+            .starts_with("state = \"partition\"\nshare = \"partition\"\n"),
+        "{out:#?}"
+    );
+    assert_eq!(
+        out.status_value("share_format").as_deref(),
+        Some("refused"),
+        "{out:#?}"
+    );
+    assert!(
+        out.status_value("share_format_reason")
+            .is_some_and(|r| r.contains("it holds a filesystem or a partition table")),
+        "{out:#?}"
+    );
+}
+
+#[test]
+fn a_request_for_a_damaged_share_formats_nothing() {
+    let run = Run::new("request-backup").with_partition_4();
+    let mut bytes = vec![0_u8; 49 * 512];
+    bytes[48 * 512 + 3..48 * 512 + 11].copy_from_slice(b"EXFAT   ");
+    std::fs::write(run.path("dev/sda4"), bytes).unwrap();
+    run.request_planned("7");
+    run.start()
+        .assert_request_refused("it holds an exFAT backup boot sector (sector 48)");
+}
+
+#[test]
+fn a_request_with_an_unclean_probe_formats_nothing() {
+    let run = Run::new("request-unclean")
+        .set("FAKE_BLKID_ERROR", "blkid: read error")
+        .with_partition_4();
+    run.request_planned("7");
+    run.start()
+        .assert_request_refused("blkid could not probe it cleanly");
+}
+
+#[test]
+fn a_request_with_no_partition_4_formats_nothing() {
+    let run = Run::new("request-no-4");
+    std::fs::write(
+        run.path("sys/devices/blk/sda/size"),
+        format!("{}\n", PLANNED + 1000),
+    )
+    .unwrap();
+    run.request_planned("7");
+    run.start()
+        .assert_request_refused("no partition 4 reached the checks: 1000 free sectors");
+}
+
+#[test]
+fn a_request_whose_format_fails_is_offered_again_and_not_kept() {
+    let run = Run::new("request-mkfs")
+        .set("FAKE_MKFS_EXIT", "1")
+        .with_partition_4();
+    run.request_planned("7");
+    let out = run.start();
+    out.assert_share_ram_with("mkfs.exfat failed on ", 1);
+    assert!(!out.request, "{out:#?}");
+    assert_eq!(
+        out.status_value("share_format").as_deref(),
+        Some("failed"),
+        "{out:#?}"
+    );
+    assert!(out.offer().is_some(), "{out:#?}");
+}
+
+#[test]
+fn a_request_that_cannot_be_removed_formats_nothing() {
+    let run = Run::new("request-stuck").with_partition_4();
+    std::fs::create_dir_all(run.path("state/share-format-request")).unwrap();
+    let out = run.start();
+    assert_eq!(out.calls("mkfs.exfat"), 0, "{out:#?}");
+    assert!(
+        out.log
+            .contains("share-format-request cannot be removed, so the format request is not used"),
+        "{out:#?}"
+    );
+    assert_eq!(out.status_value("share_format"), None, "{out:#?}");
+}
+
+#[test]
+fn a_request_is_used_once() {
+    let run = Run::new("request-once")
+        .set("FAKE_MKFS_EXIT", "1")
+        .with_partition_4();
+    run.request_planned("7");
+    let first = run.boot(&[]);
+    assert_eq!(first.calls("mkfs.exfat"), 1, "{first:#?}");
+    let second = run.boot(&[]);
+    assert_eq!(second.calls("mkfs.exfat"), 0, "{second:#?}");
+    assert_eq!(second.status_value("share_format"), None, "{second:#?}");
+}
+
+#[test]
+fn with_no_request_nothing_is_formatted() {
+    let run = Run::new("request-none").with_partition_4();
+    for _ in 0..2 {
+        let out = run.boot(&[]);
+        assert_eq!(out.calls("mkfs.exfat"), 0, "{out:#?}");
+        assert!(out.offer().is_some(), "{out:#?}");
+        assert_eq!(out.status_value("share_format"), None, "{out:#?}");
+    }
 }
