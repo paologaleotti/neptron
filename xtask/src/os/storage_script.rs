@@ -1800,3 +1800,60 @@ fn a_boot_name_is_one_dd_that_seeks_to_its_byte() {
         "{body}"
     );
 }
+
+impl Run {
+    /// Writes `bytes` at byte `at` of the partition 4 device.
+    fn write_sda4(&self, at: u64, bytes: &[u8]) {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.path("dev/sda4"))
+            .unwrap();
+        file.seek(SeekFrom::Start(at)).unwrap();
+        file.write_all(bytes).unwrap();
+    }
+}
+
+/// A file system whose head is gone keeps backup copies of its header
+/// further in; each one stops the offer.
+#[test]
+fn an_ext_backup_superblock_stops_the_offer() {
+    // The primary superblock, and the backup of block group 1 for blocks of
+    // 1, 2 and 4 KiB.
+    for at in [1024_u64, 8_389_632, 33_554_432, 134_217_728] {
+        let run = Run::with_large_partition_4(&format!("no-offer-ext-{at}"), 512 * MIB_SECTORS);
+        run.write_sda4(at + 56, &[0x53, 0xef]);
+        run.start().assert_no_offer(Some(&format!(
+            "it holds an ext2, ext3 or ext4 superblock at byte {at}"
+        )));
+    }
+}
+
+#[test]
+fn a_fat32_backup_boot_sector_stops_the_offer() {
+    let run = Run::new("no-offer-fat32").with_partition_4();
+    run.write_sda4(6 * 512 + 82, b"FAT32   ");
+    run.start()
+        .assert_no_offer(Some("it holds a FAT32 backup boot sector (sector 6)"));
+}
+
+#[test]
+fn an_ntfs_backup_boot_sector_stops_the_offer() {
+    for sector_bytes in [512_u64, 4096] {
+        let run = Run::new(&format!("no-offer-ntfs-{sector_bytes}")).with_partition_4();
+        run.write_sda4(FREE_SECTORS * 512 - sector_bytes + 3, b"NTFS    ");
+        run.start().assert_no_offer(Some(&format!(
+            "it holds an NTFS backup boot sector in its last {sector_bytes} bytes"
+        )));
+    }
+}
+
+#[test]
+fn a_btrfs_superblock_mirror_stops_the_offer() {
+    let run = Run::new("no-offer-btrfs").with_partition_4();
+    run.write_sda4(64 * 1024 * 1024 + 64, b"_BHRfS_M");
+    run.start()
+        .assert_no_offer(Some("it holds a btrfs superblock mirror at 64 MiB"));
+}

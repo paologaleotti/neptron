@@ -181,6 +181,17 @@ READ_CHECK_MIB=16
 # these 512-byte sectors for exFAT sectors of 512, 1024, 2048 and 4096
 # bytes.
 EXFAT_BACKUP_SECTORS="12 24 48 96"
+# Where an ext2, ext3 or ext4 superblock sits, in bytes: the primary copy,
+# and the backup in block group 1 for blocks of 1 KiB (group 1 starts at
+# block 8193), 2 KiB (block 16384) and 4 KiB (block 32768), with the
+# default of 8 blocks per byte of bitmap. Group 1 holds a backup with and
+# without sparse_super. A file system made with other group sizes is not
+# found here.
+EXT_SUPERBLOCK_BYTES="1024 8389632 33554432 134217728"
+# The magic number of an ext superblock, 0xEF53 little endian, at byte 56.
+EXT_MAGIC=$(printf 'S\357')
+# The btrfs superblock mirror starts at 64 MiB; its magic is at byte 64.
+BTRFS_MIRROR_BYTES=67108864
 # How far into the free space the script looks for an old share before it
 # makes partition 4, in sectors (4 GiB): layouts of other image versions
 # place the share start within this distance.
@@ -227,6 +238,11 @@ state_end() {
 planned_start() {
 	end=$(state_end)
 	echo $(((end + ALIGN_SECTORS - 1) / ALIGN_SECTORS * ALIGN_SECTORS))
+}
+
+# The $3 bytes at byte $2 of device $1.
+bytes_at() {
+	dd if="$1" bs=1 skip="$2" count="$3" 2>/dev/null
 }
 
 # The 8 bytes of the file system name of the boot sector at sector $2 of
@@ -573,6 +589,30 @@ user_format_refusal() {
 			return
 		fi
 	done
+	# A file system whose head was wiped keeps copies of its header
+	# further in, which blkid -p does not read.
+	for at in $EXT_SUPERBLOCK_BYTES; do
+		if [ "$(bytes_at "$1" $((at + 56)) 2)" = "$EXT_MAGIC" ]; then
+			echo "cannot be offered a format: it holds an ext2, ext3 or ext4 superblock at byte $at"
+			return
+		fi
+	done
+	if [ "$(bytes_at "$1" $((6 * 512 + 82)) 8)" = "FAT32   " ]; then
+		echo "cannot be offered a format: it holds a FAT32 backup boot sector (sector 6)"
+		return
+	fi
+	# NTFS keeps its backup boot sector in the last sector of the
+	# partition, of 512 or 4096 bytes.
+	for sector_bytes in 512 4096; do
+		if [ "$(bytes_at "$1" $(($3 * 512 - sector_bytes + 3)) 8)" = "NTFS    " ]; then
+			echo "cannot be offered a format: it holds an NTFS backup boot sector in its last $sector_bytes bytes"
+			return
+		fi
+	done
+	if [ "$(bytes_at "$1" $((BTRFS_MIRROR_BYTES + 64)) 8)" = "_BHRfS_M" ]; then
+		echo "cannot be offered a format: it holds a btrfs superblock mirror at 64 MiB"
+		return
+	fi
 	# An old share can start before partition 4, at the planned start,
 	# and run into it, so the scan starts there.
 	if [ "$scan" = request ]; then
