@@ -2205,3 +2205,101 @@ fn a_long_breadcrumb_keeps_its_end_and_the_tree_keeps_it_whole() {
     let full = format!("{} > Video > Refresh", super::scenes::LONG_TITLE);
     assert_eq!(whole, Some(full.as_str()));
 }
+
+/// `snap` with the volume of the game at `percent`, set at `source`.
+fn with_volume(snap: &Snapshot, percent: i64, source: Level) -> Snapshot {
+    let mut changed = snap.clone();
+    if let Some(row) = changed.settings.rows.iter_mut().find(|r| r.key == VOLUME) {
+        *row = volume_row(percent, source, crate::snapshot::Scopes::ALL);
+    }
+    changed
+}
+
+fn volume_75(level: Level) -> Intent {
+    Intent::SetValue {
+        key: VOLUME,
+        level,
+        value: Value::Number(75),
+    }
+}
+
+#[test]
+fn a_global_panel_opened_after_a_change_does_not_forget_it() {
+    // The volume of the game, then Settings > Audio, which holds the volume
+    // at the global level.
+    let (mut run, first) = quick_menu();
+    run.step(&first, &[Down, Left]);
+    assert_eq!(run.intents(), [volume_75(Level::Game)]);
+    let first = with_volume(&first, 75, Level::Game);
+    run.step(&first, &[Down, Down, Accept, Down, Accept]);
+    assert_eq!(run.screen(), "audio");
+    let mut audio = with_audio();
+    audio.session = first.session.clone();
+    run.step(&audio, &[Back, Back]);
+    run.step(&first, &[Back]);
+    assert_eq!(run.screen(), "quick-menu/keep", "the volume change is kept");
+
+    // The style of the game, then Settings > Display, which holds the
+    // style at the global level.
+    let (mut run, first) = force_60_and_back();
+    let mut display = first.clone();
+    display.settings = with_display().settings;
+    run.step(&first, &[Down, Accept, Accept]);
+    run.step(&display, &[Back, Back]);
+    run.step(&first, &[Back]);
+    assert_eq!(
+        run.screen(),
+        "quick-menu/keep",
+        "the refresh change is kept"
+    );
+}
+
+#[test]
+fn a_stale_page_in_the_snapshot_does_not_forget_a_change() {
+    let (mut run, first) = quick_menu();
+    run.step(&first, &[Down, Left]);
+    let first = with_volume(&first, 75, Level::Game);
+    run.step(&first, &[Down, Down, Accept, Down, Accept]);
+    let mut audio = with_audio();
+    audio.session = first.session.clone();
+    // Back to the first page before the app loads its rows again.
+    run.step(&audio, &[Back, Back, Back]);
+    assert_eq!(run.screen(), "quick-menu/keep");
+}
+
+#[test]
+fn a_change_and_back_in_one_frame_asks_where_to_keep_it() {
+    let (mut run, first) = quick_menu();
+    run.step(&first, &[Down, Left, Back]);
+    assert_eq!(run.intents(), [volume_75(Level::Game)]);
+    assert_eq!(run.screen(), "quick-menu/keep");
+}
+
+#[test]
+fn a_change_taken_back_while_the_prompt_is_open_is_not_moved() {
+    let (mut run, first) = quick_menu();
+    run.step(&first, &[Down, Left]);
+    let applied = with_volume(&first, 75, Level::Game);
+    run.step(&applied, &[Back]);
+    assert_eq!(run.screen(), "quick-menu/keep");
+    // The app took the change back: the row shows the system value.
+    let taken_back = with_volume(&first, 60, Level::System);
+    run.step(&taken_back, &[Right, Accept]);
+    assert_eq!(run.intents(), [Intent::Resume]);
+}
+
+#[test]
+fn a_change_whose_row_is_not_in_the_snapshot_stays_for_the_game() {
+    let layout = super::chrome::Layout::new(&Theme::default());
+    let mut menu = super::quick_menu::QuickMenu::new(&layout, &Theme::default());
+    let mut snap = in_game();
+    snap.settings.rows.retain(|r| r.key != VOLUME);
+    menu.record(&volume_75(Level::Game), &snap);
+    let mut out = Vec::new();
+    menu.handle(Back, &snap, &mut out);
+    assert!(out.is_empty(), "the prompt asks first");
+    menu.handle(Right, &snap, &mut out);
+    menu.handle(Right, &snap, &mut out);
+    menu.handle(Accept, &snap, &mut out);
+    assert_eq!(out, [Intent::Resume], "no level is known for the row");
+}

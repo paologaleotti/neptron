@@ -6,7 +6,7 @@
 use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
-use crate::snapshot::{Level, MenuItem, Scopes, SettingKey, SettingValue, Snapshot};
+use crate::snapshot::{Level, MenuItem, PageId, Scopes, SettingKey, SettingValue, Snapshot};
 use crate::theme::Theme;
 use crate::widgets::{Dialog, DialogContent, DialogEvent, DialogTone};
 
@@ -32,9 +32,22 @@ enum Leave {
     Quit,
 }
 
-/// A change at the game level that the prompt can move: the setting, its
-/// value, and the levels its row allows, read when the change was made.
-type Change = (SettingKey, Value, Scopes);
+/// A change at the game level that the prompt can move.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Change {
+    key: SettingKey,
+    value: Value,
+    /// The levels the row of the change allows, read when it was made.
+    scopes: Scopes,
+    /// The page in the snapshot when the change was made: the page of the
+    /// change, which writes at the game level. Only its rows tell whether
+    /// the app took the change back; a global panel holds the same key with
+    /// a value that never comes from the game level.
+    page: Option<PageId>,
+    /// True in the frame of the change: the snapshot of that frame shows
+    /// the value from before it.
+    fresh: bool,
+}
 
 pub(super) struct QuickMenu {
     page: Page,
@@ -53,6 +66,14 @@ impl QuickMenu {
             changes: [None; MAX_CHANGES],
             prompt: None,
             quitting: false,
+        }
+    }
+
+    /// Starts a frame: the changes of earlier frames are in the snapshot
+    /// now.
+    pub(super) fn begin_frame(&mut self) {
+        for change in self.changes.iter_mut().flatten() {
+            change.fresh = false;
         }
     }
 
@@ -80,10 +101,16 @@ impl QuickMenu {
                 let slot = self
                     .changes
                     .iter()
-                    .position(|c| c.is_some_and(|(k, _, _)| k == key))
+                    .position(|c| c.is_some_and(|c| c.key == key))
                     .or_else(|| self.changes.iter().position(Option::is_none));
                 if let Some(entry) = slot.and_then(|i| self.changes.get_mut(i)) {
-                    *entry = Some((key, value, scopes));
+                    *entry = Some(Change {
+                        key,
+                        value,
+                        scopes,
+                        page: snap.settings.page,
+                        fresh: true,
+                    });
                 }
             }
             Intent::ResetValue {
@@ -91,7 +118,7 @@ impl QuickMenu {
                 level: Level::Game,
             } => {
                 for entry in &mut self.changes {
-                    if entry.is_some_and(|(k, _, _)| k == key) {
+                    if entry.is_some_and(|c| c.key == key) {
                         *entry = None;
                     }
                 }
@@ -196,15 +223,19 @@ impl QuickMenu {
 
     /// Forgets the noted changes that the app took back: the guard reverts
     /// a display change that the player did not keep, and the row then
-    /// shows the value in effect. A change whose row is not in the page of
-    /// the snapshot stays noted.
+    /// shows the value in effect. Only the page of a change tells: a change
+    /// stays noted while the snapshot holds another page, and in the frame
+    /// it was made.
     pub(super) fn forget_taken_back(&mut self, snap: &Snapshot) {
         let rows = &snap.settings.rows;
         for entry in &mut self.changes {
-            let gone = entry.is_some_and(|(key, value, _)| {
-                rows.iter()
-                    .find(|r| r.key == key)
-                    .is_some_and(|row| !holds(row, value))
+            let gone = entry.is_some_and(|c| {
+                !c.fresh
+                    && snap.settings.page == c.page
+                    && rows
+                        .iter()
+                        .find(|r| r.key == c.key)
+                        .is_some_and(|row| !holds(row, c.value))
             });
             if gone {
                 *entry = None;
@@ -218,7 +249,10 @@ impl QuickMenu {
     /// the changes are, so for it there is nothing to send.
     fn keep_at(&mut self, level: Level, snap: &Snapshot, out: &mut Vec<Intent>) {
         self.forget_taken_back(snap);
-        for (key, value, scopes) in self.changes.iter_mut().filter_map(Option::take) {
+        for Change {
+            key, value, scopes, ..
+        } in self.changes.iter_mut().filter_map(Option::take)
+        {
             if level == Level::Game || !scopes.allows(level) {
                 continue;
             }

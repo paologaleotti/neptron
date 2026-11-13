@@ -112,6 +112,9 @@ impl Screens {
     /// sends the action again.
     pub fn update(&mut self, snap: &Snapshot, actions: &[UiAction], out: &mut UiFrame) {
         out.clear();
+        if let Some(menu) = self.quick_menu() {
+            menu.begin_frame();
+        }
         self.follow(snap);
         self.confirm.begin_frame();
         for &action in actions {
