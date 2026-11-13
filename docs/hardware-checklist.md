@@ -449,3 +449,12 @@ Each check is `needs-hardware`. Use the development image first.
 - [ ] Do: run the self-test with the launcher held (see `os/README.md`). Record: the JSON report.
 - [ ] Do: the same self-test on a kernel built with `--no-kernel-15khz`, when that image exists. Record: which modes the unpatched driver refuses (OP-070).
 
+
+## C11 findings of the first hardware session
+
+- [ ] `needs-hardware` Do: boot with the Dell U2724D on DP-1 in standby, `display.output` at `auto`. Expect: the log shows no "cannot open the display" line; it shows "a display answered after N ms" or nothing, and the first picture comes in one start of the frontend. Record: N, and the time from power-on to the first frame.
+- [ ] `needs-hardware` Do: boot with no monitor connected, wait 1 minute, then connect the DisplayPort monitor. Expect: the log shows "no connected display after 15000 ms" and the launcher line "found no display; start again in 1000 ms" for each start, with no growing wait; the picture comes within about 16 s of the connection; `/state/video/guard.toml` counts no failed boot. Record: the time from the connection to the first picture.
+- [ ] `needs-hardware` Do: on the flat panel, open the quick menu in a game and the display panel. Expect: "Picture style" and "Refresh policy" are grey with "Not used on a flat panel", and accept does nothing on them; the scanline rows still change the picture. Record: a photo of the quick menu.
+- [ ] `needs-hardware` Do: boot twice, then `ls /state/cache/mesa` and read the log of the frontend. Expect: the folder holds the Mesa cache files, and no line says that Mesa cannot create its shader cache. Record: `du -sh /state/cache/mesa`, and whether the second start is faster than the first.
+- [ ] `needs-hardware` Do: in the development image, bring eth0 up on the Realtek port and read `dmesg | grep -i rtl`. Expect: no "unable to load firmware patch rtl_nic/rtl8168h-2.fw" line. Record: the dmesg lines of r8169.
+- [ ] `needs-hardware` Do: read `dmesg | grep -i dmc`. Expect: the line about the missing i915 DMC firmware is still there: the file is not in the image until the owner decides the licence question of a firmware file inside the kernel image. Record: the line.
