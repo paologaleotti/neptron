@@ -80,7 +80,7 @@ The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-m
 
 ### Home and the game list
 
-Home lists the systems with their game counts, then Favourites, Recent games and Settings. With no systems it says where the games go (`roms/nes`, `roms/snes`, `roms/megadrive` on the share partition) and keeps one Display row only, so a new user can still fix the picture. That row has no arrow (`List::without_arrows`): the empty home is in the golden image of the tier 3 boot check.
+Home lists the systems with their game counts, then Favourites, Recent games and Settings. With no systems it says where the games go (`roms/nes`, `roms/snes`, `roms/megadrive` on the share partition) and keeps one Settings row only, so a new user can still fix the picture and the sound.
 
 ### Pages and the audio panel
 

@@ -47,7 +47,7 @@ flowchart TD
     QM -->|"Quit game, no change"| Quit
 ```
 
-From the quick menu the player also reaches the video page, the Settings page with its panels, the option lists and the grid pattern. The detail is in the next diagram. Back on any screen closes the screen on top, and the screen under it gets the focus back on the row that opened the closed screen. Back on Home does nothing. With no games, Home has one row `Display`, which opens the display panel.
+From the quick menu the player also reaches the video page, the Settings page with its panels, the option lists and the grid pattern. The detail is in the next diagram. Back on any screen closes the screen on top, and the screen under it gets the focus back on the row that opened the closed screen. Back on Home does nothing. With no games, Home has one row `Settings`, so the display and audio panels are reachable on a new stick.
 
 ### Detail: the quick menu
 
@@ -134,12 +134,12 @@ The screen id is the id in the widget tree (`out.tree.set_screen`).
 | Screen | Screen id | What the user sees | Golden picture |
 | --- | --- | --- | --- |
 | Home | `home` | Title `NEPTRON`. A box with one row per system that has games (name, then `1 game` or `N games`), then `Favourites`, `Recent games`, `Settings`, each with an arrow. Hint `Accept: open`. | [home.ppm](../../crates/neptron-ui/tests/golden/screens/home.ppm) |
-| Home with no games | `home` | The text `No games yet.` and where to copy games (`roms/nes   roms/snes   roms/megadrive`, plain files and `.zip` files), then one row `Display` at the bottom, with no arrow: the tier 3 boot golden shows this screen. | [home-empty.ppm](../../crates/neptron-ui/tests/golden/screens/home-empty.ppm) |
+| Home with no games | `home` | The text `No games yet.` and where to copy games (`roms/nes   roms/snes   roms/megadrive`, plain files and `.zip` files), then one row `Settings` at the bottom, with its arrow. The tier 3 boot golden shows this screen under a notice. | [home-empty.ppm](../../crates/neptron-ui/tests/golden/screens/home-empty.ppm) |
 | Settings page | `settings` | Title `Settings` (the breadcrumb). One row per panel of `SETTINGS_PANELS`: `Display`, `Audio`. Hints `Accept: open`, `Back: return`. | [settings.ppm](../../crates/neptron-ui/tests/golden/screens/settings.ppm) |
 | Audio panel | `audio` | Title `Settings > Audio`. The rows of the audio page. Hints of the focused row, `Back: return`. | [audio.ppm](../../crates/neptron-ui/tests/golden/screens/audio.ppm) |
 | Game list | `games` | Title: the system name, `Favourites` or `Recent games` (`Games` if the system is not found). Right of the title: `N/total`. A list of titles, `*` after a favourite, `...` for a row not loaded yet. Under the list, the focused title in full on two lines. Hints `Accept: play` (only when the list has a game) and `Back: systems` (a system list) or `Back: home` (Favourites, Recent games). | [games-top.ppm](../../crates/neptron-ui/tests/golden/screens/games-top.ppm), [games-middle.ppm](../../crates/neptron-ui/tests/golden/screens/games-middle.ppm), [games-end.ppm](../../crates/neptron-ui/tests/golden/screens/games-end.ppm), [games-one.ppm](../../crates/neptron-ui/tests/golden/screens/games-one.ppm) |
 | Empty game list | `games` | A text that says why: `This system has no games now.` plus where to put them, `No favourites yet.` plus `Press Menu on a game in a game list to add it here.`, or `No games played yet.` | [games-empty.ppm](../../crates/neptron-ui/tests/golden/screens/games-empty.ppm) |
-| Display panel | `display` | Title `Settings > Display` (`Display` from the empty home). An info box: `Output`, `Mode`, `Monitor`. Under it the rows of the display page. Hints of the focused row, `Back: return`. | [display.ppm](../../crates/neptron-ui/tests/golden/screens/display.ppm) |
+| Display panel | `display` | Title `Settings > Display`. An info box: `Output`, `Mode`, `Monitor`. Under it the rows of the display page. Hints of the focused row, `Back: return`. | [display.ppm](../../crates/neptron-ui/tests/golden/screens/display.ppm) |
 | Display panel in a game | `display` | The info box shows `Output` and `Monitor` only. Under it the video block (heading `Video`, lines `Game`, `Mode`, result). Then the rows. A skin with rows too tall keeps the three-line info box and no block. | [display-video.ppm](../../crates/neptron-ui/tests/golden/screens/display-video.ppm) |
 | Option list | `options` | Title: the breadcrumb, which ends with the row label. One line per option with its detail. A small mark left of the option in use. A dim option shows its reason. Under the list, the detail of the focused option in full, or `Not available. ` and the reason. Hints `Accept: use`, `Back: cancel`. | [display-style.ppm](../../crates/neptron-ui/tests/golden/screens/display-style.ppm) |
 | Grid pattern | `pattern/grid` | A fixed test picture: grey grid with a 16 px pitch, white border on the canvas edge, white centre cross, amber corner marks at the safe area, the caption `Back: return`. It ignores the skin. | [grid.ppm](../../crates/neptron-ui/tests/golden/pattern/grid.ppm) |
@@ -159,8 +159,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | any list | same | Up, Down: one row. Left, Right: one page. Lists stop at their ends. | none | nothing |
 | any menu | same | A held direction repeats | `REPEAT_DELAY_NS` = 400 ms, then `REPEAT_INTERVAL_NS` = 66 ms | nothing |
 | Home | Game list | Accept on a system row, `Favourites` or `Recent games` | none | `LoadGames` asks for rows |
-| Home | Settings page | Accept on `Settings` | none | nothing: the UI shows the page |
-| Home with no games | Display panel | Accept on `Display` | none | `LoadSettings` for `DISPLAY_PAGE` |
+| Home, also with no games | Settings page | Accept on `Settings` | none | nothing: the UI shows the page |
 | Settings page | Display panel or audio panel | Accept on `Display` or `Audio` | none | `LoadSettings` for `DISPLAY_PAGE` or `AUDIO_PAGE` |
 | Settings page | Home or quick menu | Back | none | nothing |
 | Game list | Home | Back | none | nothing |
@@ -170,7 +169,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Display panel | Option list | Accept on a choice row (Output, Monitor profile, Picture style, Refresh policy, Scanlines) | none | nothing until a choice |
 | Display panel | Grid pattern | Accept on `Grid pattern` | none | nothing |
 | Display panel | same | Accept on `Rescan games` (game list run only; disabled in a game) | none | A full scan of `share/roms` starts on the scan thread. The row reads `Scanning games...` and is disabled until the scan ends. The lists stay usable with the old index. At the end, the index and the cache are replaced, a game list on show keeps its focused game (when it moved by at most `MOVED_GAME_MARGIN_ROWS` = 64 rows), and an Info notice says what changed. |
-| Display panel | Settings page (Home from the empty home) | Back | none | nothing |
+| Display panel | Settings page | Back | none | nothing |
 | Display panel | same | Left, Right on a number row | step 5 for `Scanline strength`, 1 for `Hold Start for menu` | `SetValue` at the global level (see the change flow) |
 | any settings page | same | Menu (X) on a row whose value comes from the page level | none | `ResetValue` at that level: the row inherits again |
 | Option list | page under it | Accept on an enabled option | none | `SetValue` with that option, only when it is not the option in use and the row allows the page level. Then the list closes. |
@@ -347,7 +346,7 @@ Against `docs/definition/08-frontend-and-ux.md`:
 
 1. Boundary table, row "In": the definition says the UI takes "a time step". The code has no time step: the UI has no clock, key repeat comes from the app, and the countdown comes from `PendingConfirm::remaining_ns`.
 2. Screens table, "First-boot wizard": there is none. The first boot shows Home (or the boot prompt of the guard). Output, monitor and picture are set on the display panel.
-3. Screens table, "Home": the definition lists "Settings". The code has `Settings` when games exist; the home with no games has `Display` instead. `Favourites` and `Recent games` exist, but their lists are always empty in the MVP (`Library::window`, and `ToggleFavourite` does nothing).
+3. Screens table, "Home": the definition lists "Settings". The code has `Settings`, also on the home with no games. `Favourites` and `Recent games` exist, but their lists are always empty in the MVP (`Library::window`, and `ToggleFavourite` does nothing).
 4. Screens table, "Game list": no sort, filter or search. Menu (X) on a game sends a favourite toggle that the app ignores.
 5. Screens table, "Game page": there is none. Accept on a game launches it.
 6. Screens table, "Display panel": no geometry row. One test pattern (the grid). The panel also holds `Scanlines`, `Scanline strength` and `Hold Start for menu`. `Output` is read-only.

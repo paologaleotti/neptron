@@ -7,7 +7,7 @@ This spec settles OP-090. It changes how the menus are put together. It does not
 - The snapshot holds the rows of one settings page at a time (`Snapshot::settings`). A screen asks for its page with `Intent::LoadSettings`, and the app answers in a later frame.
 - Each screen on the stack of the router keeps its own cursor. A screen that closes gives the screen under it back with its cursor.
 - The quick menu notes each change at the game level, so that the keep prompt can move it to the system or the global level. Today it reads the scopes of a noted row from the snapshot when the prompt opens. With sub pages that row is often not in the snapshot then.
-- The tier 3 boot golden `os/tests/golden/boot-game-list.ppm` shows the empty home screen under a notice: the empty-state text and one row `Display`, with the focus, across the full width of its box. Tier 3 needs QEMU, so a task that cannot run it must keep that picture byte-equal.
+- The tier 3 boot golden `os/tests/golden/boot-game-list.ppm` shows the empty home screen under a notice: the empty-state text and one row `Display`, with the focus, across the full width of its box. Tier 3 needs QEMU. The orchestrator rebuilds the images and blesses that golden for this change.
 - The control protocol (`neptron-ipc`, version 1) is append-only. A new reply field needs a new protocol version, and the handlers do not see the version of a request today.
 - The session ignores the quick menu hotkey while the core is paused (`Hotkey::QuickMenu` only acts in `State::Running`). The end-to-end test checks that a second hotkey does not close the menu.
 
@@ -15,7 +15,7 @@ This spec settles OP-090. It changes how the menus are put together. It does not
 
 Home lists the systems that have games, then `Favourites`, `Recent games` and one row `Settings`. The rows `Display` and `Audio` are no longer on home.
 
-Home with no games does not change: the text that says where the games go, and one row `Display` at the bottom, which opens the display panel. This keeps the boot golden byte-equal. This row is the one exception to the arrow rule below: it opens a page but shows no arrow (`List::without_arrows`). Its tree row still has the kind `page`. With no games, the `Settings` page and the audio panel are not reachable. A later task can change this together with a new boot golden.
+Home with no games follows the same rule: the text that says where the games go, and one row `Settings` at the bottom, with its arrow. So Settings and every panel are reachable on a new stick with no games, when a user needs them most. The display panel is two presses away: `Settings > Display`. No notice or hint text names the row. The boot golden of tier 3 changes for this reason; the orchestrator blesses it.
 
 ## The Settings page
 
@@ -70,7 +70,7 @@ The title band of every page below home and of every quick menu page shows where
 - In a game: the title of the game, then the label of each row that opened a page.
 - An option list adds the label of its row.
 
-Examples: `Settings`, `Settings > Display`, `Settings > Audio > Audio output`, `Astro Racer`, `Astro Racer > Video`, `Astro Racer > Video > Picture style`, `Astro Racer > Settings > Display`. The game list keeps its title (the system name and the count). Home keeps `NEPTRON`. The display panel opened from the empty home shows `Display`.
+Examples: `Settings`, `Settings > Display`, `Settings > Audio > Audio output`, `Astro Racer`, `Astro Racer > Video`, `Astro Racer > Video > Picture style`, `Astro Racer > Settings > Display`. The game list keeps its title (the system name and the count). Home keeps `NEPTRON`.
 
 The separator is ` > `: space, `>`, space. The font has `>`.
 
@@ -156,11 +156,10 @@ New scenes: `screens/settings` (the Settings page) and `screens/breadcrumb-long`
 - The breadcrumb: each step of the truncation rule, with long names, and the 38 and 46 character widths.
 - The router: Back closes one level and gives the focus back to the row it came from, at every level, from home and from the quick menu; a page that is not loaded takes only Back; the footer hint of each kind.
 - The quick menu: a change on the video page is moved by the keep prompt; a change that the guard took back on the video page is not asked about; the hotkey case is a tier 2 test that exists.
-- The empty home: the scene `screens/home-empty` keeps its golden.
+- The empty home: one `Settings` row of the kind `page`, which opens the Settings page; the scene `screens/home-empty` shows it.
 - The crawler (tier 2): every row that opens a screen has the kind `page`, every enabled `page` row opens a screen, Back from every screen returns to the screen under it with the focus on the row it came from.
 
 ## Not in this task
 
 - The kind in the control protocol (`ui_tree` of `neptronctl`). It needs protocol version 2 and the request version in the handlers: a contract change with its own branch and ADR.
-- `Settings` and `Audio` on the empty home. They need a new boot golden, made with tier 3.
 - The `Network` and `Library` panels. Their tasks add a line to `SETTINGS_PANELS`, a page id and the page in the app.

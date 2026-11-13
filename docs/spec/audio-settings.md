@@ -235,7 +235,7 @@ The line goes to the log of the run before the frame loop starts, so `cargo xtas
 
 ## Menus
 
-- Home gets an `Audio` row after `Display`, when systems exist. The empty home keeps its one `Display` row, so the boot picture of the image check does not change.
+- The audio panel is a panel of the Settings page (`docs/spec/ui-navigation.md`): home, also with no games, has one `Settings` row, and `Settings > Audio` opens it.
 - `Audio` opens the Audio panel (`screens::AUDIO_PAGE`, screen id `audio`): a framed page with the rows `Volume` and `Audio output`, written at the global level.
 - `Volume` is a number row: left and right step it by 5, and it shows `< 75 % >`. This is the slider control of the settings pages, the same as the scanline strength. The standalone `Slider` template draws a track over two rows and no settings page uses it; putting it in a settings row would change every number row and its goldens, so it is not done here.
 - `Audio output` is a choice row: accept opens the list of its options with `auto` first, each with its detail, as in "The list the user sees".
