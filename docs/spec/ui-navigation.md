@@ -125,13 +125,13 @@ In a game the panel is still listed, and both rows are disabled with the reason 
 
 A run that no launcher with power control started (the desktop window, a bench run of the frontend alone) shows both rows disabled with the reason `Needs the launcher`. The rows stay in the list, so the panel looks the same on every rig and the crawler finds it everywhere. A hidden row would make the desktop and the image differ. The launcher gives power control only with a DRM device, never with `--no-device`, so a desktop run can never reboot the computer it runs on.
 
-#### Format share partition
+#### Format share
 
-A third action row, `Format share partition`, comes after `Shut down`, but only when the storage script offers a format: `storage.toml` holds `share_fix = "format"` with the device, start, size and type of partition 4 (`os/README.md`, "States a user-confirmed format may fix"). With no offer the row is absent, not disabled: no other state has a format that can fix it. In a game the row is disabled with `Not during a game`, and with no power control with `Needs the launcher`, as the other two rows.
+A third action row, `Format share`, comes after `Shut down`, but only when the storage script offers a format: `storage.toml` holds `share_fix = "format"` with the device, start, size and type of partition 4 (`os/README.md`, "States a user-confirmed format may fix"). With no offer the row is absent, not disabled: no other state has a format that can fix it. In a game the row is disabled with `Not during a game`, and with no power control with `Needs the launcher`, as the other two rows.
 
 | Row | Dialog title | Dialog message | Buttons |
 | --- | --- | --- | --- |
-| `Format share partition` | `Format the share partition?` | `The partition for games (<size>) is empty and not in use. Formatting it erases everything on it.` | `Cancel`, `Format share partition` |
+| `Format share` | `Format the share partition?` | `The partition for games (<size>) is empty and not in use. Formatting it erases everything on it.` | `Cancel`, `Format share` |
 
 `<size>` is the size that `storage.toml` names, in decimal units with one decimal: `56.6 GB`, `512.0 MB`. The focus starts on `Cancel`, as for every confirm question.
 

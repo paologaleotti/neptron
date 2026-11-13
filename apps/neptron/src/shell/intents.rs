@@ -177,7 +177,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// The frontend never formats; the script checks the disk again at the
     /// next boot. Ignored with no offer, and when the run takes no reboot.
     ///
-    /// The `Format share partition` row calls it through its intent. It is
+    /// The `Format share` row calls it through its intent. It is
     /// public for the tier 2 tests.
     pub fn request_share_format(&mut self) {
         let Some(offer) = self.share_offer.clone() else {

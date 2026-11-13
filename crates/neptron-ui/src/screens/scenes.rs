@@ -697,7 +697,7 @@ fn system_shutting_down(frame: &mut UiFrame, theme: &Theme) {
     );
 }
 
-/// The action of the fixture `Format share partition` row.
+/// The action of the fixture `Format share` row.
 const FORMAT_SHARE: crate::snapshot::ActionId = crate::snapshot::ActionId(4);
 
 /// The System panel as the app gives it when the storage script offers a
@@ -707,7 +707,7 @@ fn with_format_offer() -> Snapshot {
     snap.settings.rows.push(
         MenuItem::new(
             SettingKey(12),
-            "Format share partition",
+            "Format share",
             SettingValue::Action(FORMAT_SHARE),
         )
         .with_confirm(

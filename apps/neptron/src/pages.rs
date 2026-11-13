@@ -48,11 +48,11 @@ pub const REBOOT: ActionId = ActionId(2);
 /// The action of the `Shut down` row of the System panel.
 pub const POWER_OFF: ActionId = ActionId(3);
 
-/// The action of the `Format share partition` row of the System panel.
+/// The action of the `Format share` row of the System panel.
 pub const FORMAT_SHARE: ActionId = ActionId(4);
 
 /// The label of the row that asks for the format of the share partition.
-pub const FORMAT_SHARE_LABEL: &str = "Format share partition";
+pub const FORMAT_SHARE_LABEL: &str = "Format share";
 
 /// The label of the row that reboots the machine.
 pub const REBOOT_LABEL: &str = "Reboot";

@@ -95,7 +95,7 @@ flowchart TD
 
 ### Share partition: the format that the user confirms
 
-The offer comes after a refusal of the rules above for an empty partition 4 (no marker, another type or start, a marker of other numbers) and after a failed `mkfs.exfat`, never after an unclean probe, a filesystem, or a failed mount. `Settings > System > Format share partition` writes `/state/share-format-request` and reboots. The next boot:
+The offer comes after a refusal of the rules above for an empty partition 4 (no marker, another type or start, a marker of other numbers) and after a failed `mkfs.exfat`, never after an unclean probe, a filesystem, or a failed mount. `Settings > System > Format share` writes `/state/share-format-request` and reboots. The next boot:
 
 ```mermaid
 flowchart TD
