@@ -7,10 +7,7 @@
 #
 # The image has no share partition. On the first boot it is made from the
 # free space after the state partition and formatted exFAT, as the
-# definition asks. A partition is formatted only when it holds no
-# filesystem signature at all: after the stick was written again with a new
-# image, the old share is still on the disk at the same start, and the
-# partition made again over it finds it and keeps it with its games.
+# definition asks; the rules are below.
 
 [ "$1" = start ] || exit 0
 
@@ -48,17 +45,50 @@ if [ -n "$state" ]; then
 	elif ! mount -t ext4 -o noatime "$state" /state; then
 		echo "neptron-storage: $state does not mount; /state is a RAM folder"
 		mount -t tmpfs -o mode=0755 state /state
+	else
+		state_writable=yes
 	fi
 else
 	echo "neptron-storage: no state partition, /state is a RAM folder"
 	mount -t tmpfs -o mode=0755 state /state
 fi
 
+# The share partition (partition 4) is made and formatted by this script
+# only. It formats a partition 4 only when all of these hold, so the games
+# of the user are never formatted away:
+#
+# - The marker /state/share-pending is there: this script wrote it, with a
+#   sync, before it made the partition, and removes it after the first
+#   mount. A partition 4 with no marker is never formatted, whatever is on
+#   it. A stick written again with dd has a new state partition with no
+#   marker; the script makes partition 4 again with a new marker, but only
+#   when the free space holds no old share (the scan below).
+# - Its type is 0x07 and it starts at the first 1 MiB boundary after the
+#   state partition.
+# - Its first 16 MiB read with no error, and blkid exits with 2 (nothing
+#   found) and prints nothing: a read error is never taken for an empty
+#   partition.
+# - Its sector 12 holds no exFAT backup boot sector: a damaged main boot
+#   sector with a good backup is the user's share, not an empty partition.
+#
+# When a check fails, nothing is formatted or mounted, /share is a RAM
+# folder, and one line says why.
+
 # The smallest free space that becomes a share partition, in 512-byte
 # sectors (64 MiB).
 SHARE_MIN_SECTORS=131072
 # sfdisk starts a new partition on the next 1 MiB boundary, in sectors.
 ALIGN_SECTORS=2048
+# The start of the partition that must read cleanly before a format, in
+# MiB.
+READ_CHECK_MIB=16
+# The exFAT backup boot sector is sector 12 of the partition.
+EXFAT_BACKUP_SECTOR=12
+# How far into the free space the script looks for an old share before it
+# makes partition 4, in sectors (4 GiB): layouts of other image versions
+# place the share start within this distance.
+OLD_SHARE_SCAN_SECTORS=8388608
+MARKER=/state/share-pending
 
 sectors() {
 	cat "/sys/class/block/${1#/dev/}/$2"
@@ -68,38 +98,89 @@ state_end() {
 	echo $(($(sectors "$state" start) + $(sectors "$state" size)))
 }
 
-# 0 when the partition holds a filesystem or a partition table, 1 when it
-# holds none, 2 when the probe fails (then nothing may be formatted). blkid
-# also reports the partition entry itself (PART_ENTRY_*), so only TYPE and
-# PTTYPE count.
-signature() {
-	found=$(blkid -p -o export "$1" 2>/dev/null)
-	case $? in
-	0) ;;
-	2) return 1 ;;
-	*) return 2 ;;
-	esac
-	echo "$found" | grep -q -e '^TYPE=' -e '^PTTYPE=' && return 0
-	return 1
+# The 8 bytes of the file system name of the boot sector at sector $2 of
+# device $1 (offset 3 of the sector).
+boot_name() {
+	dd if="$1" bs=512 skip="$2" count=1 2>/dev/null | dd bs=1 skip=3 count=8 2>/dev/null
 }
 
-# A partition 4 that this script made: type 0x07 and its start at the
-# first 1 MiB boundary after the state partition.
-is_our_share() {
+# 0 when blkid finds a filesystem or a partition table on $1, 1 when it
+# finds nothing, 2 when the probe is not clean. blkid also reports the
+# partition entry itself (PART_ENTRY_*), so only TYPE and PTTYPE count.
+signature() {
+	errors=$(blkid -p -o export "$1" 2>&1 >/dev/null)
+	found=$(blkid -p -o export "$1" 2>/dev/null)
+	code=$?
+	if [ "$code" -eq 0 ] && echo "$found" | grep -q -e '^TYPE=' -e '^PTTYPE='; then
+		return 0
+	fi
+	if { [ "$code" -eq 2 ] || [ "$code" -eq 0 ]; } && [ -z "$errors" ]; then
+		return 1
+	fi
+	return 2
+}
+
+# The reason partition 4 ($1) may not be formatted, or nothing.
+format_refusal() {
+	if [ ! -e "$MARKER" ]; then
+		echo "it holds no filesystem, and this system did not make it (no $MARKER)"
+		return
+	fi
 	start=$(sectors "$1" start)
 	end=$(state_end)
 	# sfdisk prints the MBR type with a leading space (" 7").
-	[ "$(sfdisk --part-type "$disk_dev" 4 2>/dev/null | tr -d ' ')" = 7 ] &&
-		[ "$start" -ge "$end" ] && [ "$start" -lt $((end + ALIGN_SECTORS)) ]
+	if [ "$(sfdisk --part-type "$disk_dev" 4 2>/dev/null | tr -d ' ')" != 7 ] ||
+		[ "$start" -lt "$end" ] || [ "$start" -ge $((end + ALIGN_SECTORS)) ]; then
+		echo "its type or its start is not those of the share partition of this image"
+		return
+	fi
+	if ! dd if="$1" of=/dev/null bs=1M count="$READ_CHECK_MIB" 2>/dev/null; then
+		echo "its first $READ_CHECK_MIB MiB do not read cleanly"
+		return
+	fi
+	if [ "$(boot_name "$1" "$EXFAT_BACKUP_SECTOR")" = "EXFAT   " ]; then
+		echo "it holds an exFAT backup boot sector, so it is a damaged share"
+		return
+	fi
+}
+
+# The first sector of the free space after the state partition that holds
+# an exFAT boot sector, at a 1 MiB boundary, or nothing.
+old_share() {
+	end=$(state_end)
+	disk_sectors=$(cat "$disk/size")
+	first=$(( (end + ALIGN_SECTORS - 1) / ALIGN_SECTORS * ALIGN_SECTORS ))
+	last=$((first + OLD_SHARE_SCAN_SECTORS))
+	[ "$last" -gt "$disk_sectors" ] && last=$disk_sectors
+	sector=$first
+	while [ "$sector" -lt "$last" ]; do
+		if [ "$(boot_name "$disk_dev" "$sector")" = "EXFAT   " ]; then
+			echo "$sector"
+			return
+		fi
+		sector=$((sector + ALIGN_SECTORS))
+	done
 }
 
 make_partition() {
+	if [ "$state_writable" != yes ]; then
+		echo "neptron-storage: the state partition is not mounted, so no share partition is made"
+		return 1
+	fi
 	free=$(($(cat "$disk/size") - $(state_end)))
 	if [ "$free" -lt "$SHARE_MIN_SECTORS" ]; then
 		echo "neptron-storage: $free free sectors after the state partition, no share partition made"
 		return 1
 	fi
+	found=$(old_share)
+	end=$(state_end)
+	planned=$(( (end + ALIGN_SECTORS - 1) / ALIGN_SECTORS * ALIGN_SECTORS ))
+	if [ -n "$found" ] && [ "$found" != "$planned" ]; then
+		echo "neptron-storage: an old exFAT share starts at sector $found, not at $planned; no share partition made, the disk is left untouched"
+		return 1
+	fi
 	echo "neptron-storage: making partition 4 from $free free sectors"
+	echo "partition 4 made at $(date)" > "$MARKER" && sync || return 1
 	# The root and state partitions of this disk are mounted, so sfdisk
 	# refuses the disk unless forced, and the kernel cannot read the whole
 	# table again. Appending partition 4 leaves the other partitions as
@@ -111,19 +192,20 @@ make_partition() {
 	}
 }
 
-# Formats partition 4 only when it is ours and holds no signature at all.
-# A partition that holds anything is mounted as it is, never formatted.
+# Prepares partition 4 for the mount: a partition with a filesystem stays
+# as it is; an empty one is formatted only by the rules above.
 prepare_share() {
 	signature "$share"
 	case $? in
 	0) return 0 ;;
 	2)
-		echo "neptron-storage: cannot probe $share; it is not formatted"
+		echo "neptron-storage: the share partition $share was left untouched: blkid could not probe it cleanly"
 		return 1
 		;;
 	esac
-	if ! is_our_share "$share"; then
-		echo "neptron-storage: $share holds no filesystem and is not the share partition of this image; it is not formatted"
+	reason=$(format_refusal "$share")
+	if [ -n "$reason" ]; then
+		echo "neptron-storage: the share partition $share was left untouched: $reason"
 		return 1
 	fi
 	echo "neptron-storage: $share holds no filesystem; formatting it exFAT"
@@ -137,6 +219,10 @@ fi
 if [ -n "$share" ] && prepare_share &&
 	mount -t exfat -o noatime,iocharset=utf8 "$share" /share; then
 	echo "neptron-storage: $share mounted at /share"
+	if [ -e "$MARKER" ]; then
+		rm -f "$MARKER"
+		sync
+	fi
 else
 	echo "neptron-storage: no usable share partition, /share is a RAM folder"
 	mount -t tmpfs -o mode=0755 share /share
