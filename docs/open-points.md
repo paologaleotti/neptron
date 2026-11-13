@@ -788,11 +788,11 @@ Each open point is one section:
 ### OP-085: Audio settings: volume and output device.
 
 - Raised by: the owner, after the first hardware session (2026-11-13)
-- Status: open, in work as C12 (in the MVP by the owner's decision)
+- Status: closed by C12, the hardware checks are open
 - Default: before C12 the sink opens the default device at full level and no setting exists. C12 adds `audio.volume` (percent, applied in software after the resampler) and `audio.output` (`auto` or the name of a playback device). A named device that is absent falls back to the default device with a notice, and the setting stays as it is. The image sets the hardware mixer to a known level at boot, so the software volume has the full range.
 - Where: `docs/spec/audio-settings.md`, `crates/neptron-audio`, `crates/neptron-settings`, `crates/neptron-ui`, `apps/neptron`, `os/`
 - How to change: later steps, not in C12: a volume hotkey in a game, a test tone on a device change, a volume per system or per game, a follow of the HDMI device when the monitor changes.
-- Decision: the owner asked for volume and output device in the MVP (2026-11-13).
+- Decision: the owner asked for volume and output device in the MVP (2026-11-13). As built (`docs/spec/audio-settings.md`, ADR 0011): `audio.volume` defaults to 80, because the boot sets the hardware mixer to 0 dB; 100 is bit-exact. The volume has the global, system and game levels. For ALSA, NEPTRON lists the playback PCMs itself (analog, S/PDIF, HDMI/DP) and stores a name such as `hw:CARD=PCH,DEV=3`. A new device takes effect at the next start of the frontend. `auto` takes the one HDMI/DP output with a monitor, else the first analog output, else the default device.
 
 ### OP-086: The Intel display firmware (DMC) is not in the image.
 
@@ -802,3 +802,31 @@ Each open point is one section:
 - Where: `os/board/pc` (kernel config), `os/board/pc/LICENCES.txt`
 - How to change: (a) put the file inside the kernel image with `CONFIG_EXTRA_FIRMWARE`, which places an Intel binary inside the GPL-2.0 kernel image and needs a licence check; (b) build i915 as a module, which changes a recorded design choice; (c) keep it out.
 - Decision:
+
+### OP-087: Which HDMI or DisplayPort audio output has the monitor.
+
+- Raised by: C12 (2026-11-13)
+- Status: open, a fix wanted before the MVP is called done
+- Default: the files in `/proc/asound` do not map a monitor (ELD) to its PCM when a card has more HDMI/DP outputs than monitors. Then the list shows `HDMI/DP 1` to `n` with no monitor name, and `auto` takes the analog output. On the bench (one monitor, three outputs) the owner chooses `HDMI/DP 1` once.
+- Where: `crates/neptron-audio/src/alsa.rs`, `docs/spec/audio-settings.md`
+- How to change: read the `ELD` control of each PCM through `/dev/snd/controlC<N>` (an ioctl in the unsafe module of `neptron-audio`, with a new dependency such as `rustix`), or read the HDMI jack switches of the input devices. Both give the exact mapping. Then `auto` can follow the monitor in use.
+- Decision:
+
+### OP-088: Later steps of the audio settings.
+
+- Raised by: C12 (2026-11-13)
+- Status: open, after the MVP
+- Default: not built: a volume hotkey in a game; a test tone when the output changes; a notice when the device is lost during a game (SDL's device-removed event); a `neptronctl` command that lists the playback devices (today the start log line lists them); Bluetooth audio; a sound server. The mixer step sets a fixed list of control names, so a card with other names keeps its reset state. The `sdl3` crate 0.22.1 can panic on a device name that is not UTF-8; only the window build on a desktop uses that path.
+- Where: `docs/spec/audio-settings.md`, `os/board/pc/rootfs-overlay/etc/init.d/S08neptron-mixer`
+- How to change: one task per step.
+- Decision:
+
+### OP-089: The shared cross-build cache gives stale results between worktrees.
+
+- Raised by: C10 and C12 (2026-11-13)
+- Status: open, a fix wanted soon
+- Default: `cargo xtask os app-check` and `os push` mount every worktree at `/src/repo` and share one target folder in the volume `neptron-cross-<arch>`. When a different worktree built later than the source files of this one changed, cargo takes the old outputs as fresh, and the check fails or, worse, passes on code of a different branch. The workaround is to touch the source files first.
+- Where: `xtask/src/os` (the cross build), OP-072 (the cache strategy)
+- How to change: one target folder per worktree inside the volume (keyed by the worktree path or the branch), with the dependency outputs shared; or mount each worktree at its own path.
+- Decision:
+
