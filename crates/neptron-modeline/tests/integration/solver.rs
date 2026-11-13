@@ -165,13 +165,19 @@ fn a_flat_panel_is_an_error() {
 }
 
 #[test]
-fn a_tv_has_no_crt_range() {
+fn a_tv_is_refused_with_its_own_error() {
     let tv = neptron_types::TvStandard::Ntsc.profile();
+    let error = modelines(&source(320, 240, 60_000), &tv, &open_caps()).unwrap_err();
     assert_eq!(
-        modelines(&source(320, 240, 60_000), &tv, &open_caps()),
-        Err(ModelineError::NoRanges {
+        error,
+        ModelineError::Tv {
             profile: "tv_ntsc".into()
-        })
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "profile tv_ntsc is a TV standard: its modes are a fixed table, and Switchres \
+         calculates for CRT ranges only"
     );
 }
 

@@ -113,7 +113,7 @@ The policy swaps the axes of a turned game and returns the crop in frame pixels.
 
 ## What the solver does
 
-- It accepts a CRT profile with 1 to 10 ranges. A flat-panel profile is an error: it lists its modes, and Switchres does not calculate for it.
+- It accepts a CRT profile with 1 to 10 ranges. A flat-panel profile is an error: it lists its modes, and Switchres does not calculate for it. A TV profile is an error too (`ModelineError::Tv`): its modes are the fixed table of its standard.
 - A range that Switchres refuses, or whose blanking is outside the limits of `neptron-switchres-sys` (Switchres would loop forever on it), is an error with the index of the range and the values in nanoseconds. Every shipped preset passes.
 - It returns at most one candidate per range, best first, in the order of Switchres. The first candidate is the mode that Switchres selects. An empty list means that no range can show the source.
 - From `GpuCaps`, Switchres uses `pclock_min_hz` (its `dotclock_min`) and `interlace`. The highest pixel clock and the largest size are not checked here: the safety validator judges every candidate.

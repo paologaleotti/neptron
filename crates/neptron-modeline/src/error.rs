@@ -11,6 +11,12 @@ pub enum ModelineError {
         /// Id of the profile.
         profile: String,
     },
+    /// The profile is a TV standard. Its modes are a fixed table, and
+    /// Switchres does not calculate for it.
+    Tv {
+        /// Id of the profile.
+        profile: String,
+    },
     /// The profile has no range.
     NoRanges {
         /// Id of the profile.
@@ -111,6 +117,11 @@ impl fmt::Display for ModelineError {
             Self::FlatPanel { profile } => write!(
                 f,
                 "profile {profile} is a flat panel: Switchres calculates for CRT ranges only"
+            ),
+            Self::Tv { profile } => write!(
+                f,
+                "profile {profile} is a TV standard: its modes are a fixed table, \
+                 and Switchres calculates for CRT ranges only"
             ),
             Self::NoRanges { profile } => write!(f, "profile {profile} has no CRT range"),
             Self::TooManyRanges {
