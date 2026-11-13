@@ -1,0 +1,53 @@
+#!/bin/sh
+# Starts a DHCP client on each wired interface. The boot to the game list
+# must never wait for the network, and a PC with no cable must boot as fast
+# as with one: so each client runs as a background job in the foreground
+# mode of udhcpc (-f), and this script returns at once. With no lease,
+# udhcpc tries again by itself. The kernel names wired ports eth* (no udev
+# renames them); en* covers a later rename.
+
+# NEPTRON_RUN and NEPTRON_SYS_NET change /run/neptron and /sys/class/net
+# for a test.
+PIDDIR=${NEPTRON_RUN:-/run/neptron}/dhcp
+SYS_NET=${NEPTRON_SYS_NET:-/sys/class/net}
+
+wired() {
+	for path in "$SYS_NET"/eth* "$SYS_NET"/en*; do
+		[ -e "$path" ] || continue
+		echo "${path##*/}"
+	done
+}
+
+start() {
+	mkdir -p "$PIDDIR"
+	for iface in $(wired); do
+		ip link set dev "$iface" up 2>/dev/null
+		# -R releases the lease at stop; -x hostname lets a router that
+		# keeps a local DNS resolve the name of the PC.
+		udhcpc -f -R -S -i "$iface" -x "hostname:$(hostname)" \
+			-p "$PIDDIR/$iface.pid" > /dev/null 2>&1 < /dev/null &
+		echo "neptron-network: DHCP on $iface in the background"
+	done
+}
+
+stop() {
+	for file in "$PIDDIR"/*.pid; do
+		[ -r "$file" ] || continue
+		kill "$(cat "$file")" 2>/dev/null
+		rm -f "$file"
+	done
+}
+
+case "$1" in
+start) start ;;
+stop) stop ;;
+restart)
+	stop
+	start
+	;;
+*)
+	echo "usage: $0 start|stop|restart"
+	exit 1
+	;;
+esac
+exit 0

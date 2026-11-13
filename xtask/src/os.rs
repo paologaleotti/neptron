@@ -15,6 +15,8 @@ mod cross;
 mod defconfig;
 mod guest;
 mod host;
+#[cfg(test)]
+mod network_share;
 mod qemu;
 mod selftest_check;
 mod trace;

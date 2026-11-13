@@ -310,12 +310,14 @@ mod tests {
         // r8169 asks for its firmware when the port opens, after the root
         // filesystem mounts, so the file in /lib/firmware is enough.
         assert_eq!(fragment("board/pc/network.config")["CONFIG_R8169"], "y");
+        // The release image starts DHCP too, but holds no firmware file: the
+        // RTL8168h of the bench PC got its address with no firmware patch.
         let release = defconfig(Arch::X86_64);
         assert!(
             !release
                 .keys()
                 .any(|k| k.starts_with("BR2_PACKAGE_LINUX_FIRMWARE")),
-            "the release image starts no network and needs no firmware"
+            "the release image holds no firmware"
         );
     }
 
