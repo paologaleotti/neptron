@@ -93,6 +93,9 @@ fn the_server_shares_only_the_share_partition_to_guests_over_smb2_or_newer() {
         ("guest ok", "yes"),
         ("read only", "no"),
         ("store dos attributes", "no"),
+        // The fixed account works with exactly the rights of a guest.
+        ("force user", "nobody"),
+        ("force group", "nobody"),
     ] {
         assert_eq!(share.get(key).map(String::as_str), Some(value), "{key}");
     }
@@ -101,21 +104,13 @@ fn the_server_shares_only_the_share_partition_to_guests_over_smb2_or_newer() {
             "wide links",
             "follow symlinks",
             "root directory",
-            "force user",
-            "force group",
             "interfaces",
             "server max protocol",
         ] {
             assert!(!params.contains_key(key), "[{name}] sets {key}");
         }
     }
-    assert!(
-        !os_dir()
-            .join(OVERLAY)
-            .join("etc/ksmbd/ksmbdpwd.db")
-            .exists(),
-        "no user database: every client is a guest"
-    );
+    assert!(!global.contains_key("force user"), "only the share forces");
     let subauth = read(&format!("{OVERLAY}/etc/ksmbd/ksmbd.subauth"));
     let fields: Vec<&str> = subauth.trim_end_matches('\n').split(':').collect();
     assert_eq!(fields.len(), 3, "{subauth}");
@@ -175,6 +170,7 @@ fn both_images_and_both_variants_have_the_share() {
         "etc/init.d/S45neptron-share",
         "etc/ksmbd/ksmbd.conf",
         "etc/ksmbd/ksmbd.subauth",
+        "etc/ksmbd/ksmbdpwd.db",
         "etc/neptron/mdns.d/smb.service",
     ] {
         assert!(post_build.contains(path), "{path}");
@@ -593,6 +589,7 @@ fn post_build(dir: &TempDir, interfaces: &str, read_only: bool) -> (bool, String
         "etc/init.d/S45neptron-share",
         "etc/ksmbd/ksmbd.conf",
         "etc/ksmbd/ksmbd.subauth",
+        "etc/ksmbd/ksmbdpwd.db",
         "etc/neptron/mdns.d/smb.service",
         "etc/init.d/S50mdnsd",
     ] {
@@ -673,4 +670,213 @@ fn dhcp_starts_no_second_client_on_a_port() {
         !dir.path("started-eth0").exists(),
         "a second client on eth0"
     );
+}
+
+/// One round of MD4: its function, its constant, the order of the words
+/// and the four shifts.
+type Md4Round = (fn(u32, u32, u32) -> u32, u32, [usize; 16], [u32; 4]);
+
+/// MD4 (RFC 1320), for the NT hash of the published password.
+fn md4(message: &[u8]) -> [u8; 16] {
+    let mut data = message.to_vec();
+    let bits = (message.len() as u64).wrapping_mul(8);
+    data.push(0x80);
+    while data.len() % 64 != 56 {
+        data.push(0);
+    }
+    data.extend_from_slice(&bits.to_le_bytes());
+    let mut h: [u32; 4] = [0x6745_2301, 0xefcd_ab89, 0x98ba_dcfe, 0x1032_5476];
+    for block in data.chunks(64) {
+        let x: Vec<u32> = block
+            .chunks(4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+            .collect();
+        let [mut a, mut b, mut c, mut d] = h;
+        let rounds: [Md4Round; 3] = [
+            (
+                |x, y, z| (x & y) | (!x & z),
+                0,
+                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                [3, 7, 11, 19],
+            ),
+            (
+                |x, y, z| (x & y) | (x & z) | (y & z),
+                0x5a82_7999,
+                [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15],
+                [3, 5, 9, 13],
+            ),
+            (
+                |x, y, z| x ^ y ^ z,
+                0x6ed9_eba1,
+                [0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15],
+                [3, 9, 11, 15],
+            ),
+        ];
+        for (f, k, order, shifts) in rounds {
+            for (i, &j) in order.iter().enumerate() {
+                let t = a
+                    .wrapping_add(f(b, c, d))
+                    .wrapping_add(x[j])
+                    .wrapping_add(k)
+                    .rotate_left(shifts[i % 4]);
+                (a, b, c, d) = (d, t, b, c);
+            }
+        }
+        h = [
+            h[0].wrapping_add(a),
+            h[1].wrapping_add(b),
+            h[2].wrapping_add(c),
+            h[3].wrapping_add(d),
+        ];
+    }
+    let mut out = [0; 16];
+    for (i, word) in h.iter().enumerate() {
+        out[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+    }
+    out
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(char::from(TABLE[(n >> (18 - 6 * i) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn md4_and_base64_match_their_reference_vectors() {
+    let hex = |b: [u8; 16]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    assert_eq!(hex(md4(b"")), "31d6cfe0d16ae931b73c59d7e0c089c0");
+    assert_eq!(hex(md4(b"abc")), "a448017aaf21d8525fc10ae87aa6729d");
+    assert_eq!(
+        hex(md4(
+            b"12345678901234567890123456789012345678901234567890123456789012345678901234567890"
+        )),
+        "e33b4ddc9c38f2199c3e7b164fcc0536"
+    );
+    assert_eq!(base64(b"Man"), "TWFu");
+    assert_eq!(base64(b"Ma"), "TWE=");
+    assert_eq!(base64(b"M"), "TQ==");
+}
+
+/// The published account of the share: Windows 11 24H2 refuses guest
+/// sessions, and a login with a password can sign. The password is public.
+const SHARE_USER: &str = "neptron";
+const SHARE_PASSWORD: &str = "neptron";
+
+#[test]
+fn the_user_database_holds_the_published_account_only() {
+    // ksmbd-tools 3.5.2 (adduser/user_admin.c) stores base64 of the MD4 of
+    // the UTF-16LE password, one `name:hash` line per user.
+    let utf16: Vec<u8> = SHARE_PASSWORD
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let line = format!("{SHARE_USER}:{}\n", base64(&md4(&utf16)));
+    assert_eq!(line, "neptron:GVMrF6dHlJsKwpNZhfO/3Q==\n");
+    assert_eq!(read(&format!("{OVERLAY}/etc/ksmbd/ksmbdpwd.db")), line);
+}
+
+#[test]
+fn the_share_account_has_no_system_login() {
+    let table = read("board/common/users.table");
+    let lines: Vec<&str> = table
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .collect();
+    assert_eq!(lines.len(), 1, "{table}");
+    let fields: Vec<&str> = lines[0].split_whitespace().collect();
+    assert_eq!(fields[0], SHARE_USER);
+    assert_eq!(fields[4], "*", "no password: login is not allowed");
+    assert_eq!(fields[5], "-", "no home folder");
+    assert_eq!(fields[6], "/bin/false", "no shell");
+    for arch in [Arch::Aarch64, Arch::X86_64] {
+        let options = defconfig(arch);
+        assert_eq!(
+            options.get("BR2_ROOTFS_USERS_TABLES").map(String::as_str),
+            Some("$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/users.table"),
+            "{arch:?}"
+        );
+        assert_eq!(
+            options
+                .get("BR2_ROOTFS_POST_FAKEROOT_SCRIPT")
+                .map(String::as_str),
+            Some("$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/post-fakeroot.sh"),
+            "{arch:?}: the check of the account runs after Buildroot makes the users"
+        );
+    }
+}
+
+/// Runs the post-fakeroot check on a target with these passwd and shadow
+/// lines for the share account (none for `None`).
+fn account_check(name: &str, passwd: Option<&str>, shadow: Option<&str>) -> (bool, String) {
+    let dir = TempDir::create(&format!("account-{name}"));
+    let etc = dir.path("target/etc");
+    std::fs::create_dir_all(&etc).unwrap();
+    let with = |base: &str, line: Option<&str>| match line {
+        Some(line) => format!("{base}{line}\n"),
+        None => base.to_owned(),
+    };
+    std::fs::write(
+        etc.join("passwd"),
+        with("root:x:0:0:root:/root:/bin/sh\n", passwd),
+    )
+    .unwrap();
+    std::fs::write(
+        etc.join("shadow"),
+        with("root::10933:0:99999:7:::\n", shadow),
+    )
+    .unwrap();
+    let out = Command::new("sh")
+        .arg(os_dir().join("board/common/post-fakeroot.sh"))
+        .arg(dir.path("target"))
+        .output()
+        .unwrap();
+    (
+        out.status.success(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn the_post_fakeroot_check_refuses_a_share_account_that_can_log_in() {
+    let passwd = "neptron:x:1000:1000:NEPTRON network share account:/:/bin/false";
+    let shadow = "neptron:*:::::::";
+    let (ok, err) = account_check("good", Some(passwd), Some(shadow));
+    assert!(ok, "{err}");
+    let nologin = "neptron:x:1000:1000::/:/sbin/nologin";
+    assert!(account_check("nologin", Some(nologin), Some("neptron:!:::::::")).0);
+    for (name, passwd, shadow, fault) in [
+        ("nouser", None, Some(shadow), "no user neptron"),
+        ("noshadow", Some(passwd), None, "no shadow entry"),
+        (
+            "shell",
+            Some("neptron:x:1000:1000::/:/bin/sh"),
+            Some(shadow),
+            "a login shell",
+        ),
+        (
+            "hash",
+            Some(passwd),
+            Some("neptron:$1$abcdefgh$0123456789abcdefghijkl:::::::"),
+            "a password",
+        ),
+        ("empty", Some(passwd), Some("neptron::::::::"), "a password"),
+    ] {
+        let (ok, err) = account_check(name, passwd, shadow);
+        assert!(!ok, "{name}");
+        assert!(err.contains(fault), "{name}: {err}");
+    }
 }

@@ -1,0 +1,5 @@
+# The published account of the network share (docs/spec/network-share.md):
+# ksmbd.mountd maps a login to the system user of the same name. The
+# password "*" allows no system login, and /bin/false is no shell; the SMB
+# password is in /etc/ksmbd/ksmbdpwd.db.
+neptron 1000 neptron 1000 * - /bin/false - NEPTRON network share account

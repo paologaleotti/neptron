@@ -29,7 +29,7 @@ if grep -q 'inet dhcp' "$interfaces"; then
 	echo "post-build: /etc/network/interfaces of the image still starts DHCP; S40neptron-network does it" >&2
 	exit 1
 fi
-for path in etc/init.d/S45neptron-share etc/ksmbd/ksmbd.conf etc/ksmbd/ksmbd.subauth \
+for path in etc/init.d/S45neptron-share etc/ksmbd/ksmbd.conf etc/ksmbd/ksmbd.subauth etc/ksmbd/ksmbdpwd.db \
 	etc/neptron/mdns.d/smb.service; do
 	if [ ! -f "$target/$path" ]; then
 		echo "post-build: the image has no /$path of the network share" >&2
