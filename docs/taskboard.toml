@@ -371,3 +371,31 @@ owns = ["docs/spec/audio-settings.md", "crates/neptron-audio", "crates/neptron-s
 needs = ["T28"]
 gate = "T1 and T2"
 status = "merged"
+
+[[task]]
+id = "C13"
+wave = 8
+name = "SMB share for the games folder, on by default in every image (OP-079)"
+owns = ["os", "docs/spec/network-share.md", "xtask/src/os"]
+needs = ["T28"]
+gate = "T1; image build and boot checks by the orchestrator"
+status = "in_progress"
+
+[[task]]
+id = "C14"
+wave = 8
+name = "Library rescan without a restart (OP-078)"
+owns = ["crates/neptron-library", "apps/neptron", "crates/neptron-ui"]
+needs = ["C12"]
+gate = "T1 and T2"
+status = "in_progress"
+
+[[task]]
+id = "C15"
+wave = 8
+name = "Settings under one home row, submenu arrows, breadcrumb, quick menu pages (OP-090), spec first"
+owns = ["docs/spec/ui-navigation.md", "crates/neptron-ui", "apps/neptron"]
+needs = ["C12", "C10", "C11"]
+gate = "T1 and T2; every golden change looked at and explained"
+status = "in_progress"
+

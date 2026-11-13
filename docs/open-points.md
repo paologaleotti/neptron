@@ -656,7 +656,7 @@ Each open point is one section:
 - Default: the repository `D0023R/linux_kernel_15khz` has a GPL-3.0 LICENSE file, and its patches carry no licence line. The Linux kernel is GPL-2.0-only, and GPL-3.0-only code cannot be combined with it. The owner decided (2026-11-12): the images built now include the pinned patch set, because the project is far from a public release. No image with these patches is given to anybody until this point is closed. The owner asked the author to state the licence of the patches: https://github.com/D0023R/linux_kernel_15khz/issues/22
 - Where: `os/patches/linux`, `os/README.md`, the licence notes on the boot partition
 - How to change: when the author states GPL-2.0 for the patches, record the answer here and in `os/README.md` and close the point. With no answer or a GPL-3.0-only answer, build the distributed image without the patches, or write the 15 kHz support again from the kernel documentation.
-- Decision: the owner (2026-11-12): include the patches for now, ask the author, keep this reminder. Plan agreed with the owner: (1) keep the pinned set in private images for now. (2) On the bench, run the self-test also on a kernel built without the patches, and record which modes the unpatched driver refuses (pixel clock floor, interlace). NEPTRON sets every mode through atomic KMS and uses super-width modes, so it needs only that the driver accepts its modes, not the console and mode-table parts of the set. (3) Write only the needed change as our own patch, from the kernel source and documentation and without the text of the set, keep it in `os/patches` under GPL-2.0, and remove the pinned set. A copy or an adapted copy of the set does not clear the licence. If the author states GPL-2.0 first, the pinned set can stay. The files of the set are not committed to this repository; the pin is a commit id and hashes.
+- Decision: the owner (2026-11-12): include the patches for now, ask the author, keep this reminder. Plan agreed with the owner: (1) keep the pinned set in private images for now. (2) On the bench, run the self-test also on a kernel built without the patches, and record which modes the unpatched driver refuses (pixel clock floor, interlace). NEPTRON sets every mode through atomic KMS and uses super-width modes, so it needs only that the driver accepts its modes, not the console and mode-table parts of the set. (3) Write only the needed change as our own patch, from the kernel source and documentation and without the text of the set, keep it in `os/patches` under GPL-2.0, and remove the pinned set. A copy or an adapted copy of the set does not clear the licence. If the author states GPL-2.0 first, the pinned set can stay. The files of the set are not committed to this repository; the pin is a commit id and hashes. Owner, 2026-11-13: every release image includes the 15 kHz patches. The author has not answered issue 22 yet (checked 2026-11-13). If no answer comes, NEPTRON writes its own patches and keeps them in its repository. Until the licence is clear, CI uploads only the image without the patches.
 
 ### OP-071: Owner decisions on flat panels.
 
@@ -719,7 +719,7 @@ Each open point is one section:
 - Default: (1) No release image holds the final code. The release image that passed the gate (SHA-256 fb6dce6c..., kept in `~/.cache/neptron/buildroot/images/x86_64-release-fb6dce6c`) is older than the last fixes. The x86_64 output volume holds the development packages, so the release build refuses it. A release image needs a clean build in an empty output: `cargo xtask os build --arch x86_64 --output x86_64-clean`, about 5 hours and about 45 GB in the Docker disk, which has about 9 GB free. Then `os boot-check` on BIOS and UEFI, the size and the SHA-256. (2) The development image is the one for the first bench session: `images/x86_64-dev/neptron-x86_64.img`, SHA-256 4602b70dfd0234658268a219d097556782037f535f589e2acdc2873dca602e6c, with SSH for one public key, the hot folder `/state/hot`, `cargo xtask os push`, `os logs` and `os ssh`, the log under `/state/log`, and the address in `neptron-ip.txt` on the share partition. It was built step by step, not clean. (3) The 15 kHz patch set is in both images (OP-070): nothing is given to anybody. (4) Mesa has the Intel `iris` driver; no firmware files are in the image, so AMD GPUs do not work and the Intel DMC firmware is not loaded. The i915 and amdgpu firmware licences allow redistribution of the binaries only. (5) About 104 MiB of clang libraries that nothing uses are in the root. (6) Before the frontend's first commit a CRT gets the firmware and GRUB picture at 31 kHz or more; the launcher does not blank the output. A 15 kHz-only tube needs a sync-protecting adapter or a late power-on. (7) The share partition is made at first boot. The format rule is strict (a marker, a clean read, no file system and no exFAT backup record). Not run: a real read error, a re-flash with a different layout, a 4096-byte sector disk. A power cut during mkfs leaves a share that needs a format on another computer. (8) A quit in the UI restarts the frontend; nothing powers the PC off. (9) Each variant has a fixed disk signature, so two sticks of one variant in one PC share a PARTUUID. (10) Test tools and QEMU hooks are in the image; they refuse to act unless the DRM driver is vkms. (11) The crates of the frontend are pinned by Cargo.lock checksums through `cargo vendor --locked`. (12) The development image waits for DHCP at boot, so its first frame comes later. (13) The boot check runs only in QEMU; the x86_64 times are emulated.
 - Where: `os/`, `os/README.md`, `xtask/src/os`, `xtask/README.md`
 - How to change: see `os/README.md`, sections "The PC image" and "Working on the bench".
-- Decision:
+- Decision: Owner, 2026-11-13: the release image is built in CI only and is uploaded as a workflow artifact; no local release build.
 
 ### OP-078: The game list does not see new files until the frontend starts again.
 
@@ -728,7 +728,7 @@ Each open point is one section:
 - Default: the library is scanned when the game list run starts. Files copied to the share partition while the list is on screen do not appear. The way out today is a restart of the frontend (quit a game, or `kill -TERM` of the frontend over SSH).
 - Where: `apps/neptron` (the library and its background scan), `crates/neptron-library`
 - How to change: a "Rescan games" row in the menu; a rescan when the list gets the focus again after a game; a watch on the `roms` folders (inotify) with a debounce, so files copied over the network appear by themselves; a progress line while a large scan runs. The scan must stay off the frame thread and check for cancellation.
-- Decision:
+- Decision: Owner, 2026-11-13: do it now (task C14).
 
 ### OP-079: No way to copy games over the network.
 
@@ -737,7 +737,7 @@ Each open point is one section:
 - Default: the image has no SMB server, though `docs/definition` describes one. Games reach the share partition by moving the stick to another computer, or on the development image over SSH (a file is piped through `ssh`, because the SSH server has no SFTP).
 - Where: `os/` (packages, init), `os/README.md`
 - How to change: add Samba (or a small SMB server) with one guest share for `/share`, off by default on the release image or on with a setting; or add SFTP to the development image; and a `cargo xtask os put` command for the bench. A network service on the release image needs a look at its attack surface, and it needs the network (DHCP) on the release image, which today only the development image has.
-- Decision:
+- Decision: Owner, 2026-11-13: an SMB share in every image, development and release, on by default, as Batocera does (task C13).
 
 ### OP-080: Variable refresh rate on flat panels.
 
@@ -746,7 +746,7 @@ Each open point is one section:
 - Default: on a flat panel the policy takes a fixed mode from the panel's list, and the audio rate control absorbs a small rate difference (59.923 Hz game on a 59.951 Hz mode). The owner's monitor (Dell U2724D, 2560x1440) reports a range of 48 to 120 Hz. NEPTRON does not use it.
 - Where: `crates/neptron-backend` (the contract), `crates/neptron-kms` (the `VRR_ENABLED` CRTC property and the `vrr_capable` connector property), `crates/neptron-modeline/src/policy/panel.rs`, `crates/neptron-video/src/status.rs`
 - How to change: a contract change with an ADR: the display reports its variable range; the panel policy takes a "variable" target when the game's rate is inside the range (frame doubling below it); the session presents at the game's own pace; the Video block gets a word for it. Check first what the GPU driver offers: the Intel driver is believed to support variable refresh only on newer generations than the HD 530 of the bench, which is not verified.
-- Decision:
+- Decision: Owner, 2026-11-13: after the MVP; stays open.
 
 ### OP-081: The menu and a game use different modes on a flat panel.
 
@@ -755,7 +755,7 @@ Each open point is one section:
 - Default: on the Dell U2724D the menu runs at 2560x1440 and 120 Hz with each frame shown twice, and a 59.923 Hz game switches to the 59.951 Hz mode. So the panel changes mode when a game starts and ends, with a moment of black each time.
 - Where: `crates/neptron-modeline/src/policy/panel.rs` (the order of the panel proposals), `apps/neptron` (`MENU_SOURCE`)
 - How to change: prefer one mode for both when a listed rate is a whole multiple of the game's rate within the audio control's reach (120 Hz for 60 Hz games); or give the menu the game's mode.
-- Decision:
+- Decision: Owner, 2026-11-13: no change now; the mode change at a game start did not disturb on the bench panel. Stays open for a later look.
 
 
 ### OP-082: The quick menu shows rows that a flat panel ignores.
@@ -829,5 +829,23 @@ Each open point is one section:
 - Default: `cargo xtask os app-check` and `os push` mount every worktree at `/src/repo` and share one target folder in the volume `neptron-cross-<arch>`. When a different worktree built later than the source files of this one changed, cargo takes the old outputs as fresh, and the check fails or, worse, passes on code of a different branch. The workaround is to touch the source files first.
 - Where: `xtask/src/os` (the cross build), OP-072 (the cache strategy)
 - How to change: one target folder per worktree inside the volume (keyed by the worktree path or the branch), with the dependency outputs shared; or mount each worktree at its own path.
+- Decision:
+
+### OP-090: Settings under one home row, a submenu arrow and a breadcrumb.
+
+- Raised by: the owner (2026-11-13)
+- Status: open, in work as C15 (in the MVP by the owner's decision)
+- Default: before C15 the home screen lists each settings panel (Display, Audio) as its own row, a row that opens a page looks like a row that changes a value, and no screen says where the player is.
+- Where: `crates/neptron-ui`, `apps/neptron`, `docs/flows/07-screens.md`
+- How to change: C15: one `Settings` row on home that opens a page with Display, Audio and the other panels; an arrow at the right of every row that opens a page; a breadcrumb in the title bar; the same rules in the quick menu of a game.
+- Decision: the owner asked for it in the MVP (2026-11-13).
+
+### OP-091: `os build` fails to copy the images on a Linux host whose user is not uid 1000.
+
+- Raised by: the CI work (2026-11-13)
+- Status: open
+- Default: the last step of `cargo xtask os build` copies the images as the container user (uid 1000) into the images directory of the host. On a Linux host with another uid the copy fails with "Permission denied" after a complete build. macOS is not affected. The CI workflow gives the directory to uid 1000 before the build.
+- Where: `xtask/src/os` (the image copy), `.github/workflows/images.yml`
+- How to change: run the container with the uid of the caller, or copy the images out with `docker cp`.
 - Decision:
 

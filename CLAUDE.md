@@ -34,7 +34,7 @@ On macOS, xtask runs every command under `taskpolicy -c utility` and holds one o
 
 ## Rules for the run (short form)
 
-1. One task is one local branch `mvp/<task>` in its own worktree `.worktrees/<task>`. Nothing is pushed. No pull requests.
+1. One task is one local branch `mvp/<task>` in its own worktree `.worktrees/<task>`. A task branch is never pushed. Only the orchestrator pushes `main` to `origin`, after a merge with a green gate. No pull requests.
 2. A task starts from current `main` when all its needs are merged.
 3. A task edits only the paths in its "Owns" column. Only the orchestrator edits the root `Cargo.toml`, `Cargo.lock`, `CLAUDE.md`, `docs/taskboard.toml` and `docs/open-points.md`. A new external dependency goes in `[workspace.dependencies]`, in a separate `build(deps)` commit with the reason, and in the task report.
 4. A needed change to a contract, a brief or earlier code goes on a separate small branch: the change, every caller fixed, and an ADR.
