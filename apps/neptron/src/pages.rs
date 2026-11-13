@@ -328,16 +328,30 @@ fn name_option(key: &str, name: String, names: Names<'_>) -> ChoiceOption {
 
 /// The option of an audio output: `auto`, a listed device with its label
 /// and detail, or a stored device that the backend did not list, by its
-/// name.
+/// name. A listed device shows the head of its label in the row.
 fn output_option(name: String, outputs: &[OutputDevice]) -> ChoiceOption {
     if name == AUTO {
         return ChoiceOption::new(name).with_detail(AUTO_OUTPUT_DETAIL);
     }
-    match outputs.iter().find(|o| o.name == name) {
-        Some(device) if device.detail.is_empty() => ChoiceOption::new(device.label.clone()),
-        Some(device) => ChoiceOption::new(device.label.clone()).with_detail(device.detail.clone()),
-        None => ChoiceOption::new(name).with_detail(MISSING_OUTPUT_DETAIL),
+    let Some(device) = outputs.iter().find(|o| o.name == name) else {
+        return ChoiceOption::new(name).with_detail(MISSING_OUTPUT_DETAIL);
+    };
+    let mut option = ChoiceOption::new(device.label.clone());
+    if !device.detail.is_empty() {
+        option = option.with_detail(device.detail.clone());
     }
+    match short_label(&device.label) {
+        Some(short) => option.with_short(short),
+        None => option,
+    }
+}
+
+/// The head of a label of the form `head (where)`, for the value column of
+/// a row: `HDMI/DP 1 (HDA Intel PCH)` gives `HDMI/DP 1`. `None` for a
+/// label with no such tail.
+fn short_label(label: &str) -> Option<&str> {
+    let (head, _) = label.split_once(" (")?;
+    (!head.is_empty()).then_some(head)
 }
 
 /// The option of choice `choice`: for a picture style, with what it gives
@@ -477,6 +491,8 @@ mod tests {
                 ("DELL U2724D (HDMI/DP)", "Monitor connected"),
             ]
         );
+        let shorts: Vec<_> = options.iter().map(|o| o.value_text()).collect();
+        assert_eq!(shorts, ["auto", "Analog", "DELL U2724D"]);
         assert!(!page.rows[1].live);
         let output = config.schema().get(AUDIO_OUTPUT).expect("output");
         assert_eq!(
@@ -484,6 +500,13 @@ mod tests {
             Some(Value::Text("hw:CARD=PCH,DEV=0".to_owned()))
         );
         assert_eq!(value_of(output, UiValue::Choice(3), names, &config), None);
+    }
+
+    #[test]
+    fn a_short_label_is_the_head_before_the_place() {
+        assert_eq!(short_label("HDMI/DP 1 (HDA Intel PCH)"), Some("HDMI/DP 1"));
+        assert_eq!(short_label("Analog"), None);
+        assert_eq!(short_label(" (HDA Intel PCH)"), None);
     }
 
     #[test]

@@ -228,6 +228,10 @@ pub struct ChoiceOption {
     /// Why the player cannot choose the option now, for example
     /// `Needs a 45 kHz monitor`. `None` when the player can choose it.
     pub unavailable: Option<String>,
+    /// A short form of the label for the value column of a settings row,
+    /// for example `HDMI/DP 1` for `HDMI/DP 1 (HDA Intel PCH)`. `None`
+    /// shows the label. The option list always shows the label.
+    pub short: Option<String>,
 }
 
 /// One monitor profile.
@@ -463,7 +467,20 @@ impl ChoiceOption {
             label: label.into(),
             detail: String::new(),
             unavailable: None,
+            short: None,
         }
+    }
+
+    /// The same option with `short` in the value column of its row.
+    pub fn with_short(mut self, short: impl Into<String>) -> Self {
+        self.short = Some(short.into());
+        self
+    }
+
+    /// The text of the option in the value column of a settings row: the
+    /// short form, or the label.
+    pub fn value_text(&self) -> &str {
+        self.short.as_deref().unwrap_or(&self.label)
     }
 
     /// The same option with a detail text.
@@ -662,6 +679,15 @@ mod tests {
         assert!(!option.is_enabled());
         assert_eq!(ChoiceOption::from("Auto"), ChoiceOption::new("Auto"));
         assert_eq!(ChoiceOption::from(String::from("Auto")).detail, "");
+    }
+
+    #[test]
+    fn a_choice_option_shows_its_short_form_in_the_value_column() {
+        let option = ChoiceOption::new("HDMI/DP 1 (HDA Intel PCH)");
+        assert_eq!(option.value_text(), "HDMI/DP 1 (HDA Intel PCH)");
+        let option = option.with_short("HDMI/DP 1");
+        assert_eq!(option.value_text(), "HDMI/DP 1");
+        assert_eq!(option.label, "HDMI/DP 1 (HDA Intel PCH)");
     }
 
     #[test]

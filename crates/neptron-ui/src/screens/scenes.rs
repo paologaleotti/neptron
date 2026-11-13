@@ -649,10 +649,12 @@ pub(super) fn audio_rows() -> Vec<MenuItem> {
             2,
             vec![
                 ChoiceOption::new("auto").with_detail("Automatic"),
-                ChoiceOption::new("Analog (HDA Intel PCH)").with_detail("ALC221 Analog"),
-                ChoiceOption::new("HDMI/DP 1 (HDA Intel PCH)"),
-                ChoiceOption::new("HDMI/DP 2 (HDA Intel PCH)"),
-                ChoiceOption::new("HDMI/DP 3 (HDA Intel PCH)"),
+                ChoiceOption::new("Analog (HDA Intel PCH)")
+                    .with_detail("ALC221 Analog")
+                    .with_short("Analog"),
+                ChoiceOption::new("HDMI/DP 1 (HDA Intel PCH)").with_short("HDMI/DP 1"),
+                ChoiceOption::new("HDMI/DP 2 (HDA Intel PCH)").with_short("HDMI/DP 2"),
+                ChoiceOption::new("HDMI/DP 3 (HDA Intel PCH)").with_short("HDMI/DP 3"),
             ],
         ),
         Level::Global,

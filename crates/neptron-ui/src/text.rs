@@ -6,7 +6,7 @@ use core::fmt;
 use crate::font;
 use crate::geom::{Color, Rect};
 use crate::scene::UiScene;
-use crate::snapshot::SettingValue;
+use crate::snapshot::{ChoiceOption, SettingValue};
 
 /// The text drawn after text that the layout cut.
 pub const ELLIPSIS: &str = "...";
@@ -200,7 +200,7 @@ pub fn value_text<'a, const N: usize>(
             buf.as_str()
         }
         SettingValue::Choice { index, options } => {
-            options.get(*index).map_or("?", |o| o.label.as_str())
+            options.get(*index).map_or("?", ChoiceOption::value_text)
         }
         SettingValue::Action(_) | SettingValue::Page(_) => "",
     }
