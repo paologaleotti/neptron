@@ -51,7 +51,16 @@ Both serve a guest share to Windows, macOS and Linux file managers in the same w
 
 So no server lets Windows 11 24H2 connect as guest with no change on the Windows side. The user changes two settings on the PC (the policies "Enable insecure guest logons" on and "Digitally sign communications (always)" off, or the PowerShell command `Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -RequireSecuritySignature $false`). Batocera has the same limit. Windows 10 Home and Pro and Windows 11 before 24H2 are expected to connect as guest with no change. What Windows 11 24H2 Home does is not known here: a hardware check.
 
-A way out for Windows 11 24H2 that needs no change on Windows: a fixed account with a published password (for example user `neptron`, password `neptron`). NTLMv2 gives that session a key, so it can sign. It is not more secure than a guest share, because the password is public, but it is a login. The owner decided "no login", so this task does not add it. It is a later step for the owner (see "Later steps").
+**Prepared, not built: a fixed account for Windows 11 24H2.** The owner has not decided yet. The image does not hold any of this, and nothing below is on.
+
+- What it is: a share account with a published name and password, for example user `neptron` and a password printed in the documentation. A login with a password gives an NTLMv2 session key, so the session can sign, and Windows 11 24H2 accepts it with no change on Windows. The user types the name and the password once (`net use \\NEPTRON\share /user:neptron <password>`, or the prompt of Explorer, with "Remember my credentials").
+- How it works with ksmbd:
+  - The user database `/etc/ksmbd/ksmbdpwd.db` holds one line, `neptron:<base64 of the NT hash of the password>`. `ksmbd.adduser` writes this file, but it runs on the target, and the root is read-only. So the file is made at build time: committed to the overlay (the password is public, so its hash is too) or written by the post-build step. The format must be checked against `ksmbd-tools` 3.5.2 in QEMU before it ships.
+  - `ksmbd.mountd` maps a login to the system user of the same name, so `/etc/passwd` gets a user `neptron` with a locked password and no shell (`BR2_ROOTFS_USERS_TABLES`). It cannot log in to the system: there is no login service.
+  - The share gets `force user = nobody` and `force group = nobody`, so the account has exactly the rights of a guest, and the files stay owned by `nobody`.
+  - `map to guest = bad user` stays, so every other client is still a guest. `guest ok = yes` stays.
+- What it costs: no new package; one passwd entry, one database file and two share options. It is not more secure than the guest share: the password is public. It is a login only in name, and a user can take it for protection that it does not give. A later change of the password needs the database on the state partition (`ksmbd.mountd -P`) and a settings row.
+- The pinned tests would change: the test that refuses `force user` and a user database would then require exactly this one account.
 
 **macOS and Linux.** Finder ("Connect As: Guest") and the file managers of GNOME (gvfs) and KDE (KIO, smbclient) connect to an SMB2 or SMB3 guest share. Whether a current macOS requires signing on its client by default is not sure here: a hardware check.
 
@@ -82,13 +91,22 @@ A way out for Windows 11 24H2 that needs no change on Windows: a fixed account w
 
 The release image now opens an **open, writable guest share on the local network, on by default**. The owner decided this. Anyone on the same network can read, add, change and delete every file of the share partition: the games, the BIOS files, and anything else there. This is the Batocera habit. It is for a home network only: do not forward port 445 to the internet, and do not plug the PC into a network you do not trust.
 
+What any host on the local network can reach, and what runs as root behind it:
+
+- **Files that NEPTRON parses.** Any host can put a crafted ROM, archive (zip) or BIOS file on the share. The library scan reads it, and a core loads it, as root and with no sandbox. So every parser bug in a core, in the archive code or in the library scan is reachable from the network, with no login. A file that crashes a core is the small case; a file that takes over the process runs code as root.
+- **The RPC of `ksmbd.mountd`.** The kernel server passes the requests on the automatic `IPC$` share (the share list, `srvsvc`, `wkssvc`, `samr`, `lsarpc`) to `ksmbd.mountd`, which parses them in user space as root. Any client reaches this as a guest, before any real login. A bug in that parser runs code as root.
+- **The answers of a DHCP server.** `udhcpc` and its script (`/usr/share/udhcpc/default.script`) run as root and act on the answer of any DHCP server on the network: the address, the routes, the DNS servers in `/etc/resolv.conf`. A rogue DHCP server on the LAN controls these, and a bug in the parsing of the options runs code as root. `udhcpc` holds UDP port 68 while a lease runs.
+- **The kernel server** itself (below).
+
+What this design does to limit it:
+
 What this design does to limit it:
 
 - **Only the share folder.** The one share is `/share`. `/state` (settings, saves, the guard record), the root and the boot partition are not shared.
 - **No way out of the folder.** The kernel server resolves every path of a request below the share root with `LOOKUP_BENEATH`, so a path with `..` or an absolute link cannot leave it, and it opens, creates, links and renames with `LOOKUP_NO_SYMLINKS`, so it does not follow a symbolic link. exFAT cannot store a symbolic link at all. ksmbd has no `wide links` or `follow symlinks` option to turn this off; the configuration sets no `root directory`.
 - **SMB2 or newer only**: `server min protocol = SMB2_10`. The kernel check fails the build when `CONFIG_SMB_INSECURE_SERVER` (SMB1, gone from current kernels) is on, and `CONFIG_SMB_SERVER_SMBDIRECT` (RDMA) and `CONFIG_SMB_SERVER_KERBEROS5` stay off.
 - **Least rights.** A guest works as the user `nobody`: the kernel server switches to that user's file system identity for each request and drops the capabilities that pass file permissions. `nobody` can write the share and `/tmp`, and nothing else. `ksmbd.mountd` runs as root, because it talks to the kernel server over netlink, which needs `CAP_NET_ADMIN`; it handles the logins and the share list, not the files.
-- **No other open port on the release image.** It opens TCP 445 (the share) and UDP 5353 (mDNS) only. `udhcpc` is a client and accepts no connection. There is still no SSH, no telnet, no web server; the release post-build still fails when it finds an SSH or telnet server. `ksmbd.mountd` gets no user database, so no account exists on the share.
+- **No other open port on the release image.** It listens on TCP 445 (the share) and UDP 5353 (mDNS) only, and `udhcpc` holds UDP 68 for the answers of the DHCP server while it has or asks for a lease (a port scan shows it as open or filtered). `udhcpc` opens no connection that a client can start. There is still no SSH, no telnet, no web server; the release post-build still fails when it finds an SSH or telnet server. `ksmbd.mountd` gets no user database, so no account exists on the share.
 - **The code in the kernel.** ksmbd had serious remote flaws in the past (for example CVE-2022-47939, a use-after-free before login, in Linux 5.15 to 5.19). A flaw in it is a flaw in the kernel. The image must follow the 6.18 LTS releases. This is the main cost of the small server.
 - **Connections**: at most 16 at a time (`max connections = 16`).
 - **The switch.** A file on the state partition turns the share off: `/state/network-share-off` (its content does not matter). When it is there at boot, the share script starts neither the server nor `mdnsd`, so port 445 and port 5353 stay closed. The network (DHCP) stays on. Another computer cannot easily write the state partition (it is ext4), so today the file is made on the development image: `touch /state/network-share-off` over SSH, then `/etc/init.d/S45neptron-share restart` or a reboot. A state partition that does not mount (a RAM folder) cannot hold the file, so the share is on in that case.
@@ -132,7 +150,7 @@ The test image gets the same server so that the boot check can see port 445 list
 
 ## Later steps
 
-- A fixed account with a published password, for Windows 11 24H2 with no change on Windows (owner decision).
+- A fixed account with a published password, for Windows 11 24H2 with no change on Windows: prepared in section 1, off until the owner decides.
 - The settings row "Network share" (the hook above).
 - WS-Discovery (`wsdd2`), so Windows lists the PC under "Network".
 - Wi-Fi with `iwd`.
