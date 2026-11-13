@@ -13,6 +13,7 @@ pub mod config;
 pub mod control;
 pub mod devices;
 pub mod display;
+pub mod display_wait;
 pub mod library;
 pub mod logbook;
 pub mod nav;

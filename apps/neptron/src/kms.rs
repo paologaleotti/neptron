@@ -3,18 +3,19 @@
 
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use neptron::devices::MaybeSink;
 use neptron::display::{AUTO, Detected};
+use neptron::display_wait::{NO_DISPLAY_EXIT_CODE, Waited, display_ready, wait_for_display};
 use neptron::logbook::LogLines;
 use neptron::options::Options;
 use neptron::presets::Presets;
 use neptron::{Devices, NextRun, Runtime, Shell};
 use neptron_audio::{Resampling, Sdl3Sink};
 use neptron_backend::{Clock, Display, InputSource};
-use neptron_kms::{KmsConfig, KmsDisplay};
+use neptron_kms::{ChoiceError, KmsConfig, KmsDisplay, KmsError};
 use neptron_session::RunRateSource;
 use neptron_settings::{Schema, Storage, Target};
 use neptron_types::InputEvent;
@@ -65,6 +66,16 @@ pub fn run(
     };
     let output = Some(setting(neptron_settings::DISPLAY_OUTPUT)).filter(|o| o != AUTO);
     let monitor = setting(neptron_settings::DISPLAY_MONITOR);
+    let clock = Monotonic {
+        start: Instant::now(),
+    };
+    // A named output is used whatever its status, so only `auto` waits.
+    if output.is_none() {
+        wait_for_a_display(&paths.sysfs, &clock, &stop);
+        if stop.load(Ordering::Relaxed) {
+            return ExitCode::SUCCESS;
+        }
+    }
     // Before the display opens, the subconnector is not known: the class
     // here only orders the connectors, and the boot reads the class again
     // for the connector in use.
@@ -87,7 +98,12 @@ pub fn run(
         Ok(display) => display,
         Err(e) => {
             crate::say!("neptron: cannot open the display: {e}");
-            return ExitCode::FAILURE;
+            return match e {
+                KmsError::Choice(ChoiceError::NoneConnected { .. }) => {
+                    ExitCode::from(NO_DISPLAY_EXIT_CODE)
+                }
+                _ => ExitCode::FAILURE,
+            };
         }
     };
     let output = display.connector_name().to_owned();
@@ -118,9 +134,6 @@ pub fn run(
             None
         }
     };
-    let clock = Monotonic {
-        start: Instant::now(),
-    };
     let runtime = Runtime {
         run_rate: RunRateSource::ReadBack,
         resampling: Resampling::Sinc,
@@ -147,4 +160,30 @@ pub fn run(
     };
     let booted = Shell::boot(paths.clone(), devices, runtime, next);
     crate::run_booted(options, booted)
+}
+
+/// Waits a bounded time for a connector that qualifies, and logs the
+/// result. A stop request ends the wait.
+fn wait_for_a_display(sysfs: &std::path::Path, clock: &Monotonic, stop: &AtomicBool) {
+    let pause = |until_ns: u64| {
+        let now_ns = clock.now_ns();
+        if until_ns > now_ns {
+            std::thread::sleep(Duration::from_nanos(until_ns - now_ns));
+        }
+    };
+    let ready = || {
+        stop.load(Ordering::Relaxed)
+            || neptron_platform::detect(sysfs).is_ok_and(|p| display_ready(&p))
+    };
+    match wait_for_display(clock, pause, ready) {
+        Waited::Ready { waited_ns: 0 } => {}
+        Waited::Ready { waited_ns } => crate::say!(
+            "neptron: a display answered after {} ms",
+            waited_ns / 1_000_000
+        ),
+        Waited::TimedOut { waited_ns } => crate::say!(
+            "neptron: no connected display after {} ms",
+            waited_ns / 1_000_000
+        ),
+    }
 }
