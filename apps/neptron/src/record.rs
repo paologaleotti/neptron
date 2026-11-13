@@ -50,14 +50,28 @@ pub enum RecordError {
     },
 }
 
-/// A record as the file holds it: the guard's record and the output the
-/// last known good was confirmed on.
+/// A record as the file holds it: the guard's record and where the last
+/// known good was confirmed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Stored {
     /// The guard's record.
     pub record: GuardRecord,
     /// The connector of the confirmation, `None` in a file that has none.
     pub output: Option<String>,
+    /// The identity of the monitor of the confirmation
+    /// (`Detected::identity`), `None` in a file that has none.
+    pub monitor: Option<String>,
+}
+
+/// Where a last known good was confirmed: the connector and the physical
+/// monitor on it. A preset says nothing about the monitor, so only this
+/// tells a swapped monitor on the same connector.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    /// The connector name, such as `VGA-1`.
+    pub output: String,
+    /// The identity of the monitor: a hash of its EDID, or `none`.
+    pub monitor: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,6 +84,9 @@ struct RecordFile {
     /// Added after version 1 was written; optional, so older files read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     output: Option<String>,
+    /// Added after `output`; optional, so older files read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    monitor: Option<String>,
 }
 
 impl MonitorRef {
@@ -86,14 +103,15 @@ impl MonitorRef {
     }
 }
 
-/// The text of the record file for `record`, confirmed on `output`.
-pub fn encode(record: &GuardRecord, output: Option<&str>) -> String {
+/// The text of the record file for `record`, confirmed at `place`.
+pub fn encode(record: &GuardRecord, place: Option<&Place>) -> String {
     let file = RecordFile {
         version: RECORD_VERSION,
         failed_boots: record.failed_boots,
         safe_mode: record.safe_mode,
         last_known_good: record.last_known_good.as_ref().map(MonitorRef::of),
-        output: output.map(str::to_owned),
+        output: place.map(|p| p.output.clone()),
+        monitor: place.map(|p| p.monitor.clone()),
     };
     // A struct of integers, booleans and strings always serialises.
     toml::to_string(&file).unwrap_or_default()
@@ -123,6 +141,7 @@ pub fn decode(
             safe_mode: file.safe_mode,
         },
         output: file.output,
+        monitor: file.monitor,
     })
 }
 
@@ -148,18 +167,27 @@ pub fn load(
 /// # Errors
 ///
 /// The error of the write.
-pub fn save(path: &Path, record: &GuardRecord, output: Option<&str>) -> io::Result<()> {
-    atomic::write(path, encode(record, output).as_bytes())
+pub fn save(path: &Path, record: &GuardRecord, place: Option<&Place>) -> io::Result<()> {
+    atomic::write(path, encode(record, place).as_bytes())
 }
 
-/// The record for a start on `output`. A last known good confirmed on
-/// another connector, or on an unknown one, is dropped: the guard then
-/// opens the boot prompt and reverts to the safe default for the new
-/// output, because the guard compares monitors only and would otherwise
-/// drive the new display with the old profile and no prompt.
-pub fn for_output(stored: Stored, output: &str) -> GuardRecord {
+/// Whether the last known good of `stored` was confirmed at `place`: the
+/// same connector and the same monitor. A file with no place, or with no
+/// monitor (older files), is not.
+pub fn confirmed_at(stored: &Stored, place: &Place) -> bool {
+    stored.output.as_deref() == Some(place.output.as_str())
+        && stored.monitor.as_deref() == Some(place.monitor.as_str())
+}
+
+/// The record for a start at `place`. A last known good confirmed on
+/// another connector or another monitor, or at an unknown place, is
+/// dropped: the guard then opens the boot prompt and reverts to the safe
+/// default, because the guard compares monitor profiles only and would
+/// otherwise drive the new display with the old profile and no prompt.
+pub fn for_place(stored: Stored, place: &Place) -> GuardRecord {
+    let confirmed = confirmed_at(&stored, place);
     let mut record = stored.record;
-    if stored.output.as_deref() != Some(output) {
+    if !confirmed {
         record.last_known_good = None;
     }
     record
@@ -189,6 +217,13 @@ mod tests {
         })
     }
 
+    fn place(output: &str, monitor: &str) -> Place {
+        Place {
+            output: output.to_owned(),
+            monitor: monitor.to_owned(),
+        }
+    }
+
     fn rebuild(r: &MonitorRef) -> Option<Monitor> {
         match r {
             MonitorRef::Profile { id } if id != "gone" => Some(profile(id)),
@@ -203,11 +238,12 @@ mod tests {
             failed_boots: 1,
             safe_mode: true,
         };
-        let text = encode(&record, Some("VGA-1"));
+        let text = encode(&record, Some(&place("VGA-1", "none")));
         assert!(text.contains("kind = \"profile\""), "{text}");
         let stored = decode(&text, rebuild).expect("decode");
         assert_eq!(stored.record, record);
         assert_eq!(stored.output.as_deref(), Some("VGA-1"));
+        assert_eq!(stored.monitor.as_deref(), Some("none"));
     }
 
     #[test]
@@ -256,24 +292,43 @@ mod tests {
     }
 
     #[test]
-    fn a_last_known_good_of_another_output_is_dropped() {
-        let stored = |output: Option<&str>| Stored {
+    fn a_last_known_good_of_another_output_or_monitor_is_dropped() {
+        let stored = |output: Option<&str>, monitor: Option<&str>| Stored {
             record: GuardRecord {
                 last_known_good: Some(profile("pc_31_120")),
                 failed_boots: 1,
                 safe_mode: false,
             },
             output: output.map(str::to_owned),
+            monitor: monitor.map(str::to_owned),
         };
+        let vga = Some("VGA-1");
+        let here = place("VGA-1", "edid-1");
+        let kept = for_place(stored(vga, Some("edid-1")), &here);
+        assert!(kept.last_known_good.is_some());
+        let none = place("VGA-1", "none");
         assert!(
-            for_output(stored(Some("VGA-1")), "VGA-1")
+            for_place(stored(vga, Some("none")), &none)
                 .last_known_good
-                .is_some()
+                .is_some(),
+            "a monitor with no EDID on both boots"
         );
-        let other = for_output(stored(Some("VGA-1")), "DP-1");
+        let other = for_place(stored(vga, Some("edid-1")), &place("DP-1", "edid-1"));
         assert_eq!(other.last_known_good, None);
         assert_eq!(other.failed_boots, 1, "the counts stay");
-        assert_eq!(for_output(stored(None), "VGA-1").last_known_good, None);
+        let swapped = for_place(stored(vga, Some("edid-1")), &place("VGA-1", "edid-2"));
+        assert_eq!(swapped.last_known_good, None, "another monitor");
+        let unplugged = for_place(stored(vga, Some("edid-1")), &none);
+        assert_eq!(
+            unplugged.last_known_good, None,
+            "a monitor with no EDID now"
+        );
+        assert_eq!(for_place(stored(None, None), &here).last_known_good, None);
+        assert_eq!(
+            for_place(stored(vga, None), &here).last_known_good,
+            None,
+            "a file from before the monitor field"
+        );
     }
 
     #[test]

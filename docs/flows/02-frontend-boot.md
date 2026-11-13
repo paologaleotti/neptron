@@ -19,7 +19,7 @@ flowchart TD
     E -->|"opened"| F["Read class again with subconnector<br/>lower caps if analog"]
     F --> G["Open audio and gamepads<br/>a failure is a notice"]
     G --> H["Shell::boot: presets, settings,<br/>detection, fit to caps"]
-    H --> I["Guard record: load,<br/>for_output, for_continued_boot"]
+    H --> I["Guard record: load,<br/>for_place, for_continued_boot"]
     I --> J["safe and wanted"]
     J -->|"game in NextRun"| K["Session::launch"]
     K -->|"launch fails"| R["Exit 75<br/>relaunch to list with notice"]
@@ -122,7 +122,7 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 | Settings | `state/config` global layer, and for a game its system and game layers | none | A file that cannot be read or parsed is an empty layer and a warning. The boot never stops on bad settings. |
 | Fit the panel | A panel profile and the display caps | `PANEL_WIDTH_MAX_PX` = 3840, `PANEL_HEIGHT_MAX_PX` = 2160 | Native mode too large: notice "The panel's native mode {native} is above what this system sends ({limits}). It runs at {shown}." No mode fits: notice "The panel lists no mode that this system sends ({limits})." and no panel profile. |
 | Load the record | `state/video/guard.toml` | `RECORD_VERSION` = 1 | Missing file: the default record, no notice. Bad file: the default record and the warning "{e}; the guard starts with no last known good". |
-| Drop a foreign last known good | The record's `output` is not the connector of this run, or the file has none | none | `last_known_good` = `None`. The counts stay. |
+| Drop a foreign last known good | The record's `output` is not the connector of this run, or its `monitor` is not the identity of the monitor on it (`Detected::identity`: `edid-` and a hash of the EDID, or `none`), or the file has either field missing | none | `last_known_good` = `None`. The counts stay. |
 | Continued boot | A valid relaunch file | none | `failed_boots` minus 1, not below 0. |
 | `wanted` | `display.monitor` maps to a monitor, and the global picture style and refresh policy map to the policy | none | A monitor error: the safe monitor and the error as a notice. A policy error: the safe settings and the notice "{e}; the safe picture style applies". |
 | Launch a game | `NextRun.game` is set | none | Failure: `Booted::Relaunch` to the list with "{name} did not start: the system {system} is unknown." or "{name} did not start: {e}.". Exit 75. |
@@ -150,7 +150,7 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 - the record is not in safe mode;
 - the monitor of `wanted` is not the last known good of this output.
 
-So the prompt appears on the first boot on any display, after the monitor moved to another connector, after a different EDID monitor is plugged in (its profile id differs), after a preset changed in the settings files, and after a preset file of the last known good was removed. With no answer it reverts after `CONFIRM_WINDOW_NS` = 10 s. A game run never opens it (`Guard::continue_boot`): it starts on the last known good, or in the safe default when nothing was kept, with no notice.
+So the prompt appears on the first boot on any display, after the monitor moved to another connector, after a different monitor is plugged in on the same connector (its EDID hash differs from the record's `monitor`), after a preset changed in the settings files, and after a preset file of the last known good was removed. With no answer it reverts after `CONFIRM_WINDOW_NS` = 10 s. A game run never opens it (`Guard::continue_boot`): it starts on the last known good, or in the safe default when nothing was kept, with no notice.
 
 ## What can go wrong
 
@@ -176,7 +176,7 @@ So the prompt appears on the first boot on any display, after the monitor moved 
 - [kms.rs](../../apps/neptron/src/kms.rs): `run` (settings read before the open, `KmsConfig`, `lower_caps`, audio and gamepads).
 - [boot.rs](../../apps/neptron/src/shell/boot.rs): `Shell::boot`, `load_presets`, `load_record`, `launch`, `BootError`, `Booted`.
 - [display.rs](../../apps/neptron/src/display.rs): `Detected::of`, `Detected::read`, `Detected::fit_to`, `Detected::safe`, `Detected::monitor`, `Detected::auto_is_panel`, `Detected::rebuild`, `Detected::output_for`, `Detected::policy_caps`, `Detected::backend_caps`, `Detected::is_crt`, `SAFE_START_PROFILE`, `AUTO`, `FLAT`, `MonitorError`.
-- [record.rs](../../apps/neptron/src/record.rs): `load`, `save`, `decode`, `encode`, `for_output`, `for_continued_boot`, `MonitorRef`, `RECORD_VERSION`.
+- [record.rs](../../apps/neptron/src/record.rs): `load`, `save`, `decode`, `encode`, `for_place`, `for_continued_boot`, `MonitorRef`, `RECORD_VERSION`.
 - [relaunch.rs](../../apps/neptron/src/relaunch.rs): `take`, `write`, `GameRef::check`, `RELAUNCH_EXIT_CODE`, `RELAUNCH_VERSION`.
 - [config.rs](../../apps/neptron/src/config.rs): `Config::load`, `Config::policy`, `Config::global_policy`, `Config::monitor`.
 - [presets.rs](../../apps/neptron/src/presets.rs): `Presets::load`, `PresetError`.

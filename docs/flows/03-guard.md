@@ -210,12 +210,12 @@ The app takes the id from `Guard::pending()`, so `NoPrompt` and `WrongPrompt` do
 
 ### The record and when it is saved
 
-`GuardRecord` holds `last_known_good` (a monitor, `None` when nothing was kept or the profile cannot be built again), `failed_boots`, and `safe_mode`. The app file `state/video/guard.toml` adds `version` and `output` (the connector of the confirmation).
+`GuardRecord` holds `last_known_good` (a monitor, `None` when nothing was kept or the profile cannot be built again), `failed_boots`, and `safe_mode`. The app file `state/video/guard.toml` adds `version`, `output` (the connector of the confirmation) and `monitor` (the identity of the monitor of the confirmation: `edid-` and a hash of its EDID, or `none` with no EDID).
 
 | When | What changes | How it is written |
 | --- | --- | --- |
 | `Guard::boot` | `failed_boots` + 1, and `safe_mode` = true for `FailedBoots` | Always saved. `record::save` on the frame thread, before the first frame and the first modeset. Temp file, fsync, rename. |
-| `confirm` | Last known good = active monitor, `failed_boots` = 0, `safe_mode` = false. The app sets `output` to this connector. | Writer thread (`Outbox`, `Job::Record`). |
+| `confirm` | Last known good = active monitor, `failed_boots` = 0, `safe_mode` = false. The app sets `output` to this connector and `monitor` to the identity of the monitor on it. | Writer thread (`Outbox`, `Job::Record`). |
 | `GoodBoot` | `failed_boots` = 0 | Writer thread. |
 | `recover`, or a revert or safe entry that sets `safe_mode` | `safe_mode` = true | Writer thread, only when the record changed. |
 | Any other step | Nothing | Not written. |
@@ -258,7 +258,7 @@ A panel that the user has not kept on this output is never the safe default, bec
 | The safe default itself gives no picture (for example `generic_15` on a 31 kHz-only monitor) | No picture. The guard does nothing more: no signal is safe. | Name the right preset in `state/config/global.toml` and keep it at the next boot. |
 | The frontend crashes or hangs before the picture is good | The launcher restarts it. The start counts as a failed boot. After 2 such starts the third starts in `Safe(FailedBoots)`. | Keep a setting, or let the confirmed picture run for 10 s. |
 | The monitor moved to another connector | The record's last known good is dropped. The boot prompt opens; with no answer, the safe default. | Keep the picture. |
-| A different monitor on the same connector, with `display.monitor` = a preset that is the last known good | No prompt: the guard compares monitor profiles, not the physical monitor. The old preset goes to the new monitor. | Blind recovery (Select + Start, 5 s), then pick the right preset and keep it. |
+| A different monitor on the same connector, with `display.monitor` = a preset that is the last known good | The record holds the identity of the monitor of the confirmation. Another EDID (or an EDID where there was none, or none where there was one) drops the last known good, so the boot prompt opens; with no answer, the safe default. A CRT with no EDID on both boots stays confirmed: two such monitors look the same. | Keep the picture, or let it revert. |
 | A different EDID monitor on the same connector, `display.monitor` = `auto` | Its profile id differs, so the last known good does not rebuild. The boot prompt opens. | Keep the picture. |
 | The system clock goes back | A pending change reverts: "The display change went back: the clock went back." | Make the change again. |
 | A game launches while a display change is not kept (a boot prompt with no answer, or a launch through the control protocol while a prompt is open) | The game starts on the last known good monitor, or in the safe default when nothing was kept. No prompt and no notice: the game run continues the boot (`Guard::continue_boot`). | Keep the setting in the game list first. |
@@ -275,7 +275,7 @@ A panel that the user has not kept on this output is never the safe default, bec
 - [frame.rs](../../apps/neptron/src/shell/frame.rs): `list_frame`, `game_frame` (the order: recovery, panel offer, UI, present, `tick`).
 - [view.rs](../../apps/neptron/src/shell/view.rs): `refresh_view`, `refresh_mode`, `CONFIRM_TEXT`.
 - [boot.rs](../../apps/neptron/src/shell/boot.rs): `Shell::boot` (`boot_panel_prompt`, the record write).
-- [record.rs](../../apps/neptron/src/record.rs) (app): `save`, `for_output`, `for_continued_boot`.
+- [record.rs](../../apps/neptron/src/record.rs) (app): `save`, `for_place`, `for_continued_boot`.
 - [overlays.rs](../../crates/neptron-ui/src/screens/overlays.rs): `Confirm::handle`, `Confirm::draw`, `CONFIRM_BUTTONS`, `QUIET_FRAMES_BEFORE_MOVE`.
 - [hotkeys.rs](../../crates/neptron-input/src/hotkeys.rs): `BLIND_RECOVERY_COMBO`, `BLIND_RECOVERY_HOLD_NS`, `Hotkeys::update`.
 

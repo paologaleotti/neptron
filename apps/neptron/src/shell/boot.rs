@@ -100,11 +100,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         );
         detected.fit_to(devices.display.caps());
         found.warn_all(detected.notices.iter().cloned());
-        let (record, record_output) = load_record(
+        let here = record::Place {
+            output: runtime.output.clone(),
+            monitor: detected.identity(),
+        };
+        let (record, record_place) = load_record(
             &paths,
             &detected,
             &presets,
-            &runtime.output,
+            &here,
             next.is_some(),
             &mut found,
         );
@@ -193,7 +197,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             && detected.auto_is_panel()
             && config.monitor() == crate::display::AUTO;
         let unrecorded = step.save.take().and_then(|saved| {
-            record::save(&paths.guard_record(), &saved, record_output.as_deref()).err()
+            record::save(&paths.guard_record(), &saved, record_place.as_ref()).err()
         });
         let library = match library {
             Some(library) => library,
@@ -246,7 +250,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             frame,
             control_queue: queue,
             log: VecDeque::new(),
-            record_output,
+            record_place,
             outcome: None,
         };
         shell.first_snapshot();
@@ -326,23 +330,23 @@ fn load_presets(dir: &Path, found: &mut Found) -> Presets {
     }
 }
 
-/// The record for this start, and the output of its last known good,
-/// which every later write of the record keeps.
+/// The record for this start, and the place of its last known good, which
+/// every later write of the record keeps.
 fn load_record(
     paths: &Paths,
     detected: &Detected,
     presets: &Presets,
-    output: &str,
+    here: &record::Place,
     continued: bool,
     found: &mut Found,
-) -> (GuardRecord, Option<String>) {
+) -> (GuardRecord, Option<record::Place>) {
     let stored = record::load(&paths.guard_record(), |r| detected.rebuild(presets, r))
         .unwrap_or_else(|e| {
             found.warn(format!("{e}; the guard starts with no last known good"));
             record::Stored::default()
         });
-    let kept = (stored.output.as_deref() == Some(output)).then(|| output.to_owned());
-    let record = record::for_output(stored, output);
+    let kept = record::confirmed_at(&stored, here).then(|| here.clone());
+    let record = record::for_place(stored, here);
     let record = if continued {
         record::for_continued_boot(record)
     } else {

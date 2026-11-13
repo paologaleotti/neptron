@@ -597,3 +597,24 @@ fn an_analog_output_never_runs_with_the_digital_limits() {
     let panel = Detected::of(&p, "DP-1", None);
     assert_eq!(panel.policy_caps(&opened), opened);
 }
+
+#[test]
+fn the_identity_names_the_monitor_on_the_driven_connector() {
+    assert_eq!(Detected::default().identity(), NO_EDID_IDENTITY);
+    let one = platform(vec![
+        connector("VGA-1", "VGA", Some(CRT_ANALOG)),
+        connector("HDMI-A-1", "HDMI-A", Some(PANEL_1080P)),
+    ]);
+    let vga = Detected::of(&one, "VGA-1", None).identity();
+    let hdmi = Detected::of(&one, "HDMI-A-1", None).identity();
+    assert!(vga.starts_with("edid-") && vga.len() == 21, "{vga}");
+    assert_ne!(vga, hdmi);
+    assert_eq!(vga, Detected::of(&one, "VGA-1", None).identity(), "stable");
+    let blind = platform(vec![connector("VGA-1", "VGA", None)]);
+    assert_eq!(Detected::of(&blind, "VGA-1", None).identity(), "none");
+    assert_eq!(
+        Detected::of(&one, AUTO, None).identity(),
+        "none",
+        "only the driven connector counts"
+    );
+}

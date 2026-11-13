@@ -12,6 +12,7 @@ use neptron_video::{
 use super::{Shell, Stage};
 use crate::display::{AUTO, SAFE_START_PROFILE};
 use crate::outbox::Job;
+use crate::record::Place;
 
 /// The length of the audio cue of the blind recovery, in milliseconds.
 const CUE_MS: u32 = 200;
@@ -38,12 +39,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// Acts on one step of the guard.
     pub(super) fn on_guard(&mut self, step: GuardStep, now_ns: u64) {
         if matches!(step.event, Some(GuardEvent::Confirmed)) {
-            self.record_output = Some(self.runtime.output.clone());
+            self.record_place = Some(Place {
+                output: self.runtime.output.clone(),
+                monitor: self.detected.identity(),
+            });
         }
         if let Some(record) = step.save {
             self.outbox.send(Job::Record {
                 record,
-                output: self.record_output.clone(),
+                place: self.record_place.clone(),
             });
         }
         let Some(event) = step.event else {
@@ -136,7 +140,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             if let Some(record) = step.save {
                 self.outbox.send(Job::Record {
                     record,
-                    output: self.record_output.clone(),
+                    place: self.record_place.clone(),
                 });
             }
             self.roll_back();

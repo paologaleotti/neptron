@@ -42,6 +42,18 @@ pub const CRT_BUFFER_WIDTH_PX: u16 = 2_560;
 /// modes of a PC CRT.
 pub const CRT_BUFFER_HEIGHT_PX: u16 = 1_200;
 
+/// The monitor identity of a connector that reports no EDID.
+pub const NO_EDID_IDENTITY: &str = "none";
+
+/// FNV-1a 64 of `bytes`: stable on every host and in every build.
+fn fnv1a_64(bytes: &[u8]) -> u64 {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    bytes
+        .iter()
+        .fold(OFFSET, |hash, b| (hash ^ u64::from(*b)).wrapping_mul(PRIME))
+}
+
 /// What the frontend found about the outputs at start.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Detected {
@@ -68,6 +80,9 @@ pub struct Detected {
     /// What the player must know about the detection: a panel mode above
     /// the limits, an EDID that gives no profile.
     pub notices: Vec<String>,
+    /// The FNV-1a 64 hash of the EDID of the named output, the connector
+    /// the backend drives. `None` when it reports no EDID.
+    pub edid_hash: Option<u64>,
 }
 
 /// The monitor a setting names cannot be used.
@@ -135,6 +150,10 @@ impl Detected {
                 display_class(&c.kind, sub, c.edid.as_deref()?).ok()
             })
             .map_or(OutputKind::Analog, DisplayClass::output_kind);
+        let edid_hash = named
+            .and_then(|c| c.edid.as_deref())
+            .filter(|e| !e.is_empty())
+            .map(fnv1a_64);
         Self {
             outputs: connected.iter().map(|c| c.name.clone()).collect(),
             edid,
@@ -143,6 +162,18 @@ impl Detected {
             output,
             digital_caps,
             notices,
+            edid_hash,
+        }
+    }
+
+    /// The identity of the physical monitor on the driven connector, for
+    /// the guard record: `edid-` and the hash of its EDID in 16 hex
+    /// digits, or `none` with no EDID. The hash covers the serial number,
+    /// so two monitors of one model differ.
+    pub fn identity(&self) -> String {
+        match self.edid_hash {
+            Some(hash) => format!("edid-{hash:016x}"),
+            None => NO_EDID_IDENTITY.to_owned(),
         }
     }
 
