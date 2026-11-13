@@ -8,8 +8,10 @@
 //! compares the writeback picture with the reference renderer, measures the
 //! flips, checks the error contract of the fake display, turns the output
 //! off and on again, checks that no modeset happens before the first
-//! commit, and checks the state after drop. Each check prints `PASS` or `FAIL`. The exit code is the number of
-//! failed checks.
+//! commit, checks the TV table modes and the refusal of a TV standard on a
+//! connector without a `TV mode` property, and checks the state after
+//! drop. Each check prints `PASS` or `FAIL`. The exit code is the number
+//! of failed checks.
 //!
 //! Two short runs come first, each in its own process because a process
 //! takes the launcher descriptor once: `--not-drm` with descriptor 3 a pipe,
@@ -51,17 +53,19 @@ mod linux {
     use neptron_backend::{Display, DisplayError};
     use neptron_gfx::gles::{GlesError, GlesRenderer};
     use neptron_gfx::{OutputBuffer, ReferenceRenderer};
-    use neptron_kms::{KmsConfig, KmsDisplay, KmsError, ModeRecord};
+    use neptron_kms::{ConnectorClass, KmsConfig, KmsDisplay, KmsError, ModeRecord};
     use neptron_safety::{ValidatedMode, validate};
     use neptron_types::{
         CrtRange, Filter, FlipEvent, Frame, GpuCaps, Modeline, MonitorKind, MonitorProfile,
-        PixelFormat, Rect, ScanlineKind, Scanlines, Scene,
+        PixelFormat, Rect, ScanlineKind, Scanlines, Scene, TV_525_240P, TV_525_480I, TV_625_288P,
+        TV_625_576I, TvStandard,
     };
 
     /// The device the shell opened on descriptor 3.
     const DEVICE: &str = "/dev/dri/card0";
     const BUFFER_WIDTH: u16 = 1920;
-    const BUFFER_HEIGHT: u16 = 480;
+    /// The tallest test mode is the 576i table mode of a TV.
+    const BUFFER_HEIGHT: u16 = 576;
     /// Flips measured per mode. The dev build draws with software GL at
     /// about 4 frames per second in the guest, so this is about 8 seconds;
     /// the period comes from the kernel's vblank count, not the flip rate.
@@ -338,6 +342,8 @@ mod linux {
             contract_with_mode(&mut check, &mut display, &probe, &scene, &valid, name);
         }
 
+        tv_cases(&mut check, &mut display, &probe);
+
         if let Some(first) = modes.first().and_then(TestMode::validated) {
             let pictures = Pictures::new(1);
             let scene = pictures.scene(first.mode());
@@ -435,6 +441,69 @@ mod linux {
                 other => Err(format!("{other:?}")),
             },
         );
+    }
+
+    /// The four TV table modes commit and read back as plain modes, and a
+    /// mode with a TV standard is refused with no change: `vkms` has no
+    /// `TV mode` property.
+    fn tv_cases(check: &mut Check, display: &mut KmsDisplay, probe: &Probe) {
+        check.report(
+            "the vkms connector is digital and has no TV mode property",
+            expect_eq(
+                (display.connector_class(), display.tv_standards()),
+                (ConnectorClass::Digital, None),
+            ),
+        );
+        let table = [
+            ("TV 240p", TV_525_240P),
+            ("TV 480i", TV_525_480I),
+            ("TV 288p", TV_625_288P),
+            ("TV 576i", TV_625_576I),
+        ];
+        for (name, mode) in table {
+            let panel = MonitorProfile {
+                id: "tv_table_as_panel".to_owned(),
+                kind: MonitorKind::FlatPanel { modes: vec![mode] },
+            };
+            let readback = validate(&mode, &panel, &CAPS)
+                .map_err(|e| e.to_string())
+                .and_then(|valid| display.set_mode(&valid).map_err(|e| e.to_string()));
+            check.report(
+                &format!("{name}: set_mode with no standard returns the request field by field"),
+                readback.and_then(|m| same_mode(&mode, &m)),
+            );
+            check.report(
+                &format!("{name}: a second descriptor reads the same mode"),
+                match probe.mode_of(display.crtc_id()) {
+                    Ok(Some(m)) => same_mode(&mode, &m),
+                    other => Err(format!("{other:?}")),
+                },
+            );
+        }
+        let crtc = display.crtc_id();
+        for standard in TvStandard::ALL {
+            for mode in standard.modes() {
+                let name = format!("{} {}x{}", standard.key(), mode.hactive, mode.vactive);
+                let Ok(valid) = validate(&mode, &standard.profile(), &CAPS) else {
+                    check.report(&format!("{name} passes validate"), Err(String::new()));
+                    continue;
+                };
+                let before = (probe.crtc_prop(crtc, b"MODE_ID"), probe.mode_of(crtc));
+                let result = display.set_mode(&valid);
+                let after = (probe.crtc_prop(crtc, b"MODE_ID"), probe.mode_of(crtc));
+                check.report(
+                    &format!("{name}: a TV standard without a TV mode property is refused and changes nothing"),
+                    match result {
+                        Err(DisplayError::ModeRefused { reason, .. })
+                            if format!("{before:?}") == format!("{after:?}") =>
+                        {
+                            Ok(reason)
+                        }
+                        other => Err(format!("{other:?}, {before:?} before, {after:?} after")),
+                    },
+                );
+            }
+        }
     }
 
     /// `blank` with a flip pending is busy. Then it turns the output off,
