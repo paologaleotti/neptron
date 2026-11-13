@@ -571,9 +571,27 @@ user_format_refusal() {
 			return
 		fi
 	done
-	disk_sectors=$(cat "$disk/size")
-	if [ "$2" -lt "$(state_end)" ] || [ $(($2 + $3)) -gt "$disk_sectors" ]; then
-		echo "cannot be offered a format: it does not lie wholly after the state partition"
+	if [ "$2" -lt "$(state_end)" ]; then
+		echo "cannot be offered a format: it starts before the end of the state partition"
+		return
+	fi
+	if [ $(($2 + $3)) -gt "$(cat "$disk/size")" ]; then
+		echo "cannot be offered a format: it ends after the end of the disk"
+		return
+	fi
+	# Every other entry of the table, a logical partition too, lies wholly
+	# before or after partition 4.
+	overlap=$(printf '%s\n' "$table" |
+		sed -n 's/^\([^ ]*\) : start= *\([0-9]*\), size= *\([0-9]*\),.*/\1 \2 \3/p' |
+		while read -r name from count; do
+			case $name in (*[!0-9]4) continue ;; esac
+			if [ "$from" -lt $(($2 + $3)) ] && [ $((from + count)) -gt "$2" ]; then
+				echo "$name"
+				break
+			fi
+		done)
+	if [ -n "$overlap" ]; then
+		echo "cannot be offered a format: it overlaps $overlap of the partition table"
 		return
 	fi
 	signature "$1"

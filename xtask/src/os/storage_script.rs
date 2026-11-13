@@ -1418,7 +1418,7 @@ fn a_partition_4_over_the_state_partition_is_never_offered_a_format() {
     let start = STATE_START + 2048;
     Run::empty_partition_4("no-offer-overlap", start, "7")
         .start()
-        .assert_no_offer(Some("it does not lie wholly after the state partition"));
+        .assert_no_offer(Some("it starts before the end of the state partition"));
 }
 
 #[test]
@@ -1897,4 +1897,28 @@ fn a_refused_type_change_stops_the_normal_rules() {
     let out = run.start();
     out.assert_request_refused("the partition table changed in more than the type of partition 4");
     out.assert_share_ram("the partition table changed in more than the type of partition 4");
+}
+
+#[test]
+fn a_partition_4_past_the_end_of_the_disk_is_never_offered_a_format() {
+    let run = Run::new("no-offer-past-end");
+    run.table_partition_4(PLANNED, FREE_SECTORS + 2048, "7");
+    run.add_partition(4, PLANNED, FREE_SECTORS + 2048);
+    run.start()
+        .assert_no_offer(Some("it ends after the end of the disk"));
+}
+
+/// Partition 4 must overlap no other entry of the table, not only the
+/// state partition.
+#[test]
+fn a_partition_4_that_overlaps_another_entry_is_never_offered_a_format() {
+    let run = Run::new("no-offer-overlap-1").with_partition_4();
+    let table = std::fs::read_to_string(run.path("table")).unwrap().replace(
+        "start=        2048, size=        1024, type=c",
+        &format!("start={:>12}, size=        1024, type=c", PLANNED + 4096),
+    );
+    std::fs::write(run.path("table"), table).unwrap();
+    let sda1 = format!("{}/dev/sda1", run.dir.display());
+    run.start()
+        .assert_no_offer(Some(&format!("it overlaps {sda1} of the partition table")));
 }
