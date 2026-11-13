@@ -577,6 +577,50 @@ fn config_txt_holds_the_keys_of_the_spec_each_with_its_reason() {
     assert!(post_image.contains("signature=4e505044"), "development");
 }
 
+/// Runs `cmdline.sh` on the real template.
+fn cmdline(signature: &str, variant: &str) -> Output {
+    Command::new("sh")
+        .arg(os_dir().join("board/rpi/cmdline.sh"))
+        .arg(os_dir().join("board/rpi/cmdline.txt"))
+        .arg(signature)
+        .arg(variant)
+        .output()
+        .unwrap()
+}
+
+/// The release kernel is quiet on its console. The development kernel
+/// prints its whole log on the serial port from the start, so a first boot
+/// that stops early can be read there.
+#[test]
+fn only_the_release_kernel_command_line_is_quiet() {
+    let release = cmdline("4e505052", "release");
+    assert!(release.status.success(), "{release:?}");
+    assert_eq!(
+        String::from_utf8(release.stdout).unwrap(),
+        "root=PARTUUID=4e505052-02 rootfstype=erofs ro rootwait quiet \
+         console=serial0,115200 panic=10\n"
+    );
+    let dev = cmdline("4e505044", "dev");
+    assert!(dev.status.success(), "{dev:?}");
+    assert_eq!(
+        String::from_utf8(dev.stdout).unwrap(),
+        "root=PARTUUID=4e505044-02 rootfstype=erofs ro rootwait \
+         console=serial0,115200 panic=10\n"
+    );
+    let bad = cmdline("4e505052", "debug");
+    assert!(!bad.status.success());
+    assert!(stderr(&bad).contains("not 'debug'"), "{bad:?}");
+    let post_image = read("board/rpi/post-image.sh");
+    assert!(
+        post_image.contains(
+            "\"$board/cmdline.sh\" \"$board/cmdline.txt\" \"$signature\" \"$variant\" \
+             > \"$part/cmdline.txt\""
+        ),
+        "post-image.sh writes cmdline.txt through cmdline.sh"
+    );
+    assert!(post_image.contains("[ \"$dev\" = yes ] && variant=dev"));
+}
+
 /// The partitions of the SD card image, as (name, type, image, size).
 fn genimage_partitions(text: &str) -> Vec<(String, String, String, String)> {
     let mut out = Vec::new();
@@ -825,6 +869,7 @@ fn every_external_path_of_the_pi_image_exists() {
         "post-image.sh",
         "check-kernel-config.sh",
         "check-kernel-patches.sh",
+        "cmdline.sh",
     ] {
         let mode = std::fs::metadata(os_dir().join("board/rpi").join(script))
             .unwrap()

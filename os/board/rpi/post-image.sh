@@ -36,7 +36,9 @@ if [ "$dev" = yes ]; then
 	cp "$images/disable-bt.dtbo" "$part/overlays/disable-bt.dtbo"
 	cat "$board/config-dev.txt" >> "$part/config.txt"
 fi
-sed "s/@SIGNATURE@/$signature/g" "$board/cmdline.txt" > "$part/cmdline.txt"
+variant=release
+[ "$dev" = yes ] && variant=dev
+"$board/cmdline.sh" "$board/cmdline.txt" "$signature" "$variant" > "$part/cmdline.txt"
 
 cp "$board/LICENCES.txt" "$part/LICENCES.txt"
 legal=$BASE_DIR/legal-info
