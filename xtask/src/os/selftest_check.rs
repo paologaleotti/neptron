@@ -272,6 +272,7 @@ fn build_program(repo: &Path, cache: &Cache, arch: Arch, share: &Path) -> Result
     })?;
     let plan = cross::CrossPlan {
         arch,
+        output: arch.name().to_owned(),
         container: build::container_image(&text),
         repo: repo.to_path_buf(),
         export: share.to_path_buf(),

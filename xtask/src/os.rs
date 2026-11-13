@@ -51,7 +51,7 @@ pub enum OsError {
     /// The architecture name is not a target.
     #[error(
         "unknown architecture {0:?}; the targets are aarch64 and x86_64, and rpi-arm64 \
-         for os build"
+         for os build, push, logs and ssh"
     )]
     BadArch(String),
     /// A numeric flag holds no positive integer.
@@ -181,7 +181,8 @@ usage: cargo xtask os build [--arch aarch64|x86_64|rpi-arm64] [--jobs N] [--dev-
        cargo xtask os boot-check [--arch A] [--firmware bios|uefi] [--timeout SECS]
                                  [--images DIR] [--bless]
        cargo xtask os share-check [--arch x86_64] [--timeout SECS] [--images DIR]
-       cargo xtask os push --host H [--user U] [--port P] [--data] [--no-restart]
+       cargo xtask os push --host H [--arch x86_64|rpi-arm64] [--output NAME]
+                           [--user U] [--port P] [--data] [--no-restart]
        cargo xtask os logs --host H [--user U] [--port P] [--follow]
        cargo xtask os ssh --host H [--user U] [--port P] -- command...
        cargo xtask kms-check [--arch A] [--timeout SECS]
@@ -425,6 +426,7 @@ pub fn app_check(args: &[&str]) -> Result<ExitCode, OsError> {
     for (package, features) in APP_CHECK_PACKAGES {
         let plan = cross::CrossPlan {
             arch,
+            output: arch.name().to_owned(),
             container: container.clone(),
             repo: repo.root.clone(),
             export: export.clone(),
@@ -482,6 +484,7 @@ pub fn run_guest_check(check: &GuestCheck, args: &[&str]) -> Result<ExitCode, Os
     }
     let plan = cross::CrossPlan {
         arch,
+        output: arch.name().to_owned(),
         container: build::container_image(&text),
         repo: repo.root.clone(),
         export: export.clone(),

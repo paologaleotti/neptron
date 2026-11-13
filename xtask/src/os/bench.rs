@@ -1,5 +1,5 @@
-//! The bench commands for a PC that runs the development variant of the
-//! image: `os push` builds the frontend, the launcher and `neptronctl` in
+//! The bench commands for a PC or a Raspberry Pi that runs the development
+//! variant of its image: `os push` builds the frontend, the launcher and `neptronctl` in
 //! the bench profile and puts them in the hot folder of the PC over SSH,
 //! `os logs` reads the log, and `os ssh` runs a command there.
 //!
@@ -12,7 +12,7 @@ use std::process::{Command, ExitCode};
 use std::time::Instant;
 
 use super::host::{self, Cache, MachineLock};
-use super::{Arch, OsError, build, cross};
+use super::{Board, OsError, build, cross};
 use crate::repo::Repo;
 
 /// The folder of the hot binaries on the PC.
@@ -57,8 +57,14 @@ pub struct Target {
 pub enum Bench {
     /// `os push`.
     Push {
-        /// The PC.
+        /// The PC or the Pi.
         target: Target,
+        /// The image on the machine: its architecture is the target of
+        /// the build.
+        board: Board,
+        /// The Buildroot output whose toolchain and sysroot the build
+        /// uses: the output of the development image on the machine.
+        output: String,
         /// Also replace the data files.
         data: bool,
         /// Restart the launcher and the frontend after the copy.
@@ -89,6 +95,8 @@ impl Bench {
         let mut data = false;
         let mut restart = true;
         let mut follow = false;
+        let mut board = Board::Pc;
+        let mut output = None;
         let mut command = Vec::new();
         let mut it = args.iter();
         while let Some(&arg) = it.next() {
@@ -113,12 +121,16 @@ impl Bench {
                     };
                 }
                 (_, "--arch") => {
-                    if Arch::parse(value()?)? != Arch::X86_64 {
+                    board = Board::parse(value()?)?;
+                    if board == Board::QemuAarch64 {
                         return Err(OsError::Usage(
-                            "the bench commands are for the x86_64 PC image".to_owned(),
+                            "the bench commands are for the x86_64 PC image and the rpi-arm64 \
+                             Pi image"
+                                .to_owned(),
                         ));
                     }
                 }
+                ("push", "--output") => output = Some(value()?.to_owned()),
                 ("push", "--data") => data = true,
                 ("push", "--no-restart") => restart = false,
                 ("logs", "--follow") => follow = true,
@@ -139,6 +151,8 @@ impl Bench {
         match subcommand {
             "push" => Ok(Self::Push {
                 target,
+                board,
+                output: output.unwrap_or_else(|| board.push_output()),
                 data,
                 restart,
             }),
@@ -281,14 +295,18 @@ pub fn run(subcommand: &str, args: &[&str]) -> Result<ExitCode, OsError> {
         Bench::Logs { target, follow } => remote_run(&target, &known_hosts, &logs_script(follow)),
         Bench::Push {
             target,
+            board,
+            output,
             data,
             restart,
-        } => push(&target, &known_hosts, &cache, data, restart),
+        } => push(&target, board, &output, &known_hosts, &cache, data, restart),
     }
 }
 
 fn push(
     target: &Target,
+    board: Board,
+    output: &str,
     known_hosts: &Path,
     cache: &Cache,
     data: bool,
@@ -316,7 +334,8 @@ fn push(
         build::build_container(&build::container_build(&container), &dockerfile)?;
         for (package, features, bin) in PUSHED {
             let plan = cross::CrossPlan {
-                arch: Arch::X86_64,
+                arch: board.arch(),
+                output: output.to_owned(),
                 container: container.clone(),
                 repo: repo.root.clone(),
                 export: export.clone(),
@@ -440,6 +459,8 @@ mod tests {
                     user: "root".to_owned(),
                     port: 22
                 },
+                board: Board::Pc,
+                output: "x86_64".to_owned(),
                 data: false,
                 restart: true,
             }
@@ -467,6 +488,8 @@ mod tests {
                     user: "me".to_owned(),
                     port: 2222
                 },
+                board: Board::Pc,
+                output: "x86_64".to_owned(),
                 data: true,
                 restart: false,
             }
@@ -480,6 +503,33 @@ mod tests {
         ] {
             assert!(Bench::parse("push", bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn a_push_to_a_pi_builds_with_the_toolchain_of_the_pi_output() {
+        let Bench::Push { board, output, .. } =
+            Bench::parse("push", &["--host", "pi", "--arch", "rpi-arm64"]).unwrap()
+        else {
+            panic!("not push");
+        };
+        assert_eq!((board, output.as_str()), (Board::RpiArm64, "rpi-arm64-dev"));
+        let Bench::Push { output, .. } = Bench::parse(
+            "push",
+            &[
+                "--host",
+                "pi",
+                "--arch",
+                "rpi-arm64",
+                "--output",
+                "rpi-arm64",
+            ],
+        )
+        .unwrap() else {
+            panic!("not push");
+        };
+        assert_eq!(output, "rpi-arm64");
+        assert!(Bench::parse("logs", &["--host", "pi", "--arch", "rpi-arm64"]).is_ok());
+        assert!(Bench::parse("logs", &["--host", "pi", "--output", "x"]).is_err());
     }
 
     #[test]

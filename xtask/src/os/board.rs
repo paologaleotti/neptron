@@ -79,6 +79,17 @@ impl Board {
             Self::RpiArm64 => Some("neptron-rpi-arm64.img"),
         }
     }
+
+    /// The Buildroot output whose toolchain and sysroot `os push` uses:
+    /// the output that built the development image of the board. The PC
+    /// development image of the bench was built in the release output
+    /// (`os/README.md`, "The output now holds the development packages").
+    pub fn push_output(self) -> String {
+        match self {
+            Self::QemuAarch64 | Self::Pc => self.name().to_owned(),
+            Self::RpiArm64 => format!("{RPI_ARM64}{}", super::build::DEV_SUFFIX),
+        }
+    }
 }
 
 /// The `--arch` name of the Raspberry Pi image.
@@ -108,6 +119,7 @@ mod tests {
         assert_eq!(Board::RpiArm64.name(), "rpi-arm64");
         assert_eq!(Board::RpiArm64.defconfig(), "neptron_rpi_arm64_defconfig");
         assert_eq!(Board::RpiArm64.disk_image(), Some("neptron-rpi-arm64.img"));
+        assert_eq!(Board::RpiArm64.push_output(), "rpi-arm64-dev");
         assert!(
             Arch::parse("rpi-arm64").is_err(),
             "QEMU cannot boot the Pi image"
@@ -121,6 +133,7 @@ mod tests {
             assert_eq!(board.arch(), arch);
             assert_eq!(board.name(), arch.name());
             assert_eq!(board.defconfig(), arch.defconfig());
+            assert_eq!(board.push_output(), arch.name());
         }
         assert_eq!(Board::Pc.disk_image(), Some("neptron-x86_64.img"));
         assert_eq!(Board::QemuAarch64.dev_fragment(), None);

@@ -11,6 +11,12 @@ use super::build::{CONTAINER_MEMORY, DEFAULT_JOBS};
 pub struct CrossPlan {
     /// The target.
     pub arch: Arch,
+    /// The Buildroot output whose toolchain and sysroot the build uses
+    /// (`neptron-br-out-<output>`), which also names the cross volume of
+    /// the build (`neptron-cross-<output>`). Two outputs of one
+    /// architecture can hold different glibc builds, so each has its own
+    /// Cargo target directory.
+    pub output: String,
     /// The container image, from [`container_image`](super::build::container_image).
     pub container: String,
     /// The checkout, mounted read-only.
@@ -133,7 +139,7 @@ impl CrossPlan {
     }
 
     fn run_with(&self, profile: &[(&str, &str)], command: &[&str]) -> Vec<String> {
-        let arch = self.arch.name();
+        let output = &self.output;
         let host_bin = "/work/out/host/bin";
         let cpus = DEFAULT_JOBS.to_string();
         let mut args = vec!["run".to_owned(), "--rm".to_owned()];
@@ -146,10 +152,10 @@ impl CrossPlan {
         }
         for (source, target) in [
             (
-                format!("{}{arch}", super::build::OUT_VOLUME_PREFIX),
+                format!("{}{output}", super::build::OUT_VOLUME_PREFIX),
                 "/work/out:ro".to_owned(),
             ),
-            (format!("{CROSS_VOLUME_PREFIX}{arch}"), HOME.to_owned()),
+            (format!("{CROSS_VOLUME_PREFIX}{output}"), HOME.to_owned()),
             (self.repo.display().to_string(), "/src/repo:ro".to_owned()),
             (self.export.display().to_string(), "/work/export".to_owned()),
         ] {
@@ -235,6 +241,7 @@ mod tests {
     fn plan() -> CrossPlan {
         CrossPlan {
             arch: Arch::Aarch64,
+            output: "aarch64".to_owned(),
             container: "neptron-dev:0123456789abcdef".to_owned(),
             repo: PathBuf::from("/repo"),
             export: PathBuf::from("/repo/target/gles-compare"),
@@ -468,6 +475,7 @@ mod tests {
     fn the_bench_build_is_the_release_profile_with_line_tables_and_no_lto() {
         let p = CrossPlan {
             arch: Arch::X86_64,
+            output: "x86_64".to_owned(),
             package: "neptron".to_owned(),
             features: "kms,control".to_owned(),
             filtered_linker: true,
@@ -501,6 +509,38 @@ mod tests {
         assert!(
             !plan().steps()[0].join(" ").contains("CARGO_PROFILE"),
             "the other guest builds keep their profile"
+        );
+    }
+
+    #[test]
+    fn a_pi_build_uses_the_pi_output_and_a_cross_volume_of_its_own() {
+        let p = CrossPlan {
+            output: "rpi-arm64-dev".to_owned(),
+            package: "neptron".to_owned(),
+            features: "kms,control".to_owned(),
+            filtered_linker: true,
+            ..plan()
+        };
+        for step in p.bench_steps("neptron") {
+            let line = step.join(" ");
+            assert!(
+                line.contains("--volume neptron-br-out-rpi-arm64-dev:/work/out:ro"),
+                "{line}"
+            );
+            assert!(
+                line.contains("--volume neptron-cross-rpi-arm64-dev:/home/br"),
+                "{line}"
+            );
+            assert!(!line.contains("neptron-br-out-aarch64"), "{line}");
+        }
+        let build = p.bench_steps("neptron")[0].join(" ");
+        assert!(
+            build.contains("NEPTRON_LINK_CC=/work/out/host/bin/aarch64-buildroot-linux-gnu-gcc"),
+            "{build}"
+        );
+        assert!(
+            build.ends_with("--target aarch64-unknown-linux-gnu"),
+            "{build}"
         );
     }
 
