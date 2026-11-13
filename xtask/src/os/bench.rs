@@ -223,15 +223,15 @@ pub fn install_script(data: bool) -> String {
 /// The shell script on the PC that restarts the launcher and the frontend
 /// with the hold file: the launch script waits while the file exists, so
 /// init cannot start the old launcher in the gap, and the next start reads
-/// the hot folder again. The launcher forwards SIGTERM to the frontend and
-/// waits for it, but SDL3 in the frontend catches SIGTERM and the KMS run
-/// does not end on it, so a frontend still there after 5 s gets SIGKILL;
-/// the launcher, already stopping, then ends too.
+/// the hot folder again. The launcher forwards SIGTERM to the frontend,
+/// which ends its run as a quit. A frontend still there after 10 s gets
+/// SIGKILL as a fallback, with a line that says so.
 pub const RESTART_SCRIPT: &str = "touch /run/neptron/hold; \
     kill $(pidof neptron-launch) 2>/dev/null; \
-    n=0; while pidof neptron-launch > /dev/null && [ $n -lt 50 ]; do usleep 100000; n=$((n + 1)); done; \
-    if pidof neptron > /dev/null; then kill -KILL $(pidof neptron); fi; \
-    n=0; while pidof neptron-launch > /dev/null && [ $n -lt 50 ]; do usleep 100000; n=$((n + 1)); done; \
+    n=0; while pidof neptron-launch > /dev/null && [ $n -lt 100 ]; do usleep 100000; n=$((n + 1)); done; \
+    if pidof neptron > /dev/null; then \
+    echo 'fallback: the frontend did not end on SIGTERM in 10 s; SIGKILL'; kill -KILL $(pidof neptron); \
+    n=0; while pidof neptron-launch > /dev/null && [ $n -lt 50 ]; do usleep 100000; n=$((n + 1)); done; fi; \
     rm -f /run/neptron/hold; \
     if pidof neptron-launch > /dev/null; then echo 'the launcher did not stop'; exit 1; fi; \
     echo 'the launcher and the frontend start again'";
