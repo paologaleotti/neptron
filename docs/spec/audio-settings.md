@@ -136,7 +136,9 @@ pub trait AudioOutputs {
 - For any other driver (the desktop window on macOS, for example): one entry for each device, labelled with its raw name.
 - An empty card part, or a raw name with no `:`, keeps the raw name as the label.
 
-The menu shows `auto` first, then the list. A stored name that is not in the list stays an option, labelled with its raw name and the detail `Not connected`, so the row shows what the file holds. The detail of a listed option is its raw name.
+The menu shows `auto` first, with the detail `System default`, then the list. The detail of a listed option is the device part of its raw name (`ALC221 Analog`), so a row stays short enough not to be cut. A stored name that is not in the list stays an option, labelled with its raw name and the detail `Not connected`, so the row shows what the file holds.
+
+SDL's ALSA backend lists its default device as a device of its own, `ALSA default playback device`. `Sdl3Outputs::devices` leaves it out, because `auto` stands for it. With another driver every device stays in the list.
 
 On the bench this gives two options: `auto` and `HDA Intel PCH`. Both play on the analog output. HDMI audio on the HDA card is not reachable (open point below).
 
