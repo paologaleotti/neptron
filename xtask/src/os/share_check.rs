@@ -32,6 +32,8 @@
 //! 1. `retype-offered`: the offer names type 83; the guest writes the
 //!    request.
 //! 2. `retyped`: the script sets type 7 with sfdisk, formats and mounts.
+//! 3. `retype-again`: the disk still boots after sfdisk wrote its MBR, and
+//!    the share mounts with no format.
 //!
 //! Each boot checks `/run/neptron/storage.toml`, `/proc/mounts` and the
 //! lines of the storage script in `/var/log/messages`.
@@ -142,7 +144,7 @@ impl Case {
         match self {
             Self::Rewrite => &[Step::Fresh, Step::Rewritten, Step::Again],
             Self::Offer => &[Step::Offered, Step::Formatted, Step::Kept, Step::Refused],
-            Self::Retype => &[Step::RetypeOffered, Step::Retyped],
+            Self::Retype => &[Step::RetypeOffered, Step::Retyped, Step::RetypeAgain],
         }
     }
 
@@ -178,6 +180,8 @@ pub enum Step {
     RetypeOffered,
     /// The boot after that request: type 7, formatted and mounted.
     Retyped,
+    /// A normal boot after the type change.
+    RetypeAgain,
 }
 
 impl Step {
@@ -193,6 +197,7 @@ impl Step {
             Self::Refused => "refused",
             Self::RetypeOffered => "retype-offered",
             Self::Retyped => "retyped",
+            Self::RetypeAgain => "retype-again",
         }
     }
 
@@ -231,7 +236,7 @@ pub fn guest_script(step: Step, nonce: &str) -> String {
             s.push_str(FLUSHED);
             s.push_str(&read_back);
         }
-        Step::Again => {
+        Step::Again | Step::RetypeAgain => {
             s.push_str(
                 "logged 'making partition 4' && fail \"partition 4 was made again\"\n\
                  logged 'formatting it exFAT' && fail \"the share was formatted\"\n",
