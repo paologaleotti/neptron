@@ -627,6 +627,11 @@ fn the_post_build_leaves_only_the_loopback_in_interfaces() {
     let (ok, err, interfaces) = post_build(&dir, old, false);
     assert!(ok, "{err}");
     assert_eq!(interfaces, "auto lo\niface lo inet loopback\n");
+    // Root writes a read-only file, so this case proves nothing there.
+    let uid = Command::new("id").arg("-u").output().unwrap();
+    if String::from_utf8_lossy(&uid.stdout).trim() == "0" {
+        return;
+    }
     let dir = TempDir::create("interfaces-ro");
     let (ok, err, _) = post_build(&dir, old, true);
     assert!(!ok, "a file that cannot be written fails the build");
@@ -649,7 +654,11 @@ fn dhcp_starts_no_second_client_on_a_port() {
         format!("{}\n", std::process::id()),
     )
     .unwrap();
-    std::fs::write(dir.path("run/dhcp/eth1.pid"), "999999\n").unwrap();
+    // The pid of a child that has exited and been reaped names no process
+    // until the kernel hands it out again, which a test run does not reach.
+    let mut gone = Command::new("true").spawn().unwrap();
+    gone.wait().unwrap();
+    std::fs::write(dir.path("run/dhcp/eth1.pid"), format!("{}\n", gone.id())).unwrap();
     mkfifo(&dir.path("started-eth1"));
     dir.logging_fakes(&["ip"]);
     dir.fake("hostname", "echo neptron");
