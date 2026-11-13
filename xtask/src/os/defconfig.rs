@@ -187,20 +187,41 @@ mod tests {
         assert!(post_build.contains("check-kernel-config.sh"));
     }
 
-    /// Sources the Mesa cache script with `/state` at `state` and the mount
-    /// table `mounts` (no file for `None`), and returns the cache folder
-    /// and the disable flag that it exports.
+    /// A folder that is removed when the test ends, also when it fails.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn create(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("xtask-{name}-{}", std::process::id()));
+            if dir.exists() {
+                std::fs::remove_dir_all(&dir).unwrap();
+            }
+            std::fs::create_dir_all(&dir).unwrap();
+            TempDir(dir)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            // A folder left in the system temp folder does no harm.
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Sources the Mesa cache script with `/state` at a folder of a temp
+    /// directory and the mount table `mounts` (no file for `None`), and
+    /// returns the cache folder and the disable flag that it exports, and
+    /// whether the cache folder exists after.
     fn mesa_cache(name: &str, mounts: Option<&str>, state_is_file: bool) -> (String, String, bool) {
         let script = os_dir().join("board/common/rootfs-overlay/usr/libexec/neptron/mesa-cache");
-        let dir = std::env::temp_dir().join(format!("xtask-mesa-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let state = dir.join("state");
+        let dir = TempDir::create(&format!("mesa-{name}"));
+        let state = dir.0.join("state");
         if state_is_file {
             std::fs::write(&state, "not a folder").unwrap();
         } else {
             std::fs::create_dir_all(&state).unwrap();
         }
-        let table = dir.join("mounts");
+        let table = dir.0.join("mounts");
         if let Some(mounts) = mounts {
             let text = mounts.replace("STATE", state.to_str().unwrap());
             std::fs::write(&table, text).unwrap();
@@ -218,7 +239,6 @@ mod tests {
         let made = state.join("cache/mesa").is_dir();
         let line = String::from_utf8(out.stdout).unwrap();
         let line = line.trim().replace(state.to_str().unwrap(), "STATE");
-        std::fs::remove_dir_all(&dir).unwrap();
         let mut parts = line.split('|');
         let cache = parts.next().unwrap_or_default().to_owned();
         let disable = parts.next().unwrap_or_default().to_owned();
@@ -235,6 +255,19 @@ mod tests {
         assert_eq!(
             mesa_cache("disk", Some(disk), false),
             ("STATE/cache/mesa".to_owned(), String::new(), true)
+        );
+        let read_only = "/dev/sda3 STATE ext4 ro,noatime 0 0\n";
+        assert_eq!(
+            mesa_cache("read-only", Some(read_only), false),
+            (String::new(), "true".to_owned(), false),
+            "a state partition mounted read-only gets no cache"
+        );
+        let remounted =
+            "/dev/sda3 STATE ext4 rw 0 0\n/dev/sda3 STATE ext4 ro,errors=remount-ro 0 0\n";
+        assert_eq!(
+            mesa_cache("remounted", Some(remounted), false),
+            (String::new(), "true".to_owned(), false),
+            "the last line of the folder is the mount in use"
         );
         let ram = "/dev/sda2 / erofs ro 0 0\nstate STATE tmpfs rw 0 0\n";
         assert_eq!(
