@@ -18,9 +18,19 @@ wired() {
 	done
 }
 
+# 0 when the client of port $1 runs, from its pid file.
+client_runs() {
+	pid=$(cat "$PIDDIR/$1.pid" 2>/dev/null) || return 1
+	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
 start() {
 	mkdir -p "$PIDDIR"
 	for iface in $(wired); do
+		if client_runs "$iface"; then
+			echo "neptron-network: $iface already has a DHCP client"
+			continue
+		fi
 		ip link set dev "$iface" up 2>/dev/null
 		# -R releases the lease at stop; -x hostname lets a router that
 		# keeps a local DNS resolve the name of the PC.

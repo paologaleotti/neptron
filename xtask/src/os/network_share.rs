@@ -635,3 +635,42 @@ fn the_post_build_leaves_only_the_loopback_in_interfaces() {
     assert!(!ok, "a file that cannot be written fails the build");
     assert!(err.contains("etc/network/interfaces"), "{err}");
 }
+
+/// A second start (a restart by hand, or rcS run again) must not start a
+/// second client on a port whose client still runs.
+#[test]
+fn dhcp_starts_no_second_client_on_a_port() {
+    let dir = TempDir::create("dhcp-twice");
+    for iface in ["eth0", "eth1"] {
+        std::fs::create_dir_all(dir.path("sys").join(iface)).unwrap();
+    }
+    std::fs::create_dir_all(dir.path("run/dhcp")).unwrap();
+    // eth0 has a live client (this test process stands for it); the pid
+    // file of eth1 names a process that is gone.
+    std::fs::write(
+        dir.path("run/dhcp/eth0.pid"),
+        format!("{}\n", std::process::id()),
+    )
+    .unwrap();
+    std::fs::write(dir.path("run/dhcp/eth1.pid"), "999999\n").unwrap();
+    mkfifo(&dir.path("started-eth1"));
+    dir.logging_fakes(&["ip"]);
+    dir.fake("hostname", "echo neptron");
+    dir.fake(
+        "udhcpc",
+        &format!(
+            "args=\"$*\"\nwhile [ $# -gt 0 ]; do [ \"$1\" = -i ] && iface=$2; shift; done\n\
+             echo \"udhcpc $args\" > \"{}/started-$iface\"",
+            dir.0.display()
+        ),
+    );
+    let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
+    assert!(ok, "{out}");
+    assert!(read_fifo(&dir.path("started-eth1")).contains("-i eth1 "));
+    assert!(out.contains("DHCP on eth1 in the background"), "{out}");
+    assert!(out.contains("eth0 already has a DHCP client"), "{out}");
+    assert!(
+        !dir.path("started-eth0").exists(),
+        "a second client on eth0"
+    );
+}
