@@ -249,17 +249,34 @@ mod tests {
         }
     }
 
-    fn check_kernel_config(text: Option<&str>, name: &str) -> std::process::Output {
+    /// Runs check-kernel-config.sh on a fake output: `version` in the
+    /// Buildroot config (none for no line), and a `.config` for each folder
+    /// of `kernels` (version, text; no text for no file).
+    fn check_kernel_config(
+        name: &str,
+        version: Option<&str>,
+        kernels: &[(&str, Option<&str>)],
+    ) -> std::process::Output {
         let script = os_dir().join("board/pc/check-kernel-config.sh");
         let dir = std::env::temp_dir().join(format!("xtask-kconfig-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let config = dir.join(".config");
-        if let Some(text) = text {
-            std::fs::write(&config, text).unwrap();
+        let build = dir.join("build");
+        std::fs::create_dir_all(&build).unwrap();
+        let br2 = dir.join("br2.config");
+        let line = version.map_or(String::new(), |v| {
+            format!("BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE=\"{v}\"\n")
+        });
+        std::fs::write(&br2, format!("BR2_x86_64=y\n{line}")).unwrap();
+        for (kernel, text) in kernels {
+            let folder = build.join(format!("linux-{kernel}"));
+            std::fs::create_dir_all(&folder).unwrap();
+            if let Some(text) = text {
+                std::fs::write(folder.join(".config"), text).unwrap();
+            }
         }
         let out = std::process::Command::new("sh")
             .arg(&script)
-            .arg(&config)
+            .arg(&br2)
+            .arg(&build)
             .output()
             .unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
@@ -267,30 +284,47 @@ mod tests {
     }
 
     #[test]
-    fn the_kernel_check_passes_only_a_present_file_with_every_mode_option_off() {
+    fn the_kernel_check_reads_the_configured_kernel_and_every_mode_option() {
         let off = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\n";
-        assert!(check_kernel_config(Some(off), "off").status.success());
-        let missing = check_kernel_config(None, "missing");
+        let ok = check_kernel_config("off", Some("6.18.63"), &[("6.18.63", Some(off))]);
+        assert!(ok.status.success(), "{ok:?}");
+        let missing = check_kernel_config("missing", Some("6.18.63"), &[("6.18.63", None)]);
         assert!(!missing.status.success());
         assert!(String::from_utf8_lossy(&missing.stderr).contains("is missing"));
-        let module = check_kernel_config(Some("CONFIG_DRM_SIMPLEDRM=m\n"), "module");
+        let no_version = check_kernel_config("noversion", None, &[("6.18.63", Some(off))]);
+        assert!(!no_version.status.success());
+        assert!(String::from_utf8_lossy(&no_version.stderr).contains("no kernel version"));
+        let module = check_kernel_config(
+            "module",
+            Some("6.18.63"),
+            &[("6.18.63", Some("CONFIG_DRM_SIMPLEDRM=m\n"))],
+        );
         assert!(!module.status.success());
         assert!(String::from_utf8_lossy(&module.stderr).contains("CONFIG_DRM_SIMPLEDRM is on"));
-        let builtin = check_kernel_config(Some("CONFIG_VT=y\nCONFIG_DRM_PANIC=y\n"), "builtin");
+        let builtin = check_kernel_config(
+            "builtin",
+            Some("6.18.63"),
+            &[("6.18.63", Some("CONFIG_VT=y\nCONFIG_DRM_PANIC=y\n"))],
+        );
         let text = String::from_utf8_lossy(&builtin.stderr).into_owned();
         assert!(!builtin.status.success());
         assert!(
             text.contains("CONFIG_VT is on") && text.contains("CONFIG_DRM_PANIC is on"),
             "{text}"
         );
-        let empty_name = std::process::Command::new("sh")
-            .arg(os_dir().join("board/pc/check-kernel-config.sh"))
-            .arg("")
-            .output()
-            .unwrap();
+        // An older kernel folder stays in a reused output: a clean old
+        // configuration must not hide an option of the configured kernel.
+        let stale = check_kernel_config(
+            "stale",
+            Some("6.18.63"),
+            &[("6.18.62", Some(off)), ("6.18.63", Some("CONFIG_FB=y\n"))],
+        );
+        assert!(!stale.status.success());
+        assert!(String::from_utf8_lossy(&stale.stderr).contains("CONFIG_FB is on"));
+        let only_old = check_kernel_config("onlyold", Some("6.18.63"), &[("6.18.62", Some(off))]);
         assert!(
-            !empty_name.status.success(),
-            "an empty path is a missing file"
+            !only_old.status.success(),
+            "the configured kernel has no configuration"
         );
     }
 

@@ -11,11 +11,9 @@ set -eu
 
 target=$1
 
-# The kernel must set no mode of its own: check-kernel-config.sh reads its
-# final configuration. The headers package has a folder of the same name
-# and no .config, so the glob asks for a version number first.
-kconfig=$(ls -d "$BUILD_DIR"/linux-[0-9]*/.config 2>/dev/null | head -n 1)
-"$BR2_EXTERNAL_NEPTRON_PATH/board/pc/check-kernel-config.sh" "$kconfig" || exit 1
+# The kernel must set no mode of its own: check-kernel-config.sh reads the
+# final configuration of the configured kernel version.
+"$BR2_EXTERNAL_NEPTRON_PATH/board/pc/check-kernel-config.sh" "$BR2_CONFIG" "$BUILD_DIR" || exit 1
 
 mkdir -p "$target/state" "$target/share"
 # GRUB reads its configuration from the boot partition, not from here.
