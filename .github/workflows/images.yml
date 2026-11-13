@@ -30,6 +30,9 @@ env:
   CARGO_TERM_COLOR: always
   # Change this value to force a cold Buildroot build of every target.
   BASE_EPOCH: "1"
+  # The layout of the base artifact. A new value makes every job ignore the
+  # bases of the old layout, also as an older base for a pull request.
+  BASE_FORMAT: "2"
   # Every Buildroot data directory lives here, outside the Docker data root,
   # so the runner user can cache it and tar it.
   WORK: /mnt/neptron
@@ -185,11 +188,11 @@ jobs:
           base=$({ echo "$BASE_EPOCH"; for f in $files; do echo "$f"; sha256sum < "$f"; done; } \
             | sha256sum | cut -c1-16)
           dl=$(git ls-files '*.hash' 'os/configs/*' Dockerfile | xargs sha256sum | sha256sum | cut -c1-16)
-          echo "base=br-base-$TARGET-$base" >> "$GITHUB_OUTPUT"
-          echo "partial=br-partial-$TARGET-$base" >> "$GITHUB_OUTPUT"
-          echo "prefix=br-base-$TARGET-" >> "$GITHUB_OUTPUT"
+          echo "base=br-base-v$BASE_FORMAT-$TARGET-$base" >> "$GITHUB_OUTPUT"
+          echo "partial=br-partial-v$BASE_FORMAT-$TARGET-$base" >> "$GITHUB_OUTPUT"
+          echo "prefix=br-base-v$BASE_FORMAT-$TARGET-" >> "$GITHUB_OUTPUT"
           echo "dl=br-dl-$TARGET-$dl" >> "$GITHUB_OUTPUT"
-          echo "Base key: br-base-$TARGET-$base, from: $files"
+          echo "Base key: br-base-v$BASE_FORMAT-$TARGET-$base, from: $files"
 
       - name: Make the Docker volumes
         env:
