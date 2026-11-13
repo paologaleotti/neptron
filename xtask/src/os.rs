@@ -173,7 +173,7 @@ usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [--dev-key FILE]
        cargo xtask os ssh --host H [--user U] [--port P] -- command...
        cargo xtask kms-check [--arch A] [--timeout SECS]
        cargo xtask core-trace [--arch A] [--timeout SECS] [--bless]
-                              [--dump FRAME[,FRAME...]]";
+                              [--dump FRAME[,FRAME...]] [--allow-missing-roms]";
 
 /// `cargo xtask os <subcommand>`.
 pub fn run_os(args: &[&str]) -> Result<ExitCode, OsError> {
