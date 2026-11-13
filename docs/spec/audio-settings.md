@@ -166,7 +166,7 @@ Each start logs one line with the driver, the raw names, and the device that ope
 neptron: audio: driver alsa; devices "HDA Intel PCH:ALC221 Analog", "HDA Intel PCH:HDMI 0"; opened "default"
 ```
 
-`neptronctl log tail` and `cargo xtask os logs` show it. A `neptronctl` command that lists the devices needs a new request in `neptron-ipc` and a command in `apps/neptronctl`, which this task does not own; the log line gives the same facts.
+The line goes to the log of the run before the frame loop starts, so `cargo xtask os logs` shows it; the protocol log of `neptronctl log tail` starts later and does not hold it. A `neptronctl` command that lists the devices needs a new request in `neptron-ipc` and a command in `apps/neptronctl`, which this task does not own; the log line gives the same facts.
 
 ## Menus
 
