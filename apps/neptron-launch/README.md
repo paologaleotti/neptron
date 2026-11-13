@@ -31,7 +31,9 @@ A frontend that relaunches more than 10 times in 10 s (`RELAUNCHES_MAX`, `RELAUN
 
 The launcher keeps the device open the whole time. The kernel removes the framebuffers and some drivers switch the CRTC off only when the last holder closes the descriptor, so the last validated mode stays on the wire across a crash, a relaunch and a restart (`docs/spec/kms.md`).
 
-SIGTERM or SIGINT stops the launcher cleanly: it forwards SIGTERM to the frontend once, waits for it to end, starts no new run and exits. The frontend ends its run as a quit on SIGTERM. A frontend still there 5 s after the SIGTERM (`STOP_WAIT_NS`), for example one stuck inside a core, gets SIGKILL, with a log line, so the launcher always stops. No orphan frontend keeps DRM master. The launcher looks at its child and at the signal every 20 ms (`CHILD_POLL`). The flag comes from `signal-hook` and the forward from `rustix`, both workspace dependencies, with no `unsafe` code.
+SIGTERM or SIGINT stops the launcher cleanly: it forwards SIGTERM to the frontend once, waits for it to end, starts no new run and exits. The frontend ends its run as a quit on SIGTERM. A frontend still there 5 s after the SIGTERM (`STOP_WAIT_NS`), for example one stuck inside a core, gets SIGKILL, with a log line, so the launcher always stops. No orphan frontend keeps DRM master. The launcher looks at its child and at the signal every 20 ms (`CHILD_POLL`). A signal during the backoff wait ends the wait at once.
+
+When the DRM device does not open (for example `/dev/dri/card0` is missing because the driver has not bound yet), the launcher logs one line, waits 2 s (`DEVICE_MISSING_WAIT_NS`; a stop signal ends the wait) and exits with code 1. Init starts it again, so it tries the device every 2 s and does not spin. The flag comes from `signal-hook` and the forward from `rustix`, both workspace dependencies, with no `unsafe` code.
 
 A frontend that cannot start stops the launcher with an error. The init system restarts the launcher, which opens the device again.
 
@@ -59,7 +61,7 @@ A frontend that cannot start stops the launcher with an error. The init system r
 - `supervise.rs`: the loop with a fake frontend and a simulated clock: crashes, relaunches, a long run, a frontend that cannot start. No test sleeps.
 - `device.rs`: a regular file and `/dev/null` are refused, a missing device, close-on-exec cleared.
 - `stopping.rs`: SIGTERM once at the stop, SIGKILL once after the wait, counted from the SIGTERM, with simulated times.
-- `main.rs`: a real child process reports its exit code and a signal, reads the descriptor of the launcher under its number, and a child that ignores SIGTERM gets SIGKILL after a short stop wait.
+- `main.rs`: a real child process reports its exit code and a signal, reads the descriptor of the launcher under its number, and a child that ignores SIGTERM gets SIGKILL after a short stop wait; a stop signal ends the backoff wait at once; a device that does not open gives the wait before the exit.
 
 ## Status
 

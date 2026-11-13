@@ -12,6 +12,7 @@ mod supervise;
 
 use std::ffi::OsString;
 use std::io;
+use std::path::Path;
 use std::process::{Command, ExitCode};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,7 +21,7 @@ use std::time::{Duration, Instant};
 use rustix::process::{Pid, Signal, kill_process};
 
 use backoff::Backoff;
-use device::{DRM_FD_ENV, Device};
+use device::{DRM_FD_ENV, Device, DeviceError};
 use stopping::{STOP_WAIT_NS, StopAction, Stopping};
 use supervise::{Frontend, Time, supervise};
 
@@ -32,13 +33,8 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let device = match options.device.as_deref().map(Device::open).transpose() {
-        Ok(device) => device,
-        Err(e) => {
-            say!("neptron-launch: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
+    // The signals are watched before the device opens, so a stop ends
+    // the wait after a failed open at once.
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         if let Err(e) = signal_hook::flag::register(signal, Arc::clone(&stop)) {
@@ -46,15 +42,19 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
+    let mut time = MonotonicTime {
+        start: Instant::now(),
+        stop: Arc::clone(&stop),
+    };
+    let Ok(device) = open_device(options.device.as_deref(), &mut time) else {
+        return ExitCode::FAILURE;
+    };
     let mut frontend = Process {
         program: options.program,
         args: options.args,
         fd: device.as_ref().map(Device::fd),
         stop,
         stop_wait: Duration::from_nanos(STOP_WAIT_NS),
-    };
-    let mut time = MonotonicTime {
-        start: Instant::now(),
     };
     match supervise(&mut frontend, &mut time, &mut Backoff::new()) {
         Ok(runs) => {
@@ -82,6 +82,28 @@ use say;
 
 /// How often the launcher looks at its child and at the stop signal.
 const CHILD_POLL: Duration = Duration::from_millis(20);
+
+/// The wait after a failed open of the DRM device before the launcher
+/// exits, in nanoseconds. Init starts the launcher again at once, so with
+/// no wait a missing `/dev/dri/card0` (a driver that has not bound yet)
+/// would start it in a tight loop.
+const DEVICE_MISSING_WAIT_NS: u64 = 2_000_000_000;
+
+/// Opens the DRM device at `path`, when there is one. A failure is logged
+/// in one line and followed by [`DEVICE_MISSING_WAIT_NS`] on `time`.
+fn open_device(path: Option<&Path>, time: &mut impl Time) -> Result<Option<Device>, DeviceError> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    Device::open(path).map(Some).map_err(|e| {
+        say!(
+            "neptron-launch: {e}; exit in {} ms",
+            DEVICE_MISSING_WAIT_NS / 1_000_000
+        );
+        time.wait_ns(DEVICE_MISSING_WAIT_NS);
+        e
+    })
+}
 
 /// The frontend as a child process with the descriptor number in its
 /// environment.
@@ -139,6 +161,8 @@ impl Frontend for Process {
 
 struct MonotonicTime {
     start: Instant,
+    /// Set by SIGTERM or SIGINT: it ends a wait at once.
+    stop: Arc<AtomicBool>,
 }
 
 impl Time for MonotonicTime {
@@ -146,8 +170,17 @@ impl Time for MonotonicTime {
         u64::try_from(self.start.elapsed().as_nanos()).unwrap_or(u64::MAX)
     }
 
+    /// Waits `ns`, in steps of [`CHILD_POLL`], and ends at once on a stop
+    /// signal: init must not wait for the backoff to stop the launcher.
     fn wait_ns(&mut self, ns: u64) {
-        std::thread::sleep(Duration::from_nanos(ns));
+        let end = Instant::now() + Duration::from_nanos(ns);
+        while !self.stop.load(Ordering::Relaxed) {
+            let left = end.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return;
+            }
+            std::thread::sleep(left.min(CHILD_POLL));
+        }
     }
 }
 
@@ -220,6 +253,50 @@ mod tests {
         );
         // The file is the test's own; a failed removal leaves a temp file.
         let _ = std::fs::remove_file(&ready);
+    }
+
+    #[test]
+    fn a_stop_signal_ends_the_backoff_wait_at_once() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut time = MonotonicTime {
+            start: Instant::now(),
+            stop: Arc::clone(&stop),
+        };
+        let start = Instant::now();
+        time.wait_ns(60_000_000);
+        assert!(start.elapsed() >= Duration::from_millis(60), "a full wait");
+        stop.store(true, Ordering::Relaxed);
+        let start = Instant::now();
+        time.wait_ns(8_000_000_000);
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            start.elapsed()
+        );
+    }
+
+    /// A clock that records its waits.
+    struct Waits(Vec<u64>);
+
+    impl Time for Waits {
+        fn now_ns(&self) -> u64 {
+            0
+        }
+
+        fn wait_ns(&mut self, ns: u64) {
+            self.0.push(ns);
+        }
+    }
+
+    #[test]
+    fn a_missing_device_waits_before_the_launcher_exits() {
+        let mut waits = Waits(Vec::new());
+        let missing = std::path::Path::new("/nonexistent/neptron/dri/card0");
+        assert!(open_device(Some(missing), &mut waits).is_err());
+        assert_eq!(waits.0, [DEVICE_MISSING_WAIT_NS]);
+        let mut none = Waits(Vec::new());
+        assert!(matches!(open_device(None, &mut none), Ok(None)));
+        assert!(none.0.is_empty());
     }
 
     #[test]
