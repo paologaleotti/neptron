@@ -321,14 +321,11 @@ format_refusal() {
 	done
 }
 
-# The first sector from sector $1 of the disk, before sector $2 and at
-# most OLD_SHARE_SCAN_SECTORS on, that holds an exFAT boot sector at a
-# 1 MiB boundary, or nothing.
+# The first sector from sector $1 of the disk and before sector $2 that
+# holds an exFAT boot sector, in steps of 1 MiB, or nothing.
 exfat_from() {
 	sector=$1
-	scan_end=$((sector + OLD_SHARE_SCAN_SECTORS))
-	[ "$scan_end" -gt "$2" ] && scan_end=$2
-	while [ "$sector" -lt "$scan_end" ]; do
+	while [ "$sector" -lt "$2" ]; do
 		if [ "$(boot_name "$disk_dev" "$sector")" = "EXFAT   " ]; then
 			echo "$sector"
 			return
@@ -340,7 +337,11 @@ exfat_from() {
 # The first sector of the free space after the state partition that holds
 # an exFAT boot sector, at a 1 MiB boundary, or nothing.
 old_share() {
-	exfat_from "$(planned_start)" "$(cat "$disk/size")"
+	from=$(planned_start)
+	to=$((from + OLD_SHARE_SCAN_SECTORS))
+	disk_sectors=$(cat "$disk/size")
+	[ "$to" -gt "$disk_sectors" ] && to=$disk_sectors
+	exfat_from "$from" "$to"
 }
 
 # Writes partition 4 to the table on the disk.
@@ -564,9 +565,13 @@ user_format_refusal() {
 			return
 		fi
 	done
-	inside=$(exfat_from "$2" $(($2 + $3)))
+	# An old share can start before partition 4, at the planned start,
+	# and run into it, so the scan starts there.
+	to=$(($2 + OLD_SHARE_SCAN_SECTORS))
+	[ "$to" -gt $(($2 + $3)) ] && to=$(($2 + $3))
+	inside=$(exfat_from "$(planned_start)" "$to")
 	if [ -n "$inside" ]; then
-		echo "cannot be offered a format: an exFAT boot sector starts at sector $inside of the disk, inside it, so it can hold an old share"
+		echo "cannot be offered a format: an exFAT boot sector starts at sector $inside of the disk, before or inside it, so it can hold an old share"
 	fi
 }
 

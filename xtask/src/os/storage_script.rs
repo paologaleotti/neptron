@@ -1387,7 +1387,7 @@ fn an_old_share_inside_an_empty_partition_4_is_never_offered_a_format() {
     let run = Run::new("no-offer-inside").with_partition_4();
     run.exfat_at(PLANNED + 4096);
     run.start().assert_no_offer(Some(&format!(
-        "an exFAT boot sector starts at sector {} of the disk, inside it",
+        "an exFAT boot sector starts at sector {} of the disk, before or inside it",
         PLANNED + 4096
     )));
 }
@@ -1702,4 +1702,15 @@ fn with_no_request_nothing_is_formatted() {
         assert!(out.offer().is_some(), "{out:#?}");
         assert_eq!(out.status_value("share_format"), None, "{out:#?}");
     }
+}
+
+/// An old share at the planned start can run into a partition 4 that
+/// starts later: the scan starts at the planned start, not at partition 4.
+#[test]
+fn an_old_share_before_partition_4_is_never_offered_a_format() {
+    let run = Run::empty_partition_4("no-offer-before", PLANNED + 2048, "83");
+    run.exfat_at(PLANNED);
+    run.start().assert_no_offer(Some(&format!(
+        "an exFAT boot sector starts at sector {PLANNED} of the disk"
+    )));
 }
