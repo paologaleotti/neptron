@@ -5,7 +5,8 @@
 use neptron_backend::AudioSink;
 use sdl3::audio::{AudioDevice, AudioDeviceID, AudioFormat, AudioSpec, AudioStreamOwner};
 
-use crate::{ALSA_DRIVER, AudioOutputs, OutputError, check_device_rate};
+use crate::alsa::{AlsaText, alsa_outputs, open_name};
+use crate::{ALSA_DRIVER, AudioOutputs, Monitor, OutputDevice, OutputError, check_device_rate};
 
 /// The most frames the sink queues, in milliseconds: twice the control
 /// span. SDL's stream has no limit of its own.
@@ -13,6 +14,14 @@ pub const SINK_CAPACITY_MS: u32 = 128;
 
 /// The device buffer SDL is asked for, in frames: 10.7 ms at 48 kHz.
 pub const DEVICE_BUFFER_FRAMES: u32 = 512;
+
+/// The SDL hint that names the ALSA PCM of SDL's default playback device.
+/// SDL reads it when the device opens (`ALSA_OpenDevice`).
+const ALSA_PLAYBACK_HINT: &str = "SDL_AUDIO_ALSA_DEFAULT_PLAYBACK_DEVICE";
+/// The ALSA PCM of the system default device.
+const ALSA_DEFAULT_PCM: &str = "default";
+/// Where the kernel shows the sound cards.
+const PROC_ASOUND: &str = "/proc/asound";
 
 /// The rate used when SDL does not report the device's rate, in hertz.
 const FALLBACK_RATE_HZ: u32 = 48_000;
@@ -264,24 +273,36 @@ impl AudioSink for Sdl3Sink {
 
 /// The playback devices of SDL's audio backend, and the open of one of
 /// them. Make it on the thread that first started SDL; it is not `Send`.
+///
+/// With the ALSA driver the list is NEPTRON's own, read from
+/// `/proc/asound`, because SDL's ALSA list opens the card's default PCM for
+/// each of its entries. A device opens as SDL's default device with the
+/// hint that names its `plughw:` PCM. With another driver the list and the
+/// open are SDL's.
 pub struct Sdl3Outputs {
     audio: sdl3::AudioSubsystem,
     sdl: sdl3::Sdl,
 }
 
 impl Sdl3Outputs {
-    /// Starts SDL's audio subsystem only.
+    /// Starts SDL's audio subsystem only. The hint starts at the default
+    /// PCM, so that no environment value from an earlier run is kept.
     ///
     /// # Errors
     ///
     /// [`SinkError::Init`] with SDL's message.
     pub fn start() -> Result<Self, SinkError> {
+        set_alsa_pcm(ALSA_DEFAULT_PCM);
         let init = |error: sdl3::Error| SinkError::Init {
             reason: error.to_string(),
         };
         let sdl = sdl3::init().map_err(init)?;
         let audio = sdl.audio().map_err(init)?;
         Ok(Self { audio, sdl })
+    }
+
+    fn is_alsa(&self) -> bool {
+        self.audio.current_audio_driver() == ALSA_DRIVER
     }
 }
 
@@ -292,31 +313,49 @@ impl AudioOutputs for Sdl3Outputs {
         self.audio.current_audio_driver()
     }
 
-    fn devices(&mut self) -> Result<Vec<String>, OutputError> {
+    fn devices(&mut self) -> Result<Vec<OutputDevice>, OutputError> {
+        if self.is_alsa() {
+            return Ok(alsa_outputs(&AlsaText::read(std::path::Path::new(
+                PROC_ASOUND,
+            ))));
+        }
         let devices = playback_devices(&self.audio).map_err(|error| OutputError::List {
             reason: error.to_string(),
         })?;
-        // The ALSA backend lists its default device as a device of its own;
-        // the setting `auto` stands for it.
-        let default = (self.driver() == ALSA_DRIVER)
-            .then(|| self.audio.default_playback_device().name().ok())
-            .flatten();
         Ok(devices
             .into_iter()
-            .map(|(_, name)| name)
-            .filter(|name| Some(name) != default.as_ref())
+            .map(|(_, name)| OutputDevice {
+                label: name.clone(),
+                name,
+                detail: String::new(),
+                monitor: Monitor::NotDigital,
+            })
             .collect())
     }
 
     fn open(&mut self, device: Option<&str>) -> Result<Sdl3Sink, OutputError> {
-        Sdl3Sink::open_on(&self.sdl, &self.audio, device).map_err(|error| match error {
+        let alsa = self.is_alsa();
+        let result = if alsa {
+            set_alsa_pcm(&device.map_or_else(|| ALSA_DEFAULT_PCM.to_owned(), open_name));
+            Sdl3Sink::open_on(&self.sdl, &self.audio, None)
+        } else {
+            Sdl3Sink::open_on(&self.sdl, &self.audio, device)
+        };
+        result.map_err(|error| match error {
             SinkError::NotFound { name } => OutputError::NotFound { name },
             other => OutputError::Open {
-                device: device.unwrap_or("default").to_owned(),
+                device: device.unwrap_or(ALSA_DEFAULT_PCM).to_owned(),
                 reason: other.to_string(),
             },
         })
     }
+}
+
+/// Names the ALSA PCM that SDL's default playback device opens.
+fn set_alsa_pcm(pcm: &str) {
+    // A false return means that an environment variable sets the hint,
+    // which is the owner's choice for a test on the bench.
+    let _hint_set = sdl3::hint::set(ALSA_PLAYBACK_HINT, pcm);
 }
 
 /// The playback devices with their names. A device whose name SDL cannot

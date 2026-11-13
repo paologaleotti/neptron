@@ -1,7 +1,7 @@
 //! The settings pages of the UI: schema entries as menu rows, and a menu
 //! value back as a schema value.
 
-use neptron_audio::{OutputChoice, output_label};
+use neptron_audio::OutputDevice;
 use neptron_settings::{
     AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
     DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, DisplayClass, Entry,
@@ -74,7 +74,7 @@ pub struct Names<'a> {
     pub class: DisplayClass,
     /// The playback devices the audio backend listed at start, as menu
     /// options.
-    pub outputs: &'a [OutputChoice],
+    pub outputs: &'a [OutputDevice],
 }
 
 /// What one picture style gives, for its option in the menu.
@@ -301,24 +301,17 @@ fn name_option(key: &str, name: String, names: Names<'_>) -> ChoiceOption {
     }
 }
 
-/// The option of an audio output: `auto`, a listed device by its label, or
-/// a stored device that the backend did not list, by its raw name.
-fn output_option(name: String, outputs: &[OutputChoice]) -> ChoiceOption {
+/// The option of an audio output: `auto`, a listed device with its label
+/// and detail, or a stored device that the backend did not list, by its
+/// name.
+fn output_option(name: String, outputs: &[OutputDevice]) -> ChoiceOption {
     if name == AUTO {
         return ChoiceOption::new(name).with_detail(AUTO_OUTPUT_DETAIL);
     }
-    if !outputs.iter().any(|o| o.name == name) {
-        return ChoiceOption::new(name).with_detail(MISSING_OUTPUT_DETAIL);
-    }
-    let label = output_label(outputs, &name);
-    let detail = name
-        .split_once(':')
-        .map_or(name.as_str(), |(_, device)| device.trim());
-    let option = ChoiceOption::new(label.clone());
-    if detail.is_empty() || detail == label {
-        option
-    } else {
-        option.with_detail(detail)
+    match outputs.iter().find(|o| o.name == name) {
+        Some(device) if device.detail.is_empty() => ChoiceOption::new(device.label.clone()),
+        Some(device) => ChoiceOption::new(device.label.clone()).with_detail(device.detail.clone()),
+        None => ChoiceOption::new(name).with_detail(MISSING_OUTPUT_DETAIL),
     }
 }
 
@@ -390,16 +383,11 @@ mod tests {
         let config = config();
         let presets = Presets::default();
         let detected = Detected::default();
-        let outputs = [
-            OutputChoice {
-                name: "HDA Intel PCH:ALC221 Analog".to_owned(),
-                label: "HDA Intel PCH".to_owned(),
-            },
-            OutputChoice {
-                name: "USB Audio".to_owned(),
-                label: "USB Audio".to_owned(),
-            },
-        ];
+        let outputs = neptron_audio::alsa_outputs(&neptron_audio::AlsaText {
+            cards: " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n".to_owned(),
+            pcm: "00-00: ALC221 Analog : ALC221 Analog : playback 1\n00-03: HDMI 0 : HDMI 0 : playback 1\n".to_owned(),
+            elds: vec![(0, "monitor_present 1\neld_valid 1\nmonitor_name DELL U2724D\n".to_owned())],
+        });
         let names = Names {
             presets: &presets,
             detected: &detected,
@@ -434,15 +422,15 @@ mod tests {
             shown,
             [
                 ("auto", "System default"),
-                ("HDA Intel PCH", "ALC221 Analog"),
-                ("USB Audio", ""),
+                ("HDA Intel PCH analog", "ALC221 Analog"),
+                ("DELL U2724D HDMI/DP", "HDMI 0"),
             ]
         );
         assert!(!page.rows[1].live);
         let output = config.schema().get(AUDIO_OUTPUT).expect("output");
         assert_eq!(
             value_of(output, UiValue::Choice(1), names, &config),
-            Some(Value::Text("HDA Intel PCH:ALC221 Analog".to_owned()))
+            Some(Value::Text("hw:CARD=PCH,DEV=0".to_owned()))
         );
         assert_eq!(value_of(output, UiValue::Choice(3), names, &config), None);
     }
@@ -454,7 +442,7 @@ mod tests {
             .set(
                 Level::Global,
                 AUDIO_OUTPUT,
-                Value::Text("USB Audio Device:USB Audio".to_owned()),
+                Value::Text("hw:CARD=Device,DEV=0".to_owned()),
             )
             .expect("set");
         let presets = Presets::default();
@@ -471,7 +459,7 @@ mod tests {
             panic!("a choice");
         };
         assert_eq!(*index, 1);
-        assert_eq!(options[1].label, "USB Audio Device:USB Audio");
+        assert_eq!(options[1].label, "hw:CARD=Device,DEV=0");
         assert_eq!(options[1].detail, "Not connected");
     }
 

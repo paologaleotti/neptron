@@ -32,15 +32,16 @@ at 300 geometry 256 240 1333
 at 310 sram_write 0 7
 ";
 
-/// The playback devices of the fake backend: one HDA card and one USB
-/// card, as SDL's ALSA backend lists them after `menu_outputs`.
-pub fn audio_outputs() -> Vec<neptron_audio::OutputChoice> {
-    let raw = [
-        "HDA Intel PCH:ALC221 Analog".to_owned(),
-        "HDA Intel PCH:HDMI 0".to_owned(),
-        "USB Audio:USB Audio".to_owned(),
-    ];
-    neptron_audio::menu_outputs(neptron_audio::ALSA_DRIVER, &raw)
+/// The playback devices of the fake backend: the text of `/proc/asound`
+/// of a PC with an HDA card, whose monitor is on one of three HDMI outputs,
+/// and a USB card.
+pub fn audio_outputs() -> Vec<neptron_audio::OutputDevice> {
+    let absent = "monitor_present\t0\neld_valid\t0\n".to_owned();
+    neptron_audio::alsa_outputs(&neptron_audio::AlsaText {
+        cards: " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n 1 [Device         ]: USB-Audio - USB Audio\n".to_owned(),
+        pcm: "00-00: ALC221 Analog : ALC221 Analog : playback 1 : capture 1\n00-03: HDMI 0 : HDMI 0 : playback 1\n00-07: HDMI 1 : HDMI 1 : playback 1\n01-00: USB Audio : USB Audio : playback 1\n".to_owned(),
+        elds: vec![(0, absent.clone()), (0, absent)],
+    })
 }
 
 /// The device rate of the fake audio.

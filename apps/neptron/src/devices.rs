@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use neptron_audio::{AudioOutputs, OutputChoice, open_output};
+use neptron_audio::{AudioOutputs, OutputDevice, open_output};
 use neptron_backend::AudioSink;
 use neptron_settings::{AUDIO_OUTPUT, Schema, Storage, Target};
 
@@ -27,11 +27,11 @@ pub struct OpenedAudio<S> {
     /// The sink, or the silent sink when no device opened.
     pub sink: MaybeSink<S>,
     /// The options of the audio output row after `auto`.
-    pub outputs: Vec<OutputChoice>,
+    pub outputs: Vec<OutputDevice>,
     /// The notices for the player, in order.
     pub notices: Vec<String>,
-    /// One line for the log: the driver, the devices, and the one that
-    /// opened.
+    /// One line for the log: the driver, the devices, the choice of `auto`
+    /// and the device that opened.
     pub log: String,
 }
 
@@ -77,10 +77,13 @@ pub fn open_audio<O: AudioOutputs>(
     for (i, device) in opened.devices.iter().enumerate() {
         let sep = if i == 0 { " " } else { ", " };
         // Writing to a String cannot fail.
-        let _ = write!(log, "{sep}\"{device}\"");
+        let _ = write!(log, "{sep}\"{}\"", device.name);
     }
     if let Some(error) = &opened.list_error {
         let _ = write!(log, " ({error})");
+    }
+    if let Some(auto) = &opened.auto {
+        let _ = write!(log, "; auto: {}", auto.reason);
     }
     match &opened.opened {
         Some(device) => {
@@ -90,7 +93,7 @@ pub fn open_audio<O: AudioOutputs>(
     }
     OpenedAudio {
         sink: opened.sink.map_or(MaybeSink::Silent, MaybeSink::Device),
-        outputs: opened.choices,
+        outputs: opened.devices,
         notices: opened.notices.iter().map(ToString::to_string).collect(),
         log,
     }
@@ -121,13 +124,13 @@ impl<S: AudioSink> AudioSink for MaybeSink<S> {
 
 #[cfg(test)]
 mod tests {
-    use neptron_audio::{ALSA_DRIVER, OutputError};
+    use neptron_audio::{ALSA_DRIVER, AlsaText, OutputError, alsa_outputs};
     use neptron_testkit::{FakeAudio, SimClock};
 
     use super::*;
 
-    /// A backend with two devices of one card, where `refuse` names the
-    /// devices that do not open.
+    /// A backend with the analog output and one HDMI output of one card,
+    /// where `refuse` names the devices that do not open.
     struct Outputs {
         refuse: Vec<Option<&'static str>>,
     }
@@ -139,11 +142,12 @@ mod tests {
             ALSA_DRIVER
         }
 
-        fn devices(&mut self) -> Result<Vec<String>, OutputError> {
-            Ok(vec![
-                "HDA Intel PCH:ALC221 Analog".to_owned(),
-                "HDA Intel PCH:HDMI 0".to_owned(),
-            ])
+        fn devices(&mut self) -> Result<Vec<OutputDevice>, OutputError> {
+            Ok(alsa_outputs(&AlsaText {
+                cards: " 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n".to_owned(),
+                pcm: "00-00: ALC221 Analog : ALC221 Analog : playback 1\n00-03: HDMI 0 : HDMI 0 : playback 1\n".to_owned(),
+                elds: Vec::new(),
+            }))
         }
 
         fn open(&mut self, device: Option<&str>) -> Result<FakeAudio, OutputError> {
@@ -160,13 +164,13 @@ mod tests {
     #[test]
     fn the_named_device_opens_and_the_log_names_it() {
         let outputs = Outputs { refuse: Vec::new() };
-        let audio = open_audio(Ok(outputs), "HDA Intel PCH:ALC221 Analog");
+        let audio = open_audio(Ok(outputs), "hw:CARD=PCH,DEV=3");
         assert!(matches!(audio.sink, MaybeSink::Device(_)));
         assert!(audio.notices.is_empty());
-        assert_eq!(audio.outputs.len(), 1);
+        assert_eq!(audio.outputs.len(), 2);
         assert_eq!(
             audio.log,
-            "audio: driver alsa; devices \"HDA Intel PCH:ALC221 Analog\", \"HDA Intel PCH:HDMI 0\"; opened \"HDA Intel PCH:ALC221 Analog\""
+            "audio: driver alsa; devices \"hw:CARD=PCH,DEV=0\", \"hw:CARD=PCH,DEV=3\"; opened \"hw:CARD=PCH,DEV=3\""
         );
     }
 

@@ -43,7 +43,7 @@ fn the_audio_panel_writes_the_volume_and_the_output_to_the_global_file() {
             rig.focus("Audio output");
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "options");
-            rig.focus("USB Audio");
+            rig.focus("USB Audio analog");
             rig.tap(&[Control::A]);
             rig.frames(2);
             let config = rig.shell().config().clone();
@@ -53,13 +53,13 @@ fn the_audio_panel_writes_the_volume_and_the_output_to_the_global_file() {
             );
             assert_eq!(
                 config.get(Level::Global, AUDIO_OUTPUT),
-                Some(&Value::Text("USB Audio:USB Audio".to_owned()))
+                Some(&Value::Text("hw:CARD=Device,DEV=0".to_owned()))
             );
             rig.finish();
             let file = std::fs::read_to_string(rig.paths.config().join("global.toml"))
                 .expect("the global file");
             assert!(file.contains("volume = 90"), "{file}");
-            assert!(file.contains("output = \"USB Audio:USB Audio\""), "{file}");
+            assert!(file.contains("output = \"hw:CARD=Device,DEV=0\""), "{file}");
         },
     );
 }

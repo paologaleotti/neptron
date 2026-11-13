@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+mod alsa;
 mod control;
 mod error;
 mod gain;
@@ -14,13 +15,17 @@ mod rates;
 #[cfg(feature = "sdl3")]
 mod sdl;
 
+pub use alsa::{
+    ALSA_NAME_PREFIX, AlsaCard, AlsaPcm, AlsaText, Eld, alsa_name, alsa_outputs, is_digital,
+    open_name, parse_cards, parse_eld, parse_pcms,
+};
 pub use control::{CONTROL_SPAN_MS, MAX_RATE_DEVIATION_PPM, RateControl};
 pub use error::AudioError;
 pub use gain::{GAIN_UNITY_Q24, VOLUME_MAX_PERCENT, VOLUME_RAMP_MS, gain_q24, scale};
 pub use meter::{FLIP_METER_INTERVALS, FLIP_METER_MIN_INTERVALS, FlipRateMeter};
 pub use outputs::{
-    ALSA_DRIVER, AUTO_OUTPUT, AudioOutputs, OpenedDevice, OpenedOutput, OutputChoice, OutputError,
-    OutputNotice, menu_outputs, open_output, output_label,
+    ALSA_DRIVER, AUTO_OUTPUT, AudioOutputs, AutoChoice, Monitor, OpenedDevice, OpenedOutput,
+    OutputDevice, OutputError, OutputNotice, auto_choice, open_output, output_label,
 };
 pub use pipeline::{AudioPipeline, AudioStats, FADE_MS, MAX_INPUT_PER_FRAME_MS, Resampling};
 pub use rates::{

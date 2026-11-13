@@ -97,7 +97,7 @@ pub struct Runtime {
     pub notices: Vec<String>,
     /// The playback devices the audio backend listed at start, as the
     /// options of the audio output row after `auto`.
-    pub audio_outputs: Vec<neptron_audio::OutputChoice>,
+    pub audio_outputs: Vec<neptron_audio::OutputDevice>,
 }
 
 /// How a run ends.
