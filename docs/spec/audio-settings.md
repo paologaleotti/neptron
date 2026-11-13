@@ -153,20 +153,25 @@ A file that is missing or cannot be read is empty text. The reader takes the byt
 | PCM | Label | Detail |
 | --- | --- | --- |
 | Analog | `Analog (<card name>)`: `Analog (HDA Intel PCH)` | the PCM name: `ALC221 Analog` |
-| HDMI, monitor known by name | `<monitor> (HDMI/DP)`: `DELL U2724D (HDMI/DP)` | the PCM name |
+| S/PDIF (a PCM whose id or name holds `Digital`, `S/PDIF`, `SPDIF` or `IEC958`) | `Digital (<card name>)` | the PCM name |
+| HDMI, monitor known by name | `<monitor> (HDMI/DP)`: `DELL U2724D (HDMI/DP)` | `Monitor connected` |
 | HDMI, monitor present, name not known | `HDMI/DP <k> (<card name>)` | `Monitor connected` |
-| HDMI, monitor not known | `HDMI/DP <k> (<card name>)` | the PCM name: `HDMI 0` |
+| HDMI, monitor not known | `HDMI/DP <k> (<card name>)` | none |
 | HDMI, no monitor | `HDMI/DP <k> (<card name>)` | `Nothing connected` |
 
-The part that tells the outputs apart comes first, because the value column of a settings row shows 14 characters. When two labels are equal (two cards of the same model), the card id goes into the brackets: `Analog (USB Audio, Device)`.
+An HDMI output shows no PCM name: the kernel counts its PCMs from 0 (`HDMI 1` is the second), and next to `HDMI/DP 2` that would confuse.
 
-`k` counts the HDMI PCMs of the card from 1, in device order. The order is the cards in index order and their PCMs in device order, and the PCMs with no monitor come last. They stay selectable: a monitor can be connected later.
+The part that tells the outputs apart comes first, because the value column of a settings row shows 14 characters. When two labels are still equal, the brackets get more, step by step, until they differ: first the card id (`Analog (USB Audio, Device)`), then the PCM name (`Analog (HDA Intel PCH, PCH, ALC892 Alt Analog)`), then the device number.
 
-The menu shows `auto` first (detail `System default`), then the list. A stored value that is not in the list stays an option, labelled with its raw value and the detail `Not connected`.
+`k` counts the HDMI PCMs from 1, in device order: per card when one card has HDMI PCMs, and across all cards when two or more have them (`HDMI/DP 1 (HDA Intel PCH)`, `HDMI/DP 2 (HDA NVidia)`), so that the first 14 characters differ. The order is the cards in index order and their PCMs in device order, and the PCMs with no monitor come last. They stay selectable: a monitor can be connected later.
+
+An S/PDIF output is not an analog output: neither `auto` nor the fallback to the first analog PCM takes it. The list of another driver (SDL's names) has no analog output in this sense either, so there `auto` is the system default device.
+
+The menu shows `auto` first (detail `Automatic`), then the list. A stored value that is not in the list stays an option, labelled with its raw value and the detail `Not connected`.
 
 For another driver (the desktop window on macOS), the list is SDL's, one entry per device, labelled with its name, and the `monitor` is `NotDigital`. SDL's ALSA default entry `ALSA default playback device` is never listed: `auto` stands for it.
 
-On the bench today the list is: `Analog (HDA Intel PCH)` (`hw:CARD=PCH,DEV=0`), `HDMI/DP 1 (HDA Intel PCH)`, `HDMI/DP 2 (...)` and `HDMI/DP 3 (...)` (`DEV=3`, `7`, `8`), all three with the detail of their PCM name, because the counts do not settle which one the DELL monitor uses. After a boot with the monitor connected, it is `HDMI/DP 1` (`DEV=3`): the kernel gives the first valid ELD the first free PCM. This is not guaranteed after the monitor was disconnected and connected again with another pin in between, so NEPTRON does not claim it.
+On the bench today the list is: `Analog (HDA Intel PCH)` (`hw:CARD=PCH,DEV=0`), `HDMI/DP 1 (HDA Intel PCH)`, `HDMI/DP 2 (...)` and `HDMI/DP 3 (...)` (`DEV=3`, `7`, `8`), all three with no detail, because the counts do not settle which one the DELL monitor uses. After a boot with the monitor connected, it is `HDMI/DP 1` (`DEV=3`): the kernel gives the first valid ELD the first free PCM. This is not guaranteed after the monitor was disconnected and connected again with another pin in between, so NEPTRON does not claim it.
 
 ### `auto`
 
@@ -197,7 +202,7 @@ For the `alsa` driver, `Sdl3Outputs::open(Some(name))` sets the hint `SDL_AUDIO_
 | --- | --- |
 | A named device that is not listed | `The audio output "<label>" is not connected. Another output plays.` |
 | A listed device (named, `auto`'s choice or the first analog) that does not open | `The audio output "<label>" did not open (<error>). Another output plays.` |
-| No device opens | `No sound: the audio device did not open (<error>; <error>...).`, with every error of the chain |
+| No device opens | The notices above without `Another output plays.`, then `No sound: the audio device did not open (<error of the default device>).` |
 
 - Each step down gives a notice, and the log line holds each error: `; failed "<name>" (<error>)`.
 - The setting is never written by this code. The next start tries the named device again, so a monitor or a USB card that comes back is used again with no change in the menu.
