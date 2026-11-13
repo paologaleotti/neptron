@@ -136,8 +136,9 @@ impl BootCheckArgs {
     }
 }
 
-/// The guest script: check the storage of the disk, dismiss the notice of
-/// each RAM folder, wait for the game list, then print the picture. The
+/// The guest script: check the storage of the disk, wait until the SMB
+/// server of the network share listens, dismiss the notice of each RAM
+/// folder, wait for the game list, then print the picture. The
 /// capture tool gets the deadline less a margin, so it reports a missing
 /// screen itself before the guest deadline kills it. When it fails, the
 /// script asks the frontend what it shows, for the console log.
@@ -153,7 +154,8 @@ impl BootCheckArgs {
 pub fn guest_script(timeout_secs: u64, arch: Arch) -> String {
     let wait_secs = timeout_secs.saturating_sub(GUEST_MARGIN_SECS).max(1);
     let [state, share] = expected_storage(arch);
-    let mut steps = format!("ready && storage state {state} && storage share {share} && ");
+    let mut steps =
+        format!("ready && storage state {state} && storage share {share} && network_share && ");
     if [state, share].contains(&"ram") {
         steps.push_str("controlled && ");
     }
@@ -187,6 +189,15 @@ controlled() {
 storage() {
 	grep -qx "$1 = \"$2\"" STORAGE && return 0
 	echo "neptron-check: /$1 is not $2:"; cat STORAGE; return 1
+}
+network_share() {
+	# The share starts in the background at boot: wait for a socket of the
+	# SMB server that listens on port 445 (hex 01BD, state 0A) and for the
+	# mDNS responder.
+	until cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$2 ~ /:01BD$/ && $4 == "0A" { found = 1 } END { exit !found }' && pidof mdnsd > /dev/null; do
+		in_time "the network share does not listen on port 445, or mdnsd does not run" || return 1
+		sleep 1
+	done
 }
 dismiss() {
 	neptronctl wait screen SCREEN --within-ms "$(left_ms)" > /dev/null || return 1
@@ -823,13 +834,12 @@ mod tests {
     #[test]
     fn the_guest_script_states_the_storage_it_expects() {
         let x86 = guest_script(900, Arch::X86_64);
-        let checks =
-            "ready && storage state partition && storage share partition && neptron-capture";
+        let checks = "ready && storage state partition && storage share partition && network_share && neptron-capture";
         assert!(x86.contains(checks), "{x86}");
         assert!(!x86.contains("&& dismiss "), "no notice to dismiss: {x86}");
         assert!(!x86.contains("&& controlled "), "no input needed: {x86}");
         let arm = guest_script(900, Arch::Aarch64);
-        let checks = "ready && storage state ram && storage share ram && controlled && dismiss state && dismiss share && neptron-capture";
+        let checks = "ready && storage state ram && storage share ram && network_share && controlled && dismiss state && dismiss share && neptron-capture";
         assert!(arm.contains(checks), "{arm}");
         assert!(arm.contains("this server does not serve"), "{arm}");
         for script in [&x86, &arm] {
@@ -840,6 +850,19 @@ mod tests {
             );
             assert!(script.contains("--within-ms \"$(left_ms)\""), "{script}");
             assert!(!script.contains("870000"), "no wait of its own: {script}");
+            let share = script
+                .split("network_share() {")
+                .nth(1)
+                .and_then(|rest| rest.split("\n}").next())
+                .expect("the network share function");
+            for part in [
+                "/proc/net/tcp /proc/net/tcp6",
+                "$2 ~ /:01BD$/ && $4 == \"0A\"",
+                "pidof mdnsd",
+                "in_time",
+            ] {
+                assert!(share.contains(part), "{part}: {share}");
+            }
         }
     }
 

@@ -103,6 +103,8 @@ A stop of the launcher with SIGTERM (`kill $(pidof neptron-launch)`, or init at 
 - **The stop.** In `rcK`, before `umount -a -r`: `mdnsd` stops, `ksmbd.control --shutdown` closes every session, the script waits up to 5 s until no socket of the server is left, then `sync`. So the share partition unmounts clean after a copy.
 - **What is open on the release image**: TCP 445 and UDP 5353. No SSH, no telnet.
 
+The boot check waits, inside its deadline, until a socket listens on port 445 and `mdnsd` runs. The QEMU runs have no network card (`-nic none`), and the server listens on the loopback interface too.
+
 ### The 15 kHz kernel patch set
 
 The PC kernel applies the nine patches of `D0023R/linux_kernel_15khz`, folder `linux-6.18`, at commit `8c96dd9f0b343a6d1ef3c61041783ee106957886`. All nine apply to 6.18.63 with no offset and no fuzz. Patch 09 (i915 gen9 interlace) acts only with `i915.no_ytiled_scanout=1`, which the image does not set.
