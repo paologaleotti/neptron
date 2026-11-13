@@ -79,8 +79,8 @@ commands:
                        that runs the development variant, over SSH
   os logs --host H [--user U] [--port P] [--follow]
                        print the log of the launcher and the frontend, the
-                       lines of the storage script in syslog, and dmesg, of
-                       that PC
+                       lines of the storage script (syslog and the storage
+                       log of the state partition), and dmesg, of that PC
   os ssh --host H [--user U] [--port P] -- command...
                        run a command on that PC
   qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]

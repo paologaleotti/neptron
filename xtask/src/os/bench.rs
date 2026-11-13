@@ -21,9 +21,13 @@ pub const HOT_BIN: &str = "/state/hot/bin";
 pub const HOT_DATA: &str = "/state/hot/share/neptron";
 /// The current log file that svlogd keeps on the PC.
 pub const LOG: &str = "/state/log/neptron/current";
-/// The syslog file on the PC. The storage script writes its lines there
-/// with the tag `neptron-storage`; the console of a PC is not kept.
+/// The syslog file on the PC, in a RAM folder. The storage script writes
+/// its lines there with the tag `neptron-storage`; the console of a PC is
+/// not kept.
 pub const SYSLOG: &str = "/var/log/messages";
+/// The storage log on the PC: the lines of the storage script of the last
+/// boots, which it writes to the state partition.
+pub const STORAGE_LOG: &str = "/state/log/storage.log";
 /// The known-hosts file of the bench, in the cache directory.
 pub const KNOWN_HOSTS: &str = "bench_known_hosts";
 
@@ -247,6 +251,7 @@ pub fn logs_script(follow: bool) -> String {
         format!(
             "echo '== {LOG}'; tail -n 400 {LOG}; \
              echo '== storage lines of {SYSLOG}'; grep neptron-storage {SYSLOG}; \
+             echo '== {STORAGE_LOG}'; tail -n 100 {STORAGE_LOG}; \
              echo '== /run/neptron/storage.toml'; cat /run/neptron/storage.toml; \
              echo '== dmesg'; dmesg | tail -n 100; \
              echo '== /state/hot'; ls -l {HOT_BIN} 2>/dev/null; ls /state/hot 2>/dev/null"
@@ -553,5 +558,6 @@ mod tests {
         assert!(logs_script(false).contains("dmesg"));
         assert!(logs_script(false).contains("grep neptron-storage /var/log/messages"));
         assert!(logs_script(false).contains("cat /run/neptron/storage.toml"));
+        assert!(logs_script(false).contains("tail -n 100 /state/log/storage.log"));
     }
 }

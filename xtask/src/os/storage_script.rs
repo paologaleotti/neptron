@@ -1,9 +1,10 @@
 //! Tests of `S06neptron-storage`, the init script that mounts the state and
 //! the share partition. The script runs on the host with every path below
-//! a test folder (`NEPTRON_STORAGE_ROOT`): a fake sysfs, a fake disk file
-//! and fake commands for every program that touches a device or the kernel.
-//! The fakes write their calls to a log; the tests read the log and the
-//! status file `run/neptron/storage.toml`.
+//! a test folder, which the tests give as its second argument: a fake
+//! sysfs, a fake disk file and fake commands for every program that touches
+//! a device or the kernel. The fakes write their calls to a log; the tests
+//! read the log, the status file `run/neptron/storage.toml` and the storage
+//! log `state/log/storage.log`.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -20,15 +21,22 @@ fn script() -> String {
     std::fs::read_to_string(script_path()).unwrap()
 }
 
-/// The fake disk: partition 3 (state) ends at sector 8192, so the planned
-/// start of partition 4 is 8192, and 128 MiB of free space follow.
+/// The fake disk: partition 3 (state) ends at sector 10240, so the planned
+/// start of partition 4 is 10240: on a 1 MiB boundary, not on a 4 MiB one.
+/// 65 MiB of free space follow, just over the 64 MiB limit, so the scan for
+/// an old share is short.
 const STATE_START: u64 = 4096;
-const STATE_SECTORS: u64 = 4096;
-const PLANNED: u64 = 8192;
-const FREE_SECTORS: u64 = 262_144;
+const STATE_SECTORS: u64 = 6144;
+const PLANNED: u64 = 10_240;
+const FREE_SECTORS: u64 = 133_120;
 const DISK_SECTORS: u64 = PLANNED + FREE_SECTORS;
+/// The start that the fake sfdisk takes when its input gives none: the
+/// first free sector rounded up to 4 MiB, as libfdisk does on a device
+/// with an optimal I/O size of 4 MiB.
+const GRAIN_4_MIB_START: u64 = 16_384;
 
-/// The fake commands. Each reads its behaviour from `FAKE_*` variables.
+/// The fake commands. Each reads its behaviour from `FAKE_*` variables;
+/// `FAKE_ROOT` is the test folder.
 const FAKES: &[(&str, &str)] = &[
     ("mountpoint", "echo 8:2"),
     (
@@ -43,11 +51,18 @@ const FAKES: &[(&str, &str)] = &[
          *'-t ext4'*) exit \"${FAKE_MOUNT_EXT4_EXIT:-0}\" ;;\n\
          esac",
     ),
-    ("logger", "echo \"logger $*\" >> \"$LOG\""),
+    (
+        "logger",
+        "echo \"logger $*\" >> \"$LOG\"; exit \"${FAKE_LOGGER_EXIT:-0}\"",
+    ),
     ("sync", "echo sync >> \"$LOG\""),
     ("chown", "echo \"chown $*\" >> \"$LOG\""),
     ("date", "echo DATE"),
     ("mkfs.exfat", "echo \"mkfs.exfat $*\" >> \"$LOG\""),
+    (
+        "blockdev",
+        "echo \"blockdev $*\" >> \"$LOG\"; exit \"${FAKE_FLUSH_EXIT:-0}\"",
+    ),
     (
         "blkid",
         "if [ -n \"$FAKE_BLKID_ERROR\" ]; then echo \"$FAKE_BLKID_ERROR\" >&2; exit 4; fi\n\
@@ -57,47 +72,58 @@ const FAKES: &[(&str, &str)] = &[
     (
         "usleep",
         "echo \"usleep $*\" >> \"$LOG\"\n\
-         n=$(($(cat \"$NEPTRON_STORAGE_ROOT/usleeps\" 2>/dev/null || echo 0) + 1))\n\
-         echo \"$n\" > \"$NEPTRON_STORAGE_ROOT/usleeps\"\n\
+         n=$(($(cat \"$FAKE_ROOT/usleeps\" 2>/dev/null || echo 0) + 1))\n\
+         echo \"$n\" > \"$FAKE_ROOT/usleeps\"\n\
          if [ -n \"$FAKE_NODE_AT\" ] && [ \"$n\" -ge \"$FAKE_NODE_AT\" ]; then\n\
-         \t: > \"$NEPTRON_STORAGE_ROOT/dev/sda4\"\n\
+         \t: > \"$FAKE_ROOT/dev/sda4\"\n\
          fi",
     ),
     (
         "sfdisk",
-        "R=$NEPTRON_STORAGE_ROOT\n\
+        "R=$FAKE_ROOT\n\
          case \" $* \" in\n\
-         *' --dump '*) cat \"$R/table\"; exit 0 ;;\n\
+         *' --dump '*)\n\
+         \tn=$(cat \"$R/dump-fails\" 2>/dev/null || echo 0)\n\
+         \tif [ \"$n\" -gt 0 ]; then\n\
+         \t\techo $((n - 1)) > \"$R/dump-fails\"\n\
+         \t\techo 'dump fails' >> \"$LOG\"\n\
+         \t\techo 'sfdisk: cannot open /dev/sda: Input/output error' >&2; exit 1\n\
+         \tfi\n\
+         \techo dump >> \"$LOG\"; cat \"$R/table\"; exit 0 ;;\n\
          *' --part-type '*) grep -q '4 : .*type=7' \"$R/table\" && echo ' 7'; exit 0 ;;\n\
          esac\n\
-         cat > /dev/null\n\
-         echo \"sfdisk $*\" >> \"$LOG\"\n\
+         read -r line\n\
+         echo \"sfdisk $* <<< $line\" >> \"$LOG\"\n\
+         start=${line%%,*}\n\
+         [ -n \"$start\" ] || start=$GRAIN_START\n\
+         start=${FAKE_P4_START:-$start}\n\
          if [ \"${FAKE_SFDISK_WRITES:-yes}\" = yes ]; then\n\
          \tprintf '%s/dev/sda4 : start=%12s, size=%12s, type=%s\\n' \"$R\" \
-         \"${FAKE_P4_START:-8192}\" \"${FAKE_P4_SECTORS:-262144}\" \"${FAKE_P4_TYPE:-7}\" >> \"$R/table\"\n\
+         \"$start\" $((DISK_SECTORS - start)) \"${FAKE_P4_TYPE:-${line##*,}}\" >> \"$R/table\"\n\
+         \tif [ -n \"$FAKE_DUMP_FAILS_AFTER_WRITE\" ]; then echo \"$FAKE_DUMP_FAILS_AFTER_WRITE\" > \"$R/dump-fails\"; fi\n\
          fi\n\
          if [ -n \"$FAKE_SFDISK_SAYS\" ]; then echo \"$FAKE_SFDISK_SAYS\" >&2; fi\n\
          exit \"${FAKE_SFDISK_EXIT:-0}\"",
     ),
     (
-        "partx",
-        "R=$NEPTRON_STORAGE_ROOT\n\
-         echo \"partx $*\" >> \"$LOG\"\n\
-         n=$(($(cat \"$R/partx-calls\" 2>/dev/null || echo 0) + 1))\n\
-         echo \"$n\" > \"$R/partx-calls\"\n\
-         if [ \"$n\" -le \"${FAKE_PARTX_FAILS:-0}\" ]; then\n\
-         \techo 'partx: /dev/sda: error adding partition 4' >&2; exit 1\n\
+        "addpart",
+        "R=$FAKE_ROOT\n\
+         echo \"addpart $*\" >> \"$LOG\"\n\
+         n=$(($(cat \"$R/addpart-calls\" 2>/dev/null || echo 0) + 1))\n\
+         echo \"$n\" > \"$R/addpart-calls\"\n\
+         if [ \"$n\" -le \"${FAKE_ADDPART_FAILS:-0}\" ]; then\n\
+         \techo 'addpart: failed to add partition: Device or resource busy' >&2; exit 1\n\
          fi\n\
-         if [ \"${FAKE_PARTX_ADDS:-yes}\" != yes ]; then exit 0; fi\n\
-         add_partition 4 \"${FAKE_P4_START:-8192}\" \"${FAKE_P4_SECTORS:-262144}\"\n\
-         if [ -z \"$FAKE_NODE_AT\" ]; then : > \"$R/dev/sda4\"; fi",
+         if [ \"${FAKE_ADDPART_ADDS:-yes}\" != yes ]; then exit 0; fi\n\
+         add_partition \"$2\" \"$3\" \"$4\"\n\
+         if [ -z \"$FAKE_NODE_AT\" ]; then : > \"$R/dev/sda$2\"; fi",
     ),
 ];
 
 /// Adds partition `$1` (start `$2`, size `$3`) to the fake sysfs, as the
-/// kernel does. The fake partx and the test setup share it.
+/// kernel does. The fake addpart and the test setup share it.
 const ADD_PARTITION: &str = "#!/bin/sh\n\
-    R=$NEPTRON_STORAGE_ROOT\n\
+    R=$FAKE_ROOT\n\
     dir=$R/sys/devices/blk/sda/sda$1\n\
     mkdir -p \"$dir\" \"$R/sys/class/block\"\n\
     echo \"$1\" > \"$dir/partition\"\n\
@@ -113,7 +139,7 @@ struct Run {
 
 impl Run {
     /// A disk with partitions 1 to 3 in the table and in the kernel, the
-    /// state partition first, and free space after it.
+    /// state partition last, and free space after it.
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("xtask-storage-{name}-{}", std::process::id()));
         if dir.exists() {
@@ -129,12 +155,13 @@ impl Run {
             write_exec(&bin.join(name), &format!("#!/bin/sh\n{body}\n"));
         }
         write_exec(&bin.join("add_partition"), ADD_PARTITION);
-        std::fs::create_dir_all(run.path("dev")).unwrap();
-        std::fs::create_dir_all(run.path("sys/dev/block")).unwrap();
-        std::fs::create_dir_all(run.path("usr/share/neptron/systems")).unwrap();
+        for dir in ["dev", "sys/dev/block", "usr/share/neptron/systems"] {
+            std::fs::create_dir_all(run.path(dir)).unwrap();
+        }
         std::fs::write(run.path("usr/share/neptron/systems/nes.toml"), "").unwrap();
+        std::fs::create_dir_all(run.path("sys/devices/blk/sda")).unwrap();
         std::fs::write(
-            run.path("sys/devices/blk/sda/size").tap_dir(),
+            run.path("sys/devices/blk/sda/size"),
             format!("{DISK_SECTORS}\n"),
         )
         .unwrap();
@@ -155,7 +182,7 @@ impl Run {
                 "label: dos\n\n\
                  {root}/dev/sda1 : start=        2048, size=        1024, type=c, bootable\n\
                  {root}/dev/sda2 : start=        3072, size=        1024, type=83\n\
-                 {root}/dev/sda3 : start=        4096, size=        4096, type=83\n"
+                 {root}/dev/sda3 : start=        4096, size=        6144, type=83\n"
             ),
         )
         .unwrap();
@@ -175,7 +202,7 @@ impl Run {
     fn add_partition(&self, number: u32, start: u64, sectors: u64) {
         let status = Command::new(self.path("bin/add_partition"))
             .args([number.to_string(), start.to_string(), sectors.to_string()])
-            .env("NEPTRON_STORAGE_ROOT", &self.dir)
+            .env("FAKE_ROOT", &self.dir)
             .status()
             .unwrap();
         assert!(status.success());
@@ -192,6 +219,13 @@ impl Run {
         std::fs::write(self.path("table"), table).unwrap();
     }
 
+    /// Partition 4 at the planned start, in the table and in the kernel.
+    fn with_partition_4(self) -> Self {
+        self.table_partition_4(PLANNED, FREE_SECTORS, "7");
+        self.add_partition(4, PLANNED, FREE_SECTORS);
+        self
+    }
+
     /// Puts an exFAT boot sector at `sector` of the fake disk.
     fn exfat_at(&self, sector: u64) {
         use std::io::{Seek, SeekFrom, Write};
@@ -203,7 +237,8 @@ impl Run {
         disk.write_all(b"EXFAT   ").unwrap();
     }
 
-    /// Runs the script with `start` and returns what it did.
+    /// Runs the script with `start` and the test folder, and returns what
+    /// it did.
     fn start(self) -> Outcome {
         let path = format!(
             "{}:{}",
@@ -213,9 +248,12 @@ impl Run {
         let out = Command::new("sh")
             .arg(script_path())
             .arg("start")
+            .arg(&self.dir)
             .env("PATH", path)
             .env("LOG", self.path("log"))
-            .env("NEPTRON_STORAGE_ROOT", &self.dir)
+            .env("FAKE_ROOT", &self.dir)
+            .env("GRAIN_START", GRAIN_4_MIB_START.to_string())
+            .env("DISK_SECTORS", DISK_SECTORS.to_string())
             .envs(self.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::null())
             .output()
@@ -227,6 +265,7 @@ impl Run {
                 + &String::from_utf8_lossy(&out.stderr),
             log: read("log"),
             status: read("run/neptron/storage.toml"),
+            state_log: read("state/log/storage.log"),
             marker: self.path("state/share-pending").exists(),
         };
         // A folder left in the system temp folder does no harm.
@@ -242,6 +281,7 @@ struct Outcome {
     console: String,
     log: String,
     status: String,
+    state_log: String,
     marker: bool,
 }
 
@@ -250,7 +290,15 @@ impl Outcome {
         self.log.lines().filter(|l| l.starts_with(prefix)).count()
     }
 
-    /// The share partition is mounted and no format ran.
+    /// The position of the first log line that starts with `prefix`.
+    fn first(&self, prefix: &str) -> usize {
+        self.log
+            .lines()
+            .position(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no {prefix}: {self:#?}"))
+    }
+
+    /// The share partition is mounted, formatted or not.
     fn assert_share_mounted(&self, formatted: bool) {
         assert!(self.ok, "{self:#?}");
         assert_eq!(
@@ -269,18 +317,24 @@ impl Outcome {
                 && self.log.contains("sda4 mounted at /share"),
             "{self:#?}"
         );
+        assert!(
+            self.state_log.contains("sda4 mounted at /share"),
+            "{self:#?}"
+        );
     }
 
     /// `/share` is a RAM folder with `reason` in the status file, and the
-    /// reason is in syslog and on the console.
-    fn assert_share_ram(&self, reason: &str) {
+    /// reason is in syslog, on the console, and in the storage log when
+    /// `/state` is on the disk.
+    fn assert_share_ram(&self, reason: &str) -> String {
         assert!(self.ok, "{self:#?}");
         let share_reason = self
             .status
             .lines()
             .find_map(|l| l.strip_prefix("share_reason = \""))
             .and_then(|l| l.strip_suffix('"'))
-            .unwrap_or_else(|| panic!("no share reason: {self:#?}"));
+            .unwrap_or_else(|| panic!("no share reason: {self:#?}"))
+            .to_owned();
         assert!(share_reason.contains(reason), "{reason}: {self:#?}");
         assert!(self.status.contains("share = \"ram\"\n"), "{self:#?}");
         assert!(
@@ -294,25 +348,21 @@ impl Outcome {
                 .contains(&format!("neptron-storage: {share_reason}")),
             "{self:#?}"
         );
+        let state_ram = self.status.contains("state = \"ram\"");
+        if !state_ram {
+            assert!(
+                self.state_log.lines().any(|l| l == share_reason),
+                "the storage log misses the reason: {self:#?}"
+            );
+        }
         assert_eq!(self.calls("mount -t exfat"), 0, "{self:#?}");
         assert_eq!(self.calls("mkfs.exfat"), 0, "{self:#?}");
         assert_eq!(
             self.calls("mount -t tmpfs"),
-            1 + self.status.matches("state = \"ram\"").count(),
+            1 + usize::from(state_ram),
             "{self:#?}"
         );
-    }
-}
-
-trait TapDir {
-    /// Makes the parent folder of the path and returns the path.
-    fn tap_dir(self) -> Self;
-}
-
-impl TapDir for PathBuf {
-    fn tap_dir(self) -> Self {
-        std::fs::create_dir_all(self.parent().unwrap()).unwrap();
-        self
+        share_reason
     }
 }
 
@@ -323,35 +373,95 @@ fn write_exec(path: &Path, text: &str) {
 }
 
 #[test]
-fn the_script_is_posix_sh_and_starts_nothing_on_other_actions() {
-    for shell in ["sh", "dash"] {
-        let Ok(out) = Command::new(shell).arg("-n").arg(script_path()).output() else {
-            continue;
-        };
-        assert!(out.status.success(), "{shell}: {out:?}");
+fn the_script_parses_in_every_posix_shell_of_the_host() {
+    let mut checked = Vec::new();
+    for shell in ["sh", "dash", "busybox"] {
+        let mut cmd = Command::new(shell);
+        if shell == "busybox" {
+            cmd.arg("sh");
+        }
+        match cmd.arg("-n").arg(script_path()).output() {
+            Ok(out) => {
+                assert!(out.status.success(), "{shell}: {out:?}");
+                checked.push(shell);
+            }
+            Err(_) => eprintln!("{shell} -n skipped: {shell} is not on this host"),
+        }
     }
+    assert!(checked.contains(&"sh"), "{checked:?}");
+}
+
+#[test]
+fn other_actions_do_nothing() {
     let run = Run::new("stop");
-    let path = run.path("bin");
     let out = Command::new("sh")
         .arg(script_path())
         .arg("stop")
-        .env("PATH", format!("{}:/usr/bin:/bin", path.display()))
+        .arg(&run.dir)
+        .env(
+            "PATH",
+            format!("{}:/usr/bin:/bin", run.path("bin").display()),
+        )
         .env("LOG", run.path("log"))
-        .env("NEPTRON_STORAGE_ROOT", &run.dir)
         .output()
         .unwrap();
     assert!(out.status.success());
     assert!(!run.path("log").exists());
+    // A folder left in the system temp folder does no harm.
     let _ = std::fs::remove_dir_all(&run.dir);
 }
 
-/// sfdisk never wipes a signature and never asks: the free space can hold
-/// the share of an older image. Every line goes to syslog.
+/// Init passes the kernel command line to its children as variables, so
+/// no variable may move the paths of the script; only its second argument,
+/// which init never gives, does.
 #[test]
-fn sfdisk_wipes_nothing_and_every_line_goes_to_syslog() {
+fn only_the_second_argument_moves_the_paths() {
+    let text = script();
+    assert!(text.contains("\nR=${2:-}\n"), "{text}");
+    assert!(!text.contains("NEPTRON_STORAGE_ROOT"), "{text}");
+    let mut names: Vec<String> = Vec::new();
+    let bytes: Vec<char> = text.chars().collect();
+    for (i, c) in bytes.iter().enumerate() {
+        if *c != '$' {
+            continue;
+        }
+        let rest: String = bytes[i + 1..]
+            .iter()
+            .skip_while(|c| **c == '{')
+            .take_while(|c| c.is_ascii_uppercase() || **c == '_' || c.is_ascii_digit())
+            .collect();
+        if rest.starts_with(|c: char| c.is_ascii_uppercase()) && !names.contains(&rest) {
+            names.push(rest);
+        }
+    }
+    for name in &names {
+        assert!(
+            text.contains(&format!("\n{name}=")),
+            "{name} comes from the environment"
+        );
+    }
+}
+
+/// A flag that a variable of init could set is set by the script first.
+#[test]
+fn a_variable_from_init_cannot_open_the_share_path() {
+    let out = Run::new("env-flag")
+        .set("state_writable", "yes")
+        .set("NEPTRON_STORAGE_ROOT", "/nonexistent")
+        .set("FAKE_MOUNT_EXT4_EXIT", "32")
+        .start();
+    out.assert_share_ram("the state partition is not mounted, so no share partition is made");
+    assert_eq!(out.calls("sfdisk"), 0, "{out:#?}");
+}
+
+/// sfdisk gets the planned start, never wipes a signature and never asks:
+/// the free space can hold the share of an older image. Every line goes to
+/// syslog.
+#[test]
+fn sfdisk_gets_the_planned_start_and_wipes_nothing() {
     let text = script();
     let sfdisk: String = text
-        .split("output=$(echo ',,7' | sfdisk ")
+        .split("| sfdisk ")
         .nth(1)
         .and_then(|rest| rest.split(" 2>&1)").next())
         .expect("the sfdisk call")
@@ -367,6 +477,7 @@ fn sfdisk_wipes_nothing_and_every_line_goes_to_syslog() {
     ] {
         assert!(sfdisk.contains(option), "{option}: {sfdisk}");
     }
+    assert!(text.contains("printf '%s,,7\\n' \"$planned\" | sfdisk "));
     assert!(!text.contains("--wipe always"));
     assert!(!text.contains("wipefs"));
     assert_eq!(text.matches("mkfs.exfat -L NEPTRON").count(), 1);
@@ -387,10 +498,31 @@ fn empty_free_space_becomes_a_formatted_share() {
     let out = Run::new("fresh").start();
     out.assert_share_mounted(true);
     assert_eq!(out.calls("sfdisk"), 1, "{out:#?}");
-    assert_eq!(out.calls("partx --add --nr 4"), 1, "{out:#?}");
+    assert_eq!(out.calls("addpart "), 1, "{out:#?}");
+    assert!(
+        out.log.lines().any(|l| l.starts_with("addpart ")
+            && l.ends_with(&format!("/dev/sda 4 {PLANNED} {FREE_SECTORS}"))),
+        "{out:#?}"
+    );
+    assert!(
+        out.log.contains(&format!(
+            "logger -t neptron-storage making partition 4 at sector {PLANNED}"
+        )),
+        "{out:#?}"
+    );
+}
+
+/// libfdisk aligns a start it chooses to the optimal I/O size of the
+/// device; the fake sfdisk chooses 4 MiB. The script names the start, so
+/// the entry is where the plan puts it.
+#[test]
+fn sfdisk_gets_the_start_and_does_not_choose_one() {
+    let out = Run::new("grain").start();
+    out.assert_share_mounted(true);
     assert!(
         out.log
-            .contains("logger -t neptron-storage making partition 4 at sector 8192"),
+            .lines()
+            .any(|l| l.starts_with("sfdisk ") && l.ends_with(&format!("<<< {PLANNED},,7"))),
         "{out:#?}"
     );
 }
@@ -425,10 +557,72 @@ fn sfdisk_failing_after_a_correct_write_still_gives_the_share() {
         "{out:#?}"
     );
     assert!(
-        out.log
-            .contains("holds partition 4 as planned (8192 262144 7), sfdisk exit 1"),
+        out.log.contains(&format!(
+            "holds partition 4 as planned ({PLANNED} {FREE_SECTORS} 7), sfdisk exit 1"
+        )),
         "{out:#?}"
     );
+}
+
+/// The table is read back from the device, not from the page cache that
+/// sfdisk wrote: the cache of the disk is dropped first.
+#[test]
+fn the_cache_of_the_disk_is_dropped_before_the_read_back() {
+    let out = Run::new("flush").start();
+    out.assert_share_mounted(true);
+    let sfdisk = out.first("sfdisk ");
+    let flush = out.first("blockdev --flushbufs ");
+    let dumps: Vec<usize> = out
+        .log
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| *l == "dump")
+        .map(|(i, _)| i)
+        .collect();
+    assert!(sfdisk < flush, "{out:#?}");
+    assert!(dumps.iter().any(|d| *d > flush), "{out:#?}");
+    assert!(
+        out.log
+            .contains("logger -t neptron-storage blockdev --flushbufs exit 0"),
+        "{out:#?}"
+    );
+}
+
+#[test]
+fn a_flush_that_fails_is_logged_and_the_read_back_goes_on() {
+    let out = Run::new("flush-fails").set("FAKE_FLUSH_EXIT", "1").start();
+    out.assert_share_mounted(true);
+    assert!(
+        out.log.contains(
+            "logger -t neptron-storage blockdev --flushbufs exit 1: the table is read back from the cache, not from the device"
+        ),
+        "{out:#?}"
+    );
+}
+
+#[test]
+fn a_read_back_that_fails_once_is_tried_again() {
+    let out = Run::new("dump-once")
+        .set("FAKE_DUMP_FAILS_AFTER_WRITE", "1")
+        .start();
+    out.assert_share_mounted(true);
+    assert_eq!(out.calls("dump fails"), 1, "{out:#?}");
+}
+
+/// A table that cannot be read proves nothing: the marker stays, so the
+/// next boot, where the kernel reads the table, can still format an empty
+/// partition 4.
+#[test]
+fn a_table_that_cannot_be_read_back_keeps_the_marker() {
+    let out = Run::new("dump-never")
+        .set("FAKE_DUMP_FAILS_AFTER_WRITE", "99")
+        .start();
+    out.assert_share_ram(
+        "the partition table cannot be read back after sfdisk (exit 0); the marker stays and the next boot uses partition 4",
+    );
+    assert!(out.marker, "{out:#?}");
+    assert_eq!(out.calls("dump fails"), 5, "{out:#?}");
+    assert_eq!(out.calls("addpart"), 0, "{out:#?}");
 }
 
 #[test]
@@ -439,48 +633,58 @@ fn sfdisk_that_writes_nothing_leaves_a_ram_folder_with_its_reason() {
         .start();
     out.assert_share_ram("sfdisk exit 1, and the partition table has no partition 4");
     assert!(!out.marker, "no partition, no marker: {out:#?}");
-    assert_eq!(out.calls("partx"), 0, "{out:#?}");
+    assert_eq!(out.calls("addpart"), 0, "{out:#?}");
+}
+
+fn other_partition_4(name: &str, start: u64, kind: &str) {
+    let out = Run::new(name)
+        .set("FAKE_P4_START", &start.to_string())
+        .set("FAKE_P4_TYPE", kind)
+        .start();
+    out.assert_share_ram(&format!(
+        "sfdisk exit 0, and the table holds partition 4 at sector {start} with {} sectors and type {kind}, not type 7 at sector {PLANNED}",
+        DISK_SECTORS - start
+    ));
+    assert!(!out.marker, "{name}: {out:#?}");
+    assert_eq!(out.calls("addpart"), 0, "{name}: {out:#?}");
 }
 
 #[test]
-fn a_partition_4_other_than_planned_is_left_untouched() {
-    for (name, start, kind) in [("start", PLANNED + 2048, "7"), ("type", PLANNED, "83")] {
-        let out = Run::new(&format!("plan-{name}"))
-            .set("FAKE_P4_START", &start.to_string())
-            .set("FAKE_P4_TYPE", kind)
-            .start();
-        out.assert_share_ram(&format!(
-            "sfdisk exit 0, and the table holds partition 4 at sector {start} with 262144 sectors and type {kind}, not type 7 at sector 8192"
-        ));
-        assert!(!out.marker, "{name}: {out:#?}");
-        assert_eq!(out.calls("partx"), 0, "{name}: {out:#?}");
-    }
+fn a_partition_4_at_another_start_is_left_untouched() {
+    other_partition_4("plan-start", PLANNED + 2048, "7");
 }
 
 #[test]
-fn partx_failing_once_is_tried_again() {
-    let out = Run::new("partx-once").set("FAKE_PARTX_FAILS", "1").start();
+fn a_partition_4_of_another_type_is_left_untouched() {
+    other_partition_4("plan-type", PLANNED, "83");
+}
+
+#[test]
+fn addpart_failing_once_is_tried_again() {
+    let out = Run::new("addpart-once")
+        .set("FAKE_ADDPART_FAILS", "1")
+        .start();
     out.assert_share_mounted(true);
-    assert_eq!(out.calls("partx --add --nr 4"), 2, "{out:#?}");
+    assert_eq!(out.calls("addpart "), 2, "{out:#?}");
     assert_eq!(out.calls("usleep 500000"), 1, "{out:#?}");
     assert!(
         out.log.contains(
-            "logger -t neptron-storage partx try 1 of 5, exit 1: the kernel does not see partition 4: partx: /dev/sda: error adding partition 4"
+            "logger -t neptron-storage addpart try 1 of 5, exit 1: the kernel does not see partition 4: addpart: failed to add partition: Device or resource busy"
         ),
         "{out:#?}"
     );
 }
 
-/// partx can exit with 0 and add nothing: only the kernel's list counts.
+/// A tool can exit with 0 and add nothing: only the kernel's list counts.
 #[test]
 fn a_partition_the_kernel_never_sees_is_named_and_not_silent() {
-    let out = Run::new("partx-silent")
-        .set("FAKE_PARTX_ADDS", "no")
+    let out = Run::new("addpart-silent")
+        .set("FAKE_ADDPART_ADDS", "no")
         .start();
     out.assert_share_ram(
-        "partition 4 is in the partition table, but the kernel does not see it after 5 tries of partx (last exit 0); restart to use it",
+        "partition 4 is in the partition table, but the kernel does not see it after 5 tries of addpart (last exit 0); restart to use it",
     );
-    assert_eq!(out.calls("partx --add --nr 4"), 5, "{out:#?}");
+    assert_eq!(out.calls("addpart "), 5, "{out:#?}");
     assert_eq!(out.calls("usleep 500000"), 4, "{out:#?}");
     assert!(
         out.marker,
@@ -498,9 +702,9 @@ fn a_device_node_that_comes_late_is_waited_for() {
 #[test]
 fn a_device_node_that_never_comes_is_a_reason() {
     let out = Run::new("node-never").set("FAKE_NODE_AT", "999").start();
-    out.assert_share_ram("the kernel sees partition 4, but its device node");
+    let reason = out.assert_share_ram("the kernel sees partition 4, but its device node");
     assert!(
-        out.status.contains("does not appear within 5000 ms"),
+        reason.ends_with("does not appear within 5000 ms"),
         "{out:#?}"
     );
     assert_eq!(out.calls("usleep 100000"), 50, "{out:#?}");
@@ -513,140 +717,196 @@ fn a_partition_4_in_the_table_but_not_in_the_kernel_is_added() {
     let out = run.start();
     out.assert_share_mounted(false);
     assert_eq!(out.calls("sfdisk"), 0, "{out:#?}");
-    assert_eq!(out.calls("partx --add --nr 4"), 1, "{out:#?}");
+    assert_eq!(out.calls("addpart "), 1, "{out:#?}");
 }
 
 #[test]
 fn a_partition_4_the_kernel_sees_is_mounted_at_once() {
-    let run = Run::new("known").set("FAKE_BLKID", "TYPE=exfat");
-    run.table_partition_4(PLANNED, FREE_SECTORS, "7");
-    run.add_partition(4, PLANNED, FREE_SECTORS);
-    let out = run.start();
+    let out = Run::new("known")
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .with_partition_4()
+        .start();
     out.assert_share_mounted(false);
     assert_eq!(out.calls("sfdisk"), 0, "{out:#?}");
-    assert_eq!(out.calls("partx"), 0, "{out:#?}");
+    assert_eq!(out.calls("addpart"), 0, "{out:#?}");
     assert_eq!(out.calls("usleep"), 0, "{out:#?}");
 }
 
 #[test]
-fn every_way_to_a_ram_share_names_its_reason() {
-    let small = Run::new("small");
+fn too_little_free_space_is_a_reason() {
+    let run = Run::new("small");
     std::fs::write(
-        small.path("sys/devices/blk/sda/size"),
+        run.path("sys/devices/blk/sda/size"),
         format!("{}\n", PLANNED + 1000),
     )
     .unwrap();
-    small
-        .start()
+    run.start()
         .assert_share_ram("1000 free sectors after the state partition, less than 131072");
+}
 
-    let other = Run::new("old-elsewhere");
-    other.exfat_at(PLANNED + 4096);
-    let out = other.start();
-    out.assert_share_ram("an old exFAT share starts at sector 12288, not at 8192");
+#[test]
+fn an_old_share_at_another_start_is_a_reason() {
+    let run = Run::new("old-elsewhere");
+    run.exfat_at(PLANNED + 4096);
+    let out = run.start();
+    out.assert_share_ram(&format!(
+        "an old exFAT share starts at sector {}, not at {PLANNED}",
+        PLANNED + 4096
+    ));
     assert_eq!(out.calls("sfdisk"), 0, "{out:#?}");
+}
 
-    let no_state = Run::new("no-state");
-    std::fs::remove_dir_all(no_state.path("sys/devices/blk/sda/sda3")).unwrap();
-    let out = no_state.start();
+#[test]
+fn no_partition_3_is_a_reason_for_both() {
+    let run = Run::new("no-state");
+    std::fs::remove_dir_all(run.path("sys/devices/blk/sda/sda3")).unwrap();
+    let out = run.start();
     out.assert_share_ram("the boot disk has no partition 3, so no share partition is made");
     assert!(
         out.status
             .contains("state_reason = \"the boot disk has no partition 3"),
         "{out:#?}"
     );
+}
 
-    let whole = Run::new("whole-disk");
-    std::fs::remove_file(whole.path("sys/devices/blk/sda/sda2/partition")).unwrap();
-    whole
-        .start()
+#[test]
+fn a_root_on_a_whole_disk_is_a_reason_for_both() {
+    let run = Run::new("whole-disk");
+    std::fs::remove_file(run.path("sys/devices/blk/sda/sda2/partition")).unwrap();
+    run.start()
         .assert_share_ram("the root filesystem is not on a partition of a disk");
+}
 
-    let unmounted = Run::new("state-unmounted").set("FAKE_MOUNT_EXT4_EXIT", "32");
-    let out = unmounted.start();
+#[test]
+fn a_state_partition_that_does_not_mount_stops_the_share() {
+    let out = Run::new("state-unmounted")
+        .set("FAKE_MOUNT_EXT4_EXIT", "32")
+        .start();
     out.assert_share_ram("the state partition is not mounted, so no share partition is made");
     assert!(
         out.status
             .contains("does not mount; /state is a RAM folder"),
         "{out:#?}"
     );
+}
 
-    let broken = Run::new("state-errors").set("FAKE_E2FSCK_EXIT", "4");
-    let out = broken.start();
-    out.assert_share_ram("the state partition is not mounted");
-    assert!(out.status.contains("left errors (exit 4)"), "{out:#?}");
-
-    let no_mount = Run::new("exfat-mount")
+#[test]
+fn a_share_that_does_not_mount_is_a_reason() {
+    let run = Run::new("exfat-mount")
         .set("FAKE_BLKID", "TYPE=exfat")
         .set("FAKE_MOUNT_EXFAT_EXIT", "32");
-    no_mount.exfat_at(PLANNED);
-    let out = no_mount.start();
-    assert!(out.status.contains("share_reason = \""), "{out:#?}");
+    run.exfat_at(PLANNED);
+    let out = run.start();
+    assert!(out.status.contains("share = \"ram\""), "{out:#?}");
     assert!(out.status.contains("sda4 does not mount\""), "{out:#?}");
-    assert!(out.log.contains("logger -t neptron-storage "), "{out:#?}");
+    assert!(out.state_log.contains("sda4 does not mount"), "{out:#?}");
+}
 
-    let unclean = Run::new("unclean").set("FAKE_BLKID_ERROR", "blkid: read error");
-    unclean.add_partition(4, PLANNED, FREE_SECTORS);
-    unclean
+#[test]
+fn an_unclean_probe_is_a_reason() {
+    Run::new("unclean")
+        .set("FAKE_BLKID_ERROR", "blkid: read error")
+        .with_partition_4()
         .start()
         .assert_share_ram("was left untouched: blkid could not probe it cleanly");
+}
 
-    let foreign = Run::new("no-marker");
-    foreign.table_partition_4(PLANNED, FREE_SECTORS, "7");
-    foreign.add_partition(4, PLANNED, FREE_SECTORS);
-    foreign
+/// The format rule that keeps the user's data: an empty partition 4 that
+/// this system did not make is never formatted, at any boot.
+#[test]
+fn an_empty_partition_4_with_no_marker_is_named_as_such() {
+    Run::new("no-marker")
+        .with_partition_4()
         .start()
-        .assert_share_ram("this system did not make it (no /state/share-pending)");
+        .assert_share_ram(
+            "was left untouched: it is empty and was not made by this system (no /state/share-pending)",
+        );
+}
 
-    let damaged = Run::new("backup-boot-sector");
-    damaged.table_partition_4(PLANNED, FREE_SECTORS, "7");
-    damaged.add_partition(4, PLANNED, FREE_SECTORS);
-    std::fs::create_dir_all(damaged.path("state")).unwrap();
-    std::fs::write(damaged.path("state/share-pending"), "partition 4 made\n").unwrap();
-    let mut sector = vec![0_u8; 13 * 512];
-    sector[12 * 512 + 3..12 * 512 + 11].copy_from_slice(b"EXFAT   ");
-    std::fs::write(damaged.path("dev/sda4"), sector).unwrap();
-    damaged
-        .start()
+#[test]
+fn a_damaged_share_is_a_reason() {
+    let run = Run::new("backup-boot-sector").with_partition_4();
+    std::fs::create_dir_all(run.path("state")).unwrap();
+    std::fs::write(run.path("state/share-pending"), "partition 4 made\n").unwrap();
+    let mut sectors = vec![0_u8; 13 * 512];
+    sectors[12 * 512 + 3..12 * 512 + 11].copy_from_slice(b"EXFAT   ");
+    std::fs::write(run.path("dev/sda4"), sectors).unwrap();
+    run.start()
         .assert_share_ram("it holds an exFAT backup boot sector (sector 12)");
 }
 
-/// The state partition part names its reasons the same way.
-#[test]
-fn every_way_to_a_ram_state_names_its_reason_in_syslog() {
-    for (name, var, value, reason) in [
-        (
-            "e2fsck",
-            "FAKE_E2FSCK_EXIT",
-            "8",
-            "left errors (exit 8); /state is a RAM folder",
-        ),
-        (
-            "ext4",
-            "FAKE_MOUNT_EXT4_EXIT",
-            "32",
-            "sda3 does not mount; /state is a RAM folder",
-        ),
-    ] {
-        let out = Run::new(&format!("state-{name}")).set(var, value).start();
-        let state_reason = out
-            .status
-            .lines()
-            .find_map(|l| l.strip_prefix("state_reason = \""))
-            .and_then(|l| l.strip_suffix('"'))
-            .unwrap_or_else(|| panic!("{name}: {out:#?}"));
-        assert!(state_reason.ends_with(reason), "{name}: {out:#?}");
-        assert!(
-            out.log
-                .lines()
-                .any(|l| l == format!("logger -t neptron-storage {state_reason}")),
-            "{name}: {out:#?}"
-        );
-    }
-    let out = Run::new("state-ok").start();
+fn state_ram(name: &str, var: &str, value: &str, reason: &str) {
+    let out = Run::new(name).set(var, value).start();
+    let state_reason = out
+        .status
+        .lines()
+        .find_map(|l| l.strip_prefix("state_reason = \""))
+        .and_then(|l| l.strip_suffix('"'))
+        .unwrap_or_else(|| panic!("{name}: {out:#?}"));
+    assert!(state_reason.ends_with(reason), "{name}: {out:#?}");
     assert!(
-        out.log.contains("logger -t neptron-storage ")
-            && out.log.contains("sda3 mounted at /state (e2fsck exit 0)"),
+        out.log
+            .lines()
+            .any(|l| l == format!("logger -t neptron-storage {state_reason}")),
+        "{name}: {out:#?}"
+    );
+    assert_eq!(out.state_log, "", "no state partition to write: {out:#?}");
+}
+
+#[test]
+fn e2fsck_errors_are_a_reason_in_syslog() {
+    state_ram(
+        "state-e2fsck",
+        "FAKE_E2FSCK_EXIT",
+        "8",
+        "left errors (exit 8); /state is a RAM folder",
+    );
+}
+
+#[test]
+fn a_state_mount_failure_is_a_reason_in_syslog() {
+    state_ram(
+        "state-ext4",
+        "FAKE_MOUNT_EXT4_EXIT",
+        "32",
+        "sda3 does not mount; /state is a RAM folder",
+    );
+}
+
+/// `/var/log` is a RAM folder and a release image has no SSH, so the lines
+/// of each boot also go to the state partition, written directly: syslog
+/// may not run yet.
+#[test]
+fn the_lines_of_each_boot_go_to_the_state_partition_without_syslog() {
+    let out = Run::new("state-log").set("FAKE_LOGGER_EXIT", "1").start();
+    out.assert_share_mounted(true);
+    let lines: Vec<&str> = out.state_log.lines().collect();
+    assert_eq!(lines.first().copied(), Some("== boot DATE"), "{out:#?}");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.ends_with("sda3 mounted at /state (e2fsck exit 0)")),
+        "the lines before the state mount are kept: {out:#?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("making partition 4")),
+        "{out:#?}"
+    );
+}
+
+#[test]
+fn the_storage_log_keeps_the_last_lines_only() {
+    let run = Run::new("state-log-bound");
+    std::fs::create_dir_all(run.path("state/log")).unwrap();
+    let old: String = (0..1000).map(|i| format!("old line {i}\n")).collect();
+    std::fs::write(run.path("state/log/storage.log"), old).unwrap();
+    let out = run.start();
+    let lines: Vec<&str> = out.state_log.lines().collect();
+    assert_eq!(lines.len(), 300, "{out:#?}");
+    assert!(lines.contains(&"== boot DATE"), "{out:#?}");
+    assert!(!lines.contains(&"old line 0"), "{out:#?}");
+    assert!(
+        lines.last().unwrap().ends_with("sda4 mounted at /share"),
         "{out:#?}"
     );
 }

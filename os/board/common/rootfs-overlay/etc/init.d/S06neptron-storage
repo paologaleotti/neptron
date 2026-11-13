@@ -13,14 +13,17 @@
 # mounted, and why, to /run/neptron/storage.toml (a RAM file system: the
 # file is new at each boot). The frontend shows a notice for each RAM
 # folder, with the reason. Every line of the script also goes to syslog
-# with the tag neptron-storage, because the console of a PC is not kept.
+# with the tag neptron-storage, because the console of a PC is not kept,
+# and, when /state is mounted, to /state/log/storage.log, because /var/log
+# is a RAM folder.
 #
-# NEPTRON_STORAGE_ROOT puts every path of the script below a folder, for a
-# test.
+# A second argument puts every path of the script below that folder, for a
+# test. Init never gives one; a variable would not do, because init passes
+# the kernel command line to its children as variables.
 
 [ "$1" = start ] || exit 0
 
-R=${NEPTRON_STORAGE_ROOT:-}
+R=${2:-}
 STATE=$R/state
 SHARE=$R/share
 DEV=$R/dev
@@ -39,11 +42,25 @@ SHARE_OWNER=65534
 SHARE_MOUNT_OPTIONS="noatime,iocharset=utf8,uid=$SHARE_OWNER,gid=$SHARE_OWNER,dmask=0022,fmask=0133,nosuid,nodev,noexec"
 SHARE_RAM_OPTIONS="mode=0755,uid=$SHARE_OWNER,gid=$SHARE_OWNER,nosuid,nodev,noexec"
 
-# Logs one line to the console and to syslog. syslogd starts before this
-# script (S01syslogd); without it, the line is on the console only.
+# Every flag that the script reads is set here first: a variable of init
+# with the same name must not change a decision.
+state_writable=no
+state_kind=partition
+share_kind=partition
+state=
+share=
+last=
+entry=
+boot_lines=
+
+# Logs one line to the console and to syslog, and keeps it for the storage
+# log. syslogd starts before this script (S01syslogd); without it, the line
+# is on the console and in the storage log only.
 log() {
 	echo "neptron-storage: $1"
 	logger -t neptron-storage "$1" 2>/dev/null
+	boot_lines="$boot_lines$1
+"
 }
 
 # Logs one line and keeps it as the reason of the next RAM folder.
@@ -64,9 +81,6 @@ ram_folder() {
 	share) share_kind=ram share_reason=$reason ;;
 	esac
 }
-state_kind=partition
-share_kind=partition
-
 # The device of partition $2 of the disk at sysfs path $1, as the kernel
 # sees it.
 partition() {
@@ -84,7 +98,6 @@ partition() {
 root=$(mountpoint -d /)
 root_dir=$(readlink -f "$R/sys/dev/block/$root")
 disk=
-state=
 if [ -r "$root_dir/partition" ]; then
 	disk=${root_dir%/*}
 	disk_dev=$DEV/${disk##*/}
@@ -154,11 +167,18 @@ EXFAT_BACKUP_SECTORS="12 24 48 96"
 # makes partition 4, in sectors (4 GiB): layouts of other image versions
 # place the share start within this distance.
 OLD_SHARE_SCAN_SECTORS=8388608
-# partx adds partition 4 to the kernel at most this many times, with this
-# pause between two tries, in microseconds: a slow stick can still be busy
-# with the write of the table.
-PARTX_TRIES=5
-PARTX_RETRY_US=500000
+# addpart gives partition 4 to the kernel at most this many times, with
+# this pause between two tries, in microseconds: a slow stick can still be
+# busy with the write of the table.
+ADD_TRIES=5
+ADD_RETRY_US=500000
+# sfdisk --dump reads the table at most this many times, with this pause
+# between two tries, in microseconds.
+TABLE_READ_TRIES=5
+TABLE_READ_RETRY_US=500000
+# The storage log on the state partition keeps this many lines: the last
+# boots.
+STORAGE_LOG_LINES=300
 # The device node of a new partition must appear within this many pauses
 # of this length, in microseconds (5 s in all).
 NODE_WAIT_STEPS=50
@@ -201,11 +221,25 @@ signature() {
 	return 2
 }
 
-# Partition 4 of the table on the disk, not as the kernel sees it, as
-# "start size type", or nothing. sfdisk names it sda4, nvme0n1p4 or
-# mmcblk0p4.
-table_entry() {
-	sfdisk --dump "$disk_dev" 2>/dev/null |
+# Reads the partition table on the disk, not as the kernel sees it, into
+# table. Fails when sfdisk cannot read it after the tries.
+read_table() {
+	tries=0
+	while [ "$tries" -lt "$TABLE_READ_TRIES" ]; do
+		tries=$((tries + 1))
+		if table=$(sfdisk --dump "$disk_dev" 2>&1); then
+			return 0
+		fi
+		log "sfdisk --dump try $tries of $TABLE_READ_TRIES failed: $(printf '%s' "$table" | tr '\n' ' ')"
+		[ "$tries" -lt "$TABLE_READ_TRIES" ] && usleep "$TABLE_READ_RETRY_US"
+	done
+	return 1
+}
+
+# Partition 4 of the table that read_table read, as "start size type", or
+# nothing. sfdisk names it sda4, nvme0n1p4 or mmcblk0p4.
+entry_of_table() {
+	printf '%s\n' "$table" |
 		sed -n 's/^[^ ]*[^0-9]4 : start= *\([0-9]*\), size= *\([0-9]*\), type=\([0-9a-fA-F]*\).*/\1 \2 \3/p'
 }
 
@@ -223,7 +257,7 @@ plan_mismatch() {
 # The reason partition 4 ($1) may not be formatted, or nothing.
 format_refusal() {
 	if [ ! -e "$MARKER" ]; then
-		echo "it holds no filesystem, and this system did not make it (no /state/share-pending)"
+		echo "it is empty and was not made by this system (no /state/share-pending)"
 		return
 	fi
 	start=$(sectors "$1" start)
@@ -289,16 +323,33 @@ make_partition() {
 	fi
 	# The root and state partitions of this disk are mounted, so sfdisk
 	# refuses the disk unless forced, and the kernel cannot read the whole
-	# table again: partx adds partition 4 alone (kernel_add). The space can
-	# hold the share of an older image, so no signature is wiped. A lock
-	# that another program holds fails at once and never stops the boot.
-	output=$(echo ',,7' | sfdisk --quiet --force --no-reread --no-tell-kernel \
+	# table again: addpart gives it partition 4 alone (kernel_add). The
+	# space can hold the share of an older image, so no signature is wiped.
+	# A lock that another program holds fails at once and never stops the
+	# boot. The start is given: a start that sfdisk chooses follows the
+	# optimal I/O size of the device, which can be larger than 1 MiB.
+	output=$(printf '%s,,7\n' "$planned" | sfdisk --quiet --force --no-reread --no-tell-kernel \
 		--wipe never --wipe-partitions never --lock=nonblock --append "$disk_dev" 2>&1)
 	code=$?
 	[ -n "$output" ] && log "sfdisk exit $code: $(printf '%s' "$output" | tr '\n' ' ')"
 	# The exit status of sfdisk proves nothing in either direction: it can
-	# fail after the table is on the disk. The table read back decides.
-	entry=$(table_entry)
+	# fail after the table is written (a failed fsync). The table read back
+	# decides. BLKFLSBUF on the whole disk writes its dirty pages and drops
+	# its clean ones; the mounted partitions have caches of their own, which
+	# it does not touch. The read back then comes from the device, not from
+	# the cache that sfdisk wrote.
+	flushed=$(blockdev --flushbufs "$disk_dev" 2>&1)
+	flush_code=$?
+	if [ "$flush_code" -eq 0 ]; then
+		log "blockdev --flushbufs exit 0: the table is read back from the device"
+	else
+		log "blockdev --flushbufs exit $flush_code: the table is read back from the cache, not from the device${flushed:+: $(printf '%s' "$flushed" | tr '\n' ' ')}"
+	fi
+	if ! read_table; then
+		say "the partition table cannot be read back after sfdisk (exit $code); the marker stays and the next boot uses partition 4"
+		return 1
+	fi
+	entry=$(entry_of_table)
 	if [ -z "$entry" ]; then
 		rm -f "$MARKER"
 		sync
@@ -316,21 +367,22 @@ make_partition() {
 	log "the partition table holds partition 4 as planned ($entry), sfdisk exit $code"
 }
 
-# Makes the kernel see partition 4 of the table and sets share to its
-# device. The kernel reads the table only at boot, and the mounted
-# partitions stop a full read again, so partx adds partition 4 alone. The
-# exit status of partx proves nothing: the kernel's list decides.
+# Gives the kernel partition 4 with start $1 and size $2, in sectors, and
+# sets share to its device. The kernel reads the table only at boot, and
+# the mounted partitions stop a full read again. addpart (BLKPG) takes the
+# numbers of the table read back and reads no table itself. Its exit status
+# proves nothing: the kernel's list decides.
 kernel_add() {
 	tries=0
-	while [ "$tries" -lt "$PARTX_TRIES" ]; do
+	while [ "$tries" -lt "$ADD_TRIES" ]; do
 		tries=$((tries + 1))
-		output=$(partx --add --nr 4 "$disk_dev" 2>&1)
+		output=$(addpart "$disk_dev" 4 "$1" "$2" 2>&1)
 		code=$?
 		share=$(partition "$disk" 4) && return 0
-		log "partx try $tries of $PARTX_TRIES, exit $code: the kernel does not see partition 4${output:+: $(printf '%s' "$output" | tr '\n' ' ')}"
-		[ "$tries" -lt "$PARTX_TRIES" ] && usleep "$PARTX_RETRY_US"
+		log "addpart try $tries of $ADD_TRIES, exit $code: the kernel does not see partition 4${output:+: $(printf '%s' "$output" | tr '\n' ' ')}"
+		[ "$tries" -lt "$ADD_TRIES" ] && usleep "$ADD_RETRY_US"
 	done
-	say "partition 4 is in the partition table, but the kernel does not see it after $PARTX_TRIES tries of partx (last exit $code); restart to use it"
+	say "partition 4 is in the partition table, but the kernel does not see it after $ADD_TRIES tries of addpart (last exit $code); restart to use it"
 	return 1
 }
 
@@ -377,13 +429,17 @@ if [ -z "$disk" ]; then
 	say "the root filesystem is not on a partition of a disk, so there is no share partition"
 elif share=$(partition "$disk" 4); then
 	:
-elif [ -n "$(table_entry)" ]; then
-	log "partition 4 is in the partition table, but the kernel does not see it"
-	kernel_add || share=
+elif ! read_table; then
+	say "the partition table of $disk_dev cannot be read, so no share partition is made"
+elif entry=$(entry_of_table) && [ -n "$entry" ]; then
+	log "partition 4 is in the partition table ($entry), but the kernel does not see it"
+	# shellcheck disable=SC2086 # the three numbers of the entry
+	kernel_add $entry || share=
 elif [ -z "$state" ]; then
 	say "the boot disk has no partition 3, so no share partition is made"
 elif make_partition; then
-	kernel_add || share=
+	# shellcheck disable=SC2086 # the three numbers of the entry
+	kernel_add $entry || share=
 else
 	share=
 fi
@@ -432,5 +488,22 @@ mkdir -p "$SHARE/bios"
 # folders that root just made need it too.
 if [ "$share_kind" = ram ]; then
 	chown -R "$SHARE_OWNER:$SHARE_OWNER" "$SHARE"
+fi
+
+# The lines of this boot, after those of the last boots, written directly:
+# they do not depend on syslogd.
+if [ "$state_writable" = yes ]; then
+	storage_log=$STATE/log/storage.log
+	if mkdir -p "$STATE/log" &&
+		{
+			cat "$storage_log" 2>/dev/null
+			echo "== boot $(date)"
+			printf '%s' "$boot_lines"
+		} | tail -n "$STORAGE_LOG_LINES" > "$storage_log.new" &&
+		mv "$storage_log.new" "$storage_log"; then
+		sync
+	else
+		log "$storage_log cannot be written"
+	fi
 fi
 exit 0
