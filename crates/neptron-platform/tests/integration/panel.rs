@@ -320,3 +320,50 @@ fn a_fallback_mode_keeps_a_game_rate_before_a_larger_size() {
     assert_eq!(sizes(modes)[0], (1920, 1080, 60_000));
     assert!(sizes(modes).contains(&(3840, 2160, 30_000)));
 }
+
+/// EDID blobs of `apps/neptron/tests/fixtures/edid`. `neptron-kms` reads
+/// the same files in its test of this table.
+const FIXTURE_PANEL: &[u8] =
+    include_bytes!("../../../../apps/neptron/tests/fixtures/edid/panel_1080p.bin");
+const FIXTURE_CRT: &[u8] =
+    include_bytes!("../../../../apps/neptron/tests/fixtures/edid/crt_analog.bin");
+
+/// The DVI-I rows of the class rule: the same rows as the test
+/// `dvi_i_takes_the_class_of_a_valid_edid_and_else_is_analog` of
+/// `neptron-kms`. No class (no EDID, or one that fails the checks) is
+/// analog, as the app takes it.
+/// What a DVI-I row is, its subconnector, its EDID and the output kind.
+type DviRow<'a> = (&'a str, Option<&'a str>, Option<&'a [u8]>, OutputKind);
+
+#[test]
+fn dvi_i_follows_the_kms_rule() {
+    let mut checksum = FIXTURE_PANEL.to_vec();
+    checksum[0x40] ^= 0x01;
+    let mut header = FIXTURE_PANEL.to_vec();
+    header[1] = 0;
+    header[127] = header[127].wrapping_add(0xff);
+    let rows: [DviRow<'_>; 7] = [
+        ("a panel", None, Some(FIXTURE_PANEL), OutputKind::Digital),
+        ("a CRT", None, Some(FIXTURE_CRT), OutputKind::Analog),
+        (
+            "a panel on the analog pins",
+            Some("DVI-A"),
+            Some(FIXTURE_PANEL),
+            OutputKind::Analog,
+        ),
+        (
+            "a panel on the digital pins",
+            Some("DVI-D"),
+            Some(FIXTURE_PANEL),
+            OutputKind::Digital,
+        ),
+        ("a bad checksum", None, Some(&checksum), OutputKind::Analog),
+        ("a bad header", None, Some(&header), OutputKind::Analog),
+        ("no EDID", None, None, OutputKind::Analog),
+    ];
+    for (what, sub, edid, kind) in rows {
+        let class = edid.and_then(|e| display_class("DVI-I", sub, e).ok());
+        let found = class.map_or(OutputKind::Analog, DisplayClass::output_kind);
+        assert_eq!(found, kind, "{what}");
+    }
+}

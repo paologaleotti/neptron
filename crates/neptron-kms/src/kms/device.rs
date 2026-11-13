@@ -156,14 +156,21 @@ pub(super) fn select(
             .map(|(_, _, value)| *value);
         let has_edid = blob.is_some();
         let kernel_type = u32::from(info.interface());
-        // Only DVI-I needs the EDID for its class. A blob that cannot be
-        // read leaves it analog, the class that needs a name with no EDID.
+        // Only DVI-I needs the subconnector and the EDID for its class. A
+        // blob that cannot be read leaves it analog, the class that needs a
+        // name with no EDID.
+        let dvi_i = kernel_type == DVI_I_TYPE;
+        let sub = if dvi_i {
+            subconnector(card, handle)
+        } else {
+            None
+        };
         let edid = blob
-            .filter(|_| kernel_type == DVI_I_TYPE)
+            .filter(|_| dvi_i)
             .and_then(|id| card.get_property_blob(id).ok());
         facts.push(ConnectorFacts {
             name: format!("{}-{}", info.interface().as_str(), info.interface_id()),
-            class: ConnectorClass::of_connector(kernel_type, edid.as_deref()),
+            class: ConnectorClass::of_connector(kernel_type, sub.as_deref(), edid.as_deref()),
             connected: info.state() == connector::State::Connected,
             has_edid,
         });

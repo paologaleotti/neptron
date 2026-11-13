@@ -62,6 +62,53 @@ pub const EDID_INPUT_OFFSET: usize = 0x14;
 pub const EDID_DIGITAL_INPUT_BIT: u8 = 0x80;
 /// `DRM_MODE_CONNECTOR_WRITEBACK`
 pub const WRITEBACK_TYPE: u32 = 18;
+/// The `subconnector` value of a DVI-I connector that drives its analog
+/// pins.
+pub const ANALOG_DVI_SUBCONNECTOR: &str = "DVI-A";
+
+/// The length of an EDID block, in bytes.
+const EDID_BLOCK_BYTES: usize = 128;
+/// The fixed first 8 bytes of an EDID.
+const EDID_HEADER: [u8; 8] = [0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00];
+/// The byte of the base block that counts the extension blocks.
+const EDID_EXTENSIONS_OFFSET: usize = 0x7e;
+/// The bytes of the version and the revision; 1.3 and 1.4 are read.
+const EDID_VERSION_OFFSET: usize = 0x12;
+const EDID_REVISION_OFFSET: usize = 0x13;
+/// The manufacturer id, big-endian, with a reserved top bit.
+const EDID_MANUFACTURER_OFFSET: usize = 0x08;
+/// The first descriptor: a detailed timing, the preferred mode, has a
+/// pixel clock that is not 0 in its first two bytes.
+const EDID_FIRST_DESCRIPTOR_OFFSET: usize = 0x36;
+
+/// The base block of `edid` when it passes the checks that
+/// `neptron-platform` makes before it reads the descriptors: the length
+/// with every extension, the header, the checksum of every block, version
+/// 1.3 or 1.4, the manufacturer id, and a detailed timing first.
+fn edid_base(edid: &[u8]) -> Option<&[u8]> {
+    let base = edid.get(..EDID_BLOCK_BYTES)?;
+    let blocks = 1 + usize::from(base[EDID_EXTENSIONS_OFFSET]);
+    let checksums = edid
+        .chunks_exact(EDID_BLOCK_BYTES)
+        .all(|b| b.iter().fold(0u8, |s, x| s.wrapping_add(*x)) == 0);
+    let raw = u16::from_be_bytes([
+        base[EDID_MANUFACTURER_OFFSET],
+        base[EDID_MANUFACTURER_OFFSET + 1],
+    ]);
+    let letters = [10u16, 5, 0]
+        .iter()
+        .all(|shift| (1..=26).contains(&((raw >> shift) & 0x1f)));
+    let first = &base[EDID_FIRST_DESCRIPTOR_OFFSET..EDID_FIRST_DESCRIPTOR_OFFSET + 2];
+    let valid = edid.len() == blocks * EDID_BLOCK_BYTES
+        && base[..EDID_HEADER.len()] == EDID_HEADER
+        && checksums
+        && base[EDID_VERSION_OFFSET] == 1
+        && (3..=4).contains(&base[EDID_REVISION_OFFSET])
+        && raw & 0x8000 == 0
+        && letters
+        && first != [0, 0];
+    valid.then_some(base)
+}
 
 impl ConnectorClass {
     /// The class of a DRM connector type number.
@@ -75,19 +122,28 @@ impl ConnectorClass {
         }
     }
 
-    /// The class of a connector of DRM type `kernel_type` with the EDID
-    /// `edid` of its display. The same rule as `display_class` of
-    /// `neptron-platform`, which this crate cannot depend on: DVI-I
-    /// carries both signals, so the input bit of the EDID decides, and
-    /// with no EDID (or one too short to have the bit) it is analog. Every
-    /// other type has its class from [`ConnectorClass::of_type`].
-    pub fn of_connector(kernel_type: u32, edid: Option<&[u8]>) -> ConnectorClass {
+    /// The class of a connector of DRM type `kernel_type` with its
+    /// `subconnector` property and the EDID `edid` of its display. The
+    /// same rule as `display_class` of `neptron-platform`, which this crate
+    /// cannot depend on. DVI-I carries both signals, so it is digital only
+    /// when the subconnector is not `DVI-A`, and the EDID passes the
+    /// structural checks of `neptron-platform` that come before its
+    /// descriptors and has the digital input bit. In every other case it
+    /// is analog: analog wins when in doubt. Every other type has its class
+    /// from [`ConnectorClass::of_type`].
+    pub fn of_connector(
+        kernel_type: u32,
+        subconnector: Option<&str>,
+        edid: Option<&[u8]>,
+    ) -> ConnectorClass {
         if kernel_type != DVI_I_TYPE {
             return Self::of_type(kernel_type);
         }
-        let digital = edid
-            .and_then(|e| e.get(EDID_INPUT_OFFSET))
-            .is_some_and(|input| input & EDID_DIGITAL_INPUT_BIT != 0);
+        let analog_pins = subconnector == Some(ANALOG_DVI_SUBCONNECTOR);
+        let digital = !analog_pins
+            && edid
+                .and_then(edid_base)
+                .is_some_and(|base| base[EDID_INPUT_OFFSET] & EDID_DIGITAL_INPUT_BIT != 0);
         if digital {
             ConnectorClass::Digital
         } else {
@@ -261,34 +317,64 @@ mod tests {
         assert!(choose(&list, None, false).is_err());
     }
 
-    /// A base EDID block with the input byte `input` at 0x14.
-    fn edid_with_input(input: u8) -> Vec<u8> {
-        let mut edid = vec![0; 128];
-        edid[EDID_INPUT_OFFSET] = input;
-        edid
+    /// EDID blobs of `apps/neptron/tests/fixtures/edid`, made from the
+    /// specification. `neptron-platform` reads the same files in its test of
+    /// this table.
+    const PANEL: &[u8] =
+        include_bytes!("../../../apps/neptron/tests/fixtures/edid/panel_1080p.bin");
+    const CRT: &[u8] = include_bytes!("../../../apps/neptron/tests/fixtures/edid/crt_analog.bin");
+
+    fn broken_checksum() -> Vec<u8> {
+        let mut b = PANEL.to_vec();
+        b[0x40] ^= 0x01;
+        b
     }
 
+    fn broken_header() -> Vec<u8> {
+        let mut b = PANEL.to_vec();
+        b[1] = 0;
+        b[127] = b[127].wrapping_add(0xff);
+        b
+    }
+
+    /// What a DVI-I row is, its subconnector, its EDID and the class.
+    type DviRow<'a> = (&'a str, Option<&'a str>, Option<&'a [u8]>, ConnectorClass);
+
+    /// The DVI-I rows of the class rule: the same rows as the test
+    /// `dvi_i_follows_the_kms_rule` of `neptron-platform`.
     #[test]
-    fn dvi_i_takes_the_class_of_the_edid_input() {
-        let digital = edid_with_input(0x80);
-        let analog = edid_with_input(0x00);
-        assert_eq!(
-            ConnectorClass::of_connector(DVI_I_TYPE, Some(&digital)),
-            Digital
-        );
-        assert_eq!(
-            ConnectorClass::of_connector(DVI_I_TYPE, Some(&analog)),
-            Analog
-        );
-        assert_eq!(ConnectorClass::of_connector(DVI_I_TYPE, None), Analog);
-        assert_eq!(
-            ConnectorClass::of_connector(DVI_I_TYPE, Some(&[0; 4])),
-            Analog,
-            "a short EDID has no input byte"
-        );
+    fn dvi_i_takes_the_class_of_a_valid_edid_and_else_is_analog() {
+        let checksum = broken_checksum();
+        let header = broken_header();
+        let rows: [DviRow<'_>; 7] = [
+            ("a panel", None, Some(PANEL), Digital),
+            ("a CRT", None, Some(CRT), Analog),
+            (
+                "a panel on the analog pins",
+                Some("DVI-A"),
+                Some(PANEL),
+                Analog,
+            ),
+            (
+                "a panel on the digital pins",
+                Some("DVI-D"),
+                Some(PANEL),
+                Digital,
+            ),
+            ("a bad checksum", None, Some(&checksum), Analog),
+            ("a bad header", None, Some(&header), Analog),
+            ("no EDID", None, None, Analog),
+        ];
+        for (what, sub, edid, class) in rows {
+            assert_eq!(
+                ConnectorClass::of_connector(DVI_I_TYPE, sub, edid),
+                class,
+                "{what}"
+            );
+        }
         // VGA stays analog and HDMI-A digital, whatever the EDID says.
-        assert_eq!(ConnectorClass::of_connector(1, Some(&digital)), Analog);
-        assert_eq!(ConnectorClass::of_connector(11, Some(&analog)), Digital);
+        assert_eq!(ConnectorClass::of_connector(1, None, Some(PANEL)), Analog);
+        assert_eq!(ConnectorClass::of_connector(11, None, Some(CRT)), Digital);
     }
 
     #[test]
