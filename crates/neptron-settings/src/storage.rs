@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 /// the LAN and hold no secrets, so others may read them.
 pub const NEW_FILE_MODE: u32 = 0o644;
 
-use crate::edit::{Change, EditError, edit};
+use crate::edit::{Change, EditError, edit, holds_nothing};
 use crate::layer::Layer;
 use crate::parse::{Issue, IssueKind, Parsed, parse_layer};
 use crate::schema::{Level, Schema};
@@ -106,6 +106,8 @@ pub enum WriteStep {
     Rename,
     /// Flushing the directory entry to the disk.
     SyncDir,
+    /// Removing a settings file that holds no value and no comment.
+    Remove,
 }
 
 impl fmt::Display for WriteStep {
@@ -116,6 +118,7 @@ impl fmt::Display for WriteStep {
             WriteStep::SyncTemp => "syncing the temporary file",
             WriteStep::Rename => "renaming the temporary file",
             WriteStep::SyncDir => "syncing the directory",
+            WriteStep::Remove => "removing the file",
         })
     }
 }
@@ -183,7 +186,8 @@ impl Storage {
     /// Applies `changes` to the file for `target`. The file is read again first, so a hand
     /// edit made since the last load is kept. The write is atomic: after a crash the file
     /// holds its old content or its new content. A file that cannot be read or parsed is
-    /// never written.
+    /// never written. When the edit leaves no value and no comment, the file is removed
+    /// instead, so no file holds only the version or an empty table.
     pub fn apply(
         &self,
         schema: &Schema,
@@ -201,11 +205,12 @@ impl Storage {
             Ok(new) => new,
             Err(source) => return Err(StorageError::Edit { path, source }),
         };
-        write_atomic(&path, new.as_bytes()).map_err(|(step, source)| StorageError::Write {
-            path,
-            step,
-            source,
-        })
+        let done = if holds_nothing(&new) {
+            remove_durably(&path)
+        } else {
+            write_atomic(&path, new.as_bytes())
+        };
+        done.map_err(|(step, source)| StorageError::Write { path, step, source })
     }
 }
 
@@ -270,6 +275,16 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), (WriteStep, io::Error)>
         return Err(err);
     }
     sync_dir(dir).map_err(|e| (WriteStep::SyncDir, e))
+}
+
+/// Removes the settings file and syncs its directory, so the removal survives a crash. A
+/// file that is not there needs nothing, and no directory is made for it.
+fn remove_durably(path: &Path) -> Result<(), (WriteStep, io::Error)> {
+    match fs::remove_file(path) {
+        Ok(()) => sync_dir(parent_dir(path)).map_err(|e| (WriteStep::SyncDir, e)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err((WriteStep::Remove, err)),
+    }
 }
 
 /// Removes a temporary file that a crash left. `remove_file` on a symlink removes the link,

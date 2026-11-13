@@ -131,30 +131,75 @@ fn set(root: &mut Table, key: &str, value: &Value) -> Result<(), EditError> {
     Ok(())
 }
 
+/// True when `text` is a settings file with no value and no comment: only the version and
+/// empty tables. Such a file has nothing to keep, so the storage removes it. Text that does
+/// not parse is never "nothing".
+pub(crate) fn holds_nothing(text: &str) -> bool {
+    let Ok(mut doc) = strip_bom(text).parse::<DocumentMut>() else {
+        return false;
+    };
+    doc.as_table_mut().remove(VERSION_KEY);
+    only_empty_tables(doc.as_table()) && !doc.to_string().contains('#')
+}
+
+fn only_empty_tables(table: &dyn TableLike) -> bool {
+    table
+        .iter()
+        .all(|(_, item)| item.as_table_like().is_some_and(only_empty_tables))
+}
+
 fn unset(root: &mut Table, key: &str) -> Result<(), EditError> {
-    let (parents, last) = split(key);
-    let mut table: &mut dyn TableLike = root;
-    let mut path = String::new();
-    for segment in parents {
-        push_segment(&mut path, segment);
-        if !table.contains_key(segment) {
-            return Ok(());
-        }
-        table = child_table(table, segment, key, &path)?.0;
+    let segments: Vec<&str> = key.split('.').collect();
+    unset_in(root, &segments, key, &mut String::new())
+}
+
+/// Removes the key below `table`, then each table on its path that the removal left with no
+/// item and no comment, so an unset never leaves an empty table behind.
+fn unset_in(
+    table: &mut dyn TableLike,
+    segments: &[&str],
+    key: &str,
+    path: &mut String,
+) -> Result<(), EditError> {
+    let Some((segment, rest)) = segments.split_first() else {
+        return Ok(());
+    };
+    push_segment(path, segment);
+    if rest.is_empty() {
+        return match table.get(segment) {
+            None => Ok(()),
+            Some(Item::Value(v)) if !v.is_inline_table() => {
+                table.remove(segment);
+                Ok(())
+            }
+            Some(other) => Err(EditError::Conflict {
+                key: key.to_owned(),
+                path: path.clone(),
+                found: other.type_name(),
+            }),
+        };
     }
-    push_segment(&mut path, last);
-    match table.get(last) {
-        None => Ok(()),
-        Some(Item::Value(v)) if !v.is_inline_table() => {
-            table.remove(last);
-            Ok(())
-        }
-        Some(other) => Err(EditError::Conflict {
-            key: key.to_owned(),
-            path,
-            found: other.type_name(),
-        }),
+    if !table.contains_key(segment) {
+        return Ok(());
     }
+    let child = child_table(table, segment, key, path)?.0;
+    unset_in(child, rest, key, path)?;
+    if child.is_empty() && !has_comment(table.get(segment)) {
+        table.remove(segment);
+    }
+    Ok(())
+}
+
+fn has_comment(item: Option<&Item>) -> bool {
+    let decor = match item {
+        Some(Item::Table(t)) => t.decor(),
+        Some(Item::Value(v)) => v.decor(),
+        _ => return false,
+    };
+    [decor.prefix(), decor.suffix()]
+        .into_iter()
+        .flatten()
+        .any(|raw| raw.as_str().is_some_and(|s| s.contains('#')))
 }
 
 /// Raises an older integer version and keeps a newer one. Anything else under the reserved
@@ -363,6 +408,47 @@ fceumm_palette = \"raw\"
             global("", &[Change::Unset { key: DISPLAY_STYLE }]).unwrap(),
             "schema_version = 1\n"
         );
+    }
+
+    #[test]
+    fn unset_of_the_last_key_removes_its_empty_table() {
+        for src in [
+            "schema_version = 1\n[display]\nstyle = \"2x\"\n",
+            "schema_version = 1\ndisplay.style = \"2x\"\n",
+            "schema_version = 1\ndisplay = { style = \"2x\" }\n",
+        ] {
+            let out = global(src, &[Change::Unset { key: DISPLAY_STYLE }]).unwrap();
+            assert_eq!(out, "schema_version = 1\n", "{src}");
+            assert!(holds_nothing(&out), "{src}");
+        }
+    }
+
+    #[test]
+    fn an_empty_table_with_a_comment_stays() {
+        let src = "schema_version = 1\n# the tube\n[display]\nstyle = \"2x\"\n";
+        let out = global(src, &[Change::Unset { key: DISPLAY_STYLE }]).unwrap();
+        assert!(out.contains("# the tube"), "{out}");
+        assert!(!holds_nothing(&out), "{out}");
+    }
+
+    #[test]
+    fn holds_nothing_is_true_only_for_a_file_with_no_value_and_no_comment() {
+        for empty in [
+            "",
+            "\n",
+            "schema_version = 1\n",
+            "schema_version = 1\n\n[display]\n",
+        ] {
+            assert!(holds_nothing(empty), "{empty:?}");
+        }
+        for kept in [
+            "schema_version = 1\n# note\n",
+            "schema_version = 1\n[display]\nstyle = \"2x\"\n",
+            "[network]\nwifi_ssid = \"home\"\n",
+            "not toml",
+        ] {
+            assert!(!holds_nothing(kept), "{kept:?}");
+        }
     }
 
     #[test]

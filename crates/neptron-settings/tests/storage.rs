@@ -178,6 +178,60 @@ fn apply_makes_the_folders_and_the_values_load_back() {
 }
 
 #[test]
+fn the_last_unset_removes_the_file() {
+    let dir = TempDir::create("last-unset");
+    let s = storage(&dir);
+    let schema = Schema::builtin();
+    s.apply(&schema, SMB, &[set(DISPLAY_STYLE, "2x")]).unwrap();
+    let path = s.path(SMB).unwrap();
+    assert!(path.is_file());
+
+    s.apply(&schema, SMB, &[Change::Unset { key: DISPLAY_STYLE }])
+        .unwrap();
+    assert!(!path.exists());
+    assert_eq!(files_in(path.parent().unwrap()), Vec::<String>::new());
+    let loaded = s.load(&schema, SMB).unwrap().parsed;
+    assert!(loaded.layer.is_empty());
+    assert_eq!(loaded.issues, []);
+}
+
+#[test]
+fn an_unset_with_no_file_writes_nothing() {
+    let dir = TempDir::create("unset-no-file");
+    let s = storage(&dir);
+    s.apply(
+        &Schema::builtin(),
+        SMB,
+        &[Change::Unset { key: DISPLAY_STYLE }],
+    )
+    .unwrap();
+    assert!(!s.root().exists());
+}
+
+#[test]
+fn a_file_with_a_comment_or_an_unknown_key_stays_after_the_last_unset() {
+    let dir = TempDir::create("last-unset-keeps");
+    let s = storage(&dir);
+    let schema = Schema::builtin();
+    let path = s.path(NES).unwrap();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    for (src, kept) in [
+        ("# my notes\n[display]\nstyle = \"2x\"\n", "# my notes"),
+        (
+            "[display]\nstyle = \"2x\"\n[network]\nwifi_ssid = \"home\"\n",
+            "wifi_ssid = \"home\"",
+        ),
+    ] {
+        fs::write(&path, src).unwrap();
+        s.apply(&schema, NES, &[Change::Unset { key: DISPLAY_STYLE }])
+            .unwrap();
+        let after = fs::read_to_string(&path).unwrap();
+        assert!(after.contains(kept), "{after}");
+        assert!(!after.contains("style"), "{after}");
+    }
+}
+
+#[test]
 fn a_write_leaves_no_temporary_file() {
     let dir = TempDir::create("no-temp");
     let s = storage(&dir);
