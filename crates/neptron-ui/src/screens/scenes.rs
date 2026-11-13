@@ -454,10 +454,10 @@ fn library_scanning(frame: &mut UiFrame, theme: &Theme) {
     let mut snap = with_systems();
     let scanning = MenuItem::new(
         SettingKey(9),
-        "Scanning games...",
+        "Rescan games",
         SettingValue::Action(crate::snapshot::ActionId(1)),
     )
-    .unavailable("A scan runs");
+    .unavailable("Scanning...");
     snap.settings = SettingsPage::new(LIBRARY_PAGE, "Library", vec![scanning]);
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &TO_LIBRARY, frame);

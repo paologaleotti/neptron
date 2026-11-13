@@ -32,11 +32,9 @@ pub const RESCAN_GAMES: ActionId = ActionId(1);
 /// The label of the rescan row.
 pub const RESCAN_LABEL: &str = "Rescan games";
 
-/// The label of the rescan row while a scan runs. The row is disabled then.
-pub const SCANNING_LABEL: &str = "Scanning games...";
-
-/// The reason that the rescan row is disabled while a scan runs.
-pub const SCANNING_REASON: &str = "A scan runs";
+/// The reason that the rescan row is disabled while a scan runs. The row
+/// keeps its label.
+pub const SCANNING_REASON: &str = "Scanning...";
 
 /// The reason that the rescan row is disabled in a game: a game run lists
 /// no games, and the return to the list checks the folders.
@@ -157,7 +155,7 @@ pub fn quick_menu_page(config: &Config, names: Names<'_>) -> SettingsPage {
 pub fn rescan_row(scanning: bool, in_game: bool) -> MenuItem {
     match (scanning, in_game) {
         (_, true) => action(4, RESCAN_LABEL, RESCAN_GAMES).unavailable(RESCAN_IN_GAME),
-        (true, false) => action(4, SCANNING_LABEL, RESCAN_GAMES).unavailable(SCANNING_REASON),
+        (true, false) => action(4, RESCAN_LABEL, RESCAN_GAMES).unavailable(SCANNING_REASON),
         (false, false) => action(4, RESCAN_LABEL, RESCAN_GAMES),
     }
 }
@@ -440,7 +438,7 @@ mod tests {
         assert_eq!(idle.value, SettingValue::Action(RESCAN_GAMES));
         assert!(idle.is_enabled());
         let busy = rescan_row(true, false);
-        assert_eq!(busy.label, SCANNING_LABEL);
+        assert_eq!(busy.label, RESCAN_LABEL, "the label stays");
         assert_eq!(busy.unavailable.as_deref(), Some(SCANNING_REASON));
         let page = library_page(false, false);
         assert!(page.is_for(LIBRARY_PAGE));

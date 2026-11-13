@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use neptron::NextRun;
-use neptron::pages::{RESCAN_LABEL, SCANNING_LABEL};
+use neptron::pages::{RESCAN_LABEL, SCANNING_REASON};
 use neptron_types::Control;
 
 use crate::rig::Rig;
@@ -106,22 +106,32 @@ fn the_rescan_row_of_the_library_panel_finds_a_new_game() {
     rig.release(&[Control::A]);
     assert!(rig.shell().library().scanning());
     // The row says that the scan runs until the frame that takes its end.
-    let row = rig
-        .shell()
-        .snapshot()
-        .settings
-        .rows
-        .iter()
-        .find(|r| r.label == SCANNING_LABEL)
-        .cloned();
-    assert!(row.is_some_and(|r| !r.is_enabled()), "a disabled row");
+    let row = rescan_row(&mut rig);
+    assert_eq!(
+        row.unavailable.as_deref(),
+        Some(SCANNING_REASON),
+        "a disabled row"
+    );
 
     until_notice(&mut rig, "1 game added.");
     rig.tap(&[Control::A]);
     assert_eq!(rig.screen(), "library");
     assert_eq!(rig.focused().as_deref(), Some(RESCAN_LABEL));
+    assert!(rescan_row(&mut rig).is_enabled(), "enabled after the scan");
     assert_eq!(nes_games(&mut rig), 3);
     rig.finish();
+}
+
+/// The rescan row of the page in the snapshot.
+fn rescan_row(rig: &mut Rig) -> neptron_ui::snapshot::MenuItem {
+    rig.shell()
+        .snapshot()
+        .settings
+        .rows
+        .iter()
+        .find(|r| r.label == RESCAN_LABEL)
+        .cloned()
+        .expect("the rescan row")
 }
 
 #[test]

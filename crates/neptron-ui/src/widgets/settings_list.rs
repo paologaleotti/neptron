@@ -877,7 +877,7 @@ mod tests {
 
     #[test]
     fn a_disabled_page_or_action_row_is_dim_with_its_reason_and_no_arrow() {
-        let reason = "Scanning games...";
+        let reason = "Scanning...";
         let items = vec![
             item(
                 1,

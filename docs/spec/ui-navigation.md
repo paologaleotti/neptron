@@ -108,7 +108,7 @@ Screen ids: `audio` for `AUDIO_PAGE`, `library` for `LIBRARY_PAGE`, `quick-menu/
 
 ### The Library panel
 
-`Settings > Library` holds the `Rescan games` action row of the app (no arrow). While a scan runs the row reads `Scanning games...` and is disabled with the reason `A scan runs`. In a game the panel is still listed, and the row is disabled with the reason `Not during a game`: one list of panels for the menus and the game is simpler than a list that changes. The row keys of the app are all different: the `Settings` row of the quick menu has its own key, and a test checks it.
+`Settings > Library` holds the `Rescan games` action row of the app (no arrow). While a scan runs the row keeps its label and is disabled with the reason `Scanning...`. In a game the panel is still listed, and the row is disabled with the reason `Not during a game`: one list of panels for the menus and the game is simpler than a list that changes. The row keys of the app are all different: the `Settings` row of the quick menu has its own key, and a test checks it.
 
 ## The quick menu
 
