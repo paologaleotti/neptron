@@ -64,6 +64,7 @@ req_size=
 req_type=
 request_result=
 request_reason=
+table_touched=no
 fix_device=
 fix_start=
 fix_size=
@@ -476,6 +477,13 @@ prepare_share() {
 		format_request=checked
 		format_for_request "$share" && return 0
 		[ "$request_result" = failed ] && return 1
+		# After a write to the table that did not read back as planned,
+		# nothing else is done to partition 4 at this boot: the normal
+		# rules could format it under a refused request.
+		if [ "$table_touched" = yes ]; then
+			say "the share partition $share was left untouched: $request_reason"
+			return 1
+		fi
 	fi
 	signature "$share"
 	case $? in
@@ -690,6 +698,7 @@ request_refused() {
 # entries. read_table has read the table before.
 set_share_type() {
 	before=$(printf '%s\n' "$table" | sed '/^[^ ]*[^0-9]4 : /s/type=[0-9a-fA-F]*/type=7/')
+	table_touched=yes
 	output=$(sfdisk --force --no-reread --no-tell-kernel --lock=nonblock \
 		--part-type "$disk_dev" 4 7 2>&1)
 	code=$?

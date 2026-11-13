@@ -1883,3 +1883,18 @@ fn a_type_change_that_changes_another_entry_formats_nothing() {
         );
     }
 }
+
+/// After a type change that failed its read back, the normal rules must
+/// not go on: with a marker of the planned partition and type 7 now in
+/// the table, they would format under a refused request.
+#[test]
+fn a_refused_type_change_stops_the_normal_rules() {
+    let run = marked_partition_4("retype-then-rules", PLANNED, "83").set(
+        "FAKE_RETYPE_ALSO",
+        "s/size=        1024, type=c/size=        2048, type=c/",
+    );
+    run.request_planned("83");
+    let out = run.start();
+    out.assert_request_refused("the partition table changed in more than the type of partition 4");
+    out.assert_share_ram("the partition table changed in more than the type of partition 4");
+}
