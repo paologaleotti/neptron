@@ -379,7 +379,7 @@ name = "SMB share for the games folder, on by default in every image (OP-079)"
 owns = ["os", "docs/spec/network-share.md", "xtask/src/os"]
 needs = ["T28"]
 gate = "T1; image build and boot checks by the orchestrator"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C14"

@@ -733,11 +733,11 @@ Each open point is one section:
 ### OP-079: No way to copy games over the network.
 
 - Raised by: the owner, on the first hardware session (2026-11-13)
-- Status: open, needs a decision
+- Status: closed by C13, the hardware checks and the later steps are open
 - Default: the image has no SMB server, though `docs/definition` describes one. Games reach the share partition by moving the stick to another computer, or on the development image over SSH (a file is piped through `ssh`, because the SSH server has no SFTP).
 - Where: `os/` (packages, init), `os/README.md`
 - How to change: add Samba (or a small SMB server) with one guest share for `/share`, off by default on the release image or on with a setting; or add SFTP to the development image; and a `cargo xtask os put` command for the bench. A network service on the release image needs a look at its attack surface, and it needs the network (DHCP) on the release image, which today only the development image has.
-- Decision: Owner, 2026-11-13: an SMB share in every image, development and release, on by default, as Batocera does (task C13).
+- Decision: Owner, 2026-11-13: an SMB share in every image, development and release, on by default, as Batocera does (task C13). Built by C13 (`docs/spec/network-share.md`): the in-kernel server `ksmbd`, one share of `/share`, guest read-write, plus the published account `neptron` with password `neptron` and the guest's rights (owner, 2026-11-13: Windows 11 24H2 refuses guest sessions); wired DHCP in the background in every image; mDNS name `neptron.local`; the off switch is the file `/state/network-share-off`. Any host on the local network can write files that the scan and the cores then read as root; the spec states the exposure.
 
 ### OP-080: Variable refresh rate on flat panels.
 
@@ -847,5 +847,23 @@ Each open point is one section:
 - Default: the last step of `cargo xtask os build` copies the images as the container user (uid 1000) into the images directory of the host. On a Linux host with another uid the copy fails with "Permission denied" after a complete build. macOS is not affected. The CI workflow gives the directory to uid 1000 before the build.
 - Where: `xtask/src/os` (the image copy), `.github/workflows/images.yml`
 - How to change: run the container with the uid of the caller, or copy the images out with `docker cp`.
+- Decision:
+
+### OP-092: Later steps of the network share.
+
+- Raised by: C13 (2026-11-13)
+- Status: open, after the MVP unless the owner asks sooner
+- Default: not built: a settings row "Network share" (the hook is the off switch file and `S45neptron-share restart`); the address of the machine shown in the UI; WS-Discovery, so the machine shows in the Windows network view (needs a new package); Wi-Fi; shares for saves, states and config, which `docs/definition/10-os-layer.md` describes; DHCP for a USB network adapter plugged in after boot; a clean power-off on the release image. On Windows 11 a plain open of the share in Explorer probably shows an error and no prompt; the ways that work are in the spec. The check for `inet dhcp` in `os/board/common/post-build.sh` can never fail after the fixed write above it and can go.
+- Where: `os/`, `docs/spec/network-share.md`, `crates/neptron-ui`
+- How to change: one task per step.
+- Decision:
+
+### OP-093: The control protocol does not give the kind of a UI row.
+
+- Raised by: C15 (2026-11-13)
+- Status: open
+- Default: `neptronctl ui tree` shows no row kind (page, value, action, disabled). The crawler reads the kind in the process. A new field needs protocol version 2, and the handlers do not see the request version today.
+- Where: `crates/neptron-ipc`, `apps/neptronctl`
+- How to change: a small contract branch with an ADR: protocol version 2, the request version passed to the handlers, the `kind` field. The `library rescan` command of OP-078 can go in the same change.
 - Decision:
 
