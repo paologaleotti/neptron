@@ -282,6 +282,37 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Expect: a clean 440 Hz tone for one second, with no clicks.
   - Record: what you hear.
 
+### Audio settings (C12)
+
+- [ ] `needs-hardware` **The mixer is set at boot.**
+  - Do: boot the PC image, then read `/proc/asound/card0/codec#0` over SSH (`grep -A3 -e "Node 0x02" -e "Node 0x14" -e "Node 0x21"`) and the log line of `S08neptron-mixer` on the serial console.
+  - Expect: the DAC amplifiers are near the top of their range (0 dB), the output pins no longer have the mute bit `0x80`, and the console says the mixer of each card is at 0 dB and unmuted.
+  - Record: the `Amp-Out vals` of nodes `0x02`, `0x03`, `0x14` and `0x21`, and `amixer -c 0 scontents`.
+- [ ] `needs-hardware` **Sound on the analog output at volume 100.**
+  - Do: plug headphones or speakers into the green jack, start a game with `audio.volume` at 100 and `audio.output` at `auto`.
+  - Expect: clear sound at a normal level, with no distortion on loud passages.
+  - Record: what you hear, and the log line `audio: driver alsa; devices ...; opened default`.
+- [ ] `needs-hardware` **The volume steps and the ramp.**
+  - Do: in a game, open the quick menu and move Volume from 100 to 0 in steps of 5, then back.
+  - Expect: each step is a little quieter, there is no click at a step, 0 is silent, and the game keeps its pitch and speed.
+  - Record: the lowest step you still hear, and any click.
+- [ ] `needs-hardware` **The device list on the bench.**
+  - Do: open Audio at home, then Audio output; read the log line `audio: driver alsa; devices ...`.
+  - Expect: the options `auto` and `HDA Intel PCH`; the log lists the raw names `HDA Intel PCH:ALC221 Analog` and `HDA Intel PCH:HDMI 0` to `HDMI 2`. HDMI on the HDA card is not an option (SDL 3.4 opens the card's default PCM for every device of the card, see `docs/spec/audio-settings.md`).
+  - Record: the log line and the options.
+- [ ] `needs-hardware` **A USB sound card by name, and its fallback.**
+  - Do: plug a USB sound card, restart the frontend, choose it in Audio output, then start a game. Quit, unplug the card, and start the game again.
+  - Expect: with the card, the sound comes from it. Without it, the notice "The audio output ... is not connected. The default output plays.", sound on the analog output, and `global.toml` still holds the name of the USB card. Plugged in again, the next run uses it with no change in the menu.
+  - Record: the notices, the log lines and `audio.output` in `global.toml`.
+- [ ] `needs-hardware` **A USB card unplugged during a game.**
+  - Do: play a game with the USB card chosen, and unplug it.
+  - Expect: the game goes on with no sound, no freeze and no crash. The next run falls back to the default output with the notice.
+  - Record: what happened, and `dmesg | tail -20`.
+- [ ] `needs-hardware` **The mixer of a USB card.**
+  - Do: with a USB card plugged in at boot, read `amixer -c 1 scontents`.
+  - Expect: its playback control (often `PCM` or `Speaker`) is at 0 dB and unmuted. A control with another name keeps its own state: write its name down for `S08neptron-mixer`.
+  - Record: the control names and their state.
+
 ### Input (T18)
 
 - [ ] `needs-hardware` **A USB gamepad.**
