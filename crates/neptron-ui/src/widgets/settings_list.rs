@@ -219,7 +219,9 @@ fn draw_row(
         padded.w.saturating_sub(ARROW_COLUMN_PX),
         padded.h,
     );
-    if let SettingValue::Action(_) | SettingValue::Page(_) = item.value {
+    if let (SettingValue::Action(_) | SettingValue::Page(_), None) =
+        (&item.value, &item.unavailable)
+    {
         let clipped = text::draw_in(&mut frame.scene, inner, Align::Left, color, &item.label);
         push(frame, item, kind, row, None, focused, clipped);
         return;
@@ -872,6 +874,58 @@ mod tests {
         );
         for action in [UiAction::Left, UiAction::Right, UiAction::Menu] {
             assert_eq!(l.handle(action, &items, Level::Game), SettingsEvent::None);
+        }
+    }
+
+    #[test]
+    fn a_disabled_page_or_action_row_is_dim_with_its_reason_and_no_arrow() {
+        let reason = "Scanning games...";
+        let items = vec![
+            item(
+                1,
+                SettingValue::Page(crate::snapshot::PageId(3)),
+                Level::Default,
+            )
+            .unavailable(reason),
+            item(2, SettingValue::Action(ActionId(9)), Level::Default).unavailable(reason),
+        ];
+        let theme = Theme::default();
+        let mut l = SettingsList::new(Rect::new(16, 12, 288, 48), 12).with_pickers();
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &theme, &items);
+        let rows: Vec<_> = frame
+            .tree
+            .rows()
+            .map(|r| (r.label, r.value, r.kind))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Setting 1", Some(reason), Some(RowKind::Disabled)),
+                ("Setting 2", Some(reason), Some(RowKind::Disabled)),
+            ]
+        );
+        let commands = frame.scene.commands();
+        assert!(
+            !commands.iter().any(
+                |c| matches!(*c, crate::DrawCommand::Rect { rect, .. } if rect.x == 16 + 288 - 4 - 4)
+            ),
+            "no arrow"
+        );
+        for c in commands {
+            if let crate::DrawCommand::Text { y, color, .. } = *c
+                && y >= 24
+            {
+                assert_eq!(color, theme.colors.text_dim, "the unfocused row is dim");
+            }
+        }
+        for index in 0..2 {
+            l.select(index, items.len());
+            assert_eq!(l.hint(&items), "");
+            assert_eq!(
+                l.handle(UiAction::Accept, &items, Level::Game),
+                SettingsEvent::None
+            );
         }
     }
 
