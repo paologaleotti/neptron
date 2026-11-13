@@ -438,12 +438,60 @@ fn retry_gives_a_new_blank_attempt() {
     assert_eq!(rig.fake.blank_calls().len(), MODESET_ATTEMPTS as usize + 1);
 }
 
-#[test]
-fn a_source_that_changes_every_frame_under_a_refused_mode_is_decided_at_once() {
+/// A veto that lets through only the modes as wide as `width`.
+fn only_width(width: u16) -> neptron_video::Veto {
+    Box::new(move |m: &Modeline| {
+        if m.hactive == width {
+            Ok(())
+        } else {
+            Err(Rejection::NotAPanelMode {
+                mode: *m,
+                panel_modes: 0,
+            })
+        }
+    })
+}
+
+/// A rig whose mode on screen the inputs refuse and that cannot blank:
+/// every blank fails, so the refused mode stays.
+fn refused_and_unblankable() -> (Rig, Modeline, u16) {
     let mut rig = Rig::new(pc_31_120(), native_width());
     rig.frame(SNES);
     let mode = rig.current_mode();
-    for call in 1..=u64::from(MODESET_ATTEMPTS) {
+    let md_width = crate::harness::mode_for(pc_31_120(), native_width(), MD_H40).hactive;
+    assert_ne!(md_width, mode.hactive);
+    for call in 0..u64::from(MODESET_ATTEMPTS) {
+        rig.fake.fault_blank(call, "EIO".to_owned());
+    }
+    rig.engine.set_veto(only_width(md_width));
+    for _ in 0..MODESET_ATTEMPTS {
+        // SNES has no winner, and each blank fails.
+        let _ = rig.try_frame(SNES);
+    }
+    assert!(rig.engine.current_refused());
+    assert_eq!(rig.fake.active_mode(), Some(mode));
+    (rig, mode, md_width)
+}
+
+#[test]
+fn a_source_that_changes_every_frame_under_a_refused_mode_is_decided_at_once() {
+    let (mut rig, mode, md_width) = refused_and_unblankable();
+    // The core changes its size every frame: no debounce under a refused
+    // mode, so the first frame of a new size sets a valid mode.
+    let step = rig.frame(MD_H40);
+    assert_eq!(step.directive, Directive::Modeset);
+    assert!(!rig.engine.current_refused());
+    assert_ne!(rig.fake.active_mode(), Some(mode));
+    assert_eq!(rig.current_mode().hactive, md_width);
+}
+
+#[test]
+fn device_errors_under_a_refused_mode_end_in_a_blank_within_the_attempts() {
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    rig.frame(SNES);
+    let mode = rig.current_mode();
+    let first_call = rig.fake.mode_calls().len() as u64;
+    for call in first_call..first_call + 50 {
         rig.fake.fault_mode(
             call,
             ModeFault::Device {
@@ -461,23 +509,18 @@ fn a_source_that_changes_every_frame_under_a_refused_mode_is_decided_at_once() {
             Ok(())
         }
     }));
-    for _ in 0..MODESET_ATTEMPTS {
-        // Each attempt of the settings change fails on the device.
-        let _ = rig.try_frame(SNES);
+    let sources = [MD_H40, crate::harness::SNES_HIRES];
+    for frame in 0..20 {
+        let _ = rig.try_frame(sources[frame % 2]);
+        if rig.engine.blanked() {
+            break;
+        }
     }
-    assert!(rig.engine.current_refused());
-    assert_eq!(rig.fake.active_mode(), Some(mode));
-
-    // The core changes its size every frame: no debounce under a refused
-    // mode, so the first frame of a new size sets a valid mode.
-    let step = rig.frame(MD_H40);
-    assert_eq!(step.directive, Directive::Modeset);
+    assert!(rig.engine.blanked(), "the refused mode leaves the wire");
     assert!(!rig.engine.current_refused());
-    assert_ne!(rig.fake.active_mode(), Some(mode));
-    let step = rig.frame(SNES);
+    let failed = rig.fake.mode_calls().len() as u64 - first_call;
     assert!(
-        matches!(step.directive, Directive::Waiting { .. }),
-        "a valid mode on screen debounces again: {:?}",
-        step.directive
+        failed <= u64::from(MODESET_ATTEMPTS),
+        "{failed} failed modesets, at most {MODESET_ATTEMPTS}"
     );
 }

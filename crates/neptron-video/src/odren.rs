@@ -409,6 +409,13 @@ impl Odren {
         if debounced && self.blocked == Some(source) {
             return Directive::Kept;
         }
+        // A refused mode on screen with a failing device: each source would
+        // block only itself, so a source that changes every frame would
+        // try a modeset on every frame. The attempts count across sources,
+        // and then the frame keeps the mode, which makes the blank due.
+        if self.refused_on_screen && self.failed_attempts >= MODESET_ATTEMPTS {
+            return Directive::Kept;
+        }
         let inputs = &self.inputs;
         let index = self.cache.find_or_insert(source, || inputs.decide(&source));
         let winner = self.cache.get(index).and_then(|d| d.winner.clone());
@@ -714,10 +721,14 @@ impl Odren {
         }
     }
 
-    /// A geometry or launch modeset blocks its source. Any other is tried
-    /// again, up to [`MODESET_ATTEMPTS`] in all.
+    /// A geometry or launch modeset blocks its source; under a refused mode
+    /// on screen it also counts toward [`MODESET_ATTEMPTS`]. Any other is
+    /// tried again, up to [`MODESET_ATTEMPTS`] in all.
     fn after_device_error(&mut self, trigger: Trigger, source: SourceGeometry) {
         if matches!(trigger, Trigger::Geometry | Trigger::Launch) {
+            if self.refused_on_screen {
+                self.failed_attempts += 1;
+            }
             self.blocked = Some(source);
             return;
         }
