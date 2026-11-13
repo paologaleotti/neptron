@@ -112,7 +112,7 @@ fn resolve_entry<'s>(entry: &'s Entry, layers: &Layers<'_>) -> Resolved<'s> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{Kind, Levels, Safety};
+    use crate::schema::{AppliesTo, Kind, Levels, Safety};
 
     const KEY: &str = "t.k";
     const DEFAULT: i64 = 5;
@@ -130,6 +130,7 @@ mod tests {
             levels,
             live: true,
             safety: Safety::None,
+            applies_to: AppliesTo::Every,
         }])
         .unwrap()
     }

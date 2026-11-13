@@ -1,4 +1,4 @@
-use crate::schema::{Entry, Kind, Levels, Safety, Schema};
+use crate::schema::{AppliesTo, Entry, Kind, Levels, Safety, Schema};
 
 /// The version of the file layout that this build writes into each settings file.
 ///
@@ -71,6 +71,7 @@ static BUILTIN: [Entry; 7] = [
         levels: Levels::GLOBAL,
         live: true,
         safety: Safety::ConfirmOrRevert,
+        applies_to: AppliesTo::Every,
     },
     Entry {
         key: DISPLAY_MONITOR,
@@ -82,6 +83,7 @@ static BUILTIN: [Entry; 7] = [
         levels: Levels::GLOBAL,
         live: true,
         safety: Safety::ConfirmOrRevert,
+        applies_to: AppliesTo::Every,
     },
     Entry {
         key: DISPLAY_STYLE,
@@ -93,6 +95,7 @@ static BUILTIN: [Entry; 7] = [
         levels: Levels::ALL,
         live: true,
         safety: Safety::Validated,
+        applies_to: AppliesTo::Crt,
     },
     Entry {
         key: DISPLAY_REFRESH_POLICY,
@@ -104,6 +107,7 @@ static BUILTIN: [Entry; 7] = [
         levels: Levels::ALL,
         live: true,
         safety: Safety::Validated,
+        applies_to: AppliesTo::Crt,
     },
     Entry {
         key: INPUT_MENU_HOLD_START_SECONDS,
@@ -116,6 +120,7 @@ static BUILTIN: [Entry; 7] = [
         levels: Levels::GLOBAL,
         live: true,
         safety: Safety::None,
+        applies_to: AppliesTo::Every,
     },
     Entry {
         key: DISPLAY_SCANLINES,
@@ -127,6 +132,7 @@ static BUILTIN: [Entry; 7] = [
         levels: Levels::ALL,
         live: true,
         safety: Safety::None,
+        applies_to: AppliesTo::Every,
     },
     Entry {
         key: DISPLAY_SCANLINE_STRENGTH,
@@ -139,6 +145,7 @@ static BUILTIN: [Entry; 7] = [
         levels: Levels::ALL,
         live: true,
         safety: Safety::None,
+        applies_to: AppliesTo::Every,
     },
 ];
 
@@ -153,7 +160,7 @@ impl Schema {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{Invalid, Level, Source, Value, ValueType};
+    use crate::schema::{DisplayClass, Invalid, Level, Source, Value, ValueType};
     use crate::{Change, Issue, IssueKind, Layer, Layers, edit, parse_layer, resolve_key};
 
     /// One line per key, with the parts that a file depends on: type, levels and choices.
@@ -356,6 +363,21 @@ mod tests {
         let resolved = resolve_key(&schema, &layers, INPUT_MENU_HOLD_START_SECONDS).unwrap();
         assert_eq!(resolved.value, Value::Int(2));
         assert_eq!(resolved.source, Source::Global);
+    }
+
+    #[test]
+    fn style_and_refresh_policy_apply_only_to_a_crt() {
+        let schema = Schema::builtin();
+        for entry in schema.entries() {
+            let crt_only = [DISPLAY_STYLE, DISPLAY_REFRESH_POLICY].contains(&entry.key);
+            assert!(entry.applies_to.applies(DisplayClass::Crt), "{}", entry.key);
+            assert_eq!(
+                entry.applies_to.applies(DisplayClass::FlatPanel),
+                !crt_only,
+                "{}",
+                entry.key
+            );
+        }
     }
 
     #[test]

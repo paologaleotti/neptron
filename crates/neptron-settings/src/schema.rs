@@ -127,6 +127,35 @@ pub enum Safety {
     ConfirmOrRevert,
 }
 
+/// The class of the display that the run drives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DisplayClass {
+    /// A CRT: the mode follows the game.
+    Crt,
+    /// A flat panel: the game is scaled into a mode that the panel lists.
+    FlatPanel,
+}
+
+/// The displays on which a setting has an effect. The settings screen, the quick menu and
+/// the UI crawler read it, so a row that has no effect on the display shows as disabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AppliesTo {
+    /// Every display.
+    Every,
+    /// A CRT only. The flat-panel path ignores the value.
+    Crt,
+}
+
+impl AppliesTo {
+    /// True when the setting has an effect on a display of `class`.
+    pub fn applies(self, class: DisplayClass) -> bool {
+        match self {
+            AppliesTo::Every => true,
+            AppliesTo::Crt => class == DisplayClass::Crt,
+        }
+    }
+}
+
 /// The type of a setting, with its allowed values and its built-in default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -341,6 +370,8 @@ pub struct Entry {
     pub live: bool,
     /// How a change meets the CRT safety rules.
     pub safety: Safety,
+    /// The displays on which the setting has an effect.
+    pub applies_to: AppliesTo,
 }
 
 /// Why a list of entries is not a valid schema.
@@ -522,6 +553,7 @@ mod tests {
             levels: Levels::ALL,
             live: true,
             safety: Safety::None,
+            applies_to: AppliesTo::Every,
         }
     }
 

@@ -37,6 +37,7 @@ pub use layer::{Layer, SetError};
 pub use parse::{Issue, IssueKind, Parsed, parse_layer};
 pub use resolve::{LayerMismatch, Layers, Resolved, resolve, resolve_key};
 pub use schema::{
-    Entry, Invalid, Kind, Level, Levels, Safety, Schema, SchemaError, Source, Value, ValueType,
+    AppliesTo, DisplayClass, Entry, Invalid, Kind, Level, Levels, Safety, Schema, SchemaError,
+    Source, Value, ValueType,
 };
 pub use storage::{Loaded, NEW_FILE_MODE, Storage, StorageError, Target, WriteStep};

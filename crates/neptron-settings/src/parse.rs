@@ -239,7 +239,7 @@ fn to_value(entry: &Entry, item: &Item) -> Result<Value, Invalid> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{Kind, Levels, Safety, ValueType};
+    use crate::schema::{AppliesTo, Kind, Levels, Safety, ValueType};
 
     thread_local! {
         /// The bytes that `LineIndex::new` scanned on this thread.
@@ -267,6 +267,7 @@ mod tests {
             levels: Levels::ALL,
             live: true,
             safety: Safety::None,
+            applies_to: AppliesTo::Every,
         };
         Schema::from_entries(vec![
             entry("a.flag", Kind::Bool { default: false }),

@@ -290,7 +290,7 @@ fn to_toml(value: &Value) -> toml_edit::Value {
 mod tests {
     use super::*;
     use crate::parse::parse_layer;
-    use crate::schema::{Entry, Invalid, Kind, Levels, Safety};
+    use crate::schema::{AppliesTo, Entry, Invalid, Kind, Levels, Safety};
     use crate::{DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE};
 
     fn text(v: &str) -> Value {
@@ -375,6 +375,7 @@ fceumm_palette = \"raw\"
             levels: Levels::ALL,
             live: true,
             safety: Safety::None,
+            applies_to: AppliesTo::Every,
         };
         let schema = Schema::from_entries(vec![entry]).unwrap();
         let change = [Change::Set {
@@ -628,6 +629,7 @@ fceumm_palette = \"raw\"
             levels: Levels::ALL,
             live: true,
             safety: Safety::None,
+            applies_to: AppliesTo::Every,
         };
         let schema = Schema::from_entries(vec![
             entry("a.flag", Kind::Bool { default: false }),

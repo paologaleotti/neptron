@@ -24,6 +24,8 @@ Typed settings schema, three-level resolution (game, system, global, default) an
 | `display.scanlines` | `auto`, `off`, `on` | game, system, global | `auto` | none |
 | `display.scanline_strength` | integer, 0 to 100 (percent) | game, system, global | `75` | none |
 
+Each entry has `applies_to`: the displays on which it has an effect (`AppliesTo::Every` or `AppliesTo::Crt`). `display.style` and `display.refresh_policy` apply to a CRT only: the flat-panel path scales the game into a mode that the panel lists and ignores both. The scanline settings apply to every display, because `on` draws scanlines on a panel at a whole vertical multiple. The settings screen, the quick menu and the UI crawler read this one field, so a row with no effect on the display shows as disabled with its reason. It is not part of the file format.
+
 Picture style and refresh policy are independent settings. The "Native, double refresh" row of the picture style table is the pair `style = native` with `refresh_policy = exact_x2`. The UI can show the pair as one row.
 
 `input.menu_hold_start_seconds`: hold Start alone on a controller for this number of seconds to open the quick menu. 0 turns it off. Select and Start together still open the quick menu at once, and their 5 s hold is still the blind recovery. It is for an arcade panel with no Select button. `neptron-input` describes the exact rule. The schema has no help text field, so the menu help text is in the doc comment of `INPUT_MENU_HOLD_START_SECONDS`.
