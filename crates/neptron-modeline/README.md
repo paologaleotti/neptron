@@ -12,7 +12,7 @@ Safe Switchres wrapper, monitor profiles and the ODREN policy: from source geome
 
 ## The policy
 
-`neptron_modeline::policy` decides which mode a CRT or a flat panel gets for a game, and where the game sits in it. It is pure: no I/O, no clock, and no global state except the lock of the Switchres calls. Switchres calculates each modeline. The policy decides which rung, which refresh, which width and which fallback.
+`neptron_modeline::policy` decides which mode a CRT, a flat panel or a TV gets for a game, and where the game sits in it. It is pure: no I/O, no clock, and no global state except the lock of the Switchres calls. Switchres calculates each modeline. The policy decides which rung, which refresh, which width and which fallback.
 
 ### API
 
@@ -78,6 +78,60 @@ Where the Definition allows two readings, the policy takes the one below. Each i
 - The dynamic super width needs a pixel clock of at least the floor, the bound of the validator; Switchres doubles while the clock is at most the floor.
 - A flat panel: a whole vertical scale, the width at the core's aspect (`panel_placement`).
 
+### TV profiles
+
+A TV profile (`MonitorKind::Tv { standard }`) has the fixed mode table of its standard: 240p and 480i on the 525-line standards, 288p and 576i on the 625-line standards (`TvStandard::modes`, ADR 0012). The policy does not call Switchres for it. It returns the same `Plan`, `Considered`, `Proposal`, `Placement` and `Timing`, so `choose`, `switch_for`, `notice` and `style_rows` work on it unchanged. Every proposal is one of the two table modes of the standard, so `neptron_safety::validate` accepts it; no proposal carries a mode of the other line system.
+
+**The rungs**, in order (`policy/tv.rs`):
+
+| Rung | When | Example |
+| --- | --- | --- |
+| Native, progressive | A progressive game with at most 240 lines (525) or 288 lines (625): its lines 1:1, centred with black lines | SNES 256x224 on NTSC: 240p, 224 lines at line 8 |
+| Native, progressive, cropped | A progressive game with up to 16 lines more: `OVERSCAN_CROP_MAX_LINES_PER_EDGE` (8) source lines hidden per edge, as on a CRT. The uncropped entry stays in the plan with `Dropped::TvLines` | A 384x256 board on NTSC: 240p, 8 lines hidden per edge |
+| Interlaced 1:1 | A progressive game too tall for the crop, up to 480 or 576 lines: the interlaced mode, lines 1:1, centred. For an interlaced game this is rung 1 (`Native`), and rung 3 drops with `SameAsNative`. A game that fits the progressive mode drops this rung with `FitsProgressive`, so a 240-line game is never doubled into 480i | VGA 640x480 on NTSC: 480i, 480 lines; SNES 512x448i: 480i at line 16 |
+| Fitted | Always, last: the game scaled into the progressive mode with sharp bilinear, with the notice `fitted` | A 640x600 game on NTSC: 240p, 600 lines into 240 |
+
+- A game too tall for a mode drops that rung with `Dropped::TvLines` (its lines, the mode's lines). A GPU without interlace drops the interlaced rung with `NoInterlace`.
+- **Picture styles.** `auto` and `native` walk the rungs above. `2x`, `3x` and `4x` have no mode on a TV: each multiple of the style's walk drops with `Dropped::TvNoMultiple`, then the walk goes on as for `native`. The game always gets a mode; `style_rows` greys the multiple rows out, and the notice sets `style_fallback`.
+- **Refresh.** The only target is the field rate of the mode (`RefreshKind::Tv`). `exact_x2`, `force_50` and `force_60` go to `Plan::skipped`: the standard fixes the rate. A game nearer half the field rate than the field rate shows each frame twice (`repeat` 2), as on a panel.
+- **Speed.** The game runs at the field rate, one frame per flip. `Timing::changes_speed` is true on a TV only when the game rate and the field rate differ by more than `TV_SPEED_SILENT_PPM` (5000 ppm of the field rate), the bound of the audio rate control (`neptron_audio::MAX_RATE_DEVIATION_PPM`). Within it the game is exact and the audio control absorbs the difference; beyond it `notice` sets `game_mhz` and `shown_mhz`, and the status shows `[!] speed (X to Y Hz)`. A 50 Hz game on a 60 Hz standard, or the reverse, gets its mode with the alert, never no mode.
+- **Placement.** The game's lines are 1:1 on every rung except the fit. The width follows `PolicySettings::tv_width` (below), centred in the 720 samples. The filter is nearest when the width is a whole factor of the game width (and the lines are 1:1), sharp bilinear otherwise. `Proposal::horizontal` and `Plan::horizontal` are `None`. `source_index` is the index in `TvStandard::modes` (0 progressive, 1 interlaced).
+- **Safe area.** The UI fills `TV_SAFE_WIDTH_SAMPLES` (704) samples, centred (8 to 712), and every active line. The game is placed as a console placed it, with no overscan margin of its own. The kernel margin properties stay 0 (the KMS backend sets them).
+
+**The width rule** (`display.tv_width`, `TvWidth`). Every mode has 720 samples at 13.5 MHz. A 4:3 picture is 704 of them (`TV_SAFE_WIDTH_SAMPLES`). A console picture is narrower: 256 pixels at 21.477 MHz / 4, 320 pixels at 53.693 MHz / 8 and 512 pixels at 10.739 MHz each last 47.68 us, 643.7 samples (`TV_CONSOLE_WIDTH_SAMPLES`, 644).
+
+- `aspect` (the default): the console picture width at the game's display aspect, `aspect x 644 x 3/4`, for a game of at least `TV_CONSOLE_LINES` (224) lines per field. A game with fewer lines is a smaller picture, and its width shrinks with its lines: `aspect x 644 x 3/4 x lines / 224`. A display aspect of 0 means square pixels. When a whole factor of the game width is within `TV_WHOLE_FACTOR_TOLERANCE_PERCENT` (3 %) of that width and inside 704 samples, the factor wins, with nearest; else the width stays, with sharp bilinear.
+- `integer`: the largest whole factor of the game width that is at most 704 samples, with nearest. A game wider than 704 gets 704, scaled down.
+- `fill`: 704 samples.
+
+For a 4:3 game of 224 lines or more, in samples:
+
+| Game width | `aspect` | `integer` | `fill` |
+| --- | --- | --- | --- |
+| 256 (NES, SNES, Mega Drive H32) | 644, factor 2.52, sharp bilinear (512 and 768 are 20 % off) | 512, factor 2, nearest | 704, factor 2.75, sharp bilinear |
+| 320 (Mega Drive H40, Neo Geo) | 640, factor 2, nearest (0.6 % from 644) | 640, factor 2, nearest | 704, factor 2.2, sharp bilinear |
+| 512 (SNES high resolution) | 644, factor 1.26, sharp bilinear | 512, factor 1, nearest | 704, factor 1.375, sharp bilinear |
+| 640 (480i sources) | 640, factor 1, nearest (0.6 % from 644) | 640, factor 1, nearest | 704, factor 1.1, sharp bilinear |
+
+A Game Boy (160x144, 10:9) gets 345 samples with `aspect`. The interlaced modes count the lines of one field: 448 interlaced lines are 224 per field, so SNES 512x448i gets 644.
+
+**The rates.** The field rates are exact millihertz from the table modes (`Modeline::field_rate_mhz`): 240p 60 054, 288p 50 080, 480i 59 940, 576i 50 000. The difference is in ppm of the field rate; an alert shows above 5000 ppm.
+
+| Game | Rate, mHz | On NTSC | ppm | Alert | On PAL | ppm | Alert |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| NES, SNES | 60 099 | 240p | -749 | no | 288p | -200 060 | yes |
+| NES PAL, SNES PAL | 50 007 | 240p | +167 299 | yes | 288p | +1 458 | no |
+| Mega Drive | 59 923 | 240p | +2 181 | no | 288p | -196 546 | yes |
+| Mega Drive PAL | 49 701 | 240p | +172 395 | yes | 288p | +7 568 | yes |
+| PC Engine | 59 826 | 240p | +3 797 | no | 288p | -194 609 | yes |
+| CPS1 | 59 637 | 240p | +6 944 | yes | 288p | -190 835 | yes |
+| Neo Geo | 59 186 | 240p | +14 454 | yes | 288p | -181 829 | yes |
+| A 384x256 board | 55 018 | 240p, 8 lines cropped per edge | +83 858 | yes | 288p | -98 602 | yes |
+| SNES 512x448i | 60 099 | 480i | -2 653 | no | 576i | -201 980 | yes |
+| A 640x480i source | 59 940 | 480i | 0 | no | 576i | -198 800 | yes |
+
+The game speed changes by the field rate over the game rate: a PAL game on NTSC runs 20.1 % fast, an NTSC game on PAL 16.7 % slow, the Mega Drive PAL on PAL 0.76 % fast.
+
 ### What the engine does
 
 1. On launch and on each geometry change, call `decide`, then `choose` with `|m| neptron_safety::validate(m, profile, caps)`. The winner's token is the `ValidatedMode` to set. The policy does not depend on `neptron-safety` (the dependency rules forbid it), so the engine validates every proposal itself; a proposal the validator refuses is skipped, never set.
@@ -100,7 +154,7 @@ Where the Definition allows two readings, the policy takes the one below. Each i
 ### Known limits
 
 - A monitor aspect other than 4:3 in the Switchres settings makes Switchres widen every mode by the ratio of the aspects (256 becomes 341 at 16:9). Every exact rung then drops with `WidthChanged`, and the fitted rung wins. The policy computes the width itself, so it could pass 4:3 to Switchres and keep the aspect for the border width only; that is an open question for the owner.
-- A GPU with a fixed pixel clock (`pi_vc4_composite`, 13.5 MHz) gets no mode: Switchres does not calculate for a fixed clock.
+- A CRT profile on a GPU with a fixed pixel clock (`pi_vc4_composite`, 13.5 MHz) gets no mode: Switchres does not calculate for a fixed clock. The composite output of that GPU takes a TV profile (see "TV profiles"), which needs no Switchres.
 - At the crop bound, an overscan crop can hide real game content: arcade boards draw to the edge of the frame, and a vertical game shown unrotated loses columns of its upright picture (Donkey Kong on `arcade_15` loses 5 columns at each side). The bound is not checked against real game pictures.
 - Some `auto` results stay small after the overscan crop, because no whole multiple fits within 8 lines per edge, and the fit is the last resort. The game is then pixel exact, centred with black borders, smaller than the screen. Fill is the game's share of the picture lines:
   - Vertical arcade games, which the MVP cannot rotate: Pac-Man on `pc_31_120`, 288 of 501 (57.4 %), and on `arcade_31`, 288 of 474 (60.7 %); Donkey Kong on `arcade_31`, 256 of 474 (54.0 %); Pac-Man and Donkey Kong on `generic_15` and `arcade_15`, interlaced 1:1, 144 or 128 lines per field of 238 (60.5 % and 53.7 %).
@@ -165,7 +219,8 @@ The source is `MIT OR Apache-2.0`. The crate links Switchres (GPL-2.0-or-later) 
 
 - `src/policy/*`: a unit test per rule of each step, at its limits. `src/policy/clock.rs` tests the whole-kHz clock on the `ntsc` range of one field rate, at the top of a range, at a porch on its 90 % limit, and the fallback to the nearest kHz.
 - `tests/integration/policy_table.rs`: timing check 3, one row per rule of the decision procedure: the rung and the mode family that win after the validator; a drop table with one row per `Dropped` reason, values from the Definition or a hand calculation; and steps 6 to 8, the padding rule, the width strategies at the GPU floor and the Display panel rows. `NoMode` cannot happen through `decide`, because Switchres returns one mode per range for every request with editable lines, width and rate; a unit test of step 5 covers it.
-- `tests/integration/policy_golden.rs`: the golden list through the policy on `generic_15`, `arcade_15`, `pc_31_120`, `arcade_31`, the EDID profile and a 1080p panel (`tests/golden/policy.toml`), and timing check 4, each entry of the GPU capability table (`tests/golden/policy_gpus.toml`). The file headers say where the values come from. Every winner has a pixel clock in whole kHz, the check that each display backend applies.
+- `tests/integration/policy_golden.rs`: the golden list through the policy on `generic_15`, `arcade_15`, `pc_31_120`, `arcade_31`, the EDID profile and a 1080p panel (`tests/golden/policy.toml`), on `tv_ntsc` and `tv_pal` with each width rule (`tests/golden/policy_tv.toml`), and timing check 4, each entry of the GPU capability table (`tests/golden/policy_gpus.toml`). The file headers say where the values come from. Every winner has a pixel clock in whole kHz, the check that each display backend applies.
+- `tests/integration/policy_tv.rs`: the TV policy. The four field rates; the console table above on NTSC and PAL, with the mode, the ppm and the alert; each rung and its limits (centred lines, the crop at 8 lines per edge and the interlaced mode at 9, the interlaced mode for tall and interlaced games, the fit, no interlace on the GPU); the width table for 256, 320, 512 and 640 with each rule on both line systems; the UI safe area; the speed bound at 300 and 301 mHz from 60.054 Hz; the notice beyond the bound; `repeat` 2 for a 30 Hz game; the skipped refresh targets; the greyed multiple styles. A sweep of 3,200 sources over the ten standards and two GPUs, with every style, refresh policy and width rule: every proposal is a table mode of the standard, the validator accepts it, it lies inside the mode, and a progressive game that fits the progressive mode wins it with its lines 1:1.
 - `tests/integration/policy_property.rs`: 2,160 random sources with a fixed seed over every preset, the EDID profile and the panel, each with every picture style and every refresh policy: 43,200 decisions in about 3 s in the dev profile. One source in eight has a value of 0, 1 or the type's largest on an axis: a zero value gives `EmptySource`, every other source a plan. No panic, every rectangle lies inside its mode, the crop is the frame less the overscan crop (lines only, within the bound), every whole-scale claim holds against the crop, no fitted proposal comes before an exact one, every exact proposal of `native` on a CRT has a vertical scale of 1, two decisions are equal, every CRT proposal has a pixel clock in whole kHz and the rates of that clock and its totals, and the winner's proposal is the mode the validator approved. On the winner: with `exact_x2`, `force_50` or `force_60`, the asked rate wins whenever an exact mode at it validates; a progressive source never gets an interlaced fit while a progressive exact mode validates; `Notice::fitted` is set exactly for a fitted winner and `Notice::cropped_lines` exactly when the winner has a crop.
 - `examples/policy_timing.rs`: a program, not a test, that prints the time of one decision. Tier 1 builds it but does not run it, because a wall clock gives no stable result.
 - `tests/integration/safety.rs`: the second opinion. Every golden modeline validates with `neptron_safety::validate` against its preset, and so do 640x480 at 60 Hz, 320x240 at 120 Hz and 256x224 at 60.099 Hz on the profile that `neptron-platform` builds from the EDID of a 30 to 71 kHz, 50 to 160 Hz PC CRT (values copied from its tests). `neptron-safety` is a dev-dependency only.

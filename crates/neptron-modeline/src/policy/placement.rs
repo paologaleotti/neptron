@@ -197,7 +197,7 @@ fn frame_rect(source: &OrientedSource) -> Rect {
 /// The frame without `per_edge` lines of the screen at each end. The
 /// lines of a turned frame are its columns; the crop is the same at both
 /// ends, so the direction of the turn does not matter.
-fn line_crop(source: &OrientedSource, per_edge: u16) -> Rect {
+pub(crate) fn line_crop(source: &OrientedSource, per_edge: u16) -> Rect {
     let whole = frame_rect(source);
     let cut = u32::from(per_edge);
     let edge = i32::from(per_edge);
@@ -216,7 +216,7 @@ fn line_crop(source: &OrientedSource, per_edge: u16) -> Rect {
     }
 }
 
-fn filter_for(scale: ScaleClaim) -> Filter {
+pub(crate) fn filter_for(scale: ScaleClaim) -> Filter {
     if scale.x.is_some() && scale.y.is_some() {
         Filter::Nearest
     } else {
@@ -226,17 +226,17 @@ fn filter_for(scale: ScaleClaim) -> Filter {
 
 /// The offset that centres `inner` in `outer`, rounded down; 0 when it does
 /// not fit.
-fn centre(outer: u16, inner: u32) -> i32 {
+pub(crate) fn centre(outer: u16, inner: u32) -> i32 {
     let margin = u32::from(outer).saturating_sub(inner) / 2;
     // A margin is at most half of a u16.
     margin as i32
 }
 
-fn whole(outer: u16, inner: u16) -> Option<u16> {
+pub(crate) fn whole(outer: u16, inner: u16) -> Option<u16> {
     whole_u32(u32::from(outer), inner)
 }
 
-fn whole_u32(outer: u32, inner: u16) -> Option<u16> {
+pub(crate) fn whole_u32(outer: u32, inner: u16) -> Option<u16> {
     let inner = u32::from(inner);
     if inner == 0 || outer == 0 || !outer.is_multiple_of(inner) {
         return None;

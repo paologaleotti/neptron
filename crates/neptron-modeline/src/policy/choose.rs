@@ -145,7 +145,8 @@ pub fn switch_for(current: Option<&Modeline>, winner: &Modeline) -> Switch {
 /// hides source lines, or when the winner is padded. Double refresh that the
 /// refresh policy asks for shows each frame twice at the game's own rate,
 /// so it needs no notice. A flat panel needs none for its rate: audio rate
-/// control absorbs the difference.
+/// control absorbs the difference. A TV needs one only beyond
+/// `TV_SPEED_SILENT_PPM` ([`super::Timing::changes_speed`]).
 pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
     let proposal = considered.outcome.as_ref().ok()?;
     let timing = &proposal.timing;
@@ -214,7 +215,11 @@ fn on_own_rung(plan: &Plan, style: PictureStyle, rung: Rung) -> bool {
     if style == PictureStyle::Auto {
         return true;
     }
-    if plan.horizontal.is_none() {
+    let panel = plan
+        .considered
+        .iter()
+        .any(|c| c.target.kind == RefreshKind::Panel);
+    if panel {
         return rung == Rung::Panel;
     }
     super::walk_ladder(style).first() == Some(&rung)

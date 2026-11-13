@@ -1423,11 +1423,6 @@ fn an_empty_source_or_profile_is_an_error() {
         ),
         Err(PolicyError::EmptyProfile { .. })
     ));
-    let tv = neptron_types::TvStandard::Ntsc.profile();
-    assert!(matches!(
-        decide(&snes(), &PolicySettings::default(), &tv, &open_caps()),
-        Err(PolicyError::EmptyProfile { profile }) if profile == "tv_ntsc"
-    ));
 }
 
 /// One row of the drop table: a rung at the game's rate, and the reason
@@ -1566,6 +1561,29 @@ fn drop_rows() -> Vec<DropRow> {
                 Rung::Interlaced,
                 Dropped::SameAsNative,
                 preset("generic_15"),
+            )
+        },
+        // 604 progressive lines are more than the 576 lines of 576i.
+        DropRow {
+            source: source(640, 604, 50_000),
+            ..drop_row(
+                "tv_lines",
+                Rung::Interlaced,
+                Dropped::TvLines {
+                    lines: 604,
+                    mode_lines: 576,
+                },
+                neptron_types::TvStandard::Pal.profile(),
+            )
+        },
+        // A TV has no line-multiplied mode.
+        DropRow {
+            style: PictureStyle::X2,
+            ..drop_row(
+                "tv_no_multiple",
+                Rung::Multiple(2),
+                Dropped::TvNoMultiple { factor: 2 },
+                neptron_types::TvStandard::Ntsc.profile(),
             )
         },
         // 480 lines need rung 3 on generic_15, and the GPU has no interlace.

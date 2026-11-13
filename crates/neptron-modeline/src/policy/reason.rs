@@ -57,6 +57,19 @@ pub enum Dropped {
         /// Largest value of the field.
         max: u64,
     },
+    /// The game's lines do not fit the active lines of the TV mode.
+    TvLines {
+        /// Lines of the game.
+        lines: u16,
+        /// Active lines of the mode.
+        mode_lines: u16,
+    },
+    /// A TV standard has no mode with a multiple of the game's lines: one
+    /// game line is one scan line.
+    TvNoMultiple {
+        /// The factor that the picture style asks for.
+        factor: u8,
+    },
     /// Switchres changed the line count: the request does not fit a range
     /// at its own line count.
     LinesChanged {
@@ -100,6 +113,8 @@ impl Dropped {
             Self::PixelClockFloor { .. } => "pixel_clock_floor",
             Self::NoMode => "no_mode",
             Self::TimingOutOfRange { .. } => "timing_out_of_range",
+            Self::TvLines { .. } => "tv_lines",
+            Self::TvNoMultiple { .. } => "tv_no_multiple",
             Self::LinesChanged { .. } => "lines_changed",
             Self::ScanChanged { .. } => "scan_changed",
             Self::WidthChanged { .. } => "width_changed",
@@ -145,6 +160,14 @@ impl fmt::Display for Dropped {
             Self::TimingOutOfRange { field, value, max } => {
                 write!(f, "Switchres gave {field} {value}, outside 0 to {max}")
             }
+            Self::TvLines { lines, mode_lines } => write!(
+                f,
+                "{lines} lines do not fit the {mode_lines} lines of the TV mode"
+            ),
+            Self::TvNoMultiple { factor } => write!(
+                f,
+                "the TV standard has no mode with {factor} times the lines"
+            ),
             Self::LinesChanged { asked, got } => {
                 write!(f, "asked for {asked} lines, the range gives {got}")
             }
@@ -193,6 +216,18 @@ mod tests {
         assert_eq!(
             lines.to_string(),
             "lines_changed: asked for 224 lines, the range gives 448"
+        );
+        let tv = Dropped::TvLines {
+            lines: 448,
+            mode_lines: 288,
+        };
+        assert_eq!(
+            tv.to_string(),
+            "tv_lines: 448 lines do not fit the 288 lines of the TV mode"
+        );
+        assert_eq!(
+            Dropped::TvNoMultiple { factor: 2 }.to_string(),
+            "tv_no_multiple: the TV standard has no mode with 2 times the lines"
         );
     }
 }

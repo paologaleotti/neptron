@@ -8,6 +8,7 @@ mod golden;
 mod policy_golden;
 mod policy_property;
 mod policy_table;
+mod policy_tv;
 mod presets;
 mod safety;
 mod solver;

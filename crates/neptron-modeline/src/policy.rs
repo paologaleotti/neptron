@@ -1,6 +1,7 @@
 //! The ODREN policy: from the source, the effective settings, the monitor
 //! profile and the GPU, the modes to try in order, each with its reason,
-//! and the game's place in each. Pure: no I/O, no clock, no global state
+//! and the game's place in each. A TV profile takes its own short walk
+//! over the fixed modes of its standard, with no Switchres. Pure: no I/O, no clock, no global state
 //! except the lock that serialises the Switchres calls.
 //!
 //! The decision procedure, one function per step. The functions without a
@@ -37,6 +38,7 @@ mod settings;
 mod shape;
 mod solve;
 mod source;
+mod tv;
 mod units;
 
 use std::fmt;
@@ -57,6 +59,10 @@ pub use settings::{
 };
 pub use shape::{BORDER_LINES, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OverscanCrop};
 pub use source::OrientedSource;
+pub use tv::{
+    TV_CONSOLE_LINES, TV_CONSOLE_WIDTH_SAMPLES, TV_SAFE_WIDTH_SAMPLES, TV_SPEED_SILENT_PPM,
+    TV_WHOLE_FACTOR_TOLERANCE_PERCENT,
+};
 
 use neptron_types::{GpuCaps, MonitorKind, MonitorProfile, SourceGeometry};
 
@@ -86,7 +92,8 @@ pub enum PolicyError {
 /// Steps 1 to 5 of the decision procedure: the plan for a source.
 ///
 /// On a CRT profile, each rung of the picture style's walk at each refresh
-/// target, then a last resort; on a flat panel, each listed mode. The
+/// target, then a last resort; on a flat panel, each listed mode; on a TV,
+/// the modes of the standard's table in the order of the TV rungs. The
 /// engine walks the proposals with the validator ([`choose`]); the Display
 /// panel calls the same function for each style ([`style_rows`]).
 pub fn decide(
@@ -103,9 +110,7 @@ pub fn decide(
     match &profile.kind {
         MonitorKind::Crt { ranges } if ranges.is_empty() => Err(empty()),
         MonitorKind::FlatPanel { modes } if modes.is_empty() => Err(empty()),
-        // The policy has no plan for a TV: it gives no mode, as for a
-        // profile with no range.
-        MonitorKind::Tv { .. } => Err(empty()),
+        MonitorKind::Tv { standard } => Ok(tv::tv_plan(&source, &settings, *standard, caps)),
         MonitorKind::Crt { ranges } => crt::crt_plan(&crt::Crt {
             source,
             settings,

@@ -9,9 +9,10 @@
 # whose pixel clock reaches it (the super widths for Intel), a GPU with no
 # floor gets the game width. A GPU without interlace gets no 480i.
 #
-# pi_vc4_composite gives "none" on every case: its pixel clock is fixed at
-# 13.5 MHz, Switchres does not calculate for a fixed clock, and the
-# validator refuses every other clock. This is a finding, not a goal.
+# pi_vc4_composite gives "none" on every case: these are CRT profiles, its
+# pixel clock is fixed at 13.5 MHz, Switchres does not calculate for a
+# fixed clock, and the validator refuses every other clock. A composite
+# output takes a TV profile instead; policy_tv.toml has its goldens.
 #
 # Where the values come from: computed by the policy with Switchres at
 # commit 09272ac24640daee45f5be15b1b856ecd220dda2, recorded on macOS

@@ -1,14 +1,15 @@
 //! The golden list of systems run through the policy: the profile goldens
-//! in tests/golden/policy.toml and timing check 4, the per-GPU goldens in
-//! tests/golden/policy_gpus.toml. The file headers say where the expected
+//! in tests/golden/policy.toml, timing check 4, the per-GPU goldens in
+//! tests/golden/policy_gpus.toml, and the TV goldens in
+//! tests/golden/policy_tv.toml. The file headers say where the expected
 //! values come from.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use neptron_modeline::policy::{PolicySettings, choose, decide};
+use neptron_modeline::policy::{PolicySettings, RefreshKind, TvWidth, choose, decide};
 use neptron_safety::validate;
-use neptron_types::{Filter, GpuCaps, MonitorProfile, SourceGeometry};
+use neptron_types::{Filter, GpuCaps, MonitorProfile, SourceGeometry, TvStandard};
 use serde::Deserialize;
 
 use crate::golden::golden;
@@ -56,8 +57,19 @@ fn systems() -> Vec<(String, SourceGeometry)> {
 /// when an overscan crop hides N source lines at each edge. "none" when no
 /// proposal validates.
 fn outcome(source: &SourceGeometry, profile: &MonitorProfile, caps: &GpuCaps) -> String {
-    let plan = decide(source, &PolicySettings::default(), profile, caps)
-        .unwrap_or_else(|e| panic!("{}: {e}", profile.id));
+    outcome_with(source, &PolicySettings::default(), profile, caps)
+}
+
+/// [`outcome`] with other settings. A winner that changes the game speed
+/// ends with "speed".
+fn outcome_with(
+    source: &SourceGeometry,
+    settings: &PolicySettings,
+    profile: &MonitorProfile,
+    caps: &GpuCaps,
+) -> String {
+    let plan =
+        decide(source, settings, profile, caps).unwrap_or_else(|e| panic!("{}: {e}", profile.id));
     let choice = choose(&plan, |m| validate(m, profile, caps));
     let Some(w) = choice.winner else {
         return "none".into();
@@ -77,8 +89,13 @@ fn outcome(source: &SourceGeometry, profile: &MonitorProfile, caps: &GpuCaps) ->
         .overscan_crop
         .map(|c| format!(" crop {}", c.lines_per_edge))
         .unwrap_or_default();
+    let speed = if p.timing.changes_speed() && w.considered.target.kind == RefreshKind::Tv {
+        " speed"
+    } else {
+        ""
+    };
     format!(
-        "{} {} {}x{}{} {}.{:03}kHz {}.{:03}Hz game {}x{}+{}+{} {}{crop}",
+        "{} {} {}x{}{} {}.{:03}kHz {}.{:03}Hz game {}x{}+{}+{} {}{crop}{speed}",
         w.considered.rung,
         w.considered.target.kind,
         m.hactive,
@@ -175,4 +192,31 @@ fn every_gpu_of_the_capability_table_gives_its_golden_decisions() {
         }
     }
     compare("policy_gpus.toml", actual);
+}
+
+/// Every system on NTSC and on PAL, with each width rule, on the composite
+/// encoder of the Raspberry Pi. Each case is "<system> <profile>
+/// <tv_width>".
+#[test]
+fn every_system_on_a_tv_gives_its_golden_decision() {
+    let caps = gpu_table()
+        .into_iter()
+        .find(|(id, _)| id == "pi_vc4_composite")
+        .map(|(_, caps)| caps)
+        .unwrap();
+    let mut actual = BTreeMap::new();
+    for (name, source) in systems() {
+        for standard in [TvStandard::Ntsc, TvStandard::Pal] {
+            let profile = standard.profile();
+            for tv_width in TvWidth::ALL {
+                let settings = PolicySettings {
+                    tv_width,
+                    ..PolicySettings::default()
+                };
+                let key = format!("{name} {} {tv_width}", profile.id);
+                actual.insert(key, outcome_with(&source, &settings, &profile, &caps));
+            }
+        }
+    }
+    compare("policy_tv.toml", actual);
 }

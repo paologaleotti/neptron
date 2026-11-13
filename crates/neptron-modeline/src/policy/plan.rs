@@ -5,7 +5,8 @@ use neptron_types::Modeline;
 use super::units::{Hz, KHz};
 use super::{
     Dropped, HorizontalScale, HorizontalStrategy, OrientedSource, OverscanCrop, Padding,
-    PictureStyle, Placement, REFRESH_MATCH_MHZ, RefreshPolicy, RefreshTarget, Rung, SkippedTarget,
+    PictureStyle, Placement, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy, RefreshTarget, Rung,
+    SkippedTarget, TV_SPEED_SILENT_PPM,
 };
 
 /// Everything the policy decided for one source: the candidates in the
@@ -18,10 +19,12 @@ pub struct Plan {
     pub style: PictureStyle,
     /// The refresh policy the plan follows.
     pub refresh: RefreshPolicy,
-    /// The horizontal strategy after step 2. `None` on a flat panel.
+    /// The horizontal strategy after step 2. `None` on a flat panel and on
+    /// a TV.
     pub horizontal: Option<HorizontalStrategy>,
     /// Refresh targets that no range covers: the reason the plan falls back
-    /// to the game's rate.
+    /// to the game's rate. On a TV, every doubled or forced rate: the
+    /// standard fixes the field rate.
     pub skipped: Vec<SkippedTarget>,
     /// Every candidate, in preference order. A dropped candidate keeps its
     /// place, and the engine skips it.
@@ -45,10 +48,12 @@ pub struct Considered {
 pub struct Proposal {
     /// The mode to validate and set.
     pub mode: Modeline,
-    /// Index of the profile range (CRT) or of the listed mode (panel) that
-    /// gives the mode.
+    /// Index of the profile range (CRT), of the listed mode (panel), or of
+    /// the mode in `TvStandard::modes` (TV: 0 progressive, 1 interlaced)
+    /// that gives the mode.
     pub source_index: usize,
-    /// How the width was filled. `None` on a flat panel.
+    /// How the width was filled. `None` on a flat panel and on a TV, where
+    /// the mode is 720 samples wide and the placement holds the width.
     pub horizontal: Option<HorizontalScale>,
     /// Crop, destination, filter and UI destination.
     pub placement: Placement,
@@ -113,9 +118,19 @@ impl Timing {
     /// The game runs at a rate other than its own: the field rate per game
     /// frame differs from the game's rate by [`REFRESH_MATCH_MHZ`] or more.
     /// The speed changes by `field_rate_mhz / (repeat * game_mhz)`.
+    ///
+    /// On a TV ([`RefreshKind::Tv`]) the bound is [`TV_SPEED_SILENT_PPM`]
+    /// of the field rate instead: the audio rate control absorbs a smaller
+    /// difference, and the game counts as exact.
     pub fn changes_speed(&self) -> bool {
         let shown = u64::from(self.game_mhz) * u64::from(self.repeat());
-        self.field_rate_mhz.abs_diff(shown) >= REFRESH_MATCH_MHZ
+        let off = self.field_rate_mhz.abs_diff(shown);
+        if self.target.kind == RefreshKind::Tv {
+            u128::from(off) * 1_000_000
+                > u128::from(self.field_rate_mhz) * u128::from(TV_SPEED_SILENT_PPM)
+        } else {
+            off >= REFRESH_MATCH_MHZ
+        }
     }
 }
 

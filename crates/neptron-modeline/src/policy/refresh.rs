@@ -39,6 +39,10 @@ pub enum RefreshKind {
     /// A flat panel: the rate of the panel mode. Audio rate control absorbs
     /// the difference.
     Panel,
+    /// A TV: the field rate of the standard's mode. Audio rate control
+    /// absorbs a difference up to `TV_SPEED_SILENT_PPM`; a larger one
+    /// changes the game speed.
+    Tv,
 }
 
 /// The field rate a candidate aims for.
@@ -167,6 +171,7 @@ impl fmt::Display for RefreshKind {
             Self::Nearest => "nearest in range",
             Self::Unmatched => "unmatched",
             Self::Panel => "panel rate",
+            Self::Tv => "TV field rate",
         })
     }
 }
