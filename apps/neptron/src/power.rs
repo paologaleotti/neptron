@@ -5,6 +5,8 @@
 
 use std::ffi::OsStr;
 
+use neptron_video::{Phase, SafeReason};
+
 use crate::shell::Outcome;
 
 /// The exit code that asks the launcher for a reboot. It equals
@@ -53,6 +55,30 @@ pub fn takes_request(in_list: bool, control: bool, ended: bool) -> bool {
     in_list && control && !ended
 }
 
+/// Whether a power request gives back the failed boot that the guard
+/// counted at the start of this boot. The guard counts each start as
+/// failed until the boot is good (`boot_good`). A reboot that the player
+/// asks for on a boot that the guard does not hold to be failed is no
+/// failed boot:
+///
+/// - `Confirmed`: the confirmed picture shows. The count goes back.
+/// - `Safe(NothingConfirmed)`: a first boot whose prompt reverted; no
+///   configuration failed. The count goes back.
+/// - `Safe(NoValidMode)`: the configuration gave no picture; the guard
+///   holds the boot failed. The count stays, so two such boots reach
+///   `Safe(FailedBoots)`.
+/// - `Safe(FailedBoots)` and `Safe(Recovery)`: the record is in safe mode
+///   by its own rules. The count stays.
+/// - `Pending`: no decision yet. The count stays; the run takes no
+///   request then anyway.
+pub fn gives_back_boot(boot_good: bool, phase: Phase) -> bool {
+    !boot_good
+        && matches!(
+            phase,
+            Phase::Confirmed | Phase::Safe(SafeReason::NothingConfirmed)
+        )
+}
+
 /// The exit code of a run that ends with `outcome` for a reboot or a
 /// power-off. `None` for a quit or a relaunch.
 pub fn exit_code(outcome: &Outcome) -> Option<u8> {
@@ -96,6 +122,26 @@ mod tests {
         }
         assert_eq!(PowerRequest::Reboot.outcome(), Outcome::Reboot);
         assert_eq!(PowerRequest::PowerOff.outcome(), Outcome::PowerOff);
+    }
+
+    #[test]
+    fn only_a_boot_the_guard_does_not_hold_failed_gets_its_count_back() {
+        assert!(gives_back_boot(false, Phase::Confirmed));
+        assert!(gives_back_boot(
+            false,
+            Phase::Safe(SafeReason::NothingConfirmed)
+        ));
+        for reason in [
+            SafeReason::NoValidMode,
+            SafeReason::FailedBoots,
+            SafeReason::Recovery,
+        ] {
+            assert!(!gives_back_boot(false, Phase::Safe(reason)), "{reason:?}");
+        }
+        assert!(
+            !gives_back_boot(true, Phase::Confirmed),
+            "a good boot counts nothing"
+        );
     }
 
     #[test]

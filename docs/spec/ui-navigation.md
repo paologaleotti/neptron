@@ -119,7 +119,7 @@ Screen ids: `audio` for `AUDIO_PAGE`, `library` for `LIBRARY_PAGE`, `system` for
 | `Reboot` | `Reboot NEPTRON?` | `Settings and saves are written first. Then the machine starts again.` | `Cancel`, `Reboot` |
 | `Shut down` | `Shut down NEPTRON?` | `Settings and saves are written first. Then the machine turns off.` | `Cancel`, `Shut down` |
 
-When the player confirms, the app ends its run as a quit (the settings and the guard record are written, the threads are joined, the display stays in the last validated mode) and exits with a code that asks the launcher for a reboot or a power-off. The launcher then asks init, and init runs the shutdown steps of the image (`docs/flows/01-power-on.md`, "Shutdown").
+When the player confirms, the app ends its run as a quit (the settings and the guard record are written, the threads are joined, the display stays in the last validated mode) and exits with a code that asks the launcher for a reboot or a power-off. The launcher then asks init, and init runs the shutdown steps of the image (`docs/flows/01-power-on.md`, "Shutdown"). A confirm before the boot is good gives back the failed boot that the guard counted at the start, but only on a boot the guard does not hold to be failed (`Confirmed`, `Safe(NothingConfirmed)`). After `Safe(NoValidMode)` the count stays, so boots with no valid picture still reach `Safe(FailedBoots)`; `Safe(FailedBoots)` and `Safe(Recovery)` keep their own rules.
 
 In a game the panel is still listed, and both rows are disabled with the reason `Not during a game`, the rule of the rescan row. A game has save RAM that only its own quit writes in full, so the player quits the game first and a save is never cut.
 

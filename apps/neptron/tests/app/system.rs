@@ -5,7 +5,9 @@ use neptron::pages::{POWER_IN_GAME, POWER_NO_LAUNCHER, REBOOT_LABEL, SHUT_DOWN_L
 use neptron::power::{POWER_OFF_EXIT_CODE, PowerRequest, REBOOT_EXIT_CODE, exit_code};
 use neptron::{NextRun, Outcome};
 use neptron_settings::{AUDIO_VOLUME, Level, Value};
+use neptron_testkit::ModeFault;
 use neptron_types::Control;
+use neptron_types::Modeline;
 use neptron_video::{Phase, SAFE_MODE_FAILED_BOOTS, SafeReason};
 
 use crate::rig::{Rig, in_child, test_name};
@@ -282,6 +284,109 @@ fn quick_reboots_in_a_row_do_not_give_safe_mode() {
                 !matches!(rig.shell().guard().phase(), Phase::Safe(_)),
                 "{:?}",
                 rig.shell().guard().phase()
+            );
+            rig.finish();
+        },
+    );
+}
+
+/// Taps OK on each notice, so the run shows the screen under it.
+fn dismiss_notices(rig: &mut Rig) {
+    for _ in 0..8 {
+        if rig.screen() != "notice" {
+            return;
+        }
+        rig.tap(&[Control::A]);
+    }
+}
+
+/// A rig under `dir` whose global monitor is the 31 kHz arcade preset.
+fn with_monitor_31(dir: &std::path::Path) -> Rig {
+    let rig = Rig::new(dir);
+    let config = rig.paths.config();
+    std::fs::create_dir_all(&config).expect("the config folder");
+    std::fs::write(
+        config.join("global.toml"),
+        "schema_version = 1\n\n[display]\nmonitor = \"arcade_31\"\n",
+    )
+    .expect("the settings");
+    rig
+}
+
+fn refused() -> ModeFault {
+    ModeFault::Refuse {
+        reason: "a driver that lost the 31 kHz modes".to_owned(),
+    }
+}
+
+/// Every 31 kHz mode that the engine tries for the 31 kHz arcade preset,
+/// on a rig of its own under `dir`: each boot shows the next one, until
+/// the driver has refused them all and the boot shows the safe default.
+/// The guard record goes before each boot, so no boot counts.
+fn modes_at_31_khz(dir: &std::path::Path) -> Vec<Modeline> {
+    let mut rig = with_monitor_31(dir);
+    let mut modes = Vec::new();
+    for _ in 0..16 {
+        // A record from the boot before; absence is fine.
+        let _ = std::fs::remove_file(rig.paths.state.join("video/guard.toml"));
+        rig.boot(None);
+        rig.frames(90);
+        let mode = rig
+            .display
+            .active_mode()
+            .filter(|m| m.line_rate_mhz() > 20_000_000);
+        rig.finish();
+        let Some(mode) = mode else {
+            return modes;
+        };
+        rig.display.fault_requested_mode(mode, refused());
+        modes.push(mode);
+    }
+    panic!("the engine tries more than 16 modes: {modes:?}");
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn reboots_of_boots_with_no_valid_mode_still_reach_safe_mode() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "reboots_of_boots_with_no_valid_mode_still_reach_safe_mode",
+        ),
+        |dir| {
+            let mut rig = with_monitor_31(dir);
+            // The first boot keeps the 31 kHz monitor; then the driver
+            // refuses every mode of it, so each later boot gives no picture
+            // with the last known good, and the guard holds it failed.
+            rig.boot(None);
+            rig.frames(2);
+            rig.keep();
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            rig.finish();
+            for mode in modes_at_31_khz(&dir.join("discover")) {
+                rig.display.fault_requested_mode(mode, refused());
+            }
+            for boot in 1..=SAFE_MODE_FAILED_BOOTS {
+                rig.boot(None);
+                rig.until(300, "the safe default", |r| {
+                    r.shell().guard().phase() == Phase::Safe(SafeReason::NoValidMode)
+                });
+                rig.frames(2);
+                dismiss_notices(&mut rig);
+                open_system(&mut rig);
+                assert_eq!(confirm(&mut rig, REBOOT_LABEL), Outcome::Reboot);
+                rig.finish();
+                assert!(
+                    rig.state_file("video/guard.toml")
+                        .contains(&format!("failed_boots = {boot}")),
+                    "boot {boot}: the failed boot stays counted: {}",
+                    rig.state_file("video/guard.toml")
+                );
+            }
+            rig.boot(None);
+            assert_eq!(
+                rig.shell().guard().phase(),
+                Phase::Safe(SafeReason::FailedBoots)
             );
             rig.finish();
         },

@@ -144,9 +144,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// Ends the run for a reboot or a power-off, as a quit: the caller
     /// writes the settings and joins the threads, and the launcher asks
     /// init. Ignored when [`power::takes_request`] says no: during a game,
-    /// with no power control, and after the run has an outcome. Before the
-    /// boot is good, the guard record gets back the failed boot that this
-    /// start counted.
+    /// with no power control, and after the run has an outcome. When
+    /// [`power::gives_back_boot`] says so, the guard record gets back the
+    /// failed boot that this start counted.
     ///
     /// The rows of the System panel call it through their intents. It is
     /// public for the tier 2 tests.
@@ -159,9 +159,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         self.log(format!("{outcome:?} from the System panel"));
         self.outcome = Some(outcome);
         // The guard counts this start as failed until the boot is good. A
-        // reboot or a power-off that the player asks for is no failed boot,
-        // so the record gets that count back, as for a planned relaunch.
-        if !self.guard.boot_good() {
+        // reboot or a power-off that the player asks for on a boot that the
+        // guard does not hold to be failed is no failed boot, so the record
+        // gets that count back, as for a planned relaunch.
+        if power::gives_back_boot(self.guard.boot_good(), self.guard.phase()) {
             self.outbox.send(Job::Record {
                 record: crate::record::for_continued_boot(self.guard.record().clone()),
                 place: self.record_place.clone(),

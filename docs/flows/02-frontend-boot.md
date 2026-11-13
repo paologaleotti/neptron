@@ -139,6 +139,7 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 - The count goes back to 0 when the user keeps a change (`Confirmed`), or when the confirmed configuration shows a picture for `GOOD_BOOT_PICTURE_NS` = 10 s (`GoodBoot`).
 - A run in safe mode never reaches `GoodBoot`. Only a confirmation ends it.
 - A run that starts from the relaunch file subtracts 1 first, so a planned relaunch does not add to the count of the run before. When the run before was already good (count 0), the new run still counts 1 until it is good itself.
+- A reboot or a power-off from `Settings > System` before the boot is good gives the count of this start back (`power::gives_back_boot`), only when the guard does not hold the boot to be failed: in `Confirmed` and in `Safe(NothingConfirmed)`. In `Safe(NoValidMode)` the configuration gave no picture, so the count stays, and two such boots in a row still reach `Safe(FailedBoots)`. In `Safe(FailedBoots)` and `Safe(Recovery)` the record keeps its own rules, and the count stays.
 - A crash, a hang killed by the launcher, a power cut, or a restart of the launcher leaves no relaunch file (it lives in `/run`, a RAM file system), so the next start counts.
 - After `SAFE_MODE_FAILED_BOOTS` = 2 failed boots in a row, the next boot starts in safe mode.
 
