@@ -460,7 +460,7 @@ name = "Raspberry Pi: the TV policy in neptron-modeline"
 owns = ["crates/neptron-modeline"]
 needs = ["P02"]
 gate = "T1"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "P05"
