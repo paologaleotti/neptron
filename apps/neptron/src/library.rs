@@ -316,7 +316,6 @@ pub fn changes_text(changes: &Changes) -> Option<String> {
     let parts = [
         (changes.added, "added"),
         (changes.removed, "removed"),
-        (changes.renamed, "renamed"),
         (changes.changed, "changed"),
     ];
     let mut text = String::new();
@@ -465,20 +464,19 @@ mod tests {
 
     #[test]
     fn the_notice_text_names_each_kind_of_change() {
-        let c = |added, removed, renamed, changed| Changes {
+        let c = |added, removed, changed| Changes {
             added,
             removed,
-            renamed,
             changed,
         };
-        assert_eq!(changes_text(&c(0, 0, 0, 0)), None);
+        assert_eq!(changes_text(&c(0, 0, 0)), None);
         assert_eq!(
-            changes_text(&c(3, 1, 0, 0)).as_deref(),
+            changes_text(&c(3, 1, 0)).as_deref(),
             Some("3 games added, 1 removed.")
         );
         assert_eq!(
-            changes_text(&c(0, 1, 2, 1)).as_deref(),
-            Some("1 game removed, 2 renamed, 1 changed.")
+            changes_text(&c(0, 1, 1)).as_deref(),
+            Some("1 game removed, 1 changed.")
         );
     }
 
@@ -505,8 +503,7 @@ mod tests {
             Changes {
                 added: 1,
                 removed: 1,
-                changed: 1,
-                renamed: 0
+                changed: 1
             }
         );
         assert!(!lib.scanning());

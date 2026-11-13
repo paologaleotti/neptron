@@ -139,8 +139,8 @@ fn a_return_to_the_list_checks_the_folders() {
     rig.until(600, "the check", |r| !r.shell().library().scanning());
     rig.frames(1);
     assert_eq!(nes_games(&mut rig), 2);
-    // Same size, same system: the copy and the removal read as a rename.
-    assert_eq!(notices(&mut rig), ["1 game renamed."]);
+    // Same size, same system: still two different games.
+    assert_eq!(notices(&mut rig), ["1 game added, 1 removed."]);
     rig.finish();
 
     // Nothing changed: no notice.

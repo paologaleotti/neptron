@@ -4,16 +4,14 @@ use std::collections::HashMap;
 
 use crate::index::{Game, Index};
 
-/// The games that a scan added, removed, renamed or changed, compared with
-/// the index before it.
+/// The games that a scan added, removed or changed, compared with the
+/// index before it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Changes {
-    /// Paths that are new, less the renames.
+    /// Paths that are new.
     pub added: u32,
-    /// Paths that are gone, less the renames.
+    /// Paths that are gone.
     pub removed: u32,
-    /// A gone path and a new path of one system with the same size, not 0.
-    pub renamed: u32,
     /// Paths in both indexes with another size.
     pub changed: u32,
 }
@@ -21,10 +19,9 @@ pub struct Changes {
 /// The changes from `old` to `new`, system by system.
 ///
 /// A game is known by its path. A path in both indexes with another size is
-/// changed. A gone path and a new path of one system whose sizes are equal
-/// and not 0 count as one rename, the first pairs first. An empty file
-/// tells nothing, so it never pairs. The work is linear in the number of
-/// games.
+/// changed. A renamed file counts as one removed and one added: many ROMs
+/// share a power-of-two size, so equal sizes do not tell a rename from two
+/// different games. The work is linear in the number of games.
 pub fn changes(old: &Index, new: &Index) -> Changes {
     let mut out = Changes::default();
     let mut ids: Vec<&str> = old
@@ -52,35 +49,16 @@ impl Changes {
 
 fn system_changes(before: &[Game], after: &[Game], out: &mut Changes) {
     let mut gone: HashMap<&str, u64> = before.iter().map(|g| (g.path(), g.size())).collect();
-    let mut added_sizes = Vec::new();
     for game in after {
         match gone.remove(game.path()) {
             Some(size) if size != game.size() => bump(&mut out.changed),
             Some(_) => {}
-            None => added_sizes.push(game.size()),
+            None => bump(&mut out.added),
         }
     }
-    let mut gone_sizes: HashMap<u64, u32> = HashMap::new();
-    let mut removed = 0u32;
-    for size in gone.into_values() {
-        bump(&mut removed);
-        if size > 0 {
-            bump(gone_sizes.entry(size).or_default());
-        }
+    for _ in gone {
+        bump(&mut out.removed);
     }
-    let mut added = 0u32;
-    for size in added_sizes {
-        match gone_sizes.get_mut(&size).filter(|n| **n > 0) {
-            Some(n) => {
-                *n -= 1;
-                removed = removed.saturating_sub(1);
-                bump(&mut out.renamed);
-            }
-            None => bump(&mut added),
-        }
-    }
-    out.added = out.added.saturating_add(added);
-    out.removed = out.removed.saturating_add(removed);
 }
 
 fn bump(n: &mut u32) {
@@ -133,7 +111,6 @@ mod tests {
             Changes {
                 added: 3,
                 removed: 1,
-                renamed: 0,
                 changed: 0
             }
         );
@@ -142,44 +119,15 @@ mod tests {
     }
 
     #[test]
-    fn a_gone_and_a_new_path_of_one_size_are_a_rename() {
-        let old = index(&[("nes", &[("nes/a.nes", 10), ("nes/b.nes", 20)])]);
-        let new = index(&[("nes", &[("nes/sub/a2.nes", 10), ("nes/b.nes", 20)])]);
-        assert_eq!(
-            changes(&old, &new),
-            Changes {
-                renamed: 1,
-                ..Changes::default()
-            }
-        );
-    }
-
-    #[test]
-    fn a_rename_needs_one_system_and_a_size() {
-        let old = index(&[("nes", &[("nes/a.nes", 10), ("nes/z.nes", 0)])]);
-        let new = index(&[
-            ("snes", &[("snes/a.sfc", 10)]),
-            ("nes", &[("nes/y.nes", 0)]),
-        ]);
-        assert_eq!(
-            changes(&old, &new),
-            Changes {
-                added: 2,
-                removed: 2,
-                ..Changes::default()
-            }
-        );
-    }
-
-    #[test]
-    fn each_gone_path_pairs_once() {
-        let old = index(&[("nes", &[("nes/a.nes", 10)])]);
-        let new = index(&[("nes", &[("nes/b.nes", 10), ("nes/c.nes", 10)])]);
+    fn a_gone_and_a_new_path_of_one_size_are_a_remove_and_an_add() {
+        // Mario out, Zelda in: two games of 1 MiB, not a rename.
+        let old = index(&[("snes", &[("snes/Mario.sfc", 1 << 20)])]);
+        let new = index(&[("snes", &[("snes/Zelda.sfc", 1 << 20)])]);
         assert_eq!(
             changes(&old, &new),
             Changes {
                 added: 1,
-                renamed: 1,
+                removed: 1,
                 ..Changes::default()
             }
         );
