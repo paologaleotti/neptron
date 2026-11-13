@@ -41,6 +41,21 @@ The owner of NEPTRON decided (open point OP-054) that a free, open
 source image can hold Snes9x and Genesis Plus GX, with their licence
 texts and this list, and that the image is never sold.
 
+Network share
+-------------
+
+The network share (SMB) uses these programs:
+
+- The SMB server `ksmbd` is part of the kernel: GNU General Public
+  License 2.0 only.
+- `ksmbd-tools` (`ksmbd.mountd`, `ksmbd.control`): GNU General Public
+  License 2.0 or later.
+- GLib (`libglib2`) and `libnl`, which `ksmbd-tools` needs: GNU Lesser
+  General Public License 2.1 or later. GLib also uses PCRE2 (BSD
+  3-Clause licence) and libffi (MIT licence).
+- `mdnsd`, which gives the name `neptron.local` on the network: BSD
+  3-Clause licence.
+
 Firmware
 --------
 

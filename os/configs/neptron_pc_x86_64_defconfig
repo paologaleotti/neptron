@@ -14,7 +14,7 @@ BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_MDEV=y
 # BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set
 BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/busybox.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/busybox.config"
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/rootfs-overlay $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/rootfs-overlay"
-BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/post-build.sh"
+BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/post-build.sh $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/post-build.sh"
 BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/post-image.sh"
 BR2_LINUX_KERNEL=y
 BR2_LINUX_KERNEL_CUSTOM_VERSION=y
@@ -76,3 +76,8 @@ BR2_PACKAGE_HOST_RUSTC=y
 BR2_PACKAGE_NEPTRON=y
 BR2_PACKAGE_NEPTRON_LAUNCH=y
 BR2_PACKAGE_NEPTRONCTL=y
+# The network share: the user-space part of the kernel SMB server, and the
+# mDNS responder that names the PC neptron.local
+# (docs/spec/network-share.md). S45neptron-share starts both.
+BR2_PACKAGE_KSMBD_TOOLS=y
+BR2_PACKAGE_MDNSD=y

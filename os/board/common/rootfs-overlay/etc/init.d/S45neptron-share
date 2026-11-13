@@ -1,0 +1,73 @@
+#!/bin/sh
+# The network share: /share for guests on the local network over SMB 2 and
+# 3, with the kernel server ksmbd (/etc/ksmbd/ksmbd.conf), and the name
+# neptron.local with the SMB service over mDNS. It is on unless the file
+# OFF_SWITCH is on the state partition. A settings row turns it off or on
+# by writing or removing that file, then running this script with restart.
+#
+# Start must never delay the boot to the game list, so the daemons start
+# in a background job. Stop runs in rcK, before init unmounts the file
+# systems: it closes every session of a client, so no file is open on the
+# share partition at the unmount, and the data of a copy reaches the disk.
+
+# NEPTRON_STATE and NEPTRON_PROC_NET change /state and /proc/net for a test.
+OFF_SWITCH=${NEPTRON_STATE:-/state}/network-share-off
+MDNS_SERVICES=/etc/neptron/mdns.d
+PROC_NET=${NEPTRON_PROC_NET:-/proc/net}
+# How long stop waits for the kernel server to close its sockets, in tenths
+# of a second. It closes them in a work queue after the shutdown command
+# returns.
+SHARE_STOP_WAIT_DS=50
+
+# 0 when the server still listens or holds a connection (local port 445,
+# hex 01BD; state 01 established, 08 close-wait, 0A listen). A socket in
+# TIME_WAIT holds no session and no file, and lasts a minute.
+smb_sockets() {
+	cat "$PROC_NET/tcp" "$PROC_NET/tcp6" 2>/dev/null |
+		awk '$2 ~ /:01BD$/ && ($4 == "01" || $4 == "08" || $4 == "0A") { found = 1 } END { exit !found }'
+}
+
+start() {
+	if [ -e "$OFF_SWITCH" ]; then
+		echo "neptron-share: off, because $OFF_SWITCH is there"
+		return
+	fi
+	(
+		if ksmbd.mountd; then
+			echo "neptron-share: the SMB server serves /share"
+		else
+			echo "neptron-share: ksmbd.mountd did not start"
+		fi
+		start-stop-daemon --start --quiet --exec /usr/sbin/mdnsd -- "$MDNS_SERVICES" ||
+			echo "neptron-share: mdnsd did not start"
+	) < /dev/null &
+}
+
+stop() {
+	start-stop-daemon --stop --quiet --exec /usr/sbin/mdnsd
+	# The command fails when the server does not run, which is no error.
+	ksmbd.control --shutdown > /dev/null 2>&1
+	waited=0
+	while smb_sockets && [ "$waited" -lt "$SHARE_STOP_WAIT_DS" ]; do
+		usleep 100000
+		waited=$((waited + 1))
+	done
+	if smb_sockets; then
+		echo "neptron-share: the SMB server still has sockets after $((SHARE_STOP_WAIT_DS / 10)) s"
+	fi
+	sync
+}
+
+case "$1" in
+start) start ;;
+stop) stop ;;
+restart)
+	stop
+	start
+	;;
+*)
+	echo "usage: $0 start|stop|restart"
+	exit 1
+	;;
+esac
+exit 0

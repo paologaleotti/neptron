@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn the_kernel_check_reads_the_configured_kernel_and_every_mode_option() {
-        let off = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\n";
+        let off = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\nCONFIG_SMB_SERVER=y\n";
         let ok = check_kernel_config("off", Some("6.18.63"), &[("6.18.63", Some(off))]);
         assert!(ok.status.success(), "{ok:?}");
         let missing = check_kernel_config("missing", Some("6.18.63"), &[("6.18.63", None)]);
@@ -460,6 +460,38 @@ mod tests {
             !only_old.status.success(),
             "the configured kernel has no configuration"
         );
+        for (name, text, fault) in [
+            (
+                "nosmb",
+                "CONFIG_DRM_I915=y\n",
+                "CONFIG_SMB_SERVER is not built in",
+            ),
+            (
+                "smbmodule",
+                "CONFIG_SMB_SERVER=m\n",
+                "CONFIG_SMB_SERVER is not built in",
+            ),
+            (
+                "kerberos",
+                "CONFIG_SMB_SERVER=y\nCONFIG_SMB_SERVER_KERBEROS5=y\n",
+                "CONFIG_SMB_SERVER_KERBEROS5 is on",
+            ),
+            (
+                "smb1",
+                "CONFIG_SMB_SERVER=y\nCONFIG_SMB_INSECURE_SERVER=y\n",
+                "CONFIG_SMB_INSECURE_SERVER is on",
+            ),
+            (
+                "rdma",
+                "CONFIG_SMB_SERVER=y\nCONFIG_SMB_SERVER_SMBDIRECT=y\n",
+                "CONFIG_SMB_SERVER_SMBDIRECT is on",
+            ),
+        ] {
+            let out = check_kernel_config(name, Some("6.18.63"), &[("6.18.63", Some(text))]);
+            assert!(!out.status.success(), "{name}");
+            let text = String::from_utf8_lossy(&out.stderr).into_owned();
+            assert!(text.contains(fault), "{name}: {text}");
+        }
     }
 
     /// The core packages, their make prefix, and the library that

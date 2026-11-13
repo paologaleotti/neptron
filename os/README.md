@@ -21,7 +21,7 @@ Buildroot 2026.08.1 is a bug-fix release of 2026.08. It is not in the repository
 | --- | --- |
 | `external.desc`, `external.mk`, `Config.in` | The br2-external tree, name `NEPTRON`. `external.mk` also holds the shared rules of the packages that build the Rust workspace |
 | `configs/neptron_pc_x86_64_defconfig` | The PC image, x86-64. It boots from a USB stick (BIOS or UEFI) and in QEMU (`q35`) |
-| `configs/neptron_pc_x86_64_dev.fragment` | The development variant: SSH with one public key, DHCP, the `control` feature |
+| `configs/neptron_pc_x86_64_dev.fragment` | The development variant: SSH with one public key, the `control` feature |
 | `configs/neptron_pc_x86_64_no15khz.fragment` | The PC image without the 15 kHz patch set |
 | `configs/neptron_qemu_aarch64_defconfig` | The QEMU test image, `virt` machine, 64-bit Arm. Runs with the hypervisor on an Apple Silicon Mac |
 | `board/pc/*.config` | Kernel fragments of the PC image, one for each concern: `video`, `console`, `input`, `sound`, `storage`, `network` |
@@ -29,14 +29,15 @@ Buildroot 2026.08.1 is a bug-fix release of 2026.08. It is not in the repository
 | `board/pc/grub.cfg`, `genimage.cfg`, `post-build.sh`, `post-image.sh` | The boot configuration and the USB image |
 | `board/pc/LICENCES.txt` | The licence notes of the image, on the boot partition and in `/usr/share/licenses` |
 | `board/pc/rootfs-overlay` | The init table of the PC image, the script that loads the QEMU modules, and the script that sets the mixer of each sound card |
-| `board/qemu/*.config` | Kernel fragments of the aarch64 test image; `host.config` (firmware config in sysfs, 9p) is in the PC image too |
+| `board/qemu/*.config` | Kernel fragments of the aarch64 test image; `host.config` (firmware config in sysfs, 9p) is in the PC image too; `network.config` has the SMB server |
 | `board/qemu/rootfs-overlay` | The init table of the aarch64 test image: a console shell, and the launcher for a boot check only |
 | `board/common/busybox.config` | BusyBox fragment: the `timeout` applet |
-| `board/common/rootfs-overlay` | The init scripts of both images: debugfs and 9p, the state and share partitions, the launcher, and the commands from the host |
+| `board/common/post-build.sh` | Post-build step of both images: removes the init script of the `mdnsd` package and checks the files of the network share |
+| `board/common/rootfs-overlay` | The init scripts of both images: debugfs and 9p, the state and share partitions, DHCP, the network share, the launcher, and the commands from the host; the configuration of the SMB server (`etc/ksmbd`) and of the mDNS service (`etc/neptron/mdns.d`) |
 | `patches/` | The global patch and hash directory. It holds the kernel hashes and the hashes of the 15 kHz patch set |
 | `package/` | NEPTRON packages: the frontend `neptron`, the launcher `neptron-launch`, the client `neptronctl`, the three MVP cores, and the test tools `neptron-vkms-probe` and `neptron-capture` |
 
-The kernel of the aarch64 test image is the Buildroot QEMU configuration (`board/qemu/aarch64-virt/linux.config` in the Buildroot tree) plus the four fragments in `board/qemu`. The kernel of the PC image is the `x86_64` defconfig of the kernel plus the fragments in `board/pc` and `board/qemu/host.config`.
+The kernel of the aarch64 test image is the Buildroot QEMU configuration (`board/qemu/aarch64-virt/linux.config` in the Buildroot tree) plus the five fragments in `board/qemu`. The kernel of the PC image is the `x86_64` defconfig of the kernel plus the fragments in `board/pc` and `board/qemu/host.config`.
 
 ## The PC image
 
@@ -82,13 +83,25 @@ When any check fails, nothing is formatted or mounted, `/share` is a RAM folder,
 
 A stop of the launcher with SIGTERM (`kill $(pidof neptron-launch)`, or init at shutdown) forwards SIGTERM to the frontend, which ends its run as a quit. A frontend that has not ended 5 s later, for example one stuck inside a core, gets SIGKILL from the launcher. Only that timeout, the SIGKILL fallback of `os push`, or init ends a frontend that hangs. The frontend reads its folders from the image defaults: `/share`, `/state`, `/usr/share/neptron`, `/usr/lib/libretro`, `/run/neptron`.
 
-**Packages.** Mesa 26.1 with LLVM: the iris driver for Intel gen8 and later (the HD 530 of the i3-6100T), llvmpipe, and softpipe; EGL, OpenGL ES and GBM. SDL3 with KMS/DRM and OpenGL ES, without libudev, and alsa-lib. `amixer` of alsa-utils, and nothing else of it. libdrm. The three cores. The frontend, the launcher, `neptronctl` (with the `kms` feature, for the bench self-test), `neptron-vkms-probe` and `neptron-capture`. e2fsprogs, exfatprogs, and the basic and partition tools of util-linux, for the partitions. There is no firmware file: i915 drives the display without its DMC firmware, which is not loaded, and amdgpu does not work without its firmware (see "Licences").
+**Packages.** `ksmbd-tools` and `mdnsd` for the network share (see "The network share"). Mesa 26.1 with LLVM: the iris driver for Intel gen8 and later (the HD 530 of the i3-6100T), llvmpipe, and softpipe; EGL, OpenGL ES and GBM. SDL3 with KMS/DRM and OpenGL ES, without libudev, and alsa-lib. `amixer` of alsa-utils, and nothing else of it. libdrm. The three cores. The frontend, the launcher, `neptronctl` (with the `kms` feature, for the bench self-test), `neptron-vkms-probe` and `neptron-capture`. e2fsprogs, exfatprogs, and the basic and partition tools of util-linux, for the partitions. There is no firmware file: i915 drives the display without its DMC firmware, which is not loaded, and amdgpu does not work without its firmware (see "Licences").
 
 **Sound.** There is no sound server: SDL3 talks to ALSA. The kernel leaves an HDA codec at its reset state, with the DAC at the bottom of its range and the output pins muted (seen on the i3-6100T with its ALC221). `S08neptron-mixer` runs in the background at boot: it waits up to 10 s for a card, then sets the playback controls `Master`, `PCM`, `Front`, `Surround`, `Center`, `LFE`, `Side`, `Headphone`, `Speaker`, `Line Out` and every `IEC958` switch of each card to 0 dB and unmutes them. 0 dB, not 100%: a control that goes above 0 dB would add gain and could clip. The input controls stay as they are. The volume of the frontend then scales the samples in software (`docs/spec/audio-settings.md`). A card plugged in after the boot keeps its own state.
 
 **The frontend, the launcher and `neptronctl`** are Buildroot packages that build this checkout (`package/neptron`, `package/neptron-launch`, `package/neptronctl`). `xtask` mounts the checkout read-only at `/src/repo`. Each package copies it without `target/`, `.worktrees/` and `.git`, runs `cargo vendor --locked`, and builds offline in the workspace release profile (fat LTO, one codegen unit, `panic = "abort"`). The sdl3 crate adds `/usr/local/lib` to the link search on every Linux host, and the Buildroot compiler wrapper refuses that path. `package/neptron/link-filter.sh` drops only that path and links with the wrapper. With `panic = "abort"` no destructor runs. The launcher keeps its descriptor open, so the framebuffers and the mode stay on the wire until the next frontend commits (`docs/spec/kms.md`).
 
 **The QEMU link.** The PC image boots in QEMU as on a PC. Its QEMU hooks act only when the QEMU firmware config exists, and a PC does not have one. `S07neptron-qemu` loads `vkms`, `snd-dummy` and `snd-aloop`. `S99neptron-run` runs the command of `cargo xtask qemu` instead of the launcher. The `once` entry `host-run check` runs the boot check beside the launcher. On x86\_64, `cargo xtask qemu` with no command gives no shell: the image has none.
+
+### The network share
+
+`docs/spec/network-share.md` is the spec. Both images, release and development, and the aarch64 test image have it, on by default.
+
+- **The network.** `S40neptron-network` starts `udhcpc` on each wired port (`eth*`, `en*`) as a background job, with the host name `neptron` in the request, and returns at once. No step of the boot waits for the network: a PC with no cable boots as fast as before, and a cable plugged in later gets its address. The release image has no firmware file; the RTL8168h of the bench PC works without its firmware patch. There is no Wi-Fi.
+- **The share.** `\\NEPTRON\share`, or `\\neptron.local\share`, or `\\<address>\share`: the share partition `/share` (or its RAM folder), read-write, for guests only. The kernel server `ksmbd` (`CONFIG_SMB_SERVER=y`) serves SMB 2.1 to 3.1.1; `ksmbd.mountd` reads `/etc/ksmbd/ksmbd.conf`. Every client is mapped to the guest account `nobody`. The storage script mounts the share partition with `uid=65534,gid=65534,dmask=0022,fmask=0133,nosuid,nodev,noexec`, so the guest owns every file there and nothing on it runs as a program. `/state` and the root are not shared.
+- **The name.** `mdnsd` answers for `neptron.local` and announces `_smb._tcp` on port 445, from `/etc/neptron/mdns.d`. macOS and the Linux file managers list the PC under "Network". There is no WS-Discovery and no NetBIOS name service, so the Windows "Network" view does not list it; `\\NEPTRON` works when the router resolves the DHCP host name.
+- **Windows 11 24H2** refuses a guest share by default (insecure guest logons off, SMB signing required). The user turns on "Enable insecure guest logons" and turns off "Digitally sign communications (always)" on the Windows PC. See the spec.
+- **The switch.** `S45neptron-share` starts `ksmbd.mountd` and `mdnsd` in a background job, unless `/state/network-share-off` exists. Then port 445 and port 5353 stay closed. `/etc/init.d/S45neptron-share restart` applies a change of the file at once; a later settings row will do that.
+- **The stop.** In `rcK`, before `umount -a -r`: `mdnsd` stops, `ksmbd.control --shutdown` closes every session, the script waits up to 5 s until no socket of the server is left, then `sync`. So the share partition unmounts clean after a copy.
+- **What is open on the release image**: TCP 445 and UDP 5353. No SSH, no telnet.
 
 ### The 15 kHz kernel patch set
 
@@ -101,7 +114,7 @@ The PC kernel applies the nine patches of `D0023R/linux_kernel_15khz`, folder `l
 | Command | Output | What differs |
 | --- | --- | --- |
 | `cargo xtask os build --arch x86_64` | `images/x86_64` | The release image |
-| `cargo xtask os build --arch x86_64 --dev-key ~/.ssh/bench.pub` | `images/x86_64-dev` | Dropbear with password logins off (`-s`) and only that public key in `/root/.ssh/authorized_keys`; DHCP on `eth0`; the `control` feature of the frontend |
+| `cargo xtask os build --arch x86_64 --dev-key ~/.ssh/bench.pub` | `images/x86_64-dev` | Dropbear with password logins off (`-s`) and only that public key in `/root/.ssh/authorized_keys`; the address of `eth0` on the console and in `/share/neptron-ip.txt`; the `control` feature of the frontend |
 | `cargo xtask os build --arch x86_64 --no-kernel-15khz` | `images/x86_64-no15khz` | No 15 kHz patches. It combines with `--dev-key` |
 
 The key file must hold one public key and lie outside the checkout. No key is in the repository. Each variant has its own Buildroot output volume, so no file of the development variant can reach the release image. The release post-build fails when it finds an SSH or telnet server.
@@ -123,7 +136,7 @@ The files go over the SSH connection itself (`cat > file` on the PC, and a tar s
 
 How the hot folder works: the launch script of the development variant takes `bin/neptron-launch`, `bin/neptron` and `share/neptron` from `/state/hot` when they are there and `/state/hot/DISABLED` is not. A hot binary goes through the same guard and validator as the image's own. The launcher holds the DRM descriptor, so a restart of the frontend alone keeps the mode on the wire; a new launcher binary needs a restart of the launcher, which `os push` does with the hold file: `touch /run/neptron/hold; kill $(pidof neptron-launch)`, wait until it is gone, `rm /run/neptron/hold`. The launcher forwards SIGTERM to the frontend, which ends its run as a quit (save RAM and settings written, exit code 0); `os push` sends SIGKILL only as a fallback, with a line that says so, to a frontend still there after 10 s. The bench profile differs from the release image: no LTO, line tables, no strip, and the `control` feature; `panic = "abort"` is the same.
 
-The release image has none of this: no SSH server, no hot folder, no log file, no `control` feature. Its post-build fails when it finds any of them.
+The release image has none of this: no SSH server, no hot folder, no log file, no `control` feature. Its post-build fails when it finds any of them. Both variants have DHCP and the network share.
 
 **The output now holds the development packages.** The Docker disk had no room for a second 45 GB output, so the development image of 2026-11-13 was built in the x86\_64 output (`--output x86_64 --dev-key …`); its images are in `images/x86_64-dev`. That output now holds Dropbear and the files of the development overlay in its target folder, so a release build from it fails its post-build check until the release image is built in a clean output (`--output x86_64-clean`, about 45 GB of Docker disk and 5 hours). The release image that passed the gate on 2026-11-13 is kept in `~/.cache/neptron/buildroot/images/x86_64-release-fb6dce6c` (SHA-256 `fb6dce6c965b9230e56e8abc675527302481a296ea9187fcc85014e3e0fcf050`), but it is not the image to ship: it predates the SIGTERM fix of the frontend, the launcher's stop timeout, the log queue and the strict format rules of the share partition. The next release image comes from a build in an empty output.
 
@@ -141,6 +154,7 @@ The release image has none of this: no SSH server, no hot folder, no log file, n
 - SDL3 with the KMS/DRM video driver and OpenGL ES, without libudev, and alsa-lib.
 - The libretro cores FCEUmm, Snes9x and Genesis Plus GX in `/usr/lib/libretro`, with the library names of `data/cores`.
 - The frontend, the launcher and `neptronctl`. Init starts the launcher only for a boot check (`launch-for-check`), so the other checks get the display.
+- The network share, as in the PC image: `ksmbd`, `ksmbd-tools`, `mdnsd`, and the init scripts. `/share` is a RAM folder there.
 
 The build also installs the Rust toolchain of Buildroot (`host-rustc`, the prebuilt `rust-bin`, with the standard library for the target) in the output, not in the image. `cargo xtask gles-compare` uses it with the Buildroot C toolchain as the linker to build Rust programs for the guest. This toolchain (Rust 1.97.1 in Buildroot 2026.08.1) is not the one that `rust-toolchain.toml` pins for the host (1.97.0); the two can drift apart when Buildroot is bumped.
 
@@ -260,7 +274,7 @@ The downloads, the compiler cache and the output are Docker volumes because Buil
 
 ## Licences
 
-The files of this tree are `MIT OR Apache-2.0`, as the rest of NEPTRON. Buildroot is GPL-2.0-or-later. It runs as a build tool and is not part of the repository. The packages in the images keep their own licences, which `make legal-info` lists. The PC image carries the manifest and the licence texts on its boot partition (`legal/`) and in `/usr/share/licenses`, with the notes of `board/pc/LICENCES.txt`. The source tarballs of the GPL and LGPL packages are in `legal-info/sources` of the Buildroot output; they must be published with an image. The frontend and launcher packages do not copy their source there: it is this repository.
+The files of this tree are `MIT OR Apache-2.0`, as the rest of NEPTRON. Buildroot is GPL-2.0-or-later. It runs as a build tool and is not part of the repository. The packages in the images keep their own licences, which `make legal-info` lists. The network share adds the kernel server `ksmbd` (GPL-2.0), `ksmbd-tools` (GPL-2.0-or-later), GLib and libnl (LGPL-2.1-or-later), PCRE2 (BSD-3-Clause), libffi (MIT) and `mdnsd` (BSD-3-Clause); `board/pc/LICENCES.txt` lists them. The PC image carries the manifest and the licence texts on its boot partition (`legal/`) and in `/usr/share/licenses`, with the notes of `board/pc/LICENCES.txt`. The source tarballs of the GPL and LGPL packages are in `legal-info/sources` of the Buildroot output; they must be published with an image. The frontend and launcher packages do not copy their source there: it is this repository.
 
 The 15 kHz patch set has an open licence question (see "The 15 kHz kernel patch set"): no image built with it may be distributed until the author answers.
 

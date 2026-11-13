@@ -22,6 +22,14 @@ mkdir -p /state /share 2>/dev/null
 STATUS_DIR=/run/neptron
 STATUS=$STATUS_DIR/storage.toml
 
+# The network share (S45neptron-share) maps every client to the user nobody,
+# so nobody owns /share and can write it. exFAT stores no owner: every file
+# shows as nobody, and root (the frontend) reads and writes all of it.
+# Nothing on the share runs as a program.
+SHARE_OWNER=65534
+SHARE_MOUNT_OPTIONS="noatime,iocharset=utf8,uid=$SHARE_OWNER,gid=$SHARE_OWNER,dmask=0022,fmask=0133,nosuid,nodev,noexec"
+SHARE_RAM_OPTIONS="mode=0755,uid=$SHARE_OWNER,gid=$SHARE_OWNER,nosuid,nodev,noexec"
+
 # Logs one line and keeps it as the reason of the next RAM folder.
 say() {
 	echo "neptron-storage: $1"
@@ -30,7 +38,9 @@ say() {
 
 # Mounts a RAM folder at $1 and notes it, with the last line as the reason.
 ram_folder() {
-	mount -t tmpfs -o mode=0755 "${1#/}" "$1"
+	options=mode=0755
+	[ "$1" = /share ] && options=$SHARE_RAM_OPTIONS
+	mount -t tmpfs -o "$options" "${1#/}" "$1"
 	reason=$(printf '%s' "$last" | tr -d '"\\')
 	case $1 in
 	/state) state_kind=ram state_reason=$reason ;;
@@ -253,7 +263,7 @@ if [ -z "$share" ] && [ -n "$state" ] && make_partition; then
 fi
 mounted=no
 if [ -n "$share" ] && prepare_share; then
-	if mount -t exfat -o noatime,iocharset=utf8 "$share" /share; then
+	if mount -t exfat -o "$SHARE_MOUNT_OPTIONS" "$share" /share; then
 		mounted=yes
 	else
 		say "$share does not mount"
@@ -286,3 +296,8 @@ for system in /usr/share/neptron/systems/*.toml; do
 	mkdir -p "/share/roms/${name%.toml}"
 done
 mkdir -p /share/bios
+# On exFAT the mount gives every folder to nobody; in a RAM folder the
+# folders that root just made need it too.
+if [ "$share_kind" = ram ]; then
+	chown -R "$SHARE_OWNER:$SHARE_OWNER" /share
+fi
