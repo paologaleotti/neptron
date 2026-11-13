@@ -249,6 +249,12 @@ On the same Mac, on 2026-11-12 and 2026-11-13, with the PC image and the aarch64
 - The 15 kHz patch set applies in Buildroot, and the patched kernel builds and boots in both boot checks.
 - `kms-check`, `gles-compare` and `core-trace` pass on the aarch64 image that holds the frontend; `os app-check` passes for aarch64 and x86\_64.
 
+On the same Mac, on 2026-11-13, the aarch64 image with the network share (an incremental build of 178 s that added `ksmbd-tools`, GLib, libnl, `mdnsd` and the kernel server):
+
+- `cargo xtask os boot-check --arch aarch64` passes, with its step that waits for port 445 and `mdnsd`; the frontend started at a guest uptime of 0.39 s, as before.
+- A guest script (`cargo xtask qemu --arch aarch64 --script`): `ksmbd.mountd` runs and port 445 listens; `/etc/network/interfaces` holds the loopback only; `/etc/passwd` has `neptron:x:1000:1000:NEPTRON network share account:/:/bin/false` and `/etc/shadow` has `neptron:*:::::::`; `/share` (a RAM folder) is owned by uid 65534 with `nosuid,nodev,noexec`; `ksmbd.control --shutdown` stops the server; `ksmbd.mountd -n -v` with the image's files logs `New user 'neptron'`, `New user 'nobody'`, `New share 'share'` and no "Invalid pwddb entry", so the user database parses.
+- Not proved: a login over the network, as guest or as `neptron`. The image has no SMB client, and the QEMU runs have no network card for port 445. See `docs/hardware-checklist.md`.
+
 Not verified:
 
 - Anything on the i3-6100T: iris on the HD 530, the DP-to-VGA bridge, the sound card, USB pads, the boot from a real stick, the boot time. See `docs/hardware-checklist.md`.
