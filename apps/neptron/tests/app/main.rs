@@ -17,5 +17,6 @@ mod end_to_end;
 mod faults;
 mod output;
 mod panel;
+mod pause;
 mod recovery;
 mod rig;

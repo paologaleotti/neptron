@@ -79,7 +79,7 @@ flowchart TD
     T -->|"another screen"| S["That screen"]
 ```
 
-While the game is shown alone (top screen `Game`, no confirm dialog), the app drops every navigation action except the `Menu` action that it makes from the quick menu hotkey. So the X button does nothing during play.
+While the game is shown alone (top screen `Game`, no confirm dialog), the app drops every navigation action except the `Menu` action that it makes from the quick menu hotkey. So the X button does nothing during play. The session pauses itself at the hotkey. While a confirm dialog is on screen the app holds that `Menu` action back, because the dialog takes every action; the frame after the dialog closes, the action opens the quick menu. So a paused game always shows the dialog or the quick menu.
 
 ### Detail: the confirm dialog
 

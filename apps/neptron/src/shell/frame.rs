@@ -85,7 +85,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
 
     fn game_frame(&mut self, now_ns: u64) {
         self.actions.clear();
-        if std::mem::take(&mut self.menu_hotkey) {
+        // The session has paused for the menu hotkey. A confirm dialog on
+        // screen takes every action and would drop the menu, and the game
+        // would stay paused with no menu: the menu waits for the dialog to
+        // close.
+        if self.snap.confirm.is_none() && std::mem::take(&mut self.menu_hotkey) {
             self.actions.push(UiAction::Menu);
         }
         let pressed = match &self.stage {
