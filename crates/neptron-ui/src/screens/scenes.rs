@@ -116,6 +116,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         name: "screens/quick-menu-volume",
         build: quick_menu_volume,
     },
+    SceneDef {
+        name: "screens/display-scanning",
+        build: display_scanning,
+    },
 ];
 
 /// The settings of the fixtures.
@@ -386,6 +390,22 @@ fn display_style(frame: &mut UiFrame, theme: &Theme) {
         frame,
     );
     screens.update(&snap, &[UiAction::Down], frame);
+}
+
+/// The display panel with the app's rescan row while a scan runs: a
+/// disabled action row with the focus.
+fn display_scanning(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = with_display();
+    let scanning = MenuItem::new(
+        SettingKey(9),
+        "Scanning games...",
+        SettingValue::Action(crate::snapshot::ActionId(1)),
+    )
+    .unavailable("Scanning games...");
+    snap.settings.rows.push(scanning);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_DISPLAY, frame);
+    screens.update(&snap, &[UiAction::Down; 5], frame);
 }
 
 /// The change that the confirm scenes wait for.
