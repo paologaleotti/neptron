@@ -33,18 +33,18 @@ So from `/proc` the monitor of an HDMI PCM is known only in the cases that the c
 
 | Key | Kind | Levels | Default | Live | Safety | Label |
 | --- | --- | --- | --- | --- | --- | --- |
-| `audio.volume` | integer, 0 to 100 (`VOLUME_MAX_PERCENT`), percent | game, system, global | 100 | yes | none | `Volume` |
+| `audio.volume` | integer, 0 to 100 (`VOLUME_MAX_PERCENT`), percent | game, system, global | 80 | yes | none | `Volume` |
 | `audio.output` | text, 1 to 128 bytes (`AUDIO_OUTPUT_MAX_LEN`) | global | `auto` | no | none | `Audio output` |
 
 `tests/fixtures/keys.txt` gets two lines at its end: `audio.volume game,system,global int` and `audio.output global text`.
 
 **Volume levels.** The volume follows the layer rules of the scanline strength: a game, a system or the global file can hold it. A per-game volume does not make the design harder: the session takes the resolved value at launch, as it takes the picture settings. The quick menu writes at the game level, then asks where to keep the change, as for every row. The Audio panel writes the global level. Step 5 in the menus; a file can hold any whole percent.
 
-**Default 100.** 100 is unity gain, a bit-exact pass-through. With the mixer at 0 dB (see "The image") this is the level of the core's own samples, as in RetroArch. No reason for a lower default was found. The hashes of the existing audio tests stay valid, because their pipelines run at 100.
+**Default 80.** 100 is unity gain, a bit-exact pass-through, and with the mixer at 0 dB (see "The image") it is the full output of the codec: line level into headphones or the input of a monitor, loud for a game whose samples reach full scale. 80 is -5.8 dB, a comfortable start that leaves the player room to go up. The mixer stays at 0 dB, so 100 still reaches the full output. The pipeline and the session keep unity as their own default (`SessionOptions::volume_percent` is 100): the existing audio hashes are made at 100 and stay valid, and only the app passes the setting.
 
-**Output.** `auto` is the system default device. Any other value is the raw name of a device as the backend lists it, for example `HDA Intel PCH:ALC221 Analog`. The value is never rewritten by the frontend: a device that is absent at start falls back, and the file keeps the name. A global setting, because the device belongs to the machine, as `display.output` does.
+**Output.** `auto` is the automatic choice (see "`auto`"). Any other value is the name of a device as the backend lists it: on ALSA the PCM name `hw:CARD=PCH,DEV=0`, on another driver SDL's device name. The value is never rewritten by the frontend: a device that is absent at start falls back, and the file keeps the name. A global setting, because the device belongs to the machine, as `display.output` does.
 
-**A new kind of value.** An ALSA device name has spaces, a colon and more than 32 bytes, so the `name` kind (`[A-Za-z0-9_-]`, 32 bytes) cannot hold it. `neptron-settings` gets `Kind::Text { max_len, default }`: 1 to `max_len` bytes of UTF-8 with no control character. In a file it is a TOML string, as a name is. An older build that does not know the key reports it as unknown and keeps it. ADR 0011 records the kind.
+**A new kind of value.** An ALSA PCM name such as `hw:CARD=PCH,DEV=0` has `:`, `=` and `,`, and an SDL device name of another driver has spaces and can pass 32 bytes, so the `name` kind (`[A-Za-z0-9_-]`, 32 bytes) cannot hold them. `neptron-settings` gets `Kind::Text { max_len, default }`: 1 to `max_len` bytes of UTF-8 with no control character. In a file it is a TOML string, as a name is. An older build that does not know the key reports it as unknown and keeps it. ADR 0011 records the kind.
 
 ## Volume
 
@@ -97,7 +97,7 @@ The blind recovery cue of the game list (`CUE_MS`, `CUE_HZ` in the app) is not s
 
 ### Session and app
 
-- `SessionOptions::volume_percent` (default 100) goes to the pipeline at launch, with no ramp.
+- `SessionOptions::volume_percent` (default 100, unity; the app passes the resolved setting, default 80) goes to the pipeline at launch, with no ramp.
 - `Session::set_volume_percent(v)` sets it live, with the ramp. The app calls it when `audio.volume` changes in the quick menu or in the Audio panel while a game runs. It does nothing while the source settles at launch, when there is no pipeline yet.
 - At a core timing change the new pipeline gets the old target, with no ramp.
 - The game list plays no game audio, so a volume change there only reaches the file. The next game resolves it.
@@ -138,7 +138,7 @@ For the `alsa` driver the list comes from `/proc/asound`, not from SDL. A small 
 - `/proc/asound/pcm`: the PCM devices; only the ones with `playback` count;
 - `/proc/asound/card<N>/eld#*`: `monitor_present`, `eld_valid` and `monitor_name` of each HDMI or DisplayPort pin.
 
-A file that is missing or cannot be read is empty text. The parsing and the list (`alsa_outputs`) are pure and take the text, so the tests give them the text of the bench and of other cases.
+A file that is missing or cannot be read is empty text. The reader takes the bytes and converts them with a lossy UTF-8 conversion, so one bad byte in a monitor name does not drop its ELD. The parsing and the list (`alsa_outputs`) are pure and take the text, so the tests give them the text of the bench and of other cases.
 
 - **The stored value** is the ALSA name with the card id, which does not change when another card is plugged in: `hw:CARD=PCH,DEV=3`. The open uses `plughw:CARD=PCH,DEV=3`, so ALSA converts the format and the rate when the hardware needs it.
 - **HDMI or DisplayPort PCM**: a PCM whose id starts with `HDMI` or `DP`, or holds `DisplayPort`. Every other playback PCM is analog (a USB card's PCM is too).
@@ -152,11 +152,13 @@ A file that is missing or cannot be read is empty text. The parsing and the list
 
 | PCM | Label | Detail |
 | --- | --- | --- |
-| Analog | card name + ` analog`: `HDA Intel PCH analog` | the PCM name: `ALC221 Analog` |
-| HDMI, monitor known by name | monitor name + ` HDMI/DP`: `DELL U2724D HDMI/DP` | the PCM name |
-| HDMI, monitor present, name not known | card name + ` HDMI/DP <k>` | `Monitor connected` |
-| HDMI, monitor not known | card name + ` HDMI/DP <k>` | the PCM name: `HDMI 0` |
-| HDMI, no monitor | card name + ` HDMI/DP <k>` | `Nothing connected` |
+| Analog | `Analog (<card name>)`: `Analog (HDA Intel PCH)` | the PCM name: `ALC221 Analog` |
+| HDMI, monitor known by name | `<monitor> (HDMI/DP)`: `DELL U2724D (HDMI/DP)` | the PCM name |
+| HDMI, monitor present, name not known | `HDMI/DP <k> (<card name>)` | `Monitor connected` |
+| HDMI, monitor not known | `HDMI/DP <k> (<card name>)` | the PCM name: `HDMI 0` |
+| HDMI, no monitor | `HDMI/DP <k> (<card name>)` | `Nothing connected` |
+
+The part that tells the outputs apart comes first, because the value column of a settings row shows 14 characters. When two labels are equal (two cards of the same model), the card id goes into the brackets: `Analog (USB Audio, Device)`.
 
 `k` counts the HDMI PCMs of the card from 1, in device order. The order is the cards in index order and their PCMs in device order, and the PCMs with no monitor come last. They stay selectable: a monitor can be connected later.
 
@@ -164,18 +166,18 @@ The menu shows `auto` first (detail `System default`), then the list. A stored v
 
 For another driver (the desktop window on macOS), the list is SDL's, one entry per device, labelled with its name, and the `monitor` is `NotDigital`. SDL's ALSA default entry `ALSA default playback device` is never listed: `auto` stands for it.
 
-On the bench today the list is: `HDA Intel PCH analog` (`hw:CARD=PCH,DEV=0`), `HDA Intel PCH HDMI/DP 1`, `2` and `3` (`DEV=3`, `7`, `8`), all three with the detail of their PCM name, because the counts do not settle which one the DELL monitor uses. After a boot with the monitor connected, it is `HDMI/DP 1` (`DEV=3`): the kernel gives the first valid ELD the first free PCM. This is not guaranteed after the monitor was disconnected and connected again with another pin in between, so NEPTRON does not claim it.
+On the bench today the list is: `Analog (HDA Intel PCH)` (`hw:CARD=PCH,DEV=0`), `HDMI/DP 1 (HDA Intel PCH)`, `HDMI/DP 2 (...)` and `HDMI/DP 3 (...)` (`DEV=3`, `7`, `8`), all three with the detail of their PCM name, because the counts do not settle which one the DELL monitor uses. After a boot with the monitor connected, it is `HDMI/DP 1` (`DEV=3`): the kernel gives the first valid ELD the first free PCM. This is not guaranteed after the monitor was disconnected and connected again with another pin in between, so NEPTRON does not claim it.
 
 ### `auto`
 
-`auto` takes an HDMI or DisplayPort PCM only when exactly one PCM in the list is `Present`. Otherwise it takes the system default device (ALSA's `default`, the analog output of the first card).
+`auto` takes an HDMI or DisplayPort PCM only when exactly one PCM in the list is `Present`. Otherwise it takes the first analog PCM of the list, and when the list has none, the system default device (ALSA's `default`).
 
-- No monitor with audio: the default device. A CRT behind a DAC gives no ELD, so it gets the analog output.
+- No monitor with audio: the first analog PCM. A CRT behind a DAC gives no ELD, so it gets the analog output. The first analog PCM, not ALSA's `default`: a GPU sound card can be card 0 with no device 0, and then `default` gives no sound while the analog card is card 1.
 - One PCM `Present`: that PCM. This is exact: a card with one HDMI PCM and one valid ELD, or a card whose every HDMI PCM has a monitor.
-- Two or more `Present`: the default device.
-- `Unknown` (the bench): the default device. The player chooses the HDMI/DP output in the menu.
+- Two or more `Present`: the first analog PCM.
+- `Unknown` (the bench): the first analog PCM. The player chooses the HDMI/DP output in the menu.
 
-The start log says which device `auto` took and why, for example `auto: default output, a monitor with audio is on HDMI/DP of HDA Intel PCH but /proc does not show its PCM`.
+The start log says which device `auto` took and why. On the bench: `auto: the first analog output "Analog (HDA Intel PCH)", because an HDMI/DP output may have a monitor but /proc does not show which one`.
 
 ### The open, through the hint
 
@@ -183,21 +185,22 @@ For the `alsa` driver, `Sdl3Outputs::open(Some(name))` sets the hint `SDL_AUDIO_
 
 ### The choice, in pure code
 
-`open_output(outputs, setting) -> OpenedOutput<S>` decides and returns the sink, the list, the choice of `auto` and the notices. The chain:
+`open_output(outputs, setting) -> OpenedOutput<S>` decides and returns the sink, the list, the choice of `auto`, the notices and every error. The chain, where a device already tried is not tried again:
 
 1. A named device that is listed: open it.
 2. Else, or when it fails: the device `auto` takes.
-3. When that is an HDMI PCM and it fails: the default device.
-4. When the default fails: the silent sink.
+3. When that fails: the first analog PCM of the list.
+4. When that fails, or the list has none: the default device.
+5. When the default fails: the silent sink.
 
 | Case | Notice |
 | --- | --- |
-| A named device that is not listed | `The audio output "<label>" is not connected. The default output plays.` |
-| A named device that does not open | `The audio output "<label>" did not open (<error>). The default output plays.` |
-| No device opens | `No sound: the audio device did not open (<error>).` |
+| A named device that is not listed | `The audio output "<label>" is not connected. Another output plays.` |
+| A listed device (named, `auto`'s choice or the first analog) that does not open | `The audio output "<label>" did not open (<error>). Another output plays.` |
+| No device opens | `No sound: the audio device did not open (<error>; <error>...).`, with every error of the chain |
 
+- Each step down gives a notice, and the log line holds each error: `; failed "<name>" (<error>)`.
 - The setting is never written by this code. The next start tries the named device again, so a monitor or a USB card that comes back is used again with no change in the menu.
-- "The default output" in a notice is the device that `auto` takes.
 
 ### When the device opens: the safe point
 
@@ -220,7 +223,7 @@ Tests on the fakes cover both cases.
 Each start logs one line with the driver, the devices, the choice of `auto` and the device that opened:
 
 ```
-neptron: audio: driver alsa; devices "hw:CARD=PCH,DEV=0", "hw:CARD=PCH,DEV=3", ...; auto: default output, ...; opened default
+neptron: audio: driver alsa; devices "hw:CARD=PCH,DEV=0", "hw:CARD=PCH,DEV=3", "hw:CARD=PCH,DEV=7", "hw:CARD=PCH,DEV=8"; auto: the first analog output "Analog (HDA Intel PCH)", because an HDMI/DP output may have a monitor but /proc does not show which one; opened "hw:CARD=PCH,DEV=0"
 ```
 
 The line goes to the log of the run before the frame loop starts, so `cargo xtask os logs` shows it; the protocol log of `neptronctl log tail` starts later and does not hold it. A `neptronctl` command that lists the devices needs a new request in `neptron-ipc` and a command in `apps/neptronctl`, which this task does not own; the log line gives the same facts.
@@ -239,7 +242,7 @@ The line goes to the log of the run before the frame loop starts, so `cargo xtas
 The image sets the mixer of each card to a known state at boot, so that the software volume has the full range:
 
 - `BR2_PACKAGE_ALSA_UTILS=y` with `amixer` only (no `alsactl`, no `alsamixer`, no `aplay`). alsa-utils is GPL-2.0, as BusyBox and the kernel; `make legal-info` lists it.
-- `S08neptron-mixer` (PC image) runs at start, in the background so it never delays the boot. It waits up to 10 s for a card in `/proc/asound`. For each card it sets each playback control of a fixed list to 0 dB and unmutes it: `Master`, `PCM`, `Front`, `Surround`, `Center`, `LFE`, `Side`, `Headphone`, `Speaker`, `Line Out`, and every `IEC958` switch by its index, on every card. The HDMI codec makes one `IEC958 Playback Switch` for each HDMI PCM (`snd_hda_create_dig_out_ctls`), so the switches `'IEC958',0` to `'IEC958',N` unmute every HDMI or DisplayPort output. A control the card does not have is skipped. Many HDMI outputs give no sound until a stream opens; nothing needs to be done for that. The image on the bench has no `amixer` yet, so the control names there were not read; they come from the kernel source. 0 dB, not 100%: on a control whose range goes above 0 dB (some USB cards), the maximum would add gain and could clip.
+- `S08neptron-mixer` (PC image) runs at start, in the background so it never delays the boot. It waits up to 10 s for a card in `/proc/asound`; after the first card it waits 2 s more for later cards (a USB card, a second HDA codec), within the same 10 s. For each card it sets each playback control of a fixed list to 0 dB and unmutes it: `Master`, `PCM`, `Front`, `Surround`, `Center`, `LFE`, `Side`, `Headphone`, `Speaker`, `Line Out`, and every `IEC958` switch by its index, on every card. The HDMI codec makes one `IEC958 Playback Switch` for each HDMI PCM (`snd_hda_create_dig_out_ctls`), so the switches `'IEC958',0` to `'IEC958',N` unmute every HDMI or DisplayPort output. A control the card does not have is skipped. Many HDMI outputs give no sound until a stream opens; nothing needs to be done for that. The image on the bench has no `amixer` yet, so the control names there were not read; they come from the kernel source. 0 dB, not 100%: on a control whose range goes above 0 dB (some USB cards), the maximum would add gain and could clip.
 - Input controls (`Mic`, `Line`, `CD`, `Beep`, the boosts and the loop-back mixers) are not touched: on an HDA codec, `Line` and `Mic` playback volumes mix an input into the output, which adds noise.
 - A card that is plugged in after the boot keeps its own state. The frontend does not change the mixer.
 
@@ -276,6 +279,6 @@ Not in this task; the orchestrator records them:
 
 ## Open points
 
-- **The PCM of a monitor.** `/proc` does not map an HDMI PCM to its pin, so with more HDMI PCMs than monitors (the bench) the list has no monitor name and `auto` keeps the analog output. Default: list the HDMI PCMs with their PCM names; the player chooses. How to change: read the PCM-interface control `ELD` (its device number is the PCM) through the ALSA control interface (`SNDRV_CTL_IOCTL_ELEM_READ` on `/dev/snd/controlC<N>`, in the `unsafe` module of `neptron-audio`, with `rustix`), or the switch state of the jack input device `HDMI/DP,pcm=N` (`EVIOCGSW`, in `neptron-input`). Both are exact; both add a dependency edge to a crate (a `Cargo.lock` change for the orchestrator).
+- **The PCM of a monitor.** `/proc` does not map an HDMI PCM to its pin, so with more HDMI PCMs than monitors (the bench) the list has no monitor name and `auto` takes the first analog output. Default: list the HDMI PCMs with their PCM names; the player chooses. How to change: read the PCM-interface control `ELD` (its device number is the PCM) through the ALSA control interface (`SNDRV_CTL_IOCTL_ELEM_READ` on `/dev/snd/controlC<N>`, in the `unsafe` module of `neptron-audio`, with `rustix`), or the switch state of the jack input device `HDMI/DP,pcm=N` (`EVIOCGSW`, in `neptron-input`). Both are exact; both add a dependency edge to a crate (a `Cargo.lock` change for the orchestrator).
 - **The mixer list.** The fixed list of control names covers HDA codecs and the usual USB cards. A card with other names keeps its reset state. How to change: add the name to `S08neptron-mixer`.
 - **`sdl3` 0.22.1 panics on a device name that is not UTF-8** (`AudioDeviceID::name` unwraps). ALSA names come from the kernel and USB strings, which the kernel gives as UTF-8. Default: accept. How to change: read the names through `sdl3-sys` in an `ffi` module of this crate.
