@@ -4,6 +4,12 @@
 //! overscan-safe area, on a schema setting it could not reach, and on a
 //! setting row whose disabled state does not follow the schema's
 //! `applies_to` for the display of the run.
+//!
+//! It also checks the row rule of the menus: a row that opens a screen has
+//! the kind `page` (the arrow), an enabled `page` row opens a screen, and
+//! back from a screen gives the focus back to the row that opened it. The
+//! control protocol does not carry the kind of a row, so the crawler reads
+//! it from the tree of the frame.
 
 use std::collections::BTreeSet;
 
@@ -11,6 +17,7 @@ use neptron::NextRun;
 use neptron::pages::{NOT_USED_ON_A_PANEL, RESCAN_LABEL};
 use neptron_settings::{DisplayClass, Schema};
 use neptron_types::Control;
+use neptron_ui::RowKind;
 use neptron_ui::theme::SAFE_AREA;
 
 use crate::panel::{PANEL_1080P, sysfs_with_panel};
@@ -136,6 +143,11 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
     found
 }
 
+/// The kind of the focused row, from the tree of the last frame.
+fn focused_kind(rig: &mut Rig) -> Option<RowKind> {
+    rig.shell().ui().tree.focused().and_then(|r| r.kind)
+}
+
 /// Records the screen on show, then enters each of its rows and comes back
 /// with back.
 fn crawl(rig: &mut Rig, found: &mut Found, depth: usize) {
@@ -185,9 +197,15 @@ fn crawl(rig: &mut Rig, found: &mut Found, depth: usize) {
             return;
         }
         if !NEVER_ACCEPT.contains(&focused.as_str()) {
+            let kind = focused_kind(rig);
             rig.tap(&[Control::A]);
             let entered = rig.screen();
             if entered != screen {
+                assert_eq!(
+                    kind,
+                    Some(RowKind::Page),
+                    "{screen}: the row {focused:?} opens {entered} but has no arrow"
+                );
                 crawl(rig, found, depth + 1);
                 rig.tap(&[Control::B]);
                 assert_eq!(
@@ -195,7 +213,17 @@ fn crawl(rig: &mut Rig, found: &mut Found, depth: usize) {
                     screen,
                     "back from {entered} did not return to {screen}: a dead end"
                 );
-                rig.focus(&focused);
+                assert_eq!(
+                    rig.focused().as_deref(),
+                    Some(focused.as_str()),
+                    "back from {entered} did not give the focus back to its row"
+                );
+            } else {
+                assert_ne!(
+                    kind,
+                    Some(RowKind::Page),
+                    "{screen}: the row {focused:?} has an arrow and opens nothing"
+                );
             }
         }
         rig.tap(&[Control::Down]);
