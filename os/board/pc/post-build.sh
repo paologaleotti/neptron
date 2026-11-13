@@ -11,17 +11,11 @@ set -eu
 
 target=$1
 
-# The kernel must set no mode of its own (the CRT safety model, layer 8).
-# The fragments say so, but another option can select one of these, so the
-# check reads the final configuration of the kernel.
-kconfig=$(ls "$BUILD_DIR"/linux-*/.config | grep -v headers | head -n 1)
-for option in VT FB DRM_FBDEV_EMULATION FRAMEBUFFER_CONSOLE DRM_SIMPLEDRM \
-	SYSFB_SIMPLEFB DRM_PANIC DRM_EFIDRM DRM_VESADRM DRM_CLIENT_LOG; do
-	if grep -q "^CONFIG_$option=[ym]" "$kconfig"; then
-		echo "post-build: CONFIG_$option is on in $kconfig; the kernel must set no mode" >&2
-		exit 1
-	fi
-done
+# The kernel must set no mode of its own: check-kernel-config.sh reads its
+# final configuration. The headers package has a folder of the same name
+# and no .config, so the glob asks for a version number first.
+kconfig=$(ls -d "$BUILD_DIR"/linux-[0-9]*/.config 2>/dev/null | head -n 1)
+"$BR2_EXTERNAL_NEPTRON_PATH/board/pc/check-kernel-config.sh" "$kconfig" || exit 1
 
 mkdir -p "$target/state" "$target/share"
 # GRUB reads its configuration from the boot partition, not from here.

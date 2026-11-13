@@ -164,21 +164,27 @@ mod tests {
             assert_eq!(video[option], "n", "{option}");
         }
         assert_eq!(fragment("board/pc/console.config")["CONFIG_EXPERT"], "y");
-        let post_build = std::fs::read_to_string(os_dir().join("board/pc/post-build.sh")).unwrap();
+        let check =
+            std::fs::read_to_string(os_dir().join("board/pc/check-kernel-config.sh")).unwrap();
         for name in [
-            "VT FB DRM_FBDEV_EMULATION FRAMEBUFFER_CONSOLE DRM_SIMPLEDRM",
-            "SYSFB_SIMPLEFB",
+            "VT",
+            "FB",
+            "DRM_FBDEV_EMULATION",
+            "FRAMEBUFFER_CONSOLE",
             "DRM_SIMPLEDRM",
+            "SYSFB_SIMPLEFB",
             "DRM_PANIC",
             "DRM_EFIDRM",
             "DRM_VESADRM",
             "DRM_CLIENT_LOG",
         ] {
-            assert!(
-                post_build.contains(name),
-                "post-build does not check {name}"
-            );
+            let listed = check
+                .split(|c: char| c.is_whitespace() || c == '"' || c == '=' || c == '\\')
+                .any(|w| w == name);
+            assert!(listed, "the check misses {name}");
         }
+        let post_build = std::fs::read_to_string(os_dir().join("board/pc/post-build.sh")).unwrap();
+        assert!(post_build.contains("check-kernel-config.sh"));
     }
 
     #[test]
@@ -241,6 +247,51 @@ mod tests {
                 "{signature}"
             );
         }
+    }
+
+    fn check_kernel_config(text: Option<&str>, name: &str) -> std::process::Output {
+        let script = os_dir().join("board/pc/check-kernel-config.sh");
+        let dir = std::env::temp_dir().join(format!("xtask-kconfig-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join(".config");
+        if let Some(text) = text {
+            std::fs::write(&config, text).unwrap();
+        }
+        let out = std::process::Command::new("sh")
+            .arg(&script)
+            .arg(&config)
+            .output()
+            .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        out
+    }
+
+    #[test]
+    fn the_kernel_check_passes_only_a_present_file_with_every_mode_option_off() {
+        let off = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\n";
+        assert!(check_kernel_config(Some(off), "off").status.success());
+        let missing = check_kernel_config(None, "missing");
+        assert!(!missing.status.success());
+        assert!(String::from_utf8_lossy(&missing.stderr).contains("is missing"));
+        let module = check_kernel_config(Some("CONFIG_DRM_SIMPLEDRM=m\n"), "module");
+        assert!(!module.status.success());
+        assert!(String::from_utf8_lossy(&module.stderr).contains("CONFIG_DRM_SIMPLEDRM is on"));
+        let builtin = check_kernel_config(Some("CONFIG_VT=y\nCONFIG_DRM_PANIC=y\n"), "builtin");
+        let text = String::from_utf8_lossy(&builtin.stderr).into_owned();
+        assert!(!builtin.status.success());
+        assert!(
+            text.contains("CONFIG_VT is on") && text.contains("CONFIG_DRM_PANIC is on"),
+            "{text}"
+        );
+        let empty_name = std::process::Command::new("sh")
+            .arg(os_dir().join("board/pc/check-kernel-config.sh"))
+            .arg("")
+            .output()
+            .unwrap();
+        assert!(
+            !empty_name.status.success(),
+            "an empty path is a missing file"
+        );
     }
 
     /// The core packages, their make prefix, and the library that
