@@ -11,10 +11,10 @@
 
 use neptron_backend::Clock;
 use neptron_kms::{ConnectorClass, ConnectorFacts, DVI_I_TYPE, choose};
+use neptron_platform::{ConnectorStatus, Platform};
 
 /// The sysfs type name of a DVI-I connector, DRM type [`DVI_I_TYPE`].
 const DVI_I_KIND: &str = "DVI-I";
-use neptron_platform::{ConnectorStatus, Platform};
 
 /// The longest wait at start for a connected display, in nanoseconds.
 pub const DISPLAY_WAIT_MAX_NS: u64 = 15_000_000_000;
