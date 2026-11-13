@@ -724,11 +724,11 @@ Each open point is one section:
 ### OP-078: The game list does not see new files until the frontend starts again.
 
 - Raised by: the owner, on the first hardware session (2026-11-13)
-- Status: open, needs a task
+- Status: closed by C14, the hardware checks and the later steps are open
 - Default: the library is scanned when the game list run starts. Files copied to the share partition while the list is on screen do not appear. The way out today is a restart of the frontend (quit a game, or `kill -TERM` of the frontend over SSH).
 - Where: `apps/neptron` (the library and its background scan), `crates/neptron-library`
 - How to change: a "Rescan games" row in the menu; a rescan when the list gets the focus again after a game; a watch on the `roms` folders (inotify) with a debounce, so files copied over the network appear by themselves; a progress line while a large scan runs. The scan must stay off the frame thread and check for cancellation.
-- Decision: Owner, 2026-11-13: do it now (task C14).
+- Decision: Owner, 2026-11-13: do it now (task C14). Built by C14: a `Rescan games` row reads every folder on a thread; each time the game list opens after a game, only the folders whose time changed are read, and only when a full scan ran in this power cycle; a notice gives the games added and removed. Later steps, not built: a `library rescan` control command; a watch of the folders (inotify) with its limits on exFAT and SMB; a progress count on the row; the home focus kept by system after a scan; a visible report of entries that cannot be read; removal of the unused `ScanWorker` type.
 
 ### OP-079: No way to copy games over the network.
 

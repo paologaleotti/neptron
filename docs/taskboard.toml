@@ -388,7 +388,7 @@ name = "Library rescan without a restart (OP-078)"
 owns = ["crates/neptron-library", "apps/neptron", "crates/neptron-ui"]
 needs = ["C12"]
 gate = "T1 and T2"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C15"
