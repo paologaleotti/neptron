@@ -144,8 +144,9 @@ pub fn switch_for(current: Option<&Modeline>, winner: &Modeline) -> Switch {
 /// the winner is not on the style's own rung, when an overscan crop
 /// hides source lines, or when the winner is padded. Double refresh that the
 /// refresh policy asks for shows each frame twice at the game's own rate,
-/// so it needs no notice. A flat panel needs none for its rate: audio rate
-/// control absorbs the difference. A TV shows one only beyond
+/// so it needs no notice. A flat panel needs none for its rate: the game
+/// and its audio run at the panel's flip rate over `repeat`. A TV shows
+/// one only beyond
 /// `TV_SPEED_SILENT_PPM`, the threshold of the alert
 /// ([`super::Timing::changes_speed`]).
 pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {

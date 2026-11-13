@@ -71,7 +71,7 @@ Where the Definition allows two readings, the policy takes the one below. Each i
 - *Owner:* "matches to two decimals" is less than 5 mHz (`REFRESH_MATCH_MHZ`).
 - *Owner:* `force_60` is 60.000 Hz and `force_50` is 50.000 Hz (`FORCE_60_MHZ`, `FORCE_50_MHZ`).
 - *Owner:* a mode is padded below 75 % (`PADDED_FILL_MIN_PERCENT`).
-- *Owner:* a flat panel gets no notice for its rate; audio rate control absorbs the difference (`notice`).
+- *Owner:* a flat panel gets no notice for its rate (`notice`): the game and its audio run at the panel's flip rate over `repeat`, and the status alone shows a speed change beyond `PANEL_SPEED_SILENT_PPM` of `neptron-video`.
 - "When the lines only fit that way" (rung 3): the game's lines do not fit a progressive range at the target rate, that is the range's line limit or `floor(h_max / rate)` less the vertical blanking (`progressive_capacity`). A short game is centred in the interlaced minimum, as a vertical game on a 15 kHz set is.
 - A padded exact mode ranks before every fitted rung, so a handheld on 15 kHz is centred with borders, as the sources table says; it ranks after every exact mode that is not padded at its target (`crt_plan`).
 - A width strategy below the GPU floor is replaced, not left without a mode: the screen must get a mode, and only the dynamic super width can reach the floor.
@@ -126,7 +126,7 @@ Sources with another aspect, `aspect`, sharp bilinear in each case:
 | Game Boy Advance, 240x160, 3:2 | 528 (2.2x) | 440 (1.83x) |
 | A 224x256 board turned upright, 3:4 | 422 (8 lines cropped per edge) | 352 |
 
-The Neo Geo draws 320 pixels at 6.000 MHz, 53.3 us, 720 samples. Its core gives 4:3 at 224 lines, so it gets the console width, 640 samples: 11 % narrower than the console drew it. A per-system picture width would correct it; that is a later step.
+The Neo Geo draws 320 pixels at 6.000 MHz, 53.3 us, 720 samples. Its core gives 4:3 at 224 lines, so it gets the console width, 640 samples: 11 % narrower than the console drew it. A per-system picture width would correct it; that is a later step (OP-099).
 
 **The rates.** The field rates are exact millihertz from the table modes (`Modeline::field_rate_mhz`): 240p 60 054, 288p 50 080, 480i 59 940, 576i 50 000. The difference is in ppm of the field rate; an alert shows above 5000 ppm.
 
@@ -150,7 +150,7 @@ The game speed changes by the field rate over the game rate: a PAL game on NTSC 
 1. On launch and on each geometry change, call `decide`, then `choose` with `|m| neptron_safety::validate(m, profile, caps)`. The winner's token is the `ValidatedMode` to set. The policy does not depend on `neptron-safety` (the dependency rules forbid it), so the engine validates every proposal itself; a proposal the validator refuses is skipped, never set.
    Commit `token.mode()` of the winner, never `proposal.mode`: only the token is the mode the validator approved.
 2. Call `switch_for` with the current mode. `ScaleOnly`: change only crop, destination and filter. `Modeset`: commit after the debounce.
-3. Build each `Scene` from the winner's `Placement`, with its crop: a cropped placement is a part of the frame, not a frame of another size. Run the core one frame per `Timing::repeat()` flips. When `Timing::changes_speed()`, the game runs at `field_rate_mhz / repeat`; audio rate control follows the field rate.
+3. Build each `Scene` from the winner's `Placement`, with its crop: a cropped placement is a part of the frame, not a frame of another size. Run the core one frame per `Timing::repeat()` flips. The game always runs at the read-back field rate over `repeat`, and the session sets the audio run rate to it at every difference; the audio rate control only corrects clock drift around that rate. `Timing::changes_speed()` only decides the speed alert.
 4. Show `notice` in the quick menu. A `Notice` holds flags and numbers only, no text: it carries every alert the app must show. The texts it supports:
    - `fitted`: "Filtered picture".
    - `cropped_lines`: "N edge lines hidden".

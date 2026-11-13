@@ -36,8 +36,8 @@ pub enum RefreshKind {
     Nearest,
     /// The last resort: the rate that Switchres reaches, whatever it is.
     Unmatched,
-    /// A flat panel: the rate of the panel mode. Audio rate control absorbs
-    /// the difference.
+    /// A flat panel: the rate of the panel mode. The game and its audio
+    /// run at the panel's flip rate over `repeat`.
     Panel,
     /// A TV: the field rate of the standard's mode. The game and its
     /// audio run at it; a difference above `TV_SPEED_SILENT_PPM` shows the
