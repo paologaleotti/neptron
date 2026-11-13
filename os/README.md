@@ -32,7 +32,7 @@ Buildroot 2026.08.1 is a bug-fix release of 2026.08. It is not in the repository
 | `board/qemu/*.config` | Kernel fragments of the aarch64 test image; `host.config` (firmware config in sysfs, 9p) is in the PC image too; `network.config` has the SMB server |
 | `board/qemu/rootfs-overlay` | The init table of the aarch64 test image: a console shell, and the launcher for a boot check only |
 | `board/common/busybox.config` | BusyBox fragment: the `timeout` applet |
-| `board/common/post-build.sh` | Post-build step of both images: removes the init script of the `mdnsd` package and checks the files of the network share |
+| `board/common/post-build.sh` | Post-build step of both images: removes the init script of the `mdnsd` package, writes `/etc/network/interfaces` with the loopback only (an output built with `BR2_SYSTEM_DHCP` keeps a DHCP stanza, because Buildroot does not install `ifupdown-scripts` again), and checks the files of the network share |
 | `board/common/rootfs-overlay` | The init scripts of both images: debugfs and 9p, the state and share partitions, DHCP, the network share, the launcher, and the commands from the host; the configuration of the SMB server (`etc/ksmbd`) and of the mDNS service (`etc/neptron/mdns.d`) |
 | `patches/` | The global patch and hash directory. It holds the kernel hashes and the hashes of the 15 kHz patch set |
 | `package/` | NEPTRON packages: the frontend `neptron`, the launcher `neptron-launch`, the client `neptronctl`, the three MVP cores, and the test tools `neptron-vkms-probe` and `neptron-capture` |
