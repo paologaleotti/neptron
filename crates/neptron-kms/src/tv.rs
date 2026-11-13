@@ -24,8 +24,8 @@ pub(crate) struct TvWrite {
     pub value: u64,
 }
 
-/// Why the backend cannot set the TV standard of a mode, or why the
-/// standard read back is not the standard that was set.
+/// Why the backend cannot set the TV standard of a mode. The mode is
+/// refused before anything is sent.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum TvRefusal {
     /// The mode carries a standard and the connector has no `TV mode`
@@ -49,7 +49,13 @@ pub(crate) enum TvRefusal {
     /// standard on the wire would be one that was not validated with the
     /// mode.
     #[error("the connector has a TV mode property, and the mode carries no TV standard")]
-    NoStandard,
+    ModeWithoutStandard,
+}
+
+/// Why the standard read back after a modeset is not the standard that was
+/// set. The commit is done: this is a device error, not a refusal.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum TvReadBackError {
     /// The `TV mode` value read back is not a value of the property.
     #[error("the TV mode value {value} read back is not a value of the property")]
     UnknownValue {
@@ -82,7 +88,7 @@ pub(crate) fn plan(
 ) -> Result<Option<TvWrite>, TvRefusal> {
     match (requested, property) {
         (None, None) => Ok(None),
-        (None, Some(_)) => Err(TvRefusal::NoStandard),
+        (None, Some(_)) => Err(TvRefusal::ModeWithoutStandard),
         (Some(standard), None) => Err(TvRefusal::NoProperty { standard }),
         (Some(standard), Some(p)) => p
             .values
@@ -124,17 +130,17 @@ pub(crate) fn check_readback(
     value: u64,
     property: &TvModeProperty,
     readback: &Modeline,
-) -> Result<(), TvRefusal> {
+) -> Result<(), TvReadBackError> {
     let name = property
         .values
         .iter()
         .find(|(v, _)| *v == value)
         .map(|(_, name)| name.as_str())
-        .ok_or(TvRefusal::UnknownValue { value })?;
+        .ok_or(TvReadBackError::UnknownValue { value })?;
     if standard_of(name, readback.htotal) == Some(requested) {
         Ok(())
     } else {
-        Err(TvRefusal::Mismatch {
+        Err(TvReadBackError::Mismatch {
             requested,
             name: name.to_owned(),
             htotal: readback.htotal,
@@ -241,7 +247,10 @@ mod tests {
 
     #[test]
     fn a_mode_without_a_standard_on_a_tv_connector_is_refused() {
-        assert_eq!(plan(None, Some(&all())), Err(TvRefusal::NoStandard));
+        assert_eq!(
+            plan(None, Some(&all())),
+            Err(TvRefusal::ModeWithoutStandard)
+        );
     }
 
     #[test]
@@ -284,7 +293,7 @@ mod tests {
         let e = check_readback(TvStandard::Pal60, value_of("NTSC"), &all(), &TV_525_240P);
         assert_eq!(
             e,
-            Err(TvRefusal::Mismatch {
+            Err(TvReadBackError::Mismatch {
                 requested: TvStandard::Pal60,
                 name: "NTSC".to_owned(),
                 htotal: 858
@@ -309,7 +318,7 @@ mod tests {
     fn the_readback_refuses_a_value_the_property_does_not_have() {
         assert_eq!(
             check_readback(TvStandard::Ntsc, 99, &all(), &TV_525_240P),
-            Err(TvRefusal::UnknownValue { value: 99 })
+            Err(TvReadBackError::UnknownValue { value: 99 })
         );
     }
 
