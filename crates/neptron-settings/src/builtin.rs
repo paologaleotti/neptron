@@ -171,6 +171,7 @@ mod tests {
             Kind::Int { .. } => "int".to_owned(),
             Kind::Choice { choices, .. } => format!("choice {}", choices.join("|")),
             Kind::Name { .. } => "name".to_owned(),
+            Kind::Text { .. } => "text".to_owned(),
         };
         format!("{} {} {}", entry.key, levels.join(","), kind)
     }

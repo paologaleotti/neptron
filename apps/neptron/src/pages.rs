@@ -122,10 +122,12 @@ pub fn value_of(entry: &Entry, value: UiValue, names: Names<'_>, config: &Config
         (Kind::Choice { choices, .. }, UiValue::Choice(i)) => {
             choices.get(i).map(|c| Value::Text((*c).to_owned()))
         }
-        (Kind::Name { .. }, UiValue::Choice(i)) => names_of(entry.key, names, config)
-            .get(i)
-            .cloned()
-            .map(Value::Text),
+        (Kind::Name { .. } | Kind::Text { .. }, UiValue::Choice(i)) => {
+            names_of(entry.key, names, config)
+                .get(i)
+                .cloned()
+                .map(Value::Text)
+        }
         _ => None,
     }
 }
@@ -187,7 +189,7 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
                 .map(|c| choice_option(key, c, names.styles))
                 .collect(),
         },
-        Kind::Name { .. } => {
+        Kind::Name { .. } | Kind::Text { .. } => {
             let options = names_of(key, names, config);
             SettingValue::Choice {
                 index: options

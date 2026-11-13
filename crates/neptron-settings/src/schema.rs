@@ -189,6 +189,15 @@ pub enum Kind {
         /// The built-in default.
         default: &'static str,
     },
+    /// A free text, such as the name of a playback device as the audio backend lists it:
+    /// 1 to `max_len` bytes of UTF-8 with no control character. The consumer checks that
+    /// the named thing exists.
+    Text {
+        /// The longest allowed text, in bytes.
+        max_len: usize,
+        /// The built-in default.
+        default: &'static str,
+    },
 }
 
 impl Kind {
@@ -197,9 +206,9 @@ impl Kind {
         match *self {
             Kind::Bool { default } => Value::Bool(default),
             Kind::Int { default, .. } => Value::Int(default),
-            Kind::Choice { default, .. } | Kind::Name { default, .. } => {
-                Value::Text(default.to_owned())
-            }
+            Kind::Choice { default, .. }
+            | Kind::Name { default, .. }
+            | Kind::Text { default, .. } => Value::Text(default.to_owned()),
         }
     }
 
@@ -208,7 +217,7 @@ impl Kind {
         match self {
             Kind::Bool { .. } => ValueType::Bool,
             Kind::Int { .. } => ValueType::Int,
-            Kind::Choice { .. } | Kind::Name { .. } => ValueType::Text,
+            Kind::Choice { .. } | Kind::Name { .. } | Kind::Text { .. } => ValueType::Text,
         }
     }
 
@@ -242,6 +251,16 @@ impl Kind {
                     Ok(())
                 } else {
                     Err(Invalid::BadName {
+                        value: v.clone(),
+                        max_len,
+                    })
+                }
+            }
+            (Kind::Text { max_len, .. }, Value::Text(v)) => {
+                if is_text(v, max_len) {
+                    Ok(())
+                } else {
+                    Err(Invalid::BadText {
                         value: v.clone(),
                         max_len,
                     })
@@ -352,6 +371,14 @@ pub enum Invalid {
         /// The longest allowed name, in bytes.
         max_len: usize,
     },
+    /// The string is empty, longer than the limit, or holds a control character.
+    #[error("{value:?} is not a text of 1 to {max_len} bytes with no control character")]
+    BadText {
+        /// The value found.
+        value: String,
+        /// The longest allowed text, in bytes.
+        max_len: usize,
+    },
 }
 
 /// One setting: everything the resolution, the files and the UI crawler need.
@@ -427,7 +454,7 @@ pub enum SchemaError {
         /// The choice.
         choice: &'static str,
     },
-    /// The longest allowed name is zero bytes.
+    /// The longest allowed name or text is zero bytes.
     #[error("key \"{key}\" allows no name length")]
     ZeroLength {
         /// The key.
@@ -493,6 +520,10 @@ fn is_name(value: &str, max_len: usize) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+fn is_text(value: &str, max_len: usize) -> bool {
+    !value.is_empty() && value.len() <= max_len && !value.chars().any(char::is_control)
+}
+
 fn check_entry(entry: &Entry) -> Result<(), SchemaError> {
     let key = entry.key;
     if key.split('.').count() < 2 || !key.split('.').all(is_segment) {
@@ -515,7 +546,9 @@ fn check_entry(entry: &Entry) -> Result<(), SchemaError> {
                 }
             }
         }
-        Kind::Name { max_len: 0, .. } => return Err(SchemaError::ZeroLength { key }),
+        Kind::Name { max_len: 0, .. } | Kind::Text { max_len: 0, .. } => {
+            return Err(SchemaError::ZeroLength { key });
+        }
         _ => {}
     }
     entry
@@ -759,6 +792,79 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn a_text_takes_device_names_and_rejects_empty_long_and_control_text() {
+        let t = Kind::Text {
+            max_len: 32,
+            default: "auto",
+        };
+        assert_eq!(t.value_type(), ValueType::Text);
+        assert_eq!(t.default_value(), Value::Text("auto".into()));
+        for ok in [
+            "auto",
+            "HDA Intel PCH:ALC221 Analog",
+            "Haut-parleurs intégrés",
+            " x ",
+            "12345678901234567890123456789012",
+        ] {
+            assert_eq!(t.check(&Value::Text(ok.into())), Ok(()), "{ok}");
+        }
+        for bad in [
+            "",
+            "123456789012345678901234567890123",
+            "line\nbreak",
+            "tab\there",
+            "nul\0",
+            "bell\u{7}",
+            "del\u{7f}",
+        ] {
+            assert_eq!(
+                t.check(&Value::Text(bad.into())),
+                Err(Invalid::BadText {
+                    value: bad.into(),
+                    max_len: 32
+                }),
+                "{bad:?}"
+            );
+        }
+        assert!(matches!(
+            t.check(&Value::Int(1)),
+            Err(Invalid::WrongType {
+                expected: ValueType::Text,
+                found: "integer"
+            })
+        ));
+        let msg = Invalid::BadText {
+            value: "a\nb".into(),
+            max_len: 4,
+        }
+        .to_string();
+        assert_eq!(
+            msg,
+            "\"a\\nb\" is not a text of 1 to 4 bytes with no control character"
+        );
+    }
+
+    #[test]
+    fn a_text_kind_needs_a_length_and_a_valid_default() {
+        let kind = Kind::Text {
+            max_len: 0,
+            default: "",
+        };
+        assert_eq!(
+            Schema::from_entries(vec![entry("a.b", kind)]).unwrap_err(),
+            SchemaError::ZeroLength { key: "a.b" }
+        );
+        let kind = Kind::Text {
+            max_len: 8,
+            default: "",
+        };
+        assert!(matches!(
+            Schema::from_entries(vec![entry("a.b", kind)]).unwrap_err(),
+            SchemaError::BadDefault { .. }
+        ));
     }
 
     #[test]

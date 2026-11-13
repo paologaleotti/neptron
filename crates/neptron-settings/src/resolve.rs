@@ -219,7 +219,7 @@ mod tests {
                     Value::Int(min + i64::try_from(n).unwrap() % (max - min + 1))
                 }
                 Kind::Bool { .. } => Value::Bool(n % 2 == 1),
-                Kind::Name { .. } => Value::Text(format!("name{n}")),
+                Kind::Name { .. } | Kind::Text { .. } => Value::Text(format!("name{n}")),
             };
             for bits in 0..8u8 {
                 let mut layers = [
