@@ -566,6 +566,7 @@ fn a_kept_folder_keeps_the_old_size_and_a_scan_finds_the_new_one() {
         .0
         .expect("scan");
     assert_eq!(sizes(&full.index, "nes")[0], ("nes/a.nes", 8));
+    assert_eq!(crate::changes(&kept.index, &full.index).changed, 1);
 }
 
 #[test]

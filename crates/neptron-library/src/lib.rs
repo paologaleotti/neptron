@@ -6,6 +6,7 @@
 
 pub mod cache;
 mod catalog;
+mod changes;
 mod folders;
 mod index;
 mod scan;
@@ -14,6 +15,7 @@ mod test_dir;
 mod worker;
 
 pub use catalog::{Catalog, CatalogError, CoreDef, DEFINITION_FORMAT, Source, SystemDef};
+pub use changes::{Changes, changes};
 pub use folders::{FolderStamp, MTIME_TRUST_WINDOW_NS, Mtime, trusted};
 pub use index::{Game, Index, MAX_TEXT_BYTES, SystemGames, compare_names};
 pub use scan::{
