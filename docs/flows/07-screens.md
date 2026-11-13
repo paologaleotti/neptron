@@ -351,7 +351,7 @@ Against `docs/definition/08-frontend-and-ux.md`:
 4. Screens table, "Game list": no sort, filter or search. Menu (X) on a game sends a favourite toggle that the app ignores.
 5. Screens table, "Game page": there is none. Accept on a game launches it.
 6. Screens table, "Display panel": no geometry row. One test pattern (the grid). The panel also holds `Scanlines`, `Scanline strength` and `Hold Start for menu`. `Output` is read-only.
-7. Screens table, "Settings" (full tree): the Settings page has two panels, `Display` and `Audio`.
+7. Screens table, "Settings" (full tree): the Settings page has three panels, `Display`, `Audio` and `Library`.
 8. "Settings model", "offers reset to inherited": there is no row or option for it. The Menu button (X) on a row resets it. A pad with two buttons cannot reset.
 9. "Quick menu", combination: Select+Start is fixed (`QUICK_MENU_COMBO`), not configurable. The Start hold exists but is off by default (`input.menu_hold_start_seconds` = 0, max 10 s); the definition says the arcade default is a 2 s hold.
 10. "Quick menu", contents: the code has `Resume`, `Volume`, `Video` (`Picture style`, `Refresh policy`, `Scanlines`, `Scanline strength`), `Settings` (the global panels) and `Quit game`. No save states, interlace, position, shader, rotation, core options, controls, disc swap or reset.

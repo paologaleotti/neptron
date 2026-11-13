@@ -34,7 +34,7 @@ A row has one of four kinds. The kind decides how the row looks, what accept doe
 | `page` | Accept opens a page, an option list or the grid pattern | A right arrow at the right edge of the row | `Accept: open` |
 | `value` | Changes its value in place | `< value >` while focused (a number), the value alone (a switch) | `Left/Right: change` for a number, `Accept: change` for a switch |
 | `action` | Accept does something: resume, quit, play a game, use an option | Neither an arrow nor `< >` | `Accept: choose`, or the hint of its screen (`Accept: play`, `Accept: use`) |
-| `disabled` | Nothing: the row is unavailable now | Dim, with its reason, no arrow | none |
+| `disabled` | Nothing: the row is unavailable now | Dim, with its reason, no arrow. With the focus: a solid bar in the `border` colour with the text in `text`, the look of a focused option that cannot be chosen (a one-pixel edge can vanish under scanlines) | none |
 
 The kind of a settings row comes from its value:
 
@@ -119,7 +119,7 @@ The first page of the quick menu (`QUICK_MENU_PAGE`, written at the game level):
 | `Resume` | action | Leaves the menu, through the keep prompt after a change |
 | `Volume` | value | The volume of the game, Left and Right step 5 |
 | `Video` | page | Opens `VIDEO_PAGE` |
-| `Settings` | page | Opens the Settings page: Display and Audio, at the global level |
+| `Settings` | page | Opens the Settings page: Display, Audio and Library, at the global level |
 | `Quit game` | action | Ends the game, through the keep prompt after a change |
 
 `VIDEO_PAGE` (new, written at the game level): the video block, then `Picture style`, `Refresh policy`, `Scanlines` and `Scanline strength`. These are the display rows of the quick menu of today.
@@ -153,7 +153,7 @@ The quick menu hotkey does nothing while the menu is open, at any depth. The ses
 
 ## Scenes and goldens
 
-New scenes: `screens/settings` (the Settings page) and `screens/breadcrumb-long` (a long game title cut by the rule, on the video page). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` does not change.
+New scenes: `screens/settings` (the Settings page), `screens/breadcrumb-long` (a long game title cut by the rule, on the video page) and `screens/library-scanning` (the Library panel during a scan, with a focused disabled row). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` shows the `Settings` row with its arrow, and the tier 3 boot golden changes with it.
 
 ## Tests
 
