@@ -126,7 +126,7 @@ Every function of the quick menu of today stays reachable: the four display rows
 
 The quick menu notes a change at the game level from any screen above it, as today. It now also notes the scopes of the row when it notes the change, from the page in the snapshot of that frame (the page that sent the change). The prompt moves a change to the system or global level when those noted scopes allow the level. The app checks the scopes of each `SetValue` again.
 
-A change that the app took back (the guard reverted it) must not be asked about. The quick menu checks this at two moments, against the rows in the snapshot: when the player leaves a sub page with Back, and when the prompt would open. A change whose row is not in the snapshot at that moment stays noted. A display change waits for the confirm dialog, which takes every action until it closes, so the player is still on the sub page of the change when the guard takes it back, and leaves it later with Back.
+A change that the app took back (the guard reverted it) must not be asked about. The quick menu checks this at two moments: when the player leaves a sub page with Back, and when the prompt would open. It checks a change only against the page that made it (the page in the snapshot of that frame), and never in the frame of the change, whose snapshot still shows the old value. A global panel holds the same keys with a value that never comes from the game level, so its rows must not count. A change whose page is not in the snapshot at that moment stays noted. A display change waits for the confirm dialog, which takes every action until it closes, so the player is still on the sub page of the change when the guard takes it back, and leaves it later with Back.
 
 ### The hotkey
 

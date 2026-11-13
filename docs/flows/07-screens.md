@@ -73,7 +73,7 @@ stateDiagram-v2
     Quitting --> [*] : session ends, run relaunches
 ```
 
-The grid pattern is reached from the display panel, also when that panel was opened from the quick menu (`Settings > Display`). The keep prompt sees only the changes at the game level (the first page and the video page), so a change on a panel of the Settings page never starts it. It also forgets a change that the app took back (the guard reverted a display change that was not kept): when the player leaves the video page, and when the prompt would open, a change whose row in the snapshot no longer shows that value at the game level is not asked about and not moved. The quick menu hotkey does nothing while the menu is open, at any depth: the session ignores it while the core is paused.
+The grid pattern is reached from the display panel, also when that panel was opened from the quick menu (`Settings > Display`). The keep prompt sees only the changes at the game level (the first page and the video page), so a change on a panel of the Settings page never starts it. It also forgets a change that the app took back (the guard reverted a display change that was not kept): when the player leaves the video page, and when the prompt would open, a change whose row on the page that made it no longer shows that value at the game level is not asked about and not moved. The rows of a global panel never count, and a change is never checked in its own frame. The quick menu hotkey does nothing while the menu is open, at any depth: the session ignores it while the core is paused.
 
 ### Detail: who gets a button press
 
