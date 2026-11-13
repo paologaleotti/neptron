@@ -534,7 +534,7 @@ mod tests {
             StyleOption {
                 key: "2x",
                 detail: String::new(),
-                unavailable: Some("Not available on this monitor".to_owned()),
+                unavailable: Some("Needs another monitor".to_owned()),
             },
         ];
         let names = Names {

@@ -111,6 +111,14 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             };
             assert!(options[0].detail.contains("kHz"), "{options:?}");
             assert!(options.iter().any(|o| !o.is_enabled()), "{options:?}");
+            // The help line puts "Not available." before the reason.
+            assert!(
+                options
+                    .iter()
+                    .filter_map(|o| o.unavailable.as_deref())
+                    .all(|r| !r.starts_with("Not available")),
+                "{options:?}"
+            );
 
             // A display change with no answer goes back after 10 s.
             rig.focus("Picture style");

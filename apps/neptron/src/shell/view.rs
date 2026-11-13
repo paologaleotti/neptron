@@ -170,8 +170,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 StyleOption {
                     key: row.style.key(),
                     detail,
-                    unavailable: (!row.available)
-                        .then(|| "Not available on this monitor".to_owned()),
+                    unavailable: (!row.available).then(|| "Needs another monitor".to_owned()),
                 }
             })
             .collect()

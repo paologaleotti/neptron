@@ -188,7 +188,7 @@ A choice row never changes in place on these pages: Left and Right do nothing, A
 | --- | --- | --- |
 | `Output` | `auto`, then the connectors the run found, then the value in the file when the run did not find it | Read-only. The option list opens, but a choice sends nothing (`Scopes::NONE`), and the app also refuses `display.output`. Change it in the settings file. |
 | `Monitor profile` | `auto`, `flat` (only when a panel was detected), the preset ids, then the value in the file when it is not among them | The detail of `auto` names what it drives: the EDID name and native mode, for example `NPT FHD 24  1920x1080 60 Hz`, `<name>  EDID ranges`, or `generic_15` when there is no EDID. `flat` shows the same for the panel profile. A change opens the confirm dialog. |
-| `Picture style` | `auto`, `native`, `2x`, `3x`, `4x` | Each option shows what it gives on the monitor now, for example `15.73 kHz  59.94 Hz`. A style the monitor cannot show is dim with `Not available on this monitor`. A change opens the confirm dialog. |
+| `Picture style` | `auto`, `native`, `2x`, `3x`, `4x` | Each option shows what it gives on the monitor now, for example `15.73 kHz  59.94 Hz`. A style the monitor cannot show is dim with `Needs another monitor`. A change opens the confirm dialog. |
 | `Refresh policy` | `exact`, `exact_x2`, `force_50`, `force_60` | A change opens the confirm dialog. |
 | `Scanlines` | `auto`, `off`, `on` | Written at once, applied live. |
 | `Scanline strength` | 0 to 100 `%`, step 5, default 75 | Written at once, applied live. |
@@ -270,7 +270,7 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 | A held direction when the dialog opens | The focus stays on `Revert`. | Release the key. Held keys are ignored until their release, and Right needs 60 quiet frames. |
 | Keep refused by the guard (no valid picture now, or no frame of the change shown yet) | The dialog says `One moment.` for one frame, then shows the count again with the focus on `Keep`. | Press Accept again when the picture is on screen. With no accepted keep the change goes back at the deadline with `The display change went back: it was not kept in time.` |
 | No answer in time | `The display change went back: it was not kept in time.` | Make the change again and keep it. |
-| A style the monitor cannot show | The option is dim, with `Not available on this monitor` in the row and `Not available. Not available on this monitor` under the list. Accept does nothing. | Choose another style, or change the monitor profile. |
+| A style the monitor cannot show | The option is dim, with `Needs another monitor` in the row and `Not available. Needs another monitor` under the list. Accept does nothing. | Choose another style, or change the monitor profile. |
 | A game the monitor cannot show exactly | The video block result is `[!] filtered` or `[!] speed (X to Y Hz)` in the warning colour, or `cropped N lines` or `small picture N%`. A Warning notice `Picture: <result>.` waits for the quick menu. | Try another picture style or refresh policy in the quick menu. See [the policy](05-policy.md). |
 | A change on the in-game display panel has no visible effect | The row changes to `global`, no confirm dialog. | The game or its system has its own value, which wins over global. Change it in the quick menu, or reset the game row with Menu (X). |
 | `Monitor` in the info box says `not set` | The monitor in use comes from the EDID (`auto` with an EDID, or `flat`), not from a preset. | None needed: the `Monitor profile` row shows the setting. |
@@ -328,7 +328,7 @@ Against `docs/definition/08-frontend-and-ux.md`:
 Against the READMEs and code comments:
 
 14. `crates/neptron-ui/src/screens.rs`, doc of `DISPLAY_PAGE`, and `crates/neptron-ui/README.md` ("Ids that the UI and the app share", "The display panel and the confirm dialog"): they name four setting rows and the grid row, and say "all five rows of the display page still fit". The app page has seven setting rows plus `Grid pattern` (`DISPLAY_KEYS` in `apps/neptron/src/pages.rs`).
-15. `crates/neptron-ui/README.md` gives the reason example `Not available. Needs a 15 kHz monitor`. The app sends `Not available on this monitor` for every style, so the help line reads `Not available. Not available on this monitor`.
+15. `crates/neptron-ui/README.md` gives the reason example `Not available. Needs a 15 kHz monitor`. The app sends `Needs another monitor` for every style, so the help line reads `Not available. Needs another monitor`.
 16. `crates/neptron-ui/src/intent.rs`, doc of `Intent::QuitGame`: "Stop the game and return to the game list". The next run starts on Home with the cursor on the first row, not on the list of the system.
 17. `crates/neptron-ui/src/screens.rs` and `crates/neptron-ui/README.md` let the quick menu open the grid pattern (`GRID_PATTERN` in `QuickMenu::handle`). The app's quick menu page has no such row; the grid is reached through `Display`.
 18. `apps/neptron/README.md`, "Resume, reset and quit go to the session": the quick menu has no reset.
