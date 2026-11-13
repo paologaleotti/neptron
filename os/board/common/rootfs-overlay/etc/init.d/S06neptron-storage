@@ -17,10 +17,12 @@
 # names it as an offer (share_fix): the user may ask for its format in
 # Settings > System. The frontend then writes a request file on the state
 # partition and reboots, and the next boot checks the disk again before
-# it formats; this script stays the only code that formats. Every line of the script also goes to syslog
-# with the tag neptron-storage, because the console of a PC is not kept,
-# and, when /state is mounted, to /state/log/storage.log, because /var/log
-# is a RAM folder.
+# it formats; this script stays the only code that formats.
+#
+# Every line of the script also goes to syslog with the tag
+# neptron-storage, because the console of a PC is not kept, and, when
+# /state is mounted, to /state/log/storage.log, because /var/log is a RAM
+# folder.
 #
 # A second argument puts every path of the script below that folder, for a
 # test. Init never gives one; a variable would not do, because init passes
@@ -145,13 +147,15 @@ else
 fi
 
 # The share partition (partition 4) is made and formatted by this script
-# only. It formats a partition 4 only when all of these hold, so the games
-# of the user are never formatted away:
+# only. By its own rules it formats a partition 4 only when all of these
+# hold, so the games of the user are never formatted away. The one
+# exception is a format request of the user, which has rules of its own
+# (see user_format_refusal):
 #
 # - The marker /state/share-pending is there: this script wrote it, with a
 #   sync, before it made the partition, and removes it after the first
-#   mount. A partition 4 with no marker is never formatted, whatever is on
-#   it. A stick written again with dd has a new state partition with no
+#   mount. A partition 4 with no marker is never formatted by these
+#   rules, whatever is on it. A stick written again with dd has a new state partition with no
 #   marker; the script makes partition 4 again with a new marker, but only
 #   when the free space holds no old share at another start (the scan
 #   below). An old share at the planned start becomes partition 4 again,
