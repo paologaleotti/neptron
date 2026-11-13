@@ -234,6 +234,12 @@ impl<S: AudioSink> AudioPipeline<S> {
         }
     }
 
+    /// The part of the cue that has not played yet, interleaved. Empty with
+    /// no cue pending.
+    pub fn pending_cue(&self) -> &[i16] {
+        self.cue.get(self.cue_at..).unwrap_or_default()
+    }
+
     /// A frame in which the core did not run (the quick menu, the output
     /// off): with a cue pending, writes its next slice, with silence after
     /// it, up to the target level of the queue, so the cue plays at any

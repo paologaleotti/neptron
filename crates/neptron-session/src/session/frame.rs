@@ -316,6 +316,7 @@ fn set_message(message: &mut String, text: &str, limit: usize) {
 }
 
 /// Makes the audio pipeline again for a new core timing, as the spec asks.
+/// The user volume and the rest of a cue carry over.
 /// A timing the pipeline refuses keeps the old pipeline. A pipeline that
 /// cannot be made loses the sink, and the session runs with no sound.
 fn retime<S: AudioSink>(
@@ -342,8 +343,15 @@ fn retime<S: AudioSink>(
         core.frame_rate_mhz
     };
     let volume = old.volume_percent();
+    // A timing change is rare, so the copy of the rest of a cue costs no
+    // steady-state frame.
+    let cue = old.pending_cue().to_vec();
     match AudioPipeline::new(old.into_sink(), core, run_rate, resampling) {
-        Ok(pipeline) => *audio = Some(pipeline.with_volume_percent(volume)),
+        Ok(pipeline) => {
+            let mut pipeline = pipeline.with_volume_percent(volume);
+            pipeline.write_cue(&cue);
+            *audio = Some(pipeline);
+        }
         Err(_) => counters.audio_lost = true,
     }
 }

@@ -676,3 +676,34 @@ fn the_tone_plays_whole_with_the_output_off() {
         assert_eq!(stats.overrun_frames, 0);
     });
 }
+
+#[test]
+fn a_timing_change_keeps_the_rest_of_the_tone() {
+    let script = format!("{SCRIPT}at 40 av_info 256 224 1333 320 240 50007 32040\n");
+    with_script!(
+        "a_timing_change_keeps_the_rest_of_the_tone",
+        &script,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            while rig.core_frame() < 36 {
+                rig.run(1);
+            }
+            assert_eq!(rig.session.write_cue(&tone()), 9_600);
+            let (mut played, mut last_cue, mut last_frames, mut retimed) = (0, 0, 0, false);
+            for _ in 0..60 {
+                rig.run(1);
+                let stats = rig.session.audio_stats().unwrap();
+                if stats.frames < last_frames {
+                    // A new pipeline for the new timing.
+                    played += last_cue;
+                    retimed = true;
+                }
+                last_cue = stats.cue_frames;
+                last_frames = stats.frames;
+            }
+            assert!(retimed, "the timing changed");
+            played += last_cue;
+            assert_eq!(played, 9_600, "the whole tone across the timing change");
+        }
+    );
+}
