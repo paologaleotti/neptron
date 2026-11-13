@@ -48,16 +48,29 @@ if grep -qx 'BR2_PACKAGE_DROPBEAR=y' "$BR2_CONFIG"; then
 	# The host keys live on the state partition (S49neptron-ssh-keys).
 	ln -snf /state/dropbear "$target/etc/dropbear"
 else
+	# The release image holds no file of the development variant: the SSH
+	# server and its settings, a telnet server, and every file of the
+	# development overlay that the release overlays do not have too. The
+	# list of the overlay is read from the tree, so a file added to it
+	# later is checked as well.
+	ext=$BR2_EXTERNAL_NEPTRON_PATH/board
+	dev_files=$(cd "$ext/pc/dev-overlay" && find . -type f -o -type l | sed 's|^\./||')
 	for path in usr/sbin/dropbear root/.ssh etc/default/dropbear etc/init.d/S50dropbear \
-		etc/init.d/S50telnet usr/sbin/telnetd etc/neptron/development \
-		etc/profile.d/neptron-hot.sh etc/init.d/S41neptron-address \
-		etc/init.d/S49neptron-ssh-keys; do
+		etc/init.d/S50telnet usr/sbin/telnetd $dev_files; do
+		if [ -e "$ext/common/rootfs-overlay/$path" ] || [ -e "$ext/pc/rootfs-overlay/$path" ]; then
+			continue
+		fi
 		if [ -e "$target/$path" ] || [ -L "$target/$path" ]; then
 			echo "post-build: the release image holds /$path of the development variant; build it in a clean output" >&2
 			exit 1
 		fi
 	done
-	if grep -q /state/hot "$target/usr/libexec/neptron/launch"; then
+	launch=$target/usr/libexec/neptron/launch
+	if [ ! -f "$launch" ]; then
+		echo "post-build: the release image has no launch script at /usr/libexec/neptron/launch" >&2
+		exit 1
+	fi
+	if grep -q /state/hot "$launch"; then
 		echo "post-build: the release launch script reads the hot folder of the development variant" >&2
 		exit 1
 	fi
