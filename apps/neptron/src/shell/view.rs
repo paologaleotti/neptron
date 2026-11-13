@@ -4,7 +4,7 @@
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_settings::DisplayClass;
 use neptron_types::MonitorKind;
-use neptron_ui::screens::{AUDIO_PAGE, DISPLAY_PAGE, QUICK_MENU_PAGE, VIDEO_PAGE};
+use neptron_ui::screens::{AUDIO_PAGE, DISPLAY_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, VIDEO_PAGE};
 use neptron_ui::snapshot::{
     ConfirmId, GameId, Notice, NoticeId, NoticeKind, PageId, PendingConfirm, SessionInfo,
     SettingsPage, VideoStatus,
@@ -129,12 +129,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             outputs: &self.runtime.audio_outputs,
         };
         self.snap.settings = match page {
-            DISPLAY_PAGE => {
-                let mut page = pages::display_page(&self.config, names);
-                let row = pages::rescan_row(self.library.scanning(), self.in_game());
-                page.rows.push(row);
-                page
-            }
+            DISPLAY_PAGE => pages::display_page(&self.config, names),
+            LIBRARY_PAGE => pages::library_page(self.library.scanning(), self.in_game()),
             AUDIO_PAGE => pages::audio_page(&self.config, names),
             QUICK_MENU_PAGE => pages::quick_menu_page(&self.config, names),
             VIDEO_PAGE => pages::video_page(&self.config, names),

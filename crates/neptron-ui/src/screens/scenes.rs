@@ -15,8 +15,8 @@ use crate::theme::Theme;
 use super::game_list::WINDOW_ROWS;
 use super::router::Screen;
 use super::{
-    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME, SETTINGS_PAGE,
-    Screens, VIDEO_PAGE,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
+    SETTINGS_PAGE, Screens, VIDEO_PAGE,
 };
 
 pub(super) const SCENES: &[SceneDef] = &[
@@ -124,6 +124,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         name: "screens/quick-menu-volume",
         build: quick_menu_volume,
     },
+    SceneDef {
+        name: "screens/library-scanning",
+        build: library_scanning,
+    },
 ];
 
 /// The settings of the fixtures.
@@ -163,6 +167,19 @@ pub(super) const TO_AUDIO: [UiAction; 8] = [
     UiAction::Down,
     UiAction::Down,
     UiAction::Accept,
+    UiAction::Down,
+    UiAction::Accept,
+];
+
+/// The path from home to the Library panel with the fixture systems.
+pub(super) const TO_LIBRARY: [UiAction; 9] = [
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+    UiAction::Down,
     UiAction::Down,
     UiAction::Accept,
 ];
@@ -429,6 +446,22 @@ fn display_style(frame: &mut UiFrame, theme: &Theme) {
         frame,
     );
     screens.update(&snap, &[UiAction::Down], frame);
+}
+
+/// The Library panel with the app's rescan row while a scan runs: a
+/// disabled action row with the focus and its reason.
+fn library_scanning(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = with_systems();
+    let scanning = MenuItem::new(
+        SettingKey(9),
+        "Scanning games...",
+        SettingValue::Action(crate::snapshot::ActionId(1)),
+    )
+    .unavailable("A scan runs");
+    snap.settings = SettingsPage::new(LIBRARY_PAGE, "Library", vec![scanning]);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_LIBRARY, frame);
+    screens.update(&snap, &[], frame);
 }
 
 /// The change that the confirm scenes wait for.

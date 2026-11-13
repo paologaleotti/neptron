@@ -92,13 +92,13 @@ fn a_rescan_shows_a_new_game_and_keeps_the_focus() {
 
 #[test]
 #[ignore = "tier 2"]
-fn the_rescan_row_of_the_display_panel_finds_a_new_game() {
+fn the_rescan_row_of_the_library_panel_finds_a_new_game() {
     let mut rig = list_with_two_games(&fresh("rescan-row"));
     rig.focus("Settings");
     rig.tap(&[Control::A]);
-    rig.focus("Display");
+    rig.focus("Library");
     rig.tap(&[Control::A]);
-    assert_eq!(rig.screen(), "display");
+    assert_eq!(rig.screen(), "library");
     rig.focus(RESCAN_LABEL);
     add_game(&rig, "nes/Alpha Game.nes");
     rig.hold(&[Control::A]);
@@ -118,7 +118,7 @@ fn the_rescan_row_of_the_display_panel_finds_a_new_game() {
 
     until_notice(&mut rig, "1 game added.");
     rig.tap(&[Control::A]);
-    assert_eq!(rig.screen(), "display");
+    assert_eq!(rig.screen(), "library");
     assert_eq!(rig.focused().as_deref(), Some(RESCAN_LABEL));
     assert_eq!(nes_games(&mut rig), 3);
     rig.finish();

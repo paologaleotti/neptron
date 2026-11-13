@@ -2320,3 +2320,32 @@ fn a_very_long_path_in_the_tree_ends_with_an_ellipsis() {
     assert!(whole.len() <= super::breadcrumb::BREADCRUMB_BYTES);
     assert!(long.starts_with(whole.trim_end_matches("...")));
 }
+
+#[test]
+fn the_library_panel_is_a_page_of_the_settings_page() {
+    let mut run = Run::new();
+    let snap = with_systems();
+    run.step(&snap, &super::scenes::TO_LIBRARY);
+    assert_eq!(run.screen(), "library");
+    assert_eq!(
+        run.intents(),
+        [Intent::LoadSettings {
+            page: super::LIBRARY_PAGE
+        }]
+    );
+    assert_eq!(title(&run), ("Settings > Library", None));
+    run.step(&snap, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("Library")));
+    let panels: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::List)
+        .map(|r| (r.label, r.kind))
+        .collect();
+    let page = Some(crate::RowKind::Page);
+    assert_eq!(
+        panels,
+        [("Display", page), ("Audio", page), ("Library", page)]
+    );
+}

@@ -62,6 +62,10 @@ pub const SETTINGS_PAGE: PageId = PageId(RESERVED_ID_MIN + 5);
 /// settings of the game, written at the game level.
 pub const VIDEO_PAGE: PageId = PageId(RESERVED_ID_MIN + 6);
 
+/// The Library panel: the rows about the games folder, such as the rescan
+/// of the app, written at the global level.
+pub const LIBRARY_PAGE: PageId = PageId(RESERVED_ID_MIN + 7);
+
 /// One row of the Settings page: a panel and the page it opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Panel {
@@ -84,6 +88,10 @@ pub static SETTINGS_PANELS: &[Panel] = &[
     Panel {
         label: "Audio",
         page: AUDIO_PAGE,
+    },
+    Panel {
+        label: "Library",
+        page: LIBRARY_PAGE,
     },
 ];
 

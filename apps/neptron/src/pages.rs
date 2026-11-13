@@ -9,8 +9,8 @@ use neptron_settings::{
 };
 use neptron_ui::Value as UiValue;
 use neptron_ui::screens::{
-    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME, SETTINGS_PAGE,
-    VIDEO_PAGE,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
+    SETTINGS_PAGE, VIDEO_PAGE,
 };
 use neptron_ui::snapshot::{
     ActionId, ChoiceOption, Level as UiLevel, MenuItem, PageId, Scopes, SettingKey, SettingValue,
@@ -32,9 +32,11 @@ pub const RESCAN_GAMES: ActionId = ActionId(1);
 /// The label of the rescan row.
 pub const RESCAN_LABEL: &str = "Rescan games";
 
-/// The label of the rescan row while a scan runs. The row is disabled then,
-/// and a disabled action row shows no reason, so the label says it.
+/// The label of the rescan row while a scan runs. The row is disabled then.
 pub const SCANNING_LABEL: &str = "Scanning games...";
+
+/// The reason that the rescan row is disabled while a scan runs.
+pub const SCANNING_REASON: &str = "A scan runs";
 
 /// The reason that the rescan row is disabled in a game: a game run lists
 /// no games, and the return to the list checks the folders.
@@ -155,9 +157,15 @@ pub fn quick_menu_page(config: &Config, names: Names<'_>) -> SettingsPage {
 pub fn rescan_row(scanning: bool, in_game: bool) -> MenuItem {
     match (scanning, in_game) {
         (_, true) => action(4, RESCAN_LABEL, RESCAN_GAMES).unavailable(RESCAN_IN_GAME),
-        (true, false) => action(4, SCANNING_LABEL, RESCAN_GAMES).unavailable(SCANNING_LABEL),
+        (true, false) => action(4, SCANNING_LABEL, RESCAN_GAMES).unavailable(SCANNING_REASON),
         (false, false) => action(4, RESCAN_LABEL, RESCAN_GAMES),
     }
+}
+
+/// The rows of the Library panel: the rescan of the games folder. The
+/// panel is listed in a game too, where its row is disabled.
+pub fn library_page(scanning: bool, in_game: bool) -> SettingsPage {
+    SettingsPage::new(LIBRARY_PAGE, "Library", vec![rescan_row(scanning, in_game)])
 }
 
 /// The rows of the video page of the quick menu: the display settings of
@@ -433,7 +441,10 @@ mod tests {
         assert!(idle.is_enabled());
         let busy = rescan_row(true, false);
         assert_eq!(busy.label, SCANNING_LABEL);
-        assert!(!busy.is_enabled());
+        assert_eq!(busy.unavailable.as_deref(), Some(SCANNING_REASON));
+        let page = library_page(false, false);
+        assert!(page.is_for(LIBRARY_PAGE));
+        assert_eq!(page.rows, [idle]);
         for scanning in [false, true] {
             let in_game = rescan_row(scanning, true);
             assert_eq!(in_game.unavailable.as_deref(), Some(RESCAN_IN_GAME));
@@ -728,6 +739,33 @@ mod tests {
             .map(|r| r.label.as_str())
             .collect();
         assert_eq!(disabled, ["Picture style", "Refresh policy"]);
+    }
+
+    #[test]
+    fn every_action_or_page_row_has_its_own_key() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            styles: &[],
+            class: DisplayClass::Crt,
+            outputs: &[],
+        };
+        let mut keys: Vec<_> = [
+            quick_menu_page(&config, names),
+            display_page(&config, names),
+            library_page(false, false),
+        ]
+        .iter()
+        .flat_map(|page| page.rows.iter().map(|r| r.key))
+        .filter(|k| k.0 >= ACTION_KEY_BASE)
+        .collect();
+        let count = keys.len();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), count, "{keys:?}");
     }
 
     #[test]
