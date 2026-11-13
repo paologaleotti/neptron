@@ -123,7 +123,7 @@
 "rtype tv_ntsc aspect" = "native TV field rate 720x240p 15.734kHz 60.054Hz game 704x240+8+0 sharp crop 8 speed"
 "rtype tv_ntsc fill" = "native TV field rate 720x240p 15.734kHz 60.054Hz game 704x240+8+0 sharp crop 8 speed"
 "rtype tv_ntsc integer" = "native TV field rate 720x240p 15.734kHz 60.054Hz game 384x240+168+0 nearest crop 8 speed"
-"rtype tv_pal aspect" = "native TV field rate 720x288p 15.625kHz 50.080Hz game 626x256+47+16 sharp speed"
+"rtype tv_pal aspect" = "native TV field rate 720x288p 15.625kHz 50.080Hz game 650x256+35+16 sharp speed"
 "rtype tv_pal fill" = "native TV field rate 720x288p 15.625kHz 50.080Hz game 704x256+8+16 sharp speed"
 "rtype tv_pal integer" = "native TV field rate 720x288p 15.625kHz 50.080Hz game 384x256+168+16 nearest speed"
 "sms_ntsc tv_ntsc aspect" = "native TV field rate 720x240p 15.734kHz 60.054Hz game 563x192+78+24 sharp"

@@ -33,7 +33,9 @@ pub const TV_625_CONSOLE_WIDTH_SAMPLES: u16 = 650;
 
 /// The fewest lines per field of a console picture: a 4:3 source with
 /// this many lines per field up to the 525-line picture lines (224 to
-/// 240) gets the console width of its line system.
+/// 240) gets the console width of its line system. A taller 4:3 source
+/// gets at least the console width: it fills more of the frame than a
+/// console picture, so it can be wider, never narrower.
 pub const TV_CONSOLE_LINES_MIN: u16 = 224;
 
 /// How far a whole or half factor of the game width can be from the
@@ -87,20 +89,30 @@ pub(crate) fn tv_samples(
 
 /// The width that keeps the display aspect over `field_lines` lines of
 /// the line system, or the console width for a 4:3 console picture.
+///
+/// A 4:3 source of 224 to 240 lines per field gets the console width. A
+/// taller 4:3 source gets the larger of the console width and the aspect
+/// width, so the width never falls as the lines rise: on 625 lines the
+/// aspect width of 241 lines is 589 samples, below the console's 650.
+///
+/// The division rounds to the nearest sample, a half up.
 fn aspect_samples(system: LineSystem, aspect_milli: u32, field_lines: u16) -> u32 {
     let (picture_lines, console) = match system {
         LineSystem::L525 => (TV_525_PICTURE_LINES, TV_525_CONSOLE_WIDTH_SAMPLES),
         LineSystem::L625 => (TV_625_PICTURE_LINES, TV_625_CONSOLE_WIDTH_SAMPLES),
     };
-    let four_thirds = aspect_milli.abs_diff(FOUR_THIRDS_MILLI) <= 1;
-    let console_lines = (TV_CONSOLE_LINES_MIN..=TV_525_PICTURE_LINES).contains(&field_lines);
-    if four_thirds && console_lines {
-        return u32::from(console);
-    }
     let samples = div_round(
         u64::from(aspect_milli) * u64::from(field_lines) * u64::from(TV_SAFE_WIDTH_SAMPLES) * 3,
         4_000 * u64::from(picture_lines),
     );
+    let console = u32::from(console);
+    let four_thirds = aspect_milli.abs_diff(FOUR_THIRDS_MILLI) <= 1;
+    let samples = match field_lines {
+        _ if !four_thirds => samples,
+        lines if lines < TV_CONSOLE_LINES_MIN => samples,
+        lines if lines <= TV_525_PICTURE_LINES => console,
+        _ => samples.max(console),
+    };
     samples.clamp(1, u32::from(TV_SAFE_WIDTH_SAMPLES))
 }
 
@@ -175,6 +187,36 @@ mod tests {
         // A 4:3 picture of 192 lines is not a console picture of the
         // console rule: 1.333 x 192 x 2.2 = 563.
         assert_eq!(aspect(L525, 256, 192, FOUR_THIRDS), 563);
+    }
+
+    #[test]
+    fn a_taller_4_3_source_is_never_narrower_than_a_console_picture() {
+        use LineSystem::{L525, L625};
+        // 241 lines: 707 samples, capped at 704, on 525 lines; the
+        // console's 650 on 625 lines, where the aspect width is 589.
+        assert_eq!(aspect_samples(L525, FOUR_THIRDS, 240), 644);
+        assert_eq!(aspect_samples(L525, FOUR_THIRDS, 241), 704);
+        assert_eq!(aspect_samples(L625, FOUR_THIRDS, 240), 650);
+        assert_eq!(aspect_samples(L625, FOUR_THIRDS, 241), 650);
+        assert_eq!(aspect_samples(L625, FOUR_THIRDS, 288), 704);
+        // Through the snap, 256 wide: 2.5x up to the console edge.
+        assert_eq!(aspect(L525, 256, 240, FOUR_THIRDS), 640);
+        assert_eq!(aspect(L525, 256, 241, FOUR_THIRDS), 704);
+        assert_eq!(aspect(L625, 256, 240, FOUR_THIRDS), 640);
+        assert_eq!(aspect(L625, 256, 241, FOUR_THIRDS), 640);
+    }
+
+    #[test]
+    fn the_width_of_a_4_3_source_never_falls_as_its_lines_rise() {
+        for system in [LineSystem::L525, LineSystem::L625] {
+            let widths: Vec<u32> = (224..=288)
+                .map(|lines| aspect(system, 256, lines, FOUR_THIRDS))
+                .collect();
+            assert!(
+                widths.windows(2).all(|w| w[0] <= w[1]),
+                "{system:?}: {widths:?}"
+            );
+        }
     }
 
     #[test]
