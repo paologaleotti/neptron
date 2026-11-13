@@ -41,6 +41,16 @@ The owner of NEPTRON decided (open point OP-054) that a free, open
 source image can hold Snes9x and Genesis Plus GX, with their licence
 texts and this list, and that the image is never sold.
 
+Firmware
+--------
+
+The development variant of the image holds the firmware of the Realtek
+RTL8168 Ethernet chips (`/lib/firmware/rtl_nic`) from the package
+linux-firmware. Realtek allows the distribution of these files with
+their copyright notice. The notice is in the file `WHENCE` of
+linux-firmware, in `legal/licenses/linux-firmware`. The release image
+holds no firmware.
+
 The kernel and the 15 kHz patch set
 -----------------------------------
 

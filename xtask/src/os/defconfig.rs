@@ -188,6 +188,26 @@ mod tests {
     }
 
     #[test]
+    fn the_dev_variant_has_the_realtek_ethernet_firmware_and_no_other() {
+        let dev = fragment("configs/neptron_pc_x86_64_dev.fragment");
+        assert_eq!(dev["BR2_PACKAGE_LINUX_FIRMWARE"], "y");
+        let firmware: Vec<_> = dev
+            .iter()
+            .filter(|(k, v)| k.starts_with("BR2_PACKAGE_LINUX_FIRMWARE_") && *v == "y")
+            .map(|(k, _)| k.as_str())
+            .collect();
+        assert_eq!(firmware, ["BR2_PACKAGE_LINUX_FIRMWARE_RTL_8169"]);
+        // r8169 asks for its firmware when the port opens, after the root
+        // filesystem mounts, so the file in /lib/firmware is enough.
+        assert_eq!(fragment("board/pc/network.config")["CONFIG_R8169"], "y");
+        let release = defconfig(Arch::X86_64);
+        assert!(
+            !release.keys().any(|k| k.starts_with("BR2_PACKAGE_LINUX_FIRMWARE")),
+            "the release image starts no network and needs no firmware"
+        );
+    }
+
+    #[test]
     fn the_pc_image_boots_with_grub_on_bios_and_uefi_and_has_no_login() {
         let x = defconfig(Arch::X86_64);
         for option in [
