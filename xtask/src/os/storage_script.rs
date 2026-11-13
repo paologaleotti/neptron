@@ -99,6 +99,7 @@ const FAKES: &[(&str, &str)] = &[
          \tif [ \"${FAKE_RETYPE_WRITES:-yes}\" = yes ]; then\n\
          \t\tsed -i.bak 's/^\\(.*sda4 : .*type=\\)[0-9a-fA-F]*$/\\17/' \"$R/table\"\n\
          \tfi\n\
+         \tif [ -n \"$FAKE_RETYPE_ALSO\" ]; then sed -i.bak \"$FAKE_RETYPE_ALSO\" \"$R/table\"; fi\n\
          \texit \"${FAKE_RETYPE_EXIT:-0}\" ;;\n\
          *' --part-type '*) grep -q '4 : .*type=7' \"$R/table\" && echo ' 7'; exit 0 ;;\n\
          esac\n\
@@ -1858,4 +1859,27 @@ fn a_btrfs_superblock_mirror_stops_the_offer() {
     run.write_sda4(64 * 1024 * 1024 + 64, b"_BHRfS_M");
     run.start()
         .assert_no_offer(Some("it holds a btrfs superblock mirror at 64 MiB"));
+}
+
+/// sfdisk --part-type writes the whole MBR sector: a change of anything
+/// but the type of partition 4 stops the format.
+#[test]
+fn a_type_change_that_changes_another_entry_formats_nothing() {
+    for (name, also) in [
+        (
+            "retype-other-entry",
+            "s/size=        1024, type=c/size=        2048, type=c/",
+        ),
+        (
+            "retype-entry-3",
+            "s/size=        6144, type=83/size=        6144, type=82/",
+        ),
+    ] {
+        let run = Run::empty_partition_4(name, PLANNED, "83").set("FAKE_RETYPE_ALSO", also);
+        run.request_planned("83");
+        let out = run.start();
+        out.assert_request_refused(
+            "the partition table changed in more than the type of partition 4",
+        );
+    }
 }

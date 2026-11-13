@@ -684,8 +684,12 @@ request_refused() {
 
 # Sets the type of partition 4 in the table on the disk to 7. As for the
 # append of the partition, the exit status of sfdisk proves nothing: the
-# table read back after a flush of the cache decides.
+# table read back after a flush of the cache decides. sfdisk writes the
+# whole MBR sector, so the table read back must equal the table before in
+# everything but the type of partition 4: the label, its id and the other
+# entries. read_table has read the table before.
 set_share_type() {
+	before=$(printf '%s\n' "$table" | sed '/^[^ ]*[^0-9]4 : /s/type=[0-9a-fA-F]*/type=7/')
 	output=$(sfdisk --force --no-reread --no-tell-kernel --lock=nonblock \
 		--part-type "$disk_dev" 4 7 2>&1)
 	code=$?
@@ -699,6 +703,12 @@ set_share_type() {
 	now=$(entry_of_table)
 	if [ "$now" != "$req_start $req_size 7" ]; then
 		request_refused "after the type change the table holds partition 4 as (${now:-nothing}), not ($req_start $req_size 7)"
+		return 1
+	fi
+	if [ "$(printf '%s\n' "$table")" != "$before" ]; then
+		log "the table before the type change: $(printf '%s' "$before" | tr '\n' ' ')"
+		log "the table after the type change: $(printf '%s' "$table" | tr '\n' ' ')"
+		request_refused "the partition table changed in more than the type of partition 4 after sfdisk --part-type; nothing is formatted; check the table of $disk_dev on another computer"
 		return 1
 	fi
 }
