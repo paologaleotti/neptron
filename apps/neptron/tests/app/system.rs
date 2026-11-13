@@ -392,3 +392,23 @@ fn reboots_of_boots_with_no_valid_mode_still_reach_safe_mode() {
         },
     );
 }
+
+#[test]
+#[ignore = "tier 2"]
+fn a_second_request_after_the_outcome_changes_nothing() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "a_second_request_after_the_outcome_changes_nothing",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            on_the_system_panel(&mut rig);
+            // Both in one frame: the run has its outcome after the first.
+            rig.shell().request_power(PowerRequest::Reboot);
+            rig.shell().request_power(PowerRequest::PowerOff);
+            assert_eq!(rig.until_end(1), Outcome::Reboot);
+            rig.finish();
+        },
+    );
+}
