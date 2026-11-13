@@ -340,3 +340,13 @@ fn hundred_thousand_frames_at_60_10_hz_with_late_flips() {
         }
     );
 }
+
+/// A panel shows no `speed` word for a change the audio rate control
+/// absorbs, and shows it for a larger one: both crates must use one bound.
+#[test]
+fn the_panel_speed_bound_is_the_audio_rate_control_bound() {
+    assert_eq!(
+        neptron_video::PANEL_SPEED_SILENT_PPM,
+        neptron_audio::MAX_RATE_DEVIATION_PPM
+    );
+}

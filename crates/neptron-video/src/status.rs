@@ -30,9 +30,12 @@ pub struct VideoStatusText {
     /// whole factor and `sharp` when one does not (sharp bilinear, or
     /// nearest with uneven pixels at a scale from 1 to 2): the panel's way
     /// to keep the game's aspect, never blurry and never an alert. `filtered` is a CRT word only.
+    /// A panel shows `speed` only when the rates differ by more than
+    /// [`PANEL_SPEED_SILENT_PPM`].
     pub result: String,
-    /// The player must notice the result: `filtered` or `speed`, which a
-    /// flat panel never gives.
+    /// The player must notice the result: `filtered` or `speed`. A flat
+    /// panel never gives `filtered`, and gives `speed` only beyond
+    /// [`PANEL_SPEED_SILENT_PPM`].
     pub alert: bool,
 }
 
@@ -59,6 +62,15 @@ pub struct StatusInputs<'a> {
 /// The width of the size column and of the line rate column, in
 /// characters.
 pub const STATUS_COLUMN_CHARS: usize = 10;
+
+/// The largest speed change that a flat panel shows with no `speed` word,
+/// in parts per million of the mode's rate: the bound of the audio rate
+/// control (`neptron_audio::MAX_RATE_DEVIATION_PPM`, which a test of
+/// `neptron-session` holds equal). A panel offers few rates, so a game
+/// a little off them (60.099 Hz on 60 Hz) is the panel's normal way and
+/// no alert. A larger change, such as a 50 Hz game on a panel with no
+/// 50 Hz mode, makes the game run fast, and the player must know.
+pub const PANEL_SPEED_SILENT_PPM: u32 = 5_000;
 
 /// The start of an alert result. It marks the alert also on a screen or a
 /// skin where its colour is hard to tell apart.
@@ -128,7 +140,12 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
     let small = proposal.padding.map(|pad| pad.fill_permille());
     let game_mhz = u64::from(timing.game_mhz);
     let shown_mhz = inputs.mode.field_rate_mhz() / repeat;
-    let speed_changed = !panel && shown_mhz.abs_diff(game_mhz) >= REFRESH_MATCH_MHZ;
+    let off_mhz = shown_mhz.abs_diff(game_mhz);
+    let speed_changed = if panel {
+        u128::from(off_mhz) * 1_000_000 > u128::from(shown_mhz) * u128::from(PANEL_SPEED_SILENT_PPM)
+    } else {
+        off_mhz >= REFRESH_MATCH_MHZ
+    };
     let exact = !fitted && !sharp && cropped == 0 && small.is_none() && !speed_changed;
     let alert = fitted || speed_changed;
     if alert {
@@ -380,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn the_speed_changes_at_the_match_bound_and_never_on_a_panel() {
+    fn the_speed_changes_at_the_match_bound_on_a_crt() {
         let (base, rung) = winner();
         let shown = base.mode.field_rate_mhz();
         let mut p = base;
@@ -393,6 +410,45 @@ mod tests {
             result(&p, Rung::Panel, &base.mode),
             ("exact".to_owned(), false)
         );
+    }
+
+    #[test]
+    fn a_panel_shows_a_speed_change_beyond_the_audio_rate_control() {
+        let (base, _) = winner();
+        let mut p = same_speed(base);
+        p.timing.target.kind = RefreshKind::Panel;
+        p.placement.filter = Filter::Nearest;
+        let at_60 = at_rate(p.mode, 60_000);
+        let shown = at_60.field_rate_mhz();
+        let at_50 = at_rate(p.mode, 50_000);
+
+        p.timing.game_mhz = 50_000;
+        let (text, alert) = result(&p, Rung::Panel, &at_60);
+        assert_eq!(
+            text,
+            format!(
+                "[!] speed (50.000 to {}.{:03} Hz)",
+                shown / 1_000,
+                shown % 1_000
+            )
+        );
+        assert!(alert);
+
+        p.timing.game_mhz = u32::try_from(shown + 99).unwrap();
+        assert_eq!(
+            result(&p, Rung::Panel, &at_60),
+            ("exact".to_owned(), false),
+            "60.099 on 60: the audio rate control absorbs it"
+        );
+
+        p.timing.game_mhz = u32::try_from(at_50.field_rate_mhz()).unwrap();
+        assert_eq!(result(&p, Rung::Panel, &at_50), ("exact".to_owned(), false));
+
+        let bound = shown * u64::from(PANEL_SPEED_SILENT_PPM) / 1_000_000;
+        p.timing.game_mhz = u32::try_from(shown - bound).unwrap();
+        assert_eq!(result(&p, Rung::Panel, &at_60).0, "exact", "at the bound");
+        p.timing.game_mhz = u32::try_from(shown - bound - 2).unwrap();
+        assert!(result(&p, Rung::Panel, &at_60).0.starts_with("[!] speed ("));
     }
 
     #[test]

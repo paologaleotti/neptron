@@ -273,7 +273,7 @@ Other golden lines that show a rule:
 | A GPU with a fixed pixel clock (`pi_vc4_composite`, 13.5 MHz) | No mode for any game (`policy_gpus.toml` gives `none`). | None: Switchres does not calculate for a fixed clock. |
 | The panel's preferred mode is above what the system sends | Notice `The panel's native mode <mode> is above what this system sends (<limits>). It runs at <mode>.` | None needed: the largest fitting mode of at least 50 Hz is used. |
 | The panel lists no mode the system sends | Notice `The panel lists no mode that this system sends (<limits>).` and no panel profile. | Another output or display. |
-| A 50 Hz game on a panel with no 50 Hz mode | The panel mode at 60 Hz wins (rate nearest the game among the modes of the preferred size). The core runs one frame per flip, so the game runs at the panel rate. The result has no `speed` word and no alert on a panel. | None in the policy. See the defect list of this task. |
+| A 50 Hz game on a panel with no 50 Hz mode | The panel mode at 60 Hz wins (rate nearest the game among the modes of the preferred size). The core runs one frame per flip, so the game runs at the panel rate. The game runs 20 % fast. The Video block shows `[!] speed (50.000 to 60.000 Hz)`: on a panel the `speed` word shows when the rates differ by more than `PANEL_SPEED_SILENT_PPM` (5000 ppm), the bound of the audio rate control. | Use a CRT, or a panel that lists a 50 Hz mode. |
 
 ## Source
 
