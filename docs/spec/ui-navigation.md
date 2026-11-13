@@ -129,13 +129,14 @@ Not in this panel yet: the version, the network address and a sleep timer.
 
 ### The confirm question of an action row
 
-`MenuItem::with_confirm(question, message)` gives an action row a confirm question. Accept on such a row opens the dialog widget over its page, and sends nothing yet:
+`MenuItem::with_confirm(question, message, working)` gives an action row a confirm question. Accept on such a row opens the dialog widget over its page, and sends nothing yet:
 
 - The title is the question and the message says what happens. The buttons are `Cancel`, then the label of the row.
 - The focus starts on `Cancel`, so a blind press of accept cancels. Only right, then accept, sends the action of the row.
 - Back cancels. Accept on `Cancel` cancels. A cancel sends nothing, and the focus stays on the row.
 - When the row is gone from the page, is disabled, or has no question any more, the dialog closes and sends nothing.
 - The hints are `Accept: choose` and `Back: cancel`. The tree holds the rows of the dialog only, under the screen id `confirm-action`.
+- After the confirm, a box with the label of the row as its title and the third text of the question (`Shutting down...`, `Restarting...`) replaces the dialog, with no buttons and no hints, under the screen id `confirm-action/working`. The app presents this frame once, through the normal present in the mode on screen, and ends the run; the launcher keeps it on the wire until init stops it. So a slow or failed shutdown never looks like a frozen dialog. The box takes only Back, which closes it, so a run that does not end leaves no box the player cannot close.
 
 ## The quick menu
 
@@ -181,7 +182,7 @@ The quick menu hotkey does nothing while the menu is open, at any depth. The ses
 
 ## Scenes and goldens
 
-New scenes: `screens/system` (the System panel), `screens/system-shutdown-confirm` (the confirm question of `Shut down`, with the focus on `Cancel`), `screens/settings` (the Settings page), `screens/breadcrumb-long` (a long game title cut by the rule, on the video page) and `screens/library-scanning` (the Library panel during a scan, with a focused disabled row). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` shows the `Settings` row with its arrow, and the tier 3 boot golden changes with it.
+New scenes: `screens/system` (the System panel), `screens/system-shutdown-confirm` (the confirm question of `Shut down`, with the focus on `Cancel`), `screens/system-shutting-down` (the last frame after the confirm), `screens/settings` (the Settings page), `screens/breadcrumb-long` (a long game title cut by the rule, on the video page) and `screens/library-scanning` (the Library panel during a scan, with a focused disabled row). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` shows the `Settings` row with its arrow, and the tier 3 boot golden changes with it.
 
 ## Tests
 

@@ -136,6 +136,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         name: "screens/system-shutdown-confirm",
         build: system_shutdown_confirm,
     },
+    SceneDef {
+        name: "screens/system-shutting-down",
+        build: system_shutting_down,
+    },
 ];
 
 /// The settings of the fixtures.
@@ -221,6 +225,7 @@ pub(super) fn system_rows(reason: Option<&str>) -> Vec<MenuItem> {
             REBOOT,
             "Reboot NEPTRON?",
             "Settings and saves are written first. Then the machine starts again.",
+            "Restarting...",
         ),
         (
             11,
@@ -228,12 +233,13 @@ pub(super) fn system_rows(reason: Option<&str>) -> Vec<MenuItem> {
             SHUT_DOWN,
             "Shut down NEPTRON?",
             "Settings and saves are written first. Then the machine turns off.",
+            "Shutting down...",
         ),
     ];
     rows.into_iter()
-        .map(|(key, label, action, question, message)| {
+        .map(|(key, label, action, question, message, working)| {
             let row = MenuItem::new(SettingKey(key), label, SettingValue::Action(action))
-                .with_confirm(question, message);
+                .with_confirm(question, message, working);
             match reason {
                 Some(reason) => row.unavailable(reason),
                 None => row,
@@ -543,6 +549,24 @@ fn system_shutdown_confirm(frame: &mut UiFrame, theme: &Theme) {
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &TO_SYSTEM, frame);
     screens.update(&snap, &[UiAction::Down, UiAction::Accept], frame);
+}
+
+/// The last frame after the confirm of `Shut down`: the box that says
+/// what happens, with no buttons.
+fn system_shutting_down(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_system(None);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_SYSTEM, frame);
+    screens.update(
+        &snap,
+        &[
+            UiAction::Down,
+            UiAction::Accept,
+            UiAction::Right,
+            UiAction::Accept,
+        ],
+        frame,
+    );
 }
 
 /// The change that the confirm scenes wait for.

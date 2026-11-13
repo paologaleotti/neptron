@@ -53,7 +53,17 @@ fn confirm(rig: &mut Rig, label: &str) -> Outcome {
     rig.tap(&[Control::Right]);
     assert_eq!(rig.focused().as_deref(), Some(label));
     rig.hold(&[Control::A]);
-    let outcome = rig.until_end(4);
+    // Each frame that can end the run keeps its picture, so a test can
+    // look at the last one.
+    let mut outcome = None;
+    for _ in 0..4 {
+        rig.display.capture(rig.display.next_present_index());
+        outcome = rig.shell().step();
+        if outcome.is_some() {
+            break;
+        }
+    }
+    let outcome = outcome.expect("the run ends");
     rig.release(&[Control::A]);
     outcome
 }
@@ -70,9 +80,21 @@ fn confirm_reboot_ends_the_run_with_the_reboot_code() {
             let mut rig = Rig::new(dir);
             on_the_system_panel(&mut rig);
             assert_eq!(reasons(&mut rig), [None, None]);
+            let modes = rig.display.mode_calls().len();
             let outcome = confirm(&mut rig, REBOOT_LABEL);
             assert_eq!(outcome, Outcome::Reboot);
             assert_eq!(exit_code(&outcome), Some(REBOOT_EXIT_CODE));
+            // The last frame says what happens, through the normal present
+            // in the mode on screen: no mode call.
+            assert_eq!(rig.screen(), "confirm-action/working");
+            let last = rig.display.next_present_index() - 1;
+            let shown = rig.display.captured(last).expect("the last frame");
+            assert_eq!(
+                Some(shown),
+                rig.display.screen(),
+                "it is the frame on screen"
+            );
+            assert_eq!(rig.display.mode_calls().len(), modes);
             rig.finish();
         },
     );

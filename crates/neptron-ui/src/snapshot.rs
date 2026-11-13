@@ -192,6 +192,11 @@ pub struct Confirmation {
     pub question: String,
     /// The message of the dialog: what the action does.
     pub message: String,
+    /// What happens after the confirm, for example `Shutting down...`.
+    /// The UI shows it in a box with no buttons once it has sent the
+    /// action, so the last picture before the end of the run says what
+    /// comes.
+    pub working: String,
 }
 
 /// The value of a settings row, with what the UI needs to change it.
@@ -465,11 +470,18 @@ impl MenuItem {
         }
     }
 
-    /// The same row, with a confirm question before its action.
-    pub fn with_confirm(mut self, question: impl Into<String>, message: impl Into<String>) -> Self {
+    /// The same row, with a confirm question before its action, and the
+    /// text of the box that shows after the confirm.
+    pub fn with_confirm(
+        mut self,
+        question: impl Into<String>,
+        message: impl Into<String>,
+        working: impl Into<String>,
+    ) -> Self {
         self.confirm = Some(Confirmation {
             question: question.into(),
             message: message.into(),
+            working: working.into(),
         });
         self
     }

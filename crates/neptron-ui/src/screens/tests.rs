@@ -13,10 +13,10 @@ use crate::theme::Theme;
 use super::game_list::{PREFETCH_ROWS, WINDOW_ROWS};
 use super::overlays::QUIET_FRAMES_BEFORE_MOVE;
 use super::scenes::{
-    AUDIO_OUTPUT, LONG_LIST, MEGA_DRIVE, REBOOT, REFRESH, SETTINGS_ROW, SNES, STYLE, TO_AUDIO,
-    TO_DISPLAY, TO_GAME_DISPLAY, TO_SYSTEM, TO_VIDEO, VOLUME, exact_status, filtered_status,
-    in_game, in_game_with, long_status, video_page, volume_row, window, with_audio, with_display,
-    with_system, with_systems,
+    AUDIO_OUTPUT, LONG_LIST, MEGA_DRIVE, REBOOT, REFRESH, SETTINGS_ROW, SHUT_DOWN, SNES, STYLE,
+    TO_AUDIO, TO_DISPLAY, TO_GAME_DISPLAY, TO_SYSTEM, TO_VIDEO, VOLUME, exact_status,
+    filtered_status, in_game, in_game_with, long_status, video_page, volume_row, window,
+    with_audio, with_display, with_system, with_systems,
 };
 use super::{
     AUDIO_PAGE, DISPLAY_PAGE, QUICK_MENU_PAGE, Screens, VIDEO_GAME_ROW, VIDEO_MODE_ROW, VIDEO_PAGE,
@@ -2438,13 +2438,40 @@ fn only_right_then_accept_sends_the_action_of_the_row_once() {
     assert_eq!(
         run.intents(),
         [Intent::Action(REBOOT)],
-        "the second accept opens a new question, with the focus on Cancel"
+        "the second accept reaches the box after the confirm, which takes only back"
     );
-    assert_eq!(run.screen(), "confirm-action");
-    assert_eq!(run.focused(), Some("Cancel"));
+    assert_eq!(run.screen(), "confirm-action/working");
+    assert_eq!(run.labels()[..2], ["Reboot", "Restarting..."]);
     run.step(&snap, &[Accept]);
     assert_eq!(run.intents(), []);
-    assert_eq!(run.screen(), "system");
+    assert_eq!(run.screen(), "confirm-action/working");
+}
+
+#[test]
+fn a_confirmed_question_shows_what_happens_with_no_buttons() {
+    let mut run = Run::new();
+    let snap = with_system(None);
+    run.step(&snap, &TO_SYSTEM);
+    run.step(&snap, &[Down, Accept, Right, Accept]);
+    assert_eq!(run.intents(), [Intent::Action(SHUT_DOWN)]);
+    assert_eq!(run.screen(), "confirm-action/working");
+    assert_eq!(run.labels()[..2], ["Shut down", "Shutting down..."]);
+    let buttons = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::Button)
+        .count();
+    assert_eq!(buttons, 0);
+    assert!(hints(&run).is_empty());
+    run.step(&snap, &[Accept, Down, Right]);
+    assert_eq!(run.intents(), [], "the box takes nothing but back");
+    assert_eq!(run.screen(), "confirm-action/working");
+    // An app that does not end the run leaves no box the player cannot
+    // close.
+    run.step(&snap, &[Back]);
+    assert_eq!(run.intents(), []);
+    assert_eq!((run.screen(), run.focused()), ("system", Some("Shut down")));
 }
 
 #[test]

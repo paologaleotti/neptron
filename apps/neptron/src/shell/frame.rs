@@ -65,7 +65,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
         self.nav.update(&self.events, now_ns, &mut self.actions);
         self.update_ui(now_ns);
-        if self.outcome.is_some() {
+        // A reboot or a power-off keeps its last frame on screen until the
+        // machine stops, so that frame must say what happens: it shows,
+        // through the same present in the mode on screen. Any other end
+        // shows nothing more.
+        let last = matches!(self.outcome, Some(Outcome::Reboot | Outcome::PowerOff));
+        if self.outcome.is_some() && !last {
             return;
         }
         let shown = match &mut self.stage {
@@ -76,6 +81,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             }
             _ => true,
         };
+        if last {
+            return;
+        }
         if let Some(step) = self.with_engine(|guard, engine| guard.tick(now_ns, engine)) {
             self.on_guard(step, now_ns);
         }

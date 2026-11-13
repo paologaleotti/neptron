@@ -200,10 +200,12 @@ pub fn system_page(in_game: bool, power: bool) -> SettingsPage {
         action(6, REBOOT_LABEL, REBOOT).with_confirm(
             "Reboot NEPTRON?",
             "Settings and saves are written first. Then the machine starts again.",
+            "Restarting...",
         ),
         action(7, SHUT_DOWN_LABEL, POWER_OFF).with_confirm(
             "Shut down NEPTRON?",
             "Settings and saves are written first. Then the machine turns off.",
+            "Shutting down...",
         ),
     ];
     let rows = rows

@@ -35,6 +35,8 @@ pub(super) fn crumb(text: &str) -> Crumb {
 
 /// The screen id of the confirm question of an action row in the tree.
 pub(super) const CONFIRM_ACTION_SCREEN: &str = "confirm-action";
+/// The screen id of the box after the confirm.
+pub(super) const WORKING_SCREEN: &str = "confirm-action/working";
 
 /// The first button of a confirm question. It has the focus when the
 /// question opens, so a blind press of accept sends nothing.
@@ -70,6 +72,9 @@ pub(super) struct Page {
 struct Asking {
     dialog: Dialog,
     action: ActionId,
+    /// The action was sent: the box with the text of what happens shows
+    /// in place of the question.
+    sent: bool,
 }
 
 impl Page {
@@ -136,6 +141,7 @@ impl Page {
                 self.asking = Some(Asking {
                     dialog: Dialog::new(CANCEL),
                     action: id,
+                    sent: false,
                 });
                 PageEvent::Stay
             }
@@ -196,6 +202,18 @@ impl Page {
             return;
         };
         frame.tree.clear();
+        if asking.sent {
+            frame.tree.set_screen(WORKING_SCREEN);
+            let content = DialogContent {
+                title: &row.label,
+                message: &confirmation.working,
+                buttons: &[],
+                tone: DialogTone::Normal,
+            };
+            draw_dialog(&asking.dialog, &content, theme, frame);
+            chrome::hints(frame, theme, "", "");
+            return;
+        }
         frame.tree.set_screen(CONFIRM_ACTION_SCREEN);
         let content = DialogContent {
             title: &confirmation.question,
@@ -222,20 +240,25 @@ impl Page {
     }
 
     /// Applies one action to the open confirm question. Only the second
-    /// button sends the action. A row that is gone, disabled or has no
-    /// question any more closes the question and sends nothing.
+    /// button sends the action; the box after it takes only back, which
+    /// closes it, so a run that does not end leaves no box the player
+    /// cannot close. A row that is gone, disabled or has no question any
+    /// more closes the question and sends nothing.
     fn answer(&mut self, action: UiAction, rows: &[MenuItem]) -> PageEvent {
         let Some(asking) = &mut self.asking else {
             return PageEvent::Stay;
         };
         let id = asking.action;
-        if asked_row(rows, id).is_none() {
+        if asked_row(rows, id).is_none() || (asking.sent && action == UiAction::Back) {
             self.asking = None;
+            return PageEvent::Stay;
+        }
+        if asking.sent {
             return PageEvent::Stay;
         }
         match asking.dialog.handle(action, GO + 1) {
             DialogEvent::Chosen(GO) => {
-                self.asking = None;
+                asking.sent = true;
                 PageEvent::Intent(Intent::Action(id))
             }
             DialogEvent::Chosen(_) | DialogEvent::Cancelled => {
