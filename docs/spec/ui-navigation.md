@@ -19,7 +19,7 @@ Home with no games follows the same rule: the text that says where the games go,
 
 ## The Settings page
 
-`Settings` opens a page that lists the settings panels. The list is data: `screens::SETTINGS_PANELS`, a static table of `Panel { label, page }` in `neptron-ui`. Today it holds `Display` (`DISPLAY_PAGE`), `Audio` (`AUDIO_PAGE`) and `Library` (`LIBRARY_PAGE`). A new panel is one line in that table and one page id; the app then answers `LoadSettings` for that page. A panel page other than the display page shows in the generic page screen (see "Pages"), so a new panel needs no new screen code.
+`Settings` opens a page that lists the settings panels. The list is data: `screens::SETTINGS_PANELS`, a static table of `Panel { label, page }` in `neptron-ui`. Today it holds `Display` (`DISPLAY_PAGE`), `Audio` (`AUDIO_PAGE`), `Library` (`LIBRARY_PAGE`) and `System` (`SYSTEM_PAGE`), in that order. A new panel is one line in that table and one page id; the app then answers `LoadSettings` for that page. A panel page other than the display page shows in the generic page screen (see "Pages"), so a new panel needs no new screen code.
 
 The Settings page writes nothing. Its panels write at the global level, also when the page opens from the quick menu.
 
@@ -33,7 +33,7 @@ A row has one of four kinds. The kind decides how the row looks, what accept doe
 | --- | --- | --- | --- |
 | `page` | Accept opens a page, an option list or the grid pattern | A right arrow at the right edge of the row | `Accept: open` |
 | `value` | Changes its value in place | `< value >` while focused (a number), the value alone (a switch) | `Left/Right: change` for a number, `Accept: change` for a switch |
-| `action` | Accept does something: resume, quit, play a game, use an option | Neither an arrow nor `< >` | `Accept: choose`, or the hint of its screen (`Accept: play`, `Accept: use`) |
+| `action` | Accept does something: resume, quit, play a game, use an option. An action row with a confirm question opens a dialog first (see "The confirm question of an action row") | Neither an arrow nor `< >` | `Accept: choose`, or the hint of its screen (`Accept: play`, `Accept: use`) |
 | `disabled` | Nothing: the row is unavailable now | Dim, with its reason, no arrow. With the focus: a solid bar in the `border` colour with the text in `text`, the look of a focused option that cannot be chosen (a one-pixel edge can vanish under scanlines) | none |
 
 The kind of a settings row comes from its value:
@@ -104,11 +104,38 @@ A page that is not the display panel, the Settings page, the grid pattern or the
 
 The generic screen shows the video block above its rows for `VIDEO_PAGE` while a game runs with a video status, with the rule of today (at least 2 rows under it).
 
-Screen ids: `audio` for `AUDIO_PAGE`, `library` for `LIBRARY_PAGE`, `quick-menu/video` for `VIDEO_PAGE`, `page` for any other page.
+Screen ids: `audio` for `AUDIO_PAGE`, `library` for `LIBRARY_PAGE`, `system` for `SYSTEM_PAGE`, `quick-menu/video` for `VIDEO_PAGE`, `page` for any other page.
 
 ### The Library panel
 
 `Settings > Library` holds the `Rescan games` action row of the app (no arrow). While a scan runs the row keeps its label and is disabled with the reason `Scanning...`. In a game the panel is still listed, and the row is disabled with the reason `Not during a game`: one list of panels for the menus and the game is simpler than a list that changes. The row keys of the app are all different: the `Settings` row of the quick menu has its own key, and a test checks it.
+
+### The System panel
+
+`Settings > System` holds two action rows of the app, with no arrow: `Reboot` and `Shut down`. Each row has a confirm question, so accept opens a dialog first:
+
+| Row | Dialog title | Dialog message | Buttons |
+| --- | --- | --- | --- |
+| `Reboot` | `Reboot NEPTRON?` | `Settings and saves are written first. Then the machine starts again.` | `Cancel`, `Reboot` |
+| `Shut down` | `Shut down NEPTRON?` | `Settings and saves are written first. Then the machine turns off.` | `Cancel`, `Shut down` |
+
+When the player confirms, the app ends its run as a quit (the settings and the guard record are written, the threads are joined, the display stays in the last validated mode) and exits with a code that asks the launcher for a reboot or a power-off. The launcher then asks init, and init runs the shutdown steps of the image (`docs/flows/01-power-on.md`, "Shutdown").
+
+In a game the panel is still listed, and both rows are disabled with the reason `Not during a game`, the rule of the rescan row. A game has save RAM that only its own quit writes in full, so the player quits the game first and a save is never cut.
+
+A run that no launcher with power control started (the desktop window, a bench run of the frontend alone) shows both rows disabled with the reason `Needs the launcher`. The rows stay in the list, so the panel looks the same on every rig and the crawler finds it everywhere. A hidden row would make the desktop and the image differ. The launcher gives power control only with a DRM device, never with `--no-device`, so a desktop run can never reboot the computer it runs on.
+
+Not in this panel yet: the version, the network address and a sleep timer.
+
+### The confirm question of an action row
+
+`MenuItem::with_confirm(question, message)` gives an action row a confirm question. Accept on such a row opens the dialog widget over its page, and sends nothing yet:
+
+- The title is the question and the message says what happens. The buttons are `Cancel`, then the label of the row.
+- The focus starts on `Cancel`, so a blind press of accept cancels. Only right, then accept, sends the action of the row.
+- Back cancels. Accept on `Cancel` cancels. A cancel sends nothing, and the focus stays on the row.
+- When the row is gone from the page, is disabled, or has no question any more, the dialog closes and sends nothing.
+- The hints are `Accept: choose` and `Back: cancel`. The tree holds the rows of the dialog only, under the screen id `confirm-action`.
 
 ## The quick menu
 
@@ -119,7 +146,7 @@ The first page of the quick menu (`QUICK_MENU_PAGE`, written at the game level):
 | `Resume` | action | Leaves the menu, through the keep prompt after a change |
 | `Volume` | value | The volume of the game, Left and Right step 5 |
 | `Video` | page | Opens `VIDEO_PAGE` |
-| `Settings` | page | Opens the Settings page: Display, Audio and Library, at the global level |
+| `Settings` | page | Opens the Settings page: Display, Audio, Library and System, at the global level |
 | `Quit game` | action | Ends the game, through the keep prompt after a change |
 
 `VIDEO_PAGE` (new, written at the game level): the video block, then `Picture style`, `Refresh policy`, `Scanlines` and `Scanline strength`. These are the display rows of the quick menu of today.
@@ -147,13 +174,14 @@ The quick menu hotkey does nothing while the menu is open, at any depth. The ses
 | `SETTINGS_PAGE` | `PageId(RESERVED_ID_MIN + 5)` | The Settings page, as the target of a `page` row. The app never loads it |
 | `VIDEO_PAGE` | `PageId(RESERVED_ID_MIN + 6)` | The video page of the quick menu |
 | `LIBRARY_PAGE` | `PageId(RESERVED_ID_MIN + 7)` | The Library panel: the rescan of the games folder |
+| `SYSTEM_PAGE` | `PageId(RESERVED_ID_MIN + 8)` | The System panel: reboot and shut down |
 | `RESUME`, `QUIT_GAME` | unchanged | The actions of the quick menu |
 
 `OPEN_DISPLAY` and `GRID_PATTERN` go: `SettingValue::Page(DISPLAY_PAGE)` and `SettingValue::Page(GRID_PAGE)` replace them. `MAX_DEPTH` stays 8. The deepest stack is home, game list, game, quick menu, Settings, display panel, option list: 7 screens.
 
 ## Scenes and goldens
 
-New scenes: `screens/settings` (the Settings page), `screens/breadcrumb-long` (a long game title cut by the rule, on the video page) and `screens/library-scanning` (the Library panel during a scan, with a focused disabled row). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` shows the `Settings` row with its arrow, and the tier 3 boot golden changes with it.
+New scenes: `screens/system` (the System panel), `screens/system-shutdown-confirm` (the confirm question of `Shut down`, with the focus on `Cancel`), `screens/settings` (the Settings page), `screens/breadcrumb-long` (a long game title cut by the rule, on the video page) and `screens/library-scanning` (the Library panel during a scan, with a focused disabled row). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` shows the `Settings` row with its arrow, and the tier 3 boot golden changes with it.
 
 ## Tests
 
@@ -162,7 +190,9 @@ New scenes: `screens/settings` (the Settings page), `screens/breadcrumb-long` (a
 - The router: Back closes one level and gives the focus back to the row it came from, at every level, from home and from the quick menu; a page that is not loaded takes only Back; the footer hint of each kind.
 - The quick menu: a change on the video page is moved by the keep prompt; a change that the guard took back on the video page is not asked about; the hotkey case is a tier 2 test that exists.
 - The empty home: one `Settings` row of the kind `page`, which opens the Settings page; the scene `screens/home-empty` shows it.
-- The crawler (tier 2): every row that opens a screen has the kind `page`, every enabled `page` row opens a screen, Back from every screen returns to the screen under it with the focus on the row it came from.
+- The crawler (tier 2): every row that opens a screen has the kind `page`, every enabled `page` row opens a screen, Back from every screen returns to the screen under it with the focus on the row it came from. It finds the System panel and never accepts `Reboot` or `Shut down`: accept opens their confirm question, and a confirm ends the run.
+- The confirm question: accept opens it with the focus on `Cancel`; accept on `Cancel`, and back, send nothing; right, then accept, sends the action once; a row that goes away or is disabled closes it.
+- The System panel (tier 2): confirm `Reboot` ends the run with `Outcome::Reboot`, confirm `Shut down` with `Outcome::PowerOff`, cancel changes nothing, and in a game both rows are disabled.
 
 ## Not in this task
 
