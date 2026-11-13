@@ -793,3 +793,12 @@ Each open point is one section:
 - Where: `docs/spec/audio-settings.md`, `crates/neptron-audio`, `crates/neptron-settings`, `crates/neptron-ui`, `apps/neptron`, `os/`
 - How to change: later steps, not in C12: a volume hotkey in a game, a test tone on a device change, a volume per system or per game, a follow of the HDMI device when the monitor changes.
 - Decision: the owner asked for volume and output device in the MVP (2026-11-13).
+
+### OP-086: The Intel display firmware (DMC) is not in the image.
+
+- Raised by: C11, from the kernel log of the first hardware session (2026-11-13)
+- Status: open, needs a licence decision from the owner
+- Default: not added. The display works without it; only the low-power states of the display are lost. The i915 driver is built into the kernel and asks for the file before the root file system mounts, so a file in `/lib/firmware` does not help.
+- Where: `os/board/pc` (kernel config), `os/board/pc/LICENCES.txt`
+- How to change: (a) put the file inside the kernel image with `CONFIG_EXTRA_FIRMWARE`, which places an Intel binary inside the GPL-2.0 kernel image and needs a licence check; (b) build i915 as a module, which changes a recorded design choice; (c) keep it out.
+- Decision:
