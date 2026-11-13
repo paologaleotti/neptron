@@ -163,30 +163,42 @@ impl<const N: usize> StackText<N> {
         self.cut = false;
     }
 
-    /// Appends `text` and returns true when it fits. Else appends the
-    /// longest head of `text` that leaves room for [`ELLIPSIS`], cut at a
-    /// character boundary, then the ellipsis, and returns false: the text
-    /// is full and takes nothing more.
+    /// Appends `text` and returns true when it fits. Else returns false and
+    /// ends the text with [`ELLIPSIS`], so a text that lost anything always
+    /// ends with it: the text keeps the longest head of itself and `text`
+    /// that leaves room for the ellipsis, cut at a character boundary, and
+    /// replaces its own tail when that is needed. A text that is cut takes
+    /// nothing more. With room for less than the ellipsis it is emptied.
     pub fn push_cut(&mut self, text: &str) -> bool {
-        let free = N.saturating_sub(self.len);
         if self.cut {
             return false;
         }
-        if text.len() <= free {
+        if text.len() <= N.saturating_sub(self.len) {
             // `StackText` never fails; the text fits.
             let _ = fmt::Write::write_str(self, text);
             return true;
         }
-        if free >= ELLIPSIS.len() {
-            let mut end = (free - ELLIPSIS.len()).min(text.len());
+        self.cut = true;
+        let Some(keep) = N.checked_sub(ELLIPSIS.len()) else {
+            self.len = 0;
+            return false;
+        };
+        if self.len > keep {
+            let mut end = keep;
+            while !self.as_str().is_char_boundary(end) {
+                end -= 1;
+            }
+            self.len = end;
+        } else {
+            let mut end = (keep - self.len).min(text.len());
             while !text.is_char_boundary(end) {
                 end -= 1;
             }
-            // Both parts fit in `free`; `StackText` never fails.
+            // The head fits in `keep`; `StackText` never fails.
             let _ = fmt::Write::write_str(self, text.get(..end).unwrap_or(""));
-            let _ = fmt::Write::write_str(self, ELLIPSIS);
-            self.cut = true;
         }
+        // The ellipsis fits in the room that `keep` leaves.
+        let _ = fmt::Write::write_str(self, ELLIPSIS);
         false
     }
 }
@@ -284,6 +296,26 @@ fn offset(x: i32, by: u32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn push_cut_replaces_the_tail_when_a_full_text_drops_more() {
+        let mut text = StackText::<9>::new();
+        assert!(text.push_cut("abcdefgh"));
+        assert!(!text.push_cut(" > "));
+        assert_eq!(text.as_str(), "abcdef...");
+        let mut exact = StackText::<9>::new();
+        assert!(exact.push_cut("abcdefghi"), "a text that fills it exactly");
+        assert!(!exact.push_cut("j"));
+        assert_eq!(exact.as_str(), "abcdef...");
+        let mut wide = StackText::<9>::new();
+        assert!(wide.push_cut("abcd\u{e9}\u{e9}"));
+        assert!(!wide.push_cut("xy"));
+        assert_eq!(
+            wide.as_str(),
+            "abcd\u{e9}...",
+            "a cut on a character boundary"
+        );
+    }
 
     #[test]
     fn push_cut_ends_a_text_that_does_not_fit_with_an_ellipsis() {

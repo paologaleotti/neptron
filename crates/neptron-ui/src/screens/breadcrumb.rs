@@ -206,6 +206,33 @@ mod tests {
     }
 
     #[test]
+    fn a_whole_path_that_is_cut_always_ends_with_an_ellipsis() {
+        for before in [0, 1, 2, 4, 5] {
+            // The parts before the last end `before` bytes before the limit.
+            let lead = "\u{e9}".repeat((BREADCRUMB_BYTES - before) / 2);
+            let first = if (BREADCRUMB_BYTES - before) % 2 == 1 {
+                format!("x{lead}")
+            } else {
+                lead
+            };
+            assert_eq!(first.len(), BREADCRUMB_BYTES - before);
+            let mut out = Breadcrumb::new();
+            write_joined(&mut out, &[&first, "Video", "Picture style"]);
+            let text = out.as_str();
+            assert!(text.ends_with(ELLIPSIS), "{before}: {text:?}");
+            assert!(text.len() <= BREADCRUMB_BYTES, "{before}");
+            let whole = format!("{first} > Video > Picture style");
+            assert!(
+                whole.starts_with(text.trim_end_matches(ELLIPSIS)),
+                "{before}"
+            );
+        }
+        let mut out = Breadcrumb::new();
+        write_joined(&mut out, &["Settings", "Audio"]);
+        assert_eq!(out.as_str(), "Settings > Audio", "a path that fits");
+    }
+
+    #[test]
     fn every_width_and_every_path_stays_in_its_room() {
         let parts = [
             "Super Mario Bros. 3 (USA) (Virtual Console)",
