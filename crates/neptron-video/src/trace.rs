@@ -53,6 +53,10 @@ pub enum Outcome {
         /// The mode the driver reported.
         read_back: Modeline,
     },
+    /// The last good mode was set again after a refused read back, and
+    /// its read back holds. The record holds that read back, and the flip
+    /// that showed it.
+    Restored,
     /// No valid mode exists for the inputs, and the output was turned off
     /// with `blank`. No mode is on the display.
     Blanked,
@@ -213,6 +217,7 @@ impl fmt::Display for Outcome {
                 read_back.vactive,
                 scan(read_back)
             ),
+            Self::Restored => f.write_str("last good mode set again"),
             Self::Blanked => f.write_str("output off: no valid mode"),
             Self::BlankFailed(error) => write!(f, "blank failed: {error}"),
         }

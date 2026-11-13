@@ -431,7 +431,14 @@ impl Odren {
                 });
                 Directive::Rescale
             }
-            Switch::Modeset if trigger == Trigger::Geometry && request.stable < DEBOUNCE_FRAMES => {
+            // A refused mode on screen must leave the wire: a source that
+            // changes every frame would otherwise wait forever, and the
+            // engine would neither set a valid mode nor blank.
+            Switch::Modeset
+                if trigger == Trigger::Geometry
+                    && request.stable < DEBOUNCE_FRAMES
+                    && !self.refused_on_screen =>
+            {
                 Directive::Waiting {
                     stable_frames: request.stable,
                 }
@@ -579,6 +586,26 @@ impl Odren {
         };
         if let (true, Ok(read_back), Some(current)) = (held, result, &mut self.current) {
             current.read_back = *read_back;
+            let winner = current.chosen.clone();
+            if let Some(last) = self.trace.last() {
+                // The refused record holds the requested mode as its winner.
+                let previous = last.winner.as_ref().map(|w| *w.token.mode());
+                let record = SwitchRecord {
+                    decided_frame: self.frame,
+                    count: 1,
+                    shown_frame: None,
+                    gap_ns: None,
+                    previous,
+                    winner: Some(winner),
+                    read_back: Some(*read_back),
+                    rate_drift_mhz: None,
+                    outcome: Outcome::Restored,
+                    dropped: Vec::new(),
+                    refused: Vec::new(),
+                    ..last.clone()
+                };
+                self.trace.push(record);
+            }
             self.awaiting_flip = Some(self.trace.total());
             self.refused_on_screen = false;
             return;

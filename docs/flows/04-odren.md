@@ -122,7 +122,7 @@ stateDiagram-v2
 | Trigger | Set by | Debounce | Block check |
 | --- | --- | --- | --- |
 | `launch` | The first frame with no mode on screen (also after a blank or a forgotten mode). | No | Yes |
-| `geometry` | A frame whose source differs from the source of the mode on screen. | `DEBOUNCE_FRAMES` = 3 core frames | Yes |
+| `geometry` | A frame whose source differs from the source of the mode on screen. | `DEBOUNCE_FRAMES` = 3 core frames, none while `refused_on_screen` is on | Yes |
 | `monitor` | `set_monitor` (the guard). Also clears the driver refusals. | No | No |
 | `settings` | `set_settings` with different settings, or `set_veto`. | No | No |
 | `retry` | `retry()`, or the driver refused a mode (`ModeRefused` or a refused read back). | No | No |
@@ -135,8 +135,8 @@ stateDiagram-v2
 | any | `Kept` | Trigger `launch` or `geometry`, and `blocked == Some(source)`. No trace record. | none | Same mode. |
 | any | `Kept` | The decision for the source has no winner. A trace record `Kept(reason)` is pushed on the first frame of the request, or once for a redo trigger. | none | Same mode, or no mode. |
 | any | `Rescale` | The winner's mode equals the requested mode on screen (`switch_for` gives `ScaleOnly`), and neither `refused_on_screen` nor a refusal of the read back by the current inputs. The current winner, source and generation are replaced. | none | Same mode, new scene. Trace `ScaleOnly`; consecutive ones share one record (`count`). |
-| any | `Waiting` | Trigger `geometry`, `switch_for` gives `Modeset`, `request.stable < DEBOUNCE_FRAMES`. | `DEBOUNCE_FRAMES` = 3 core frames | Old mode. |
-| any | `Modeset` | `switch_for` gives `Modeset` (or no mode on screen, or the mode on screen is refused), and the trigger is not `geometry` or the source is stable for `DEBOUNCE_FRAMES` frames. | `DEBOUNCE_FRAMES` = 3 core frames | `muted` turns on now. The next `present` sets the mode. |
+| any | `Waiting` | Trigger `geometry`, `switch_for` gives `Modeset`, `request.stable < DEBOUNCE_FRAMES`, and `refused_on_screen` is off. A refused mode on screen is decided at once, so a source that changes every frame cannot keep it on the wire. | `DEBOUNCE_FRAMES` = 3 core frames | Old mode. |
+| any | `Modeset` | `switch_for` gives `Modeset` (or no mode on screen, or the mode on screen is refused), and the trigger is not `geometry`, or the source is stable for `DEBOUNCE_FRAMES` frames, or `refused_on_screen` is on. | `DEBOUNCE_FRAMES` = 3 core frames | `muted` turns on now. The next `present` sets the mode. |
 | `Steady` or `Kept` | `Blank` | `refused_on_screen` and `blank_failures < MODESET_ATTEMPTS`. | `MODESET_ATTEMPTS` = 3 | The next `present` calls `Display::blank`. |
 | any | (next frame) | A modeset order was not consumed by a `present` (for example `PendingFlip`). A `monitor`, `settings` or `retry` trigger is set to redo. A `launch` or `geometry` one is not: its source asks again. | none | Nothing. |
 
@@ -171,7 +171,7 @@ A modeset order carries the token and the generation it was validated for. `Vide
 | `Ok(read_back)`, holds | Same `hactive`, `vactive`, `interlace` and `doublescan` as the request, and the read back passes the veto and `validate`. The pixel clock can differ. | `READ_BACK_RATE_NOTICE_MHZ` = `REFRESH_MATCH_MHZ` = 5 mHz | Trace `Modeset` with the read back. When the field rate differs by 5 mHz or more, the record holds `rate_drift_mhz`. The mode becomes current, block lifted, counts 0, `refused_on_screen` off, `blanked` off. Mute stays until the first flip. |
 | `Ok(read_back)`, does not hold | Another size or scan, or a read back the validator refuses. | none | The requested mode goes to `driver_refused`, redo `retry`. Trace `ReadBackRefused`. `refused_on_screen` on. Then the restore (next rows). |
 | restore possible | A current mode exists, and `check` accepts its mode with the current inputs. | none | A second `set_mode` in the same present, with the new token. |
-| restore holds | Its read back holds as for a modeset. | none | The last good mode is back, `refused_on_screen` off. The generation of the current mode stays old, so `settled()` is false until the retry decides. |
+| restore holds | Its read back holds as for a modeset. | none | Trace `Restored` with the read back of the restore and the refused mode as `previous`; the first flip writes `shown_frame` and `gap_ns` to this record, not to the `ReadBackRefused` record. The last good mode is back, `refused_on_screen` off. The generation of the current mode stays old, so `settled()` is false until the retry decides. |
 | restore fails or reads back wrong | | `MODESET_ATTEMPTS` = 3 (blank attempts) | Mode forgotten, `refused_on_screen` on, blank in the same present, mute off. A `set_mode` error of the restore gives `VideoError::RestoreFailed`. |
 | no restore | No current mode, or `check` refuses it. | | Trace `Kept(CurrentRefused)` (when there was a current mode), mode forgotten, blank in the same present. |
 | `Err(ModeRefused)` | The driver refused the mode (the test-only commit failed, or the clock is not whole kHz, or the plane rectangle does not fit). | none | The mode stays as it was. Mode added to `driver_refused`, redo `retry`: the next frame takes the next candidate of the same plan. Trace `SetModeFailed`. Mute off. |
@@ -206,7 +206,7 @@ The session also mutes while the quick menu is open, while `current_refused()` i
 | --- | --- |
 | Capacity | `TRACE_CAPACITY` = 64 records, the oldest goes first. |
 | Record fields | `asked_frame`, `decided_frame`, `count`, `shown_frame`, `gap_ns`, `trigger`, `source`, `previous`, `winner`, `read_back`, `rate_drift_mhz`, `outcome`, `dropped`, `refused`. |
-| Outcome words | `scale only`, `modeset`, `kept the mode: {reason}`, `set_mode failed: {error}`, `read back {w}x{h}{p or i} refused`, `output off: no valid mode`, `blank failed: {error}`. |
+| Outcome words | `scale only`, `modeset`, `kept the mode: {reason}`, `set_mode failed: {error}`, `read back {w}x{h}{p or i} refused`, `last good mode set again`, `output off: no valid mode`, `blank failed: {error}`. |
 | Reason words | `the game is turned ({rotation}) and the renderer does not rotate`, `no plan: {error}`, `every proposal was refused`, `the inputs refuse the mode on screen: {refusal}`. Refusal: `validator: {rejection}` or `the display driver refused it`. |
 | Log line | `frame {decided} (asked {asked}): {trigger} {w}x{h}{p or i} at {mHz} mHz: {outcome}`, then `, {rung} {w}x{h}{p or i} at {mHz} mHz`, `, read back {drift} mHz off`, `, {count} decisions`, `, shown after {n} frames` when they apply. |
 | Who reads it | The tests (`tests/golden/switch_trace.txt`), `Session::resume` (last outcome), and the control protocol `video_state` (`switch_count`, the modesets among the records). |
@@ -215,7 +215,7 @@ The session also mutes while the quick menu is open, while `current_refused()` i
 
 | Case | What the user sees | Way out |
 | --- | --- | --- |
-| A core flickers between two sizes every frame. | No modeset. The frames of the other size show whole in the old destination. | None needed. Only a source stable for `DEBOUNCE_FRAMES` = 3 frames sets a mode. |
+| A core flickers between two sizes every frame. | No modeset. The frames of the other size show whole in the old destination. | None needed. Only a source stable for `DEBOUNCE_FRAMES` = 3 frames sets a mode. While a refused mode is on screen there is no debounce: the first frame of a new size decides, so the refused mode leaves the wire at once. |
 | The driver refuses the winner (`ModeRefused`). | The old mode stays. On the next frame the engine sets the next candidate of the plan, with mute. | Automatic. When every candidate is refused, `Kept(NoWinner)`; a refused mode on screen is then blanked. |
 | The driver reads back another size or scan. | A short sync change: the wrong mode, then the last good mode again in the same present. | Automatic. The next frame tries the next candidate. |
 | The restore of the last good mode also fails. | No signal (blank). | The next decision with a winner sets a mode. The guard reverts or goes to safe mode after `NO_PICTURE_LIMIT_NS` = 1 s of no picture. Blind recovery works too. |

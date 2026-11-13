@@ -437,3 +437,47 @@ fn retry_gives_a_new_blank_attempt() {
     assert!(rig.engine.blanked());
     assert_eq!(rig.fake.blank_calls().len(), MODESET_ATTEMPTS as usize + 1);
 }
+
+#[test]
+fn a_source_that_changes_every_frame_under_a_refused_mode_is_decided_at_once() {
+    let mut rig = Rig::new(pc_31_120(), native_width());
+    rig.frame(SNES);
+    let mode = rig.current_mode();
+    for call in 1..=u64::from(MODESET_ATTEMPTS) {
+        rig.fake.fault_mode(
+            call,
+            ModeFault::Device {
+                reason: "EIO".to_owned(),
+            },
+        );
+    }
+    rig.engine.set_veto(Box::new(move |m: &Modeline| {
+        if *m == mode {
+            Err(Rejection::NotAPanelMode {
+                mode: *m,
+                panel_modes: 0,
+            })
+        } else {
+            Ok(())
+        }
+    }));
+    for _ in 0..MODESET_ATTEMPTS {
+        // Each attempt of the settings change fails on the device.
+        let _ = rig.try_frame(SNES);
+    }
+    assert!(rig.engine.current_refused());
+    assert_eq!(rig.fake.active_mode(), Some(mode));
+
+    // The core changes its size every frame: no debounce under a refused
+    // mode, so the first frame of a new size sets a valid mode.
+    let step = rig.frame(MD_H40);
+    assert_eq!(step.directive, Directive::Modeset);
+    assert!(!rig.engine.current_refused());
+    assert_ne!(rig.fake.active_mode(), Some(mode));
+    let step = rig.frame(SNES);
+    assert!(
+        matches!(step.directive, Directive::Waiting { .. }),
+        "a valid mode on screen debounces again: {:?}",
+        step.directive
+    );
+}

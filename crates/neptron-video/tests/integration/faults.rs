@@ -225,6 +225,39 @@ fn a_read_back_of_another_size_restores_the_last_good_mode() {
 }
 
 #[test]
+fn the_restore_has_its_own_record_with_the_flip_that_showed_it() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(MD_H40);
+    let good = rig.current_mode();
+    let wrong = Modeline {
+        hactive: good.hactive - 8,
+        ..good
+    };
+    rig.fake.fault_mode(1, ModeFault::ReadBack(wrong));
+    let asked = mode_for(generic_15(), native_width(), MD_H32);
+    switch_to_h32(&mut rig).unwrap();
+    let records: Vec<_> = rig.engine.trace().records().cloned().collect();
+    let [.., refused, restored] = &records[..] else {
+        panic!("{records:?}");
+    };
+    assert_eq!(
+        refused.outcome,
+        Outcome::ReadBackRefused { read_back: wrong }
+    );
+    assert_eq!(
+        refused.shown_frame, None,
+        "the refused mode was never shown"
+    );
+    assert_eq!(refused.gap_ns, None);
+    assert_eq!(restored.outcome, Outcome::Restored);
+    assert_eq!(restored.read_back, Some(good));
+    assert_eq!(restored.previous, Some(asked));
+    assert_eq!(restored.shown_frame, Some(restored.decided_frame));
+    assert!(restored.gap_ns.is_some());
+    assert_eq!(restored.outcome.to_string(), "last good mode set again");
+}
+
+#[test]
 fn a_read_back_with_another_pixel_clock_is_kept() {
     let mut rig = Rig::generic_15(native_width());
     let asked = mode_for(generic_15(), native_width(), MD_H40);
