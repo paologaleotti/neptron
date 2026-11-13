@@ -25,11 +25,16 @@ pub struct AlsaText {
 }
 
 impl AlsaText {
-    /// Reads the text under `root` (`/proc/asound` on a device). A missing
-    /// or unreadable file is empty text, so the list is empty or shorter,
+    /// Reads the text under `root` (`/proc/asound` on a device), with a
+    /// lossy UTF-8 conversion. A missing or unreadable file is empty text, so the list is empty or shorter,
     /// and nothing stops the start.
     pub fn read(root: &Path) -> Self {
-        let read = |path: &Path| std::fs::read_to_string(path).unwrap_or_default();
+        // Lossy: one bad byte in a monitor name must not drop its ELD.
+        let read = |path: &Path| {
+            std::fs::read(path)
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                .unwrap_or_default()
+        };
         let cards = read(&root.join("cards"));
         let pcm = read(&root.join("pcm"));
         let mut elds = Vec::new();
@@ -506,6 +511,26 @@ mod tests {
             labels,
             ["Analog (USB Audio, Device)", "Analog (USB Audio, Device_1)"]
         );
+    }
+
+    #[test]
+    fn a_bad_byte_in_a_monitor_name_keeps_the_eld() {
+        let dir = std::env::temp_dir().join(format!("neptron-alsa-lossy-{}", std::process::id()));
+        let card = dir.join("card0");
+        std::fs::create_dir_all(&card).unwrap();
+        let text = bench();
+        std::fs::write(dir.join("cards"), &text.cards).unwrap();
+        std::fs::write(dir.join("pcm"), &text.pcm).unwrap();
+        let mut eld = b"monitor_present\t1\neld_valid\t1\nmonitor_name\tTV ".to_vec();
+        eld.extend_from_slice(&[0xFF, b'X', b'\n']);
+        std::fs::write(card.join("eld#2.0"), eld).unwrap();
+        let read = AlsaText::read(&dir);
+        assert_eq!(read.elds.len(), 1);
+        let parsed = parse_eld(&read.elds[0].1);
+        assert!(parsed.present && parsed.valid);
+        assert_eq!(parsed.name.as_deref(), Some("TV \u{FFFD}X"));
+        // A leftover folder in the temp dir does no harm.
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
