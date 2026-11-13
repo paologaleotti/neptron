@@ -68,8 +68,9 @@ fi
 # - Its first 16 MiB read with no error, and blkid exits with 2 (nothing
 #   found) and prints nothing: a read error is never taken for an empty
 #   partition.
-# - Its sector 12 holds no exFAT backup boot sector: a damaged main boot
-#   sector with a good backup is the user's share, not an empty partition.
+# - It holds no exFAT backup boot sector (sector 12 of the exFAT sector
+#   size, which is 512 to 4096 bytes): a damaged main boot sector with a
+#   good backup is the user's share, not an empty partition.
 #
 # When a check fails, nothing is formatted or mounted, /share is a RAM
 # folder, and one line says why.
@@ -82,8 +83,10 @@ ALIGN_SECTORS=2048
 # The start of the partition that must read cleanly before a format, in
 # MiB.
 READ_CHECK_MIB=16
-# The exFAT backup boot sector is sector 12 of the partition.
-EXFAT_BACKUP_SECTOR=12
+# The exFAT backup boot sector is sector 12 of the exFAT sector size: at
+# these 512-byte sectors for exFAT sectors of 512, 1024, 2048 and 4096
+# bytes.
+EXFAT_BACKUP_SECTORS="12 24 48 96"
 # How far into the free space the script looks for an old share before it
 # makes partition 4, in sectors (4 GiB): layouts of other image versions
 # place the share start within this distance.
@@ -138,10 +141,12 @@ format_refusal() {
 		echo "its first $READ_CHECK_MIB MiB do not read cleanly"
 		return
 	fi
-	if [ "$(boot_name "$1" "$EXFAT_BACKUP_SECTOR")" = "EXFAT   " ]; then
-		echo "it holds an exFAT backup boot sector, so it is a damaged share"
-		return
-	fi
+	for backup in $EXFAT_BACKUP_SECTORS; do
+		if [ "$(boot_name "$1" "$backup")" = "EXFAT   " ]; then
+			echo "it holds an exFAT backup boot sector (sector $backup), so it is a damaged share"
+			return
+		fi
+	done
 }
 
 # The first sector of the free space after the state partition that holds
