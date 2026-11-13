@@ -779,6 +779,9 @@ fn every_tv_proposal_is_a_table_mode_that_the_validator_accepts() {
                     if c.rung != Rung::Fitted {
                         assert_eq!(p.placement.scale.y, Some(1), "{c}");
                     }
+                    if p.mode.interlace {
+                        assert_eq!(d.y % 2, 0, "{source:?}: {c}");
+                    }
                     if p.timing.changes_speed() {
                         assert!(notice(&plan, c).is_some(), "{c}");
                     }
