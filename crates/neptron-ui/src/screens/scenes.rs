@@ -148,6 +148,14 @@ pub(super) const SCENES: &[SceneDef] = &[
         name: "screens/system-shutting-down",
         build: system_shutting_down,
     },
+    SceneDef {
+        name: "screens/system-format",
+        build: system_format,
+    },
+    SceneDef {
+        name: "screens/system-format-confirm",
+        build: system_format_confirm,
+    },
 ];
 
 /// The settings of the fixtures.
@@ -685,6 +693,48 @@ fn system_shutting_down(frame: &mut UiFrame, theme: &Theme) {
             UiAction::Right,
             UiAction::Accept,
         ],
+        frame,
+    );
+}
+
+/// The action of the fixture `Format share partition` row.
+const FORMAT_SHARE: crate::snapshot::ActionId = crate::snapshot::ActionId(4);
+
+/// The System panel as the app gives it when the storage script offers a
+/// format of the share partition: the third row.
+fn with_format_offer() -> Snapshot {
+    let mut snap = with_system(None);
+    snap.settings.rows.push(
+        MenuItem::new(
+            SettingKey(12),
+            "Format share partition",
+            SettingValue::Action(FORMAT_SHARE),
+        )
+        .with_confirm(
+            "Format the share partition?",
+            "The partition for games (56.6 GB) is empty and not in use. Formatting it erases everything on it.",
+            "Formatting at the next start...",
+        ),
+    );
+    snap
+}
+
+/// The System panel with the format row, with the focus on it.
+fn system_format(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_format_offer();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_SYSTEM, frame);
+    screens.update(&snap, &[UiAction::Down, UiAction::Down], frame);
+}
+
+/// The confirm question of the format row, with the focus on `Cancel`.
+fn system_format_confirm(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_format_offer();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_SYSTEM, frame);
+    screens.update(
+        &snap,
+        &[UiAction::Down, UiAction::Down, UiAction::Accept],
         frame,
     );
 }
