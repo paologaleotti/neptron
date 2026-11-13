@@ -235,6 +235,48 @@ fn the_cursor_survives_a_window_of_a_different_list() {
     assert_eq!(run.focused(), Some(super::scenes::title(3).as_str()));
 }
 
+/// The first window of the Super Nintendo list after a scan: the games
+/// with the ids of `ids`, in that order, with the fixture titles of the ids.
+fn changed_list(ids: &[u64]) -> GameWindow {
+    let rows = ids
+        .iter()
+        .map(|&id| {
+            crate::snapshot::GameEntry::new(GameId(id), SNES, super::scenes::title(id as usize))
+        })
+        .collect();
+    GameWindow::new(SNES_LIST, 0, ids.len(), rows)
+}
+
+#[test]
+fn the_focus_follows_its_game_when_the_list_changes() {
+    let (mut run, mut snap) = snes_list();
+    run.step(&snap, &[Down, Down, Down]);
+    let mut ids: Vec<u64> = (0..WINDOW_ROWS as u64).collect();
+    ids.insert(1, 9_000);
+    ids.insert(0, 9_001);
+    snap.games = changed_list(&ids);
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some(super::scenes::title(3).as_str()));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::Launch { game: GameId(3) }]);
+    // The player moves on: the new row is the focus, and stays it.
+    run.step(&snap, &[Up]);
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some(super::scenes::title(2).as_str()));
+}
+
+#[test]
+fn a_gone_game_leaves_the_cursor_at_its_index() {
+    let (mut run, mut snap) = snes_list();
+    run.step(&snap, &[Down, Down, Down]);
+    let ids: Vec<u64> = (0..WINDOW_ROWS as u64).filter(|i| *i != 3).collect();
+    snap.games = changed_list(&ids);
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some(super::scenes::title(4).as_str()));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::Launch { game: GameId(4) }]);
+}
+
 #[test]
 fn accept_launches_and_menu_marks_a_favourite() {
     let (mut run, snap) = snes_list();

@@ -15,7 +15,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
-use crate::snapshot::{GameSource, Snapshot};
+use crate::snapshot::{GameId, GameSource, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
 use crate::widgets::{List, ListEvent, ListItem};
@@ -40,6 +40,10 @@ const PENDING_ROW: &str = "...";
 pub(super) struct GameList {
     source: GameSource,
     list: List,
+    /// The game under the cursor, once the snapshot held its row. When the
+    /// app gives a changed list (a scan ended), the cursor moves to this
+    /// game while the window holds it.
+    focused: Option<GameId>,
     list_box: Rect,
     panel: Rect,
     title: Rect,
@@ -59,6 +63,7 @@ impl GameList {
         Self {
             source,
             list: List::new(list, theme.row_height_px()),
+            focused: None,
             list_box,
             panel,
             title,
@@ -68,14 +73,32 @@ impl GameList {
     /// Moves the cursor to `index` of a list of `len` rows.
     pub(super) fn select(&mut self, index: usize, len: usize) {
         self.list.select(index, len);
+        self.focused = None;
     }
 
-    /// Clamps the cursor to the list of the snapshot. A window of a
-    /// different source does not count, so the cursor survives while the
-    /// app loads the list again.
+    /// Clamps the cursor to the list of the snapshot, and follows the
+    /// focused game. A window of a different source does not count, so the
+    /// cursor survives while the app loads the list again.
+    ///
+    /// Game ids stay with their game when the list changes, so another id
+    /// under the cursor means the list moved. The cursor then goes to the
+    /// focused game when the window holds it; a game that is gone, or out
+    /// of the window, leaves the cursor at its index.
     pub(super) fn sync(&mut self, snap: &Snapshot) {
-        if let Some(total) = self.total(snap) {
-            self.list.select(self.list.cursor(), total);
+        let Some(total) = self.total(snap) else {
+            return;
+        };
+        self.list.select(self.list.cursor(), total);
+        let Some(here) = snap.games.get(self.list.cursor()).map(|g| g.id) else {
+            return;
+        };
+        let moved_to = self.focused.filter(|f| *f != here).and_then(|f| {
+            let offset = snap.games.rows.iter().position(|g| g.id == f)?;
+            Some(snap.games.first + offset)
+        });
+        match moved_to {
+            Some(index) => self.list.select(index, total),
+            None => self.focused = Some(here),
         }
     }
 
@@ -92,7 +115,11 @@ impl GameList {
             return Nav::Stay;
         };
         let focused = |i| snap.games.get(i).map(|g| g.id);
-        match self.list.handle(action, total) {
+        let event = self.list.handle(action, total);
+        // The player moved the cursor: the game under it is the new focus,
+        // or none until its row loads.
+        self.focused = focused(self.list.cursor());
+        match event {
             ListEvent::Activated(i) => {
                 if let Some(game) = focused(i) {
                     out.push(Intent::Launch { game });
