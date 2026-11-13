@@ -757,3 +757,30 @@ Each open point is one section:
 - How to change: prefer one mode for both when a listed rate is a whole multiple of the game's rate within the audio control's reach (120 Hz for 60 Hz games); or give the menu the game's mode.
 - Decision:
 
+
+### OP-082: The quick menu shows rows that a flat panel ignores.
+
+- Raised by: the orchestrator, from the owner's photos of the first hardware session (2026-11-13)
+- Status: open, a defect
+- Default: on a flat panel the quick menu shows "Picture style" and "Refresh policy" as active rows. The panel path uses neither. A change to them has no effect and the menu does not say so.
+- Where: `crates/neptron-ui` (the quick menu), the settings schema (a condition on the display class)
+- How to change: show these rows as disabled on a panel, with one line that gives the reason; or hide them. The schema needs a "applies to" field so the crawler can check it.
+- Decision:
+
+### OP-083: The frontend starts before a monitor answers.
+
+- Raised by: the orchestrator, from the log of the first hardware session (2026-11-13)
+- Status: open, a defect
+- Default: the log shows three starts that end with "cannot open the display: no connected display found" before the DisplayPort monitor is found. The frontend exits and the launcher starts it again, so the system recovers, but each failed start delays the first picture and counts toward the relaunch window.
+- Where: `apps/neptron` (display open), `apps/neptron-launch` (the relaunch window), `crates/neptron-kms` (hotplug)
+- How to change: at start, wait a bounded time for a connected connector (hotplug events, not a sleep) before the frontend reports the error. Do not count "no display" as a failed boot for the safe-mode counter.
+- Decision:
+
+### OP-084: Small findings of the first hardware session.
+
+- Raised by: the orchestrator, from the log and the state partition (2026-11-13)
+- Status: open
+- Default: (1) Mesa prints at each start that it cannot create its shader cache, because the root file system is read-only. (2) The app wrote a game settings file that holds only an empty `[display]` table. (3) The kernel log reports missing firmware for the Intel display (DMC) and for the Realtek network chip (rtl8168h); both devices work without it.
+- Where: `os/` (the service environment, the firmware packages), `crates/neptron-settings` (the writer)
+- How to change: (1) set `MESA_SHADER_CACHE_DIR` to a directory on the state partition, or disable the cache. (2) Do not write a settings file with no value; remove the file when its last value goes. (3) Add the two firmware files, after a check of the `linux-firmware` licence terms for each.
+- Decision:
