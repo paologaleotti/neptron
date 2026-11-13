@@ -103,7 +103,7 @@ A stop of the launcher with SIGTERM (`kill $(pidof neptron-launch)`, or init at 
 - **The stop.** In `rcK`, before `umount -a -r`: `mdnsd` stops, `ksmbd.control --shutdown` closes every session, the script waits up to 5 s until no socket of the server is left and both daemons have ended, then `sync`. So the share partition unmounts clean after a copy.
 - **What is open on the release image**: TCP 445 and UDP 5353. No SSH, no telnet.
 
-The boot check waits, inside its deadline, until a socket listens on port 445 and `mdnsd` runs. The QEMU runs have no network card (`-nic none`), and the server listens on the loopback interface too.
+The boot check waits, inside its deadline, until a socket listens on port 445 and `mdnsd` runs. The QEMU runs have no network card (`-nic none`), and the server listens on the loopback interface too. An image built before the network share fails this step only when the whole deadline is over, with a line that asks whether the image is older than the network share: rebuild the image.
 
 ### The 15 kHz kernel patch set
 

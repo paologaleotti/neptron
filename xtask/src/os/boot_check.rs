@@ -195,7 +195,7 @@ network_share() {
 	# SMB server that listens on port 445 (hex 01BD, state 0A) and for the
 	# mDNS responder.
 	until cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$2 ~ /:01BD$/ && $4 == "0A" { found = 1 } END { exit !found }' && pidof mdnsd > /dev/null; do
-		in_time "the network share does not listen on port 445, or mdnsd does not run" || return 1
+		in_time "the network share does not listen on port 445, or mdnsd does not run; was the image built before the network share? rebuild it" || return 1
 		sleep 1
 	done
 }
@@ -860,6 +860,7 @@ mod tests {
                 "$2 ~ /:01BD$/ && $4 == \"0A\"",
                 "pidof mdnsd",
                 "in_time",
+                "was the image built before the network share? rebuild it",
             ] {
                 assert!(share.contains(part), "{part}: {share}");
             }
