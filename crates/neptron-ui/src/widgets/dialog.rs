@@ -94,7 +94,14 @@ impl Dialog {
         let row = theme.row_height_px();
         let lines =
             to_u32(text::wrap(content.message, message_width(theme)).count()).min(max_lines(theme));
-        let height = (2 * BORDER_PX + row + 3 * theme.padding_px() + button_row(theme))
+        // A dialog with no buttons, such as a box that says what happens
+        // now, ends below its text.
+        let buttons = if content.buttons.is_empty() {
+            0
+        } else {
+            theme.padding_px() + button_row(theme)
+        };
+        let height = (2 * BORDER_PX + row + 2 * theme.padding_px() + buttons)
             .saturating_add(lines.saturating_mul(row));
         let height = height.min(SAFE_AREA.h);
         let x = add(SAFE_AREA.x, (SAFE_AREA.w - DIALOG_WIDTH_PX) / 2);
@@ -269,6 +276,28 @@ mod tests {
                 .count();
             assert_eq!(drawn, count);
         }
+    }
+
+    #[test]
+    fn a_dialog_with_no_buttons_is_as_tall_as_its_text() {
+        let theme = Theme::default();
+        let with = Dialog::layout(&CONTENT, &theme);
+        let none = DialogContent {
+            buttons: &[],
+            ..CONTENT
+        };
+        let without = Dialog::layout(&none, &theme);
+        assert_eq!(
+            without.h,
+            with.h - button_row(&theme) - theme.padding_px(),
+            "no room for buttons"
+        );
+        assert_eq!(without.w, with.w);
+        let lines = to_u32(text::wrap(CONTENT.message, message_width(&theme)).count());
+        assert_eq!(
+            without.h,
+            2 * BORDER_PX + theme.row_height_px() * (1 + lines) + 2 * theme.padding_px()
+        );
     }
 
     #[test]
