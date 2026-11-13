@@ -286,15 +286,27 @@ mod tests {
             "a folder that cannot be made turns the cache off and stops nothing"
         );
         let launch = |rel: &str| std::fs::read_to_string(os_dir().join(rel)).unwrap();
-        for rel in [
-            "board/common/rootfs-overlay/usr/libexec/neptron/launch",
-            "board/pc/dev-overlay/usr/libexec/neptron/launch",
+        // The development script puts its paths below NEPTRON_ROOT for a
+        // test; on the image that is empty.
+        for (rel, line) in [
+            (
+                "board/common/rootfs-overlay/usr/libexec/neptron/launch",
+                ". /usr/libexec/neptron/mesa-cache\n",
+            ),
+            (
+                "board/pc/dev-overlay/usr/libexec/neptron/launch",
+                ". \"$root/usr/libexec/neptron/mesa-cache\"\n",
+            ),
         ] {
             assert!(
-                launch(rel).contains(". /usr/libexec/neptron/mesa-cache\n"),
+                launch(rel).contains(line),
                 "{rel} does not source the Mesa cache script"
             );
         }
+        assert!(
+            launch("board/pc/dev-overlay/usr/libexec/neptron/launch")
+                .contains("root=${NEPTRON_ROOT:-}\n")
+        );
     }
 
     #[test]
@@ -466,6 +478,82 @@ mod tests {
             pc_check.contains("POWER_ON=\"ACPI\""),
             "the PC kernel check requires ACPI for the power-off"
         );
+    }
+
+    /// Writes an executable shell script.
+    fn script(path: &Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// Runs the development launch script on a fake root where the hot
+    /// launcher exits with `hot_code`, or with no hot launcher. Returns the
+    /// lines the image's launcher and the hot launcher noted, and the log
+    /// that svlogd got.
+    fn dev_launch(name: &str, hot_code: Option<i32>) -> (Vec<String>, String) {
+        let launch = os_dir().join("board/pc/dev-overlay/usr/libexec/neptron/launch");
+        let dir = TempDir::create(&format!("devlaunch-{name}"));
+        let root = &dir.0;
+        let calls = root.join("calls");
+        let note = format!("echo \"$0 $*\" >> {}", calls.display());
+        script(&root.join("usr/bin/neptron-launch"), &note);
+        std::fs::create_dir_all(root.join("usr/libexec/neptron")).unwrap();
+        std::fs::write(root.join("usr/libexec/neptron/mesa-cache"), "").unwrap();
+        if let Some(code) = hot_code {
+            script(
+                &root.join("state/hot/bin/neptron-launch"),
+                &format!("{note}\necho \"usage: neptron-launch\" >&2\nexit {code}"),
+            );
+            script(&root.join("state/hot/bin/neptron"), "exit 0");
+        }
+        let bin = root.join("bin");
+        script(&bin.join("svlogd"), "cat > \"$1/current\"");
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+        let out = std::process::Command::new("sh")
+            .arg(&launch)
+            .env("NEPTRON_ROOT", root)
+            .env("PATH", path)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let r = root.display().to_string();
+        let calls = std::fs::read_to_string(&calls)
+            .unwrap_or_default()
+            .lines()
+            .map(|l| l.replace(&r, "ROOT"))
+            .collect();
+        let log = std::fs::read_to_string(root.join("state/log/neptron/current"))
+            .unwrap()
+            .replace(&r, "ROOT");
+        (calls, log)
+    }
+
+    /// A launcher pushed to the hot folder before `--power` existed exits
+    /// with the usage error code. The development launch script then
+    /// starts the image's launcher, frontend and data once, with one line,
+    /// so init does not start the old launcher again and again.
+    #[test]
+    fn the_dev_launch_falls_back_to_the_image_launcher_on_a_usage_error() {
+        let image = "ROOT/usr/bin/neptron-launch --power -- ROOT/usr/bin/neptron --backend kms --data ROOT/usr/share/neptron";
+        let hot = "ROOT/state/hot/bin/neptron-launch --power -- ROOT/state/hot/bin/neptron --backend kms --data ROOT/usr/share/neptron";
+        let (calls, log) = dev_launch("usage", Some(2));
+        assert_eq!(calls, [hot, image]);
+        assert_eq!(
+            log.matches("exited with the usage error code 2").count(),
+            1,
+            "{log}"
+        );
+        assert!(log.contains("usage: neptron-launch"), "{log}");
+        for code in [0, 1] {
+            let (calls, log) = dev_launch(&format!("code{code}"), Some(code));
+            assert_eq!(calls, [hot], "exit {code} is no usage error");
+            assert!(!log.contains("usage error"), "{log}");
+        }
+        let (calls, log) = dev_launch("image", None);
+        assert_eq!(calls, [image]);
+        assert!(!log.contains("usage error"), "{log}");
     }
 
     /// Runs check-kernel-config.sh on a fake output: `version` in the

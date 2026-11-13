@@ -16,21 +16,30 @@
 # While /run/neptron/hold exists the launcher does not start, so a bench
 # tool can take the display, or `os push` can replace the launcher.
 
-hot=/state/hot
-log_dir=/state/log/neptron
+# NEPTRON_ROOT puts every path below another folder, for a test.
+root=${NEPTRON_ROOT:-}
+hot=$root/state/hot
+log_dir=$root/state/log/neptron
+run_dir=$root/run/neptron
+image_launcher=$root/usr/bin/neptron-launch
+image_frontend=$root/usr/bin/neptron
+image_data=$root/usr/share/neptron
+# The exit code of a launcher for a wrong command line. It checks the
+# command line before it opens the device, so it exits at once.
+USAGE_EXIT_CODE=2
 
-mkdir -p /run/neptron "$log_dir"
+mkdir -p "$run_dir" "$log_dir"
 # svlogd reads its limits from the file config of its folder: size in
 # bytes, number of old files.
 printf 's4194304\nn2\n' > "$log_dir/config"
-while [ -e /run/neptron/hold ]; do
+while [ -e "$run_dir/hold" ]; do
 	sleep 1
 done
 
-. /usr/libexec/neptron/mesa-cache
-launcher=/usr/bin/neptron-launch
-frontend=/usr/bin/neptron
-data=/usr/share/neptron
+. "$root/usr/libexec/neptron/mesa-cache"
+launcher=$image_launcher
+frontend=$image_frontend
+data=$image_data
 if [ -d "$hot" ] && [ ! -e "$hot/DISABLED" ]; then
 	[ -x "$hot/bin/neptron-launch" ] && launcher=$hot/bin/neptron-launch
 	[ -x "$hot/bin/neptron" ] && frontend=$hot/bin/neptron
@@ -38,12 +47,23 @@ if [ -d "$hot" ] && [ ! -e "$hot/DISABLED" ]; then
 fi
 
 # With --power the launcher carries out the reboot or the power-off of the
-# System panel. A launcher in the hot folder must know the flag: push it
-# with the frontend.
+# System panel. A launcher in the hot folder that was pushed before the
+# flag existed exits with the usage error code. Init would start it again
+# at once, in a tight loop with no menus, so this start then takes the
+# image's own launcher, frontend and data, with one line that says so.
 #
 # The launcher is not exec'd: the shell waits for the pipe, and ends when
 # the launcher ends and svlogd has written the rest.
 {
-	echo "launch: $(cut -d' ' -f1 /proc/uptime) s after boot: launcher $launcher, frontend $frontend, data $data"
+	echo "launch: $(cut -d' ' -f1 /proc/uptime 2>/dev/null) s after boot: launcher $launcher, frontend $frontend, data $data"
+	if [ "$launcher" != "$image_launcher" ]; then
+		"$launcher" --power -- "$frontend" --backend kms --data "$data" 2>&1
+		code=$?
+		[ "$code" -eq "$USAGE_EXIT_CODE" ] || exit "$code"
+		echo "launch: $launcher exited with the usage error code $USAGE_EXIT_CODE: it does not know --power; this start uses the image's launcher $image_launcher, frontend $image_frontend and data $image_data. Push the launcher again"
+		launcher=$image_launcher
+		frontend=$image_frontend
+		data=$image_data
+	fi
 	exec "$launcher" --power -- "$frontend" --backend kms --data "$data" 2>&1
 } | svlogd "$log_dir"
