@@ -77,7 +77,13 @@ impl Cache {
 
     /// Where `os build` puts the images of `arch` for QEMU.
     pub fn images(&self, arch: Arch) -> PathBuf {
-        self.root.join("buildroot").join("images").join(arch.name())
+        self.images_dir(arch.name())
+    }
+
+    /// The images directory of the variant `name`, for example
+    /// `x86_64-dev`.
+    pub fn images_dir(&self, name: &str) -> PathBuf {
+        self.root.join("buildroot").join("images").join(name)
     }
 
     /// The lock that allows one Buildroot build at a time on this machine.
@@ -192,6 +198,10 @@ mod tests {
         assert_eq!(
             c.images(Arch::X86_64),
             PathBuf::from("/h/.cache/neptron/buildroot/images/x86_64")
+        );
+        assert_eq!(
+            c.images_dir("x86_64-dev"),
+            PathBuf::from("/h/.cache/neptron/buildroot/images/x86_64-dev")
         );
     }
 

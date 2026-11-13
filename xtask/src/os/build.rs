@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{Arch, OsError};
+use super::{Arch, Board, OsError};
 
 /// The repository of the development container images.
 pub const CONTAINER_REPO: &str = "neptron-dev";
@@ -24,8 +24,8 @@ pub fn container_image(dockerfile: &str) -> String {
 /// The arguments of `os build`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildArgs {
-    /// The target to build.
-    pub arch: Arch,
+    /// The image to build.
+    pub board: Board,
     /// Buildroot jobs, and the CPUs of the container.
     pub jobs: u32,
     /// Make targets to run before the full build, such as `linux-reconfigure`.
@@ -43,10 +43,11 @@ pub struct BuildArgs {
 
 impl BuildArgs {
     /// Parses `[--arch A] [--jobs N] [--dev-key FILE] [--no-kernel-15khz]
-    /// [-- targets...]`.
+    /// [--output NAME] [-- targets...]`. With no `--arch`, the default
+    /// architecture names the image.
     pub fn parse(args: &[&str], default_arch: Arch) -> Result<Self, OsError> {
         let mut out = Self {
-            arch: default_arch,
+            board: Board::of_arch(default_arch),
             jobs: DEFAULT_JOBS,
             targets: Vec::new(),
             dev_key: None,
@@ -56,7 +57,7 @@ impl BuildArgs {
         let mut it = args.iter();
         while let Some(&arg) = it.next() {
             match arg {
-                "--arch" => out.arch = Arch::parse(value(&mut it, "--arch")?)?,
+                "--arch" => out.board = Board::parse(value(&mut it, "--arch")?)?,
                 "--jobs" => out.jobs = positive(value(&mut it, "--jobs")?, "--jobs")?,
                 "--dev-key" => out.dev_key = Some(PathBuf::from(value(&mut it, "--dev-key")?)),
                 "--no-kernel-15khz" => out.no_kernel_15khz = true,
@@ -86,9 +87,15 @@ impl BuildArgs {
                 max: MAX_JOBS,
             });
         }
-        if (out.dev_key.is_some() || out.no_kernel_15khz) && out.arch != Arch::X86_64 {
+        if out.dev_key.is_some() && out.board.dev_fragment().is_none() {
+            return Err(OsError::Usage(format!(
+                "--dev-key: the {} image has no development variant",
+                out.board.name()
+            )));
+        }
+        if out.no_kernel_15khz && out.board != Board::Pc {
             return Err(OsError::Usage(
-                "--dev-key and --no-kernel-15khz are variants of the x86_64 PC image".to_owned(),
+                "--no-kernel-15khz is a variant of the x86_64 PC image".to_owned(),
             ));
         }
         Ok(out)
@@ -98,8 +105,10 @@ impl BuildArgs {
     /// order of the merge.
     pub fn fragments(&self) -> Vec<&'static str> {
         let mut fragments = Vec::new();
-        if self.dev_key.is_some() {
-            fragments.push(DEV_FRAGMENT);
+        if self.dev_key.is_some()
+            && let Some(fragment) = self.board.dev_fragment()
+        {
+            fragments.push(fragment);
         }
         if self.no_kernel_15khz {
             fragments.push(NO_15KHZ_FRAGMENT);
@@ -108,7 +117,7 @@ impl BuildArgs {
     }
 
     /// The name of the images directory: the `--output` name or the
-    /// architecture, with `-dev` for the development variant and `-no15khz`
+    /// image name, with `-dev` for the development variant and `-no15khz`
     /// for the kernel without the 15 kHz patch set. Without `--output` it
     /// also names the output volume, so the variants never share an output
     /// and no file of a variant can reach the release image.
@@ -116,7 +125,7 @@ impl BuildArgs {
         let mut name = self
             .output
             .clone()
-            .unwrap_or_else(|| self.arch.name().to_owned());
+            .unwrap_or_else(|| self.board.name().to_owned());
         if self.dev_key.is_some() {
             name.push_str(DEV_SUFFIX);
         }
@@ -199,7 +208,7 @@ impl BuildPlan {
     pub fn steps(&self) -> Vec<Vec<String>> {
         let jobs = format!("BR2_JLEVEL={}", self.args.jobs);
         let external = format!("BR2_EXTERNAL={CHECKOUT_MOUNT}/os");
-        let mut steps = vec![self.make(&[&external, self.args.arch.defconfig()])];
+        let mut steps = vec![self.make(&[&external, self.args.board.defconfig()])];
         let fragments: Vec<String> = self
             .args
             .fragments()
@@ -306,8 +315,6 @@ pub const OUT_VOLUME_PREFIX: &str = "neptron-br-out-";
 const CHECKOUT_MOUNT: &str = "/src/repo";
 /// The suffix of the output and the images of the development variant.
 pub const DEV_SUFFIX: &str = "-dev";
-/// The configuration fragment of the development variant, in `os/configs`.
-const DEV_FRAGMENT: &str = "neptron_pc_x86_64_dev.fragment";
 /// The suffix of the output and the images of the kernel without the
 /// 15 kHz patch set.
 pub const NO_15KHZ_SUFFIX: &str = "-no15khz";
@@ -361,7 +368,7 @@ mod tests {
     #[test]
     fn defaults_are_the_host_arch_and_four_jobs() {
         let a = BuildArgs::parse(&[], Arch::X86_64).unwrap();
-        assert_eq!(a.arch, Arch::X86_64);
+        assert_eq!(a.board, Board::Pc);
         assert_eq!(a.jobs, 4);
         assert!(a.targets.is_empty());
     }
@@ -373,7 +380,7 @@ mod tests {
             Arch::Aarch64,
         )
         .unwrap();
-        assert_eq!(a.arch, Arch::X86_64);
+        assert_eq!(a.board, Board::Pc);
         assert_eq!(a.jobs, 2);
         assert_eq!(a.targets, ["linux-reconfigure"]);
     }
@@ -610,7 +617,7 @@ mod tests {
     #[test]
     fn the_x86_64_build_applies_the_pc_defconfig() {
         let mut p = plan(&[]);
-        p.args.arch = Arch::X86_64;
+        p.args.board = Board::Pc;
         let line = p.steps()[0].join(" ");
         assert!(line.ends_with(" neptron_pc_x86_64_defconfig"), "{line}");
         assert!(

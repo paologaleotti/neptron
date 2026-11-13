@@ -7,6 +7,7 @@
 
 mod arch;
 mod bench;
+mod board;
 mod boot_check;
 mod build;
 mod core_trace;
@@ -26,6 +27,7 @@ mod trace;
 mod transcript;
 
 pub use arch::Arch;
+pub use board::Board;
 pub use core_trace::run as run_core_trace;
 
 use std::io::{self, ErrorKind};
@@ -617,7 +619,7 @@ fn build(args: &[&str]) -> Result<ExitCode, OsError> {
             return Err(OsError::Usage(problem));
         }
     }
-    let images = cache.images(args.arch).with_file_name(args.variant());
+    let images = cache.images_dir(&args.variant());
     let plan = BuildPlan {
         checkout: repo.root.clone(),
         images,
@@ -629,10 +631,13 @@ fn build(args: &[&str]) -> Result<ExitCode, OsError> {
     build::execute(&plan, &dockerfile)?;
     eprintln!(
         "xtask: {} image built in {} s; images in {}",
-        plan.args.arch.name(),
+        plan.args.board.name(),
         start.elapsed().as_secs(),
         plan.images.display()
     );
+    if let Some(disk) = plan.args.board.disk_image() {
+        eprintln!("xtask: disk image {}", plan.images.join(disk).display());
+    }
     Ok(ExitCode::SUCCESS)
 }
 
