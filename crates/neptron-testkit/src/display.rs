@@ -56,14 +56,15 @@ pub const DEFAULT_FLIP_TIMEOUT_NS: u64 = 100_000_000;
 ///   kHz with [`DisplayError::ModeRefused`] and keeps the active mode, as
 ///   the KMS backend does: the kernel's mode record holds kHz. The busy
 ///   check comes first, and no fault applies to such a mode.
-/// - `set_mode` refuses a mode with a TV standard
-///   ([`ValidatedMode::tv_standard`]) that is not in
-///   [`DisplayOptions::tv_standards`], or that is not one of the two
-///   modes of its standard, with [`DisplayError::ModeRefused`], and keeps
-///   the active mode, as the KMS backend does for a connector without
-///   that `TV mode` value. The pixel clock check comes first, and no
-///   fault applies to such a mode. Each call records the standard, and a
-///   change of the standard alone is a modeset.
+/// - `set_mode` refuses with [`DisplayError::ModeRefused`], and keeps the
+///   active mode, as the KMS backend does: a mode with a TV standard
+///   ([`ValidatedMode::tv_standard`]) when the connector has no `TV mode`
+///   property ([`DisplayOptions::tv_standards`] is `None`) or the property
+///   does not list the standard, a mode that is not one of the two modes
+///   of its standard, and a mode with no standard when the connector has
+///   the property. The pixel clock check comes first, and no fault
+///   applies to such a mode. Each call records the standard, and a change
+///   of the standard alone is a modeset.
 /// - One flip can be queued at a time. A second `present`, or a `set_mode`,
 ///   while a flip is queued returns [`DisplayError::Device`], as a KMS
 ///   driver returns `EBUSY`. `wait_flip` with no flip queued returns
@@ -118,10 +119,12 @@ pub struct DisplayOptions {
     /// How long `wait_flip` waits for a flip before it times out, in
     /// nanoseconds.
     pub flip_timeout_ns: u64,
-    /// The TV standards the connector can set: the values of its `TV
-    /// mode` property. Empty, the default, is a connector with no such
-    /// property, as HDMI or vkms.
-    pub tv_standards: Vec<TvStandard>,
+    /// The `TV mode` property of the connector, as
+    /// `KmsDisplay::tv_standards` of `neptron-kms` reports it: `None`, the
+    /// default, is a connector with no such property, as HDMI or vkms;
+    /// `Some` lists the standards its values can set, and `Some` of an
+    /// empty list is a property with no value.
+    pub tv_standards: Option<Vec<TvStandard>>,
 }
 
 /// What the fake display does with each scene. Every mode checks the
@@ -222,7 +225,7 @@ impl Default for DisplayOptions {
             refresh_mhz: None,
             modeset_ns: 0,
             flip_timeout_ns: DEFAULT_FLIP_TIMEOUT_NS,
-            tv_standards: Vec::new(),
+            tv_standards: None,
         }
     }
 }
@@ -459,7 +462,9 @@ impl State {
                 ),
             });
         }
-        if let Some(reason) = tv_refusal(requested, tv_standard, &self.options.tv_standards) {
+        if let Some(reason) =
+            tv_refusal(requested, tv_standard, self.options.tv_standards.as_deref())
+        {
             return Err(DisplayError::ModeRefused {
                 mode: *requested,
                 reason,
@@ -658,12 +663,19 @@ impl State {
 fn tv_refusal(
     mode: &Modeline,
     tv_standard: Option<TvStandard>,
-    offered: &[TvStandard],
+    offered: Option<&[TvStandard]>,
 ) -> Option<String> {
-    let standard = tv_standard?;
-    if offered.is_empty() {
-        return Some("the connector has no TV mode property".to_owned());
-    }
+    let (standard, offered) = match (tv_standard, offered) {
+        (None, None) => return None,
+        (None, Some(_)) => {
+            return Some(
+                "the connector has a TV mode property, and the mode carries no TV standard"
+                    .to_owned(),
+            );
+        }
+        (Some(_), None) => return Some("the connector has no TV mode property".to_owned()),
+        (Some(standard), Some(offered)) => (standard, offered),
+    };
     if !offered.contains(&standard) {
         return Some(format!(
             "the connector has no TV mode value {} for {} lines",
@@ -711,29 +723,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_mode_without_a_standard_needs_no_tv_property() {
-        assert_eq!(tv_refusal(&TV_525_240P, None, &[]), None);
-        assert_eq!(tv_refusal(&TV_525_240P, None, &[TvStandard::Ntsc]), None);
+    fn a_mode_without_a_standard_needs_a_connector_without_the_property() {
+        assert_eq!(tv_refusal(&TV_525_240P, None, None), None);
+        let refused = Some(
+            "the connector has a TV mode property, and the mode carries no TV standard".to_owned(),
+        );
+        assert_eq!(
+            tv_refusal(&TV_525_240P, None, Some(&[TvStandard::Ntsc])),
+            refused
+        );
+        assert_eq!(tv_refusal(&TV_525_240P, None, Some(&[])), refused);
     }
 
     #[test]
     fn a_standard_needs_its_value_on_the_connector() {
         let ntsc = Some(TvStandard::Ntsc);
         assert_eq!(
-            tv_refusal(&TV_525_240P, ntsc, &[]),
+            tv_refusal(&TV_525_240P, ntsc, None),
             Some("the connector has no TV mode property".to_owned())
         );
         assert_eq!(
-            tv_refusal(&TV_525_240P, Some(TvStandard::Pal60), &[TvStandard::Pal]),
+            tv_refusal(&TV_525_240P, ntsc, Some(&[])),
+            Some("the connector has no TV mode value NTSC for 525 lines".to_owned())
+        );
+        assert_eq!(
+            tv_refusal(
+                &TV_525_240P,
+                Some(TvStandard::Pal60),
+                Some(&[TvStandard::Pal])
+            ),
             Some("the connector has no TV mode value PAL for 525 lines".to_owned())
         );
-        assert_eq!(tv_refusal(&TV_525_480I, ntsc, &TvStandard::ALL), None);
+        assert_eq!(tv_refusal(&TV_525_480I, ntsc, Some(&TvStandard::ALL)), None);
     }
 
     #[test]
     fn a_standard_takes_only_its_table_modes() {
         assert_eq!(
-            tv_refusal(&TV_625_288P, Some(TvStandard::Ntsc), &TvStandard::ALL),
+            tv_refusal(&TV_625_288P, Some(TvStandard::Ntsc), Some(&TvStandard::ALL)),
             Some("720x288 is not a ntsc mode".to_owned())
         );
         let shifted = Modeline {
@@ -741,7 +768,7 @@ mod tests {
             ..TV_525_240P
         };
         assert_eq!(
-            tv_refusal(&shifted, Some(TvStandard::Ntsc), &TvStandard::ALL),
+            tv_refusal(&shifted, Some(TvStandard::Ntsc), Some(&TvStandard::ALL)),
             Some("720x240 is not a ntsc mode".to_owned())
         );
     }

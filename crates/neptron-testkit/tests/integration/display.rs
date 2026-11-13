@@ -12,8 +12,8 @@ use neptron_testkit::{
     Render, SimClock, frame_hash,
 };
 use neptron_types::{
-    Filter, FlipEvent, Frame, GpuCaps, Modeline, PixelFormat, Rect, ScanlineKind, Scanlines, Scene,
-    TV_525_240P, TV_625_576I, TvStandard,
+    Filter, FlipEvent, Frame, GpuCaps, Modeline, MonitorKind, MonitorProfile, PixelFormat, Rect,
+    ScanlineKind, Scanlines, Scene, TV_525_240P, TV_625_576I, TvStandard,
 };
 
 /// One period of 240p at 60.029 Hz, in nanoseconds: 10^12 / 60 029,
@@ -922,7 +922,7 @@ fn tv_mode(m: Modeline, standard: TvStandard) -> ValidatedMode {
     neptron_safety::validate(&m, &standard.profile(), &VEC_CAPS).unwrap()
 }
 
-fn tv_display(standards: Vec<TvStandard>) -> FakeDisplay {
+fn tv_display(standards: Option<Vec<TvStandard>>) -> FakeDisplay {
     FakeDisplay::with_options(
         SimClock::new(),
         VEC_CAPS,
@@ -935,7 +935,7 @@ fn tv_display(standards: Vec<TvStandard>) -> FakeDisplay {
 
 #[test]
 fn a_connector_without_a_tv_property_refuses_a_tv_mode() {
-    let mut display = tv_display(Vec::new());
+    let mut display = tv_display(None);
     let result = display.set_mode(&tv_mode(TV_525_240P, TvStandard::Ntsc));
     assert_eq!(
         result,
@@ -952,7 +952,7 @@ fn a_connector_without_a_tv_property_refuses_a_tv_mode() {
 
 #[test]
 fn a_standard_the_connector_lacks_is_refused_and_the_mode_stays() {
-    let mut display = tv_display(vec![TvStandard::Ntsc, TvStandard::Pal]);
+    let mut display = tv_display(Some(vec![TvStandard::Ntsc, TvStandard::Pal]));
     display
         .set_mode(&tv_mode(TV_525_240P, TvStandard::Ntsc))
         .unwrap();
@@ -979,7 +979,7 @@ fn a_change_of_the_standard_alone_is_a_modeset() {
         clock.clone(),
         VEC_CAPS,
         DisplayOptions {
-            tv_standards: TvStandard::ALL.to_vec(),
+            tv_standards: Some(TvStandard::ALL.to_vec()),
             modeset_ns: 1_000_000,
             ..DisplayOptions::default()
         },
@@ -996,6 +996,46 @@ fn a_change_of_the_standard_alone_is_a_modeset() {
     // Each modeset takes its time on the clock, the second one too.
     assert_eq!(clock.now_ns(), 2_000_000);
     assert_eq!(display.active_tv_standard(), Some(TvStandard::NtscJ));
+}
+
+#[test]
+fn a_mode_without_a_standard_on_a_tv_connector_is_refused_and_the_mode_stays() {
+    let mut display = tv_display(Some(vec![TvStandard::Ntsc]));
+    let ntsc = tv_mode(TV_525_240P, TvStandard::Ntsc);
+    display.set_mode(&ntsc).unwrap();
+    let plain = neptron_safety::validate(
+        &TV_525_240P,
+        &MonitorProfile {
+            id: "plain".to_owned(),
+            kind: MonitorKind::FlatPanel {
+                modes: vec![TV_525_240P],
+            },
+        },
+        &VEC_CAPS,
+    )
+    .unwrap();
+    let refused = Err(DisplayError::ModeRefused {
+        mode: TV_525_240P,
+        reason: "the connector has a TV mode property, and the mode carries no TV standard"
+            .to_owned(),
+    });
+    assert_eq!(display.set_mode(&plain), refused);
+    assert_eq!(display.active_mode(), Some(TV_525_240P));
+    assert_eq!(display.active_tv_standard(), Some(TvStandard::Ntsc));
+    assert_eq!(display.mode_switches().len(), 1);
+    assert_eq!(display.mode_calls()[1].tv_standard, None);
+    // A property with no value refuses a mode with no standard and every
+    // standard.
+    let mut empty = tv_display(Some(Vec::new()));
+    assert_eq!(empty.set_mode(&plain), refused);
+    assert_eq!(
+        empty.set_mode(&ntsc),
+        Err(DisplayError::ModeRefused {
+            mode: TV_525_240P,
+            reason: "the connector has no TV mode value NTSC for 525 lines".to_owned()
+        })
+    );
+    assert_eq!(empty.active_mode(), None);
 }
 
 #[test]
