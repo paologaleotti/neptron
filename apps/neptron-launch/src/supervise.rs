@@ -71,7 +71,7 @@ pub fn supervise<F: Frontend, T: Time>(
             Next::Stop => return Ok(runs),
             Next::Restart { after_ns } => {
                 if after_ns > 0 {
-                    eprintln!(
+                    crate::say!(
                         "neptron-launch: the frontend ended with {code:?} after {} ms, crash {} in a row; start again in {} ms",
                         ran_ns / 1_000_000,
                         backoff.crashes(),

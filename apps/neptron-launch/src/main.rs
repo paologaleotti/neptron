@@ -28,21 +28,21 @@ fn main() -> ExitCode {
     let options = match args::parse(std::env::args_os().skip(1)) {
         Ok(options) => options,
         Err(e) => {
-            eprintln!("neptron-launch: {e}");
+            say!("neptron-launch: {e}");
             return ExitCode::from(2);
         }
     };
     let device = match options.device.as_deref().map(Device::open).transpose() {
         Ok(device) => device,
         Err(e) => {
-            eprintln!("neptron-launch: {e}");
+            say!("neptron-launch: {e}");
             return ExitCode::FAILURE;
         }
     };
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         if let Err(e) = signal_hook::flag::register(signal, Arc::clone(&stop)) {
-            eprintln!("neptron-launch: cannot watch signal {signal}: {e}");
+            say!("neptron-launch: cannot watch signal {signal}: {e}");
             return ExitCode::FAILURE;
         }
     }
@@ -58,15 +58,27 @@ fn main() -> ExitCode {
     };
     match supervise(&mut frontend, &mut time, &mut Backoff::new()) {
         Ok(runs) => {
-            eprintln!("neptron-launch: the frontend ended after {runs} runs");
+            say!("neptron-launch: the frontend ended after {runs} runs");
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("neptron-launch: {e}");
+            say!("neptron-launch: {e}");
             ExitCode::FAILURE
         }
     }
 }
+
+/// Writes a line to standard error. A failed write loses the line: the
+/// launcher must not panic or stop over its log, and `eprintln!` panics on
+/// a write error.
+macro_rules! say {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        // A line that cannot be written is lost; see above.
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
+use say;
 
 /// How often the launcher looks at its child and at the stop signal.
 const CHILD_POLL: Duration = Duration::from_millis(20);
@@ -107,11 +119,13 @@ impl Frontend for Process {
                 StopAction::Wait => {}
                 StopAction::Term => kill_process(Pid::from_child(&child), Signal::TERM)?,
                 StopAction::Kill => {
-                    eprintln!(
+                    // The signal goes first: a log write can block on a
+                    // stuck log pipe, and the stop must not wait for it.
+                    kill_process(Pid::from_child(&child), Signal::KILL)?;
+                    say!(
                         "neptron-launch: the frontend did not end {} ms after SIGTERM; SIGKILL",
                         self.stop_wait.as_millis()
                     );
-                    kill_process(Pid::from_child(&child), Signal::KILL)?;
                 }
             }
             std::thread::sleep(CHILD_POLL);
