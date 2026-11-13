@@ -95,7 +95,7 @@ Tier 3 on the images:
 | Cargo registry and `target/` of `lint` | Actions cache | OS, CPU, job, hash of `rust-toolchain.toml` and `Cargo.lock` | `main` and manual runs |
 | Cargo registry and `target/` of `test-linux` and `test-macos` | Actions cache | The same, per runner | `main` and manual runs |
 | Buildroot downloads (`neptron-br-dl`) | Actions cache | Target and hash of every `*.hash` file, `os/configs/*` and `Dockerfile`; an older key is the fallback | `main` |
-| Buildroot output and compiler cache: the "base" | Workflow artifact `br-base-<target>-<key>`, 30 days | Target and hash of `Dockerfile`, the defconfig and fragments of the target, `os/patches/` and the core packages `os/package/libretro-*` | Any run that built it |
+| Buildroot output, compiler cache and downloads: the "base" | Workflow artifact `br-base-v<format>-<target>-<key>`, 30 days | Target and hash of `Dockerfile`, the defconfig and fragments of the target, `os/patches/` and the core packages `os/package/libretro-*` | Any run that built it |
 
 A pull request restores the caches of `main` and saves none. CI sets `CARGO_INCREMENTAL=0` and no debug info, because both make the cache large and help nothing on a fresh runner. `cargo-nextest` and `cargo-deny` are prebuilt binaries at pinned versions (`taiki-e/install-action`); CI never runs `cargo install`.
 
@@ -107,8 +107,8 @@ The base is the Buildroot output directory after a full build, with these parts 
 
 How an image job finds its base, in order:
 
-1. `br-base-<target>-<key>`: a complete base for this key. The build is warm.
-2. `br-partial-<target>-<key>`: a build for this key that failed or ran out of time. The build goes on from there.
+1. `br-base-v<format>-<target>-<key>`: a complete base for this key. The build is warm.
+2. `br-partial-v<format>-<target>-<key>`: a build for this key that failed or ran out of time. The build goes on from there.
 3. An older base of the target. A pull request builds on top of it: quick, but not clean, because Buildroot does not remove what an old configuration installed. `main`, the nightly run and a manual run use only its compiler cache, and build cold.
 4. Nothing: a cold build.
 
@@ -124,7 +124,7 @@ Why not a container image on GHCR: it would also work, and container storage on 
 
 **Local packages.** The packages that build this checkout (`neptron`, `neptron-launch`, `neptronctl`, `neptron-capture`, `neptron-vkms-probe`) are built again in every run (`<package>-reconfigure`), because Buildroot does not see a change to a local source. `-rebuild` is not enough: the configure step runs `cargo vendor`, and when `Cargo.lock` gains a crate, a build with the old vendor directory fails offline ("no matching package named ..."). A run on 2026-11-13 failed this way.
 
-**Force a cold build.** Change `BASE_EPOCH` in `images.yml`.
+**Force a cold build.** Change `BASE_EPOCH` in `images.yml`. A change to what the base holds also changes `BASE_FORMAT`, so that no job uses a base of the old layout, not even as an older base for a pull request.
 
 ## Licence rules in CI
 
@@ -140,7 +140,7 @@ Why not a container image on GHCR: it would also work, and container storage on 
 | `neptron-pc-x86_64-no15khz-sources` | `image x86_64`, on success | 7 days | The source archives of `make legal-info` |
 | `t3-<target>` | Each image job | 14 days | The boot check report, the captured picture (PPM and PNG), the expected and diff pictures on a failure, the QEMU console logs, the core traces |
 | `verify-lint`, `verify-linux`, `verify-macos` | A failed check job | 14 days | `target/verify/report.json`; for a golden failure the expected, actual and diff pictures of `cargo xtask golden` and the actual pictures of the `neptron-gfx` goldens |
-| `br-base-<target>-<key>`, `br-partial-<target>-<key>` | Image jobs | 30 days | The Buildroot base (see above) |
+| `br-base-v<format>-<target>-<key>`, `br-partial-v<format>-<target>-<key>` | Image jobs | 30 days | The Buildroot base (see above) |
 
 Get them on the run page (Summary, Artifacts) or with `gh run download RUN_ID --name NAME`. A downloaded image is written to a stick as `os/README.md` describes. Check it first: `sha256sum -c SHA256SUMS`.
 
