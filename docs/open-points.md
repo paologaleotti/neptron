@@ -721,3 +721,39 @@ Each open point is one section:
 - How to change: see `os/README.md`, sections "The PC image" and "Working on the bench".
 - Decision:
 
+### OP-078: The game list does not see new files until the frontend starts again.
+
+- Raised by: the owner, on the first hardware session (2026-11-13)
+- Status: open, needs a task
+- Default: the library is scanned when the game list run starts. Files copied to the share partition while the list is on screen do not appear. The way out today is a restart of the frontend (quit a game, or `kill -TERM` of the frontend over SSH).
+- Where: `apps/neptron` (the library and its background scan), `crates/neptron-library`
+- How to change: a "Rescan games" row in the menu; a rescan when the list gets the focus again after a game; a watch on the `roms` folders (inotify) with a debounce, so files copied over the network appear by themselves; a progress line while a large scan runs. The scan must stay off the frame thread and check for cancellation.
+- Decision:
+
+### OP-079: No way to copy games over the network.
+
+- Raised by: the owner, on the first hardware session (2026-11-13)
+- Status: open, needs a decision
+- Default: the image has no SMB server, though `docs/definition` describes one. Games reach the share partition by moving the stick to another computer, or on the development image over SSH (a file is piped through `ssh`, because the SSH server has no SFTP).
+- Where: `os/` (packages, init), `os/README.md`
+- How to change: add Samba (or a small SMB server) with one guest share for `/share`, off by default on the release image or on with a setting; or add SFTP to the development image; and a `cargo xtask os put` command for the bench. A network service on the release image needs a look at its attack surface, and it needs the network (DHCP) on the release image, which today only the development image has.
+- Decision:
+
+### OP-080: Variable refresh rate on flat panels.
+
+- Raised by: the owner, on the first hardware session (2026-11-13)
+- Status: open, after the MVP unless the owner asks sooner
+- Default: on a flat panel the policy takes a fixed mode from the panel's list, and the audio rate control absorbs a small rate difference (59.923 Hz game on a 59.951 Hz mode). The owner's monitor (Dell U2724D, 2560x1440) reports a range of 48 to 120 Hz. NEPTRON does not use it.
+- Where: `crates/neptron-backend` (the contract), `crates/neptron-kms` (the `VRR_ENABLED` CRTC property and the `vrr_capable` connector property), `crates/neptron-modeline/src/policy/panel.rs`, `crates/neptron-video/src/status.rs`
+- How to change: a contract change with an ADR: the display reports its variable range; the panel policy takes a "variable" target when the game's rate is inside the range (frame doubling below it); the session presents at the game's own pace; the Video block gets a word for it. Check first what the GPU driver offers: the Intel driver is believed to support variable refresh only on newer generations than the HD 530 of the bench, which is not verified.
+- Decision:
+
+### OP-081: The menu and a game use different modes on a flat panel.
+
+- Raised by: the orchestrator, from the log of the first hardware session (2026-11-13)
+- Status: open, needs a look from the owner
+- Default: on the Dell U2724D the menu runs at 2560x1440 and 120 Hz with each frame shown twice, and a 59.923 Hz game switches to the 59.951 Hz mode. So the panel changes mode when a game starts and ends, with a moment of black each time.
+- Where: `crates/neptron-modeline/src/policy/panel.rs` (the order of the panel proposals), `apps/neptron` (`MENU_SOURCE`)
+- How to change: prefer one mode for both when a listed rate is a whole multiple of the game's rate within the audio control's reach (120 Hz for 60 Hz games); or give the menu the game's mode.
+- Decision:
+
