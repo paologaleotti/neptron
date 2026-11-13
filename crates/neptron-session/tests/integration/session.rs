@@ -22,7 +22,6 @@ save_ram 64
 ";
 
 /// The RetroPad bit of each button, as the test core reads it.
-const SELECT: u16 = 1 << 2;
 const START: u16 = 1 << 3;
 const A: u16 = 1 << 8;
 
@@ -116,7 +115,7 @@ fn the_quick_menu_pauses_the_core_and_is_never_a_toggle() {
                 assert_eq!(report.flips, 1, "the display keeps flipping");
             }
             assert_eq!(rig.core_frame(), frozen, "the core is paused");
-            assert_frame(&rig.session, frozen, SELECT | START);
+            assert_frame(&rig.session, frozen, 0);
             assert_eq!(
                 rig.session.audio_stats().unwrap().frames,
                 audio_frames,
@@ -580,4 +579,31 @@ fn closing_the_menu_retries_a_blocked_source_whatever_the_last_record() {
             );
         }
     );
+}
+
+#[test]
+fn a_recovery_hold_never_reaches_the_core() {
+    with_script!("a_recovery_hold_never_reaches_the_core", SCRIPT, |dir| {
+        let mut rig = Rig::launch(dir, Setup::default());
+        rig.run(5);
+        rig.press(&[Control::Select, Control::Start]);
+        let mut recovered = false;
+        for _ in 0..330 {
+            let report = rig.session.run_frame(None).unwrap();
+            assert!(report.ran_core);
+            assert_frame(&rig.session, rig.core_frame(), 0);
+            recovered |= report.blind_recovery.is_some();
+        }
+        assert!(recovered, "the 5 s hold fired the recovery");
+        // Both stay held back until both are up: Start alone is no press.
+        rig.release(&[Control::Select]);
+        rig.run(1);
+        assert_frame(&rig.session, rig.core_frame(), 0);
+        rig.release(&[Control::Start]);
+        rig.run(1);
+        assert!(!rig.session.paused(), "the hold opens no menu");
+        rig.press(&[Control::Start]);
+        rig.run(1);
+        assert_frame(&rig.session, rig.core_frame(), START);
+    });
 }

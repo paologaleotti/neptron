@@ -54,6 +54,7 @@ The size comes from the last frame, because some cores send a new size without t
 
 - Select+Start (and the Start hold, `input.menu_hold_start_seconds`) opens it. The hotkey pauses the core. A second quick menu hotkey while it is open does nothing: the menu is never a toggle (OP-051). The app closes it with `resume()`.
 - On `resume()`, every button held at that moment reaches the core only after its release. The button that chose "resume" does not reach the game, and after a Start hold the game sees Start go up and no new press (OP-051).
+- Select and Start down together on a port are the quick menu and the blind recovery hold, never game input. From the frame both are down until both are up again, the core sees neither, so a game does not pause itself or take a reset combination during the 5 s recovery hold.
 - `FrameReport::blind_recovery` reports the 5 s hold of the combination, also while the menu is open. The safety layer acts on it.
 - `resume()` calls the engine's `retry()` when the engine has a source blocked after a device error of its `set_mode` (`VideoEngine::source_blocked`), whatever the last switch record.
 - Opening the menu flushes the save RAM.
@@ -96,7 +97,7 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 ## Tests
 
 - Unit tests: the source and the launch settle, the button mask, the frame copy, the save RAM writer (backup, unchanged, many flushes, failed write, failed copy), the message cut.
-- `tests/integration/session.rs`, the scripted session with the test core through the real host: one frame per flip, the input of each frame, the quick menu (pause, no toggle, UI over the frozen frame, the mask on resume), the Start hold, the blind recovery under the menu, save RAM at launch, on the timer, at the menu and at exit, a core shutdown, double refresh, scanline settings and video status, core options, a timing change.
+- `tests/integration/session.rs`, the scripted session with the test core through the real host: one frame per flip, the input of each frame, the quick menu (pause, no toggle, UI over the frozen frame, the mask on resume), the Start hold, a 5 s recovery hold that never reaches the core, save RAM at launch, on the timer, at the menu and at exit, a core shutdown, double refresh, scanline settings and video status, core options, a timing change.
 - `tests/integration/launch.rs`: the first mode for the Genesis Plus GX geometry, and the two modesets without the settle.
 - `tests/integration/faults.rs`: a slow flip, a failed present and wait, a display that stops flipping, the output turned off and on again.
 - `tests/integration/timing.rs`: timing check 6 at 50.00, 59.94 and 60.10 Hz with jitter, with late flips, and with a display rate that differs from the mode (measured run rate). 30 simulated seconds each in the tier. Two 100,000-frame runs (about 28 simulated minutes, about 67 s each in the dev profile) are ignored tests: with jitter only, and with one late flip in a thousand.

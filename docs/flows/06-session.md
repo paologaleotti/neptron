@@ -70,7 +70,7 @@ flowchart TD
 
 ### Hotkeys of one port
 
-Select and Start together (`QUICK_MENU_COMBO`) fire the quick menu at their release, when the press lasted less than `BLIND_RECOVERY_HOLD_NS`. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So a recovery hold never opens the quick menu. `Session::resume` cancels a press held across the close (`Hotkeys::cancel_quick_menu`), so its release does not open the menu again. The Start hold is a second way to the quick menu, with its own state per port:
+Select and Start together (`QUICK_MENU_COMBO`) fire the quick menu at their release, when the press lasted less than `BLIND_RECOVERY_HOLD_NS`. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So a recovery hold never opens the quick menu. `Session::resume` cancels a press held across the close (`Hotkeys::cancel_quick_menu`), so its release does not open the menu again. From the frame Select and Start are both down until both are up again, the core sees neither (`PadMask`), so the game does not act on the combination during the hold. The Start hold is a second way to the quick menu, with its own state per port:
 
 ```mermaid
 stateDiagram-v2

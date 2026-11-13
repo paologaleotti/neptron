@@ -4,7 +4,7 @@
 use neptron_libretro::Pad;
 use neptron_types::Control;
 
-use neptron_input::PortStates;
+use neptron_input::{PortStates, QUICK_MENU_COMBO};
 
 /// The ports the core gets: the ports of the libretro host.
 pub const CORE_PORTS: usize = neptron_libretro::MAX_PORTS;
@@ -42,9 +42,17 @@ const AXES: [Control; 4] = [
 /// menu, not for the game. The core sees each one up until its release, so
 /// it sees no new press. A Start hold that opened the menu is one of them:
 /// the game saw Start go down, and sees it go up when it resumes.
+///
+/// Select and Start down together are the quick menu and the blind
+/// recovery hold, never game input: from the frame they are both down
+/// until both are up again, the core sees neither, so a game does not
+/// pause itself or take a reset combination during a 5 s recovery hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct PadMask {
     held_back: [u16; CORE_PORTS],
+    /// The hotkey combination went down on the port, and not every button
+    /// of it is up yet.
+    combo: [bool; CORE_PORTS],
 }
 
 impl PadMask {
@@ -55,10 +63,19 @@ impl PadMask {
         }
     }
 
-    /// Ends the hold of each button that is up now.
+    /// Ends the hold of each button that is up now, and follows the
+    /// hotkey combination. Call it once per input poll.
     pub(crate) fn release(&mut self, ports: &PortStates) {
         for (port, bits) in self.held_back.iter_mut().enumerate() {
             *bits &= pressed(ports, port_id(port));
+        }
+        for (port, combo) in self.combo.iter_mut().enumerate() {
+            let id = port_id(port);
+            if QUICK_MENU_COMBO.iter().all(|c| ports.is_held(id, *c)) {
+                *combo = true;
+            } else if QUICK_MENU_COMBO.iter().all(|c| !ports.is_held(id, *c)) {
+                *combo = false;
+            }
         }
     }
 
@@ -66,9 +83,11 @@ impl PadMask {
     pub(crate) fn pad(&self, ports: &PortStates, port: usize) -> Pad {
         let id = port_id(port);
         let held_back = self.held_back.get(port).copied().unwrap_or(0);
+        let combo = self.combo.get(port).copied().unwrap_or(false);
         let mut pad = Pad::default();
         for (bit, control) in BUTTONS.iter().enumerate() {
-            let down = ports.is_held(id, *control) && held_back & (1 << bit) == 0;
+            let hotkey = combo && QUICK_MENU_COMBO.contains(control);
+            let down = ports.is_held(id, *control) && held_back & (1 << bit) == 0 && !hotkey;
             pad.apply(*control, i16::from(down));
         }
         for control in AXES {
@@ -152,6 +171,31 @@ mod tests {
             mask.pad(&ports, 0).buttons & 0x0100,
             0,
             "A is still held back"
+        );
+    }
+
+    #[test]
+    fn select_and_start_together_never_reach_the_core_until_both_are_up() {
+        let mut ports = PortStates::new();
+        let mut mask = PadMask::default();
+        set(&mut ports, 0, Control::Select, 1);
+        mask.release(&ports);
+        assert_eq!(mask.pad(&ports, 0), pad_with(&[Control::Select]));
+        set(&mut ports, 0, Control::Start, 1);
+        set(&mut ports, 0, Control::A, 1);
+        mask.release(&ports);
+        assert_eq!(mask.pad(&ports, 0), pad_with(&[Control::A]));
+        set(&mut ports, 0, Control::Select, 0);
+        mask.release(&ports);
+        assert_eq!(mask.pad(&ports, 0), pad_with(&[Control::A]), "Start alone");
+        set(&mut ports, 0, Control::Start, 0);
+        mask.release(&ports);
+        set(&mut ports, 0, Control::Start, 1);
+        mask.release(&ports);
+        assert_eq!(
+            mask.pad(&ports, 0),
+            pad_with(&[Control::A, Control::Start]),
+            "a new press of Start alone"
         );
     }
 
