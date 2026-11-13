@@ -481,24 +481,33 @@ fn the_interlaced_width_follows_the_lines_of_one_field() {
     assert_eq!((w.dest.w, w.filter), (640, Filter::Nearest));
 }
 
+/// The 320x240 UI canvas sits at whole factors, centred, so its columns
+/// and lines are even: 2x across (640 of the 704 safe samples) and 1x or
+/// 2x down.
 #[test]
-fn the_ui_fills_the_safe_width_and_every_active_line() {
+fn the_ui_sits_at_whole_factors_centred_in_each_mode() {
+    let want = |mode: neptron_types::Modeline| match (mode.vactive, mode.interlace) {
+        (240, false) => rect(40, 0, 640, 240),
+        (288, false) => rect(40, 24, 640, 240),
+        (480, true) => rect(40, 0, 640, 480),
+        (576, true) => rect(40, 48, 640, 480),
+        other => panic!("not a TV mode: {other:?}"),
+    };
+    let mut seen = std::collections::BTreeSet::new();
     for standard in TvStandard::ALL {
-        for source in [game(256, 224, 60_099, false), game(640, 480, 59_940, true)] {
+        for source in [
+            game(256, 224, 60_099, false),
+            game(640, 480, 59_940, true),
+            game(640, 480, 59_940, false),
+        ] {
             let plan = plan(&source, &PolicySettings::default(), standard);
             for (_, _, p) in plan.proposals() {
-                assert_eq!(
-                    p.placement.ui_dest,
-                    rect(
-                        8,
-                        0,
-                        u32::from(TV_SAFE_WIDTH_SAMPLES),
-                        u32::from(p.mode.vactive)
-                    )
-                );
+                assert_eq!(p.placement.ui_dest, want(p.mode), "{}", standard.key());
+                seen.insert(p.mode.vactive);
             }
         }
     }
+    assert_eq!(seen.into_iter().collect::<Vec<_>>(), [240, 288, 480, 576]);
 }
 
 #[test]

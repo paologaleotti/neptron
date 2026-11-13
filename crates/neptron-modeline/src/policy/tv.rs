@@ -15,7 +15,7 @@ use super::settings::Effective;
 use super::{
     Considered, Dropped, FORCE_50_MHZ, FORCE_60_MHZ, OVERSCAN_CROP_MAX_LINES_PER_EDGE,
     OrientedSource, OverscanCrop, Placement, Plan, Proposal, RefreshKind, RefreshPolicy,
-    RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, walk_ladder,
+    RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, UI_CANVAS, walk_ladder,
 };
 
 /// The largest difference between the game's rate and the field rate of a
@@ -215,7 +215,7 @@ impl Tv<'_> {
 
     /// Where the game sits: its lines 1:1 and centred, or filling the
     /// active lines; the width by the `tv_width` rule, centred. The UI
-    /// fills the safe width and every active line.
+    /// sits at whole factors ([`ui_dest`]).
     fn placement(&self, mode: &Modeline, fit: Fit) -> Placement {
         let source = self.source;
         let (y, h, claim_y, crop_per_edge) = match fit {
@@ -256,7 +256,6 @@ impl Tv<'_> {
             x: whole_u32(w, source.width),
             y: claim_y,
         };
-        let safe = u32::from(TV_SAFE_WIDTH_SAMPLES).min(u32::from(mode.hactive));
         Placement {
             crop: line_crop(source, crop_per_edge),
             dest: Rect {
@@ -266,12 +265,7 @@ impl Tv<'_> {
                 h,
             },
             filter: filter_for(scale),
-            ui_dest: Rect {
-                x: centre(mode.hactive, safe),
-                y: 0,
-                w: safe,
-                h: u32::from(mode.vactive),
-            },
+            ui_dest: ui_dest(mode),
             scale,
         }
     }
@@ -291,6 +285,25 @@ impl Tv<'_> {
             rate_mhz: u32::try_from(field).unwrap_or(u32::MAX),
             repeat,
         }
+    }
+}
+
+/// The UI canvas at the largest whole factor across that fits the safe
+/// width and the largest whole factor down that fits the active lines (at
+/// least 1), centred. A fraction would give columns or lines of uneven
+/// size, which shows on text. 320x240 is 640x240 at (40, 0) on 240p,
+/// at (40, 24) on 288p, 640x480 at (40, 0) on 480i and at (40, 48) on 576i.
+fn ui_dest(mode: &Modeline) -> Rect {
+    let (canvas_w, canvas_h) = UI_CANVAS;
+    let across = (TV_SAFE_WIDTH_SAMPLES.min(mode.hactive) / canvas_w.max(1)).max(1);
+    let down = (mode.vactive / canvas_h.max(1)).max(1);
+    let w = u32::from(canvas_w) * u32::from(across);
+    let h = u32::from(canvas_h) * u32::from(down);
+    Rect {
+        x: centre(mode.hactive, w),
+        y: centre(mode.vactive, h),
+        w,
+        h,
     }
 }
 
