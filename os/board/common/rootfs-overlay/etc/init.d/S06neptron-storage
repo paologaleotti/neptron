@@ -141,6 +141,8 @@ fi
 #   and it holds a filesystem, so it is mounted as it is.
 # - Its type is 0x07 and it starts at the first 1 MiB boundary after the
 #   state partition.
+# - The marker names its start and its size: the partition this script
+#   planned. A marker of an older image names none, so it allows nothing.
 # - Its first 16 MiB read with no error, and blkid exits with 2 (nothing
 #   found) and prints nothing: a read error is never taken for an empty
 #   partition.
@@ -183,6 +185,9 @@ STORAGE_LOG_LINES=300
 # of this length, in microseconds (5 s in all).
 NODE_WAIT_STEPS=50
 NODE_WAIT_STEP_US=100000
+# An MBR entry ends at this sector at most (libfdisk: 2^32 - 2), so a share
+# partition ends before 2 TiB.
+MBR_LAST_SECTOR=4294967294
 MARKER=$STATE/share-pending
 
 sectors() {
@@ -236,6 +241,14 @@ read_table() {
 	return 1
 }
 
+# The size of the planned partition 4, in sectors: to the end of the disk,
+# or to the last sector an MBR entry can reach.
+planned_size() {
+	end=$(cat "$disk/size")
+	[ "$end" -gt $((MBR_LAST_SECTOR + 1)) ] && end=$((MBR_LAST_SECTOR + 1))
+	echo $((end - $(planned_start)))
+}
+
 # Partition 4 of the table that read_table read, as "start size type", or
 # nothing. sfdisk names it sda4, nvme0n1p4 or mmcblk0p4.
 entry_of_table() {
@@ -247,10 +260,9 @@ entry_of_table() {
 # this script plans, or nothing.
 plan_mismatch() {
 	planned=$(planned_start)
-	disk_sectors=$(cat "$disk/size")
-	if [ "$3" != 7 ] || [ "$1" != "$planned" ] || [ "$2" -lt "$SHARE_MIN_SECTORS" ] ||
-		[ $(($1 + $2)) -gt "$disk_sectors" ]; then
-		echo "the table holds partition 4 at sector $1 with $2 sectors and type $3, not type 7 at sector $planned within the $disk_sectors sectors of the disk"
+	size=$(planned_size)
+	if [ "$3" != 7 ] || [ "$1" != "$planned" ] || [ "$2" != "$size" ]; then
+		echo "the table holds partition 4 at sector $1 with $2 sectors and type $3, not type 7 at sector $planned with $size sectors"
 	fi
 }
 
@@ -267,6 +279,13 @@ format_refusal() {
 	if [ "$(sfdisk --part-type "$disk_dev" 4 2>/dev/null | tr -d ' ')" != 7 ] ||
 		[ "$start" -lt "$end" ] || [ "$start" -ge $((end + ALIGN_SECTORS)) ]; then
 		echo "was left untouched: its type or its start is not those of the share partition of this image"
+		return
+	fi
+	marker_start=$(sed -n 's/^start=//p' "$MARKER" 2>/dev/null)
+	marker_size=$(sed -n 's/^size=//p' "$MARKER" 2>/dev/null)
+	size=$(sectors "$1" size)
+	if [ "$marker_start" != "$start" ] || [ "$marker_size" != "$size" ]; then
+		echo "was left untouched: /state/share-pending does not name start $start and size $size (it names start ${marker_start:-none} and size ${marker_size:-none})"
 		return
 	fi
 	if ! dd if="$1" of=/dev/null bs=1M count="$READ_CHECK_MIB" 2>/dev/null; then
@@ -318,7 +337,8 @@ make_partition() {
 		log "an old exFAT share starts at sector $planned; partition 4 is made around it and keeps its files"
 	fi
 	log "making partition 4 at sector $planned from $free free sectors"
-	if ! { echo "partition 4 made at $(date)" > "$MARKER" && sync; }; then
+	size=$(planned_size)
+	if ! { printf 'partition 4 made at %s\nstart=%s\nsize=%s\n' "$(date)" "$planned" "$size" > "$MARKER" && sync; }; then
 		say "$MARKER cannot be written, so no share partition is made"
 		return 1
 	fi

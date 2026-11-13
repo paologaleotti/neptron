@@ -295,6 +295,7 @@ impl Run {
             status: read("run/neptron/storage.toml"),
             state_log: read("state/log/storage.log"),
             marker: self.path("state/share-pending").exists(),
+            marker_text: read("state/share-pending"),
         }
     }
 }
@@ -315,6 +316,7 @@ struct Outcome {
     status: String,
     state_log: String,
     marker: bool,
+    marker_text: String,
 }
 
 impl Outcome {
@@ -861,8 +863,7 @@ fn an_empty_partition_4_with_no_marker_is_named_as_such() {
 #[test]
 fn a_damaged_share_is_a_reason() {
     let run = Run::new("backup-boot-sector").with_partition_4();
-    std::fs::create_dir_all(run.path("state")).unwrap();
-    std::fs::write(run.path("state/share-pending"), "partition 4 made\n").unwrap();
+    run.write_marker();
     let mut sectors = vec![0_u8; 13 * 512];
     sectors[12 * 512 + 3..12 * 512 + 11].copy_from_slice(b"EXFAT   ");
     std::fs::write(run.path("dev/sda4"), sectors).unwrap();
@@ -1107,4 +1108,46 @@ fn a_filesystem_on_partition_4_removes_the_marker_also_with_no_mount() {
         out.log.contains("logger -t neptron-storage partition 4 holds a filesystem, so /state/share-pending is removed"),
         "{out:#?}"
     );
+}
+
+/// The marker names the partition it allows to format: the planned start
+/// and size.
+#[test]
+fn the_marker_names_the_planned_start_and_size() {
+    let out = Run::new("marker-text")
+        .set("FAKE_DUMP_FAILS_AFTER_WRITE", "99")
+        .start();
+    assert_eq!(
+        out.marker_text,
+        format!("partition 4 made at DATE\nstart={PLANNED}\nsize={FREE_SECTORS}\n"),
+        "{out:#?}"
+    );
+}
+
+fn marker_mismatch(name: &str, marker: &str) {
+    let run = marked_partition_4(name, PLANNED, "7");
+    std::fs::write(run.path("state/share-pending"), marker).unwrap();
+    format_refused(
+        run,
+        &format!(
+            "was left untouched: /state/share-pending does not name start {PLANNED} and size {FREE_SECTORS}"
+        ),
+    );
+}
+
+#[test]
+fn a_marker_of_another_size_allows_no_format() {
+    marker_mismatch(
+        "marker-size",
+        &format!(
+            "partition 4 made at DATE\nstart={PLANNED}\nsize={}\n",
+            FREE_SECTORS - 2048
+        ),
+    );
+}
+
+/// A marker of an older image names no partition, so it allows no format.
+#[test]
+fn a_marker_that_names_no_partition_allows_no_format() {
+    marker_mismatch("marker-old", "partition 4 made at DATE\n");
 }
