@@ -68,8 +68,12 @@ else
 		echo "post-build: the release image has no launch script at /usr/libexec/neptron/launch" >&2
 		exit 1
 	fi
-	if grep -q /state/hot "$launch"; then
-		echo "post-build: the release launch script reads the hot folder of the development variant" >&2
+	if grep -q -e /state/hot -e svlogd "$launch"; then
+		echo "post-build: the release launch script reads the hot folder or logs through svlogd, as the development variant does" >&2
+		exit 1
+	fi
+	if ! cmp -s "$launch" "$ext/common/rootfs-overlay/usr/libexec/neptron/launch"; then
+		echo "post-build: the release launch script differs from board/common/rootfs-overlay/usr/libexec/neptron/launch" >&2
 		exit 1
 	fi
 fi
