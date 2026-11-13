@@ -1,0 +1,92 @@
+BR2_aarch64=y
+BR2_cortex_a53=y
+BR2_CCACHE=y
+# The global patch directory of this board holds only the hashes of the
+# Raspberry Pi kernel. No file of the PC kernel setup (os/patches, the
+# 15 kHz patch set) is in its path; board/rpi/check-kernel-patches.sh fails
+# the build otherwise.
+BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/patches"
+BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
+BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
+BR2_TOOLCHAIN_BUILDROOT_CXX=y
+BR2_KERNEL_HEADERS_AS_KERNEL=y
+BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_18=y
+BR2_TARGET_GENERIC_HOSTNAME="neptron"
+BR2_TARGET_GENERIC_ISSUE="NEPTRON"
+BR2_INIT_BUSYBOX=y
+BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_MDEV=y
+# BR2_TARGET_GENERIC_GETTY is not set
+# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set
+# The BusyBox options and the overlay of the PC image are shared: the
+# init table with no login and the stop entries, and the mixer script.
+# Its QEMU script acts only when the QEMU firmware config exists, which a
+# Pi does not have.
+BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/busybox.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/busybox.config"
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/rootfs-overlay $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/rootfs-overlay"
+BR2_ROOTFS_USERS_TABLES="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/users.table"
+BR2_ROOTFS_POST_FAKEROOT_SCRIPT="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/post-fakeroot.sh"
+BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/post-build.sh $(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/post-build.sh"
+BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/post-image.sh"
+# The Raspberry Pi fork of Linux, branch rpi-6.18.y, at a pinned commit
+# (Linux 6.18.62). Its hash is in board/rpi/patches/linux/linux.hash. No
+# kernel patch: BR2_LINUX_KERNEL_PATCH stays empty.
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_TARBALL=y
+BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION="$(call github,raspberrypi,linux,ea17ae02ca28483e508b05c7c44190c01a1ef8eb)/linux-ea17ae02ca28483e508b05c7c44190c01a1ef8eb.tar.gz"
+BR2_LINUX_KERNEL_DEFCONFIG="bcm2711"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/system.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/video.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/console.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/input.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/sound.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/storage.config $(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/network.config"
+BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y
+# The device trees and the overlays come from this kernel, not from the
+# firmware tarball, so the base trees and the overlays match. The firmware
+# picks the tree by model: Pi 3 B, Pi 3 B+, and the Zero 2 W (untested).
+BR2_LINUX_KERNEL_DTS_SUPPORT=y
+BR2_LINUX_KERNEL_INTREE_DTS_NAME="broadcom/bcm2710-rpi-3-b broadcom/bcm2710-rpi-3-b-plus broadcom/bcm2710-rpi-zero-2-w"
+BR2_LINUX_KERNEL_INTREE_DTSO_NAMES="overlays/vc4-kms-v3d overlays/disable-bt"
+BR2_LINUX_KERNEL_DTB_OVERLAY_SUPPORT=y
+BR2_TARGET_ROOTFS_EROFS=y
+# BR2_TARGET_ROOTFS_TAR is not set
+# The firmware of the Pi 0, 1, 2 and 3. Only the boot files: no device
+# tree and no overlay of the firmware tarball, and no config.txt or
+# cmdline.txt of Buildroot. post-image.sh writes the boot partition.
+BR2_PACKAGE_RPI_FIRMWARE=y
+BR2_PACKAGE_RPI_FIRMWARE_BOOTCODE_BIN=y
+BR2_PACKAGE_RPI_FIRMWARE_VARIANT_PI=y
+BR2_PACKAGE_RPI_FIRMWARE_CMDLINE_FILE=""
+# BR2_PACKAGE_RPI_FIRMWARE_INSTALL_DTB_OVERLAYS is not set
+BR2_PACKAGE_HOST_GENIMAGE=y
+BR2_PACKAGE_HOST_DOSFSTOOLS=y
+BR2_PACKAGE_HOST_MTOOLS=y
+BR2_PACKAGE_HOST_E2FSPROGS=y
+BR2_PACKAGE_E2FSPROGS=y
+BR2_PACKAGE_EXFATPROGS=y
+BR2_PACKAGE_UTIL_LINUX=y
+BR2_PACKAGE_UTIL_LINUX_BINARIES=y
+BR2_PACKAGE_UTIL_LINUX_PARTX=y
+BR2_PACKAGE_LIBDRM=y
+BR2_PACKAGE_LIBRETRO_FCEUMM=y
+BR2_PACKAGE_LIBRETRO_SNES9X=y
+BR2_PACKAGE_LIBRETRO_GENESIS_PLUS_GX=y
+# OpenGL ES 2 on the VideoCore IV of the Pi 3 through the Gallium vc4
+# driver, and softpipe as the software renderer. Neither needs LLVM.
+BR2_PACKAGE_MESA3D=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_VC4=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SOFTPIPE=y
+BR2_PACKAGE_MESA3D_OPENGL_EGL=y
+BR2_PACKAGE_MESA3D_OPENGL_ES=y
+BR2_PACKAGE_ALSA_LIB=y
+# amixer only: S08neptron-mixer sets each card's playback controls to
+# 0 dB and unmutes them at boot.
+BR2_PACKAGE_ALSA_UTILS=y
+# BR2_PACKAGE_ALSA_UTILS_ALSACTL is not set
+# BR2_PACKAGE_ALSA_UTILS_ALSAMIXER is not set
+BR2_PACKAGE_ALSA_UTILS_AMIXER=y
+BR2_PACKAGE_SDL3=y
+BR2_PACKAGE_SDL3_KMSDRM=y
+BR2_PACKAGE_SDL3_OPENGLES=y
+BR2_PACKAGE_HOST_RUSTC=y
+BR2_PACKAGE_NEPTRON=y
+BR2_PACKAGE_NEPTRON_LAUNCH=y
+BR2_PACKAGE_NEPTRONCTL=y
+# The network share, as in the PC image (docs/spec/network-share.md).
+BR2_PACKAGE_KSMBD_TOOLS=y
+BR2_PACKAGE_MDNSD=y

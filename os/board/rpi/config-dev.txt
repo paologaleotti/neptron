@@ -1,0 +1,10 @@
+
+# The development variant only: post-image.sh appends these lines.
+#
+# The serial port on GPIO 14 (TX) and 15 (RX), 115200 baud, 3.3 V. It
+# carries the kernel log (console=serial0 in cmdline.txt).
+enable_uart=1
+# The PL011 UART goes to GPIO 14 and 15, and Bluetooth is off. The clock
+# of the PL011 does not follow the core clock, so the baud rate stays
+# right.
+dtoverlay=disable-bt

@@ -1,0 +1,31 @@
+# Written by the NEPTRON image. Hand edits are lost at the next update.
+#
+# The firmware reads this file before Linux starts. Each key has the
+# reason for it on the line above.
+
+# Start the ARM cores in 64-bit mode: the image is 64-bit only.
+arm_64bit=1
+# The kernel of the image, uncompressed, at the root of this partition.
+kernel=Image
+# No rainbow splash on the display while the firmware loads: the first
+# picture of NEPTRON is its own menu.
+disable_splash=1
+# The firmware passes no video= mode on the kernel command line. The kernel
+# sets no mode of its own; the frontend sets every mode through the
+# validator.
+disable_fw_kms_setup=1
+# The KMS display driver vc4 for HDMI, with the composite encoder (VEC)
+# on. On a Pi 3 this does not turn HDMI off.
+dtoverlay=vc4-kms-v3d,composite
+# The analog audio driver of the 3.5 mm jack (off by default).
+dtparam=audio=on
+# A constant core clock, so the timing of the display and the serial port
+# does not change with the load.
+core_freq_fixed=1
+
+# The Zero 2 W (untested): composite on, which turns its HDMI off. Its
+# composite output is on test pads.
+[pi02]
+enable_tvout=1
+
+[all]

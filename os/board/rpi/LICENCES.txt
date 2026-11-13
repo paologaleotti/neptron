@@ -1,0 +1,135 @@
+NEPTRON licence notes, Raspberry Pi image
+=========================================
+
+NEPTRON is open source and not commercial. This image is free of charge.
+Nobody may sell it, or sell a device or a service because it holds it.
+
+The NEPTRON programs are under the MIT licence or the Apache License
+2.0, at your option:
+
+- `neptron`: the frontend.
+- `neptron-launch`: the launcher.
+- `neptronctl`: the command-line client and the self-test of the bench.
+
+The image also holds other software. Each package keeps its own licence.
+The folder `legal` on this partition lists them:
+
+- `legal/manifest.csv`: every package, its version, its licence and its
+  licence files. It is the output of `make legal-info` of Buildroot.
+- `legal/licenses/<package>`: the licence texts of each package.
+
+The same texts are in `/usr/share/licenses` inside the image.
+
+The monitor presets in `/usr/share/neptron/monitors` come from Switchres
+and are under the GNU General Public License 2.0 or later. The frontend
+reads them at run time and does not contain them.
+
+Raspberry Pi firmware
+---------------------
+
+These files on this partition are the boot firmware of the Raspberry Pi,
+from github.com/raspberrypi/firmware, commit
+063bcab6c8a90efb0d19f69d88cbbc7ec79cab68:
+
+- `bootcode.bin`
+- `start.elf`
+- `fixup.dat`
+
+They are not open source. Their licence is `legal/LICENCE.broadcom`.
+Buildroot labels the package `BSD-3-Clause` in `legal/manifest.csv`.
+That label is wrong for these terms; the terms below apply.
+
+What the licence allows:
+
+- Redistribution and use in binary form, without modification.
+- Only for the purposes of developing for, running or using a Raspberry
+  Pi device (or an authorised derivative device made through the
+  element14 Raspberry Pi Customization Service).
+- Each redistribution must reproduce the copyright notice and the
+  disclaimer below.
+- The name of Broadcom Corporation and of its suppliers may not be used
+  to endorse or promote a product made from this software.
+
+So this image may be copied and given to others unchanged, for use on a
+Raspberry Pi, with this file and the folder `legal`. The firmware files
+may not be changed, and may not be used on other hardware.
+
+The notice and the disclaimer, as the licence asks:
+
+    Copyright (c) 2006, Broadcom Corporation.
+    Copyright (c) 2015, Raspberry Pi (Trading) Ltd
+    All rights reserved.
+
+    DISCLAIMER.  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+    CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING,
+    BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+    FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+    COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+    INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+    BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+    OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+    ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
+    TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
+    USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+    DAMAGE.
+
+The image holds no Wi-Fi or Bluetooth firmware.
+
+The kernel and the device trees
+-------------------------------
+
+The kernel is the Raspberry Pi fork of Linux (github.com/raspberrypi/linux,
+branch rpi-6.18.y, commit ea17ae02ca28483e508b05c7c44190c01a1ef8eb, Linux
+6.18.62), under the GNU General Public License 2.0 only. `Image`, the
+device trees (`bcm2710-*.dtb`) and the overlays (`overlays/*.dtbo`) on
+this partition are built from that source. The kernel has no patch: in
+particular, not the 15 kHz patch set of the PC image, whose licence
+question does not concern this image.
+
+Libretro cores
+--------------
+
+- FCEUmm (`fceumm_libretro.so`): GNU General Public License 2.0 or later.
+- Snes9x (`snes9x_libretro.so`): the Snes9x licence. It allows use and
+  copies free of charge, and it does not allow commercial use or sale.
+- Genesis Plus GX (`genesis_plus_gx_libretro.so`): the Genesis Plus GX
+  licence. It allows use and copies free of charge, and it does not allow
+  commercial use or sale. It also contains code under the GNU Lesser
+  General Public License 2.1.
+
+The owner of NEPTRON decided (open point OP-054) that a free, open
+source image can hold Snes9x and Genesis Plus GX, with their licence
+texts and this list, and that the image is never sold.
+
+Network share
+-------------
+
+The network share (SMB) uses these programs:
+
+- The SMB server `ksmbd` is part of the kernel: GNU General Public
+  License 2.0 only.
+- `ksmbd-tools` (`ksmbd.mountd`, `ksmbd.control`): GNU General Public
+  License 2.0 or later.
+- GLib (`libglib2`) and `libnl`, which `ksmbd-tools` needs: GNU Lesser
+  General Public License 2.1 or later. GLib also uses PCRE2 (BSD
+  3-Clause licence) and libffi (MIT licence).
+- `mdnsd`, which gives the name `neptron.local` on the network: BSD
+  3-Clause licence.
+
+What may be distributed
+-----------------------
+
+This image may be distributed free of charge, unchanged, for use on a
+Raspberry Pi, with this file, the folder `legal`, and the source code
+below. It may not be sold (the cores above), and its firmware files may
+not be changed or used on other hardware (the firmware licence above).
+
+Source code
+-----------
+
+The image contains software under the GNU General Public License and
+the GNU Lesser General Public License. The source code of each of these
+packages, at the version and with the patches that the image uses, is
+part of the `make legal-info` output that is published with each image.
+
+The image contains no game and no BIOS file.

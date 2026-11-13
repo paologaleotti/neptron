@@ -1,0 +1,9 @@
+# The Raspberry Pi fork of Linux, branch rpi-6.18.y, commit
+# ea17ae02ca28483e508b05c7c44190c01a1ef8eb (2026-11-13, Linux 6.18.62).
+# The SHA-256 of the GitHub archive of that commit, computed locally.
+sha256  0fca89e479e24bd9af2c3ac1a758932f90b89401a5fbf0f5824f2fb172df303e  linux-ea17ae02ca28483e508b05c7c44190c01a1ef8eb.tar.gz
+
+# Licence files, read in that archive
+sha256  fb5a425bd3b3cd6071a3a9aff9909a859e7c1158d54d32e07658398cd67eb6a0  COPYING
+sha256  8780e78a1a737e127f25a65f6d95269bffd36158dc261114de7859b490bfc5aa  LICENSES/preferred/GPL-2.0
+sha256  8e378ab93586eb55135d3bc119cce787f7324f48394777d00c34fa3d0be3303f  LICENSES/exceptions/Linux-syscall-note

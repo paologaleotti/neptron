@@ -1,0 +1,1 @@
+root=PARTUUID=@SIGNATURE@-02 rootfstype=erofs ro rootwait quiet console=serial0,115200 panic=10

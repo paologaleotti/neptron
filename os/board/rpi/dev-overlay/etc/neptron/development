@@ -1,0 +1,4 @@
+This is the development variant of the NEPTRON Raspberry Pi image: SSH
+with one public key, DHCP on eth0, the serial console on GPIO 14 and 15,
+the control commands, the hot folder /state/hot and the log
+/state/log/neptron. It is not for release.

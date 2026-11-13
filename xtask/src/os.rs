@@ -19,6 +19,8 @@ mod host;
 #[cfg(test)]
 mod network_share;
 mod qemu;
+#[cfg(test)]
+mod rpi;
 mod selftest_check;
 mod share_check;
 #[cfg(test)]
@@ -47,7 +49,10 @@ pub enum OsError {
     #[error("{0}\n{USAGE}")]
     Usage(String),
     /// The architecture name is not a target.
-    #[error("unknown architecture {0:?}; the targets are aarch64 and x86_64")]
+    #[error(
+        "unknown architecture {0:?}; the targets are aarch64 and x86_64, and rpi-arm64 \
+         for os build"
+    )]
     BadArch(String),
     /// A numeric flag holds no positive integer.
     #[error("{flag} needs a positive integer, got {value:?}")]
@@ -165,7 +170,7 @@ pub enum OsError {
 /// The usage text of `os build`, `qemu`, `gles-compare`, `kms-check` and
 /// `core-trace`.
 pub const USAGE: &str = "\
-usage: cargo xtask os build [--arch aarch64|x86_64] [--jobs N] [--dev-key FILE]
+usage: cargo xtask os build [--arch aarch64|x86_64|rpi-arm64] [--jobs N] [--dev-key FILE]
                             [--no-kernel-15khz] [--output NAME] [-- make targets...]
        cargo xtask qemu [--arch A] [--images DIR] [--timeout SECS] [--share DIR]
                         [--disk FILE] [--ssh-port PORT] [--beside-launcher]

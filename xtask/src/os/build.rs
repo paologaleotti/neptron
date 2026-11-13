@@ -43,8 +43,8 @@ pub struct BuildArgs {
 
 impl BuildArgs {
     /// Parses `[--arch A] [--jobs N] [--dev-key FILE] [--no-kernel-15khz]
-    /// [--output NAME] [-- targets...]`. With no `--arch`, the default
-    /// architecture names the image.
+    /// [--output NAME] [-- targets...]`. `--arch` takes a QEMU target or
+    /// `rpi-arm64`; with none, the default architecture names the image.
     pub fn parse(args: &[&str], default_arch: Arch) -> Result<Self, OsError> {
         let mut out = Self {
             board: Board::of_arch(default_arch),
@@ -486,6 +486,68 @@ mod tests {
         let os = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../os/configs");
         let fragment = std::fs::read_to_string(os.join(NO_15KHZ_FRAGMENT)).unwrap();
         assert!(fragment.lines().any(|l| l == "BR2_LINUX_KERNEL_PATCH=\"\""));
+    }
+
+    #[test]
+    fn the_pi_image_and_its_dev_variant_build_in_outputs_of_their_own() {
+        let release = plan(&["--arch", "rpi-arm64"]);
+        assert_eq!(release.args.board, Board::RpiArm64);
+        assert_eq!(release.args.variant(), "rpi-arm64");
+        let steps = release.steps();
+        assert_eq!(steps.len(), 4, "no fragment to merge");
+        assert!(
+            steps[0]
+                .join(" ")
+                .ends_with("BR2_EXTERNAL=/src/repo/os neptron_rpi_arm64_defconfig"),
+            "{:?}",
+            steps[0]
+        );
+        for step in &steps {
+            let line = step.join(" ");
+            assert!(
+                line.contains("--volume neptron-br-out-rpi-arm64:/work/out"),
+                "{line}"
+            );
+            assert!(!line.contains("dev-key"), "{line}");
+        }
+        let dev = plan(&["--arch", "rpi-arm64", "--dev-key", "/home/u/.ssh/bench.pub"]);
+        assert_eq!(dev.args.variant(), "rpi-arm64-dev");
+        let steps = dev.steps();
+        assert_eq!(steps.len(), 6);
+        assert!(
+            steps[1]
+                .join(" ")
+                .ends_with("/work/out/.config /src/repo/os/configs/neptron_rpi_arm64_dev.fragment"),
+            "{:?}",
+            steps[1]
+        );
+        for step in &steps {
+            let line = step.join(" ");
+            assert!(
+                line.contains("--volume neptron-br-out-rpi-arm64-dev:/work/out"),
+                "{line}"
+            );
+            assert!(
+                line.contains("--volume /home/u/.ssh/bench.pub:/work/dev-key/authorized_keys:ro"),
+                "{line}"
+            );
+        }
+        assert!(
+            BuildArgs::parse(&["--arch", "rpi-arm64", "--no-kernel-15khz"], Arch::X86_64).is_err(),
+            "the Pi kernel has no 15 kHz patch set to leave out"
+        );
+        let x86 = BuildArgs::parse(&["--arch", "x86_64"], Arch::Aarch64).unwrap();
+        assert_eq!(
+            (x86.board, x86.variant()),
+            (Board::Pc, "x86_64".to_owned()),
+            "the PC image keeps its output"
+        );
+        let qemu = BuildArgs::parse(&[], Arch::Aarch64).unwrap();
+        assert_eq!(
+            (qemu.board, qemu.variant()),
+            (Board::QemuAarch64, "aarch64".to_owned()),
+            "aarch64 stays the QEMU test image"
+        );
     }
 
     #[test]

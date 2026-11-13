@@ -1,5 +1,6 @@
-//! The images that `os build` makes. Each is also an emulated target of
-//! QEMU ([`Arch`]).
+//! The images that `os build` makes. Two of them are also the emulated
+//! targets of QEMU ([`Arch`]); the Raspberry Pi image runs on hardware
+//! only.
 
 use super::{Arch, OsError};
 
@@ -10,12 +11,19 @@ pub enum Board {
     QemuAarch64,
     /// The x86-64 PC image, which QEMU boots too (`--arch x86_64`).
     Pc,
+    /// The 64-bit Raspberry Pi image for the Pi 3 B and 3 B+
+    /// (`--arch rpi-arm64`). QEMU does not boot it.
+    RpiArm64,
 }
 
 impl Board {
-    /// Parses the name that `--arch` takes in `os build`.
+    /// Parses the name that `--arch` takes in `os build` and the bench
+    /// commands: a QEMU target, or `rpi-arm64`.
     pub fn parse(name: &str) -> Result<Self, OsError> {
-        Arch::parse(name).map(Self::of_arch)
+        match name {
+            RPI_ARM64 => Ok(Self::RpiArm64),
+            other => Arch::parse(other).map(Self::of_arch),
+        }
     }
 
     /// The image of an emulated target.
@@ -30,7 +38,7 @@ impl Board {
     /// Rust target of the guest programs.
     pub fn arch(self) -> Arch {
         match self {
-            Self::QemuAarch64 => Arch::Aarch64,
+            Self::QemuAarch64 | Self::RpiArm64 => Arch::Aarch64,
             Self::Pc => Arch::X86_64,
         }
     }
@@ -38,12 +46,18 @@ impl Board {
     /// The name of `--arch`, of the output volume and of the images
     /// directory.
     pub fn name(self) -> &'static str {
-        self.arch().name()
+        match self {
+            Self::QemuAarch64 | Self::Pc => self.arch().name(),
+            Self::RpiArm64 => RPI_ARM64,
+        }
     }
 
     /// The Buildroot defconfig, in `os/configs`.
     pub fn defconfig(self) -> &'static str {
-        self.arch().defconfig()
+        match self {
+            Self::QemuAarch64 | Self::Pc => self.arch().defconfig(),
+            Self::RpiArm64 => "neptron_rpi_arm64_defconfig",
+        }
     }
 
     /// The configuration fragment of the development variant, in
@@ -52,6 +66,7 @@ impl Board {
         match self {
             Self::QemuAarch64 => None,
             Self::Pc => Some("neptron_pc_x86_64_dev.fragment"),
+            Self::RpiArm64 => Some("neptron_rpi_arm64_dev.fragment"),
         }
     }
 
@@ -61,15 +76,19 @@ impl Board {
         match self {
             Self::QemuAarch64 => None,
             Self::Pc => Some("neptron-x86_64.img"),
+            Self::RpiArm64 => Some("neptron-rpi-arm64.img"),
         }
     }
 }
+
+/// The `--arch` name of the Raspberry Pi image.
+const RPI_ARM64: &str = "rpi-arm64";
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const ALL: [Board; 2] = [Board::QemuAarch64, Board::Pc];
+    const ALL: [Board; 3] = [Board::QemuAarch64, Board::Pc, Board::RpiArm64];
 
     #[test]
     fn names_parse_and_round_trip() {
@@ -78,8 +97,21 @@ mod tests {
         }
         assert_eq!(Board::parse("arm64").unwrap(), Board::QemuAarch64);
         assert_eq!(Board::parse("amd64").unwrap(), Board::Pc);
-        let err = Board::parse("riscv64").unwrap_err();
-        assert!(err.to_string().contains("riscv64"), "{err}");
+        let err = Board::parse("rpi-arm32").unwrap_err();
+        assert!(err.to_string().contains("rpi-arm32"), "{err}");
+        assert!(err.to_string().contains("rpi-arm64"), "{err}");
+    }
+
+    #[test]
+    fn the_pi_image_is_an_aarch64_image_of_its_own() {
+        assert_eq!(Board::RpiArm64.arch(), Arch::Aarch64);
+        assert_eq!(Board::RpiArm64.name(), "rpi-arm64");
+        assert_eq!(Board::RpiArm64.defconfig(), "neptron_rpi_arm64_defconfig");
+        assert_eq!(Board::RpiArm64.disk_image(), Some("neptron-rpi-arm64.img"));
+        assert!(
+            Arch::parse("rpi-arm64").is_err(),
+            "QEMU cannot boot the Pi image"
+        );
     }
 
     #[test]
@@ -108,8 +140,13 @@ mod tests {
     #[test]
     fn every_disk_image_is_the_image_of_its_genimage_file() {
         let board_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../os/board");
-        let text = std::fs::read_to_string(board_dir.join("pc/genimage.cfg")).unwrap();
-        let image = Board::Pc.disk_image().unwrap();
-        assert!(text.contains(&format!("image {image} {{")), "pc: {image}");
+        for (board, dir) in [(Board::Pc, "pc"), (Board::RpiArm64, "rpi")] {
+            let text = std::fs::read_to_string(board_dir.join(dir).join("genimage.cfg")).unwrap();
+            let image = board.disk_image().unwrap();
+            assert!(
+                text.contains(&format!("image {image} {{")),
+                "{dir}: {image}"
+            );
+        }
     }
 }

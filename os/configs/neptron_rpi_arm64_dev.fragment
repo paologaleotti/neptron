@@ -1,0 +1,15 @@
+# The development variant of the Raspberry Pi image, for the hardware
+# tests. It is merged on top of neptron_rpi_arm64_defconfig by
+# `cargo xtask os build --arch rpi-arm64 --dev-key FILE`, in its own
+# output. The release image has none of this.
+#
+# An SSH server that accepts only the public key given at build time, and
+# no password; the control commands of the frontend that change it (Cargo
+# feature control); and the development overlay of the PC image (the hot
+# folder for `cargo xtask os push`, the log file on the state partition,
+# the address of eth0), with the Pi overlay on top of it. post-image.sh
+# adds the serial console to config.txt. The Ethernet chips of the Pi 3 B
+# and 3 B+ need no firmware file.
+BR2_PACKAGE_DROPBEAR=y
+BR2_PACKAGE_NEPTRON_CONTROL=y
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/rootfs-overlay $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/rootfs-overlay $(BR2_EXTERNAL_NEPTRON_PATH)/board/pc/dev-overlay $(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/dev-overlay"
