@@ -1,8 +1,9 @@
 //! The ODREN policy: from the source, the effective settings, the monitor
 //! profile and the GPU, the modes to try in order, each with its reason,
 //! and the game's place in each. A TV profile takes its own short walk
-//! over the fixed modes of its standard, with no Switchres. Pure: no I/O, no clock, no global state
-//! except the lock that serialises the Switchres calls.
+//! over the fixed modes of its standard, with no Switchres. Pure: no I/O,
+//! no clock, no global state except the lock that serialises the Switchres
+//! calls.
 //!
 //! The decision procedure, one function per step. The functions without a
 //! link are private, in the child modules:

@@ -120,8 +120,9 @@ impl Timing {
     /// The speed changes by `field_rate_mhz / (repeat * game_mhz)`.
     ///
     /// On a TV ([`RefreshKind::Tv`]) the bound is [`TV_SPEED_SILENT_PPM`]
-    /// of the field rate instead: the audio rate control absorbs a smaller
-    /// difference, and the game counts as exact.
+    /// of the field rate instead. The game and its audio run at the field
+    /// rate at every difference; this is only the threshold of the speed
+    /// alert, and a smaller difference counts as exact.
     pub fn changes_speed(&self) -> bool {
         let shown = u64::from(self.game_mhz) * u64::from(self.repeat());
         let off = self.field_rate_mhz.abs_diff(shown);

@@ -19,13 +19,17 @@ use super::{
 };
 
 /// The largest difference between the game's rate and the field rate of a
-/// TV mode that keeps the game `exact`, in parts per million of the field
-/// rate: the bound of the audio rate control
-/// (`neptron_audio::MAX_RATE_DEVIATION_PPM`). The standard fixes the
-/// rate, so the user cannot choose another. Within the bound the audio
-/// keeps its nominal rate and the control absorbs the rest; beyond it the
-/// game runs at the field rate and the player must know
-/// ([`Timing::changes_speed`]).
+/// TV mode that shows no speed alert, in parts per million of the field
+/// rate. It is equal to the bound of the audio rate control
+/// (`neptron_audio::MAX_RATE_DEVIATION_PPM`).
+///
+/// The game always runs at the field rate, one frame per flip, and the
+/// session always sets the audio run rate to the field rate that the
+/// driver reads back, so the pitch follows the field rate at every
+/// difference. This bound is only the threshold of the alert
+/// ([`Timing::changes_speed`]): the standard fixes the rate, so the
+/// user cannot choose another, and a difference this small is not worth
+/// an alert.
 pub const TV_SPEED_SILENT_PPM: u32 = 5_000;
 
 /// The plan on a TV profile: the modes of the standard's fixed table, no

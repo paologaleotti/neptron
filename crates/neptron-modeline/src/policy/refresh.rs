@@ -39,9 +39,9 @@ pub enum RefreshKind {
     /// A flat panel: the rate of the panel mode. Audio rate control absorbs
     /// the difference.
     Panel,
-    /// A TV: the field rate of the standard's mode. Audio rate control
-    /// absorbs a difference up to `TV_SPEED_SILENT_PPM`; a larger one
-    /// changes the game speed.
+    /// A TV: the field rate of the standard's mode. The game and its
+    /// audio run at it; a difference above `TV_SPEED_SILENT_PPM` shows the
+    /// speed alert.
     Tv,
 }
 
