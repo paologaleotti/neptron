@@ -154,6 +154,9 @@ pub fn guest_script(timeout_secs: u64, arch: Arch) -> String {
     let wait_secs = timeout_secs.saturating_sub(GUEST_MARGIN_SECS).max(1);
     let [state, share] = expected_storage(arch);
     let mut steps = format!("ready && storage state {state} && storage share {share} && ");
+    if [state, share].contains(&"ram") {
+        steps.push_str("controlled && ");
+    }
     for (name, kind) in [("state", state), ("share", share)] {
         if kind == "ram" {
             steps.push_str(&format!("dismiss {name} && "));
@@ -174,6 +177,12 @@ ready() {
 		in_time "no control socket or no storage status" || return 1
 		sleep 1
 	done
+}
+controlled() {
+	# A release of a button that is up changes nothing; it only asks
+	# whether the frontend serves input_send (the control feature).
+	neptronctl input send 0 a 0 2>&1 | grep -q 'this server does not serve' || return 0
+	echo "neptron-check: this image has no control feature: the check cannot dismiss the notice of a RAM folder (input_send)"; return 1
 }
 storage() {
 	grep -qx "$1 = \"$2\"" STORAGE && return 0
@@ -340,6 +349,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
         Arch::X86_64 => {
             let image = images.join(X86_64_DISK);
             require_file(&image, args.arch)?;
+            let image = disk_with_share_room(&image, &out_dir)?;
             let firmware = match args.firmware {
                 FirmwareKind::Bios => Firmware::Bios,
                 FirmwareKind::Uefi => uefi_firmware(&qemu_path, &out_dir)?,
@@ -699,16 +709,44 @@ const STORAGE_STATUS: &str = "/run/neptron/storage.toml";
 const DISMISS_POLLS: u32 = 120;
 
 /// What `S06neptron-storage` mounts at `/state` and `/share` in the guest
-/// of the check: `partition` or `ram`. The x86-64 disk image has a state
-/// partition and no free sector after it, so no share partition; the
-/// aarch64 test image boots its root file system alone, with no state or
-/// share partition. A real PC that shows such a RAM folder shows the same
-/// notice, which the player must see.
+/// of the check: `partition` or `ram`. The x86-64 check boots a copy of
+/// the disk image with free space after the state partition, so the first
+/// boot makes and formats the share partition as on a real stick, and no
+/// storage notice shows. The aarch64 test image boots its root file system
+/// alone, with no state or share partition, so two RAM folders, and the
+/// check dismisses their notices; that image has the `control` feature for
+/// it. A real PC with a RAM folder shows the same notice, which the player
+/// must see.
 pub fn expected_storage(arch: Arch) -> [&'static str; 2] {
     match arch {
-        Arch::X86_64 => ["partition", "ram"],
+        Arch::X86_64 => ["partition", "partition"],
         Arch::Aarch64 => ["ram", "ram"],
     }
+}
+
+/// The free space the x86-64 check adds after the disk image, in bytes:
+/// more than the 64 MiB that the storage script needs for a share
+/// partition, and small enough to format quickly under an emulated CPU.
+const SHARE_ROOM_BYTES: u64 = 128 * 1024 * 1024;
+
+/// A copy of the disk `image` in `out_dir`, with [`SHARE_ROOM_BYTES`] of
+/// zeros after its end. The copy is a clone on APFS; the image stays as it
+/// is. Returns the path of the copy.
+fn disk_with_share_room(image: &Path, out_dir: &Path) -> Result<PathBuf, OsError> {
+    let io = |path: &Path| {
+        let path = path.to_owned();
+        move |source| OsError::Io { path, source }
+    };
+    std::fs::create_dir_all(out_dir).map_err(io(out_dir))?;
+    let copy = out_dir.join("disk.img");
+    std::fs::copy(image, &copy).map_err(io(&copy))?;
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&copy)
+        .map_err(io(&copy))?;
+    let len = file.metadata().map_err(io(&copy))?.len();
+    file.set_len(len + SHARE_ROOM_BYTES).map_err(io(&copy))?;
+    Ok(copy)
 }
 
 #[cfg(test)]
@@ -785,12 +823,15 @@ mod tests {
     #[test]
     fn the_guest_script_states_the_storage_it_expects() {
         let x86 = guest_script(900, Arch::X86_64);
-        let checks = "ready && storage state partition && storage share ram && dismiss share && neptron-capture";
+        let checks =
+            "ready && storage state partition && storage share partition && neptron-capture";
         assert!(x86.contains(checks), "{x86}");
-        assert!(!x86.contains("dismiss state"), "{x86}");
+        assert!(!x86.contains("&& dismiss "), "no notice to dismiss: {x86}");
+        assert!(!x86.contains("&& controlled "), "no input needed: {x86}");
         let arm = guest_script(900, Arch::Aarch64);
-        let checks = "ready && storage state ram && storage share ram && dismiss state && dismiss share && neptron-capture";
+        let checks = "ready && storage state ram && storage share ram && controlled && dismiss state && dismiss share && neptron-capture";
         assert!(arm.contains(checks), "{arm}");
+        assert!(arm.contains("this server does not serve"), "{arm}");
         for script in [&x86, &arm] {
             assert!(script.contains("/run/neptron/storage.toml"), "{script}");
             assert!(
@@ -972,5 +1013,28 @@ mod tests {
         t.write_all(b"c\nd\n").unwrap();
         let lines: Vec<&str> = t.lines.iter().map(|(_, l)| l.as_str()).collect();
         assert_eq!(lines, ["ab", "c", "d"]);
+    }
+
+    /// The x86-64 check boots a copy of the disk with room for the share
+    /// partition after the state partition, as a real stick has.
+    #[test]
+    fn the_x86_64_disk_copy_has_room_for_the_share() {
+        let dir = std::env::temp_dir().join(format!("xtask-disk-{}", std::process::id()));
+        // A leftover of an earlier run with the same process id; absence is fine.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let image = dir.join("image.img");
+        std::fs::write(&image, vec![7_u8; 4096]).unwrap();
+        let copy = disk_with_share_room(&image, &dir.join("out")).unwrap();
+        let bytes = std::fs::read(&copy).unwrap();
+        assert_eq!(bytes.len() as u64, 4096 + SHARE_ROOM_BYTES);
+        assert!(bytes[..4096].iter().all(|b| *b == 7));
+        assert!(bytes[4096..].iter().all(|b| *b == 0));
+        assert_eq!(
+            std::fs::read(&image).unwrap().len(),
+            4096,
+            "the image stays"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

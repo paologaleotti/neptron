@@ -41,6 +41,11 @@ BR2_PACKAGE_SDL3_OPENGLES=y
 BR2_PACKAGE_KMSCUBE=y
 BR2_PACKAGE_HOST_RUSTC=y
 BR2_PACKAGE_NEPTRON=y
+# The test image boots its root file system alone, so /state and /share
+# are RAM folders and the frontend shows a notice for each. The boot check
+# dismisses them with neptronctl input, which needs the control commands.
+# This image is a test image and is never shipped.
+BR2_PACKAGE_NEPTRON_CONTROL=y
 BR2_PACKAGE_NEPTRON_LAUNCH=y
 BR2_PACKAGE_NEPTRONCTL=y
 BR2_PACKAGE_NEPTRON_CAPTURE=y
