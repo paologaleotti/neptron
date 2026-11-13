@@ -47,12 +47,28 @@ impl PowerRequest {
     }
 }
 
-/// Whether a run takes a power request: only in the game list
-/// (`in_list`), whose run holds no game with save RAM that only its own
-/// quit writes in full; only with power control from the launcher
-/// (`control`); and only while the run has no outcome yet (`ended`).
-pub fn takes_request(in_list: bool, control: bool, ended: bool) -> bool {
-    in_list && control && !ended
+/// What a run is doing when a power request comes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunState {
+    /// The run shows the game list, not a game.
+    pub in_list: bool,
+    /// The launcher gave power control.
+    pub control: bool,
+    /// A display change waits for the player's confirmation.
+    pub pending: bool,
+    /// The run has an outcome already.
+    pub ended: bool,
+}
+
+/// Whether a run takes a power request: only in the game list, whose run
+/// holds no game with save RAM that only its own quit writes in full;
+/// only with power control from the launcher; only while no display
+/// change waits for its confirmation, so the machine never stops on a
+/// picture that the player has not kept (the confirm dialog takes every
+/// action then, so this is a second guard); and only while the run has
+/// no outcome yet.
+pub fn takes_request(state: RunState) -> bool {
+    state.in_list && state.control && !state.pending && !state.ended
 }
 
 /// Whether a power request gives back the failed boot that the guard
@@ -106,19 +122,33 @@ mod tests {
     }
 
     #[test]
-    fn a_request_is_taken_only_in_the_list_with_control_and_no_outcome() {
-        assert!(takes_request(true, true, false));
-        for (in_list, control, ended) in [
-            (false, true, false),
-            (true, false, false),
-            (true, true, true),
-            (false, false, false),
-            (false, true, true),
+    fn a_request_is_taken_only_in_the_list_with_control_no_change_and_no_outcome() {
+        let ready = RunState {
+            in_list: true,
+            control: true,
+            pending: false,
+            ended: false,
+        };
+        assert!(takes_request(ready));
+        for state in [
+            RunState {
+                in_list: false,
+                ..ready
+            },
+            RunState {
+                control: false,
+                ..ready
+            },
+            RunState {
+                pending: true,
+                ..ready
+            },
+            RunState {
+                ended: true,
+                ..ready
+            },
         ] {
-            assert!(
-                !takes_request(in_list, control, ended),
-                "{in_list} {control} {ended}"
-            );
+            assert!(!takes_request(state), "{state:?}");
         }
         assert_eq!(PowerRequest::Reboot.outcome(), Outcome::Reboot);
         assert_eq!(PowerRequest::PowerOff.outcome(), Outcome::PowerOff);

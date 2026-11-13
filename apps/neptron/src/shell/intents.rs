@@ -144,15 +144,21 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// Ends the run for a reboot or a power-off, as a quit: the caller
     /// writes the settings and joins the threads, and the launcher asks
     /// init. Ignored when [`power::takes_request`] says no: during a game,
-    /// with no power control, and after the run has an outcome. When
+    /// with no power control, while a display change waits for its
+    /// confirmation, and after the run has an outcome. When
     /// [`power::gives_back_boot`] says so, the guard record gets back the
     /// failed boot that this start counted.
     ///
     /// The rows of the System panel call it through their intents. It is
     /// public for the tier 2 tests.
     pub fn request_power(&mut self, request: PowerRequest) {
-        let in_list = matches!(self.stage, Stage::List(_));
-        if !power::takes_request(in_list, self.runtime.power, self.outcome.is_some()) {
+        let state = power::RunState {
+            in_list: matches!(self.stage, Stage::List(_)),
+            control: self.runtime.power,
+            pending: self.guard.pending().is_some(),
+            ended: self.outcome.is_some(),
+        };
+        if !power::takes_request(state) {
             return;
         }
         let outcome = request.outcome();
