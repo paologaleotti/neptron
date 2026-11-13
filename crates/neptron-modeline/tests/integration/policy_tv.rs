@@ -277,13 +277,34 @@ fn up_to_8_lines_per_edge_are_cropped_to_stay_progressive() {
     // 304 lines miss 288 by 16: 8 per edge on PAL.
     let w = won(&game(320, 304, 50_000, false), &settings, TvStandard::Pal);
     assert_eq!((w.mode, w.crop_per_edge, w.dest.h), (TV_625_288P, 8, 288));
-    // 257 lines would need 9 per edge: 480i, 1:1.
+    // 257 lines would need 9 per edge: 480i, 1:1, at an even line.
     let w = won(&game(384, 257, 60_000, false), &settings, TvStandard::Ntsc);
     assert_eq!(
         (w.rung, w.mode, w.crop_per_edge),
         (Rung::Interlaced, TV_525_480I, 0)
     );
-    assert_eq!((w.dest.y, w.dest.h), (111, 257));
+    assert_eq!((w.dest.y, w.dest.h), (110, 257));
+}
+
+/// In an interlaced mode the picture starts on an even line, so line 0
+/// of an interlaced source stays in the first field: centring rounds the
+/// offset down to an even line.
+#[test]
+fn an_interlaced_picture_starts_on_an_even_line() {
+    let settings = PolicySettings::default();
+    // (576 - 470) / 2 = 53: line 52.
+    let w = won(&game(640, 470, 50_000, true), &settings, TvStandard::Pal);
+    assert_eq!((w.mode, w.dest.y, w.dest.h), (TV_625_576I, 52, 470));
+    // (480 - 446) / 2 = 17: line 16.
+    let w = won(&game(512, 446, 60_000, true), &settings, TvStandard::Ntsc);
+    assert_eq!((w.mode, w.dest.y, w.dest.h), (TV_525_480I, 16, 446));
+    // An even offset stays.
+    let w = won(&game(512, 448, 60_099, true), &settings, TvStandard::Ntsc);
+    assert_eq!(w.dest.y, 16);
+    // A progressive mode keeps the plain centre: (240 - 239) / 2 = 0,
+    // (288 - 239) / 2 = 24, (240 - 225) / 2 = 7.
+    let w = won(&game(256, 225, 60_000, false), &settings, TvStandard::Ntsc);
+    assert_eq!((w.mode, w.dest.y), (TV_525_240P, 7));
 }
 
 #[test]

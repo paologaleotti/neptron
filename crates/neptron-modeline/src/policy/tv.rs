@@ -221,8 +221,14 @@ impl Tv<'_> {
         let (y, h, claim_y, crop_per_edge) = match fit {
             Fit::Exact { crop } => {
                 let lines = self.shown_lines(crop);
+                let mut y = centre(mode.vactive, u32::from(lines));
+                if mode.interlace {
+                    // An odd offset would put line 0 of an interlaced
+                    // source in the second field and swap the field order.
+                    y &= !1;
+                }
                 (
-                    centre(mode.vactive, u32::from(lines)),
+                    y,
                     u32::from(lines),
                     Some(1),
                     crop.map_or(0, |c| c.lines_per_edge),
