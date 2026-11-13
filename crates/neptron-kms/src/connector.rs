@@ -377,6 +377,30 @@ mod tests {
         assert_eq!(ConnectorClass::of_connector(11, None, Some(CRT)), Digital);
     }
 
+    /// `vc4` reports its composite connector (`DRM_MODE_CONNECTOR_Composite`,
+    /// 5) as `unknown`, never connected, with no EDID. It is analog, `auto`
+    /// never takes it, and a name takes it with an HDMI display connected.
+    #[test]
+    fn a_composite_connector_is_analog_and_taken_only_by_name() {
+        let composite = ConnectorClass::of_connector(5, None, None);
+        assert_eq!(composite, Analog);
+        let pi = [
+            c("HDMI-A-1", Digital, false, false),
+            c("Composite-1", composite, false, false),
+        ];
+        assert!(matches!(
+            choose(&pi, None, true),
+            Err(ChoiceError::NoneConnected { .. })
+        ));
+        assert_eq!(choose(&pi, Some("Composite-1"), false), Ok(1));
+        let hdmi = [
+            c("HDMI-A-1", Digital, true, true),
+            c("Composite-1", composite, false, false),
+        ];
+        assert_eq!(choose(&hdmi, None, true), Ok(0));
+        assert_eq!(choose(&hdmi, Some("Composite-1"), false), Ok(1));
+    }
+
     #[test]
     fn kernel_types_map_to_classes() {
         for t in ANALOG_TYPES {
