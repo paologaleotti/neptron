@@ -239,7 +239,7 @@ pub fn system_page(in_game: bool, power: bool, offer: Option<&FormatOffer>) -> S
         action(8, FORMAT_SHARE_LABEL, FORMAT_SHARE).with_confirm(
             "Format the share partition?",
             format!(
-                "The partition for games ({}) is empty and not in use. Formatting it erases everything on it.",
+                "NEPTRON finds no file system it can read on the partition for games ({}). Formatting it erases everything on it.",
                 offer.size_text()
             ),
             "Formatting at the next start...",
@@ -650,7 +650,7 @@ mod tests {
         assert_eq!(confirm.question, "Format the share partition?");
         assert_eq!(
             confirm.message,
-            "The partition for games (56.6 GB) is empty and not in use. Formatting it erases everything on it."
+            "NEPTRON finds no file system it can read on the partition for games (56.6 GB). Formatting it erases everything on it."
         );
         assert_eq!(confirm.working, "Formatting at the next start...");
         assert_eq!(

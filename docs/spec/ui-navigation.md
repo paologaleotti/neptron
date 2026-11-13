@@ -131,7 +131,7 @@ A third action row, `Format share`, comes after `Shut down`, but only when the s
 
 | Row | Dialog title | Dialog message | Buttons |
 | --- | --- | --- | --- |
-| `Format share` | `Format the share partition?` | `The partition for games (<size>) is empty and not in use. Formatting it erases everything on it.` | `Cancel`, `Format share` |
+| `Format share` | `Format the share partition?` | `NEPTRON finds no file system it can read on the partition for games (<size>). Formatting it erases everything on it.` | `Cancel`, `Format share` |
 
 `<size>` is the size that `storage.toml` names, in decimal units with one decimal: `56.6 GB`, `512.0 MB`. The focus starts on `Cancel`, as for every confirm question.
 

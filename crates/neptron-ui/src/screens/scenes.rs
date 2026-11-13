@@ -712,7 +712,7 @@ fn with_format_offer() -> Snapshot {
         )
         .with_confirm(
             "Format the share partition?",
-            "The partition for games (56.6 GB) is empty and not in use. Formatting it erases everything on it.",
+            "NEPTRON finds no file system it can read on the partition for games (56.6 GB). Formatting it erases everything on it.",
             "Formatting at the next start...",
         ),
     );
