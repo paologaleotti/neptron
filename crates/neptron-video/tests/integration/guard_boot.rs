@@ -259,3 +259,33 @@ fn a_game_setting_during_a_boot_prompt_is_not_what_the_app_writes() {
     );
     assert_eq!(rig.guard.active().settings, game);
 }
+
+#[test]
+fn a_continued_boot_never_prompts_and_starts_on_what_was_kept() {
+    let mut rig = GuardRig::continued(confirmed(pc_31_120()), crt_15(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    assert_eq!(rig.event_list(), []);
+    assert_eq!(rig.guard.active().monitor, pc_31_120());
+    rig.frame();
+    assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
+    assert_eq!(rig.saves.len(), 1, "the boot is counted as by boot");
+}
+
+#[test]
+fn a_continued_boot_with_nothing_kept_starts_in_the_safe_default() {
+    let mut rig = GuardRig::continued(GuardRecord::default(), crt_31(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::NothingConfirmed));
+    assert_eq!(rig.event_list(), []);
+    rig.run_for(CONFIRM_WINDOW_NS);
+    assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
+    assert_eq!(rig.event_list(), [], "no prompt, no revert");
+    assert!(!rig.saves.last().unwrap().safe_mode);
+}
+
+#[test]
+fn a_continued_boot_on_the_last_known_good_is_a_boot() {
+    let mut rig = GuardRig::continued(confirmed(pc_31_120()), crt_31(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    rig.frame();
+    assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
+}

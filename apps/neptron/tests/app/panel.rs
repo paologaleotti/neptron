@@ -17,7 +17,7 @@ use neptron_video::{Phase, SafeReason};
 use crate::rig::{Rig, in_child, test_name};
 
 /// Frames of 10 s at 60 Hz, the confirm window, and a margin.
-const CONFIRM_WINDOW_FRAMES: u32 = 660;
+pub const CONFIRM_WINDOW_FRAMES: u32 = 660;
 /// The frames of the blind recovery hold at 60 Hz, and a margin.
 const HOLD_FRAMES: u32 = (BLIND_RECOVERY_HOLD_NS / 16_000_000) as u32 + 30;
 

@@ -186,7 +186,7 @@ The CRT safety model (rows 4 to 6) asks more than the guard does. These parts ar
 
 ### What the app must do
 
-1. At boot, before the first frame: load the record (a record that cannot be read is `GuardRecord::default()`), build `wanted` from the settings and `safe` for the detected output, call `Guard::boot`, and write the record it returns before the first modeset.
+1. At boot, before the first frame: load the record (a record that cannot be read is `GuardRecord::default()`), build `wanted` from the settings and `safe` for the detected output, call `Guard::boot`, and write the record it returns before the first modeset. A run that continues a boot (a game after the game list) calls `Guard::continue_boot`: the same, but with no prompt. A `wanted` monitor that is not the last known good gives the revert target at once, with no event.
 2. Write every `GuardStep::save` with temp file, fsync, rename, off the frame thread.
 3. Call `tick` once per frame, after `present`, also when it failed. Give every guard call (`boot`, `propose`, `confirm`, `tick`) the time of the frame loop: read the monotonic clock once per frame and use that value for all calls of the frame. A second clock, or a time read before an earlier call, can be earlier than a time the guard has seen; the guard then reverts a pending change with `ClockWentBack`.
 4. Send every display change the user asks for (monitor profile, picture style, refresh policy, also through the control protocol) to `propose`, and every settings change that needs no confirmation (the resolved settings of a game) to `follow_settings`. Never call `set_monitor` or `set_settings` of the engine directly.

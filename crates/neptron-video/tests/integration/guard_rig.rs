@@ -126,6 +126,27 @@ impl GuardRig {
         rig
     }
 
+    /// A boot that continues the boot of an earlier run
+    /// ([`Guard::continue_boot`]).
+    pub fn continued(record: GuardRecord, wanted: DisplayConfig, safe: DisplayConfig) -> Self {
+        let clock = SimClock::new();
+        let fake = FakeDisplay::new(clock.clone(), CAPS_LOW_CLOCK);
+        let mut engine = VideoEngine::new(fake.clone(), safe.monitor.clone(), safe.settings);
+        let (guard, step) = Guard::continue_boot(record, wanted, safe, clock.now_ns(), &mut engine);
+        let mut rig = Self {
+            clock,
+            fake,
+            engine,
+            guard,
+            events: Vec::new(),
+            saves: Vec::new(),
+            errors: Vec::new(),
+            source: SNES,
+        };
+        rig.take(step);
+        rig
+    }
+
     /// A boot whose configuration is confirmed, after one frame on it.
     pub fn confirmed_on(wanted: DisplayConfig, safe: DisplayConfig) -> Self {
         let mut rig = Self::boot(confirmed(wanted.monitor.clone()), wanted, safe);

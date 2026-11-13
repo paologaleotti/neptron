@@ -261,12 +261,12 @@ A panel that the user has not kept on this output is never the safe default, bec
 | A different monitor on the same connector, with `display.monitor` = a preset that is the last known good | No prompt: the guard compares monitor profiles, not the physical monitor. The old preset goes to the new monitor. | Blind recovery (Select + Start, 5 s), then pick the right preset and keep it. |
 | A different EDID monitor on the same connector, `display.monitor` = `auto` | Its profile id differs, so the last known good does not rebuild. The boot prompt opens. | Keep the picture. |
 | The system clock goes back | A pending change reverts: "The display change went back: the clock went back." | Make the change again. |
-| A game launches while a boot prompt is still open (only possible through the control protocol) | The prompt reverts at the game start: "The display change went back: a new setting replaced it." | Keep the setting in the game list first. |
+| A game launches while a display change is not kept (a boot prompt with no answer, or a launch through the control protocol while a prompt is open) | The game starts on the last known good monitor, or in the safe default when nothing was kept. No prompt and no notice: the game run continues the boot (`Guard::continue_boot`). | Keep the setting in the game list first. |
 
 ## Source
 
 - [guard.rs](../../crates/neptron-video/src/guard.rs): the constants `CONFIRM_WINDOW_NS`, `PENDING_LIMIT_NS`, `SAFE_MODE_FAILED_BOOTS`, `GOOD_BOOT_PICTURE_NS`, `NO_PICTURE_LIMIT_NS`.
-- [machine.rs](../../crates/neptron-video/src/guard/machine.rs): `Guard::boot`, `propose`, `confirm`, `decline`, `follow_settings`, `recover`, `tick`, `clock`, `open_prompt`, `revert`, `enter_safe`, `apply`, `watch`; `Phase`, `Prompt`, `SafeReason`, `RevertReason`, `GuardEvent`, `GuardStep`, `ConfirmError`.
+- [machine.rs](../../crates/neptron-video/src/guard/machine.rs): `Guard::boot`, `continue_boot`, `propose`, `confirm`, `decline`, `follow_settings`, `recover`, `tick`, `clock`, `open_prompt`, `revert`, `enter_safe`, `apply`, `watch`; `Phase`, `Prompt`, `SafeReason`, `RevertReason`, `GuardEvent`, `GuardStep`, `ConfirmError`.
 - [config.rs](../../crates/neptron-video/src/guard/config.rs): `DisplayConfig::apply_to`, `Health::of`, `Health::no_picture`.
 - [record.rs](../../crates/neptron-video/src/guard/record.rs): `GuardRecord`.
 - [odren.rs](../../crates/neptron-video/src/odren.rs): `Odren::settled`, `Odren::decision_due`, `Odren::blanked`.

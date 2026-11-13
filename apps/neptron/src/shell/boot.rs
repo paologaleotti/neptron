@@ -151,7 +151,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 (Stage::List(Box::new(list)), guard, step, None)
             }
             // A game run follows a relaunch file, so the run before it
-            // has counted this boot already.
+            // has counted this boot already, and it had the boot prompt:
+            // the game run starts on what was kept, with no prompt.
             Some(reference) => {
                 let (library, issue) = Library::load(Catalog::builtin()?, &paths.library_cache());
                 found.warn_all(issue);
@@ -178,7 +179,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                         }));
                     }
                 };
-                let (guard, step) = Guard::boot(
+                let (guard, step) = Guard::continue_boot(
                     record,
                     wanted,
                     safe.clone(),

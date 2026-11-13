@@ -10,6 +10,7 @@
 
 mod audio;
 mod boot;
+mod continued;
 mod control;
 mod crawler;
 mod end_to_end;

@@ -220,6 +220,34 @@ impl Guard {
         now_ns: u64,
         engine: &mut VideoEngine<D>,
     ) -> (Self, GuardStep) {
+        Self::start(record, wanted, safe, now_ns, engine, true)
+    }
+
+    /// Starts the guard for a run that continues a boot, such as the run
+    /// of a game after the game list. It is [`Guard::boot`], except that
+    /// it never opens a prompt: the run before it had the prompt, and the
+    /// user did not keep `wanted` there. So `wanted` without the last
+    /// known good monitor gives the revert target at once, with no event:
+    /// the last known good monitor with the wanted settings, confirmed, or
+    /// the safe default (`Safe(NothingConfirmed)`).
+    pub fn continue_boot<D: Display>(
+        record: GuardRecord,
+        wanted: DisplayConfig,
+        safe: DisplayConfig,
+        now_ns: u64,
+        engine: &mut VideoEngine<D>,
+    ) -> (Self, GuardStep) {
+        Self::start(record, wanted, safe, now_ns, engine, false)
+    }
+
+    fn start<D: Display>(
+        record: GuardRecord,
+        wanted: DisplayConfig,
+        safe: DisplayConfig,
+        now_ns: u64,
+        engine: &mut VideoEngine<D>,
+        prompt: bool,
+    ) -> (Self, GuardStep) {
         let failed_before = record.failed_boots;
         let mut guard = Self {
             state: State::Confirmed,
@@ -248,11 +276,24 @@ impl Guard {
                 }),
                 None => Fallback::Safe(SafeReason::NothingConfirmed),
             };
-            let chain = Chain {
-                since_ns: now_ns,
-                from_settings: true,
-            };
-            Some(guard.open_prompt(wanted, fallback, chain, now_ns, engine))
+            if prompt {
+                let chain = Chain {
+                    since_ns: now_ns,
+                    from_settings: true,
+                };
+                Some(guard.open_prompt(wanted, fallback, chain, now_ns, engine))
+            } else {
+                match fallback {
+                    Fallback::Confirmed(config) => {
+                        guard.active = config;
+                        guard.apply(engine);
+                    }
+                    Fallback::Safe(reason) => {
+                        guard.enter_safe(reason, engine);
+                    }
+                }
+                None
+            }
         };
         let save = Some(guard.record.clone());
         (guard, GuardStep { event, save })

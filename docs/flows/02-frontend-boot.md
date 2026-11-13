@@ -23,8 +23,9 @@ flowchart TD
     I --> J["safe and wanted"]
     J -->|"game in NextRun"| K["Session::launch"]
     K -->|"launch fails"| R["Exit 75<br/>relaunch to list with notice"]
-    K -->|"launched"| L["Guard::boot"]
-    J -->|"no game"| L
+    K -->|"launched"| L2["Guard::continue_boot<br/>no prompt"]
+    J -->|"no game"| L["Guard::boot"]
+    L2 --> M
     L --> M["Write guard record<br/>then notices, first frame"]
 ```
 
@@ -125,15 +126,16 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 | Continued boot | A valid relaunch file | none | `failed_boots` minus 1, not below 0. |
 | `wanted` | `display.monitor` maps to a monitor, and the global picture style and refresh policy map to the policy | none | A monitor error: the safe monitor and the error as a notice. A policy error: the safe settings and the notice "{e}; the safe picture style applies". |
 | Launch a game | `NextRun.game` is set | none | Failure: `Booted::Relaunch` to the list with "{name} did not start: the system {system} is unknown." or "{name} did not start: {e}.". Exit 75. |
-| `Guard::boot` | Always, once per run that gets this far | `SAFE_MODE_FAILED_BOOTS` = 2 | `failed_boots` plus 1. The engine gets the chosen inputs; no modeset yet. |
-| Write the record | Always after `Guard::boot` | none | `record::save` on the frame thread, before the first frame: temp file, fsync, rename. A failure starts this run in the safe default (`safe_for_this_run`). |
+| `Guard::boot` | The game list run |  `SAFE_MODE_FAILED_BOOTS` = 2 | `failed_boots` plus 1. The engine gets the chosen inputs; no modeset yet. |
+| `Guard::continue_boot` | The game run | `SAFE_MODE_FAILED_BOOTS` = 2 | As `Guard::boot`, but it never opens a prompt: the game list run had it. A `wanted` monitor that is not the last known good gives the revert target at once, with no event and no notice: the last known good monitor with the wanted settings (`Confirmed`), or the safe default (`Safe(NothingConfirmed)`). So a display that was not kept never reaches the wire in a game. |
+| Write the record | Always after `Guard::boot` or `Guard::continue_boot` | none | `record::save` on the frame thread, before the first frame: temp file, fsync, rename. A failure starts this run in the safe default (`safe_for_this_run`). |
 | Boot panel prompt | The boot opened a prompt, `auto` gives a panel, and `display.monitor` is `auto` | `PANEL_WINDOWS_PER_RUN` = 2 | `panel_windows` = 1 for this run. See [The guard](03-guard.md). |
-| Game settings | The run is a game | none | `Guard::follow_settings` with the game's resolved policy. A pending boot prompt reverts (`Superseded`). |
+| Game settings | The run is a game | none | `Guard::follow_settings` with the game's resolved policy. No prompt is open, so nothing reverts. In safe mode the safe settings stay. |
 | Library scan | The run is the game list | none | The scan of `share/roms` starts. A failure is the warning "the game scan did not start: {e}". |
 
 ### What counts as a failed boot
 
-- Every run that reaches `Guard::boot` adds 1 to `failed_boots` and writes it before the first mode.
+- Every run that reaches `Guard::boot` or `Guard::continue_boot` adds 1 to `failed_boots` and writes it before the first mode.
 - The count goes back to 0 when the user keeps a change (`Confirmed`), or when the confirmed configuration shows a picture for `GOOD_BOOT_PICTURE_NS` = 10 s (`GoodBoot`).
 - A run in safe mode never reaches `GoodBoot`. Only a confirmation ends it.
 - A run that starts from the relaunch file subtracts 1 first, so a planned relaunch does not add to the count of the run before. When the run before was already good (count 0), the new run still counts 1 until it is good itself.
@@ -148,7 +150,7 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 - the record is not in safe mode;
 - the monitor of `wanted` is not the last known good of this output.
 
-So the prompt appears on the first boot on any display, after the monitor moved to another connector, after a different EDID monitor is plugged in (its profile id differs), after a preset changed in the settings files, and after a preset file of the last known good was removed. With no answer it reverts after `CONFIRM_WINDOW_NS` = 10 s. In a game run, the boot prompt reverts at once with `Superseded`, because the game's settings follow it.
+So the prompt appears on the first boot on any display, after the monitor moved to another connector, after a different EDID monitor is plugged in (its profile id differs), after a preset changed in the settings files, and after a preset file of the last known good was removed. With no answer it reverts after `CONFIRM_WINDOW_NS` = 10 s. A game run never opens it (`Guard::continue_boot`): it starts on the last known good, or in the safe default when nothing was kept, with no notice.
 
 ## What can go wrong
 
