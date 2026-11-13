@@ -10,6 +10,13 @@
 # for a test.
 PIDDIR=${NEPTRON_RUN:-/run/neptron}/dhcp
 SYS_NET=${NEPTRON_SYS_NET:-/sys/class/net}
+# mdev runs this script again for a port that appears after the boot
+# (usr/libexec/neptron/net-hotplug), so two starts can overlap. A start
+# waits for the lock at most this many pauses of this length, in
+# microseconds (5 s in all).
+LOCK=$PIDDIR.lock
+LOCK_TRIES=50
+LOCK_RETRY_US=100000
 
 wired() {
 	for path in "$SYS_NET"/eth* "$SYS_NET"/en*; do
@@ -24,8 +31,21 @@ client_runs() {
 	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
+lock() {
+	tries=0
+	until mkdir "$LOCK" 2>/dev/null; do
+		tries=$((tries + 1))
+		[ "$tries" -lt "$LOCK_TRIES" ] || return 1
+		usleep "$LOCK_RETRY_US"
+	done
+}
+
 start() {
 	mkdir -p "$PIDDIR"
+	if ! lock; then
+		echo "neptron-network: another start holds $LOCK; no DHCP client started"
+		return
+	fi
 	for iface in $(wired); do
 		if client_runs "$iface"; then
 			echo "neptron-network: $iface already has a DHCP client"
@@ -36,8 +56,12 @@ start() {
 		# keeps a local DNS resolve the name of the PC.
 		udhcpc -f -R -S -i "$iface" -x "hostname:$(hostname)" \
 			-p "$PIDDIR/$iface.pid" > /dev/null 2>&1 < /dev/null &
+		# The client writes the same pid later; the file is there at once,
+		# so a start that follows sees this client.
+		echo "$!" > "$PIDDIR/$iface.pid"
 		echo "neptron-network: DHCP on $iface in the background"
 	done
+	rmdir "$LOCK"
 }
 
 stop() {
