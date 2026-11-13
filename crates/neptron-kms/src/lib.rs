@@ -26,6 +26,10 @@ mod mode_record;
 mod request;
 #[forbid(unsafe_code)]
 mod sequence;
+// Only the Linux backend sets a TV standard; the tests run on every host.
+#[cfg_attr(not(all(feature = "kms", target_os = "linux")), allow(dead_code))]
+#[forbid(unsafe_code)]
+mod tv;
 #[forbid(unsafe_code)]
 mod wire_mode;
 
