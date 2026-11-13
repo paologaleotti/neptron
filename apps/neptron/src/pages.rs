@@ -422,8 +422,8 @@ mod tests {
             shown,
             [
                 ("auto", "System default"),
-                ("HDA Intel PCH analog", "ALC221 Analog"),
-                ("DELL U2724D HDMI/DP", "HDMI 0"),
+                ("Analog (HDA Intel PCH)", "ALC221 Analog"),
+                ("DELL U2724D (HDMI/DP)", "HDMI 0"),
             ]
         );
         assert!(!page.rows[1].live);

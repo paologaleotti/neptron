@@ -43,7 +43,7 @@ fn the_audio_panel_writes_the_volume_and_the_output_to_the_global_file() {
             rig.focus("Audio output");
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "options");
-            rig.focus("USB Audio analog");
+            rig.focus("Analog (USB Audio)");
             rig.tap(&[Control::A]);
             rig.frames(2);
             let config = rig.shell().config().clone();

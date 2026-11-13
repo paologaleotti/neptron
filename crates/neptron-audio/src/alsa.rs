@@ -197,57 +197,91 @@ pub fn alsa_outputs(text: &AlsaText) -> Vec<OutputDevice> {
         for pcm in pcms.iter().filter(|p| p.card == card.index) {
             let name = alsa_name(&card.id, pcm.device);
             if !is_digital(pcm) {
-                listed.push(OutputDevice {
-                    name,
-                    label: format!("{} analog", card.name),
-                    detail: pcm.name.clone(),
-                    monitor: Monitor::NotDigital,
+                listed.push(Labelled {
+                    head: "Analog".to_owned(),
+                    tail: card.name.clone(),
+                    card_id: card.id.clone(),
+                    device: OutputDevice {
+                        name,
+                        label: String::new(),
+                        detail: pcm.name.clone(),
+                        monitor: Monitor::NotDigital,
+                    },
                 });
                 continue;
             }
             k += 1;
-            let numbered = format!("{} HDMI/DP {k}", card.name);
-            let device = match (elds.len(), digital) {
-                (0, _) => OutputDevice {
-                    name,
-                    label: numbered,
-                    detail: "Nothing connected".to_owned(),
-                    monitor: Monitor::Absent,
-                },
-                (1, 1) => {
-                    let monitor = elds[0].name.clone();
-                    OutputDevice {
-                        name,
-                        label: match &monitor {
-                            Some(m) => format!("{m} HDMI/DP"),
-                            None => numbered,
-                        },
-                        detail: pcm.name.clone(),
-                        monitor: Monitor::Present(monitor),
-                    }
-                }
-                (v, h) if v == h => OutputDevice {
-                    name,
-                    label: numbered,
-                    detail: "Monitor connected".to_owned(),
-                    monitor: Monitor::Present(None),
-                },
-                _ => OutputDevice {
-                    name,
-                    label: numbered,
-                    detail: pcm.name.clone(),
-                    monitor: Monitor::Unknown,
+            let numbered = |detail: String, monitor: Monitor| Labelled {
+                head: format!("HDMI/DP {k}"),
+                tail: card.name.clone(),
+                card_id: card.id.clone(),
+                device: OutputDevice {
+                    name: name.clone(),
+                    label: String::new(),
+                    detail,
+                    monitor,
                 },
             };
-            if device.monitor == Monitor::Absent {
-                last.push(device);
+            let entry = match (elds.len(), digital) {
+                (0, _) => numbered("Nothing connected".to_owned(), Monitor::Absent),
+                (1, 1) => match elds[0].name.clone() {
+                    Some(monitor) => Labelled {
+                        head: monitor.clone(),
+                        tail: "HDMI/DP".to_owned(),
+                        card_id: card.id.clone(),
+                        device: OutputDevice {
+                            name: name.clone(),
+                            label: String::new(),
+                            detail: pcm.name.clone(),
+                            monitor: Monitor::Present(Some(monitor)),
+                        },
+                    },
+                    None => numbered(pcm.name.clone(), Monitor::Present(None)),
+                },
+                (v, h) if v == h => {
+                    numbered("Monitor connected".to_owned(), Monitor::Present(None))
+                }
+                _ => numbered(pcm.name.clone(), Monitor::Unknown),
+            };
+            if entry.device.monitor == Monitor::Absent {
+                last.push(entry);
             } else {
-                listed.push(device);
+                listed.push(entry);
             }
         }
     }
     listed.extend(last);
-    listed
+    label_all(listed)
+}
+
+/// A device whose label is still to be made: `<head> (<tail>)`.
+struct Labelled {
+    head: String,
+    tail: String,
+    card_id: String,
+    device: OutputDevice,
+}
+
+/// Gives each device its label, `<head> (<tail>)`, and adds the card id
+/// to the brackets of every label that two devices share.
+fn label_all(entries: Vec<Labelled>) -> Vec<OutputDevice> {
+    let plain: Vec<String> = entries
+        .iter()
+        .map(|e| format!("{} ({})", e.head, e.tail))
+        .collect();
+    entries
+        .into_iter()
+        .zip(&plain)
+        .map(|(mut e, label)| {
+            let shared = plain.iter().filter(|p| *p == label).count() > 1;
+            e.device.label = if shared {
+                format!("{} ({}, {})", e.head, e.tail, e.card_id)
+            } else {
+                label.clone()
+            };
+            e.device
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -336,10 +370,14 @@ mod tests {
         assert_eq!(
             view(&devices),
             [
-                ("hw:CARD=PCH,DEV=0", "HDA Intel PCH analog", "ALC221 Analog"),
-                ("hw:CARD=PCH,DEV=3", "HDA Intel PCH HDMI/DP 1", "HDMI 0"),
-                ("hw:CARD=PCH,DEV=7", "HDA Intel PCH HDMI/DP 2", "HDMI 1"),
-                ("hw:CARD=PCH,DEV=8", "HDA Intel PCH HDMI/DP 3", "HDMI 2"),
+                (
+                    "hw:CARD=PCH,DEV=0",
+                    "Analog (HDA Intel PCH)",
+                    "ALC221 Analog"
+                ),
+                ("hw:CARD=PCH,DEV=3", "HDMI/DP 1 (HDA Intel PCH)", "HDMI 0"),
+                ("hw:CARD=PCH,DEV=7", "HDMI/DP 2 (HDA Intel PCH)", "HDMI 1"),
+                ("hw:CARD=PCH,DEV=8", "HDMI/DP 3 (HDA Intel PCH)", "HDMI 2"),
             ]
         );
         assert_eq!(devices[0].monitor, Monitor::NotDigital);
@@ -352,10 +390,10 @@ mod tests {
         assert_eq!(
             view(&devices),
             [
-                ("hw:CARD=HDMI,DEV=3", "SONY TV HDMI/DP", "HDMI 0"),
+                ("hw:CARD=HDMI,DEV=3", "SONY TV (HDMI/DP)", "HDMI 0"),
                 (
                     "hw:CARD=Device,DEV=0",
-                    "USB Audio Device analog",
+                    "Analog (USB Audio Device)",
                     "USB Audio"
                 ),
             ]
@@ -379,12 +417,12 @@ mod tests {
                 [
                     (
                         "hw:CARD=Device,DEV=0",
-                        "USB Audio Device analog",
+                        "Analog (USB Audio Device)",
                         "USB Audio"
                     ),
                     (
                         "hw:CARD=HDMI,DEV=3",
-                        "HDA ATI HDMI HDMI/DP 1",
+                        "HDMI/DP 1 (HDA ATI HDMI)",
                         "Nothing connected"
                     ),
                 ],
@@ -398,7 +436,7 @@ mod tests {
     fn more_valid_elds_than_pcms_leave_the_monitor_unknown() {
         let devices = alsa_outputs(&one_hdmi(&[eld(true, true, "A"), eld(true, true, "B")]));
         assert_eq!(devices[0].monitor, Monitor::Unknown);
-        assert_eq!(devices[0].label, "HDA ATI HDMI HDMI/DP 1");
+        assert_eq!(devices[0].label, "HDMI/DP 1 (HDA ATI HDMI)");
     }
 
     #[test]
@@ -443,6 +481,31 @@ mod tests {
         assert_eq!(read.elds, text.elds[..2]);
         // A leftover folder in the temp dir does no harm.
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_bench_labels_differ_in_their_first_14_characters() {
+        let labels: Vec<String> = alsa_outputs(&bench())
+            .iter()
+            .map(|d| d.label.chars().take(14).collect())
+            .collect();
+        for (i, label) in labels.iter().enumerate() {
+            assert!(!labels[..i].contains(label), "{labels:?}");
+        }
+    }
+
+    #[test]
+    fn two_cards_of_one_model_get_their_card_id_in_the_label() {
+        let text = AlsaText {
+            cards: " 0 [Device         ]: USB-Audio - USB Audio\n 1 [Device_1       ]: USB-Audio - USB Audio\n".to_owned(),
+            pcm: "00-00: USB Audio : USB Audio : playback 1\n01-00: USB Audio : USB Audio : playback 1\n".to_owned(),
+            elds: Vec::new(),
+        };
+        let labels: Vec<String> = alsa_outputs(&text).into_iter().map(|d| d.label).collect();
+        assert_eq!(
+            labels,
+            ["Analog (USB Audio, Device)", "Analog (USB Audio, Device_1)"]
+        );
     }
 
     #[test]
