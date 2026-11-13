@@ -297,9 +297,21 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Expect: each step is a little quieter, there is no click at a step, 0 is silent, and the game keeps its pitch and speed.
   - Record: the lowest step you still hear, and any click.
 - [ ] `needs-hardware` **The device list on the bench.**
-  - Do: open Audio at home, then Audio output; read the log line `audio: driver alsa; devices ...`.
-  - Expect: the options `auto` and `HDA Intel PCH`; the log lists the raw names `HDA Intel PCH:ALC221 Analog` and `HDA Intel PCH:HDMI 0` to `HDMI 2`. HDMI on the HDA card is not an option (SDL 3.4 opens the card's default PCM for every device of the card, see `docs/spec/audio-settings.md`).
+  - Do: open Audio at home, then Audio output; read the log line `audio: driver alsa; devices ...; auto: ...; opened ...` with `cargo xtask os logs`.
+  - Expect: `auto`, `HDA Intel PCH analog`, then `HDA Intel PCH HDMI/DP 1`, `2` and `3` with the details `HDMI 0`, `HDMI 1`, `HDMI 2`; the log lists `hw:CARD=PCH,DEV=0`, `DEV=3`, `DEV=7`, `DEV=8`, and says that `auto` took the default output because `/proc` does not show which HDMI/DP output the monitor uses.
   - Record: the log line and the options.
+- [ ] `needs-hardware` **DisplayPort audio on the bench monitor.**
+  - Do: with the DELL U2724D on DisplayPort, choose `HDA Intel PCH HDMI/DP 1` in Audio output, then start a game. If there is no sound, try `HDMI/DP 2` and `3`.
+  - Expect: the game's sound comes from the monitor's speakers or its headphone jack, at the level of the volume setting. After a boot with the monitor connected, `HDMI/DP 1` (`DEV=3`) is the one.
+  - Record: which option plays on the monitor, and `cat /proc/asound/card0/pcm3p/sub0/hw_params` while the game runs.
+- [ ] `needs-hardware` **`auto` with and without a monitor that takes audio.**
+  - Do: set Audio output to `auto`. Start a game with the DisplayPort monitor, then with the CRT behind the DP-to-VGA bridge (no ELD), then with a monitor that has no speakers.
+  - Expect: the CRT and the monitor with no audio give the analog output. With the DELL the bench has three HDMI PCMs and one monitor, so `auto` also gives the analog output, and the log says why. A card with one HDMI PCM (an AMD or NVIDIA GPU) and a monitor with audio gives that output.
+  - Record: the `auto:` part of the log line for each case, and `cat /proc/asound/card0/eld#*`.
+- [ ] `needs-hardware` **A monitor connected after the boot.**
+  - Do: boot with no monitor on DisplayPort, then connect the DELL, then quit to the game list and start a game.
+  - Expect: the list of the new run shows the HDMI/DP outputs again (the list is read at each start of the frontend), the chosen output plays on the monitor, and nothing stops while the monitor is connected.
+  - Record: the ELD files and the log line before and after the connect.
 - [ ] `needs-hardware` **A USB sound card by name, and its fallback.**
   - Do: plug a USB sound card, restart the frontend, choose it in Audio output, then start a game. Quit, unplug the card, and start the game again.
   - Expect: with the card, the sound comes from it. Without it, the notice "The audio output ... is not connected. The default output plays.", sound on the analog output, and `global.toml` still holds the name of the USB card. Plugged in again, the next run uses it with no change in the menu.
