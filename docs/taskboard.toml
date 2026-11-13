@@ -442,7 +442,7 @@ name = "Raspberry Pi: a TV standard in the video model (ADR, types, validation, 
 owns = ["docs/adr", "crates/neptron-types", "crates/neptron-safety", "crates/neptron-backend", "crates/neptron-testkit", "data/monitors"]
 needs = ["P01"]
 gate = "T1"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "P04"
@@ -460,7 +460,7 @@ name = "Raspberry Pi: the TV policy in neptron-modeline"
 owns = ["crates/neptron-modeline"]
 needs = ["P02"]
 gate = "T1"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "P05"
@@ -469,7 +469,7 @@ name = "Raspberry Pi: the TV mode property in neptron-kms and its kms-check case
 owns = ["crates/neptron-kms", "xtask/src/os"]
 needs = ["P02"]
 gate = "T1 and T3"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "P06"
