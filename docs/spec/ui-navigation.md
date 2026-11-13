@@ -112,7 +112,7 @@ Screen ids: `audio` for `AUDIO_PAGE`, `library` for `LIBRARY_PAGE`, `system` for
 
 ### The System panel
 
-`Settings > System` holds two action rows of the app, with no arrow: `Reboot` and `Shut down`. Each row has a confirm question, so accept opens a dialog first:
+`Settings > System` holds two action rows of the app, with no arrow: `Reboot` and `Shut down`, and a third row when a format of the share partition is on offer (see below). Each row has a confirm question, so accept opens a dialog first:
 
 | Row | Dialog title | Dialog message | Buttons |
 | --- | --- | --- | --- |
@@ -124,6 +124,20 @@ When the player confirms, the app ends its run as a quit (the settings and the g
 In a game the panel is still listed, and both rows are disabled with the reason `Not during a game`, the rule of the rescan row. A game has save RAM that only its own quit writes in full, so the player quits the game first and a save is never cut.
 
 A run that no launcher with power control started (the desktop window, a bench run of the frontend alone) shows both rows disabled with the reason `Needs the launcher`. The rows stay in the list, so the panel looks the same on every rig and the crawler finds it everywhere. A hidden row would make the desktop and the image differ. The launcher gives power control only with a DRM device, never with `--no-device`, so a desktop run can never reboot the computer it runs on.
+
+#### Format share partition
+
+A third action row, `Format share partition`, comes after `Shut down`, but only when the storage script offers a format: `storage.toml` holds `share_fix = "format"` with the device, start, size and type of partition 4 (`os/README.md`, "States a user-confirmed format may fix"). With no offer the row is absent, not disabled: no other state has a format that can fix it. In a game the row is disabled with `Not during a game`, and with no power control with `Needs the launcher`, as the other two rows.
+
+| Row | Dialog title | Dialog message | Buttons |
+| --- | --- | --- | --- |
+| `Format share partition` | `Format the share partition?` | `The partition for games (<size>) is empty and not in use. Formatting it erases everything on it.` | `Cancel`, `Format share partition` |
+
+`<size>` is the size that `storage.toml` names, in decimal units with one decimal: `56.6 GB`, `512.0 MB`. The focus starts on `Cancel`, as for every confirm question.
+
+The frontend never formats. On the confirm it writes the request file `/state/share-format-request` (the device, start, size and type of the offer, one `key=value` per line) through the writer thread, with the write rule of user data (temp file, fsync, rename), shows the working box `Formatting at the next start...`, and ends the run with the reboot outcome (exit code 80), as `Reboot` does. At the next boot the storage script reads the request, removes it first, checks every condition again on the disk, and only then formats and mounts. A request that does not match the disk formats nothing.
+
+The Warning notice of a share in a RAM folder gains one sentence when a format is on offer: `Settings > System can format it.` After a boot with a request, `storage.toml` holds `share_format` (`done`, `refused` or `failed`) and, when it is not `done`, `share_format_reason`. The frontend shows `The share partition is formatted.` as an Info notice, or `The share partition was not formatted (<reason>).` as a Warning.
 
 Not in this panel yet: the version, the network address and a sleep timer.
 
@@ -175,7 +189,7 @@ The quick menu hotkey does nothing while the menu is open, at any depth. The ses
 | `SETTINGS_PAGE` | `PageId(RESERVED_ID_MIN + 5)` | The Settings page, as the target of a `page` row. The app never loads it |
 | `VIDEO_PAGE` | `PageId(RESERVED_ID_MIN + 6)` | The video page of the quick menu |
 | `LIBRARY_PAGE` | `PageId(RESERVED_ID_MIN + 7)` | The Library panel: the rescan of the games folder |
-| `SYSTEM_PAGE` | `PageId(RESERVED_ID_MIN + 8)` | The System panel: reboot and shut down |
+| `SYSTEM_PAGE` | `PageId(RESERVED_ID_MIN + 8)` | The System panel: reboot, shut down, and the format of the share partition when it is on offer |
 | `RESUME`, `QUIT_GAME` | unchanged | The actions of the quick menu |
 
 `OPEN_DISPLAY` and `GRID_PATTERN` go: `SettingValue::Page(DISPLAY_PAGE)` and `SettingValue::Page(GRID_PAGE)` replace them. `MAX_DEPTH` stays 8. The deepest stack is home, game list, game, quick menu, Settings, display panel, option list: 7 screens.
@@ -194,6 +208,7 @@ New scenes: `screens/system` (the System panel), `screens/system-shutdown-confir
 - The crawler (tier 2): every row that opens a screen has the kind `page`, every enabled `page` row opens a screen, Back from every screen returns to the screen under it with the focus on the row it came from. It finds the System panel and never accepts `Reboot` or `Shut down`: accept opens their confirm question, and a confirm ends the run.
 - The confirm question: accept opens it with the focus on `Cancel`; accept on `Cancel`, and back, send nothing; right, then accept, sends the action once; a row that goes away or is disabled closes it.
 - The System panel (tier 2): confirm `Reboot` ends the run with `Outcome::Reboot`, confirm `Shut down` with `Outcome::PowerOff`, cancel changes nothing, and in a game both rows are disabled.
+- The format row (tier 2): an offer in `storage.toml` shows the row, and no offer hides it; confirm writes the request file with the numbers of the offer and ends the run with `Outcome::Reboot`; cancel writes nothing; in a game and with no power control the row is disabled. The crawler, with an offer, finds the row and never accepts it. Scenes `screens/system-format` (the panel with the row) and `screens/system-format-confirm` (its question, focus on `Cancel`).
 
 ## Not in this task
 
