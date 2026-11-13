@@ -12,7 +12,7 @@
 # The frontend cannot see a RAM folder, so the script writes what it
 # mounted, and why, to /run/neptron/storage.toml (a RAM file system: the
 # file is new at each boot). The frontend shows a notice for each RAM
-# folder and starts in the safe picture when /state is one.
+# folder.
 
 [ "$1" = start ] || exit 0
 
