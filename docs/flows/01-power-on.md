@@ -307,7 +307,7 @@ The frontend's quit writes the game's save RAM (`Session::quit`) and the writer 
 | A new image written over a stick with an older NEPTRON share at the same start | Nothing: the first boot makes partition 4 around the old share and mounts it with its files. | None needed. |
 | The kernel does not take partition 4 in this boot | The notice gives the reason: `partition 4 is in the partition table, but the kernel does not see it after 5 tries of addpart (last exit <code>); restart to use it`. Empty game list for this boot. | Restart. |
 | An old exFAT share lies at another start than the planned one (a different image layout) | No share partition, the disk is left untouched, empty game list. | Copy the ROMs off on a PC, then make the free space empty. |
-| Partition 4 exists with no filesystem and no marker | `the share partition <dev> was left untouched: is empty and has no /state/share-pending, so it is left untouched`. Empty game list. | Format it exFAT on a PC. |
+| Partition 4 exists with no filesystem and no marker | `the share partition <dev> was left untouched: holds no file system that blkid finds and has no /state/share-pending, so it is left untouched`. Empty game list. | Format it exFAT on a PC. |
 | Partition 4 has another type or start | `... left untouched: its type or its start is not those of the share partition of this image`. | Fix the partition on a PC. |
 | Partition 4 does not read cleanly | `... left untouched: its first 16 MiB do not read cleanly`. | Replace the stick. |
 | Partition 4 has a damaged exFAT main boot sector and a good backup | `... left untouched: it holds an exFAT backup boot sector (sector <n>), so it is a damaged share`. Empty game list. | Repair the share with an exFAT tool on a PC. |

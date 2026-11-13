@@ -865,7 +865,7 @@ fn an_empty_partition_4_with_no_marker_is_named_as_such() {
     Run::new("no-marker")
         .with_partition_4()
         .start()
-        .assert_share_ram("sda4 is empty and has no /state/share-pending, so it is left untouched");
+        .assert_share_ram("sda4 holds no file system that blkid finds and has no /state/share-pending, so it is left untouched");
 }
 
 #[test]
@@ -1098,7 +1098,7 @@ fn after_a_table_off_the_plan_the_next_boot_states_the_fact() {
     run.add_partition(4, PLANNED + 2048, DISK_SECTORS - PLANNED - 2048);
     let second = run.boot(&[]);
     let reason = second
-        .assert_share_ram("is empty and has no /state/share-pending, so it is left untouched");
+        .assert_share_ram("holds no file system that blkid finds and has no /state/share-pending, so it is left untouched");
     assert!(!reason.contains("not made by this system"), "{second:#?}");
 }
 
@@ -1282,7 +1282,7 @@ impl Outcome {
 fn an_empty_partition_4_with_no_marker_is_offered_a_format() {
     let run = Run::new("offer-no-marker").with_partition_4();
     let out = run.boot(&[]);
-    out.assert_share_ram("is empty and has no /state/share-pending");
+    out.assert_share_ram("holds no file system that blkid finds and has no /state/share-pending");
     assert_eq!(
         out.offer(),
         Some((
@@ -1303,7 +1303,7 @@ fn an_empty_partition_4_with_no_marker_is_offered_a_format() {
 fn an_empty_partition_4_of_another_type_is_offered_a_format() {
     let run = Run::empty_partition_4("offer-type", PLANNED, "83");
     let out = run.start();
-    out.assert_share_ram("is empty and has no /state/share-pending");
+    out.assert_share_ram("holds no file system that blkid finds and has no /state/share-pending");
     let (_, start, _, kind) = out.offer().expect("an offer");
     assert_eq!((start.as_str(), kind.as_str()), ("10240", "83"), "{out:#?}");
 }
@@ -1563,7 +1563,9 @@ fn a_request_whose_numbers_do_not_match_the_disk_formats_nothing() {
         run.write_request(&run.sda4(), start, size, kind);
         let out = run.start();
         out.assert_request_refused(why);
-        out.assert_share_ram("is empty and has no /state/share-pending");
+        out.assert_share_ram(
+            "holds no file system that blkid finds and has no /state/share-pending",
+        );
         assert!(out.offer().is_some(), "the offer stays: {out:#?}");
     }
 }

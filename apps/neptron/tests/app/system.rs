@@ -424,7 +424,7 @@ fn a_second_request_after_the_outcome_changes_nothing() {
 /// A status file with a format offer for a partition of 56.6 GB, as the
 /// storage script writes it.
 pub const OFFER: &str = "state = \"partition\"\nshare = \"ram\"\n\
-share_reason = \"the share partition /dev/sda4 is empty and has no /state/share-pending, so it is left untouched\"\n\
+share_reason = \"the share partition /dev/sda4 holds no file system that blkid finds and has no /state/share-pending, so it is left untouched\"\n\
 share_fix = \"format\"\nshare_fix_device = \"/dev/sda4\"\nshare_fix_start = 10240\n\
 share_fix_size = 110546944\nshare_fix_type = \"7\"\n";
 

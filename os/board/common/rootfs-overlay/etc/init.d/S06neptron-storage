@@ -312,7 +312,7 @@ plan_mismatch() {
 # starts with its name, or nothing.
 format_refusal() {
 	if [ ! -e "$MARKER" ]; then
-		echo "is empty and has no /state/share-pending, so it is left untouched"
+		echo "holds no file system that blkid finds and has no /state/share-pending, so it is left untouched"
 		return
 	fi
 	start=$(sectors "$1" start)

@@ -475,7 +475,7 @@ const OFFERED: &str = r#"status 'share = "ram"' || fail "/share is not a RAM fol
 grep -q '^share /share tmpfs ' /proc/mounts || fail "/share is not a RAM folder in /proc/mounts"
 grep -q '^/dev/sda4 ' /proc/mounts && fail "partition 4 is mounted"
 mentioned 'formatting it exFAT' && fail "partition 4 was formatted with no request"
-logged 'the share partition /dev/sda4 is empty and has no /state/share-pending, so it is left untouched' || fail "the reason is not that of an empty partition 4 with no marker"
+logged 'the share partition /dev/sda4 holds no file system that blkid finds and has no /state/share-pending, so it is left untouched' || fail "the reason is not that of an empty partition 4 with no marker"
 status 'share_fix = "format"' || fail "no format is offered"
 status 'share_fix_device = "/dev/sda4"' || fail "the offer does not name /dev/sda4"
 status "share_fix_start = $(cat /sys/class/block/sda4/start)" || fail "the offer does not name the start of partition 4"
