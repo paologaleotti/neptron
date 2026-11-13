@@ -87,7 +87,33 @@ flowchart TD
     MOUNT -->|"fails"| RAM
     MOUNT -->|"mounted"| DONE["/share on disk<br/>marker removed, sync"]
     DONE --> DIRS["mkdir roms per system, and bios"]
-    RAM --> DIRS
+    RAM --> OFFER{"Empty partition 4 that every rule of the user format allows?"}
+    OFFER -->|"yes"| FIX["storage.toml: share_fix = format,<br/>device, start, size, type"]
+    OFFER -->|"no"| DIRS
+    FIX --> DIRS
+```
+
+### Share partition: the format that the user confirms
+
+The offer comes after a refusal of the rules above for an empty partition 4 (no marker, another type or start, a marker of other numbers) and after a failed `mkfs.exfat`, never after an unclean probe, a filesystem, or a failed mount. `Settings > System > Format share partition` writes `/state/share-format-request` and reboots. The next boot:
+
+```mermaid
+flowchart TD
+    ST["/state mounted"] --> RQ{"/state/share-format-request there?"}
+    RQ -->|"no"| RULES["The rules above"]
+    RQ -->|"yes"| RM["Read it, rm -f, sync"]
+    RM -->|"still there"| RULES
+    RM -->|"removed"| P4{"Partition 4 reaches the format rules?"}
+    P4 -->|"no"| REF["share_format = refused<br/>the reason of /share"]
+    P4 -->|"yes"| MATCH{"Same device, start, size, type in the table now?<br/>Every rule of the offer holds again?"}
+    MATCH -->|"no"| REFR["share_format = refused, with why"] --> RULES
+    MATCH -->|"yes"| TYPE{"Type 7?"}
+    TYPE -->|"no"| SET["sfdisk --part-type disk 4 7,<br/>flush, read the table back"]
+    SET -->|"not type 7 with the same start and size"| REFR
+    SET -->|"type 7"| FMT["mkfs.exfat -L NEPTRON"]
+    TYPE -->|"yes"| FMT
+    FMT -->|"fails"| FAIL["share_format = failed, offer again,<br/>/share a RAM folder"]
+    FMT -->|"done"| MOUNT["mount, share_format = done"]
 ```
 
 ### The launcher
@@ -174,7 +200,7 @@ Which mode stays on the wire until the first commit depends on the driver. The h
 | --- | --- |
 | `/state` on disk, `/share` on disk | Normal. Settings, saves and the guard record are kept. The game list shows the ROMs of `/share/roms`. |
 | `/state` is a RAM folder | A Warning notice that stays until OK: "The state partition is not in use (<reason>). Settings, saves and display choices are lost at power-off." The guard record in RAM still counts the failed boots of this power cycle, so the guard boots as usual: the boot prompt, then the safe default with nothing kept. Settings, saves and the guard record are lost at power off. No share partition is made. |
-| `/share` is a RAM folder | A Warning notice that stays until OK: "The share partition is not in use (<reason>). The game folder is empty, and files copied to it are lost at power-off." The ROM folders are empty, so the game list has no games. |
+| `/share` is a RAM folder | A Warning notice that stays until OK: "The share partition is not in use (<reason>). The game folder is empty, and files copied to it are lost at power-off." The ROM folders are empty, so the game list has no games. When `storage.toml` offers a format, the notice ends with "Settings > System can format it." |
 
 The script writes one line for each decision to the console (`ttyS0`) and to syslog with the tag `neptron-storage` (`/var/log/messages`, a RAM folder). With `/state` mounted, the script also appends the lines of the boot to `/state/log/storage.log` itself (the last 300 lines). `cargo xtask os logs` prints both. The console lines start with `neptron-storage:`. A RAM folder at `/share` always comes with a line that names its reason, and that line is the reason in `storage.toml` and in the notice.
 
@@ -215,6 +241,10 @@ The disk signature is fixed for each build variant: `4e505452` (release), `4e505
 | Partition 4, empty | Formatted | Marker there, type 7, start in the first 1 MiB after state, first 16 MiB read cleanly, no exFAT backup boot sector | `READ_CHECK_MIB` = 16, `EXFAT_BACKUP_SECTORS` = 12 24 48 96 | `mkfs.exfat -L NEPTRON`. Line: `neptron-storage: <dev> holds no filesystem; formatting it exFAT` |
 | Partition 4 | `/share` RAM folder | One rule fails | | Line: `neptron-storage: the share partition <dev> was left untouched: <reason>`. The reasons are in "What can go wrong" |
 | Mounted | Marker removed | The mount worked and the marker exists | | `rm -f /state/share-pending`, `sync`. Line: `neptron-storage: <dev> mounted at /share` |
+| Partition 4, empty, refused by the rules | Format offer | Every rule of the user format holds (`os/README.md`, "A format that the user confirms") | `EXTENDED_TYPES` = 5 f 85, `READ_CHECK_MIB`, `EXFAT_BACKUP_SECTORS`, `OLD_SHARE_SCAN_SECTORS` | `share_fix` in `storage.toml`. Line: `neptron-storage: a format of <dev> (start <n>, size <m>, type <t>) is offered in Settings > System`, or `neptron-storage: the share partition <dev> cannot be offered a format: <why>` |
+| `/state` mounted | Request read | `/state/share-format-request` exists | | Read, removed, synced. Line: `neptron-storage: format request of the user for <dev>: start <n>, size <m>, type <t>; <file> removed` |
+| Request read | Formatted | Partition 4 matches the request and every rule holds | | `sfdisk --part-type <disk> 4 7` when the type differs, then `mkfs.exfat -L NEPTRON`. Line: `neptron-storage: <dev> is formatted exFAT on the request of the user`; `share_format = "done"` |
+| Request read | Refused | Any mismatch, or no partition 4 reaches the rules | | Nothing is formatted. Line: `neptron-storage: the format request is refused: <why>`; `share_format = "refused"`, `share_format_reason` |
 | Any | Status file | Always | | `/run/neptron/storage.toml`: `state` and `share`, each `partition` or `ram`, and `state_reason` or `share_reason` for a RAM folder: the `neptron-storage:` line that names the reason. The frontend reads it at boot (`StorageStatus::read`), logs `neptron: storage: <notice>` and shows the notice. |
 | Any | ROM folders | Always, also on a RAM folder | | `mkdir -p /share/roms/<id>` for each `/usr/share/neptron/systems/<id>.toml` (`megadrive`, `nes`, `snes`), and `mkdir -p /share/bios` |
 
