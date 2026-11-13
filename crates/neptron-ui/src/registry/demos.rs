@@ -3,7 +3,9 @@
 use crate::canvas::{UI_HEIGHT, UI_WIDTH};
 use crate::frame::UiFrame;
 use crate::geom::Rect;
-use crate::snapshot::{ActionId, ChoiceOption, Level, MenuItem, Scopes, SettingKey, SettingValue};
+use crate::snapshot::{
+    ActionId, ChoiceOption, Level, MenuItem, PageId, Scopes, SettingKey, SettingValue,
+};
 use crate::text::{self, Align};
 use crate::theme::{SAFE_AREA, Theme};
 use crate::tree::{TreeRow, WidgetKind};
@@ -200,6 +202,7 @@ fn settings_list(frame: &mut UiFrame, theme: &Theme) {
             SettingValue::Action(ActionId(1)),
             Level::Default,
         ),
+        setting(8, "Advanced", SettingValue::Page(PageId(1)), Level::Default),
     ];
     let mut list = SettingsList::new(content(), theme.row_height_px());
     list.select(3, items.len());
