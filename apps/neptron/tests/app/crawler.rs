@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 
 use neptron::NextRun;
-use neptron::pages::NOT_USED_ON_A_PANEL;
+use neptron::pages::{NOT_USED_ON_A_PANEL, RESCAN_LABEL};
 use neptron_settings::{DisplayClass, Schema};
 use neptron_types::Control;
 use neptron_ui::theme::SAFE_AREA;
@@ -21,8 +21,10 @@ use crate::rig::{Rig, in_child, test_name};
 /// the grid pattern, and the quick menu's keep prompt.
 const LEAVES: [&str; 4] = ["games", "options", "pattern/grid", "quick-menu/keep"];
 
-/// Rows the crawler never accepts: they end the menu or the run.
-const NEVER_ACCEPT: [&str; 2] = ["Resume", "Quit game"];
+/// Rows the crawler never accepts: they end the menu or the run, or, for
+/// the rescan row, open a notice when the scan ends, which takes the next
+/// press of the crawl. `rescan.rs` presses that row.
+const NEVER_ACCEPT: [&str; 3] = ["Resume", "Quit game", RESCAN_LABEL];
 
 /// The deepest path from home or the quick menu.
 const DEPTH_MAX: usize = 4;
@@ -117,6 +119,10 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
             found.screens
         );
     }
+    assert!(
+        found.labels.contains(RESCAN_LABEL),
+        "the rescan row is on no screen"
+    );
     for entry in Schema::builtin().entries() {
         assert!(
             found.labels.contains(entry.label),

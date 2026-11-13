@@ -12,6 +12,7 @@ use neptron_video::RefreshKind;
 
 use super::guard_events::any_press;
 use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS};
+use crate::library::{ScanKind, Scanned, changes_text};
 use crate::outbox::Job;
 
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
@@ -148,21 +149,33 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
     }
 
-    /// Takes a finished scan of the game list: the new systems, and the
-    /// cache for the next start.
+    /// Takes a finished scan of the game list: the new systems, the game
+    /// list on show updated in place, the cache for the next start, and a
+    /// notice of what changed.
     fn poll_library(&mut self) {
         let Some(result) = self.library.poll() else {
             return;
         };
         match result {
-            Ok(index) => {
-                let job = Job::Cache(Box::new(index.clone()));
+            Ok(scanned) => {
+                let job = Job::Cache(Box::new(self.library.index().clone()));
                 self.outbox.send(job);
                 self.snap.systems = self.library.systems();
-                self.snap.games = Default::default();
+                // The rows of the same list around the old ones, so the
+                // screen keeps its place, and the ids let it keep its game
+                // when it moved by up to the margin.
+                if let Some(source) = self.snap.games.source {
+                    let first = self.snap.games.first.saturating_sub(MOVED_GAME_MARGIN_ROWS);
+                    let count = self.snap.games.rows.len() + 2 * MOVED_GAME_MARGIN_ROWS;
+                    self.snap.games = self.library.window(source, first, count);
+                }
+                if let Some(text) = scan_notice(&scanned) {
+                    self.notice(NoticeKind::Info, text);
+                }
             }
             Err(e) => self.notice(NoticeKind::Warning, format!("The game scan failed: {e}.")),
         }
+        self.reload_page();
     }
 
     /// A notice when the first picture of the game is filtered, cropped or
@@ -194,6 +207,28 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
     }
 }
+
+/// The notice after a scan: what changed, after a scan the player asked
+/// for always, and after the scan of a start only when an index from the
+/// cache changed. The first scan of a library adds every game, which
+/// tells nothing.
+fn scan_notice(scanned: &Scanned) -> Option<String> {
+    let text = changes_text(&scanned.changes);
+    match scanned.kind {
+        ScanKind::Rescan => Some(text.unwrap_or_else(|| NO_CHANGE.to_owned())),
+        ScanKind::Boot | ScanKind::Check if scanned.first => None,
+        ScanKind::Boot | ScanKind::Check => text,
+    }
+}
+
+/// The rows that the game list on show gets before and after its old rows
+/// when a scan ends. A focused game that moves by more rows (more games
+/// added or removed above it) loses the focus, and the cursor stays at its
+/// index.
+const MOVED_GAME_MARGIN_ROWS: usize = 64;
+
+/// The notice of a rescan that found nothing new.
+const NO_CHANGE: &str = "No games added or removed.";
 
 /// The UI canvas as the `ui` frame of a scene.
 fn canvas_frame(canvas: &CpuCanvas) -> Frame<'_> {

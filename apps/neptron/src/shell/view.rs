@@ -129,7 +129,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             outputs: &self.runtime.audio_outputs,
         };
         self.snap.settings = match page {
-            DISPLAY_PAGE => pages::display_page(&self.config, names),
+            DISPLAY_PAGE => {
+                let mut page = pages::display_page(&self.config, names);
+                let row = pages::rescan_row(self.library.scanning(), self.in_game());
+                page.rows.push(row);
+                page
+            }
             AUDIO_PAGE => pages::audio_page(&self.config, names),
             QUICK_MENU_PAGE => pages::quick_menu_page(&self.config, names),
             other => SettingsPage::new(other, "", Vec::new()),

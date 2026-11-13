@@ -11,6 +11,7 @@ use neptron_ui::snapshot::NoticeKind;
 use neptron_video::{ConfirmError, DisplayConfig};
 
 use super::{Outcome, PendingChange, Shell, Stage};
+use crate::library::{ScanKind, ScanStart};
 use crate::pages::{self, Names};
 use crate::relaunch::NextRun;
 
@@ -63,7 +64,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                     self.change_setting(key, level, None, now_ns);
                 }
             }
-            // The app adds no action rows of its own.
+            Intent::Action(pages::RESCAN_GAMES) => self.rescan_games(),
             Intent::Action(_) => {}
             Intent::SelectProfile(id) => {
                 let profile = self.presets.profiles().get(id.0 as usize);
@@ -107,6 +108,29 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 notice: None,
             }));
         }
+    }
+
+    /// Scans the games folder again, reading every folder, on the scan
+    /// thread. The game list stays usable, and the rescan row says that a
+    /// scan runs. Ignored during a game and while a scan runs.
+    pub fn rescan_games(&mut self) {
+        if !matches!(self.stage, Stage::List(_)) {
+            return;
+        }
+        let started = self.library.start_scan(
+            self.paths.roms(),
+            ScanKind::Rescan,
+            std::time::SystemTime::now(),
+        );
+        match started {
+            Ok(ScanStart::Started) => self.log("rescan of the games folder".to_owned()),
+            Ok(ScanStart::Running) => self.log("rescan asked while a scan runs".to_owned()),
+            Err(e) => self.notice(
+                NoticeKind::Warning,
+                format!("The game scan did not start: {e}."),
+            ),
+        }
+        self.reload_page();
     }
 
     /// Ends the game and the run, with a relaunch to the game list.

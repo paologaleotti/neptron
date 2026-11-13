@@ -19,4 +19,5 @@ mod output;
 mod panel;
 mod pause;
 mod recovery;
+mod rescan;
 mod rig;

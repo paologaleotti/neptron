@@ -5,6 +5,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::path::Path;
 use std::rc::Rc;
+use std::time::SystemTime;
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::{Hotkeys, PortStates};
@@ -21,7 +22,7 @@ use neptron_video::{
 use super::{ControlInput, Devices, GameStage, ListStage, Runtime, Shell, Stage};
 use crate::config::{Config, GameContext};
 use crate::display::{Detected, MonitorError};
-use crate::library::Library;
+use crate::library::{Library, ScanKind};
 use crate::nav::Navigator;
 use crate::outbox::{Outbox, Places};
 use crate::paths::Paths;
@@ -224,7 +225,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 let (mut library, issue) =
                     Library::load(Catalog::builtin()?, &paths.library_cache());
                 found.warn_all(issue);
-                if let Err(e) = library.start_scan(paths.roms()) {
+                // A relaunch file means the same power cycle: every change
+                // since the last scan came through this device.
+                let kind = if next.is_some() {
+                    ScanKind::Check
+                } else {
+                    ScanKind::Boot
+                };
+                if let Err(e) = library.start_scan(paths.roms(), kind, SystemTime::now()) {
                     found.warn(format!("the game scan did not start: {e}"));
                 }
                 library

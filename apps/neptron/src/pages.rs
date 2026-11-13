@@ -24,6 +24,21 @@ use crate::presets::Presets;
 /// the schema.
 pub const ACTION_KEY_BASE: u32 = 0x0001_0000;
 
+/// The action of the row that scans the games folder again. The UI hands
+/// an action below its reserved numbers to the app.
+pub const RESCAN_GAMES: ActionId = ActionId(1);
+
+/// The label of the rescan row.
+pub const RESCAN_LABEL: &str = "Rescan games";
+
+/// The label of the rescan row while a scan runs. The row is disabled then,
+/// and a disabled action row shows no reason, so the label says it.
+pub const SCANNING_LABEL: &str = "Scanning games...";
+
+/// The reason that the rescan row is disabled in a game: a game run lists
+/// no games, and the return to the list checks the folders.
+pub const RESCAN_IN_GAME: &str = "Not during a game";
+
 /// The reason that a row shows when its setting has no effect on the flat
 /// panel that the run drives. It fits the value and source columns of a row.
 pub const NOT_USED_ON_A_PANEL: &str = "Not used on a flat panel";
@@ -128,6 +143,16 @@ pub fn quick_menu_page(config: &Config, names: Names<'_>) -> SettingsPage {
     rows.push(action(2, "Display", OPEN_DISPLAY));
     rows.push(action(3, "Quit game", QUIT_GAME));
     SettingsPage::new(QUICK_MENU_PAGE, "Quick menu", rows)
+}
+
+/// The row that scans the games folder again: disabled while a scan runs
+/// and during a game.
+pub fn rescan_row(scanning: bool, in_game: bool) -> MenuItem {
+    match (scanning, in_game) {
+        (_, true) => action(4, RESCAN_LABEL, RESCAN_GAMES).unavailable(RESCAN_IN_GAME),
+        (true, false) => action(4, SCANNING_LABEL, RESCAN_GAMES).unavailable(SCANNING_LABEL),
+        (false, false) => action(4, RESCAN_LABEL, RESCAN_GAMES),
+    }
 }
 
 /// The schema entry of a row key.
@@ -359,6 +384,22 @@ mod tests {
 
     fn config() -> Config {
         Config::load(&Storage::new("/nonexistent/config"), None).0
+    }
+
+    #[test]
+    fn the_rescan_row_is_disabled_while_a_scan_runs_and_in_a_game() {
+        let idle = rescan_row(false, false);
+        assert_eq!(idle.label, RESCAN_LABEL);
+        assert_eq!(idle.value, SettingValue::Action(RESCAN_GAMES));
+        assert!(idle.is_enabled());
+        let busy = rescan_row(true, false);
+        assert_eq!(busy.label, SCANNING_LABEL);
+        assert!(!busy.is_enabled());
+        for scanning in [false, true] {
+            let in_game = rescan_row(scanning, true);
+            assert_eq!(in_game.unavailable.as_deref(), Some(RESCAN_IN_GAME));
+        }
+        const { assert!(RESCAN_GAMES.0 < neptron_ui::screens::RESERVED_ID_MIN) };
     }
 
     #[test]
