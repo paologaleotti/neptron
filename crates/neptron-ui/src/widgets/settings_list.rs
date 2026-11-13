@@ -98,6 +98,9 @@ impl SettingsList {
         let Some(item) = items.get(self.list.cursor()) else {
             return SettingsEvent::None;
         };
+        if !item.is_enabled() {
+            return SettingsEvent::None;
+        }
         if self.picks(item) {
             match action {
                 UiAction::Accept => return SettingsEvent::Pick(self.list.cursor()),
@@ -123,7 +126,7 @@ impl SettingsList {
                 row,
                 item,
                 focused,
-                focused && !self.picks(item),
+                focused && item.is_enabled() && !self.picks(item),
             );
         }
         if scrolls {
@@ -166,6 +169,33 @@ fn draw_row(
     let value_w = font::char_count_width(VALUE_CHARS);
     let arrows_w = 2 * advance;
     let columns_w = source_w + advance + value_w + arrows_w + advance;
+    if let Some(reason) = &item.unavailable {
+        let label_color = if focused { color } else { dim };
+        let reason_box = Rect::new(
+            add(inner.x, inner.w.saturating_sub(columns_w - advance)),
+            row.y,
+            columns_w - advance,
+            row.h,
+        );
+        let reason_clipped = text::draw_in(&mut frame.scene, reason_box, Align::Right, dim, reason);
+        let label_box = Rect::new(inner.x, row.y, inner.w.saturating_sub(columns_w), row.h);
+        let label_clipped = text::draw_in(
+            &mut frame.scene,
+            label_box,
+            Align::Left,
+            label_color,
+            &item.label,
+        );
+        push(
+            frame,
+            item,
+            row,
+            Some(reason),
+            focused,
+            label_clipped || reason_clipped,
+        );
+        return;
+    }
     let source_x = add(inner.x, inner.w.saturating_sub(source_w));
     let source_box = Rect::new(source_x, row.y, source_w, row.h);
     let source_color = if item.source == Level::Default {
@@ -337,6 +367,7 @@ mod tests {
             source,
             scopes: ALL,
             live: true,
+            unavailable: None,
         }
     }
 
@@ -609,6 +640,63 @@ mod tests {
             l.handle(UiAction::Accept, &[], Level::Game),
             SettingsEvent::None
         );
+    }
+
+    #[test]
+    fn an_unavailable_row_changes_nothing_and_shows_its_reason() {
+        let reason = "Not used on a flat panel";
+        let mut items = items();
+        for item in &mut items[..3] {
+            *item = item.clone().unavailable(reason);
+        }
+        for pickers in [false, true] {
+            let mut l = SettingsList::new(Rect::new(16, 12, 288, 48), 12);
+            if pickers {
+                l = l.with_pickers();
+            }
+            for index in 0..3 {
+                at(&mut l, index);
+                for action in [
+                    UiAction::Accept,
+                    UiAction::Left,
+                    UiAction::Right,
+                    UiAction::Menu,
+                ] {
+                    assert_eq!(
+                        l.handle(action, &items, Level::Game),
+                        SettingsEvent::None,
+                        "{index} {action:?}"
+                    );
+                }
+            }
+            assert_eq!(
+                l.handle(UiAction::Down, &items, Level::Game),
+                SettingsEvent::Moved
+            );
+            let mut frame = UiFrame::new();
+            at(&mut l, 2);
+            l.draw(&mut frame, &Theme::default(), &items);
+            let rows: Vec<_> = frame
+                .tree
+                .rows()
+                .map(|r| (r.label, r.value, r.clipped))
+                .collect();
+            assert_eq!(rows[0], ("Setting 1", Some(reason), false));
+            assert_eq!(rows[2], ("Setting 3", Some(reason), false));
+            let texts: Vec<_> = frame
+                .scene
+                .commands()
+                .iter()
+                .filter_map(|c| match *c {
+                    crate::DrawCommand::Text { span, .. } => Some(frame.scene.text(span)),
+                    _ => None,
+                })
+                .collect();
+            assert!(!texts.contains(&"<"), "no arrows on a disabled row");
+            for source in ["default", "game", "system"] {
+                assert!(!texts.contains(&source), "no source on a disabled row");
+            }
+        }
     }
 
     #[test]

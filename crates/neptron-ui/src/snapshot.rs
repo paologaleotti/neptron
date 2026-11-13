@@ -172,6 +172,10 @@ pub struct MenuItem {
     pub scopes: Scopes,
     /// True when a change applies at once, with no restart of the game.
     pub live: bool,
+    /// Why the setting has no effect now, for example `Not used on a flat
+    /// panel`. The row shows the reason in place of its value and takes no
+    /// change. `None` when the row is enabled.
+    pub unavailable: Option<String>,
 }
 
 /// The value of a settings row, with what the UI needs to change it.
@@ -429,7 +433,19 @@ impl MenuItem {
             source: Level::Default,
             scopes: Scopes::NONE,
             live: false,
+            unavailable: None,
         }
+    }
+
+    /// The same row, disabled for `reason`.
+    pub fn unavailable(mut self, reason: impl Into<String>) -> Self {
+        self.unavailable = Some(reason.into());
+        self
+    }
+
+    /// True when the row takes a change.
+    pub fn is_enabled(&self) -> bool {
+        self.unavailable.is_none()
     }
 }
 

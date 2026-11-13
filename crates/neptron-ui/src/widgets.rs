@@ -228,6 +228,7 @@ mod tests {
                         source: Level::Game,
                         scopes: Scopes::ALL,
                         live: true,
+                        unavailable: None,
                     })
                     .collect();
                 let mut settings = SettingsList::new(rng.rect(), rng.u32());

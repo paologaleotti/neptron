@@ -137,6 +137,7 @@ fn setting(key: u32, label: &str, value: SettingValue, source: Level) -> MenuIte
             game: true,
         },
         live: true,
+        unavailable: None,
     }
 }
 

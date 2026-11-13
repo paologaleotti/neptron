@@ -76,6 +76,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: quick_menu,
     },
     SceneDef {
+        name: "screens/quick-menu-panel",
+        build: quick_menu_panel,
+    },
+    SceneDef {
         name: "screens/quick-menu-keep",
         build: quick_menu_keep,
     },
@@ -443,6 +447,20 @@ pub(super) fn in_game() -> Snapshot {
 
 fn quick_menu(frame: &mut UiFrame, theme: &Theme) {
     let snap = in_game();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[], frame);
+    screens.update(&snap, &[UiAction::Menu, UiAction::Down], frame);
+}
+
+/// The quick menu on a flat panel: the picture style and the refresh
+/// policy have no effect there, so both rows are disabled with the reason.
+fn quick_menu_panel(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = in_game();
+    for row in &mut snap.settings.rows {
+        if row.key == STYLE || row.key == REFRESH {
+            *row = row.clone().unavailable("Not used on a flat panel");
+        }
+    }
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &[], frame);
     screens.update(&snap, &[UiAction::Menu, UiAction::Down], frame);
