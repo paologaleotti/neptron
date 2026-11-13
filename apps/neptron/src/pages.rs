@@ -21,6 +21,7 @@ use neptron_ui::snapshot::{
 use crate::config::Config;
 use crate::display::{AUTO, Detected, FLAT};
 use crate::presets::Presets;
+use crate::storage::FormatOffer;
 
 /// The first setting key of an action row. Keys below it are positions in
 /// the schema.
@@ -46,6 +47,12 @@ pub const REBOOT: ActionId = ActionId(2);
 
 /// The action of the `Shut down` row of the System panel.
 pub const POWER_OFF: ActionId = ActionId(3);
+
+/// The action of the `Format share partition` row of the System panel.
+pub const FORMAT_SHARE: ActionId = ActionId(4);
+
+/// The label of the row that asks for the format of the share partition.
+pub const FORMAT_SHARE_LABEL: &str = "Format share partition";
 
 /// The label of the row that reboots the machine.
 pub const REBOOT_LABEL: &str = "Reboot";
@@ -205,9 +212,12 @@ pub fn library_page(scanning: bool, in_game: bool) -> SettingsPage {
 }
 
 /// The rows of the System panel: reboot and shut down, each behind a
-/// confirm question. With no power control (`power`) both are disabled;
-/// in a game too, and the panel is still listed.
-pub fn system_page(in_game: bool, power: bool) -> SettingsPage {
+/// confirm question, and the format of the share partition when the
+/// storage script offers it (`offer`); with no offer that row is absent,
+/// since no other state has a format that fixes it. With no power
+/// control (`power`) every row is disabled; in a game too, and the panel
+/// is still listed.
+pub fn system_page(in_game: bool, power: bool, offer: Option<&FormatOffer>) -> SettingsPage {
     let reason = match (power, in_game) {
         (false, _) => Some(POWER_NO_LAUNCHER),
         (true, true) => Some(POWER_IN_GAME),
@@ -225,8 +235,19 @@ pub fn system_page(in_game: bool, power: bool) -> SettingsPage {
             "Shutting down...",
         ),
     ];
+    let format = offer.map(|offer| {
+        action(8, FORMAT_SHARE_LABEL, FORMAT_SHARE).with_confirm(
+            "Format the share partition?",
+            format!(
+                "The partition for games ({}) is empty and not in use. Formatting it erases everything on it.",
+                offer.size_text()
+            ),
+            "Formatting at the next start...",
+        )
+    });
     let rows = rows
         .into_iter()
+        .chain(format)
         .map(|row| match reason {
             Some(reason) => row.unavailable(reason),
             None => row,
@@ -563,7 +584,7 @@ mod tests {
 
     #[test]
     fn the_system_rows_ask_first_and_are_disabled_in_a_game_or_with_no_launcher() {
-        let page = system_page(false, true);
+        let page = system_page(false, true, None);
         assert!(page.is_for(SYSTEM_PAGE));
         let rows: Vec<_> = page
             .rows
@@ -591,7 +612,7 @@ mod tests {
             (false, false, POWER_NO_LAUNCHER),
             (true, false, POWER_NO_LAUNCHER),
         ] {
-            let page = system_page(in_game, power);
+            let page = system_page(in_game, power, Some(&offer()));
             assert!(
                 page.rows
                     .iter()
@@ -599,10 +620,51 @@ mod tests {
                 "{in_game} {power}"
             );
         }
-        for id in [REBOOT, POWER_OFF] {
+        for id in [REBOOT, POWER_OFF, FORMAT_SHARE] {
             assert!(id.0 < neptron_ui::screens::RESERVED_ID_MIN);
             assert_ne!(id, RESCAN_GAMES);
         }
+        assert_ne!(FORMAT_SHARE, REBOOT);
+        assert_ne!(FORMAT_SHARE, POWER_OFF);
+    }
+
+    fn offer() -> FormatOffer {
+        FormatOffer {
+            device: "/dev/sda4".to_owned(),
+            start: 10240,
+            sectors: 110_546_944,
+            kind: "7".to_owned(),
+        }
+    }
+
+    #[test]
+    fn the_format_row_is_there_only_with_an_offer_and_asks_first() {
+        assert_eq!(system_page(false, true, None).rows.len(), 2);
+        let page = system_page(false, true, Some(&offer()));
+        let row = page.rows.last().expect("a row");
+        assert_eq!(page.rows.len(), 3);
+        assert_eq!(row.label, FORMAT_SHARE_LABEL);
+        assert_eq!(row.value, SettingValue::Action(FORMAT_SHARE));
+        assert!(row.is_enabled());
+        let confirm = row.confirm.as_ref().expect("a question");
+        assert_eq!(confirm.question, "Format the share partition?");
+        assert_eq!(
+            confirm.message,
+            "The partition for games (56.6 GB) is empty and not in use. Formatting it erases everything on it."
+        );
+        assert_eq!(confirm.working, "Formatting at the next start...");
+        assert_eq!(
+            system_page(true, true, Some(&offer())).rows[2]
+                .unavailable
+                .as_deref(),
+            Some(POWER_IN_GAME)
+        );
+        assert_eq!(
+            system_page(false, false, Some(&offer())).rows[2]
+                .unavailable
+                .as_deref(),
+            Some(POWER_NO_LAUNCHER)
+        );
     }
 
     #[test]
@@ -914,7 +976,7 @@ mod tests {
             quick_menu_page(&config, names),
             display_page(&config, names),
             library_page(false, false),
-            system_page(false, true),
+            system_page(false, true, Some(&offer())),
         ]
         .iter()
         .flat_map(|page| page.rows.iter().map(|r| r.key))

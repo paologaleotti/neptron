@@ -1,5 +1,6 @@
 //! The start of a run, before the first frame.
 
+use neptron_ui::snapshot::NoticeKind;
 use neptron_video::Phase;
 
 use crate::rig::Rig;
@@ -140,4 +141,45 @@ fn a_state_partition_in_ram_is_a_notice_and_counts_its_boots_in_ram() {
     );
     rig.frames(2);
     rig.finish();
+}
+
+#[test]
+fn the_result_of_a_format_request_is_a_notice_of_its_kind() {
+    for (name, status, kind, text) in [
+        (
+            "done",
+            "state = \"partition\"\nshare = \"partition\"\nshare_format = \"done\"\n",
+            NoticeKind::Info,
+            "The share partition is formatted.",
+        ),
+        (
+            "refused",
+            "state = \"partition\"\nshare = \"partition\"\nshare_format = \"refused\"\nshare_format_reason = \"it holds a filesystem\"\n",
+            NoticeKind::Warning,
+            "The share partition was not formatted (it holds a filesystem).",
+        ),
+    ] {
+        let dir =
+            std::env::temp_dir().join(format!("neptron-app-format-{name}-{}", std::process::id()));
+        // A leftover of an earlier run with the same process id; absence is fine.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the folder");
+        let mut rig = Rig::new(&dir);
+        std::fs::create_dir_all(&rig.paths.run).expect("the run folder");
+        std::fs::write(rig.paths.run.join("storage.toml"), status).expect("the status");
+        rig.boot(None);
+        let notices: Vec<(NoticeKind, String)> = rig
+            .shell()
+            .snapshot()
+            .notices
+            .iter()
+            .map(|n| (n.kind, n.text.clone()))
+            .collect();
+        assert!(
+            notices.contains(&(kind, text.to_owned())),
+            "{name}: {notices:?}"
+        );
+        rig.frames(2);
+        rig.finish();
+    }
 }

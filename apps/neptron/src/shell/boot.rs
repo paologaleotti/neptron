@@ -254,8 +254,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             record: paths.guard_record(),
             cache: paths.library_cache(),
             scanned: paths.library_scanned(),
+            share_request: paths.share_format_request(),
         })
         .map_err(BootError::Writer)?;
+        let share_offer = storage.as_ref().and_then(StorageStatus::format_offer);
         let theme = load_theme(&paths.skin(), &mut found);
         let mut shell = Shell {
             paths,
@@ -290,6 +292,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             control_queue: queue,
             log: VecDeque::new(),
             record_place,
+            share_offer,
             outcome: None,
         };
         shell.first_snapshot();
@@ -301,7 +304,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
         for text in storage.iter().flat_map(StorageStatus::notices) {
             shell.log(format!("storage: {text}"));
-            found.issues.push((NoticeKind::Warning, text));
+            let kind = if text == crate::storage::FORMATTED_NOTICE {
+                NoticeKind::Info
+            } else {
+                NoticeKind::Warning
+            };
+            found.issues.push((kind, text));
         }
         if shell.in_game() {
             let settings = shell.config.policy()?;

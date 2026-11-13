@@ -63,6 +63,12 @@ impl Paths {
         self.state.join("cache").join("library.cache")
     }
 
+    /// `state/share-format-request`, the request for the format of the
+    /// share partition at the next boot, which the storage script reads.
+    pub fn share_format_request(&self) -> PathBuf {
+        self.state.join(crate::storage::REQUEST_FILE)
+    }
+
     /// `data/monitors`, the monitor presets.
     pub fn monitors(&self) -> PathBuf {
         self.data.join("monitors")

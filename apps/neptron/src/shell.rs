@@ -170,6 +170,9 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
     /// The connector and the monitor of the last known good in the guard
     /// record.
     record_place: Option<crate::record::Place>,
+    /// The format of the share partition that the storage script offers
+    /// at this boot.
+    share_offer: Option<crate::storage::FormatOffer>,
     outcome: Option<Outcome>,
 }
 

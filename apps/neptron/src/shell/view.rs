@@ -135,7 +135,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         self.snap.settings = match page {
             DISPLAY_PAGE => pages::display_page(&self.config, names),
             LIBRARY_PAGE => pages::library_page(self.library.scanning(), self.in_game()),
-            SYSTEM_PAGE => pages::system_page(self.in_game(), self.runtime.power),
+            SYSTEM_PAGE => pages::system_page(
+                self.in_game(),
+                self.runtime.power,
+                self.share_offer.as_ref(),
+            ),
             AUDIO_PAGE => pages::audio_page(&self.config, names),
             QUICK_MENU_PAGE => pages::quick_menu_page(&self.config, names),
             VIDEO_PAGE => pages::video_page(&self.config, names),

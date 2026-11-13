@@ -69,6 +69,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             Intent::Action(pages::RESCAN_GAMES) => self.rescan_games(),
             Intent::Action(pages::REBOOT) => self.request_power(PowerRequest::Reboot),
             Intent::Action(pages::POWER_OFF) => self.request_power(PowerRequest::PowerOff),
+            Intent::Action(pages::FORMAT_SHARE) => self.request_share_format(),
             Intent::Action(_) => {}
             Intent::SelectProfile(id) => {
                 let profile = self.presets.profiles().get(id.0 as usize);
@@ -152,13 +153,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// The rows of the System panel call it through their intents. It is
     /// public for the tier 2 tests.
     pub fn request_power(&mut self, request: PowerRequest) {
-        let state = power::RunState {
-            in_list: matches!(self.stage, Stage::List(_)),
-            control: self.runtime.power,
-            pending: self.guard.pending().is_some(),
-            ended: self.outcome.is_some(),
-        };
-        if !power::takes_request(state) {
+        if !power::takes_request(self.run_state()) {
             return;
         }
         let outcome = request.outcome();
@@ -173,6 +168,41 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 record: crate::record::for_continued_boot(self.guard.record().clone()),
                 place: self.record_place.clone(),
             });
+        }
+    }
+
+    /// Asks the storage script for the format of the share partition that
+    /// it offered at this boot: the request file goes to the writer thread
+    /// and the run ends with a reboot, as for [`Self::request_power`].
+    /// The frontend never formats; the script checks the disk again at the
+    /// next boot. Ignored with no offer, and when the run takes no reboot.
+    ///
+    /// The `Format share partition` row calls it through its intent. It is
+    /// public for the tier 2 tests.
+    pub fn request_share_format(&mut self) {
+        let Some(offer) = self.share_offer.clone() else {
+            return;
+        };
+        if !power::takes_request(self.run_state()) {
+            return;
+        }
+        self.log(format!(
+            "format of the share partition {} asked from the System panel",
+            offer.device
+        ));
+        self.outbox.send(Job::ShareFormatRequest {
+            text: offer.request_text(),
+        });
+        self.request_power(PowerRequest::Reboot);
+    }
+
+    /// What the run is doing, for a power request.
+    fn run_state(&self) -> power::RunState {
+        power::RunState {
+            in_list: matches!(self.stage, Stage::List(_)),
+            control: self.runtime.power,
+            pending: self.guard.pending().is_some(),
+            ended: self.outcome.is_some(),
         }
     }
 

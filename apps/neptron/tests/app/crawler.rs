@@ -16,7 +16,8 @@ use std::collections::BTreeSet;
 
 use neptron::NextRun;
 use neptron::pages::{
-    NOT_USED_ON_A_PANEL, NOT_USED_ON_A_TV, REBOOT_LABEL, RESCAN_LABEL, SHUT_DOWN_LABEL,
+    FORMAT_SHARE_LABEL, NOT_USED_ON_A_PANEL, NOT_USED_ON_A_TV, REBOOT_LABEL, RESCAN_LABEL,
+    SHUT_DOWN_LABEL,
 };
 use neptron_settings::{DisplayClass, Schema};
 use neptron_types::Control;
@@ -35,13 +36,15 @@ const LEAVES: [&str; 4] = ["games", "options", "pattern/grid", "quick-menu/keep"
 /// the rescan row, open a notice when the scan ends, which takes the next
 /// press of the crawl. `rescan.rs` presses that row. `Reboot` and `Shut
 /// down` open a confirm question that is no screen of the stack, and a
-/// confirm ends the run; `system.rs` presses them.
-const NEVER_ACCEPT: [&str; 5] = [
+/// confirm ends the run; `system.rs` presses them, and the row that asks
+/// for the format of the share partition.
+const NEVER_ACCEPT: [&str; 6] = [
     "Resume",
     "Quit game",
     RESCAN_LABEL,
     REBOOT_LABEL,
     SHUT_DOWN_LABEL,
+    FORMAT_SHARE_LABEL,
 ];
 
 /// The deepest path from home or the quick menu.
@@ -102,6 +105,46 @@ fn on_a_tv_the_tv_rows_show_and_the_monitor_and_refresh_rows_are_disabled() {
             .map(str::to_owned)
             .into();
         assert_eq!(found.disabled, expected);
+    });
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn with_a_format_offer_the_row_is_found_and_never_accepted() {
+    let name = test_name(
+        module_path!(),
+        "with_a_format_offer_the_row_is_found_and_never_accepted",
+    );
+    in_child(&name, |dir| {
+        let mut rig = Rig::new(dir);
+        crate::system::storage_status(&rig, crate::system::OFFER);
+        rig.boot(None);
+        rig.frames(2);
+        rig.keep();
+        for _ in 0..8 {
+            if rig.screen() != "notice" {
+                break;
+            }
+            rig.tap(&[Control::A]);
+        }
+        rig.until(600, "the scan", |r| {
+            !r.shell().snapshot().systems.is_empty()
+        });
+        let mut found = Found {
+            class: DisplayClass::Crt,
+            screens: BTreeSet::new(),
+            labels: BTreeSet::new(),
+            disabled: BTreeSet::new(),
+        };
+        // The frames of the crawl panic when the run ends.
+        crawl(&mut rig, &mut found, 0);
+        rig.finish();
+        assert!(
+            found.labels.contains(FORMAT_SHARE_LABEL),
+            "the format row is on no screen: {:?}",
+            found.labels
+        );
+        assert!(!rig.paths.share_format_request().exists());
     });
 }
 

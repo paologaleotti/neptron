@@ -63,6 +63,13 @@ pub enum Job {
         /// [`Places::scanned`]).
         full_scan: bool,
     },
+    /// Write the request for the format of the share partition at the next
+    /// boot (see [`Places::share_request`]), with the write rule of user
+    /// data: the storage script formats only what a whole request names.
+    ShareFormatRequest {
+        /// The text of the request file.
+        text: String,
+    },
 }
 
 /// The frame thread's side of the writer thread. Drop or
@@ -87,6 +94,8 @@ pub struct Places {
     /// The marker in the run folder (a RAM folder): a full scan of this
     /// power cycle reached the cache.
     pub scanned: PathBuf,
+    /// The format request file on the state partition.
+    pub share_request: PathBuf,
 }
 
 impl Outbox {
@@ -204,6 +213,14 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, failures: &SyncSender<Strin
             }
             Job::Record { record: r, place } => record::save(&places.record, r, place.as_ref())
                 .map_err(|e| format!("cannot write the guard record: {e}")),
+            Job::ShareFormatRequest { text } => {
+                crate::atomic::write(&places.share_request, text.as_bytes()).map_err(|e| {
+                    format!(
+                        "cannot write the format request {}: {e}",
+                        places.share_request.display()
+                    )
+                })
+            }
             Job::Cache { index, full_scan } => write_cache(&places.cache, index).and_then(|()| {
                 if *full_scan {
                     mark_scanned(&places.scanned)
@@ -265,7 +282,40 @@ mod tests {
             record: dir.join("video").join("guard.toml"),
             cache: dir.join("cache").join("library.cache"),
             scanned: dir.join("run").join("library-scanned"),
+            share_request: dir.join("state").join("share-format-request"),
         }
+    }
+
+    #[test]
+    fn the_format_request_is_written_whole() {
+        let places = places("request");
+        let mut outbox = Outbox::start(places.clone()).expect("start");
+        outbox.send(Job::ShareFormatRequest {
+            text: "device=/dev/sda4\n".to_owned(),
+        });
+        assert!(outbox.finish().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&places.share_request).expect("the request"),
+            "device=/dev/sda4\n"
+        );
+    }
+
+    #[test]
+    fn a_format_request_that_cannot_be_written_is_a_message() {
+        let places = places("request-fail");
+        let dir = places.share_request.parent().expect("dir").to_owned();
+        std::fs::create_dir_all(dir.parent().expect("dir")).expect("dir");
+        std::fs::write(&dir, b"a file where the folder must be").expect("file");
+        let mut outbox = Outbox::start(places).expect("start");
+        outbox.send(Job::ShareFormatRequest {
+            text: "device=/dev/sda4\n".to_owned(),
+        });
+        let messages = outbox.finish();
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert!(
+            messages[0].contains("cannot write the format request"),
+            "{messages:?}"
+        );
     }
 
     #[test]

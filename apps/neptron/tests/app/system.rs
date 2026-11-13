@@ -1,7 +1,9 @@
 //! The System panel: reboot and shut down end the run cleanly with the
 //! outcome that the launcher turns into a reboot or a power-off.
 
-use neptron::pages::{POWER_IN_GAME, POWER_NO_LAUNCHER, REBOOT_LABEL, SHUT_DOWN_LABEL};
+use neptron::pages::{
+    FORMAT_SHARE_LABEL, POWER_IN_GAME, POWER_NO_LAUNCHER, REBOOT_LABEL, SHUT_DOWN_LABEL,
+};
 use neptron::power::{POWER_OFF_EXIT_CODE, PowerRequest, REBOOT_EXIT_CODE, exit_code};
 use neptron::{NextRun, Outcome};
 use neptron_settings::{AUDIO_VOLUME, Level, Value};
@@ -409,6 +411,258 @@ fn a_second_request_after_the_outcome_changes_nothing() {
             rig.shell().request_power(PowerRequest::PowerOff);
             assert_eq!(rig.until_end(1), Outcome::Reboot);
             rig.finish();
+        },
+    );
+}
+
+/// A status file with a format offer for a partition of 56.6 GB, as the
+/// storage script writes it.
+pub const OFFER: &str = "state = \"partition\"\nshare = \"ram\"\n\
+share_reason = \"the share partition /dev/sda4 is empty and has no /state/share-pending, so it is left untouched\"\n\
+share_fix = \"format\"\nshare_fix_device = \"/dev/sda4\"\nshare_fix_start = 10240\n\
+share_fix_size = 110546944\nshare_fix_type = \"7\"\n";
+
+/// The request file that the confirm of [`OFFER`] writes.
+const REQUEST: &str = "device=/dev/sda4\nstart=10240\nsize=110546944\ntype=7\n";
+
+/// Writes `status` as the status file of the storage script.
+pub fn storage_status(rig: &Rig, status: &str) {
+    std::fs::create_dir_all(&rig.paths.run).expect("the run folder");
+    std::fs::write(rig.paths.run.join("storage.toml"), status).expect("the status");
+}
+
+/// The labels of the rows of the System panel in the snapshot.
+fn labels(rig: &mut Rig) -> Vec<String> {
+    rig.shell()
+        .snapshot()
+        .settings
+        .rows
+        .iter()
+        .map(|r| r.label.clone())
+        .collect()
+}
+
+/// A game list run with an offer in the status file, the boot prompt kept
+/// and the notices dismissed, on the System panel.
+fn offered(rig: &mut Rig) {
+    storage_status(rig, OFFER);
+    rig.boot(None);
+    rig.frames(2);
+    rig.keep();
+    dismiss_notices(rig);
+    open_system(rig);
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn an_offer_shows_the_format_row_and_its_notice_says_where() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "an_offer_shows_the_format_row_and_its_notice_says_where",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            storage_status(&rig, OFFER);
+            rig.boot(None);
+            let notices: Vec<String> = rig
+                .shell()
+                .snapshot()
+                .notices
+                .iter()
+                .map(|n| n.text.clone())
+                .collect();
+            assert!(
+                notices
+                    .iter()
+                    .any(|n| n.ends_with("Settings > System can format it.")),
+                "{notices:?}"
+            );
+            rig.frames(2);
+            rig.keep();
+            dismiss_notices(&mut rig);
+            open_system(&mut rig);
+            assert_eq!(
+                labels(&mut rig),
+                [REBOOT_LABEL, SHUT_DOWN_LABEL, FORMAT_SHARE_LABEL]
+            );
+            rig.focus(FORMAT_SHARE_LABEL);
+            rig.tap(&[Control::A]);
+            assert_eq!(rig.screen(), "confirm-action");
+            assert_eq!(rig.focused().as_deref(), Some("Cancel"));
+            let tree = rig.tree();
+            let texts: Vec<&str> = tree.rows.iter().map(|r| r.label.as_str()).collect();
+            assert!(texts.contains(&"Format the share partition?"), "{texts:?}");
+            rig.tap(&[Control::B]);
+            rig.finish();
+        },
+    );
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn with_no_offer_the_format_row_is_absent() {
+    in_child(
+        &test_name(module_path!(), "with_no_offer_the_format_row_is_absent"),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            // A share in RAM for a reason that a format cannot fix.
+            storage_status(
+                &rig,
+                "state = \"partition\"\nshare = \"ram\"\nshare_reason = \"no room\"\n",
+            );
+            rig.boot(None);
+            rig.frames(2);
+            rig.keep();
+            dismiss_notices(&mut rig);
+            open_system(&mut rig);
+            assert_eq!(labels(&mut rig), [REBOOT_LABEL, SHUT_DOWN_LABEL]);
+            // A request that reaches the app anyway does nothing: the
+            // frames panic when the run ends.
+            rig.shell().request_share_format();
+            rig.frames(10);
+            rig.finish();
+            assert!(!rig.paths.share_format_request().exists());
+        },
+    );
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn confirm_format_writes_the_request_and_ends_with_the_reboot_code() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "confirm_format_writes_the_request_and_ends_with_the_reboot_code",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            offered(&mut rig);
+            assert!(!rig.paths.share_format_request().exists());
+            let outcome = confirm(&mut rig, FORMAT_SHARE_LABEL);
+            assert_eq!(outcome, Outcome::Reboot);
+            assert_eq!(exit_code(&outcome), Some(REBOOT_EXIT_CODE));
+            assert_eq!(rig.screen(), "confirm-action/working");
+            let tree = rig.tree();
+            assert!(
+                tree.rows
+                    .iter()
+                    .any(|r| r.label == "Formatting at the next start..."),
+                "{tree:?}"
+            );
+            rig.finish();
+            assert_eq!(
+                std::fs::read_to_string(rig.paths.share_format_request()).expect("the request"),
+                REQUEST
+            );
+            assert!(!rig.paths.relaunch().exists());
+        },
+    );
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn cancel_of_the_format_writes_nothing() {
+    in_child(
+        &test_name(module_path!(), "cancel_of_the_format_writes_nothing"),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            offered(&mut rig);
+            rig.focus(FORMAT_SHARE_LABEL);
+            rig.tap(&[Control::A]);
+            assert_eq!(rig.screen(), "confirm-action");
+            // Accept on Cancel, the focus at the start.
+            rig.tap(&[Control::A]);
+            assert_eq!(rig.screen(), "system");
+            rig.tap(&[Control::A]);
+            rig.tap(&[Control::Right]);
+            rig.tap(&[Control::B]);
+            assert_eq!(rig.screen(), "system");
+            assert_eq!(rig.focused().as_deref(), Some(FORMAT_SHARE_LABEL));
+            rig.frames(10);
+            rig.finish();
+            assert!(!rig.paths.share_format_request().exists());
+        },
+    );
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn in_a_game_the_format_row_is_disabled() {
+    in_child(
+        &test_name(module_path!(), "in_a_game_the_format_row_is_disabled"),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            storage_status(&rig, OFFER);
+            let game = neptron::relaunch::GameRef {
+                system: "nes".to_owned(),
+                path: "nes/Test Game.nes".to_owned(),
+            };
+            rig.boot(Some(NextRun {
+                game: Some(game),
+                notice: None,
+            }));
+            rig.frames(30);
+            rig.tap(&[Control::Select, Control::Start]);
+            rig.frames(1);
+            // The notices of the start show over the quick menu; in a game
+            // the UI reads a press two frames after it.
+            for _ in 0..16 {
+                if rig.screen() != "notice" {
+                    break;
+                }
+                rig.tap(&[Control::A]);
+                rig.frames(3);
+            }
+            assert_eq!(rig.screen(), "quick-menu");
+            open_system(&mut rig);
+            let row = rig
+                .shell()
+                .snapshot()
+                .settings
+                .rows
+                .iter()
+                .find(|r| r.label == FORMAT_SHARE_LABEL)
+                .cloned()
+                .expect("the format row");
+            assert_eq!(row.unavailable.as_deref(), Some(POWER_IN_GAME));
+            rig.focus(FORMAT_SHARE_LABEL);
+            rig.tap(&[Control::A]);
+            assert_eq!(rig.screen(), "system", "a disabled row asks nothing");
+            rig.shell().request_share_format();
+            rig.frames(10);
+            assert!(rig.shell().in_game());
+            rig.finish();
+            assert!(!rig.paths.share_format_request().exists());
+        },
+    );
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn with_no_launcher_the_format_row_is_disabled() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "with_no_launcher_the_format_row_is_disabled",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            rig.power = false;
+            offered(&mut rig);
+            let rows = rig.shell().snapshot().settings.rows.clone();
+            let row = rows
+                .iter()
+                .find(|r| r.label == FORMAT_SHARE_LABEL)
+                .expect("the format row");
+            assert_eq!(row.unavailable.as_deref(), Some(POWER_NO_LAUNCHER));
+            rig.focus(FORMAT_SHARE_LABEL);
+            rig.tap(&[Control::A]);
+            assert_eq!(rig.screen(), "system");
+            rig.shell().request_share_format();
+            rig.frames(10);
+            rig.finish();
+            assert!(!rig.paths.share_format_request().exists());
         },
     );
 }
