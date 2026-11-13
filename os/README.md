@@ -1,6 +1,6 @@
 # os
 
-The Buildroot br2-external tree of NEPTRON. It defines the OS images: the x86\_64 PC image, which is the USB image for the i3-6100T and also the image that QEMU boots for the x86\_64 checks, and the aarch64 QEMU test image that tier T3 runs on a Mac. The Raspberry Pi image comes later and shares this tree.
+The Buildroot br2-external tree of NEPTRON. It defines the OS images: the x86\_64 PC image, which is the USB image for the i3-6100T and also the image that QEMU boots for the x86\_64 checks, the aarch64 QEMU test image that tier T3 runs on a Mac, and the 64-bit Raspberry Pi image for the Pi 3 B and 3 B+ (see "The Raspberry Pi image").
 
 ## Pinned versions
 
@@ -24,6 +24,8 @@ Buildroot 2026.08.1 is a bug-fix release of 2026.08. It is not in the repository
 | `configs/neptron_pc_x86_64_dev.fragment` | The development variant: SSH with one public key, the `control` feature |
 | `configs/neptron_pc_x86_64_no15khz.fragment` | The PC image without the 15 kHz patch set |
 | `configs/neptron_qemu_aarch64_defconfig` | The QEMU test image, `virt` machine, 64-bit Arm. Runs with the hypervisor on an Apple Silicon Mac |
+| `configs/neptron_rpi_arm64_defconfig`, `configs/neptron_rpi_arm64_dev.fragment` | The Raspberry Pi image, 64-bit, for the Pi 3 B and 3 B+, and its development variant |
+| `board/rpi` | The Pi board: kernel fragments, the kernel hash in `patches/`, `config.txt`, `cmdline.txt`, `genimage.cfg`, the post-build and post-image steps, the kernel checks, `LICENCES.txt`, and the development overlay |
 | `board/pc/*.config` | Kernel fragments of the PC image, one for each concern: `video`, `console`, `input`, `sound`, `storage`, `network` |
 | `board/pc/busybox.config` | BusyBox fragment of the PC image: no telnet server, no web server, no cron |
 | `board/pc/grub.cfg`, `genimage.cfg`, `post-build.sh`, `post-image.sh` | The boot configuration and the USB image |
@@ -181,6 +183,58 @@ The release image has none of this: no SSH server, no hot folder, no log file, n
 
 **Write the image to a USB stick.** macOS: `diskutil list`, then `diskutil unmountDisk /dev/diskN` and `sudo dd if=$HOME/.cache/neptron/buildroot/images/x86_64/neptron-x86_64.img of=/dev/rdiskN bs=4m`. Linux: `sudo dd if=.../neptron-x86_64.img of=/dev/sdX bs=4M conv=fsync status=progress`. Check the device name twice: `dd` overwrites the whole disk.
 
+## The Raspberry Pi image
+
+`docs/spec/raspberry-pi.md` is the spec. `cargo xtask os build --arch rpi-arm64` writes `~/.cache/neptron/buildroot/images/rpi-arm64/neptron-rpi-arm64.img`, one SD card image for the Pi 3 B and the Pi 3 B+. The owner's test board is a 3 B+. The image also holds the device tree of the Zero 2 W and its `[pi02]` lines in `config.txt`; the Zero 2 W is not tested and is not a target (no Ethernet, no analog audio). QEMU does not boot this image: its Pi machines have no `vc4` display. No result on a Pi is claimed here; see `docs/hardware-checklist.md`, "P04 first boot of the Raspberry Pi image on a Pi 3 B+".
+
+**What works, and what does not yet.** The image boots the frontend on an HDMI display through the panel path, as on the PC, with the network share, the cores, the state partition and the share partition. It shows no composite picture yet: composite needs the TV standard of the tasks P02 to P06. The composite connector `Composite-1` exists, but it reports no display, so `display.output = "auto"` does not take it, and with no HDMI display the frontend finds no output (exit code 69, and the launcher starts it again). The first composite picture comes with the image built after P06.
+
+**Kernel.** The Raspberry Pi fork of Linux, branch `rpi-6.18.y`, commit `ea17ae02ca28483e508b05c7c44190c01a1ef8eb` (2026-11-13, Linux 6.18.62), as a GitHub archive whose SHA-256 is in `board/rpi/patches/linux/linux.hash` (and `linux-headers`). The configuration is `bcm2711_defconfig` with 4K pages and the fragments of `board/rpi`: `system` (the watchdog), `video` (vc4 and v3d built in; no fbdev, no `CONFIG_FB`, no framebuffer console, no `simpledrm`, no DRM log client, no panic screen, no logo; no camera or tuner drivers), `console` (no `CONFIG_VT`; the serial port), `input` (the drivers of the PC image), `sound` (ALSA and ASoC built in, which vc4 needs; `snd_bcm2835` for the jack; USB audio), `storage` (SD host, EROFS with LZ4, ext4, exFAT, FAT, all built in; no initramfs) and `network` (the USB Ethernet chips of the Pi 3 B and 3 B+; the SMB server as on the PC; no Wi-Fi, no Bluetooth, no CAN). Other drivers of `bcm2711_defconfig` are modules, which `mdev` loads by their device ids. `board/rpi/check-kernel-config.sh` reads the final configuration in the post-build step and fails the build when a mode option is on, when the SMB server is not built in, or when vc4 or the watchdog is not built in. The device trees (`bcm2710-rpi-3-b`, `bcm2710-rpi-3-b-plus`, `bcm2710-rpi-zero-2-w`) and the overlays (`vc4-kms-v3d`, and `disable-bt` for the development variant) come from this kernel, not from the firmware tarball.
+
+**No kernel patch.** The 15 kHz patch set of the PC image does not reach the Pi kernel. The Pi defconfig sets no `BR2_LINUX_KERNEL_PATCH`, and its global patch directory is `board/rpi/patches`, which holds only the hash files. `board/rpi/check-kernel-patches.sh` fails the build when `BR2_LINUX_KERNEL_PATCH` is not empty, when a global patch directory other than `board/rpi/patches` is set (the PC uses `os/patches`), or when that directory holds a file other than the hash files. So the licence question of the patch set does not concern this image.
+
+**Firmware and boot.** The Buildroot package `rpi-firmware` at commit `063bcab6` gives `bootcode.bin`, `start.elf` and `fixup.dat` (the Pi 0 to 3 files). `config.txt` is the file of the spec, with the reason of each key in it: 64-bit mode, the kernel `Image`, no splash, no `video=` from the firmware (`disable_fw_kms_setup=1`), `dtoverlay=vc4-kms-v3d,composite`, `dtparam=audio=on`, `core_freq_fixed=1`, and `enable_tvout=1` for the Zero 2 W. The development variant appends `enable_uart=1` and `dtoverlay=disable-bt`: the PL011 UART goes to GPIO 14 and 15, Bluetooth is off, and the kernel log goes there (115200 baud, 3.3 V). `cmdline.txt` is `root=PARTUUID=<signature>-02 rootfstype=erofs ro rootwait quiet console=serial0,115200 panic=10`. The release image has no serial console: the firmware leaves the UART off.
+
+**Disk layout.** MBR partition table. The disk signatures are `4e505052` (release) and `4e505044` (development).
+
+| Partition | Filesystem | Start | Size | Contents |
+| --- | --- | --- | --- | --- |
+| 1 boot | FAT32, label `NEPTRONBOOT`, type `0x0c` | 4 MiB | 128 MiB | `bootcode.bin`, `start.elf`, `fixup.dat`, `config.txt`, `cmdline.txt`, `Image`, the three device trees, `overlays/`, `LICENCES.txt`, `legal/` |
+| 2 root | EROFS (LZ4HC), read-only | 132 MiB | 384 MiB | As on the PC |
+| 3 state | ext4, label `neptron-state` | 516 MiB | 256 MiB | As on the PC |
+| 4 share | exFAT, label `NEPTRON` | 772 MiB | The rest of the card, made at the first boot | As on the PC |
+
+Every partition starts on a 4 MiB boundary, the erase block of common SD cards. The storage script `S06neptron-storage` needs no change for the SD card: it finds the disk from the device of `/` and the partitions by their `partition` number in sysfs, never by a name it builds, and it reads partition 4 of `sfdisk --dump` with a pattern that matches `/dev/mmcblk0p4` as it matches `/dev/sda4`. The xtask test `the_storage_script_finds_mmcblk0p3_and_reads_mmcblk0p4` runs those two functions of the script on `mmcblk0` names. Not verified on a card: `sfdisk --append` and `addpart` on `/dev/mmcblk0`, and the time `mkfs.exfat` takes on an SD card.
+
+**Packages.** As on the PC, without LLVM: Mesa with the Gallium `vc4` driver (OpenGL ES 2 on the VideoCore IV) and softpipe, EGL and GBM; SDL3 with KMS/DRM and OpenGL ES; alsa-lib and `amixer`; libdrm; the three cores; the frontend, the launcher and `neptronctl`; `ksmbd-tools` and `mdnsd`; e2fsprogs, exfatprogs and util-linux. The init table, the mixer script and the BusyBox options are those of the PC image (`board/pc/rootfs-overlay`, `board/pc/busybox.config`); its QEMU script does nothing on a Pi. No Wi-Fi or Bluetooth firmware, and no test tool of the QEMU display.
+
+**Shut down and reboot.** The System panel works as on the PC: the frontend ends with exit code 81 (shut down) or 80 (reboot), the launcher (`--power`) runs BusyBox `poweroff` or `reboot`, and init runs the stop script, `rcK` and `umount -a -r`, so the state and share partitions unmount clean. A Pi has no ACPI and no power switch. On a power-off, the watchdog driver (`CONFIG_BCM2835_WDT`, which the kernel check requires) tells the firmware to halt: the picture goes off, the green ACT LED stops, the red power LED stays on, and the board still draws a little power. Only a power cycle (unplug the supply and plug it in again) starts it again. A reboot resets the board through the same watchdog.
+
+**Variants.**
+
+| Command | Output volume and images | What differs |
+| --- | --- | --- |
+| `cargo xtask os build --arch rpi-arm64` | `rpi-arm64` | The release image |
+| `cargo xtask os build --arch rpi-arm64 --dev-key ~/.ssh/bench.pub` | `rpi-arm64-dev` | Dropbear with the one key, the hot folder, the log, the `control` feature (the development overlay of the PC image, and `board/rpi/dev-overlay` on top), and the serial console |
+
+The release post-build step fails when the image holds a file of either development overlay or an SSH server. The bench commands work with a Pi as with the PC: `cargo xtask os ssh --host A.B.C.D -- uptime`, `cargo xtask os logs --host A.B.C.D`, and `cargo xtask os push --arch rpi-arm64 --host A.B.C.D`. The push builds the frontend, the launcher and `neptronctl` with the Buildroot toolchain and the sysroot of the `rpi-arm64-dev` output (`--output NAME` names another one), in its own cross volume `neptron-cross-rpi-arm64-dev`, so it links against the glibc of the image on the card and never against the glibc of the QEMU aarch64 output. Build the development image once before the first push.
+
+**Write the image to an SD card from macOS.**
+
+1. Insert the card, then run `diskutil list`. Find the card by its size and its "external, physical" label, for example `/dev/disk4`.
+2. Check the device name twice. `dd` overwrites the whole device, and a wrong number destroys another disk.
+3. `diskutil unmountDisk /dev/disk4`
+4. `sudo dd if=$HOME/.cache/neptron/buildroot/images/rpi-arm64/neptron-rpi-arm64.img of=/dev/rdisk4 bs=4m`
+5. `sync`, then `diskutil eject /dev/disk4`.
+
+Use `rdisk4` (the raw device), not `disk4`: it is many times faster. For the development image, use `images/rpi-arm64-dev/neptron-rpi-arm64.img`. On Linux: `sudo dd if=.../neptron-rpi-arm64.img of=/dev/mmcblkN bs=4M conv=fsync status=progress`.
+
+**First boot.** Put the card in the Pi, connect an HDMI display, a USB gamepad and Ethernet, then the power supply (2.5 A). The firmware loads the kernel; the storage script makes partition 4 from the free space of the card, formats it exFAT and mounts it at `/share`; the frontend shows the boot prompt on the HDMI display, and with no press it reverts after 10 s and shows the notice. Copy games to `roms/<system>` over the network share (`\\NEPTRON\share`) or with the card in another computer. The development variant prints the address of `eth0` on the serial console and writes it to `neptron-ip.txt` on the share.
+
+**What was verified** (on an Apple Silicon Mac, 2026-11-13, build only): the first build of the release image in an empty output took 5,549 s (1 h 32 min, 4 jobs: the toolchain, the host tools, the kernel with its modules, Mesa without LLVM, the Rust programs). Buildroot checked the kernel archive against its hash. The kernel check and the patch check passed in the post-build step; the final kernel configuration has `CONFIG_VT`, `CONFIG_FB` and `CONFIG_DRM_PANIC` off and vc4, v3d, `snd_bcm2835`, the watchdog, EROFS, exFAT and the SMB server built in. The kernel is `6.18.62-v8`; `Image` is 27,982,336 bytes; `rootfs.erofs` is 41,893,888 bytes (the target folder is 82 MB, of which 17 MB are kernel modules). The SD card image is 809,500,672 bytes (772 MiB), 48 MB with gzip. `sfdisk --dump` of the image shows the signature `4e505052` and the three partitions at sectors 8192, 270336 and 1056768; the boot partition is FAT32 and holds the files of the table above; the overlay `vc4-kms-v3d.dtbo` has the `composite` fragment, and the device trees have their symbols for the overlays. The development variant then took 3,608 s in its own empty output, with the compiler cache of the first build; its `config.txt` ends with `enable_uart=1` and `dtoverlay=disable-bt`, `overlays/` holds `disable-bt.dtbo` too, its root PARTUUID is `4e505044-02`, and the image holds Dropbear, the key and the development launch script. The two outputs take 18.4 GB each on the Docker disk. Not verified: any boot, on a Pi or in QEMU.
+
+**Licences.** `board/rpi/LICENCES.txt` goes on the boot partition and into `/usr/share/licenses`. The firmware files are not open source: `LICENCE.broadcom` allows redistribution in binary form, without modification, only for use with a Raspberry Pi, with its copyright notice and disclaimer. Buildroot labels the package `BSD-3-Clause`, which is wrong for these terms; `LICENCES.txt` says so, gives the terms, and reproduces the notice and the disclaimer, and `legal/LICENCE.broadcom` holds the file. The image may be distributed free of charge, unchanged, for use on a Pi, with `LICENCES.txt`, `legal/` and the `legal-info` sources. It may not be sold (the non-commercial cores, OP-054).
+
 ## The aarch64 test image
 
 - BusyBox init, with `mdev` for device nodes. There is no udev daemon and no systemd.
@@ -202,6 +256,7 @@ All commands go through `xtask`.
 ```text
 cargo xtask os build --arch aarch64              build the aarch64 test image
 cargo xtask os build --arch x86_64               build the PC image (see "Variants" for the others)
+cargo xtask os build --arch rpi-arm64            build the Raspberry Pi image
 cargo xtask os build --arch aarch64 -- linux-reconfigure
                                                  rebuild the kernel after a change to its fragment
 cargo xtask os build -- neptron-vkms-probe-rebuild
@@ -310,8 +365,8 @@ Nothing large is in the repository.
 | --- | --- |
 | Downloads | Docker volume `neptron-br-dl` |
 | Compiler cache | Docker volume `neptron-br-ccache` |
-| Buildroot output | Docker volume `neptron-br-out-<variant>`: `aarch64`, `x86_64`, `x86_64-dev`, `x86_64-no15khz`, `x86_64-dev-no15khz` |
-| Cargo registry and target directory of the guest builds | Docker volume `neptron-cross-<arch>` |
+| Buildroot output | Docker volume `neptron-br-out-<variant>`: `aarch64`, `x86_64`, `x86_64-dev`, `x86_64-no15khz`, `x86_64-dev-no15khz`, `rpi-arm64`, `rpi-arm64-dev` |
+| Cargo registry and target directory of the guest builds | Docker volume `neptron-cross-<output>`: `aarch64`, `x86_64`, and `rpi-arm64-dev` for `os push` to a Pi |
 | Images | `~/.cache/neptron/buildroot/images/<variant>` (`NEPTRON_CACHE_DIR` moves `~/.cache/neptron`) |
 
 The downloads, the compiler cache and the output are Docker volumes because Buildroot needs a case-sensitive filesystem and the macOS default is not. All worktrees share them. `NEPTRON_OS_IMAGES` or `--images` boots an images directory from somewhere else, for example the base image that CI publishes.
