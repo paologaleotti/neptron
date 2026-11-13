@@ -6,6 +6,7 @@ use neptron::power::{POWER_OFF_EXIT_CODE, PowerRequest, REBOOT_EXIT_CODE, exit_c
 use neptron::{NextRun, Outcome};
 use neptron_settings::{AUDIO_VOLUME, Level, Value};
 use neptron_types::Control;
+use neptron_video::{Phase, SAFE_MODE_FAILED_BOOTS, SafeReason};
 
 use crate::rig::{Rig, in_child, test_name};
 
@@ -210,6 +211,56 @@ fn with_no_launcher_both_rows_are_disabled() {
                 rig.shell().request_power(request);
                 rig.frames(10);
             }
+            rig.finish();
+        },
+    );
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn quick_reboots_in_a_row_do_not_give_safe_mode() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "quick_reboots_in_a_row_do_not_give_safe_mode",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            // A reboot before the good boot (10 s of picture) would count
+            // as a failed boot without its own rule.
+            for boot in 0..=SAFE_MODE_FAILED_BOOTS {
+                rig.boot(None);
+                rig.frames(2);
+                assert!(
+                    !matches!(
+                        rig.shell().guard().phase(),
+                        Phase::Safe(SafeReason::FailedBoots)
+                    ),
+                    "boot {boot}: {:?}",
+                    rig.shell().guard().phase()
+                );
+                // The first boot keeps its picture, which makes it good;
+                // the later ones show it with no prompt and reboot at once.
+                if boot == 0 {
+                    rig.keep();
+                }
+                open_system(&mut rig);
+                assert_eq!(rig.shell().guard().boot_good(), boot == 0);
+                assert_eq!(confirm(&mut rig, REBOOT_LABEL), Outcome::Reboot);
+                rig.finish();
+                assert!(
+                    rig.state_file("video/guard.toml")
+                        .contains("failed_boots = 0"),
+                    "boot {boot}: {}",
+                    rig.state_file("video/guard.toml")
+                );
+            }
+            rig.boot(None);
+            assert!(
+                !matches!(rig.shell().guard().phase(), Phase::Safe(_)),
+                "{:?}",
+                rig.shell().guard().phase()
+            );
             rig.finish();
         },
     );

@@ -12,6 +12,7 @@ use neptron_video::{ConfirmError, DisplayConfig};
 
 use super::{Outcome, PendingChange, Shell, Stage};
 use crate::library::{ScanKind, ScanStart};
+use crate::outbox::Job;
 use crate::pages::{self, Names};
 use crate::power::{self, PowerRequest};
 use crate::relaunch::NextRun;
@@ -143,7 +144,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// Ends the run for a reboot or a power-off, as a quit: the caller
     /// writes the settings and joins the threads, and the launcher asks
     /// init. Ignored when [`power::takes_request`] says no: during a game,
-    /// with no power control, and after the run has an outcome.
+    /// with no power control, and after the run has an outcome. Before the
+    /// boot is good, the guard record gets back the failed boot that this
+    /// start counted.
     ///
     /// The rows of the System panel call it through their intents. It is
     /// public for the tier 2 tests.
@@ -155,6 +158,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         let outcome = request.outcome();
         self.log(format!("{outcome:?} from the System panel"));
         self.outcome = Some(outcome);
+        // The guard counts this start as failed until the boot is good. A
+        // reboot or a power-off that the player asks for is no failed boot,
+        // so the record gets that count back, as for a planned relaunch.
+        if !self.guard.boot_good() {
+            self.outbox.send(Job::Record {
+                record: crate::record::for_continued_boot(self.guard.record().clone()),
+                place: self.record_place.clone(),
+            });
+        }
     }
 
     /// Ends the game and the run, with a relaunch to the game list.
