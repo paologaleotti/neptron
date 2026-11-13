@@ -95,6 +95,10 @@ stateDiagram-v2
     Restart --> Running : backoff wait ends
     Restart --> Stopped : stop flag set after the wait
     Running --> Stopped : Quit, exit 0
+    Running --> Power : Reboot exit 80 or PowerOff exit 81
+    Power --> Stopped : with --power, the command ran and the stop signal of init came
+    Power --> Failed : the command failed, or no stop in 30 s
+    Power --> Stopped : no --power
     Running --> Term : SIGTERM or SIGINT to the launcher
     Term --> Stopped : frontend ends
     Term --> Kill : 5 s after the SIGTERM
@@ -110,6 +114,8 @@ BusyBox init starts the launch script again each time the launcher ends (the `re
 
 ```mermaid
 flowchart TD
+    SP["System panel: Shut down or Reboot<br/>frontend exits 81 or 80"] --> LP["launcher --power runs<br/>/sbin/poweroff or /sbin/reboot"]
+    LP --> T
     T["poweroff or reboot<br/>BusyBox init shutdown"] --> ST["stop script<br/>touch /run/neptron/hold"]
     ST -->|"launcher runs"| TERM["SIGTERM to neptron-launch"]
     ST -->|"no launcher"| RCK
@@ -145,6 +151,7 @@ Which mode stays on the wire until the first commit depends on the driver. The h
 | --- | --- |
 | `OpenDevice` | Nothing new on the screen. |
 | `Running` | The frontend's picture. |
+| `Power` | No frontend runs. The launcher keeps the device open, so the last validated mode of the menus stays on the wire until init stops the launcher. Then the device closes as in `Stopped`, and the machine turns off or starts again. |
 | `Restart` (the backoff wait) | No frontend runs. The launcher keeps the device open, so the last mode stays on the wire (see `Device` in `device.rs`). The wait is 250 ms to 8 s. |
 | `Term` | The frontend ends its frame loop as a quit. |
 | `Kill` | The frontend is stopped by force. A save RAM write in progress does not finish. |
@@ -211,6 +218,10 @@ The disk signature is fixed for each build variant: `4e505452` (release), `4e505
 | `Term` | `Kill` | The frontend is still there 5 s after the SIGTERM | `STOP_WAIT_NS` = 5 s | SIGKILL first, then the line `neptron-launch: the frontend did not end 5000 ms after SIGTERM; SIGKILL` |
 | `Restart` | `Stopped` | A stop signal came during the wait | | The wait looks at the stop flag every 20 ms (`CHILD_POLL`) and ends at once; the launcher exits |
 | `Running` | `Failed` | The frontend program cannot start (spawn or wait fails) | | Launcher exit 1. Line: `neptron-launch: cannot run the frontend after <n> runs: <error>` |
+| `Running` | `Power` | Frontend exit code 80 or 81, and no stop signal during the run | `REBOOT_EXIT_CODE` = 80, `POWER_OFF_EXIT_CODE` = 81 | No new run, no wait, no crash counted. With `--power`: line `neptron-launch: the frontend asks for a reboot; /sbin/reboot` (or `a power-off; /sbin/poweroff`), and the command runs once. BusyBox without `-f` only signals init (SIGTERM for reboot, SIGUSR2 for poweroff) |
+| `Power` | `Stopped` | With `--power`: the command exited 0 and SIGTERM came (from the stop script) | `POWER_STOP_WAIT_NS` = 30 s | Launcher exit 0. Line: `neptron-launch: init stops the launcher for a reboot` |
+| `Power` | `Failed` | With `--power`: the command did not start, exited non-zero, or no SIGTERM came within 30 s | `POWER_STOP_WAIT_NS` = 30 s | The machine still runs. Launcher exit 1. Line: `neptron-launch: <error>; exit 1, init starts the launcher again`. Init starts the launch script again and the menus come back |
+| `Power` | `Stopped` | No `--power` | | Launcher exit 0, nothing runs. Line: `neptron-launch: the frontend asks for a power-off, and the launcher has no --power; it stops` |
 
 Exit codes of the frontend, as the launcher sees them:
 
@@ -218,25 +229,27 @@ Exit codes of the frontend, as the launcher sees them:
 | --- | --- | --- |
 | 0 | SIGTERM or SIGINT (`Outcome::Quit`) | Stops |
 | 75 | A planned relaunch: into a game, back to the list, a game that did not start | Starts it at once |
+| 80 | `Settings > System > Reboot`, confirmed (`Outcome::Reboot`) | With `--power`: `/sbin/reboot`, no new run |
+| 81 | `Settings > System > Shut down`, confirmed (`Outcome::PowerOff`) | With `--power`: `/sbin/poweroff`, no new run |
 | 69 | No connected display after the wait of up to 15 s (`neptron: no connected display after <ms> ms`, then `neptron: cannot open the display: no connected display found; ...`) | Restart after 1 s, no backoff |
 | 1 | The display does not open for another reason (`neptron: cannot open the display: ...`), the boot fails (`neptron: the frontend cannot start: ...`), the relaunch file cannot be written, the build has no backend | Crash, backoff |
 | 2 | A wrong command line | Crash, backoff |
 | 101 or a signal | A panic or a kill | Crash, backoff |
 
-Exit codes of the launcher: 0 after a quit or a stop, 1 after a device error or a start failure, 2 for a wrong command line. Init starts the launch script again in every case.
+Exit codes of the launcher: 0 after a quit or a stop, 1 after a device error, a start failure or a failed power request, 2 for a wrong command line (also `--power` with `--no-device`). Init starts the launch script again in every case.
 
 ### Shutdown
 
 | Step | Exact condition | Constant = value | What happens |
 | --- | --- | --- | --- |
 | 1. `stop` script | First `::shutdown:` entry of `inittab` | `STOP_WAIT_DS` = 80 (8 s, in 100 ms steps) | Creates `/run/neptron/hold` so no new launcher starts. Sends SIGTERM to `neptron-launch`. Waits until neither `neptron-launch` nor `neptron` runs, at most 8 s (3 s more than `STOP_WAIT_NS`). Line: `neptron-stop: the launcher and the frontend stopped in <s> s` or `neptron-stop: the launcher or the frontend still runs after 8 s; init stops them` |
-| 2. `rcK` | After step 1 | | The init.d scripts with `stop`. The NEPTRON scripts do nothing on `stop` |
-| 3. `umount -a -r` | After step 2 | | Unmounts every filesystem, or remounts it read-only |
-| 4. init | After the shutdown entries | | SIGTERM, then SIGKILL to every process, then power off or reboot |
+| 2. `rcK` | After step 1 | | The init.d scripts with `stop`, in reverse order. `S45neptron-share` stops the SMB server and `mdnsd` and syncs, so no file is open on the share partition. The other NEPTRON scripts do nothing on `stop` |
+| 3. `umount -a -r` | After step 2 | | Unmounts every filesystem, or remounts it read-only. The ext4 state partition and the exFAT share partition are clean after it |
+| 4. init | After the shutdown entries | | SIGTERM, then SIGKILL to every process, then power off or reboot. The PC turns off through ACPI (`CONFIG_ACPI`, required by `check-kernel-config.sh`); the aarch64 QEMU image through PSCI (`CONFIG_ARM_PSCI_FW` of the Buildroot QEMU kernel configuration) |
 
 The frontend's quit writes the game's save RAM (`Session::quit`) and the writer backlog (`Outbox::finish`) before exit 0. Steps 1 to 3 run before the file systems become read-only, so these writes reach the disk.
 
-Nothing in the release image starts a shutdown: no code calls `poweroff` or `reboot`, there is no handler for the power button and no shell. On the release image, turning the machine off is a power cut. On the development image, `poweroff` or `reboot` over SSH runs this order.
+`Settings > System` starts this order on both images: the frontend ends its run in the game list (the rows are disabled in a game, so a game's save RAM is always written by the game's own quit first), writes its backlog and exits 80 or 81; the launcher, started with `--power` by both launch scripts, runs BusyBox `reboot` or `poweroff`, which only signal init. The launcher does not call the system call and does not run the stop script itself: init runs it as step 1 and stops the launcher with it. On the development image, `poweroff` or `reboot` over SSH runs the same order. The power button of a PC has no handler: pressing it is still a power cut, unless the firmware turns it into an ACPI event that nothing reads.
 
 ## What can go wrong
 
@@ -270,6 +283,7 @@ Nothing in the release image starts a shutdown: no code calls `poweroff` or `reb
 - [backoff.rs](../../apps/neptron-launch/src/backoff.rs): `Exit::of_code`, `Backoff::after`, `Backoff::relaunch_fits`.
 - [supervise.rs](../../apps/neptron-launch/src/supervise.rs): `supervise`.
 - [stopping.rs](../../apps/neptron-launch/src/stopping.rs): `Stopping::next`.
+- [power.rs](../../apps/neptron-launch/src/power.rs): `request`, `run_command`, `POWER_STOP_WAIT_NS`, `REBOOT_COMMAND`, `POWER_OFF_COMMAND`; `carry_out` in `main.rs`.
 - [device.rs](../../apps/neptron-launch/src/device.rs): `Device::open`, `inheritable`.
 - [main.rs of the frontend](../../apps/neptron/src/main.rs): `main`, `end`, `relaunch`, `run_booted`.
 - [stop.rs](../../apps/neptron/src/stop.rs): `stop_flag`.

@@ -14,7 +14,10 @@ One run of the frontend is one process. A run shows the menus, or it runs one ga
 flowchart TD
     Home["Home<br/>systems, Favourites,<br/>Recent games, Settings"]
     List["Game list"]
-    Set["Settings page<br/>Display, Audio, Library"]
+    Set["Settings page<br/>Display, Audio, Library, System"]
+    Sys["System panel<br/>Reboot, Shut down"]
+    Ask["Confirm question<br/>focus on Cancel"]
+    Power["Run ends: exit 80 or 81<br/>launcher asks init"]
     Disp["Display panel"]
     Aud["Audio panel"]
     Opt["Option list"]
@@ -29,6 +32,11 @@ flowchart TD
     Home -->|"Accept on Settings"| Set
     Set -->|"Accept on Display"| Disp
     Set -->|"Accept on Audio"| Aud
+    Set -->|"Accept on System"| Sys
+    Sys -->|"Accept on Reboot or Shut down<br/>game list run only"| Ask
+    Ask -->|"Accept on Cancel, or Back"| Sys
+    Ask -->|"Right, then Accept"| Power
+    Sys -->|"Back"| Set
     Set -->|"Back"| Home
     List -->|"Back"| Home
     List -->|"Accept on a game"| Relaunch
@@ -135,8 +143,10 @@ The screen id is the id in the widget tree (`out.tree.set_screen`).
 | --- | --- | --- | --- |
 | Home | `home` | Title `NEPTRON`. A box with one row per system that has games (name, then `1 game` or `N games`), then `Favourites`, `Recent games`, `Settings`, each with an arrow. Hint `Accept: open`. | [home.ppm](../../crates/neptron-ui/tests/golden/screens/home.ppm) |
 | Home with no games | `home` | The text `No games yet.` and where to copy games (`roms/nes   roms/snes   roms/megadrive`, plain files and `.zip` files), then one row `Settings` at the bottom, with its arrow. The tier 3 boot golden shows this screen under a notice. | [home-empty.ppm](../../crates/neptron-ui/tests/golden/screens/home-empty.ppm) |
-| Settings page | `settings` | Title `Settings` (the breadcrumb). One row per panel of `SETTINGS_PANELS`: `Display`, `Audio`, `Library`. Hints `Accept: open`, `Back: return`. | [settings.ppm](../../crates/neptron-ui/tests/golden/screens/settings.ppm) |
+| Settings page | `settings` | Title `Settings` (the breadcrumb). One row per panel of `SETTINGS_PANELS`: `Display`, `Audio`, `Library`, `System`. Hints `Accept: open`, `Back: return`. | [settings.ppm](../../crates/neptron-ui/tests/golden/screens/settings.ppm) |
 | Library panel | `library` | Title `Settings > Library`. One action row, `Rescan games` (see the transitions). | [library-scanning.ppm](../../crates/neptron-ui/tests/golden/screens/library-scanning.ppm) |
+| System panel | `system` | Title `Settings > System`. Two action rows, `Reboot` and `Shut down`, with no arrow. In a game both are disabled with the reason `Not during a game`; in a run with no launcher that has power control, with `Needs the launcher`. Hints `Accept: choose`, `Back: return`. | [system.ppm](../../crates/neptron-ui/tests/golden/screens/system.ppm) |
+| Confirm question | `confirm-action` | A dialog over the System panel. Title `Reboot NEPTRON?` or `Shut down NEPTRON?`. Message `Settings and saves are written first. Then the machine starts again.` or `... Then the machine turns off.`. Buttons `Cancel` (focus) and the label of the row. Hints `Accept: choose`, `Back: cancel`. | [system-shutdown-confirm.ppm](../../crates/neptron-ui/tests/golden/screens/system-shutdown-confirm.ppm) |
 | Audio panel | `audio` | Title `Settings > Audio`. The rows of the audio page. Hints of the focused row, `Back: return`. | [audio.ppm](../../crates/neptron-ui/tests/golden/screens/audio.ppm) |
 | Game list | `games` | Title: the system name, `Favourites` or `Recent games` (`Games` if the system is not found). Right of the title: `N/total`. A list of titles, `*` after a favourite, `...` for a row not loaded yet. Under the list, the focused title in full on two lines. Hints `Accept: play` (only when the list has a game) and `Back: systems` (a system list) or `Back: home` (Favourites, Recent games). | [games-top.ppm](../../crates/neptron-ui/tests/golden/screens/games-top.ppm), [games-middle.ppm](../../crates/neptron-ui/tests/golden/screens/games-middle.ppm), [games-end.ppm](../../crates/neptron-ui/tests/golden/screens/games-end.ppm), [games-one.ppm](../../crates/neptron-ui/tests/golden/screens/games-one.ppm) |
 | Empty game list | `games` | A text that says why: `This system has no games now.` plus where to put them, `No favourites yet.` plus `Press Menu on a game in a game list to add it here.`, or `No games played yet.` | [games-empty.ppm](../../crates/neptron-ui/tests/golden/screens/games-empty.ppm) |
@@ -161,7 +171,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | any menu | same | A held direction repeats | `REPEAT_DELAY_NS` = 400 ms, then `REPEAT_INTERVAL_NS` = 66 ms | nothing |
 | Home | Game list | Accept on a system row, `Favourites` or `Recent games` | none | `LoadGames` asks for rows |
 | Home, also with no games | Settings page | Accept on `Settings` | none | nothing: the UI shows the page |
-| Settings page | Display, audio or Library panel | Accept on `Display`, `Audio` or `Library` | none | `LoadSettings` for `DISPLAY_PAGE`, `AUDIO_PAGE` or `LIBRARY_PAGE` |
+| Settings page | Display, audio, Library or System panel | Accept on `Display`, `Audio`, `Library` or `System` | none | `LoadSettings` for `DISPLAY_PAGE`, `AUDIO_PAGE`, `LIBRARY_PAGE` or `SYSTEM_PAGE` |
 | Settings page | Home or quick menu | Back | none | nothing |
 | Game list | Home | Back | none | nothing |
 | Game list | same | Scroll past the loaded rows | `WINDOW_ROWS` = 128, `PREFETCH_ROWS` = 32 | One `LoadGames` per frame, 128 rows centred on the visible rows, until the snapshot holds the visible rows plus 32 on each side |
@@ -170,6 +180,10 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Display panel | Option list | Accept on a choice row (Output, Monitor profile, Picture style, Refresh policy, Scanlines) | none | nothing until a choice |
 | Display panel | Grid pattern | Accept on `Grid pattern` | none | nothing |
 | Library panel | same | Accept on `Rescan games` (game list run only; disabled in a game with the reason `Not during a game`) | none | A full scan of `share/roms` starts on the scan thread. The row keeps its label and is disabled with the reason `Scanning...` until the scan ends. The lists stay usable with the old index. At the end, the index and the cache are replaced, a game list on show keeps its focused game (when it moved by at most `MOVED_GAME_MARGIN_ROWS` = 64 rows), and an Info notice says what changed. |
+| System panel | Confirm question | Accept on `Reboot` or `Shut down` (game list run with power control only) | none | nothing: the UI opens the dialog with the focus on `Cancel` |
+| Confirm question | System panel | Accept on `Cancel`, or Back | none | nothing. The focus stays on the row |
+| Confirm question | (process ends) | Right, then Accept on `Reboot` or `Shut down` | `REBOOT_EXIT_CODE` = 80, `POWER_OFF_EXIT_CODE` = 81 | `Intent::Action` of the row. The run ends as a quit: the writer thread writes the queued settings and the guard record, the threads are joined, no relaunch file is written, the display keeps the last validated mode (the launcher holds the descriptor). Exit 80 or 81. The launcher asks init for the reboot or the power-off: see [Power-on](01-power-on.md), "Shutdown" |
+| Confirm question | System panel | The row goes away or is disabled | none | The dialog closes and sends nothing |
 | Display panel | Settings page | Back | none | nothing |
 | Display panel | same | Left, Right on a number row | step 5 for `Scanline strength`, 1 for `Hold Start for menu` | `SetValue` at the global level (see the change flow) |
 | any settings page | same | Menu (X) on a row whose value comes from the page level | none | `ResetValue` at that level: the row inherits again |
@@ -332,9 +346,11 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 - [crates/neptron-ui/src/widgets/list.rs](../../crates/neptron-ui/src/widgets/list.rs): `List::handle`.
 - [crates/neptron-ui/src/screens/scenes.rs](../../crates/neptron-ui/src/screens/scenes.rs): the scenes of the golden pictures.
 - [crates/neptron-video/src/status.rs](../../crates/neptron-video/src/status.rs): `write_video_status`, `write_result`, `write_rung`, `ALERT_MARK`, `STATUS_COLUMN_CHARS`.
-- [apps/neptron/src/pages.rs](../../apps/neptron/src/pages.rs): `display_page`, `audio_page`, `quick_menu_page`, `video_page`, `row`, `names_of`, `short_label`, `DISPLAY_KEYS`, `QUICK_MENU_KEYS`, `VIDEO_KEYS`.
+- [apps/neptron/src/pages.rs](../../apps/neptron/src/pages.rs): `display_page`, `audio_page`, `quick_menu_page`, `video_page`, `system_page`, `row`, `names_of`, `short_label`, `DISPLAY_KEYS`, `QUICK_MENU_KEYS`, `VIDEO_KEYS`.
 - [apps/neptron/src/nav.rs](../../apps/neptron/src/nav.rs): `action_of`, `Navigator::update`, `Navigator::hold_back`, `REPEAT_DELAY_NS`, `REPEAT_INTERVAL_NS`.
-- [apps/neptron/src/shell/intents.rs](../../apps/neptron/src/shell/intents.rs): `intent`, `launch`, `end_game`, `keep`, `change_setting`, `propose`, `apply_live`.
+- [crates/neptron-ui/src/screens/page.rs](../../crates/neptron-ui/src/screens/page.rs): `Page::handle`, `Page::answer`, `asked_row`, the confirm question of an action row.
+- [apps/neptron/src/power.rs](../../apps/neptron/src/power.rs): `REBOOT_EXIT_CODE`, `POWER_OFF_EXIT_CODE`, `POWER_ENV`, `control_from`, `exit_code`.
+- [apps/neptron/src/shell/intents.rs](../../apps/neptron/src/shell/intents.rs): `intent`, `launch`, `end_for`, `end_game`, `keep`, `change_setting`, `propose`, `apply_live`.
 - [apps/neptron/src/shell/view.rs](../../apps/neptron/src/shell/view.rs): `refresh_view`, `refresh_mode`, `refresh_profile`, `load_page`, `style_options`, `notice`, `CONFIRM_TEXT`, `NOTICES_MAX`.
 - [apps/neptron/src/shell/guard_events.rs](../../apps/neptron/src/shell/guard_events.rs): `on_guard`, `offer_panel`, `recover`, `reverted_text`, `safe_text`, `write_setting`.
 - [apps/neptron/src/shell/frame.rs](../../apps/neptron/src/shell/frame.rs): `list_frame`, `game_frame`, `update_ui`, `notice_picture`.
