@@ -113,6 +113,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// Scans the games folder again, reading every folder, on the scan
     /// thread. The game list stays usable, and the rescan row says that a
     /// scan runs. Ignored during a game and while a scan runs.
+    ///
+    /// The `Rescan games` row calls it through its intent. It is public for
+    /// the tier 2 tests, and for a later `library rescan` command of the
+    /// control protocol.
     pub fn rescan_games(&mut self) {
         if !matches!(self.stage, Stage::List(_)) {
             return;
