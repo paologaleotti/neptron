@@ -3,7 +3,9 @@
 #
 # Every job of a pull request starts at once; no job waits for another.
 # Path filters apply to pull requests only: main and the nightly run do
-# everything, because main is the only source of the caches.
+# everything. main saves the caches that pull requests restore. A manual run
+# saves the caches of its own branch, which only later manual runs of that
+# branch can restore.
 
 name: CI
 
@@ -16,6 +18,11 @@ on:
     # Nightly, at a quiet hour for the shared runners.
     - cron: "23 2 * * *"
   workflow_dispatch:
+    inputs:
+      images:
+        description: Build the OS images and run tier 3
+        type: boolean
+        default: true
 
 # A new push to a pull request cancels its older run. Runs of main are never
 # cancelled: a cold image build takes hours.
@@ -73,7 +80,7 @@ jobs:
           retention-days: 14
           path: target/verify/report.json
       - name: Save the Cargo cache
-        if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+        if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -168,7 +175,7 @@ jobs:
             target/ui/golden
             target/tmp/goldens-actual
       - name: Save the Cargo cache
-        if: github.ref == 'refs/heads/main' && steps.run.outputs.go == 'true' && steps.cache.outputs.cache-hit != 'true'
+        if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && steps.run.outputs.go == 'true' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
