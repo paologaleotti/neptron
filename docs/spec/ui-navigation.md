@@ -19,7 +19,7 @@ Home with no games follows the same rule: the text that says where the games go,
 
 ## The Settings page
 
-`Settings` opens a page that lists the settings panels. The list is data: `screens::SETTINGS_PANELS`, a static table of `Panel { label, page }` in `neptron-ui`. Today it holds `Display` (`DISPLAY_PAGE`) and `Audio` (`AUDIO_PAGE`). A new panel is one line in that table and one page id; the app then answers `LoadSettings` for that page. A panel page other than the display page shows in the generic page screen (see "Pages"), so a new panel needs no new screen code.
+`Settings` opens a page that lists the settings panels. The list is data: `screens::SETTINGS_PANELS`, a static table of `Panel { label, page }` in `neptron-ui`. Today it holds `Display` (`DISPLAY_PAGE`), `Audio` (`AUDIO_PAGE`) and `Library` (`LIBRARY_PAGE`). A new panel is one line in that table and one page id; the app then answers `LoadSettings` for that page. A panel page other than the display page shows in the generic page screen (see "Pages"), so a new panel needs no new screen code.
 
 The Settings page writes nothing. Its panels write at the global level, also when the page opens from the quick menu.
 
@@ -104,7 +104,11 @@ A page that is not the display panel, the Settings page, the grid pattern or the
 
 The generic screen shows the video block above its rows for `VIDEO_PAGE` while a game runs with a video status, with the rule of today (at least 2 rows under it).
 
-Screen ids: `audio` for `AUDIO_PAGE`, `quick-menu/video` for `VIDEO_PAGE`, `page` for any other page.
+Screen ids: `audio` for `AUDIO_PAGE`, `library` for `LIBRARY_PAGE`, `quick-menu/video` for `VIDEO_PAGE`, `page` for any other page.
+
+### The Library panel
+
+`Settings > Library` holds the `Rescan games` action row of the app (no arrow). While a scan runs the row reads `Scanning games...` and is disabled with the reason `A scan runs`. In a game the panel is still listed, and the row is disabled with the reason `Not during a game`: one list of panels for the menus and the game is simpler than a list that changes. The row keys of the app are all different: the `Settings` row of the quick menu has its own key, and a test checks it.
 
 ## The quick menu
 
@@ -142,6 +146,7 @@ The quick menu hotkey does nothing while the menu is open, at any depth. The ses
 | `GRID_PAGE` | `PageId(RESERVED_ID_MIN + 4)` | The grid pattern, as the target of a `page` row |
 | `SETTINGS_PAGE` | `PageId(RESERVED_ID_MIN + 5)` | The Settings page, as the target of a `page` row. The app never loads it |
 | `VIDEO_PAGE` | `PageId(RESERVED_ID_MIN + 6)` | The video page of the quick menu |
+| `LIBRARY_PAGE` | `PageId(RESERVED_ID_MIN + 7)` | The Library panel: the rescan of the games folder |
 | `RESUME`, `QUIT_GAME` | unchanged | The actions of the quick menu |
 
 `OPEN_DISPLAY` and `GRID_PATTERN` go: `SettingValue::Page(DISPLAY_PAGE)` and `SettingValue::Page(GRID_PAGE)` replace them. `MAX_DEPTH` stays 8. The deepest stack is home, game list, game, quick menu, Settings, display panel, option list: 7 screens.
@@ -162,4 +167,4 @@ New scenes: `screens/settings` (the Settings page) and `screens/breadcrumb-long`
 ## Not in this task
 
 - The kind in the control protocol (`ui_tree` of `neptronctl`). It needs protocol version 2 and the request version in the handlers: a contract change with its own branch and ADR.
-- The `Network` and `Library` panels. Their tasks add a line to `SETTINGS_PANELS`, a page id and the page in the app.
+- The `Network` panel. Its task adds a line to `SETTINGS_PANELS`, a page id and the page in the app.

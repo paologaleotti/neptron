@@ -59,7 +59,7 @@ The UI has no clock and takes no time step. Key repeat comes from the app: while
 - The stack: home, then a game list, then the game. Over the game: the quick menu, from it the video page or the Settings page, then a panel, then options or the grid pattern. From home: the Settings page, then a panel, then options or the grid pattern. `MAX_DEPTH` is 8; the deepest path is 7 (home, game list, game, quick menu, Settings, display panel, options).
 - On top of every screen: the confirm dialog while the snapshot holds a pending confirmation (also over a running game), else the oldest notice that the player has not dismissed (not while a game runs alone: the canvas is opaque and would hide the game).
 
-The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `quick-menu/video`, `settings`, `display`, `audio`, `page` (any other page), `options`, `pattern/grid`, `confirm` and `notice`. The rows of the video block have the ids `video/game`, `video/mode` and `video/result` as their labels (see "The video block"). Under a dialog the tree holds the rows of the dialog only, and the hint band shows the hints of the dialog: "Accept: revert" and "Right, then Accept: keep" for the confirm dialog, "Accept: OK" for a notice, "Accept: choose" and "Back: cancel" for the prompt of the quick menu.
+The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `quick-menu/video`, `settings`, `display`, `audio`, `library`, `page` (any other page), `options`, `pattern/grid`, `confirm` and `notice`. The rows of the video block have the ids `video/game`, `video/mode` and `video/result` as their labels (see "The video block"). Under a dialog the tree holds the rows of the dialog only, and the hint band shows the hints of the dialog: "Accept: revert" and "Right, then Accept: keep" for the confirm dialog, "Accept: OK" for a notice, "Accept: choose" and "Back: cancel" for the prompt of the quick menu.
 
 ### Ids that the UI and the app share
 
@@ -71,12 +71,13 @@ The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-m
 | `GRID_PAGE` | `PageId(RESERVED_ID_MIN + 4)` | The grid test pattern, as the target of a `Page` row. The app never loads it |
 | `SETTINGS_PAGE` | `PageId(RESERVED_ID_MIN + 5)` | The Settings page, as the target of a `Page` row. The UI shows it from `SETTINGS_PANELS`; the app never loads it |
 | `VIDEO_PAGE` | `PageId(RESERVED_ID_MIN + 6)` | The video page of the quick menu: the video block and the display settings of the game. Written at the game level |
+| `LIBRARY_PAGE` | `PageId(RESERVED_ID_MIN + 7)` | The Library panel: the rescan row of the app |
 | `RESUME` | `ActionId(RESERVED_ID_MIN + 1)` | Close the quick menu: `Intent::Resume` |
 | `QUIT_GAME` | `ActionId(RESERVED_ID_MIN + 2)` | Stop the game: `Intent::QuitGame` |
 
 `RESERVED_ID_MIN` is `0xFFFF_0000`. The UI carries out the reserved actions itself and never sends them as `Intent::Action`. The app numbers its own pages and actions below it.
 
-`SETTINGS_PANELS` is the list of the Settings page: a static table of `Panel { label, page }`, `Display` then `Audio` today. A new panel is one entry and a page that the app answers for. Any page other than the display panel shows in the generic page screen (`PagePanel`), so a new panel needs no screen code.
+`SETTINGS_PANELS` is the list of the Settings page: a static table of `Panel { label, page }`, `Display`, `Audio` and `Library` today. A new panel is one entry and a page that the app answers for. Any page other than the display panel shows in the generic page screen (`PagePanel`), so a new panel needs no screen code.
 
 ### Home and the game list
 
