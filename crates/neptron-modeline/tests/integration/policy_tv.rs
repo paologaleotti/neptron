@@ -735,13 +735,25 @@ fn sweep_sources() -> Vec<SourceGeometry> {
 fn every_tv_proposal_is_a_table_mode_that_the_validator_accepts() {
     let settings = every_settings();
     let mut decisions = 0usize;
+    let mut defaults = (0usize, 0usize);
     for caps in [pi_composite(), open_caps()] {
         for standard in TvStandard::ALL {
             let profile: MonitorProfile = standard.profile();
             for (i, source) in sweep_sources().iter().enumerate() {
-                let s = &settings[i % settings.len()];
+                // The sources come in pairs, progressive then interlaced, so
+                // each pair shares its settings: both scans meet every
+                // setting, the default ones included.
+                let s = &settings[(i / 2) % settings.len()];
                 let plan = decide(source, s, &profile, &caps).unwrap();
                 decisions += 1;
+                if *s == PolicySettings::default() {
+                    let scans = if source.interlaced {
+                        &mut defaults.1
+                    } else {
+                        &mut defaults.0
+                    };
+                    *scans += 1;
+                }
                 let mut proposals = 0;
                 for (_, c, p) in plan.proposals() {
                     proposals += 1;
@@ -794,6 +806,10 @@ fn every_tv_proposal_is_a_table_mode_that_the_validator_accepts() {
         }
     }
     assert_eq!(decisions, 2 * 10 * sweep_sources().len());
+    assert!(
+        defaults.0 > 0 && defaults.0 == defaults.1,
+        "progressive and interlaced sources with the default settings: {defaults:?}"
+    );
 }
 
 /// Every setting on a few sources, so each combination of style, refresh
