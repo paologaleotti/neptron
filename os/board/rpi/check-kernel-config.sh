@@ -2,8 +2,9 @@
 # Checks the final configuration of the Raspberry Pi kernel. The kernel
 # must set no mode of its own (the CRT safety model, layer 8), the SMB
 # server of the network share must be built in, with no SMB1, no RDMA
-# transport and no Kerberos, and the watchdog driver must be built in: the
-# power-off and the reboot of a Pi go through it. The fragments set these
+# transport and no Kerberos, the watchdog driver must be built in (the
+# power-off and the reboot of a Pi go through it), and vc4 must be built
+# in with the I2C controller of the HDMI DDC bus. The fragments set these
 # options, but another option can select one again. Exits with 0 when all
 # hold, else with 1 and one line for each fault. A missing or unreadable
 # file is a fault.
@@ -19,7 +20,7 @@ DRM_PANIC DRM_EFIDRM DRM_VESADRM DRM_CLIENT_LOG"
 SHARE_OFF="SMB_INSECURE_SERVER SMB_SERVER_SMBDIRECT SMB_SERVER_KERBEROS5"
 SHARE_ON="SMB_SERVER"
 POWER_ON="BCM2835_WDT"
-DISPLAY_ON="DRM_VC4"
+DISPLAY_ON="DRM_VC4 I2C_BCM2835"
 
 br2_config=$1
 build_dir=$2

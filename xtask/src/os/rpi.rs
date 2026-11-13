@@ -233,6 +233,7 @@ fn each_kernel_fragment_holds_its_concern() {
         ("system.config", "CONFIG_BCM2835_WDT", "y"),
         ("video.config", "CONFIG_DRM_VC4", "y"),
         ("video.config", "CONFIG_DRM_V3D", "y"),
+        ("video.config", "CONFIG_I2C_BCM2835", "y"),
         ("video.config", "CONFIG_MEDIA_SUPPORT", "n"),
         ("console.config", "CONFIG_EXPERT", "y"),
         ("console.config", "CONFIG_VT", "n"),
@@ -296,6 +297,7 @@ fn each_kernel_fragment_holds_its_concern() {
         "both kernels refuse the same mode options"
     );
     assert!(pi_check.contains("POWER_ON=\"BCM2835_WDT\""));
+    assert!(pi_check.contains("DISPLAY_ON=\"DRM_VC4 I2C_BCM2835\""));
 }
 
 /// Runs the kernel check of the Pi on a fake output: a Buildroot config
@@ -324,7 +326,7 @@ fn check_kernel_config(name: &str, custom: bool, config: Option<&str>) -> Output
 #[test]
 fn the_kernel_check_refuses_a_mode_option_and_needs_the_watchdog() {
     let good = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_VC4=y\n\
-                CONFIG_SMB_SERVER=y\nCONFIG_BCM2835_WDT=y\n";
+                CONFIG_I2C_BCM2835=y\nCONFIG_SMB_SERVER=y\nCONFIG_BCM2835_WDT=y\n";
     let ok = check_kernel_config("ok", true, Some(good));
     assert!(ok.status.success(), "{ok:?}");
     let missing = check_kernel_config("missing", true, None);
@@ -363,6 +365,11 @@ fn the_kernel_check_refuses_a_mode_option_and_needs_the_watchdog() {
             "CONFIG_DRM_VC4 is not built in",
         ),
         (
+            "i2cmodule",
+            "CONFIG_I2C_BCM2835=m\n",
+            "CONFIG_I2C_BCM2835 is not built in",
+        ),
+        (
             "smbmodule",
             "CONFIG_SMB_SERVER=m\n",
             "CONFIG_SMB_SERVER is not built in",
@@ -377,7 +384,9 @@ fn the_kernel_check_refuses_a_mode_option_and_needs_the_watchdog() {
             .lines()
             .filter(|l| {
                 let option = text.split(['=', ' ']).find(|w| w.starts_with("CONFIG_"));
-                !option.is_some_and(|o| l.contains(o))
+                !option.is_some_and(|o| {
+                    l.starts_with(&format!("{o}=")) || l.starts_with(&format!("# {o} "))
+                })
             })
             .chain(text.lines())
             .collect::<Vec<_>>()
