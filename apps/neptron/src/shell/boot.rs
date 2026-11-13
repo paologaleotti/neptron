@@ -204,23 +204,20 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 None
             }
         };
-        let saved = step
-            .save
-            .take()
-            .map(|saved| record::save(&paths.guard_record(), &saved, record_place.as_ref()));
-        // A record in a RAM folder is lost at power-off, so the boot counts
-        // nothing that the next power-on sees: the same case as a failed
-        // write.
-        let unrecorded = match (saved, &storage) {
-            (Some(Err(e)), _) => Some(format!(
-                "Safe mode: the guard record cannot be written ({e}). This start uses the safe picture."
-            )),
-            (_, Some(status)) if status.state_in_ram() => Some(
-                "Safe mode: the guard record is in a RAM folder and is lost at power-off. This start uses the safe picture."
-                    .to_owned(),
-            ),
-            _ => None,
-        };
+        // A record in a RAM folder still counts the failed boots of this
+        // power cycle, so safe mode comes after crashes as on a partition,
+        // and a new power cycle has no last known good: its boot prompt
+        // reverts to the safe default. Only a write that fails is a boot
+        // that counts nothing.
+        let unrecorded = step.save.take().and_then(|saved| {
+            record::save(&paths.guard_record(), &saved, record_place.as_ref())
+                .err()
+                .map(|e| {
+                    format!(
+                        "Safe mode: the guard record cannot be written ({e}). This start uses the safe picture."
+                    )
+                })
+        });
         let library = match library {
             Some(library) => library,
             None => {

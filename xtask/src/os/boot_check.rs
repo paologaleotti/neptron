@@ -136,14 +136,42 @@ impl BootCheckArgs {
     }
 }
 
-/// The guest script: wait for the game list, then print the picture. The
+/// The guest script: check the storage of the disk, dismiss the notice of
+/// each RAM folder, wait for the game list, then print the picture. The
 /// capture tool gets the deadline less a margin, so it reports a missing
 /// screen itself before the guest deadline kills it. When it fails, the
 /// script asks the frontend what it shows, for the console log.
-pub fn guest_script(timeout_secs: u64) -> String {
+///
+/// The disks of the check have RAM folders, and the frontend shows a
+/// notice for each one before the notice of the golden picture. The check
+/// states what it expects ([`expected_storage`]): another storage, or a
+/// missing notice, fails it.
+pub fn guest_script(timeout_secs: u64, arch: Arch) -> String {
     let wait_ms = timeout_secs.saturating_sub(GUEST_MARGIN_SECS).max(1) * 1000;
+    let [state, share] = expected_storage(arch);
+    let mut steps = format!("storage state {state} && storage share {share} && ");
+    for (name, kind) in [("state", state), ("share", share)] {
+        if kind == "ram" {
+            steps.push_str(&format!("dismiss {name} && "));
+        }
+    }
     format!(
-        "neptron-capture --screen {GAME_LIST_SCREEN} --timeout-ms {wait_ms} \
+        "storage() {{\n\
+         \tgrep -qx \"$1 = \\\"$2\\\"\" /run/neptron/storage.toml && return 0\n\
+         \techo \"neptron-check: /$1 is not $2:\"; cat /run/neptron/storage.toml; return 1\n\
+         }}\n\
+         dismiss() {{\n\
+         \tneptronctl wait screen {GAME_LIST_SCREEN} --within-ms {wait_ms} > /dev/null || return 1\n\
+         \tneptronctl ui tree | grep -q \"The $1 partition is not in use\" || \
+         {{ echo \"neptron-check: no notice for /$1\"; return 1; }}\n\
+         \tneptronctl input send 0 a 1 > /dev/null && neptronctl input send 0 a 0 > /dev/null || return 1\n\
+         \tn=0\n\
+         \twhile neptronctl ui tree | grep -q \"The $1 partition is not in use\"; do\n\
+         \t\tn=$((n + 1)); [ \"$n\" -lt {DISMISS_POLLS} ] || \
+         {{ echo \"neptron-check: the notice for /$1 stays\"; return 1; }}\n\
+         \tdone\n\
+         }}\n\
+         {steps}neptron-capture --screen {GAME_LIST_SCREEN} --timeout-ms {wait_ms} \
          --settle-ms {SETTLE_MS} && exit 0\n\
          for command in 'ui tree' 'video state' 'session state' stats 'log tail 40'; do\n\
          \techo \"neptronctl $command:\"; neptronctl $command\n\
@@ -321,7 +349,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
     let _lock = MachineLock::take(&cache.qemu_lock(), "QEMU guest")?;
     let run_dir = repo.root.join("target").join("qemu");
     super::remove_stale_scripts(&run_dir);
-    let script = RunScript::write(&run_dir, &guest_script(args.timeout_secs))?;
+    let script = RunScript::write(&run_dir, &guest_script(args.timeout_secs, args.arch))?;
     let nonce = transcript::new_nonce();
     let plan = QemuPlan {
         arch: args.arch,
@@ -634,6 +662,23 @@ const DEFAULT_TIMEOUT_SECS: u64 = 900;
 const GUEST_MARGIN_SECS: u64 = 30;
 /// The library scan and the first frames settle before the capture.
 const SETTLE_MS: u64 = 3000;
+/// The calls of `neptronctl ui tree` the check makes, at most, until a
+/// dismissed notice is gone. The protocol answers between two frames, so
+/// this is at least as many frames: two seconds at 60 Hz.
+const DISMISS_POLLS: u32 = 120;
+
+/// What `S06neptron-storage` mounts at `/state` and `/share` in the guest
+/// of the check: `partition` or `ram`. The x86-64 disk image has a state
+/// partition and no free sector after it, so no share partition; the
+/// aarch64 test image boots its root file system alone, with no state or
+/// share partition. A real PC that shows such a RAM folder shows the same
+/// notice, which the player must see.
+pub fn expected_storage(arch: Arch) -> [&'static str; 2] {
+    match arch {
+        Arch::X86_64 => ["partition", "ram"],
+        Arch::Aarch64 => ["ram", "ram"],
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -687,16 +732,38 @@ mod tests {
 
     #[test]
     fn the_guest_script_waits_for_the_game_list_inside_the_deadline() {
-        let script = guest_script(900);
+        let script = guest_script(900, Arch::X86_64);
         assert!(
-            script.starts_with(
+            script.contains(
                 "neptron-capture --screen notice --timeout-ms 870000 --settle-ms 3000 && exit 0\n"
             ),
             "{script}"
         );
         assert!(script.contains("neptronctl $command"), "{script}");
         assert!(script.ends_with("exit 1\n"), "{script}");
-        assert!(guest_script(10).contains("--timeout-ms 1000 "));
+        assert!(guest_script(10, Arch::X86_64).contains("--timeout-ms 1000 "));
+    }
+
+    /// The check states the storage of its disk, and dismisses the notice
+    /// of each RAM folder before it waits for the picture of the golden.
+    #[test]
+    fn the_guest_script_states_the_storage_it_expects() {
+        let x86 = guest_script(900, Arch::X86_64);
+        let checks =
+            "storage state partition && storage share ram && dismiss share && neptron-capture";
+        assert!(x86.contains(checks), "{x86}");
+        assert!(!x86.contains("dismiss state"), "{x86}");
+        let arm = guest_script(900, Arch::Aarch64);
+        let checks = "storage state ram && storage share ram && dismiss state && dismiss share && neptron-capture";
+        assert!(arm.contains(checks), "{arm}");
+        for script in [&x86, &arm] {
+            assert!(script.contains("/run/neptron/storage.toml"), "{script}");
+            assert!(
+                script.contains("The $1 partition is not in use"),
+                "{script}"
+            );
+            assert!(script.contains("--within-ms 870000"), "{script}");
+        }
     }
 
     #[test]

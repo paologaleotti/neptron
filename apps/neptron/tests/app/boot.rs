@@ -96,7 +96,7 @@ fn a_missing_device_is_a_notice_and_the_run_goes_on() {
 }
 
 #[test]
-fn a_state_partition_in_ram_is_a_notice_and_the_safe_default() {
+fn a_state_partition_in_ram_is_a_notice_and_counts_its_boots_in_ram() {
     let dir = std::env::temp_dir().join(format!("neptron-app-storage-{}", std::process::id()));
     // A leftover of an earlier run with the same process id; absence is fine.
     let _ = std::fs::remove_dir_all(&dir);
@@ -109,10 +109,16 @@ fn a_state_partition_in_ram_is_a_notice_and_the_safe_default() {
     )
     .expect("the status");
     rig.boot(None);
+    // The record in the RAM folder counts the boots of this power cycle,
+    // so the guard boots as usual: the boot prompt, nothing kept.
     assert!(
-        matches!(rig.shell().guard().phase(), Phase::Safe(_)),
-        "an unrecorded boot: {:?}",
+        matches!(rig.shell().guard().phase(), Phase::Pending(_)),
+        "{:?}",
         rig.shell().guard().phase()
+    );
+    assert!(
+        rig.state_file("video/guard.toml")
+            .contains("failed_boots = 1")
     );
     let notices: Vec<String> = rig
         .shell()
