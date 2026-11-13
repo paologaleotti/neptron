@@ -86,7 +86,7 @@ pub fn run(
     let mut display = match KmsDisplay::from_env(config) {
         Ok(display) => display,
         Err(e) => {
-            eprintln!("neptron: cannot open the display: {e}");
+            crate::say!("neptron: cannot open the display: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -105,7 +105,7 @@ pub fn run(
     let audio = match Sdl3Sink::open() {
         Ok(sink) => MaybeSink::Device(sink),
         Err(e) => {
-            eprintln!("neptron: cannot open the audio, the run has no sound: {e}");
+            crate::say!("neptron: cannot open the audio, the run has no sound: {e}");
             notices.push(format!("No sound: the audio device did not open ({e})."));
             MaybeSink::Silent
         }
@@ -113,7 +113,7 @@ pub fn run(
     let pads = match neptron_input::SdlGamepads::open() {
         Ok(pads) => Some(pads),
         Err(e) => {
-            eprintln!("neptron: cannot open the gamepads, the run reads keyboards only: {e}");
+            crate::say!("neptron: cannot open the gamepads, the run reads keyboards only: {e}");
             notices.push(format!("No gamepads: they did not open ({e})."));
             None
         }

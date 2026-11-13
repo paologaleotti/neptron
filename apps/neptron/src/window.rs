@@ -41,7 +41,7 @@ pub fn run(
     let (display, pad) = match neptron_window::open("NEPTRON") {
         Ok(window) => window,
         Err(e) => {
-            eprintln!("neptron: cannot open the window: {e}");
+            crate::say!("neptron: cannot open the window: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -49,7 +49,7 @@ pub fn run(
     let audio = match Sdl3Sink::open() {
         Ok(sink) => MaybeSink::Device(sink),
         Err(e) => {
-            eprintln!("neptron: cannot open the audio, the run has no sound: {e}");
+            crate::say!("neptron: cannot open the audio, the run has no sound: {e}");
             notices.push(format!("No sound: the audio device did not open ({e})."));
             MaybeSink::Silent
         }

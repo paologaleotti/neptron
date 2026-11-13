@@ -20,7 +20,7 @@ fn main() -> ExitCode {
     ) {
         Ok(options) => options,
         Err(e) => {
-            eprintln!("neptron: {e}");
+            say!("neptron: {e}");
             return ExitCode::from(2);
         }
     };
@@ -29,7 +29,7 @@ fn main() -> ExitCode {
     let stop = match neptron::stop::stop_flag() {
         Ok(stop) => stop,
         Err(e) => {
-            eprintln!("neptron: cannot watch SIGTERM and SIGINT: {e}");
+            say!("neptron: cannot watch SIGTERM and SIGINT: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -54,7 +54,7 @@ fn main() -> ExitCode {
         Some(Backend::Window) => window::run(&options, take_next(&options.paths), stop, log),
         other => {
             drop((stop, log));
-            eprintln!(
+            say!(
                 "neptron: this build has no {} backend; build it with the feature `window` or `kms`",
                 match other {
                     Some(Backend::Kms) => "kms",
@@ -71,6 +71,18 @@ fn main() -> ExitCode {
     code
 }
 
+/// Writes a line to standard error. A failed write loses the line: the
+/// frontend must not panic or stop over its log, and `eprintln!` panics on
+/// a write error.
+macro_rules! say {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        // A line that cannot be written is lost; see above.
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
+use say;
+
 /// The backend of a run with no `--backend`: KMS on the device, the window
 /// on a desktop build.
 const DEFAULT_BACKEND: Option<Backend> = if cfg!(feature = "kms") {
@@ -86,7 +98,7 @@ const DEFAULT_BACKEND: Option<Backend> = if cfg!(feature = "kms") {
 #[cfg_attr(not(any(feature = "kms", feature = "window")), allow(dead_code))]
 fn take_next(paths: &Paths) -> Option<NextRun> {
     relaunch::take(&paths.relaunch())
-        .inspect_err(|e| eprintln!("neptron: {e}; this start is a new boot"))
+        .inspect_err(|e| say!("neptron: {e}; this start is a new boot"))
         .ok()
         .flatten()
 }
@@ -96,7 +108,7 @@ fn take_next(paths: &Paths) -> Option<NextRun> {
 #[cfg_attr(not(any(feature = "kms", feature = "window")), allow(dead_code))]
 fn end(paths: &Paths, outcome: Outcome, messages: Vec<String>) -> ExitCode {
     for message in messages {
-        eprintln!("neptron: {message}");
+        say!("neptron: {message}");
     }
     match outcome {
         Outcome::Quit => ExitCode::SUCCESS,
@@ -110,7 +122,7 @@ fn relaunch(paths: &Paths, next: &NextRun) -> ExitCode {
     match relaunch::write(&paths.relaunch(), next) {
         Ok(()) => ExitCode::from(RELAUNCH_EXIT_CODE),
         Err(e) => {
-            eprintln!("neptron: cannot write the relaunch file: {e}");
+            say!("neptron: cannot write the relaunch file: {e}");
             ExitCode::FAILURE
         }
     }
@@ -132,13 +144,13 @@ where
         Ok(Booted::Ready(shell)) => shell,
         Ok(Booted::Relaunch(next)) => return relaunch(&options.paths, &next),
         Err(e) => {
-            eprintln!("neptron: the frontend cannot start: {e}");
+            say!("neptron: the frontend cannot start: {e}");
             return ExitCode::FAILURE;
         }
     };
     let control = options.control.as_deref().and_then(|path| {
         neptron::control::ControlServer::start(path)
-            .inspect_err(|e| eprintln!("neptron: {e}; the run has no control socket"))
+            .inspect_err(|e| say!("neptron: {e}; the run has no control socket"))
             .ok()
     });
     let (server, mut port) = match control {
