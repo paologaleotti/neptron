@@ -16,8 +16,11 @@
 # While /run/neptron/hold exists the launcher does not start, so a bench
 # tool can take the display, or `os push` can replace the launcher.
 
-# NEPTRON_ROOT puts every path below another folder, for a test.
-root=${NEPTRON_ROOT:-}
+# The first argument puts every path below another folder, for a test.
+# Init runs the script with no argument. It is no environment variable:
+# init passes unknown kernel parameters into its environment, and the
+# root chooses the programs this script runs.
+root=${1:-}
 hot=$root/state/hot
 log_dir=$root/state/log/neptron
 run_dir=$root/run/neptron

@@ -286,8 +286,8 @@ mod tests {
             "a folder that cannot be made turns the cache off and stops nothing"
         );
         let launch = |rel: &str| std::fs::read_to_string(os_dir().join(rel)).unwrap();
-        // The development script puts its paths below NEPTRON_ROOT for a
-        // test; on the image that is empty.
+        // The development script puts its paths below its first argument
+        // for a test; init gives none.
         for (rel, line) in [
             (
                 "board/common/rootfs-overlay/usr/libexec/neptron/launch",
@@ -303,9 +303,11 @@ mod tests {
                 "{rel} does not source the Mesa cache script"
             );
         }
+        let dev = launch("board/pc/dev-overlay/usr/libexec/neptron/launch");
+        assert!(dev.contains("root=${1:-}\n"), "{dev}");
         assert!(
-            launch("board/pc/dev-overlay/usr/libexec/neptron/launch")
-                .contains("root=${NEPTRON_ROOT:-}\n")
+            !dev.contains("NEPTRON_ROOT"),
+            "no environment hook selects a program"
         );
     }
 
@@ -513,7 +515,7 @@ mod tests {
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
         let out = std::process::Command::new("sh")
             .arg(&launch)
-            .env("NEPTRON_ROOT", root)
+            .arg(root)
             .env("PATH", path)
             .output()
             .unwrap();
