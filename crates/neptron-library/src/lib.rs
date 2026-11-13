@@ -20,6 +20,6 @@ pub use folders::{FolderStamp, MTIME_TRUST_WINDOW_NS, Mtime, trusted};
 pub use index::{Game, Index, MAX_TEXT_BYTES, SystemGames, compare_names};
 pub use scan::{
     MAX_FOLDER_DEPTH, MAX_REPORTED_ENTRIES, ScanError, ScanOutcome, ScanProgress, ScanReport,
-    Unreadable, ensure_system_folders, scan,
+    Unreadable, ensure_system_folders, refresh, scan,
 };
 pub use worker::ScanWorker;

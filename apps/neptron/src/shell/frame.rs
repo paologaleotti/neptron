@@ -159,7 +159,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         match result {
             Ok(scanned) => {
                 let job = Job::Cache {
-                    index: Box::new(self.library.index().clone()),
+                    index: self.library.shared_index(),
                     full_scan: scanned.kind != ScanKind::Check,
                 };
                 self.outbox.send(job);

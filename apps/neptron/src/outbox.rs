@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::JoinHandle;
 
@@ -55,8 +56,8 @@ pub enum Job {
     },
     /// Write the library index cache.
     Cache {
-        /// The index.
-        index: Box<Index>,
+        /// The index, shared with the library, which never changes it.
+        index: Arc<Index>,
         /// The index comes from a scan that read every folder. After the
         /// cache, the writer then marks the run folder (see
         /// [`Places::scanned`]).
@@ -297,7 +298,7 @@ mod tests {
         let outbox = Outbox::start(places.clone()).expect("start");
         let mut outbox = outbox;
         outbox.send(Job::Cache {
-            index: Box::default(),
+            index: Arc::default(),
             full_scan: false,
         });
         assert!(outbox.finish().is_empty());
@@ -305,7 +306,7 @@ mod tests {
         assert!(!places.scanned.exists());
         let mut outbox = Outbox::start(places.clone()).expect("start");
         outbox.send(Job::Cache {
-            index: Box::default(),
+            index: Arc::default(),
             full_scan: true,
         });
         assert!(outbox.finish().is_empty());
@@ -320,7 +321,7 @@ mod tests {
         std::fs::write(&dir, b"a file where the folder must be").expect("file");
         let mut outbox = Outbox::start(places.clone()).expect("start");
         outbox.send(Job::Cache {
-            index: Box::default(),
+            index: Arc::default(),
             full_scan: true,
         });
         assert_eq!(outbox.finish().len(), 1);
