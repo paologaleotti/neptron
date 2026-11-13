@@ -397,5 +397,5 @@ name = "Settings under one home row, submenu arrows, breadcrumb, quick menu page
 owns = ["docs/spec/ui-navigation.md", "crates/neptron-ui", "apps/neptron"]
 needs = ["C12", "C10", "C11"]
 gate = "T1 and T2; every golden change looked at and explained"
-status = "in_progress"
+status = "merged"
 

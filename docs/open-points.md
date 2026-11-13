@@ -834,7 +834,7 @@ Each open point is one section:
 ### OP-090: Settings under one home row, a submenu arrow and a breadcrumb.
 
 - Raised by: the owner (2026-11-13)
-- Status: open, in work as C15 (in the MVP by the owner's decision)
+- Status: closed by C15 (`docs/spec/ui-navigation.md`)
 - Default: before C15 the home screen lists each settings panel (Display, Audio) as its own row, a row that opens a page looks like a row that changes a value, and no screen says where the player is.
 - Where: `crates/neptron-ui`, `apps/neptron`, `docs/flows/07-screens.md`
 - How to change: C15: one `Settings` row on home that opens a page with Display, Audio and the other panels; an arrow at the right of every row that opens a page; a breadcrumb in the title bar; the same rules in the quick menu of a game.
