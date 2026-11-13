@@ -22,5 +22,9 @@ console::respawn:/sbin/getty -n -l /bin/sh -L console 0 vt100
 ::once:/usr/libexec/neptron/launch-for-check
 ::once:/usr/libexec/neptron/host-run check
 
+# Init runs these before it signals every process: the launcher and the
+# frontend stop first, so their last writes reach the disk before the
+# remount.
+::shutdown:/usr/libexec/neptron/stop
 ::shutdown:/etc/init.d/rcK
 ::shutdown:/bin/umount -a -r

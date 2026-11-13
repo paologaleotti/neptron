@@ -1,0 +1,27 @@
+#!/bin/sh
+# The first shutdown step: stops the launcher and the frontend before the
+# file systems become read-only. BusyBox init runs the shutdown actions
+# before it sends SIGTERM to every process, and `umount -a -r` is one of
+# them, so without this step the frontend could still write its save RAM
+# and settings to a read-only state partition.
+#
+# The hold file keeps the launch script from starting a new launcher. The
+# launcher forwards SIGTERM to the frontend and sends SIGKILL after its own
+# stop wait (STOP_WAIT_NS, 5 s); this script waits 3 s more than that.
+
+STOP_WAIT_DS=80
+
+mkdir -p /run/neptron
+touch /run/neptron/hold
+pidof neptron-launch > /dev/null || exit 0
+kill $(pidof neptron-launch) 2>/dev/null
+waited=0
+while pidof neptron-launch neptron > /dev/null && [ "$waited" -lt "$STOP_WAIT_DS" ]; do
+	usleep 100000
+	waited=$((waited + 1))
+done
+if pidof neptron-launch neptron > /dev/null; then
+	echo "neptron-stop: the launcher or the frontend still runs after $((STOP_WAIT_DS / 10)) s; init stops them"
+else
+	echo "neptron-stop: the launcher and the frontend stopped in $((waited / 10)).$((waited % 10)) s"
+fi
