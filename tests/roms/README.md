@@ -22,7 +22,7 @@ The NES build has its own art and a tune under CC BY that the ROM credits. It is
 
 ## The cache
 
-`cargo xtask core-trace` looks for a ROM that is not in this folder by its file name in the cache directory: `~/.cache/neptron/test-roms` (`NEPTRON_CACHE_DIR` moves `~/.cache/neptron`; `NEPTRON_TEST_ROMS` names another directory). A missing file, or a file with another SHA-256, skips its two cases and fails the run. The command prints which file is missing and where to put it.
+`cargo xtask core-trace` looks for a ROM that is not in this folder by its file name in the cache directory: `~/.cache/neptron/test-roms` (`NEPTRON_CACHE_DIR` moves `~/.cache/neptron`; `NEPTRON_TEST_ROMS` names another directory). A missing file, or a file with another SHA-256, skips its two cases and fails the run. With `--allow-missing-roms` (used by CI, which downloads no ROM) a missing file only skips its cases; a wrong file still fails the run. The command prints which file is missing and where to put it.
 
 To fill the cache:
 
