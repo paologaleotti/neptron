@@ -784,3 +784,12 @@ Each open point is one section:
 - Where: `os/` (the service environment, the firmware packages), `crates/neptron-settings` (the writer)
 - How to change: (1) set `MESA_SHADER_CACHE_DIR` to a directory on the state partition, or disable the cache. (2) Do not write a settings file with no value; remove the file when its last value goes. (3) Add the two firmware files, after a check of the `linux-firmware` licence terms for each.
 - Decision:
+
+### OP-085: Audio settings: volume and output device.
+
+- Raised by: the owner, after the first hardware session (2026-11-13)
+- Status: open, in work as C12 (in the MVP by the owner's decision)
+- Default: before C12 the sink opens the default device at full level and no setting exists. C12 adds `audio.volume` (percent, applied in software after the resampler) and `audio.output` (`auto` or the name of a playback device). A named device that is absent falls back to the default device with a notice, and the setting stays as it is. The image sets the hardware mixer to a known level at boot, so the software volume has the full range.
+- Where: `docs/spec/audio-settings.md`, `crates/neptron-audio`, `crates/neptron-settings`, `crates/neptron-ui`, `apps/neptron`, `os/`
+- How to change: later steps, not in C12: a volume hotkey in a game, a test tone on a device change, a volume per system or per game, a follow of the HDMI device when the monitor changes.
+- Decision: the owner asked for volume and output device in the MVP (2026-11-13).

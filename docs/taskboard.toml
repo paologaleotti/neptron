@@ -354,3 +354,20 @@ needs = ["T27", "T28", "C08"]
 gate = "T1 and T2; a failing test first for each defect"
 status = "in_progress"
 
+[[task]]
+id = "C11"
+wave = 7
+name = "Defects of the first hardware session: panel menu rows, start before the monitor answers, shader cache, empty settings file, firmware (OP-082, OP-083, OP-084)"
+owns = ["apps/neptron", "apps/neptron-launch", "crates/neptron-ui", "crates/neptron-settings", "crates/neptron-kms", "os"]
+needs = ["T28", "C08"]
+gate = "T1 and T2; a failing test first for each defect"
+status = "in_progress"
+
+[[task]]
+id = "C12"
+wave = 7
+name = "Audio settings: volume and output device (OP-085), spec first"
+owns = ["docs/spec/audio-settings.md", "crates/neptron-audio", "crates/neptron-settings", "crates/neptron-ui", "crates/neptron-session", "apps/neptron", "os"]
+needs = ["T28"]
+gate = "T1 and T2"
+status = "in_progress"
