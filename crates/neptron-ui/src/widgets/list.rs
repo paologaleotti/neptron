@@ -3,9 +3,9 @@ use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::text::{self, Align};
 use crate::theme::Theme;
-use crate::tree::{TreeRow, WidgetKind};
+use crate::tree::{RowKind, TreeRow, WidgetKind};
 
-use super::{add, to_u32};
+use super::{ARROW_COLUMN_PX, add, draw_arrow, to_u32};
 
 /// Width of the scroll bar, and the gap before it, in pixels.
 pub const SCROLLBAR_WIDTH_PX: u32 = 4;
@@ -24,6 +24,9 @@ pub struct ListItem<'a> {
     /// False shows the row as not available: dim text, and a bar in the
     /// border colour instead of the focus colour when it has the focus.
     pub enabled: bool,
+    /// What accept does. A [`RowKind::Page`] row shows an arrow at its
+    /// right edge while it is enabled.
+    pub kind: RowKind,
 }
 
 /// What one action did to a [`List`].
@@ -49,15 +52,25 @@ pub struct List {
     row_height_px: u32,
     cursor: usize,
     top: usize,
+    arrows: bool,
 }
 
 impl<'a> ListItem<'a> {
-    /// An enabled row with a label only.
+    /// An enabled action row with a label only.
     pub fn new(label: &'a str) -> Self {
         Self {
             label,
             detail: None,
             enabled: true,
+            kind: RowKind::Action,
+        }
+    }
+
+    /// An enabled row with a label only that opens a page.
+    pub fn page(label: &'a str) -> Self {
+        Self {
+            kind: RowKind::Page,
+            ..Self::new(label)
         }
     }
 }
@@ -71,7 +84,16 @@ impl List {
             row_height_px: row_height_px.max(1),
             cursor: 0,
             top: 0,
+            arrows: true,
         }
+    }
+
+    /// The same list, with no arrow on its [`RowKind::Page`] rows. Only the
+    /// home screen with no games uses it: its one row is in a golden image
+    /// of tier 3 that a change must not touch.
+    pub fn without_arrows(mut self) -> Self {
+        self.arrows = false;
+        self
     }
 
     /// The area of the list.
@@ -150,12 +172,29 @@ impl List {
             } else {
                 theme.colors.text_dim
             };
-            let inner = Rect::new(
+            let padded = Rect::new(
                 add(row.x, theme.padding_px()),
                 row.y,
                 row.w.saturating_sub(2 * theme.padding_px()),
                 row.h,
             );
+            let arrow = self.arrows && entry.enabled && entry.kind == RowKind::Page;
+            let inner = if arrow {
+                let arrow_color = if focused {
+                    color
+                } else {
+                    theme.colors.text_dim
+                };
+                draw_arrow(&mut frame.scene, padded, arrow_color);
+                Rect::new(
+                    padded.x,
+                    padded.y,
+                    padded.w.saturating_sub(ARROW_COLUMN_PX),
+                    padded.h,
+                )
+            } else {
+                padded
+            };
             let detail_w = entry
                 .detail
                 .map_or(0, |d| crate::font::text_width(d).min(inner.w / 2));
@@ -183,6 +222,11 @@ impl List {
                 text::draw_in(&mut frame.scene, label_box, Align::Left, color, entry.label);
             frame.tree.push(TreeRow {
                 widget: WidgetKind::List,
+                kind: Some(if entry.enabled {
+                    entry.kind
+                } else {
+                    RowKind::Disabled
+                }),
                 label: entry.label,
                 value: entry.detail,
                 source: None,
@@ -354,9 +398,8 @@ mod tests {
         let fills = |enabled| {
             let mut frame = UiFrame::new();
             l.draw(&mut frame, &theme, 1, |_| ListItem {
-                label: "Native",
-                detail: None,
                 enabled,
+                ..ListItem::new("Native")
             });
             frame
                 .scene
@@ -370,6 +413,90 @@ mod tests {
         };
         assert_eq!(fills(true), [theme.colors.focus]);
         assert_eq!(fills(false), [theme.colors.border]);
+    }
+
+    fn rects(frame: &UiFrame) -> Vec<Rect> {
+        frame
+            .scene
+            .commands()
+            .iter()
+            .filter_map(|c| match *c {
+                crate::DrawCommand::Rect { rect, .. } => Some(rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_row_that_opens_a_page_shows_an_arrow_at_its_right_edge() {
+        let l = list();
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), 3, |i| match i {
+            0 => ListItem::page("Settings"),
+            1 => ListItem::new("Resume"),
+            _ => ListItem {
+                enabled: false,
+                ..ListItem::page("Video")
+            },
+        });
+        let kinds: Vec<_> = frame.tree.rows().map(|r| r.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                Some(RowKind::Page),
+                Some(RowKind::Action),
+                Some(RowKind::Disabled)
+            ]
+        );
+        // The focus bar, then the four columns of the arrow of row 0 only:
+        // 7, 5, 3 and 1 pixels high, against the padding of the row.
+        let arrow: Vec<_> = rects(&frame).into_iter().skip(1).collect();
+        let right = 16 + 288 - 4 - 4;
+        assert_eq!(
+            arrow,
+            [
+                Rect::new(right, 14, 1, 7),
+                Rect::new(right + 1, 15, 1, 5),
+                Rect::new(right + 2, 16, 1, 3),
+                Rect::new(right + 3, 17, 1, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_list_without_arrows_draws_none_and_keeps_the_kind() {
+        let l = list().without_arrows();
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), 1, |_| {
+            ListItem::page("Display")
+        });
+        assert_eq!(rects(&frame).len(), 1, "the focus bar only");
+        assert_eq!(
+            frame.tree.focused().and_then(|r| r.kind),
+            Some(RowKind::Page)
+        );
+    }
+
+    #[test]
+    fn the_detail_moves_left_of_the_arrow() {
+        let l = list();
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), 1, |_| ListItem {
+            detail: Some("1 game"),
+            ..ListItem::page("Mega Drive")
+        });
+        let detail_end = frame
+            .scene
+            .commands()
+            .iter()
+            .find_map(|c| match *c {
+                crate::DrawCommand::Text { x, span, .. } if frame.scene.text(span) == "1 game" => {
+                    Some(x + crate::font::text_width("1 game") as i32)
+                }
+                _ => None,
+            })
+            .expect("the detail");
+        assert_eq!(detail_end, 16 + 288 - 4 - super::ARROW_COLUMN_PX as i32);
     }
 
     #[test]

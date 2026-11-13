@@ -6,10 +6,10 @@ use crate::intent::{Intent, Value};
 use crate::snapshot::{ChoiceOption, Level, MenuItem, SettingValue};
 use crate::text::{self, Align, StackText};
 use crate::theme::Theme;
-use crate::tree::{TreeRow, WidgetKind};
+use crate::tree::{RowKind, TreeRow, WidgetKind};
 
 use super::list::{List, ListEvent};
-use super::{add, step_value};
+use super::{ARROW_COLUMN_PX, add, draw_arrow, step_value};
 
 /// What one action did to a [`SettingsList`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,13 +25,29 @@ pub enum SettingsEvent {
     /// The player accepted the choice row at this index, in a list made
     /// with [`SettingsList::with_pickers`]: the screen opens the options.
     Pick(usize),
+    /// The player accepted the [`SettingValue::Page`] row at this index:
+    /// the screen opens its page.
+    Open(usize),
 }
+
+/// The footer hint of a row that opens a page.
+pub const HINT_OPEN: &str = "Accept: open";
+/// The footer hint of a row that accept changes in place.
+pub const HINT_CHANGE: &str = "Accept: change";
+/// The footer hint of a number row.
+pub const HINT_STEP: &str = "Left/Right: change";
+/// The footer hint of an action row.
+pub const HINT_CHOOSE: &str = "Accept: choose";
 
 /// A list of settings rows: label, value and the level the value comes from.
 ///
 /// Up and down move. Left and right step the value. Accept toggles a switch,
-/// moves a choice to the next option, or runs an action. Menu resets the
-/// value at the edit level, so the row inherits again.
+/// moves a choice to the next option, runs an action, or opens a page. Menu
+/// resets the value at the edit level, so the row inherits again.
+///
+/// Every row keeps a column at its right edge free for the arrow of a row
+/// that opens a page (see [`RowKind`]), so the value and source columns of
+/// all rows line up.
 ///
 /// A list made with [`SettingsList::with_pickers`] never changes a choice
 /// in place: accept on a choice row gives [`SettingsEvent::Pick`], so the
@@ -81,6 +97,36 @@ impl SettingsList {
         self.list.select(index, len);
     }
 
+    /// What accept does on `item` in this list.
+    pub fn kind(&self, item: &MenuItem) -> RowKind {
+        if !item.is_enabled() {
+            return RowKind::Disabled;
+        }
+        match item.value {
+            SettingValue::Page(_) => RowKind::Page,
+            SettingValue::Choice { .. } if self.pickers => RowKind::Page,
+            SettingValue::Action(_) => RowKind::Action,
+            SettingValue::Toggle(_) | SettingValue::Number { .. } | SettingValue::Choice { .. } => {
+                RowKind::Value
+            }
+        }
+    }
+
+    /// The footer hint for the focused row of `items`: what accept or the
+    /// arrows do there. Empty for a disabled row and for no rows.
+    pub fn hint(&self, items: &[MenuItem]) -> &'static str {
+        let Some(item) = items.get(self.list.cursor().min(items.len().saturating_sub(1))) else {
+            return "";
+        };
+        match (self.kind(item), &item.value) {
+            (RowKind::Disabled, _) => "",
+            (RowKind::Page, _) => HINT_OPEN,
+            (RowKind::Action, _) => HINT_CHOOSE,
+            (RowKind::Value, SettingValue::Number { .. }) => HINT_STEP,
+            (RowKind::Value, _) => HINT_CHANGE,
+        }
+    }
+
     /// Applies one action. A change writes at `level`; a row whose scopes do
     /// not allow `level` does not change.
     pub fn handle(&mut self, action: UiAction, items: &[MenuItem], level: Level) -> SettingsEvent {
@@ -101,6 +147,12 @@ impl SettingsList {
         if !item.is_enabled() {
             return SettingsEvent::None;
         }
+        if let SettingValue::Page(_) = item.value {
+            return match action {
+                UiAction::Accept => SettingsEvent::Open(self.list.cursor()),
+                _ => SettingsEvent::None,
+            };
+        }
         if self.picks(item) {
             match action {
                 UiAction::Accept => return SettingsEvent::Pick(self.list.cursor()),
@@ -120,14 +172,8 @@ impl SettingsList {
         for (slot, (index, item)) in items.iter().enumerate().skip(top).take(rows).enumerate() {
             let row = self.list.row_rect(slot, scrolls);
             let focused = index == cursor;
-            draw_row(
-                frame,
-                theme,
-                row,
-                item,
-                focused,
-                focused && item.is_enabled() && !self.picks(item),
-            );
+            let kind = self.kind(item);
+            draw_row(frame, theme, row, item, kind, focused);
         }
         if scrolls {
             self.list.draw_scrollbar(frame, theme, len, top);
@@ -144,9 +190,10 @@ fn draw_row(
     theme: &Theme,
     row: Rect,
     item: &MenuItem,
+    kind: RowKind,
     focused: bool,
-    arrows: bool,
 ) {
+    let arrows = focused && kind == RowKind::Value;
     let (color, dim) = if focused && !item.is_enabled() {
         outline(frame, row, theme.colors.focus);
         (theme.colors.text_dim, theme.colors.text_dim)
@@ -156,15 +203,25 @@ fn draw_row(
     } else {
         (theme.colors.text, theme.colors.text_dim)
     };
-    let inner = Rect::new(
+    let padded = Rect::new(
         add(row.x, theme.padding_px()),
         row.y,
         row.w.saturating_sub(2 * theme.padding_px()),
         row.h,
     );
-    if let SettingValue::Action(_) = item.value {
+    if kind == RowKind::Page {
+        let arrow_color = if focused { color } else { dim };
+        draw_arrow(&mut frame.scene, padded, arrow_color);
+    }
+    let inner = Rect::new(
+        padded.x,
+        padded.y,
+        padded.w.saturating_sub(ARROW_COLUMN_PX),
+        padded.h,
+    );
+    if let SettingValue::Action(_) | SettingValue::Page(_) = item.value {
         let clipped = text::draw_in(&mut frame.scene, inner, Align::Left, color, &item.label);
-        push(frame, item, row, None, focused, clipped);
+        push(frame, item, kind, row, None, focused, clipped);
         return;
     }
     let advance = font::ADVANCE;
@@ -186,6 +243,7 @@ fn draw_row(
         push(
             frame,
             item,
+            kind,
             row,
             Some(reason),
             focused,
@@ -227,6 +285,7 @@ fn draw_row(
     push(
         frame,
         item,
+        kind,
         row,
         Some(value),
         focused,
@@ -252,14 +311,16 @@ fn outline(frame: &mut UiFrame, row: Rect, color: Color) {
 fn push(
     frame: &mut UiFrame,
     item: &MenuItem,
+    kind: RowKind,
     rect: Rect,
     value: Option<&str>,
     focused: bool,
     clipped: bool,
 ) {
-    let is_action = matches!(item.value, SettingValue::Action(_));
+    let is_action = matches!(item.value, SettingValue::Action(_) | SettingValue::Page(_));
     frame.tree.push(TreeRow {
         widget: WidgetKind::SettingsList,
+        kind: Some(kind),
         label: &item.label,
         value,
         source: (!is_action).then_some(item.source),
@@ -315,7 +376,7 @@ fn next_value(action: UiAction, value: &SettingValue) -> Option<Value> {
         SettingValue::Choice { index, options } => {
             next_choice(*index, options, direction).map(Value::Choice)
         }
-        SettingValue::Action(_) => None,
+        SettingValue::Action(_) | SettingValue::Page(_) => None,
     }
 }
 
@@ -743,6 +804,99 @@ mod tests {
             {
                 assert_eq!(color, theme.colors.text_dim);
             }
+        }
+    }
+
+    #[test]
+    fn each_row_has_its_kind_its_hint_and_an_arrow_only_to_open_a_page() {
+        let mut items = items();
+        items.push(item(
+            5,
+            SettingValue::Page(crate::snapshot::PageId(3)),
+            Level::Default,
+        ));
+        items.push(items[2].clone().unavailable("Not used on a flat panel"));
+        let theme = Theme::default();
+        let mut l = SettingsList::new(Rect::new(16, 12, 288, 72), 12).with_pickers();
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &theme, &items);
+        let kinds: Vec<_> = frame.tree.rows().map(|r| r.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                Some(RowKind::Value),
+                Some(RowKind::Value),
+                Some(RowKind::Page),
+                Some(RowKind::Action),
+                Some(RowKind::Page),
+                Some(RowKind::Disabled),
+            ]
+        );
+        // One arrow of four one-pixel columns for each enabled page row, at
+        // the right edge of the row inside its padding.
+        let arrow_x = 16 + 288 - 4 - 4;
+        let arrow_rows: Vec<_> = frame
+            .scene
+            .commands()
+            .iter()
+            .filter_map(|c| match *c {
+                crate::DrawCommand::Rect { rect, .. } if rect.x == arrow_x && rect.w == 1 => {
+                    Some(rect.y)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(arrow_rows, [12 + 24 + 2, 12 + 48 + 2]);
+        let hints: Vec<_> = (0..items.len())
+            .map(|i| {
+                l.select(i, items.len());
+                l.hint(&items)
+            })
+            .collect();
+        assert_eq!(
+            hints,
+            [
+                HINT_CHANGE,
+                HINT_STEP,
+                HINT_OPEN,
+                HINT_CHOOSE,
+                HINT_OPEN,
+                ""
+            ]
+        );
+        assert_eq!(l.hint(&[]), "");
+        l.select(4, items.len());
+        assert_eq!(
+            l.handle(UiAction::Accept, &items, Level::Game),
+            SettingsEvent::Open(4)
+        );
+        for action in [UiAction::Left, UiAction::Right, UiAction::Menu] {
+            assert_eq!(l.handle(action, &items, Level::Game), SettingsEvent::None);
+        }
+    }
+
+    #[test]
+    fn the_value_and_source_columns_line_up_with_the_arrow_column() {
+        let mut l = SettingsList::new(Rect::new(16, 12, 288, 48), 12);
+        at(&mut l, 1);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), &items());
+        let right_end = |text: &str| {
+            frame
+                .scene
+                .commands()
+                .iter()
+                .find_map(|c| match *c {
+                    crate::DrawCommand::Text { x, span, .. } if frame.scene.text(span) == text => {
+                        Some(x + font::text_width(text) as i32)
+                    }
+                    _ => None,
+                })
+                .expect("the text")
+        };
+        let edge = 16 + 288 - 4 - ARROW_COLUMN_PX as i32;
+        for source in ["default", "game", "system"] {
+            assert_eq!(right_end(source), edge, "{source}");
         }
     }
 

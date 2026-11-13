@@ -18,6 +18,7 @@ use crate::intent::Intent;
 use crate::snapshot::{GameId, GameSource, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
+use crate::tree::RowKind;
 use crate::widgets::{List, ListEvent, ListItem};
 
 use super::chrome::{self, Layout};
@@ -206,11 +207,13 @@ impl GameList {
                     label: &game.title,
                     detail: game.favourite.then_some("*"),
                     enabled: true,
+                    kind: RowKind::Action,
                 },
                 None => ListItem {
                     label: PENDING_ROW,
                     detail: None,
                     enabled: false,
+                    kind: RowKind::Action,
                 },
             });
         self.draw_title_panel(snap, theme, frame);

@@ -136,6 +136,7 @@ impl Dialog {
         );
         frame.tree.push(TreeRow {
             widget: WidgetKind::Label,
+            kind: None,
             label: content.title,
             value: None,
             source: None,
@@ -147,6 +148,7 @@ impl Dialog {
         let message_clipped = self.draw_message(frame, theme, content.message, inner);
         frame.tree.push(TreeRow {
             widget: WidgetKind::Dialog,
+            kind: None,
             label: content.message,
             value: None,
             source: None,
@@ -219,6 +221,7 @@ impl Dialog {
             let clipped = text::draw_in(&mut frame.scene, rect, Align::Center, color, label);
             frame.tree.push(TreeRow {
                 widget: WidgetKind::Button,
+                kind: None,
                 label,
                 value: None,
                 source: None,

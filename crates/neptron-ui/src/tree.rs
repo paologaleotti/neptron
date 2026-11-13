@@ -25,11 +25,30 @@ pub enum WidgetKind {
     Label,
 }
 
+/// What accept does on a row of a list. The kind decides how the row looks
+/// and which hint the footer shows, so the player can tell a row that opens
+/// a page from a row that changes a value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RowKind {
+    /// Accept opens a page, an option list or a screen. The row shows an
+    /// arrow at its right edge.
+    Page,
+    /// The row changes its value in place.
+    Value,
+    /// Accept does something: resume, quit, play, use an option.
+    Action,
+    /// The row takes no input now.
+    Disabled,
+}
+
 /// One visible row of the tree, as a view into the tree.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TreeRow<'a> {
     /// The widget that made the row.
     pub widget: WidgetKind,
+    /// What accept does, for a row of a list. `None` for a label, a dialog
+    /// text, a button, a grid cell or a slider.
+    pub kind: Option<RowKind>,
     /// The label.
     pub label: &'a str,
     /// The value as shown, if the row has one.
@@ -83,6 +102,7 @@ impl UiTree {
         let value = row.value.map(|v| self.store(v));
         self.rows.push(StoredRow {
             widget: row.widget,
+            kind: row.kind,
             label,
             value,
             source: row.source,
@@ -114,6 +134,7 @@ impl UiTree {
     fn view(&self, row: &StoredRow) -> TreeRow<'_> {
         TreeRow {
             widget: row.widget,
+            kind: row.kind,
             label: self.text.get(row.label.clone()).unwrap_or(""),
             value: row.value.clone().map(|v| self.text.get(v).unwrap_or("")),
             source: row.source,
@@ -132,6 +153,7 @@ impl UiTree {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct StoredRow {
     widget: WidgetKind,
+    kind: Option<RowKind>,
     label: Range<usize>,
     value: Option<Range<usize>>,
     source: Option<Level>,
@@ -147,6 +169,7 @@ mod tests {
     fn row<'a>(label: &'a str, value: Option<&'a str>, focused: bool) -> TreeRow<'a> {
         TreeRow {
             widget: WidgetKind::SettingsList,
+            kind: Some(RowKind::Value),
             label,
             value,
             source: Some(Level::Global),

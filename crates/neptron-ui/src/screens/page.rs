@@ -5,7 +5,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
-use crate::snapshot::{ActionId, Level, MenuItem, PageId, SettingKey, Snapshot};
+use crate::snapshot::{ActionId, Level, MenuItem, PageId, SettingKey, SettingValue, Snapshot};
 use crate::theme::Theme;
 use crate::widgets::{SettingsEvent, SettingsList};
 
@@ -23,6 +23,8 @@ pub(super) enum PageEvent {
     Pick(SettingKey),
     /// A menu action that the UI carries out itself.
     Reserved(ActionId),
+    /// The player wants to see this page.
+    Open(PageId),
 }
 
 pub(super) struct Page {
@@ -73,20 +75,20 @@ impl Page {
         }
     }
 
-    /// `hint` while the focused row takes accept, else an empty hint: a
-    /// disabled row does nothing on accept.
-    pub(super) fn accept_hint<'h>(&self, snap: &Snapshot, hint: &'h str) -> &'h str {
-        let rows = self.rows(snap);
-        let cursor = self.list.cursor().min(rows.len().saturating_sub(1));
-        if rows.get(cursor).is_some_and(|r| !r.is_enabled()) {
-            ""
-        } else {
-            hint
-        }
+    /// The footer hint of the focused row: what accept or the arrows do
+    /// there. Empty for a disabled row and while the rows are not loaded.
+    pub(super) fn hint(&self, snap: &Snapshot) -> &'static str {
+        self.list.hint(self.rows(snap))
     }
 
+    /// Applies one action. While the snapshot holds a different page the
+    /// page takes only back: any other action would clamp the cursor to no
+    /// rows and lose the row the player came back to.
     pub(super) fn handle(&mut self, action: UiAction, snap: &Snapshot) -> PageEvent {
         let rows = self.rows(snap);
+        if rows.is_empty() && action != UiAction::Back {
+            return PageEvent::Stay;
+        }
         match self.list.handle(action, rows, self.level) {
             SettingsEvent::Back => PageEvent::Back,
             SettingsEvent::Intent(Intent::Action(id)) if id.0 >= RESERVED_ID_MIN => {
@@ -96,6 +98,10 @@ impl Page {
             SettingsEvent::Pick(i) => rows
                 .get(i)
                 .map_or(PageEvent::Stay, |row| PageEvent::Pick(row.key)),
+            SettingsEvent::Open(i) => match rows.get(i).map(|row| &row.value) {
+                Some(SettingValue::Page(page)) => PageEvent::Open(*page),
+                _ => PageEvent::Stay,
+            },
             SettingsEvent::None | SettingsEvent::Moved => PageEvent::Stay,
         }
     }

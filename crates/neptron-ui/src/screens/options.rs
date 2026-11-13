@@ -10,7 +10,7 @@ use crate::intent::{Intent, Value};
 use crate::snapshot::{ChoiceOption, Level, MenuItem, PageId, SettingKey, SettingValue, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
-use crate::tree::{TreeRow, WidgetKind};
+use crate::tree::{RowKind, TreeRow, WidgetKind};
 use crate::widgets::{List, ListEvent, ListItem};
 
 use super::chrome::{self, Layout};
@@ -139,6 +139,7 @@ impl Options {
                     .map(|o| o.unavailable.as_deref().unwrap_or(&o.detail))
                     .filter(|d| !d.is_empty()),
                 enabled: option.is_some_and(ChoiceOption::is_enabled),
+                kind: RowKind::Action,
             }
         });
         self.draw_mark(frame, theme, index, options);
@@ -187,6 +188,7 @@ impl Options {
         frame.scene.rect(mark, theme.colors.accent);
         frame.tree.push(TreeRow {
             widget: WidgetKind::Label,
+            kind: None,
             label: "In use",
             value: Some(&option.label),
             source: None,

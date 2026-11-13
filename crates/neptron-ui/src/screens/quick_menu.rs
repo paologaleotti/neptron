@@ -15,7 +15,7 @@ use super::overlays::draw_dialog;
 use super::page::{Page, PageEvent};
 use super::router::{Nav, Target};
 use super::video;
-use super::{GRID_PATTERN, OPEN_DISPLAY, QUICK_MENU_PAGE, QUIT_GAME, RESUME};
+use super::{DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME};
 
 /// The settings changed in one visit of the quick menu that the prompt can
 /// move. A further setting stays at the game level.
@@ -139,8 +139,8 @@ impl QuickMenu {
         match self.page.handle(action, snap) {
             PageEvent::Back | PageEvent::Reserved(RESUME) => self.ask(Leave::Resume, snap, out),
             PageEvent::Reserved(QUIT_GAME) => self.ask(Leave::Quit, snap, out),
-            PageEvent::Reserved(OPEN_DISPLAY) => Nav::Open(Target::Display),
-            PageEvent::Reserved(GRID_PATTERN) => Nav::Open(Target::Grid),
+            PageEvent::Open(DISPLAY_PAGE) => Nav::Open(Target::Display),
+            PageEvent::Open(GRID_PAGE) => Nav::Open(Target::Grid),
             PageEvent::Intent(intent) => {
                 out.push(intent);
                 Nav::Stay
@@ -150,7 +150,7 @@ impl QuickMenu {
                 key,
                 level: Level::Game,
             }),
-            PageEvent::Reserved(_) | PageEvent::Stay => Nav::Stay,
+            PageEvent::Open(_) | PageEvent::Reserved(_) | PageEvent::Stay => Nav::Stay,
         }
     }
 
@@ -168,7 +168,7 @@ impl QuickMenu {
             theme,
             title,
             "Paused",
-            self.page.accept_hint(snap, "Accept: choose"),
+            self.page.hint(snap),
             "Back: resume",
         );
         if let Some(status) = video::status(snap).filter(|_| self.video) {

@@ -145,6 +145,7 @@ impl Slider {
 
         frame.tree.push(TreeRow {
             widget: WidgetKind::Slider,
+            kind: None,
             label,
             value: Some(shown.as_str()),
             source: None,

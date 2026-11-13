@@ -14,10 +14,7 @@ use crate::theme::Theme;
 
 use super::game_list::WINDOW_ROWS;
 use super::router::Screen;
-use super::{
-    AUDIO_PAGE, DISPLAY_PAGE, GRID_PATTERN, OPEN_DISPLAY, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
-    Screens,
-};
+use super::{AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME, Screens};
 
 pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
@@ -346,11 +343,7 @@ pub(super) fn display_rows(scopes: Scopes) -> Vec<MenuItem> {
             Level::Default,
             scopes,
         ),
-        MenuItem::new(
-            SettingKey(5),
-            "Grid pattern",
-            SettingValue::Action(GRID_PATTERN),
-        ),
+        MenuItem::new(SettingKey(5), "Grid pattern", SettingValue::Page(GRID_PAGE)),
     ]
 }
 
@@ -458,7 +451,11 @@ pub(super) fn quick_rows() -> Vec<MenuItem> {
     }
     let action = |key, label, id| MenuItem::new(SettingKey(key), label, SettingValue::Action(id));
     rows.insert(0, action(10, "Resume", RESUME));
-    rows.push(action(11, "Display", OPEN_DISPLAY));
+    rows.push(MenuItem::new(
+        SettingKey(11),
+        "Display",
+        SettingValue::Page(DISPLAY_PAGE),
+    ));
     rows.push(action(12, "Quit game", QUIT_GAME));
     rows
 }

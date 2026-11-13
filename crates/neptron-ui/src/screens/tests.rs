@@ -964,7 +964,7 @@ fn the_grid_pattern_opens_from_the_display_panel_and_the_quick_menu() {
 
     let (mut run, mut snap) = quick_menu();
     if let Some(display) = snap.settings.rows.iter_mut().find(|r| r.label == "Display") {
-        display.value = crate::snapshot::SettingValue::Action(super::GRID_PATTERN);
+        display.value = crate::snapshot::SettingValue::Page(super::GRID_PAGE);
     }
     run.step(&snap, &[Down, Down, Down, Accept]);
     assert_eq!(run.screen(), "pattern/grid");
@@ -1033,7 +1033,7 @@ fn a_static_screen_allocates_nothing_after_its_first_frame() {
 
 mod fuzz {
     use super::*;
-    use crate::screens::{GRID_PATTERN, OPEN_DISPLAY, QUIT_GAME, RESUME};
+    use crate::screens::{GRID_PAGE, QUIT_GAME, RESUME};
     use crate::snapshot::{
         ActionId, ChoiceOption, DisplayInfo, GameEntry, MenuItem, PageId, ProfileEntry, ProfileId,
         Scopes, SettingKey, SettingValue, SystemEntry, SystemId, VideoStatus,
@@ -1103,10 +1103,10 @@ mod fuzz {
             [DISPLAY_PAGE, QUICK_MENU_PAGE, PageId(3)][self.below(3) as usize]
         }
         fn action_id(&mut self) -> ActionId {
-            [RESUME, QUIT_GAME, OPEN_DISPLAY, GRID_PATTERN, ActionId(7)][self.below(5) as usize]
+            [RESUME, QUIT_GAME, ActionId(7)][self.below(3) as usize]
         }
         fn value(&mut self) -> SettingValue {
-            match self.below(4) {
+            match self.below(5) {
                 0 => SettingValue::Toggle(self.chance(50)),
                 1 => SettingValue::Number {
                     value: self.next() as i64,
@@ -1128,7 +1128,10 @@ mod fuzz {
                         })
                         .collect(),
                 },
-                _ => SettingValue::Action(self.action_id()),
+                3 => SettingValue::Action(self.action_id()),
+                _ => {
+                    SettingValue::Page([DISPLAY_PAGE, GRID_PAGE, PageId(3)][self.below(3) as usize])
+                }
             }
         }
         fn levels(&mut self) -> Scopes {
@@ -1371,11 +1374,19 @@ fn a_focused_disabled_row_has_no_accept_hint() {
     run.step(&snap, &[Down]);
     assert_eq!(hints(&run), ["Back: resume"], "on the disabled style row");
     run.step(&snap, &[Down]);
-    assert_eq!(
-        hints(&run),
-        ["Accept: choose", "Back: resume"],
-        "on Refresh"
-    );
+    assert_eq!(hints(&run), ["Accept: open", "Back: resume"], "on Refresh");
+    run.step(&snap, &[Down]);
+    assert_eq!(hints(&run), ["Accept: open", "Back: resume"], "on Display");
+}
+
+#[test]
+fn the_hint_of_a_number_row_names_left_and_right() {
+    let mut run = Run::new();
+    let snap = with_audio();
+    run.step(&snap, &TO_AUDIO);
+    assert_eq!(hints(&run), ["Left/Right: change", "Back: return"]);
+    run.step(&snap, &[Down]);
+    assert_eq!(hints(&run), ["Accept: open", "Back: return"]);
 }
 
 #[test]

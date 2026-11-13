@@ -35,25 +35,25 @@ use crate::snapshot::{ActionId, PageId};
 pub const RESERVED_ID_MIN: u32 = 0xFFFF_0000;
 
 /// The page of the display panel: output, monitor profile, picture style,
-/// refresh policy, and a row with [`GRID_PATTERN`].
+/// refresh policy, and a row that opens [`GRID_PAGE`].
 pub const DISPLAY_PAGE: PageId = PageId(RESERVED_ID_MIN + 1);
 /// The page of the quick menu: the rows a player can change during a game,
-/// written at the game level, with rows for [`RESUME`], [`OPEN_DISPLAY`]
-/// and [`QUIT_GAME`].
+/// written at the game level, with rows for [`RESUME`] and [`QUIT_GAME`].
 pub const QUICK_MENU_PAGE: PageId = PageId(RESERVED_ID_MIN + 2);
 
 /// The page of the audio panel: the volume and the output device, written
 /// at the global level.
 pub const AUDIO_PAGE: PageId = PageId(RESERVED_ID_MIN + 3);
 
+/// The grid test pattern. It is not a settings page and the app never
+/// loads it: a [`crate::snapshot::SettingValue::Page`] row with this id
+/// opens the pattern.
+pub const GRID_PAGE: PageId = PageId(RESERVED_ID_MIN + 4);
+
 /// A menu row that closes the quick menu and continues the game.
 pub const RESUME: ActionId = ActionId(RESERVED_ID_MIN + 1);
 /// A menu row that stops the game.
 pub const QUIT_GAME: ActionId = ActionId(RESERVED_ID_MIN + 2);
-/// A menu row that opens the display panel.
-pub const OPEN_DISPLAY: ActionId = ActionId(RESERVED_ID_MIN + 3);
-/// A menu row that shows the grid test pattern.
-pub const GRID_PATTERN: ActionId = ActionId(RESERVED_ID_MIN + 4);
 
 /// The label of the tree row with the video status line of the game: what
 /// the core asks for. Its value is [`crate::snapshot::VideoStatus::game`].

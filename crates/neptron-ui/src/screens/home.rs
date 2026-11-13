@@ -51,7 +51,7 @@ impl Home {
         Self {
             list: List::new(list, row),
             list_box,
-            alone: List::new(alone, row),
+            alone: List::new(alone, row).without_arrows(),
             alone_box,
         }
     }
@@ -101,7 +101,7 @@ impl Home {
             );
             chrome::boxed(frame, theme, self.alone_box);
             self.alone
-                .draw(frame, theme, 1, |_| ListItem::new("Display"));
+                .draw(frame, theme, 1, |_| ListItem::page("Display"));
             return;
         }
         chrome::boxed(frame, theme, self.list_box);
@@ -130,9 +130,8 @@ impl Home {
                 None => "",
             };
             ListItem {
-                label,
                 detail,
-                enabled: true,
+                ..ListItem::page(label)
             }
         });
     }

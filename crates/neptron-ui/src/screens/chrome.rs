@@ -167,6 +167,7 @@ pub(super) fn label(frame: &mut UiFrame, rect: Rect, align: Align, color: Color,
     let clipped = text::draw_in(&mut frame.scene, rect, align, color, text);
     frame.tree.push(TreeRow {
         widget: WidgetKind::Label,
+        kind: None,
         label: text,
         value: None,
         source: None,
@@ -204,6 +205,7 @@ pub(super) fn field(frame: &mut UiFrame, theme: &Theme, rect: Rect, name: &str, 
     );
     frame.tree.push(TreeRow {
         widget: WidgetKind::Label,
+        kind: None,
         label: name,
         value: Some(value),
         source: None,
@@ -270,6 +272,7 @@ fn label_cut(frame: &mut UiFrame, rect: Rect, color: Color, line: &str) {
     draw_cut(frame, rect, color, line);
     frame.tree.push(TreeRow {
         widget: WidgetKind::Label,
+        kind: None,
         label: line,
         value: None,
         source: None,

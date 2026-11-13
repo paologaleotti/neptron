@@ -167,6 +167,7 @@ impl Grid {
             );
             frame.tree.push(TreeRow {
                 widget: WidgetKind::Grid,
+                kind: None,
                 label: entry.label,
                 value: None,
                 source: None,

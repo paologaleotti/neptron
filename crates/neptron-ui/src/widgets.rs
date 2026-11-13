@@ -15,11 +15,22 @@ mod slider;
 pub use dialog::{DIALOG_WIDTH_PX, Dialog, DialogContent, DialogEvent, DialogTone};
 pub use grid::{Grid, GridCell, GridEvent, MAX_COLUMNS};
 pub use list::{List, ListEvent, ListItem, MAX_VISIBLE_ROWS, SCROLLBAR_WIDTH_PX};
-pub use settings_list::{SettingsEvent, SettingsList, source_label};
+pub use settings_list::{
+    HINT_CHANGE, HINT_CHOOSE, HINT_OPEN, HINT_STEP, SettingsEvent, SettingsList, source_label,
+};
 pub use slider::{Slider, SliderEvent, SliderValue};
 
 use crate::geom::{Color, Rect};
 use crate::scene::UiScene;
+
+/// Width of the column at the right edge of a row that holds the arrow of
+/// a row that opens a page, in pixels: the arrow and a gap before it.
+pub const ARROW_COLUMN_PX: u32 = 8;
+/// Width of the arrow, in pixels.
+pub const ARROW_WIDTH_PX: u32 = 4;
+/// Height of the arrow, in pixels: each column to the right is two pixels
+/// shorter, so the tip is one pixel.
+pub const ARROW_HEIGHT_PX: u32 = 2 * ARROW_WIDTH_PX - 1;
 
 /// The next value of an integer setting after one press: `direction` is
 /// `-1` or `1`. A step of zero or less counts as 1. The result stays in
@@ -31,6 +42,24 @@ pub fn step_value(value: i64, min: i64, max: i64, step: i64, direction: i64) -> 
         return value;
     }
     next.clamp(min, max)
+}
+
+/// Draws the arrow of a row that opens a page at the right edge of `inner`,
+/// the row without its padding, centred on the row. The font has `>`, but a
+/// `>` at the edge reads as the end of `< value >`, so the arrow is a
+/// triangle of rectangles.
+fn draw_arrow(scene: &mut UiScene, inner: Rect, color: Color) {
+    let x = add(inner.x, inner.w.saturating_sub(ARROW_WIDTH_PX));
+    let top = add(inner.y, inner.h.saturating_sub(ARROW_HEIGHT_PX) / 2);
+    for column in 0..ARROW_WIDTH_PX {
+        let rect = Rect::new(
+            add(x, column),
+            add(top, column),
+            1,
+            ARROW_HEIGHT_PX - 2 * column,
+        );
+        scene.rect(rect, color);
+    }
 }
 
 fn framed(scene: &mut UiScene, rect: Rect, frame: Color, fill: Color, width_px: u32) {
@@ -218,6 +247,7 @@ mod tests {
                     label: "a label that is long enough to be cut",
                     detail: Some("detail text"),
                     enabled: true,
+                    kind: crate::tree::RowKind::Page,
                 });
 
                 let items: Vec<MenuItem> = (0..rng.below(6))

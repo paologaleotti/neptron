@@ -14,7 +14,7 @@ use super::chrome::{self, Layout};
 use super::page::{Page, PageEvent};
 use super::router::{Nav, Target};
 use super::video;
-use super::{DISPLAY_PAGE, GRID_PATTERN};
+use super::{DISPLAY_PAGE, GRID_PAGE};
 
 /// The lines of the box that shows the output, the mode and the monitor.
 const INFO_LINES: u32 = 3;
@@ -125,8 +125,8 @@ impl DisplayPanel {
                 key,
                 level: self.page.level(),
             }),
-            PageEvent::Reserved(GRID_PATTERN) => Nav::Open(Target::Grid),
-            PageEvent::Reserved(_) | PageEvent::Stay => Nav::Stay,
+            PageEvent::Open(GRID_PAGE) => Nav::Open(Target::Grid),
+            PageEvent::Open(_) | PageEvent::Reserved(_) | PageEvent::Stay => Nav::Stay,
         }
     }
 
@@ -140,7 +140,7 @@ impl DisplayPanel {
             theme,
             "Display",
             "",
-            self.page.accept_hint(snap, "Accept: change"),
+            self.page.hint(snap),
             "Back: return",
         );
         let places = &self.places;

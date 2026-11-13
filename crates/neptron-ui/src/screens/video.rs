@@ -159,6 +159,7 @@ fn result(
 fn push(frame: &mut UiFrame, id: &str, value: &str, rect: Rect, clipped: bool) {
     frame.tree.push(TreeRow {
         widget: WidgetKind::Label,
+        kind: None,
         label: id,
         value: Some(value),
         source: None,

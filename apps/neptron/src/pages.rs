@@ -9,10 +9,10 @@ use neptron_settings::{
 };
 use neptron_ui::Value as UiValue;
 use neptron_ui::screens::{
-    AUDIO_PAGE, DISPLAY_PAGE, GRID_PATTERN, OPEN_DISPLAY, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
 };
 use neptron_ui::snapshot::{
-    ActionId, ChoiceOption, Level as UiLevel, MenuItem, Scopes, SettingKey, SettingValue,
+    ActionId, ChoiceOption, Level as UiLevel, MenuItem, PageId, Scopes, SettingKey, SettingValue,
     SettingsPage,
 };
 
@@ -119,7 +119,7 @@ pub fn display_page(config: &Config, names: Names<'_>) -> SettingsPage {
         .iter()
         .filter_map(|key| row(config, names, key, View::Global))
         .collect();
-    rows.push(action(0, "Grid pattern", GRID_PATTERN));
+    rows.push(page_row(0, "Grid pattern", GRID_PAGE));
     SettingsPage::new(DISPLAY_PAGE, "Display", rows)
 }
 
@@ -140,7 +140,7 @@ pub fn quick_menu_page(config: &Config, names: Names<'_>) -> SettingsPage {
             .iter()
             .filter_map(|key| row(config, names, key, View::Game)),
     );
-    rows.push(action(2, "Display", OPEN_DISPLAY));
+    rows.push(page_row(2, "Display", DISPLAY_PAGE));
     rows.push(action(3, "Quit game", QUIT_GAME));
     SettingsPage::new(QUICK_MENU_PAGE, "Quick menu", rows)
 }
@@ -366,6 +366,16 @@ fn unit(key: &str) -> &'static str {
         AUDIO_VOLUME => "%",
         _ => "",
     }
+}
+
+/// A row that opens `page`. Its key is an action key, as for an action
+/// row: it holds no setting.
+fn page_row(n: u32, label: &str, page: PageId) -> MenuItem {
+    MenuItem::new(
+        SettingKey(ACTION_KEY_BASE + n),
+        label,
+        SettingValue::Page(page),
+    )
 }
 
 fn action(n: u32, label: &str, id: ActionId) -> MenuItem {

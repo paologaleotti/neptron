@@ -102,6 +102,7 @@ fn header(frame: &mut UiFrame, theme: &Theme, screen: &'static str, title: &str)
     frame.scene.rect(line, theme.colors.border);
     frame.tree.push(TreeRow {
         widget: WidgetKind::Label,
+        kind: None,
         label: title,
         value: None,
         source: None,
@@ -121,6 +122,7 @@ fn list(frame: &mut UiFrame, theme: &Theme) {
             label,
             detail,
             enabled: i != 2,
+            kind: crate::tree::RowKind::Action,
         }
     });
 }
@@ -279,6 +281,7 @@ fn font(frame: &mut UiFrame, theme: &Theme) {
         let clipped = text::draw_in(&mut frame.scene, rect, Align::Left, theme.colors.text, line);
         frame.tree.push(TreeRow {
             widget: WidgetKind::Label,
+            kind: None,
             label: line,
             value: None,
             source: None,

@@ -205,6 +205,10 @@ pub enum SettingValue {
     },
     /// A row that does something when the player accepts it.
     Action(ActionId),
+    /// A row that opens a page when the player accepts it: a settings
+    /// page, or a screen of the UI with a reserved page id such as
+    /// [`crate::screens::GRID_PAGE`].
+    Page(PageId),
 }
 
 /// One option of a [`SettingValue::Choice`]: its label, what it gives, and

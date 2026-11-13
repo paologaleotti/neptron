@@ -35,4 +35,4 @@ pub use intent::{Intent, Value};
 pub use scene::{DrawCommand, TextSpan, UiScene};
 pub use snapshot::Snapshot;
 pub use theme::Theme;
-pub use tree::{TreeRow, UiTree, WidgetKind};
+pub use tree::{RowKind, TreeRow, UiTree, WidgetKind};

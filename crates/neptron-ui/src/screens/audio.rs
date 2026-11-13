@@ -41,7 +41,7 @@ impl AudioPanel {
                 key,
                 level: Level::Global,
             }),
-            PageEvent::Reserved(_) | PageEvent::Stay => Nav::Stay,
+            PageEvent::Open(_) | PageEvent::Reserved(_) | PageEvent::Stay => Nav::Stay,
         }
     }
 
@@ -50,7 +50,14 @@ impl AudioPanel {
     }
 
     pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, frame: &mut UiFrame) {
-        chrome::frame(frame, theme, "Audio", "", "Accept: change", "Back: return");
+        chrome::frame(
+            frame,
+            theme,
+            "Audio",
+            "",
+            self.page.hint(snap),
+            "Back: return",
+        );
         self.page.draw(snap, theme, frame);
     }
 }

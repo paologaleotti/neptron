@@ -202,7 +202,7 @@ pub fn value_text<'a, const N: usize>(
         SettingValue::Choice { index, options } => {
             options.get(*index).map_or("?", |o| o.label.as_str())
         }
-        SettingValue::Action(_) => "",
+        SettingValue::Action(_) | SettingValue::Page(_) => "",
     }
 }
 
