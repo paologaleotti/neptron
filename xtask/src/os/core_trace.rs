@@ -27,16 +27,22 @@ pub struct TraceArgs {
     pub bless: bool,
     /// Frames of each plain case to write as PNG files.
     pub dumps: Vec<u32>,
+    /// A case whose ROM is in neither the repository nor the ROM cache is
+    /// reported as skipped and does not fail the run. A ROM with a wrong
+    /// checksum still fails it, and so does a run with no case at all.
+    pub allow_missing_roms: bool,
 }
 
 impl TraceArgs {
-    /// Parses `[--arch A] [--timeout SECS] [--bless] [--dump FRAME[,FRAME...]]`.
+    /// Parses `[--arch A] [--timeout SECS] [--bless] [--dump FRAME[,FRAME...]]
+    /// [--allow-missing-roms]`.
     pub fn parse(args: &[&str], default_arch: Arch) -> Result<Self, OsError> {
         let mut out = Self {
             arch: default_arch,
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             bless: false,
             dumps: Vec::new(),
+            allow_missing_roms: false,
         };
         let mut it = args.iter();
         while let Some(&arg) = it.next() {
@@ -55,6 +61,7 @@ impl TraceArgs {
                     };
                 }
                 "--bless" => out.bless = true,
+                "--allow-missing-roms" => out.allow_missing_roms = true,
                 "--dump" => {
                     for frame in value()?.split(',') {
                         match frame.parse::<u32>() {
@@ -99,8 +106,8 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
     let roms = repo.root.join("tests").join("roms");
     let rom_cache = rom_cache_dir(&cache, std::env::var_os(ROM_CACHE_ENV).as_deref());
     let (cases, skipped) = stage_content(&roms, &rom_cache, &share)?;
-    for (case, reason) in &skipped {
-        eprintln!("xtask: SKIPPED {case}: {reason}");
+    for skip in &skipped {
+        eprintln!("xtask: SKIPPED {}: {}", skip.case, skip.reason);
     }
 
     build_program(&repo.root, &cache, args.arch, &share)?;
@@ -130,7 +137,10 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
     write_dumps(&work.join("frames"), &output)?;
 
     let traces = repo.root.join("tests").join("traces");
-    let mut failures = skipped.len();
+    let mut failures = skip_failures(&skipped, cases.len(), args.allow_missing_roms);
+    if args.allow_missing_roms && cases.is_empty() {
+        eprintln!("xtask: no case has its ROM, so nothing ran");
+    }
     if code != Some(0) {
         eprintln!("xtask: the guest script exited with {code:?}");
         failures += 1;
@@ -139,9 +149,11 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
         failures += usize::from(!check_case(case, &output, &work, &traces, args.bless)?);
     }
     eprintln!(
-        "xtask: core-trace on {}: {} cases, {} failed or skipped{}",
+        "xtask: core-trace on {}: {} cases, {} ran, {} skipped, {} failures{}",
         args.arch.name(),
         CASES.len(),
+        cases.len(),
+        skipped.len(),
         failures,
         if args.bless { " (traces written)" } else { "" }
     );
@@ -163,8 +175,39 @@ fn rom_cache_dir(cache: &Cache, env: Option<&std::ffi::OsStr>) -> PathBuf {
     }
 }
 
-/// A case that does not run, with the reason.
-type Skipped = (&'static str, String);
+/// A case that does not run.
+#[derive(Debug)]
+struct Skipped {
+    /// The name of the case.
+    case: &'static str,
+    /// Why it does not run.
+    reason: String,
+    /// The ROM is in neither the repository nor the ROM cache. A ROM that is
+    /// there but cannot be read or has a wrong checksum is not missing.
+    missing: bool,
+}
+
+impl Skipped {
+    fn new(case: &'static str, reason: String, missing: bool) -> Self {
+        Self {
+            case,
+            reason,
+            missing,
+        }
+    }
+}
+
+/// The failures that the skipped cases give: each skipped case, except a
+/// missing ROM when `allow_missing` is set. With `allow_missing`, a run in
+/// which no case ran (`ran` is 0) is one more failure, so the option never
+/// turns an empty run green.
+fn skip_failures(skipped: &[Skipped], ran: usize, allow_missing: bool) -> usize {
+    let counted = skipped
+        .iter()
+        .filter(|s| !(allow_missing && s.missing))
+        .count();
+    counted + usize::from(allow_missing && ran == 0)
+}
 
 /// Where the ROM of `case` is: in `roms` at its path when the repository
 /// holds it, else in `rom_cache` by its file name.
@@ -196,32 +239,42 @@ fn stage_content(
     let mut skipped = Vec::new();
     for case in CASES {
         let Some((expected, _)) = sums.iter().find(|(_, p)| p == case.rom) else {
-            skipped.push((case.name, format!("{} is not in SHA256SUMS", case.rom)));
+            skipped.push(Skipped::new(
+                case.name,
+                format!("{} is not in SHA256SUMS", case.rom),
+                false,
+            ));
             continue;
         };
         let Some(path) = find_rom(&case, roms, rom_cache) else {
-            skipped.push((
+            skipped.push(Skipped::new(
                 case.name,
                 format!(
                     "{} is missing; get it as tests/roms/README.md says and put it at {}",
                     case.rom_file(),
                     rom_cache.join(case.rom_file()).display()
                 ),
+                true,
             ));
             continue;
         };
         let data = match std::fs::read(&path) {
             Ok(data) => data,
             Err(e) => {
-                skipped.push((case.name, format!("{}: {e}", path.display())));
+                skipped.push(Skipped::new(
+                    case.name,
+                    format!("{}: {e}", path.display()),
+                    false,
+                ));
                 continue;
             }
         };
         let found = sha256::hex(&data);
         if &found != expected {
-            skipped.push((
+            skipped.push(Skipped::new(
                 case.name,
                 format!("{} has SHA-256 {found}, not {expected}", path.display()),
+                false,
             ));
             continue;
         }
@@ -400,6 +453,7 @@ mod tests {
         assert_eq!(a.arch, Arch::Aarch64);
         assert_eq!(a.timeout, Duration::from_secs(600));
         assert!(!a.bless);
+        assert!(!a.allow_missing_roms);
         assert!(a.dumps.is_empty());
         let a = TraceArgs::parse(
             &[
@@ -410,6 +464,7 @@ mod tests {
                 "59,899",
                 "--timeout",
                 "90",
+                "--allow-missing-roms",
             ],
             Arch::Aarch64,
         )
@@ -418,6 +473,7 @@ mod tests {
         assert!(a.bless);
         assert_eq!(a.dumps, [59, 899]);
         assert_eq!(a.timeout, Duration::from_secs(90));
+        assert!(a.allow_missing_roms);
         for bad in [
             &["--dump", "900"][..],
             &["--dump", "x"],
@@ -455,9 +511,15 @@ mod tests {
         let (cases, skipped) = stage_content(&roms, &rom_cache, &share).unwrap();
         let names: Vec<&str> = cases.iter().map(|c| c.name).collect();
         assert_eq!(names, ["fceumm", "fceumm-zip", "snes9x", "snes9x-zip"]);
-        let names: Vec<&str> = skipped.iter().map(|(c, _)| *c).collect();
+        let names: Vec<&str> = skipped.iter().map(|s| s.case).collect();
         assert_eq!(names, ["genesis_plus_gx", "genesis_plus_gx-zip"]);
-        assert!(skipped[0].1.contains("has SHA-256"), "{}", skipped[0].1);
+        assert!(
+            skipped[0].reason.contains("has SHA-256"),
+            "{}",
+            skipped[0].reason
+        );
+        assert!(!skipped[0].missing, "a wrong ROM is not a missing ROM");
+        assert_eq!(skip_failures(&skipped, cases.len(), true), 2);
         assert_eq!(
             std::fs::read(share.join("roms/nes/240pee.nes")).unwrap(),
             nes
@@ -473,7 +535,10 @@ mod tests {
         let (cases, skipped) = stage_content(&roms, &rom_cache, &share).unwrap();
         assert_eq!(cases.len(), 2);
         assert_eq!(skipped.len(), 4);
-        let reason = &skipped[0].1;
+        assert!(skipped.iter().all(|s| s.missing));
+        assert_eq!(skip_failures(&skipped, cases.len(), false), 4);
+        assert_eq!(skip_failures(&skipped, cases.len(), true), 0);
+        let reason = &skipped[0].reason;
         assert!(
             reason.starts_with("240pSuite.sfc is missing")
                 && reason.contains(&rom_cache.join("240pSuite.sfc").display().to_string()),
@@ -481,6 +546,34 @@ mod tests {
         );
         std::fs::remove_dir_all(&roms).unwrap();
         std::fs::remove_dir_all(&share).unwrap();
+    }
+
+    #[test]
+    fn missing_roms_are_allowed_only_with_the_option_and_never_for_an_empty_run() {
+        let missing = |case| Skipped::new(case, "missing".to_owned(), true);
+        let wrong = Skipped::new("fceumm", "wrong".to_owned(), false);
+        let skipped = [missing("snes9x"), missing("genesis_plus_gx")];
+        assert_eq!(skip_failures(&skipped, 2, false), 2);
+        assert_eq!(skip_failures(&skipped, 2, true), 0);
+        assert_eq!(skip_failures(&skipped, 0, true), 1, "nothing ran");
+        assert_eq!(skip_failures(&[], 6, true), 0);
+        assert_eq!(skip_failures(&[wrong], 2, true), 1, "a wrong ROM fails");
+    }
+
+    #[test]
+    fn the_nes_rom_is_in_the_repository() {
+        let roms = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/roms");
+        assert!(roms.join("nes/240pee.nes").is_file());
+        let share = temp_dir("repo-share");
+        let no_cache = temp_dir("no-cache");
+        let (cases, _) = stage_content(&roms, &no_cache, &share).unwrap();
+        let names: Vec<&str> = cases.iter().map(|c| c.name).collect();
+        assert!(
+            names.contains(&"fceumm") && names.contains(&"fceumm-zip"),
+            "{names:?}"
+        );
+        std::fs::remove_dir_all(&share).unwrap();
+        std::fs::remove_dir_all(&no_cache).unwrap();
     }
 
     #[test]
