@@ -64,6 +64,23 @@ pub struct PolicySettings {
     pub horizontal: Option<HorizontalStrategy>,
     /// The settings of the Switchres generator.
     pub solver: Settings,
+    /// How wide a game is on a TV profile. Only a TV profile reads it.
+    pub tv_width: TvWidth,
+}
+
+/// How wide the game is on a TV profile, in samples of the 720-sample
+/// line. In the settings files: `aspect`, `integer`, `fill`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TvWidth {
+    /// The width of the console picture at the game's display aspect,
+    /// snapped to a whole factor of the game width when one is near.
+    #[default]
+    Aspect,
+    /// The largest whole factor of the game width that fits the safe
+    /// width: every pixel has the same width.
+    Integer,
+    /// The full safe width.
+    Fill,
 }
 
 /// The widths that a fixed super width uses, widest first.
@@ -97,6 +114,20 @@ impl RefreshPolicy {
     }
 }
 
+impl TvWidth {
+    /// Every value, in the order of the Display panel.
+    pub const ALL: [Self; 3] = [Self::Aspect, Self::Integer, Self::Fill];
+
+    /// The value in the settings files.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Aspect => "aspect",
+            Self::Integer => "integer",
+            Self::Fill => "fill",
+        }
+    }
+}
+
 impl HorizontalStrategy {
     /// The default for a GPU: a GPU with a pixel clock floor needs a super
     /// width, and a GPU without one sends the game width.
@@ -121,13 +152,15 @@ impl HorizontalStrategy {
 
 impl Default for PolicySettings {
     /// The defaults of the settings schema: `auto` and `exact`, the GPU's
-    /// horizontal strategy, and the default generator settings.
+    /// horizontal strategy, the default generator settings, and `aspect`
+    /// for a TV.
     fn default() -> Self {
         Self {
             style: PictureStyle::Auto,
             refresh: RefreshPolicy::Exact,
             horizontal: None,
             solver: Settings::default(),
+            tv_width: TvWidth::Aspect,
         }
     }
 }
@@ -139,6 +172,12 @@ impl fmt::Display for PictureStyle {
 }
 
 impl fmt::Display for RefreshPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.key())
+    }
+}
+
+impl fmt::Display for TvWidth {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.key())
     }
@@ -162,6 +201,7 @@ pub(crate) struct Effective {
     pub(crate) refresh: RefreshPolicy,
     pub(crate) horizontal: HorizontalStrategy,
     pub(crate) solver: Settings,
+    pub(crate) tv_width: TvWidth,
 }
 
 /// Step 2: read the effective settings. No strategy gives the GPU default.
@@ -182,6 +222,7 @@ pub(crate) fn read_settings(settings: &PolicySettings, caps: &GpuCaps) -> Effect
         refresh: settings.refresh,
         horizontal,
         solver: settings.solver,
+        tv_width: settings.tv_width,
     }
 }
 
@@ -277,5 +318,8 @@ mod tests {
         ]
         .map(RefreshPolicy::key);
         assert_eq!(policies, ["exact", "exact_x2", "force_50", "force_60"]);
+        let widths: Vec<&str> = TvWidth::ALL.iter().map(|w| w.key()).collect();
+        assert_eq!(widths, ["aspect", "integer", "fill"]);
+        assert_eq!(PolicySettings::default().tv_width, TvWidth::Aspect);
     }
 }

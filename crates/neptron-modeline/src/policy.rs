@@ -53,7 +53,7 @@ pub use refresh::{
     FORCE_50_MHZ, FORCE_60_MHZ, REFRESH_MATCH_MHZ, RefreshKind, RefreshTarget, SkippedTarget,
 };
 pub use settings::{
-    FIXED_SUPER_WIDTHS, HorizontalStrategy, PictureStyle, PolicySettings, RefreshPolicy,
+    FIXED_SUPER_WIDTHS, HorizontalStrategy, PictureStyle, PolicySettings, RefreshPolicy, TvWidth,
 };
 pub use shape::{BORDER_LINES, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OverscanCrop};
 pub use source::OrientedSource;

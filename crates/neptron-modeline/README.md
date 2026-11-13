@@ -17,7 +17,7 @@ Safe Switchres wrapper, monitor profiles and the ODREN policy: from source geome
 ### API
 
 - `fn decide(&SourceGeometry, &PolicySettings, &MonitorProfile, &GpuCaps) -> Result<Plan, PolicyError>`: steps 1 to 5.
-- `PolicySettings`: `style` (`auto`, `native`, `2x`, `3x`, `4x`), `refresh` (`exact`, `exact_x2`, `force_50`, `force_60`), `horizontal` (`None` for the GPU default, or a strategy that the system names), and the Switchres `Settings`.
+- `PolicySettings`: `style` (`auto`, `native`, `2x`, `3x`, `4x`), `refresh` (`exact`, `exact_x2`, `force_50`, `force_60`), `horizontal` (`None` for the GPU default, or a strategy that the system names), the Switchres `Settings`, and `tv_width` (`aspect`, `integer`, `fill`), which only a TV profile reads.
 - `Plan`: the source after the rotation, the effective settings, the refresh targets that the profile does not cover (`skipped`), and `considered`: every candidate in preference order. Each `Considered` has its `Rung`, its `RefreshTarget` and an outcome: a `Proposal`, or a `Dropped` reason with the rule name and the numbers.
 - `Proposal`: the `Modeline` to validate and set, the `Placement` (crop, destination, filter, UI destination, the whole-scale claims), the `Timing` (game rate, target, line rate, field rate, frames per game frame), the width rule (`HorizontalScale`), and the padding when the mode has one.
 - `fn choose(&Plan, validate) -> Choice`: step 6. The first proposal that the validator accepts wins. The refusals before it are kept.

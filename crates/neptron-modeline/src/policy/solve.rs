@@ -291,7 +291,7 @@ mod tests {
 
     use super::*;
     use crate::Settings;
-    use crate::policy::{PictureStyle, RefreshKind, RefreshPolicy};
+    use crate::policy::{PictureStyle, RefreshKind, RefreshPolicy, TvWidth};
 
     #[test]
     fn a_multiple_of_the_width_stops_before_an_overflow() {
@@ -311,6 +311,7 @@ mod tests {
             super_width: 2_560,
             monitor_aspect: crate::Aspect::STANDARD_CRT,
         },
+        tv_width: TvWidth::Aspect,
     };
 
     const CAPS: GpuCaps = GpuCaps {

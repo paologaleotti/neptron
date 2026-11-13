@@ -5,7 +5,7 @@
 use neptron_modeline::Settings;
 use neptron_modeline::policy::{
     self, Choice, HorizontalScale, HorizontalStrategy, PictureStyle, PolicySettings, RefreshPolicy,
-    Rung, Winner,
+    Rung, TvWidth, Winner,
 };
 use neptron_safety::{Rejection, ValidatedMode, validate};
 use neptron_types::{GpuCaps, Modeline, MonitorProfile, Rotation, SourceGeometry};
@@ -238,6 +238,7 @@ fn plan_family(
         refresh: family.refresh,
         horizontal: family.horizontal,
         solver: Settings::default(),
+        tv_width: TvWidth::default(),
     };
     let plan = policy::decide(&family.source, &settings, profile, caps)
         .map_err(|e| format!("the policy gives no plan: {e}"))?;
