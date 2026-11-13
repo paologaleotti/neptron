@@ -1,8 +1,6 @@
 //! A settings page of the app in a framed box: the rows of the display
 //! panel, of the quick menu and of every other page.
 
-use core::fmt::Write;
-
 use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
@@ -24,11 +22,11 @@ const CRUMB_BYTES: usize = 64;
 /// It lives on the stack, so opening a screen allocates nothing for it.
 pub(super) type Crumb = StackText<CRUMB_BYTES>;
 
-/// `text` as a [`Crumb`], cut at a character boundary when it is longer.
+/// `text` as a [`Crumb`]. A longer text is cut at a character boundary and
+/// ends with an ellipsis.
 pub(super) fn crumb(text: &str) -> Crumb {
     let mut crumb = Crumb::new();
-    // `StackText` never fails; it drops what does not fit.
-    let _ = crumb.write_str(text);
+    crumb.push_cut(text);
     crumb
 }
 
@@ -159,5 +157,24 @@ impl Page {
     pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, frame: &mut UiFrame) {
         chrome::boxed(frame, theme, self.list_box);
         self.list.draw(frame, theme, self.rows(snap));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_label_is_cut_with_an_ellipsis_on_a_character_boundary() {
+        let label = "\u{c9}t\u{e9} \u{e0} la plage ".repeat(8);
+        assert!(label.len() > CRUMB_BYTES);
+        let cut = crumb(&label);
+        let text = cut.as_str();
+        assert!(text.ends_with("..."), "{text:?}");
+        assert!(text.len() <= CRUMB_BYTES);
+        let head = text.trim_end_matches("...");
+        assert!(label.starts_with(head));
+        assert!(head.len() + 4 > CRUMB_BYTES - 3, "the head fills the room");
+        assert_eq!(crumb("Audio").as_str(), "Audio");
     }
 }

@@ -2303,3 +2303,20 @@ fn a_change_whose_row_is_not_in_the_snapshot_stays_for_the_game() {
     menu.handle(Accept, &snap, &mut out);
     assert_eq!(out, [Intent::Resume], "no level is known for the row");
 }
+
+#[test]
+fn a_very_long_path_in_the_tree_ends_with_an_ellipsis() {
+    let long = "\u{c9}t\u{e9} \u{e0} la plage, le jeu ".repeat(12);
+    assert!(long.len() > super::breadcrumb::BREADCRUMB_BYTES);
+    let mut snap = in_game();
+    snap.session = Some(SessionInfo::new(GameId(1), long.as_str()));
+    let mut run = Run::new();
+    run.step(&snap, &[]);
+    run.step(&snap, &[Menu]);
+    let (shown, whole) = title(&run);
+    assert_eq!(shown.chars().count(), 38);
+    let whole = whole.expect("the whole path");
+    assert!(whole.ends_with("..."), "{whole:?}");
+    assert!(whole.len() <= super::breadcrumb::BREADCRUMB_BYTES);
+    assert!(long.starts_with(whole.trim_end_matches("...")));
+}

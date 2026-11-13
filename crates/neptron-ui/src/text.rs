@@ -136,6 +136,9 @@ impl<'a> Iterator for Wrap<'a> {
 pub struct StackText<const N: usize> {
     bytes: [u8; N],
     len: usize,
+    /// True once [`StackText::push_cut`] cut a text: it ends with an
+    /// ellipsis and takes nothing more.
+    cut: bool,
 }
 
 impl<const N: usize> StackText<N> {
@@ -144,6 +147,7 @@ impl<const N: usize> StackText<N> {
         Self {
             bytes: [0; N],
             len: 0,
+            cut: false,
         }
     }
 
@@ -156,6 +160,34 @@ impl<const N: usize> StackText<N> {
     /// Removes the text.
     pub fn clear(&mut self) {
         self.len = 0;
+        self.cut = false;
+    }
+
+    /// Appends `text` and returns true when it fits. Else appends the
+    /// longest head of `text` that leaves room for [`ELLIPSIS`], cut at a
+    /// character boundary, then the ellipsis, and returns false: the text
+    /// is full and takes nothing more.
+    pub fn push_cut(&mut self, text: &str) -> bool {
+        let free = N.saturating_sub(self.len);
+        if self.cut {
+            return false;
+        }
+        if text.len() <= free {
+            // `StackText` never fails; the text fits.
+            let _ = fmt::Write::write_str(self, text);
+            return true;
+        }
+        if free >= ELLIPSIS.len() {
+            let mut end = (free - ELLIPSIS.len()).min(text.len());
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            // Both parts fit in `free`; `StackText` never fails.
+            let _ = fmt::Write::write_str(self, text.get(..end).unwrap_or(""));
+            let _ = fmt::Write::write_str(self, ELLIPSIS);
+            self.cut = true;
+        }
+        false
     }
 }
 
@@ -252,6 +284,21 @@ fn offset(x: i32, by: u32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn push_cut_ends_a_text_that_does_not_fit_with_an_ellipsis() {
+        let mut text = StackText::<9>::new();
+        assert!(text.push_cut("abc"));
+        assert!(!text.push_cut("\u{e9}\u{e9}\u{e9}\u{e9}"));
+        // 6 bytes are free: 3 for the ellipsis, and the second 2-byte
+        // character does not fit in the 3 before it.
+        assert_eq!(text.as_str(), "abc\u{e9}...");
+        assert!(!text.push_cut("x"), "a full text takes nothing");
+        assert_eq!(text.as_str(), "abc\u{e9}...");
+        let mut tiny = StackText::<2>::new();
+        assert!(!tiny.push_cut("abc"));
+        assert_eq!(tiny.as_str(), "");
+    }
     use core::fmt::Write;
 
     #[test]

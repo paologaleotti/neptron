@@ -63,13 +63,13 @@ pub(super) fn fit(parts: &[&str], room: usize, out: &mut Breadcrumb) -> bool {
     true
 }
 
-/// Writes the whole path, `parts` joined by the separator.
+/// Writes the whole path, `parts` joined by the separator. A path longer
+/// than the buffer ends with an ellipsis at a character boundary.
 pub(super) fn write_joined(out: &mut Breadcrumb, parts: &[&str]) {
     for (i, part) in parts.iter().enumerate() {
-        if i > 0 {
-            write_all(out, &[SEPARATOR]);
+        if (i > 0 && !out.push_cut(SEPARATOR)) || !out.push_cut(part) {
+            return;
         }
-        write_all(out, &[part]);
     }
 }
 
