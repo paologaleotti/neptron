@@ -509,3 +509,11 @@ Each check is `needs-hardware`.
 - [ ] Do: in a game, hold Select and Start for 5 s. Expect: a short 880 Hz tone, the game goes on in the safe picture with no quick menu, and the game did not pause itself or reset during the hold. Opening the quick menu shows "Safe mode: the picture was reset. ...". Record: whether the tone sounds whole and whether the game sound is late after it.
 - [ ] Do: boot once with the state partition damaged (for example `dd if=/dev/zero` over its first MiB on a copy of the stick) and once on a stick with no free space after the state partition. Expect: `/run/neptron/storage.toml` names the RAM folder and its reason, the log has `neptron: storage: ...`, and a Warning notice shows until OK. Record: the file and the notice text.
 - [ ] Do: in a game, tap Select and Start, then hold them for 2 s and let go. Expect: the quick menu opens at the release both times, and the game sees neither button while both are down; it can see Select for the one frame before Start goes down, when Select is pressed first. Record: how late the menu feels after the release.
+
+## Library rescan (task C14)
+
+Each check is `needs-hardware`.
+
+- [ ] Do: with the game list on screen, copy a ROM into `roms/nes` of the exFAT share over the network (SMB or `scp`), then open `Display` and accept `Rescan games`. Expect: the row reads `Scanning games...`, then a notice `1 game added.`, and the game is in the list with no restart. Record: the time from the press to the notice for the library on the stick, and the game count.
+- [ ] Do: start a game, copy a ROM into the share over the network while it runs, then quit the game. Expect: the list that comes back holds the new game, and the notice says `1 game added.`. Then `stat -c '%y' /share/roms/nes` before and after one more copy. Expect: the folder time changes with each new file on the exFAT driver of the image. Record: both times.
+- [ ] Do: on a Windows PC and on a Mac, add a ROM to the share partition of the stick, then read the time of its folder on the device (`stat -c '%y'`) and compare it with the time before. Record: whether each system changed the folder time. A new boot reads every folder, so the game shows in both cases; the record says whether a check after a game would also find such a change.
