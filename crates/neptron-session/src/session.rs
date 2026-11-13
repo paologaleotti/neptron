@@ -8,7 +8,7 @@ use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::{Hotkey, Hotkeys, PortStates};
 use neptron_libretro::{GameGeometry, Host, LogRecord, RunError, Timing};
 use neptron_types::{Frame, InputEvent, SourceGeometry};
-use neptron_video::{Outcome, VideoEngine, VideoStatusText};
+use neptron_video::{VideoEngine, VideoStatusText};
 
 use crate::pads::PadMask;
 use crate::picture::Picture;
@@ -91,8 +91,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// Closes the quick menu. The core runs again from the next frame. The
     /// buttons held now reach the core only after their release, so the
     /// button that chose "resume" does not reach the game, and Select and
-    /// Start held now open no menu at their release. A modeset that
-    /// failed on the device is tried again.
+    /// Start held now open no menu at their release. A source that the
+    /// engine blocked after a device error of its modeset is tried again.
     pub fn resume(&mut self) {
         if self.state != State::Paused {
             return;
@@ -100,12 +100,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         self.state = State::Running;
         self.mask.hold_back_pressed(&self.ports);
         self.hotkeys.cancel_quick_menu();
-        let failed = self
-            .engine
-            .trace()
-            .last()
-            .is_some_and(|r| matches!(r.outcome, Outcome::SetModeFailed(_)));
-        if failed {
+        if self.engine.source_blocked() {
             self.engine.retry();
         }
     }

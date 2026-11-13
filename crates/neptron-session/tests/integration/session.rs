@@ -526,3 +526,58 @@ fn a_timing_change_makes_a_new_pipeline_and_a_debounced_modeset() {
         }
     );
 }
+
+/// A source whose modeset failed on the device, then for one frame a
+/// source that needs no new mode, then the failed source again: its block
+/// holds, and the scale-only record hides the failure.
+const BLOCKED_SCRIPT: &str = "\
+neptron-testcore 1
+pixel_format rgb565
+geometry 256 224 1333
+max_size 512 480
+timing 60099 32040
+at 20 geometry 512 448 1333
+at 40 geometry 256 224 1500
+at 41 geometry 512 448 1333
+";
+
+#[test]
+fn closing_the_menu_retries_a_blocked_source_whatever_the_last_record() {
+    with_script!(
+        "closing_the_menu_retries_a_blocked_source_whatever_the_last_record",
+        BLOCKED_SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.display.fault_mode(
+                1,
+                neptron_testkit::ModeFault::Device {
+                    reason: "EIO".to_owned(),
+                },
+            );
+            while rig.core_frame() < 70 {
+                let _ = rig.session.run_frame(None);
+            }
+            assert!(rig.session.video().source_blocked());
+            assert!(
+                !matches!(
+                    rig.session.video().trace().last().map(|r| &r.outcome),
+                    Some(neptron_video::Outcome::SetModeFailed(_))
+                ),
+                "a later record hides the failure"
+            );
+            let calls = rig.display.mode_calls().len();
+            rig.press(&[Control::Select, Control::Start]);
+            rig.run(1);
+            rig.release(&[Control::Select, Control::Start]);
+            rig.run(1);
+            assert!(rig.session.paused());
+            rig.session.resume();
+            rig.run(1);
+            assert_eq!(
+                rig.display.mode_calls().len(),
+                calls + 1,
+                "the blocked source is tried again"
+            );
+        }
+    );
+}

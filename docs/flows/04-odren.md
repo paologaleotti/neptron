@@ -209,7 +209,7 @@ The session also mutes while the quick menu is open, while `current_refused()` i
 | Outcome words | `scale only`, `modeset`, `kept the mode: {reason}`, `set_mode failed: {error}`, `read back {w}x{h}{p or i} refused`, `last good mode set again`, `output off: no valid mode`, `blank failed: {error}`. |
 | Reason words | `the game is turned ({rotation}) and the renderer does not rotate`, `no plan: {error}`, `every proposal was refused`, `the inputs refuse the mode on screen: {refusal}`. Refusal: `validator: {rejection}` or `the display driver refused it`. |
 | Log line | `frame {decided} (asked {asked}): {trigger} {w}x{h}{p or i} at {mHz} mHz: {outcome}`, then `, {rung} {w}x{h}{p or i} at {mHz} mHz`, `, read back {drift} mHz off`, `, {count} decisions`, `, shown after {n} frames` when they apply. |
-| Who reads it | The tests (`tests/golden/switch_trace.txt`), `Session::resume` (last outcome), and the control protocol `video_state` (`switch_count`, the modesets among the records). |
+| Who reads it | The tests (`tests/golden/switch_trace.txt`), and the control protocol `video_state` (`switch_count`, the modesets among the records). |
 
 ## What can go wrong
 
@@ -219,7 +219,7 @@ The session also mutes while the quick menu is open, while `current_refused()` i
 | The driver refuses the winner (`ModeRefused`). | The old mode stays. On the next frame the engine sets the next candidate of the plan, with mute. | Automatic. When every candidate is refused, `Kept(NoWinner)`; a refused mode on screen is then blanked. |
 | The driver reads back another size or scan. | A short sync change: the wrong mode, then the last good mode again in the same present. | Automatic. The next frame tries the next candidate. |
 | The restore of the last good mode also fails. | No signal (blank). | The next decision with a winner sets a mode. The guard reverts or goes to safe mode after `NO_PICTURE_LIMIT_NS` = 1 s of no picture. Blind recovery works too. |
-| A device error on a geometry modeset. | The old mode stays. The game picture of the new size shows whole in the old destination. | The block lifts when the old source comes back, or on `retry()`. `Session::resume` (closing the quick menu) calls `retry()` when the last trace record is `SetModeFailed`. |
+| A device error on a geometry modeset. | The old mode stays. The game picture of the new size shows whole in the old destination. | The block lifts when the old source comes back, or on `retry()`. `Session::resume` (closing the quick menu) calls `retry()` when the engine has a blocked source (`source_blocked()`), whatever the last trace record. |
 | A device error on a monitor or settings change. | The old mode stays for up to 3 frames of attempts. | After `MODESET_ATTEMPTS` = 3 the source is blocked. If the old mode is refused by the new inputs, it is blanked, and the guard reverts after 1 s. |
 | The flip never completes. | The picture freezes. `PendingFlip` on every frame. Sound off after a modeset. | The session ends the game after `FLIPLESS_FRAMES_LIMIT` = 10 frames with no flip: notice "The game stopped: no flip completed for 10 frames; the last error: {error}." The run relaunches to the game list, which opens the display again. |
 | No mode exists for a game at launch (no winner, no mode on screen). | No picture. | `present` returns `NoMode` with no flip. After `FLIPLESS_FRAMES_LIMIT` = 10 frames the game ends with the same "The game stopped" notice. |

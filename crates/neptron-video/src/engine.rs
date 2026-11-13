@@ -196,6 +196,12 @@ impl<D: Display> VideoEngine<D> {
         self.odren.current_refused()
     }
 
+    /// A source is blocked after a device error of its `set_mode`. See
+    /// [`Odren::source_blocked`].
+    pub fn source_blocked(&self) -> bool {
+        self.odren.source_blocked()
+    }
+
     /// The output is off: no valid mode existed, and the engine called
     /// `Display::blank`. See [`Odren::blanked`].
     pub fn blanked(&self) -> bool {

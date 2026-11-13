@@ -55,7 +55,7 @@ The size comes from the last frame, because some cores send a new size without t
 - Select+Start (and the Start hold, `input.menu_hold_start_seconds`) opens it. The hotkey pauses the core. A second quick menu hotkey while it is open does nothing: the menu is never a toggle (OP-051). The app closes it with `resume()`.
 - On `resume()`, every button held at that moment reaches the core only after its release. The button that chose "resume" does not reach the game, and after a Start hold the game sees Start go up and no new press (OP-051).
 - `FrameReport::blind_recovery` reports the 5 s hold of the combination, also while the menu is open. The safety layer acts on it.
-- `resume()` calls the engine's `retry()` when the last switch record is a failed `set_mode`.
+- `resume()` calls the engine's `retry()` when the engine has a source blocked after a device error of its `set_mode` (`VideoEngine::source_blocked`), whatever the last switch record.
 - Opening the menu flushes the save RAM.
 
 ## Display errors

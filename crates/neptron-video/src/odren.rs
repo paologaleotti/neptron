@@ -297,6 +297,13 @@ impl Odren {
         self.refused_on_screen
     }
 
+    /// A source is blocked: its `set_mode` failed on the device, and the
+    /// engine does not try it again until the source on screen comes back,
+    /// an input changes, or [`Odren::retry`].
+    pub fn source_blocked(&self) -> bool {
+        self.blocked.is_some()
+    }
+
     /// The engine has not yet decided on its current inputs: an input
     /// change or `retry` waits for the next frame, a modeset of that
     /// decision failed and is tried again on the next frame, or a modeset
