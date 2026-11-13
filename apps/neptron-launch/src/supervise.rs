@@ -2,7 +2,7 @@
 
 use std::io;
 
-use crate::backoff::{Backoff, Exit, Next};
+use crate::backoff::{Backoff, Exit, Next, NoDisplayLog};
 
 /// The frontend process, as the supervisor sees it.
 pub trait Frontend {
@@ -55,6 +55,7 @@ pub fn supervise<F: Frontend, T: Time>(
     backoff: &mut Backoff,
 ) -> Result<u64, SuperviseError> {
     let mut runs = 0u64;
+    let mut no_display_log = NoDisplayLog::new();
     loop {
         let started_ns = time.now_ns();
         let code = frontend
@@ -71,10 +72,14 @@ pub fn supervise<F: Frontend, T: Time>(
             Next::Stop => return Ok(runs),
             Next::Restart { after_ns } => {
                 if exit == Exit::NoDisplay {
-                    crate::say!(
-                        "neptron-launch: the frontend found no display; start again in {} ms",
-                        after_ns / 1_000_000
-                    );
+                    if no_display_log.due(now_ns) {
+                        crate::say!(
+                            "neptron-launch: the frontend found no display; it starts again every {} ms. \
+                             An analog connector with no EDID (a VGA CRT) is used only when \
+                             display.output names it",
+                            after_ns / 1_000_000
+                        );
+                    }
                 } else if after_ns > 0 {
                     crate::say!(
                         "neptron-launch: the frontend ended with {code:?} after {} ms, crash {} in a row; start again in {} ms",

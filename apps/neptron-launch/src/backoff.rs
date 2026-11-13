@@ -18,6 +18,36 @@ pub const NO_DISPLAY_EXIT_CODE: i32 = 69;
 /// picture within one wait of the frontend.
 pub const NO_DISPLAY_WAIT_NS: u64 = 1_000_000_000;
 
+/// The shortest time between two log lines for starts with no display, in
+/// nanoseconds. A CRT with no EDID on `auto` never gives a display, and a
+/// line every 16 s would fill the log.
+pub const NO_DISPLAY_LOG_INTERVAL_NS: u64 = 60_000_000_000;
+
+/// When the launcher logs a start with no display: the first time, then at
+/// most once per [`NO_DISPLAY_LOG_INTERVAL_NS`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NoDisplayLog {
+    last_ns: Option<u64>,
+}
+
+impl NoDisplayLog {
+    /// A log that has written no line yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// True when a line is due at `now_ns`. A true answer counts as a line.
+    pub fn due(&mut self, now_ns: u64) -> bool {
+        let due = self
+            .last_ns
+            .is_none_or(|last| now_ns.saturating_sub(last) >= NO_DISPLAY_LOG_INTERVAL_NS);
+        if due {
+            self.last_ns = Some(now_ns);
+        }
+        due
+    }
+}
+
 /// The wait before the first restart after a crash, in nanoseconds.
 pub const BACKOFF_FIRST_NS: u64 = 250_000_000;
 
@@ -267,6 +297,20 @@ mod tests {
                 "no display uses up no relaunch"
             );
         }
+    }
+
+    #[test]
+    fn the_no_display_line_comes_once_then_at_most_once_a_minute() {
+        let mut log = NoDisplayLog::new();
+        let s = 1_000_000_000;
+        let due: Vec<bool> = [0, 16, 32, 59, 60, 61, 119, 120, 500]
+            .iter()
+            .map(|t| log.due(t * s))
+            .collect();
+        assert_eq!(
+            due,
+            [true, false, false, false, true, false, false, true, true]
+        );
     }
 
     #[test]
