@@ -53,9 +53,40 @@ Measured on 2026-11-13.
 
 | Runner | CPUs and memory | Free disk | KVM |
 | --- | --- | --- | --- |
+| `ubuntu-24.04` | 4, 15 GiB | `/` 86 GB, 120 GB after "Free disk space"; no `/mnt` | Yes, after the udev rule |
 | `ubuntu-24.04-arm` | 4, 15 GiB | `/` 107 GB, 123 GB after "Free disk space"; no `/mnt` | No: there is no `/dev/kvm`, so the aarch64 guest runs under emulation (TCG) |
 
-The image job deletes about 16 GB of SDKs that it does not use (.NET, Android, GHC, CodeQL, Swift, PowerShell, Chromium, Azure CLI, Julia, Java). It keeps the Buildroot data in `/mnt/neptron` when `/mnt` has 50 GB free, else in `/home/runner/neptron-work`. The Docker volumes of `os build` are bind volumes on that directory, so the runner user can cache and pack them.
+The runners now have a 145 GB root disk. The often quoted 14 GB free is out of date, and the 44 GB output of the PC image fits with room for its packed base. The image job deletes SDKs that it does not use (.NET, Android, GHC, CodeQL, Swift, PowerShell, Chromium, Azure CLI, Julia, Java): 35 GB on `ubuntu-24.04`, 16 GB on `ubuntu-24.04-arm`. It keeps the Buildroot data in `/mnt/neptron` when `/mnt` has 50 GB free, else in `/home/runner/neptron-work`. The Docker volumes of `os build` are bind volumes on that directory, so the runner user can cache and pack them.
+
+## Measured times
+
+From the runs of pull request 1 on 2026-11-13. Cold means no cache and no base.
+
+| Job | Cold | Warm |
+| --- | --- | --- |
+| `lint` | 42 s and 44 s | not measured yet |
+| `test-linux` | 1 min 57 s and 2 min 0 s (`verify --tier 2`: 98 s) | not measured yet |
+| `test-macos` | 2 min 49 s and 3 min 3 s (`verify --tier 2`: 145 s) | not measured yet |
+| `image aarch64`, build step | 57 min and 40 min | not measured yet |
+| `image x86_64`, build step | more than 320 min (the step limit; it stopped in the kernel build), then 4 h 26 min (15,941 s) | not measured yet |
+
+The two cold PC builds show how much the shared runners vary: the same work took over 320 minutes once and 266 minutes the next time. The partial base (see below) makes the slow case finish in a second run instead of failing for ever.
+
+Sizes of a cold build:
+
+| Target | Buildroot output | Downloads | Compiler cache | Base artifact |
+| --- | --- | --- | --- | --- |
+| x86\_64 | 44 GB (`build/` 38 GB; host and target LLVM and clang about 3 GB each) | 1.8 GB | 1.1 GB | 7.45 GB packed (10.36 GB as a partial base, which is not pruned); packing 495 to 641 s |
+| aarch64 | 17 GB (`build/` 15 GB) | 1.6 GB | 0.3 GB | 3.05 GB packed (4.40 GB as a partial base); packing 142 to 172 s |
+
+An upload of the base runs at about 160 MB/s.
+
+Tier 3 on the images:
+
+| Check | x86\_64 (KVM) | aarch64 (TCG on the arm runner) |
+| --- | --- | --- |
+| `os boot-check` | BIOS: first frame 4.6 s after QEMU start, the notice at 14.1 s. UEFI: 5.5 s and 15.1 s. Both PASS | First frame 96.8 s, the notice at 103.3 s. PASS |
+| `os app-check` | PASS, 44 s | PASS, 28 s |
 
 ## Caches
 
