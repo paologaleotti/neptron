@@ -5,10 +5,13 @@
 #
 # While /run/neptron/hold exists the launcher does not start, so a bench
 # tool can take the display: create the file, then stop the launcher.
+#
+# With --power the launcher carries out the reboot or the power-off of the
+# System panel: it asks init, which runs the shutdown entries of inittab.
 
 mkdir -p /run/neptron
 while [ -e /run/neptron/hold ]; do
 	sleep 1
 done
 . /usr/libexec/neptron/mesa-cache
-exec /usr/bin/neptron-launch -- /usr/bin/neptron --backend kms
+exec /usr/bin/neptron-launch --power -- /usr/bin/neptron --backend kms

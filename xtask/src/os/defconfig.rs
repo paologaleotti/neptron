@@ -383,6 +383,91 @@ mod tests {
         }
     }
 
+    /// The entries of an inittab that are not comments or blank lines.
+    fn inittab_entries(rel: &str) -> Vec<String> {
+        std::fs::read_to_string(os_dir().join(rel))
+            .unwrap()
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// The System panel asks the launcher, and the launcher asks init with
+    /// BusyBox `reboot` or `poweroff`. Init then runs the `::shutdown:`
+    /// entries in order before it turns the machine off: the stop script
+    /// first (the launcher and the frontend end while the file systems
+    /// can still be written), then `rcK` (the share server stops), then
+    /// the unmount. Both images must keep this order.
+    #[test]
+    fn both_images_stop_the_frontend_then_run_rck_then_unmount_at_shutdown() {
+        let expected = [
+            "::shutdown:/usr/libexec/neptron/stop",
+            "::shutdown:/etc/init.d/rcK",
+            "::shutdown:/bin/umount -a -r",
+        ];
+        for rel in [
+            "board/pc/rootfs-overlay/etc/inittab",
+            "board/qemu/rootfs-overlay/etc/inittab",
+        ] {
+            let shutdown: Vec<String> = inittab_entries(rel)
+                .into_iter()
+                .filter(|l| l.contains(":shutdown:"))
+                .collect();
+            assert_eq!(shutdown, expected, "{rel}");
+        }
+        let stop = std::fs::read_to_string(
+            os_dir().join("board/common/rootfs-overlay/usr/libexec/neptron/stop"),
+        )
+        .unwrap();
+        for line in ["touch /run/neptron/hold", "kill $(pidof neptron-launch)"] {
+            assert!(stop.contains(line), "the stop script misses {line:?}");
+        }
+        let share = std::fs::read_to_string(
+            os_dir().join("board/common/rootfs-overlay/etc/init.d/S45neptron-share"),
+        )
+        .unwrap();
+        assert!(
+            share.contains("stop) stop ;;"),
+            "rcK stops the share server"
+        );
+    }
+
+    /// Every launch script of the images starts the launcher with power
+    /// control, so the System panel can reboot and turn off the machine.
+    /// The launcher holds `/dev/dri/card0` there, which `--power` needs.
+    #[test]
+    fn every_launch_script_gives_the_launcher_power_control() {
+        for (rel, line) in [
+            (
+                "board/common/rootfs-overlay/usr/libexec/neptron/launch",
+                "exec /usr/bin/neptron-launch --power -- /usr/bin/neptron --backend kms",
+            ),
+            (
+                "board/pc/dev-overlay/usr/libexec/neptron/launch",
+                "exec \"$launcher\" --power -- \"$frontend\" --backend kms",
+            ),
+        ] {
+            let script = std::fs::read_to_string(os_dir().join(rel)).unwrap();
+            assert!(
+                script.lines().any(|l| l.trim_start().starts_with(line)),
+                "{rel} misses {line:?}"
+            );
+            assert!(!script.contains("--no-device"), "{rel}");
+        }
+        let check = std::fs::read_to_string(
+            os_dir().join("board/qemu/rootfs-overlay/usr/libexec/neptron/launch-for-check"),
+        )
+        .unwrap();
+        assert!(check.contains("exec /usr/libexec/neptron/launch"));
+        let pc_check =
+            std::fs::read_to_string(os_dir().join("board/pc/check-kernel-config.sh")).unwrap();
+        assert!(
+            pc_check.contains("POWER_ON=\"ACPI\""),
+            "the PC kernel check requires ACPI for the power-off"
+        );
+    }
+
     /// Runs check-kernel-config.sh on a fake output: `version` in the
     /// Buildroot config (none for no line), and a `.config` for each folder
     /// of `kernels` (version, text; no text for no file).
@@ -419,7 +504,7 @@ mod tests {
 
     #[test]
     fn the_kernel_check_reads_the_configured_kernel_and_every_mode_option() {
-        let off = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\nCONFIG_SMB_SERVER=y\n";
+        let off = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\nCONFIG_SMB_SERVER=y\nCONFIG_ACPI=y\n";
         let ok = check_kernel_config("off", Some("6.18.63"), &[("6.18.63", Some(off))]);
         assert!(ok.status.success(), "{ok:?}");
         let missing = check_kernel_config("missing", Some("6.18.63"), &[("6.18.63", None)]);
@@ -470,6 +555,11 @@ mod tests {
                 "smbmodule",
                 "CONFIG_SMB_SERVER=m\n",
                 "CONFIG_SMB_SERVER is not built in",
+            ),
+            (
+                "noacpi",
+                "CONFIG_SMB_SERVER=y\n# CONFIG_ACPI is not set\n",
+                "CONFIG_ACPI is not built in",
             ),
             (
                 "kerberos",

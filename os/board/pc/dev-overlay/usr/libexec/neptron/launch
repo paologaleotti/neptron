@@ -37,9 +37,13 @@ if [ -d "$hot" ] && [ ! -e "$hot/DISABLED" ]; then
 	[ -d "$hot/share/neptron" ] && data=$hot/share/neptron
 fi
 
+# With --power the launcher carries out the reboot or the power-off of the
+# System panel. A launcher in the hot folder must know the flag: push it
+# with the frontend.
+#
 # The launcher is not exec'd: the shell waits for the pipe, and ends when
 # the launcher ends and svlogd has written the rest.
 {
 	echo "launch: $(cut -d' ' -f1 /proc/uptime) s after boot: launcher $launcher, frontend $frontend, data $data"
-	exec "$launcher" -- "$frontend" --backend kms --data "$data" 2>&1
+	exec "$launcher" --power -- "$frontend" --backend kms --data "$data" 2>&1
 } | svlogd "$log_dir"
