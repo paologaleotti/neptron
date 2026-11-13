@@ -50,9 +50,9 @@ pub enum Unshowable {
     Policy(PolicyError),
     /// Every proposal was refused.
     NoWinner,
-    /// The inputs changed, and they refuse the mode on screen. The
-    /// `Display` contract has no operation that blanks the output, so the
-    /// mode stays until a valid one is set.
+    /// The inputs changed, and they refuse the mode on screen. The engine
+    /// sets a valid mode when one exists, and else turns the output off
+    /// with `Display::blank`.
     CurrentRefused(Refusal),
 }
 
