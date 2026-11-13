@@ -113,12 +113,12 @@ pub struct AutoChoice {
 /// What the player must know after the open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputNotice {
-    /// The named device is not in the list; `auto`'s choice plays.
+    /// The named device is not in the list; another device plays.
     Missing {
         /// The label of the device.
         label: String,
     },
-    /// The named device did not open; `auto`'s choice plays.
+    /// A listed device did not open; another device plays.
     Failed {
         /// The label of the device.
         label: String,
@@ -148,6 +148,9 @@ pub struct OpenedOutput<S> {
     pub auto: Option<AutoChoice>,
     /// The notices for the player, in order.
     pub notices: Vec<OutputNotice>,
+    /// Every device that did not open, with its error, in the order tried:
+    /// the name, or `default`.
+    pub failures: Vec<(String, String)>,
 }
 
 impl fmt::Display for OutputNotice {
@@ -155,11 +158,11 @@ impl fmt::Display for OutputNotice {
         match self {
             Self::Missing { label } => write!(
                 f,
-                "The audio output \"{label}\" is not connected. The default output plays."
+                "The audio output \"{label}\" is not connected. Another output plays."
             ),
             Self::Failed { label, reason } => write!(
                 f,
-                "The audio output \"{label}\" did not open ({reason}). The default output plays."
+                "The audio output \"{label}\" did not open ({reason}). Another output plays."
             ),
             Self::NoSound { reason } => {
                 write!(f, "No sound: the audio device did not open ({reason}).")
@@ -186,8 +189,10 @@ pub fn output_label(devices: &[OutputDevice], name: &str) -> String {
 }
 
 /// The rule of `auto`: the HDMI or DisplayPort device when exactly one
-/// device has a monitor that takes audio, else the default device. A CRT
-/// behind a DAC gives no ELD, so it gets the default device.
+/// device has a monitor that takes audio, else the first analog device of
+/// the list, else the default device. A CRT behind a DAC gives no ELD, so
+/// it gets the analog output. The first analog device and not ALSA's
+/// default: a GPU card can be card 0 with no device 0.
 pub fn auto_choice(devices: &[OutputDevice]) -> AutoChoice {
     let present: Vec<&OutputDevice> = devices
         .iter()
@@ -197,32 +202,44 @@ pub fn auto_choice(devices: &[OutputDevice]) -> AutoChoice {
         return AutoChoice {
             device: Some(device.name.clone()),
             reason: format!(
-                "the only HDMI/DP output with a monitor that takes audio ({})",
+                "the only HDMI/DP output with a monitor that takes audio, \"{}\"",
                 device.label
             ),
         };
     }
-    let reason = if present.len() > 1 {
-        format!(
-            "default output, {} HDMI/DP outputs have a monitor",
-            present.len()
-        )
+    let why = if present.len() > 1 {
+        format!("{} HDMI/DP outputs have a monitor", present.len())
     } else if devices.iter().any(|d| d.monitor == Monitor::Unknown) {
-        "default output, an HDMI/DP output may have a monitor but /proc does not show which one"
-            .to_owned()
+        "an HDMI/DP output may have a monitor but /proc does not show which one".to_owned()
     } else {
-        "default output, no HDMI/DP output has a monitor that takes audio".to_owned()
+        "no HDMI/DP output has a monitor that takes audio".to_owned()
     };
-    AutoChoice {
-        device: None,
-        reason,
+    match first_analog(devices) {
+        Some(device) => AutoChoice {
+            device: Some(device.name.clone()),
+            reason: format!(
+                "the first analog output \"{}\", because {why}",
+                device.label
+            ),
+        },
+        None => AutoChoice {
+            device: None,
+            reason: format!("the default output, because {why}"),
+        },
     }
+}
+
+/// The first device of the list that is not an HDMI or DisplayPort output.
+fn first_analog(devices: &[OutputDevice]) -> Option<&OutputDevice> {
+    devices.iter().find(|d| d.monitor == Monitor::NotDigital)
 }
 
 /// Opens the device that `setting` names (`auto` or a device name), along
 /// the fallback chain: the named device when it is listed, else or when it
-/// fails the device `auto` takes, then the default device, then no sound.
-/// The setting is never changed, so the next start tries the named device
+/// fails the device `auto` takes, then the first analog device, then the
+/// default device, then no sound. A device already tried is not tried
+/// again. Each step down gives a notice, and every error is kept. The
+/// setting is never changed, so the next start tries the named device
 /// again.
 pub fn open_output<O: AudioOutputs>(outputs: &mut O, setting: &str) -> OpenedOutput<O::Sink> {
     let (devices, list_error) = match outputs.devices() {
@@ -230,51 +247,75 @@ pub fn open_output<O: AudioOutputs>(outputs: &mut O, setting: &str) -> OpenedOut
         Err(e) => (Vec::new(), Some(e)),
     };
     let mut notices = Vec::new();
-    if setting != AUTO_OUTPUT {
-        let label = output_label(&devices, setting);
-        if devices.iter().any(|d| d.name == setting) {
-            match outputs.open(Some(setting)) {
-                Ok(sink) => {
-                    return OpenedOutput {
-                        sink: Some(sink),
-                        opened: Some(OpenedDevice::Named(setting.to_owned())),
-                        devices,
-                        list_error,
-                        auto: None,
-                        notices,
-                    };
-                }
-                Err(e) => notices.push(OutputNotice::Failed {
-                    label,
-                    reason: e.to_string(),
-                }),
-            }
-        } else {
-            notices.push(OutputNotice::Missing { label });
-        }
+    let mut failures = Vec::new();
+    let mut tried: Vec<String> = Vec::new();
+    let mut auto = None;
+    let mut candidates: Vec<String> = Vec::new();
+    if setting == AUTO_OUTPUT {
+        let choice = auto_choice(&devices);
+        candidates.extend(choice.device.clone());
+        auto = Some(choice);
+    } else if devices.iter().any(|d| d.name == setting) {
+        candidates.push(setting.to_owned());
+    } else {
+        notices.push(OutputNotice::Missing {
+            label: output_label(&devices, setting),
+        });
     }
-    let auto = auto_choice(&devices);
-    let mut last_error = None;
-    if let Some(device) = auto.device.as_deref().filter(|d| *d != setting) {
-        match outputs.open(Some(device)) {
+    let mut index = 0;
+    loop {
+        if index == candidates.len() {
+            // The named device is done: add auto's choice, then the first
+            // analog device, once each.
+            if auto.is_none() {
+                let choice = auto_choice(&devices);
+                candidates.extend(choice.device.clone());
+                auto = Some(choice);
+            }
+            if let Some(analog) = first_analog(&devices)
+                && !candidates.contains(&analog.name)
+            {
+                candidates.push(analog.name.clone());
+            }
+            if index == candidates.len() {
+                break;
+            }
+        }
+        let name = candidates[index].clone();
+        index += 1;
+        if tried.contains(&name) {
+            continue;
+        }
+        tried.push(name.clone());
+        match outputs.open(Some(&name)) {
             Ok(sink) => {
                 return OpenedOutput {
                     sink: Some(sink),
-                    opened: Some(OpenedDevice::Named(device.to_owned())),
+                    opened: Some(OpenedDevice::Named(name)),
                     devices,
                     list_error,
-                    auto: Some(auto),
+                    auto,
                     notices,
+                    failures,
                 };
             }
-            Err(e) => last_error = Some(e),
+            Err(e) => {
+                notices.push(OutputNotice::Failed {
+                    label: output_label(&devices, &name),
+                    reason: e.to_string(),
+                });
+                failures.push((name, e.to_string()));
+            }
         }
     }
     let (sink, opened) = match outputs.open(None) {
         Ok(sink) => (Some(sink), Some(OpenedDevice::Default)),
         Err(e) => {
-            let reason = last_error.map_or_else(|| e.to_string(), |first| format!("{first}; {e}"));
-            notices.push(OutputNotice::NoSound { reason });
+            failures.push(("default".to_owned(), e.to_string()));
+            let reasons: Vec<&str> = failures.iter().map(|(_, r)| r.as_str()).collect();
+            notices.push(OutputNotice::NoSound {
+                reason: reasons.join("; "),
+            });
             (None, None)
         }
     };
@@ -283,8 +324,9 @@ pub fn open_output<O: AudioOutputs>(outputs: &mut O, setting: &str) -> OpenedOut
         opened,
         devices,
         list_error,
-        auto: Some(auto),
+        auto,
         notices,
+        failures,
     }
 }
 
@@ -372,27 +414,54 @@ mod tests {
     #[test]
     fn auto_takes_the_hdmi_output_only_when_exactly_one_has_a_monitor() {
         let none = auto_choice(&card(Monitor::Absent, Monitor::Absent));
-        assert_eq!(none.device, None);
+        assert_eq!(none.device.as_deref(), Some(ANALOG));
         assert_eq!(
             none.reason,
-            "default output, no HDMI/DP output has a monitor that takes audio"
+            "the first analog output \"PCH analog\", because no HDMI/DP output has a monitor that takes audio"
         );
         let one = auto_choice(&card(Monitor::Present(named("DELL")), Monitor::Absent));
         assert_eq!(one.device.as_deref(), Some(DP1));
         assert_eq!(
             one.reason,
-            "the only HDMI/DP output with a monitor that takes audio (PCH HDMI/DP 1)"
+            "the only HDMI/DP output with a monitor that takes audio, \"PCH HDMI/DP 1\""
         );
         let two = auto_choice(&card(Monitor::Present(None), Monitor::Present(None)));
-        assert_eq!(two.device, None);
+        assert_eq!(two.device.as_deref(), Some(ANALOG));
         assert_eq!(
             two.reason,
-            "default output, 2 HDMI/DP outputs have a monitor"
+            "the first analog output \"PCH analog\", because 2 HDMI/DP outputs have a monitor"
         );
         let unknown = auto_choice(&card(Monitor::Unknown, Monitor::Unknown));
-        assert_eq!(unknown.device, None);
-        assert!(unknown.reason.contains("/proc does not show"));
+        assert_eq!(unknown.device.as_deref(), Some(ANALOG));
+        assert_eq!(
+            unknown.reason,
+            "the first analog output \"PCH analog\", because an HDMI/DP output may have a monitor but /proc does not show which one"
+        );
+        let digital_only = auto_choice(&card(Monitor::Absent, Monitor::Absent)[1..]);
+        assert_eq!(digital_only.device, None);
+        assert_eq!(
+            digital_only.reason,
+            "the default output, because no HDMI/DP output has a monitor that takes audio"
+        );
         assert_eq!(auto_choice(&[]).device, None);
+    }
+
+    #[test]
+    fn auto_takes_the_analog_card_after_a_gpu_card_with_no_device_0() {
+        use crate::{AlsaText, alsa_outputs};
+
+        let devices = alsa_outputs(&AlsaText {
+            cards: " 0 [NVidia         ]: HDA-Intel - HDA NVidia\n 1 [PCH            ]: HDA-Intel - HDA Intel PCH\n".to_owned(),
+            pcm: "00-03: HDMI 0 : HDMI 0 : playback 1\n00-07: HDMI 1 : HDMI 1 : playback 1\n01-00: ALC892 Analog : ALC892 Analog : playback 1\n".to_owned(),
+            elds: Vec::new(),
+        });
+        let mut outputs = FakeOutputs::new(devices);
+        let opened = open_output(&mut outputs, AUTO_OUTPUT);
+        assert_eq!(
+            opened.opened,
+            Some(OpenedDevice::Named("hw:CARD=PCH,DEV=0".to_owned()))
+        );
+        assert_eq!(outputs.opens, [named("hw:CARD=PCH,DEV=0")]);
     }
 
     #[test]
@@ -427,13 +496,13 @@ mod tests {
     }
 
     #[test]
-    fn auto_with_no_monitor_opens_the_default_device() {
+    fn auto_with_no_known_monitor_opens_the_first_analog_output() {
         let mut outputs = FakeOutputs::new(card(Monitor::Unknown, Monitor::Unknown));
         let opened = open_output(&mut outputs, AUTO_OUTPUT);
-        assert_eq!(opened.opened, Some(OpenedDevice::Default));
+        assert_eq!(opened.opened, Some(OpenedDevice::Named(ANALOG.to_owned())));
         assert_eq!(opened.notices, []);
-        assert_eq!(opened.auto.unwrap().device, None);
-        assert_eq!(outputs.opens, [None]);
+        assert_eq!(opened.auto.unwrap().device.as_deref(), Some(ANALOG));
+        assert_eq!(outputs.opens, [named(ANALOG)]);
     }
 
     #[test]
@@ -454,7 +523,7 @@ mod tests {
         assert_eq!(opened.opened, Some(OpenedDevice::Named(DP1.to_owned())));
         assert_eq!(
             opened.notices[0].to_string(),
-            "The audio output \"hw:CARD=Device,DEV=0\" is not connected. The default output plays."
+            "The audio output \"hw:CARD=Device,DEV=0\" is not connected. Another output plays."
         );
         assert_eq!(
             outputs.opens,
@@ -469,36 +538,74 @@ mod tests {
         let mut outputs =
             FakeOutputs::new(card(Monitor::Absent, Monitor::Absent)).refuse(Some(DP2));
         let opened = open_output(&mut outputs, DP2);
-        assert_eq!(opened.opened, Some(OpenedDevice::Default));
+        assert_eq!(opened.opened, Some(OpenedDevice::Named(ANALOG.to_owned())));
         assert_eq!(
             opened.notices[0].to_string(),
-            "The audio output \"PCH HDMI/DP 2\" did not open (device busy). The default output plays."
+            "The audio output \"PCH HDMI/DP 2\" did not open (device busy). Another output plays."
         );
-        assert_eq!(outputs.opens, [named(DP2), None]);
+        assert_eq!(
+            opened.failures,
+            [(DP2.to_owned(), "device busy".to_owned())]
+        );
+        assert_eq!(outputs.opens, [named(DP2), named(ANALOG)]);
     }
 
     #[test]
-    fn autos_hdmi_choice_that_fails_gives_way_to_the_default_device() {
+    fn autos_hdmi_choice_that_fails_gives_way_to_the_analog_output_with_a_notice() {
         let mut outputs =
             FakeOutputs::new(card(Monitor::Present(None), Monitor::Absent)).refuse(Some(DP1));
         let opened = open_output(&mut outputs, AUTO_OUTPUT);
-        assert_eq!(opened.opened, Some(OpenedDevice::Default));
-        assert_eq!(opened.notices, []);
-        assert_eq!(outputs.opens, [named(DP1), None]);
+        assert_eq!(opened.opened, Some(OpenedDevice::Named(ANALOG.to_owned())));
+        assert_eq!(
+            opened
+                .notices
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            [
+                "The audio output \"PCH HDMI/DP 1\" did not open (device busy). Another output plays."
+            ]
+        );
+        assert_eq!(
+            opened.failures,
+            [(DP1.to_owned(), "device busy".to_owned())]
+        );
+        assert_eq!(outputs.opens, [named(DP1), named(ANALOG)]);
+    }
+
+    #[test]
+    fn a_named_device_and_autos_choice_that_fail_report_both_errors() {
+        let mut outputs = FakeOutputs::new(card(Monitor::Present(None), Monitor::Absent))
+            .refuse(Some(DP2))
+            .refuse(Some(DP1));
+        let opened = open_output(&mut outputs, DP2);
+        assert_eq!(opened.opened, Some(OpenedDevice::Named(ANALOG.to_owned())));
+        assert_eq!(opened.notices.len(), 2);
+        assert_eq!(
+            opened.failures,
+            [
+                (DP2.to_owned(), "device busy".to_owned()),
+                (DP1.to_owned(), "device busy".to_owned()),
+            ]
+        );
+        assert_eq!(outputs.opens, [named(DP2), named(DP1), named(ANALOG)]);
     }
 
     #[test]
     fn with_no_device_at_all_the_run_has_no_sound() {
         let mut outputs = FakeOutputs::new(card(Monitor::Present(None), Monitor::Absent))
             .refuse(Some(DP1))
+            .refuse(Some(ANALOG))
             .refuse(None);
         let opened = open_output(&mut outputs, AUTO_OUTPUT);
         assert!(opened.sink.is_none());
         assert_eq!(opened.opened, None);
+        assert_eq!(opened.failures.len(), 3);
         assert_eq!(
-            opened.notices[0].to_string(),
-            "No sound: the audio device did not open (device busy; device busy)."
+            opened.notices.last().unwrap().to_string(),
+            "No sound: the audio device did not open (device busy; device busy; device busy)."
         );
+        assert_eq!(outputs.opens, [named(DP1), named(ANALOG), None]);
         let mut empty = FakeOutputs::new(Vec::new()).refuse(None);
         let opened = open_output(&mut empty, AUTO_OUTPUT);
         assert_eq!(

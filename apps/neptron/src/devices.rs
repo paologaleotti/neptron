@@ -85,6 +85,9 @@ pub fn open_audio<O: AudioOutputs>(
     if let Some(auto) = &opened.auto {
         let _ = write!(log, "; auto: {}", auto.reason);
     }
+    for (device, error) in &opened.failures {
+        let _ = write!(log, "; failed \"{device}\" ({error})");
+    }
     match &opened.opened {
         Some(device) => {
             let _ = write!(log, "; opened {device}");
@@ -175,29 +178,44 @@ mod tests {
     }
 
     #[test]
-    fn an_absent_device_plays_on_the_default_with_a_notice() {
+    fn an_absent_device_plays_on_the_first_analog_output_with_a_notice() {
         let outputs = Outputs { refuse: Vec::new() };
-        let audio = open_audio(Ok(outputs), "USB Audio:USB Audio");
+        let audio = open_audio(Ok(outputs), "hw:CARD=Device,DEV=0");
         assert!(matches!(audio.sink, MaybeSink::Device(_)));
         assert_eq!(
             audio.notices,
-            [
-                "The audio output \"USB Audio:USB Audio\" is not connected. The default output plays."
-            ]
+            ["The audio output \"hw:CARD=Device,DEV=0\" is not connected. Another output plays."]
         );
-        assert!(audio.log.ends_with("; opened default"), "{}", audio.log);
+        assert!(
+            audio.log.ends_with(
+                "; auto: the first analog output \"Analog (HDA Intel PCH)\", because no HDMI/DP output has a monitor that takes audio; opened \"hw:CARD=PCH,DEV=0\""
+            ),
+            "{}",
+            audio.log
+        );
     }
 
     #[test]
     fn no_device_and_no_backend_give_the_silent_sink() {
-        let outputs = Outputs { refuse: vec![None] };
+        let outputs = Outputs {
+            refuse: vec![Some("hw:CARD=PCH,DEV=0"), None],
+        };
         let audio = open_audio(Ok(outputs), "auto");
         assert!(matches!(audio.sink, MaybeSink::Silent));
         assert_eq!(
             audio.notices,
-            ["No sound: the audio device did not open (busy)."]
+            [
+                "The audio output \"Analog (HDA Intel PCH)\" did not open (busy). Another output plays.",
+                "No sound: the audio device did not open (busy; busy).",
+            ]
         );
-        assert!(audio.log.ends_with("; none opened"), "{}", audio.log);
+        assert!(
+            audio.log.ends_with(
+                "; failed \"hw:CARD=PCH,DEV=0\" (busy); failed \"default\" (busy); none opened"
+            ),
+            "{}",
+            audio.log
+        );
         let audio = open_audio::<Outputs>(Err("no ALSA".to_owned()), "auto");
         assert!(matches!(audio.sink, MaybeSink::Silent));
         assert_eq!(
