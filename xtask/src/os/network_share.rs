@@ -297,7 +297,7 @@ impl TempDir {
         );
         let out_path = self.path(&format!("{action}.out"));
         let out = std::fs::File::create(&out_path).unwrap();
-        let status = Command::new("sh")
+        let child = Command::new("sh")
             .arg(os_dir().join(script))
             .arg(action)
             .env("PATH", path)
@@ -309,8 +309,18 @@ impl TempDir {
             .stdin(Stdio::null())
             .stdout(out.try_clone().unwrap())
             .stderr(out)
-            .status()
+            .spawn()
             .unwrap();
+        let pid = child.id();
+        let mut child = child;
+        let status = bounded(&format!("{script} {action} to return"), move || {
+            child.wait().unwrap()
+        })
+        .unwrap_or_else(|message| {
+            // The script hangs: stop it, so the test ends.
+            let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
+            panic!("{message}")
+        });
         (
             status.success(),
             std::fs::read_to_string(&out_path).unwrap(),
@@ -330,9 +340,43 @@ fn mkfifo(path: &Path) {
     assert!(status.success());
 }
 
-/// Reads one line from a FIFO; the open blocks until a writer opens it.
+/// How long a test waits for a script or a fake that it synchronises with
+/// through a FIFO. A passing run takes milliseconds; the bound turns a
+/// regression that blocks into a failure with a message.
+const FIFO_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Runs `work` on its own thread and returns its result, or a message when
+/// it does not finish within [`FIFO_WAIT`]. The thread of a blocked open
+/// stays; the test fails, and the process ends.
+fn bounded<T: Send + 'static>(
+    what: &str,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        // The receiver is gone only after a timeout, which already failed.
+        let _ = tx.send(work());
+    });
+    rx.recv_timeout(FIFO_WAIT)
+        .map_err(|_| format!("no answer within {} s: {what}", FIFO_WAIT.as_secs()))
+}
+
+/// Reads a FIFO to its end; the open blocks until a writer opens it.
 fn read_fifo(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap()
+    let owned = path.to_owned();
+    bounded(&format!("a writer of {}", path.display()), move || {
+        std::fs::read_to_string(owned).unwrap()
+    })
+    .unwrap_or_else(|message| panic!("{message}"))
+}
+
+/// Writes `text` to a FIFO; the open blocks until a reader opens it.
+fn write_fifo(path: &Path, text: &'static str) {
+    let owned = path.to_owned();
+    bounded(&format!("a reader of {}", path.display()), move || {
+        std::fs::write(owned, text).unwrap()
+    })
+    .unwrap_or_else(|message| panic!("{message}"))
 }
 
 #[test]
@@ -383,7 +427,7 @@ fn the_share_starts_in_the_background_and_never_delays_the_boot() {
         "",
         "the script returned before the server started"
     );
-    std::fs::write(&gate, "go\n").unwrap();
+    write_fifo(&gate, "go\n");
     assert_eq!(read_fifo(&done), "done\n");
     assert_eq!(
         dir.log(),
