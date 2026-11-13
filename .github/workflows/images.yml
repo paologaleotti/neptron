@@ -295,8 +295,10 @@ jobs:
           echo "Unpacked in $(( $(date +%s) - start )) s"
           df -h "$WORK"
 
-      # The container user br has uid 1000. A bind volume keeps the owner of
-      # the host directory, and the cache restores files as the runner user.
+      # The container user br has uid 1000 and the runner user does not. A
+      # bind volume keeps the owner of the host directory, the cache restores
+      # files as the runner user, and the last step of os build copies the
+      # images as br into a directory of the host.
       - name: Give the volumes to the container user
         env:
           ARCH: ${{ matrix.arch }}
@@ -304,6 +306,8 @@ jobs:
           for v in neptron-br-dl neptron-br-ccache "$(basename "$OUT_DIR")" "neptron-cross-$ARCH"; do
             sudo chown -R 1000:1000 "$WORK/$v"
           done
+          mkdir -p "$IMAGES"
+          sudo chown 1000:1000 "$IMAGES"
 
       # The NEPTRON packages build this checkout. Buildroot does not see a
       # change to a local source by itself, so they are rebuilt every time.
@@ -501,7 +505,9 @@ jobs:
           ${{ success() && matrix.name == 'x86_64'
           && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         run: |
+          patched="$HOME/.cache/neptron/buildroot/images/x86_64"
+          mkdir -p "$patched"
+          sudo chown 1000:1000 "$patched"
           cargo xtask os build --arch x86_64 --output x86_64 --jobs "$(nproc)" -- linux-dirclean
-          NEPTRON_OS_IMAGES="$HOME/.cache/neptron/buildroot/images/x86_64" \
-            cargo xtask os boot-check --arch x86_64 --firmware bios
-          rm -rf "$HOME/.cache/neptron/buildroot/images/x86_64" target/os/boot-check
+          NEPTRON_OS_IMAGES="$patched" cargo xtask os boot-check --arch x86_64 --firmware bios
+          sudo rm -rf "$patched" target/os/boot-check
