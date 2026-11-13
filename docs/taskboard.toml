@@ -426,3 +426,57 @@ needs = ["C16", "C17"]
 gate = "a spec the owner accepts; open questions listed"
 status = "merged"
 
+[[task]]
+id = "C18"
+wave = 9
+name = "Settings > System: format the share partition, with a confirm, for the states a format may fix"
+owns = ["os", "apps/neptron", "apps/neptron-launch", "crates/neptron-ui", "xtask/src/os"]
+needs = ["C16", "C17"]
+gate = "T1 and T2; the boot checks and a share-check case"
+status = "pending"
+
+[[task]]
+id = "P02"
+wave = 10
+name = "Raspberry Pi: a TV standard in the video model (ADR, types, validation, fake display)"
+owns = ["docs/adr", "crates/neptron-types", "crates/neptron-safety", "crates/neptron-backend", "crates/neptron-testkit", "data/monitors"]
+needs = ["P01"]
+gate = "T1"
+status = "in_progress"
+
+[[task]]
+id = "P04"
+wave = 10
+name = "Raspberry Pi: the board and the image for the Pi 3 B/B+ (rpi-arm64), with the development variant"
+owns = ["os/board/rpi", "os/configs", "os/patches", "xtask/src/os", "os/README.md"]
+needs = ["P01"]
+gate = "T0 and T1; os build for rpi-arm64; the aarch64 boot check still passes"
+status = "in_progress"
+
+[[task]]
+id = "P03"
+wave = 10
+name = "Raspberry Pi: the TV policy in neptron-modeline"
+owns = ["crates/neptron-modeline"]
+needs = ["P02"]
+gate = "T1"
+status = "pending"
+
+[[task]]
+id = "P05"
+wave = 10
+name = "Raspberry Pi: the TV mode property in neptron-kms and its kms-check cases"
+owns = ["crates/neptron-kms", "xtask/src/os"]
+needs = ["P02"]
+gate = "T1 and T3"
+status = "pending"
+
+[[task]]
+id = "P06"
+wave = 10
+name = "Raspberry Pi: app, settings, status, the output rule and the matrix entry; the first composite picture"
+owns = ["apps/neptron", "crates/neptron-settings", "crates/neptron-ui", "crates/neptron-video", "crates/neptron-platform", "data/hardware"]
+needs = ["P03", "P05"]
+gate = "T2"
+status = "pending"
+
