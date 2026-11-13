@@ -112,14 +112,30 @@ impl Screens {
     /// sends the action again.
     pub fn update(&mut self, snap: &Snapshot, actions: &[UiAction], out: &mut UiFrame) {
         out.clear();
-        if let Some(menu) = self.quick_menu() {
-            menu.begin_frame();
-        }
         self.follow(snap);
         self.confirm.begin_frame();
         for &action in actions {
+            let first_new = out.intents.len();
             self.handle(action, snap, &mut out.intents);
             self.follow(snap);
+            // The snapshot of this frame shows the value from before a
+            // change at the game level, and the change may open a confirm
+            // dialog in the next frame. A later action of the frame, such
+            // as a back that leaves the page, would act on the old value.
+            let changed = out.intents.get(first_new..).is_some_and(|new| {
+                new.iter().any(|i| {
+                    matches!(
+                        i,
+                        Intent::SetValue {
+                            level: Level::Game,
+                            ..
+                        }
+                    )
+                })
+            });
+            if changed {
+                break;
+            }
         }
         self.confirm.end_frame(actions);
         if let Some(request) = self.request(snap) {

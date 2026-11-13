@@ -42,11 +42,10 @@ struct Change {
     /// The page in the snapshot when the change was made: the page of the
     /// change, which writes at the game level. Only its rows tell whether
     /// the app took the change back; a global panel holds the same key with
-    /// a value that never comes from the game level.
+    /// a value that never comes from the game level. The router takes no
+    /// more actions in the frame of a change, so the snapshot shows the
+    /// change before anything checks it.
     page: Option<PageId>,
-    /// True in the frame of the change: the snapshot of that frame shows
-    /// the value from before it.
-    fresh: bool,
 }
 
 pub(super) struct QuickMenu {
@@ -66,14 +65,6 @@ impl QuickMenu {
             changes: [None; MAX_CHANGES],
             prompt: None,
             quitting: false,
-        }
-    }
-
-    /// Starts a frame: the changes of earlier frames are in the snapshot
-    /// now.
-    pub(super) fn begin_frame(&mut self) {
-        for change in self.changes.iter_mut().flatten() {
-            change.fresh = false;
         }
     }
 
@@ -109,7 +100,6 @@ impl QuickMenu {
                         value,
                         scopes,
                         page: snap.settings.page,
-                        fresh: true,
                     });
                 }
             }
@@ -224,14 +214,12 @@ impl QuickMenu {
     /// Forgets the noted changes that the app took back: the guard reverts
     /// a display change that the player did not keep, and the row then
     /// shows the value in effect. Only the page of a change tells: a change
-    /// stays noted while the snapshot holds another page, and in the frame
-    /// it was made.
+    /// stays noted while the snapshot holds another page.
     pub(super) fn forget_taken_back(&mut self, snap: &Snapshot) {
         let rows = &snap.settings.rows;
         for entry in &mut self.changes {
             let gone = entry.is_some_and(|c| {
-                !c.fresh
-                    && snap.settings.page == c.page
+                snap.settings.page == c.page
                     && rows
                         .iter()
                         .find(|r| r.key == c.key)

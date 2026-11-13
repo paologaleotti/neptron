@@ -2272,6 +2272,12 @@ fn a_change_and_back_in_one_frame_asks_where_to_keep_it() {
     let (mut run, first) = quick_menu();
     run.step(&first, &[Down, Left, Back]);
     assert_eq!(run.intents(), [volume_75(Level::Game)]);
+    assert_eq!(
+        run.screen(),
+        "quick-menu",
+        "the Back of that frame is dropped"
+    );
+    run.step(&with_volume(&first, 75, Level::Game), &[Back]);
     assert_eq!(run.screen(), "quick-menu/keep");
 }
 
@@ -2347,5 +2353,38 @@ fn the_library_panel_is_a_page_of_the_settings_page() {
     assert_eq!(
         panels,
         [("Display", page), ("Audio", page), ("Library", page)]
+    );
+}
+
+#[test]
+fn a_page_takes_no_more_actions_in_the_frame_of_a_game_change() {
+    let (mut run, first, video) = video_menu(None);
+    run.step(&video, &[Down, Accept]);
+    assert_eq!(run.screen(), "options");
+    // One frame: choose "Force 60 Hz", then Back.
+    run.step(&video, &[Down, Down, Down, Accept, Back]);
+    assert_eq!(run.intents(), [force_60(Level::Game)]);
+    assert_eq!(
+        run.screen(),
+        "quick-menu/video",
+        "the Back of that frame is dropped"
+    );
+
+    // The app applies the change and the confirm dialog opens over the page.
+    let mut pending = with_force_60(&video);
+    pending.confirm = Some(PendingConfirm::new(ConfirmId(7), "60 Hz", 10 * SECOND_NS));
+    run.step(&pending, &[]);
+    assert_eq!(run.screen(), "confirm");
+    // The player reverts: the row shows the old value again.
+    run.step(&pending, &[Accept]);
+    assert_eq!(run.intents(), [Intent::RevertMode]);
+    run.step(&video, &[]);
+    assert_eq!(run.screen(), "quick-menu/video");
+    run.step(&video, &[Back]);
+    run.step(&first, &[Back]);
+    assert_eq!(
+        run.intents(),
+        [Intent::Resume],
+        "a reverted change is not asked about"
     );
 }
