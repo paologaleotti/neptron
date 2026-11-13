@@ -26,18 +26,24 @@ pub trait Display {
     /// backend that drives a connector sets the standard (the connector
     /// property `TV mode`, by the name
     /// [`TvStandard::kms_name`](neptron_types::TvStandard::kms_name)) in
-    /// the same atomic commit as the mode. A backend that cannot set it,
-    /// because the connector has no such property or no value of that
-    /// name, refuses the mode with [`DisplayError::ModeRefused`] and
-    /// changes nothing. A request whose mode and standard both equal what
-    /// is on the wire changes nothing; a change of either one is a
-    /// modeset. A window backend sends no signal and ignores the standard.
+    /// the same atomic commit as the mode. A backend that drives a
+    /// connector refuses the mode with [`DisplayError::ModeRefused`] and
+    /// changes nothing when the mode has a standard and the connector has
+    /// no such property or no value of that name, and when the mode has no
+    /// standard and the connector has the property: the standard on the
+    /// wire must be the standard that was validated with the mode. So on a
+    /// connector with the property every mode, recovery and safe mode
+    /// included, comes from a TV profile. A request whose mode and
+    /// standard both equal what is on the wire changes nothing; a change of
+    /// either one is a modeset. A window backend sends no signal and
+    /// ignores the standard.
     ///
     /// # Errors
     ///
     /// [`DisplayError::ModeRefused`] when the pixel clock is not a whole
     /// number of kHz, when the backend cannot set the TV standard of the
-    /// mode, or when the driver refuses the mode,
+    /// mode, when the mode has no standard on a connector with a `TV mode`
+    /// property, or when the driver refuses the mode,
     /// [`DisplayError::Device`] while a flip is queued (busy) or when the
     /// device fails. On an error the mode that was active stays.
     fn set_mode(&mut self, mode: &ValidatedMode) -> Result<Modeline, DisplayError>;

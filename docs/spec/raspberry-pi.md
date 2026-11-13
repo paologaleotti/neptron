@@ -191,12 +191,12 @@ A TV is a **monitor kind**, not an output kind. `OutputKind` (ADR 0010) picks th
 
 **`neptron-backend`**
 
-- The `Display::set_mode` doc gets one rule: for a mode with a TV standard, the backend sets the connector's standard in the same atomic commit. A backend that cannot set it refuses with `ModeRefused` and changes nothing. A request whose mode and standard both equal what is on the wire changes nothing; a change of either one is a modeset.
+- The `Display::set_mode` doc gets one rule: for a mode with a TV standard, the backend sets the connector's standard in the same atomic commit. A backend refuses with `ModeRefused` and changes nothing in three cases: a standard and no `TV mode` property; a standard and no value of that name; no standard on a connector that has the `TV mode` property. The third case keeps the standard on the wire equal to the standard that was validated with the mode: the encoder would keep the standard that is on the connector. So on such a connector every mode, recovery and safe mode included, comes from a TV profile. A request whose mode and standard both equal what is on the wire changes nothing; a change of either one is a modeset.
 
 **`neptron-kms`**
 
 - At open, the backend reads the `TV mode` property of the chosen connector and the values of its enum. It decides nothing: `TvStandard::kms_name()` names the value, and the backend finds its number.
-- `set_mode` adds the `TV mode` property, and each margin property set to 0, to the test-only and the real commit, with `ALLOW_MODESET`. It reads the property back after the commit. A connector with no `TV mode` property, or with no value of that name, gives `ModeRefused` for a mode with a standard.
+- `set_mode` adds the `TV mode` property, and each margin property set to 0, to the test-only and the real commit, with `ALLOW_MODESET`. It reads the property back after the commit. A connector with no `TV mode` property, or with no value of that name, gives `ModeRefused` for a mode with a standard. A connector with the `TV mode` property gives `ModeRefused` for a mode with no standard.
 - `WireMode` holds the standard beside the mode, so a standard change alone commits.
 
 **`neptron-testkit`**
@@ -516,7 +516,7 @@ pi_dac = "none"     # none. GPIO DACs are not supported by this image.
 | The fake display | Tier 1, `neptron-testkit` | A standard change alone is a modeset; a display with no standard support refuses |
 | The guard | Tier 1, `neptron-video` | A standard change opens the prompt, a timeout reverts, a confirm makes it the last known good, the recovery gives NTSC |
 | The app | Tier 2 | The output rule (HDMI wins, composite fallback, a name wins), the settings rows, the crawler finds `display.tv` and `display.tv_width`, a scene golden of the Display panel on composite |
-| The KMS backend | Tier 3, `kms-check` on `vkms` in the aarch64 QEMU image | The four table modes commit and read back; a mode with a standard on a connector without `TV mode` (vkms has none) is refused and changes nothing |
+| The KMS backend | Tier 3, `kms-check` on `vkms` in the aarch64 QEMU image | The four table modes commit and read back as plain modes, with no standard; a mode with a standard on a connector without `TV mode` (vkms has none) is refused and changes nothing. No virtual driver has a `TV mode` property, so setting a standard is a hardware check |
 | The aarch64 image | Tier 3, the existing checks | The frontend, the launcher, the cores and the boot check, unchanged |
 | The Pi image | Build only, in CI and locally | The defconfig builds; the image assembles; the silent kernel check passes; the no-15-kHz check passes; `legal-info` and `LICENCES.txt` are on the boot partition; the sizes |
 
