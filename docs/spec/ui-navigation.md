@@ -84,7 +84,7 @@ The title box is 280 px (46 characters) with the default skin, or 232 px (38 cha
 4. When that leaves fewer than 4 characters for the second last part (one character and `...`), it goes: `... > ` and the last part.
 5. When the last part alone does not fit, it is cut at its end with `...`.
 
-Examples at 38 characters: `Astro Racer > Settings > Display > Monitor profile` (50) gives `... > Display > Monitor profile` (31). `Super Mario Bros. 3 (USA) (Virtual Console) > Video` (51) gives `Super Mario Bros. 3 (USA) (Vir... > Video` (38): the title keeps 27 characters and ends with `...`.
+Examples at 38 characters: `Astro Racer > Settings > Display > Monitor profile` (50) gives `... > Display > Monitor profile` (31). `Super Mario Bros. 3 (USA) (Virtual Console) > Video` (51) gives `Super Mario Bros. 3 (USA) (... > Video` (38): the title keeps its first 27 characters and ends with `...`.
 
 The text is formatted into a `StackText` and allocates nothing. The tree has one label row with the text as drawn. When the rule shortened the path, the row has the whole path as its value. The row is not marked as clipped: the cut is the rule, not a layout fault.
 
@@ -148,7 +148,7 @@ The quick menu hotkey does nothing while the menu is open, at any depth. The ses
 
 ## Scenes and goldens
 
-New scenes: `screens/settings` (the Settings page), `screens/display-breadcrumb` (an option list with a three-part breadcrumb, `Settings > Audio > Audio output`), `screens/breadcrumb-long` (a long game title cut by the rule), `screens/quick-menu-video-page` (the video page of the quick menu, with the video block). `screens/home` shows the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` does not change.
+New scenes: `screens/settings` (the Settings page) and `screens/breadcrumb-long` (a long game title cut by the rule, on the video page). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` does not change.
 
 ## Tests
 
