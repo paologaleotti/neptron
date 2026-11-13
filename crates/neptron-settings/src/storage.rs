@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 /// the LAN and hold no secrets, so others may read them.
 pub const NEW_FILE_MODE: u32 = 0o644;
 
-use crate::edit::{Change, EditError, edit, holds_nothing};
+use crate::edit::{Change, EditError, edit, nothing_to_keep};
 use crate::layer::Layer;
 use crate::parse::{Issue, IssueKind, Parsed, parse_layer};
 use crate::schema::{Level, Schema};
@@ -205,7 +205,7 @@ impl Storage {
             Ok(new) => new,
             Err(source) => return Err(StorageError::Edit { path, source }),
         };
-        let done = if holds_nothing(&new) {
+        let done = if nothing_to_keep(&text, &new) {
             remove_durably(&path)
         } else {
             write_atomic(&path, new.as_bytes())

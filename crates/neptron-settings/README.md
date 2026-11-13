@@ -54,7 +54,7 @@ The files are under `config/` on the state partition: `global.toml`, `systems/<s
   5. Write it, sync it, rename it over the file, sync the directory.
 
   `File::sync_all` is `fsync` on Linux and `fcntl(F_FULLFSYNC)` on macOS. A crash leaves the old file or the new file. When the settings file is a symlink, the read follows it, and the rename replaces the link with a regular file. The target of the link is never written.
-- **No value left**: an unset also removes each table that it leaves empty, unless the table has a comment. When the result holds only `schema_version` and empty tables, with no comment, `Storage::apply` removes the file and syncs the directory instead of a write. It writes no file and makes no directory when the file is not there. A file with a comment or an unknown key stays.
+- **No value left**: an unset also removes each table that it leaves empty, unless the table or its key has a comment. `Storage::apply` removes the file and syncs the directory instead of a write only when nothing is left to keep: the old file held no `#` at all (a comment anywhere, the one above `schema_version` included), the new text holds only `schema_version` and empty tables, and that version is not newer than `SCHEMA_VERSION`. In every other case the file is written and stays. It writes no file and makes no directory when the file is not there. A comment above a key goes with the key, as for any unset, but then the file stays.
 
 ## Format versions
 

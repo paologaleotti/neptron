@@ -218,6 +218,17 @@ fn a_file_with_a_comment_or_an_unknown_key_stays_after_the_last_unset() {
     for (src, kept) in [
         ("# my notes\n[display]\nstyle = \"2x\"\n", "# my notes"),
         (
+            "# my CRT notes, keep\nschema_version = 1\n[display]\nstyle = \"2x\"\n",
+            "# my CRT notes, keep",
+        ),
+        // The comment above a key goes with the key, as for any unset, but
+        // the file stays: it held a comment.
+        ("# my tube\ndisplay.style = \"2x\"\n", "schema_version = 1"),
+        (
+            "schema_version = 9\n[display]\nstyle = \"2x\"\n",
+            "schema_version = 9",
+        ),
+        (
             "[display]\nstyle = \"2x\"\n[network]\nwifi_ssid = \"home\"\n",
             "wifi_ssid = \"home\"",
         ),

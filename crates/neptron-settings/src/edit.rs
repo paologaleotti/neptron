@@ -131,15 +131,28 @@ fn set(root: &mut Table, key: &str, value: &Value) -> Result<(), EditError> {
     Ok(())
 }
 
-/// True when `text` is a settings file with no value and no comment: only the version and
-/// empty tables. Such a file has nothing to keep, so the storage removes it. Text that does
-/// not parse is never "nothing".
-pub(crate) fn holds_nothing(text: &str) -> bool {
-    let Ok(mut doc) = strip_bom(text).parse::<DocumentMut>() else {
+/// True when a file that held `old` and holds `new` after an edit has nothing to keep, so
+/// the storage removes it instead of a write. Each test keeps the file when in doubt:
+///
+/// - `old` holds no `#` at all, so no comment of the user goes with the file. A `#` in a
+///   string also keeps it.
+/// - `new` parses, and its version is absent or an integer no newer than
+///   [`SCHEMA_VERSION`]: a newer build may need the file.
+/// - Apart from the version, `new` holds only empty tables.
+pub(crate) fn nothing_to_keep(old: &str, new: &str) -> bool {
+    if old.contains('#') || new.contains('#') {
+        return false;
+    }
+    let Ok(mut doc) = strip_bom(new).parse::<DocumentMut>() else {
         return false;
     };
+    let known_version = match doc.get(VERSION_KEY) {
+        None => true,
+        Some(Item::Value(v)) => v.as_integer().is_some_and(|n| n <= SCHEMA_VERSION),
+        Some(_) => false,
+    };
     doc.as_table_mut().remove(VERSION_KEY);
-    only_empty_tables(doc.as_table()) && !doc.to_string().contains('#')
+    known_version && only_empty_tables(doc.as_table())
 }
 
 fn only_empty_tables(table: &dyn TableLike) -> bool {
@@ -184,22 +197,29 @@ fn unset_in(
     }
     let child = child_table(table, segment, key, path)?.0;
     unset_in(child, rest, key, path)?;
-    if child.is_empty() && !has_comment(table.get(segment)) {
+    if child.is_empty() && !has_comment(table, segment) {
         table.remove(segment);
     }
     Ok(())
 }
 
-fn has_comment(item: Option<&Item>) -> bool {
-    let decor = match item {
-        Some(Item::Table(t)) => t.decor(),
-        Some(Item::Value(v)) => v.decor(),
-        _ => return false,
+/// True when the key `segment` of `table` or its item carries a comment: in the decor of
+/// the key (a dotted key keeps its comment there) or of the table or inline table.
+fn has_comment(table: &dyn TableLike, segment: &str) -> bool {
+    let key = table
+        .key(segment)
+        .map(|k| [k.leaf_decor(), k.dotted_decor()]);
+    let item = match table.get(segment) {
+        Some(Item::Table(t)) => Some(t.decor()),
+        Some(Item::Value(v)) => Some(v.decor()),
+        _ => None,
     };
-    [decor.prefix(), decor.suffix()]
-        .into_iter()
+    key.into_iter()
         .flatten()
-        .any(|raw| raw.as_str().is_some_and(|s| s.contains('#')))
+        .chain(item)
+        .flat_map(|d| [d.prefix(), d.suffix()])
+        .flatten()
+        .any(|raw| raw.as_str().is_none_or(|s| s.contains('#')))
 }
 
 /// Raises an older integer version and keeps a newer one. Anything else under the reserved
@@ -420,7 +440,7 @@ fceumm_palette = \"raw\"
         ] {
             let out = global(src, &[Change::Unset { key: DISPLAY_STYLE }]).unwrap();
             assert_eq!(out, "schema_version = 1\n", "{src}");
-            assert!(holds_nothing(&out), "{src}");
+            assert!(nothing_to_keep(src, &out), "{src}");
         }
     }
 
@@ -429,27 +449,44 @@ fceumm_palette = \"raw\"
         let src = "schema_version = 1\n# the tube\n[display]\nstyle = \"2x\"\n";
         let out = global(src, &[Change::Unset { key: DISPLAY_STYLE }]).unwrap();
         assert!(out.contains("# the tube"), "{out}");
-        assert!(!holds_nothing(&out), "{out}");
+        assert!(!nothing_to_keep(src, &out), "{out}");
     }
 
     #[test]
-    fn holds_nothing_is_true_only_for_a_file_with_no_value_and_no_comment() {
-        for empty in [
+    fn nothing_to_keep_is_true_only_with_no_value_no_comment_and_a_known_version() {
+        let old = "schema_version = 1\n[display]\nstyle = \"2x\"\n";
+        for new in [
             "",
             "\n",
             "schema_version = 1\n",
+            "schema_version = 0\n",
             "schema_version = 1\n\n[display]\n",
         ] {
-            assert!(holds_nothing(empty), "{empty:?}");
+            assert!(nothing_to_keep(old, new), "{new:?}");
         }
-        for kept in [
+        for new in [
             "schema_version = 1\n# note\n",
             "schema_version = 1\n[display]\nstyle = \"2x\"\n",
             "[network]\nwifi_ssid = \"home\"\n",
+            "schema_version = 2\n",
+            "schema_version = \"x\"\n",
             "not toml",
         ] {
-            assert!(!holds_nothing(kept), "{kept:?}");
+            assert!(!nothing_to_keep(old, new), "{new:?}");
         }
+        for old in [
+            "# my CRT notes, keep\nschema_version = 1\n[display]\nstyle = \"2x\"\n",
+            "[display]\nstyle = \"2x\" # sharp\n",
+        ] {
+            assert!(!nothing_to_keep(old, "schema_version = 1\n"), "{old:?}");
+        }
+    }
+
+    #[test]
+    fn a_comment_above_a_dotted_key_keeps_the_file() {
+        let src = "schema_version = 1\n# my tube\ndisplay.style = \"2x\"\n";
+        let out = global(src, &[Change::Unset { key: DISPLAY_STYLE }]).unwrap();
+        assert!(!nothing_to_keep(src, &out), "{out}");
     }
 
     #[test]
