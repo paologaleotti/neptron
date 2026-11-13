@@ -230,7 +230,7 @@ pub fn guest_script(step: Step, nonce: &str) -> String {
         Step::Rewritten => {
             s.push_str(
                 "logged 'an old exFAT share starts at sector' || fail \"the old share was not found at the planned start\"\n\
-                 logged 'formatting it exFAT' && fail \"the old share was formatted\"\n\
+                 mentioned 'formatting it exFAT' && fail \"the old share was formatted\"\n\
                  [ ! -e /state/share-pending ] || fail \"the marker /state/share-pending stays after the mount\"\n",
             );
             s.push_str(FLUSHED);
@@ -239,7 +239,7 @@ pub fn guest_script(step: Step, nonce: &str) -> String {
         Step::Again | Step::RetypeAgain => {
             s.push_str(
                 "logged 'making partition 4' && fail \"partition 4 was made again\"\n\
-                 logged 'formatting it exFAT' && fail \"the share was formatted\"\n",
+                 mentioned 'formatting it exFAT' && fail \"the share was formatted\"\n",
             );
             s.push_str(&read_back);
         }
@@ -263,8 +263,8 @@ pub fn guest_script(step: Step, nonce: &str) -> String {
         }
         Step::Kept => {
             s.push_str(
-                "logged 'formatting it exFAT' && fail \"the share was formatted\"\n\
-                 logged 'is formatted exFAT on the request' && fail \"the share was formatted\"\n\
+                "mentioned 'formatting it exFAT' && fail \"the share was formatted\"\n\
+                 mentioned 'is formatted exFAT on the request' && fail \"the share was formatted\"\n\
                  grep -q '^share_format' /run/neptron/storage.toml && fail \"a request result with no request\"\n",
             );
             s.push_str(&read_back);
@@ -272,8 +272,8 @@ pub fn guest_script(step: Step, nonce: &str) -> String {
         }
         Step::Refused => {
             s.push_str(
-                "logged 'is formatted exFAT on the request' && fail \"the share was formatted\"\n\
-                 logged 'formatting it exFAT' && fail \"the share was formatted\"\n\
+                "mentioned 'is formatted exFAT on the request' && fail \"the share was formatted\"\n\
+                 mentioned 'formatting it exFAT' && fail \"the share was formatted\"\n\
                  status 'share_format = \"refused\"' || fail \"the request was not refused\"\n\
                  grep -q '^share_format_reason = \".*it holds a filesystem or a partition table\"$' /run/neptron/storage.toml || fail \"the refusal does not name the filesystem\"\n\
                  [ ! -e /state/share-format-request ] || fail \"the request file stays\"\n",
@@ -443,12 +443,17 @@ const DEFAULT_TIMEOUT_SECS: u64 = 300;
 /// The helpers of every guest script.
 const PRELUDE: &str = r#"fail() {
 	echo "share-check: FAIL STEP: $1"
-	echo "share-check: /run/neptron/storage.toml:"; cat /run/neptron/storage.toml
+	echo "share-check: /run/neptron/storage.toml:"; sed 's/^/share-check:   /' /run/neptron/storage.toml
 	echo "share-check: storage lines in /var/log/messages:"; grep neptron-storage /var/log/messages
 	exit 1
 }
+# A line of the storage script that starts with $1.
 logged() {
 	grep -q "neptron-storage: $1" /var/log/messages
+}
+# A line of the storage script that holds $1 anywhere.
+mentioned() {
+	grep -q "neptron-storage: .*$1" /var/log/messages
 }
 status() {
 	grep -qx "$1" /run/neptron/storage.toml
@@ -469,8 +474,8 @@ this_boot | grep -q '/dev/sda4 mounted at /share' || fail "/state/log/storage.lo
 const OFFERED: &str = r#"status 'share = "ram"' || fail "/share is not a RAM folder"
 grep -q '^share /share tmpfs ' /proc/mounts || fail "/share is not a RAM folder in /proc/mounts"
 grep -q '^/dev/sda4 ' /proc/mounts && fail "partition 4 is mounted"
-logged 'formatting it exFAT' && fail "partition 4 was formatted with no request"
-logged 'is empty and has no /state/share-pending, so it is left untouched' || fail "the reason is not that of an empty partition 4 with no marker"
+mentioned 'formatting it exFAT' && fail "partition 4 was formatted with no request"
+logged 'the share partition /dev/sda4 is empty and has no /state/share-pending, so it is left untouched' || fail "the reason is not that of an empty partition 4 with no marker"
 status 'share_fix = "format"' || fail "no format is offered"
 status 'share_fix_device = "/dev/sda4"' || fail "the offer does not name /dev/sda4"
 status "share_fix_start = $(cat /sys/class/block/sda4/start)" || fail "the offer does not name the start of partition 4"
@@ -585,7 +590,7 @@ mod tests {
         let rewritten = guest_script(Step::Rewritten, "n0nce");
         for part in [
             "logged 'an old exFAT share starts at sector' || fail",
-            "logged 'formatting it exFAT' && fail",
+            "mentioned 'formatting it exFAT' && fail",
             "[ ! -e /state/share-pending ]",
             "[ \"$(cat /share/share-check.txt)\" = \"n0nce\" ]",
         ] {
@@ -605,7 +610,7 @@ mod tests {
             let s = guest_script(step, "n0nce");
             for part in [
                 "status 'share = \"ram\"'",
-                "logged 'formatting it exFAT' && fail",
+                "mentioned 'formatting it exFAT' && fail",
                 "status 'share_fix = \"format\"'",
                 &format!("status 'share_fix_type = \"{kind}\"'"),
                 "mv /state/share-format-request.tmp /state/share-format-request && sync",
@@ -628,7 +633,7 @@ mod tests {
         assert!(kept.contains("= \"n0nce\" ]"), "{kept}");
         let refused = guest_script(Step::Refused, "n0nce");
         for part in [
-            "logged 'is formatted exFAT on the request' && fail",
+            "mentioned 'is formatted exFAT on the request' && fail",
             "status 'share_format = \"refused\"'",
             "it holds a filesystem or a partition table",
             "[ ! -e /state/share-format-request ]",
@@ -740,6 +745,43 @@ mod this_boot {
         );
         assert_eq!(run("== boot 1\na\nb\n"), "a\nb\n");
         assert_eq!(run("no boot line\n"), "");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod log_helpers {
+    use super::*;
+    use std::process::Command;
+
+    /// `logged` matches a line that starts with the text, `mentioned` a
+    /// line that holds it anywhere: a negative check with `logged` on a
+    /// text in the middle of a line could never fail.
+    #[test]
+    fn logged_is_anchored_and_mentioned_is_not() {
+        let dir = std::env::temp_dir().join(format!("xtask-log-helpers-{}", std::process::id()));
+        // A leftover of an earlier run with the same process id; absence is fine.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let messages = dir.join("messages");
+        std::fs::write(
+            &messages,
+            "Nov 13 neptron user.notice neptron-storage: /dev/sda4 holds no filesystem; formatting it exFAT\n",
+        )
+        .unwrap();
+        let prelude = PRELUDE.replace("/var/log/messages", &messages.display().to_string());
+        let run = |check: &str| {
+            Command::new("sh")
+                .arg("-c")
+                .arg(format!("{prelude}\n{check}"))
+                .status()
+                .unwrap()
+                .success()
+        };
+        assert!(run("logged '/dev/sda4 holds no filesystem'"));
+        assert!(!run("logged 'formatting it exFAT'"));
+        assert!(run("mentioned 'formatting it exFAT'"));
+        assert!(!run("mentioned 'is formatted exFAT on the request'"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
