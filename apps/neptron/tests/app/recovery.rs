@@ -66,28 +66,15 @@ fn the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu() {
             rig.boot(Some(next));
             rig.frames(30);
             rig.hold(&[Control::Select, Control::Start]);
-            let mut most_frames = 0;
-            let mut cue_frames = 0;
-            for _ in 0..HOLD_FRAMES {
-                let before = rig.audio.written_frames();
-                rig.frames(1);
-                let written = rig.audio.written_frames() - before;
-                if rig.shell().guard().phase() == Phase::Safe(SafeReason::Recovery) {
-                    cue_frames = written;
-                    break;
-                }
-                most_frames = most_frames.max(written);
-            }
-            assert_eq!(
-                rig.shell().guard().phase(),
-                Phase::Safe(SafeReason::Recovery)
-            );
-            assert!(
-                cue_frames > most_frames + 1_000,
-                "the tone: {cue_frames} frames, a game frame at most {most_frames}"
-            );
+            rig.until(HOLD_FRAMES, "the recovery", |r| {
+                r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
+            });
             rig.release(&[Control::Select, Control::Start]);
-            rig.frames(3);
+            rig.frames(30);
+            let stats = rig.shell().audio_stats().expect("the audio");
+            // The tone is 200 ms at the 48 kHz of the fake sink.
+            assert_eq!(stats.cue_frames, 9_600, "the whole tone");
+            assert_eq!(stats.overrun_frames, 0);
             assert!(!rig.shell().paused(), "the hold opens no quick menu");
             assert_eq!(rig.screen(), "game");
 

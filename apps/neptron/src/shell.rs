@@ -298,6 +298,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         matches!(&self.stage, Stage::Game(g) if g.session.paused())
     }
 
+    /// The counters of the audio pipeline of the game. `None` in the game
+    /// list and after the audio was lost.
+    pub fn audio_stats(&self) -> Option<neptron_audio::AudioStats> {
+        match &self.stage {
+            Stage::Game(game) => game.session.audio_stats().copied(),
+            _ => None,
+        }
+    }
+
     /// The video engine: the mode on screen and the trace.
     pub fn engine(&self) -> Option<&VideoEngine<D>> {
         match &self.stage {

@@ -467,3 +467,62 @@ fn a_pipeline_at_100_is_bit_exact_with_no_volume_stage() {
         "a change to 100 at 100 has no ramp"
     );
 }
+
+/// A 200 ms cue on a sink of the real capacity (128 ms at 48 kHz) plays
+/// whole, through mute, and leaves the queue at its target.
+#[test]
+fn a_cue_longer_than_the_sink_plays_whole_and_keeps_the_level() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    for _ in 0..30 {
+        pipeline.push_samples(&[0; 533 * 2]);
+        pipeline.end_frame();
+        clock.advance(16_639_000);
+    }
+    pipeline.mute();
+    let target = pipeline.control().target_frames();
+    let cue: Vec<i16> = (0..9_600).flat_map(|_| [4_000_i16, 4_000]).collect();
+    let before = audio.samples().len();
+    assert_eq!(pipeline.write_cue(&cue), 9_600);
+    let mut most = 0;
+    for _ in 0..40 {
+        pipeline.push_samples(&[0; 533 * 2]);
+        pipeline.end_frame();
+        most = most.max(pipeline.stats().level_frames);
+        clock.advance(16_639_000);
+    }
+    assert_eq!(pipeline.stats().overrun_frames, 0, "nothing cut");
+    let loud = audio.samples()[before..]
+        .iter()
+        .filter(|s| **s == 4_000)
+        .count();
+    assert_eq!(loud, cue.len(), "the whole cue, through mute");
+    assert_eq!(pipeline.stats().cue_frames, 9_600);
+    assert!(
+        most <= target + 1_000,
+        "the queue stays near its target of {target}: {most}"
+    );
+}
+
+/// The user volume does not scale a cue: at volume 0 the cue still plays
+/// at its own level.
+#[test]
+fn a_cue_plays_at_its_level_at_volume_zero() {
+    let clock = SimClock::new();
+    let (pipeline, audio) = pipeline(&clock);
+    let mut pipeline = pipeline.with_volume_percent(0);
+    let cue: Vec<i16> = (0..1_000).flat_map(|_| [4_000_i16, 4_000]).collect();
+    let before = audio.samples().len();
+    pipeline.write_cue(&cue);
+    for _ in 0..4 {
+        pipeline.push_samples(&[8_000; 533 * 2]);
+        pipeline.end_frame();
+        clock.advance(16 * MS);
+    }
+    let loud = audio.samples()[before..]
+        .iter()
+        .filter(|s| **s == 4_000)
+        .count();
+    assert_eq!(loud, cue.len(), "the whole cue at its own level");
+    assert_eq!(pipeline.stats().cue_frames, 1_000);
+}

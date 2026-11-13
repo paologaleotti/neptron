@@ -221,10 +221,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         self.audio.as_ref().map(AudioPipeline::sink)
     }
 
-    /// Writes a short cue of the app, as stereo frames, straight to the
-    /// audio sink after the audio already queued, also while the quick
-    /// menu mutes the game. Returns the frames the sink took: 0 after the
-    /// audio was lost.
+    /// Plays a short cue of the app, as stereo frames, mixed into the next
+    /// core frames ([`AudioPipeline::write_cue`]): it bypasses the mute,
+    /// the user volume does not scale it, and it waits while the core does
+    /// not run (the quick menu, the output off). Returns the frames of the
+    /// cue: 0 after the audio was lost.
     pub fn write_cue(&mut self, stereo: &[i16]) -> usize {
         self.audio
             .as_mut()

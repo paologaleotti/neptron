@@ -54,6 +54,9 @@ pub struct AudioStats {
     /// frame's audio is lost; it does not happen with the buffers that
     /// [`AudioPipeline::new`] makes.
     pub resampler_errors: u64,
+    /// Frames of a cue ([`AudioPipeline::write_cue`]) mixed into the
+    /// output.
+    pub cue_frames: u64,
     /// The queue level before the last write, in output frames.
     pub level_frames: usize,
     /// The resample ratio of the last frame, in output frames per input
@@ -95,6 +98,10 @@ pub struct AudioPipeline<S> {
     gain: Gain,
     /// The last frame written, for the fade-out of a mute.
     last: [i16; 2],
+    /// A cue of the frontend, interleaved, mixed into the output from
+    /// `cue_at` on.
+    cue: Vec<i16>,
+    cue_at: usize,
     stats: AudioStats,
 }
 
@@ -146,6 +153,8 @@ impl<S: AudioSink> AudioPipeline<S> {
             muted: false,
             gain: Gain::new(u32::try_from(ramp_frames).unwrap_or(u32::MAX)),
             last: [0; 2],
+            cue: Vec::new(),
+            cue_at: 0,
             stats: AudioStats {
                 ratio: nominal,
                 ..AudioStats::default()
@@ -217,6 +226,8 @@ impl<S: AudioSink> AudioPipeline<S> {
             let end = frames * 2;
             self.last = [self.samples[end - 2], self.samples[end - 1]];
         }
+        // After the gain: the user volume does not scale a cue.
+        self.mix_cue(frames);
         level += self.write_samples(frames);
         if self.muted {
             self.top_up(level);
@@ -307,12 +318,21 @@ impl<S: AudioSink> AudioPipeline<S> {
         &self.sink
     }
 
-    /// Writes stereo frames straight to the sink, after the audio already
-    /// queued: a short cue of the frontend, such as the tone of the blind
-    /// recovery. The rate control sees the higher queue level at the next
-    /// frame and drains it. Returns the frames the sink took.
+    /// Plays a short cue of the frontend, such as the tone of the blind
+    /// recovery: the next core frames mix it into their output, frame by
+    /// frame, so it plays whole whatever the sink's capacity, and the queue
+    /// stays at its target. It replaces a cue that is still playing. The
+    /// cue bypasses the mute: it sounds also while the game is muted. The
+    /// user volume does not scale it: the mix comes after the gain. It plays only while core frames run
+    /// ([`end_frame`](Self::end_frame)). Returns the frames of the cue.
+    ///
+    /// It copies the cue once; a cue is rare, not a steady-state frame.
     pub fn write_cue(&mut self, stereo: &[i16]) -> usize {
-        self.sink.write(stereo)
+        let frames = stereo.len() / 2;
+        self.cue.clear();
+        self.cue.extend_from_slice(&stereo[..frames * 2]);
+        self.cue_at = 0;
+        frames
     }
 
     /// Gives the sink back.
@@ -334,6 +354,17 @@ impl<S: AudioSink> AudioPipeline<S> {
         };
         self.input_frames = 0;
         frames
+    }
+
+    /// Adds the next `frames` frames of the cue to `samples`, saturated.
+    fn mix_cue(&mut self, frames: usize) {
+        let rest = self.cue.get(self.cue_at..).unwrap_or_default();
+        let count = rest.len().min(frames * 2);
+        for (out, cue) in self.samples.iter_mut().zip(&rest[..count]) {
+            *out = out.saturating_add(*cue);
+        }
+        self.cue_at += count;
+        self.stats.cue_frames += (count / 2) as u64;
     }
 
     /// Converts `frames` output frames to `samples`, with the fade-in.

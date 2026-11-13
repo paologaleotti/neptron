@@ -139,7 +139,7 @@ flowchart TD
 | `Running` | `Ended` | Core event `Shutdown` (`RETRO_ENVIRONMENT_SHUTDOWN`) | | `FrameReport::ended = CoreShutdown`. The app ends the game. |
 | `Running` | `Ended` | `host.run_frame` returns an error | | `SessionError::Core`. The app ends the game with a notice. |
 | any | `Ended` | N loop frames in a row with no completed flip and the output on | `FLIPLESS_FRAMES_LIMIT` = 10 frames; KMS wait `FLIP_WAIT_LIMIT_MS` = 500 ms, so at most about 5 s | `SessionError::DisplayStalled`. The app ends the game with a notice. |
-| any | any | Select and Start held on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | `FrameReport::blind_recovery`. The app calls `guard.recover`: the safe default goes to the engine. The session state does not change: a recovery hold opens no quick menu. The app plays the tone through the session's sink (`Session::write_cue`). |
+| any | any | Select and Start held on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | `FrameReport::blind_recovery`. The app calls `guard.recover`: the safe default goes to the engine. The session state does not change: a recovery hold opens no quick menu. The app plays the tone through the session (`Session::write_cue`): the pipeline mixes it into the next core frames, through the mute, with the queue at its target. |
 | `Running` | `Running` | Clock reaches the flush time | `SAVE_RAM_FLUSH_INTERVAL_NS` = 30 s | Save RAM copy goes to the writer when it changed. Timer restarts. |
 | `Ended` | (process) | `quit()` | | Last flush, writer joined, `ExitReport`. Relaunch file to the game list, exit code `RELAUNCH_EXIT_CODE` = 75. |
 
