@@ -4,7 +4,8 @@
 # server of the network share must be built in, with no SMB1, no RDMA
 # transport and no Kerberos, the watchdog driver must be built in (the
 # power-off and the reboot of a Pi go through it), and vc4 must be built
-# in with the I2C controller of the HDMI DDC bus. The fragments set these
+# in with the I2C controller of the HDMI DDC bus. The drivers of the root
+# filesystem on the SD card must be built in. The fragments set these
 # options, but another option can select one again. Exits with 0 when all
 # hold, else with 1 and one line for each fault. A missing or unreadable
 # file is a fault.
@@ -21,6 +22,10 @@ SHARE_OFF="SMB_INSECURE_SERVER SMB_SERVER_SMBDIRECT SMB_SERVER_KERBEROS5"
 SHARE_ON="SMB_SERVER"
 POWER_ON="BCM2835_WDT"
 DISPLAY_ON="DRM_VC4 I2C_BCM2835"
+# The image has no initramfs: the kernel mounts the EROFS root from the SD
+# card itself. The Pi 3 reads its card through the sdhost controller
+# (MMC_BCM2835); sdhci-iproc is the card host of the Pi 4, not needed here.
+ROOT_ON="MMC_BLOCK MMC_BCM2835 EROFS_FS EROFS_FS_ZIP"
 
 br2_config=$1
 build_dir=$2
@@ -73,6 +78,12 @@ done
 for option in $DISPLAY_ON; do
 	if ! has "$option" y; then
 		echo "check-kernel-config: CONFIG_$option is not built in in $config; the display of a Pi needs it" >&2
+		status=1
+	fi
+done
+for option in $ROOT_ON; do
+	if ! has "$option" y; then
+		echo "check-kernel-config: CONFIG_$option is not built in in $config; the kernel mounts the root from the SD card with no initramfs" >&2
 		status=1
 	fi
 done

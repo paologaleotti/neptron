@@ -298,6 +298,7 @@ fn each_kernel_fragment_holds_its_concern() {
     );
     assert!(pi_check.contains("POWER_ON=\"BCM2835_WDT\""));
     assert!(pi_check.contains("DISPLAY_ON=\"DRM_VC4 I2C_BCM2835\""));
+    assert!(pi_check.contains("ROOT_ON=\"MMC_BLOCK MMC_BCM2835 EROFS_FS EROFS_FS_ZIP\""));
 }
 
 /// Runs the kernel check of the Pi on a fake output: a Buildroot config
@@ -326,7 +327,9 @@ fn check_kernel_config(name: &str, custom: bool, config: Option<&str>) -> Output
 #[test]
 fn the_kernel_check_refuses_a_mode_option_and_needs_the_watchdog() {
     let good = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_VC4=y\n\
-                CONFIG_I2C_BCM2835=y\nCONFIG_SMB_SERVER=y\nCONFIG_BCM2835_WDT=y\n";
+                CONFIG_I2C_BCM2835=y\nCONFIG_SMB_SERVER=y\nCONFIG_BCM2835_WDT=y\n\
+                CONFIG_MMC_BLOCK=y\nCONFIG_MMC_BCM2835=y\nCONFIG_MMC_BCM2835_MMC=y\n\
+                CONFIG_EROFS_FS=y\nCONFIG_EROFS_FS_ZIP=y\n";
     let ok = check_kernel_config("ok", true, Some(good));
     assert!(ok.status.success(), "{ok:?}");
     let missing = check_kernel_config("missing", true, None);
@@ -368,6 +371,26 @@ fn the_kernel_check_refuses_a_mode_option_and_needs_the_watchdog() {
             "i2cmodule",
             "CONFIG_I2C_BCM2835=m\n",
             "CONFIG_I2C_BCM2835 is not built in",
+        ),
+        (
+            "mmcblock",
+            "CONFIG_MMC_BLOCK=m\n",
+            "CONFIG_MMC_BLOCK is not built in",
+        ),
+        (
+            "sdhost",
+            "# CONFIG_MMC_BCM2835 is not set\n",
+            "CONFIG_MMC_BCM2835 is not built in",
+        ),
+        (
+            "erofs",
+            "CONFIG_EROFS_FS=m\n",
+            "CONFIG_EROFS_FS is not built in",
+        ),
+        (
+            "erofszip",
+            "# CONFIG_EROFS_FS_ZIP is not set\n",
+            "CONFIG_EROFS_FS_ZIP is not built in",
         ),
         (
             "smbmodule",
