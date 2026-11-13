@@ -139,15 +139,19 @@ impl QuickMenu {
         self.page.request(snap)
     }
 
-    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, frame: &mut UiFrame) {
-        let title = snap
-            .session
+    /// The root of the breadcrumb in a game: the title of the game.
+    pub(super) fn label<'a>(&self, snap: &'a Snapshot) -> &'a str {
+        snap.session
             .as_ref()
-            .map_or("Quick menu", |s| s.title.as_str());
-        chrome::frame(
+            .map_or("Quick menu", |s| s.title.as_str())
+    }
+
+    /// Draws the first page under the breadcrumb `path`.
+    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
+        chrome::frame_path(
             frame,
             theme,
-            title,
+            path,
             "Paused",
             self.page.hint(snap),
             "Back: resume",

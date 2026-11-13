@@ -2129,3 +2129,62 @@ fn a_page_that_is_not_loaded_takes_only_back() {
     run.step(&video, &[Back]);
     assert_eq!(run.intents(), [Intent::Resume], "back still works");
 }
+
+/// The title row of the frame: the first label of the tree.
+fn title(run: &Run) -> (&str, Option<&str>) {
+    run.frame
+        .tree
+        .rows()
+        .find(|r| r.widget == crate::WidgetKind::Label)
+        .map(|r| (r.label, r.value))
+        .unwrap_or_default()
+}
+
+#[test]
+fn the_title_band_shows_where_the_player_is() {
+    let mut run = Run::new();
+    let snap = with_audio();
+    run.step(&snap, &[]);
+    assert_eq!(title(&run), ("NEPTRON", None));
+    run.step(&snap, &[Down, Down, Down, Down, Down, Accept]);
+    assert_eq!(title(&run), ("Settings", None));
+    run.step(&snap, &[Down, Accept]);
+    assert_eq!(title(&run), ("Settings > Audio", None));
+    run.step(&snap, &[Down, Accept]);
+    assert_eq!(title(&run), ("Settings > Audio > Audio output", None));
+    run.step(&snap, &[Back, Back, Back]);
+    assert_eq!(title(&run), ("NEPTRON", None));
+
+    let (mut run, first) = quick_menu();
+    assert_eq!(title(&run), ("Astro Racer", None));
+    let mut display = first.clone();
+    display.settings = with_display().settings;
+    run.step(&first, &[Down, Down, Down, Accept, Accept]);
+    run.step(&display, &[Down, Accept]);
+    assert_eq!(
+        title(&run),
+        ("Astro Racer > Settings > Display > Monitor", None)
+    );
+}
+
+#[test]
+fn a_long_breadcrumb_keeps_its_end_and_the_tree_keeps_it_whole() {
+    let mut snap = in_game();
+    snap.session = Some(SessionInfo::new(GameId(1), super::scenes::LONG_TITLE));
+    let mut run = Run::new();
+    run.step(&snap, &[]);
+    run.step(&snap, &[Menu]);
+    let (shown, whole) = title(&run);
+    assert!(shown.starts_with("The Legend of the Mystical") && shown.ends_with("..."));
+    assert_eq!(shown.chars().count(), 38, "the room left of Paused");
+    assert_eq!(whole, Some(super::scenes::LONG_TITLE));
+    assert!(run.frame.tree.rows().all(|r| !r.clipped));
+
+    run.step(&snap, &[Down, Down, Accept]);
+    snap.settings = super::scenes::video_page();
+    run.step(&snap, &[Down, Accept]);
+    let (shown, whole) = title(&run);
+    assert_eq!(shown, "... > Video > Refresh");
+    let full = format!("{} > Video > Refresh", super::scenes::LONG_TITLE);
+    assert_eq!(whole, Some(full.as_str()));
+}

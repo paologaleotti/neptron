@@ -124,20 +124,20 @@ impl Options {
         Nav::Back
     }
 
+    /// The part of this screen in the breadcrumb: the label of the row
+    /// that opened it.
+    pub(super) fn label(&self) -> &str {
+        self.label.as_str()
+    }
+
     pub(super) fn request(&self, snap: &Snapshot) -> Option<Intent> {
         (!snap.settings.is_for(self.page)).then_some(Intent::LoadSettings { page: self.page })
     }
 
-    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, frame: &mut UiFrame) {
+    /// Draws the list under the breadcrumb `path`.
+    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
         let choice = self.choice(snap);
-        chrome::frame(
-            frame,
-            theme,
-            self.label.as_str(),
-            "",
-            "Accept: use",
-            "Back: cancel",
-        );
+        chrome::frame_path(frame, theme, path, "", "Accept: use", "Back: cancel");
         chrome::boxed(frame, theme, self.list_box);
         chrome::boxed(frame, theme, self.help_box);
         let Some((_, index, options)) = choice else {

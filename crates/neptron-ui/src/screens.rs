@@ -8,6 +8,7 @@
 //! [`RESERVED_ID_MIN`] and above; the app numbers its own pages and actions
 //! below it.
 
+mod breadcrumb;
 mod chrome;
 mod display;
 mod game_list;

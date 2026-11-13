@@ -9,6 +9,8 @@ use crate::text::{self, Align};
 use crate::theme::{SAFE_AREA, Theme};
 use crate::tree::{TreeRow, WidgetKind};
 
+use super::breadcrumb::{self, Breadcrumb};
+
 /// Space between the bands and the content, in pixels.
 const GAP_PX: u32 = 4;
 /// Height of the line under the title band. Two lines, so that an
@@ -68,6 +70,59 @@ pub(super) fn frame(
     hint_left: &str,
     hint_right: &str,
 ) {
+    let (inner, title_box) = bands(frame, theme, right);
+    label(frame, title_box, Align::Left, theme.colors.text, title);
+    label(frame, inner, Align::Right, theme.colors.accent, right);
+    hints(frame, theme, hint_left, hint_right);
+}
+
+/// Draws the frame as [`frame`] does, with the breadcrumb of `path` (the
+/// parts from the root) as the title, cut by the rule of
+/// [`breadcrumb::fit`] to the room the title has. The tree gets the text
+/// as drawn, and the whole path as its value when the rule shortened it.
+/// The row is not clipped: the cut is the rule, not a fault of the layout.
+pub(super) fn frame_path(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    path: &[&str],
+    right: &str,
+    hint_left: &str,
+    hint_right: &str,
+) {
+    let (inner, title_box) = bands(frame, theme, right);
+    let mut shown = Breadcrumb::new();
+    let short = breadcrumb::fit(path, font::chars_in(title_box.w), &mut shown);
+    let mut whole = Breadcrumb::new();
+    if short {
+        breadcrumb::write_joined(&mut whole, path);
+    }
+    if !shown.as_str().is_empty() {
+        text::draw_in(
+            &mut frame.scene,
+            title_box,
+            Align::Left,
+            theme.colors.text,
+            shown.as_str(),
+        );
+        frame.tree.push(TreeRow {
+            widget: WidgetKind::Label,
+            kind: None,
+            label: shown.as_str(),
+            value: short.then_some(whole.as_str()),
+            source: None,
+            rect: title_box,
+            focused: false,
+            clipped: false,
+        });
+    }
+    label(frame, inner, Align::Right, theme.colors.accent, right);
+    hints(frame, theme, hint_left, hint_right);
+}
+
+/// Draws the background, the title band and the line under it. Returns
+/// the inside of the band and the box of the title, which leaves room for
+/// `right`.
+fn bands(frame: &mut UiFrame, theme: &Theme, right: &str) -> (Rect, Rect) {
     let layout = Layout::new(theme);
     background(frame, theme);
     frame.scene.rect(layout.title, theme.colors.panel);
@@ -84,10 +139,7 @@ pub(super) fn frame(
         text => font::text_width(text).saturating_add(2 * font::ADVANCE),
     };
     let title_box = Rect::new(inner.x, inner.y, inner.w.saturating_sub(right_w), inner.h);
-    label(frame, title_box, Align::Left, theme.colors.text, title);
-    label(frame, inner, Align::Right, theme.colors.accent, right);
-
-    hints(frame, theme, hint_left, hint_right);
+    (inner, title_box)
 }
 
 /// Draws the hint band with `left` and `right`, over any hints drawn

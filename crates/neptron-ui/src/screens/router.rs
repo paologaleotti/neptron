@@ -265,6 +265,8 @@ impl Screens {
 
     fn draw(&self, snap: &Snapshot, out: &mut UiFrame) {
         let (theme, layout) = (&self.theme, &self.layout);
+        let mut parts = [""; MAX_DEPTH];
+        let path = self.path(snap, &mut parts);
         match self.stack.last() {
             Some(Screen::Home(home)) => {
                 out.tree.set_screen("home");
@@ -276,23 +278,23 @@ impl Screens {
             }
             Some(Screen::Settings(menu)) => {
                 out.tree.set_screen("settings");
-                menu.draw(theme, out);
+                menu.draw(theme, path, out);
             }
             Some(Screen::Display(panel)) => {
                 out.tree.set_screen("display");
-                panel.draw(snap, theme, out);
+                panel.draw(snap, theme, path, out);
             }
             Some(Screen::Page(panel)) => {
                 out.tree.set_screen(panel.screen_id());
-                panel.draw(snap, theme, out);
+                panel.draw(snap, theme, path, out);
             }
             Some(Screen::Options(options)) => {
                 out.tree.set_screen("options");
-                options.draw(snap, theme, out);
+                options.draw(snap, theme, path, out);
             }
             Some(Screen::QuickMenu(menu)) => {
                 out.tree.set_screen("quick-menu");
-                menu.draw(snap, theme, out);
+                menu.draw(snap, theme, path, out);
             }
             Some(Screen::Grid) => {
                 out.tree.set_screen("pattern/grid");
@@ -314,6 +316,38 @@ impl Screens {
             out.tree.set_screen("notice");
             self.notices.draw(notice, theme, out);
         }
+    }
+
+    /// The breadcrumb of the screen on top, from its root: the labels of
+    /// the screens above home, or above the game with the title of the game
+    /// first. `parts` holds the text; the result is the part of it in use.
+    fn path<'a>(
+        &'a self,
+        snap: &'a Snapshot,
+        parts: &'a mut [&'a str; MAX_DEPTH],
+    ) -> &'a [&'a str] {
+        let mut count = 0;
+        for screen in self.stack.iter().rev() {
+            let (part, root) = match screen {
+                Screen::Settings(menu) => (menu.label(), false),
+                Screen::Display(panel) => (panel.label(), false),
+                Screen::Page(panel) => (panel.label(), false),
+                Screen::Options(options) => (options.label(), false),
+                Screen::QuickMenu(menu) => (menu.label(snap), true),
+                Screen::Home(_) | Screen::Games(_) | Screen::Grid | Screen::Game => break,
+            };
+            let Some(slot) = parts.get_mut(count) else {
+                break;
+            };
+            *slot = part;
+            count += 1;
+            if root {
+                break;
+            }
+        }
+        let path = parts.get_mut(..count).unwrap_or_default();
+        path.reverse();
+        path
     }
 
     /// The quick menu, when it is open under the screen on top or is the

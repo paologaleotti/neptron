@@ -33,6 +33,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: settings,
     },
     SceneDef {
+        name: "screens/breadcrumb-long",
+        build: breadcrumb_long,
+    },
+    SceneDef {
         name: "screens/games-top",
         build: games_top,
     },
@@ -551,6 +555,15 @@ fn video_page_of(frame: &mut UiFrame, theme: &Theme, snap: &mut Snapshot) -> Scr
     snap.settings = video_page();
     screens.update(snap, &[], frame);
     screens
+}
+
+/// A game with a title too long for the title band, on the video page: the
+/// breadcrumb cuts the title and keeps the page.
+fn breadcrumb_long(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = in_game();
+    snap.session = Some(SessionInfo::new(GameId(1), LONG_TITLE));
+    let mut screens = video_page_of(frame, theme, &mut snap);
+    screens.update(&snap, &[UiAction::Down], frame);
 }
 
 /// The video page of the quick menu on a flat panel: the picture style and

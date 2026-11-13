@@ -56,6 +56,12 @@ impl PagePanel {
         }
     }
 
+    /// The part of this screen in the breadcrumb: the label of the row
+    /// that opened it.
+    pub(super) fn label(&self) -> &str {
+        self.label.as_str()
+    }
+
     /// Puts the video block above the rows of a page that shows it, while
     /// the snapshot has a video status and the block leaves room for the
     /// rows, and removes it otherwise.
@@ -88,15 +94,9 @@ impl PagePanel {
         self.page.request(snap)
     }
 
-    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, frame: &mut UiFrame) {
-        chrome::frame(
-            frame,
-            theme,
-            self.label.as_str(),
-            "",
-            self.page.hint(snap),
-            "Back: return",
-        );
+    /// Draws the page under the breadcrumb `path`.
+    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
+        chrome::frame_path(frame, theme, path, "", self.page.hint(snap), "Back: return");
         if let Some(status) = video::status(snap).filter(|_| self.video) {
             video::draw(frame, theme, self.content, status);
         }

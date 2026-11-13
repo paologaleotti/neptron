@@ -32,6 +32,12 @@ impl SettingsMenu {
         }
     }
 
+    /// The part of this screen in the breadcrumb: the label of the row
+    /// that opened it.
+    pub(super) fn label(&self) -> &str {
+        self.label.as_str()
+    }
+
     pub(super) fn handle(&mut self, action: UiAction) -> Nav {
         match self.list.handle(action, SETTINGS_PANELS.len()) {
             ListEvent::Back => Nav::Back,
@@ -46,15 +52,9 @@ impl SettingsMenu {
         }
     }
 
-    pub(super) fn draw(&self, theme: &Theme, frame: &mut UiFrame) {
-        chrome::frame(
-            frame,
-            theme,
-            self.label.as_str(),
-            "",
-            HINT_OPEN,
-            "Back: return",
-        );
+    /// Draws the page under the breadcrumb `path`.
+    pub(super) fn draw(&self, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
+        chrome::frame_path(frame, theme, path, "", HINT_OPEN, "Back: return");
         chrome::boxed(frame, theme, self.list_box);
         self.list.draw(frame, theme, SETTINGS_PANELS.len(), |i| {
             ListItem::page(SETTINGS_PANELS.get(i).map_or("", |p| p.label))

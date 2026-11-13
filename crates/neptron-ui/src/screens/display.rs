@@ -121,19 +121,19 @@ impl DisplayPanel {
         self.page.nav(event, out)
     }
 
+    /// The part of this screen in the breadcrumb: the label of the row
+    /// that opened it.
+    pub(super) fn label(&self) -> &str {
+        self.label.as_str()
+    }
+
     pub(super) fn request(&self, snap: &Snapshot) -> Option<Intent> {
         self.page.request(snap)
     }
 
-    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, frame: &mut UiFrame) {
-        chrome::frame(
-            frame,
-            theme,
-            self.label.as_str(),
-            "",
-            self.page.hint(snap),
-            "Back: return",
-        );
+    /// Draws the panel under the breadcrumb `path`.
+    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
+        chrome::frame_path(frame, theme, path, "", self.page.hint(snap), "Back: return");
         let places = &self.places;
         chrome::boxed(frame, theme, places.info_box);
         let (output, mode) = snap
