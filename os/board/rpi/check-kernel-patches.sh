@@ -5,9 +5,9 @@
 # faults:
 #
 # - BR2_LINUX_KERNEL_PATCH is not empty (the PC defconfig sets it);
-# - a global patch directory other than board/rpi/patches is set (the PC
-#   uses os/patches), or board/rpi/patches/linux holds a file other than
-#   its hash file.
+# - BR2_GLOBAL_PATCH_DIR is not exactly the patch directory of this board
+#   (the PC uses os/patches, and a second directory would add its patches),
+#   or that directory holds any file other than the two hash files.
 #
 # Exits with 0 when no patch can reach the kernel, else with 1 and one
 # line for each fault.
@@ -28,28 +28,31 @@ if [ -n "$patch" ]; then
 	status=1
 fi
 
+# The one patch directory of this board, as the defconfig writes it.
+PATCH_DIR='$(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/patches'
+# The only files it may hold: the hashes of the Pi kernel.
+ALLOWED="linux/linux.hash linux-headers/linux-headers.hash"
+
 dirs=$(sed -n 's/^BR2_GLOBAL_PATCH_DIR="\(.*\)"$/\1/p' "$br2_config")
-if [ -z "$dirs" ]; then
-	echo "check-kernel-patches: BR2_GLOBAL_PATCH_DIR is not set; the Pi kernel hash is in board/rpi/patches" >&2
+if [ "$dirs" != "$PATCH_DIR" ]; then
+	echo "check-kernel-patches: BR2_GLOBAL_PATCH_DIR is '$dirs', not '$PATCH_DIR'" >&2
 	status=1
 fi
-for dir in $dirs; do
-	case $dir in
-	*/board/rpi/patches) ;;
+
+# Every file and folder below the patch directory, by its path in it.
+patches=$external/board/rpi/patches
+if [ ! -d "$patches" ]; then
+	echo "check-kernel-patches: $patches is missing" >&2
+	exit 1
+fi
+for path in $(cd "$patches" && find . -mindepth 1 | sed 's|^\./||'); do
+	[ -d "$patches/$path" ] && [ ! -L "$patches/$path" ] && continue
+	case " $ALLOWED " in
+	*" $path "*) ;;
 	*)
-		echo "check-kernel-patches: the global patch directory '$dir' is not board/rpi/patches" >&2
+		echo "check-kernel-patches: $patches/$path is in the patch directory; it may hold only $ALLOWED" >&2
 		status=1
 		;;
 	esac
-done
-
-for pkg in linux linux-headers; do
-	for file in "$external/board/rpi/patches/$pkg"/* "$external/board/rpi/patches/$pkg"/.[!.]*; do
-		[ -e "$file" ] || [ -L "$file" ] || continue
-		if [ "${file##*/}" != "$pkg.hash" ]; then
-			echo "check-kernel-patches: $file is in the patch directory of $pkg; it may hold only $pkg.hash" >&2
-			status=1
-		fi
-	done
 done
 exit $status

@@ -507,7 +507,14 @@ fn no_kernel_patch_reaches_the_pi_kernel() {
             "pcdir",
             "BR2_GLOBAL_PATCH_DIR=\"$(BR2_EXTERNAL_NEPTRON_PATH)/patches\"\n".to_owned(),
             &[],
-            "is not board/rpi/patches",
+            "BR2_GLOBAL_PATCH_DIR is '$(BR2_EXTERNAL_NEPTRON_PATH)/patches', \
+             not '$(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/patches'",
+        ),
+        (
+            "elsewhere",
+            "BR2_GLOBAL_PATCH_DIR=\"/other/board/rpi/patches\"\n".to_owned(),
+            &[],
+            "BR2_GLOBAL_PATCH_DIR is '/other/board/rpi/patches'",
         ),
         (
             "both",
@@ -515,31 +522,44 @@ fn no_kernel_patch_reaches_the_pi_kernel() {
              $(BR2_EXTERNAL_NEPTRON_PATH)/patches\"\n"
                 .to_owned(),
             &[],
-            "'$(BR2_EXTERNAL_NEPTRON_PATH)/patches' is not board/rpi/patches",
+            "BR2_GLOBAL_PATCH_DIR is '$(BR2_EXTERNAL_NEPTRON_PATH)/board/rpi/patches \
+             $(BR2_EXTERNAL_NEPTRON_PATH)/patches'",
         ),
         (
             "nodir",
             "BR2_LINUX_KERNEL_PATCH=\"\"\n".to_owned(),
             &[],
-            "BR2_GLOBAL_PATCH_DIR is not set",
+            "BR2_GLOBAL_PATCH_DIR is '', not",
         ),
         (
             "file",
             good.to_owned(),
             &["board/rpi/patches/linux/01_linux_15khz.patch"][..],
-            "01_linux_15khz.patch is in the patch directory of linux",
+            "patches/linux/01_linux_15khz.patch is in the patch directory",
         ),
         (
             "versiondir",
             good.to_owned(),
             &["board/rpi/patches/linux/6.18.62/0001.patch"][..],
-            "6.18.62 is in the patch directory of linux",
+            "patches/linux/6.18.62/0001.patch is in the patch directory",
         ),
         (
             "hidden",
             good.to_owned(),
             &["board/rpi/patches/linux-headers/.0001.patch"][..],
-            ".0001.patch is in the patch directory of linux-headers",
+            "patches/linux-headers/.0001.patch is in the patch directory",
+        ),
+        (
+            "toplevel",
+            good.to_owned(),
+            &["board/rpi/patches/0001-vc4.patch"][..],
+            "patches/0001-vc4.patch is in the patch directory",
+        ),
+        (
+            "otherpackage",
+            good.to_owned(),
+            &["board/rpi/patches/rpi-firmware/0001.patch"][..],
+            "patches/rpi-firmware/0001.patch is in the patch directory",
         ),
     ] {
         let out = check_kernel_patches(name, &br2, extra);
