@@ -378,3 +378,21 @@ fn the_video_status_shows_the_read_back_and_none_before_it() {
     );
     assert_ne!(rate, asked.field_rate_mhz());
 }
+
+#[test]
+fn the_modeset_count_holds_every_modeset_since_the_start() {
+    let mut rig = crate::harness::Rig::generic_15(crate::harness::native_width());
+    let sources = [crate::harness::MD_H40, crate::harness::MD_H32];
+    for switch in 0..80 {
+        let source = sources[switch % 2];
+        for _ in 0..neptron_video::DEBOUNCE_FRAMES {
+            rig.frame(source);
+        }
+    }
+    let trace = rig.engine.trace();
+    assert_eq!(trace.modeset_total(), 80);
+    assert!(
+        trace.modesets().count() < 80,
+        "the trace keeps the newest only"
+    );
+}

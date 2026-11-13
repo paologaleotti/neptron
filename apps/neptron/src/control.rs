@@ -298,7 +298,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Handler for She
             field_rate_mhz: mode.map_or(0, |m| m.field_rate_mhz()),
             profile: Some(self.guard().active().monitor.profile().id.clone()),
             verdicts: Vec::new(),
-            switch_count: engine.trace().modesets().count() as u64,
+            switch_count: engine.trace().modeset_total(),
         })
     }
 

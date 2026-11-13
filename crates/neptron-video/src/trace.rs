@@ -115,6 +115,7 @@ pub struct SwitchRecord {
 pub struct SwitchTrace {
     records: VecDeque<SwitchRecord>,
     total: u64,
+    modesets: u64,
 }
 
 impl SwitchRecord {
@@ -133,6 +134,7 @@ impl SwitchTrace {
         Self {
             records: VecDeque::with_capacity(TRACE_CAPACITY),
             total: 0,
+            modesets: 0,
         }
     }
 
@@ -150,6 +152,12 @@ impl SwitchTrace {
     /// scale-only decision merged into the record before it adds none.
     pub fn total(&self) -> u64 {
         self.total
+    }
+
+    /// How many [`Outcome::Modeset`] records were ever pushed, including
+    /// the ones that left the trace.
+    pub fn modeset_total(&self) -> u64 {
+        self.modesets
     }
 
     /// The modesets in the trace, oldest first.
@@ -170,6 +178,9 @@ impl SwitchTrace {
         }
         if self.records.len() == TRACE_CAPACITY {
             self.records.pop_front();
+        }
+        if record.outcome == Outcome::Modeset {
+            self.modesets += 1;
         }
         self.records.push_back(record);
         self.total += 1;

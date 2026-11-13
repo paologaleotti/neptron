@@ -209,7 +209,7 @@ The session also mutes while the quick menu is open, while `current_refused()` i
 | Outcome words | `scale only`, `modeset`, `kept the mode: {reason}`, `set_mode failed: {error}`, `read back {w}x{h}{p or i} refused`, `last good mode set again`, `output off: no valid mode`, `blank failed: {error}`. |
 | Reason words | `the game is turned ({rotation}) and the renderer does not rotate`, `no plan: {error}`, `every proposal was refused`, `the inputs refuse the mode on screen: {refusal}`. Refusal: `validator: {rejection}` or `the display driver refused it`. |
 | Log line | `frame {decided} (asked {asked}): {trigger} {w}x{h}{p or i} at {mHz} mHz: {outcome}`, then `, {rung} {w}x{h}{p or i} at {mHz} mHz`, `, read back {drift} mHz off`, `, {count} decisions`, `, shown after {n} frames` when they apply. |
-| Who reads it | The tests (`tests/golden/switch_trace.txt`), and the control protocol `video_state` (`switch_count`, the modesets among the records). |
+| Who reads it | The tests (`tests/golden/switch_trace.txt`), and the control protocol `video_state` (`switch_count` = `SwitchTrace::modeset_total`, every modeset since the start, also the ones that left the trace). |
 
 ## What can go wrong
 
