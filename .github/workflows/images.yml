@@ -290,6 +290,11 @@ jobs:
           fi
           if [ "$STATE" != ccache ]; then
             zstd -dc "$WORK/base/out.tar.zst" | sudo tar --numeric-owner -xpf - -C "$OUT_DIR"
+            # The output says every package is downloaded, so Buildroot never
+            # fetches those archives again, but make legal-info copies them.
+            if [ -f "$WORK/base/dl.tar" ]; then
+              sudo tar --numeric-owner --skip-old-files -xpf "$WORK/base/dl.tar" -C "$WORK/neptron-br-dl"
+            fi
           fi
           rm -rf "$WORK/base"
           echo "Unpacked in $(( $(date +%s) - start )) s"
@@ -313,9 +318,8 @@ jobs:
       # change to a local source by itself, so they are built again every
       # time. -reconfigure, not -rebuild: the configure step runs cargo
       # vendor, and a Cargo.lock with a new crate fails the offline build
-      # with the old vendor directory. "source" comes first: make legal-info
-      # copies the source archives from the downloads, and a build on top of
-      # a base has none when the downloads cache is empty.
+      # with the old vendor directory. "source" fetches the archives of new
+      # packages before make legal-info copies them.
       - name: Build the image
         id: build
         timeout-minutes: ${{ matrix.build_minutes }}
@@ -484,6 +488,9 @@ jobs:
           sudo du -sh "$OUT_DIR" "$WORK/neptron-br-ccache"
           sudo tar --numeric-owner -C "$OUT_DIR" -cf - . | zstd -T0 -3 -q -o "$WORK/pack/out.tar.zst"
           sudo tar --numeric-owner -C "$WORK/neptron-br-ccache" -cf - . | zstd -T0 -3 -q -o "$WORK/pack/ccache.tar.zst"
+          # The archives are compressed already.
+          sudo tar --numeric-owner -C "$WORK/neptron-br-dl" -cf "$WORK/pack/dl.tar" .
+          sudo chown "$(id -u):$(id -g)" "$WORK/pack/dl.tar"
           ls -l "$WORK/pack"
           echo "Packed in $(( $(date +%s) - start )) s" | tee -a "$GITHUB_STEP_SUMMARY"
 
