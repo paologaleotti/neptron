@@ -253,7 +253,7 @@ name = "x86_64 image"
 owns = ["os/"]
 needs = ["T23", "T24", "T27"]
 gate = "T3: QEMU boots to the game list; `vkms` writeback equals the golden; boot time recorded"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "T29"

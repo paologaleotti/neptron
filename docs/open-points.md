@@ -352,7 +352,7 @@ Each open point is one section:
 - Default: all tier 3 work of the MVP runs on the aarch64 QEMU image. The x86_64 target has a configuration and no result. The Debian packages of the development container are not pinned. CI does not fetch a base image, and the `--hot` overlay does not exist.
 - Where: `os/README.md`, section "Not verified"
 - How to change: build and boot the x86_64 image in T28 (the image for the real PC), and repair what fails.
-- Decision:
+- Decision: done in T28: the x86_64 PC image builds and boots in QEMU on BIOS and UEFI. It has never run on a real PC.
 
 ### OP-038: Which combination is the blind recovery, and the arcade quick-menu rule.
 
@@ -710,5 +710,14 @@ Each open point is one section:
 - Default: with no confirmed record, `Guard::boot` opens the boot prompt for the wanted configuration and reverts to the safe default after 10 s. When the wanted and the safe configuration are the same (a monitor with EDID on first boot, or vkms with `generic_15`), the prompt "reverts" to the same mode and a notice says "The display change went back: it was not kept in time." until the user presses OK. Nothing is wrong on the wire, but the text confuses. The boot-check golden shows this notice.
 - Where: `crates/neptron-video/src/guard/machine.rs` (`Guard::boot`), `apps/neptron` (the notice), `os/tests/golden/boot-game-list.ppm`
 - How to change: when the wanted configuration equals the safe default, open no prompt and record nothing as confirmed; or keep the prompt and give the notice another text. A change in the guard needs a review, and the golden changes with it.
+- Decision:
+
+### OP-077: The PC image: what exists, what is not proven, and what must happen before the bench.
+
+- Raised by: T28 and its three reviews
+- Status: open; points 1 to 3 come before the first release image
+- Default: (1) No release image holds the final code. The release image that passed the gate (SHA-256 fb6dce6c..., kept in `~/.cache/neptron/buildroot/images/x86_64-release-fb6dce6c`) is older than the last fixes. The x86_64 output volume holds the development packages, so the release build refuses it. A release image needs a clean build in an empty output: `cargo xtask os build --arch x86_64 --output x86_64-clean`, about 5 hours and about 45 GB in the Docker disk, which has about 9 GB free. Then `os boot-check` on BIOS and UEFI, the size and the SHA-256. (2) The development image is the one for the first bench session: `images/x86_64-dev/neptron-x86_64.img`, SHA-256 4602b70dfd0234658268a219d097556782037f535f589e2acdc2873dca602e6c, with SSH for one public key, the hot folder `/state/hot`, `cargo xtask os push`, `os logs` and `os ssh`, the log under `/state/log`, and the address in `neptron-ip.txt` on the share partition. It was built step by step, not clean. (3) The 15 kHz patch set is in both images (OP-070): nothing is given to anybody. (4) Mesa has the Intel `iris` driver; no firmware files are in the image, so AMD GPUs do not work and the Intel DMC firmware is not loaded. The i915 and amdgpu firmware licences allow redistribution of the binaries only. (5) About 104 MiB of clang libraries that nothing uses are in the root. (6) Before the frontend's first commit a CRT gets the firmware and GRUB picture at 31 kHz or more; the launcher does not blank the output. A 15 kHz-only tube needs a sync-protecting adapter or a late power-on. (7) The share partition is made at first boot. The format rule is strict (a marker, a clean read, no file system and no exFAT backup record). Not run: a real read error, a re-flash with a different layout, a 4096-byte sector disk. A power cut during mkfs leaves a share that needs a format on another computer. (8) A quit in the UI restarts the frontend; nothing powers the PC off. (9) Each variant has a fixed disk signature, so two sticks of one variant in one PC share a PARTUUID. (10) Test tools and QEMU hooks are in the image; they refuse to act unless the DRM driver is vkms. (11) The crates of the frontend are pinned by Cargo.lock checksums through `cargo vendor --locked`. (12) The development image waits for DHCP at boot, so its first frame comes later. (13) The boot check runs only in QEMU; the x86_64 times are emulated.
+- Where: `os/`, `os/README.md`, `xtask/src/os`, `xtask/README.md`
+- How to change: see `os/README.md`, sections "The PC image" and "Working on the bench".
 - Decision:
 

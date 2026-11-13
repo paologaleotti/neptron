@@ -431,3 +431,21 @@ Each check is `needs-hardware`.
 - [ ] A 720p TV. Expect: 1280x720, and 50 Hz for a PAL game.
 - [ ] An HDMI-to-VGA adapter with its own digital EDID, with a PC monitor behind it, never a 15 kHz tube. Expect: at most two windows of the panel mode, then the safe start. Record: what the monitor shows.
 
+## T28 the PC image on the i3-6100T
+
+Each check is `needs-hardware`. Use the development image first.
+
+- [ ] Do: boot the stick with UEFI, then with legacy BIOS (CSM). Expect: GRUB shows no menu, no console appears, the frontend starts. Record: the time from power-on to the first frame.
+- [ ] Do: read the address from `neptron-ip.txt` on the share partition or from the router, then `cargo xtask os ssh --host <address> -- uptime`. Expect: a login with the key; a password login is refused.
+- [ ] Do: `cargo xtask os logs --host <address>`. Expect: the binary paths, the guard events and each `mode set` line with its read back. Record: the driver line; it must name the Intel HD Graphics 530 (iris), not llvmpipe.
+- [ ] Do: `ls /dev/dri` and read `/sys/class/drm` over SSH. Expect: card0 is i915; no simpledrm and no vkms device.
+- [ ] Do: change one line of the code, then `cargo xtask os push --host <address>`. Expect: the log shows the frontend from `/state/hot/bin`. Record: the push time.
+- [ ] Do: first boot on a stick larger than the image. Expect: the share partition is made and can be read and written from macOS and Windows. A second boot keeps a file put there.
+- [ ] Do: write the image again over the stick with ROMs on it. Expect: the ROMs are still there.
+- [ ] Do: cut the power during play, then boot. Expect: the state partition mounts, the guard record and the save are kept.
+- [ ] Do: `poweroff` over SSH during a game. Expect: the log ends with the clean stop line, and the save is on the disk.
+- [ ] Do: `kill -ABRT` of the frontend over SSH. Expect: the mode stays on the VGA output and the launcher starts the frontend again.
+- [ ] Do: check sound on the HDA output, a USB pad and a keyboard. Expect: all work; no key reaches a console.
+- [ ] Do: run the self-test with the launcher held (see `os/README.md`). Record: the JSON report.
+- [ ] Do: the same self-test on a kernel built with `--no-kernel-15khz`, when that image exists. Record: which modes the unpatched driver refuses (OP-070).
+
