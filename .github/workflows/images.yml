@@ -313,7 +313,9 @@ jobs:
       # change to a local source by itself, so they are built again every
       # time. -reconfigure, not -rebuild: the configure step runs cargo
       # vendor, and a Cargo.lock with a new crate fails the offline build
-      # with the old vendor directory.
+      # with the old vendor directory. "source" comes first: make legal-info
+      # copies the source archives from the downloads, and a build on top of
+      # a base has none when the downloads cache is empty.
       - name: Build the image
         id: build
         timeout-minutes: ${{ matrix.build_minutes }}
@@ -323,7 +325,7 @@ jobs:
         run: |
           start=$(date +%s)
           # shellcheck disable=SC2086
-          cargo xtask os build $BUILD_ARGS --jobs "$(nproc)" -- $REBUILD-reconfigure
+          cargo xtask os build $BUILD_ARGS --jobs "$(nproc)" -- source $REBUILD-reconfigure
           echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
           echo "Image build: $(( $(date +%s) - start )) s (base: ${{ steps.base.outputs.state }})" \
             | tee -a "$GITHUB_STEP_SUMMARY"
