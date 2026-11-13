@@ -146,38 +146,63 @@ impl BootCheckArgs {
 /// notice for each one before the notice of the golden picture. The check
 /// states what it expects ([`expected_storage`]): another storage, or a
 /// missing notice, fails it.
+///
+/// The script starts with the launcher, before the frontend, so it first
+/// waits for the control socket and the storage status. One deadline
+/// covers every wait, so a late hang still leaves the margin for the dump.
 pub fn guest_script(timeout_secs: u64, arch: Arch) -> String {
-    let wait_ms = timeout_secs.saturating_sub(GUEST_MARGIN_SECS).max(1) * 1000;
+    let wait_secs = timeout_secs.saturating_sub(GUEST_MARGIN_SECS).max(1);
     let [state, share] = expected_storage(arch);
-    let mut steps = format!("storage state {state} && storage share {share} && ");
+    let mut steps = format!("ready && storage state {state} && storage share {share} && ");
     for (name, kind) in [("state", state), ("share", share)] {
         if kind == "ram" {
             steps.push_str(&format!("dismiss {name} && "));
         }
     }
-    format!(
-        "storage() {{\n\
-         \tgrep -qx \"$1 = \\\"$2\\\"\" /run/neptron/storage.toml && return 0\n\
-         \techo \"neptron-check: /$1 is not $2:\"; cat /run/neptron/storage.toml; return 1\n\
-         }}\n\
-         dismiss() {{\n\
-         \tneptronctl wait screen {GAME_LIST_SCREEN} --within-ms {wait_ms} > /dev/null || return 1\n\
-         \tneptronctl ui tree | grep -q \"The $1 partition is not in use\" || \
-         {{ echo \"neptron-check: no notice for /$1\"; return 1; }}\n\
-         \tneptronctl input send 0 a 1 > /dev/null && neptronctl input send 0 a 0 > /dev/null || return 1\n\
-         \tn=0\n\
-         \twhile neptronctl ui tree | grep -q \"The $1 partition is not in use\"; do\n\
-         \t\tn=$((n + 1)); [ \"$n\" -lt {DISMISS_POLLS} ] || \
-         {{ echo \"neptron-check: the notice for /$1 stays\"; return 1; }}\n\
-         \tdone\n\
-         }}\n\
-         {steps}neptron-capture --screen {GAME_LIST_SCREEN} --timeout-ms {wait_ms} \
-         --settle-ms {SETTLE_MS} && exit 0\n\
-         for command in 'ui tree' 'video state' 'session state' stats 'log tail 40'; do\n\
-         \techo \"neptronctl $command:\"; neptronctl $command\n\
-         done\n\
-         exit 1\n"
-    )
+    let template = r#"deadline=$(($(date +%s) + WAIT_SECS))
+left_ms() {
+	left=$((deadline - $(date +%s)))
+	[ "$left" -gt 0 ] || left=1
+	echo $((left * 1000))
+}
+in_time() {
+	[ "$(date +%s)" -lt "$deadline" ] && return 0
+	echo "neptron-check: the time of the check is over: $1"; return 1
+}
+ready() {
+	while [ ! -S SOCKET ] || [ ! -r STORAGE ]; do
+		in_time "no control socket or no storage status" || return 1
+		sleep 1
+	done
+}
+storage() {
+	grep -qx "$1 = \"$2\"" STORAGE && return 0
+	echo "neptron-check: /$1 is not $2:"; cat STORAGE; return 1
+}
+dismiss() {
+	neptronctl wait screen SCREEN --within-ms "$(left_ms)" > /dev/null || return 1
+	neptronctl ui tree | grep -q "The $1 partition is not in use" || { echo "neptron-check: no notice for /$1"; return 1; }
+	neptronctl input send 0 a 1 > /dev/null && neptronctl input send 0 a 0 > /dev/null || return 1
+	n=0
+	while neptronctl ui tree | grep -q "The $1 partition is not in use"; do
+		n=$((n + 1)); [ "$n" -lt POLLS ] || { echo "neptron-check: the notice for /$1 stays"; return 1; }
+		in_time "the notice for /$1 stays" || return 1
+	done
+}
+STEPSneptron-capture --screen SCREEN --timeout-ms "$(left_ms)" --settle-ms SETTLE && exit 0
+for command in 'ui tree' 'video state' 'session state' stats 'log tail 40'; do
+	echo "neptronctl $command:"; neptronctl $command
+done
+exit 1
+"#;
+    template
+        .replace("WAIT_SECS", &wait_secs.to_string())
+        .replace("SOCKET", CONTROL_SOCKET)
+        .replace("STORAGE", STORAGE_STATUS)
+        .replace("SCREEN", GAME_LIST_SCREEN)
+        .replace("POLLS", &DISMISS_POLLS.to_string())
+        .replace("SETTLE", &SETTLE_MS.to_string())
+        .replace("STEPS", &steps)
 }
 
 /// What the guest output of a boot check holds.
@@ -662,6 +687,12 @@ const DEFAULT_TIMEOUT_SECS: u64 = 900;
 const GUEST_MARGIN_SECS: u64 = 30;
 /// The library scan and the first frames settle before the capture.
 const SETTLE_MS: u64 = 3000;
+/// The control socket of the frontend in the guest. The check calls
+/// `neptronctl` only once it exists: the check starts with the launcher,
+/// before the frontend.
+const CONTROL_SOCKET: &str = "/run/neptron/control.sock";
+/// The storage status that `S06neptron-storage` writes in the guest.
+const STORAGE_STATUS: &str = "/run/neptron/storage.toml";
 /// The calls of `neptronctl ui tree` the check makes, at most, until a
 /// dismissed notice is gone. The protocol answers between two frames, so
 /// this is at least as many frames: two seconds at 60 Hz.
@@ -734,27 +765,31 @@ mod tests {
     fn the_guest_script_waits_for_the_game_list_inside_the_deadline() {
         let script = guest_script(900, Arch::X86_64);
         assert!(
+            script.starts_with("deadline=$(($(date +%s) + 870))\n"),
+            "{script}"
+        );
+        assert!(
             script.contains(
-                "neptron-capture --screen notice --timeout-ms 870000 --settle-ms 3000 && exit 0\n"
+                "neptron-capture --screen notice --timeout-ms \"$(left_ms)\" --settle-ms 3000 && exit 0\n"
             ),
             "{script}"
         );
         assert!(script.contains("neptronctl $command"), "{script}");
         assert!(script.ends_with("exit 1\n"), "{script}");
-        assert!(guest_script(10, Arch::X86_64).contains("--timeout-ms 1000 "));
+        assert!(guest_script(10, Arch::X86_64).starts_with("deadline=$(($(date +%s) + 1))\n"));
     }
 
     /// The check states the storage of its disk, and dismisses the notice
     /// of each RAM folder before it waits for the picture of the golden.
+    /// Every wait takes the time left of one deadline.
     #[test]
     fn the_guest_script_states_the_storage_it_expects() {
         let x86 = guest_script(900, Arch::X86_64);
-        let checks =
-            "storage state partition && storage share ram && dismiss share && neptron-capture";
+        let checks = "ready && storage state partition && storage share ram && dismiss share && neptron-capture";
         assert!(x86.contains(checks), "{x86}");
         assert!(!x86.contains("dismiss state"), "{x86}");
         let arm = guest_script(900, Arch::Aarch64);
-        let checks = "storage state ram && storage share ram && dismiss state && dismiss share && neptron-capture";
+        let checks = "ready && storage state ram && storage share ram && dismiss state && dismiss share && neptron-capture";
         assert!(arm.contains(checks), "{arm}");
         for script in [&x86, &arm] {
             assert!(script.contains("/run/neptron/storage.toml"), "{script}");
@@ -762,7 +797,41 @@ mod tests {
                 script.contains("The $1 partition is not in use"),
                 "{script}"
             );
-            assert!(script.contains("--within-ms 870000"), "{script}");
+            assert!(script.contains("--within-ms \"$(left_ms)\""), "{script}");
+            assert!(!script.contains("870000"), "no wait of its own: {script}");
+        }
+    }
+
+    /// The script calls `neptronctl` only after the control socket and the
+    /// storage status are there: it starts with the launcher, before the
+    /// frontend.
+    #[test]
+    fn the_guest_script_waits_for_the_socket_before_any_call() {
+        for arch in [Arch::X86_64, Arch::Aarch64] {
+            let script = guest_script(900, arch);
+            let main = script
+                .lines()
+                .find(|l| l.starts_with("ready && "))
+                .expect("the steps line");
+            assert!(main.starts_with("ready && storage "), "{main}");
+            let ready = script
+                .split("ready() {")
+                .nth(1)
+                .and_then(|rest| rest.split("\n}").next())
+                .expect("the ready function");
+            assert!(
+                ready.contains("[ ! -S /run/neptron/control.sock ]"),
+                "{ready}"
+            );
+            assert!(
+                ready.contains("[ ! -r /run/neptron/storage.toml ]"),
+                "{ready}"
+            );
+            assert!(
+                ready.contains("in_time"),
+                "bounded by the deadline: {ready}"
+            );
+            assert!(!ready.contains("neptronctl"), "{ready}");
         }
     }
 
