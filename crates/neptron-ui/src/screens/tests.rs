@@ -1249,6 +1249,28 @@ fn a_dialog_shows_its_own_hints() {
 }
 
 #[test]
+fn a_focused_disabled_row_has_no_accept_hint() {
+    let mut run = Run::new();
+    let mut snap = in_game();
+    for row in &mut snap.settings.rows {
+        if row.key == STYLE {
+            *row = row.clone().unavailable("Not used on a flat panel");
+        }
+    }
+    run.step(&snap, &[]);
+    run.step(&snap, &[Menu]);
+    assert_eq!(hints(&run), ["Accept: choose", "Back: resume"], "on Resume");
+    run.step(&snap, &[Down]);
+    assert_eq!(hints(&run), ["Back: resume"], "on the disabled style row");
+    run.step(&snap, &[Down]);
+    assert_eq!(
+        hints(&run),
+        ["Accept: choose", "Back: resume"],
+        "on Refresh"
+    );
+}
+
+#[test]
 fn a_change_whose_row_is_gone_stays_for_the_game() {
     let (mut run, mut snap) = quick_menu();
     run.step(&snap, &TO_FORCE_60);

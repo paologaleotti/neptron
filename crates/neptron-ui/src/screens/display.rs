@@ -140,7 +140,7 @@ impl DisplayPanel {
             theme,
             "Display",
             "",
-            "Accept: change",
+            self.page.accept_hint(snap, "Accept: change"),
             "Back: return",
         );
         let places = &self.places;

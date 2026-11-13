@@ -168,7 +168,7 @@ impl QuickMenu {
             theme,
             title,
             "Paused",
-            "Accept: choose",
+            self.page.accept_hint(snap, "Accept: choose"),
             "Back: resume",
         );
         if let Some(status) = video::status(snap).filter(|_| self.video) {

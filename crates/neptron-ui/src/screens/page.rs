@@ -73,6 +73,18 @@ impl Page {
         }
     }
 
+    /// `hint` while the focused row takes accept, else an empty hint: a
+    /// disabled row does nothing on accept.
+    pub(super) fn accept_hint<'h>(&self, snap: &Snapshot, hint: &'h str) -> &'h str {
+        let rows = self.rows(snap);
+        let cursor = self.list.cursor().min(rows.len().saturating_sub(1));
+        if rows.get(cursor).is_some_and(|r| !r.is_enabled()) {
+            ""
+        } else {
+            hint
+        }
+    }
+
     pub(super) fn handle(&mut self, action: UiAction, snap: &Snapshot) -> PageEvent {
         let rows = self.rows(snap);
         match self.list.handle(action, rows, self.level) {

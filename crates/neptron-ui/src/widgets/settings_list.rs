@@ -1,6 +1,6 @@
 use crate::font;
 use crate::frame::UiFrame;
-use crate::geom::Rect;
+use crate::geom::{Color, Rect};
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
 use crate::snapshot::{ChoiceOption, Level, MenuItem, SettingValue};
@@ -147,7 +147,10 @@ fn draw_row(
     focused: bool,
     arrows: bool,
 ) {
-    let (color, dim) = if focused {
+    let (color, dim) = if focused && !item.is_enabled() {
+        outline(frame, row, theme.colors.focus);
+        (theme.colors.text_dim, theme.colors.text_dim)
+    } else if focused {
         frame.scene.rect(row, theme.colors.focus);
         (theme.colors.focus_text, theme.colors.focus_text)
     } else {
@@ -170,7 +173,6 @@ fn draw_row(
     let arrows_w = 2 * advance;
     let columns_w = source_w + advance + value_w + arrows_w + advance;
     if let Some(reason) = &item.unavailable {
-        let label_color = if focused { color } else { dim };
         let reason_box = Rect::new(
             add(inner.x, inner.w.saturating_sub(columns_w - advance)),
             row.y,
@@ -179,13 +181,8 @@ fn draw_row(
         );
         let reason_clipped = text::draw_in(&mut frame.scene, reason_box, Align::Right, dim, reason);
         let label_box = Rect::new(inner.x, row.y, inner.w.saturating_sub(columns_w), row.h);
-        let label_clipped = text::draw_in(
-            &mut frame.scene,
-            label_box,
-            Align::Left,
-            label_color,
-            &item.label,
-        );
+        let label_clipped =
+            text::draw_in(&mut frame.scene, label_box, Align::Left, dim, &item.label);
         push(
             frame,
             item,
@@ -235,6 +232,21 @@ fn draw_row(
         focused,
         label_clipped || value_clipped,
     );
+}
+
+/// A one-pixel frame of `color` along the edges of `row`: the focus of a
+/// row that takes no change, so it does not read as an enabled focused row.
+fn outline(frame: &mut UiFrame, row: Rect, color: Color) {
+    let bottom = add(row.y, row.h.saturating_sub(1));
+    let right = add(row.x, row.w.saturating_sub(1));
+    for edge in [
+        Rect::new(row.x, row.y, row.w, 1),
+        Rect::new(row.x, bottom, row.w, 1),
+        Rect::new(row.x, row.y, 1, row.h),
+        Rect::new(right, row.y, 1, row.h),
+    ] {
+        frame.scene.rect(edge, color);
+    }
 }
 
 fn push(
@@ -695,6 +707,41 @@ mod tests {
             assert!(!texts.contains(&"<"), "no arrows on a disabled row");
             for source in ["default", "game", "system"] {
                 assert!(!texts.contains(&source), "no source on a disabled row");
+            }
+        }
+    }
+
+    #[test]
+    fn a_focused_disabled_row_has_no_focus_fill_and_dim_text() {
+        let theme = Theme::default();
+        let mut items = items();
+        items[1] = items[1].clone().unavailable("Not used on a flat panel");
+        let mut l = SettingsList::new(Rect::new(16, 12, 288, 48), 12);
+        at(&mut l, 1);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &theme, &items);
+        let row = l.list.row_rect(1, false);
+        let commands = frame.scene.commands();
+        assert!(
+            !commands.iter().any(|c| matches!(
+                *c,
+                crate::DrawCommand::Rect { rect, color } if rect == row && color == theme.colors.focus
+            )),
+            "no full focus fill"
+        );
+        assert!(
+            commands.iter().any(|c| matches!(
+                *c,
+                crate::DrawCommand::Rect { color, .. } if color == theme.colors.focus
+            )),
+            "a focus outline"
+        );
+        for c in commands {
+            if let crate::DrawCommand::Text { y, color, .. } = *c
+                && y >= row.y
+                && y < row.y + row.h as i32
+            {
+                assert_eq!(color, theme.colors.text_dim);
             }
         }
     }
