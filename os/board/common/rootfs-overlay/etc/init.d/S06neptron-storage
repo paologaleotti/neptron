@@ -254,10 +254,11 @@ plan_mismatch() {
 	fi
 }
 
-# The reason partition 4 ($1) may not be formatted, or nothing.
+# Why partition 4 ($1) may not be formatted, as the end of a sentence that
+# starts with its name, or nothing.
 format_refusal() {
 	if [ ! -e "$MARKER" ]; then
-		echo "it is empty and was not made by this system (no /state/share-pending)"
+		echo "is empty and has no /state/share-pending, so it is left untouched"
 		return
 	fi
 	start=$(sectors "$1" start)
@@ -265,16 +266,16 @@ format_refusal() {
 	# sfdisk prints the MBR type with a leading space (" 7").
 	if [ "$(sfdisk --part-type "$disk_dev" 4 2>/dev/null | tr -d ' ')" != 7 ] ||
 		[ "$start" -lt "$end" ] || [ "$start" -ge $((end + ALIGN_SECTORS)) ]; then
-		echo "its type or its start is not those of the share partition of this image"
+		echo "was left untouched: its type or its start is not those of the share partition of this image"
 		return
 	fi
 	if ! dd if="$1" of=/dev/null bs=1M count="$READ_CHECK_MIB" 2>/dev/null; then
-		echo "its first $READ_CHECK_MIB MiB do not read cleanly"
+		echo "was left untouched: its first $READ_CHECK_MIB MiB do not read cleanly"
 		return
 	fi
 	for backup in $EXFAT_BACKUP_SECTORS; do
 		if [ "$(boot_name "$1" "$backup")" = "EXFAT   " ]; then
-			echo "it holds an exFAT backup boot sector (sector $backup), so it is a damaged share"
+			echo "was left untouched: it holds an exFAT backup boot sector (sector $backup), so it is a damaged share"
 			return
 		fi
 	done
@@ -412,7 +413,7 @@ prepare_share() {
 	esac
 	reason=$(format_refusal "$share")
 	if [ -n "$reason" ]; then
-		say "the share partition $share was left untouched: $reason"
+		say "the share partition $share $reason"
 		return 1
 	fi
 	log "$share holds no filesystem; formatting it exFAT"

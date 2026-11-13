@@ -855,9 +855,7 @@ fn an_empty_partition_4_with_no_marker_is_named_as_such() {
     Run::new("no-marker")
         .with_partition_4()
         .start()
-        .assert_share_ram(
-            "was left untouched: it is empty and was not made by this system (no /state/share-pending)",
-        );
+        .assert_share_ram("sda4 is empty and has no /state/share-pending, so it is left untouched");
 }
 
 #[test]
@@ -1078,4 +1076,19 @@ fn a_kept_marker_never_formats_a_partition_4_with_a_filesystem() {
     let second =
         second_boot_after_an_unread_table("two-boots-filesystem", &[("FAKE_BLKID", "TYPE=exfat")]);
     second.assert_share_mounted(false);
+}
+
+/// A read back that differs from the plan removes the marker; the next
+/// boot names only the fact, as for any empty partition 4 with no marker.
+#[test]
+fn after_a_table_off_the_plan_the_next_boot_states_the_fact() {
+    let run = Run::new("off-plan-two-boots");
+    let first = run.boot(&[("FAKE_P4_START", &(PLANNED + 2048).to_string())]);
+    first.assert_share_ram("not type 7 at sector");
+    assert!(!first.marker, "{first:#?}");
+    run.add_partition(4, PLANNED + 2048, DISK_SECTORS - PLANNED - 2048);
+    let second = run.boot(&[]);
+    let reason = second
+        .assert_share_ram("is empty and has no /state/share-pending, so it is left untouched");
+    assert!(!reason.contains("not made by this system"), "{second:#?}");
 }
