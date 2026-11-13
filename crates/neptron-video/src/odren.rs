@@ -655,6 +655,9 @@ impl Odren {
             Ok(()) => {
                 self.blanked = true;
                 self.blank_failures = 0;
+                // The device errors counted for the refused mode, which
+                // the blank ends.
+                self.failed_attempts = 0;
                 self.refused_on_screen = false;
                 self.current = None;
                 self.awaiting_flip = None;
@@ -867,5 +870,26 @@ mod tests {
         odren.set_monitor(&CAPS_LOW_CLOCK, monitor("pc_31_120"));
         assert!(odren.authorize(&order).is_none());
         assert!(odren.pending_order().is_none());
+    }
+
+    /// The device errors under a refused mode end with the blank: they
+    /// counted for that refused mode, which is gone.
+    #[test]
+    fn a_blank_ends_the_count_of_failed_attempts() {
+        let mut odren = Odren::new(
+            &CAPS_LOW_CLOCK,
+            monitor("pc_31_120"),
+            PolicySettings::default(),
+        );
+        odren.refused_on_screen = true;
+        odren.failed_attempts = MODESET_ATTEMPTS;
+        odren.on_blank(&Err(DisplayError::Device {
+            operation: "blank",
+            reason: "EIO".to_owned(),
+        }));
+        assert_eq!(odren.failed_attempts, MODESET_ATTEMPTS, "a failed blank");
+        odren.on_blank(&Ok(()));
+        assert_eq!(odren.failed_attempts, 0);
+        assert!(!odren.refused_on_screen);
     }
 }
