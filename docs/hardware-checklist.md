@@ -500,3 +500,12 @@ Each check is `needs-hardware`. Use the development image first.
 - [ ] `needs-hardware` Do: boot twice, then `ls /state/cache/mesa` and read the log of the frontend. Expect: the folder holds the Mesa cache files, and no line says that Mesa cannot create its shader cache. Record: `du -sh /state/cache/mesa`, and whether the second start is faster than the first.
 - [ ] `needs-hardware` Do: in the development image, bring eth0 up on the Realtek port and read `dmesg | grep -i rtl`. Expect: no "unable to load firmware patch rtl_nic/rtl8168h-2.fw" line. Record: the dmesg lines of r8169.
 - [ ] `needs-hardware` Do: read `dmesg | grep -i dmc`. Expect: the line about the missing i915 DMC firmware is still there: the file is not in the image until the owner decides the licence question of a firmware file inside the kernel image. Record: the line.
+
+## Flow defects (task C10)
+
+Each check is `needs-hardware`.
+
+- [ ] Do: on a PC with a DVI-I output, boot once with a flat panel on DVI-D pins and once with a CRT through a DVI-I to VGA adapter, with `display.output` = `auto`. Expect: the log line of the open names the DVI-I connector, a panel is chosen as a digital output and the CRT as an analog one, and a CRT profile prefers the DVI-I connector only for the CRT. Record: the `subconnector` value and the first 32 bytes of the EDID (`/sys/class/drm/card0-DVI-I-1/edid`) for both.
+- [ ] Do: in a game, hold Select and Start for 5 s. Expect: a short 880 Hz tone, the game goes on in the safe picture with no quick menu, and the game did not pause itself or reset during the hold. Opening the quick menu shows "Safe mode: the picture was reset. ...". Record: whether the tone sounds whole and whether the game sound is late after it.
+- [ ] Do: boot once with the state partition damaged (for example `dd if=/dev/zero` over its first MiB on a copy of the stick) and once on a stick with no free space after the state partition. Expect: `/run/neptron/storage.toml` names the RAM folder and its reason, the log has `neptron: storage: ...`, and a Warning notice shows until OK. Record: the file and the notice text.
+- [ ] Do: in a game, tap Select and Start, then hold them for 2 s and let go. Expect: the quick menu opens at the release both times, and the game sees neither button. Record: how late the menu feels after the release.
