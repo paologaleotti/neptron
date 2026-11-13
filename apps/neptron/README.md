@@ -125,7 +125,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
   - `end_to_end.rs`: a new boot confirms its settings, the game list, a launch, the mode switch of the core, the quick menu (not a toggle), a display change that reverts with no answer, the same change kept and written to the game's file, the quit with the keep prompt, the save RAM at the quit, and the list again with one boot counted.
   - `recovery.rs`: the 5 s hold of Select and Start from `neptron-input` to `Guard::recover`, in the list and in a game, with the record in safe mode and the tone.
   - `faults.rs`: a display that stops flipping ends the game and relaunches the list with the reason.
-  - `crawler.rs`: the UI crawler. It walks every menu path from home and from the quick menu with the D-pad, accept and back only, through the UI tree of the control protocol. It fails on a dead end, on a clipped settings row, on a row outside the overscan-safe area, on a schema setting that no screen shows, and on a setting row whose disabled state does not follow `applies_to` for the CRT of the rig. `panel.rs` checks the same rule on a flat panel.
+  - `crawler.rs`: the UI crawler. It walks every menu path from home and from the quick menu with the D-pad, accept and back only, through the UI tree of the control protocol. It fails on a dead end, on a clipped settings row, on a row outside the overscan-safe area, on a schema setting that no screen shows, and on a setting row whose disabled state does not follow `applies_to`. It runs twice: on the CRT of the 15 kHz safe start, where no row is disabled, and on a 1080p panel, where only the picture style and the refresh policy are.
 
 ## Must never depend on
 

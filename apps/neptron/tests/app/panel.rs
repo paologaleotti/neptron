@@ -23,11 +23,11 @@ const HOLD_FRAMES: u32 = (BLIND_RECOVERY_HOLD_NS / 16_000_000) as u32 + 30;
 
 /// The EDID of a 1080p HDMI monitor that also lists 1080p50, 720p and
 /// 576p50, made from the specifications.
-const PANEL_1080P: &[u8] = include_bytes!("../fixtures/edid/panel_1080p.bin");
+pub(crate) const PANEL_1080P: &[u8] = include_bytes!("../fixtures/edid/panel_1080p.bin");
 
 /// A sysfs tree under `root` with one GPU and an HDMI connector that
 /// reports `edid`.
-fn sysfs_with_panel(root: &Path, edid: &[u8]) {
+pub(crate) fn sysfs_with_panel(root: &Path, edid: &[u8]) {
     let drm = root.join("class/drm");
     let card = drm.join("card0/device");
     std::fs::create_dir_all(&card).expect("the card");
