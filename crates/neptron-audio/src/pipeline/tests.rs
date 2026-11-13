@@ -432,3 +432,38 @@ fn a_device_lost_that_drops_its_queue_restarts_each_frame_and_goes_on() {
     assert_eq!(stats.restarts, 600);
     assert_eq!(stats.overrun_frames, 0);
 }
+
+#[test]
+fn a_pipeline_at_100_is_bit_exact_with_no_volume_stage() {
+    let run = |volume: Option<u32>| {
+        let clock = SimClock::new();
+        let (pipeline, audio) = pipeline(&clock);
+        let mut pipeline = match volume {
+            Some(v) => pipeline.with_volume_percent(v),
+            None => pipeline,
+        };
+        assert_eq!(pipeline.volume_percent(), 100);
+        for frame in 0..30i16 {
+            pipeline.push_samples(&[frame * 1_000 - 15_000; 533 * 2]);
+            pipeline.end_frame();
+            clock.advance(16 * MS);
+        }
+        audio.samples()
+    };
+    let default = run(None);
+    assert_eq!(run(Some(100)), default);
+    let clock = SimClock::new();
+    let (pipeline, audio) = pipeline(&clock);
+    let mut pipeline = pipeline.with_volume_percent(100);
+    pipeline.set_volume_percent(100);
+    for frame in 0..30i16 {
+        pipeline.push_samples(&[frame * 1_000 - 15_000; 533 * 2]);
+        pipeline.end_frame();
+        clock.advance(16 * MS);
+    }
+    assert_eq!(
+        audio.samples(),
+        default,
+        "a change to 100 at 100 has no ramp"
+    );
+}
