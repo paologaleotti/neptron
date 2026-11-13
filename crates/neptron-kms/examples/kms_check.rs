@@ -488,9 +488,19 @@ mod linux {
                     check.report(&format!("{name} passes validate"), Err(String::new()));
                     continue;
                 };
-                let before = (probe.crtc_prop(crtc, b"MODE_ID"), probe.mode_of(crtc));
+                let before = (
+                    probe.crtc_prop(crtc, b"MODE_ID"),
+                    probe.mode_of(crtc),
+                    probe.plane_fb(crtc),
+                    probe.connector_crtc(display.connector_name()),
+                );
                 let result = display.set_mode(&valid);
-                let after = (probe.crtc_prop(crtc, b"MODE_ID"), probe.mode_of(crtc));
+                let after = (
+                    probe.crtc_prop(crtc, b"MODE_ID"),
+                    probe.mode_of(crtc),
+                    probe.plane_fb(crtc),
+                    probe.connector_crtc(display.connector_name()),
+                );
                 check.report(
                     &format!("{name}: a TV standard without a TV mode property is refused and changes nothing"),
                     match result {
