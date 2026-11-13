@@ -1,0 +1,166 @@
+# UI navigation: the Settings page, the row arrow and the breadcrumb
+
+This spec settles OP-090. It changes how the menus are put together. It does not change a setting, a level, the guard or the confirm dialog. `docs/flows/07-screens.md` describes the screens as built.
+
+## Facts that drive the design
+
+- The snapshot holds the rows of one settings page at a time (`Snapshot::settings`). A screen asks for its page with `Intent::LoadSettings`, and the app answers in a later frame.
+- Each screen on the stack of the router keeps its own cursor. A screen that closes gives the screen under it back with its cursor.
+- The quick menu notes each change at the game level, so that the keep prompt can move it to the system or the global level. Today it reads the scopes of a noted row from the snapshot when the prompt opens. With sub pages that row is often not in the snapshot then.
+- The tier 3 boot golden `os/tests/golden/boot-game-list.ppm` shows the empty home screen under a notice: the empty-state text and one row `Display`, with the focus, across the full width of its box. Tier 3 needs QEMU, so a task that cannot run it must keep that picture byte-equal.
+- The control protocol (`neptron-ipc`, version 1) is append-only. A new reply field needs a new protocol version, and the handlers do not see the version of a request today.
+- The session ignores the quick menu hotkey while the core is paused (`Hotkey::QuickMenu` only acts in `State::Running`). The end-to-end test checks that a second hotkey does not close the menu.
+
+## Home
+
+Home lists the systems that have games, then `Favourites`, `Recent games` and one row `Settings`. The rows `Display` and `Audio` are no longer on home.
+
+Home with no games does not change: the text that says where the games go, and one row `Display` at the bottom, which opens the display panel. This keeps the boot golden byte-equal. This row is the one exception to the arrow rule below: it opens a page but shows no arrow (`List::without_arrows`). Its tree row still has the kind `page`. With no games, the `Settings` page and the audio panel are not reachable. A later task can change this together with a new boot golden.
+
+## The Settings page
+
+`Settings` opens a page that lists the settings panels. The list is data: `screens::SETTINGS_PANELS`, a static table of `Panel { label, page }` in `neptron-ui`. Today it holds `Display` (`DISPLAY_PAGE`) and `Audio` (`AUDIO_PAGE`). A new panel is one line in that table and one page id; the app then answers `LoadSettings` for that page. A panel page other than the display page shows in the generic page screen (see "Pages"), so a new panel needs no new screen code.
+
+The Settings page writes nothing. Its panels write at the global level, also when the page opens from the quick menu.
+
+Screen id: `settings`.
+
+## Rows: one rule for every list
+
+A row has one of four kinds. The kind decides how the row looks, what accept does and what the footer says.
+
+| Kind | What the row does | How it looks | Footer, left |
+| --- | --- | --- | --- |
+| `page` | Accept opens a page, an option list or the grid pattern | A right arrow at the right edge of the row | `Accept: open` |
+| `value` | Changes its value in place | `< value >` while focused (a number), the value alone (a switch) | `Left/Right: change` for a number, `Accept: change` for a switch |
+| `action` | Accept does something: resume, quit, play a game, use an option | Neither an arrow nor `< >` | `Accept: choose`, or the hint of its screen (`Accept: play`, `Accept: use`) |
+| `disabled` | Nothing: the row is unavailable now | Dim, with its reason, no arrow | none |
+
+The kind of a settings row comes from its value:
+
+- `SettingValue::Page(id)` (new): `page`. Accept opens page `id`.
+- `SettingValue::Choice` in a list with pickers (every screen): `page`. Accept opens the option list.
+- `SettingValue::Toggle` and `SettingValue::Number`: `value`.
+- `SettingValue::Action(id)`: `action`.
+- Any row with a reason (`MenuItem::unavailable`): `disabled`.
+
+The kind of a `List` row is in `ListItem::kind`. Home rows and Settings rows are `page`; game rows and option rows are `action`.
+
+`SettingValue::Page` replaces the reserved actions `OPEN_DISPLAY` and `GRID_PATTERN`. The grid pattern gets the reserved page id `GRID_PAGE`: it is not a settings page, but a row that opens it is a `page` row like the others.
+
+### The arrow
+
+The arrow is a small shape drawn with rectangles, not a glyph. The font has `>`, but a `>` at the right edge reads as the right half of `< value >`. The arrow is a right-pointing triangle, 4 px wide and 7 px high: four columns of 7, 5, 3 and 1 px, centred on the row. It sits at the right edge of the row inside the padding, in a column of `ARROW_COLUMN_PX` = 8 px that every row of a settings list keeps free, so the value and source columns of all rows stay aligned. Colour: `focus_text` on the focused row, `text_dim` on the others. The arrow uses colours of the skin and fixed sizes, so the skin format does not change.
+
+With the default skin the label column of a settings row is 118 px (19 characters) wide, 114 px with a scroll bar. `Hold Start for menu` (19 characters) still fits.
+
+### The value column
+
+A settings row shows a short form of a long value. `ChoiceOption` gets an optional `short` text (`ChoiceOption::with_short`). The row shows `short` when the option has one, else the label. The option list always shows the full label. The app sets `short` for an audio output: the head of the label before ` (`, so `HDMI/DP 1 (HDA Intel PCH)` shows as `HDMI/DP 1` and `Analog (HDA Intel PCH)` as `Analog`. Any other option can use it.
+
+### The tree
+
+`TreeRow` gets `kind: Option<RowKind>`: `Some` for a row of a list or a settings list, `None` for a label, a dialog text, a button and a video line. The control protocol does not carry the kind in this task, because that needs protocol version 2 (see "Not in this task"). The UI crawler reads the kind from the tree of the frame (`Shell::ui`), not from the protocol.
+
+## The breadcrumb
+
+The title band of every page below home and of every quick menu page shows where the player is. The parts are, from the root:
+
+- Below home: `Settings`, then the label of each row that opened a page.
+- In a game: the title of the game, then the label of each row that opened a page.
+- An option list adds the label of its row.
+
+Examples: `Settings`, `Settings > Display`, `Settings > Audio > Audio output`, `Astro Racer`, `Astro Racer > Video`, `Astro Racer > Video > Picture style`, `Astro Racer > Settings > Display`. The game list keeps its title (the system name and the count). Home keeps `NEPTRON`. The display panel opened from the empty home shows `Display`.
+
+The separator is ` > `: space, `>`, space. The font has `>`.
+
+### Truncation
+
+The title box is 280 px (46 characters) with the default skin, or 232 px (38 characters) on the first page of the quick menu, which keeps `Paused` on the right. The rule, in characters of the font:
+
+1. The whole path, when it fits.
+2. Else, with three parts or more: `... > ` and the last two parts.
+3. Else the second last part is cut at its end and ends with `...`. With two parts there is no `... > ` before it.
+4. When that leaves fewer than 4 characters for the second last part (one character and `...`), it goes: `... > ` and the last part.
+5. When the last part alone does not fit, it is cut at its end with `...`.
+
+Examples at 38 characters: `Astro Racer > Settings > Display > Monitor profile` (50) gives `... > Display > Monitor profile` (31). `Super Mario Bros. 3 (USA) (Virtual Console) > Video` (51) gives `Super Mario Bros. 3 (USA) (Vir... > Video` (38): the title keeps 27 characters and ends with `...`.
+
+The text is formatted into a `StackText` and allocates nothing. The tree has one label row with the text as drawn. When the rule shortened the path, the row has the whole path as its value. The row is not marked as clipped: the cut is the rule, not a layout fault.
+
+## Back and the focus
+
+Back closes the screen on top and nothing else. The screen under it keeps its cursor, so the focus is on the row that opened the closed screen. This holds at every level: Settings, a panel, an option list, the quick menu and its sub pages. On the first page of the quick menu Back resumes the game, as today (through the keep prompt after a change).
+
+A page whose rows are not in the snapshot yet takes only Back. An up, down or accept in that frame would clamp the cursor to an empty list and lose the row the player came from.
+
+## Footer hints
+
+The left hint follows the kind of the focused row (see the table above). A page with no rows loaded shows no left hint. The right hint: `Back: return` on every page below home and every quick menu sub page, `Back: resume` on the first page of the quick menu, `Back: cancel` in an option list. The game list, the dialogs, the notice and the keep prompt keep their hints.
+
+## Pages
+
+A page that is not the display panel, the Settings page, the grid pattern or the first page of the quick menu shows in one generic screen: a framed box with the rows of the page, under the breadcrumb. It writes at the level of the screen that opened it: the global level from the Settings page, the game level from a quick menu page. The display panel always writes the global level.
+
+The generic screen shows the video block above its rows for `VIDEO_PAGE` while a game runs with a video status, with the rule of today (at least 2 rows under it).
+
+Screen ids: `audio` for `AUDIO_PAGE`, `quick-menu/video` for `VIDEO_PAGE`, `page` for any other page.
+
+## The quick menu
+
+The first page of the quick menu (`QUICK_MENU_PAGE`, written at the game level):
+
+| Row | Kind | What it does |
+| --- | --- | --- |
+| `Resume` | action | Leaves the menu, through the keep prompt after a change |
+| `Volume` | value | The volume of the game, Left and Right step 5 |
+| `Video` | page | Opens `VIDEO_PAGE` |
+| `Settings` | page | Opens the Settings page: Display and Audio, at the global level |
+| `Quit game` | action | Ends the game, through the keep prompt after a change |
+
+`VIDEO_PAGE` (new, written at the game level): the video block, then `Picture style`, `Refresh policy`, `Scanlines` and `Scanline strength`. These are the display rows of the quick menu of today.
+
+Every function of the quick menu of today stays reachable: the four display rows under `Video`, the volume on the first page, and the global display panel under `Settings > Display`. The global audio panel is now reachable in a game too.
+
+### The keep prompt with sub pages
+
+The quick menu notes a change at the game level from any screen above it, as today. It now also notes the scopes of the row when it notes the change, from the page in the snapshot of that frame (the page that sent the change). The prompt moves a change to the system or global level when those noted scopes allow the level. The app checks the scopes of each `SetValue` again.
+
+A change that the app took back (the guard reverted it) must not be asked about. The quick menu checks this at two moments, against the rows in the snapshot: when the player leaves a sub page with Back, and when the prompt would open. A change whose row is not in the snapshot at that moment stays noted. A display change waits for the confirm dialog, which takes every action until it closes, so the player is still on the sub page of the change when the guard takes it back, and leaves it later with Back.
+
+### The hotkey
+
+The quick menu hotkey does nothing while the menu is open, at any depth. The session ignores it while the core is paused, so the UI gets no `Menu` action from it. This is the rule of today, and the end-to-end test checks it. The menu closes only through Resume or Back on its first page, and Quit game. The Menu button (X) on a settings row resets the value at the level of the page, on every page.
+
+## Ids
+
+| Id | Value | Use |
+| --- | --- | --- |
+| `DISPLAY_PAGE` | `PageId(RESERVED_ID_MIN + 1)` | The display panel (unchanged) |
+| `QUICK_MENU_PAGE` | `PageId(RESERVED_ID_MIN + 2)` | The first page of the quick menu |
+| `AUDIO_PAGE` | `PageId(RESERVED_ID_MIN + 3)` | The audio panel (unchanged) |
+| `GRID_PAGE` | `PageId(RESERVED_ID_MIN + 4)` | The grid pattern, as the target of a `page` row |
+| `SETTINGS_PAGE` | `PageId(RESERVED_ID_MIN + 5)` | The Settings page, as the target of a `page` row. The app never loads it |
+| `VIDEO_PAGE` | `PageId(RESERVED_ID_MIN + 6)` | The video page of the quick menu |
+| `RESUME`, `QUIT_GAME` | unchanged | The actions of the quick menu |
+
+`OPEN_DISPLAY` and `GRID_PATTERN` go: `SettingValue::Page(DISPLAY_PAGE)` and `SettingValue::Page(GRID_PAGE)` replace them. `MAX_DEPTH` stays 8. The deepest stack is home, game list, game, quick menu, Settings, display panel, option list: 7 screens.
+
+## Scenes and goldens
+
+New scenes: `screens/settings` (the Settings page), `screens/display-breadcrumb` (an option list with a three-part breadcrumb, `Settings > Audio > Audio output`), `screens/breadcrumb-long` (a long game title cut by the rule), `screens/quick-menu-video-page` (the video page of the quick menu, with the video block). `screens/home` shows the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` does not change.
+
+## Tests
+
+- The widget: the arrow on a `page` row, none on a `value`, `action` or `disabled` row, and the tree kind of each; the aligned columns with the arrow column; the short value in the row and the full label in the option list.
+- The breadcrumb: each step of the truncation rule, with long names, and the 38 and 46 character widths.
+- The router: Back closes one level and gives the focus back to the row it came from, at every level, from home and from the quick menu; a page that is not loaded takes only Back; the footer hint of each kind.
+- The quick menu: a change on the video page is moved by the keep prompt; a change that the guard took back on the video page is not asked about; the hotkey case is a tier 2 test that exists.
+- The empty home: the scene `screens/home-empty` keeps its golden.
+- The crawler (tier 2): every row that opens a screen has the kind `page`, every enabled `page` row opens a screen, Back from every screen returns to the screen under it with the focus on the row it came from.
+
+## Not in this task
+
+- The kind in the control protocol (`ui_tree` of `neptronctl`). It needs protocol version 2 and the request version in the handlers: a contract change with its own branch and ADR.
+- `Settings` and `Audio` on the empty home. They need a new boot golden, made with tier 3.
+- The `Network` and `Library` panels. Their tasks add a line to `SETTINGS_PANELS`, a page id and the page in the app.
