@@ -825,6 +825,7 @@ Each open point is one section:
 
 - Raised by: C10 and C12 (2026-11-13)
 - Status: open, a fix wanted soon
+- Also: a warm `cargo xtask os build` does not rebuild the NEPTRON packages when their source changed, so the image keeps an old frontend with no warning. The targets must be named by hand (`-- neptron-rebuild neptron-launch-rebuild neptronctl-rebuild neptron-capture-rebuild neptron-vkms-probe-rebuild`), as the CI workflow does. `os build` should add them itself.
 - Default: `cargo xtask os app-check` and `os push` mount every worktree at `/src/repo` and share one target folder in the volume `neptron-cross-<arch>`. When a different worktree built later than the source files of this one changed, cargo takes the old outputs as fresh, and the check fails or, worse, passes on code of a different branch. The workaround is to touch the source files first.
 - Where: `xtask/src/os` (the cross build), OP-072 (the cache strategy)
 - How to change: one target folder per worktree inside the volume (keyed by the worktree path or the branch), with the dependency outputs shared; or mount each worktree at its own path.
