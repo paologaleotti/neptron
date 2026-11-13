@@ -6,7 +6,9 @@
 #
 # Each playback control of a fixed list goes to 0 dB and is unmuted. 0 dB
 # and not 100%: a control whose range goes above 0 dB would add gain and
-# could clip. Input controls (Mic, Line, CD, Beep, the boosts) stay as
+# could clip. The HDMI codec makes one 'IEC958' switch for each HDMI or
+# DisplayPort PCM, and every index of it is unmuted on every card, so
+# each digital output plays when it is chosen. Input controls (Mic, Line, CD, Beep, the boosts) stay as
 # they are: on an HDA codec the Line and Mic playback volumes mix an input
 # into the output. The step runs in the background, so a slow codec never
 # delays the boot.
