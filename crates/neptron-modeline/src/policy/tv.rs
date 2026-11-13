@@ -1,9 +1,12 @@
 mod width;
 
 pub use width::{
-    TV_CONSOLE_LINES, TV_CONSOLE_WIDTH_SAMPLES, TV_SAFE_WIDTH_SAMPLES,
+    TV_525_CONSOLE_WIDTH_SAMPLES, TV_525_PICTURE_LINES, TV_625_CONSOLE_WIDTH_SAMPLES,
+    TV_625_PICTURE_LINES, TV_CONSOLE_LINES_MIN, TV_SAFE_WIDTH_SAMPLES,
     TV_WHOLE_FACTOR_TOLERANCE_PERCENT,
 };
+
+use width::LineSystem;
 
 use neptron_types::{GpuCaps, Modeline, Rect, TvStandard};
 
@@ -47,6 +50,11 @@ pub(crate) fn tv_plan(
         source,
         settings,
         modes: standard.modes(),
+        system: if standard.lines() == 525 {
+            LineSystem::L525
+        } else {
+            LineSystem::L625
+        },
     };
     let mut considered: Vec<Considered> = walk_ladder(settings.style)
         .iter()
@@ -84,6 +92,7 @@ struct Tv<'a> {
     source: &'a OrientedSource,
     settings: &'a Effective,
     modes: [Modeline; 2],
+    system: LineSystem,
 }
 
 /// How the game's lines sit in a TV mode.
@@ -226,10 +235,17 @@ impl Tv<'_> {
                 0,
             ),
         };
+        // The aspect holds for the whole frame: a crop hides lines and does
+        // not change the width; a fit spans the active lines.
+        let frame_lines = match fit {
+            Fit::Exact { .. } => u32::from(source.height),
+            Fit::Fill => h,
+        };
         let fields = if mode.interlace { 2 } else { 1 };
-        let field_lines = u16::try_from(h.div_ceil(fields)).unwrap_or(u16::MAX);
+        let field_lines = u16::try_from(frame_lines.div_ceil(fields)).unwrap_or(u16::MAX);
         let w = width::tv_samples(
             self.settings.tv_width,
+            self.system,
             source.width,
             source.height,
             source.aspect_milli,

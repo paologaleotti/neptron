@@ -194,6 +194,13 @@ fn every_gpu_of_the_capability_table_gives_its_golden_decisions() {
     compare("policy_gpus.toml", actual);
 }
 
+/// The systems whose display aspect is not 4:3. `systems()` gives every
+/// system 4:3, and the repository holds no per-system aspect (the core
+/// gives it at run time), so the TV goldens leave them out: their width
+/// would test the wrong input. `policy_tv.rs` tests them with their real
+/// aspect.
+const NOT_FOUR_THIRDS: [&str; 4] = ["game_boy", "game_gear", "gba", "wonderswan"];
+
 /// Every system on NTSC and on PAL, with each width rule, on the composite
 /// encoder of the Raspberry Pi. Each case is "<system> <profile>
 /// <tv_width>".
@@ -206,6 +213,9 @@ fn every_system_on_a_tv_gives_its_golden_decision() {
         .unwrap();
     let mut actual = BTreeMap::new();
     for (name, source) in systems() {
+        if NOT_FOUR_THIRDS.contains(&name.as_str()) {
+            continue;
+        }
         for standard in [TvStandard::Ntsc, TvStandard::Pal] {
             let profile = standard.profile();
             for tv_width in TvWidth::ALL {

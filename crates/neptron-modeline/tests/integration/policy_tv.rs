@@ -359,14 +359,16 @@ fn without_interlace_a_tall_game_is_fitted() {
 }
 
 /// The width rule, in samples of the 720-sample line, for the widths of
-/// the spec: `(width, aspect, integer, fill)`, each `(samples, filter)`.
+/// the spec on each line system: `(width, aspect, integer, fill)`, each
+/// `(samples, filter)`. A half factor (2.5x for 256 wide) takes sharp
+/// bilinear, a whole factor nearest.
 #[test]
 fn the_width_rule_gives_the_table_of_the_readme() {
     use Filter::{Nearest, SharpBilinear};
-    let rows = [
+    let ntsc = [
         (
             256,
-            (644, SharpBilinear),
+            (640, SharpBilinear),
             (512, Nearest),
             (704, SharpBilinear),
         ),
@@ -379,17 +381,33 @@ fn the_width_rule_gives_the_table_of_the_readme() {
         ),
         (640, (640, Nearest), (640, Nearest), (704, SharpBilinear)),
     ];
-    for (width, aspect, integer, fill) in rows {
-        for (rule, (samples, filter)) in [
-            (TvWidth::Aspect, aspect),
-            (TvWidth::Integer, integer),
-            (TvWidth::Fill, fill),
-        ] {
-            let settings = PolicySettings {
-                tv_width: rule,
-                ..PolicySettings::default()
-            };
-            for standard in [TvStandard::Ntsc, TvStandard::Pal] {
+    let pal = [
+        (
+            256,
+            (640, SharpBilinear),
+            (512, Nearest),
+            (704, SharpBilinear),
+        ),
+        (320, (640, Nearest), (640, Nearest), (704, SharpBilinear)),
+        (
+            512,
+            (650, SharpBilinear),
+            (512, Nearest),
+            (704, SharpBilinear),
+        ),
+        (640, (640, Nearest), (640, Nearest), (704, SharpBilinear)),
+    ];
+    for (standard, rows) in [(TvStandard::Ntsc, ntsc), (TvStandard::Pal, pal)] {
+        for (width, aspect, integer, fill) in rows {
+            for (rule, (samples, filter)) in [
+                (TvWidth::Aspect, aspect),
+                (TvWidth::Integer, integer),
+                (TvWidth::Fill, fill),
+            ] {
+                let settings = PolicySettings {
+                    tv_width: rule,
+                    ..PolicySettings::default()
+                };
                 let w = won(&game(width, 224, 60_000, false), &settings, standard);
                 let x = (720 - samples) / 2;
                 assert_eq!(
@@ -403,15 +421,58 @@ fn the_width_rule_gives_the_table_of_the_readme() {
     }
 }
 
+/// A source that is not a 4:3 console picture keeps its display aspect
+/// with the sample shape of the line system: 2.2 samples per line of
+/// aspect 1 on 525 lines, 1.8333 on 625. `(source, aspect, NTSC, PAL)`.
+#[test]
+fn a_handheld_or_a_turned_board_keeps_its_shape_on_both_line_systems() {
+    let rows = [
+        // Game Boy, 10:9.
+        (game(160, 144, 59_728, false), 1_111, 352, 293),
+        // Game Boy Advance, 3:2.
+        (game(240, 160, 59_727, false), 1_500, 528, 440),
+        // A 224x256 board turned upright, 3:4: 8 lines cropped per edge on
+        // NTSC, and the crop keeps the width of the whole frame.
+        (game(224, 256, 60_000, false), 750, 422, 352),
+        // A 224x288 board turned upright, 3:4: 480i on NTSC, 144 lines
+        // per field; 288p on PAL.
+        (game(224, 288, 60_000, false), 750, 238, 396),
+    ];
+    for (source, aspect_milli, want_ntsc, want_pal) in rows {
+        let source = SourceGeometry {
+            aspect_milli,
+            ..source
+        };
+        for (standard, want) in [(TvStandard::Ntsc, want_ntsc), (TvStandard::Pal, want_pal)] {
+            let w = won(&source, &PolicySettings::default(), standard);
+            assert_eq!(
+                (w.dest.w, w.filter),
+                (want, Filter::SharpBilinear),
+                "{}x{} on {}",
+                source.width,
+                source.height,
+                standard.key()
+            );
+        }
+    }
+}
+
 #[test]
 fn the_interlaced_width_follows_the_lines_of_one_field() {
-    // 448 interlaced lines are 224 per field: the console width.
+    // 448 interlaced lines are 224 per field: the console width, which
+    // no whole or half factor of 512 meets.
     let w = won(
         &game(512, 448, 60_099, true),
         &PolicySettings::default(),
         TvStandard::Ntsc,
     );
     assert_eq!((w.dest.w, w.filter), (644, Filter::SharpBilinear));
+    let w = won(
+        &game(512, 448, 50_007, true),
+        &PolicySettings::default(),
+        TvStandard::Pal,
+    );
+    assert_eq!((w.dest.w, w.filter), (650, Filter::SharpBilinear));
     let w = won(
         &game(640, 480, 59_940, true),
         &PolicySettings::default(),

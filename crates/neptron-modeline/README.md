@@ -98,22 +98,33 @@ A TV profile (`MonitorKind::Tv { standard }`) has the fixed mode table of its st
 - **Placement.** The game's lines are 1:1 on every rung except the fit. The width follows `PolicySettings::tv_width` (below), centred in the 720 samples. The filter is nearest when the width is a whole factor of the game width (and the lines are 1:1), sharp bilinear otherwise. `Proposal::horizontal` and `Plan::horizontal` are `None`. `source_index` is the index in `TvStandard::modes` (0 progressive, 1 interlaced).
 - **Safe area.** The UI fills `TV_SAFE_WIDTH_SAMPLES` (704) samples, centred (8 to 712), and every active line. The game is placed as a console placed it, with no overscan margin of its own. The kernel margin properties stay 0 (the KMS backend sets them).
 
-**The width rule** (`display.tv_width`, `TvWidth`). Every mode has 720 samples at 13.5 MHz. A 4:3 picture is 704 of them (`TV_SAFE_WIDTH_SAMPLES`). A console picture is narrower: 256 pixels at 21.477 MHz / 4, 320 pixels at 53.693 MHz / 8 and 512 pixels at 10.739 MHz each last 47.68 us, 643.7 samples (`TV_CONSOLE_WIDTH_SAMPLES`, 644).
+**The width rule** (`display.tv_width`, `TvWidth`). Every mode has 720 samples at 13.5 MHz, and a 4:3 picture is 704 of them (`TV_SAFE_WIDTH_SAMPLES`). A sample is not square: 704 samples over the 240 lines of a 525-line field (`TV_525_PICTURE_LINES`) give 2.2 samples per line of aspect 1, a pixel aspect of 10/11; over the 288 lines of a 625-line field (`TV_625_PICTURE_LINES`) they give 1.8333, a pixel aspect of 12/11. The display aspect comes from the source (`SourceGeometry::aspect_milli`, the core's AV info); 0 means square pixels of the frame.
 
-- `aspect` (the default): the console picture width at the game's display aspect, `aspect x 644 x 3/4`, for a game of at least `TV_CONSOLE_LINES` (224) lines per field. A game with fewer lines is a smaller picture, and its width shrinks with its lines: `aspect x 644 x 3/4 x lines / 224`. A display aspect of 0 means square pixels. When a whole factor of the game width is within `TV_WHOLE_FACTOR_TOLERANCE_PERCENT` (3 %) of that width and inside 704 samples, the factor wins, with nearest; else the width stays, with sharp bilinear.
-- `integer`: the largest whole factor of the game width that is at most 704 samples, with nearest. A game wider than 704 gets 704, scaled down.
+- `aspect` (the default):
+  - A 4:3 source with 224 to 240 lines per field (`TV_CONSOLE_LINES_MIN` to `TV_525_PICTURE_LINES`) is a console picture. A console does not fill the line, so it gets the width that the hardware drew: `TV_525_CONSOLE_WIDTH_SAMPLES` (644: 256 pixels at 21.477 MHz / 4, 320 at 53.693 MHz / 8 and 512 at 10.739 MHz are each 47.68 us, 643.7 samples) or `TV_625_CONSOLE_WIDTH_SAMPLES` (650: the NES PAL draws 256 pixels at 26.602 MHz / 5, 649.6 samples).
+  - Every other source keeps its aspect: `aspect x lines x 2.2` on 525 lines, `aspect x lines x 1.8333` on 625 lines. The lines are the lines per field of the whole frame as it is placed: half the frame for an interlaced mode, the active lines for the fit. An overscan crop hides lines and does not change the width.
+  - When a whole factor or a half factor (1.5, 2.5, 3.5) of the game width is within `TV_WHOLE_FACTOR_TOLERANCE_PERCENT` (3 %) of that width, is a whole number of samples and fits 704, it wins. A whole factor takes nearest. A half factor takes sharp bilinear: at 2.5 every second pixel has one blended sample, a regular pattern. Any other width takes sharp bilinear.
+- `integer`: the largest whole factor of the game width that is at most 704 samples, with nearest. A game wider than 704 gets 704, scaled down. By its definition this ignores the shape: a 160-wide handheld becomes 640 wide, far wider than its aspect.
 - `fill`: 704 samples.
 
-For a 4:3 game of 224 lines or more, in samples:
+The widths in samples, for a 4:3 game of 224 lines, on 525 lines (NTSC) and 625 lines (PAL):
 
-| Game width | `aspect` | `integer` | `fill` |
-| --- | --- | --- | --- |
-| 256 (NES, SNES, Mega Drive H32) | 644, factor 2.52, sharp bilinear (512 and 768 are 20 % off) | 512, factor 2, nearest | 704, factor 2.75, sharp bilinear |
-| 320 (Mega Drive H40, Neo Geo) | 640, factor 2, nearest (0.6 % from 644) | 640, factor 2, nearest | 704, factor 2.2, sharp bilinear |
-| 512 (SNES high resolution) | 644, factor 1.26, sharp bilinear | 512, factor 1, nearest | 704, factor 1.375, sharp bilinear |
-| 640 (480i sources) | 640, factor 1, nearest (0.6 % from 644) | 640, factor 1, nearest | 704, factor 1.1, sharp bilinear |
+| Game width | `aspect`, NTSC | `aspect`, PAL | `integer` | `fill` |
+| --- | --- | --- | --- | --- |
+| 256 (NES, SNES, Mega Drive H32) | 640, 2.5x, sharp bilinear (0.6 % from 644) | 640, 2.5x, sharp bilinear (1.5 % from 650) | 512, 2x, nearest | 704, 2.75x, sharp bilinear |
+| 320 (Mega Drive H40) | 640, 2x, nearest (0.6 % from 644) | 640, 2x, nearest (1.5 % from 650) | 640, 2x, nearest | 704, 2.2x, sharp bilinear |
+| 512 (SNES high resolution) | 644, 1.26x, sharp bilinear (1x and 1.5x are 20 % off) | 650, 1.27x, sharp bilinear | 512, 1x, nearest | 704, 1.375x, sharp bilinear |
+| 640 (480i sources) | 640, 1x, nearest | 640, 1x, nearest | 640, 1x, nearest | 704, 1.1x, sharp bilinear |
 
-A Game Boy (160x144, 10:9) gets 345 samples with `aspect`. The interlaced modes count the lines of one field: 448 interlaced lines are 224 per field, so SNES 512x448i gets 644.
+Sources with another aspect, `aspect`, sharp bilinear in each case:
+
+| Source | NTSC | PAL |
+| --- | --- | --- |
+| Game Boy, 160x144, 10:9 | 352 (2.2x) | 293 (1.83x) |
+| Game Boy Advance, 240x160, 3:2 | 528 (2.2x) | 440 (1.83x) |
+| A 224x256 board turned upright, 3:4 | 422 (8 lines cropped per edge) | 352 |
+
+The Neo Geo draws 320 pixels at 6.000 MHz, 53.3 us, 720 samples. Its core gives 4:3 at 224 lines, so it gets the console width, 640 samples: 11 % narrower than the console drew it. A per-system picture width would correct it; that is a later step.
 
 **The rates.** The field rates are exact millihertz from the table modes (`Modeline::field_rate_mhz`): 240p 60 054, 288p 50 080, 480i 59 940, 576i 50 000. The difference is in ppm of the field rate; an alert shows above 5000 ppm.
 
