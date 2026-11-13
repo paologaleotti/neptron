@@ -9,7 +9,7 @@ use neptron_ui::snapshot::{
     ConfirmId, GameId, Notice, NoticeId, NoticeKind, PageId, PendingConfirm, SessionInfo,
     SettingsPage, VideoStatus,
 };
-use neptron_video::{Phase, VideoStatusText};
+use neptron_video::{Monitor, Phase, VideoStatusText};
 
 use super::boot::{game_name, profile_id};
 use super::{MENU_SOURCE, Shell, Stage};
@@ -99,13 +99,23 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// The active profile of the snapshot: the monitor the guard gave the
     /// engine.
     pub(super) fn refresh_profile(&mut self) {
-        let id = self.detected.monitor_setting(&self.guard.active().monitor);
+        let monitor = &self.guard.active().monitor;
+        let id = self.detected.monitor_setting(monitor);
         self.snap.active_profile = self
             .presets
             .profiles()
             .iter()
             .position(|p| p.id == id)
             .map(profile_id);
+        // A monitor of its EDID is no preset: the panel shows its name.
+        let name = match monitor {
+            _ if self.snap.active_profile.is_some() => String::new(),
+            Monitor::Edid(edid) => edid.name.clone().unwrap_or_else(|| edid.profile.id.clone()),
+            Monitor::Profile(profile) => profile.id.clone(),
+        };
+        if let Some(display) = &mut self.snap.display {
+            display.monitor = name;
+        }
     }
 
     /// Puts the rows of `page` in the snapshot.

@@ -195,7 +195,7 @@ A choice row never changes in place on these pages: Left and Right do nothing, A
 | `Hold Start for menu` | 0 to 10 `s`, step 1, default 0 | Written at once, applied live. 0 turns the Start hold off. |
 | `Grid pattern` | action | Opens the grid pattern. |
 
-Info box: `Output` is the connector name (`none` with no display). `Mode` is the mode the driver read back, for example `640x480p 59.94 Hz`, with ` (safe mode)` after it while the guard is in safe mode. It is empty before the first read back. `Monitor` is the preset id that the guard gave the engine, or `not set` when that monitor is not a preset (see [What can go wrong](#what-can-go-wrong)).
+Info box: `Output` is the connector name (`none` with no display). `Mode` is the mode the driver read back, for example `640x480p 59.94 Hz`, with ` (safe mode)` after it while the guard is in safe mode. It is empty before the first read back. `Monitor` is the preset id that the guard gave the engine. A monitor of its EDID (`auto` with an EDID, or `flat`) shows the monitor name of the EDID (`DisplayInfo::monitor`), or its profile id when the EDID has no name, for example `NPT FHD 24`. `not set` shows only before the app gives a monitor.
 
 The style details on the display panel come from the source on screen: the game in a game, the menu canvas (320x240 at 60 Hz) in the menus.
 
@@ -273,7 +273,6 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 | A style the monitor cannot show | The option is dim, with `Needs another monitor` in the row and `Not available. Needs another monitor` under the list. Accept does nothing. | Choose another style, or change the monitor profile. |
 | A game the monitor cannot show exactly | The video block result is `[!] filtered` or `[!] speed (X to Y Hz)` in the warning colour, or `cropped N lines` or `small picture N%`. A Warning notice `Picture: <result>.` waits for the quick menu. | Try another picture style or refresh policy in the quick menu. See [the policy](05-policy.md). |
 | A change on the in-game display panel has no visible effect | The row changes to `global`, no confirm dialog. | The game or its system has its own value, which wins over global. Change it in the quick menu, or reset the game row with Menu (X). |
-| `Monitor` in the info box says `not set` | The monitor in use comes from the EDID (`auto` with an EDID, or `flat`), not from a preset. | None needed: the `Monitor profile` row shows the setting. |
 | Output must change | The `Output` option list does not apply a choice. | Edit `display.output` in `global.toml`. A new connector at the next start opens the boot prompt. |
 | A two-button pad | Reset to inherited and favourites need the Menu button (X). | Use a pad with X, or edit the settings file. |
 | Favourites and Recent games | Both lists are always empty: `No favourites yet.`, `No games played yet.` | None in the MVP. |

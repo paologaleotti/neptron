@@ -152,7 +152,14 @@ impl DisplayPanel {
         let monitor = snap
             .active_profile
             .and_then(|id| snap.profiles.iter().find(|p| p.id == id))
-            .map_or("not set", |p| p.name.as_str());
+            .map(|p| p.name.as_str())
+            .or_else(|| {
+                snap.display
+                    .as_ref()
+                    .map(|d| d.monitor.as_str())
+                    .filter(|m| !m.is_empty())
+            })
+            .unwrap_or("not set");
         let row = theme.row_height_px();
         let line = |i: u32| {
             chrome::padded(

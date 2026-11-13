@@ -5,8 +5,8 @@ use crate::frame::UiFrame;
 use crate::input::UiAction::{self, Accept, Back, Down, Left, Menu, Right, Up};
 use crate::intent::{Intent, Value};
 use crate::snapshot::{
-    ConfirmId, GameId, GameSource, GameWindow, Level, Notice, NoticeId, NoticeKind, PendingConfirm,
-    SessionInfo, SettingValue, SettingsPage, Snapshot, VideoStatus,
+    ConfirmId, DisplayInfo, GameId, GameSource, GameWindow, Level, Notice, NoticeId, NoticeKind,
+    PendingConfirm, SessionInfo, SettingValue, SettingsPage, Snapshot, VideoStatus,
 };
 use crate::theme::Theme;
 
@@ -286,6 +286,19 @@ fn field<'a>(run: &'a Run, name: &str) -> Option<&'a str> {
         .rows()
         .find(|r| r.label == name)
         .and_then(|r| r.value)
+}
+
+#[test]
+fn the_display_panel_names_a_monitor_that_is_not_a_preset() {
+    let mut run = Run::new();
+    let mut snap = with_display();
+    snap.active_profile = None;
+    snap.display = Some(DisplayInfo::new("HDMI-A-1", "1920x1080p 60.00 Hz").monitor("NPT FHD 24"));
+    run.step(&snap, &TO_DISPLAY);
+    assert_eq!(field(&run, "Monitor"), Some("NPT FHD 24"));
+    snap.display = Some(DisplayInfo::new("VGA-1", "640x480 59.94 Hz"));
+    run.step(&snap, &[]);
+    assert_eq!(field(&run, "Monitor"), Some("not set"));
 }
 
 #[test]

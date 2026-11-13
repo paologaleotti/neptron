@@ -138,6 +138,10 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             let display = rig.shell().snapshot().display.clone().expect("display");
             assert_eq!(display.output, "HDMI-A-1");
             assert_eq!(display.mode, "1920x1080p 60.00 Hz");
+            assert_eq!(
+                display.monitor, "NPT FHD 24",
+                "the EDID name, not \"not set\""
+            );
 
             // A CRT preset with no answer goes back to the panel.
             rig.focus("Monitor profile");

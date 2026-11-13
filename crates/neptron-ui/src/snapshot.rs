@@ -244,6 +244,9 @@ pub struct DisplayInfo {
     pub output: String,
     /// The mode as the player reads it, for example `320x240 59.92 Hz`.
     pub mode: String,
+    /// The name of the monitor when it is not one of the profiles (a
+    /// monitor of its EDID, for example `NPT FHD 24`); empty otherwise.
+    pub monitor: String,
 }
 
 /// A signal change that reverts unless the player keeps it.
@@ -506,7 +509,15 @@ impl DisplayInfo {
         Self {
             output: output.into(),
             mode: mode.into(),
+            monitor: String::new(),
         }
+    }
+
+    /// The same with the name of a monitor that is not one of the
+    /// profiles.
+    pub fn monitor(mut self, name: impl Into<String>) -> Self {
+        self.monitor = name.into();
+        self
     }
 }
 
