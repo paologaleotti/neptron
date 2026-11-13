@@ -70,7 +70,12 @@ pub fn supervise<F: Frontend, T: Time>(
         match backoff.after(exit, ran_ns, now_ns) {
             Next::Stop => return Ok(runs),
             Next::Restart { after_ns } => {
-                if after_ns > 0 {
+                if exit == Exit::NoDisplay {
+                    crate::say!(
+                        "neptron-launch: the frontend found no display; start again in {} ms",
+                        after_ns / 1_000_000
+                    );
+                } else if after_ns > 0 {
                     crate::say!(
                         "neptron-launch: the frontend ended with {code:?} after {} ms, crash {} in a row; start again in {} ms",
                         ran_ns / 1_000_000,
@@ -92,7 +97,10 @@ pub fn supervise<F: Frontend, T: Time>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backoff::{BACKOFF_FIRST_NS, RELAUNCH_EXIT_CODE, STABLE_RUN_NS};
+    use crate::backoff::{
+        BACKOFF_FIRST_NS, NO_DISPLAY_EXIT_CODE, NO_DISPLAY_WAIT_NS, RELAUNCH_EXIT_CODE,
+        STABLE_RUN_NS,
+    };
 
     /// A frontend that ends each run with the next scripted result after a
     /// scripted run time on the simulated clock.
@@ -155,6 +163,28 @@ mod tests {
         };
         let result = supervise(&mut frontend, &mut time, &mut Backoff::new());
         (result, time.waits)
+    }
+
+    #[test]
+    fn starts_with_no_display_wait_a_fixed_time_and_then_the_run_goes_on() {
+        let no_display = || (15_000_000_000, Ok(Some(NO_DISPLAY_EXIT_CODE)));
+        let mut script: Vec<_> = (0..5).map(|_| no_display()).collect();
+        script.push((1_000, Ok(Some(101))));
+        script.push((1_000, Ok(Some(0))));
+        let (result, waits) = run(script);
+        assert_eq!(result.expect("a quit"), 7);
+        assert_eq!(
+            waits,
+            [
+                NO_DISPLAY_WAIT_NS,
+                NO_DISPLAY_WAIT_NS,
+                NO_DISPLAY_WAIT_NS,
+                NO_DISPLAY_WAIT_NS,
+                NO_DISPLAY_WAIT_NS,
+                BACKOFF_FIRST_NS
+            ],
+            "the first crash after the starts with no display waits the first backoff"
+        );
     }
 
     #[test]

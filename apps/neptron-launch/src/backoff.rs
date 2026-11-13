@@ -6,6 +6,18 @@
 /// `EX_TEMPFAIL` of `sysexits.h`.
 pub const RELAUNCH_EXIT_CODE: i32 = 75;
 
+/// The exit code of a frontend that found no connected display after its
+/// own bounded wait. The frontend has the same number in
+/// `neptron::display_wait::NO_DISPLAY_EXIT_CODE`. 69 is `EX_UNAVAILABLE`
+/// of `sysexits.h`.
+pub const NO_DISPLAY_EXIT_CODE: i32 = 69;
+
+/// The wait before a restart after [`NO_DISPLAY_EXIT_CODE`], in
+/// nanoseconds. The frontend has waited for the display already, so the
+/// wait is short and does not grow: a monitor plugged in later gets a
+/// picture within one wait of the frontend.
+pub const NO_DISPLAY_WAIT_NS: u64 = 1_000_000_000;
+
 /// The wait before the first restart after a crash, in nanoseconds.
 pub const BACKOFF_FIRST_NS: u64 = 250_000_000;
 
@@ -32,6 +44,9 @@ pub enum Exit {
     Quit,
     /// [`RELAUNCH_EXIT_CODE`]: start the frontend again at once.
     Relaunch,
+    /// [`NO_DISPLAY_EXIT_CODE`]: no display answered. Start the frontend
+    /// again after [`NO_DISPLAY_WAIT_NS`]. It is no crash and no relaunch.
+    NoDisplay,
     /// Any other exit code, or a signal.
     Crash,
 }
@@ -63,6 +78,7 @@ impl Exit {
         match code {
             Some(0) => Self::Quit,
             Some(RELAUNCH_EXIT_CODE) => Self::Relaunch,
+            Some(NO_DISPLAY_EXIT_CODE) => Self::NoDisplay,
             _ => Self::Crash,
         }
     }
@@ -93,6 +109,9 @@ impl Backoff {
         match exit {
             Exit::Quit => Next::Stop,
             Exit::Relaunch => Next::Restart { after_ns: 0 },
+            Exit::NoDisplay => Next::Restart {
+                after_ns: NO_DISPLAY_WAIT_NS,
+            },
             Exit::Crash => {
                 let doublings = self.crashes.min(BACKOFF_MAX_NS.ilog2());
                 self.crashes = self.crashes.saturating_add(1);
@@ -225,6 +244,29 @@ mod tests {
             Next::Restart { after_ns: 0 },
             "the window has passed"
         );
+    }
+
+    #[test]
+    fn no_display_restarts_after_a_fixed_wait_and_counts_nothing() {
+        assert_eq!(Exit::of_code(Some(NO_DISPLAY_EXIT_CODE)), Exit::NoDisplay);
+        let mut backoff = Backoff::new();
+        let _ = backoff.after(Exit::Crash, 0, 0);
+        for i in 0..3 * RELAUNCHES_MAX as u64 {
+            assert_eq!(
+                backoff.after(Exit::NoDisplay, 15_000_000_000, i),
+                Next::Restart {
+                    after_ns: NO_DISPLAY_WAIT_NS
+                }
+            );
+        }
+        assert_eq!(backoff.crashes(), 1, "no display is no crash");
+        for i in 0..RELAUNCHES_MAX as u64 {
+            assert_eq!(
+                backoff.after(Exit::Relaunch, 0, 100 + i),
+                Next::Restart { after_ns: 0 },
+                "no display uses up no relaunch"
+            );
+        }
     }
 
     #[test]
