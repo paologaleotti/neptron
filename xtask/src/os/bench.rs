@@ -7,7 +7,7 @@
 //! password (`BatchMode=yes`), and a known-hosts file of its own in the
 //! cache directory, so the user's own file does not change.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, ExitCode};
 use std::time::Instant;
 
@@ -145,7 +145,7 @@ impl Bench {
     }
 }
 
-/// The options of every `ssh` and `scp` call: key or agent only, and the
+/// The options of every `ssh` call: key or agent only, and the
 /// known-hosts file of the bench.
 pub fn ssh_options(known_hosts: &Path) -> Vec<String> {
     [
@@ -176,18 +176,17 @@ pub fn ssh_args(target: &Target, known_hosts: &Path, remote: &str) -> Vec<String
     args
 }
 
-/// The `scp` arguments that copy `local` files to `remote` on the PC.
-pub fn scp_args(
-    target: &Target,
-    known_hosts: &Path,
-    local: &[PathBuf],
-    remote: &str,
-) -> Vec<String> {
-    let mut args = ssh_options(known_hosts);
-    args.extend(["-r".to_owned(), "-P".to_owned(), target.port.to_string()]);
-    args.extend(local.iter().map(|p| p.display().to_string()));
-    args.push(format!("{}@{}:{remote}", target.user, target.host));
-    args
+/// The shell command on the PC that writes its standard input to `path`.
+/// Files go over the SSH connection itself: Dropbear has no SFTP server,
+/// which the `scp` of current OpenSSH needs.
+pub fn receive_file(path: &str) -> String {
+    format!("cat > {}", super::qemu::shell_quote(path))
+}
+
+/// The shell command on the PC that unpacks a tar stream on its standard
+/// input into `dir`.
+pub fn receive_tree(dir: &str) -> String {
+    format!("tar -x -f - -C {}", super::qemu::shell_quote(dir))
 }
 
 /// The shell script on the PC that makes the folders of a push.
@@ -224,11 +223,18 @@ pub fn install_script(data: bool) -> String {
 /// The shell script on the PC that restarts the launcher and the frontend
 /// with the hold file: the launch script waits while the file exists, so
 /// init cannot start the old launcher in the gap, and the next start reads
-/// the hot folder again.
+/// the hot folder again. The launcher forwards SIGTERM to the frontend and
+/// waits for it, but SDL3 in the frontend catches SIGTERM and the KMS run
+/// does not end on it, so a frontend still there after 5 s gets SIGKILL;
+/// the launcher, already stopping, then ends too.
 pub const RESTART_SCRIPT: &str = "touch /run/neptron/hold; \
     kill $(pidof neptron-launch) 2>/dev/null; \
-    n=0; while pidof neptron-launch > /dev/null && [ $n -lt 100 ]; do usleep 100000; n=$((n + 1)); done; \
-    rm -f /run/neptron/hold; echo 'the launcher and the frontend start again'";
+    n=0; while pidof neptron-launch > /dev/null && [ $n -lt 50 ]; do usleep 100000; n=$((n + 1)); done; \
+    if pidof neptron > /dev/null; then kill -KILL $(pidof neptron); fi; \
+    n=0; while pidof neptron-launch > /dev/null && [ $n -lt 50 ]; do usleep 100000; n=$((n + 1)); done; \
+    rm -f /run/neptron/hold; \
+    if pidof neptron-launch > /dev/null; then echo 'the launcher did not stop'; exit 1; fi; \
+    echo 'the launcher and the frontend start again'";
 
 /// The shell script on the PC that prints the log.
 pub fn logs_script(follow: bool) -> String {
@@ -322,20 +328,17 @@ fn push(
     for (_, _, bin) in PUSHED {
         let local = export.join(bin);
         let remote = format!("{HOT_BIN}/.{bin}.new");
-        super::run_step(Command::new("scp").args(scp_args(
-            target,
-            known_hosts,
-            &[local],
-            &remote,
-        )))?;
+        let file = std::fs::File::open(&local).map_err(|source| OsError::Io {
+            path: local.clone(),
+            source,
+        })?;
+        let mut ssh = Command::new("ssh");
+        ssh.args(ssh_args(target, known_hosts, &receive_file(&remote)))
+            .stdin(file);
+        super::run_step(&mut ssh)?;
     }
     if data {
-        let dirs: Vec<PathBuf> = DATA_DIRS
-            .iter()
-            .map(|d| repo.root.join("data").join(d))
-            .collect();
-        let remote = format!("{HOT_DATA}.new/");
-        super::run_step(Command::new("scp").args(scp_args(target, known_hosts, &dirs, &remote)))?;
+        send_data(target, known_hosts, &repo.root.join("data"))?;
     }
     remote_step(target, known_hosts, &install_script(data))?;
     if restart {
@@ -349,6 +352,40 @@ fn push(
         start.elapsed().as_secs()
     );
     Ok(ExitCode::SUCCESS)
+}
+
+/// Sends the data folders as a tar stream into the new hot data folder.
+fn send_data(target: &Target, known_hosts: &Path, data: &Path) -> Result<(), OsError> {
+    let mut tar = Command::new("tar");
+    tar.arg("-c")
+        .arg("-f")
+        .arg("-")
+        .arg("-C")
+        .arg(data)
+        .args(DATA_DIRS)
+        // macOS tar adds AppleDouble files for extended attributes unless
+        // this is set.
+        .env("COPYFILE_DISABLE", "1")
+        .stdout(std::process::Stdio::piped());
+    let mut child = super::spawn(&mut tar)?;
+    let Some(stream) = child.stdout.take() else {
+        return Err(OsError::Usage("tar gave no output stream".to_owned()));
+    };
+    let remote = receive_tree(&format!("{HOT_DATA}.new"));
+    let mut ssh = Command::new("ssh");
+    ssh.args(ssh_args(target, known_hosts, &remote))
+        .stdin(stream);
+    let sent = super::run_step(&mut ssh);
+    let packed = child.wait().map_err(|source| OsError::Wait { source })?;
+    sent?;
+    if packed.success() {
+        Ok(())
+    } else {
+        Err(OsError::StepFailed {
+            cmd: crate::repo::describe(&tar),
+            status: packed,
+        })
+    }
 }
 
 fn remote_step(target: &Target, known_hosts: &Path, remote: &str) -> Result<(), OsError> {
@@ -465,20 +502,14 @@ mod tests {
             "-o BatchMode=yes -o PasswordAuthentication=no -o StrictHostKeyChecking=accept-new \
              -o UserKnownHostsFile=/c/bench_known_hosts -p 22 root@192.168.1.50 -- uptime"
         );
-        let scp = scp_args(
-            &target(),
-            known,
-            &[PathBuf::from("/t/neptron")],
-            "/state/hot/bin/.neptron.new",
-        )
-        .join(" ");
-        assert!(
-            scp.starts_with("-o BatchMode=yes -o PasswordAuthentication=no "),
-            "{scp}"
+        assert_eq!(
+            receive_file("/state/hot/bin/.neptron.new"),
+            "cat > /state/hot/bin/.neptron.new"
         );
-        assert!(
-            scp.ends_with("-r -P 22 /t/neptron root@192.168.1.50:/state/hot/bin/.neptron.new"),
-            "{scp}"
+        assert_eq!(receive_file("/a b"), "cat > '/a b'");
+        assert_eq!(
+            receive_tree("/state/hot/share/neptron.new"),
+            "tar -x -f - -C /state/hot/share/neptron.new"
         );
     }
 
@@ -506,7 +537,12 @@ mod tests {
         let hold = RESTART_SCRIPT.find("touch /run/neptron/hold").unwrap();
         let kill = RESTART_SCRIPT.find("kill $(pidof neptron-launch)").unwrap();
         let release = RESTART_SCRIPT.find("rm -f /run/neptron/hold").unwrap();
-        assert!(hold < kill && kill < release, "{RESTART_SCRIPT}");
+        let force = RESTART_SCRIPT.find("kill -KILL $(pidof neptron)").unwrap();
+        assert!(
+            hold < kill && kill < force && force < release,
+            "{RESTART_SCRIPT}"
+        );
+        assert!(RESTART_SCRIPT.ends_with("start again'"), "{RESTART_SCRIPT}");
         assert!(logs_script(true).contains("tail -n 200 -f /state/log/neptron.log"));
         assert!(logs_script(false).contains("dmesg"));
     }
