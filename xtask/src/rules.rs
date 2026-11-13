@@ -1065,4 +1065,42 @@ mod tests {
         let v = check(&w, &|p| std::fs::read_to_string(p));
         assert_eq!(v, Vec::<String>::new());
     }
+
+    /// The number of `pub const <name>: <type> = <number>;` in a source
+    /// file of the workspace.
+    fn const_value(rel: &str, name: &str) -> i64 {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(rel);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let prefix = format!("pub const {name}:");
+        let line = text
+            .lines()
+            .find(|l| l.trim_start().starts_with(&prefix))
+            .unwrap_or_else(|| panic!("{rel} has no {name}"));
+        let value = line.split('=').nth(1).unwrap().trim().trim_end_matches(';');
+        value.parse().unwrap_or_else(|_| panic!("{rel}: {line}"))
+    }
+
+    /// The frontend and the launcher are two binaries, and no crate may
+    /// depend on both, so this test reads their sources.
+    #[test]
+    fn the_frontend_and_the_launcher_agree_on_the_exit_codes() {
+        for (frontend, launcher, name) in [
+            (
+                "apps/neptron/src/relaunch.rs",
+                "apps/neptron-launch/src/backoff.rs",
+                "RELAUNCH_EXIT_CODE",
+            ),
+            (
+                "apps/neptron/src/display_wait.rs",
+                "apps/neptron-launch/src/backoff.rs",
+                "NO_DISPLAY_EXIT_CODE",
+            ),
+        ] {
+            assert_eq!(
+                const_value(frontend, name),
+                const_value(launcher, name),
+                "{name}"
+            );
+        }
+    }
 }
