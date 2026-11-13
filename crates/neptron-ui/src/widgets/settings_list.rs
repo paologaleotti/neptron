@@ -1,6 +1,6 @@
 use crate::font;
 use crate::frame::UiFrame;
-use crate::geom::{Color, Rect};
+use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
 use crate::snapshot::{ChoiceOption, Level, MenuItem, SettingValue};
@@ -195,8 +195,10 @@ fn draw_row(
 ) {
     let arrows = focused && kind == RowKind::Value;
     let (color, dim) = if focused && !item.is_enabled() {
-        outline(frame, row, theme.colors.focus);
-        (theme.colors.text_dim, theme.colors.text_dim)
+        // The look of a focused option that cannot be chosen (`List`): a
+        // solid bar, which a scanline cannot hide as it can a thin edge.
+        frame.scene.rect(row, theme.colors.border);
+        (theme.colors.text, theme.colors.text)
     } else if focused {
         frame.scene.rect(row, theme.colors.focus);
         (theme.colors.focus_text, theme.colors.focus_text)
@@ -293,21 +295,6 @@ fn draw_row(
         focused,
         label_clipped || value_clipped,
     );
-}
-
-/// A one-pixel frame of `color` along the edges of `row`: the focus of a
-/// row that takes no change, so it does not read as an enabled focused row.
-fn outline(frame: &mut UiFrame, row: Rect, color: Color) {
-    let bottom = add(row.y, row.h.saturating_sub(1));
-    let right = add(row.x, row.w.saturating_sub(1));
-    for edge in [
-        Rect::new(row.x, row.y, row.w, 1),
-        Rect::new(row.x, bottom, row.w, 1),
-        Rect::new(row.x, row.y, 1, row.h),
-        Rect::new(right, row.y, 1, row.h),
-    ] {
-        frame.scene.rect(edge, color);
-    }
 }
 
 fn push(
@@ -775,7 +762,7 @@ mod tests {
     }
 
     #[test]
-    fn a_focused_disabled_row_has_no_focus_fill_and_dim_text() {
+    fn a_focused_disabled_row_has_the_look_of_a_focused_disabled_option() {
         let theme = Theme::default();
         let mut items = items();
         items[1] = items[1].clone().unavailable("Not used on a flat panel");
@@ -784,29 +771,40 @@ mod tests {
         let mut frame = UiFrame::new();
         l.draw(&mut frame, &theme, &items);
         let row = l.list.row_rect(1, false);
-        let commands = frame.scene.commands();
-        assert!(
-            !commands.iter().any(|c| matches!(
-                *c,
-                crate::DrawCommand::Rect { rect, color } if rect == row && color == theme.colors.focus
-            )),
-            "no full focus fill"
-        );
-        assert!(
-            commands.iter().any(|c| matches!(
-                *c,
-                crate::DrawCommand::Rect { color, .. } if color == theme.colors.focus
-            )),
-            "a focus outline"
-        );
-        for c in commands {
+        let fills: Vec<_> = frame
+            .scene
+            .commands()
+            .iter()
+            .filter_map(|c| match *c {
+                crate::DrawCommand::Rect { rect, color } => Some((rect, color)),
+                _ => None,
+            })
+            .collect();
+        // One solid bar in the colour of a focused option that cannot be
+        // chosen (`List`), and no one-pixel edge: a scanline can hide it.
+        assert_eq!(fills, [(row, theme.colors.border)]);
+        let mut texts = 0;
+        for c in frame.scene.commands() {
             if let crate::DrawCommand::Text { y, color, .. } = *c
                 && y >= row.y
                 && y < row.y + row.h as i32
             {
-                assert_eq!(color, theme.colors.text_dim);
+                assert_eq!(color, theme.colors.text, "as in the option list");
+                texts += 1;
             }
         }
+        assert_eq!(texts, 2, "the label and the reason");
+        let mut option = UiFrame::new();
+        List::new(Rect::new(16, 12, 288, 12), 12).draw(&mut option, &theme, 1, |_| {
+            super::super::ListItem {
+                enabled: false,
+                ..super::super::ListItem::new("Native")
+            }
+        });
+        assert!(option.scene.commands().iter().any(|c| matches!(
+            *c,
+            crate::DrawCommand::Rect { color, .. } if color == theme.colors.border
+        )));
     }
 
     #[test]
