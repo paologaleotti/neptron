@@ -105,8 +105,10 @@ pub fn takes_request(state: RunState) -> bool {
 /// failed boot:
 ///
 /// - `Confirmed`: the confirmed picture shows. The count goes back.
-/// - `Safe(NothingConfirmed)`: a first boot whose prompt reverted; no
-///   configuration failed. The count goes back.
+/// - `Safe(NothingConfirmed)`: nothing is confirmed and the safe default
+///   shows. A boot prompt that reverted has put the safe default in the
+///   settings, so the next boot drives the same picture with or without
+///   the count. The count goes back.
 /// - `Safe(NoValidMode)`: the configuration gave no picture; the guard
 ///   holds the boot failed. The count stays, so two such boots reach
 ///   `Safe(FailedBoots)`.

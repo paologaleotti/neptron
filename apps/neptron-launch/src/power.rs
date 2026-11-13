@@ -116,8 +116,8 @@ impl Power {
 ///
 /// [`PowerError`] when the command does not start or fails, or when no
 /// stop comes in [`POWER_STOP_WAIT_NS`]. The machine then still runs, and
-/// the launcher must exit with an error so that init starts it again and
-/// the menus come back.
+/// the launcher starts the frontend again and tells it that the request
+/// failed, so the menus come back with a notice.
 pub fn request(
     power: Power,
     run: impl FnOnce(&'static str) -> io::Result<Option<i32>>,
