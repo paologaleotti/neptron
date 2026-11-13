@@ -235,7 +235,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 };
                 (state, Some(core.to_owned()), Some(reference.path.clone()))
             }
-            None if self.in_game() => (SessionState::Exiting, None, None),
             None => (SessionState::Idle, None, None),
         };
         SessionStatus {
