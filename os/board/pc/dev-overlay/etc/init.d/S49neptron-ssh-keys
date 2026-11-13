@@ -1,0 +1,10 @@
+#!/bin/sh
+# Development variant: Dropbear keeps its host keys in /etc/dropbear, which
+# points to /state/dropbear, so the host key stays the same from boot to
+# boot and the SSH client of the bench does not refuse a changed key.
+# Dropbear makes the keys at its first start (-R). On a state partition that
+# did not mount the folder is in RAM, and the key changes at each boot.
+
+[ "$1" = start ] || exit 0
+mkdir -p /state/dropbear
+chmod 700 /state/dropbear

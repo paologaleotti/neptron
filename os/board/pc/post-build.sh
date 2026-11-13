@@ -49,11 +49,15 @@ if grep -qx 'BR2_PACKAGE_DROPBEAR=y' "$BR2_CONFIG"; then
 	fi
 	install -D -m 0600 "$key" "$target/root/.ssh/authorized_keys"
 	chmod 0700 "$target/root/.ssh"
+	mkdir -p "$target/etc/default"
 	echo 'DROPBEAR_ARGS="-s"' > "$target/etc/default/dropbear"
+	# The host keys live on the state partition (S49neptron-ssh-keys).
+	ln -snf /state/dropbear "$target/etc/dropbear"
 else
 	for path in usr/sbin/dropbear root/.ssh etc/default/dropbear etc/init.d/S50dropbear \
 		etc/init.d/S50telnet usr/sbin/telnetd etc/neptron/development \
-		etc/profile.d/neptron-hot.sh etc/init.d/S41neptron-address; do
+		etc/profile.d/neptron-hot.sh etc/init.d/S41neptron-address \
+		etc/init.d/S49neptron-ssh-keys; do
 		if [ -e "$target/$path" ] || [ -L "$target/$path" ]; then
 			echo "post-build: the release image holds /$path of the development variant; build it in a clean output" >&2
 			exit 1
