@@ -115,6 +115,7 @@ logged() {
 grep -qx 'share = "partition"' /run/neptron/storage.toml || fail "/share is not the share partition"
 grep -q '^/dev/sda4 /share exfat ' /proc/mounts || fail "/share is not partition 4 as exFAT"
 logged '/dev/sda4 mounted at /share' || fail "/var/log/messages has no line of the storage script"
+grep -q '/dev/sda4 mounted at /share' /state/log/storage.log || fail "/state/log/storage.log has no line of this boot"
 "#,
     );
     let file = format!("/share/{FILE}");
@@ -126,6 +127,7 @@ logged '/dev/sda4 mounted at /share' || fail "/var/log/messages has no line of t
             s.push_str(
                 "logged '/dev/sda4 holds no filesystem; formatting it exFAT' || fail \"the empty space was not formatted\"\n",
             );
+            s.push_str(FLUSHED);
             s.push_str(&format!(
                 "echo \"{nonce}\" > {file} && sync || fail \"{file} cannot be written\"\n"
             ));
@@ -136,6 +138,7 @@ logged '/dev/sda4 mounted at /share' || fail "/var/log/messages has no line of t
                  logged 'formatting it exFAT' && fail \"the old share was formatted\"\n\
                  [ ! -e /state/share-pending ] || fail \"the marker /state/share-pending stays after the mount\"\n",
             );
+            s.push_str(FLUSHED);
             s.push_str(&read_back);
         }
         Step::Again => {
@@ -245,6 +248,9 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
 /// The guest deadline of each boot when `--timeout` is not given: a boot
 /// under CPU emulation takes about a minute.
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
+/// The check of a boot that made partition 4: the table was read back
+/// from the device.
+const FLUSHED: &str = "logged 'blockdev --flushbufs exit 0: the table is read back from the device' || fail \"the table was not read back from the device\"\n";
 /// The file that the first boot writes to the share.
 const FILE: &str = "share-check.txt";
 /// The byte offset of the fourth primary entry of an MBR.
@@ -286,6 +292,7 @@ mod tests {
                 "grep -q '^/dev/sda4 /share exfat ' /proc/mounts",
                 "grep -q \"neptron-storage: $1\" /var/log/messages",
                 "logged '/dev/sda4 mounted at /share'",
+                "grep -q '/dev/sda4 mounted at /share' /state/log/storage.log",
             ] {
                 assert!(s.contains(part), "{}: {part}: {s}", step.name());
             }
@@ -307,6 +314,9 @@ mod tests {
     fn the_first_boot_formats_and_the_later_boots_keep_the_file() {
         let fresh = guest_script(Step::Fresh, "n0nce");
         assert!(fresh.contains("formatting it exFAT' || fail"), "{fresh}");
+        assert!(fresh.contains(FLUSHED), "{fresh}");
+        assert!(guest_script(Step::Rewritten, "n0nce").contains(FLUSHED));
+        assert!(!guest_script(Step::Again, "n0nce").contains(FLUSHED));
         assert!(
             fresh.contains("echo \"n0nce\" > /share/share-check.txt && sync"),
             "{fresh}"
