@@ -1,0 +1,55 @@
+{
+  "targets": [
+    {
+      "name": "x86_64",
+      "enabled": true,
+      "description": "The PC image, without the 15 kHz kernel patch set (OP-070)",
+      "runner": "ubuntu-24.04",
+      "arch": "x86_64",
+      "defconfig": "neptron_pc_x86_64_defconfig",
+      "fragments": ["neptron_pc_x86_64_no15khz.fragment"],
+      "build_args": ["--arch", "x86_64", "--output", "x86_64", "--no-kernel-15khz"],
+      "images_dir": "x86_64-no15khz",
+      "image_files": ["neptron-x86_64.img"],
+      "artifact": "neptron-pc-x86_64-no15khz",
+      "upload_image": true,
+      "rebuild": ["neptron", "neptron-launch", "neptronctl", "neptron-capture", "neptron-vkms-probe"],
+      "checks": ["boot-bios", "boot-uefi", "kms", "gles", "core", "app", "selftest"],
+      "build_minutes": 320
+    },
+    {
+      "name": "aarch64",
+      "enabled": true,
+      "description": "The aarch64 QEMU test image",
+      "runner": "ubuntu-24.04-arm",
+      "arch": "aarch64",
+      "defconfig": "neptron_qemu_aarch64_defconfig",
+      "fragments": [],
+      "build_args": ["--arch", "aarch64"],
+      "images_dir": "aarch64",
+      "image_files": ["Image", "rootfs.ext4"],
+      "artifact": "neptron-qemu-aarch64",
+      "upload_image": false,
+      "rebuild": ["neptron", "neptron-launch", "neptronctl", "neptron-capture", "neptron-vkms-probe"],
+      "checks": ["boot", "kms", "gles", "core", "app", "selftest"],
+      "build_minutes": 240
+    },
+    {
+      "name": "rpi-arm64",
+      "enabled": false,
+      "description": "The Raspberry Pi image. Disabled: the board support does not exist yet; docs/ci.md lists what the Pi image task must provide",
+      "runner": "ubuntu-24.04-arm",
+      "arch": "rpi-arm64",
+      "defconfig": "neptron_rpi_arm64_defconfig",
+      "fragments": [],
+      "build_args": ["--arch", "rpi-arm64"],
+      "images_dir": "rpi-arm64",
+      "image_files": ["neptron-rpi-arm64.img"],
+      "artifact": "neptron-rpi-arm64",
+      "upload_image": true,
+      "rebuild": ["neptron", "neptron-launch", "neptronctl"],
+      "checks": [],
+      "build_minutes": 330
+    }
+  ]
+}
