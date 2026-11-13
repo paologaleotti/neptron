@@ -62,7 +62,7 @@ stateDiagram-v2
     Quitting --> [*] : session ends, run relaunches
 ```
 
-The UI can open the grid pattern straight from the quick menu, but the app's quick menu page has no `Grid pattern` row (see [Differences](#differences-from-docsdefinition)). The grid pattern is reached from the display panel, also when that panel was opened from the quick menu. The keep prompt sees only the changes at the game level, so a change on the display panel opened from here never starts it.
+The UI can open the grid pattern straight from the quick menu, but the app's quick menu page has no `Grid pattern` row (see [Differences](#differences-from-docsdefinition)). The grid pattern is reached from the display panel, also when that panel was opened from the quick menu. The keep prompt sees only the changes at the game level, so a change on the display panel opened from here never starts it. It also forgets a change that the app took back (the guard reverted a display change that was not kept): when the row in the snapshot no longer shows that value at the game level, the change is not asked about and not moved.
 
 ### Detail: who gets a button press
 

@@ -6,7 +6,7 @@ use crate::input::UiAction::{self, Accept, Back, Down, Left, Menu, Right, Up};
 use crate::intent::{Intent, Value};
 use crate::snapshot::{
     ConfirmId, GameId, GameSource, GameWindow, Level, Notice, NoticeId, NoticeKind, PendingConfirm,
-    SessionInfo, SettingsPage, Snapshot, VideoStatus,
+    SessionInfo, SettingValue, SettingsPage, Snapshot, VideoStatus,
 };
 use crate::theme::Theme;
 
@@ -778,6 +778,37 @@ fn a_change_in_the_quick_menu_is_written_for_the_game() {
     assert_eq!(run.screen(), "quick-menu");
 }
 
+/// `snap` after the app applied "Force 60 Hz" at the game level.
+fn with_force_60(snap: &Snapshot) -> Snapshot {
+    let mut applied = snap.clone();
+    if let Some(row) = applied.settings.rows.iter_mut().find(|r| r.key == REFRESH) {
+        row.source = Level::Game;
+        if let SettingValue::Choice { index, .. } = &mut row.value {
+            *index = 3;
+        }
+    }
+    applied
+}
+
+#[test]
+fn a_change_that_the_app_took_back_is_not_kept() {
+    let (mut run, snap) = quick_menu();
+    run.step(&snap, &TO_FORCE_60);
+    assert_eq!(run.intents(), [force_60(Level::Game)]);
+    // The guard reverted the change: the snapshot holds the old value.
+    run.step(&snap, &[Back]);
+    assert_eq!(run.intents(), [Intent::Resume], "nothing is left to keep");
+
+    let (mut run, snap) = quick_menu();
+    run.step(&snap, &TO_FORCE_60);
+    let applied = with_force_60(&snap);
+    run.step(&applied, &[Back]);
+    assert_eq!(run.screen(), "quick-menu/keep");
+    // The change went back while the prompt was open.
+    run.step(&snap, &[Right, Right, Accept]);
+    assert_eq!(run.intents(), [Intent::Resume]);
+}
+
 #[test]
 fn leaving_after_a_change_asks_where_to_keep_it() {
     for (presses, level) in [
@@ -787,6 +818,7 @@ fn leaving_after_a_change_asks_where_to_keep_it() {
     ] {
         let (mut run, snap) = quick_menu();
         run.step(&snap, &TO_FORCE_60);
+        let snap = with_force_60(&snap);
         run.step(&snap, &[Back]);
         assert_eq!(run.screen(), "quick-menu/keep");
         assert_eq!(run.focused(), Some("This game"));
@@ -812,6 +844,7 @@ fn leaving_after_a_change_asks_where_to_keep_it() {
 fn back_in_the_prompt_returns_to_the_quick_menu() {
     let (mut run, snap) = quick_menu();
     run.step(&snap, &TO_FORCE_60);
+    let snap = with_force_60(&snap);
     run.step(&snap, &[Back, Back]);
     assert!(run.intents().is_empty());
     assert_eq!(run.screen(), "quick-menu");
@@ -1264,7 +1297,7 @@ fn a_dialog_shows_its_own_hints() {
 
     let (mut run, snap) = quick_menu();
     run.step(&snap, &TO_FORCE_60);
-    run.step(&snap, &[Back]);
+    run.step(&with_force_60(&snap), &[Back]);
     assert_eq!(hints(&run), ["Accept: choose", "Back: cancel"]);
 }
 

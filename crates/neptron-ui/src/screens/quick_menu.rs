@@ -6,7 +6,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
-use crate::snapshot::{Level, SettingKey, Snapshot};
+use crate::snapshot::{Level, MenuItem, SettingKey, SettingValue, Snapshot};
 use crate::theme::Theme;
 use crate::widgets::{Dialog, DialogContent, DialogEvent, DialogTone};
 
@@ -137,8 +137,8 @@ impl QuickMenu {
             };
         }
         match self.page.handle(action, snap) {
-            PageEvent::Back | PageEvent::Reserved(RESUME) => self.ask(Leave::Resume, out),
-            PageEvent::Reserved(QUIT_GAME) => self.ask(Leave::Quit, out),
+            PageEvent::Back | PageEvent::Reserved(RESUME) => self.ask(Leave::Resume, snap, out),
+            PageEvent::Reserved(QUIT_GAME) => self.ask(Leave::Quit, snap, out),
             PageEvent::Reserved(OPEN_DISPLAY) => Nav::Open(Target::Display),
             PageEvent::Reserved(GRID_PATTERN) => Nav::Open(Target::Grid),
             PageEvent::Intent(intent) => {
@@ -189,7 +189,8 @@ impl QuickMenu {
         }
     }
 
-    fn ask(&mut self, leave: Leave, out: &mut Vec<Intent>) -> Nav {
+    fn ask(&mut self, leave: Leave, snap: &Snapshot, out: &mut Vec<Intent>) -> Nav {
+        self.forget_taken_back(snap);
         if self.changes.iter().any(Option::is_some) {
             self.prompt = Some((Dialog::new(0), leave));
             return Nav::Stay;
@@ -211,12 +212,31 @@ impl QuickMenu {
         }
     }
 
+    /// Forgets the noted changes that the app took back: the guard reverts
+    /// a display change that the player did not keep, and the row then
+    /// shows the value in effect. A change whose row is not in the
+    /// snapshot stays noted.
+    fn forget_taken_back(&mut self, snap: &Snapshot) {
+        let rows = self.page.rows(snap);
+        for entry in &mut self.changes {
+            let gone = entry.is_some_and(|(key, value)| {
+                rows.iter()
+                    .find(|r| r.key == key)
+                    .is_some_and(|row| !holds(row, value))
+            });
+            if gone {
+                *entry = None;
+            }
+        }
+    }
+
     /// Moves every noted change from the game level to `level`, when the
     /// row of the change is in the snapshot and allows that level. A change
     /// whose row is gone stays at the game level, the narrowest one. The
     /// game level is where the changes are, so for it there is nothing to
     /// send.
     fn keep_at(&mut self, level: Level, snap: &Snapshot, out: &mut Vec<Intent>) {
+        self.forget_taken_back(snap);
         let rows = self.page.rows(snap);
         for (key, value) in self.changes.iter_mut().filter_map(Option::take) {
             let allowed = rows
@@ -233,4 +253,15 @@ impl QuickMenu {
             });
         }
     }
+}
+
+/// Whether `row` shows `value`, set at the game level.
+fn holds(row: &MenuItem, value: Value) -> bool {
+    let same = match (&row.value, value) {
+        (SettingValue::Toggle(on), Value::Toggle(set)) => *on == set,
+        (SettingValue::Number { value: now, .. }, Value::Number(set)) => *now == set,
+        (SettingValue::Choice { index, .. }, Value::Choice(set)) => *index == set,
+        _ => false,
+    };
+    same && row.source == Level::Game
 }
