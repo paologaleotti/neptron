@@ -103,7 +103,7 @@ A pull request restores the caches of `main` and saves none. CI sets `CARGO_INCR
 
 A full build of the PC image builds the toolchain, LLVM and clang for the host and the target, Mesa and the kernel. That takes hours. A later build reuses all of it and builds only the NEPTRON packages and the image step.
 
-The base is the Buildroot output directory after a full build, with these parts removed: the object files (`*.o`, `*.lo`) and the CMake build trees (`buildroot-build/`) of every installed package, `legal-info/` and `images/`, which every build makes again. Buildroot decides what to build from the stamp files in `build/<package>/`, and those stay. The compiler cache goes in the same artifact. Both are tar files compressed with zstd.
+The base is the Buildroot output directory after a full build, with these parts removed: the object files (`*.o`, `*.lo`) and the CMake build trees (`buildroot-build/`) of every installed package, `legal-info/` and `images/`, which every build makes again. Buildroot decides what to build from the stamp files in `build/<package>/`, and those stay. The compiler cache and the Buildroot downloads go in the same artifact. The output marks every package as downloaded, so Buildroot never fetches those archives again, but `make legal-info` copies them, and it failed on a base without them. The output and the compiler cache are tar files compressed with zstd; the downloads are a plain tar file, because the archives are compressed already.
 
 How an image job finds its base, in order:
 
