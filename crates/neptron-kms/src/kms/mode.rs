@@ -17,7 +17,8 @@ impl KmsDisplay {
     pub(super) fn commit_mode(&mut self, mode: &ValidatedMode) -> Result<Modeline, DisplayError> {
         self.state.check_set_mode()?;
         let m = *mode.mode();
-        match self.wire.next_step(&m) {
+        let tv = mode.tv_standard();
+        match self.wire.next_step(&m, tv) {
             NextStep::Reuse(readback) => return Ok(readback),
             NextStep::ReadAgain => {
                 let readback = self.read_mode()?;
@@ -66,7 +67,7 @@ impl KmsDisplay {
         }
         // The mode is on the wire now, whatever the readback gives: a later
         // request for another mode must commit, and drop must restore.
-        self.wire.committed(m);
+        self.wire.committed(m, tv);
         self.state.mode_committed();
         let readback = self.read_mode()?;
         self.wire.read_back(readback);
