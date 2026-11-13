@@ -36,13 +36,13 @@ flowchart TD
 
 ### Share partition: the first boot makes partition 4
 
-`make_partition` runs only when the kernel has no partition 4, the table on the disk has none either, and the disk has a partition 3. The exit status of `sfdisk` and of `partx` decides nothing: the table read back and the kernel's list of partitions decide.
+`make_partition` runs only when the kernel has no partition 4, the table on the disk has none either, and the disk has a partition 3. The exit status of `sfdisk` and of `addpart` decides nothing: the table read back from the device (after `blockdev --flushbufs` drops the cache of the whole disk) and the kernel's list of partitions decide.
 
 ```mermaid
 flowchart TD
     Q4{"Partition 4 in the kernel?"} -->|"yes"| NODE
     Q4 -->|"no"| T4{"Partition 4 in the table on the disk?"}
-    T4 -->|"yes"| PX
+    T4 -->|"yes, with its start and size"| PX
     T4 -->|"no, no partition 3"| RAM["/share is a RAM folder<br/>the line names the reason"]
     T4 -->|"no, partition 3 there"| W{"/state mounted from the disk?"}
     W -->|"no"| RAM
@@ -52,10 +52,13 @@ flowchart TD
     OLD -->|"yes, not at the planned start"| RAM
     OLD -->|"none, or at the planned start"| MARK["Write /state/share-pending, sync"]
     MARK -->|"write fails"| RAM
-    MARK --> SF["sfdisk appends partition 4, type 0x07<br/>no wipe, no question, any exit status"]
-    SF --> RB{"sfdisk --dump: partition 4, type 7, planned start, inside the disk?"}
-    RB -->|"no partition 4, or another one"| RAM
-    RB -->|"yes"| PX{"partx --add --nr 4: kernel sees partition 4?<br/>up to 5 tries, 0.5 s apart"}
+    MARK --> SF["sfdisk appends partition 4 at the planned start, type 0x07<br/>no wipe, no question, any exit status"]
+    SF --> FL["blockdev --flushbufs on the disk<br/>exit status logged"]
+    FL --> RD{"sfdisk --dump reads the table?<br/>up to 5 tries, 0.5 s apart"}
+    RD -->|"no: marker stays"| RAM
+    RD -->|"yes"| RB{"Partition 4, type 7, planned start, inside the disk?"}
+    RB -->|"no partition 4, or another one: marker removed"| RAM
+    RB -->|"yes"| PX{"addpart disk 4 start size: kernel sees partition 4?<br/>up to 5 tries, 0.5 s apart"}
     PX -->|"no, after 5 tries"| RAM
     PX -->|"yes"| NODE{"Device node there within 5 s?"}
     NODE -->|"no"| RAM
@@ -171,7 +174,7 @@ Which mode stays on the wire until the first commit depends on the driver. The h
 | `/state` is a RAM folder | A Warning notice that stays until OK: "The state partition is not in use (<reason>). Settings, saves and display choices are lost at power-off." The guard record in RAM still counts the failed boots of this power cycle, so the guard boots as usual: the boot prompt, then the safe default with nothing kept. Settings, saves and the guard record are lost at power off. No share partition is made. |
 | `/share` is a RAM folder | A Warning notice that stays until OK: "The share partition is not in use (<reason>). The game folder is empty, and files copied to it are lost at power-off." The ROM folders are empty, so the game list has no games. |
 
-The script writes one line for each decision to the console (`ttyS0`) and to syslog with the tag `neptron-storage` (`/var/log/messages`, which `cargo xtask os logs` prints). The console lines start with `neptron-storage:`. A RAM folder at `/share` always comes with a line that names its reason, and that line is the reason in `storage.toml` and in the notice.
+The script writes one line for each decision to the console (`ttyS0`) and to syslog with the tag `neptron-storage` (`/var/log/messages`, a RAM folder). With `/state` mounted, the script also appends the lines of the boot to `/state/log/storage.log` itself (the last 300 lines). `cargo xtask os logs` prints both. The console lines start with `neptron-storage:`. A RAM folder at `/share` always comes with a line that names its reason, and that line is the reason in `storage.toml` and in the notice.
 
 ## Transitions
 
@@ -195,15 +198,16 @@ The disk signature is fixed for each build variant: `4e505452` (release), `4e505
 | --- | --- | --- | --- | --- |
 | Start | `/state` on disk | Partition 3 of the root disk exists, `e2fsck -p` exits 0, 1 or 2, and the ext4 mount works | | Mounted at `/state`, `noatime` |
 | Start | `/state` RAM folder | No partition 3, or `e2fsck -p` exits 4 or more, or the mount fails | | `tmpfs` at `/state`. Line: `neptron-storage: e2fsck <dev> left errors (exit <code>); /state is a RAM folder`, `neptron-storage: <dev> does not mount; /state is a RAM folder` `neptron-storage: the boot disk has no partition 3, so there is no state partition; /state is a RAM folder` or `neptron-storage: the root filesystem is not on a partition of a disk, so there is no state partition; /state is a RAM folder`. With `/state` mounted: `neptron-storage: <dev> mounted at /state (e2fsck exit <code>)` |
-| No partition 4 | Partition 4 in the table | `/state` on disk, free space at least the limit, no old share at another start | `SHARE_MIN_SECTORS` = 131072 sectors (64 MiB), `ALIGN_SECTORS` = 2048 sectors (1 MiB), `OLD_SHARE_SCAN_SECTORS` = 8388608 sectors (4 GiB) | `/state/share-pending` written and synced, then `sfdisk --append` with type 7 over all free space, with `--no-tell-kernel --wipe never --wipe-partitions never --lock=nonblock`. Lines: `neptron-storage: making partition 4 at sector <n> from <m> free sectors`, the output of sfdisk with its exit status, and `neptron-storage: the partition table holds partition 4 as planned (<start> <size> 7), sfdisk exit <code>`. With an old share at the planned start: `neptron-storage: an old exFAT share starts at sector <n>; partition 4 is made around it and keeps its files` |
+| No partition 4 | Partition 4 in the table | `/state` on disk, free space at least the limit, no old share at another start | `SHARE_MIN_SECTORS` = 131072 sectors (64 MiB), `ALIGN_SECTORS` = 2048 sectors (1 MiB), `OLD_SHARE_SCAN_SECTORS` = 8388608 sectors (4 GiB) | `/state/share-pending` written and synced, then `sfdisk --append` with type 7 over all free space, with the start given and `--no-tell-kernel --wipe never --wipe-partitions never --lock=nonblock`, then `blockdev --flushbufs` and `sfdisk --dump` (up to 5 tries, `TABLE_READ_TRIES`). Lines: `neptron-storage: making partition 4 at sector <n> from <m> free sectors`, the output of sfdisk with its exit status, and `neptron-storage: the partition table holds partition 4 as planned (<start> <size> 7), sfdisk exit <code>`. With an old share at the planned start: `neptron-storage: an old exFAT share starts at sector <n>; partition 4 is made around it and keeps its files` |
 | No partition 4 | `/share` RAM folder | `/state` not on disk | | Line: `neptron-storage: the state partition is not mounted, so no share partition is made` |
 | No partition 4 | `/share` RAM folder | No partition 3 on the boot disk, or the root is not on a partition | | Line: `neptron-storage: the boot disk has no partition 3, so no share partition is made` or `neptron-storage: the root filesystem is not on a partition of a disk, so there is no share partition` |
 | No partition 4 | `/share` RAM folder | Too little free space | `SHARE_MIN_SECTORS` = 131072 | Line: `neptron-storage: <n> free sectors after the state partition, less than 131072, so the disk has no room for a share partition` |
 | No partition 4 | `/share` RAM folder | An exFAT boot sector in the free space, not at the planned start | `OLD_SHARE_SCAN_SECTORS` = 8388608 | Line: `neptron-storage: an old exFAT share starts at sector <n>, not at <m>; no share partition made, the disk is left untouched` |
 | No partition 4 | `/share` RAM folder | The marker cannot be written | | Line: `neptron-storage: /state/share-pending cannot be written, so no share partition is made` |
+| sfdisk ran | `/share` RAM folder this boot | The table cannot be read back after 5 tries | `TABLE_READ_TRIES` = 5, `TABLE_READ_RETRY_US` = 500000 | The marker stays. Line: `neptron-storage: the partition table cannot be read back after sfdisk (exit <code>); the marker stays and the next boot uses partition 4` |
 | sfdisk ran | `/share` RAM folder | The table read back has no partition 4, or one at another start, of another type, too small or past the end of the disk | | The marker is removed. Line: `neptron-storage: sfdisk exit <code>, and the partition table has no partition 4, so no share partition is made` or `neptron-storage: sfdisk exit <code>, and the table holds partition 4 at sector <n> with <m> sectors and type <t>, not type 7 at sector <p> ...; the share partition is left untouched` |
-| Partition 4 in the table, not in the kernel | Partition 4 in the kernel | `partx --add --nr 4`, then the kernel lists partition 4 | `PARTX_TRIES` = 5, `PARTX_RETRY_US` = 500000 (0.5 s) | Line for each failed try: `neptron-storage: partx try <n> of 5, exit <code>: the kernel does not see partition 4` |
-| Partition 4 in the table, not in the kernel | `/share` RAM folder this boot | The kernel does not list partition 4 after 5 tries | `PARTX_TRIES` = 5 | Line: `neptron-storage: partition 4 is in the partition table, but the kernel does not see it after 5 tries of partx (last exit <code>); restart to use it`. The next boot reads the table and mounts it |
+| Partition 4 in the table, not in the kernel | Partition 4 in the kernel | `addpart <disk> 4 <start> <size>` with the numbers of the table, then the kernel lists partition 4 | `ADD_TRIES` = 5, `ADD_RETRY_US` = 500000 (0.5 s) | Line for each failed try: `neptron-storage: addpart try <n> of 5, exit <code>: the kernel does not see partition 4` |
+| Partition 4 in the table, not in the kernel | `/share` RAM folder this boot | The kernel does not list partition 4 after 5 tries | `ADD_TRIES` = 5 | Line: `neptron-storage: partition 4 is in the partition table, but the kernel does not see it after 5 tries of addpart (last exit <code>); restart to use it`. The next boot reads the table and mounts it |
 | Partition 4 in the kernel | `/share` RAM folder | No device node within 5 s | `NODE_WAIT_STEPS` = 50, `NODE_WAIT_STEP_US` = 100000 (0.1 s) | Line: `neptron-storage: the kernel sees partition 4, but its device node <dev> does not appear within 5000 ms` |
 | Partition 4 | Mounted | `blkid` finds a filesystem or a partition table | | No format. Mount `exfat`, `noatime,iocharset=utf8` |
 | Partition 4, empty | Formatted | Marker there, type 7, start in the first 1 MiB after state, first 16 MiB read cleanly, no exFAT backup boot sector | `READ_CHECK_MIB` = 16, `EXFAT_BACKUP_SECTORS` = 12 24 48 96 | `mkfs.exfat -L NEPTRON`. Line: `neptron-storage: <dev> holds no filesystem; formatting it exFAT` |
@@ -269,9 +273,9 @@ The frontend's quit writes the game's save RAM (`Session::quit`) and the writer 
 | Two NEPTRON sticks of the same variant plugged in | Both have the same root `PARTUUID`. The kernel can take the root from either, and the storage script uses partitions 3 and 4 of that disk. | Plug in one stick only. |
 | The disk has no free space after the state partition, or less than 64 MiB | No share partition. The game list is empty at every boot. | Write the image to a larger stick. |
 | A new image written over a stick with an older NEPTRON share at the same start | Nothing: the first boot makes partition 4 around the old share and mounts it with its files. | None needed. |
-| The kernel does not take partition 4 in this boot | The notice gives the reason: `partition 4 is in the partition table, but the kernel does not see it after 5 tries of partx (last exit <code>); restart to use it`. Empty game list for this boot. | Restart. |
+| The kernel does not take partition 4 in this boot | The notice gives the reason: `partition 4 is in the partition table, but the kernel does not see it after 5 tries of addpart (last exit <code>); restart to use it`. Empty game list for this boot. | Restart. |
 | An old exFAT share lies at another start than the planned one (a different image layout) | No share partition, the disk is left untouched, empty game list. | Copy the ROMs off on a PC, then make the free space empty. |
-| Partition 4 exists with no filesystem and no marker | `the share partition <dev> was left untouched: it holds no filesystem, and this system did not make it (no /state/share-pending)`. Empty game list. | Format it exFAT on a PC. |
+| Partition 4 exists with no filesystem and no marker | `the share partition <dev> was left untouched: it is empty and was not made by this system (no /state/share-pending)`. Empty game list. | Format it exFAT on a PC. |
 | Partition 4 has another type or start | `... left untouched: its type or its start is not those of the share partition of this image`. | Fix the partition on a PC. |
 | Partition 4 does not read cleanly | `... left untouched: its first 16 MiB do not read cleanly`. | Replace the stick. |
 | Partition 4 has a damaged exFAT main boot sector and a good backup | `... left untouched: it holds an exFAT backup boot sector (sector <n>), so it is a damaged share`. Empty game list. | Repair the share with an exFAT tool on a PC. |
