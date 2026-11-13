@@ -15,6 +15,8 @@ mod view;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use neptron_audio::Resampling;
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
@@ -79,8 +81,9 @@ pub struct Runtime {
     /// Waits until a time of the clock, in nanoseconds. It paces the loop
     /// while no flip does.
     pub pace: Box<dyn FnMut(u64)>,
-    /// Set when the user closes the window; `None` on a device.
-    pub quit: Option<Rc<Cell<bool>>>,
+    /// Set when the run must end as a quit: SIGTERM, SIGINT, or a closed
+    /// window. `None` for a run that only ends by itself.
+    pub quit: Option<Arc<AtomicBool>>,
     /// The name of the output, for the display panel and the guard record.
     pub output: String,
     /// The `subconnector` property of the output, when the backend reads

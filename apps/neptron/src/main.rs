@@ -35,12 +35,22 @@ fn main() -> ExitCode {
         options.paths.state.display(),
         options.paths.share.display()
     );
+    // Before any SDL code starts: SDL leaves a signal alone when it has a
+    // handler already.
+    let stop = match neptron::stop::stop_flag() {
+        Ok(stop) => stop,
+        Err(e) => {
+            eprintln!("neptron: cannot watch SIGTERM and SIGINT: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     match options.backend.or(DEFAULT_BACKEND) {
         #[cfg(all(feature = "kms", target_os = "linux"))]
-        Some(Backend::Kms) => kms::run(&options, take_next(&options.paths)),
+        Some(Backend::Kms) => kms::run(&options, take_next(&options.paths), stop),
         #[cfg(feature = "window")]
-        Some(Backend::Window) => window::run(&options, take_next(&options.paths)),
+        Some(Backend::Window) => window::run(&options, take_next(&options.paths), stop),
         other => {
+            drop(stop);
             eprintln!(
                 "neptron: this build has no {} backend; build it with the feature `window` or `kms`",
                 match other {

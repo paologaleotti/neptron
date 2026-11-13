@@ -31,7 +31,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             Stage::Game(_) => self.game_frame(now_ns),
             Stage::Ended => {}
         }
-        if self.runtime.quit.as_ref().is_some_and(|q| q.get()) {
+        if self
+            .runtime
+            .quit
+            .as_ref()
+            .is_some_and(|q| q.load(std::sync::atomic::Ordering::Relaxed))
+        {
             return Some(Outcome::Quit);
         }
         self.outcome.take()

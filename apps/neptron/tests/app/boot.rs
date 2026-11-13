@@ -42,6 +42,19 @@ fn a_guard_record_that_cannot_be_written_starts_the_safe_default() {
 }
 
 #[test]
+fn a_stop_signal_ends_the_run_with_a_quit() {
+    let dir = std::env::temp_dir().join(format!("neptron-app-stop-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    rig.boot(None);
+    rig.frames(2);
+    rig.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(rig.until_end(1), neptron::Outcome::Quit);
+}
+
+#[test]
 fn every_mode_on_the_wire_is_in_the_log() {
     let dir = std::env::temp_dir().join(format!("neptron-app-modelog-{}", std::process::id()));
     // A leftover of an earlier run with the same process id; absence is fine.

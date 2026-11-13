@@ -35,6 +35,9 @@ neptron-ui = { path = "../../crates/neptron-ui" }
 neptron-video = { path = "../../crates/neptron-video" }
 # The guard record and the relaunch file are small TOML files.
 serde.workspace = true
+# Sets the stop flag on SIGTERM and SIGINT with no unsafe code, as the
+# launcher does.
+signal-hook.workspace = true
 serde_json.workspace = true
 # The code standards make each crate own a thiserror enum.
 thiserror.workspace = true

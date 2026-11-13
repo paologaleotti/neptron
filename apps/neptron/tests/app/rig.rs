@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use neptron::{Booted, Devices, NextRun, Outcome, Paths, Runtime, Shell};
 use neptron_audio::Resampling;
@@ -48,6 +50,8 @@ pub struct Rig {
     pub audio: FakeAudio,
     pub input: ScriptedInput,
     pub shell: Option<Box<TestShell>>,
+    /// The stop flag of the runtime, as SIGTERM and SIGINT set it.
+    pub stop: Arc<AtomicBool>,
 }
 
 /// Runs `body` in a child process of the test binary with the test core's
@@ -191,6 +195,7 @@ impl Rig {
             clock,
             paths,
             shell: None,
+            stop: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -204,7 +209,7 @@ impl Rig {
                 // A time already passed needs no wait.
                 let _ = clock.advance_to(until_ns);
             }),
-            quit: None,
+            quit: Some(self.stop.clone()),
             output: self.output.clone(),
             subconnector: None,
             notices: self.notices.clone(),

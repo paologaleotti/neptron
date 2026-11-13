@@ -366,6 +366,7 @@ dependencies = [
  "neptron-window",
  "serde",
  "serde_json",
+ "signal-hook",
  "thiserror",
  "toml",
 ]

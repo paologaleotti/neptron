@@ -2,6 +2,8 @@
 //! gamepads, evdev keyboards and the SDL3 audio sink.
 
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use neptron::devices::MaybeSink;
@@ -44,7 +46,7 @@ impl InputSource for Inputs {
 }
 
 /// Runs the frontend on the DRM device that the launcher holds.
-pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
+pub fn run(options: &Options, next: Option<NextRun>, stop: Arc<AtomicBool>) -> ExitCode {
     let paths = &options.paths;
     let global = Storage::new(paths.config())
         .load(&Schema::builtin(), Target::Global)
@@ -122,7 +124,7 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
                 std::thread::sleep(Duration::from_nanos(until_ns - now_ns));
             }
         }),
-        quit: None,
+        quit: Some(stop),
         output,
         subconnector,
         notices,

@@ -1,9 +1,9 @@
 //! The desktop window backend: the SDL3 window, the keyboard as a pad and
 //! the SDL3 audio sink, in real time.
 
-use std::cell::Cell;
 use std::process::ExitCode;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use neptron::devices::MaybeSink;
@@ -18,20 +18,20 @@ use neptron_window::KeyboardPad;
 /// The keyboard of the window, which also reports a closed window.
 struct WindowInput {
     pad: KeyboardPad,
-    quit: Rc<Cell<bool>>,
+    quit: Arc<AtomicBool>,
 }
 
 impl InputSource for WindowInput {
     fn poll(&mut self, out: &mut Vec<InputEvent>) {
         self.pad.poll(out);
         if self.pad.quit_requested() {
-            self.quit.set(true);
+            self.quit.store(true, Ordering::Relaxed);
         }
     }
 }
 
 /// Runs the frontend in a desktop window.
-pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
+pub fn run(options: &Options, next: Option<NextRun>, quit: Arc<AtomicBool>) -> ExitCode {
     let (display, pad) = match neptron_window::open("NEPTRON") {
         Ok(window) => window,
         Err(e) => {
@@ -49,7 +49,6 @@ pub fn run(options: &Options, next: Option<NextRun>) -> ExitCode {
         }
     };
     let clock = display.clock();
-    let quit = Rc::new(Cell::new(false));
     let runtime = Runtime {
         run_rate: RunRateSource::Measured,
         resampling: Resampling::Sinc,
