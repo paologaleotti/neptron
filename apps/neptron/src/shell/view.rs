@@ -2,6 +2,8 @@
 //! and the guard each frame, and the pages the UI asks for.
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_settings::DisplayClass;
+use neptron_types::MonitorKind;
 use neptron_ui::screens::{DISPLAY_PAGE, QUICK_MENU_PAGE};
 use neptron_ui::snapshot::{
     ConfirmId, GameId, Notice, NoticeId, NoticeKind, PageId, PendingConfirm, SessionInfo,
@@ -113,12 +115,22 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             presets: &self.presets,
             detected: &self.detected,
             styles: &styles,
+            class: self.display_class(),
         };
         self.snap.settings = match page {
             DISPLAY_PAGE => pages::display_page(&self.config, names),
             QUICK_MENU_PAGE => pages::quick_menu_page(&self.config, names),
             other => SettingsPage::new(other, "", Vec::new()),
         };
+    }
+
+    /// The class of the monitor that the guard gave the engine: the one
+    /// whose path the run takes.
+    pub(super) fn display_class(&self) -> DisplayClass {
+        match self.guard.active().monitor.profile().kind {
+            MonitorKind::FlatPanel { .. } => DisplayClass::FlatPanel,
+            _ => DisplayClass::Crt,
+        }
     }
 
     /// What each picture style gives for the source on screen, from the

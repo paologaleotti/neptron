@@ -3,8 +3,8 @@
 
 use neptron_settings::{
     DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH,
-    DISPLAY_SCANLINES, DISPLAY_STYLE, Entry, INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source,
-    Value,
+    DISPLAY_SCANLINES, DISPLAY_STYLE, DisplayClass, Entry, INPUT_MENU_HOLD_START_SECONDS, Kind,
+    Level, Source, Value,
 };
 use neptron_ui::Value as UiValue;
 use neptron_ui::screens::{
@@ -22,6 +22,10 @@ use crate::presets::Presets;
 /// The first setting key of an action row. Keys below it are positions in
 /// the schema.
 pub const ACTION_KEY_BASE: u32 = 0x0001_0000;
+
+/// The reason that a row shows when its setting has no effect on the flat
+/// panel that the run drives. It fits the value and source columns of a row.
+pub const NOT_USED_ON_A_PANEL: &str = "Not used on a flat panel";
 
 /// The rows of the display panel, written at the global level. The
 /// display panel is the one settings page that home reaches, so it also
@@ -55,6 +59,9 @@ pub struct Names<'a> {
     /// What each picture style gives on the monitor now, from the engine's
     /// `style_rows`. A style with no entry shows as a plain option.
     pub styles: &'a [StyleOption],
+    /// The class of the display that the run drives. A row whose setting
+    /// does not apply to it is disabled.
+    pub class: DisplayClass,
 }
 
 /// What one picture style gives, for its option in the menu.
@@ -221,6 +228,9 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
         },
     };
     item.live = entry.live;
+    if !entry.applies_to.applies(names.class) {
+        item = item.unavailable(NOT_USED_ON_A_PANEL);
+    }
     Some(item)
 }
 
@@ -315,6 +325,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             styles: &[],
+            class: DisplayClass::Crt,
         };
         let page = display_page(&config, names);
         assert!(page.is_for(DISPLAY_PAGE));
@@ -343,6 +354,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             styles: &[],
+            class: DisplayClass::Crt,
         };
         let style = config.schema().get(DISPLAY_STYLE).expect("style");
         assert_eq!(
@@ -387,6 +399,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             styles: &styles,
+            class: DisplayClass::Crt,
         };
         let page = quick_menu_page(&config, names);
         let style = page
@@ -423,6 +436,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             styles: &[],
+            class: DisplayClass::Crt,
         };
         let page = display_page(&config, names);
         let monitor = page
@@ -441,6 +455,46 @@ mod tests {
     }
 
     #[test]
+    fn rows_with_no_effect_on_the_display_are_disabled_with_the_reason() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        for class in [DisplayClass::Crt, DisplayClass::FlatPanel] {
+            let names = Names {
+                presets: &presets,
+                detected: &detected,
+                styles: &[],
+                class,
+            };
+            for page in [
+                display_page(&config, names),
+                quick_menu_page(&config, names),
+            ] {
+                for row in page.rows.iter().filter(|r| r.key.0 < ACTION_KEY_BASE) {
+                    let entry = entry(&config, row.key).expect("a setting");
+                    let expected =
+                        (!entry.applies_to.applies(class)).then(|| NOT_USED_ON_A_PANEL.to_owned());
+                    assert_eq!(row.unavailable, expected, "{} {class:?}", entry.key);
+                }
+            }
+        }
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            styles: &[],
+            class: DisplayClass::FlatPanel,
+        };
+        let page = quick_menu_page(&config, names);
+        let disabled: Vec<_> = page
+            .rows
+            .iter()
+            .filter(|r| !r.is_enabled())
+            .map(|r| r.label.as_str())
+            .collect();
+        assert_eq!(disabled, ["Picture style", "Refresh policy"]);
+    }
+
+    #[test]
     fn the_quick_menu_has_its_actions_around_the_game_settings() {
         let config = config();
         let presets = Presets::default();
@@ -449,6 +503,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             styles: &[],
+            class: DisplayClass::Crt,
         };
         let page = quick_menu_page(&config, names);
         assert_eq!(page.rows.len(), QUICK_MENU_KEYS.len() + 3);

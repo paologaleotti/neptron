@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use neptron::NextRun;
+use neptron::pages::NOT_USED_ON_A_PANEL;
 use neptron_backend::Clock;
 use neptron_input::BLIND_RECOVERY_HOLD_NS;
 use neptron_types::{Control, Filter, Rect};
@@ -113,6 +114,27 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             };
             assert_eq!(options[index].label, "auto");
             assert_eq!(options[index].detail, "NPT FHD 24  1920x1080 60 Hz");
+            // The panel path ignores the picture style and the refresh
+            // policy, so their rows are disabled with the reason and
+            // accept opens nothing.
+            let rows = rig.shell().snapshot().settings.rows.clone();
+            for label in ["Picture style", "Refresh policy"] {
+                let row = rows.iter().find(|r| r.label == label).expect(label);
+                assert_eq!(row.unavailable.as_deref(), Some(NOT_USED_ON_A_PANEL));
+            }
+            for label in ["Monitor profile", "Scanlines", "Scanline strength"] {
+                let row = rows.iter().find(|r| r.label == label).expect(label);
+                assert!(row.is_enabled(), "{label}");
+            }
+            rig.focus("Picture style");
+            rig.tap(&[Control::A]);
+            assert_eq!(rig.screen(), "display");
+            let tree = rig.tree();
+            let style = tree.rows.iter().find(|r| r.label == "Picture style");
+            assert_eq!(
+                style.and_then(|r| r.value.as_deref()),
+                Some(NOT_USED_ON_A_PANEL)
+            );
             let display = rig.shell().snapshot().display.clone().expect("display");
             assert_eq!(display.output, "HDMI-A-1");
             assert_eq!(display.mode, "1920x1080p 60.00 Hz");

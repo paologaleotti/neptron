@@ -94,6 +94,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 - `SafeMode(Recovery)` plays a short tone in the game list. The display panel shows "(safe mode)" after the mode while the guard is in safe mode.
 - The picture style options show the line rate and the field rate of the mode each style gives, and a style the monitor cannot show is grey with "Not available on this monitor". Both come from `VideoEngine::style_rows` for the source on screen (the game, or the menu source), the same policy, caps and validator as the run.
 - The display panel writes the global level; the quick menu writes the game level, and its keep prompt moves a change to the system or global level.
+- A row whose setting does not apply to the display of the run (`applies_to` in the schema) is disabled with the reason `Not used on a flat panel`. The class is that of the monitor the guard gave the engine. On a flat panel these are the picture style and the refresh policy.
 - Every write (settings, the guard record, the library cache) goes to the writer thread (`outbox.rs`) over a bounded channel. A full channel keeps the job in a backlog on the frame thread, in order; nothing is dropped. The frame thread does no file I/O.
 
 ## Control protocol
@@ -122,7 +123,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
   - `end_to_end.rs`: a new boot confirms its settings, the game list, a launch, the mode switch of the core, the quick menu (not a toggle), a display change that reverts with no answer, the same change kept and written to the game's file, the quit with the keep prompt, the save RAM at the quit, and the list again with one boot counted.
   - `recovery.rs`: the 5 s hold of Select and Start from `neptron-input` to `Guard::recover`, in the list and in a game, with the record in safe mode and the tone.
   - `faults.rs`: a display that stops flipping ends the game and relaunches the list with the reason.
-  - `crawler.rs`: the UI crawler. It walks every menu path from home and from the quick menu with the D-pad, accept and back only, through the UI tree of the control protocol. It fails on a dead end, on a clipped settings row, on a row outside the overscan-safe area, and on a schema setting that no screen shows.
+  - `crawler.rs`: the UI crawler. It walks every menu path from home and from the quick menu with the D-pad, accept and back only, through the UI tree of the control protocol. It fails on a dead end, on a clipped settings row, on a row outside the overscan-safe area, on a schema setting that no screen shows, and on a setting row whose disabled state does not follow `applies_to` for the CRT of the rig. `panel.rs` checks the same rule on a flat panel.
 
 ## Must never depend on
 
