@@ -583,3 +583,27 @@ fn a_partial_zip_is_listed_and_not_opened() {
         .expect("the zip is listed");
     assert_eq!(game.size(), 13);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_folder_with_an_entry_that_cannot_be_read_is_read_again() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = refresh_fixture();
+    let nes = dir.path().join("nes");
+    // Read but no search permission: the entries list, but a `stat` of one
+    // fails.
+    fs::set_permissions(&nes, fs::Permissions::from_mode(0o444)).expect("chmod");
+    set_mtime(&dir, "nes", t(0));
+    let outcome = refresh_at(dir.path(), &Index::new(), t(3600)).0;
+    fs::set_permissions(&nes, fs::Permissions::from_mode(0o755)).expect("chmod back");
+    let outcome = outcome.expect("the scan");
+    if outcome.report.unreadable.is_empty() {
+        // A user that ignores permissions (root) reads every entry.
+        return;
+    }
+    assert_eq!(outcome.index.folder("nes").map(|f| f.mtime), Some(None));
+    assert_eq!(
+        outcome.index.folder("snes").and_then(|f| f.mtime),
+        Some(crate::Mtime::of(t(0)))
+    );
+}

@@ -35,7 +35,8 @@ pub struct FolderStamp {
     pub path: String,
     /// The modification time before the scan read the folder, or `None`
     /// when a refresh must read the folder again: the time was too new to
-    /// trust (see [`MTIME_TRUST_WINDOW_NS`]), or the folder could not be read.
+    /// trust (see [`MTIME_TRUST_WINDOW_NS`]), or the folder or one of its
+    /// entries could not be read.
     pub mtime: Option<Mtime>,
 }
 

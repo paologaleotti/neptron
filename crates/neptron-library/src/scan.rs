@@ -167,6 +167,7 @@ pub fn refresh(
         stamps: Vec::new(),
         known: Known::of(previous, catalog),
         now: Mtime::of(now),
+        errors: 0,
     };
     let mut folders = scanner.read_root(roms_root)?;
     while let Some(folder) = folders.pop() {
@@ -211,6 +212,8 @@ struct Scanner<'a> {
     stamps: Vec<FolderStamp>,
     known: Known<'a>,
     now: Mtime,
+    /// Read errors so far, to tell whether a folder was read whole.
+    errors: u64,
 }
 
 /// The earlier index, by folder: the stamp, the games and the subfolders
@@ -364,19 +367,18 @@ impl Scanner<'_> {
                 return Ok(false);
             }
         };
-        let mut whole = true;
+        // Any error in the folder (an entry, its type, its size) leaves it
+        // unstamped, so the next refresh reads it again.
+        let errors_before = self.errors;
         for entry in entries {
             self.check_cancel()?;
             match entry {
                 Ok(entry) => self.read_entry(folder, &entry, folders),
-                Err(e) => {
-                    whole = false;
-                    self.unreadable(&folder.path, &e);
-                }
+                Err(e) => self.unreadable(&folder.path, &e),
             }
         }
         self.tick_folder();
-        Ok(whole)
+        Ok(self.errors == errors_before)
     }
 
     fn read_entry(&mut self, folder: &Folder, entry: &fs::DirEntry, folders: &mut Vec<Folder>) {
@@ -471,6 +473,7 @@ impl Scanner<'_> {
     }
 
     fn unreadable(&mut self, path: &Path, error: &io::Error) {
+        self.errors = self.errors.wrapping_add(1);
         let item = Unreadable {
             path: path.to_path_buf(),
             error: error.to_string(),
