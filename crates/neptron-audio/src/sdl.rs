@@ -285,14 +285,13 @@ pub struct Sdl3Outputs {
 }
 
 impl Sdl3Outputs {
-    /// Starts SDL's audio subsystem only. The hint starts at the default
-    /// PCM, so that no environment value from an earlier run is kept.
+    /// Starts SDL's audio subsystem only. SDL reads the hint only when a
+    /// device opens, so `open` sets it then.
     ///
     /// # Errors
     ///
     /// [`SinkError::Init`] with SDL's message.
     pub fn start() -> Result<Self, SinkError> {
-        set_alsa_pcm(ALSA_DEFAULT_PCM);
         let init = |error: sdl3::Error| SinkError::Init {
             reason: error.to_string(),
         };
@@ -353,8 +352,9 @@ impl AudioOutputs for Sdl3Outputs {
 
 /// Names the ALSA PCM that SDL's default playback device opens.
 fn set_alsa_pcm(pcm: &str) {
-    // A false return means that an environment variable sets the hint,
-    // which is the owner's choice for a test on the bench.
+    // A false return means that the environment variable of the same name
+    // is set: SDL gives it priority over a hint set in code, so a person on
+    // the bench can force a PCM.
     let _hint_set = sdl3::hint::set(ALSA_PLAYBACK_HINT, pcm);
 }
 
