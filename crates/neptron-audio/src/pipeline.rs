@@ -234,6 +234,29 @@ impl<S: AudioSink> AudioPipeline<S> {
         }
     }
 
+    /// A frame in which the core did not run (the quick menu, the output
+    /// off): with a cue pending, writes its next slice, with silence after
+    /// it, up to the target level of the queue, so the cue plays at any
+    /// time and never overruns the sink. With no cue pending it does
+    /// nothing. It allocates nothing.
+    pub fn idle_frame(&mut self) {
+        if self.cue_at >= self.cue.len() {
+            return;
+        }
+        let level = self.sink.queued_frames();
+        let frames = self
+            .control
+            .target_frames()
+            .saturating_sub(level)
+            .min(self.samples.len() / 2);
+        if frames == 0 {
+            return;
+        }
+        self.samples[..frames * 2].fill(0);
+        self.mix_cue(frames);
+        self.write_samples(frames);
+    }
+
     /// Mutes the output now: writes a fade from the last sample to zero,
     /// then silence up to the target level. While muted, each frame writes
     /// silence of the length of its audio, and the rate control keeps
@@ -323,8 +346,9 @@ impl<S: AudioSink> AudioPipeline<S> {
     /// frame, so it plays whole whatever the sink's capacity, and the queue
     /// stays at its target. It replaces a cue that is still playing. The
     /// cue bypasses the mute: it sounds also while the game is muted. The
-    /// user volume does not scale it: the mix comes after the gain. It plays only while core frames run
-    /// ([`end_frame`](Self::end_frame)). Returns the frames of the cue.
+    /// user volume does not scale it: the mix comes after the gain. A frame
+    /// in which the core does not run plays it through
+    /// [`idle_frame`](Self::idle_frame). Returns the frames of the cue.
     ///
     /// It copies the cue once; a cue is rare, not a steady-state frame.
     pub fn write_cue(&mut self, stereo: &[i16]) -> usize {

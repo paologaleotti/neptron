@@ -88,6 +88,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             }
             if report.ran_core {
                 audio.end_frame();
+            } else {
+                audio.idle_frame();
             }
         }
         self.show(ui, &mut report);

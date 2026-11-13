@@ -607,3 +607,72 @@ fn a_recovery_hold_never_reaches_the_core() {
         assert_frame(&rig.session, rig.core_frame(), START);
     });
 }
+
+/// The 200 ms recovery tone at the 48 kHz of the fake sink.
+fn tone() -> Vec<i16> {
+    (0..9_600).flat_map(|_| [4_000_i16, 4_000]).collect()
+}
+
+#[test]
+fn the_tone_plays_whole_under_the_quick_menu() {
+    with_script!("the_tone_plays_whole_under_the_quick_menu", SCRIPT, |dir| {
+        let mut rig = Rig::launch(dir, Setup::default());
+        rig.run(5);
+        rig.press(&[Control::Select, Control::Start]);
+        rig.run(1);
+        rig.release(&[Control::Select, Control::Start]);
+        rig.run(1);
+        assert!(rig.session.paused());
+        rig.press(&[Control::Select, Control::Start]);
+        let mut recovered = false;
+        for _ in 0..330 {
+            let report = rig.session.run_frame(Some(canvas())).unwrap();
+            if report.blind_recovery.is_some() {
+                assert_eq!(rig.session.write_cue(&tone()), 9_600);
+                recovered = true;
+                break;
+            }
+        }
+        assert!(recovered, "the 5 s hold fired the recovery");
+        for _ in 0..60 {
+            let report = rig.session.run_frame(Some(canvas())).unwrap();
+            assert!(!report.ran_core);
+        }
+        let stats = rig.session.audio_stats().unwrap();
+        assert_eq!(
+            stats.cue_frames, 9_600,
+            "the whole tone with the core paused"
+        );
+        assert_eq!(stats.overrun_frames, 0);
+    });
+}
+
+#[test]
+fn the_tone_plays_whole_with_the_output_off() {
+    with_script!("the_tone_plays_whole_with_the_output_off", SCRIPT, |dir| {
+        let mut rig = Rig::launch(dir, Setup::default());
+        rig.run(20);
+        rig.session
+            .video_mut()
+            .set_veto(Box::new(|mode: &neptron_types::Modeline| {
+                Err(neptron_safety::Rejection::NotAPanelMode {
+                    mode: *mode,
+                    panel_modes: 0,
+                })
+            }));
+        assert!(rig.session.run_frame(None).unwrap().blanked);
+        assert_eq!(rig.session.write_cue(&tone()), 9_600);
+        for _ in 0..60 {
+            let report = rig.session.run_frame(None).unwrap();
+            assert!(report.blanked && !report.ran_core);
+            // With the output off nothing paces the loop; the app does.
+            rig.clock.advance(16_666_667);
+        }
+        let stats = rig.session.audio_stats().unwrap();
+        assert_eq!(
+            stats.cue_frames, 9_600,
+            "the whole tone with the output off"
+        );
+        assert_eq!(stats.overrun_frames, 0);
+    });
+}
