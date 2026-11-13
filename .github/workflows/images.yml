@@ -355,23 +355,27 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' && contains(matrix.checks, 'app') }}
         run: cargo xtask os app-check --arch ${{ matrix.arch }}
 
+      # kms-check, gles-compare, selftest-check and core-trace make an export
+      # directory under target/ as the runner user, then copy the program
+      # into it as the container user br (uid 1000). umask 0000 makes that
+      # directory writable for br.
       - name: Check KMS on vkms
         if: ${{ !cancelled() && steps.build.outcome == 'success' && contains(matrix.checks, 'kms') }}
         env:
           NEPTRON_OS_IMAGES: ${{ env.IMAGES }}
-        run: cargo xtask kms-check --arch ${{ matrix.arch }}
+        run: umask 0000 && cargo xtask kms-check --arch ${{ matrix.arch }}
 
       - name: Compare the GLES renderer
         if: ${{ !cancelled() && steps.build.outcome == 'success' && contains(matrix.checks, 'gles') }}
         env:
           NEPTRON_OS_IMAGES: ${{ env.IMAGES }}
-        run: cargo xtask gles-compare --arch ${{ matrix.arch }}
+        run: umask 0000 && cargo xtask gles-compare --arch ${{ matrix.arch }}
 
       - name: Check the video self-test
         if: ${{ !cancelled() && steps.build.outcome == 'success' && contains(matrix.checks, 'selftest') }}
         env:
           NEPTRON_OS_IMAGES: ${{ env.IMAGES }}
-        run: cargo xtask os selftest-check --arch ${{ matrix.arch }}
+        run: umask 0000 && cargo xtask os selftest-check --arch ${{ matrix.arch }}
 
       # The SNES and Mega Drive test ROMs are not in the repository (OP-053),
       # and CI never downloads a ROM. Their cases are reported as skipped;
@@ -380,7 +384,7 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' && contains(matrix.checks, 'core') }}
         env:
           NEPTRON_OS_IMAGES: ${{ env.IMAGES }}
-        run: cargo xtask core-trace --arch ${{ matrix.arch }} --allow-missing-roms
+        run: umask 0000 && cargo xtask core-trace --arch ${{ matrix.arch }} --allow-missing-roms
 
       - name: Upload the check reports
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
