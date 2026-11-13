@@ -10,7 +10,6 @@ publish.workspace = true
 [features]
 # Off by default: the headless build (T0 to T2) compiles no SDL3, EGL or KMS code.
 kms = [
-    "dep:neptron-kms",
     "neptron-kms/kms",
     "neptron-audio/sdl3",
     "neptron-input/sdl3",
@@ -25,6 +24,9 @@ control = []
 neptron-audio = { path = "../../crates/neptron-audio" }
 neptron-backend = { path = "../../crates/neptron-backend" }
 neptron-input = { path = "../../crates/neptron-input" }
+# With default features it compiles no DRM code; the wait for a display
+# uses its connector rule (`choose`), as the launcher does.
+neptron-kms = { path = "../../crates/neptron-kms" }
 neptron-ipc = { path = "../../crates/neptron-ipc" }
 neptron-library = { path = "../../crates/neptron-library" }
 neptron-platform = { path = "../../crates/neptron-platform" }
@@ -42,7 +44,6 @@ serde_json.workspace = true
 # The code standards make each crate own a thiserror enum.
 thiserror.workspace = true
 toml = { workspace = true, features = ["display"] }
-neptron-kms = { path = "../../crates/neptron-kms", optional = true }
 neptron-window = { path = "../../crates/neptron-window", optional = true }
 
 [dev-dependencies]
