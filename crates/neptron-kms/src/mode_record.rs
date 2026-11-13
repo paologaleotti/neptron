@@ -203,7 +203,9 @@ fn name_of(m: &Modeline) -> [u8; NAME_LEN] {
 #[cfg(test)]
 mod tests {
     use neptron_safety::validate;
-    use neptron_types::{GpuCaps, MonitorKind, MonitorProfile};
+    use neptron_types::{
+        GpuCaps, MonitorKind, MonitorProfile, TV_525_240P, TV_625_288P, TvStandard,
+    };
 
     use super::*;
 
@@ -355,6 +357,59 @@ mod tests {
                 clock_khz: u32::MAX
             })
         );
+    }
+
+    fn tv_validated(mode: Modeline, standard: TvStandard) -> ValidatedMode {
+        let caps = GpuCaps {
+            pclock_min_hz: 1_000_000,
+            pclock_max_hz: 400_000_000,
+            interlace: true,
+            flip_per_field: false,
+            max_width: 4096,
+            max_height: 4096,
+        };
+        validate(&mode, &standard.profile(), &caps).unwrap()
+    }
+
+    /// The CRTC mode read back after a modeset is the blob of the request,
+    /// flags included: `drm_mode_getcrtc` converts `crtc->state->mode`,
+    /// which `drm_atomic_set_mode_prop_for_crtc` made from the blob, and
+    /// the vc4 encoder check only reads the adjusted mode. So each table
+    /// mode reads back with its negative sync flags.
+    #[test]
+    fn each_tv_table_mode_reads_back_unchanged() {
+        for standard in TvStandard::ALL {
+            for mode in standard.modes() {
+                let r = ModeRecord::from_validated(&tv_validated(mode, standard)).unwrap();
+                assert_eq!(r.clock_khz, 13_500);
+                let scan = if mode.interlace { FLAG_INTERLACE } else { 0 };
+                assert_eq!(r.flags, FLAG_NHSYNC | FLAG_NVSYNC | scan);
+                assert_eq!(r.to_modeline(), Ok(mode), "{standard:?} {mode:?}");
+            }
+        }
+    }
+
+    /// The kernel lists `720x240` and `720x288` (`drm_mode_240p` and
+    /// `drm_mode_288p` of the vc4 encoder) with no sync flag. Such a mode
+    /// is never read as a table mode: the readback refuses it.
+    #[test]
+    fn a_kernel_listed_tv_mode_without_sync_flags_is_not_read_as_a_table_mode() {
+        // `DRM_MODE_TYPE_DRIVER`
+        const TYPE_DRIVER: u32 = 1 << 6;
+        for (mode, standard) in [
+            (TV_525_240P, TvStandard::Ntsc),
+            (TV_625_288P, TvStandard::Pal),
+        ] {
+            let listed = ModeRecord {
+                flags: 0,
+                kind: TYPE_DRIVER,
+                ..ModeRecord::from_validated(&tv_validated(mode, standard)).unwrap()
+            };
+            assert_eq!(
+                listed.to_modeline(),
+                Err(ModeRecordError::Polarity { flags: 0 })
+            );
+        }
     }
 
     #[test]
