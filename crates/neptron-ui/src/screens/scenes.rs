@@ -637,8 +637,9 @@ pub(super) fn volume_row(percent: i64, source: Level, scopes: Scopes) -> MenuIte
     )
 }
 
-/// The rows of the audio page: the volume, and the output device on a PC
-/// with an HDA card and a monitor with audio on its first HDMI output.
+/// The rows of the audio page: the volume, and the output device of the
+/// bench PC: one HDA card with three HDMI/DP outputs whose monitor
+/// `/proc` cannot place, and the first of them chosen.
 pub(super) fn audio_rows() -> Vec<MenuItem> {
     let global = Scopes {
         global: true,
@@ -651,10 +652,10 @@ pub(super) fn audio_rows() -> Vec<MenuItem> {
             2,
             vec![
                 ChoiceOption::new("auto").with_detail("System default"),
-                ChoiceOption::new("HDA Intel PCH analog").with_detail("ALC221 Analog"),
-                ChoiceOption::new("DELL U2724D HDMI/DP").with_detail("HDMI 0"),
-                ChoiceOption::new("HDA Intel PCH HDMI/DP 2").with_detail("Nothing connected"),
-                ChoiceOption::new("HDA Intel PCH HDMI/DP 3").with_detail("Nothing connected"),
+                ChoiceOption::new("Analog (HDA Intel PCH)").with_detail("ALC221 Analog"),
+                ChoiceOption::new("HDMI/DP 1 (HDA Intel PCH)").with_detail("HDMI 0"),
+                ChoiceOption::new("HDMI/DP 2 (HDA Intel PCH)").with_detail("HDMI 1"),
+                ChoiceOption::new("HDMI/DP 3 (HDA Intel PCH)").with_detail("HDMI 2"),
             ],
         ),
         Level::Global,

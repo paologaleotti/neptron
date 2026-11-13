@@ -1781,9 +1781,13 @@ fn the_audio_output_applies_from_its_option_list_with_auto_first() {
     let auto = labels.iter().position(|l| *l == "auto").expect("auto");
     assert_eq!(
         labels[auto..auto + 3],
-        ["auto", "HDA Intel PCH analog", "DELL U2724D HDMI/DP"]
+        [
+            "auto",
+            "Analog (HDA Intel PCH)",
+            "HDMI/DP 1 (HDA Intel PCH)"
+        ]
     );
-    assert_eq!(run.focused(), Some("DELL U2724D HDMI/DP"));
+    assert_eq!(run.focused(), Some("HDMI/DP 1 (HDA Intel PCH)"));
     run.step(&snap, &[Up, Up, Accept]);
     assert_eq!(
         run.intents(),
