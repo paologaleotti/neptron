@@ -105,7 +105,7 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 | `Booted::Ready` after a failed record write | The safe default and the warning "Safe mode: the guard record cannot be written ({e}). This start uses the safe picture." No tone. |
 | `Booted::Relaunch` (a game did not start) | Nothing from this run. The next run shows the game list with an error notice, for example "{name} did not start: {e}." |
 | `BootError` | No picture from this run. The log line "neptron: the frontend cannot start: {e}". Exit code 1, and the launcher starts the frontend again after its backoff. |
-| The display does not open | No picture from this run. The log line "neptron: cannot open the display: {e}". Exit code 1. |
+| The display does not open | No picture from this run. The log line "neptron: cannot open the display: {e}". Exit code 69 when no connector qualifies (`ChoiceError::NoneConnected`), else exit code 1. With `display.output` = `auto`, the KMS backend first waits up to 15 s (`DISPLAY_WAIT_MAX_NS`) for a connector that qualifies, and looks every 250 ms (`DISPLAY_POLL_NS`). |
 
 ## Transitions
 
@@ -154,7 +154,7 @@ So the prompt appears on the first boot on any display, after the monitor moved 
 
 | Case | What the user sees | Way out |
 | --- | --- | --- |
-| A VGA (or other analog) connector with no EDID and `display.output` = `auto` | No picture from the frontend. The log line starts with "neptron: cannot open the display:" and carries the `ChoiceError` text "no connected display found; an analog connector that reports no EDID is used only when the settings name it; the connectors are: {available}". The run reaches no `Guard::boot`, so no boot is counted. The launcher restarts the frontend with its backoff. | Write `display.output` (for example `VGA-1`) in `state/config/global.toml`. |
+| A VGA (or other analog) connector with no EDID and `display.output` = `auto` | No picture from the frontend. The log line starts with "neptron: cannot open the display:" and carries the `ChoiceError` text "no connected display found; an analog connector that reports no EDID is used only when the settings name it; the connectors are: {available}". The frontend waits up to 15 s for a connector that qualifies, then exits with code 69. The run reaches no `Guard::boot`, so no boot is counted. The launcher restarts the frontend after 1 s, with no backoff. | Write `display.output` (for example `VGA-1`) in `state/config/global.toml`. |
 | `display.output` names a connector that does not exist | No picture. The log line carries "no connector is named {name}; the connectors are: {available}". | Fix `display.output` in `global.toml`. |
 | No EDID and no `generic_15` preset in `data/monitors` | No picture. Log: "neptron: the frontend cannot start: no safe monitor profile: no EDID and no generic_15 preset in the monitor folder". | Restore the preset (it is on the image). |
 | The EDID of the named output is broken or gives no profile | Notice "The EDID of {connector} gives no profile ({e}); the safe start is used." `auto` gives `generic_15`. | Set a preset in `display.monitor`. |

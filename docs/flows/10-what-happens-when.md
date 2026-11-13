@@ -44,7 +44,7 @@ Constants used on this page:
 - `GOOD_BOOT_PICTURE_NS` = 10 s of steady confirmed picture makes a good boot. Failed boots before safe mode: `SAFE_MODE_FAILED_BOOTS` = 2.
 - `BLIND_RECOVERY_HOLD_NS` = 5 s. The tone: `CUE_MS` = 200 ms at `CUE_HZ` = 880 Hz.
 - `SAVE_RAM_FLUSH_INTERVAL_NS` = 30 s.
-- Launcher: `BACKOFF_FIRST_NS` = 250 ms, `BACKOFF_MAX_NS` = 8 s, `STABLE_RUN_NS` = 30 s, `RELAUNCHES_MAX` = 10 in `RELAUNCH_WINDOW_NS` = 10 s. Relaunch exit code `RELAUNCH_EXIT_CODE` = 75.
+- Launcher: `BACKOFF_FIRST_NS` = 250 ms, `BACKOFF_MAX_NS` = 8 s, `STABLE_RUN_NS` = 30 s, `RELAUNCHES_MAX` = 10 in `RELAUNCH_WINDOW_NS` = 10 s. Relaunch exit code `RELAUNCH_EXIT_CODE` = 75. No-display exit code `NO_DISPLAY_EXIT_CODE` = 69, restart after `NO_DISPLAY_WAIT_NS` = 1 s.
 - ODREN: `DEBOUNCE_FRAMES` = 3, `FLIPLESS_FRAMES_LIMIT` = 10 frames, `FLIP_WAIT_LIMIT_MS` = 500 ms, `MODESET_ATTEMPTS` = 3.
 - Policy: `REFRESH_MATCH_MHZ` = 5 mHz, `OVERSCAN_CROP_MAX_LINES_PER_EDGE` = 8.
 

@@ -201,7 +201,8 @@ The disk signature is fixed for each build variant: `4e505452` (release), `4e505
 | `OpenDevice` | `Failed` | The path cannot be opened, is not a character device of the DRM major, opens on descriptor 0, 1 or 2, or close-on-exec cannot be cleared | `DEFAULT_DEVICE` = `/dev/dri/card0`, `STANDARD_FD_MAX` (from `neptron-kms`) | Launcher exit code 1. Lines: `cannot open <path>: <error>`, `<path> is not a DRM device (a character device of major 226)`, `<path> opened on descriptor <fd>, a standard stream; start the launcher with 0, 1 and 2 open`, `cannot pass <path> to the frontend: <error>` |
 | `OpenDevice` | `Running` | Device checked | `DRM_FD_ENV` = `NEPTRON_DRM_FD` | The frontend starts with the descriptor number in `NEPTRON_DRM_FD`. Both share one open file description: DRM master, framebuffers and mode |
 | `Running` | `Running` | Frontend exit code 75, and at most 10 relaunches in the last 10 s | `RELAUNCH_EXIT_CODE` = 75, `RELAUNCHES_MAX` = 10, `RELAUNCH_WINDOW_NS` = 10 s | New frontend at once, no wait. The device stays open, so the mode stays on the wire. The new run reads `/run/neptron/next.toml` |
-| `Running` | `Restart` | Any exit code other than 0 and 75, or a signal (a panic is 101) | `BACKOFF_FIRST_NS` = 250 ms, `BACKOFF_MAX_NS` = 8 s | Wait 250 ms, doubled for each crash in a row: 250 ms, 500 ms, 1 s, 2 s, 4 s, then 8 s for each further crash. Line: `neptron-launch: the frontend ended with <code> after <ms> ms, crash <n> in a row; start again in <ms> ms` |
+| `Running` | `Restart` | Frontend exit code 69: no display answered in the frontend's wait | `NO_DISPLAY_EXIT_CODE` = 69, `NO_DISPLAY_WAIT_NS` = 1 s | Wait 1 s. No crash is counted, and no relaunch of the window is used. Line: `neptron-launch: the frontend found no display; start again in 1000 ms` |
+| `Running` | `Restart` | Any exit code other than 0, 69 and 75, or a signal (a panic is 101) | `BACKOFF_FIRST_NS` = 250 ms, `BACKOFF_MAX_NS` = 8 s | Wait 250 ms, doubled for each crash in a row: 250 ms, 500 ms, 1 s, 2 s, 4 s, then 8 s for each further crash. Line: `neptron-launch: the frontend ended with <code> after <ms> ms, crash <n> in a row; start again in <ms> ms` |
 | `Running` | `Restart` | The eleventh exit 75 in 10 s | `RELAUNCHES_MAX` = 10, `RELAUNCH_WINDOW_NS` = 10 s | Counted as a crash, with its wait |
 | any run | crash count reset | The run lasted at least 30 s | `STABLE_RUN_NS` = 30 s | The next crash waits 250 ms again |
 | `Running` | `Stopped` | Frontend exit code 0 | | Launcher exit 0. Line: `neptron-launch: the frontend ended after <n> runs`. The frontend exits 0 only after SIGTERM or SIGINT |
@@ -216,7 +217,8 @@ Exit codes of the frontend, as the launcher sees them:
 | --- | --- | --- |
 | 0 | SIGTERM or SIGINT (`Outcome::Quit`) | Stops |
 | 75 | A planned relaunch: into a game, back to the list, a game that did not start | Starts it at once |
-| 1 | The display does not open (`neptron: cannot open the display: ...`), the boot fails (`neptron: the frontend cannot start: ...`), the relaunch file cannot be written, the build has no backend | Crash, backoff |
+| 69 | No connected display after the wait of up to 15 s (`neptron: no connected display after <ms> ms`, then `neptron: cannot open the display: no connected display found; ...`) | Restart after 1 s, no backoff |
+| 1 | The display does not open for another reason (`neptron: cannot open the display: ...`), the boot fails (`neptron: the frontend cannot start: ...`), the relaunch file cannot be written, the build has no backend | Crash, backoff |
 | 2 | A wrong command line | Crash, backoff |
 | 101 or a signal | A panic or a kill | Crash, backoff |
 
