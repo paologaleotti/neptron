@@ -237,9 +237,10 @@ fn the_share_partition_belongs_to_the_guest_and_runs_nothing() {
     for option in ["iocharset=utf8", "dmask=0022", "fmask=0133"] {
         assert!(partition.iter().any(|o| o == option), "{option}");
     }
-    assert!(storage.contains("mount -t exfat -o \"$SHARE_MOUNT_OPTIONS\" \"$share\" /share"));
-    assert!(storage.contains("[ \"$1\" = /share ] && options=$SHARE_RAM_OPTIONS"));
-    assert!(storage.contains("chown -R \"$SHARE_OWNER:$SHARE_OWNER\" /share"));
+    assert!(storage.contains("mount -t exfat -o \"$SHARE_MOUNT_OPTIONS\" \"$share\" \"$SHARE\""));
+    assert!(storage.contains("[ \"$1\" = share ] && options=$SHARE_RAM_OPTIONS"));
+    assert!(storage.contains("chown -R \"$SHARE_OWNER:$SHARE_OWNER\" \"$SHARE\""));
+    assert!(storage.lines().any(|l| l == "SHARE=$R/share"));
     let passwd_owner = read(&format!("{OVERLAY}/etc/ksmbd/ksmbd.conf"));
     assert!(passwd_owner.contains("guest account = nobody"));
 }

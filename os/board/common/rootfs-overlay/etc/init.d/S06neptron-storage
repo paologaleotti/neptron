@@ -12,15 +12,24 @@
 # The frontend cannot see a RAM folder, so the script writes what it
 # mounted, and why, to /run/neptron/storage.toml (a RAM file system: the
 # file is new at each boot). The frontend shows a notice for each RAM
-# folder.
+# folder, with the reason. Every line of the script also goes to syslog
+# with the tag neptron-storage, because the console of a PC is not kept.
+#
+# NEPTRON_STORAGE_ROOT puts every path of the script below a folder, for a
+# test.
 
 [ "$1" = start ] || exit 0
 
-# The read-only root of the PC image has the mount points already.
-mkdir -p /state /share 2>/dev/null
-
-STATUS_DIR=/run/neptron
+R=${NEPTRON_STORAGE_ROOT:-}
+STATE=$R/state
+SHARE=$R/share
+DEV=$R/dev
+STATUS_DIR=$R/run/neptron
 STATUS=$STATUS_DIR/storage.toml
+SYSTEMS=$R/usr/share/neptron/systems
+
+# The read-only root of the PC image has the mount points already.
+mkdir -p "$STATE" "$SHARE" 2>/dev/null
 
 # The network share (S45neptron-share) maps every client to the user nobody,
 # so nobody owns /share and can write it. exFAT stores no owner: every file
@@ -30,34 +39,42 @@ SHARE_OWNER=65534
 SHARE_MOUNT_OPTIONS="noatime,iocharset=utf8,uid=$SHARE_OWNER,gid=$SHARE_OWNER,dmask=0022,fmask=0133,nosuid,nodev,noexec"
 SHARE_RAM_OPTIONS="mode=0755,uid=$SHARE_OWNER,gid=$SHARE_OWNER,nosuid,nodev,noexec"
 
+# Logs one line to the console and to syslog. syslogd starts before this
+# script (S01syslogd); without it, the line is on the console only.
+log() {
+	echo "neptron-storage: $1"
+	logger -t neptron-storage "$1" 2>/dev/null
+}
+
 # Logs one line and keeps it as the reason of the next RAM folder.
 say() {
-	echo "neptron-storage: $1"
+	log "$1"
 	last=$1
 }
 
-# Mounts a RAM folder at $1 and notes it, with the last line as the reason.
+# Mounts a RAM folder for $1 (state or share) and notes it, with the last
+# line as the reason.
 ram_folder() {
 	options=mode=0755
-	[ "$1" = /share ] && options=$SHARE_RAM_OPTIONS
-	mount -t tmpfs -o "$options" "${1#/}" "$1"
-	reason=$(printf '%s' "$last" | tr -d '"\\')
+	[ "$1" = share ] && options=$SHARE_RAM_OPTIONS
+	mount -t tmpfs -o "$options" "$1" "$R/$1" || log "the RAM folder of /$1 does not mount"
+	reason=$(printf '%s' "${last:-the storage script gave no reason}" | tr -d '"\\')
 	case $1 in
-	/state) state_kind=ram state_reason=$reason ;;
-	/share) share_kind=ram share_reason=$reason ;;
+	state) state_kind=ram state_reason=$reason ;;
+	share) share_kind=ram share_reason=$reason ;;
 	esac
 }
 state_kind=partition
 share_kind=partition
 
+# The device of partition $2 of the disk at sysfs path $1, as the kernel
+# sees it.
 partition() {
-	disk=$1
-	number=$2
-	for file in "$disk"/*/partition; do
+	for file in "$1"/*/partition; do
 		[ -r "$file" ] || continue
-		if [ "$(cat "$file")" = "$number" ]; then
+		if [ "$(cat "$file")" = "$2" ]; then
 			dir=${file%/partition}
-			echo "/dev/${dir##*/}"
+			echo "$DEV/${dir##*/}"
 			return 0
 		fi
 	done
@@ -65,28 +82,36 @@ partition() {
 }
 
 root=$(mountpoint -d /)
-root_dir=$(readlink -f "/sys/dev/block/$root")
-disk=${root_dir%/*}
-disk_dev=/dev/${disk##*/}
+root_dir=$(readlink -f "$R/sys/dev/block/$root")
+disk=
+state=
+if [ -r "$root_dir/partition" ]; then
+	disk=${root_dir%/*}
+	disk_dev=$DEV/${disk##*/}
+	state=$(partition "$disk" 3)
+fi
 
 # e2fsck -p exits with 0 (clean), 1 or 2 (errors corrected); 4 and above
 # leave errors, and then the state partition is not mounted for writing.
-state=$(partition "$disk" 3)
-if [ -n "$state" ]; then
+if [ -z "$disk" ]; then
+	say "the root filesystem is not on a partition of a disk, so there is no state partition; /state is a RAM folder"
+	ram_folder state
+elif [ -z "$state" ]; then
+	say "the boot disk has no partition 3, so there is no state partition; /state is a RAM folder"
+	ram_folder state
+else
 	e2fsck -p "$state"
 	code=$?
 	if [ "$code" -ge 4 ]; then
 		say "e2fsck $state left errors (exit $code); /state is a RAM folder"
-		ram_folder /state
-	elif ! mount -t ext4 -o noatime "$state" /state; then
+		ram_folder state
+	elif ! mount -t ext4 -o noatime "$state" "$STATE"; then
 		say "$state does not mount; /state is a RAM folder"
-		ram_folder /state
+		ram_folder state
 	else
 		state_writable=yes
+		log "$state mounted at /state (e2fsck exit $code)"
 	fi
-else
-	say "no state partition, /state is a RAM folder"
-	ram_folder /state
 fi
 
 # The share partition (partition 4) is made and formatted by this script
@@ -98,7 +123,9 @@ fi
 #   mount. A partition 4 with no marker is never formatted, whatever is on
 #   it. A stick written again with dd has a new state partition with no
 #   marker; the script makes partition 4 again with a new marker, but only
-#   when the free space holds no old share (the scan below).
+#   when the free space holds no old share at another start (the scan
+#   below). An old share at the planned start becomes partition 4 again,
+#   and it holds a filesystem, so it is mounted as it is.
 # - Its type is 0x07 and it starts at the first 1 MiB boundary after the
 #   state partition.
 # - Its first 16 MiB read with no error, and blkid exits with 2 (nothing
@@ -127,14 +154,29 @@ EXFAT_BACKUP_SECTORS="12 24 48 96"
 # makes partition 4, in sectors (4 GiB): layouts of other image versions
 # place the share start within this distance.
 OLD_SHARE_SCAN_SECTORS=8388608
-MARKER=/state/share-pending
+# partx adds partition 4 to the kernel at most this many times, with this
+# pause between two tries, in microseconds: a slow stick can still be busy
+# with the write of the table.
+PARTX_TRIES=5
+PARTX_RETRY_US=500000
+# The device node of a new partition must appear within this many pauses
+# of this length, in microseconds (5 s in all).
+NODE_WAIT_STEPS=50
+NODE_WAIT_STEP_US=100000
+MARKER=$STATE/share-pending
 
 sectors() {
-	cat "/sys/class/block/${1#/dev/}/$2"
+	cat "$R/sys/class/block/${1##*/}/$2"
 }
 
 state_end() {
 	echo $(($(sectors "$state" start) + $(sectors "$state" size)))
+}
+
+# The sector where this script places partition 4.
+planned_start() {
+	end=$(state_end)
+	echo $(((end + ALIGN_SECTORS - 1) / ALIGN_SECTORS * ALIGN_SECTORS))
 }
 
 # The 8 bytes of the file system name of the boot sector at sector $2 of
@@ -159,10 +201,29 @@ signature() {
 	return 2
 }
 
+# Partition 4 of the table on the disk, not as the kernel sees it, as
+# "start size type", or nothing. sfdisk names it sda4, nvme0n1p4 or
+# mmcblk0p4.
+table_entry() {
+	sfdisk --dump "$disk_dev" 2>/dev/null |
+		sed -n 's/^[^ ]*[^0-9]4 : start= *\([0-9]*\), size= *\([0-9]*\), type=\([0-9a-fA-F]*\).*/\1 \2 \3/p'
+}
+
+# Why partition 4 of the table (start $1, size $2, type $3) is not the one
+# this script plans, or nothing.
+plan_mismatch() {
+	planned=$(planned_start)
+	disk_sectors=$(cat "$disk/size")
+	if [ "$3" != 7 ] || [ "$1" != "$planned" ] || [ "$2" -lt "$SHARE_MIN_SECTORS" ] ||
+		[ $(($1 + $2)) -gt "$disk_sectors" ]; then
+		echo "the table holds partition 4 at sector $1 with $2 sectors and type $3, not type 7 at sector $planned within the $disk_sectors sectors of the disk"
+	fi
+}
+
 # The reason partition 4 ($1) may not be formatted, or nothing.
 format_refusal() {
 	if [ ! -e "$MARKER" ]; then
-		echo "it holds no filesystem, and this system did not make it (no $MARKER)"
+		echo "it holds no filesystem, and this system did not make it (no /state/share-pending)"
 		return
 	fi
 	start=$(sectors "$1" start)
@@ -188,13 +249,11 @@ format_refusal() {
 # The first sector of the free space after the state partition that holds
 # an exFAT boot sector, at a 1 MiB boundary, or nothing.
 old_share() {
-	end=$(state_end)
 	disk_sectors=$(cat "$disk/size")
-	first=$(( (end + ALIGN_SECTORS - 1) / ALIGN_SECTORS * ALIGN_SECTORS ))
-	last=$((first + OLD_SHARE_SCAN_SECTORS))
-	[ "$last" -gt "$disk_sectors" ] && last=$disk_sectors
-	sector=$first
-	while [ "$sector" -lt "$last" ]; do
+	sector=$(planned_start)
+	scan_end=$((sector + OLD_SHARE_SCAN_SECTORS))
+	[ "$scan_end" -gt "$disk_sectors" ] && scan_end=$disk_sectors
+	while [ "$sector" -lt "$scan_end" ]; do
 		if [ "$(boot_name "$disk_dev" "$sector")" = "EXFAT   " ]; then
 			echo "$sector"
 			return
@@ -203,6 +262,7 @@ old_share() {
 	done
 }
 
+# Writes partition 4 to the table on the disk.
 make_partition() {
 	if [ "$state_writable" != yes ]; then
 		say "the state partition is not mounted, so no share partition is made"
@@ -210,27 +270,81 @@ make_partition() {
 	fi
 	free=$(($(cat "$disk/size") - $(state_end)))
 	if [ "$free" -lt "$SHARE_MIN_SECTORS" ]; then
-		say "$free free sectors after the state partition, no share partition made"
+		say "$free free sectors after the state partition, less than $SHARE_MIN_SECTORS, so the disk has no room for a share partition"
 		return 1
 	fi
-	found=$(old_share)
-	end=$(state_end)
-	planned=$(( (end + ALIGN_SECTORS - 1) / ALIGN_SECTORS * ALIGN_SECTORS ))
-	if [ -n "$found" ] && [ "$found" != "$planned" ]; then
-		say "an old exFAT share starts at sector $found, not at $planned; no share partition made, the disk is left untouched"
+	old=$(old_share)
+	planned=$(planned_start)
+	if [ -n "$old" ] && [ "$old" != "$planned" ]; then
+		say "an old exFAT share starts at sector $old, not at $planned; no share partition made, the disk is left untouched"
 		return 1
 	fi
-	echo "neptron-storage: making partition 4 from $free free sectors"
-	echo "partition 4 made at $(date)" > "$MARKER" && sync || return 1
+	if [ -n "$old" ]; then
+		log "an old exFAT share starts at sector $planned; partition 4 is made around it and keeps its files"
+	fi
+	log "making partition 4 at sector $planned from $free free sectors"
+	if ! { echo "partition 4 made at $(date)" > "$MARKER" && sync; }; then
+		say "$MARKER cannot be written, so no share partition is made"
+		return 1
+	fi
 	# The root and state partitions of this disk are mounted, so sfdisk
 	# refuses the disk unless forced, and the kernel cannot read the whole
-	# table again. Appending partition 4 leaves the other partitions as
-	# they are, and partx adds only the new one to the kernel.
-	echo ',,7' | sfdisk --quiet --force --no-reread --append "$disk_dev" || return 1
-	partx --add --nr 4 "$disk_dev" || {
-		say "the kernel does not see partition 4; the next boot uses it"
+	# table again: partx adds partition 4 alone (kernel_add). The space can
+	# hold the share of an older image, so no signature is wiped. A lock
+	# that another program holds fails at once and never stops the boot.
+	output=$(echo ',,7' | sfdisk --quiet --force --no-reread --no-tell-kernel \
+		--wipe never --wipe-partitions never --lock=nonblock --append "$disk_dev" 2>&1)
+	code=$?
+	[ -n "$output" ] && log "sfdisk exit $code: $(printf '%s' "$output" | tr '\n' ' ')"
+	# The exit status of sfdisk proves nothing in either direction: it can
+	# fail after the table is on the disk. The table read back decides.
+	entry=$(table_entry)
+	if [ -z "$entry" ]; then
+		rm -f "$MARKER"
+		sync
+		say "sfdisk exit $code, and the partition table has no partition 4, so no share partition is made"
 		return 1
-	}
+	fi
+	# shellcheck disable=SC2086 # the three numbers of the entry
+	mismatch=$(plan_mismatch $entry)
+	if [ -n "$mismatch" ]; then
+		rm -f "$MARKER"
+		sync
+		say "sfdisk exit $code, and $mismatch; the share partition is left untouched"
+		return 1
+	fi
+	log "the partition table holds partition 4 as planned ($entry), sfdisk exit $code"
+}
+
+# Makes the kernel see partition 4 of the table and sets share to its
+# device. The kernel reads the table only at boot, and the mounted
+# partitions stop a full read again, so partx adds partition 4 alone. The
+# exit status of partx proves nothing: the kernel's list decides.
+kernel_add() {
+	tries=0
+	while [ "$tries" -lt "$PARTX_TRIES" ]; do
+		tries=$((tries + 1))
+		output=$(partx --add --nr 4 "$disk_dev" 2>&1)
+		code=$?
+		share=$(partition "$disk" 4) && return 0
+		log "partx try $tries of $PARTX_TRIES, exit $code: the kernel does not see partition 4${output:+: $(printf '%s' "$output" | tr '\n' ' ')}"
+		[ "$tries" -lt "$PARTX_TRIES" ] && usleep "$PARTX_RETRY_US"
+	done
+	say "partition 4 is in the partition table, but the kernel does not see it after $PARTX_TRIES tries of partx (last exit $code); restart to use it"
+	return 1
+}
+
+# Waits until the device node $1 exists.
+wait_node() {
+	steps=0
+	while [ ! -e "$1" ]; do
+		if [ "$steps" -ge "$NODE_WAIT_STEPS" ]; then
+			say "the kernel sees partition 4, but its device node $1 does not appear within $((NODE_WAIT_STEPS * NODE_WAIT_STEP_US / 1000)) ms"
+			return 1
+		fi
+		usleep "$NODE_WAIT_STEP_US"
+		steps=$((steps + 1))
+	done
 }
 
 # Prepares partition 4 for the mount: a partition with a filesystem stays
@@ -249,55 +363,74 @@ prepare_share() {
 		say "the share partition $share was left untouched: $reason"
 		return 1
 	fi
-	echo "neptron-storage: $share holds no filesystem; formatting it exFAT"
+	log "$share holds no filesystem; formatting it exFAT"
 	mkfs.exfat -L NEPTRON "$share" || {
 		say "mkfs.exfat failed on $share"
 		return 1
 	}
 }
 
-last="no share partition"
-share=$(partition "$disk" 4)
-if [ -z "$share" ] && [ -n "$state" ] && make_partition; then
-	share=$(partition "$disk" 4)
+# Each way that ends with no share device names its reason with say.
+last=
+share=
+if [ -z "$disk" ]; then
+	say "the root filesystem is not on a partition of a disk, so there is no share partition"
+elif share=$(partition "$disk" 4); then
+	:
+elif [ -n "$(table_entry)" ]; then
+	log "partition 4 is in the partition table, but the kernel does not see it"
+	kernel_add || share=
+elif [ -z "$state" ]; then
+	say "the boot disk has no partition 3, so no share partition is made"
+elif make_partition; then
+	kernel_add || share=
+else
+	share=
 fi
 mounted=no
-if [ -n "$share" ] && prepare_share; then
-	if mount -t exfat -o "$SHARE_MOUNT_OPTIONS" "$share" /share; then
+if [ -n "$share" ] && wait_node "$share" && prepare_share; then
+	if mount -t exfat -o "$SHARE_MOUNT_OPTIONS" "$share" "$SHARE"; then
 		mounted=yes
 	else
 		say "$share does not mount"
 	fi
 fi
 if [ "$mounted" = yes ]; then
-	echo "neptron-storage: $share mounted at /share"
+	log "$share mounted at /share"
 	if [ -e "$MARKER" ]; then
 		rm -f "$MARKER"
 		sync
 	fi
 else
-	echo "neptron-storage: no usable share partition, /share is a RAM folder"
-	ram_folder /share
+	log "/share is a RAM folder: $last"
+	ram_folder share
 fi
 
-mkdir -p "$STATUS_DIR"
-{
+status() {
 	echo "state = \"$state_kind\""
-	[ "$state_kind" = ram ] && echo "state_reason = \"$state_reason\""
+	if [ "$state_kind" = ram ]; then
+		echo "state_reason = \"$state_reason\""
+	fi
 	echo "share = \"$share_kind\""
-	[ "$share_kind" = ram ] && echo "share_reason = \"$share_reason\""
-} > "$STATUS"
+	if [ "$share_kind" = ram ]; then
+		echo "share_reason = \"$share_reason\""
+	fi
+}
+if ! { mkdir -p "$STATUS_DIR" && status > "$STATUS"; }; then
+	log "$STATUS cannot be written, so the frontend shows no storage notice"
+fi
 
 # One ROM folder for each system of the image, as the definition asks for
 # the first boot. The names are the file names of data/systems.
-for system in /usr/share/neptron/systems/*.toml; do
+for system in "$SYSTEMS"/*.toml; do
 	[ -e "$system" ] || continue
 	name=${system##*/}
-	mkdir -p "/share/roms/${name%.toml}"
+	mkdir -p "$SHARE/roms/${name%.toml}"
 done
-mkdir -p /share/bios
+mkdir -p "$SHARE/bios"
 # On exFAT the mount gives every folder to nobody; in a RAM folder the
 # folders that root just made need it too.
 if [ "$share_kind" = ram ]; then
-	chown -R "$SHARE_OWNER:$SHARE_OWNER" /share
+	chown -R "$SHARE_OWNER:$SHARE_OWNER" "$SHARE"
 fi
+exit 0

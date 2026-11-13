@@ -19,6 +19,8 @@ mod host;
 mod network_share;
 mod qemu;
 mod selftest_check;
+#[cfg(test)]
+mod storage_script;
 mod trace;
 mod transcript;
 
