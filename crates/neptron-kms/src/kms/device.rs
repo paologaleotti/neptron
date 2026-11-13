@@ -11,6 +11,7 @@ use drm::control::{
 use drm::{ClientCapability, Device};
 
 use super::KmsError;
+use crate::connector::DVI_I_TYPE;
 use crate::{ConnectorClass, ConnectorFacts, DRM_MAJOR, choose, is_drm_node};
 
 /// An open DRM device. It owns its descriptor.
@@ -148,13 +149,21 @@ pub(super) fn select(
         let info = card
             .get_connector(handle, true)
             .map_err(KmsError::io("probe a connector"))?;
-        let has_edid = card
+        let blob = card
             .properties(handle)?
             .iter()
-            .any(|(name, _, value)| name == "EDID" && *value != 0);
+            .find(|(name, _, value)| name == "EDID" && *value != 0)
+            .map(|(_, _, value)| *value);
+        let has_edid = blob.is_some();
+        let kernel_type = u32::from(info.interface());
+        // Only DVI-I needs the EDID for its class. A blob that cannot be
+        // read leaves it analog, the class that needs a name with no EDID.
+        let edid = blob
+            .filter(|_| kernel_type == DVI_I_TYPE)
+            .and_then(|id| card.get_property_blob(id).ok());
         facts.push(ConnectorFacts {
             name: format!("{}-{}", info.interface().as_str(), info.interface_id()),
-            class: ConnectorClass::of_type(u32::from(info.interface())),
+            class: ConnectorClass::of_connector(kernel_type, edid.as_deref()),
             connected: info.state() == connector::State::Connected,
             has_edid,
         });

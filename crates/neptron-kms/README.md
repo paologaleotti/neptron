@@ -6,7 +6,7 @@
 
 On every host (pure, no I/O):
 
-- `choose(&[ConnectorFacts], named, crt) -> Result<usize, ChoiceError>`: the output rule of the Definition. `ConnectorClass::of_type` maps a DRM connector type.
+- `choose(&[ConnectorFacts], named, crt) -> Result<usize, ChoiceError>`: the output rule of the Definition. `ConnectorClass::of_type` maps a DRM connector type. `ConnectorClass::of_connector` adds the EDID: DVI-I carries both signals, so the digital input bit of its EDID (byte 0x14, bit 7) makes it digital, and with no EDID it is analog. This is the rule of `display_class` in `neptron-platform`, which this crate does not depend on.
 - `ModeRecord::from_validated(&ValidatedMode)`: the kernel mode record, the only way to make one for the kernel. `ModeRecord::to_modeline` reads a kernel mode back.
 - `PlaneRect::for_mode`: the part of the scanout buffers a mode shows.
 - `VblankCounter`: the kernel's 32-bit vblank count as 64 bits.

@@ -14,8 +14,9 @@ pub struct ConnectorFacts {
 /// The kind of signal of a connector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectorClass {
-    /// VGA, DVI-A, DVI-I, composite, S-Video, component, 9-pin DIN, TV and
-    /// DPI (the GPIO DAC of a Raspberry Pi).
+    /// VGA, DVI-A, composite, S-Video, component, 9-pin DIN, TV and DPI
+    /// (the GPIO DAC of a Raspberry Pi), and DVI-I with an analog EDID or
+    /// no EDID.
     Analog,
     /// Every other output that drives a display.
     Digital,
@@ -49,8 +50,16 @@ pub enum ChoiceError {
 
 /// The DRM connector type numbers (`DRM_MODE_CONNECTOR_*`) of analog
 /// outputs: VGA, DVI-I, DVI-A, composite, S-Video, component, 9-pin DIN,
-/// TV and DPI.
+/// TV and DPI. DVI-I carries both signals: [`ConnectorClass::of_connector`]
+/// lets its EDID decide.
 pub const ANALOG_TYPES: [u32; 9] = [1, 2, 4, 5, 6, 8, 9, 13, 17];
+/// `DRM_MODE_CONNECTOR_DVII`: a DVI connector with the digital and the
+/// analog pins.
+pub const DVI_I_TYPE: u32 = 2;
+/// The byte of the EDID base block that describes the video input.
+pub const EDID_INPUT_OFFSET: usize = 0x14;
+/// The bit of [`EDID_INPUT_OFFSET`] that is set for a digital input.
+pub const EDID_DIGITAL_INPUT_BIT: u8 = 0x80;
 /// `DRM_MODE_CONNECTOR_WRITEBACK`
 pub const WRITEBACK_TYPE: u32 = 18;
 
@@ -63,6 +72,26 @@ impl ConnectorClass {
             ConnectorClass::Analog
         } else {
             ConnectorClass::Digital
+        }
+    }
+
+    /// The class of a connector of DRM type `kernel_type` with the EDID
+    /// `edid` of its display. The same rule as `display_class` of
+    /// `neptron-platform`, which this crate cannot depend on: DVI-I
+    /// carries both signals, so the input bit of the EDID decides, and
+    /// with no EDID (or one too short to have the bit) it is analog. Every
+    /// other type has its class from [`ConnectorClass::of_type`].
+    pub fn of_connector(kernel_type: u32, edid: Option<&[u8]>) -> ConnectorClass {
+        if kernel_type != DVI_I_TYPE {
+            return Self::of_type(kernel_type);
+        }
+        let digital = edid
+            .and_then(|e| e.get(EDID_INPUT_OFFSET))
+            .is_some_and(|input| input & EDID_DIGITAL_INPUT_BIT != 0);
+        if digital {
+            ConnectorClass::Digital
+        } else {
+            ConnectorClass::Analog
         }
     }
 }
@@ -230,6 +259,36 @@ mod tests {
         );
         let list = [c("DP-1", Digital, false, false)];
         assert!(choose(&list, None, false).is_err());
+    }
+
+    /// A base EDID block with the input byte `input` at 0x14.
+    fn edid_with_input(input: u8) -> Vec<u8> {
+        let mut edid = vec![0; 128];
+        edid[EDID_INPUT_OFFSET] = input;
+        edid
+    }
+
+    #[test]
+    fn dvi_i_takes_the_class_of_the_edid_input() {
+        let digital = edid_with_input(0x80);
+        let analog = edid_with_input(0x00);
+        assert_eq!(
+            ConnectorClass::of_connector(DVI_I_TYPE, Some(&digital)),
+            Digital
+        );
+        assert_eq!(
+            ConnectorClass::of_connector(DVI_I_TYPE, Some(&analog)),
+            Analog
+        );
+        assert_eq!(ConnectorClass::of_connector(DVI_I_TYPE, None), Analog);
+        assert_eq!(
+            ConnectorClass::of_connector(DVI_I_TYPE, Some(&[0; 4])),
+            Analog,
+            "a short EDID has no input byte"
+        );
+        // VGA stays analog and HDMI-A digital, whatever the EDID says.
+        assert_eq!(ConnectorClass::of_connector(1, Some(&digital)), Analog);
+        assert_eq!(ConnectorClass::of_connector(11, Some(&analog)), Digital);
     }
 
     #[test]

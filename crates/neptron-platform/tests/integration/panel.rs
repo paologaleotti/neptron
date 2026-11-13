@@ -38,7 +38,7 @@ fn the_class_of_each_display() {
     let fhd = blobs::panel_1080p();
     let uhd = blobs::panel_2160p();
     let tv = blobs::tv_720p();
-    let rows: [Row<'_>; 11] = [
+    let rows: [Row<'_>; 14] = [
         ("1080p HDMI panel", "HDMI-A", None, &fhd, FlatPanel),
         (
             "4K DisplayPort panel",
@@ -86,6 +86,27 @@ fn the_class_of_each_display() {
             Crt,
         ),
         ("VGA connector with a digital EDID", "VGA", None, &fhd, Crt),
+        (
+            "DVI-I with a panel: the EDID decides",
+            "DVI-I",
+            None,
+            &fhd,
+            FlatPanel,
+        ),
+        (
+            "DVI-I with a CRT: the EDID decides",
+            "DVI-I",
+            None,
+            &crt,
+            Crt,
+        ),
+        (
+            "DVI-I on its analog pins",
+            "DVI-I",
+            Some("DVI-A"),
+            &fhd,
+            Crt,
+        ),
     ];
     for (what, kind, sub, edid, class) in rows {
         assert_eq!(edid_class(kind, sub, edid), Ok(class), "{what}");

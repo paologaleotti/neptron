@@ -30,7 +30,10 @@ impl DisplayClass {
 }
 
 /// The connector types (the sysfs name without its index) that carry only
-/// an analog signal.
+/// an analog signal. DVI-I is not one: it carries both, so the input bit of
+/// the EDID decides, and with no EDID the caller has no class and treats
+/// the output as analog. `ConnectorClass::of_connector` of `neptron-kms`
+/// has the same rule for the choice of the output.
 pub const ANALOG_CONNECTOR_KINDS: [&str; 8] = [
     "VGA",
     "DVI-A",
