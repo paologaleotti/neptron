@@ -8,8 +8,9 @@ mod tests;
 
 use neptron_backend::AudioSink;
 
+use crate::gain::Gain;
 use crate::rates::check_device_rate;
-use crate::{AudioError, CoreTiming, RateControl};
+use crate::{AudioError, CoreTiming, RateControl, VOLUME_RAMP_MS};
 
 /// The most core audio one frame may bring, in milliseconds at the core's
 /// sample rate. Samples beyond it in one frame are dropped and counted.
@@ -90,6 +91,8 @@ pub struct AudioPipeline<S> {
     /// Output frames still to fade in.
     fade_in_left: usize,
     muted: bool,
+    /// The user volume, applied after the fade-in.
+    gain: Gain,
     /// The last frame written, for the fade-out of a mute.
     last: [i16; 2],
     stats: AudioStats,
@@ -124,6 +127,7 @@ impl<S: AudioSink> AudioPipeline<S> {
         let max_output_frames = resampler.max_output_frames();
         let control = RateControl::new(device_rate_hz);
         let fade_frames = frames_in_ms_mhz(u64::from(device_rate_hz) * 1_000, FADE_MS).max(1);
+        let ramp_frames = frames_in_ms_mhz(u64::from(device_rate_hz) * 1_000, VOLUME_RAMP_MS);
         Ok(Self {
             sink,
             core,
@@ -140,6 +144,7 @@ impl<S: AudioSink> AudioPipeline<S> {
             fade_frames,
             fade_in_left: 0,
             muted: false,
+            gain: Gain::new(u32::try_from(ramp_frames).unwrap_or(u32::MAX)),
             last: [0; 2],
             stats: AudioStats {
                 ratio: nominal,
@@ -207,6 +212,11 @@ impl<S: AudioSink> AudioPipeline<S> {
         } else {
             self.convert(frames);
         }
+        self.gain.apply(&mut self.samples[..frames * 2]);
+        if !self.muted && frames > 0 {
+            let end = frames * 2;
+            self.last = [self.samples[end - 2], self.samples[end - 1]];
+        }
         level += self.write_samples(frames);
         if self.muted {
             self.top_up(level);
@@ -236,6 +246,29 @@ impl<S: AudioSink> AudioPipeline<S> {
         }
         self.muted = false;
         self.fade_in_left = self.fade_frames;
+    }
+
+    /// The same pipeline at `percent` volume (0 to
+    /// [`VOLUME_MAX_PERCENT`](crate::VOLUME_MAX_PERCENT); more is the
+    /// maximum), with no ramp: for a pipeline that has not played yet.
+    #[must_use]
+    pub fn with_volume_percent(mut self, percent: u32) -> Self {
+        self.gain.jump(percent);
+        self
+    }
+
+    /// Sets the user volume in percent (0 to
+    /// [`VOLUME_MAX_PERCENT`](crate::VOLUME_MAX_PERCENT); more is the
+    /// maximum). The gain ramps to it over
+    /// [`VOLUME_RAMP_MS`](crate::VOLUME_RAMP_MS) of output frames. The
+    /// mute is a separate state: this call does not change it.
+    pub fn set_volume_percent(&mut self, percent: u32) {
+        self.gain.ramp_to(percent);
+    }
+
+    /// The user volume the gain is at or ramps to, in percent.
+    pub fn volume_percent(&self) -> u32 {
+        self.gain.percent()
     }
 
     /// True between [`mute`](Self::mute) and [`unmute`](Self::unmute).
@@ -306,8 +339,6 @@ impl<S: AudioSink> AudioPipeline<S> {
             self.fade_frames,
             self.fade_in_left,
         );
-        let end = frames * 2;
-        self.last = [self.samples[end - 2], self.samples[end - 1]];
     }
 
     /// Writes the first `frames` frames of `samples`. Returns the frames

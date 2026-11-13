@@ -2,14 +2,15 @@
 
 Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 
-`docs/spec/pacing-audio.md` is the specification: the control law and its source, the rates, the latency, the threads and the behaviour at start, mute, pause, mode switch, underrun, overrun and forced 50/60 Hz.
+`docs/spec/pacing-audio.md` is the specification: the control law and its source, the rates, the latency, the threads and the behaviour at start, mute, pause, mode switch, underrun, overrun and forced 50/60 Hz. `docs/spec/audio-settings.md` adds the user volume and the choice of the output device.
 
 ## Public API
 
-- `AudioPipeline<S: AudioSink>`: `new(sink, CoreTiming, run_rate_mhz, Resampling)`, `set_run_rate_mhz`, `push_samples` (from the core's audio callbacks), `end_frame` (once per core frame), `mute`, `unmute`, `stats`, `sink`. It takes interleaved `i16` stereo at the core's rate and writes to any `AudioSink`.
+- `AudioPipeline<S: AudioSink>`: `new(sink, CoreTiming, run_rate_mhz, Resampling)`, `with_volume_percent` (no ramp), `set_volume_percent` (a 20 ms ramp), `volume_percent`, `set_run_rate_mhz`, `push_samples` (from the core's audio callbacks), `end_frame` (once per core frame), `mute`, `unmute`, `stats`, `sink`. It takes interleaved `i16` stereo at the core's rate and writes to any `AudioSink`.
 - `CoreTiming { sample_rate_mhz, frame_rate_mhz }`: the core's AV timing, in millihertz.
 - `Resampling::{Sinc, Polynomial}`: the interpolation. `Sinc` is the default.
 - `RateControl`: the law alone, `factor(queued_frames)`.
+- The volume: `gain_q24(percent)`, the cubic curve `(v / 100)^3` in Q24 fixed point, and `scale(sample, gain)`; `VOLUME_MAX_PERCENT`, `GAIN_UNITY_Q24`, `VOLUME_RAMP_MS`. At 100 the stage is skipped, so the output is bit for bit the same as with no volume.
 - `FlipRateMeter`: the run rate from flip times, for the desktop window.
 - `AudioStats`, `AudioError`, and the limits as named constants.
 - With the `sdl3` feature: `Sdl3Sink: AudioSink`, `SinkError`.
@@ -30,7 +31,7 @@ Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 
 ## Tests
 
-- Unit tests: the law, the rates and their limits, conversions and fades, the pipeline on `FakeAudio` (priming, restart, mute, unmute, overrun, dropped input), the flip rate meter.
+- Unit tests: the law, the rates and their limits, conversions and fades, the gain curve and its ramp, the pipeline on `FakeAudio` (priming, restart, mute, unmute, overrun, dropped input, volume, a lost device), the flip rate meter.
 - `tests/integration`: the audio part of timing check 6 on `FakeAudio` and `SimClock`, with no sleep. The polynomial runs last 120 simulated seconds, about 19 time constants of the law; the sinc runs last 30 s, because the filter costs 21% of real time in the dev profile. The full ten-minute run of check 6 is an ignored test:
 
 ```sh

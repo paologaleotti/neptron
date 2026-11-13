@@ -271,3 +271,164 @@ fn the_run_rate_can_cross_its_whole_range_after_construction() {
         assert!(pipeline.stats().output_frames > 0);
     }
 }
+
+/// The left samples the device took after the priming silence.
+fn audio_part(audio: &FakeAudio) -> Vec<i16> {
+    audio.samples()[1_536 * 2..]
+        .iter()
+        .step_by(2)
+        .copied()
+        .collect()
+}
+
+#[test]
+fn a_pipeline_at_half_volume_writes_an_eighth_of_each_sample() {
+    let clock = SimClock::new();
+    let (pipeline, audio) = pipeline(&clock);
+    let mut pipeline = pipeline.with_volume_percent(50);
+    assert_eq!(pipeline.volume_percent(), 50);
+    for _ in 0..3 {
+        pipeline.push_samples(&[8_000; 533 * 2]);
+        pipeline.end_frame();
+        clock.advance(16 * MS);
+    }
+    let left = audio_part(&audio);
+    assert_eq!(left[0], 0, "the fade-in still starts at zero");
+    assert!(
+        left[400..].iter().all(|s| *s == 1_000),
+        "{:?}",
+        &left[400..410]
+    );
+}
+
+#[test]
+fn a_volume_change_ramps_with_no_step_and_reaches_silence() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    for frame in 0..8 {
+        if frame == 4 {
+            pipeline.set_volume_percent(0);
+        }
+        pipeline.push_samples(&[8_000; 533 * 2]);
+        pipeline.end_frame();
+        clock.advance(16 * MS);
+    }
+    let left = audio_part(&audio);
+    // After the fade-in the level is 8000; the 20 ms ramp falls 8000 / 960
+    // per frame.
+    let steady = &left[400..];
+    let largest = steady
+        .windows(2)
+        .map(|w| (i32::from(w[1]) - i32::from(w[0])).abs())
+        .max()
+        .unwrap();
+    assert!(largest <= 8_000 / 960 + 1, "a step of {largest}");
+    let falling = steady.iter().filter(|s| **s > 0 && **s < 8_000).count();
+    assert!((955..=965).contains(&falling), "{falling} frames of ramp");
+    assert!(left.contains(&8_000));
+    assert_eq!(left.last(), Some(&0));
+    assert_eq!(pipeline.volume_percent(), 0);
+}
+
+#[test]
+fn the_mute_and_the_volume_are_separate() {
+    let clock = SimClock::new();
+    let (pipeline, _) = pipeline(&clock);
+    let mut pipeline = pipeline.with_volume_percent(40);
+    pipeline.push_samples(&[8_000; 533 * 2]);
+    pipeline.end_frame();
+    pipeline.mute();
+    assert_eq!(pipeline.volume_percent(), 40);
+    pipeline.set_volume_percent(70);
+    assert!(pipeline.is_muted());
+    pipeline.unmute();
+    assert_eq!(pipeline.volume_percent(), 70);
+    pipeline.set_volume_percent(500);
+    assert_eq!(pipeline.volume_percent(), 100);
+}
+
+/// A sink whose device is lost after `lost_after` writes: it then takes
+/// nothing and reports a full queue, as `Sdl3Sink` does on an SDL error.
+struct StuckSink {
+    inner: FakeAudio,
+    writes: usize,
+    lost_after: usize,
+}
+
+impl AudioSink for StuckSink {
+    fn rate_hz(&self) -> u32 {
+        self.inner.rate_hz()
+    }
+    fn queued_frames(&self) -> usize {
+        if self.writes >= self.lost_after {
+            6_144
+        } else {
+            self.inner.queued_frames()
+        }
+    }
+    fn write(&mut self, stereo: &[i16]) -> usize {
+        self.writes += 1;
+        if self.writes > self.lost_after {
+            0
+        } else {
+            self.inner.write(stereo)
+        }
+    }
+}
+
+/// A sink whose device is lost and drops what it gets, as an SDL zombie
+/// device does, but with no queue left at all.
+struct DroppingSink {
+    rate_hz: u32,
+}
+
+impl AudioSink for DroppingSink {
+    fn rate_hz(&self) -> u32 {
+        self.rate_hz
+    }
+    fn queued_frames(&self) -> usize {
+        0
+    }
+    fn write(&mut self, stereo: &[i16]) -> usize {
+        stereo.len() / 2
+    }
+}
+
+#[test]
+fn a_device_lost_with_a_full_queue_costs_frames_and_never_blocks() {
+    let clock = SimClock::new();
+    let sink = StuckSink {
+        inner: fake(&clock, 48_000, 6_144),
+        writes: 0,
+        lost_after: 10,
+    };
+    let mut pipeline = AudioPipeline::new(sink, SNES, 60_099, Resampling::Polynomial).unwrap();
+    for frame in 0..600 {
+        if frame == 300 {
+            pipeline.set_volume_percent(30);
+            pipeline.mute();
+            pipeline.unmute();
+        }
+        pipeline.push_samples(&[8_000; 533 * 2]);
+        pipeline.end_frame();
+        clock.advance(16 * MS);
+    }
+    let stats = pipeline.stats();
+    assert_eq!(stats.frames, 600);
+    assert!(stats.overrun_frames > 500 * 700, "{stats:?}");
+    assert_eq!(stats.level_frames, 6_144);
+}
+
+#[test]
+fn a_device_lost_that_drops_its_queue_restarts_each_frame_and_goes_on() {
+    let sink = DroppingSink { rate_hz: 48_000 };
+    let mut pipeline = AudioPipeline::new(sink, SNES, 60_099, Resampling::Polynomial).unwrap();
+    for _ in 0..600 {
+        pipeline.push_samples(&[8_000; 533 * 2]);
+        pipeline.end_frame();
+    }
+    let stats = pipeline.stats();
+    assert_eq!(stats.frames, 600);
+    assert_eq!(stats.restarts, 600);
+    assert_eq!(stats.overrun_frames, 0);
+}
