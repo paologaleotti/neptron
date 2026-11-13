@@ -112,10 +112,15 @@ pub fn guest_script(step: Step, nonce: &str) -> String {
 logged() {
 	grep -q "neptron-storage: $1" /var/log/messages
 }
+# The lines of this boot in the storage log: those after its last
+# "== boot" line, so a line of an earlier boot never passes a check.
+this_boot() {
+	awk '/^== boot / { n = NR } { line[NR] = $0 } END { if (n) for (i = n + 1; i <= NR; i++) print line[i] }' /state/log/storage.log
+}
 grep -qx 'share = "partition"' /run/neptron/storage.toml || fail "/share is not the share partition"
 grep -q '^/dev/sda4 /share exfat ' /proc/mounts || fail "/share is not partition 4 as exFAT"
 logged '/dev/sda4 mounted at /share' || fail "/var/log/messages has no line of the storage script"
-grep -q '/dev/sda4 mounted at /share' /state/log/storage.log || fail "/state/log/storage.log has no line of this boot"
+this_boot | grep -q '/dev/sda4 mounted at /share' || fail "/state/log/storage.log has no line of this boot"
 "#,
     );
     let file = format!("/share/{FILE}");
@@ -292,7 +297,8 @@ mod tests {
                 "grep -q '^/dev/sda4 /share exfat ' /proc/mounts",
                 "grep -q \"neptron-storage: $1\" /var/log/messages",
                 "logged '/dev/sda4 mounted at /share'",
-                "grep -q '/dev/sda4 mounted at /share' /state/log/storage.log",
+                "this_boot | grep -q '/dev/sda4 mounted at /share'",
+                "awk '/^== boot / { n = NR }",
             ] {
                 assert!(s.contains(part), "{}: {part}: {s}", step.name());
             }
@@ -373,5 +379,46 @@ mod tests {
             "Nov 13 16:21:34 neptron user.notice neptron-storage: /dev/sda4 mounted at /share"
         ));
         assert!(!is_report_line("[    1.234] usb 2-1: new device"));
+    }
+}
+
+#[cfg(test)]
+mod this_boot {
+    use super::*;
+    use std::process::Command;
+
+    /// The storage log check reads only the lines after the last boot line.
+    #[test]
+    fn only_the_lines_of_the_last_boot_count() {
+        let script = guest_script(Step::Again, "n0nce");
+        let function: String = script
+            .split("this_boot() {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("the this_boot function")
+            .replace("/state/log/storage.log", "\"$1\"");
+        let dir = std::env::temp_dir().join(format!("xtask-this-boot-{}", std::process::id()));
+        // A leftover of an earlier run with the same process id; absence is fine.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("storage.log");
+        let run = |text: &str| {
+            std::fs::write(&log, text).unwrap();
+            let out = Command::new("sh")
+                .arg("-c")
+                .arg(format!("f() {{{function}\n}}; f \"$0\""))
+                .arg(&log)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{out:?}");
+            String::from_utf8(out.stdout).unwrap()
+        };
+        assert_eq!(
+            run("== boot 1\n/dev/sda4 mounted at /share\n== boot 2\nno share\n"),
+            "no share\n"
+        );
+        assert_eq!(run("== boot 1\na\nb\n"), "a\nb\n");
+        assert_eq!(run("no boot line\n"), "");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
