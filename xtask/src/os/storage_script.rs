@@ -622,7 +622,7 @@ fn the_cache_of_the_disk_is_dropped_before_the_read_back() {
     assert!(dumps.iter().any(|d| *d > flush), "{out:#?}");
     assert!(
         out.log
-            .contains("logger -t neptron-storage blockdev --flushbufs exit 0"),
+            .contains("logger -t neptron-storage blockdev --flushbufs exit 0: the table is read back after a flush of the cache"),
         "{out:#?}"
     );
 }
@@ -633,7 +633,7 @@ fn a_flush_that_fails_is_logged_and_the_read_back_goes_on() {
     out.assert_share_mounted(true);
     assert!(
         out.log.contains(
-            "logger -t neptron-storage blockdev --flushbufs exit 1: the table is read back from the cache, not from the device"
+            "logger -t neptron-storage blockdev --flushbufs exit 1: the cache was not flushed, so the table may be read back from the cache"
         ),
         "{out:#?}"
     );

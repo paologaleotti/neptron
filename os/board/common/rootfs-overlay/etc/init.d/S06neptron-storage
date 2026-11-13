@@ -362,9 +362,9 @@ make_partition() {
 	flushed=$(blockdev --flushbufs "$disk_dev" 2>&1)
 	flush_code=$?
 	if [ "$flush_code" -eq 0 ]; then
-		log "blockdev --flushbufs exit 0: the table is read back from the device"
+		log "blockdev --flushbufs exit 0: the table is read back after a flush of the cache"
 	else
-		log "blockdev --flushbufs exit $flush_code: the table is read back from the cache, not from the device${flushed:+: $(printf '%s' "$flushed" | tr '\n' ' ')}"
+		log "blockdev --flushbufs exit $flush_code: the cache was not flushed, so the table may be read back from the cache${flushed:+: $(printf '%s' "$flushed" | tr '\n' ' ')}"
 	fi
 	if ! read_table; then
 		say "the partition table cannot be read back after sfdisk (exit $code); the marker stays and the next boot uses partition 4"

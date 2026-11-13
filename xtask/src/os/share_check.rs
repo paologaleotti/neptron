@@ -250,7 +250,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
 /// The check of a boot that made partition 4: the table was read back
 /// from the device.
-const FLUSHED: &str = "logged 'blockdev --flushbufs exit 0: the table is read back from the device' || fail \"the table was not read back from the device\"\n";
+const FLUSHED: &str = "logged 'blockdev --flushbufs exit 0: the table is read back after a flush of the cache' || fail \"the table was not read back after a flush of the cache\"\n";
 /// The file that the first boot writes to the share.
 const FILE: &str = "share-check.txt";
 /// The byte offset of the fourth primary entry of an MBR.
