@@ -921,3 +921,21 @@ Each open point is one section:
 - How to change: a pixel clock or an active picture time per system in the systems data, used by the width rule.
 - Decision:
 
+
+### OP-100: Keep the video rules few, and check them against a real library.
+
+- Raised by: the owner (2026-11-13)
+- Status: open; the owner accepts the rules as they are today
+- Default: the project has three independent rule sets, one for each kind of display (CRT, flat panel, TV), and no rule for a single game. Each rule works from the geometry and the rate that the core reports. The last proposal of every plan always fits, so a game always gets a mode. The points that carry risk:
+  1. The width rule for composite has the most special cases: a general rule, a console case for 4:3 pictures of 224 to 240 lines, a snap to whole and half factors, and a 3 % tolerance. It has not yet met a real screen.
+  2. The session takes a source of 289 lines or more as interlaced. This is a guess from the line count.
+  3. Thresholds change the behaviour at their edges: 224 to 240 lines, 3 %, at most 8 lines of crop per edge, 5000 ppm.
+  4. A fact of one system (the Neo Geo's wider picture, OP-099) pulls toward a rule per system.
+  5. The sweeps use made-up sources. They show that nothing fails and that each source gets a mode; they do not show that each real game looks right.
+- Where: `crates/neptron-modeline/src/policy` (`crt.rs`, `panel.rs`, `tv.rs`, `tv/width.rs`), `crates/neptron-session` (`INTERLACE_MIN_LINES`), `data/systems`, `docs/plan/10-code-standards.md`
+- How to change:
+  1. Run the policy on a list of real machines (the size, rate and shape that MAME and the cores publish), for each kind of display, and read the outliers.
+  2. Add a rule to the code standards: no rule names a game or a system; a fact of a system goes into the systems data; a new threshold has a test on each side and falls back to the general rule.
+  3. After the first test on a real tube, look at the composite width rule again; if the general rule looks right, remove the console case.
+  4. Replace the 289-line guess with the interlace report of the core.
+- Decision: the owner: it is acceptable as it is; keep these points open (2026-11-13).
