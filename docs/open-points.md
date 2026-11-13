@@ -870,7 +870,7 @@ Each open point is one section:
 ### OP-094: Reboot and shut down from the UI.
 
 - Raised by: the owner (2026-11-13)
-- Status: open, in work as C17
+- Status: closed by C17 (`docs/spec/ui-navigation.md`); the hardware checks are open. Later steps: a handler for the power button of a PC, the version and the network address in the panel, a sleep timer, a tier 3 check of a clean file system after a power-off
 - Default: before C17 the UI cannot reboot or power off the machine; the user pulls the plug, and the release image has no clean power-off.
 - Where: `crates/neptron-ui` (a System panel under Settings), `apps/neptron`, `apps/neptron-launch`, `os/`
 - How to change: C17: a `System` panel with `Reboot` and `Shut down`, each behind a confirm; the frontend ends cleanly, and the launcher runs the stop step and then the reboot or the power-off.
@@ -879,7 +879,7 @@ Each open point is one section:
 ### OP-095: The first boot did not attach the new share partition on real hardware.
 
 - Raised by: the owner's bench, after a reflash over an older NEPTRON stick (2026-11-13)
-- Status: open, in work as C16
+- Status: closed by C16, the root cause is likely but not proven (a stick that rejects the cache flush); the next flash of the bench stick shows it in `/state/log/storage.log`. C18 adds the user-confirmed format for the states the script will not fix
 - Default: the first boot wrote partition 4 into the table, but the script stopped with no message after the partition tool reported an error, so the kernel did not see the partition and `/share` was a RAM folder until the next boot. The old share in that space, with its files, was not harmed. The boot checks did not catch it, because their disk has empty space there.
 - Where: `os/board/common/rootfs-overlay/etc/init.d/S06neptron-storage`, `xtask/src/os/boot_check.rs`
 - How to change: C16: judge the partition step by its result, attach the partition in the same boot, adopt an existing share as it is, no silent exit, messages to the system log, and a tier 3 case with an old share on the disk.

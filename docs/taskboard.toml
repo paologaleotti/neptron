@@ -406,7 +406,7 @@ name = "The share partition is attached and mounted on the first boot in every c
 owns = ["os", "xtask/src/os"]
 needs = ["C13"]
 gate = "T1; the three boot checks and a new tier 3 case with an old share on the disk"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C17"
@@ -415,7 +415,7 @@ name = "Settings > System: reboot and shut down, with a clean stop (OP-094)"
 owns = ["crates/neptron-ui", "apps/neptron", "apps/neptron-launch", "os"]
 needs = ["C15"]
 gate = "T1 and T2; boot checks by the orchestrator"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "P01"
