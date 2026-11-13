@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use neptron_library::cache::{self, CacheLoad};
+use neptron_library::cache::{self, CacheError, CacheLoad};
 use neptron_library::{Catalog, Changes, CoreDef, Game, Index, ScanWorker, SystemDef, changes};
 use neptron_ui::snapshot::{GameEntry, GameId, GameSource, GameWindow, SystemEntry, SystemId};
 
@@ -86,13 +86,18 @@ pub struct Found<'a> {
 
 impl Library {
     /// The library with the index of the cache at `cache_path`. A missing
-    /// or damaged cache gives an empty index and the reason; the scan then
-    /// fills it. The cache load reads a file, so it runs at start, before
+    /// cache, or one of an older format, gives an empty index; a damaged
+    /// one gives an empty index and the reason. The scan then fills it. The cache load reads a file, so it runs at start, before
     /// the frame loop.
     pub fn load(catalog: Catalog, cache_path: &Path) -> (Self, Option<String>) {
         let (index, issue) = match cache::load(cache_path, &catalog) {
             CacheLoad::Loaded(index) => (index, None),
             CacheLoad::Missing => (Index::new(), None),
+            // An update writes a newer format; the old file is no fault,
+            // and the scan that follows writes the new one.
+            CacheLoad::Discarded(CacheError::Version { found, expected }) if found < expected => {
+                (Index::new(), None)
+            }
             CacheLoad::Discarded(e) => (Index::new(), Some(format!("library cache: {e}"))),
         };
         (Self::with_index(catalog, index), issue)
@@ -530,5 +535,27 @@ mod tests {
         lib.start_scan(roms.0.clone(), ScanKind::Boot, SystemTime::now())
             .expect("the thread starts");
         drop(lib);
+    }
+
+    #[test]
+    fn a_cache_of_an_older_version_is_missing_with_no_notice() {
+        let roms = Roms::new("old-cache", &[]);
+        std::fs::create_dir_all(&roms.0).expect("folder");
+        let path = roms.0.join("library.cache");
+        let mut bytes = cache::encode(&library().index);
+        bytes[8..12].copy_from_slice(&(cache::CACHE_VERSION - 1).to_le_bytes());
+        std::fs::write(&path, &bytes).expect("old cache");
+        let (lib, issue) = Library::load(Catalog::builtin().expect("catalog"), &path);
+        assert_eq!(issue, None);
+        assert_eq!(lib.index().total(), 0);
+        assert!(!path.exists(), "the old file is gone");
+
+        bytes[8..12].copy_from_slice(&(cache::CACHE_VERSION + 1).to_le_bytes());
+        std::fs::write(&path, &bytes).expect("newer cache");
+        let (_, issue) = Library::load(Catalog::builtin().expect("catalog"), &path);
+        assert!(
+            issue.is_some_and(|i| i.contains("version")),
+            "a newer file warns"
+        );
     }
 }
