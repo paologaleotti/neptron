@@ -102,7 +102,7 @@ The stop action of `S45neptron-share` runs in `rcK`, before the unmount:
 
 1. Stop `mdnsd`, so the PC leaves the network list.
 2. `ksmbd.control --shutdown`: the kernel server closes its listeners and every session, and so every open file of a client; `ksmbd.mountd` ends.
-3. Wait until no socket on port 445 is left in `/proc/net/tcp` and `/proc/net/tcp6`, at most 5 s (`SHARE_STOP_WAIT_DS`). The kernel closes the sessions in a work queue, after the command returns.
+3. Wait until no socket on port 445 is left in `/proc/net/tcp` and `/proc/net/tcp6`, and `mdnsd` and `ksmbd.mountd` have ended, at most 5 s (`SHARE_STOP_WAIT_DS`). The kernel closes the sessions in a work queue, after the command returns, and a `restart` must not start a daemon while the old one holds its lock file or its port.
 4. `sync`, so the data of a copy that was in progress reaches the stick.
 
 Then `umount -a -r` unmounts `/share`: no file is open on it any more, so the unmount succeeds, and exFAT writes its clean state. A file that a client was copying stays on the share as far as it came; copy it again.

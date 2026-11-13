@@ -14,9 +14,10 @@
 OFF_SWITCH=${NEPTRON_STATE:-/state}/network-share-off
 MDNS_SERVICES=/etc/neptron/mdns.d
 PROC_NET=${NEPTRON_PROC_NET:-/proc/net}
-# How long stop waits for the kernel server to close its sockets, in tenths
-# of a second. It closes them in a work queue after the shutdown command
-# returns.
+# How long stop waits for the kernel server to close its sockets and for
+# the daemons to end, in tenths of a second. The kernel closes the sockets
+# in a work queue after the shutdown command returns, and a restart must
+# not start a daemon while the old one holds its lock or its port.
 SHARE_STOP_WAIT_DS=50
 
 # 0 when the server still listens or holds a connection (local port 445,
@@ -25,6 +26,11 @@ SHARE_STOP_WAIT_DS=50
 smb_sockets() {
 	cat "$PROC_NET/tcp" "$PROC_NET/tcp6" 2>/dev/null |
 		awk '$2 ~ /:01BD$/ && ($4 == "01" || $4 == "08" || $4 == "0A") { found = 1 } END { exit !found }'
+}
+
+# 0 while the server has a socket or a daemon of the share runs.
+running() {
+	smb_sockets || pidof mdnsd ksmbd.mountd > /dev/null
 }
 
 start() {
@@ -48,12 +54,12 @@ stop() {
 	# The command fails when the server does not run, which is no error.
 	ksmbd.control --shutdown > /dev/null 2>&1
 	waited=0
-	while smb_sockets && [ "$waited" -lt "$SHARE_STOP_WAIT_DS" ]; do
+	while running && [ "$waited" -lt "$SHARE_STOP_WAIT_DS" ]; do
 		usleep 100000
 		waited=$((waited + 1))
 	done
-	if smb_sockets; then
-		echo "neptron-share: the SMB server still has sockets after $((SHARE_STOP_WAIT_DS / 10)) s"
+	if running; then
+		echo "neptron-share: the SMB server or mdnsd still runs after $((SHARE_STOP_WAIT_DS / 10)) s"
 	fi
 	sync
 }

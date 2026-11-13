@@ -454,6 +454,7 @@ fn stop_closes_the_server_waits_for_its_sockets_and_syncs() {
     ] {
         let dir = TempDir::create(&format!("stop-{name}"));
         dir.logging_fakes(&["start-stop-daemon", "ksmbd.control", "usleep", "sync"]);
+        dir.fake("pidof", "exit 1");
         std::fs::create_dir_all(dir.path("net")).unwrap();
         std::fs::write(dir.path("net/tcp"), TCP_HEADER).unwrap();
         std::fs::write(dir.path("net/tcp6"), format!("{TCP_HEADER}{tcp6}")).unwrap();
@@ -481,12 +482,58 @@ fn stop_closes_the_server_waits_for_its_sockets_and_syncs() {
             Some("sync"),
             "{name}: the data reaches the disk last"
         );
-        assert_eq!(
-            out.contains("still has sockets"),
-            waits > 0,
-            "{name}: {out}"
-        );
+        assert_eq!(out.contains("still runs after"), waits > 0, "{name}: {out}");
     }
+}
+
+/// A restart must not start the daemons while the old ones still run: the
+/// lock of ksmbd.mountd and the port of mdnsd are still taken.
+#[test]
+fn restart_starts_the_daemons_only_after_the_old_ones_ended() {
+    let dir = TempDir::create("restart");
+    let done = dir.path("done");
+    mkfifo(&done);
+    dir.logging_fakes(&["ksmbd.control", "usleep", "sync", "ksmbd.mountd"]);
+    // The old daemons end after three looks.
+    dir.fake(
+        "pidof",
+        "n=$(cat \"$LOG.pidof\" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > \"$LOG.pidof\"\n\
+         echo \"pidof $*\" >> \"$LOG\"; [ $n -le 3 ]",
+    );
+    dir.fake(
+        "start-stop-daemon",
+        &format!(
+            "echo \"start-stop-daemon $*\" >> \"$LOG\"\n\
+             case \"$*\" in *--start*) echo done > \"{}\" ;; esac",
+            done.display()
+        ),
+    );
+    std::fs::create_dir_all(dir.path("net")).unwrap();
+    let (ok, out) = dir.run(SHARE_SCRIPT, "restart");
+    assert!(ok, "{out}");
+    assert_eq!(read_fifo(&done), "done\n");
+    let log = dir.log();
+    let lines: Vec<&str> = log.lines().map(str::trim_end).collect();
+    assert_eq!(
+        lines,
+        [
+            "start-stop-daemon --stop --quiet --exec /usr/sbin/mdnsd",
+            "ksmbd.control --shutdown",
+            "pidof mdnsd ksmbd.mountd",
+            "usleep 100000",
+            "pidof mdnsd ksmbd.mountd",
+            "usleep 100000",
+            "pidof mdnsd ksmbd.mountd",
+            "usleep 100000",
+            "pidof mdnsd ksmbd.mountd",
+            // The check for the line that says a daemon still runs.
+            "pidof mdnsd ksmbd.mountd",
+            "sync",
+            "ksmbd.mountd",
+            "start-stop-daemon --start --quiet --exec /usr/sbin/mdnsd -- /etc/neptron/mdns.d",
+        ],
+        "{out}"
+    );
 }
 
 #[test]

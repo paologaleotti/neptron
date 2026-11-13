@@ -100,7 +100,7 @@ A stop of the launcher with SIGTERM (`kill $(pidof neptron-launch)`, or init at 
 - **The name.** `mdnsd` answers for `neptron.local` and announces `_smb._tcp` on port 445, from `/etc/neptron/mdns.d`. macOS and the Linux file managers list the PC under "Network". There is no WS-Discovery and no NetBIOS name service, so the Windows "Network" view does not list it; `\\NEPTRON` works when the router resolves the DHCP host name.
 - **Windows 11 24H2** refuses a guest share by default (insecure guest logons off, SMB signing required). The user turns on "Enable insecure guest logons" and turns off "Digitally sign communications (always)" on the Windows PC. See the spec.
 - **The switch.** `S45neptron-share` starts `ksmbd.mountd` and `mdnsd` in a background job, unless `/state/network-share-off` exists. Then port 445 and port 5353 stay closed. `/etc/init.d/S45neptron-share restart` applies a change of the file at once; a later settings row will do that.
-- **The stop.** In `rcK`, before `umount -a -r`: `mdnsd` stops, `ksmbd.control --shutdown` closes every session, the script waits up to 5 s until no socket of the server is left, then `sync`. So the share partition unmounts clean after a copy.
+- **The stop.** In `rcK`, before `umount -a -r`: `mdnsd` stops, `ksmbd.control --shutdown` closes every session, the script waits up to 5 s until no socket of the server is left and both daemons have ended, then `sync`. So the share partition unmounts clean after a copy.
 - **What is open on the release image**: TCP 445 and UDP 5353. No SSH, no telnet.
 
 The boot check waits, inside its deadline, until a socket listens on port 445 and `mdnsd` runs. The QEMU runs have no network card (`-nic none`), and the server listens on the loopback interface too.
