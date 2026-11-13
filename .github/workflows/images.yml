@@ -310,17 +310,20 @@ jobs:
           sudo chown 1000:1000 "$IMAGES"
 
       # The NEPTRON packages build this checkout. Buildroot does not see a
-      # change to a local source by itself, so they are rebuilt every time.
+      # change to a local source by itself, so they are built again every
+      # time. -reconfigure, not -rebuild: the configure step runs cargo
+      # vendor, and a Cargo.lock with a new crate fails the offline build
+      # with the old vendor directory.
       - name: Build the image
         id: build
         timeout-minutes: ${{ matrix.build_minutes }}
         env:
           BUILD_ARGS: ${{ join(matrix.build_args, ' ') }}
-          REBUILD: ${{ join(matrix.rebuild, '-rebuild ') }}
+          REBUILD: ${{ join(matrix.rebuild, '-reconfigure ') }}
         run: |
           start=$(date +%s)
           # shellcheck disable=SC2086
-          cargo xtask os build $BUILD_ARGS --jobs "$(nproc)" -- $REBUILD-rebuild
+          cargo xtask os build $BUILD_ARGS --jobs "$(nproc)" -- $REBUILD-reconfigure
           echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
           echo "Image build: $(( $(date +%s) - start )) s (base: ${{ steps.base.outputs.state }})" \
             | tee -a "$GITHUB_STEP_SUMMARY"

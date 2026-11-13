@@ -122,7 +122,7 @@ Why not a container image on GHCR: it would also work, and container storage on 
 
 **Commit times.** Make compares the stamps in the base with the files of `os/` (the kernel and BusyBox fragments). A fresh checkout gives every file the current time, so the kernel would build again in every run. The job sets each file of `os/` to the time of its last commit. A fragment that changed after the base was built is newer than the stamps, and Buildroot configures and builds that package again, as it does on a laptop.
 
-**Local packages.** The packages that build this checkout (`neptron`, `neptron-launch`, `neptronctl`, `neptron-capture`, `neptron-vkms-probe`) are rebuilt in every run (`<package>-rebuild`), because Buildroot does not see a change to a local source.
+**Local packages.** The packages that build this checkout (`neptron`, `neptron-launch`, `neptronctl`, `neptron-capture`, `neptron-vkms-probe`) are built again in every run (`<package>-reconfigure`), because Buildroot does not see a change to a local source. `-rebuild` is not enough: the configure step runs `cargo vendor`, and when `Cargo.lock` gains a crate, a build with the old vendor directory fails offline ("no matching package named ..."). A run on 2026-11-13 failed this way.
 
 **Force a cold build.** Change `BASE_EPOCH` in `images.yml`.
 
