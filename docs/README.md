@@ -35,6 +35,10 @@ These files are the source of truth for the design and the build plan. Each file
 - [CI pipeline and definition of done](plan/09-ci-pipeline-and-definition-of-done.md)
 - [Code standards](plan/10-code-standards.md)
 
+## Flows
+
+- [Flows](flows/README.md): what the code does, step by step, from power on to a game on the screen. These pages follow the code, and list where it differs from the definition.
+
 ## History
 
 - [Review notes](review-notes.md)
