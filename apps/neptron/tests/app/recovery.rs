@@ -41,11 +41,11 @@ fn the_hold_in_the_game_list_restores_the_safe_default() {
 
 #[test]
 #[ignore = "tier 2"]
-fn the_hold_in_a_game_restores_the_safe_default_under_the_quick_menu() {
+fn the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu() {
     in_child(
         &test_name(
             module_path!(),
-            "the_hold_in_a_game_restores_the_safe_default_under_the_quick_menu",
+            "the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu",
         ),
         |dir| {
             let mut rig = Rig::new(dir);
@@ -66,12 +66,35 @@ fn the_hold_in_a_game_restores_the_safe_default_under_the_quick_menu() {
             rig.boot(Some(next));
             rig.frames(30);
             rig.hold(&[Control::Select, Control::Start]);
-            rig.until(HOLD_FRAMES, "the recovery", |r| {
-                r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
-            });
-            rig.frames(1);
-            assert_eq!(rig.screen(), "notice", "the notice of the safe mode");
+            let mut most_frames = 0;
+            let mut cue_frames = 0;
+            for _ in 0..HOLD_FRAMES {
+                let before = rig.audio.written_frames();
+                rig.frames(1);
+                let written = rig.audio.written_frames() - before;
+                if rig.shell().guard().phase() == Phase::Safe(SafeReason::Recovery) {
+                    cue_frames = written;
+                    break;
+                }
+                most_frames = most_frames.max(written);
+            }
+            assert_eq!(
+                rig.shell().guard().phase(),
+                Phase::Safe(SafeReason::Recovery)
+            );
+            assert!(
+                cue_frames > most_frames + 1_000,
+                "the tone: {cue_frames} frames, a game frame at most {most_frames}"
+            );
             rig.release(&[Control::Select, Control::Start]);
+            rig.frames(3);
+            assert!(!rig.shell().paused(), "the hold opens no quick menu");
+            assert_eq!(rig.screen(), "game");
+
+            // The notice waits for the quick menu.
+            rig.tap(&[Control::Select, Control::Start]);
+            rig.frames(2);
+            assert_eq!(rig.screen(), "notice", "the notice of the safe mode");
             rig.finish();
             assert!(
                 rig.state_file("video/guard.toml")

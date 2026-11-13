@@ -84,19 +84,52 @@ impl Frontend {
 }
 
 #[test]
-fn select_and_start_open_the_quick_menu_once_per_press() {
+fn select_and_start_open_the_quick_menu_once_per_press_at_the_release() {
     let mut fe = Frontend::new();
     fe.hold_combo(100 * MS, 0);
     fe.input.release(400 * MS, 0, Control::Start);
     fe.input.press(600 * MS, 0, Control::Start);
+    fe.input.release(900 * MS, 0, Control::Select);
     fe.run_to(1000 * MS);
-    let menus: Vec<_> = fe
-        .fired
-        .iter()
-        .filter(|(_, hotkey)| *hotkey == Hotkey::QuickMenu { port: 0 })
-        .collect();
-    assert_eq!(menus.len(), 2);
+    assert_eq!(fe.menus(), [(400 * MS, 0), (900 * MS, 0)]);
     assert!(fe.recoveries().is_empty());
+}
+
+#[test]
+fn a_cancelled_press_opens_no_menu_and_the_recovery_hold_goes_on() {
+    let mut bench = Bench::new(0);
+    bench.set(0, Control::Select, true);
+    bench.set(0, Control::Start, true);
+    assert_eq!(bench.update(0), []);
+    bench.hotkeys.cancel_quick_menu();
+    assert_eq!(bench.update(SECOND), []);
+    assert_eq!(
+        bench.update(BLIND_RECOVERY_HOLD_NS),
+        [Hotkey::BlindRecovery { port: 0 }]
+    );
+    bench.set(0, Control::Start, false);
+    assert_eq!(bench.update(BLIND_RECOVERY_HOLD_NS + 1), []);
+    bench.set(0, Control::Start, true);
+    assert_eq!(bench.update(7 * SECOND), []);
+    bench.set(0, Control::Start, false);
+    assert_eq!(
+        bench.update(7 * SECOND + 1),
+        [Hotkey::QuickMenu { port: 0 }]
+    );
+}
+
+#[test]
+fn a_recovery_hold_never_opens_the_quick_menu() {
+    let mut fe = Frontend::new();
+    fe.hold_combo(0, 0);
+    fe.input
+        .release(BLIND_RECOVERY_HOLD_NS - 10 * MS, 0, Control::Select);
+    fe.hold_combo(6 * SECOND, 0);
+    fe.input
+        .release(6 * SECOND + 2 * BLIND_RECOVERY_HOLD_NS, 0, Control::Start);
+    fe.run_to(4 * BLIND_RECOVERY_HOLD_NS);
+    assert_eq!(fe.menus(), [(BLIND_RECOVERY_HOLD_NS - 10 * MS, 0)]);
+    assert_eq!(fe.recoveries(), [6 * SECOND + BLIND_RECOVERY_HOLD_NS]);
 }
 
 #[test]
@@ -116,7 +149,7 @@ fn a_hold_of_5_seconds_is_a_recovery_and_fires_once() {
     fe.run_to(3 * BLIND_RECOVERY_HOLD_NS);
     assert_eq!(fe.recoveries(), [BLIND_RECOVERY_HOLD_NS]);
     assert_eq!(
-        fe.fired[1..],
+        fe.fired,
         [(BLIND_RECOVERY_HOLD_NS, Hotkey::BlindRecovery { port: 0 })]
     );
 }
@@ -154,8 +187,6 @@ fn every_port_and_every_device_of_a_port_counts() {
     assert_eq!(
         fe.fired,
         [
-            (0, Hotkey::QuickMenu { port: 0 }),
-            (0, Hotkey::QuickMenu { port: 3 }),
             (BLIND_RECOVERY_HOLD_NS, Hotkey::BlindRecovery { port: 0 }),
             (BLIND_RECOVERY_HOLD_NS, Hotkey::BlindRecovery { port: 3 }),
         ]
@@ -332,21 +363,20 @@ fn other_buttons_do_not_stop_the_start_hold() {
 }
 
 #[test]
-fn select_and_start_give_one_quick_menu_and_the_recovery_with_the_hold_on() {
+fn select_and_start_give_the_recovery_and_no_quick_menu_with_the_hold_on() {
     for hold_ns in [0, 1, HOLD_NS, 10 * SECOND] {
         let mut fe = Frontend::new();
         fe.hotkeys.set_start_hold_ns(hold_ns);
         fe.hold_combo(100 * MS, 0);
+        fe.input
+            .release(100 * MS + 2 * BLIND_RECOVERY_HOLD_NS, 0, Control::Select);
         fe.run_to(100 * MS + 4 * BLIND_RECOVERY_HOLD_NS);
         assert_eq!(
             fe.fired,
-            [
-                (100 * MS, Hotkey::QuickMenu { port: 0 }),
-                (
-                    100 * MS + BLIND_RECOVERY_HOLD_NS,
-                    Hotkey::BlindRecovery { port: 0 }
-                ),
-            ],
+            [(
+                100 * MS + BLIND_RECOVERY_HOLD_NS,
+                Hotkey::BlindRecovery { port: 0 }
+            ),],
             "hold {hold_ns}"
         );
     }
@@ -361,12 +391,12 @@ fn select_after_start_stops_the_hold_until_start_is_released() {
     // Select goes up, Start stays down: no second quick menu.
     fe.input.release(1500 * MS, 0, Control::Select);
     fe.run_to(10 * SECOND);
-    assert_eq!(fe.menus(), [(SECOND, 0)]);
+    assert_eq!(fe.menus(), [(1500 * MS, 0)]);
     assert!(fe.recoveries().is_empty());
     fe.input.release(10 * SECOND, 0, Control::Start);
     fe.input.press(11 * SECOND, 0, Control::Start);
     fe.run_to(11 * SECOND + HOLD_NS);
-    assert_eq!(fe.menus(), [(SECOND, 0), (11 * SECOND + HOLD_NS, 0)]);
+    assert_eq!(fe.menus(), [(1500 * MS, 0), (11 * SECOND + HOLD_NS, 0)]);
 }
 
 #[test]
@@ -377,7 +407,7 @@ fn select_held_first_stops_the_hold_until_start_is_released() {
     fe.input.press(100 * MS, 0, Control::Start);
     fe.input.release(200 * MS, 0, Control::Select);
     fe.run_to(10 * SECOND);
-    assert_eq!(fe.menus(), [(100 * MS, 0)]);
+    assert_eq!(fe.menus(), [(200 * MS, 0)]);
 }
 
 #[test]
@@ -391,7 +421,6 @@ fn the_recovery_still_fires_at_5_seconds_after_a_start_hold() {
         fe.fired,
         [
             (HOLD_NS, Hotkey::QuickMenu { port: 0 }),
-            (3 * SECOND, Hotkey::QuickMenu { port: 0 }),
             (
                 3 * SECOND + BLIND_RECOVERY_HOLD_NS,
                 Hotkey::BlindRecovery { port: 0 }

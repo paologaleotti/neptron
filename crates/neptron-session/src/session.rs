@@ -90,7 +90,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
 
     /// Closes the quick menu. The core runs again from the next frame. The
     /// buttons held now reach the core only after their release, so the
-    /// button that chose "resume" does not reach the game. A modeset that
+    /// button that chose "resume" does not reach the game, and Select and
+    /// Start held now open no menu at their release. A modeset that
     /// failed on the device is tried again.
     pub fn resume(&mut self) {
         if self.state != State::Paused {
@@ -98,6 +99,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         }
         self.state = State::Running;
         self.mask.hold_back_pressed(&self.ports);
+        self.hotkeys.cancel_quick_menu();
         let failed = self
             .engine
             .trace()
@@ -222,6 +224,16 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// The audio sink. `None` after the audio was lost.
     pub fn audio_sink(&self) -> Option<&S> {
         self.audio.as_ref().map(AudioPipeline::sink)
+    }
+
+    /// Writes a short cue of the app, as stereo frames, straight to the
+    /// audio sink after the audio already queued, also while the quick
+    /// menu mutes the game. Returns the frames the sink took: 0 after the
+    /// audio was lost.
+    pub fn write_cue(&mut self, stereo: &[i16]) -> usize {
+        self.audio
+            .as_mut()
+            .map_or(0, |audio| audio.write_cue(stereo))
     }
 
     /// The run rate that audio rate control uses, in millihertz.

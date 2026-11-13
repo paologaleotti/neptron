@@ -48,8 +48,8 @@ pub const DISPLAY_REFRESH_POLICY: &str = "display.refresh_policy";
 /// The key of the Start hold that opens the quick menu, in whole seconds.
 ///
 /// Help text: "Hold Start alone on a controller for this number of seconds to open the quick
-/// menu. 0 turns it off. Select and Start together still open the quick menu at once. Use it
-/// on an arcade panel that has no Select button."
+/// menu. 0 turns it off. Select and Start together still open the quick menu, at their
+/// release. Use it on an arcade panel that has no Select button."
 pub const INPUT_MENU_HOLD_START_SECONDS: &str = "input.menu_hold_start_seconds";
 
 /// The longest Start hold that [`INPUT_MENU_HOLD_START_SECONDS`] allows, in seconds.

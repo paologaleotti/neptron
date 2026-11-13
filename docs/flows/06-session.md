@@ -70,7 +70,7 @@ flowchart TD
 
 ### Hotkeys of one port
 
-Select and Start together (`QUICK_MENU_COMBO`) fire the quick menu at once. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So a recovery hold always opens the quick menu first. The Start hold is a second way to the quick menu, with its own state per port:
+Select and Start together (`QUICK_MENU_COMBO`) fire the quick menu at their release, when the press lasted less than `BLIND_RECOVERY_HOLD_NS`. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So a recovery hold never opens the quick menu. `Session::resume` cancels a press held across the close (`Hotkeys::cancel_quick_menu`), so its release does not open the menu again. The Start hold is a second way to the quick menu, with its own state per port:
 
 ```mermaid
 stateDiagram-v2
@@ -139,7 +139,7 @@ flowchart TD
 | `Running` | `Ended` | Core event `Shutdown` (`RETRO_ENVIRONMENT_SHUTDOWN`) | | `FrameReport::ended = CoreShutdown`. The app ends the game. |
 | `Running` | `Ended` | `host.run_frame` returns an error | | `SessionError::Core`. The app ends the game with a notice. |
 | any | `Ended` | N loop frames in a row with no completed flip and the output on | `FLIPLESS_FRAMES_LIMIT` = 10 frames; KMS wait `FLIP_WAIT_LIMIT_MS` = 500 ms, so at most about 5 s | `SessionError::DisplayStalled`. The app ends the game with a notice. |
-| any | any | Select and Start held on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | `FrameReport::blind_recovery`. The app calls `guard.recover`: the safe default goes to the engine. The session state does not change (the quick menu opened at the press). |
+| any | any | Select and Start held on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | `FrameReport::blind_recovery`. The app calls `guard.recover`: the safe default goes to the engine. The session state does not change: a recovery hold opens no quick menu. The app plays the tone through the session's sink (`Session::write_cue`). |
 | `Running` | `Running` | Clock reaches the flush time | `SAVE_RAM_FLUSH_INTERVAL_NS` = 30 s | Save RAM copy goes to the writer when it changed. Timer restarts. |
 | `Ended` | (process) | `quit()` | | Last flush, writer joined, `ExitReport`. Relaunch file to the game list, exit code `RELAUNCH_EXIT_CODE` = 75. |
 
@@ -177,7 +177,7 @@ flowchart TD
 | Core call fails in the loop | Notice "The game stopped: the core failed: ...", then the game list. | Automatic. Save RAM is flushed at quit. |
 | Core crashes (signal) | The frontend process dies with the core. The launcher restarts it after its backoff (see [Power-on](01-power-on.md)). No relaunch file is left, so the start is a new boot with the game list. Save RAM is at most 30 s old. | Automatic. |
 | Power cut during play | On the next boot the save file is the last one written: at most `SAVE_RAM_FLUSH_INTERVAL_NS` = 30 s old, or the state at the last quick menu open. A cut during a write leaves the old file or the new one, plus `.bak`. | Nothing to do. |
-| Wrong picture or black screen during play | Hold Select and Start for 5 s. The quick menu opens at the press (not visible on a black screen), then the safe default goes on the wire with notice "Safe mode: the picture was reset. Keep a display setting to leave it." In a game there is no audio cue. | Back resumes the game in the safe mode. Keep a display setting to leave safe mode. |
+| Wrong picture or black screen during play | Hold Select and Start for 5 s. The safe default goes on the wire and the tone plays. The game goes on, with no quick menu. The notice "Safe mode: the picture was reset. Keep a display setting to leave it." shows when the quick menu opens. | Keep a display setting to leave safe mode. |
 | Inputs refuse every mode | Output off, game frozen, no sound. | Blind recovery, or a guard revert, sets a mode again. |
 | A modeset failed on the device | The engine keeps the old mode and blocks that source. | Open and close the quick menu: `resume()` calls `retry()`. |
 
@@ -203,7 +203,7 @@ flowchart TD
 
 - `docs/definition/08-frontend-and-ux.md`, "Quick menu": says the combination is "configurable" and that on arcade panels the default is "holding Start for 2 seconds". The code has a fixed combination (`QUICK_MENU_COMBO` = Select + Start). The Start hold is the setting `input.menu_hold_start_seconds`, global only, 0 to 10 s, default 0 (off) on every machine.
 - `docs/definition/08-frontend-and-ux.md`, "Quick menu": lists resume, save and load state, video, core options, controls, disc swap, reset, quit. The code has the rows "Resume", "Picture style", "Refresh policy", "Scanlines", "Scanline strength", "Display" and "Quit game" (`quick_menu_page`, `QUICK_MENU_KEYS`). No save states, no core options editor, no controls, no disc swap, no reset row (`Session::reset` exists but nothing in the app calls it).
-- `docs/definition/05-crt-safety-model.md`, layer 6 "Blind recovery": says "An audio cue confirms it." The app plays the cue (`CUE_MS` = 200 ms at `CUE_HZ` = 880 Hz) only in the game list. In a game the session owns the sink and no cue plays.
+- `docs/definition/05-crt-safety-model.md`, layer 6 "Blind recovery": says "An audio cue confirms it." The app plays the cue (`CUE_MS` = 200 ms at `CUE_HZ` = 880 Hz) in the game list and, through `Session::write_cue`, in a game.
 - `docs/definition/05-crt-safety-model.md`, "Burn-in protection": says the picture dims after five minutes without input in a menu, in the quick menu or while paused. No such code exists: the quick menu stays at full brightness.
 - `docs/definition/02-feature-definition.md`, Emulation row: "SRAM flush on exit". The code also flushes every 30 s and when the quick menu opens.
 - `docs/definition/14-risks-and-open-questions.md`, "Cores run in-process": says the supervisor "restarts into the game list with the last validated mode". After a crash the relaunch file is gone, so the next start is a new boot: the guard counts it and boots as described in [the guard](03-guard.md), not with a stored "last validated mode" of the crashed run.

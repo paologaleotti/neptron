@@ -307,6 +307,14 @@ impl<S: AudioSink> AudioPipeline<S> {
         &self.sink
     }
 
+    /// Writes stereo frames straight to the sink, after the audio already
+    /// queued: a short cue of the frontend, such as the tone of the blind
+    /// recovery. The rate control sees the higher queue level at the next
+    /// frame and drains it. Returns the frames the sink took.
+    pub fn write_cue(&mut self, stereo: &[i16]) -> usize {
+        self.sink.write(stereo)
+    }
+
     /// Gives the sink back.
     pub fn into_sink(self) -> S {
         self.sink

@@ -22,6 +22,7 @@ save_ram 64
 ";
 
 /// The RetroPad bit of each button, as the test core reads it.
+const SELECT: u16 = 1 << 2;
 const START: u16 = 1 << 3;
 const A: u16 = 1 << 8;
 
@@ -96,8 +97,12 @@ fn the_quick_menu_pauses_the_core_and_is_never_a_toggle() {
         |dir| {
             let mut rig = Rig::launch(dir, Setup::default());
             rig.run(10);
-            let frozen = rig.core_frame();
             rig.press(&[Control::Select, Control::Start]);
+            let report = rig.session.run_frame(None).unwrap();
+            assert!(!report.menu_opened, "the menu opens at the release");
+            assert!(report.ran_core);
+            let frozen = rig.core_frame();
+            rig.release(&[Control::Select, Control::Start]);
             let report = rig.session.run_frame(Some(canvas())).unwrap();
             assert!(report.menu_opened);
             assert!(!report.ran_core);
@@ -111,7 +116,7 @@ fn the_quick_menu_pauses_the_core_and_is_never_a_toggle() {
                 assert_eq!(report.flips, 1, "the display keeps flipping");
             }
             assert_eq!(rig.core_frame(), frozen, "the core is paused");
-            assert_frame(&rig.session, frozen, 0);
+            assert_frame(&rig.session, frozen, SELECT | START);
             assert_eq!(
                 rig.session.audio_stats().unwrap().frames,
                 audio_frames,
@@ -122,11 +127,14 @@ fn the_quick_menu_pauses_the_core_and_is_never_a_toggle() {
             assert!(last.scene.game.is_some(), "over the frozen frame");
 
             // The combination again opens nothing and closes nothing.
-            rig.release(&[Control::Select, Control::Start]);
-            rig.session.run_frame(Some(canvas())).unwrap();
             rig.press(&[Control::Select, Control::Start]);
             let report = rig.session.run_frame(Some(canvas())).unwrap();
             assert!(!report.menu_opened);
+            rig.release(&[Control::Select, Control::Start]);
+            let report = rig.session.run_frame(Some(canvas())).unwrap();
+            assert!(!report.menu_opened);
+            rig.press(&[Control::Select, Control::Start]);
+            rig.session.run_frame(Some(canvas())).unwrap();
             assert!(rig.session.paused());
             assert_eq!(rig.display.mode_calls().len(), 1, "no mode switch");
 
@@ -138,13 +146,14 @@ fn the_quick_menu_pauses_the_core_and_is_never_a_toggle() {
             assert!(!rig.session.paused());
             let report = rig.session.run_frame(None).unwrap();
             assert!(report.ran_core);
-            assert!(
-                !report.menu_opened,
-                "a held combination does not open it again"
-            );
+            assert!(!report.menu_opened);
             assert_frame(&rig.session, frozen + 1, 0);
             rig.release(&[Control::Select, Control::Start, Control::A]);
-            rig.run(1);
+            let report = rig.session.run_frame(None).unwrap();
+            assert!(
+                !report.menu_opened,
+                "a combination held across the resume does not open it again"
+            );
             assert_frame(&rig.session, frozen + 2, 0);
             rig.press(&[Control::A]);
             rig.run(1);
@@ -199,10 +208,14 @@ fn the_blind_recovery_is_reported_also_under_the_menu() {
             let mut rig = Rig::launch(dir, Setup::default());
             rig.run(5);
             rig.press(&[Control::Select, Control::Start]);
+            rig.run(1);
+            rig.release(&[Control::Select, Control::Start]);
+            assert!(rig.session.run_frame(None).unwrap().menu_opened);
+            rig.press(&[Control::Select, Control::Start]);
             let mut recovery = None;
             for frame in 0..400 {
                 let report = rig.session.run_frame(None).unwrap();
-                assert_eq!(report.menu_opened, frame == 0);
+                assert!(!report.menu_opened);
                 if report.blind_recovery.is_some() {
                     recovery = Some(frame);
                     assert_eq!(report.blind_recovery, Some(0));
@@ -335,6 +348,8 @@ fn the_save_ram_is_flushed_on_the_timer_when_it_changed() {
             rig.run(1);
             assert_eq!(rig.session.save_stats().unwrap().sent, 1);
             rig.press(&[Control::Select, Control::Start]);
+            rig.run(1);
+            rig.release(&[Control::Select, Control::Start]);
             assert!(rig.session.run_frame(None).unwrap().menu_opened);
             let stats = rig.session.save_stats().unwrap();
             assert_eq!((stats.sent, stats.unchanged), (1, 1), "unchanged: no write");
@@ -355,6 +370,8 @@ fn opening_the_menu_flushes_the_save_ram() {
             let mut rig = Rig::launch(dir, Setup::default());
             rig.run(30);
             rig.press(&[Control::Select, Control::Start]);
+            rig.run(1);
+            rig.release(&[Control::Select, Control::Start]);
             assert!(rig.session.run_frame(None).unwrap().menu_opened);
             assert_eq!(rig.session.save_stats().unwrap().sent, 1);
         }

@@ -30,7 +30,7 @@ Each entry has `applies_to`: the displays on which it has an effect (`AppliesTo:
 
 Picture style and refresh policy are independent settings. The "Native, double refresh" row of the picture style table is the pair `style = native` with `refresh_policy = exact_x2`. The UI can show the pair as one row.
 
-`input.menu_hold_start_seconds`: hold Start alone on a controller for this number of seconds to open the quick menu. 0 turns it off. Select and Start together still open the quick menu at once, and their 5 s hold is still the blind recovery. It is for an arcade panel with no Select button. `neptron-input` describes the exact rule. The schema has no help text field, so the menu help text is in the doc comment of `INPUT_MENU_HOLD_START_SECONDS`.
+`input.menu_hold_start_seconds`: hold Start alone on a controller for this number of seconds to open the quick menu. 0 turns it off. Select and Start together still open the quick menu at their release, and their 5 s hold is still the blind recovery. It is for an arcade panel with no Select button. `neptron-input` describes the exact rule. The schema has no help text field, so the menu help text is in the doc comment of `INPUT_MENU_HOLD_START_SECONDS`.
 
 - The app reads the resolved value, converts it to nanoseconds, and passes it to `Hotkeys::set_start_hold_ns` of `neptron-input`. The value applies live.
 - The setting is global only. A controller belongs to the machine, not to a game or a system.

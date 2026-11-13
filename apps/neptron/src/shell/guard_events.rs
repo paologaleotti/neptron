@@ -198,13 +198,16 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     }
 
     /// The audio cue of the blind recovery. In the game list the app owns
-    /// the sink; in a game the session owns it, and the cue is left out
-    /// (see the open points of the README).
+    /// the sink; in a game the session writes the cue to its sink.
     fn play_cue(&mut self) {
-        let Stage::List(list) = &mut self.stage else {
-            return;
+        let rate = match &self.stage {
+            Stage::List(list) => list.audio.rate_hz(),
+            Stage::Game(game) => match game.session.audio_sink() {
+                Some(sink) => sink.rate_hz(),
+                None => return,
+            },
+            Stage::Ended => return,
         };
-        let rate = list.audio.rate_hz();
         let frames = rate * CUE_MS / 1_000;
         let half_period = (rate / CUE_HZ / 2).max(1);
         let cue: Vec<i16> = (0..frames)
@@ -219,7 +222,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             .collect();
         // The sink takes what fits; a cue cut short by a full queue still
         // sounds.
-        let _ = list.audio.write(&cue);
+        let _ = match &mut self.stage {
+            Stage::List(list) => list.audio.write(&cue),
+            Stage::Game(game) => game.session.write_cue(&cue),
+            Stage::Ended => 0,
+        };
     }
 }
 

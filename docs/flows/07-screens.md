@@ -174,7 +174,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Confirm dialog | screen under it | Right, then Accept on `Keep` | `QUIET_FRAMES_BEFORE_MOVE` = 60 frames with no direction before Right works | `KeepMode`: the guard confirms, the waiting settings go to their files, the guard record is saved |
 | Confirm dialog | screen under it | No answer before the deadline | `CONFIRM_WINDOW_NS` = 10 s | The guard reverts (`Timeout`), a Note notice |
 | Notice | screen under it | Accept or Back | `NOTICES_MAX` = 8 notices kept, the oldest goes | `DismissNotice` removes it from the snapshot. The next notice shows. |
-| any | safe mode | Select and Start held together on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | The guard puts the safe default on the wire. A Warning notice. In a run that shows the menus (not in a game) also a short tone (`CUE_MS` = 200 ms at `CUE_HZ` = 880 Hz). See [the guard](03-guard.md). |
+| any | safe mode | Select and Start held together on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | The guard puts the safe default on the wire. A Warning notice. Also a short tone, in the game list and in a game (`CUE_MS` = 200 ms at `CUE_HZ` = 880 Hz). See [the guard](03-guard.md). |
 
 ## The rows of each screen
 

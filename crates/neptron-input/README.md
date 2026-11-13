@@ -97,13 +97,14 @@ The same code runs on the device, where no video subsystem and no pump exist, an
 
 | Hotkey | Combination on one port | Fires |
 | --- | --- | --- |
-| Quick menu | Select + Start (`QUICK_MENU_COMBO`) | when the combination goes down |
+| Quick menu | Select + Start (`QUICK_MENU_COMBO`) | when the combination goes up again (one of its buttons is released), after less than `BLIND_RECOVERY_HOLD_NS` |
 | Blind recovery | Select + Start (`BLIND_RECOVERY_COMBO`) | when it has stayed down for `BLIND_RECOVERY_HOLD_NS` (5 s) |
 | Quick menu | Start alone (`START_HOLD_BUTTON`), off by default | when it has stayed down alone for the time of `set_start_hold_ns` |
 
 - Each fires once per hold. A release starts the hold time again.
 - The hold counts from the first `update` that sees the combination, so call `update` every frame, also with no event.
-- A recovery hold opens the quick menu first. The frontend acts on the recovery even when the menu is open.
+- A recovery hold never opens the quick menu: the menu fires at the release, and only after a shorter press. The frontend acts on the recovery even when the menu is open.
+- `cancel_quick_menu()` ends every press of Select and Start in progress: its release opens no menu. The session calls it when the menu closes, so the combination held across the close does not open the menu again. The recovery hold goes on.
 - The recogniser reads the port state only. It needs no picture and no UI, and the control API and scripted input can trigger it.
 
 ### The Start hold
@@ -115,7 +116,7 @@ The rule for "Start alone", on each port:
 - The hold starts at the first `update` that sees Start down and Select (`START_HOLD_BLOCKER`) up.
 - It fires one `Hotkey::QuickMenu` when it has lasted the hold time: at exactly the hold time, not one nanosecond before.
 - A release of Start ends the hold. The next press starts a new one.
-- Select down on the same port ends the hold, and no new hold starts until Start is released. So Select and Start give only their own quick menu at once, also when Select goes up again while Start stays down. A Start hold that fired and a recovery hold that follows on the same press of Start are both possible: Start alone fires first, then Select joins and the combination behaves as always.
+- Select down on the same port ends the hold, and no new hold starts until Start is released. So Select and Start give only their own quick menu, at their release, also when Select goes up again while Start stays down. A Start hold that fired and a recovery hold that follows on the same press of Start are both possible: Start alone fires first, then Select joins and the combination behaves as always.
 - Other buttons on the port, and every button on other ports, do not matter.
 - A disconnect releases Start, so it ends the hold.
 - A new hold time ends every hold in progress. The same time again changes nothing. A time set before the first `update` applies to a Start held from power-on.

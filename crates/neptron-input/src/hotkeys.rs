@@ -6,8 +6,8 @@ use neptron_types::Control;
 use crate::device::MAX_PORTS;
 use crate::ports::PortStates;
 
-/// The buttons that open the quick menu when they are all down on one
-/// port.
+/// The buttons that open the quick menu when they go up after a press of
+/// all of them on one port, held for less than [`BLIND_RECOVERY_HOLD_NS`].
 pub const QUICK_MENU_COMBO: [Control; 2] = [Control::Select, Control::Start];
 
 /// The buttons that, held together on one port for
@@ -45,10 +45,13 @@ pub enum Hotkey {
 /// the port state took the events of the frame, also when no event came,
 /// so that a hold can complete.
 ///
-/// A combination fires once each time it goes down: the quick menu at
-/// once, the blind recovery when it has stayed down for
-/// [`BLIND_RECOVERY_HOLD_NS`]. A release starts the hold time again. With
-/// the default combinations, a recovery hold opens the quick menu first.
+/// A combination fires once each time it goes down. The blind recovery
+/// fires when it has stayed down for [`BLIND_RECOVERY_HOLD_NS`]. The quick
+/// menu fires when the combination goes up again (one of its buttons is
+/// released) after less than [`BLIND_RECOVERY_HOLD_NS`]: the two share
+/// their buttons, and a hold long enough to be a recovery must not also
+/// open the menu, which would pause a game under the recovered picture. A
+/// release starts the hold time again.
 ///
 /// The Start hold is off until [`Hotkeys::set_start_hold_ns`] gives it a
 /// time. Then Start held alone on a port for that time also opens the quick
@@ -56,7 +59,7 @@ pub enum Hotkey {
 /// and Select has not gone down since. Other buttons do not matter.
 #[derive(Debug, Clone, Default)]
 pub struct Hotkeys {
-    quick_menu: ComboTimer,
+    quick_menu: ReleaseCombo,
     blind_recovery: ComboTimer,
     start_hold: StartHold,
 }
@@ -86,6 +89,14 @@ impl Hotkeys {
         }
     }
 
+    /// Ends every Select and Start press in progress for the quick menu: its
+    /// release opens no menu. The app calls it when the menu closes, so the
+    /// combination held across the close does not open the menu again at
+    /// its release. The blind recovery hold goes on.
+    pub fn cancel_quick_menu(&mut self) {
+        self.quick_menu.cancel();
+    }
+
     /// How long Start must stay held alone to open the quick menu, in
     /// nanoseconds. 0 when the Start hold is off.
     pub fn start_hold_ns(&self) -> u64 {
@@ -98,10 +109,13 @@ impl Hotkeys {
     /// give a quick menu in the same hold of Start.
     pub fn update(&mut self, ports: &PortStates, now_ns: u64, out: &mut Vec<Hotkey>) {
         for port in 0..MAX_PORTS {
-            if self
-                .quick_menu
-                .fires(ports, port, &QUICK_MENU_COMBO, 0, now_ns)
-            {
+            if self.quick_menu.fires_on_release(
+                ports,
+                port,
+                &QUICK_MENU_COMBO,
+                BLIND_RECOVERY_HOLD_NS,
+                now_ns,
+            ) {
                 out.push(Hotkey::QuickMenu { port });
             }
             if self.start_hold.fires(ports, port, now_ns) {
@@ -152,6 +166,47 @@ impl ComboTimer {
         }
         self.fired[i] = true;
         true
+    }
+}
+
+/// The press of a combination that fires at its release.
+#[derive(Debug, Clone, Copy, Default)]
+struct ReleaseCombo {
+    /// When the combination went down on the port, while it stays down and
+    /// can still fire.
+    since_ns: [Option<u64>; MAX_PORTS as usize],
+    /// True while the combination is down on the port.
+    down: [bool; MAX_PORTS as usize],
+}
+
+impl ReleaseCombo {
+    /// True when `combo` on `port` goes up at `now_ns` after a hold
+    /// shorter than `limit_ns`.
+    fn fires_on_release(
+        &mut self,
+        ports: &PortStates,
+        port: u8,
+        combo: &[Control],
+        limit_ns: u64,
+        now_ns: u64,
+    ) -> bool {
+        let i = usize::from(port);
+        if combo.iter().all(|control| ports.is_held(port, *control)) {
+            if !self.down[i] {
+                self.since_ns[i] = Some(now_ns);
+            }
+            self.down[i] = true;
+            return false;
+        }
+        self.down[i] = false;
+        self.since_ns[i]
+            .take()
+            .is_some_and(|since| now_ns.saturating_sub(since) < limit_ns)
+    }
+
+    /// The presses in progress fire nothing at their release.
+    fn cancel(&mut self) {
+        self.since_ns = [None; MAX_PORTS as usize];
     }
 }
 
