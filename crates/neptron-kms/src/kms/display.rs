@@ -5,14 +5,14 @@ use std::time::Duration;
 use neptron_backend::{Display, DisplayError};
 use neptron_gfx::gles::{GbmTarget, GlesError, GlesRenderer};
 use neptron_safety::ValidatedMode;
-use neptron_types::{FlipEvent, GpuCaps, Modeline, Scene};
+use neptron_types::{FlipEvent, GpuCaps, Modeline, Scene, TvStandard};
 
 use super::KmsError;
 use super::device::{self, Card, Objects, PLANE_FB_ID};
 use super::events;
 use super::ffi::{self, Bo, Gbm, LinearBy};
 use super::request::{self, NONBLOCK, PAGE_FLIP_EVENT, Request};
-use crate::{FlipState, VblankCounter, WireMode};
+use crate::{ConnectorClass, FlipState, VblankCounter, WireMode};
 
 /// What the caller decides for the display. The backend decides nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +137,23 @@ impl KmsDisplay {
     /// connector has none.
     pub fn subconnector(&self) -> Option<&str> {
         self.objects.subconnector.as_deref()
+    }
+
+    /// The class of the connector in use: a composite connector is
+    /// [`ConnectorClass::Analog`].
+    pub fn connector_class(&self) -> ConnectorClass {
+        self.objects.class
+    }
+
+    /// The TV standards the connector in use can set: `None` when it has
+    /// no `TV mode` property (HDMI, VGA, `vkms`), else the standards whose
+    /// [`TvStandard::kms_name`] is a value of the property. A name with two
+    /// line systems (`PAL`, `Mono`) gives both standards; the driver's
+    /// check refuses a pair it does not have, and `set_mode` then refuses
+    /// the mode. A mode without a standard is refused on a connector with
+    /// the property.
+    pub fn tv_standards(&self) -> Option<Vec<TvStandard>> {
+        self.objects.tv_mode.as_ref().map(crate::tv::offered)
     }
 
     /// Lowers the caps that [`Display::caps`] reports to `limit`: the

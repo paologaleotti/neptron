@@ -12,6 +12,7 @@ use drm::{ClientCapability, Device};
 
 use super::KmsError;
 use crate::connector::DVI_I_TYPE;
+use crate::tv::TvModeProperty;
 use crate::{ConnectorClass, ConnectorFacts, DRM_MAJOR, choose, is_drm_node};
 
 /// An open DRM device. It owns its descriptor.
@@ -96,8 +97,12 @@ impl Card {
 pub(super) struct Objects {
     pub connector: u32,
     pub connector_name: String,
+    /// The class of the connector, as the choice saw it.
+    pub class: ConnectorClass,
     /// The `subconnector` property of the connector, by its enum name.
     pub subconnector: Option<String>,
+    /// The connector's `TV mode` property, when it has one.
+    pub tv_mode: Option<TvModeProperty>,
     pub crtc: u32,
     pub plane: u32,
     pub props: Props,
@@ -108,6 +113,9 @@ pub(super) struct Objects {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Props {
     pub connector_crtc_id: u32,
+    /// The connector's margin properties, in [`MARGIN_PROPS`] order, each
+    /// when it has it.
+    pub margins: [Option<u32>; MARGIN_PROPS.len()],
     pub crtc_mode_id: u32,
     pub crtc_active: u32,
     /// In [`PLANE_PROPS`] order.
@@ -127,6 +135,13 @@ pub(super) struct Writeback {
 pub(super) const PLANE_PROPS: [&str; 10] = [
     "FB_ID", "CRTC_ID", "SRC_X", "SRC_Y", "SRC_W", "SRC_H", "CRTC_X", "CRTC_Y", "CRTC_W", "CRTC_H",
 ];
+/// The margin properties of a TV connector, in the order of
+/// [`Props::margins`].
+pub(super) const MARGIN_PROPS: [&str; 4] =
+    ["left margin", "right margin", "top margin", "bottom margin"];
+/// The name of the connector property that sets the TV standard. The
+/// legacy property `mode` of some drivers is not read.
+const TV_MODE: &str = "TV mode";
 /// Index of `FB_ID` in [`PLANE_PROPS`].
 pub(super) const PLANE_FB_ID: usize = 0;
 /// Index of `CRTC_ID` in [`PLANE_PROPS`].
@@ -213,6 +228,7 @@ pub(super) fn select(
     } else {
         None
     };
+    let (tv_mode, margins) = tv_props(card, info.handle())?;
     let mut plane_props = [0; PLANE_PROPS.len()];
     for (slot, name) in plane_props.iter_mut().zip(PLANE_PROPS) {
         *slot = prop(card, plane, "plane", name)?;
@@ -220,11 +236,14 @@ pub(super) fn select(
     Ok(Objects {
         connector: info.handle().into(),
         connector_name: name,
+        class: facts[index].class,
         subconnector: subconnector(card, info.handle()),
+        tv_mode,
         crtc: crtc.into(),
         plane: plane.into(),
         props: Props {
             connector_crtc_id: prop(card, info.handle(), "connector", "CRTC_ID")?,
+            margins,
             crtc_mode_id: prop(card, crtc, "CRTC", "MODE_ID")?,
             crtc_active: prop(card, crtc, "CRTC", "ACTIVE")?,
             plane: plane_props,
@@ -257,6 +276,47 @@ fn subconnector(card: &Card, handle: connector::Handle) -> Option<String> {
 
 /// The name of the connector property that gives the downstream port type.
 const SUBCONNECTOR: &str = "subconnector";
+
+/// The `TV mode` property of the connector with its enum values, and the
+/// ids of its margin properties. A read that fails is an error, not "no
+/// property": without the property a mode with no standard would pass.
+/// A `TV mode` property that is not an enum has no value, so every mode
+/// is refused on it.
+fn tv_props(
+    card: &Card,
+    handle: connector::Handle,
+) -> Result<(Option<TvModeProperty>, [Option<u32>; MARGIN_PROPS.len()]), KmsError> {
+    let set = card
+        .get_properties(handle)
+        .map_err(KmsError::io("read the properties of a DRM object"))?;
+    let (ids, _) = set.as_props_and_values();
+    let mut tv_mode = None;
+    let mut margins = [None; MARGIN_PROPS.len()];
+    for &id in ids {
+        let info = card
+            .get_property(id)
+            .map_err(KmsError::io("read a property description"))?;
+        let name = info.name().to_bytes();
+        if name == TV_MODE.as_bytes() {
+            let values = match info.value_type() {
+                property::ValueType::Enum(e) => e
+                    .values()
+                    .1
+                    .iter()
+                    .map(|v| (v.value(), v.name().to_string_lossy().into_owned()))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            tv_mode = Some(TvModeProperty {
+                prop: u32::from(id),
+                values,
+            });
+        } else if let Some(slot) = MARGIN_PROPS.iter().position(|m| m.as_bytes() == name) {
+            margins[slot] = Some(u32::from(id));
+        }
+    }
+    Ok((tv_mode, margins))
+}
 
 fn current_crtc(card: &Card, info: &connector::Info) -> Result<Option<crtc::Handle>, KmsError> {
     let Some(enc) = info.current_encoder() else {
