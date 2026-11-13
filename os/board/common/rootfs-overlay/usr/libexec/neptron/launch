@@ -10,4 +10,5 @@ mkdir -p /run/neptron
 while [ -e /run/neptron/hold ]; do
 	sleep 1
 done
+. /usr/libexec/neptron/mesa-cache
 exec /usr/bin/neptron-launch -- /usr/bin/neptron --backend kms

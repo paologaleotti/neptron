@@ -187,6 +187,83 @@ mod tests {
         assert!(post_build.contains("check-kernel-config.sh"));
     }
 
+    /// Sources the Mesa cache script with `/state` at `state` and the mount
+    /// table `mounts` (no file for `None`), and returns the cache folder
+    /// and the disable flag that it exports.
+    fn mesa_cache(name: &str, mounts: Option<&str>, state_is_file: bool) -> (String, String, bool) {
+        let script = os_dir().join("board/common/rootfs-overlay/usr/libexec/neptron/mesa-cache");
+        let dir = std::env::temp_dir().join(format!("xtask-mesa-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = dir.join("state");
+        if state_is_file {
+            std::fs::write(&state, "not a folder").unwrap();
+        } else {
+            std::fs::create_dir_all(&state).unwrap();
+        }
+        let table = dir.join("mounts");
+        if let Some(mounts) = mounts {
+            let text = mounts.replace("STATE", state.to_str().unwrap());
+            std::fs::write(&table, text).unwrap();
+        }
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(r#". "$0"; echo "$MESA_SHADER_CACHE_DIR|$MESA_SHADER_CACHE_DISABLE|$MESA_SHADER_CACHE_MAX_SIZE""#)
+            .arg(&script)
+            .env("NEPTRON_STATE", &state)
+            .env("NEPTRON_MOUNTS", &table)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        assert!(out.stderr.is_empty(), "{out:?}");
+        let made = state.join("cache/mesa").is_dir();
+        let line = String::from_utf8(out.stdout).unwrap();
+        let line = line.trim().replace(state.to_str().unwrap(), "STATE");
+        std::fs::remove_dir_all(&dir).unwrap();
+        let mut parts = line.split('|');
+        let cache = parts.next().unwrap_or_default().to_owned();
+        let disable = parts.next().unwrap_or_default().to_owned();
+        assert_eq!(
+            parts.next(),
+            Some(if cache.is_empty() { "" } else { "64M" })
+        );
+        (cache, disable, made)
+    }
+
+    #[test]
+    fn the_mesa_cache_is_on_the_state_partition_or_off() {
+        let disk = "/dev/sda2 / erofs ro 0 0\n/dev/sda3 STATE ext4 rw,noatime 0 0\n";
+        assert_eq!(
+            mesa_cache("disk", Some(disk), false),
+            ("STATE/cache/mesa".to_owned(), String::new(), true)
+        );
+        let ram = "/dev/sda2 / erofs ro 0 0\nstate STATE tmpfs rw 0 0\n";
+        assert_eq!(
+            mesa_cache("ram", Some(ram), false),
+            (String::new(), "true".to_owned(), false),
+            "a RAM folder gets no cache"
+        );
+        assert_eq!(
+            mesa_cache("none", None, false),
+            (String::new(), "true".to_owned(), false),
+            "no mount table"
+        );
+        assert_eq!(
+            mesa_cache("blocked", Some(disk), true),
+            (String::new(), "true".to_owned(), false),
+            "a folder that cannot be made turns the cache off and stops nothing"
+        );
+        let launch = |rel: &str| std::fs::read_to_string(os_dir().join(rel)).unwrap();
+        for rel in [
+            "board/common/rootfs-overlay/usr/libexec/neptron/launch",
+            "board/pc/dev-overlay/usr/libexec/neptron/launch",
+        ] {
+            assert!(
+                launch(rel).contains(". /usr/libexec/neptron/mesa-cache\n"),
+                "{rel} does not source the Mesa cache script"
+            );
+        }
+    }
+
     #[test]
     fn the_dev_variant_has_the_realtek_ethernet_firmware_and_no_other() {
         let dev = fragment("configs/neptron_pc_x86_64_dev.fragment");
@@ -202,7 +279,9 @@ mod tests {
         assert_eq!(fragment("board/pc/network.config")["CONFIG_R8169"], "y");
         let release = defconfig(Arch::X86_64);
         assert!(
-            !release.keys().any(|k| k.starts_with("BR2_PACKAGE_LINUX_FIRMWARE")),
+            !release
+                .keys()
+                .any(|k| k.starts_with("BR2_PACKAGE_LINUX_FIRMWARE")),
             "the release image starts no network and needs no firmware"
         );
     }

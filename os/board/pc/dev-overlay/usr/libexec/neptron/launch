@@ -27,6 +27,7 @@ while [ -e /run/neptron/hold ]; do
 	sleep 1
 done
 
+. /usr/libexec/neptron/mesa-cache
 launcher=/usr/bin/neptron-launch
 frontend=/usr/bin/neptron
 data=/usr/share/neptron

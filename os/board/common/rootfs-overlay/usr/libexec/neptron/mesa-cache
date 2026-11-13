@@ -1,0 +1,29 @@
+# Sourced by the launch scripts: the place of the Mesa shader cache.
+#
+# Mesa keeps the cache under $HOME/.cache, on the read-only root, and logs
+# at each start that it cannot make it. The cache goes to the state
+# partition. When /state is a RAM folder (no state partition, or one that
+# did not mount), the cache is off: there it only uses memory. The cache
+# can be lost at any time, and no step here stops the start.
+#
+# NEPTRON_STATE and NEPTRON_MOUNTS change the two paths for a test.
+
+mesa_state=${NEPTRON_STATE:-/state}
+mesa_mounts=${NEPTRON_MOUNTS:-/proc/mounts}
+mesa_on_disk=
+if [ -r "$mesa_mounts" ]; then
+	# The last line for the folder is the mount in use.
+	while read -r _ mesa_dir mesa_type _; do
+		if [ "$mesa_dir" = "$mesa_state" ]; then
+			[ "$mesa_type" = ext4 ] && mesa_on_disk=yes || mesa_on_disk=
+		fi
+	done < "$mesa_mounts"
+fi
+if [ -n "$mesa_on_disk" ] && mkdir -p "$mesa_state/cache/mesa" 2>/dev/null; then
+	export MESA_SHADER_CACHE_DIR="$mesa_state/cache/mesa"
+	# Mesa's default limit is 1 GiB, too much for the state partition.
+	export MESA_SHADER_CACHE_MAX_SIZE=64M
+else
+	export MESA_SHADER_CACHE_DISABLE=true
+fi
+unset mesa_state mesa_mounts mesa_on_disk mesa_dir mesa_type
