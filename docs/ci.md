@@ -47,6 +47,16 @@ They apply to pull requests only.
 
 A change to the frontend alone does not build an image in a pull request, as the plan asks: an image build takes much longer than the other checks, and the frontend runs in tier 2 on the fakes. `main` and the nightly run build the image with it.
 
+## Runners
+
+Measured on 2026-11-13.
+
+| Runner | CPUs and memory | Free disk | KVM |
+| --- | --- | --- | --- |
+| `ubuntu-24.04-arm` | 4, 15 GiB | `/` 107 GB, 123 GB after "Free disk space"; no `/mnt` | No: there is no `/dev/kvm`, so the aarch64 guest runs under emulation (TCG) |
+
+The image job deletes about 16 GB of SDKs that it does not use (.NET, Android, GHC, CodeQL, Swift, PowerShell, Chromium, Azure CLI, Julia, Java). It keeps the Buildroot data in `/mnt/neptron` when `/mnt` has 50 GB free, else in `/home/runner/neptron-work`. The Docker volumes of `os build` are bind volumes on that directory, so the runner user can cache and pack them.
+
 ## Caches
 
 | What | Where | Key | Who saves |
