@@ -6,14 +6,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use neptron::devices::MaybeSink;
+use neptron::devices::{audio_output_setting, open_audio};
 use neptron::display::{AUTO, Detected};
 use neptron::display_wait::{NO_DISPLAY_EXIT_CODE, display_ready, wait_for_display, wait_line};
 use neptron::logbook::LogLines;
 use neptron::options::Options;
 use neptron::presets::Presets;
 use neptron::{Devices, NextRun, Runtime, Shell};
-use neptron_audio::{Resampling, Sdl3Sink};
+use neptron_audio::{Resampling, Sdl3Outputs};
 use neptron_backend::{Clock, Display, InputSource};
 use neptron_kms::{ChoiceError, KmsConfig, KmsDisplay, KmsError};
 use neptron_session::RunRateSource;
@@ -118,14 +118,19 @@ pub fn run(
     // still shows the picture, reads the keyboards and reaches its guard,
     // so a box with no usable audio does not restart forever.
     let mut notices = Vec::new();
-    let audio = match Sdl3Sink::open() {
-        Ok(sink) => MaybeSink::Device(sink),
-        Err(e) => {
-            crate::say!("neptron: cannot open the audio, the run has no sound: {e}");
-            notices.push(format!("No sound: the audio device did not open ({e})."));
-            MaybeSink::Silent
-        }
-    };
+    // The device opens here, once per process, before the first frame:
+    // every launch and every return to the game list is a new process, so
+    // a new output takes effect at the next run.
+    let opened = open_audio(
+        Sdl3Outputs::start().map_err(|e| e.to_string()),
+        &audio_output_setting(paths),
+    );
+    crate::say!("neptron: {}", opened.log);
+    for notice in &opened.notices {
+        crate::say!("neptron: {notice}");
+    }
+    notices.extend(opened.notices);
+    let audio = opened.sink;
     let pads = match neptron_input::SdlGamepads::open() {
         Ok(pads) => Some(pads),
         Err(e) => {
@@ -148,6 +153,7 @@ pub fn run(
         output,
         subconnector,
         notices,
+        audio_outputs: opened.outputs,
     };
     let devices = Devices {
         display,

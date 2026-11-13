@@ -1,6 +1,12 @@
 //! Devices that may be missing on a machine: a run goes on without them.
 
+use std::fmt::Write as _;
+
+use neptron_audio::{AudioOutputs, OutputChoice, open_output};
 use neptron_backend::AudioSink;
+use neptron_settings::{AUDIO_OUTPUT, Schema, Storage, Target};
+
+use crate::Paths;
 
 /// The rate the silent sink reports, in hertz.
 pub const NULL_SINK_RATE_HZ: u32 = 48_000;
@@ -13,6 +19,81 @@ pub enum MaybeSink<S> {
     Device(S),
     /// No sound device: every sample is dropped, and the queue stays empty.
     Silent,
+}
+
+/// The sound device of a run, opened once at the start of the process.
+#[derive(Debug)]
+pub struct OpenedAudio<S> {
+    /// The sink, or the silent sink when no device opened.
+    pub sink: MaybeSink<S>,
+    /// The options of the audio output row after `auto`.
+    pub outputs: Vec<OutputChoice>,
+    /// The notices for the player, in order.
+    pub notices: Vec<String>,
+    /// One line for the log: the driver, the devices, and the one that
+    /// opened.
+    pub log: String,
+}
+
+/// The `audio.output` setting of the global file: `auto` when the file
+/// does not set it or cannot be read.
+pub fn audio_output_setting(paths: &Paths) -> String {
+    let schema = Schema::builtin();
+    let global = Storage::new(paths.config())
+        .load(&schema, Target::Global)
+        .ok();
+    global
+        .as_ref()
+        .and_then(|l| l.parsed.layer.get(AUDIO_OUTPUT).map(ToString::to_string))
+        .unwrap_or_else(|| neptron_audio::AUTO_OUTPUT.to_owned())
+}
+
+/// Opens the sound device that `setting` names, through `outputs`, the
+/// backend that started or the reason it did not. A device that is absent
+/// or does not open gives way to the default device; no device at all
+/// gives the silent sink. The setting is never changed.
+pub fn open_audio<O: AudioOutputs>(
+    outputs: Result<O, String>,
+    setting: &str,
+) -> OpenedAudio<O::Sink> {
+    let mut outputs = match outputs {
+        Ok(outputs) => outputs,
+        Err(reason) => {
+            return OpenedAudio {
+                sink: MaybeSink::Silent,
+                outputs: Vec::new(),
+                notices: vec![format!(
+                    "No sound: the audio device did not open ({reason})."
+                )],
+                log: format!("audio: the backend did not start: {reason}"),
+            };
+        }
+    };
+    let opened = open_output(&mut outputs, setting);
+    let mut log = format!("audio: driver {}; devices", outputs.driver());
+    if opened.devices.is_empty() {
+        log.push_str(" none");
+    }
+    for (i, device) in opened.devices.iter().enumerate() {
+        let sep = if i == 0 { " " } else { ", " };
+        // Writing to a String cannot fail.
+        let _ = write!(log, "{sep}\"{device}\"");
+    }
+    if let Some(error) = &opened.list_error {
+        let _ = write!(log, " ({error})");
+    }
+    match &opened.opened {
+        Some(device) => {
+            let _ = write!(log, "; opened {device}");
+        }
+        None => log.push_str("; none opened"),
+    }
+    OpenedAudio {
+        sink: opened.sink.map_or(MaybeSink::Silent, MaybeSink::Device),
+        outputs: opened.choices,
+        notices: opened.notices.iter().map(ToString::to_string).collect(),
+        log,
+    }
 }
 
 impl<S: AudioSink> AudioSink for MaybeSink<S> {
@@ -40,7 +121,86 @@ impl<S: AudioSink> AudioSink for MaybeSink<S> {
 
 #[cfg(test)]
 mod tests {
+    use neptron_audio::{ALSA_DRIVER, OutputError};
+    use neptron_testkit::{FakeAudio, SimClock};
+
     use super::*;
+
+    /// A backend with two devices of one card, where `refuse` names the
+    /// devices that do not open.
+    struct Outputs {
+        refuse: Vec<Option<&'static str>>,
+    }
+
+    impl AudioOutputs for Outputs {
+        type Sink = FakeAudio;
+
+        fn driver(&self) -> &str {
+            ALSA_DRIVER
+        }
+
+        fn devices(&mut self) -> Result<Vec<String>, OutputError> {
+            Ok(vec![
+                "HDA Intel PCH:ALC221 Analog".to_owned(),
+                "HDA Intel PCH:HDMI 0".to_owned(),
+            ])
+        }
+
+        fn open(&mut self, device: Option<&str>) -> Result<FakeAudio, OutputError> {
+            if self.refuse.contains(&device) {
+                return Err(OutputError::Open {
+                    device: device.unwrap_or("default").to_owned(),
+                    reason: "busy".to_owned(),
+                });
+            }
+            Ok(FakeAudio::new(SimClock::new(), 48_000, 6_144))
+        }
+    }
+
+    #[test]
+    fn the_named_device_opens_and_the_log_names_it() {
+        let outputs = Outputs { refuse: Vec::new() };
+        let audio = open_audio(Ok(outputs), "HDA Intel PCH:ALC221 Analog");
+        assert!(matches!(audio.sink, MaybeSink::Device(_)));
+        assert!(audio.notices.is_empty());
+        assert_eq!(audio.outputs.len(), 1);
+        assert_eq!(
+            audio.log,
+            "audio: driver alsa; devices \"HDA Intel PCH:ALC221 Analog\", \"HDA Intel PCH:HDMI 0\"; opened \"HDA Intel PCH:ALC221 Analog\""
+        );
+    }
+
+    #[test]
+    fn an_absent_device_plays_on_the_default_with_a_notice() {
+        let outputs = Outputs { refuse: Vec::new() };
+        let audio = open_audio(Ok(outputs), "USB Audio:USB Audio");
+        assert!(matches!(audio.sink, MaybeSink::Device(_)));
+        assert_eq!(
+            audio.notices,
+            [
+                "The audio output \"USB Audio:USB Audio\" is not connected. The default output plays."
+            ]
+        );
+        assert!(audio.log.ends_with("; opened default"), "{}", audio.log);
+    }
+
+    #[test]
+    fn no_device_and_no_backend_give_the_silent_sink() {
+        let outputs = Outputs { refuse: vec![None] };
+        let audio = open_audio(Ok(outputs), "auto");
+        assert!(matches!(audio.sink, MaybeSink::Silent));
+        assert_eq!(
+            audio.notices,
+            ["No sound: the audio device did not open (busy)."]
+        );
+        assert!(audio.log.ends_with("; none opened"), "{}", audio.log);
+        let audio = open_audio::<Outputs>(Err("no ALSA".to_owned()), "auto");
+        assert!(matches!(audio.sink, MaybeSink::Silent));
+        assert_eq!(
+            audio.notices,
+            ["No sound: the audio device did not open (no ALSA)."]
+        );
+    }
 
     struct Fixed;
 

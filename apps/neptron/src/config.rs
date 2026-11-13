@@ -2,9 +2,9 @@
 //! start, and changed in memory as the frame loop writes them.
 
 use neptron_settings::{
-    DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH,
-    DISPLAY_SCANLINES, DISPLAY_STYLE, INPUT_MENU_HOLD_START_SECONDS, Layer, Layers, Level,
-    Resolved, Schema, SetError, Storage, Target, Value, resolve_key,
+    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
+    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, INPUT_MENU_HOLD_START_SECONDS,
+    Layer, Layers, Level, Resolved, Schema, SetError, Storage, Target, Value, resolve_key,
 };
 use neptron_video::{
     PolicySettings, ScanlineSettings, SettingsError, policy_settings, scanline_settings,
@@ -204,6 +204,17 @@ impl Config {
         u64::try_from(self.int(INPUT_MENU_HOLD_START_SECONDS))
             .unwrap_or(0)
             .saturating_mul(1_000_000_000)
+    }
+
+    /// The volume of the game, in percent: 100 is the core's own level.
+    pub fn volume_percent(&self) -> u32 {
+        u32::try_from(self.int(AUDIO_VOLUME)).unwrap_or(0)
+    }
+
+    /// The audio output setting: `auto` or a device name as the audio
+    /// backend lists it.
+    pub fn audio_output(&self) -> String {
+        self.text(AUDIO_OUTPUT)
     }
 
     /// The monitor setting: `auto` or a profile id.

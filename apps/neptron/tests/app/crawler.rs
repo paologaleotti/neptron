@@ -106,6 +106,7 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
         "home",
         "games",
         "display",
+        "audio",
         "options",
         "pattern/grid",
         "quick-menu",

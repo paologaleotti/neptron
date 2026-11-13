@@ -1,14 +1,15 @@
 //! The settings pages of the UI: schema entries as menu rows, and a menu
 //! value back as a schema value.
 
+use neptron_audio::{OutputChoice, output_label};
 use neptron_settings::{
-    DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH,
-    DISPLAY_SCANLINES, DISPLAY_STYLE, DisplayClass, Entry, INPUT_MENU_HOLD_START_SECONDS, Kind,
-    Level, Source, Value,
+    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
+    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, DisplayClass, Entry,
+    INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
 };
 use neptron_ui::Value as UiValue;
 use neptron_ui::screens::{
-    DISPLAY_PAGE, GRID_PATTERN, OPEN_DISPLAY, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PATTERN, OPEN_DISPLAY, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
 };
 use neptron_ui::snapshot::{
     ActionId, ChoiceOption, Level as UiLevel, MenuItem, Scopes, SettingKey, SettingValue,
@@ -40,13 +41,22 @@ pub const DISPLAY_KEYS: [&str; 7] = [
     INPUT_MENU_HOLD_START_SECONDS,
 ];
 
+/// The rows of the audio panel, written at the global level.
+pub const AUDIO_KEYS: [&str; 2] = [AUDIO_VOLUME, AUDIO_OUTPUT];
+
 /// The settings rows of the quick menu, written at the game level.
-pub const QUICK_MENU_KEYS: [&str; 4] = [
+pub const QUICK_MENU_KEYS: [&str; 5] = [
     DISPLAY_STYLE,
     DISPLAY_REFRESH_POLICY,
     DISPLAY_SCANLINES,
     DISPLAY_SCANLINE_STRENGTH,
+    AUDIO_VOLUME,
 ];
+
+/// The detail of the `auto` option of the audio output.
+const AUTO_OUTPUT_DETAIL: &str = "System default";
+/// The detail of a stored output that the backend did not list.
+const MISSING_OUTPUT_DETAIL: &str = "Not connected";
 
 /// The choices of the setting rows that name things, from what the run
 /// found.
@@ -62,6 +72,9 @@ pub struct Names<'a> {
     /// The class of the display that the run drives. A row whose setting
     /// does not apply to it is disabled.
     pub class: DisplayClass,
+    /// The playback devices the audio backend listed at start, as menu
+    /// options.
+    pub outputs: &'a [OutputChoice],
 }
 
 /// What one picture style gives, for its option in the menu.
@@ -93,6 +106,15 @@ pub fn display_page(config: &Config, names: Names<'_>) -> SettingsPage {
         .collect();
     rows.push(action(0, "Grid pattern", GRID_PATTERN));
     SettingsPage::new(DISPLAY_PAGE, "Display", rows)
+}
+
+/// The rows of the audio panel.
+pub fn audio_page(config: &Config, names: Names<'_>) -> SettingsPage {
+    let rows = AUDIO_KEYS
+        .iter()
+        .filter_map(|key| row(config, names, key, View::Global))
+        .collect();
+    SettingsPage::new(AUDIO_PAGE, "Audio", rows)
 }
 
 /// The rows of the quick menu.
@@ -172,7 +194,7 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
             },
             min,
             max,
-            step: if key == DISPLAY_SCANLINE_STRENGTH {
+            step: if key == DISPLAY_SCANLINE_STRENGTH || key == AUDIO_VOLUME {
                 5
             } else {
                 1
@@ -198,7 +220,7 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
                     .unwrap_or(0),
                 options: options
                     .into_iter()
-                    .map(|n| name_option(key, n, names.detected))
+                    .map(|n| name_option(key, n, names))
                     .collect(),
             }
         }
@@ -249,6 +271,7 @@ fn names_of(key: &str, names: Names<'_>, config: &Config) -> Vec<String> {
             options.extend(names.presets.profiles().iter().map(|p| p.id.clone()));
         }
         DISPLAY_OUTPUT => options.extend(names.detected.outputs.iter().cloned()),
+        AUDIO_OUTPUT => options.extend(names.outputs.iter().map(|o| o.name.clone())),
         _ => {}
     }
     let current = config.text(key);
@@ -259,17 +282,43 @@ fn names_of(key: &str, names: Names<'_>, config: &Config) -> Vec<String> {
 }
 
 /// The option of a row that names a thing: `auto` and `flat` of the
-/// monitor row say what they drive, the panel's name and native mode.
-fn name_option(key: &str, name: String, detected: &Detected) -> ChoiceOption {
+/// monitor row say what they drive, the panel's name and native mode. An
+/// audio output shows its short label, with the device part of its raw
+/// name as the detail.
+fn name_option(key: &str, name: String, names: Names<'_>) -> ChoiceOption {
+    if key == AUDIO_OUTPUT {
+        return output_option(name, names.outputs);
+    }
     let detail = match (key, name.as_str()) {
-        (DISPLAY_MONITOR, AUTO) => Some(detected.auto_text()),
-        (DISPLAY_MONITOR, FLAT) => detected.flat_text(),
+        (DISPLAY_MONITOR, AUTO) => Some(names.detected.auto_text()),
+        (DISPLAY_MONITOR, FLAT) => names.detected.flat_text(),
         _ => None,
     };
     let option = ChoiceOption::new(name);
     match detail {
         Some(detail) => option.with_detail(detail),
         None => option,
+    }
+}
+
+/// The option of an audio output: `auto`, a listed device by its label, or
+/// a stored device that the backend did not list, by its raw name.
+fn output_option(name: String, outputs: &[OutputChoice]) -> ChoiceOption {
+    if name == AUTO {
+        return ChoiceOption::new(name).with_detail(AUTO_OUTPUT_DETAIL);
+    }
+    if !outputs.iter().any(|o| o.name == name) {
+        return ChoiceOption::new(name).with_detail(MISSING_OUTPUT_DETAIL);
+    }
+    let label = output_label(outputs, &name);
+    let detail = name
+        .split_once(':')
+        .map_or(name.as_str(), |(_, device)| device.trim());
+    let option = ChoiceOption::new(label.clone());
+    if detail.is_empty() || detail == label {
+        option
+    } else {
+        option.with_detail(detail)
     }
 }
 
@@ -296,6 +345,7 @@ fn unit(key: &str) -> &'static str {
     match key {
         DISPLAY_SCANLINE_STRENGTH => "%",
         INPUT_MENU_HOLD_START_SECONDS => "s",
+        AUDIO_VOLUME => "%",
         _ => "",
     }
 }
@@ -319,7 +369,114 @@ mod tests {
     }
 
     #[test]
-    fn the_display_page_holds_every_global_setting_and_the_grid() {
+    fn the_display_and_audio_pages_hold_every_global_setting() {
+        let config = config();
+        let globals: Vec<_> = config
+            .schema()
+            .entries()
+            .iter()
+            .filter(|e| e.levels.allows(Level::Global))
+            .map(|e| e.key)
+            .collect();
+        let shown: Vec<_> = DISPLAY_KEYS.iter().chain(&AUDIO_KEYS).copied().collect();
+        assert_eq!(shown.len(), globals.len());
+        for key in globals {
+            assert!(shown.contains(&key), "{key} has no row");
+        }
+    }
+
+    #[test]
+    fn the_audio_page_shows_the_volume_and_the_outputs_with_auto_first() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let outputs = [
+            OutputChoice {
+                name: "HDA Intel PCH:ALC221 Analog".to_owned(),
+                label: "HDA Intel PCH".to_owned(),
+            },
+            OutputChoice {
+                name: "USB Audio".to_owned(),
+                label: "USB Audio".to_owned(),
+            },
+        ];
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            styles: &[],
+            outputs: &outputs,
+            class: DisplayClass::Crt,
+        };
+        let page = audio_page(&config, names);
+        assert!(page.is_for(AUDIO_PAGE));
+        assert_eq!(page.rows.len(), 2);
+        assert_eq!(
+            page.rows[0].value,
+            SettingValue::Number {
+                value: 100,
+                min: 0,
+                max: 100,
+                step: 5,
+                unit: "%".to_owned(),
+            }
+        );
+        assert!(page.rows[0].live);
+        assert!(page.rows[0].scopes.global && !page.rows[0].scopes.game);
+        let SettingValue::Choice { index, options } = &page.rows[1].value else {
+            panic!("a choice");
+        };
+        assert_eq!(*index, 0);
+        let shown: Vec<_> = options
+            .iter()
+            .map(|o| (o.label.as_str(), o.detail.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("auto", "System default"),
+                ("HDA Intel PCH", "ALC221 Analog"),
+                ("USB Audio", ""),
+            ]
+        );
+        assert!(!page.rows[1].live);
+        let output = config.schema().get(AUDIO_OUTPUT).expect("output");
+        assert_eq!(
+            value_of(output, UiValue::Choice(1), names, &config),
+            Some(Value::Text("HDA Intel PCH:ALC221 Analog".to_owned()))
+        );
+        assert_eq!(value_of(output, UiValue::Choice(3), names, &config), None);
+    }
+
+    #[test]
+    fn a_stored_output_that_is_not_connected_stays_an_option() {
+        let mut config = config();
+        config
+            .set(
+                Level::Global,
+                AUDIO_OUTPUT,
+                Value::Text("USB Audio Device:USB Audio".to_owned()),
+            )
+            .expect("set");
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            styles: &[],
+            outputs: &[],
+            class: DisplayClass::Crt,
+        };
+        let page = audio_page(&config, names);
+        let SettingValue::Choice { index, options } = &page.rows[1].value else {
+            panic!("a choice");
+        };
+        assert_eq!(*index, 1);
+        assert_eq!(options[1].label, "USB Audio Device:USB Audio");
+        assert_eq!(options[1].detail, "Not connected");
+    }
+
+    #[test]
+    fn the_display_page_holds_its_global_settings_and_the_grid() {
         let config = config();
         let presets = Presets::default();
         let detected = Detected::default();
@@ -328,17 +485,11 @@ mod tests {
             detected: &detected,
             styles: &[],
             class: DisplayClass::Crt,
+            outputs: &[],
         };
         let page = display_page(&config, names);
         assert!(page.is_for(DISPLAY_PAGE));
         assert_eq!(page.rows.len(), DISPLAY_KEYS.len() + 1);
-        let globals = config
-            .schema()
-            .entries()
-            .iter()
-            .filter(|e| e.levels.allows(Level::Global))
-            .count();
-        assert_eq!(DISPLAY_KEYS.len(), globals, "every setting has a row");
         assert_eq!(page.rows[0].scopes, Scopes::NONE, "the output is read-only");
         assert!(page.rows[1].scopes.global);
         assert!(
@@ -357,6 +508,7 @@ mod tests {
             detected: &detected,
             styles: &[],
             class: DisplayClass::Crt,
+            outputs: &[],
         };
         let style = config.schema().get(DISPLAY_STYLE).expect("style");
         assert_eq!(
@@ -402,6 +554,7 @@ mod tests {
             detected: &detected,
             styles: &styles,
             class: DisplayClass::Crt,
+            outputs: &[],
         };
         let page = quick_menu_page(&config, names);
         let style = page
@@ -439,6 +592,7 @@ mod tests {
             detected: &detected,
             styles: &[],
             class: DisplayClass::Crt,
+            outputs: &[],
         };
         let page = display_page(&config, names);
         let monitor = page
@@ -467,6 +621,7 @@ mod tests {
                 detected: &detected,
                 styles: &[],
                 class,
+                outputs: &[],
             };
             for page in [
                 display_page(&config, names),
@@ -485,6 +640,7 @@ mod tests {
             detected: &detected,
             styles: &[],
             class: DisplayClass::FlatPanel,
+            outputs: &[],
         };
         let page = quick_menu_page(&config, names);
         let disabled: Vec<_> = page
@@ -506,6 +662,7 @@ mod tests {
             detected: &detected,
             styles: &[],
             class: DisplayClass::Crt,
+            outputs: &[],
         };
         let page = quick_menu_page(&config, names);
         assert_eq!(page.rows.len(), QUICK_MENU_KEYS.len() + 3);

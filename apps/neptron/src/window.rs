@@ -6,11 +6,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use neptron::devices::MaybeSink;
+use neptron::devices::{audio_output_setting, open_audio};
 use neptron::logbook::LogLines;
 use neptron::options::Options;
 use neptron::{Devices, NextRun, Runtime, Shell};
-use neptron_audio::{Resampling, Sdl3Sink};
+use neptron_audio::{Resampling, Sdl3Outputs};
 use neptron_backend::{Clock, InputSource};
 use neptron_session::RunRateSource;
 use neptron_types::InputEvent;
@@ -46,14 +46,19 @@ pub fn run(
         }
     };
     let mut notices = Vec::new();
-    let audio = match Sdl3Sink::open() {
-        Ok(sink) => MaybeSink::Device(sink),
-        Err(e) => {
-            crate::say!("neptron: cannot open the audio, the run has no sound: {e}");
-            notices.push(format!("No sound: the audio device did not open ({e})."));
-            MaybeSink::Silent
-        }
-    };
+    // The device opens here, once per process, before the first frame:
+    // every launch and every return to the game list is a new process, so
+    // a new output takes effect at the next run.
+    let opened = open_audio(
+        Sdl3Outputs::start().map_err(|e| e.to_string()),
+        &audio_output_setting(&options.paths),
+    );
+    crate::say!("neptron: {}", opened.log);
+    for notice in &opened.notices {
+        crate::say!("neptron: {notice}");
+    }
+    notices.extend(opened.notices);
+    let audio = opened.sink;
     let clock = display.clock();
     let runtime = Runtime {
         run_rate: RunRateSource::Measured,
@@ -69,6 +74,7 @@ pub fn run(
         output: "window".to_owned(),
         subconnector: None,
         notices,
+        audio_outputs: opened.outputs,
     };
     let devices = Devices {
         display,

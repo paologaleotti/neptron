@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+mod audio;
 mod boot;
 mod control;
 mod crawler;

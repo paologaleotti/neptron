@@ -60,7 +60,22 @@ pub const DISPLAY_SCANLINES: &str = "display.scanlines";
 /// The key of the scanline strength, in percent.
 pub const DISPLAY_SCANLINE_STRENGTH: &str = "display.scanline_strength";
 
-static BUILTIN: [Entry; 7] = [
+/// The key of the user volume, in whole percent: 100 is the core's own level, 0 is silence.
+///
+/// Help text: "The volume of the games. 100 plays the sound at the level the game makes it."
+pub const AUDIO_VOLUME: &str = "audio.volume";
+
+/// The highest volume, in percent: unity gain.
+pub const AUDIO_VOLUME_MAX_PERCENT: i64 = 100;
+
+/// The key of the playback device: `auto` (the system default device) or the name of a
+/// device as the audio backend lists it, such as `HDA Intel PCH:ALC221 Analog`.
+pub const AUDIO_OUTPUT: &str = "audio.output";
+
+/// The longest playback device name that [`AUDIO_OUTPUT`] holds, in bytes.
+pub const AUDIO_OUTPUT_MAX_LEN: usize = 128;
+
+static BUILTIN: [Entry; 9] = [
     Entry {
         key: DISPLAY_OUTPUT,
         label: "Output",
@@ -147,6 +162,31 @@ static BUILTIN: [Entry; 7] = [
         safety: Safety::None,
         applies_to: AppliesTo::Every,
     },
+    Entry {
+        key: AUDIO_VOLUME,
+        label: "Volume",
+        kind: Kind::Int {
+            min: 0,
+            max: AUDIO_VOLUME_MAX_PERCENT,
+            default: AUDIO_VOLUME_MAX_PERCENT,
+        },
+        levels: Levels::ALL,
+        live: true,
+        safety: Safety::None,
+        applies_to: AppliesTo::Every,
+    },
+    Entry {
+        key: AUDIO_OUTPUT,
+        label: "Audio output",
+        kind: Kind::Text {
+            max_len: AUDIO_OUTPUT_MAX_LEN,
+            default: "auto",
+        },
+        levels: Levels::GLOBAL,
+        live: false,
+        safety: Safety::None,
+        applies_to: AppliesTo::Every,
+    },
 ];
 
 impl Schema {
@@ -219,6 +259,140 @@ mod tests {
         assert_eq!(default(INPUT_MENU_HOLD_START_SECONDS), "0");
         assert_eq!(default(DISPLAY_SCANLINES), "auto");
         assert_eq!(default(DISPLAY_SCANLINE_STRENGTH), "75");
+        assert_eq!(default(AUDIO_VOLUME), "100");
+        assert_eq!(default(AUDIO_OUTPUT), "auto");
+    }
+
+    #[test]
+    fn the_volume_is_a_whole_percent_at_every_level_and_live() {
+        let schema = Schema::builtin();
+        let entry = schema.get(AUDIO_VOLUME).unwrap();
+        assert_eq!(
+            entry.kind,
+            Kind::Int {
+                min: 0,
+                max: 100,
+                default: 100
+            }
+        );
+        assert_eq!(entry.levels, Levels::ALL);
+        assert_eq!(entry.safety, Safety::None);
+        assert!(entry.live);
+        for level in Level::ORDER {
+            let parsed = parse_layer(&schema, level, "[audio]\nvolume = 35\n");
+            assert_eq!(parsed.issues, [], "{level}");
+            assert_eq!(parsed.layer.get(AUDIO_VOLUME), Some(&Value::Int(35)));
+        }
+        for (value, reason) in [
+            (
+                "101",
+                Invalid::OutOfRange {
+                    value: 101,
+                    min: 0,
+                    max: 100,
+                },
+            ),
+            (
+                "-5",
+                Invalid::OutOfRange {
+                    value: -5,
+                    min: 0,
+                    max: 100,
+                },
+            ),
+            (
+                "\"loud\"",
+                Invalid::WrongType {
+                    expected: ValueType::Int,
+                    found: "string",
+                },
+            ),
+        ] {
+            let src = format!("[audio]\nvolume = {value}\n");
+            let parsed = parse_layer(&schema, Level::Game, &src);
+            assert_eq!(parsed.layer.get(AUDIO_VOLUME), None);
+            assert_eq!(
+                parsed.issues,
+                [Issue {
+                    line: Some(2),
+                    key: Some(AUDIO_VOLUME.to_owned()),
+                    kind: IssueKind::Invalid { reason },
+                }],
+                "{src}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_game_volume_wins_over_the_system_and_the_global_one() {
+        let schema = Schema::builtin();
+        let global = parse_layer(&schema, Level::Global, "[audio]\nvolume = 80\n");
+        let system = parse_layer(&schema, Level::System, "[audio]\nvolume = 60\n");
+        let game = parse_layer(&schema, Level::Game, "[audio]\nvolume = 40\n");
+        let layers =
+            Layers::try_new(Some(&global.layer), Some(&system.layer), Some(&game.layer)).unwrap();
+        let resolved = resolve_key(&schema, &layers, AUDIO_VOLUME).unwrap();
+        assert_eq!(resolved.value, Value::Int(40));
+        assert_eq!(resolved.source, Source::Game);
+        let layers = Layers::try_new(Some(&global.layer), Some(&system.layer), None).unwrap();
+        let resolved = resolve_key(&schema, &layers, AUDIO_VOLUME).unwrap();
+        assert_eq!(resolved.value, Value::Int(60));
+        let none = Layers::try_new(None, None, None).unwrap();
+        let resolved = resolve_key(&schema, &none, AUDIO_VOLUME).unwrap();
+        assert_eq!(
+            (resolved.value, resolved.source),
+            (Value::Int(100), Source::Default)
+        );
+    }
+
+    #[test]
+    fn the_output_holds_a_device_name_as_the_backend_lists_it() {
+        let schema = Schema::builtin();
+        let entry = schema.get(AUDIO_OUTPUT).unwrap();
+        assert_eq!(entry.levels, Levels::GLOBAL);
+        assert!(!entry.live, "a new device opens at the next start");
+        assert_eq!(entry.safety, Safety::None);
+        let change = Change::Set {
+            key: AUDIO_OUTPUT,
+            value: Value::Text("HDA Intel PCH:ALC221 Analog".into()),
+        };
+        let out = edit(&schema, Level::Global, "", &[change]).unwrap();
+        assert_eq!(
+            out,
+            "schema_version = 1\n\n[audio]\noutput = \"HDA Intel PCH:ALC221 Analog\"\n"
+        );
+        let parsed = parse_layer(&schema, Level::Global, &out);
+        assert_eq!(parsed.issues, []);
+        assert_eq!(
+            parsed.layer.get(AUDIO_OUTPUT),
+            Some(&Value::Text("HDA Intel PCH:ALC221 Analog".into()))
+        );
+        for level in [Level::System, Level::Game] {
+            let parsed = parse_layer(&schema, level, "[audio]\noutput = \"auto\"\n");
+            assert_eq!(parsed.layer.get(AUDIO_OUTPUT), None);
+            assert_eq!(parsed.issues[0].kind, IssueKind::LevelNotAllowed { level });
+        }
+        let long = "x".repeat(AUDIO_OUTPUT_MAX_LEN + 1);
+        for bad in [String::new(), long, "a\\u0007b".to_owned()] {
+            let src = format!("[audio]\noutput = \"{bad}\"\n");
+            let parsed = parse_layer(&schema, Level::Global, &src);
+            assert_eq!(parsed.layer.get(AUDIO_OUTPUT), None, "{src}");
+            assert!(
+                matches!(
+                    parsed.issues[..],
+                    [Issue {
+                        kind: IssueKind::Invalid {
+                            reason: Invalid::BadText { .. }
+                        },
+                        ..
+                    }]
+                ),
+                "{src}: {:?}",
+                parsed.issues
+            );
+        }
+        let unknown = parse_layer(&schema, Level::Global, "[audio]\nbalance = 3\n");
+        assert_eq!(unknown.issues[0].kind, IssueKind::UnknownKey);
     }
 
     #[test]

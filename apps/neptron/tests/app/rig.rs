@@ -32,6 +32,17 @@ at 300 geometry 256 240 1333
 at 310 sram_write 0 7
 ";
 
+/// The playback devices of the fake backend: one HDA card and one USB
+/// card, as SDL's ALSA backend lists them after `menu_outputs`.
+pub fn audio_outputs() -> Vec<neptron_audio::OutputChoice> {
+    let raw = [
+        "HDA Intel PCH:ALC221 Analog".to_owned(),
+        "HDA Intel PCH:HDMI 0".to_owned(),
+        "USB Audio:USB Audio".to_owned(),
+    ];
+    neptron_audio::menu_outputs(neptron_audio::ALSA_DRIVER, &raw)
+}
+
 /// The device rate of the fake audio.
 const DEVICE_RATE_HZ: u32 = 48_000;
 /// The queue of the fake audio, in frames.
@@ -214,6 +225,7 @@ impl Rig {
             output: self.output.clone(),
             subconnector: None,
             notices: self.notices.clone(),
+            audio_outputs: audio_outputs(),
         };
         let devices = Devices {
             display: self.display.clone(),

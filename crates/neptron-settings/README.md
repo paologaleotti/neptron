@@ -23,6 +23,8 @@ Typed settings schema, three-level resolution (game, system, global, default) an
 | `input.menu_hold_start_seconds` | whole number of seconds, 0 to 10 (`MENU_HOLD_START_MAX_SECONDS`), 0 is off | global | `0` | none |
 | `display.scanlines` | `auto`, `off`, `on` | game, system, global | `auto` | none |
 | `display.scanline_strength` | integer, 0 to 100 (percent) | game, system, global | `75` | none |
+| `audio.volume` | integer, 0 to 100 (percent; 100 is the core's own level) | game, system, global | `100` | none |
+| `audio.output` | text (`auto` or a playback device as the audio backend lists it, such as `HDA Intel PCH:ALC221 Analog`), 1 to 128 bytes | global | `auto` | none |
 
 Each entry has `applies_to`: the displays on which it has an effect (`AppliesTo::Every` or `AppliesTo::Crt`). `display.style` and `display.refresh_policy` apply to a CRT only: the flat-panel path scales the game into a mode that the panel lists and ignores both. The scanline settings apply to every display, because `on` draws scanlines on a panel at a whole vertical multiple. The settings screen, the quick menu and the UI crawler read this one field, so a row with no effect on the display shows as disabled with its reason. It is not part of the file format.
 
@@ -35,6 +37,10 @@ Picture style and refresh policy are independent settings. The "Native, double r
 - The built-in default stays 0. The 2 s of an arcade panel is a choice that the first-boot setup writes to `global.toml` (or that the user writes in `neptron.toml`). It is not a hidden default: nothing detects a panel.
 
 The two scanline settings sit beside the picture style. `auto` draws black scanlines where the tube cannot show real ones: a whole vertical multiple of at least 2 on a CRT that is not in a 15 kHz mode. It draws none on a 15 kHz CRT, whose scanlines are real, and none on a flat panel. `on` draws them at any whole multiple of at least 2, `off` never. No mode draws them on an interlaced mode. The strength is how much a dark line loses: 100 is black, 0 is no effect. The default is 75. MiSTer's scandoubler effect for VGA monitors offers 25, 50 and 75 % and no 100, and users on PC CRTs mostly prefer 75. Black lines on every second line halve the light, and older tubes are dim. OSSC and RetroTINK ship with scanlines off. The UI can offer the strength as presets on top of the value: off (0), light (25), medium (50), strong (75) and black (100), as the "off, light, medium, strong" of the Definition asks. The stored value stays a whole percent, so a user can also set any value from 0 to 100 in a file. These settings do not change the video signal, so their safety class is none. `neptron_types::scanlines_for` turns the resolved values into the scanlines of a scene; this crate does not depend on it, and `ScanlineMode` in `neptron-types` uses the same choice names. Later scanline kinds are new choices at the end of `SCANLINE_MODES`. The keys come after `input.menu_hold_start_seconds` in the schema because the key list is append-only; a menu can show them in any order.
+
+`audio.volume` applies live, with a short ramp in the audio pipeline. `audio.output` applies at the next start of the frontend: a named device that is absent then falls back to the default device with a notice, and the file keeps the name. `docs/spec/audio-settings.md` is the specification of both.
+
+The kind `text` (`Kind::Text`) holds a name that the `name` kind cannot: 1 to `max_len` bytes of UTF-8 with no control character, such as an ALSA device name with spaces and a colon. In a file it is a TOML string.
 
 The schema checks only the form of a name. The consumer checks that the connector or the profile exists, and every mode still passes the safety validator.
 

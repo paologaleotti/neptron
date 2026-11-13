@@ -2,7 +2,8 @@
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_settings::{
-    DISPLAY_MONITOR, DISPLAY_OUTPUT, INPUT_MENU_HOLD_START_SECONDS, Level, Safety, Value,
+    AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, INPUT_MENU_HOLD_START_SECONDS, Level, Safety,
+    Value,
 };
 use neptron_ui::Intent;
 use neptron_ui::snapshot::NoticeKind;
@@ -47,6 +48,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                     detected: &self.detected,
                     styles: &[],
                     class: self.display_class(),
+                    outputs: &self.runtime.audio_outputs,
                 };
                 let found = pages::entry(&self.config, key)
                     .and_then(|e| Some((e.key, pages::value_of(e, value, names, &self.config)?)));
@@ -236,7 +238,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     fn apply_live(&mut self, key: &str) {
         let scanlines = self.config.scanlines();
         let hold_ns = self.config.start_hold_ns();
+        let volume = self.config.volume_percent();
         match &mut self.stage {
+            // The game list plays no game audio: the next game resolves
+            // the volume at its launch.
+            Stage::List(_) if key == AUDIO_VOLUME => {}
+            Stage::Game(game) if key == AUDIO_VOLUME => game.session.set_volume_percent(volume),
             Stage::List(list) if key == INPUT_MENU_HOLD_START_SECONDS => {
                 list.hotkeys.set_start_hold_ns(hold_ns);
             }

@@ -95,6 +95,9 @@ pub struct Runtime {
     /// What the backend could not open, as notices for the player: a run
     /// goes on with no sound or no gamepad.
     pub notices: Vec<String>,
+    /// The playback devices the audio backend listed at start, as the
+    /// options of the audio output row after `auto`.
+    pub audio_outputs: Vec<neptron_audio::OutputChoice>,
 }
 
 /// How a run ends.
@@ -278,6 +281,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// True while a game runs.
     pub fn in_game(&self) -> bool {
         matches!(self.stage, Stage::Game(_))
+    }
+
+    /// The volume of the running game's audio, in percent. `None` with no
+    /// game, or after its audio was lost.
+    pub fn game_volume_percent(&self) -> Option<u32> {
+        match &self.stage {
+            Stage::Game(game) => game.session.volume_percent(),
+            _ => None,
+        }
     }
 
     /// True while the session of the game is paused under the quick menu.
