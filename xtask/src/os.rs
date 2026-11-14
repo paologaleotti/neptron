@@ -50,10 +50,16 @@ pub enum OsError {
     Usage(String),
     /// The architecture name is not a target.
     #[error(
-        "unknown architecture {0:?}; the targets are aarch64 and x86_64, and rpi-arm64 \
-         for os build, push, logs and ssh"
+        "unknown QEMU architecture {0:?}; QEMU runs aarch64 and x86_64 \
+         (the rpi-arm64 image runs on a Raspberry Pi only)"
     )]
     BadArch(String),
+    /// The name is not an image of `os build` or of the bench commands.
+    #[error(
+        "unknown image {0:?}; os build takes aarch64, x86_64 or rpi-arm64, \
+         and os push, logs and ssh take x86_64 or rpi-arm64"
+    )]
+    BadBoard(String),
     /// A numeric flag holds no positive integer.
     #[error("{flag} needs a positive integer, got {value:?}")]
     BadNumber {

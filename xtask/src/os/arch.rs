@@ -108,6 +108,13 @@ mod tests {
     }
 
     #[test]
+    fn the_pi_image_is_no_qemu_target_and_the_error_says_so() {
+        let err = Arch::parse("rpi-arm64").unwrap_err().to_string();
+        assert!(err.contains("\"rpi-arm64\""), "{err}");
+        assert!(err.contains("Raspberry Pi only"), "{err}");
+    }
+
+    #[test]
     fn rust_targets_are_the_glibc_triples() {
         assert_eq!(Arch::Aarch64.rust_target(), "aarch64-unknown-linux-gnu");
         assert_eq!(Arch::X86_64.rust_target(), "x86_64-unknown-linux-gnu");

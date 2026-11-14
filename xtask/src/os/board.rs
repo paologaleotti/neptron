@@ -22,7 +22,9 @@ impl Board {
     pub fn parse(name: &str) -> Result<Self, OsError> {
         match name {
             RPI_ARM64 => Ok(Self::RpiArm64),
-            other => Arch::parse(other).map(Self::of_arch),
+            other => Arch::parse(other)
+                .map(Self::of_arch)
+                .map_err(|_| OsError::BadBoard(other.to_owned())),
         }
     }
 

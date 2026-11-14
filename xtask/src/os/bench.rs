@@ -1,7 +1,8 @@
 //! The bench commands for a PC or a Raspberry Pi that runs the development
-//! variant of its image: `os push` builds the frontend, the launcher and `neptronctl` in
-//! the bench profile and puts them in the hot folder of the PC over SSH,
-//! `os logs` reads the log, and `os ssh` runs a command there.
+//! variant of its image: `os push` builds the frontend, the launcher and
+//! `neptronctl` in the bench profile and puts them in the hot folder of the
+//! machine over SSH, `os logs` reads the log, and `os ssh` runs a command
+//! there.
 //!
 //! Every connection uses the SSH agent and key of the user, never a
 //! password (`BatchMode=yes`), and a known-hosts file of its own in the
