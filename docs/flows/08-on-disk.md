@@ -84,6 +84,10 @@ flowchart LR
 | `/run/neptron/storage.toml` | What `S06neptron-storage` mounted at `/state` and `/share`: `state`, `share` (`partition` or `ram`), `state_reason`, `share_reason`; with a format offer `share_fix = "format"`, `share_fix_device`, `share_fix_start`, `share_fix_size`, `share_fix_type`; after a format request `share_format` (`done`, `refused`, `failed`) and `share_format_reason` | `S06neptron-storage` at boot | A plain write before the frontend starts | RAM only. No file: no notice. The same lines, and every other line of the script, are in `/var/log/messages` with the tag `neptron-storage` |
 | `/run/neptron/library-scanned` | An empty marker: a scan of every folder reached the library cache in this power cycle, so a return to the list may trust the folder times of the cache | The writer thread, after the cache write of a full scan | A plain write | RAM only. No file: the next return to the list reads every folder |
 | `/run/neptron/next.toml` | The relaunch file: `version` = 1, the game (`system`, `path`) or none, a `notice` | The frontend at the end of a run, before exit 75 | `atomic::write` | RAM only. A start with no file is a new boot |
+| `/run/neptron/output` | The connector of this boot | The first run of a boot, when the output rule chose it (`boot_output.rs`) | `atomic::write` | RAM only. The first run of a boot removes it before it chooses |
+| `/state/cache/mesa/` | The Mesa shader cache, at most 64 MiB | Mesa, with `MESA_SHADER_CACHE_DIR` from the `mesa-cache` script | Mesa's own | Nothing: a cache |
+| `/state/cache/share-scan` | The result of the last old-share scan of the format offer | `S06neptron-storage` | | Nothing: the next boot scans again |
+| `/state/network-share-off` | Present: the SMB share and mDNS do not start | The user, over SSH | | The share is on |
 | `/run/neptron/hold` | Present: the launch script does not start the launcher | The `stop` script, the bench tools | `touch` | RAM only |
 | `/run/neptron/control.sock` | The control socket (`DEFAULT_SOCKET_PATH`) | The frontend | | See [Control and bench](09-control-and-bench.md) |
 | `/share/roms/<system>/` | The ROMs. The image makes `megadrive`, `nes` and `snes` | The user; `S06neptron-storage` makes the folders | NEPTRON never writes or deletes a ROM | |
@@ -99,11 +103,11 @@ flowchart LR
 
 | Level | File | Keys that the level allows |
 | --- | --- | --- |
-| Game | `games/<system>/<game>.toml` | `display.style`, `display.refresh_policy`, `display.scanlines`, `display.scanline_strength` |
-| System | `systems/<system>.toml` | The same four keys |
-| Global | `global.toml` | Every key: also `display.output`, `display.monitor`, `input.menu_hold_start_seconds` |
+| Game | `games/<system>/<game>.toml` | `display.style`, `display.refresh_policy`, `display.scanlines`, `display.scanline_strength`, `display.tv_width`, `audio.volume` |
+| System | `systems/<system>.toml` | The same six keys |
+| Global | `global.toml` | Every key: also `display.output`, `display.monitor`, `display.tv`, `audio.output`, `input.menu_hold_start_seconds` |
 
-A value resolves in this order: game, then system, then global, then the built-in default. The built-in defaults are `display.output` = `auto`, `display.monitor` = `auto`, `display.style` = `auto`, `display.refresh_policy` = `exact`, `input.menu_hold_start_seconds` = 0, `display.scanlines` = `auto`, `display.scanline_strength` = 75. The key `display.style` is the key `style` in the table `[display]`. Each write adds `schema_version` = 1 at the top level. A new file gets mode `NEW_FILE_MODE` = `0o644`.
+A value resolves in this order: game, then system, then global, then the built-in default. The built-in defaults are `display.output` = `auto`, `display.monitor` = `auto`, `display.style` = `auto`, `display.refresh_policy` = `exact`, `input.menu_hold_start_seconds` = 0, `display.scanlines` = `auto`, `display.scanline_strength` = 75, `display.tv` = `auto`, `display.tv_width` = `aspect`, `audio.volume` = 80, `audio.output` = `auto`. The key `display.style` is the key `style` in the table `[display]`. Each write adds `schema_version` = 1 at the top level. A new file gets mode `NEW_FILE_MODE` = `0o644`.
 
 ## Transitions
 
@@ -113,7 +117,7 @@ When each file is read and written.
 | --- | --- | --- | --- |
 | `global.toml` | Twice at each start: `kms::run` reads `display.output` and `display.monitor` before the display opens, then `Config::load` reads the whole layer | On a change in the menus, through the writer thread. See [The screens](07-screens.md) for which change writes at once and which waits for the keep prompt | `CHANNEL_JOBS` = 16 |
 | `systems/<system>.toml`, `games/<system>/<game>.toml` | At the start of a game run only. The game list run reads the global layer only | As above | |
-| `guard.toml` | At each start (`record::load`). A last known good confirmed on another connector or another monitor, or with no `output` or no `monitor` (a file from before that field: one boot prompt after the update), is dropped (`record::for_place`). After a relaunch, one failed boot is given back (`record::for_continued_boot`) | At each start, before the first modeset, when the guard step has a record to save. Later, through the writer thread, each time the guard step has a record to save | `RECORD_VERSION` = 1 |
+| `guard.toml` | At each start (`record::load`). A last known good confirmed on another connector or another monitor, or with no `output` or no `monitor` (the boot prompt then opens once), is dropped (`record::for_place`). After a relaunch, one failed boot is given back (`record::for_continued_boot`) | At each start, before the first modeset, when the guard step has a record to save. Later, through the writer thread, each time the guard step has a record to save | `RECORD_VERSION` = 1 |
 | `next.toml` | At each start, then removed (`relaunch::take`). A file that does not parse, has another version, or names a game path outside the ROM folder is removed and the start is a new boot | At the end of a run that relaunches: a game launch, the end of a game, a game that did not start | `RELAUNCH_VERSION` = 1, `RELAUNCH_EXIT_CODE` = 75 |
 | `<game>.srm` | At game launch, before the first frame. A file longer than the core's save RAM loads only the first part; the rest (the tail) is kept and written after the save RAM at each write | When the save RAM changed: every 30 s while the game runs, when the quick menu opens, and when the game ends (also on SIGTERM) | `SAVE_RAM_FLUSH_INTERVAL_NS` = 30 s, `MAX_SAVE_RAM_BYTES` = 16 MiB |
 | `library.cache` | At each start (`Library::load`). A return to the list compares its folder times with the folders (`refresh`) | After a scan of `/share/roms`: at each start of the game list, and after `Rescan games` | `MAX_CACHE_BYTES` = 16 MiB, `CACHE_VERSION` = 2 |
@@ -167,12 +171,12 @@ Hand edits: the files are plain TOML. A hand edit takes effect at the next start
 ## Differences from docs/definition
 
 1. `10-os-layer.md`, "Configuration": `config/` also holds `input/<controller>.toml`, `monitors/custom.toml` and `reference.toml`. Code: only `global.toml`, `systems/<system>.toml` and `games/<system>/<game>.toml`.
-2. `10-os-layer.md`, "How it behaves": core options are keys under `[core.<name>]` in the three levels. Code: the schema has seven keys and no core keys. Core options come from `data/cores` in the image.
+2. `10-os-layer.md`, "How it behaves": core options are keys under `[core.<name>]` in the three levels. Code: the schema has eleven keys and no core keys. Core options come from `data/cores` in the image.
 3. `10-os-layer.md`, "How it behaves": a hand edit takes effect at start and on "Reload settings" or `neptronctl settings reload`. Code: there is no reload. A hand edit takes effect at the next start of the frontend, which is also each game launch and each return to the list.
 4. `10-os-layer.md`, "How it behaves": `neptron.toml` is copied into `global.toml` when it changed. Code: no code reads `neptron.toml`.
 5. `10-os-layer.md`, "Folder layout": `state/states/<system>/` holds save states. Code: there are no save states.
 6. `10-os-layer.md`, "Folder layout": `share/skins/<name>/` and `share/screenshots/`. Code: the skin comes from the image (`/usr/share/neptron/skins/default/skin.toml`); the share has `roms/` and `bios/` only.
-7. `10-os-layer.md`, "Configuration" table: the last known good video lives in an internal part of the state partition, not shared. Code: it is `/state/video/guard.toml`. No part of the state partition is shared, because the image has no network share.
+7. `10-os-layer.md`, "Configuration" table: the last known good video lives in an internal part of the state partition, not shared. Code: it is `/state/video/guard.toml`. No part of the state partition is shared: the SMB share serves `/share` only.
 8. `10-os-layer.md`, "Folder layout": `state/saves/<system>/<game>.srm`. Code: the same name, plus `<game>.srm.bak` from each write, and the cache `state/cache/library.cache`, which the definition does not list.
 9. `10-os-layer.md`, "Folder layout": `gamelist.xml` in a ROM folder is imported. Code: no code reads it.
 10. `12-technology-choices.md`, "Logging": no constant writes to the card. Code: the development image writes the log to `/state/log/neptron` on the state partition, at most three files of 4 MiB.

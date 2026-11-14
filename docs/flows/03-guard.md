@@ -1,6 +1,6 @@
 # 3. The guard
 
-The guard (`Guard` in `neptron-video`) is the confirm-or-revert machine of the display. It owns the display configuration that the [ODREN](04-odren.md) engine gets: the monitor profile and the policy settings (picture style and refresh policy). It puts a display change on the screen at once, reverts it when the user does not keep it in time or when it gives no picture, keeps the last known good monitor across boots, counts failed boots, and runs safe mode and the blind recovery. It decides and does no I/O: it changes the display only through the engine inputs (`retry`, `set_monitor`, `set_settings`), and it gives the record to the app to write. This page also covers the app side (`apps/neptron/src/shell/guard_events.rs`, `intents.rs`): the dialog, the setting writes, the notices, and the flat panel first-boot rule.
+The guard (`Guard` in `neptron-video`) is the confirm-or-revert machine of the display. It owns the display configuration that the [ODREN](04-odren.md) engine gets: the monitor profile (a TV standard is a monitor) and the policy settings (picture style, refresh policy and the TV picture width). It puts a display change on the screen at once, reverts it when the user does not keep it in time or when it gives no picture, keeps the last known good monitor across boots, counts failed boots, and runs safe mode and the blind recovery. It decides and does no I/O: it changes the display only through the engine inputs (`retry`, `set_monitor`, `set_settings`), and it gives the record to the app to write. This page also covers the app side (`apps/neptron/src/shell/guard_events.rs`, `intents.rs`): the dialog, the setting writes, the notices, and the flat panel first-boot rule.
 
 ## Diagrams
 
@@ -132,7 +132,7 @@ flowchart TD
 | `Safe(NoValidMode)` | The safe default | Warning notice "Safe mode: the display settings gave no picture." "(safe mode)". |
 | `Safe(NothingConfirmed)` | The safe default | Reached only as the revert target of the boot prompt, so the notice is the revert notice, for example "The display change went back: it was not kept in time." "(safe mode)". |
 
-The safe default is the one of [Frontend boot](02-frontend-boot.md): the CRT profile of the EDID, or the panel when it is the last known good on this output, else `generic_15`; style `auto`, refresh `exact`.
+The safe default is the one of [Frontend boot](02-frontend-boot.md): the CRT profile of the EDID, or the panel when it is the last known good on this output, else `generic_15`; style `auto`, refresh `exact`. On a TV output: the TV profile of NTSC, or of the first standard the output offers.
 
 ## Transitions
 
@@ -210,7 +210,7 @@ The app takes the id from `Guard::pending()`, so `NoPrompt` and `WrongPrompt` do
 
 ### The record and when it is saved
 
-`GuardRecord` holds `last_known_good` (a monitor, `None` when nothing was kept or the profile cannot be built again), `failed_boots`, and `safe_mode`. The app file `state/video/guard.toml` adds `version`, `output` (the connector of the confirmation) and `monitor` (the identity of the monitor of the confirmation: `edid-` and a hash of its EDID, or `none` with no EDID).
+`GuardRecord` holds `last_known_good` (a monitor, `None` when nothing was kept or the profile cannot be built again), `failed_boots`, and `safe_mode`. A TV profile is stored by its id `tv_<key>` (for example `tv_pal_60`) and is built again only on an output that offers that standard. The app file `state/video/guard.toml` adds `version`, `output` (the connector of the confirmation) and `monitor` (the identity of the monitor of the confirmation: `edid-` and a hash of its EDID, or `none` with no EDID).
 
 | When | What changes | How it is written |
 | --- | --- | --- |
@@ -226,12 +226,12 @@ Last known good changes only on a confirmation. A long stable picture makes the 
 
 | Event | What the app does |
 | --- | --- |
-| A display setting changes (monitor, picture style, refresh policy: schema safety `Validated` or `ConfirmOrRevert`) | The value changes in memory and goes on the list of waiting changes. The app builds the display config and calls `propose`. When no prompt is open and the config equals the active one, the waiting changes are written at once and no prompt opens. |
+| A display setting changes (monitor, TV standard, picture style, refresh policy, TV picture width: schema safety `Validated` or `ConfirmOrRevert`) | The value changes in memory and goes on the list of waiting changes. The app builds the display config and calls `propose`. When no prompt is open and the config equals the active one, the waiting changes are written at once and no prompt opens. |
 | A setting with no effect on the signal (scanlines, scanline strength, Start hold) | Written at once and applied live. No guard. |
 | `display.output` | Not changed from the menu or the protocol. |
 | `PromptOpened` | The dialog goes in the snapshot. Key repeat stops, and a held key sends nothing (`Navigator::hold_back`). |
 | `Confirmed` | Each waiting change is written to its file (global, system or game level). |
-| `Reverted { reason, rewrite }` | The waiting changes are taken back in memory, newest first. With `rewrite: Some(config)` (the chain began with the boot prompt), the monitor, style and refresh of that config are written to the global settings, so the next boot does not show the change again. Exception: when `auto` gives a panel, `display.monitor` is `auto`, and the target is `generic_15`, the monitor stays `auto`. Info notice. |
+| `Reverted { reason, rewrite }` | The waiting changes are taken back in memory, newest first. With `rewrite: Some(config)` (the chain began with the boot prompt), the monitor, style and refresh of that config are written to the global settings, so the next boot does not show the change again. For a TV profile the app writes `display.tv` and leaves `display.monitor` as it is. Exception: when `auto` gives a panel, `display.monitor` is `auto`, and the target is `generic_15`, the monitor stays `auto`. Info notice. |
 | `SafeMode(reason)` | The waiting changes are taken back. The dialog closes. Warning notice. `Recovery`: the tone. In the game list the app writes it to its sink; in a game the audio pipeline mixes it into the next core frames (`Session::write_cue`), so it plays whole and the queue stays at its target. It bypasses the mute and the user volume does not scale it. In a frame where the core does not run (the quick menu, the output off), the session writes the next slice of the tone with silence up to the target level (`AudioPipeline::idle_frame`), so the tone confirms the recovery at any time. |
 | `GoodBoot` | Nothing visible. |
 

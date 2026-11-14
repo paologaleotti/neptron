@@ -54,8 +54,8 @@ flowchart TD
     B -->|"no: menu or blanked"| D["Core does not run"]
     C --> E["engine.begin_frame with source"]
     D --> E
-    E --> F["Mute audio if needed<br/>end_frame if core ran"]
-    F --> G["present then wait_flip"]
+    E --> F["Mute audio if needed"]
+    F --> G["present, then end_frame or idle_frame<br/>after the first present, then wait_flip"]
     G -->|"double refresh and 1 flip done"| G
     G -->|"display error"| H["Stop flips of this frame"]
     G -->|"all flips done"| I["Unmute if allowed<br/>update run rate"]

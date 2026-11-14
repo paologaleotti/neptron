@@ -15,6 +15,8 @@ flowchart TD
     RS --> K{"Profile kind"}
     K -- "Crt ranges" --> C["crt_plan<br/>rungs x refresh targets"]
     K -- "FlatPanel modes" --> P["panel_plan<br/>one proposal per listed mode"]
+    K -- "Tv standard" --> TV["tv_plan<br/>the fixed modes of the standard, no Switchres"]
+    TV --> CH
     K -- "no range or no mode" --> E["PolicyError EmptyProfile"]
     C --> CH["choose<br/>validator walks proposals in order"]
     P --> CH
@@ -158,6 +160,7 @@ The settings key is `display.refresh_policy`. The values are `exact`, `exact_x2`
 | `Nearest` | no range covers the game rate | the covered rate nearest the game rate (the lower one on a tie) | 1 | changes by the ratio |
 | `Unmatched` | the last resort | whatever rate Switchres reaches | 1 | changes when it differs |
 | `Panel` | a flat panel | the rate of the panel mode | 1, or 2 when the mode is nearer twice the game rate | the core runs one frame per flip (see What can go wrong) |
+| `Tv` | a TV profile | the field rate of the mode of the standard | 1, or 2 when the field rate is nearer twice the game rate | the core runs one frame per flip; the `speed` alert shows only beyond `TV_SPEED_SILENT_PPM` (5000 ppm) |
 
 ### Result words in the Video block
 
@@ -270,7 +273,7 @@ Other golden lines that show a rule:
 | The width strategy is below the GPU pixel clock floor | The dynamic super width replaces it (`strategy_replaced`). No word in the Video block. | None needed. |
 | A rotated game (90 or 270 degrees) | The engine refuses the source (`Unshowable::Rotated`) and sets no mode. See [ODREN](04-odren.md). | None in the MVP: the renderer does not rotate. |
 | The validator refuses every proposal | No winner. The mode on screen stays. See [ODREN](04-odren.md). | Another monitor profile. |
-| A GPU with a fixed pixel clock (`pi_vc4_composite`, 13.5 MHz) | No mode for any game (`policy_gpus.toml` gives `none`). | None: Switchres does not calculate for a fixed clock. |
+| A CRT profile on a GPU with a fixed pixel clock (`pi_vc4_composite`, 13.5 MHz) | No mode (`policy_gpus.toml` gives `none`). | The composite connector is a TV, so its monitor is the TV profile of `display.tv`, whose plan comes from the fixed modes of the standard (`policy/tv.rs`, `policy_tv.toml`). |
 | The panel's preferred mode is above what the system sends | Notice `The panel's native mode <mode> is above what this system sends (<limits>). It runs at <mode>.` | None needed: the largest fitting mode of at least 50 Hz is used. |
 | The panel lists no mode the system sends | Notice `The panel lists no mode that this system sends (<limits>).` and no panel profile. | Another output or display. |
 | A 50 Hz game on a panel with no 50 Hz mode | The panel mode at 60 Hz wins (rate nearest the game among the modes of the preferred size). The core runs one frame per flip, so the game runs at the panel rate. The game runs 20 % fast. The Video block shows `[!] speed (50.000 to 60.000 Hz)`: on a panel the `speed` word shows when the rates differ by more than `PANEL_SPEED_SILENT_PPM` (5000 ppm), the bound of the audio rate control. | Use a CRT, or a panel that lists a 50 Hz mode. |
@@ -314,7 +317,7 @@ Other golden lines that show a rule:
 8. `04-crt-video-pipeline.md`, "Refresh matches the core to two decimals". The code reads this as less than `REFRESH_MATCH_MHZ` = 5 mHz.
 9. `04-crt-video-pipeline.md`, force 50/60: "Where a core exposes a region option, NEPTRON sets it to match." The policy has no region logic; it only changes the rate.
 10. `06-flat-panels-shaders-and-vertical-games.md`, scaling options "Integer (default)", "Integer, overscan", "Fit, sharp", "Stretch", and the aspect options. The code has one panel rule: the largest whole vertical factor, width at the core aspect. No setting chooses another.
-11. `06-flat-panels-shaders-and-vertical-games.md`, refresh: "Audio rate control absorbs small differences." On a panel the code picks the listed mode nearest the game rate, but only after the whole-factor rule and the preferred size. With no 50 Hz mode, a 50 Hz game gets the 60 Hz mode and runs at the panel rate; the difference is not small and no alert shows.
-12. `04-crt-video-pipeline.md` says the picture style and the refresh policy are settings at global, system and game level, with no exception for a panel. In the code a panel ignores `display.style` and `display.refresh_policy`: `panel_plan` does not read them, and every style row is available on a panel.
+11. `06-flat-panels-shaders-and-vertical-games.md`, refresh: "Audio rate control absorbs small differences." On a panel the code picks the listed mode nearest the game rate, but only after the whole-factor rule and the preferred size. With no 50 Hz mode, a 50 Hz game gets the 60 Hz mode and runs at the panel rate; the difference is not small, and the Video block shows the `speed` alert, because it is above `PANEL_SPEED_SILENT_PPM` (5000 ppm).
+12. `04-crt-video-pipeline.md` says the picture style and the refresh policy are settings at global, system and game level, with no exception for a panel. In the code a panel ignores `display.style` and `display.refresh_policy`: `panel_plan` does not read them, and the display panel shows the `Picture style` and `Refresh policy` rows disabled with `Not used on a flat panel`.
 13. `06-flat-panels-shaders-and-vertical-games.md`, vertical games: rotated upright on a panel and on a 31 kHz CRT, with a one-time warning on 15 kHz. The policy swaps the axes, but the engine refuses every rotated source (`Unshowable::Rotated`), so a rotated game gets no mode in the MVP.
 14. `crates/neptron-modeline/README.md`, "Picture styles": "`auto` takes ... native at twice the rate with `exact_x2` where a range covers it". `auto` takes `Double` only when the policy is `exact_x2`; with `exact` it never takes `NativeDouble` (only `native` does).

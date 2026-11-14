@@ -2,7 +2,7 @@
 
 These pages describe what NEPTRON does, step by step, from power on to a game on the screen. Each page covers one flow. Each page has Mermaid diagrams, a table of the states or screens, a table of the transitions with their conditions and constants, a list of what can go wrong, links to the source, and the differences from `docs/definition/`.
 
-The pages come from the code on the branch where they were written. Where the code and `docs/definition/` differ, the page follows the code and lists the difference at its end. When the code changes, change the page in the same commit.
+The pages describe the code on this branch. Where the code and `docs/definition/` differ, the page follows the code and lists the difference at its end. When the code changes, change the page in the same commit.
 
 ## Start here
 

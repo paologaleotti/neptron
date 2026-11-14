@@ -127,6 +127,7 @@ stateDiagram-v2
     OpenDevice --> Running : device open and checked
     Running --> Running : Relaunch, exit 75, at most 10 in 10 s
     Running --> Restart : Crash, any other exit or a signal
+    Running --> Restart : exit 69, no display, restart after 1 s
     Running --> Restart : eleventh Relaunch in 10 s
     Restart --> Running : backoff wait ends
     Restart --> Stopped : stop flag set after the wait
@@ -215,8 +216,8 @@ The script writes one line for each decision to the console (`ttyS0`) and to sys
 | Kernel | Reboot | Kernel panic | `panic=10` (10 s) | |
 | Kernel | BusyBox init | Root mounted read-only | | Root filesystem EROFS, never written |
 | init | rcS | After the sysinit lines: mount `/proc`, `mount -a`, hostname | | |
-| rcS | Launch script | All `S??*` scripts have run in name order | | `S05neptron-mounts`, `S06neptron-storage`, `S07neptron-qemu`, Buildroot's own scripts, then `S99neptron-run`. The development image adds `S41neptron-address` (background) and `S49neptron-ssh-keys` |
-| Launch script | `neptron-launch` | `/run/neptron/hold` does not exist (checked each second) | | Release: `exec /usr/bin/neptron-launch -- /usr/bin/neptron --backend kms`. Development: the hot folder binaries when present, output to `svlogd` |
+| rcS | Launch script | All `S??*` scripts have run in name order | | `S05neptron-mounts`, `S06neptron-storage`, `S07neptron-qemu`, `S08neptron-mixer` (PC and Pi), `S40neptron-network` (DHCP, background), `S45neptron-share` (SMB and mDNS, background), Buildroot's own scripts, then `S99neptron-run`. The development image adds `S41neptron-address` (background) and `S49neptron-ssh-keys` |
+| Launch script | `neptron-launch` | `/run/neptron/hold` does not exist (checked each second) | | Release: sources `mesa-cache` (the Mesa shader cache on `/state/cache/mesa`, off when `/state` is not a read-write ext4 mount), then `exec /usr/bin/neptron-launch --power -- /usr/bin/neptron --backend kms`. Development: the hot folder binaries when present, output to `svlogd` |
 
 The disk signature is fixed for each build variant: `4e505452` (release), `4e505444` (development), `4e50544e` (release with no 15 kHz patches), `4e505445` (development with no 15 kHz patches). The root partition is `<signature>-02`.
 
@@ -238,7 +239,7 @@ The disk signature is fixed for each build variant: `4e505452` (release), `4e505
 | Partition 4 in the table, not in the kernel | `/share` RAM folder this boot | The kernel does not list partition 4 after 5 tries | `ADD_TRIES` = 5 | Line: `neptron-storage: partition 4 is in the partition table, but the kernel does not see it after 5 tries of addpart (last exit <code>); restart to use it`. The next boot reads the table and mounts it |
 | Partition 4 in the kernel | `/share` RAM folder | No device node within 5 s | `NODE_WAIT_STEPS` = 50, `NODE_WAIT_STEP_US` = 100000 (0.1 s) | Line: `neptron-storage: the kernel sees partition 4, but its device node <dev> does not appear within 5000 ms` |
 | Partition 4 | Mounted | `blkid` finds a filesystem or a partition table | | No format. Mount `exfat`, `noatime,iocharset=utf8` |
-| Partition 4, empty | Formatted | Marker there, type 7, start in the first 1 MiB after state, first 16 MiB read cleanly, no exFAT backup boot sector | `READ_CHECK_MIB` = 16, `EXFAT_BACKUP_SECTORS` = 12 24 48 96 | `mkfs.exfat -L NEPTRON`. Line: `neptron-storage: <dev> holds no filesystem; formatting it exFAT` |
+| Partition 4, empty | Formatted | Marker there, type 7, start in the first 1 MiB after state, first 16 MiB read cleanly, no exFAT backup boot sector, and no exFAT boot sector in the first 4 GiB from the planned start (`OLD_SHARE_SCAN_SECTORS`) | `READ_CHECK_MIB` = 16, `EXFAT_BACKUP_SECTORS` = 12 24 48 96 | `mkfs.exfat -L NEPTRON`. Line: `neptron-storage: <dev> holds no filesystem; formatting it exFAT` |
 | Partition 4 | `/share` RAM folder | One rule fails | | Line: `neptron-storage: the share partition <dev> was left untouched: <reason>`. The reasons are in "What can go wrong" |
 | Mounted | Marker removed | The mount worked and the marker exists | | `rm -f /state/share-pending`, `sync`. Line: `neptron-storage: <dev> mounted at /share` |
 | Partition 4, empty, refused by the rules | Format offer | Every rule of the user format holds (`os/README.md`, "A format that the user confirms") | `EXTENDED_TYPES` = 5 f 85, `READ_CHECK_MIB`, `EXFAT_BACKUP_SECTORS`, `OLD_SHARE_SCAN_SECTORS` | `share_fix` in `storage.toml`. Line: `neptron-storage: a format of <dev> (start <n>, size <m>, type <t>) is offered in Settings > System`, or `neptron-storage: the share partition <dev> cannot be offered a format: <why>` |
@@ -277,7 +278,7 @@ Exit codes of the frontend, as the launcher sees them:
 | 75 | A planned relaunch: into a game, back to the list, a game that did not start | Starts it at once |
 | 80 | `Settings > System > Reboot`, confirmed (`Outcome::Reboot`) | With `--power`: `/sbin/reboot`, no new run |
 | 81 | `Settings > System > Shut down`, confirmed (`Outcome::PowerOff`) | With `--power`: `/sbin/poweroff`, no new run |
-| 69 | No connected display after the wait of up to 15 s (`neptron: no connected display after <ms> ms`, then `neptron: cannot open the display: no connected display found; ...`) | Restart after 1 s, no backoff |
+| 69 | No connected display. The first run of a boot waits up to 15 s (`DISPLAY_WAIT_MAX_NS`), or 3 s (`COMPOSITE_FALLBACK_WAIT_NS`) when a composite TV connector is there, which then opens. Log: `neptron: no connected display after <ms> ms`, then `neptron: cannot open the display: no connected display found; ...`. Also a TV connector whose `TV mode` property lists no standard that NEPTRON knows | Restart after 1 s, no backoff |
 | 1 | The display does not open for another reason (`neptron: cannot open the display: ...`), the boot fails (`neptron: the frontend cannot start: ...`), the relaunch file cannot be written, the build has no backend | Crash, backoff |
 | 2 | A wrong command line | Crash, backoff |
 | 101 or a signal | A panic or a kill | Crash, backoff |
@@ -289,7 +290,7 @@ Exit codes of the launcher: 0 after a quit or a stop, 1 after a device error or 
 | Step | Exact condition | Constant = value | What happens |
 | --- | --- | --- | --- |
 | 1. `stop` script | First `::shutdown:` entry of `inittab` | `STOP_WAIT_DS` = 80 (8 s, in 100 ms steps) | Creates `/run/neptron/hold` so no new launcher starts. Sends SIGTERM to `neptron-launch`. Waits until neither `neptron-launch` nor `neptron` runs, at most 8 s (3 s more than `STOP_WAIT_NS`). Line: `neptron-stop: the launcher and the frontend stopped in <s> s` or `neptron-stop: the launcher or the frontend still runs after 8 s; init stops them` |
-| 2. `rcK` | After step 1 | | The init.d scripts with `stop`, in reverse order. `S45neptron-share` stops the SMB server and `mdnsd` and syncs, so no file is open on the share partition. The other NEPTRON scripts do nothing on `stop` |
+| 2. `rcK` | After step 1 | | The init.d scripts with `stop`, in reverse order. `S45neptron-share` stops the SMB server and `mdnsd` and syncs, so no file is open on the share partition. `S40neptron-network` stops the DHCP clients. The other NEPTRON scripts do nothing on `stop` |
 | 3. `umount -a -r` | After step 2 | | Unmounts every filesystem, or remounts it read-only. The ext4 state partition and the exFAT share partition are clean after it |
 | 4. init | After the shutdown entries | | SIGTERM, then SIGKILL to every process, then power off or reboot. The PC turns off through ACPI (`CONFIG_ACPI`, required by `check-kernel-config.sh`); the aarch64 QEMU image through PSCI (`CONFIG_ARM_PSCI_FW` of the Buildroot QEMU kernel configuration) |
 
@@ -340,13 +341,13 @@ The frontend's quit writes the game's save RAM (`Session::quit`) and the writer 
 
 1. `05-crt-safety-model.md`, "Shortening the 31 kHz window on x86": the launcher blanks the analog output as its first action, on by default. Code: the launcher sets no mode and makes no commit. Its README says this is not done in the MVP.
 2. `05-crt-safety-model.md`, layer 7 "Supervisor": the init system restarts the frontend on a crash. Code: init restarts the launcher; the launcher restarts the frontend, with a backoff of 250 ms to 8 s.
-3. `10-os-layer.md`, "Boot path", step 3: init starts the launcher first, and the other services start afterwards in the background. Code: init runs every `rcS` script to its end before it starts the launcher. This includes `e2fsck`, the first-boot partition and format, and on the development image the network and SSH scripts.
+3. `10-os-layer.md`, "Boot path", step 3: init starts the launcher first, and the other services start afterwards in the background. Code: init runs every `rcS` script to its end before it starts the launcher. This includes `e2fsck`, the first-boot partition and format, the start of DHCP and of the network share (both in the background), and on the development image the SSH key script.
 4. `10-os-layer.md`, "Disk layout": a FAT32 boot partition with `neptron.toml`, and root A and root B. Code: one FAT boot partition (64 MiB, label `NEPTRONBOOT`) with GRUB, the kernel and the licences, and one root partition (EROFS, 384 MiB). No code reads `neptron.toml`. There is no root B.
 5. `10-os-layer.md`, "Configuration": the GRUB configuration is written from the settings. Code: `grub.cfg` is fixed. `post-image.sh` puts in only the disk signature, at build time.
 6. `10-os-layer.md`, "Updates": A/B updates with RAUC. Code: none.
 7. `10-os-layer.md`, "Footprint": BusyBox provides a debug shell. Code: the PC image has no getty and no shell on any console. Only the aarch64 QEMU test image has one.
 8. `10-os-layer.md`, "Kernel": one fragment per concern, `video.config`, `input.config`, `fastboot.config`. Code: `video.config`, `console.config`, `input.config`, `sound.config`, `storage.config`, `network.config` and `qemu/host.config`. There is no `fastboot.config`.
-9. `10-os-layer.md`, "Network services": SMB and SSH on by default with a default password. Code: the release image has no network service. The development image has SSH with one public key and no password (`DROPBEAR_ARGS="-s"`), and DHCP on `eth0`.
+9. `10-os-layer.md`, "Network services": SMB and SSH on by default with a default password. Code: every image has DHCP on each wired port and the SMB share of `/share` (`ksmbd`, `mdnsd`, name `neptron.local`), with a guest and one published account, off when `/state/network-share-off` exists. The development image adds SSH with one public key and no password (`DROPBEAR_ARGS="-s"`).
 10. `10-os-layer.md`, "Folder layout": the first boot makes an empty folder for every system. Code: `S06neptron-storage` makes them at every boot, also on a RAM folder, and also makes `bios/`.
 11. `12-technology-choices.md`, "Logging": `tracing` into a RAM ring buffer, no constant writes to the card. Code: the frontend and the launcher write lines to standard error. On the release image that is the console, `ttyS0`, and nothing is kept. On the development image `svlogd` keeps it in `/state/log/neptron` on the state partition.
 12. `05-crt-safety-model.md`, "Unknown monitor on first boot" and `neptron.toml`: a file on the boot partition can preset the profile before the first boot. Code: no code reads `neptron.toml`.

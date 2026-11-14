@@ -33,6 +33,8 @@ flowchart TD
     Set -->|"Accept on Display"| Disp
     Set -->|"Accept on Audio"| Aud
     Set -->|"Accept on System"| Sys
+    Set -->|"Accept on Library"| Lib["Library panel<br/>Rescan games"]
+    Lib -->|"Back"| Set
     Sys -->|"Accept on Reboot or Shut down<br/>game list run only"| Ask
     Ask -->|"Accept on Cancel, or Back"| Sys
     Ask -->|"Right, then Accept"| Power
@@ -227,15 +229,17 @@ The title band shows a breadcrumb: `Settings > Audio > Audio output`, or `<game>
 | Row | Values | What it does |
 | --- | --- | --- |
 | `Output` | `auto`, then the connectors the run found, then the value in the file when the run did not find it | Read-only. The option list opens, but a choice sends nothing (`Scopes::NONE`), and the app also refuses `display.output`. Change it in the settings file. |
-| `Monitor profile` | `auto`, `flat` (only when a panel was detected), the preset ids, then the value in the file when it is not among them | The detail of `auto` names what it drives: the EDID name and native mode, for example `NPT FHD 24  1920x1080 60 Hz`, `<name>  EDID ranges`, or `generic_15` when there is no EDID. `flat` shows the same for the panel profile. A change opens the confirm dialog. |
-| `Picture style` | `auto`, `native`, `2x`, `3x`, `4x` | Each option shows what it gives on the monitor now, for example `15.73 kHz  59.94 Hz`. A style the monitor cannot show is dim with `Needs another monitor`. A change opens the confirm dialog. |
-| `Refresh policy` | `exact`, `exact_x2`, `force_50`, `force_60` | A change opens the confirm dialog. |
+| `Monitor profile` | `auto`, `flat` (only when a panel was detected), the preset ids, then the value in the file when it is not among them | The detail of `auto` names what it drives: the EDID name and native mode, for example `NPT FHD 24  1920x1080 60 Hz`, `<name>  EDID ranges`, or `generic_15` when there is no EDID. `flat` shows the same for the panel profile. A change opens the confirm dialog. Disabled with `Not used on a TV` on a TV. |
+| `TV standard` | `auto`, `ntsc`, `ntsc_j`, `ntsc_443`, `pal_60`, `pal_m`, `pal`, `pal_n`, `secam`, `mono_60`, `mono_50` | Only on a TV. A standard the output does not offer is dim with `Not offered by this output`. A change opens the confirm dialog. |
+| `TV picture width` | `aspect`, `integer`, `fill` | Only on a TV. A change opens the confirm dialog. |
+| `Picture style` | `auto`, `native`, `2x`, `3x`, `4x` | Each option shows what it gives on the monitor now, for example `15.73 kHz  59.94 Hz`. A style the monitor cannot show is dim with `Needs another monitor`. A change opens the confirm dialog. Disabled with `Not used on a flat panel` on a panel. |
+| `Refresh policy` | `exact`, `exact_x2`, `force_50`, `force_60` | A change opens the confirm dialog. Disabled with `Not used on a flat panel` on a panel, and with `Not used on a TV` on a TV. |
 | `Scanlines` | `auto`, `off`, `on` | Written at once, applied live. |
 | `Scanline strength` | 0 to 100 `%`, step 5, default 75 | Written at once, applied live. |
 | `Hold Start for menu` | 0 to 10 `s`, step 1, default 0 | Written at once, applied live. 0 turns the Start hold off. |
 | `Grid pattern` | page | Opens the grid pattern. |
 
-Info box: `Output` is the connector name (`none` with no display). `Mode` is the mode the driver read back, for example `640x480p 59.94 Hz`, with ` (safe mode)` after it while the guard is in safe mode. It is empty before the first read back. `Monitor` is the preset id that the guard gave the engine. A monitor of its EDID (`auto` with an EDID, or `flat`) shows the monitor name of the EDID (`DisplayInfo::monitor`), or its profile id when the EDID has no name, for example `NPT FHD 24`. `not set` shows only before the app gives a monitor.
+Info box: `Output` is the connector name (`none` with no display). `Mode` is the mode the driver read back, for example `640x480p 59.94 Hz`, or on a TV the standard and the lines, `NTSC 240p 60.05 Hz`, with ` (safe mode)` after it while the guard is in safe mode. It is empty before the first read back. `Monitor` is the preset id that the guard gave the engine. A monitor of its EDID (`auto` with an EDID, or `flat`) shows the monitor name of the EDID (`DisplayInfo::monitor`), or its profile id when the EDID has no name, for example `NPT FHD 24`. `not set` shows only before the app gives a monitor.
 
 The style details on the display panel come from the source on screen: the game in a game, the menu canvas (320x240 at 60 Hz) in the menus.
 
@@ -253,6 +257,7 @@ The style details on the display panel come from the source on screen: the game 
 
 | Row | What it does |
 | --- | --- |
+| `TV picture width` | Only on a TV, at the game level. A change opens the confirm dialog. |
 | `Picture style` | As on the display panel, at the game level. A change opens the confirm dialog. |
 | `Refresh policy` | As on the display panel, at the game level. A change opens the confirm dialog. |
 | `Scanlines` | At the game level. Written at once. |
@@ -265,7 +270,7 @@ The video block shows on the video page of the quick menu and in the display pan
 | Line | Content | Example |
 | --- | --- | --- |
 | `Game` | What the core asks for: size padded to `STATUS_COLUMN_CHARS` = 10 characters, 10 spaces, field rate with 3 decimals | `256x224             60.099 Hz` |
-| `Mode` | The read back mode: size with `p` or `i`, line rate, field rate, two spaces, the rung: `native`, `Nx`, `fit` or `panel` | `768x448p  30.05 kHz 60.099 Hz  2x` |
+| `Mode` | The read back mode: size with `p` or `i`, line rate, field rate, two spaces, the rung: `native`, `Nx`, `fit` or `panel`. On a TV: the standard, the lines with `p` or `i`, the line rate and the field rate, with no rung | `768x448p  30.05 kHz 60.099 Hz  2x`, `NTSC 240p 15.73 kHz 60.054 Hz` |
 | result | The result words, joined with `, `, in this order | `exact`, `[!] cropped 2 lines, speed (60.099 to 59.940 Hz)` |
 
 | Result word | When it shows |
@@ -276,7 +281,7 @@ The video block shows on the video page of the quick menu and in the display pan
 | `cropped N lines` | The overscan crop removes N lines in total (2 x the lines per edge) |
 | `small picture N%` | Padding: the game lines fill N percent of the picture lines, rounded |
 | `filtered` | CRT only: the winner is the fitted rung (`Rung::Fitted`). Alert. |
-| `speed (X to Y Hz)` | CRT only: the shown rate (field rate divided by the repeat) differs from the game rate by `REFRESH_MATCH_MHZ` = 5 mHz or more. X is the game rate, Y the shown rate, 3 decimals. Alert. |
+| `speed (X to Y Hz)` | The shown rate (field rate divided by the repeat) differs from the game rate by `REFRESH_MATCH_MHZ` = 5 mHz or more on a CRT, or by more than 5000 ppm on a flat panel (`PANEL_SPEED_SILENT_PPM`) or a TV (`TV_SPEED_SILENT_PPM`). X is the game rate, Y the shown rate, 3 decimals. Alert. |
 | `[!] ` | The start of the result when it is an alert (`filtered` or `speed`). The result is then drawn in the warning colour. |
 
 When the first picture of a game is cropped, padded or (on a CRT) fitted, the app also adds one Warning notice `Picture: <result>.` It shows when the player opens the quick menu (see Notices).
@@ -303,8 +308,8 @@ A value resolves game, then system, then global, then the built-in default. The 
 
 | Setting | When it reaches its file |
 | --- | --- |
-| `Scanlines`, `Scanline strength`, `Hold Start for menu` (safety none) | At once, on the writer thread. Applied live. |
-| `Picture style`, `Refresh policy` (safety validated), `Monitor profile` (confirm or revert) | Only on `Confirmed` (Keep). Taken back in memory on a revert or safe mode. Written at once, with no dialog, when the new display configuration equals the active one and no prompt is open. |
+| `Scanlines`, `Scanline strength`, `Hold Start for menu`, `Volume`, `Audio output` (safety none) | At once, on the writer thread. Applied live. |
+| `Picture style`, `Refresh policy`, `TV picture width` (safety validated), `Monitor profile`, `TV standard` (confirm or revert) | Only on `Confirmed` (Keep). Taken back in memory on a revert or safe mode. Written at once, with no dialog, when the new display configuration equals the active one and no prompt is open. |
 | `Output` | Never from the menu. |
 
 All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A failed write comes back as an Error notice.
@@ -356,7 +361,7 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 - [apps/neptron/src/shell/guard_events.rs](../../apps/neptron/src/shell/guard_events.rs): `on_guard`, `offer_panel`, `recover`, `reverted_text`, `safe_text`, `write_setting`.
 - [apps/neptron/src/shell/frame.rs](../../apps/neptron/src/shell/frame.rs): `list_frame`, `game_frame`, `update_ui`, `notice_picture`.
 - [crates/neptron-input/src/hotkeys.rs](../../crates/neptron-input/src/hotkeys.rs): `Hotkeys::update`, `QUICK_MENU_COMBO`, `BLIND_RECOVERY_HOLD_NS`.
-- [crates/neptron-settings/src/builtin.rs](../../crates/neptron-settings/src/builtin.rs): the seven settings with their labels, choices, levels and safety.
+- [crates/neptron-settings/src/builtin.rs](../../crates/neptron-settings/src/builtin.rs): the eleven settings with their labels, choices, levels and safety.
 
 ## Differences from docs/definition
 
@@ -368,7 +373,7 @@ Against `docs/definition/08-frontend-and-ux.md`:
 4. Screens table, "Game list": no sort, filter or search. Menu (X) on a game sends a favourite toggle that the app ignores.
 5. Screens table, "Game page": there is none. Accept on a game launches it.
 6. Screens table, "Display panel": no geometry row. One test pattern (the grid). The panel also holds `Scanlines`, `Scanline strength` and `Hold Start for menu`. `Output` is read-only.
-7. Screens table, "Settings" (full tree): the Settings page has three panels, `Display`, `Audio` and `Library`.
+7. Screens table, "Settings" (full tree): the Settings page has four panels, `Display`, `Audio`, `Library` and `System`.
 8. "Settings model", "offers reset to inherited": there is no row or option for it. The Menu button (X) on a row resets it. A pad with two buttons cannot reset.
 9. "Quick menu", combination: Select+Start is fixed (`QUICK_MENU_COMBO`), not configurable. The Start hold exists but is off by default (`input.menu_hold_start_seconds` = 0, max 10 s); the definition says the arcade default is a 2 s hold.
 10. "Quick menu", contents: the code has `Resume`, `Volume`, `Video` (`Picture style`, `Refresh policy`, `Scanlines`, `Scanline strength`), `Settings` (the global panels) and `Quit game`. No save states, interlace, position, shader, rotation, core options, controls, disc swap or reset.
@@ -378,7 +383,7 @@ Against `docs/definition/08-frontend-and-ux.md`:
 
 Against the READMEs and code comments:
 
-14. `crates/neptron-ui/src/screens.rs`, doc of `DISPLAY_PAGE`, and `crates/neptron-ui/README.md` ("The display panel and the confirm dialog"): they name four setting rows and the grid row, and say "all five rows of the display page still fit". The app page has seven setting rows plus `Grid pattern` (`DISPLAY_KEYS` in `apps/neptron/src/pages.rs`).
+14. `crates/neptron-ui/src/screens.rs`, doc of `DISPLAY_PAGE`, and `crates/neptron-ui/README.md` ("The display panel and the confirm dialog"): they name four setting rows and the grid row, and say "all five rows of the display page still fit". The app page has nine setting rows (two only on a TV) plus `Grid pattern` (`DISPLAY_KEYS` in `apps/neptron/src/pages.rs`).
 15. `crates/neptron-ui/README.md` gives the reason example `Not available. Needs a 15 kHz monitor`. The app sends `Needs another monitor` for every style, so the help line reads `Not available. Needs another monitor`.
 16. `crates/neptron-ui/src/intent.rs`, doc of `Intent::QuitGame`: "Stop the game and return to the game list". The next run starts on Home with the cursor on the first row, not on the list of the system.
 17. The UI opens the grid pattern from any `Page(GRID_PAGE)` row, also on a page of the quick menu. The app has such a row on the display page only.

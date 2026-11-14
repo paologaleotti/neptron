@@ -33,7 +33,7 @@ When `BK` is "no", the directive stays `Steady` or `Kept`.
 
 ### One present (`VideoEngine::present`)
 
-The session calls `present` once per flip of a core frame (twice for double refresh), and `wait_flip` after each one.
+The session calls `present` once per flip of a core frame (twice for double refresh). After the first present only, it ends the audio of the frame (`end_frame`, or `idle_frame` with no core run). Then it calls `wait_flip`.
 
 ```mermaid
 flowchart TD

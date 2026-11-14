@@ -1,6 +1,6 @@
 # 9. The control protocol and the bench tools
 
-This page is for the person who tests NEPTRON on a bench. The frontend serves a control protocol on a Unix socket: JSON lines that read the UI, the session, the video state, the counters, the settings and the log. A development build adds the commands that change the frontend (input, launch, settings writes). On the host side, `cargo xtask os push`, `os logs` and `os ssh` put new binaries on a PC that runs the development image and read its log. `neptronctl selftest video` shows test modes on a monitor with the frontend stopped. The player never needs any of this.
+This page is for the person who tests NEPTRON on a bench. The frontend serves a control protocol on a Unix socket: JSON lines that read the UI, the session, the video state, the counters, the settings and the log. A development build adds the commands that change the frontend (input, launch, settings writes). On the host side, `cargo xtask os push`, `os logs` and `os ssh` put new binaries on a PC or a Raspberry Pi that runs the development image and read its log. `neptronctl selftest video` shows test modes on a monitor with the frontend stopped. The player never needs any of this.
 
 ## Diagrams
 
@@ -145,7 +145,7 @@ Rules and limits:
 
 ### Bench commands on the host (`xtask`)
 
-All three need `--host H`. `--user` defaults to `root`, `--port` to 22. Only the x86_64 PC image is supported. Every connection uses key or agent only (`BatchMode=yes`, `PasswordAuthentication=no`) and a known-hosts file of its own in the xtask cache (`bench_known_hosts`).
+All three need `--host H`. `--user` defaults to `root`, `--port` to 22. `--arch` is `x86_64` (the default) or `rpi-arm64`; the QEMU image is refused. Every connection uses key or agent only (`BatchMode=yes`, `PasswordAuthentication=no`) and a known-hosts file of its own in the xtask cache (`bench_known_hosts`).
 
 | Command | What it does | Dev build only | Source |
 | --- | --- | --- | --- |
@@ -160,7 +160,7 @@ The restart (`RESTART_SCRIPT`): it makes `/run/neptron/hold` (the launch script 
 
 ### The development image
 
-`cargo xtask os build --arch x86_64 --dev-key FILE` merges `os/configs/neptron_pc_x86_64_dev.fragment`: Dropbear SSH with one public key, DHCP on `eth0`, `BR2_PACKAGE_NEPTRON_CONTROL=y` (the `control` feature) and the overlay `os/board/pc/dev-overlay`. Its launch script takes `bin/neptron-launch`, `bin/neptron` and `share/neptron` from `/state/hot` when they exist, unless `/state/hot/DISABLED` exists. It pipes the output to `svlogd` in `/state/log/neptron`, which rotates at 4 MiB and keeps two old files. The release image has none of this: its launch script runs `/usr/bin/neptron-launch --power -- /usr/bin/neptron --backend kms`. Both launch scripts pass `--power`. A launcher pushed to `/state/hot` before the flag existed exits with the usage error code 2; the development launch script then starts the image's own launcher, frontend and data for this start, with the line `launch: <path> exited with the usage error code 2: it does not know --power; ...`, so init does not restart the old launcher in a tight loop. Push the launcher again with the frontend.
+`cargo xtask os build --arch x86_64 --dev-key FILE` merges `os/configs/neptron_pc_x86_64_dev.fragment`: Dropbear SSH with one public key, `BR2_PACKAGE_NEPTRON_CONTROL=y` (the `control` feature), the Realtek RTL8168 firmware and the overlay `os/board/pc/dev-overlay`. DHCP and the network share are in every image. `--arch rpi-arm64 --dev-key FILE` merges `os/configs/neptron_rpi_arm64_dev.fragment` the same way. Its launch script takes `bin/neptron-launch`, `bin/neptron` and `share/neptron` from `/state/hot` when they exist, unless `/state/hot/DISABLED` exists. It pipes the output to `svlogd` in `/state/log/neptron`, which rotates at 4 MiB and keeps two old files. The release image has none of this: its launch script runs `/usr/bin/neptron-launch --power -- /usr/bin/neptron --backend kms`. Both launch scripts pass `--power`. A pushed launcher that does not know `--power` exits with the usage error code 2; the development launch script then starts the image's own launcher, frontend and data for this start, with the line `launch: <path> exited with the usage error code 2: it does not know --power; ...`, so init does not restart the old launcher in a tight loop. Push the launcher again with the frontend.
 
 ## What can go wrong
 
