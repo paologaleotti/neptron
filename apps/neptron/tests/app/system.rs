@@ -2,8 +2,8 @@
 //! outcome that the launcher turns into a reboot or a power-off.
 
 use neptron::pages::{
-    FORMAT_NOT_SAVED, FORMAT_NOT_SAVED_NOTICE, FORMAT_SHARE_LABEL, POWER_IN_GAME,
-    POWER_NO_LAUNCHER, REBOOT_LABEL, SHUT_DOWN_LABEL,
+    FORMAT_NEXT_RESTART, FORMAT_NEXT_RESTART_NOTICE, FORMAT_NOT_SAVED, FORMAT_NOT_SAVED_NOTICE,
+    FORMAT_SHARE_LABEL, POWER_IN_GAME, POWER_NO_LAUNCHER, REBOOT_LABEL, SHUT_DOWN_LABEL,
 };
 use neptron::power::{POWER_OFF_EXIT_CODE, PowerRequest, REBOOT_EXIT_CODE, exit_code};
 use neptron::{NextRun, Outcome};
@@ -723,6 +723,57 @@ fn a_request_that_is_not_saved_keeps_the_run_and_says_so() {
             rig.frames(10);
             rig.finish();
             assert!(request.is_dir(), "nothing replaced the folder");
+        },
+    );
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn a_written_request_with_no_reboot_says_when_it_runs() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "a_written_request_with_no_reboot_says_when_it_runs",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            offered(&mut rig);
+            rig.shell().request_share_format();
+            // A display change opens its confirmation before the writer
+            // gives back the result: the run takes no reboot then.
+            rig.shell()
+                .set_from_protocol(
+                    "display.style",
+                    Level::Global,
+                    &serde_json::Value::String("2x".to_owned()),
+                )
+                .expect("the change");
+            assert!(rig.shell().guard().pending().is_some());
+            // The frames panic when the run ends.
+            rig.until(1_000, "the notice", |r| {
+                r.shell()
+                    .snapshot()
+                    .notices
+                    .iter()
+                    .any(|n| n.text == FORMAT_NEXT_RESTART_NOTICE)
+            });
+            assert_eq!(
+                std::fs::read_to_string(rig.paths.share_format_request()).expect("the request"),
+                REQUEST
+            );
+            let row = rig
+                .shell()
+                .snapshot()
+                .settings
+                .rows
+                .iter()
+                .find(|r| r.label == FORMAT_SHARE_LABEL)
+                .cloned()
+                .expect("the format row");
+            assert_eq!(row.unavailable.as_deref(), Some(FORMAT_NEXT_RESTART));
+            rig.shell().request_share_format();
+            rig.frames(10);
+            rig.finish();
         },
     );
 }

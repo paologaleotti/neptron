@@ -139,7 +139,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 self.in_game(),
                 self.runtime.power,
                 self.share_offer.as_ref(),
-                self.format_request == super::FormatRequest::Failed,
+                match self.format_request {
+                    super::FormatRequest::None | super::FormatRequest::Waiting => {
+                        pages::FormatRow::Offered
+                    }
+                    super::FormatRequest::Failed => pages::FormatRow::NotSaved,
+                    super::FormatRequest::Written => pages::FormatRow::Written,
+                },
             ),
             AUDIO_PAGE => pages::audio_page(&self.config, names),
             QUICK_MENU_PAGE => pages::quick_menu_page(&self.config, names),

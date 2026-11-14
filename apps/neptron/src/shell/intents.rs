@@ -210,9 +210,22 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         match self.outbox.request_result() {
             None => {}
             Some(Ok(())) => {
-                self.format_request = super::FormatRequest::None;
                 self.log("the format request is written".to_owned());
                 self.request_power(PowerRequest::Reboot);
+                if self.outcome.is_some() {
+                    self.format_request = super::FormatRequest::None;
+                } else {
+                    // A display change opened its confirmation while the
+                    // writer wrote: the run takes no reboot now, and the
+                    // request waits on the state partition.
+                    self.format_request = super::FormatRequest::Written;
+                    self.log("the format request waits for the next start".to_owned());
+                    self.notice(
+                        NoticeKind::Info,
+                        pages::FORMAT_NEXT_RESTART_NOTICE.to_owned(),
+                    );
+                    self.reload_page();
+                }
             }
             Some(Err(e)) => {
                 self.format_request = super::FormatRequest::Failed;

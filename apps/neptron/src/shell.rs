@@ -188,6 +188,9 @@ enum FormatRequest {
     /// The request file was not written: nothing is formatted, and the row
     /// stays disabled in this run.
     Failed,
+    /// The request file is written, but the run took no reboot: the next
+    /// start formats, and the row stays disabled in this run.
+    Written,
 }
 
 /// What the run shows.

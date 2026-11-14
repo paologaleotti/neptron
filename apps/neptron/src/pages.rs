@@ -58,6 +58,26 @@ pub const FORMAT_SHARE_LABEL: &str = "Format share";
 /// not be written in this run.
 pub const FORMAT_NOT_SAVED: &str = "Not saved";
 
+/// The reason that the format row is disabled after the request file was
+/// written but the run could not end with the reboot: the next start
+/// formats.
+pub const FORMAT_NEXT_RESTART: &str = "At next restart";
+
+/// The Info notice when the request file is written but the run takes no
+/// reboot now.
+pub const FORMAT_NEXT_RESTART_NOTICE: &str = "The format runs at the next restart.";
+
+/// What became of the format request of this run, for the format row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatRow {
+    /// No request, or one that waits for the writer: the row is as offered.
+    Offered,
+    /// The request file was not written.
+    NotSaved,
+    /// The request file is written, and the run did not reboot.
+    Written,
+}
+
 /// The Warning notice when the request file could not be written.
 pub const FORMAT_NOT_SAVED_NOTICE: &str =
     "The format request was not saved, so nothing is formatted.";
@@ -224,13 +244,13 @@ pub fn library_page(scanning: bool, in_game: bool) -> SettingsPage {
 /// storage script offers it (`offer`); with no offer that row is absent,
 /// since no other state has a format that fixes it. With no power
 /// control (`power`) every row is disabled; in a game too, and the panel
-/// is still listed. After a request that was not saved in this run
-/// (`not_saved`), the format row is disabled.
+/// is still listed. After a request of this run that was not saved or that
+/// waits for the next restart (`format`), the format row is disabled.
 pub fn system_page(
     in_game: bool,
     power: bool,
     offer: Option<&FormatOffer>,
-    not_saved: bool,
+    format: FormatRow,
 ) -> SettingsPage {
     let reason = match (power, in_game) {
         (false, _) => Some(POWER_NO_LAUNCHER),
@@ -249,7 +269,7 @@ pub fn system_page(
             "Shutting down...",
         ),
     ];
-    let format = offer.map(|offer| {
+    let format_row = offer.map(|offer| {
         action(8, FORMAT_SHARE_LABEL, FORMAT_SHARE).with_confirm(
             "Format the share partition?",
             format!(
@@ -259,13 +279,14 @@ pub fn system_page(
             "Formatting at the next start...",
         )
     });
-    let format = format.map(|row| match (reason, not_saved) {
-        (None, true) => row.unavailable(FORMAT_NOT_SAVED),
+    let format_row = format_row.map(|row| match (reason, format) {
+        (None, FormatRow::NotSaved) => row.unavailable(FORMAT_NOT_SAVED),
+        (None, FormatRow::Written) => row.unavailable(FORMAT_NEXT_RESTART),
         _ => row,
     });
     let rows = rows
         .into_iter()
-        .chain(format)
+        .chain(format_row)
         .map(|row| match reason {
             Some(reason) => row.unavailable(reason),
             None => row,
@@ -602,7 +623,7 @@ mod tests {
 
     #[test]
     fn the_system_rows_ask_first_and_are_disabled_in_a_game_or_with_no_launcher() {
-        let page = system_page(false, true, None, false);
+        let page = system_page(false, true, None, FormatRow::Offered);
         assert!(page.is_for(SYSTEM_PAGE));
         let rows: Vec<_> = page
             .rows
@@ -630,7 +651,7 @@ mod tests {
             (false, false, POWER_NO_LAUNCHER),
             (true, false, POWER_NO_LAUNCHER),
         ] {
-            let page = system_page(in_game, power, Some(&offer()), false);
+            let page = system_page(in_game, power, Some(&offer()), FormatRow::Offered);
             assert!(
                 page.rows
                     .iter()
@@ -657,8 +678,13 @@ mod tests {
 
     #[test]
     fn the_format_row_is_there_only_with_an_offer_and_asks_first() {
-        assert_eq!(system_page(false, true, None, false).rows.len(), 2);
-        let page = system_page(false, true, Some(&offer()), false);
+        assert_eq!(
+            system_page(false, true, None, FormatRow::Offered)
+                .rows
+                .len(),
+            2
+        );
+        let page = system_page(false, true, Some(&offer()), FormatRow::Offered);
         let row = page.rows.last().expect("a row");
         assert_eq!(page.rows.len(), 3);
         assert_eq!(row.label, FORMAT_SHARE_LABEL);
@@ -672,17 +698,31 @@ mod tests {
         );
         assert_eq!(confirm.working, "Formatting at the next start...");
         assert_eq!(
-            system_page(true, true, Some(&offer()), false).rows[2]
+            system_page(true, true, Some(&offer()), FormatRow::Offered).rows[2]
                 .unavailable
                 .as_deref(),
             Some(POWER_IN_GAME)
         );
         assert_eq!(
-            system_page(false, false, Some(&offer()), false).rows[2]
+            system_page(false, false, Some(&offer()), FormatRow::Offered).rows[2]
                 .unavailable
                 .as_deref(),
             Some(POWER_NO_LAUNCHER)
         );
+        for (format, reason) in [
+            (FormatRow::NotSaved, FORMAT_NOT_SAVED),
+            (FormatRow::Written, FORMAT_NEXT_RESTART),
+        ] {
+            let page = system_page(false, true, Some(&offer()), format);
+            assert_eq!(page.rows[2].unavailable.as_deref(), Some(reason));
+            assert!(page.rows[..2].iter().all(|r| r.is_enabled()), "{format:?}");
+            let no_power = system_page(false, false, Some(&offer()), format);
+            assert_eq!(
+                no_power.rows[2].unavailable.as_deref(),
+                Some(POWER_NO_LAUNCHER),
+                "the reason of the whole panel comes first"
+            );
+        }
     }
 
     #[test]
@@ -994,7 +1034,7 @@ mod tests {
             quick_menu_page(&config, names),
             display_page(&config, names),
             library_page(false, false),
-            system_page(false, true, Some(&offer()), false),
+            system_page(false, true, Some(&offer()), FormatRow::Offered),
         ]
         .iter()
         .flat_map(|page| page.rows.iter().map(|r| r.key))
