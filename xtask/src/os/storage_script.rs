@@ -105,6 +105,7 @@ const FAKES: &[(&str, &str)] = &[
          \t\tsed -i.bak 's/^\\(.*sda4 : .*type=\\)[0-9a-fA-F]*$/\\17/' \"$R/table\"\n\
          \tfi\n\
          \tif [ -n \"$FAKE_RETYPE_ALSO\" ]; then sed -i.bak \"$FAKE_RETYPE_ALSO\" \"$R/table\"; fi\n\
+         \tif [ -n \"$FAKE_RETYPE_BOOT_CODE\" ]; then printf X | /bin/dd of=\"$R/dev/sda\" bs=1 seek=100 conv=notrunc 2>/dev/null; fi\n\
          \texit \"${FAKE_RETYPE_EXIT:-0}\" ;;\n\
          *' --part-type '*) grep -q '4 : .*type=7' \"$R/table\" && echo ' 7'; exit 0 ;;\n\
          esac\n\
@@ -2067,4 +2068,16 @@ fn the_first_boot_scans_the_free_space_once() {
         .filter(|l| l.starts_with("dd ") && l.contains("/dev/sda bs=1 ") && l.ends_with("count=8"))
         .count();
     assert_eq!(steps as u64, FREE_SECTORS / MIB_SECTORS, "{out:#?}");
+}
+
+/// sfdisk --part-type writes the whole MBR sector: the boot code in bytes
+/// 0 to 439 must read back the same.
+#[test]
+fn a_type_change_that_changes_the_boot_code_formats_nothing() {
+    let run = Run::empty_partition_4("retype-boot-code", PLANNED, "83")
+        .set("FAKE_RETYPE_BOOT_CODE", "yes");
+    run.request_planned("83");
+    let out = run.start();
+    out.assert_request_refused("the boot code of the MBR (bytes 0 to 439) changed");
+    out.assert_share_ram("the boot code of the MBR (bytes 0 to 439) changed");
 }
