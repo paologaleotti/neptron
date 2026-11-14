@@ -139,3 +139,43 @@ fn the_stats_count_an_audio_underrun() {
         },
     );
 }
+
+/// The `fields_missed` stat counts the fields in which no new frame reached
+/// the display while the core ran: none in steady play, and each blank
+/// that a 300 ms stall of the frame loop let pass with no flip.
+#[test]
+#[ignore = "tier 2"]
+fn the_stats_count_the_fields_with_no_new_frame() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "the_stats_count_the_fields_with_no_new_frame",
+        ),
+        |dir| {
+            let mut rig = crate::pause::in_game(dir);
+            rig.frames(30);
+            let stats = rig.shell().stats_now();
+            assert_eq!(stats.fields_missed, Some(0));
+            let dropped = stats.frames_dropped;
+            let before = rig.display.flips().len();
+            rig.clock.advance(300_000_000);
+            rig.frames(2);
+            let flips = rig.display.flips();
+            let late: u64 = flips[before - 1..]
+                .windows(2)
+                .map(|pair| pair[1].sequence - pair[0].sequence - 1)
+                .sum();
+            let stats = rig.shell().stats_now();
+            assert!(
+                late >= 17,
+                "a 300 ms stall passes 17 or more blanks: {late}"
+            );
+            assert_eq!(stats.fields_missed, Some(late));
+            assert_eq!(
+                stats.frames_dropped, dropped,
+                "frames_dropped keeps its meaning"
+            );
+            rig.finish();
+        },
+    );
+}

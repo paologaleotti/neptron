@@ -37,13 +37,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             audio_underruns: 0,
             audio_queued_frames: 0,
             input_to_frame_ns: 0,
-            fields_missed: None,
+            fields_missed: Some(0),
         };
         if let Stage::Game(game) = &self.stage {
             let counters = game.session.counters();
             stats.frames_presented = counters.flips;
             stats.frames_repeated = counters.repeated_pictures;
             stats.frames_dropped = counters.flipless_frames;
+            stats.fields_missed = Some(counters.missed_fields);
             if let Some(sink) = game.session.audio_sink() {
                 stats.audio_queued_frames = sink.queued_frames() as u64;
             }
