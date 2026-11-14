@@ -65,6 +65,14 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: display_style,
     },
     SceneDef {
+        name: "screens/display-tv",
+        build: display_tv,
+    },
+    SceneDef {
+        name: "screens/display-tv-standard",
+        build: display_tv_standard,
+    },
+    SceneDef {
         name: "screens/confirm-10s",
         build: confirm_10s,
     },
@@ -517,6 +525,118 @@ fn display_style(frame: &mut UiFrame, theme: &Theme) {
         frame,
     );
     screens.update(&snap, &[UiAction::Down], frame);
+}
+
+/// The rows of the display page on the composite output of a Raspberry
+/// Pi: the TV standard and the TV picture width show, and the monitor
+/// profile has no effect.
+fn display_tv_rows() -> Vec<MenuItem> {
+    let global = Scopes {
+        global: true,
+        ..Scopes::NONE
+    };
+    let names = |names: &[&str]| names.iter().map(|n| ChoiceOption::new(*n)).collect();
+    let mut standards = vec![ChoiceOption::new("auto").with_detail("NTSC (60 Hz)")];
+    standards.extend(
+        [
+            ("NTSC (60 Hz)", "NTSC"),
+            ("NTSC-J (60 Hz)", "NTSC-J"),
+            ("NTSC 4.43 (60 Hz)", "NTSC 4.43"),
+            ("PAL 60 (60 Hz)", "PAL 60"),
+            ("PAL-M (60 Hz)", "PAL-M"),
+            ("PAL (50 Hz)", "PAL"),
+            ("PAL-N (50 Hz)", "PAL-N"),
+            ("SECAM (50 Hz)", "SECAM"),
+            ("Mono (60 Hz)", "Mono 60"),
+            ("Mono (50 Hz)", "Mono 50"),
+        ]
+        .map(|(label, short)| ChoiceOption::new(label).with_short(short)),
+    );
+    vec![
+        setting(
+            OUTPUT,
+            "Output",
+            choice(0, names(&["auto", "HDMI-A-1", "Composite-1"])),
+            Level::Default,
+            Scopes::NONE,
+        ),
+        setting(
+            MONITOR,
+            "Monitor profile",
+            choice(0, names(&["auto", "generic_15", "ntsc", "pal"])),
+            Level::Default,
+            global,
+        )
+        .unavailable("Not used on a TV"),
+        setting(
+            TV_STANDARD,
+            "TV standard",
+            choice(4, standards),
+            Level::Global,
+            global,
+        ),
+        setting(
+            TV_WIDTH,
+            "TV picture width",
+            choice(0, names(&["aspect", "integer", "fill"])),
+            Level::Default,
+            global,
+        ),
+        setting(
+            STYLE,
+            "Picture style",
+            choice(
+                0,
+                vec![
+                    ChoiceOption::new("auto").with_detail("15.73 kHz  60.05 Hz"),
+                    ChoiceOption::new("native").with_detail("15.73 kHz  60.05 Hz"),
+                    ChoiceOption::new("2x").unavailable("Needs another monitor"),
+                    ChoiceOption::new("3x").unavailable("Needs another monitor"),
+                    ChoiceOption::new("4x").unavailable("Needs another monitor"),
+                ],
+            ),
+            Level::Default,
+            global,
+        ),
+        MenuItem::new(SettingKey(5), "Grid pattern", SettingValue::Page(GRID_PAGE)),
+    ]
+}
+
+/// The key of the TV standard row of the TV scenes.
+const TV_STANDARD: SettingKey = SettingKey(30);
+/// The key of the TV picture width row of the TV scenes.
+const TV_WIDTH: SettingKey = SettingKey(31);
+
+/// A snapshot of the display panel on the composite output of a
+/// Raspberry Pi, in PAL 60 240p.
+fn with_display_tv() -> Snapshot {
+    let mut snap = with_systems();
+    snap.display =
+        Some(DisplayInfo::new("Composite-1", "PAL 60 240p 60.05 Hz").monitor("Composite TV"));
+    snap.settings = SettingsPage::new(DISPLAY_PAGE, "Display", display_tv_rows());
+    snap
+}
+
+/// The display panel on a TV, with the focus on the TV standard.
+fn display_tv(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_display_tv();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_DISPLAY, frame);
+    screens.update(&snap, &[UiAction::Down, UiAction::Down], frame);
+}
+
+/// The option list of the TV standard, with the focus on the standard in
+/// use, PAL 60.
+fn display_tv_standard(frame: &mut UiFrame, theme: &Theme) {
+    let snap = with_display_tv();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_DISPLAY, frame);
+    screens.update(
+        &snap,
+        &[UiAction::Down, UiAction::Down, UiAction::Accept],
+        frame,
+    );
+    screens.update(&snap, &[], frame);
 }
 
 /// The Library panel with the app's rescan row while a scan runs: a
