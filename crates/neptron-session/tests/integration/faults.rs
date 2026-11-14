@@ -5,9 +5,10 @@
 
 use neptron_safety::Rejection;
 use neptron_session::{FLIPLESS_FRAMES_LIMIT, SessionError};
+use neptron_testkit::preset::CAPS_LOW_CLOCK;
 use neptron_testkit::{DEFAULT_FLIP_TIMEOUT_NS, FlipFault};
-use neptron_types::{Control, Modeline};
-use neptron_video::{Directive, VideoError};
+use neptron_types::{Control, GpuCaps, Modeline};
+use neptron_video::{DEBOUNCE_FRAMES, Directive, VideoError};
 
 use crate::harness::{Rig, Setup};
 use crate::with_script;
@@ -238,6 +239,123 @@ fn a_late_flip_under_the_quick_menu_is_not_counted() {
             rig.session.resume();
             rig.run(30);
             assert_eq!(rig.session.counters().missed_fields, 0);
+        }
+    );
+}
+
+const INTERLACED_SCRIPT: &str = "\
+neptron-testcore 1
+pixel_format rgb565
+geometry 256 448 1333
+timing 60000 48000
+";
+
+/// An interlaced mode on a driver that flips once per frame: a flip lands
+/// every second field, and the session counts no missed field in steady
+/// play. A flip late by one frame misses the two fields of that frame.
+#[test]
+fn an_interlaced_mode_with_one_flip_per_frame_misses_no_field() {
+    with_script!(
+        "an_interlaced_mode_with_one_flip_per_frame_misses_no_field",
+        INTERLACED_SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            const { assert!(!CAPS_LOW_CLOCK.flip_per_field) };
+            rig.run(120);
+            assert!(rig.display.active_mode().unwrap().interlace);
+            let flips = rig.display.flips();
+            let last = &flips[flips.len() - 2..];
+            assert_eq!(last[1].sequence - last[0].sequence, 2, "a flip per frame");
+            assert_eq!(rig.session.counters().missed_fields, 0);
+            let index = rig.display.next_present_index();
+            rig.display
+                .fault_flip(index, FlipFault::Late { vblanks: 1 });
+            rig.run(30);
+            assert_eq!(rig.session.counters().missed_fields, 2);
+        }
+    );
+}
+
+/// An interlaced mode on a driver that flips once per field: a flip lands
+/// on every field, and the session counts no missed field.
+#[test]
+fn an_interlaced_mode_with_one_flip_per_field_misses_no_field() {
+    with_script!(
+        "an_interlaced_mode_with_one_flip_per_field_misses_no_field",
+        INTERLACED_SCRIPT,
+        |dir| {
+            let setup = Setup {
+                caps: GpuCaps {
+                    flip_per_field: true,
+                    ..CAPS_LOW_CLOCK
+                },
+                ..Setup::default()
+            };
+            let mut rig = Rig::launch(dir, setup);
+            rig.run(120);
+            assert!(rig.display.active_mode().unwrap().interlace);
+            let flips = rig.display.flips();
+            let last = &flips[flips.len() - 2..];
+            assert_eq!(last[1].sequence - last[0].sequence, 1, "a flip per field");
+            assert_eq!(rig.session.counters().missed_fields, 0);
+        }
+    );
+}
+
+/// A modeset in the game starts the count again: a gap of blanks between
+/// the last flip of the old mode and the first flip of the new one is not
+/// a missed field. The fake display counts blanks on through a modeset, so
+/// the test makes the gap: the first flip of the new mode lands 5 blanks
+/// late. The frame after the last frame of the debounce sets the mode.
+#[test]
+fn a_modeset_in_the_game_misses_no_field() {
+    let script = format!("{SCRIPT}at 300 av_info 256 224 1333 320 240 50007 32040\n");
+    with_script!("a_modeset_in_the_game_misses_no_field", &script, |dir| {
+        let mut rig = Rig::launch(dir, Setup::default());
+        rig.run(10);
+        let mut faulted = false;
+        for _ in 0..600 {
+            let index = rig.display.next_present_index();
+            let report = rig.session.run_frame(None).unwrap();
+            if faulted && index == rig.display.next_present_index() - 1 {
+                faulted = false;
+                assert_eq!(report.directive, Directive::Modeset);
+            }
+            let last_wait = Directive::Waiting {
+                stable_frames: DEBOUNCE_FRAMES - 1,
+            };
+            if report.directive == last_wait {
+                let next = rig.display.next_present_index();
+                rig.display.fault_flip(next, FlipFault::Late { vblanks: 5 });
+                faulted = true;
+            }
+        }
+        assert_eq!(rig.display.mode_calls().len(), 2);
+        assert!(rig.display.repeated_vblanks() >= 5, "the flip came late");
+        assert_eq!(rig.session.counters().missed_fields, 0);
+    });
+}
+
+/// A present that fails still ends the audio of its frame.
+#[test]
+fn the_audio_of_a_frame_goes_out_when_its_present_fails() {
+    with_script!(
+        "the_audio_of_a_frame_goes_out_when_its_present_fails",
+        SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(30);
+            let frames = rig.session.audio_stats().unwrap().frames;
+            let index = rig.display.next_present_index();
+            rig.display.fault_flip(
+                index,
+                FlipFault::PresentFails {
+                    reason: "test".to_owned(),
+                },
+            );
+            let report = rig.session.run_frame(None).unwrap();
+            assert!(matches!(report.display_error, Some(VideoError::Present(_))));
+            assert_eq!(rig.session.audio_stats().unwrap().frames, frames + 1);
         }
     );
 }
