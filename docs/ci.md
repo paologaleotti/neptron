@@ -60,33 +60,47 @@ The runners now have a 145 GB root disk. The often quoted 14 GB free is out of d
 
 ## Measured times
 
-From the runs of pull request 1 on 2026-11-13. Cold means no cache and no base.
+From the runs of pull request 1 on 2026-11-13 and 2026-11-14. Cold means no cache and no base.
 
 | Job | Cold | Warm |
 | --- | --- | --- |
-| `lint` | 42 s and 44 s | not measured yet |
-| `test-linux` | 1 min 57 s and 2 min 0 s (`verify --tier 2`: 98 s) | not measured yet |
-| `test-macos` | 2 min 49 s and 3 min 3 s (`verify --tier 2`: 145 s) | not measured yet |
-| `image aarch64`, build step | 57 min and 40 min | not measured yet |
-| `image x86_64`, build step | more than 320 min (the step limit; it stopped in the kernel build), then 4 h 26 min (15,941 s) | not measured yet |
+| `lint` | 34 to 44 s | not measured yet |
+| `test-linux` | 1 min 54 s to 2 min 55 s (`verify --tier 2`: 98 s) | not measured yet |
+| `test-macos` | 2 min 49 s to 3 min 31 s (`verify --tier 2`: 145 s) | not measured yet |
+| `image aarch64`, build step | 40 min, 57 min and 63 min | see below |
+| `image x86_64`, build step | more than 320 min (the step limit; it stopped in the kernel build), 4 h 26 min, 3 h 45 min | see below |
 
-The two cold PC builds show how much the shared runners vary: the same work took over 320 minutes once and 266 minutes the next time. The partial base (see below) makes the slow case finish in a second run instead of failing for ever.
+The shared runners vary a lot: the same cold PC build took more than 320 minutes once, and 225 minutes another time. The partial base (see below) makes the slow case finish in a second run instead of failing every time.
+
+On top of a base, the NEPTRON packages compile quickly, because their Cargo target directories are in the base: `neptron` (fat LTO) 33 s, `neptron-launch` 5 s, `neptronctl` 23 s on `ubuntu-24.04`. Getting the base onto the runner takes most of the time of a warm job: the download of the 9 GB PC base took between 2 and 10 minutes, and the unpacking 3 to 5 minutes.
 
 Sizes of a cold build:
 
-| Target | Buildroot output | Downloads | Compiler cache | Base artifact |
+| Target | Buildroot output | Downloads | Compiler cache | Base artifact (output, compiler cache, downloads) |
 | --- | --- | --- | --- | --- |
-| x86\_64 | 44 GB (`build/` 38 GB; host and target LLVM and clang about 3 GB each) | 1.8 GB | 1.1 GB | 7.45 GB packed (10.36 GB as a partial base, which is not pruned); packing 495 to 641 s |
-| aarch64 | 17 GB (`build/` 15 GB) | 1.6 GB | 0.3 GB | 3.05 GB packed (4.40 GB as a partial base); packing 142 to 172 s |
+| x86\_64 | 44 GB (`build/` 38 GB; host and target LLVM and clang about 3 GB each) | 1.8 GB | 1.1 GB | 9.31 GB; packing 653 s |
+| aarch64 | 17 GB (`build/` 15 GB) | 1.6 GB | 0.3 GB | 4.69 GB; packing 200 s |
 
 An upload of the base runs at about 160 MB/s.
 
-Tier 3 on the images:
+## Tier 3 results
+
+From the cold run of 2026-11-14 (run 43502222190), with the code of `main` at that time.
 
 | Check | x86\_64 (KVM) | aarch64 (TCG on the arm runner) |
 | --- | --- | --- |
-| `os boot-check` | BIOS: first frame 4.6 s after QEMU start, the notice at 14.1 s. UEFI: 5.5 s and 15.1 s. Both PASS | First frame 96.8 s, the notice at 103.3 s. PASS |
+| `os boot-check` | UEFI PASS: first frame 5.5 s after QEMU start, the notice at 15.1 s. BIOS PASS in one run (4.6 s and 14.1 s), FAIL in another (see below) | PASS: first frame 96.8 s, the notice at 103.3 s |
 | `os app-check` | PASS, 44 s | PASS, 28 s |
+| `kms-check` | FAIL: the program is not in the guest (see below) | Every check passes, but the run does not end before the guest deadline of 900 s |
+| `gles-compare` | FAIL: the program is not in the guest | PASS, 65 checks |
+| `os selftest-check` | FAIL: the program is not in the guest | FAIL: "1 flips completed, at least 2 are needed" in each mode |
+| `core-trace --allow-missing-roms` | FAIL: the program is not in the guest. The 4 SNES and Mega Drive cases are reported as skipped, as they must be | FAIL: the guest stopped before the command ended |
+
+What these failures are. CI did not cause them, and none is hidden:
+
+- **x86\_64: no `/mnt/host` in the PC image.** `S05neptron-mounts` runs `mkdir -p /mnt/host` and then mounts the 9p share there. The root filesystem of the PC image is read-only EROFS, so the `mkdir` fails ("Read-only file system"), and every program that a check shares with the guest is "not found". The aarch64 image has a writable ext4 root, so it works there. `os/README.md` lists these x86\_64 checks as never run. The fix belongs in `os/`: an empty `/mnt/host` in the PC overlay, or a mount point under `/run`.
+- **x86\_64 BIOS boot check, once.** While the guest printed the captured picture in base64 on the serial console, the kernel printed an RCU stall message ("rcu_preempt detected stalls") on the same console, and xtask refused the picture ("line 15995 of the picture is not base64"). The stall says that the guest CPU got no time for about 20 s on the shared runner. It is a flaky interaction of the kernel console and the picture on one serial port.
+- **aarch64 under TCG.** `ubuntu-24.04-arm` has no `/dev/kvm`, so the aarch64 guest runs about 100 times slower than with the hypervisor of a Mac. Checks that measure time cannot pass at that speed: the self-test sees one flip where it needs two, and `kms-check` runs out of its 900 s. These checks pass on a Mac with the hypervisor, and their x86\_64 versions run under KVM in CI once the share mount works.
 
 ## Caches
 
