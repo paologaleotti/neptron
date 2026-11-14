@@ -148,29 +148,40 @@ else
 fi
 
 # The share partition (partition 4) is made and formatted by this script
-# only. By its own rules it formats a partition 4 only when all of these
-# hold, so the games of the user are never formatted away. The one
-# exception is a format request of the user, which has rules of its own
-# (see user_format_refusal):
+# only, on one of two paths.
+#
+# The first boot (the marker path). A freshly written image owns the free
+# space after the state partition: the remains of a foreign file system
+# there are no user data. The one thing this path keeps is an old exFAT
+# share with the user's games. It formats an empty partition 4 only when
+# all of these hold:
 #
 # - The marker /state/share-pending is there: this script wrote it, with a
 #   sync, before it made the partition, and removes it after the first
-#   mount. A partition 4 with no marker is never formatted by these
-#   rules, whatever is on it. A stick written again with dd has a new state partition with no
-#   marker; the script makes partition 4 again with a new marker, but only
-#   when the free space holds no old share at another start (the scan
-#   below). An old share at the planned start becomes partition 4 again,
+#   mount. A partition 4 with no marker is never formatted on this path,
+#   whatever is on it. A stick written again with dd has a new state
+#   partition with no marker; the script makes partition 4 again with a
+#   new marker, but only when the free space holds no old share at another
+#   start. An old share at the planned start becomes partition 4 again,
 #   and it holds a filesystem, so it is mounted as it is.
 # - Its type is 0x07 and it starts at the first 1 MiB boundary after the
 #   state partition.
 # - The marker names its start and its size: the partition this script
 #   planned. A marker of an older image names none, so it allows nothing.
 # - Its first 16 MiB read with no error, and blkid exits with 2 (nothing
-#   found) and prints nothing: a read error is never taken for an empty
-#   partition.
+#   found) and prints nothing.
 # - It holds no exFAT backup boot sector (sector 12 of the exFAT sector
 #   size, which is 512 to 4096 bytes): a damaged main boot sector with a
-#   good backup is the user's share, not an empty partition.
+#   good backup is the user's share.
+# - No exFAT boot sector starts at a 1 MiB boundary from the planned start
+#   through the first 4 GiB of partition 4. The scan before the partition
+#   is made covers this at the first boot, so the boot scans once.
+#
+# The user's path (the offer and the request). When the first-boot path
+# refuses an empty partition 4, the offer may name it for Settings >
+# System, and a request of the user formats it at the next boot. Its
+# rules are at user_format_refusal; they read more than the first-boot
+# path, and a read that fails refuses there.
 #
 # When a check fails, nothing is formatted or mounted, /share is a RAM
 # folder, and one line says why.
@@ -580,17 +591,29 @@ format_exfat() {
 
 # The format that the user may ask for in Settings > System (the offer)
 # and the format of the request that follows it obey these rules, on the
-# disk as it is at that moment. The partition is partition 4 of the boot
-# disk, and the kernel and the table on the disk agree on its start and
-# size; the table is an MBR table; the partition is no extended partition;
-# it lies wholly after the state partition, which is mounted, so the
-# request has a place; blkid finds no filesystem or partition table on it
-# and its probe is clean; its first 16 MiB read cleanly; it holds no exFAT
-# backup boot sector; and no exFAT boot sector starts at a 1 MiB boundary
-# in its first 4 GiB, which would be an old share inside it. Its type and
-# its start may differ from the plan, and no marker is needed: the user
-# decides. A request formats only the partition that it names, with the
-# same start, size and type.
+# disk as it is at that moment:
+#
+# - Partition 4 of the boot disk, whose start and size are the same in
+#   the kernel and in the MBR table on the disk, and no extended type.
+# - The state partition is mounted, so the request has a place.
+# - Partition 4 starts at or after the end of the state partition, ends at
+#   or before the end of the disk, overlaps no other entry of the table,
+#   and starts at most SHARE_GAP_MAX_SECTORS after the planned start.
+# - blkid finds no filesystem or partition table on it, and its probe is
+#   clean; its first 16 MiB read cleanly.
+# - It holds no exFAT backup boot sector, and no backup header of another
+#   file system that starts at partition 4: an ext superblock, a FAT32
+#   or an NTFS backup boot sector, a btrfs mirror. The fields of a header
+#   decide whether it belongs to partition 4; one of another layout is a
+#   remain, and the user decides on it.
+# - No exFAT boot sector starts at a 1 MiB boundary from the planned start
+#   through the first 4 GiB of partition 4. The offer keeps the result of
+#   this scan in a cache; the request always scans.
+# - Every read of these checks succeeds: a read that fails refuses.
+#
+# Its type and its start may differ from the plan, and no marker is
+# needed: the user decides. A request formats only the partition that it
+# names, with the same start, size and type.
 
 # The result of the scan that the cache holds for the key $1: nothing or
 # the sector of an exFAT boot sector. Fails when the cache has no valid
