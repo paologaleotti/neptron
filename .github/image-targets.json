@@ -40,8 +40,8 @@
     },
     {
       "name": "rpi-arm64",
-      "enabled": false,
-      "description": "The Raspberry Pi image. Disabled: the board support does not exist yet; docs/ci.md lists what the Pi image task must provide",
+      "enabled": true,
+      "description": "The Raspberry Pi image, release variant. QEMU does not boot it; the build checks its kernel configuration and that its kernel takes no patch",
       "runner": "ubuntu-24.04-arm",
       "arch": "rpi-arm64",
       "defconfig": "neptron_rpi_arm64_defconfig",
@@ -54,8 +54,8 @@
       "artifact": "neptron-rpi-arm64",
       "upload_image": true,
       "rebuild": ["neptron", "neptron-launch", "neptronctl"],
-      "checks": [],
-      "build_minutes": 330
+      "checks": ["pi-layout"],
+      "build_minutes": 300
     }
   ]
 }
