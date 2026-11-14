@@ -73,7 +73,7 @@ The runners now have a 145 GB root disk. The often quoted 14 GB free is out of d
 
 ## Measured times
 
-From the runs of pull request 1 (2026-11-13 and 2026-11-14) and of pull request 2 (2026-11-14: manual run 43622509874, pull request run 43624818679). Cold means no cache and no base. Warm means the Cargo cache of the job, or a complete base for the key.
+From the runs of pull request 1 (2026-11-13 and 2026-11-14) and of pull request 2 (2026-11-14: manual runs 43622509874 and 43633804171, pull request run 43624818679). In run 43633804171, warm on all three targets, `image x86_64` took 23 min 24 s and `image aarch64` 14 min 55 s. Cold means no cache and no base. Warm means the Cargo cache of the job, or a complete base for the key.
 
 | Job | Cold | Warm |
 | --- | --- | --- |
@@ -82,10 +82,10 @@ From the runs of pull request 1 (2026-11-13 and 2026-11-14) and of pull request 
 | `test-macos` | 2 min 49 s to 5 min 33 s (`verify --tier 2`: 145 s) | 2 min 21 s (`verify --tier 2`: 109 s) |
 | `image x86_64`, build step | more than 320 min (the step limit; it stopped in the kernel build), 4 h 26 min, 3 h 45 min | 208 to 219 s |
 | `image aarch64`, build step | 40 min, 57 min, 63 min | 208 to 209 s |
-| `image rpi-arm64`, build step | 83 min and 90 min | Not measured yet |
+| `image rpi-arm64`, build step | 83 min and 90 min | 135 s |
 | `image x86_64`, whole job | about 4 h | 20 min 23 s: base download 4 min 48 s, unpacking 4 min 54 s, build 3 min 28 s, both boot checks 1 min 26 s, `app-check` 41 s, `kms-check`, `gles-compare`, `selftest-check` and `core-trace` together 65 s, `share-check` 55 s, the uploads |
 | `image aarch64`, whole job | 1 h 10 min to 1 h 16 min | 19 min 43 s: base download 4 min 57 s, unpacking 1 min 23 s, build 3 min 29 s, boot check 73 s, `app-check` 43 s, `gles-compare` under TCG 6 min 38 s |
-| `image rpi-arm64`, whole job | 1 h 28 min and 1 h 38 min, with the uploads of the image, its sources and the base | Not measured yet; expected near the aarch64 job without its QEMU checks |
+| `image rpi-arm64`, whole job | 1 h 28 min and 1 h 38 min, with the uploads of the image, its sources and the base | 7 min 24 s: base download 2 min 10 s, unpacking 1 min 30 s, build 2 min 15 s, the layout check, the uploads |
 
 The test jobs of pull request 2 ran with no Cargo cache: a pull request restores only the caches of `main` and of its own ref, and `main` has not run this workflow yet. With warm caches every pull request check that does not build an image stays under the 5-minute target; a cold `test-macos` can take up to 5 min 33 s. The Cargo caches are small: 53 MB for `lint`, 118 MB for `test-linux`, 115 MB for `test-macos`.
 
