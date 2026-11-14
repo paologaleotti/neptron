@@ -303,7 +303,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             // and never reach safe mode, so it starts in the safe default.
             shell.safe_for_this_run(text);
         }
-        for text in storage.iter().flat_map(StorageStatus::notices) {
+        let power = shell.runtime.power;
+        for text in storage.iter().flat_map(|s| s.notices(power)) {
             shell.log(format!("storage: {text}"));
             let kind = if text == crate::storage::FORMATTED_NOTICE {
                 NoticeKind::Info

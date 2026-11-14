@@ -660,6 +660,28 @@ fn with_no_launcher_the_format_row_is_disabled() {
         |dir| {
             let mut rig = Rig::new(dir);
             rig.power = false;
+            storage_status(&rig, OFFER);
+            rig.boot(None);
+            let notices: Vec<String> = rig
+                .shell()
+                .snapshot()
+                .notices
+                .iter()
+                .map(|n| n.text.clone())
+                .collect();
+            assert!(
+                notices
+                    .iter()
+                    .any(|n| n.starts_with("The share partition is not in use")),
+                "{notices:?}"
+            );
+            assert!(
+                !notices
+                    .iter()
+                    .any(|n| n.contains("Settings > System can format it")),
+                "the row cannot run here: {notices:?}"
+            );
+            rig.finish();
             offered(&mut rig);
             let rows = rig.shell().snapshot().settings.rows.clone();
             let row = rows

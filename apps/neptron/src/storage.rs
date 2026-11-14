@@ -168,8 +168,10 @@ impl StorageStatus {
     }
 
     /// The notices for the player, one for each RAM folder, and one for
-    /// the result of a format request.
-    pub fn notices(&self) -> Vec<String> {
+    /// the result of a format request. The notice of a share in RAM points
+    /// to the format row only when the run can carry it out (`power`):
+    /// with no power control the row is disabled.
+    pub fn notices(&self, power: bool) -> Vec<String> {
         let mut notices = Vec::new();
         if self.state == Mounted::Ram {
             notices.push(format!(
@@ -186,7 +188,7 @@ impl StorageStatus {
             None => {}
         }
         if self.share == Mounted::Ram {
-            let fix = if self.format_offer().is_some() {
+            let fix = if power && self.format_offer().is_some() {
                 " Settings > System can format it."
             } else {
                 ""
@@ -265,7 +267,7 @@ mod tests {
         let dir = folder("ok", Some("state = \"partition\"\nshare = \"partition\"\n"));
         let status = StorageStatus::read(&dir).expect("read").expect("a status");
         assert!(!status.state_in_ram());
-        assert!(status.notices().is_empty());
+        assert!(status.notices(true).is_empty());
     }
 
     #[test]
@@ -275,7 +277,7 @@ mod tests {
         let dir = folder("ram", Some(text));
         let status = StorageStatus::read(&dir).expect("read").expect("a status");
         assert!(status.state_in_ram());
-        let notices = status.notices();
+        let notices = status.notices(true);
         assert_eq!(notices.len(), 2);
         assert!(notices[0].contains("(e2fsck /dev/sda3 left errors (exit 4))"));
         assert!(notices[0].contains("lost at power-off"));
@@ -309,11 +311,16 @@ mod tests {
             offer.request_text(),
             "device=/dev/sda4\nstart=10240\nsize=120117248\ntype=7\n"
         );
-        let notices = status.notices();
+        let notices = status.notices(true);
         assert_eq!(notices.len(), 1);
         assert!(
             notices[0].ends_with("lost at power-off. Settings > System can format it."),
             "{notices:?}"
+        );
+        let no_power = status.notices(false);
+        assert!(
+            no_power[0].ends_with("lost at power-off."),
+            "no row to point to: {no_power:?}"
         );
     }
 
@@ -344,7 +351,7 @@ mod tests {
             let dir = folder("bad-offer", Some(&offer_text(device, kind)));
             let status = StorageStatus::read(&dir).expect("read").expect("a status");
             assert_eq!(status.format_offer(), None, "{device:?} {kind:?}");
-            assert!(!status.notices()[0].contains("Settings > System"));
+            assert!(!status.notices(true)[0].contains("Settings > System"));
         }
         let partial = "state = \"partition\"\nshare = \"ram\"\nshare_fix = \"format\"\n";
         let dir = folder("partial-offer", Some(partial));
@@ -366,13 +373,13 @@ mod tests {
         let done = "state = \"partition\"\nshare = \"partition\"\nshare_format = \"done\"\n";
         let dir = folder("format-done", Some(done));
         let status = StorageStatus::read(&dir).expect("read").expect("a status");
-        assert_eq!(status.notices(), ["The share partition is formatted."]);
+        assert_eq!(status.notices(true), ["The share partition is formatted."]);
         let refused = "state = \"partition\"\nshare = \"partition\"\nshare_format = \"refused\"\n\
                        share_format_reason = \"it holds a filesystem\"\n";
         let dir = folder("format-refused", Some(refused));
         let status = StorageStatus::read(&dir).expect("read").expect("a status");
         assert_eq!(
-            status.notices(),
+            status.notices(true),
             ["The share partition was not formatted (it holds a filesystem)."]
         );
     }
