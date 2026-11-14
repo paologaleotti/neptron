@@ -23,7 +23,7 @@ use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::{Hotkey, Hotkeys, PortStates};
 use neptron_session::{RunRateSource, Session};
 use neptron_settings::{Level, Value};
-use neptron_types::{InputEvent, Modeline, Rotation, SourceGeometry};
+use neptron_types::{InputEvent, Modeline, Rotation, SourceGeometry, TvStandard};
 use neptron_ui::screens::Screens;
 use neptron_ui::{CpuCanvas, Snapshot, UiAction, UiFrame};
 use neptron_video::{DisplayConfig, Guard, VideoEngine, VideoStatusText};
@@ -92,6 +92,10 @@ pub struct Runtime {
     /// The `subconnector` property of the output, when the backend reads
     /// one: `VGA` names a DAC behind a DisplayPort connector.
     pub subconnector: Option<String>,
+    /// The TV standards of the output, as the backend reads its `TV mode`
+    /// property: `None` when it has none (HDMI, VGA, a window). With the
+    /// property, every mode of the run comes from a TV profile.
+    pub tv_standards: Option<Vec<TvStandard>>,
     /// What the backend could not open, as notices for the player: a run
     /// goes on with no sound or no gamepad.
     pub notices: Vec<String>,

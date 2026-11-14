@@ -99,7 +99,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             &paths.sysfs,
             &runtime.output,
             runtime.subconnector.as_deref(),
-        );
+        )
+        .with_tv(runtime.tv_standards.clone());
         detected.fit_to(devices.display.caps());
         found.warn_all(detected.notices.iter().cloned());
         let here = record::Place {
@@ -117,7 +118,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         // The record holds a last known good only for this output, so a
         // panel is the safe default only once the user kept it here.
         let safe = detected.safe(&presets, record.last_known_good.as_ref())?;
-        let monitor = match detected.monitor(&config.monitor(), &presets) {
+        if detected.is_tv() && config.monitor() != crate::display::AUTO {
+            found.warn(format!(
+                "display.monitor {:?} has no effect on a TV output: display.tv sets its standard.",
+                config.monitor()
+            ));
+        }
+        let monitor = match detected.wanted(&config.monitor(), &config.tv(), &presets) {
             Ok(monitor) => monitor,
             Err(e) => {
                 found.warn(e.to_string());

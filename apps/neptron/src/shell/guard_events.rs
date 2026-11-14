@@ -2,7 +2,9 @@
 //! for a confirmation, the notices, the record and the blind recovery.
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
-use neptron_settings::{DISPLAY_MONITOR, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE, Level, Value};
+use neptron_settings::{
+    DISPLAY_MONITOR, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE, DISPLAY_TV, Level, Value,
+};
 use neptron_types::{Control, InputEvent};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_video::{
@@ -10,7 +12,7 @@ use neptron_video::{
 };
 
 use super::{Shell, Stage};
-use crate::display::{AUTO, SAFE_START_PROFILE};
+use crate::display::{AUTO, SAFE_START_PROFILE, tv_setting, tv_standard};
 use crate::outbox::Job;
 use crate::record::Place;
 
@@ -165,7 +167,26 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// safe start, `auto` stays: the next boot asks for the panel again,
     /// for one confirm window at most, and the failed boots still lead to
     /// safe mode.
+    ///
+    /// A TV profile is written as `display.tv`, and `display.monitor`
+    /// stays: the monitor setting has no effect on a TV, and the next
+    /// output may be no TV. A value of `display.tv` that already gives the
+    /// standard, such as `auto` for NTSC, stays too.
     fn rewrite_global(&mut self, config: &DisplayConfig) {
+        let tv = tv_setting(&config.monitor);
+        if let Some(key) = tv {
+            let current = tv_standard(&self.config.tv()).map(|s| s.key());
+            if current != Some(key) {
+                let value = Value::Text(key.to_owned());
+                if self
+                    .config
+                    .set(Level::Global, DISPLAY_TV, value.clone())
+                    .is_ok()
+                {
+                    self.write_setting(Level::Global, DISPLAY_TV, Some(value));
+                }
+            }
+        }
         let panel_left = self.detected.auto_is_panel()
             && self.config.monitor() == AUTO
             && self.detected.monitor_setting(&config.monitor) == SAFE_START_PROFILE;
@@ -181,7 +202,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             ),
         ];
         for (key, value) in values {
-            if key == DISPLAY_MONITOR && panel_left {
+            if key == DISPLAY_MONITOR && (panel_left || tv.is_some()) {
                 continue;
             }
             let value = Value::Text(value);

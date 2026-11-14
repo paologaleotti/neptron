@@ -4,7 +4,12 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use neptron_types::MonitorProfile;
+use neptron_types::{MonitorKind, MonitorProfile};
+
+/// The start of the id of a built-in TV profile (`TvStandard::profile`).
+/// No preset file may use it: the guard record keeps a monitor by its id,
+/// and an id of this form must always rebuild as the TV profile.
+pub const TV_PROFILE_ID_PREFIX: &str = "tv_";
 
 /// The monitor presets of one folder, sorted by id.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -40,6 +45,16 @@ pub enum PresetError {
         path: PathBuf,
         /// The parser message.
         message: String,
+    },
+    /// A file takes a place of the built-in TV profiles: its id starts
+    /// with [`TV_PROFILE_ID_PREFIX`], or it is of the TV kind, whose fixed
+    /// mode tables are built in.
+    #[error("{} holds the profile {id:?}, which is a built-in TV profile or of its form", path.display())]
+    Reserved {
+        /// The file.
+        path: PathBuf,
+        /// The id in the file.
+        id: String,
     },
     /// The id in a file is not its file name.
     #[error("{} holds the profile {id:?}, not the one of its file name", path.display())]
@@ -122,11 +137,21 @@ fn read_profile(path: &Path) -> Result<MonitorProfile, PresetError> {
             id: profile.id,
         });
     }
+    if profile.id.starts_with(TV_PROFILE_ID_PREFIX)
+        || matches!(profile.kind, MonitorKind::Tv { .. })
+    {
+        return Err(PresetError::Reserved {
+            path: path.to_owned(),
+            id: profile.id,
+        });
+    }
     Ok(profile)
 }
 
 #[cfg(test)]
 mod tests {
+    use neptron_types::TvStandard;
+
     use super::*;
 
     fn monitors_dir() -> PathBuf {
@@ -167,6 +192,36 @@ mod tests {
             issues
                 .iter()
                 .any(|e| matches!(e, PresetError::Parse { .. }))
+        );
+        // The folder is the test's own; a failed removal leaves a temp folder.
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_cannot_take_the_place_of_a_tv_profile() {
+        for standard in TvStandard::ALL {
+            assert!(standard.profile().id.starts_with(TV_PROFILE_ID_PREFIX));
+        }
+        let dir = std::env::temp_dir().join(format!("neptron-presets-tv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let good = std::fs::read_to_string(monitors_dir().join("ntsc.toml")).expect("ntsc");
+        std::fs::write(dir.join("ntsc.toml"), &good).expect("write");
+        let renamed = good.replace("id = \"ntsc\"", "id = \"tv_ntsc\"");
+        assert_ne!(renamed, good, "the preset holds its id");
+        std::fs::write(dir.join("tv_ntsc.toml"), renamed).expect("write");
+        std::fs::write(
+            dir.join("my_tv.toml"),
+            "id = \"my_tv\"\n[kind.tv]\nstandard = \"pal\"\n",
+        )
+        .expect("write");
+        let (presets, issues) = Presets::load(&dir).expect("the folder");
+        let ids: Vec<&str> = presets.profiles().iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, ["ntsc"]);
+        assert_eq!(issues.len(), 2, "{issues:?}");
+        assert!(
+            issues
+                .iter()
+                .all(|e| matches!(e, PresetError::Reserved { .. }))
         );
         // The folder is the test's own; a failed removal leaves a temp folder.
         let _ = std::fs::remove_dir_all(&dir);

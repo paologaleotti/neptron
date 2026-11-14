@@ -1,5 +1,5 @@
 use neptron_platform::{Connector, Gpu, UNKNOWN_GPU_CAPS};
-use neptron_types::{MonitorKind, MonitorProfile};
+use neptron_types::{MonitorKind, MonitorProfile, TvStandard};
 
 use super::*;
 
@@ -616,5 +616,146 @@ fn the_identity_names_the_monitor_on_the_driven_connector() {
         Detected::of(&one, AUTO, None).identity(),
         "none",
         "only the driven connector counts"
+    );
+}
+
+/// A Pi 3: HDMI with no display and the composite connector, whose status
+/// is always `unknown`.
+fn pi3() -> Platform {
+    Platform {
+        gpus: vec![Gpu {
+            card: "card1".to_owned(),
+            driver: Some("vc4-drm".to_owned()),
+            pci_id: None,
+            of_compatible: vec!["brcm,bcm2835-vc4".to_owned()],
+        }],
+        connectors: vec![
+            Connector {
+                card: "card1".to_owned(),
+                status: ConnectorStatus::Disconnected,
+                ..connector("HDMI-A-1", "HDMI-A", None)
+            },
+            Connector {
+                card: "card1".to_owned(),
+                status: ConnectorStatus::Unknown,
+                ..connector("Composite-1", "Composite", None)
+            },
+        ],
+    }
+}
+
+fn composite(offered: &[TvStandard]) -> Detected {
+    Detected::of(&pi3(), "Composite-1", None).with_tv(Some(offered.to_vec()))
+}
+
+#[test]
+fn a_tv_output_drives_the_profile_of_its_standard_whatever_the_monitor() {
+    let detected = composite(&TvStandard::ALL);
+    assert!(detected.is_tv());
+    assert_eq!(
+        detected.caps.map(|c| c.max_height),
+        Some(576),
+        "the composite entry"
+    );
+    for (monitor, tv, expected) in [
+        (AUTO, AUTO, TvStandard::Ntsc),
+        (AUTO, "pal", TvStandard::Pal),
+        ("pc_31_120", "pal_60", TvStandard::Pal60),
+        (FLAT, "mono_50", TvStandard::Mono50),
+    ] {
+        let wanted = detected
+            .wanted(monitor, tv, &presets())
+            .expect("a TV profile");
+        assert_eq!(
+            wanted,
+            Monitor::Profile(expected.profile()),
+            "{monitor} {tv}"
+        );
+        assert_eq!(detected.monitor_setting(&wanted), AUTO, "never a TV id");
+        assert_eq!(tv_setting(&wanted), Some(expected.key()));
+    }
+    let pc = detected.monitor("pc_31_120", &presets()).expect("pc");
+    assert_eq!(tv_setting(&pc), None);
+}
+
+#[test]
+fn a_standard_the_tv_output_does_not_offer_is_an_error() {
+    let detected = composite(&[TvStandard::Ntsc, TvStandard::Pal]);
+    assert_eq!(
+        detected.wanted(AUTO, "secam", &presets()),
+        Err(MonitorError::TvStandard("secam".to_owned()))
+    );
+    assert_eq!(
+        detected.wanted(AUTO, "pal_70", &presets()),
+        Err(MonitorError::TvStandard("pal_70".to_owned()))
+    );
+    assert!(detected.wanted(AUTO, "pal", &presets()).is_ok());
+}
+
+#[test]
+fn the_safe_default_of_a_tv_output_is_ntsc() {
+    for confirmed in [None, Some(Monitor::Profile(TvStandard::Pal.profile()))] {
+        let safe = composite(&TvStandard::ALL)
+            .safe(&Presets::default(), confirmed.as_ref())
+            .expect("no preset is needed");
+        assert_eq!(safe.monitor, Monitor::Profile(TvStandard::Ntsc.profile()));
+        assert_eq!(safe.settings.style.key(), "auto");
+    }
+    let pal_only = composite(&[TvStandard::Pal, TvStandard::Secam]);
+    let safe = pal_only.safe(&presets(), None).expect("safe");
+    assert_eq!(
+        safe.monitor,
+        Monitor::Profile(TvStandard::Pal.profile()),
+        "the first standard offered"
+    );
+}
+
+#[test]
+fn a_record_gives_a_tv_profile_only_on_a_tv_output_that_offers_it() {
+    let id = |id: &str| MonitorRef::Profile { id: id.to_owned() };
+    let tv = composite(&[TvStandard::Ntsc, TvStandard::Pal]);
+    assert_eq!(
+        tv.rebuild(&presets(), &id("tv_pal")),
+        Some(Monitor::Profile(TvStandard::Pal.profile()))
+    );
+    assert_eq!(tv.rebuild(&presets(), &id("tv_secam")), None);
+    assert_eq!(
+        tv.rebuild(&presets(), &id("pc_31_120")),
+        None,
+        "no CRT preset"
+    );
+    assert_eq!(
+        tv.rebuild(
+            &presets(),
+            &MonitorRef::Edid {
+                id: "edid_x".to_owned()
+            }
+        ),
+        None
+    );
+    let crt = Detected::default();
+    assert_eq!(crt.rebuild(&presets(), &id("tv_ntsc")), None);
+    assert!(crt.rebuild(&presets(), &id("pc_31_120")).is_some());
+}
+
+#[test]
+fn the_tv_setting_names_a_standard_and_auto_is_ntsc() {
+    assert_eq!(tv_standard(AUTO), Some(TvStandard::Ntsc));
+    for standard in TvStandard::ALL {
+        assert_eq!(tv_standard(standard.key()), Some(standard));
+    }
+    assert_eq!(tv_standard("pal_70"), None);
+    for value in neptron_settings::TV_STANDARDS {
+        assert!(tv_standard(value).is_some(), "{value}");
+    }
+}
+
+#[test]
+fn a_tv_output_with_no_property_is_no_tv() {
+    let detected = Detected::of(&pi3(), "Composite-1", None);
+    assert!(!detected.is_tv(), "the backend decides with the property");
+    assert_eq!(
+        detected.wanted(AUTO, "pal", &presets()),
+        detected.monitor(AUTO, &presets())
     );
 }

@@ -73,6 +73,7 @@ pub fn run(
         log: Some(log),
         output: "window".to_owned(),
         subconnector: None,
+        tv_standards: None,
         notices,
         audio_outputs: opened.outputs,
         // A desktop run never turns off the computer it runs on.

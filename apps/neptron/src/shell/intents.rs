@@ -279,12 +279,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     }
 
     /// The display configuration that the settings in memory ask for: the
-    /// global monitor, and the policy of the game, or the global policy in
-    /// the game list.
+    /// global monitor (on a TV, the profile of the global standard), and
+    /// the policy of the game, or the global policy in the game list.
     fn display_config(&self) -> Option<DisplayConfig> {
         let monitor = self
             .detected
-            .monitor(&self.config.monitor(), &self.presets)
+            .wanted(&self.config.monitor(), &self.config.tv(), &self.presets)
             .unwrap_or_else(|_| self.safe.monitor.clone());
         let settings = if self.in_game() {
             self.config.policy()

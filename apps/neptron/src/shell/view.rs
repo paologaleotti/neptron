@@ -3,7 +3,7 @@
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_settings::DisplayClass;
-use neptron_types::MonitorKind;
+use neptron_types::{Modeline, MonitorKind, TvStandard};
 use neptron_ui::screens::{
     AUDIO_PAGE, DISPLAY_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
 };
@@ -19,6 +19,9 @@ use crate::pages::{self, Names, StyleOption};
 
 /// What the confirm dialog says.
 const CONFIRM_TEXT: &str = "Keep the new picture?\nNo answer brings the old one back.";
+
+/// The monitor line of the Display panel on a TV output.
+pub const TV_MONITOR_NAME: &str = "Composite TV";
 
 /// The notices the snapshot keeps. The oldest goes when a new one comes.
 const NOTICES_MAX: usize = 8;
@@ -76,18 +79,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             None => "no mode on the wire".to_owned(),
         };
         self.log(line);
+        let standard = match &self.guard.active().monitor.profile().kind {
+            MonitorKind::Tv { standard } => Some(*standard),
+            MonitorKind::Crt { .. } | MonitorKind::FlatPanel { .. } => None,
+        };
         let mut text = read_back
-            .map(|m| {
-                let rate = m.field_rate_mhz();
-                format!(
-                    "{}x{}{} {}.{:02} Hz",
-                    m.hactive,
-                    m.vactive,
-                    if m.interlace { "i" } else { "p" },
-                    rate / 1000,
-                    rate % 1000 / 10
-                )
-            })
+            .map(|m| mode_line(&m, standard))
             .unwrap_or_default();
         if safe {
             text.push_str(" (safe mode)");
@@ -109,9 +106,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             .iter()
             .position(|p| p.id == id)
             .map(profile_id);
-        // A monitor of its EDID is no preset: the panel shows its name.
+        // A monitor of its EDID is no preset: the panel shows its name. A
+        // TV profile is built in: the panel names the kind of display, and
+        // the mode line names the standard.
         let name = match monitor {
             _ if self.snap.active_profile.is_some() => String::new(),
+            Monitor::Profile(profile) if matches!(profile.kind, MonitorKind::Tv { .. }) => {
+                TV_MONITOR_NAME.to_owned()
+            }
             Monitor::Edid(edid) => edid.name.clone().unwrap_or_else(|| edid.profile.id.clone()),
             Monitor::Profile(profile) => profile.id.clone(),
         };
@@ -146,7 +148,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     pub(super) fn display_class(&self) -> DisplayClass {
         match self.guard.active().monitor.profile().kind {
             MonitorKind::FlatPanel { .. } => DisplayClass::FlatPanel,
-            MonitorKind::Crt { .. } | MonitorKind::Tv { .. } => DisplayClass::Crt,
+            MonitorKind::Crt { .. } => DisplayClass::Crt,
+            MonitorKind::Tv { .. } => DisplayClass::Tv,
         }
     }
 
@@ -210,6 +213,20 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     }
 }
 
+/// The mode line of the Display panel: the size with its scan and the
+/// field rate, `720x240p 60.05 Hz`. On a TV the standard replaces the
+/// width, which is always the 720 samples of the encoder:
+/// `NTSC 240p 60.05 Hz`. Only a TV names a standard.
+pub fn mode_line(mode: &Modeline, standard: Option<TvStandard>) -> String {
+    let rate = mode.field_rate_mhz();
+    let scan = if mode.interlace { "i" } else { "p" };
+    let size = match standard {
+        Some(standard) => format!("{} {}{scan}", crate::tv::name(standard), mode.vactive),
+        None => format!("{}x{}{scan}", mode.hactive, mode.vactive),
+    };
+    format!("{size} {}.{:02} Hz", rate / 1000, rate % 1000 / 10)
+}
+
 /// Copies the status text into the snapshot. Equal text is not written,
 /// and new text goes into the strings that are there, so a steady frame
 /// allocates nothing.
@@ -230,4 +247,28 @@ fn copy_status(status: Option<&VideoStatusText>, video: &mut Option<VideoStatus>
         }
     }
     shown.alert = status.alert;
+}
+
+#[cfg(test)]
+mod tests {
+    use neptron_types::{TV_525_240P, TV_525_480I, TV_625_288P};
+
+    use super::*;
+
+    #[test]
+    fn only_a_tv_names_its_standard_on_the_mode_line() {
+        assert_eq!(mode_line(&TV_525_240P, None), "720x240p 60.05 Hz");
+        assert_eq!(
+            mode_line(&TV_525_240P, Some(TvStandard::Ntsc)),
+            "NTSC 240p 60.05 Hz"
+        );
+        assert_eq!(
+            mode_line(&TV_525_480I, Some(TvStandard::Pal60)),
+            "PAL 60 480i 59.94 Hz"
+        );
+        assert_eq!(
+            mode_line(&TV_625_288P, Some(TvStandard::Pal)),
+            "PAL 288p 50.08 Hz"
+        );
+    }
 }

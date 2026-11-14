@@ -108,6 +108,7 @@ pub fn run(
     };
     let output = display.connector_name().to_owned();
     let subconnector = display.subconnector().map(str::to_owned);
+    let tv_standards = display.tv_standards();
     // The kernel reports the subconnector only now: a DAC behind the DP
     // connector, or a digital adapter with no EDID, makes the output
     // analog, and the CRT path must not run with the digital limits.
@@ -157,6 +158,7 @@ pub fn run(
         log: Some(log),
         output,
         subconnector,
+        tv_standards,
         notices,
         audio_outputs: opened.outputs,
         power: neptron::power::control_from(std::env::var_os(neptron::power::POWER_ENV).as_deref()),

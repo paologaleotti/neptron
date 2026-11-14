@@ -7,7 +7,7 @@ use neptron_platform::{
     Connector, ConnectorStatus, DisplayClass, EdidProfile, Matrix, Platform, display_class,
     panel_profile_from_edid, profile_for_display,
 };
-use neptron_types::{GpuCaps, Modeline, MonitorKind, OutputKind};
+use neptron_types::{GpuCaps, Modeline, MonitorKind, OutputKind, TvStandard};
 use neptron_video::{DisplayConfig, Monitor, PolicySettings, policy_settings};
 
 use crate::presets::Presets;
@@ -41,6 +41,10 @@ pub const CRT_BUFFER_WIDTH_PX: u16 = 2_560;
 /// The tallest scanout buffer of a CRT mode, in lines: 576i and the 31 kHz
 /// modes of a PC CRT.
 pub const CRT_BUFFER_HEIGHT_PX: u16 = 1_200;
+
+/// The standard of `display.tv = auto`, and the safe default of a TV
+/// output: the owner's choice, and the standard of every 60 Hz console.
+pub const TV_SAFE_STANDARD: TvStandard = TvStandard::Ntsc;
 
 /// The monitor identity of a connector that reports no EDID.
 pub const NO_EDID_IDENTITY: &str = "none";
@@ -83,6 +87,11 @@ pub struct Detected {
     /// The FNV-1a 64 hash of the EDID of the named output, the connector
     /// the backend drives. `None` when it reports no EDID.
     pub edid_hash: Option<u64>,
+    /// The TV standards of the connector in use, as the backend reads its
+    /// `TV mode` property: `None` when it has none. A connector with the
+    /// property takes only the modes of a TV profile, so every monitor of
+    /// the run is a TV profile of one of these standards.
+    pub tv: Option<Vec<TvStandard>>,
 }
 
 /// The monitor a setting names cannot be used.
@@ -91,6 +100,9 @@ pub enum MonitorError {
     /// No preset has this id.
     #[error("the monitor profile {0:?} is not installed; the safe default is used")]
     Unknown(String),
+    /// `display.tv` names a standard that the TV output does not offer.
+    #[error("the TV standard {0:?} is not offered by this output; the safe default is used")]
+    TvStandard(String),
     /// `flat` with no EDID that lists a mode the system can send.
     #[error(
         "the monitor profile \"flat\" needs a display that lists its modes; the safe default is used"
@@ -163,7 +175,26 @@ impl Detected {
             digital_caps,
             notices,
             edid_hash,
+            tv: None,
         }
+    }
+
+    /// `self` with the TV standards of the connector in use, as the backend
+    /// reads them after the open (`None`: no `TV mode` property).
+    #[must_use]
+    pub fn with_tv(self, tv: Option<Vec<TvStandard>>) -> Self {
+        Self { tv, ..self }
+    }
+
+    /// Whether the output in use is a TV: its connector has the `TV mode`
+    /// property.
+    pub fn is_tv(&self) -> bool {
+        self.tv.is_some()
+    }
+
+    /// Whether `standard` can be set on the TV output.
+    pub fn offers(&self, standard: TvStandard) -> bool {
+        self.tv.as_ref().is_some_and(|s| s.contains(&standard))
     }
 
     /// The identity of the physical monitor on the driven connector, for
@@ -234,6 +265,11 @@ impl Detected {
     ///   behind it looks like a panel, so a panel mode is never the safe
     ///   default until the user has kept it on this output.
     ///
+    /// A TV output overrides all of these: its safe default is the TV
+    /// profile of NTSC ([`TV_SAFE_STANDARD`]), or of the first standard it
+    /// offers when it does not offer NTSC. A connector with the `TV mode`
+    /// property takes no other mode.
+    ///
     /// # Errors
     ///
     /// [`MonitorError::NoSafeProfile`].
@@ -242,6 +278,17 @@ impl Detected {
         presets: &Presets,
         confirmed: Option<&Monitor>,
     ) -> Result<DisplayConfig, MonitorError> {
+        if let Some(offered) = &self.tv {
+            let standard = if offered.contains(&TV_SAFE_STANDARD) {
+                TV_SAFE_STANDARD
+            } else {
+                offered.first().copied().unwrap_or(TV_SAFE_STANDARD)
+            };
+            return Ok(DisplayConfig {
+                monitor: Monitor::Profile(standard.profile()),
+                settings: safe_settings(),
+            });
+        }
         let monitor = match &self.edid {
             Some(edid) if !is_panel(edid) => Monitor::Edid(edid.clone()),
             Some(edid) if confirmed == Some(&Monitor::Edid(edid.clone())) => {
@@ -283,6 +330,31 @@ impl Detected {
         }
     }
 
+    /// The monitor that the settings ask for: on a TV output the TV profile
+    /// of `tv` (a value of `display.tv`, `auto` is NTSC), and `monitor` has
+    /// no effect; on any other output the monitor that `monitor` (a value
+    /// of `display.monitor`) gives ([`Self::monitor`]).
+    ///
+    /// # Errors
+    ///
+    /// [`MonitorError::TvStandard`] for a standard that the TV output does
+    /// not offer, or a value that names none; the errors of
+    /// [`Self::monitor`] elsewhere.
+    pub fn wanted(
+        &self,
+        monitor: &str,
+        tv: &str,
+        presets: &Presets,
+    ) -> Result<Monitor, MonitorError> {
+        if !self.is_tv() {
+            return self.monitor(monitor, presets);
+        }
+        tv_standard(tv)
+            .filter(|s| self.offers(*s))
+            .map(|s| Monitor::Profile(s.profile()))
+            .ok_or_else(|| MonitorError::TvStandard(tv.to_owned()))
+    }
+
     /// Whether `auto` gives a flat panel.
     pub fn auto_is_panel(&self) -> bool {
         self.edid.as_ref().is_some_and(is_panel)
@@ -290,9 +362,22 @@ impl Detected {
 
     /// The monitor of a guard record entry again: a preset by its id, or
     /// a profile of the connected display's EDID when its id matches.
+    ///
+    /// On a TV output only the TV profile of a standard it offers comes
+    /// back, and on any other output never a TV profile: a connector with
+    /// the `TV mode` property takes no other mode, and one without it
+    /// cannot set a standard.
     pub fn rebuild(&self, presets: &Presets, entry: &MonitorRef) -> Option<Monitor> {
         match entry {
-            MonitorRef::Profile { id } => presets.get(id).cloned().map(Monitor::Profile),
+            MonitorRef::Profile { id } => match TvStandard::from_profile_id(id) {
+                Some(standard) if self.offers(standard) => {
+                    Some(Monitor::Profile(standard.profile()))
+                }
+                Some(_) => None,
+                None if self.is_tv() => None,
+                None => presets.get(id).cloned().map(Monitor::Profile),
+            },
+            MonitorRef::Edid { .. } if self.is_tv() => None,
             MonitorRef::Edid { id } => [&self.edid, &self.panel]
                 .into_iter()
                 .flatten()
@@ -304,8 +389,12 @@ impl Detected {
 
     /// The value of `display.monitor` that names `monitor`: its preset id,
     /// `auto` for the profile the detection gives, `flat` for the panel
-    /// profile of a display that the detection drives as a CRT.
+    /// profile of a display that the detection drives as a CRT. A TV
+    /// profile is `auto`: `display.tv` names it ([`tv_setting`]).
     pub fn monitor_setting(&self, monitor: &Monitor) -> String {
+        if tv_setting(monitor).is_some() {
+            return AUTO.to_owned();
+        }
         match monitor {
             Monitor::Profile(profile) => profile.id.clone(),
             Monitor::Edid(edid) if self.edid.as_ref() == Some(edid) => AUTO.to_owned(),
@@ -419,6 +508,25 @@ impl Detected {
             let (w, h) = size.unwrap_or((0, 0));
             Some((w.max(m.hactive), h.max(m.vactive)))
         })
+    }
+}
+
+/// The standard that `value` (a value of `display.tv`) names: `auto` is
+/// [`TV_SAFE_STANDARD`].
+pub fn tv_standard(value: &str) -> Option<TvStandard> {
+    if value == AUTO {
+        Some(TV_SAFE_STANDARD)
+    } else {
+        TvStandard::from_key(value)
+    }
+}
+
+/// The value of `display.tv` that names `monitor`, the key of its
+/// standard; `None` for a monitor that is no TV profile.
+pub fn tv_setting(monitor: &Monitor) -> Option<&'static str> {
+    match &monitor.profile().kind {
+        MonitorKind::Tv { standard } => Some(standard.key()),
+        MonitorKind::Crt { .. } | MonitorKind::FlatPanel { .. } => None,
     }
 }
 

@@ -70,9 +70,12 @@ pub const NOT_USED_ON_A_PANEL: &str = "Not used on a flat panel";
 /// that the run drives.
 pub const NOT_USED_ON_A_TV: &str = "Not used on a TV";
 
-/// The detail of the `auto` option of the TV standard: the standard it
-/// gives.
-pub const TV_AUTO_STANDARD: TvStandard = TvStandard::Ntsc;
+/// The standard of the `auto` option of the TV standard.
+pub const TV_AUTO_STANDARD: TvStandard = crate::display::TV_SAFE_STANDARD;
+
+/// The reason that a TV standard the output does not offer cannot be
+/// chosen.
+pub const NOT_OFFERED: &str = "Not offered by this output";
 
 /// The rows of the display panel, written at the global level. It also
 /// holds the global settings that are not about the picture or the sound.
@@ -461,17 +464,26 @@ fn short_label(label: &str) -> Option<&str> {
 fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
     match key {
         DISPLAY_STYLE => style_option(choice, names.styles),
-        DISPLAY_TV => tv_option(choice),
+        DISPLAY_TV => tv_option(choice, names.detected),
         _ => ChoiceOption::new(choice),
     }
 }
 
 /// The option of a TV standard: its name with its rate, and `auto` with
-/// the standard it gives as the detail.
-fn tv_option(choice: &str) -> ChoiceOption {
-    match TvStandard::from_key(choice) {
-        Some(standard) => ChoiceOption::new(crate::tv::label(standard)),
-        None => ChoiceOption::new(choice).with_detail(crate::tv::label(TV_AUTO_STANDARD)),
+/// the standard it gives as the detail. A standard that the output does
+/// not offer cannot be chosen.
+fn tv_option(choice: &str, detected: &Detected) -> ChoiceOption {
+    let (option, standard) = match TvStandard::from_key(choice) {
+        Some(standard) => (ChoiceOption::new(crate::tv::label(standard)), standard),
+        None => (
+            ChoiceOption::new(choice).with_detail(crate::tv::label(TV_AUTO_STANDARD)),
+            TV_AUTO_STANDARD,
+        ),
+    };
+    if detected.is_tv() && !detected.offers(standard) {
+        option.unavailable(NOT_OFFERED)
+    } else {
+        option
     }
 }
 
@@ -1008,5 +1020,21 @@ mod tests {
         let video = video_page(&config, names);
         assert_eq!(video.rows[0].label, "TV picture width");
         assert!(video.rows[0].scopes.game, "the width of one game");
+
+        let detected = Detected::default().with_tv(Some(vec![TvStandard::Ntsc, TvStandard::Pal]));
+        let names = Names {
+            detected: &detected,
+            ..names
+        };
+        let page = display_page(&config, names);
+        let SettingValue::Choice { options, .. } = &page.rows[2].value else {
+            panic!("a choice");
+        };
+        let enabled: Vec<_> = options
+            .iter()
+            .filter(|o| o.is_enabled())
+            .map(|o| o.label.as_str())
+            .collect();
+        assert_eq!(enabled, ["auto", "NTSC (60 Hz)", "PAL (50 Hz)"]);
     }
 }

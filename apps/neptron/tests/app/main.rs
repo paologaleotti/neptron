@@ -22,3 +22,4 @@ mod recovery;
 mod rescan;
 mod rig;
 mod system;
+mod tv;

@@ -56,6 +56,9 @@ pub struct Rig {
     pub notices: Vec<String>,
     /// The name of the output the runtime reports.
     pub output: String,
+    /// The TV standards the runtime reports for the output, as the `TV
+    /// mode` property of its connector gives them.
+    pub tv_standards: Option<Vec<neptron_types::TvStandard>>,
     pub paths: Paths,
     pub clock: SimClock,
     pub display: FakeDisplay,
@@ -204,6 +207,7 @@ impl Rig {
         Self {
             notices: Vec::new(),
             output: "fake-1".to_owned(),
+            tv_standards: None,
             display: FakeDisplay::new(clock.clone(), CAPS_LOW_CLOCK),
             audio: FakeAudio::new(clock.clone(), DEVICE_RATE_HZ, SINK_CAPACITY_FRAMES),
             input: ScriptedInput::new(clock.clone(), Vec::new()),
@@ -229,6 +233,7 @@ impl Rig {
             log: None,
             output: self.output.clone(),
             subconnector: None,
+            tv_standards: self.tv_standards.clone(),
             notices: self.notices.clone(),
             audio_outputs: audio_outputs(),
             power: self.power,
