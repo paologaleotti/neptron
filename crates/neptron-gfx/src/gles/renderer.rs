@@ -5,6 +5,7 @@ use neptron_types::{Filter, Frame, Rect, Scene};
 
 use super::GlesError;
 use super::changed::Shown;
+use super::cover::{Area, outside};
 use super::ffi::{
     Buffer, EglContext, Framebuffer, GbmTarget, Gl, Program, Storage, Texture, Uniform,
 };
@@ -20,7 +21,11 @@ use crate::{Image, OutputBuffer, RectKind};
 /// # Pixels
 ///
 /// The renderer draws two quads: the game frame into `dest`, then the UI
-/// canvas into `ui_dest`, over black. A quad covers only the output pixels
+/// canvas into `ui_dest`, over black. The UI canvas is opaque, so the game
+/// quad is drawn only in the parts of its area outside the UI quad, with
+/// one scissor rectangle each, and not at all (with no upload) when the UI
+/// covers it. The pixels are the same, and a menu or a dialog over a game
+/// costs the GPU less than the game alone. A quad covers only the output pixels
 /// whose source pixel is inside the frame; the rest stays black, as in the
 /// reference. Each quad uses the program of the axes that blend: sharp
 /// bilinear at a scale that is not a whole number. The fragment shader
@@ -313,25 +318,40 @@ impl GlesRenderer {
             }
             Surface::Window => gl.begin_window(width, height),
         }
-        if let Some(draw) = &game {
+        // The UI is opaque and drawn last, so the game is drawn only
+        // outside it, and not at all when the UI covers it.
+        let cover = ui.as_ref().and_then(|d| Area::of(d.quad.visible));
+        let parts = match (game.as_ref().and_then(|d| Area::of(d.quad.visible)), cover) {
+            (Some(area), Some(cover)) => outside(area, cover),
+            (area, None) => [area, None, None, None],
+            (None, Some(_)) => [None; 4],
+        };
+        if let Some(draw) = game.as_ref().filter(|_| parts.iter().any(Option::is_some)) {
             self.game.upload(&gl, &draw.frame)?;
+            self.bind(&gl, draw, &self.game, (width, height));
+            for part in parts.into_iter().flatten() {
+                gl.scissor(cover.map(|_| part), height);
+                gl.draw_quad();
+            }
+            gl.scissor(None, height);
         }
         if let Some(draw) = &ui {
             let rows = self.ui.upload_changed(&gl, &draw.frame)?;
             self.ui_rows_uploaded = self.ui_rows_uploaded.saturating_add(u64::from(rows));
-        }
-        for (draw, texture) in [(game, &self.game), (ui, &self.ui)] {
-            if let Some(draw) = draw {
-                // Variant::index is below VARIANTS for every variant: the
-                // shader tests check it for each one.
-                let (program, uniforms) = &self.programs[draw.quad.variant.index()];
-                gl.bind_quad(*program, self.corners, texture.texture);
-                uniforms.set(&gl, &draw.quad, (width, height), texture.size);
-                gl.draw_quad();
-            }
+            self.bind(&gl, draw, &self.ui, (width, height));
+            gl.draw_quad();
         }
         gl.check("draw")?;
         Ok(true)
+    }
+
+    /// Binds the program, `texture` and the uniforms of `draw`.
+    fn bind(&self, gl: &Gl<'_>, draw: &Draw<'_>, texture: &SourceTexture, size: (u32, u32)) {
+        // Variant::index is below VARIANTS for every variant: the shader
+        // tests check it for each one.
+        let (program, uniforms) = &self.programs[draw.quad.variant.index()];
+        gl.bind_quad(*program, self.corners, texture.texture);
+        uniforms.set(gl, &draw.quad, size, texture.size);
     }
 
     /// The GL renderer and version strings, such as `softpipe` and

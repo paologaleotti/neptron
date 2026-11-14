@@ -15,6 +15,7 @@ use glow::HasContext as _;
 use khronos_egl as egl;
 
 use super::GlesError;
+use super::cover::Area;
 use super::texels::{BYTES_PER_TEXEL, Texels};
 use super::version;
 
@@ -833,6 +834,26 @@ impl Gl<'_> {
             self.gl.disable(glow::DEPTH_TEST);
             self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
             self.gl.clear(glow::COLOR_BUFFER_BIT);
+        }
+    }
+
+    /// Limits the draws that follow to `area`, output pixels from the top
+    /// left of an output `height` pixels high, or removes the limit.
+    pub(super) fn scissor(&self, area: Option<Area>, height: u32) {
+        // SAFETY: the context is current. The area lies inside an output
+        // that the caller checked against the GL limits, so every value
+        // fits an i32. GL counts rows from the bottom of the viewport,
+        // which both targets put at the origin.
+        unsafe {
+            match area {
+                Some(a) => {
+                    self.gl.enable(glow::SCISSOR_TEST);
+                    let y = height.saturating_sub(a.y + a.h);
+                    self.gl
+                        .scissor(a.x as i32, y as i32, a.w as i32, a.h as i32);
+                }
+                None => self.gl.disable(glow::SCISSOR_TEST),
+            }
         }
     }
 

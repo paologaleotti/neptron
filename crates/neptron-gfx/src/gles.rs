@@ -7,6 +7,8 @@ compile_error!("the GLES renderer uploads XRGB8888 pixels as little-endian bytes
 #[forbid(unsafe_code)]
 mod changed;
 #[forbid(unsafe_code)]
+mod cover;
+#[forbid(unsafe_code)]
 mod error;
 mod ffi;
 #[forbid(unsafe_code)]
