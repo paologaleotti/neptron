@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use neptron::devices::{audio_output_setting, open_audio};
 use neptron::display::{AUTO, Detected};
-use neptron::display_wait::{NO_DISPLAY_EXIT_CODE, display_ready, wait_for_display, wait_line};
+use neptron::display_wait::{Look, NO_DISPLAY_EXIT_CODE, auto_output, wait_line, wait_with_looks};
 use neptron::logbook::LogLines;
 use neptron::options::Options;
 use neptron::presets::Presets;
@@ -64,7 +64,7 @@ pub fn run(
             .and_then(|l| l.parsed.layer.get(key).map(ToString::to_string))
             .unwrap_or_else(|| AUTO.to_owned())
     };
-    let output = Some(setting(neptron_settings::DISPLAY_OUTPUT)).filter(|o| o != AUTO);
+    let mut output = Some(setting(neptron_settings::DISPLAY_OUTPUT)).filter(|o| o != AUTO);
     let monitor = setting(neptron_settings::DISPLAY_MONITOR);
     let clock = Monotonic {
         start: Instant::now(),
@@ -74,6 +74,15 @@ pub fn run(
         wait_for_a_display(&paths.sysfs, &clock, &stop);
         if stop.load(Ordering::Relaxed) {
             return ExitCode::SUCCESS;
+        }
+        // A composite connector never reports a display, so the
+        // connector choice never takes it: with no display that answers,
+        // the composite connector of a TV encoder is opened by name.
+        output = neptron_platform::detect(&paths.sysfs)
+            .ok()
+            .and_then(|p| auto_output(&p));
+        if let Some(name) = &output {
+            crate::say!("neptron: no display answers; the output is {name}");
         }
     }
     // Before the display opens, the subconnector is not known: the class
@@ -185,11 +194,11 @@ fn wait_for_a_display(sysfs: &std::path::Path, clock: &Monotonic, stop: &AtomicB
             std::thread::sleep(Duration::from_nanos(until_ns - now_ns));
         }
     };
-    let waited = wait_for_display(
+    let waited = wait_with_looks(
         clock,
         pause,
         || stop.load(Ordering::Relaxed),
-        || neptron_platform::detect(sysfs).is_ok_and(|p| display_ready(&p)),
+        || Look::at(&neptron_platform::detect(sysfs).unwrap_or_default()),
     );
     if let Some(line) = wait_line(waited) {
         crate::say!("neptron: {line}");
