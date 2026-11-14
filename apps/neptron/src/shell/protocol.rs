@@ -46,6 +46,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             if let Some(sink) = game.session.audio_sink() {
                 stats.audio_queued_frames = sink.queued_frames() as u64;
             }
+            if let Some(audio) = game.session.audio_stats() {
+                stats.audio_underruns = audio.underruns;
+            }
         }
         stats
     }

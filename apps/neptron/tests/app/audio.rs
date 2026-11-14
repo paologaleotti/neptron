@@ -119,3 +119,23 @@ fn the_quick_menu_volume_reaches_the_game_at_once() {
         },
     );
 }
+
+/// The `audio_underruns` stat counts the times the audio queue ran empty
+/// in play: here the frame loop stalls for 300 ms, longer than the queue.
+#[test]
+#[ignore = "tier 2"]
+fn the_stats_count_an_audio_underrun() {
+    in_child(
+        &test_name(module_path!(), "the_stats_count_an_audio_underrun"),
+        |dir| {
+            let mut rig = crate::pause::in_game(dir);
+            rig.frames(30);
+            assert_eq!(rig.shell().stats_now().audio_underruns, 0);
+            rig.clock.advance(300_000_000);
+            rig.frames(2);
+            assert!(!rig.audio.underruns().is_empty());
+            assert_eq!(rig.shell().stats_now().audio_underruns, 1);
+            rig.finish();
+        },
+    );
+}
