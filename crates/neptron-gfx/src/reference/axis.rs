@@ -34,6 +34,43 @@ impl AxisMap {
         }
     }
 
+    /// The destination pixels `[start, end)` whose near source pixel is
+    /// inside the frame: every other pixel is [`Tap::Outside`]. The near
+    /// pixel never falls as `i` grows, so they are one range.
+    #[cfg_attr(
+        not(feature = "gles"),
+        allow(dead_code, reason = "used by the GLES renderer")
+    )]
+    pub(crate) fn inside(&self) -> (u32, u32) {
+        let frame_len = i64::from(self.frame_len);
+        let start = self.first_index(|near| near >= 0);
+        let end = self.first_index(|near| near >= frame_len);
+        (start, end.max(start))
+    }
+
+    /// The first destination pixel whose near source pixel meets `test`,
+    /// or `dest_len`. `test` holds from some pixel on.
+    #[cfg_attr(not(feature = "gles"), allow(dead_code, reason = "used by inside"))]
+    fn first_index(&self, test: impl Fn(i64) -> bool) -> u32 {
+        let (mut low, mut high) = (0, self.dest_len);
+        while low < high {
+            let mid = low + (high - low) / 2;
+            if test(self.near(mid)) {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+        low
+    }
+
+    /// The source pixel under the centre of destination pixel `i`, which
+    /// can be outside the frame.
+    fn near(&self, i: u32) -> i64 {
+        let num = (2 * u64::from(i) + 1) * u64::from(self.crop_len);
+        self.crop_start + (num / (2 * u64::from(self.dest_len))) as i64
+    }
+
     /// The tap of destination pixel `i`, counted from the start of the
     /// destination rectangle. `i` is below `dest_len`.
     pub(crate) fn tap(&self, i: u32) -> Tap {
@@ -43,11 +80,10 @@ impl AxisMap {
         // crop_start + num / den.
         let num = (2 * u64::from(i) + 1) * n;
         let den = 2 * m;
-        let whole = num / den;
         let rem = num % den;
 
         let frame_len = i64::from(self.frame_len);
-        let near = self.crop_start + whole as i64;
+        let near = self.near(i);
         if near < 0 || near >= frame_len {
             return Tap::Outside;
         }
@@ -250,6 +286,24 @@ mod tests {
         for i in 0..9 {
             if let Tap::Inside { near, far, .. } = m.tap(i) {
                 assert!(near < 3 && far < 3, "pixel {i}");
+            }
+        }
+    }
+
+    /// The range of `inside` is exactly the pixels that are not outside.
+    #[test]
+    fn inside_is_the_range_of_pixels_inside_the_frame() {
+        for filter in [Filter::Nearest, Filter::SharpBilinear] {
+            for crop_start in [-9, -3, -1, 0, 1, 4, 9] {
+                for (n, m, frame) in [(4, 4, 2), (6, 9, 3), (9, 6, 3), (5, 2, 10), (3, 7, 0)] {
+                    let axis = map(crop_start, n, m, frame, filter);
+                    let (start, end) = axis.inside();
+                    for i in 0..m {
+                        let outside = axis.tap(i) == Tap::Outside;
+                        let at = (crop_start, n, m, frame, i);
+                        assert_eq!(outside, !(start..end).contains(&i), "{at:?}");
+                    }
+                }
             }
         }
     }

@@ -18,17 +18,20 @@ use crate::{Image, OutputBuffer, RectKind};
 /// # Pixels
 ///
 /// The renderer draws two quads: the game frame into `dest`, then the UI
-/// canvas into `ui_dest`, over black. Each quad uses the program of its
-/// filter. The fragment shader computes the source pixel of each output
-/// pixel from its position with the integer rules of the reference, in
-/// 32-bit floats that hold every value exactly. Each source image is a
-/// texture of 8-bit channels, expanded on upload with the code of the
-/// reference. So nearest output equals the reference byte for byte. The shader rounds a
-/// sharp bilinear blend half up, as the reference does, but in floats: a
-/// blend whose exact value is within float error of a half can round the
-/// other way, so a channel can differ by 1. The shader needs highp floats
-/// with the 23-bit precision of an IEEE 32-bit float, and
-/// [`headless`](Self::headless) checks that the driver gives it.
+/// canvas into `ui_dest`, over black. A quad covers only the output pixels
+/// whose source pixel is inside the frame; the rest stays black, as in the
+/// reference. Each quad uses the program of the axes that blend: sharp
+/// bilinear at a scale that is not a whole number. The fragment shader
+/// computes the taps of each output pixel from its position with the
+/// integer rules of the reference, in 32-bit floats that hold every value
+/// exactly, and reads each tap with one `NEAREST` texture read. Each source
+/// image is a texture of 8-bit channels, expanded on upload with the code
+/// of the reference. So nearest output equals the reference byte for byte.
+/// The shader blends the taps and rounds half up, as the reference does,
+/// but in floats: a blend whose exact value is within float error of a
+/// half can round the other way, so a channel can differ by 1. The shader
+/// needs highp floats with the 23-bit precision of an IEEE 32-bit float,
+/// and [`headless`](Self::headless) checks that the driver gives it.
 ///
 /// Scanlines follow the same split. The pattern of dark lines comes from
 /// the reference code and reaches the shader as a uniform. On a nearest
@@ -154,9 +157,9 @@ impl GlesRenderer {
         gl.require_extension(BGRA_EXTENSION)?;
         // On an error below, dropping the context deletes every object
         // made in it.
-        let [nearest, sharp] =
+        let [a, b, c, d] =
             Variant::ALL.map(|variant| gl.program(shader::VERTEX, &variant.fragment()));
-        let programs = [nearest?, sharp?].map(|p| (p, Uniforms::of(&gl, p)));
+        let programs = [a?, b?, c?, d?].map(|p| (p, Uniforms::of(&gl, p)));
         let corners = gl.corner_buffer()?;
         let game = SourceTexture::new(&gl)?;
         let ui = SourceTexture::new(&gl)?;
@@ -458,6 +461,8 @@ struct Uniforms {
     dest: Option<Uniform>,
     crop: Option<Uniform>,
     frame: Option<Uniform>,
+    axis: Option<Uniform>,
+    bounds: Option<Uniform>,
     scan: Option<Uniform>,
     texture: Option<Uniform>,
 }
@@ -470,6 +475,8 @@ impl Uniforms {
             dest: gl.uniform(program, "u_dest"),
             crop: gl.uniform(program, "u_crop"),
             frame: gl.uniform(program, "u_frame"),
+            axis: gl.uniform(program, "u_axis"),
+            bounds: gl.uniform(program, "u_bounds"),
             scan: gl.uniform(program, "u_scan"),
             texture: gl.uniform(program, "u_texture"),
         }
@@ -484,6 +491,8 @@ impl Uniforms {
         gl.set_vec4(self.dest.as_ref(), quad.dest);
         gl.set_vec4(self.crop.as_ref(), quad.crop);
         gl.set_vec4(self.frame.as_ref(), quad.frame);
+        gl.set_vec4(self.axis.as_ref(), quad.axis);
+        gl.set_vec4(self.bounds.as_ref(), quad.bounds);
         gl.set_vec4(self.scan.as_ref(), quad.scan);
         gl.set_int(self.texture.as_ref(), 0);
     }

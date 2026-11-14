@@ -7,6 +7,7 @@ mod overlay;
 mod pixel;
 mod scanline;
 
+pub(crate) use axis::AxisMap;
 pub use error::{Image, MAX_RECT_SIDE_PX, RectKind, RenderError};
 pub(crate) use error::{check_frame, check_output, check_rect, check_scanlines};
 pub(crate) use pixel::Rgb;
@@ -16,7 +17,7 @@ pub(crate) use scanline::Pattern;
 
 use neptron_types::{Frame, Scene};
 
-use axis::{AxisMap, Tap};
+use axis::Tap;
 use scanline::FULL_PERCENT;
 
 /// The buffer that [`ReferenceRenderer::render`] writes, owned by the

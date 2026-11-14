@@ -1,45 +1,57 @@
 //! The programs of the renderer, in GLSL ES 1.00: one source, built once
-//! for each filter. They draw the game quad and the UI quad. The fragment
-//! shader repeats the integer rules of the reference renderer in 32-bit
-//! floats: every value is an integer below `2^24`, so it is exact, and
-//! every division is corrected to the exact quotient.
+//! for each pair of axes that blend. They draw the game quad and the UI
+//! quad. The fragment shader repeats the integer rules of the reference
+//! renderer in 32-bit floats: every value is an integer below `2^24`, so
+//! it is exact, and every division is corrected to the exact quotient.
+//!
+//! The shader blends the taps itself, from `NEAREST` texture reads. The
+//! `LINEAR` filter of the texture unit would need one read, but the unit of
+//! `vc4` computes its weights in fixed point: on the Raspberry Pi 3 it
+//! differs from the reference by up to 5 per channel even with exact
+//! sample points, above the tolerance of 1.
 
-use neptron_types::Filter;
-
-/// One build of the fragment program: the filter is a constant of the
-/// source, not a uniform. The `vc4` compiler of the Raspberry Pi turns a
-/// branch on a uniform into a select, so with a uniform every pixel runs
-/// the sharp bilinear path.
+/// One build of the fragment program. Which axes blend is a constant of
+/// the source, not a uniform: the `vc4` compiler of the Raspberry Pi turns
+/// a branch on a uniform into a select, so with a uniform every pixel would
+/// read all four taps. An axis blends only with sharp bilinear at a scale
+/// that is not a whole number; at a whole scale its weight is always 0, so
+/// such an axis reads one tap, and sharp bilinear at a whole scale on both
+/// axes is the nearest program.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Variant {
-    /// Sharp bilinear, else nearest.
-    pub(super) sharp: bool,
+    /// The columns blend: two taps across.
+    pub(super) blend_x: bool,
+    /// The lines blend: two taps down.
+    pub(super) blend_y: bool,
 }
 
-/// The number of programs: one per filter.
-pub(super) const VARIANTS: usize = 2;
+/// The number of programs: one per pair of axes that blend.
+pub(super) const VARIANTS: usize = 4;
 
 impl Variant {
-    /// The program for `filter`.
-    pub(super) fn of(filter: Filter) -> Self {
-        Self {
-            sharp: filter == Filter::SharpBilinear,
-        }
-    }
-
     /// Every variant, in [`index`](Self::index) order.
-    pub(super) const ALL: [Variant; VARIANTS] = [Self { sharp: false }, Self { sharp: true }];
+    pub(super) const ALL: [Variant; VARIANTS] = [
+        Self::new(false, false),
+        Self::new(true, false),
+        Self::new(false, true),
+        Self::new(true, true),
+    ];
+
+    const fn new(blend_x: bool, blend_y: bool) -> Self {
+        Self { blend_x, blend_y }
+    }
 
     /// The place of this variant in [`ALL`](Self::ALL).
     pub(super) fn index(self) -> usize {
-        usize::from(self.sharp)
+        usize::from(self.blend_x) + 2 * usize::from(self.blend_y)
     }
 
     /// The fragment shader source of this variant.
     pub(super) fn fragment(self) -> String {
         format!(
-            "#version 100\n#define SHARP {}\n{FRAGMENT_BODY}",
-            u8::from(self.sharp)
+            "#version 100\n#define BLEND_X {}\n#define BLEND_Y {}\n{FRAGMENT_BODY}",
+            u8::from(self.blend_x),
+            u8::from(self.blend_y)
         )
     }
 }
@@ -57,8 +69,10 @@ void main() {
 }
 ";
 
-/// The texture unit decodes the source pixels, from a texture in a GL
-/// format of the pixel format. `SHARP` comes from [`Variant::fragment`].
+/// The texture holds 8-bit channels, so one `NEAREST` read gives a source
+/// pixel. `BLEND_X` and `BLEND_Y` come from [`Variant::fragment`]. The quad
+/// covers only output pixels whose near source pixel is inside the frame,
+/// so no pixel needs a test for it.
 const FRAGMENT_BODY: &str = r"#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
 #else
@@ -72,14 +86,20 @@ uniform vec4 u_dest;
 uniform vec4 u_crop;
 // The frame width and height in pixels, then their inverses.
 uniform vec4 u_frame;
-// Period, first dark line and kept percent of the scanlines; period 0 for
-// none.
+// 1 / (2 * dest width) and 1 / (2 * dest height), then the prescale of
+// each axis.
+uniform vec4 u_axis;
+// The first and the last pixel of the crop inside the frame: x, y, x, y.
+uniform vec4 u_bounds;
+// Period, first dark line, kept percent and inverse period of the
+// scanlines; period 0 for none.
 uniform vec4 u_scan;
 
-// floor(a / b) and the remainder, exact for integers a < 2^24 and b > 0.
-// The float quotient can be one off, and the correction fixes that.
-vec2 divmod(float a, float b) {
-    float q = floor(a / b);
+// floor(a / b) and the remainder, exact for integers a < 2^24 and b > 0,
+// with rb the float inverse of b. The float quotient can be one off, and
+// the correction fixes that.
+vec2 divmod(float a, float b, float rb) {
+    float q = floor(a * rb);
     float r = a - q * b;
     if (r < 0.0) {
         q -= 1.0;
@@ -91,78 +111,76 @@ vec2 divmod(float a, float b) {
     return vec2(q, r);
 }
 
-// The tap of destination index i on one axis: (near, far, weight, inside).
-// This is AxisMap::tap of the reference renderer.
-vec4 tap(float i, float crop_start, float n, float m, float frame_len) {
+// The tap of destination index i on one axis: (near, far, weight). This is
+// AxisMap::tap of the reference renderer. With blend false it is nearest.
+vec3 tap(float i, float crop_start, float n, float m, float rm, float p,
+         float first, float last, bool blend) {
     float den = 2.0 * m;
-    vec2 qr = divmod((2.0 * i + 1.0) * n, den);
+    vec2 qr = divmod((2.0 * i + 1.0) * n, den, rm);
     float near = crop_start + qr.x;
-    if (near < 0.0 || near >= frame_len) {
-        return vec4(0.0);
+    if (!blend) {
+        return vec3(near, near, 0.0);
     }
-#if SHARP == 0
-    return vec4(near, near, 0.0, 1.0);
-#else
-    float prescale = max(1.0, divmod(m, n).x);
     // The reference weight is max(0, dist * p - (p - 1) * den), over 4m.
     // It equals den - (den - dist) * p, and that product is exact whenever
     // it is below den.
     float e = den - abs(2.0 * qr.y - den);
-    float weight = max(0.0, den - e * prescale);
-    float first = max(crop_start, 0.0);
-    float last = min(crop_start + n, frame_len) - 1.0;
+    float weight = max(0.0, den - e * p);
     float far = 2.0 * qr.y < den ? near - 1.0 : near + 1.0;
-    return vec4(near, clamp(far, first, last), weight / (4.0 * m), 1.0);
-#endif
+    return vec3(near, clamp(far, first, last), weight * rm * 0.5);
 }
 
-// The 8-bit channels of source pixel (x, y), from 0 to 255. GL gives a
-// channel v of b bits as v / (2^b - 1); the nearest integer of 255 times
-// it is the expansion of the reference, and no such value is within float
-// error of a half.
+// The 8-bit channels of source pixel (x, y), from 0 to 255.
 vec3 pixel(float x, float y) {
     vec2 uv = vec2((x + 0.5) * u_frame.z, (y + 0.5) * u_frame.w);
+    // A channel is n / 255, and no n is within float error of a half.
     return floor(texture2D(u_texture, uv).rgb * 255.0 + 0.5);
 }
 
 // round(v * keep / 100) with a half rounded up, exact for an integer
 // channel v: v * keep + 50 is an integer below 2^15.
 float darken(float v, float keep) {
-    return divmod(v * keep + 50.0, 100.0).x;
+    return divmod(v * keep + 50.0, 100.0, 0.01).x;
 }
 
 void main() {
     // Only the integer part of gl_FragCoord names the pixel: GL puts it at
-    // the pixel centre, but vc4 gives the corner, and the output row
-    // counted from the top must not depend on which.
+    // the pixel centre, but vc4 gives the corner, and the line counted
+    // from the top must not depend on which.
     float i = floor(gl_FragCoord.x) - u_visible.x + u_dest.x;
     float j = u_output.y - 1.0 - floor(gl_FragCoord.y) - u_visible.y + u_dest.y;
-    if (i < 0.0 || j < 0.0 || i >= u_dest.z || j >= u_dest.w) {
-        discard;
-    }
-    vec4 tx = tap(i, u_crop.x, u_crop.z, u_dest.z, u_frame.x);
-    vec4 ty = tap(j, u_crop.y, u_crop.w, u_dest.w, u_frame.y);
-    if (tx.w < 0.5 || ty.w < 0.5) {
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-        return;
-    }
+    vec3 tx = tap(i, u_crop.x, u_crop.z, u_dest.z, u_axis.x, u_axis.z,
+                  u_bounds.x, u_bounds.z, BLEND_X == 1);
+    vec3 ty = tap(j, u_crop.y, u_crop.w, u_dest.w, u_axis.y, u_axis.w,
+                  u_bounds.y, u_bounds.w, BLEND_Y == 1);
     // j is the destination line, so the pattern follows the source lines
     // and not the output line parity.
-    bool dark = u_scan.x > 0.5 && divmod(j, u_scan.x).y >= u_scan.y;
+    bool dark = u_scan.x > 0.5 && divmod(j, u_scan.x, u_scan.w).y >= u_scan.y;
     vec3 c = pixel(tx.x, ty.x);
+#if BLEND_X == 1 || BLEND_Y == 1
     if (tx.z > 0.0 || ty.z > 0.0) {
-        c = c * (1.0 - tx.z) * (1.0 - ty.z)
-            + pixel(tx.y, ty.x) * tx.z * (1.0 - ty.z)
-            + pixel(tx.x, ty.y) * (1.0 - tx.z) * ty.z
-            + pixel(tx.y, ty.y) * tx.z * ty.z;
+#if BLEND_X == 1
+        c = mix(c, pixel(tx.y, ty.x), tx.z);
+#endif
+#if BLEND_Y == 1
+#if BLEND_X == 1
+        vec3 below = mix(pixel(tx.x, ty.y), pixel(tx.y, ty.y), tx.z);
+#else
+        vec3 below = pixel(tx.x, ty.y);
+#endif
+        c = mix(c, below, ty.z);
+#endif
         // The reference scales the exact blend before its one rounding.
         if (dark) {
             c = c * (u_scan.z / 100.0);
         }
         // Round half up as the reference does, so the output is an exact
         // n / 255 and the conversion to 8 bits in GL does not round again.
-        c = floor(c + 0.5);
-    } else if (dark) {
+        gl_FragColor = vec4(floor(c + 0.5) / 255.0, 1.0);
+        return;
+    }
+#endif
+    if (dark) {
         c = vec3(darken(c.r, u_scan.z), darken(c.g, u_scan.z), darken(c.b, u_scan.z));
     }
     gl_FragColor = vec4(c / 255.0, 1.0);
@@ -175,26 +193,22 @@ mod tests {
 
     #[test]
     fn every_variant_has_its_own_index() {
-        let all = Variant::ALL;
-        for (i, variant) in all.iter().enumerate() {
+        for (i, variant) in Variant::ALL.iter().enumerate() {
             assert_eq!(variant.index(), i, "{variant:?}");
-        }
-        for filter in [Filter::Nearest, Filter::SharpBilinear] {
-            let variant = Variant::of(filter);
-            assert_eq!(all[variant.index()], variant);
         }
     }
 
-    /// The filter is a constant of each program, and the texture unit
-    /// decodes the pixel format: no source reads either from a uniform, so
-    /// no driver has a branch on them.
+    /// Which axes blend is a constant of each program, and the texture
+    /// holds 8-bit channels: no source reads either from a uniform, so no
+    /// driver has a branch on them.
     #[test]
-    fn a_variant_fixes_the_filter_in_its_source() {
+    fn a_variant_fixes_its_axes_in_its_source() {
         for variant in Variant::ALL {
             let source = variant.fragment();
             assert!(source.starts_with("#version 100\n"), "{variant:?}");
-            let sharp = format!("#define SHARP {}\n", u8::from(variant.sharp));
-            assert!(source.contains(&sharp), "{variant:?}");
+            let x = format!("#define BLEND_X {}\n", u8::from(variant.blend_x));
+            let y = format!("#define BLEND_Y {}\n", u8::from(variant.blend_y));
+            assert!(source.contains(&x) && source.contains(&y), "{variant:?}");
             assert!(!source.contains("u_mode"), "{variant:?}");
             assert!(!source.contains("FORMAT"), "{variant:?}");
         }
