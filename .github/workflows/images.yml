@@ -8,10 +8,14 @@
 # - OP-070: the licence of the 15 kHz kernel patch set is not clear, so no
 #   image, kernel or Buildroot output with those patches may be distributed.
 #   Workflow artifacts and caches of a public repository can be read by
-#   others, so every build here that uploads or caches anything uses
-#   --no-kernel-15khz. The job "kernel-15khz" builds the patched kernel only
-#   to prove that the patches still apply and build; it uploads nothing and
-#   saves no cache.
+#   others, so no build here that uploads or caches anything applies a
+#   kernel patch: the PC image builds with --no-kernel-15khz, and the
+#   aarch64 and Pi defconfigs name no kernel patch (the Pi build fails when
+#   one is set). The step "Check that the output holds no 15 kHz kernel
+#   patch" proves it on each output before any upload, cache or base. The
+#   last step of the nightly PC job builds the patched kernel only to prove
+#   that the patches still apply and build; it uploads nothing and saves
+#   no cache.
 # - OP-054: the images hold Snes9x and Genesis Plus GX (non-commercial
 #   licences). An uploaded image carries the licence manifest and the
 #   licence texts, and the GPL sources go in an artifact beside it. There is
@@ -342,6 +346,30 @@ jobs:
           echo "Image build: $(( $(date +%s) - start )) s (base: ${{ steps.base.outputs.state }})" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # OP-070. Every later step that uploads or caches the output, the image
+      # or the base runs only after this step passed. The kernel of the
+      # output must have applied no patch file of the 15 kHz set, and the
+      # configuration must name no kernel patch. A build that failed can
+      # leave no list of applied patches, so a missing list passes; the base
+      # of such a build still gets the configuration check.
+      - name: Check that the output holds no 15 kHz kernel patch
+        id: no15khz
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        run: |
+          sudo grep -x 'BR2_LINUX_KERNEL_PATCH=""' "$OUT_DIR/.config" || {
+            echo "The configuration names a kernel patch:"
+            sudo grep '^BR2_LINUX_KERNEL_PATCH=' "$OUT_DIR/.config" || true
+            exit 1
+          }
+          for list in "$OUT_DIR"/build/linux-*/.applied_patches_list; do
+            [ -e "$list" ] || continue
+            if sudo grep -i '15khz' "$list"; then
+              echo "The kernel in $list has the 15 kHz patch set"
+              exit 1
+            fi
+          done
+          echo "No 15 kHz kernel patch in the output." | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Show the output sizes
         if: ${{ !cancelled() }}
         run: |
@@ -420,6 +448,7 @@ jobs:
         env:
           FILES: ${{ join(matrix.image_files, ' ') }}
           ARTIFACT: ${{ matrix.artifact }}
+          LICENCES: ${{ matrix.licences }}
         run: |
           dist="$WORK/dist/$ARTIFACT"
           mkdir -p "$dist/legal" "$WORK/dist/sources"
@@ -428,10 +457,10 @@ jobs:
           sudo cp -r "$OUT_DIR/legal-info/licenses" "$dist/legal/"
           sudo cp -r "$OUT_DIR/legal-info/sources" "$WORK/dist/sources/"
           sudo chown -R "$(id -u):$(id -g)" "$WORK/dist"
-          cp os/board/pc/LICENCES.txt "$dist/" 2>/dev/null || true
+          cp "$LICENCES" "$dist/LICENCES.txt"
           cat > "$dist/README.txt" <<EOF
           NEPTRON $ARTIFACT, commit $GITHUB_SHA, CI run $GITHUB_RUN_ID.
-          Built without the 15 kHz kernel patch set (OP-070).
+          Its kernel has no 15 kHz kernel patch (OP-070).
           The image holds Snes9x and Genesis Plus GX, which allow non-commercial
           use only: never sell this image. legal/ holds the licence manifest and
           the licence texts. The sources of the GPL and LGPL packages are in the
@@ -470,7 +499,8 @@ jobs:
         id: pack
         if: >-
           ${{ !cancelled() && steps.base.outputs.state != 'complete' && steps.base.outputs.state != 'older'
-          && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+          && (steps.build.outcome == 'success' || steps.build.outcome == 'failure')
+          && steps.no15khz.outcome == 'success' }}
         env:
           COMPLETE: ${{ steps.build.outcome == 'success' }}
           BASE: ${{ steps.keys.outputs.base }}
@@ -512,7 +542,9 @@ jobs:
           path: ${{ env.WORK }}/pack
 
       - name: Save the Buildroot downloads
-        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.dl.outputs.cache-hit != 'true' }}
+        if: >-
+          ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.dl.outputs.cache-hit != 'true'
+          && steps.no15khz.outcome == 'success' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.WORK }}/neptron-br-dl
