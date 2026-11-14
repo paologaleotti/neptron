@@ -15,7 +15,7 @@ use glow::HasContext as _;
 use khronos_egl as egl;
 
 use super::GlesError;
-use super::texels::BYTES_PER_TEXEL;
+use super::texels::{BYTES_PER_TEXEL, Texels};
 use super::version;
 
 /// EGL 1.5, loaded at run time from `libEGL.so.1`.
@@ -640,16 +640,25 @@ impl Gl<'_> {
         }
     }
 
-    /// Writes `rows` packed rows of `width` `BGRA_EXT` texels from `data`
+    /// Writes `rows` packed rows of `width` `BGRA_EXT` texels from `texels`
     /// into the source texture `texture`, whose storage holds at least
     /// that many.
     pub(super) fn upload(
         &self,
         texture: Texture,
-        data: &[u8],
+        texels: Texels<'_>,
         width: u32,
         rows: u32,
     ) -> Result<(), GlesError> {
+        let data = match texels {
+            Texels::Bytes(bytes) => bytes,
+            // SAFETY: a u32 is 4 bytes with no padding, every byte is a
+            // valid u8, and u8 needs no alignment, so the bytes of the
+            // words are a valid slice for the same lifetime.
+            Texels::Words(words) => unsafe {
+                std::slice::from_raw_parts(words.as_ptr().cast::<u8>(), size_of_val(words))
+            },
+        };
         let row_bytes = width as usize * BYTES_PER_TEXEL;
         if row_bytes.checked_mul(rows as usize) != Some(data.len()) {
             return Err(GlesError::UploadOutOfBounds {

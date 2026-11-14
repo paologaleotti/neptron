@@ -25,8 +25,9 @@ use crate::{Image, OutputBuffer, RectKind};
 /// computes the taps of each output pixel from its position with the
 /// integer rules of the reference, in 32-bit floats that hold every value
 /// exactly, and reads each tap with one `NEAREST` texture read. Each source
-/// image is a texture of 8-bit channels, expanded on upload with the code
-/// of the reference. So nearest output equals the reference byte for byte.
+/// image is a texture of 8-bit channels, expanded on upload exactly as the
+/// reference expands them. So nearest output equals the reference byte for
+/// byte.
 /// The shader blends the taps and rounds half up, as the reference does,
 /// but in floats: a blend whose exact value is within float error of a
 /// half can round the other way, so a channel can differ by 1. The shader
@@ -370,7 +371,7 @@ const BGRA_EXTENSION: &str = "GL_EXT_texture_format_BGRA8888";
 struct SourceTexture {
     texture: Texture,
     size: (u32, u32),
-    staging: Vec<u8>,
+    staging: Vec<u32>,
 }
 
 impl SourceTexture {
