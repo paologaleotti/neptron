@@ -113,6 +113,7 @@ mod tests {
         let err = Board::parse("rpi-arm32").unwrap_err();
         assert!(err.to_string().contains("rpi-arm32"), "{err}");
         assert!(err.to_string().contains("rpi-arm64"), "{err}");
+        assert!(err.to_string().starts_with("unknown image"), "{err}");
     }
 
     #[test]
