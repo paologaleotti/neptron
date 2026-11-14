@@ -3,7 +3,7 @@
     {
       "name": "x86_64",
       "enabled": true,
-      "description": "The PC image, without the 15 kHz kernel patch set (OP-070)",
+      "description": "The PC image, without the 15 kHz kernel patch set (OP-070). The timing checks run here, under KVM",
       "runner": "ubuntu-24.04",
       "arch": "x86_64",
       "defconfig": "neptron_pc_x86_64_defconfig",
@@ -16,13 +16,13 @@
       "artifact": "neptron-pc-x86_64-no15khz",
       "upload_image": true,
       "rebuild": ["neptron", "neptron-launch", "neptronctl", "neptron-capture", "neptron-vkms-probe"],
-      "checks": ["boot-bios", "boot-uefi", "kms", "gles", "core", "app", "selftest"],
+      "checks": ["boot-bios", "boot-uefi", "app", "kms", "gles", "selftest", "core"],
       "build_minutes": 320
     },
     {
       "name": "aarch64",
       "enabled": true,
-      "description": "The aarch64 QEMU test image",
+      "description": "The aarch64 QEMU test image. The arm runner has no KVM, so the timing checks (kms, selftest, core) run on a developer machine with a hypervisor",
       "runner": "ubuntu-24.04-arm",
       "arch": "aarch64",
       "defconfig": "neptron_qemu_aarch64_defconfig",
@@ -35,7 +35,7 @@
       "artifact": "neptron-qemu-aarch64",
       "upload_image": false,
       "rebuild": ["neptron", "neptron-launch", "neptronctl", "neptron-capture", "neptron-vkms-probe"],
-      "checks": ["boot", "kms", "gles", "core", "app", "selftest"],
+      "checks": ["boot", "app", "gles"],
       "build_minutes": 240
     },
     {
