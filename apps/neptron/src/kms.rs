@@ -16,6 +16,7 @@ use neptron::{Devices, NextRun, Runtime, Shell};
 use neptron_audio::{Resampling, Sdl3Outputs};
 use neptron_backend::{Clock, Display, InputSource};
 use neptron_kms::{ChoiceError, KmsConfig, KmsDisplay, KmsError};
+use neptron_platform::Matrix;
 use neptron_session::RunRateSource;
 use neptron_settings::{Schema, Storage, Target};
 use neptron_types::InputEvent;
@@ -71,7 +72,12 @@ pub fn run(
     };
     // A named output is used whatever its status, so only `auto` waits.
     if output.is_none() {
-        wait_for_a_display(&paths.sysfs, &clock, &stop);
+        // The table is built in, so a failure is a build defect: logged
+        // once, and the wait then has no composite to fall back on.
+        let matrix = Matrix::builtin()
+            .inspect_err(|e| crate::say!("neptron: {e}; no composite fallback"))
+            .ok();
+        wait_for_a_display(&paths.sysfs, matrix.as_ref(), &clock, &stop);
         if stop.load(Ordering::Relaxed) {
             return ExitCode::SUCCESS;
         }
@@ -80,7 +86,7 @@ pub fn run(
         // the composite connector of a TV encoder is opened by name.
         output = neptron_platform::detect(&paths.sysfs)
             .ok()
-            .and_then(|p| auto_output(&p));
+            .and_then(|p| auto_output(&p, matrix.as_ref()));
         if let Some(name) = &output {
             crate::say!("neptron: no display answers; the output is {name}");
         }
@@ -187,7 +193,12 @@ pub fn run(
 
 /// Waits a bounded time for a connector that qualifies, and logs how the
 /// wait ended. A stop request ends the wait.
-fn wait_for_a_display(sysfs: &std::path::Path, clock: &Monotonic, stop: &AtomicBool) {
+fn wait_for_a_display(
+    sysfs: &std::path::Path,
+    matrix: Option<&Matrix>,
+    clock: &Monotonic,
+    stop: &AtomicBool,
+) {
     let pause = |until_ns: u64| {
         let now_ns = clock.now_ns();
         if until_ns > now_ns {
@@ -198,7 +209,7 @@ fn wait_for_a_display(sysfs: &std::path::Path, clock: &Monotonic, stop: &AtomicB
         clock,
         pause,
         || stop.load(Ordering::Relaxed),
-        || Look::at(&neptron_platform::detect(sysfs).unwrap_or_default()),
+        || Look::at(&neptron_platform::detect(sysfs).unwrap_or_default(), matrix),
     );
     if let Some(line) = wait_line(waited) {
         crate::say!("neptron: {line}");

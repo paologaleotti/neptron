@@ -104,9 +104,12 @@ pub fn display_ready(platform: &Platform) -> bool {
 /// of the type `Composite` whose GPU entry in the capability table has the
 /// `tv_encoder` quirk. `None` when the platform has none: a composite
 /// connector of another GPU (an old PC TV-out) is used only when the
-/// settings name it.
-pub fn tv_fallback(platform: &Platform) -> Option<String> {
-    let matrix = Matrix::builtin().ok()?;
+/// settings name it. With no table (`None`), nothing falls back.
+///
+/// The caller reads the table once ([`Matrix::builtin`]) and passes it to
+/// every look of the wait.
+pub fn tv_fallback(platform: &Platform, matrix: Option<&Matrix>) -> Option<String> {
+    let matrix = matrix?;
     platform
         .connectors
         .iter()
@@ -123,8 +126,8 @@ pub fn tv_fallback(platform: &Platform) -> Option<String> {
 /// The longest wait for a display that answers on `platform`:
 /// [`COMPOSITE_FALLBACK_WAIT_NS`] when it has a composite connector to
 /// fall back on, else [`DISPLAY_WAIT_MAX_NS`].
-pub fn wait_max_ns(platform: &Platform) -> u64 {
-    if tv_fallback(platform).is_some() {
+pub fn wait_max_ns(platform: &Platform, matrix: Option<&Matrix>) -> u64 {
+    if tv_fallback(platform, matrix).is_some() {
         COMPOSITE_FALLBACK_WAIT_NS
     } else {
         DISPLAY_WAIT_MAX_NS
@@ -135,11 +138,11 @@ pub fn wait_max_ns(platform: &Platform) -> u64 {
 /// display qualifies, so the connector choice of the backend decides (an
 /// HDMI display wins), or when there is nothing to fall back on; else the
 /// composite connector of [`tv_fallback`].
-pub fn auto_output(platform: &Platform) -> Option<String> {
+pub fn auto_output(platform: &Platform, matrix: Option<&Matrix>) -> Option<String> {
     if display_ready(platform) {
         None
     } else {
-        tv_fallback(platform)
+        tv_fallback(platform, matrix)
     }
 }
 
@@ -167,11 +170,11 @@ pub struct Look {
 }
 
 impl Look {
-    /// The look at `platform`.
-    pub fn at(platform: &Platform) -> Self {
+    /// The look at `platform`, with the capability table `matrix`.
+    pub fn at(platform: &Platform, matrix: Option<&Matrix>) -> Self {
         Self {
             ready: display_ready(platform),
-            wait_max_ns: wait_max_ns(platform),
+            wait_max_ns: wait_max_ns(platform, matrix),
         }
     }
 }
@@ -248,6 +251,12 @@ mod tests {
     use neptron_testkit::SimClock;
 
     use super::*;
+
+    /// The shipped capability table, read once per test process.
+    fn table() -> Option<&'static Matrix> {
+        static TABLE: std::sync::OnceLock<Option<Matrix>> = std::sync::OnceLock::new();
+        TABLE.get_or_init(|| Matrix::builtin().ok()).as_ref()
+    }
 
     fn connector(name: &str, kind: &str, status: ConnectorStatus, edid: bool) -> Connector {
         Connector {
@@ -492,9 +501,9 @@ mod tests {
     fn a_pi_with_no_hdmi_display_falls_back_on_composite() {
         let p = pi3(ConnectorStatus::Disconnected, false);
         assert!(!display_ready(&p), "composite never qualifies for auto");
-        assert_eq!(tv_fallback(&p).as_deref(), Some("Composite-1"));
-        assert_eq!(auto_output(&p).as_deref(), Some("Composite-1"));
-        assert_eq!(wait_max_ns(&p), COMPOSITE_FALLBACK_WAIT_NS);
+        assert_eq!(tv_fallback(&p, table()).as_deref(), Some("Composite-1"));
+        assert_eq!(auto_output(&p, table()).as_deref(), Some("Composite-1"));
+        assert_eq!(wait_max_ns(&p, table()), COMPOSITE_FALLBACK_WAIT_NS);
     }
 
     #[test]
@@ -502,7 +511,11 @@ mod tests {
         for edid in [true, false] {
             let p = pi3(ConnectorStatus::Connected, edid);
             assert!(display_ready(&p), "edid {edid}");
-            assert_eq!(auto_output(&p), None, "the connector choice decides");
+            assert_eq!(
+                auto_output(&p, table()),
+                None,
+                "the connector choice decides"
+            );
         }
         let p = pi3(ConnectorStatus::Connected, true);
         let facts: Vec<ConnectorFacts> = p
@@ -527,10 +540,20 @@ mod tests {
             connector("Composite-1", "Composite", ConnectorStatus::Unknown, false),
             connector("VGA-1", "VGA", ConnectorStatus::Disconnected, false),
         ]);
-        assert_eq!(tv_fallback(&p), None);
-        assert_eq!(auto_output(&p), None);
-        assert_eq!(wait_max_ns(&p), DISPLAY_WAIT_MAX_NS);
-        assert_eq!(wait_max_ns(&Platform::default()), DISPLAY_WAIT_MAX_NS);
+        assert_eq!(tv_fallback(&p, table()), None);
+        assert_eq!(auto_output(&p, table()), None);
+        assert_eq!(wait_max_ns(&p, table()), DISPLAY_WAIT_MAX_NS);
+        assert_eq!(
+            wait_max_ns(&Platform::default(), table()),
+            DISPLAY_WAIT_MAX_NS
+        );
+    }
+
+    #[test]
+    fn with_no_table_nothing_falls_back() {
+        let p = pi3(ConnectorStatus::Disconnected, false);
+        assert_eq!(tv_fallback(&p, None), None);
+        assert_eq!(wait_max_ns(&p, None), DISPLAY_WAIT_MAX_NS);
     }
 
     #[test]
@@ -544,7 +567,7 @@ mod tests {
             || false,
             || {
                 looks += 1;
-                Look::at(&p)
+                Look::at(&p, table())
             },
         );
         assert_eq!(
@@ -569,7 +592,7 @@ mod tests {
             || false,
             || {
                 looks += 1;
-                Look::at(if looks < 5 { &late } else { &there })
+                Look::at(if looks < 5 { &late } else { &there }, table())
             },
         );
         assert_eq!(
@@ -592,7 +615,7 @@ mod tests {
             || false,
             || {
                 looks += 1;
-                Look::at(if looks < 3 { &loading } else { &pi })
+                Look::at(if looks < 3 { &loading } else { &pi }, table())
             },
         );
         assert_eq!(
