@@ -176,7 +176,15 @@ pub struct Stats {
     /// The most recent delay from an input change to the first frame that
     /// shows it, in nanoseconds.
     pub input_to_frame_ns: u64,
+    /// Fields in which no new frame reached the display while the core
+    /// ran: a flip one field late counts 1. Added in protocol version
+    /// [`FIELDS_MISSED_VERSION`]; `None` in a reply to an older request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fields_missed: Option<u64>,
 }
+
+/// The protocol version that added [`Stats::fields_missed`].
+pub const FIELDS_MISSED_VERSION: u32 = 2;
 
 /// The data of [`Reply::SettingsGet`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -206,6 +214,20 @@ pub struct LogLines {
 }
 
 impl Reply {
+    /// The reply as a request of protocol `version` sees it: with no field
+    /// that a later version added, so that an older client reads only names
+    /// it knows.
+    #[must_use]
+    pub fn for_version(self, version: u32) -> Self {
+        match self {
+            Self::Stats(stats) if version < FIELDS_MISSED_VERSION => Self::Stats(Stats {
+                fields_missed: None,
+                ..stats
+            }),
+            other => other,
+        }
+    }
+
     /// The wire name of the reply: the name of the command it answers.
     pub fn name(&self) -> &'static str {
         match self {

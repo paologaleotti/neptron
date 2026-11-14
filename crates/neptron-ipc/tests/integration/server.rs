@@ -44,7 +44,7 @@ fn hello_names_the_protocol_and_the_server() {
     let Reply::Hello(hello) = reply else {
         panic!("{reply:?}")
     };
-    assert_eq!(hello.protocol, 1);
+    assert_eq!(hello.protocol, 2);
     assert_eq!(hello.server, "empty");
 }
 
@@ -215,13 +215,13 @@ fn a_write_failure_ends_the_connection_with_an_error() {
 #[test]
 fn a_hello_of_a_newer_client_learns_the_versions_the_server_speaks() {
     let responses = serve(
-        br#"{"v":2,"id":1,"cmd":"hello"}"#,
+        br#"{"v":3,"id":1,"cmd":"hello"}"#,
         &mut FixedHandler::default(),
     );
-    assert_eq!(responses[0].version, 1);
+    assert_eq!(responses[0].version, 2);
     let error = responses[0].outcome.as_ref().unwrap_err();
     assert_eq!(error.code, ErrorCode::UnsupportedVersion);
-    assert_eq!((error.min_version, error.max_version), (Some(1), Some(1)));
+    assert_eq!((error.min_version, error.max_version), (Some(1), Some(2)));
 }
 
 #[test]
@@ -231,4 +231,48 @@ fn a_response_echoes_the_version_of_its_request() {
         &mut FixedHandler::default(),
     );
     assert!(responses.iter().all(|r| r.version == 1));
+}
+
+fn stats_at(version: u32) -> Response {
+    let line = encode_request(&Request {
+        version,
+        id: 9,
+        command: Command::Stats,
+    })
+    .unwrap();
+    let mut input = line;
+    input.push(b'\n');
+    serve(&input, &mut FixedHandler::default()).remove(0)
+}
+
+/// `fields_missed` came with version 2: a request of version 1 gets the
+/// stats reply with no such key, as that version defines it.
+#[test]
+fn a_field_of_a_later_version_is_not_sent_to_an_older_request() {
+    let v1 = stats_at(1);
+    assert_eq!(v1.version, 1);
+    let Ok(Reply::Stats(stats)) = v1.outcome else {
+        panic!("{v1:?}");
+    };
+    assert_eq!(stats.fields_missed, None);
+    let v2 = stats_at(2);
+    let Ok(Reply::Stats(stats)) = v2.outcome else {
+        panic!("{v2:?}");
+    };
+    assert_eq!(stats.fields_missed, Some(3));
+}
+
+/// A stats reply of a version 1 server, with no `fields_missed` key, still
+/// reads.
+#[test]
+fn an_older_stats_reply_reads() {
+    let line = concat!(
+        r#"{"v":1,"id":2,"reply":"stats","data":{"frames_presented":1,"frames_dropped":0,"#,
+        r#""frames_repeated":0,"audio_underruns":0,"audio_queued_frames":0,"input_to_frame_ns":0}}"#
+    );
+    let response = decode_response(line.as_bytes()).unwrap();
+    let Ok(Reply::Stats(stats)) = response.outcome else {
+        panic!("{response:?}");
+    };
+    assert_eq!(stats.fields_missed, None);
 }

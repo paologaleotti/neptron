@@ -17,7 +17,7 @@ use crate::reply::Reply;
 /// [`MIN_PROTOCOL_VERSION`] up to its own. A response echoes the version of
 /// its request, and holds only names that exist in that version, so that an
 /// older client can read every response it gets.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// The oldest protocol version this crate serves.
 pub const MIN_PROTOCOL_VERSION: u32 = 1;

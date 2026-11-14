@@ -41,7 +41,7 @@ One JSON object per line, in UTF-8, ended by `\n`. A `\r` before the `\n` is rem
 | `session_launch` | `core`, `rom` | `state`, `core`, `rom`, `frame` |
 | `session_state` | none | `state`, `core`, `rom`, `frame` |
 | `video_state` | none | `mode`, `line_rate_mhz`, `field_rate_mhz`, `profile`, `verdicts`, `switch_count` |
-| `stats` | none | `frames_presented`, `frames_dropped`, `frames_repeated`, `audio_underruns`, `audio_queued_frames`, `input_to_frame_ns` |
+| `stats` | none | `frames_presented`, `frames_dropped`, `frames_repeated`, `audio_underruns`, `audio_queued_frames`, `input_to_frame_ns`; from version 2 also `fields_missed` |
 | `settings_get` | `key`, optional `level` | `key`, `value`, `source` |
 | `settings_set` | `key`, `level`, `value` | `key`, `level` |
 | `log_tail` | `lines` | `lines` |
@@ -78,6 +78,13 @@ The protocol is append-only. A new version adds commands, reply fields, enum val
 3. A field that a later version adds to `args` or to a reply is optional: an `Option` or a field with `#[serde(default)]`. An older request and an older reply stay valid.
 4. A client ignores reply keys it does not know. An error code it does not know reads as `ErrorCode::Unknown`, so a failure stays a failure.
 5. A reply enum value that a client does not know is a codec error. Rule 2 makes this impossible for a correct server, so the client does not try to recover from it.
+
+The versions so far:
+
+| Version | Adds |
+| --- | --- |
+| 1 | Everything above except what a later version adds |
+| 2 | `fields_missed` in the `stats` reply: the fields in which no new frame reached the display while the core ran (`FIELDS_MISSED_VERSION`). `Reply::for_version` removes it from a reply to a version 1 request, and `handle_line` applies it to every reply |
 
 Version discovery: a client sends `hello` at its own version. A server that speaks it answers with `protocol`, its newest version. A server that does not answers `unsupported_version` with `min_version` and `max_version`, and the client then picks a version in that range.
 

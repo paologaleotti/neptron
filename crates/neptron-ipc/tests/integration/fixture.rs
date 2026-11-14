@@ -103,6 +103,7 @@ impl Handler for FixedHandler {
             audio_underruns: 0,
             audio_queued_frames: 0,
             input_to_frame_ns: 0,
+            fields_missed: Some(3),
         })
     }
 

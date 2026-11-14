@@ -37,6 +37,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             audio_underruns: 0,
             audio_queued_frames: 0,
             input_to_frame_ns: 0,
+            fields_missed: None,
         };
         if let Stage::Game(game) = &self.stage {
             let counters = game.session.counters();

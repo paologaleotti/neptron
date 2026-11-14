@@ -113,7 +113,7 @@ fn hello_names_the_server() {
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(
         json(&out.stdout),
-        serde_json::json!({"protocol": 1, "server": "cli fixture"})
+        serde_json::json!({"protocol": 2, "server": "cli fixture"})
     );
 }
 

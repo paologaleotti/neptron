@@ -122,7 +122,7 @@ fn a_malformed_line_on_the_socket_gets_an_error_line() {
     let mut line = String::new();
     BufReader::new(&stream).read_line(&mut line).unwrap();
     assert!(
-        line.starts_with(r#"{"v":1,"id":null,"error":{"code":"malformed""#),
+        line.starts_with(r#"{"v":2,"id":null,"error":{"code":"malformed""#),
         "{line}"
     );
     drop(stream);

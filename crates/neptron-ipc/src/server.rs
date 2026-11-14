@@ -141,7 +141,7 @@ pub fn handle_line<H: Handler + ?Sized>(handler: &mut H, line: &[u8]) -> Respons
         Ok(request) => Response {
             version: request.version,
             id: Some(request.id),
-            outcome: dispatch(handler, request.command),
+            outcome: dispatch(handler, request.command).map(|r| r.for_version(request.version)),
         },
         Err(refusal) => Response {
             version: refusal.version,
