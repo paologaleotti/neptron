@@ -1,6 +1,8 @@
 use std::fmt::Write as _;
 
-use neptron_modeline::policy::{Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung};
+use neptron_modeline::policy::{
+    Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, TV_SPEED_SILENT_PPM,
+};
 use neptron_types::{Filter, Modeline, SourceGeometry};
 
 use crate::Current;
@@ -31,7 +33,7 @@ pub struct VideoStatusText {
     /// nearest with uneven pixels at a scale from 1 to 2): the panel's way
     /// to keep the game's aspect, never blurry and never an alert. `filtered` is a CRT word only.
     /// A panel shows `speed` only when the rates differ by more than
-    /// [`PANEL_SPEED_SILENT_PPM`].
+    /// [`PANEL_SPEED_SILENT_PPM`], a TV only beyond [`TV_SPEED_SILENT_PPM`].
     pub result: String,
     /// The player must notice the result: `filtered` or `speed`. A flat
     /// panel never gives `filtered`, and gives `speed` only beyond
@@ -141,10 +143,9 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
     let game_mhz = u64::from(timing.game_mhz);
     let shown_mhz = inputs.mode.field_rate_mhz() / repeat;
     let off_mhz = shown_mhz.abs_diff(game_mhz);
-    let speed_changed = if panel {
-        u128::from(off_mhz) * 1_000_000 > u128::from(shown_mhz) * u128::from(PANEL_SPEED_SILENT_PPM)
-    } else {
-        off_mhz >= REFRESH_MATCH_MHZ
+    let speed_changed = match silent_ppm(timing.target.kind) {
+        Some(ppm) => u128::from(off_mhz) * 1_000_000 > u128::from(shown_mhz) * u128::from(ppm),
+        None => off_mhz >= REFRESH_MATCH_MHZ,
     };
     let exact = !fitted && !sharp && cropped == 0 && small.is_none() && !speed_changed;
     let alert = fitted || speed_changed;
@@ -180,6 +181,24 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
         });
     }
     alert
+}
+
+/// The largest speed change that shows no `speed` word on an output whose
+/// rate the user cannot choose, in parts per million of the shown rate:
+/// a flat panel and a TV. `None` for a CRT, where the policy matches the
+/// game's rate and any difference is worth the word.
+fn silent_ppm(kind: RefreshKind) -> Option<u32> {
+    match kind {
+        RefreshKind::Panel => Some(PANEL_SPEED_SILENT_PPM),
+        RefreshKind::Tv => Some(TV_SPEED_SILENT_PPM),
+        RefreshKind::Exact
+        | RefreshKind::Double
+        | RefreshKind::NativeDouble
+        | RefreshKind::Forced50
+        | RefreshKind::Forced60
+        | RefreshKind::Nearest
+        | RefreshKind::Unmatched => None,
+    }
 }
 
 /// Appends one result word, after `, ` when a word is there already. The
@@ -253,7 +272,7 @@ mod tests {
     };
     use neptron_safety::validate;
     use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
-    use neptron_types::Rotation;
+    use neptron_types::{Rotation, TvStandard};
 
     use super::*;
 
@@ -449,6 +468,86 @@ mod tests {
         assert_eq!(result(&p, Rung::Panel, &at_60).0, "exact", "at the bound");
         p.timing.game_mhz = u32::try_from(shown - bound - 2).unwrap();
         assert!(result(&p, Rung::Panel, &at_60).0.starts_with("[!] speed ("));
+    }
+
+    /// The winner of `source` on a TV of `standard`, with its mode as the
+    /// read back.
+    fn tv_winner(source: &SourceGeometry, standard: TvStandard) -> (Proposal, Rung) {
+        let profile = standard.profile();
+        let plan = decide(
+            source,
+            &PolicySettings::default(),
+            &profile,
+            &CAPS_LOW_CLOCK,
+        )
+        .unwrap();
+        let choice = choose(&plan, |m| validate(m, &profile, &CAPS_LOW_CLOCK));
+        let w = choice.winner.unwrap();
+        (*w.proposal, w.considered.rung)
+    }
+
+    fn tv_result(source: &SourceGeometry, standard: TvStandard) -> (String, bool) {
+        let (p, rung) = tv_winner(source, standard);
+        let inputs = StatusInputs {
+            source,
+            mode: &p.mode,
+            rung,
+            proposal: &p,
+        };
+        let mut out = VideoStatusText::default();
+        write_video_status(Some(&inputs), &mut out).unwrap();
+        (out.result, out.alert)
+    }
+
+    #[test]
+    fn a_tv_shows_a_speed_change_only_beyond_the_audio_rate_control() {
+        let (p, rung) = tv_winner(&SNES, TvStandard::Ntsc);
+        assert_eq!(p.timing.target.kind, RefreshKind::Tv);
+        assert_eq!(p.mode.field_rate_mhz(), 60_054);
+        assert_eq!(
+            tv_result(&SNES, TvStandard::Ntsc),
+            ("exact".to_owned(), false),
+            "60.099 Hz on 60.054 Hz is 749 ppm"
+        );
+        let pal_game = SourceGeometry {
+            refresh_mhz: 50_007,
+            ..SNES
+        };
+        assert_eq!(
+            tv_result(&pal_game, TvStandard::Pal),
+            ("exact".to_owned(), false),
+            "50.007 Hz on 50.080 Hz is 1458 ppm"
+        );
+        let (text, alert) = tv_result(&pal_game, TvStandard::Ntsc);
+        assert_eq!(text, "[!] speed (50.007 to 60.054 Hz)");
+        assert!(alert);
+
+        let shown = p.mode.field_rate_mhz();
+        let bound = shown * u64::from(TV_SPEED_SILENT_PPM) / 1_000_000;
+        let mut at = p;
+        at.timing.game_mhz = u32::try_from(shown - bound).unwrap();
+        assert_eq!(result(&at, rung, &p.mode).0, "exact", "at the bound");
+        at.timing.game_mhz = u32::try_from(shown - bound - 2).unwrap();
+        assert!(result(&at, rung, &p.mode).0.starts_with("[!] speed ("));
+        at.timing.target.kind = RefreshKind::Exact;
+        at.timing.game_mhz = u32::try_from(shown - REFRESH_MATCH_MHZ).unwrap();
+        assert!(
+            result(&at, rung, &p.mode).0.starts_with("[!] speed ("),
+            "a CRT keeps the match bound"
+        );
+    }
+
+    #[test]
+    fn a_tv_picture_that_is_cropped_keeps_its_word_with_no_speed_word() {
+        let board = SourceGeometry {
+            width: 384,
+            height: 256,
+            refresh_mhz: 59_900,
+            ..SNES
+        };
+        let (text, alert) = tv_result(&board, TvStandard::Ntsc);
+        assert_eq!(text, "cropped 16 lines");
+        assert!(!alert);
     }
 
     #[test]

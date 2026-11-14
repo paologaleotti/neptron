@@ -44,5 +44,6 @@ pub use trace::{
 /// depend on `neptron-modeline`.
 pub use neptron_modeline::policy::{
     Dropped, HorizontalStrategy, Notice, PictureStyle, Placement, PolicyError, PolicySettings,
-    Proposal, RefreshKind, RefreshPolicy, RefreshTarget, Refused, Rung, StyleRow, Timing,
+    Proposal, RefreshKind, RefreshPolicy, RefreshTarget, Refused, Rung, StyleRow,
+    TV_SPEED_SILENT_PPM, Timing, TvWidth,
 };

@@ -8,7 +8,7 @@ use neptron_input::Hotkey;
 use neptron_types::{Frame, PixelFormat};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
-use neptron_video::RefreshKind;
+use neptron_video::{Notice, RefreshKind};
 
 use super::guard_events::any_press;
 use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS};
@@ -202,13 +202,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             return;
         };
         self.picture_noticed = true;
-        // A flat panel scales with the sharp filter by design: that is not
-        // a notice, as the video status shows no alert for it.
-        let panel = current.chosen.proposal.timing.target.kind == RefreshKind::Panel;
-        let worth = current.chosen.notice.as_ref().is_some_and(|n| {
-            (n.fitted && !panel) || n.cropped_lines > 0 || n.padded_fill_permille.is_some()
-        });
-        if !worth {
+        let kind = current.chosen.proposal.timing.target.kind;
+        if !worth_a_notice(kind, current.chosen.notice.as_ref()) {
             return;
         }
         let mut status = neptron_video::VideoStatusText::default();
@@ -217,6 +212,19 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             self.notice(NoticeKind::Warning, text);
         }
     }
+}
+
+/// Whether the first picture of a game is worth a notice: fitted, cropped
+/// or small. A flat panel scales with the sharp filter by design, so its
+/// fit is no notice, as its video status shows no alert. A TV keeps the
+/// CRT rule: its fit scales the lines. The notice carries the words of the
+/// video status, so a speed change inside the bound of the panel or the
+/// TV adds no word to it.
+fn worth_a_notice(kind: RefreshKind, notice: Option<&Notice>) -> bool {
+    let panel = kind == RefreshKind::Panel;
+    notice.is_some_and(|n| {
+        (n.fitted && !panel) || n.cropped_lines > 0 || n.padded_fill_permille.is_some()
+    })
 }
 
 /// The notice after a scan: what changed, after a scan the player asked
@@ -249,5 +257,48 @@ fn canvas_frame(canvas: &CpuCanvas) -> Frame<'_> {
         height: UI_HEIGHT as u16,
         pitch: canvas.pitch(),
         format: PixelFormat::Xrgb8888,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notice(fitted: bool, cropped_lines: u16) -> Notice {
+        Notice {
+            fitted,
+            game_mhz: 60_099,
+            shown_mhz: 60_054,
+            strategy_replaced: None,
+            double_refresh: false,
+            style_fallback: fitted,
+            cropped_lines,
+            padded_fill_permille: None,
+        }
+    }
+
+    #[test]
+    fn a_fit_is_worth_a_notice_on_a_crt_and_a_tv_but_not_on_a_panel() {
+        let fitted = notice(true, 0);
+        assert!(worth_a_notice(RefreshKind::Exact, Some(&fitted)));
+        assert!(worth_a_notice(RefreshKind::Tv, Some(&fitted)));
+        assert!(!worth_a_notice(RefreshKind::Panel, Some(&fitted)));
+        for kind in [RefreshKind::Tv, RefreshKind::Panel, RefreshKind::Exact] {
+            assert!(worth_a_notice(kind, Some(&notice(false, 16))), "{kind:?}");
+            assert!(!worth_a_notice(kind, Some(&notice(false, 0))), "{kind:?}");
+            assert!(!worth_a_notice(kind, None), "{kind:?}");
+        }
+    }
+
+    /// A TV shows no `speed` word for a change the audio rate control
+    /// absorbs: the status of the video crate and the audio crate must use
+    /// one bound. The app depends on both, and neither may depend on the
+    /// other.
+    #[test]
+    fn the_tv_speed_bound_is_the_audio_rate_control_bound() {
+        assert_eq!(
+            neptron_video::TV_SPEED_SILENT_PPM,
+            neptron_audio::MAX_RATE_DEVIATION_PPM
+        );
     }
 }
