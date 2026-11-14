@@ -356,11 +356,12 @@ On the same Mac, on 2026-11-13, the aarch64 image with the network share (an inc
 - A guest script (`cargo xtask qemu --arch aarch64 --script`): `ksmbd.mountd` runs and port 445 listens; `/etc/network/interfaces` holds the loopback only; `/etc/passwd` has `neptron:x:1000:1000:NEPTRON network share account:/:/bin/false` and `/etc/shadow` has `neptron:*:::::::`; `/share` (a RAM folder) is owned by uid 65534 with `nosuid,nodev,noexec`; `ksmbd.control --shutdown` stops the server; `ksmbd.mountd -n -v` with the image's files logs `New user 'neptron'`, `New user 'nobody'`, `New share 'share'` and no "Invalid pwddb entry", so the user database parses.
 - Not proved: a login over the network, as guest or as `neptron`. The image has no SMB client, and the QEMU runs have no network card for port 445. See `docs/hardware-checklist.md`.
 
+In CI, on every push of `main` (first green run 2026-11-14): `kms-check`, `gles-compare`, `os selftest-check`, `core-trace` and `os share-check` run on the x86\_64 image under KVM, and the image without the 15 kHz patches builds in a clean output. Every image has an empty `/mnt/host`, made by the common post-build step, because the root of the PC and Pi images is read-only.
+
 Not verified:
 
 - On the i3-6100T: the open checks of `docs/hardware-checklist.md` (the DP-to-VGA bridge, the boot time and the rest). The development image ran there on 2026-11-13: a game played, with audio and the SMB share.
-- The x86\_64 checks under KVM. `kms-check`, `gles-compare` and `core-trace` on the x86\_64 image (they need KVM to be quick; the PC image has the same hooks).
-- The image without the 15 kHz patches has no recorded build.
+- The aarch64 timing checks in CI (`kms-check`, `selftest-check`, `core-trace`): the arm64 runners have no KVM (OP-104).
 - The images come from an output that was built up step by step (the defconfig changed several times). Buildroot does not rebuild a package when its options change; `mesa3d` and `util-linux` needed a `-dirclean` by hand. No release image of the PC has a recorded build in an empty output; it takes about 5 hours (`cargo xtask os build --arch x86_64 --output x86_64-clean`). One such clean build is needed before an image goes to the bench.
 
 Build time, PC image, 4 jobs: the first full build with LLVM, clang and the 15 kHz kernel took 17,419 s (4 h 50 min; host LLVM and clang take most of it). A rebuild of the frontend and the launcher from clean (fat LTO), with the image, takes about 5 min (309 s); the aarch64 build that added the frontend, the launcher, `neptronctl` and `neptron-capture` took 301 s. The kernel `bzImage` is 14.2 MiB. `rootfs.erofs` is 158 MiB; the target directory is 330 MiB, of which LLVM is 74 MiB and the unused clang libraries 104 MiB (see the open points). The USB image file is 739,246,080 bytes (705 MiB); most of it is the free space of the fixed partitions, so it compresses well.

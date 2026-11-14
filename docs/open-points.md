@@ -39,7 +39,6 @@ The state column is one line. The full entry below is the reference.
 | OP-002 | `cargo-deny` licences and advisories | No advisory check in T0 |
 | OP-003 | macOS CI job and the machine-load limits | The limits apply in CI |
 | OP-004 | Tier time budgets | Reported, not enforced |
-| OP-005 | The CI workflow on `main` | No recorded run |
 | OP-006 | Char literal inside an attribute fools the forbid check | Accepted |
 | OP-008 | The four `vesa_*` presets | Not converted |
 | OP-009 | No hotplug event, no device other than a RetroPad | Absent |
@@ -102,6 +101,7 @@ The state column is one line. The full entry below is the reference.
 | OP-101 | An old share at another place | No share, data safe |
 | OP-102 | First composite picture: open points | Menu width, HDMI PCM label |
 | OP-103 | Frame budget on the Pi 3 | Dialog rate fixed; standard change underruns |
+| OP-104 | CI limits | aarch64 timing checks not in CI; two paths not proven |
 
 ### Decided
 
@@ -120,6 +120,7 @@ The state column is one line. The full entry below is the reference.
 | Id | Title | Closed by |
 | --- | --- | --- |
 | OP-011 | UI placement on a super-width mode | C01 (ADR 0005) |
+| OP-005 | The CI workflow on `main` | First green run 2026-11-14 |
 | OP-012 | What the GLES renderer must do to match | T19 |
 | OP-013 | EDID pixel clock limit | T22 (`Monitor::caps_for`) |
 | OP-024 | Control commands in a release image | T28 (no `control` feature) |
@@ -190,10 +191,10 @@ The state column is one line. The full entry below is the reference.
 ### OP-005: The CI workflow was never run.
 
 - Raised by: T01
-- Status: open
-- Default: the workflow is checked by inspection only. A push of `main` runs it. No document or commit records the result of a run (UNVERIFIED).
-- Where: `.github/workflows/ci.yml`
-- How to change: repair the workflow after the first run.
+- Status: closed by the CI task: the workflow runs on every push of `main`. The first green run on `main` is run 43637921848 of 2026-11-14 (commit `4b9f3c9`, 16 min 16 s, warm): lint, tier 2 on Linux and macOS, and the x86_64, aarch64 and Raspberry Pi image jobs with their checks. OP-104 holds what CI does not cover.
+- Default: `docs/ci.md` describes the jobs, the caches and the measured times.
+- Where: `.github/workflows/ci.yml`, `.github/workflows/images.yml`, `.github/image-targets.json`, `docs/ci.md`
+- How to change: see `docs/ci.md`.
 - Decision:
 
 ### OP-006: The forbid check can be fooled by a char literal inside an attribute.
@@ -1116,3 +1117,12 @@ The state column is one line. The full entry below is the reference.
 - Where: `crates/neptron-session` (frame loop), `crates/neptron-ui` and `apps/neptron` (the dialog path), `crates/neptron-audio` (mute cover), `crates/neptron-gfx/src/gles`, `os/board/rpi/system.config`
 - How to change: for 1, add a UI generation number to `Scene` so the renderer skips the row comparison (an ADR). For 2, a longer muted cover, which adds delay after a short modeset. For 3, measure with the release image. For 4, pass the maximum geometry through the contract (an ADR). For 5, the hardware check in the checklist.
 - Decision:
+
+### OP-104: What the CI does not cover.
+
+- Raised by: the CI task (2026-11-14)
+- Status: open
+- Default: the runners for arm64 have no KVM, so the aarch64 guest runs under emulation, and the checks that measure time cannot pass there. `kms-check`, `selftest-check` and `core-trace` run in CI on x86_64 under KVM only. For aarch64 they run on a developer machine with a hypervisor. The Raspberry Pi image is built and its layout is checked, but no guest boots it. Two paths of the workflow are not proven: the resume of a build from a partial base, and the downloads cache, which only a run on `main` saves. The check `ci-ok` is not yet a required check on `main`; the owner sets it. The storage cost of the base artifacts (about 5 to 9 GB each) on a public repository is not confirmed.
+- Where: `.github/image-targets.json`, `.github/workflows/images.yml`, `docs/ci.md`
+- How to change: add a self-hosted arm64 runner with KVM and add `kms`, `selftest` and `core` to the aarch64 entry of `.github/image-targets.json`. Force a partial base once and read the run. Read the billing page after some days.
+- Decision: the owner: the three timing checks run on x86_64 only (2026-11-14).
