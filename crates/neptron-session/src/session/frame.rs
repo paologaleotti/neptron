@@ -27,8 +27,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     ///    its flip: once, or twice for double refresh. The audio is muted
     ///    while the engine asks for it, while the menu is open and while the
     ///    inputs refuse the mode on screen.
-    /// 4. Ends the core frame of the audio pipeline, at the run rate of the
-    ///    mode on screen.
+    /// 4. Ends the core frame of the audio pipeline between the first
+    ///    present and the first wait for a flip, so the resampler runs while
+    ///    the GPU draws. The run rate is the one of the mode on screen.
     /// 5. Sends the save RAM to the writer thread when the timer is due.
     ///
     /// No allocation and no file I/O in a steady frame.
@@ -78,19 +79,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         self.counters.loop_frames += 1;
 
         report.directive = self.engine.begin_frame(self.source);
-        // The audio of the frame goes out before the flip wait, so the queue
-        // is read at the same point of every frame. A modeset frame writes
-        // silence, which covers the wait for the first flip of the new mode.
+        // The mute comes before the present, so its silence covers a
+        // modeset in the present and the wait for the first flip of the new
+        // mode.
         let mute = self.must_mute();
-        if let Some(audio) = &mut self.audio {
-            if mute {
-                audio.mute();
-            }
-            if report.ran_core {
-                audio.end_frame();
-            } else {
-                audio.idle_frame();
-            }
+        if let Some(audio) = self.audio.as_mut().filter(|_| mute) {
+            audio.mute();
         }
         self.show(ui, &mut report);
         report.blanked = self.engine.blanked();
@@ -191,9 +185,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     }
 
     /// Presents the picture and waits for the flip, once per flip of a core
-    /// frame. A display error ends the frame: the engine keeps a timed-out
-    /// flip queued and drains it at the next present.
+    /// frame, and ends the audio of the frame after the first present. A
+    /// display error ends the frame: the engine keeps a timed-out flip
+    /// queued and drains it at the next present.
     fn show(&mut self, ui: Option<Frame<'_>>, report: &mut FrameReport) {
+        let mut audio_due = true;
         loop {
             // The inputs refuse the mode on screen: no game picture is shown
             // on it as if it were confirmed.
@@ -202,7 +198,16 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             } else {
                 self.picture.frame()
             };
-            match self.engine.present(game, ui) {
+            let presented = self.engine.present(game, ui);
+            // The present only queues the GPU's work. The audio runs while
+            // the GPU draws, off the path from the flip event to the GPU
+            // submit, and still at the same point of every frame. It runs
+            // after a failed present too, so no frame loses its audio.
+            if audio_due {
+                self.end_audio_frame(report.ran_core);
+                audio_due = false;
+            }
+            match presented {
                 Ok(presented) => {
                     if let Some(flip) = presented.drained_flip {
                         self.meter.push(flip.time_ns);
@@ -230,6 +235,18 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             }
             if report.flips >= self.flips_per_frame() {
                 return;
+            }
+        }
+    }
+
+    /// Ends the audio of the frame: the core's audio when the core ran,
+    /// else an idle frame.
+    fn end_audio_frame(&mut self, ran_core: bool) {
+        if let Some(audio) = &mut self.audio {
+            if ran_core {
+                audio.end_frame();
+            } else {
+                audio.idle_frame();
             }
         }
     }

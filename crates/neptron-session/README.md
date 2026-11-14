@@ -25,15 +25,16 @@ poll input once -> ports -> hotkeys      (Select+Start or the Start hold opens t
 set_pad for each port, run_frame          (not while the quick menu is open)
 engine.begin_frame(source)
 mute the audio if the engine, the menu or a refused mode asks for it
-end_frame of the audio                    (only when the core ran)
-present + wait_flip, once or twice        (twice for double refresh)
+present                                   (the GPU starts to draw)
+end_frame of the audio                    (only when the core ran; else idle_frame)
+wait_flip, then present + wait_flip again for double refresh
 unmute after the flip in the new mode
 run rate = read-back field rate (or measured flip rate) / flips per core frame
 save RAM to the writer when the timer is due
 ```
 
 - The display is the master clock. The core runs one frame per flip, or per two flips for double refresh, where the same frame is presented twice.
-- The audio of a frame goes out before the flip wait, so the queue is read at the same point of every frame. A modeset frame writes silence, which covers the wait for the first flip of the new mode.
+- The audio of a frame goes out after the first present and before the first flip wait. The present only queues the GPU's work, so the resampler (1.3 to 1.4 ms on the Raspberry Pi 3) runs while the GPU draws, off the path from the flip event to the GPU submit. The queue is still read at the same point of every frame. The audio runs after a failed present too. The mute comes before the present, so a modeset frame writes silence before its modeset, which covers the modeset and the wait for the first flip of the new mode.
 - While the quick menu is open, the session presents the last frame under the UI and does not run the core. The audio is muted and `end_frame` is not called (the pipeline primes again on resume, OP-042).
 - The run rate for audio rate control is the field rate of the mode read back over the flips per core frame (`RunRateSource::ReadBack`, KMS), or the flip rate from `FlipRateMeter` (`RunRateSource::Measured`, the desktop window).
 - While `current_refused()` of the engine is on, the session mutes the audio and presents no game picture.

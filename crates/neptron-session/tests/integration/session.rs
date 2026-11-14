@@ -707,3 +707,40 @@ fn a_timing_change_keeps_the_rest_of_the_tone() {
         }
     );
 }
+
+/// The audio of a frame goes out after its present and before the wait for
+/// its flip, so the resampler runs while the GPU draws. A modeset in the
+/// present takes time, which shows the order: the audio of the modeset
+/// frame goes out after it.
+#[test]
+fn the_audio_of_a_frame_goes_out_between_its_present_and_its_flip() {
+    with_script!(
+        "the_audio_of_a_frame_goes_out_between_its_present_and_its_flip",
+        SCRIPT,
+        |dir| {
+            let setup = Setup {
+                display: DisplayOptions {
+                    modeset_ns: 40_000_000,
+                    ..DisplayOptions::default()
+                },
+                ..Setup::default()
+            };
+            let mut rig = Rig::launch(dir, setup);
+            rig.run(30);
+            let writes = rig.audio.writes();
+            let frames = rig.display.frames();
+            assert_eq!(rig.display.mode_calls().len(), 1);
+            for frame in &frames {
+                let flip_ns = frame.flip.expect("every frame flips").time_ns;
+                let between = writes
+                    .iter()
+                    .filter(|w| w.time_ns >= frame.present_ns && w.time_ns < flip_ns);
+                assert!(between.count() >= 1, "present {}", frame.index);
+            }
+            assert!(
+                writes.iter().any(|w| w.time_ns == frames[0].present_ns),
+                "the first frame writes after its modeset"
+            );
+        }
+    );
+}
