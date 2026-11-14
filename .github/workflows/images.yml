@@ -232,8 +232,13 @@ jobs:
       # toolchain, LLVM, Mesa, the kernel and every other package, with the
       # object files removed. It is a workflow artifact, because it is larger
       # than the Actions cache of the repository can hold beside the Cargo
-      # caches. Only artifacts of this repository, from main or from this
-      # branch, are trusted: a fork can upload an artifact with any name.
+      # caches. Only artifacts of this repository are trusted: a fork can
+      # upload an artifact with any name, but only a writer can push a branch
+      # here. A base with the exact key of this run is taken from any branch
+      # of the repository: the key hashes every input of the base, so the
+      # first run of main after a merge finds the base that the branch built.
+      # An older base, built from other inputs, comes from main or from this
+      # branch only.
       - name: Find the base
         id: base
         env:
@@ -244,28 +249,29 @@ jobs:
           BRANCH: ${{ github.head_ref || github.ref_name }}
           EVENT: ${{ github.event_name }}
         run: |
+          # newest QUERY PREFIX BRANCHES: BRANCHES is "any" or "own".
           newest() {
             gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100$1" --jq "
               .artifacts[]
               | select(.expired | not)
               | select(.workflow_run.head_repository_id == $REPO_ID)
-              | select(.workflow_run.head_branch == \"main\" or .workflow_run.head_branch == \"$BRANCH\")
+              | select(\"$3\" == \"any\" or .workflow_run.head_branch == \"main\" or .workflow_run.head_branch == \"$BRANCH\")
               | select(.name | startswith(\"$2\"))
               | \"\(.created_at) \(.workflow_run.id) \(.name)\"" | sort -r | head -n 1
           }
           state=cold
-          found=$(newest "&name=$BASE" "$BASE")
+          found=$(newest "&name=$BASE" "$BASE" any)
           if [ -n "$found" ]; then
             state=complete
           else
-            found=$(newest "&name=$PARTIAL" "$PARTIAL")
+            found=$(newest "&name=$PARTIAL" "$PARTIAL" any)
             if [ -n "$found" ]; then
               state=partial
             else
               # An older base: on a pull request it is built on further,
               # which is quick but not clean. Elsewhere only its compiler
               # cache is used, and the build is cold.
-              found=$(newest "" "$PREFIX")
+              found=$(newest "" "$PREFIX" own)
               if [ -n "$found" ]; then
                 if [ "$EVENT" = pull_request ]; then state=older; else state=ccache; fi
               fi
