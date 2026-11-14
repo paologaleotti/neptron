@@ -353,11 +353,16 @@ format_refusal() {
 			return
 		fi
 	done
-	# The checks of a format request too, so the marker never formats with
-	# fewer checks than the user's request.
-	why=$(user_format_refusal "$1")
-	if [ -n "$why" ]; then
-		echo "was left untouched: ${why#cannot be offered a format: }"
+	# A freshly written image owns the free space, and the remains of a
+	# foreign file system there are no user data. The one thing to keep is
+	# an old exFAT share that starts before partition 4 or inside it.
+	if [ "$share_scanned" != "$start" ]; then
+		to=$((start + OLD_SHARE_SCAN_SECTORS))
+		[ "$to" -gt $((start + size)) ] && to=$((start + size))
+		inside=$(exfat_from "$(planned_start)" "$to")
+		if [ -n "$inside" ]; then
+			echo "was left untouched: an exFAT boot sector starts at sector $inside of the disk, before or inside it, so it can hold an old share"
+		fi
 	fi
 }
 
@@ -499,9 +504,15 @@ prepare_share() {
 		format_for_request "$share" && return 0
 		[ "$request_result" = failed ] && return 1
 		# After a write to the table that did not read back as planned,
-		# nothing else is done to partition 4 at this boot: the normal
-		# rules could format it under a refused request.
+		# nothing else is done to partition 4: the marker goes, so the
+		# normal rules never format a partition that a refused type change
+		# left as type 7.
 		if [ "$table_touched" = yes ]; then
+			if [ -e "$MARKER" ]; then
+				rm -f "$MARKER"
+				sync
+				log "/state/share-pending is removed after a refused type change"
+			fi
 			say "the share partition $share was left untouched: $request_reason"
 			return 1
 		fi
@@ -523,11 +534,6 @@ prepare_share() {
 		return 1
 		;;
 	esac
-	# format_refusal and the checks it runs read the table.
-	if ! read_table; then
-		say "the share partition $share was left untouched: the partition table of $disk_dev cannot be read"
-		return 1
-	fi
 	reason=$(format_refusal "$share")
 	if [ -n "$reason" ]; then
 		say "the share partition $share $reason"
@@ -681,8 +687,7 @@ user_format_refusal() {
 	[ "$2" -lt "$from" ] && from=$2
 	to=$(($2 + OLD_SHARE_SCAN_SECTORS))
 	[ "$to" -gt $(($2 + $3)) ] && to=$(($2 + $3))
-	inside=
-	[ "$share_scanned" = "$2" ] || inside=$(exfat_from "$from" "$to")
+	inside=$(exfat_from "$from" "$to")
 	if [ -n "$inside" ]; then
 		echo "cannot be offered a format: an exFAT boot sector starts at sector $inside of the disk, before or inside it, so it can hold an old share"
 	fi

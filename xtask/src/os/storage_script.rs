@@ -128,7 +128,7 @@ const FAKES: &[(&str, &str)] = &[
          fi\n\
          if [ \"${FAKE_ADDPART_ADDS:-yes}\" != yes ]; then exit 0; fi\n\
          add_partition \"$2\" \"$3\" \"$4\"\n\
-         if [ -z \"$FAKE_NODE_AT\" ]; then : > \"$R/dev/sda$2\"; fi",
+         if [ -z \"$FAKE_NODE_AT\" ] && [ ! -e \"$R/dev/sda$2\" ]; then : > \"$R/dev/sda$2\"; fi",
     ),
 ];
 
@@ -2053,25 +2053,78 @@ fn reads_stay_inside(name: &str, start: u64, sectors: u64) {
     assert!(reads > 50, "{name}: the scan and the checks read: {reads}");
 }
 
-/// The marker of the planned partition opens the normal format rules. A
-/// type change that a refused request left must not open them with fewer
-/// checks than the request: they run the same checks.
+/// A freshly written image owns the free space: the remains of a foreign
+/// file system there are no user data. The first boot formats over them;
+/// it protects only an old exFAT share.
 #[test]
-fn the_normal_rules_check_what_a_request_checks() {
-    let ext = marked_partition_4("rules-ext", PLANNED, "7");
-    ext.write_sda4(8_389_632 + 56, &[0x53, 0xef]);
-    let out = ext.start();
-    out.assert_share_ram(
-        "was left untouched: it holds an ext2, ext3 or ext4 superblock at byte 8389632",
-    );
-    assert!(out.marker, "{out:#?}");
+fn the_first_boot_formats_over_foreign_remains() {
+    let sectors = 200 * MIB_SECTORS;
+    // An old ext4 backup superblock (group 3) at 128 MiB, as on a card that
+    // held another system, and the tail of an old NTFS that ran to the end.
+    let mut ext = vec![0_u8; 1024];
+    ext[56..58].copy_from_slice(&[0x53, 0xef]);
+    ext[0x5a..0x5c].copy_from_slice(&3_u16.to_le_bytes());
+    for (name, at, bytes) in [
+        ("first-boot-ext", 134_217_728_u64, ext),
+        (
+            "first-boot-ntfs",
+            sectors * 512 - 512 + 3,
+            b"NTFS    ".to_vec(),
+        ),
+    ] {
+        let run = Run::new(name);
+        std::fs::write(
+            run.path("sys/devices/blk/sda/size"),
+            format!("{}\n", PLANNED + sectors),
+        )
+        .unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(run.path("dev/sda"))
+            .unwrap()
+            .set_len((PLANNED + sectors) * 512)
+            .unwrap();
+        // The node of the partition the boot makes, with the old bytes.
+        run.write_sda4(at, &bytes);
+        let out = run.boot(&[("DISK_SECTORS", &(PLANNED + sectors).to_string())]);
+        out.assert_share_mounted(true);
+    }
+}
 
+/// The normal rules still look for an old exFAT share inside partition 4.
+#[test]
+fn the_normal_rules_scan_for_an_old_share() {
     let inside = marked_partition_4("rules-inside", PLANNED, "7");
     inside.exfat_at(PLANNED + 4096);
     inside.start().assert_share_ram(&format!(
         "was left untouched: an exFAT boot sector starts at sector {} of the disk",
         PLANNED + 4096
     ));
+}
+
+/// A type change that wrote the table and was then refused can leave
+/// type 7 at the planned start: the marker goes, so no later boot formats
+/// by the normal rules.
+#[test]
+fn a_refused_type_change_removes_the_marker() {
+    let run = marked_partition_4("retype-marker", PLANNED, "83").set(
+        "FAKE_RETYPE_ALSO",
+        "s/size=        1024, type=c/size=        2048, type=c/",
+    );
+    run.request_planned("83");
+    let first = run.boot(&[]);
+    first
+        .assert_request_refused("the partition table changed in more than the type of partition 4");
+    assert!(!first.marker, "{first:#?}");
+    assert!(
+        first
+            .log
+            .contains("/state/share-pending is removed after a refused type change"),
+        "{first:#?}"
+    );
+    let second = run.boot(&[]);
+    assert_eq!(second.calls("mkfs.exfat"), 0, "{second:#?}");
+    second.assert_share_ram("has no /state/share-pending");
 }
 
 /// The first boot scans the free space once: the scan before the
