@@ -1,6 +1,6 @@
 # 0012: A TV standard is a monitor kind with a fixed mode table
 
-- Status: proposed
+- Status: accepted. Amended by later tasks: P03 adds the TV planner (`policy/tv.rs`), so `decide` gives a plan for a TV profile, not `EmptyProfile`; P05 sets `TV mode` and the margins in `neptron-kms`; P06 builds the TV profile from `display.tv` on a connector with the `TV mode` property. The sections "What does not change" and "Consequences" describe the state at P02.
 - Date: 2026-11-13
 - Task: P02
 
