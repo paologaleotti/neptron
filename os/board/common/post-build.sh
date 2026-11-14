@@ -20,12 +20,17 @@
 # /etc/mdev.conf. mdev takes the first rule that matches, so every older
 # line of net-hotplug goes before the rule is appended: an output that
 # runs this step again keeps one copy, the current one.
+#
+# S05neptron-mounts mounts the 9p share of the QEMU checks at /mnt/host.
+# The root of the PC and Pi images is read-only EROFS, so the mount point
+# must be in the image.
 
 set -eu
 
 target=$1
 
 rm -f "$target/etc/init.d/S50mdnsd"
+mkdir -p "$target/mnt/host"
 
 interfaces=$target/etc/network/interfaces
 mkdir -p "${interfaces%/*}"
