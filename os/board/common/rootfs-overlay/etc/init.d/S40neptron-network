@@ -11,14 +11,15 @@
 # /etc/resolv.conf: no file of this script may be writable by others.
 umask 022
 
-# NEPTRON_RUN and NEPTRON_SYS_NET change /run/neptron and /sys/class/net
-# for a test.
+# NEPTRON_RUN, NEPTRON_SYS_NET and NEPTRON_PROC change /run/neptron,
+# /sys/class/net and /proc for a test.
 PIDDIR=${NEPTRON_RUN:-/run/neptron}/dhcp
 SYS_NET=${NEPTRON_SYS_NET:-/sys/class/net}
-# mdev runs this script again for a port that appears after the boot
-# (usr/libexec/neptron/net-hotplug), so two starts can overlap. A start
-# waits for the lock at most this many pauses of this length, in
-# microseconds (5 s in all).
+PROC=${NEPTRON_PROC:-/proc}
+# mdev runs this script again for a port that appears or goes after the
+# boot (usr/libexec/neptron/net-hotplug), so two runs can overlap. A run
+# tries to take the lock at most LOCK_TRIES times, with a pause of
+# LOCK_RETRY_US microseconds between two tries (4.9 s in all).
 LOCK=$PIDDIR.lock
 LOCK_TRIES=50
 LOCK_RETRY_US=100000
@@ -30,12 +31,21 @@ wired() {
 	done
 }
 
-# 0 when the client of port $1 runs, from its pid file.
+# 0 when the pid file of port $1 names a running udhcpc for that port. A
+# pid of a client that ended can name another process later, and a client
+# of a port that was unplugged and plugged in again serves the old port:
+# neither counts.
 client_runs() {
 	pid=$(cat "$PIDDIR/$1.pid" 2>/dev/null) || return 1
-	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+	[ -n "$pid" ] || return 1
+	args=$(tr '\000' ' ' < "$PROC/$pid/cmdline" 2>/dev/null) || return 1
+	case " $args " in
+	*" udhcpc "*" -i $1 "*) return 0 ;;
+	*) return 1 ;;
+	esac
 }
 
+# Takes the lock; a run that ends in any way frees it.
 lock() {
 	tries=0
 	until mkdir "$LOCK" 2>/dev/null; do
@@ -43,12 +53,29 @@ lock() {
 		[ "$tries" -lt "$LOCK_TRIES" ] || return 1
 		usleep "$LOCK_RETRY_US"
 	done
+	trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+	trap 'exit 1' INT TERM HUP
+}
+
+unlock() {
+	rmdir "$LOCK"
+	trap - EXIT INT TERM HUP
+}
+
+# Stops the client of port $1, when its pid file names one, and removes
+# the pid file.
+stop_port() {
+	if client_runs "$1"; then
+		kill "$pid" 2>/dev/null
+		echo "neptron-network: the DHCP client of $1 stops"
+	fi
+	rm -f "$PIDDIR/$1.pid"
 }
 
 start() {
 	mkdir -p "$PIDDIR"
 	if ! lock; then
-		echo "neptron-network: another start holds $LOCK; no DHCP client started"
+		echo "neptron-network: another run holds $LOCK; no DHCP client started"
 		return
 	fi
 	for iface in $(wired); do
@@ -66,26 +93,45 @@ start() {
 		echo "$!" > "$PIDDIR/$iface.pid"
 		echo "neptron-network: DHCP on $iface in the background"
 	done
-	rmdir "$LOCK"
+	unlock
+}
+
+# A port that went away: its client serves a port that is gone.
+port_gone() {
+	if ! lock; then
+		echo "neptron-network: another run holds $LOCK; the client of $1 is left"
+		return
+	fi
+	stop_port "$1"
+	unlock
 }
 
 stop() {
 	for file in "$PIDDIR"/*.pid; do
 		[ -r "$file" ] || continue
-		kill "$(cat "$file")" 2>/dev/null
-		rm -f "$file"
+		iface=${file##*/}
+		stop_port "${iface%.pid}"
 	done
 }
 
 case "$1" in
 start) start ;;
 stop) stop ;;
+port-gone)
+	case $2 in
+	eth* | en*) port_gone "$2" ;;
+	*)
+		echo "usage: $0 port-gone eth*|en*"
+		exit 1
+		;;
+	esac
+	;;
 restart)
 	stop
 	start
 	;;
 *)
-	echo "usage: $0 start|stop|restart"
+	echo "usage: $0 start|stop|restart|port-gone PORT"
 	exit 1
 	;;
 esac

@@ -313,6 +313,7 @@ impl TempDir {
             .env("NEPTRON_PROC_NET", self.path("net"))
             .env("NEPTRON_RUN", self.path("run"))
             .env("NEPTRON_SYS_NET", self.path("sys"))
+            .env("NEPTRON_PROC", self.path("proc"))
             .stdin(Stdio::null())
             .stdout(out.try_clone().unwrap())
             .stderr(out)
@@ -654,34 +655,57 @@ fn the_post_build_leaves_only_the_loopback_in_interfaces() {
 const MDEV_CONF: &str = "input/ts[0-9]\t\troot:root 600\n\n# load modules\n\
                          $MODALIAS=.*\troot:root 660 @modprobe \"$MODALIAS\"\n";
 
-/// The rule that common/post-build.sh appends to /etc/mdev.conf.
-const NET_RULE: &str = "SUBSYSTEM=net;(eth|en).*\troot:root 600 @/usr/libexec/neptron/net-hotplug";
+/// The rule that common/post-build.sh appends to /etc/mdev.conf: `*` runs
+/// the script when a port is added and when it is removed.
+const NET_RULE: &str = "SUBSYSTEM=net;(eth|en).*\troot:root 600 */usr/libexec/neptron/net-hotplug";
+
+fn run_post_build(dir: &TempDir) -> std::process::Output {
+    Command::new("sh")
+        .arg(os_dir().join("board/common/post-build.sh"))
+        .arg(dir.path("target"))
+        .output()
+        .unwrap()
+}
 
 /// A wired port that appears after the boot (the USB Ethernet of a Pi, a
 /// USB adapter) gets its DHCP client from mdev. The post-build step
-/// appends the rule once, also when it runs again on the same output, and
+/// appends the rule once, replaces the line of an older build (mdev takes
+/// the first rule that matches), ends the last line of the file first, and
 /// fails when the image has no mdev.conf.
 #[test]
-fn the_post_build_adds_the_mdev_rule_of_late_network_ports_once() {
+fn the_post_build_adds_the_mdev_rule_of_network_ports_once() {
     let dir = TempDir::create("mdev");
     let (ok, err, _) = post_build(&dir, "auto lo\niface lo inet loopback\n", false);
     assert!(ok, "{err}");
     let conf = dir.path("target/etc/mdev.conf");
     let text = std::fs::read_to_string(&conf).unwrap();
     assert_eq!(text, format!("{MDEV_CONF}{NET_RULE}\n"));
-    let again = Command::new("sh")
-        .arg(os_dir().join("board/common/post-build.sh"))
-        .arg(dir.path("target"))
-        .output()
-        .unwrap();
+    let again = run_post_build(&dir);
     assert!(again.status.success(), "{again:?}");
     assert_eq!(std::fs::read_to_string(&conf).unwrap(), text, "one copy");
+
+    let older = "SUBSYSTEM=net;(eth|en).*\troot:root 600 @/usr/libexec/neptron/net-hotplug";
+    std::fs::write(&conf, format!("{MDEV_CONF}{older}\n")).unwrap();
+    let replaced = run_post_build(&dir);
+    assert!(replaced.status.success(), "{replaced:?}");
+    assert_eq!(
+        std::fs::read_to_string(&conf).unwrap(),
+        text,
+        "the older rule goes"
+    );
+
+    let unterminated = MDEV_CONF.trim_end_matches('\n');
+    std::fs::write(&conf, unterminated).unwrap();
+    let ended = run_post_build(&dir);
+    assert!(ended.status.success(), "{ended:?}");
+    assert_eq!(
+        std::fs::read_to_string(&conf).unwrap(),
+        format!("{unterminated}\n{NET_RULE}\n"),
+        "the rule is a line of its own"
+    );
+
     std::fs::remove_file(&conf).unwrap();
-    let missing = Command::new("sh")
-        .arg(os_dir().join("board/common/post-build.sh"))
-        .arg(dir.path("target"))
-        .output()
-        .unwrap();
+    let missing = run_post_build(&dir);
     assert!(!missing.status.success());
     assert!(
         String::from_utf8_lossy(&missing.stderr).contains("no /etc/mdev.conf"),
@@ -697,62 +721,97 @@ fn the_post_build_adds_the_mdev_rule_of_late_network_ports_once() {
 
 const HOTPLUG: &str = "board/common/rootfs-overlay/usr/libexec/neptron/net-hotplug";
 
-/// Runs net-hotplug as mdev does, with `action` and `device`, below the
-/// root `dir`; returns whether it succeeded and the calls of the fake
-/// network script.
-fn hotplug(dir: &TempDir, action: &str, device: &str) -> (bool, String) {
+/// Runs net-hotplug as mdev does (umask 0, `action` and `device` in the
+/// environment) below the root `dir`; returns whether it succeeded, the
+/// calls of the fake network script with its umask, and what went to the
+/// fake logger.
+fn hotplug(dir: &TempDir, action: &str, device: &str) -> (bool, String, String) {
     let calls = dir.path("calls");
-    let _ = std::fs::remove_file(&calls);
+    let logged = dir.path("logged");
+    for file in [&calls, &logged] {
+        // A file that is not there yet is the usual case.
+        let _ = std::fs::remove_file(file);
+    }
     let network = dir.path("etc/init.d/S40neptron-network");
     std::fs::create_dir_all(network.parent().unwrap()).unwrap();
     std::fs::write(
         &network,
-        format!("#!/bin/sh\necho \"$*\" >> {}\n", calls.display()),
+        format!(
+            "#!/bin/sh\necho \"$* umask $(umask)\" >> {}\necho \"neptron-network: $*\"\n",
+            calls.display()
+        ),
     )
     .unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&network, std::fs::Permissions::from_mode(0o755)).unwrap();
+    dir.fake(
+        "logger",
+        &format!("echo \"$*: $(cat)\" >> {}", logged.display()),
+    );
+    let path = format!(
+        "{}:{}",
+        dir.path("bin").display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
     let out = Command::new("sh")
+        .arg("-c")
+        .arg("umask 000; exec sh \"$@\"")
+        .arg("sh")
         .arg(os_dir().join(HOTPLUG))
         .arg(&dir.0)
         .env("ACTION", action)
         .env("MDEV", device)
+        .env("PATH", path)
         .output()
         .unwrap();
     (
         out.status.success(),
         std::fs::read_to_string(&calls).unwrap_or_default(),
+        std::fs::read_to_string(&logged).unwrap_or_default(),
     )
 }
 
-/// mdev runs net-hotplug for every network port. It starts the network
-/// script only for a wired port that is added after the script ran at
-/// boot; before that, the boot starts every port itself.
+/// mdev runs net-hotplug for every network port, with umask 0. It runs the
+/// network script with umask 022, only for a wired port and only after the
+/// boot start: a start for an added port, and the stop of its client for a
+/// removed port. Its lines go to syslog.
 #[test]
-fn a_wired_port_added_after_the_boot_gets_its_dhcp_client() {
+fn net_hotplug_starts_an_added_port_and_stops_a_removed_one() {
     let dir = TempDir::create("hotplug");
+    let none = (true, String::new(), String::new());
     assert_eq!(
         hotplug(&dir, "add", "eth0"),
-        (true, String::new()),
+        none,
         "before S40neptron-network ran"
     );
     std::fs::create_dir_all(dir.path("run/neptron/dhcp")).unwrap();
-    assert_eq!(hotplug(&dir, "add", "eth0"), (true, "start\n".to_owned()));
     assert_eq!(
-        hotplug(&dir, "add", "enx001122334455"),
-        (true, "start\n".to_owned())
+        hotplug(&dir, "add", "eth0"),
+        (
+            true,
+            "start umask 0022\n".to_owned(),
+            "-t neptron-network: neptron-network: start\n".to_owned()
+        )
+    );
+    assert_eq!(
+        hotplug(&dir, "add", "enx001122334455").1,
+        "start umask 0022\n"
+    );
+    assert_eq!(
+        hotplug(&dir, "remove", "eth0"),
+        (
+            true,
+            "port-gone eth0 umask 0022\n".to_owned(),
+            "-t neptron-network: neptron-network: port-gone eth0\n".to_owned()
+        )
     );
     for (action, device) in [
-        ("remove", "eth0"),
+        ("change", "eth0"),
         ("add", "wlan0"),
-        ("add", "lo"),
+        ("remove", "lo"),
         ("add", ""),
     ] {
-        assert_eq!(
-            hotplug(&dir, action, device),
-            (true, String::new()),
-            "{action} {device}"
-        );
+        assert_eq!(hotplug(&dir, action, device), none, "{action} {device}");
     }
 }
 
@@ -786,18 +845,145 @@ fn the_network_scripts_set_their_umask_first() {
     assert_eq!(mode("run/dhcp/eth0.pid"), 0o644);
 }
 
-/// Two starts can overlap (the boot and a port that appears). A start waits
-/// for the other one, and gives up with a line when the lock stays; it
-/// writes the pid file of each client at once, so the start that follows
-/// sees the client.
+/// Writes the command line of a udhcpc for `iface` as the fake /proc of
+/// the network script shows it for `pid`.
+fn fake_client(dir: &TempDir, pid: u32, iface: &str) {
+    let proc = dir.path(&format!("proc/{pid}"));
+    std::fs::create_dir_all(&proc).unwrap();
+    std::fs::write(
+        proc.join("cmdline"),
+        format!("udhcpc\0-f\0-R\0-S\0-i\0{iface}\0-x\0hostname:neptron\0"),
+    )
+    .unwrap();
+}
+
+/// A child that runs until the test stops it, with its pid.
+struct Process(Option<std::process::Child>);
+
+impl Process {
+    fn start() -> Self {
+        Process(Some(
+            Command::new("sh")
+                .arg("-c")
+                .arg("read line")
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        ))
+    }
+
+    fn pid(&self) -> u32 {
+        self.0.as_ref().map_or(0, std::process::Child::id)
+    }
+
+    /// Whether the child ends within the wait of the tests.
+    fn ended(&mut self) -> bool {
+        let Some(mut child) = self.0.take() else {
+            return true;
+        };
+        bounded("the child to end", move || child.wait().is_ok()).unwrap_or(false)
+    }
+}
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            // The child may have ended already, which is what most tests
+            // want; an error here leaves nothing to clean up.
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn dhcp_fakes(dir: &TempDir) {
+    dir.logging_fakes(&["ip", "udhcpc"]);
+    dir.fake("hostname", "echo neptron");
+}
+
+/// A second start (a restart by hand, rcS run again, or mdev for another
+/// port) must not start a second client on a port whose client still runs;
+/// a pid file that names no udhcpc of that port is stale.
 #[test]
-fn overlapping_dhcp_starts_take_turns_and_see_each_other() {
+fn dhcp_starts_no_second_client_and_replaces_a_stale_pid_file() {
+    let dir = TempDir::create("dhcp-twice");
+    for iface in ["eth0", "eth1", "eth2", "eth3"] {
+        std::fs::create_dir_all(dir.path("sys").join(iface)).unwrap();
+    }
+    std::fs::create_dir_all(dir.path("run/dhcp")).unwrap();
+    let live = Process::start();
+    let other = Process::start();
+    let reused = Process::start();
+    // eth0: a running client of eth0. eth1: a pid that names no process.
+    // eth2: a running client of eth3 (the file of another port). eth3: a
+    // pid that a process other than udhcpc took.
+    fake_client(&dir, live.pid(), "eth0");
+    fake_client(&dir, other.pid(), "eth3");
+    let proc = dir.path(&format!("proc/{}", reused.pid()));
+    std::fs::create_dir_all(&proc).unwrap();
+    std::fs::write(proc.join("cmdline"), "sh\0-c\0read line\0").unwrap();
+    for (iface, pid) in [
+        ("eth0", live.pid()),
+        ("eth1", 999_999),
+        ("eth2", other.pid()),
+        ("eth3", reused.pid()),
+    ] {
+        std::fs::write(
+            dir.path(&format!("run/dhcp/{iface}.pid")),
+            format!("{pid}\n"),
+        )
+        .unwrap();
+    }
+    dhcp_fakes(&dir);
+    let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
+    assert!(ok, "{out}");
+    assert!(out.contains("eth0 already has a DHCP client"), "{out}");
+    for iface in ["eth1", "eth2", "eth3"] {
+        assert!(
+            out.contains(&format!("DHCP on {iface} in the background")),
+            "{out}"
+        );
+    }
+    assert!(
+        !out.contains("DHCP on eth0"),
+        "a second client on eth0: {out}"
+    );
+}
+
+/// A port that is unplugged loses its client and its pid file; plugged in
+/// again, it gets a new client.
+#[test]
+fn a_removed_port_loses_its_client_and_gets_a_new_one_when_it_comes_back() {
+    let dir = TempDir::create("dhcp-replug");
+    std::fs::create_dir_all(dir.path("run/dhcp")).unwrap();
+    let mut client = Process::start();
+    fake_client(&dir, client.pid(), "eth0");
+    std::fs::write(dir.path("run/dhcp/eth0.pid"), format!("{}\n", client.pid())).unwrap();
+    dhcp_fakes(&dir);
+    let (ok, out) = dir.run_args(NETWORK_SCRIPT, &["port-gone", "eth0"]);
+    assert!(ok, "{out}");
+    assert!(out.contains("the DHCP client of eth0 stops"), "{out}");
+    assert!(client.ended(), "the client of the removed port ends");
+    assert!(!dir.path("run/dhcp/eth0.pid").exists());
+    assert!(!dir.path("run/dhcp.lock").exists());
+    std::fs::create_dir_all(dir.path("sys/eth0")).unwrap();
+    let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
+    assert!(ok, "{out}");
+    assert!(out.contains("DHCP on eth0 in the background"), "{out}");
+    let (ok, out) = dir.run_args(NETWORK_SCRIPT, &["port-gone", "wlan0"]);
+    assert!(!ok, "only a wired port: {out}");
+}
+
+/// Two runs can overlap (the boot and a port that appears). A run waits for
+/// the other one and gives up with a line when the lock stays; a run that
+/// is stopped while it holds the lock frees it.
+#[test]
+fn overlapping_dhcp_runs_take_turns_and_free_the_lock() {
     let dir = TempDir::create("dhcp-lock");
     std::fs::create_dir_all(dir.path("sys/eth0")).unwrap();
     std::fs::create_dir_all(dir.path("run/dhcp.lock")).unwrap();
-    dir.logging_fakes(&["ip"]);
-    dir.fake("hostname", "echo neptron");
-    // The other start ends during the first pause.
+    dhcp_fakes(&dir);
+    // The other run ends during the first pause.
     dir.fake(
         "usleep",
         &format!(
@@ -805,75 +991,37 @@ fn overlapping_dhcp_starts_take_turns_and_see_each_other() {
             dir.path("run/dhcp.lock").display()
         ),
     );
-    // A client that runs until the test ends; sleep stands for it.
-    dir.fake("udhcpc", "exec sleep 30");
     let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
     assert!(ok, "{out}");
     assert!(out.contains("DHCP on eth0 in the background"), "{out}");
     assert!(dir.log().contains("usleep 100000\n"), "{}", dir.log());
     assert!(
         !dir.path("run/dhcp.lock").exists(),
-        "the start frees the lock"
+        "the run frees the lock"
     );
     let pid = std::fs::read_to_string(dir.path("run/dhcp/eth0.pid")).unwrap();
     assert!(!pid.trim().is_empty(), "the pid file is written at once");
-    let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
-    assert!(ok, "{out}");
-    assert!(out.contains("eth0 already has a DHCP client"), "{out}");
-    let (ok, out) = dir.run(NETWORK_SCRIPT, "stop");
-    assert!(ok, "{out}");
 
-    // A lock that stays: the start gives up after its tries.
+    // A lock that stays: the run gives up after its tries, 49 pauses
+    // between 50 tries.
     std::fs::create_dir_all(dir.path("run/dhcp.lock")).unwrap();
     dir.fake("usleep", "echo \"usleep $*\" >> \"$LOG\"");
     std::fs::write(dir.path("log"), "").unwrap();
+    std::fs::remove_file(dir.path("run/dhcp/eth0.pid")).unwrap();
     let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
     assert!(ok, "{out}");
-    assert!(out.contains("another start holds"), "{out}");
+    assert!(out.contains("another run holds"), "{out}");
     assert!(!out.contains("DHCP on eth0"), "{out}");
     assert_eq!(dir.log().matches("usleep 100000").count(), 49);
-}
+    std::fs::remove_dir(dir.path("run/dhcp.lock")).unwrap();
 
-/// A second start (a restart by hand, or rcS run again) must not start a
-/// second client on a port whose client still runs.
-#[test]
-fn dhcp_starts_no_second_client_on_a_port() {
-    let dir = TempDir::create("dhcp-twice");
-    for iface in ["eth0", "eth1"] {
-        std::fs::create_dir_all(dir.path("sys").join(iface)).unwrap();
-    }
-    std::fs::create_dir_all(dir.path("run/dhcp")).unwrap();
-    // eth0 has a live client (this test process stands for it); the pid
-    // file of eth1 names a process that is gone.
-    std::fs::write(
-        dir.path("run/dhcp/eth0.pid"),
-        format!("{}\n", std::process::id()),
-    )
-    .unwrap();
-    // The pid of a child that has exited and been reaped names no process
-    // until the kernel hands it out again, which a test run does not reach.
-    let mut gone = Command::new("true").spawn().unwrap();
-    gone.wait().unwrap();
-    std::fs::write(dir.path("run/dhcp/eth1.pid"), format!("{}\n", gone.id())).unwrap();
-    mkfifo(&dir.path("started-eth1"));
-    dir.logging_fakes(&["ip"]);
-    dir.fake("hostname", "echo neptron");
-    dir.fake(
-        "udhcpc",
-        &format!(
-            "args=\"$*\"\nwhile [ $# -gt 0 ]; do [ \"$1\" = -i ] && iface=$2; shift; done\n\
-             echo \"udhcpc $args\" > \"{}/started-$iface\"",
-            dir.0.display()
-        ),
-    );
+    // A run stopped while it holds the lock: ip sends SIGTERM to it.
+    dir.fake("ip", "kill -TERM \"$PPID\"");
     let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
-    assert!(ok, "{out}");
-    assert!(read_fifo(&dir.path("started-eth1")).contains("-i eth1 "));
-    assert!(out.contains("DHCP on eth1 in the background"), "{out}");
-    assert!(out.contains("eth0 already has a DHCP client"), "{out}");
+    assert!(!ok, "the run ends on the signal: {out}");
     assert!(
-        !dir.path("started-eth0").exists(),
-        "a second client on eth0"
+        !dir.path("run/dhcp.lock").exists(),
+        "the trap frees the lock"
     );
 }
 
