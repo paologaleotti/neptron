@@ -60,15 +60,21 @@ The runners now have a 145 GB root disk. The often quoted 14 GB free is out of d
 
 ## Measured times
 
-From the runs of pull request 1 on 2026-11-13 and 2026-11-14. Cold means no cache and no base.
+From the runs of pull request 1 and two manual runs on 2026-11-13 and 2026-11-14. Cold means no cache and no base. Warm means the Cargo cache of the job, or a complete base for the key.
 
 | Job | Cold | Warm |
 | --- | --- | --- |
-| `lint` | 34 to 44 s | not measured yet |
-| `test-linux` | 1 min 54 s to 2 min 55 s (`verify --tier 2`: 98 s) | not measured yet |
-| `test-macos` | 2 min 49 s to 3 min 31 s (`verify --tier 2`: 145 s) | not measured yet |
-| `image aarch64`, build step | 40 min, 57 min and 63 min | see below |
-| `image x86_64`, build step | more than 320 min (the step limit; it stopped in the kernel build), 4 h 26 min, 3 h 45 min | see below |
+| `lint` | 34 to 44 s | 31 s (`verify --tier 0`: 13 s) |
+| `test-linux` | 1 min 54 s to 2 min 55 s (`verify --tier 2`: 98 s) | 1 min 43 s (`verify --tier 2`: 80 s) |
+| `test-macos` | 2 min 49 s to 3 min 31 s (`verify --tier 2`: 145 s) | 2 min 21 s (`verify --tier 2`: 109 s) |
+| `image aarch64`, build step | 40 min, 57 min and 63 min | 208 s |
+| `image x86_64`, build step | more than 320 min (the step limit; it stopped in the kernel build), 4 h 26 min, 3 h 45 min | 219 s |
+| `image x86_64`, whole job | about 4 h | 14 min: base download 1.5 min, unpacking 3 min, build 3.7 min, both boot checks 2 min, the other checks and the uploads |
+| `image aarch64`, whole job | about 1 h 10 min | 34 min, of which 22 min are `kms-check` and `gles-compare` under TCG |
+
+Every pull request check that does not build an image stays under the 5-minute target, warm and cold. The Cargo caches are small: 53 MB for `lint`, 118 MB for `test-linux`, 115 MB for `test-macos`.
+
+A warm image build compiles every NEPTRON package again (`<package>-reconfigure`), so a change to the frontend alone costs the same 3.5 to 4 minutes as any other warm build. A change to a defconfig makes a new key: a pull request then builds on the older base (incremental; its time depends on what changed, and it is not measured yet), and `main` builds cold.
 
 The shared runners vary a lot: the same cold PC build took more than 320 minutes once, and 225 minutes another time. The partial base (see below) makes the slow case finish in a second run instead of failing every time.
 
@@ -192,3 +198,11 @@ These are the settings that only the owner can change. Nothing in CI needs a sec
 3. **Workflow permissions.** Settings, Actions, General, "Workflow permissions": "Read repository contents and packages permissions" is enough. Each job asks for its own permissions (`contents: read`, `actions: read` to find the base, `pull-requests: read` for the path filters).
 4. **Artifact retention.** The workflows set it per artifact. The repository default (90 days) is only an upper limit.
 5. **Merge queue** (optional). The workflow already listens to `merge_group`.
+
+## Open questions and limits
+
+- **Artifact storage.** GitHub's billing pages say that standard runners are free in a public repository. They do not say that artifact storage is free. The bases are 5 to 9 GB each and stay 30 days. If GitHub bills them or refuses an upload for the storage quota, move the base to a container image on GHCR (`packages: write` on `main`; the owner decides the package visibility; it must stay without the 15 kHz patches).
+- **Cold builds on `main`.** A change to a defconfig, a fragment, `os/patches`, a core package or the Dockerfile makes a new key, and the next `main` run builds cold: about 4 hours for the PC image. Pull requests do not wait for it; they build on the older base. A cold build that runs out of time leaves a partial base, and the next run goes on from there. The resume from a partial base is implemented but not yet proven in a run: the keys changed between the runs that would have shown it.
+- **aarch64 without KVM.** See "Tier 3 results". The owner chooses: keep these checks red as a record, run the timing checks only on x86\_64 under KVM, or add a self-hosted arm64 runner with KVM.
+- **`os build` on Linux.** The container user `br` has uid 1000. On a Linux host whose user has another uid, the copy of the images and the export of the guest programs fail with "Permission denied". CI works around it (it gives the directories to uid 1000, and runs the guest checks with `umask 0000`). A fix in `xtask` would help every Linux developer.
+
