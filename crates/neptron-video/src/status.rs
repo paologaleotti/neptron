@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use neptron_modeline::policy::{
     Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, TV_SPEED_SILENT_PPM,
 };
-use neptron_types::{Filter, Modeline, SourceGeometry};
+use neptron_types::{Filter, Modeline, SourceGeometry, TvStandard};
 
 use crate::Current;
 
@@ -22,6 +22,14 @@ pub struct VideoStatusText {
     /// The mode on screen as the driver read it back: the size with its
     /// scan suffix padded to 10, the line rate padded to 10, the field
     /// rate, two spaces and the rung: `768x448p  30.05 kHz 60.099 Hz  2x`.
+    ///
+    /// On a TV the standard comes first, in place of the width, which is
+    /// always the 720 samples of the encoder, as on the Display panel:
+    /// `NTSC 240p 15.73 kHz 60.054 Hz`. The rung is left out, so the
+    /// longest standard name fits the 37 characters of the line
+    /// (`NTSC 4.43 480i 15.73 kHz 59.940 Hz`, 34): on a TV the rung is
+    /// always `native` or the fit, and the result names the fit as
+    /// `filtered`. Only a TV names a standard.
     pub mode: String,
     /// The result in words, joined with `, `, in the order `exact`,
     /// `sharp`, `double refresh`, `cropped N lines`, `small picture N%`,
@@ -59,6 +67,9 @@ pub struct StatusInputs<'a> {
     pub rung: Rung,
     /// The winner's proposal.
     pub proposal: &'a Proposal,
+    /// The TV standard of the mode on screen; `None` on every output but a
+    /// TV.
+    pub tv_standard: Option<TvStandard>,
 }
 
 /// The width of the size column and of the line rate column, in
@@ -86,6 +97,7 @@ impl<'a> StatusInputs<'a> {
             mode: &current.read_back,
             rung: current.chosen.rung,
             proposal: &current.chosen.proposal,
+            tv_standard: current.chosen.token.tv_standard(),
         }
     }
 }
@@ -102,7 +114,10 @@ pub fn write_video_status<'o>(
 ) -> Option<&'o VideoStatusText> {
     let inputs = inputs?;
     write_game(inputs.source, &mut out.game);
-    write_mode(inputs.mode, inputs.rung, &mut out.mode);
+    match inputs.tv_standard {
+        Some(standard) => write_tv_mode(inputs.mode, standard, &mut out.mode),
+        None => write_mode(inputs.mode, inputs.rung, &mut out.mode),
+    }
     out.alert = write_result(inputs, &mut out.result);
     Some(out)
 }
@@ -125,6 +140,38 @@ fn write_mode(mode: &Modeline, rung: Rung, out: &mut String) {
     out.push_str("  ");
     // Writing into a String cannot fail.
     let _ = write_rung(out, rung);
+}
+
+fn write_tv_mode(mode: &Modeline, standard: TvStandard, out: &mut String) {
+    out.clear();
+    let scan = if mode.interlace { 'i' } else { 'p' };
+    // Writing into a String cannot fail.
+    let _ = write!(
+        out,
+        "{} {}{scan} ",
+        tv_standard_name(standard),
+        mode.vactive
+    )
+    .and_then(|()| khz(out, mode.line_rate_mhz()));
+    out.push(' ');
+    hz(out, mode.field_rate_mhz());
+}
+
+/// The name of a TV standard with no rate, as the status and the Display
+/// panel show it: `NTSC`, `PAL 60`, `Mono`. The line system tells the two
+/// monochrome standards apart.
+pub fn tv_standard_name(standard: TvStandard) -> &'static str {
+    match standard {
+        TvStandard::Ntsc => "NTSC",
+        TvStandard::NtscJ => "NTSC-J",
+        TvStandard::Ntsc443 => "NTSC 4.43",
+        TvStandard::Pal60 => "PAL 60",
+        TvStandard::PalM => "PAL-M",
+        TvStandard::Pal => "PAL",
+        TvStandard::PalN => "PAL-N",
+        TvStandard::Secam => "SECAM",
+        TvStandard::Mono60 | TvStandard::Mono50 => "Mono",
+    }
 }
 
 /// Writes the result words and returns the alert flag.
@@ -310,6 +357,7 @@ mod tests {
             mode,
             rung,
             proposal,
+            tv_standard: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -493,6 +541,7 @@ mod tests {
             mode: &p.mode,
             rung,
             proposal: &p,
+            tv_standard: Some(standard),
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -535,6 +584,50 @@ mod tests {
             result(&at, rung, &p.mode).0.starts_with("[!] speed ("),
             "a CRT keeps the match bound"
         );
+    }
+
+    #[test]
+    fn a_tv_names_its_standard_first_on_the_mode_line() {
+        let (p, rung) = tv_winner(&SNES, TvStandard::Ntsc);
+        let mut inputs = StatusInputs {
+            source: &SNES,
+            mode: &p.mode,
+            rung,
+            proposal: &p,
+            tv_standard: Some(TvStandard::Ntsc),
+        };
+        let mut out = VideoStatusText::default();
+        write_video_status(Some(&inputs), &mut out).unwrap();
+        assert_eq!(out.mode, "NTSC 240p 15.73 kHz 60.054 Hz");
+        inputs.tv_standard = None;
+        write_video_status(Some(&inputs), &mut out).unwrap();
+        assert_eq!(
+            out.mode, "720x240p  15.73 kHz 60.054 Hz  native",
+            "no TV, no standard"
+        );
+        for standard in TvStandard::ALL {
+            for mode in standard.modes() {
+                let inputs = StatusInputs {
+                    mode: &mode,
+                    tv_standard: Some(standard),
+                    ..inputs
+                };
+                write_video_status(Some(&inputs), &mut out).unwrap();
+                assert!(
+                    out.mode.starts_with(tv_standard_name(standard)),
+                    "{}",
+                    out.mode
+                );
+                assert!(out.mode.len() <= 37, "{}", out.mode);
+            }
+        }
+        let worst = StatusInputs {
+            mode: &neptron_types::TV_525_480I,
+            tv_standard: Some(TvStandard::Ntsc443),
+            ..inputs
+        };
+        write_video_status(Some(&worst), &mut out).unwrap();
+        assert_eq!(out.mode, "NTSC 4.43 480i 15.73 kHz 59.940 Hz");
     }
 
     #[test]
@@ -593,6 +686,7 @@ mod tests {
             mode: &shown,
             rung: Rung::Panel,
             proposal: &p,
+            tv_standard: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -610,6 +704,7 @@ mod tests {
             mode: &shown,
             rung: Rung::Panel,
             proposal: &p,
+            tv_standard: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -659,6 +754,7 @@ mod tests {
             mode: &shown,
             rung: Rung::Multiple(2),
             proposal: &p,
+            tv_standard: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -689,6 +785,7 @@ mod tests {
             mode: &worst,
             rung: Rung::Native,
             proposal: &p,
+            tv_standard: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -753,6 +850,7 @@ mod tests {
             mode: &p.mode,
             rung,
             proposal: &p,
+            tv_standard: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();

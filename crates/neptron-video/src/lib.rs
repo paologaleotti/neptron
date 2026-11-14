@@ -34,7 +34,8 @@ pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
 pub use scene::{SceneInputs, build_scene};
 pub use settings::{ScanlineSettings, SettingsError, policy_settings, scanline_settings};
 pub use status::{
-    PANEL_SPEED_SILENT_PPM, STATUS_COLUMN_CHARS, StatusInputs, VideoStatusText, write_video_status,
+    PANEL_SPEED_SILENT_PPM, STATUS_COLUMN_CHARS, StatusInputs, VideoStatusText, tv_standard_name,
+    write_video_status,
 };
 pub use trace::{
     Outcome, READ_BACK_RATE_NOTICE_MHZ, SwitchRecord, SwitchTrace, TRACE_CAPACITY, Trigger,

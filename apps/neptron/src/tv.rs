@@ -4,19 +4,10 @@
 
 use neptron_types::TvStandard;
 
-/// The name of `standard` with no rate: `NTSC`, `PAL 60`, `Mono`.
+/// The name of `standard` with no rate: `NTSC`, `PAL 60`, `Mono`. The
+/// video status of a game uses the same names.
 pub fn name(standard: TvStandard) -> &'static str {
-    match standard {
-        TvStandard::Ntsc => "NTSC",
-        TvStandard::NtscJ => "NTSC-J",
-        TvStandard::Ntsc443 => "NTSC 4.43",
-        TvStandard::Pal60 => "PAL 60",
-        TvStandard::PalM => "PAL-M",
-        TvStandard::Pal => "PAL",
-        TvStandard::PalN => "PAL-N",
-        TvStandard::Secam => "SECAM",
-        TvStandard::Mono60 | TvStandard::Mono50 => "Mono",
-    }
+    neptron_video::tv_standard_name(standard)
 }
 
 /// The short name of `standard` for the value column of a settings row:

@@ -362,6 +362,7 @@ fn a_game_on_a_tv_runs_in_the_modes_of_the_standard() {
             }
             .expect("a status");
             assert_eq!(status.result, "exact", "60.099 Hz on 60.054 Hz is silent");
+            assert_eq!(status.mode, "NTSC 240p 15.73 kHz 60.054 Hz");
             assert!(!status.alert);
             assert_only_tv_modes(&rig);
             rig.finish();
