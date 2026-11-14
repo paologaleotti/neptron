@@ -478,7 +478,7 @@ name = "Raspberry Pi: app, settings, status, the output rule and the matrix entr
 owns = ["apps/neptron", "crates/neptron-settings", "crates/neptron-ui", "crates/neptron-video", "crates/neptron-platform", "data/hardware"]
 needs = ["P03", "P05"]
 gate = "T2"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "C19"
