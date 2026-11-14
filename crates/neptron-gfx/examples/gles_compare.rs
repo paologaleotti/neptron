@@ -28,6 +28,8 @@ const OUTPUT_PADDING_BYTES: usize = 12;
 const PADDING: u8 = 0xAA;
 /// The largest channel difference of a sharp bilinear game pixel.
 const SHARP_TOLERANCE: u8 = 1;
+/// The side of the pbuffer of the window checks: every scene up to 1080p.
+const WINDOW_SIDE: u32 = 1920;
 
 fn main() -> ExitCode {
     let mut gles = match GlesRenderer::headless() {
@@ -52,6 +54,25 @@ fn main() -> ExitCode {
         count += 1;
         if !compare(&mut gles, &mut reference, case) {
             failed = failed.saturating_add(1);
+        }
+    }
+    // The same scenes through the window path: a pbuffer is a window-system
+    // framebuffer, which a driver can treat apart from a framebuffer object
+    // (Mesa turns gl_FragCoord upside down for it).
+    let side = WINDOW_SIDE.min(gles.max_output_side());
+    match GlesRenderer::pbuffer(side, side) {
+        Ok(mut window) => {
+            for case in cases.iter().filter(|c| c.width <= side && c.height <= side) {
+                count += 1;
+                if !compare_window(&mut window, &mut reference, case) {
+                    failed = failed.saturating_add(1);
+                }
+            }
+        }
+        Err(e) => {
+            count += 1;
+            failed = failed.saturating_add(1);
+            println!("FAIL cannot make the pbuffer renderer: {e}");
         }
     }
     // The first scene again: the renderer keeps no state from earlier sizes.
@@ -170,6 +191,41 @@ fn compare(gles: &mut GlesRenderer, reference: &mut ReferenceRenderer, case: &Ca
     let ok = report.within_tolerance();
     println!(
         "{} {}: {report}",
+        if ok { "ok  " } else { "FAIL" },
+        case.name
+    );
+    ok
+}
+
+/// Draws `case` through the window path of a pbuffer renderer, reads it
+/// back, and prints one line. True when the output is inside the
+/// tolerance.
+fn compare_window(
+    window: &mut GlesRenderer,
+    reference: &mut ReferenceRenderer,
+    case: &Case,
+) -> bool {
+    let scene = case.scene();
+    let expected = render(case, |out| {
+        reference.render(&scene, out).map_err(|e| e.to_string())
+    });
+    let actual = render(case, |out| {
+        window
+            .draw_to_window(&scene, out.width, out.height)
+            .and_then(|()| window.read_window(out))
+            .map_err(|e| e.to_string())
+    });
+    let (expected, actual) = match (expected, actual) {
+        (Ok(e), Ok(a)) => (e, a),
+        (Err(e), _) | (_, Err(e)) => {
+            println!("FAIL window {}: {e}", case.name);
+            return false;
+        }
+    };
+    let report = Diff::of(case, &expected, &actual);
+    let ok = report.within_tolerance();
+    println!(
+        "{} window {}: {report}",
         if ok { "ok  " } else { "FAIL" },
         case.name
     );

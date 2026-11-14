@@ -123,6 +123,47 @@ impl GlesRenderer {
         Self::on(EglContext::on_gbm(target)?)
     }
 
+    /// A renderer with no display that draws into an EGL pbuffer of
+    /// `width` by `height` through [`draw_to_window`](Self::draw_to_window),
+    /// and reads it back with [`read_window`](Self::read_window). A pbuffer
+    /// is a window-system framebuffer, as the window surface on GBM is, so
+    /// drivers treat it as a window (Mesa turns `gl_FragCoord` upside down
+    /// for it and not for a framebuffer object). It is for checks of the
+    /// window path, such as `gles_compare`.
+    ///
+    /// # Errors
+    ///
+    /// [`GlesError`] as for [`headless`](Self::headless), and when EGL
+    /// cannot make the pbuffer.
+    pub fn pbuffer(width: u32, height: u32) -> Result<Self, GlesError> {
+        Self::on(EglContext::surfaceless_pbuffer(width, height)?)
+    }
+
+    /// Reads the `out.width` by `out.height` pixels at the origin of the
+    /// window surface into `out`, as [`render`](Self::render) reads its
+    /// framebuffer object: after a [`draw_to_window`](Self::draw_to_window)
+    /// of that size, the drawn picture. It allocates its read buffer on
+    /// each call, so it is for checks, not for a frame loop.
+    ///
+    /// # Errors
+    ///
+    /// [`GlesError::NoWindow`] on a renderer with no window surface,
+    /// [`GlesError::Scene`] for an output buffer that is too small, and
+    /// [`GlesError::Gl`] for a failed read.
+    pub fn read_window(&mut self, out: &mut OutputBuffer<'_>) -> Result<(), GlesError> {
+        if !self.context.has_window() {
+            return Err(GlesError::NoWindow);
+        }
+        check_output(out)?;
+        let gl = self.context.current()?;
+        gl.bind_window();
+        let mut pixels = vec![0; out.width as usize * out.height as usize * 4];
+        gl.read_rgba(out.width, out.height, &mut pixels)?;
+        gl.check("glReadPixels of the window")?;
+        copy_out(&pixels, out);
+        Ok(())
+    }
+
     /// Draws `scene` into the window surface as a `width` by `height`
     /// output at the GL origin, the bottom left, and swaps: the frame
     /// becomes the front buffer of the GBM surface. The pixels are the

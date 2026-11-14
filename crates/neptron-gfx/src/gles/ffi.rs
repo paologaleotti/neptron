@@ -86,7 +86,8 @@ pub(super) struct EglContext {
     // objects under the surface.
     gl: glow::Context,
     context: egl::Context,
-    /// The window surface on GBM, or `None` with no surface.
+    /// The window surface on GBM, or the pbuffer of a check, or `None` with
+    /// no surface.
     surface: Option<egl::Surface>,
     display: egl::Display,
     /// True when drop terminates the display: the display counts its
@@ -102,6 +103,18 @@ impl EglContext {
     /// A context on the Mesa surfaceless platform: no window system and no
     /// display device. The renderer draws into a framebuffer object.
     pub(super) fn surfaceless() -> Result<Self, GlesError> {
+        Self::surfaceless_with(None)
+    }
+
+    /// A context on the Mesa surfaceless platform with a pbuffer surface of
+    /// `width` by `height` and 8-bit channels. Its default framebuffer is a
+    /// window-system framebuffer, as the window surface on GBM is, so a
+    /// check reaches the code path of the window without a display.
+    pub(super) fn surfaceless_pbuffer(width: u32, height: u32) -> Result<Self, GlesError> {
+        Self::surfaceless_with(Some((width, height)))
+    }
+
+    fn surfaceless_with(pbuffer: Option<(u32, u32)>) -> Result<Self, GlesError> {
         let lib = load_egl()?;
         // Every surfaceless display of the process is the same EGLDisplay.
         // With reference tracking, initialize and terminate count, so one
@@ -127,18 +140,23 @@ impl EglContext {
         .map_err(|e| egl_error("eglGetPlatformDisplay(surfaceless)", e))?;
         lib.initialize(display)
             .map_err(|e| egl_error("eglInitialize", e))?;
-        let made = context_on(&lib, display).and_then(|context| {
-            gl_on(&lib).map(|gl| (gl, context)).inspect_err(|_| {
-                // The GL error is the one to report.
-                let _ = lib.make_current(display, None, None, None);
-                let _ = lib.destroy_context(display, context);
-            })
+        let made = context_on(&lib, display, pbuffer).and_then(|(context, surface)| {
+            gl_on(&lib)
+                .map(|gl| (gl, context, surface))
+                .inspect_err(|_| {
+                    // The GL error is the one to report.
+                    let _ = lib.make_current(display, None, None, None);
+                    if let Some(surface) = surface {
+                        let _ = lib.destroy_surface(display, surface);
+                    }
+                    let _ = lib.destroy_context(display, context);
+                })
         });
         match made {
-            Ok((gl, context)) => Ok(Self {
+            Ok((gl, context, surface)) => Ok(Self {
                 gl,
                 context,
-                surface: None,
+                surface,
                 display,
                 counted,
                 lib,
@@ -289,8 +307,13 @@ fn window_on(
     Ok((context, surface))
 }
 
-/// Binds OpenGL ES, and makes an ES 2 context current with no surface.
-fn context_on(lib: &EglInstance, display: egl::Display) -> Result<egl::Context, GlesError> {
+/// Binds OpenGL ES, and makes an ES 2 context current with no surface, or
+/// with a pbuffer of the size `pbuffer`.
+fn context_on(
+    lib: &EglInstance,
+    display: egl::Display,
+    pbuffer: Option<(u32, u32)>,
+) -> Result<(egl::Context, Option<egl::Surface>), GlesError> {
     lib.bind_api(egl::OPENGL_ES_API)
         .map_err(|e| egl_error("eglBindAPI", e))?;
     let attributes = [
@@ -298,6 +321,12 @@ fn context_on(lib: &EglInstance, display: egl::Display) -> Result<egl::Context, 
         egl::OPENGL_ES2_BIT,
         egl::SURFACE_TYPE,
         egl::PBUFFER_BIT,
+        egl::RED_SIZE,
+        8,
+        egl::GREEN_SIZE,
+        8,
+        egl::BLUE_SIZE,
+        8,
         egl::NONE,
     ];
     let config = lib
@@ -312,12 +341,36 @@ fn context_on(lib: &EglInstance, display: egl::Display) -> Result<egl::Context, 
             &[egl::CONTEXT_CLIENT_VERSION, 2, egl::NONE],
         )
         .map_err(|e| egl_error("eglCreateContext", e))?;
-    if let Err(e) = lib.make_current(display, None, None, Some(context)) {
+    let surface = match pbuffer {
+        None => None,
+        Some((width, height)) => {
+            let size = |v: u32| egl::Int::try_from(v).unwrap_or(egl::Int::MAX);
+            let attributes = [
+                egl::WIDTH,
+                size(width),
+                egl::HEIGHT,
+                size(height),
+                egl::NONE,
+            ];
+            match lib.create_pbuffer_surface(display, config, &attributes) {
+                Ok(surface) => Some(surface),
+                Err(e) => {
+                    // The surface error is the one to report.
+                    let _ = lib.destroy_context(display, context);
+                    return Err(egl_error("eglCreatePbufferSurface", e));
+                }
+            }
+        }
+    };
+    if let Err(e) = lib.make_current(display, surface, surface, Some(context)) {
         // The make-current error is the one to report.
+        if let Some(surface) = surface {
+            let _ = lib.destroy_surface(display, surface);
+        }
         let _ = lib.destroy_context(display, context);
-        return Err(egl_error("eglMakeCurrent with no surface", e));
+        return Err(egl_error("eglMakeCurrent", e));
     }
-    Ok(context)
+    Ok((context, surface))
 }
 
 /// True when the space-separated list `extensions` holds `name`.
@@ -779,6 +832,12 @@ impl Gl<'_> {
             self.gl.clear_color(0.0, 0.0, 0.0, 1.0);
             self.gl.clear(glow::COLOR_BUFFER_BIT);
         }
+    }
+
+    /// Binds the window surface's framebuffer.
+    pub(super) fn bind_window(&self) {
+        // SAFETY: the context is current; framebuffer 0 is the surface's.
+        unsafe { self.gl.bind_framebuffer(glow::FRAMEBUFFER, None) };
     }
 
     /// Selects `program`, the corner buffer and `texture` on unit 0.
