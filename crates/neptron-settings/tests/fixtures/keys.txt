@@ -13,3 +13,5 @@ display.scanlines game,system,global choice auto|off|on
 display.scanline_strength game,system,global int
 audio.volume game,system,global int
 audio.output global text
+display.tv global choice auto|ntsc|ntsc_j|ntsc_443|pal_60|pal_m|pal|pal_n|secam|mono_60|mono_50
+display.tv_width game,system,global choice aspect|integer|fill

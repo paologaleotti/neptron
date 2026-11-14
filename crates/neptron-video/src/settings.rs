@@ -1,4 +1,6 @@
-use neptron_modeline::policy::{HorizontalStrategy, PictureStyle, PolicySettings, RefreshPolicy};
+use neptron_modeline::policy::{
+    HorizontalStrategy, PictureStyle, PolicySettings, RefreshPolicy, TvWidth,
+};
 use neptron_types::{ScanlineMode, Scanlines};
 
 /// A settings value that the policy does not know.
@@ -14,6 +16,12 @@ pub enum SettingsError {
     /// The value of `display.refresh_policy` is not a refresh policy.
     #[error("display.refresh_policy {value:?} is not one of exact, exact_x2, force_50, force_60")]
     UnknownRefreshPolicy {
+        /// The value that was given.
+        value: String,
+    },
+    /// The value of `display.tv_width` is not a TV width.
+    #[error("display.tv_width {value:?} is not one of aspect, integer, fill")]
+    UnknownTvWidth {
         /// The value that was given.
         value: String,
     },
@@ -82,10 +90,10 @@ pub fn scanline_settings(
     })
 }
 
-/// The policy settings for the resolved values of `display.style` and
-/// `display.refresh_policy`, and the horizontal strategy that the system
-/// names (`None` for the GPU default). The generator settings keep their
-/// defaults.
+/// The policy settings for the resolved values of `display.style`,
+/// `display.refresh_policy` and `display.tv_width`, and the horizontal
+/// strategy that the system names (`None` for the GPU default). The
+/// generator settings keep their defaults.
 ///
 /// # Errors
 ///
@@ -96,6 +104,7 @@ pub fn policy_settings(
     style: &str,
     refresh_policy: &str,
     horizontal: Option<HorizontalStrategy>,
+    tv_width: &str,
 ) -> Result<PolicySettings, SettingsError> {
     let style = PictureStyle::ALL
         .into_iter()
@@ -109,10 +118,17 @@ pub fn policy_settings(
         .ok_or_else(|| SettingsError::UnknownRefreshPolicy {
             value: refresh_policy.to_owned(),
         })?;
+    let tv_width = TvWidth::ALL
+        .into_iter()
+        .find(|w| w.key() == tv_width)
+        .ok_or_else(|| SettingsError::UnknownTvWidth {
+            value: tv_width.to_owned(),
+        })?;
     Ok(PolicySettings {
         style,
         refresh,
         horizontal,
+        tv_width,
         ..PolicySettings::default()
     })
 }
@@ -132,12 +148,43 @@ mod tests {
     fn every_choice_of_the_schema_maps_to_the_policy() {
         for &style in neptron_settings::PICTURE_STYLES {
             for &refresh in neptron_settings::REFRESH_POLICIES {
-                let settings = policy_settings(style, refresh, None).unwrap();
+                let settings = policy_settings(style, refresh, None, "aspect").unwrap();
                 assert_eq!(settings.style.key(), style);
                 assert_eq!(settings.refresh.key(), refresh);
                 assert_eq!(settings.horizontal, None);
             }
         }
+        let widths: Vec<&str> = TvWidth::ALL.iter().map(|w| w.key()).collect();
+        assert_eq!(
+            neptron_settings::TV_WIDTHS,
+            widths,
+            "same names in the same order"
+        );
+        for &width in neptron_settings::TV_WIDTHS {
+            let settings = policy_settings("auto", "exact", None, width).unwrap();
+            assert_eq!(settings.tv_width.key(), width);
+        }
+        assert_eq!(
+            policy_settings("auto", "exact", None, "aspect")
+                .unwrap()
+                .tv_width,
+            TvWidth::Aspect,
+            "the default of the schema is the default of the policy"
+        );
+    }
+
+    #[test]
+    fn every_tv_standard_of_the_schema_is_a_standard_of_the_types() {
+        let keys: Vec<&str> = neptron_types::TvStandard::ALL
+            .iter()
+            .map(|s| s.key())
+            .collect();
+        assert_eq!(neptron_settings::TV_STANDARDS[0], "auto");
+        assert_eq!(
+            &neptron_settings::TV_STANDARDS[1..],
+            keys,
+            "same names in the same order"
+        );
     }
 
     #[test]
@@ -177,7 +224,7 @@ mod tests {
     #[test]
     fn the_named_strategy_is_kept() {
         let fixed = Some(HorizontalStrategy::FixedSuperWidth { width: 2_560 });
-        let settings = policy_settings("auto", "exact", fixed).unwrap();
+        let settings = policy_settings("auto", "exact", fixed, "aspect").unwrap();
         assert_eq!(settings.horizontal, fixed);
         assert_eq!(settings.solver, PolicySettings::default().solver);
     }
@@ -185,15 +232,21 @@ mod tests {
     #[test]
     fn an_unknown_value_is_an_error_with_the_value() {
         assert_eq!(
-            policy_settings("5x", "exact", None),
+            policy_settings("5x", "exact", None, "aspect"),
             Err(SettingsError::UnknownStyle {
                 value: "5x".to_owned()
             })
         );
         assert_eq!(
-            policy_settings("auto", "force_70", None),
+            policy_settings("auto", "force_70", None, "aspect"),
             Err(SettingsError::UnknownRefreshPolicy {
                 value: "force_70".to_owned()
+            })
+        );
+        assert_eq!(
+            policy_settings("auto", "exact", None, "wide"),
+            Err(SettingsError::UnknownTvWidth {
+                value: "wide".to_owned()
             })
         );
     }

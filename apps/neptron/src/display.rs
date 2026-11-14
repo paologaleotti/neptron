@@ -478,10 +478,10 @@ fn mode_text(mode: &Modeline) -> String {
     }
 }
 
-/// Picture style `auto`, refresh policy `exact`.
+/// Picture style `auto`, refresh policy `exact`, TV width `aspect`.
 fn safe_settings() -> PolicySettings {
-    // Both values are choices of the schema, which the policy maps.
-    policy_settings("auto", "exact", None).unwrap_or_default()
+    // The values are choices of the schema, which the policy maps.
+    policy_settings("auto", "exact", None, "aspect").unwrap_or_default()
 }
 
 #[cfg(test)]

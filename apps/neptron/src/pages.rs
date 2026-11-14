@@ -4,9 +4,10 @@
 use neptron_audio::OutputDevice;
 use neptron_settings::{
     AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
-    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, DisplayClass, Entry,
-    INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
+    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH,
+    DisplayClass, Entry, INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
 };
+use neptron_types::TvStandard;
 use neptron_ui::Value as UiValue;
 use neptron_ui::screens::{
     AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
@@ -65,11 +66,22 @@ pub const POWER_NO_LAUNCHER: &str = "Needs the launcher";
 /// panel that the run drives. It fits the value and source columns of a row.
 pub const NOT_USED_ON_A_PANEL: &str = "Not used on a flat panel";
 
+/// The reason that a row shows when its setting has no effect on the TV
+/// that the run drives.
+pub const NOT_USED_ON_A_TV: &str = "Not used on a TV";
+
+/// The detail of the `auto` option of the TV standard: the standard it
+/// gives.
+pub const TV_AUTO_STANDARD: TvStandard = TvStandard::Ntsc;
+
 /// The rows of the display panel, written at the global level. It also
 /// holds the global settings that are not about the picture or the sound.
-pub const DISPLAY_KEYS: [&str; 7] = [
+/// The TV rows show only on a TV.
+pub const DISPLAY_KEYS: [&str; 9] = [
     DISPLAY_OUTPUT,
     DISPLAY_MONITOR,
+    DISPLAY_TV,
+    DISPLAY_TV_WIDTH,
     DISPLAY_STYLE,
     DISPLAY_REFRESH_POLICY,
     DISPLAY_SCANLINES,
@@ -85,7 +97,9 @@ pub const AUDIO_KEYS: [&str; 2] = [AUDIO_VOLUME, AUDIO_OUTPUT];
 pub const QUICK_MENU_KEYS: [&str; 1] = [AUDIO_VOLUME];
 
 /// The rows of the video page of the quick menu, written at the game level.
-pub const VIDEO_KEYS: [&str; 4] = [
+/// The TV width shows only on a TV.
+pub const VIDEO_KEYS: [&str; 5] = [
+    DISPLAY_TV_WIDTH,
     DISPLAY_STYLE,
     DISPLAY_REFRESH_POLICY,
     DISPLAY_SCANLINES,
@@ -279,6 +293,9 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
         .iter()
         .position(|e| e.key == key)?;
     let entry = &config.schema().entries()[position];
+    if !entry.applies_to.shown(names.class) {
+        return None;
+    }
     let resolved = match view {
         View::Global => config.resolved_global(key)?,
         View::Game => config.resolved(key)?,
@@ -306,7 +323,7 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
                 .unwrap_or(0),
             options: choices
                 .iter()
-                .map(|c| choice_option(key, c, names.styles))
+                .map(|c| choice_option(key, c, names))
                 .collect(),
         },
         Kind::Name { .. } | Kind::Text { .. } => {
@@ -350,10 +367,22 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
         },
     };
     item.live = entry.live;
-    if !entry.applies_to.applies(names.class) {
-        item = item.unavailable(NOT_USED_ON_A_PANEL);
+    if let Some(reason) = not_used(entry, names.class) {
+        item = item.unavailable(reason);
     }
     Some(item)
+}
+
+/// The reason a row of `entry` is disabled on a display of `class`, or
+/// `None` when the setting has an effect there.
+pub fn not_used(entry: &Entry, class: DisplayClass) -> Option<&'static str> {
+    if entry.applies_to.applies(class) {
+        return None;
+    }
+    Some(match class {
+        DisplayClass::Tv => NOT_USED_ON_A_TV,
+        DisplayClass::Crt | DisplayClass::FlatPanel => NOT_USED_ON_A_PANEL,
+    })
 }
 
 /// The options of a row that names a thing: `auto`, then what the run
@@ -428,12 +457,27 @@ fn short_label(label: &str) -> Option<&str> {
 }
 
 /// The option of choice `choice`: for a picture style, with what it gives
-/// on the monitor now.
-fn choice_option(key: &str, choice: &str, styles: &[StyleOption]) -> ChoiceOption {
-    let option = ChoiceOption::new(choice);
-    if key != DISPLAY_STYLE {
-        return option;
+/// on the monitor now; for a TV standard, its name and rate.
+fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
+    match key {
+        DISPLAY_STYLE => style_option(choice, names.styles),
+        DISPLAY_TV => tv_option(choice),
+        _ => ChoiceOption::new(choice),
     }
+}
+
+/// The option of a TV standard: its name with its rate, and `auto` with
+/// the standard it gives as the detail.
+fn tv_option(choice: &str) -> ChoiceOption {
+    match TvStandard::from_key(choice) {
+        Some(standard) => ChoiceOption::new(crate::tv::label(standard)),
+        None => ChoiceOption::new(choice).with_detail(crate::tv::label(TV_AUTO_STANDARD)),
+    }
+}
+
+/// The option of a picture style, with what it gives on the monitor now.
+fn style_option(choice: &str, styles: &[StyleOption]) -> ChoiceOption {
+    let option = ChoiceOption::new(choice);
     match styles.iter().find(|s| s.key == choice) {
         Some(style) => {
             let option = option.with_detail(style.detail.clone());
@@ -671,7 +715,11 @@ mod tests {
         };
         let page = display_page(&config, names);
         assert!(page.is_for(DISPLAY_PAGE));
-        assert_eq!(page.rows.len(), DISPLAY_KEYS.len() + 1);
+        assert_eq!(
+            page.rows.len(),
+            DISPLAY_KEYS.len() - 2 + 1,
+            "no TV row on a CRT"
+        );
         assert_eq!(page.rows[0].scopes, Scopes::NONE, "the output is read-only");
         assert!(page.rows[1].scopes.global);
         assert!(
@@ -797,7 +845,7 @@ mod tests {
         let config = config();
         let presets = Presets::default();
         let detected = Detected::default();
-        for class in [DisplayClass::Crt, DisplayClass::FlatPanel] {
+        for class in [DisplayClass::Crt, DisplayClass::FlatPanel, DisplayClass::Tv] {
             let names = Names {
                 presets: &presets,
                 detected: &detected,
@@ -812,9 +860,9 @@ mod tests {
             ] {
                 for row in page.rows.iter().filter(|r| r.key.0 < ACTION_KEY_BASE) {
                     let entry = entry(&config, row.key).expect("a setting");
-                    let expected =
-                        (!entry.applies_to.applies(class)).then(|| NOT_USED_ON_A_PANEL.to_owned());
+                    let expected = not_used(entry, class).map(str::to_owned);
                     assert_eq!(row.unavailable, expected, "{} {class:?}", entry.key);
+                    assert!(entry.applies_to.shown(class), "{} {class:?}", entry.key);
                 }
             }
         }
@@ -895,7 +943,70 @@ mod tests {
         assert_eq!(unique.len(), keys.len(), "one key per row");
         let video = video_page(&config, names);
         assert!(video.is_for(VIDEO_PAGE));
-        assert_eq!(video.rows.len(), VIDEO_KEYS.len());
+        assert_eq!(
+            video.rows.len(),
+            VIDEO_KEYS.len() - 1,
+            "no TV width on a CRT"
+        );
         assert!(video.rows.iter().all(|r| r.scopes.game));
+    }
+
+    #[test]
+    fn on_a_tv_the_display_page_shows_the_standard_and_the_width() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            styles: &[],
+            class: DisplayClass::Tv,
+            outputs: &[],
+        };
+        let page = display_page(&config, names);
+        let labels: Vec<_> = page.rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "Output",
+                "Monitor profile",
+                "TV standard",
+                "TV picture width",
+                "Picture style",
+                "Refresh policy",
+                "Scanlines",
+                "Scanline strength",
+                "Hold Start for menu",
+                "Grid pattern",
+            ]
+        );
+        assert_eq!(page.rows[1].unavailable.as_deref(), Some(NOT_USED_ON_A_TV));
+        let SettingValue::Choice { index, options } = &page.rows[2].value else {
+            panic!("a choice");
+        };
+        assert_eq!(*index, 0);
+        let shown: Vec<_> = options
+            .iter()
+            .map(|o| (o.label.as_str(), o.detail.as_str()))
+            .collect();
+        assert_eq!(shown[0], ("auto", "NTSC (60 Hz)"));
+        assert_eq!(shown[1], ("NTSC (60 Hz)", ""));
+        assert_eq!(shown[4], ("PAL 60 (60 Hz)", ""));
+        assert_eq!(shown[6], ("PAL (50 Hz)", ""));
+        assert_eq!(options.len(), neptron_settings::TV_STANDARDS.len());
+        assert!(page.rows[2].scopes.global && !page.rows[2].scopes.game);
+        let tv = config.schema().get(DISPLAY_TV).expect("tv");
+        assert_eq!(
+            value_of(tv, UiValue::Choice(6), names, &config),
+            Some(Value::Text("pal".to_owned()))
+        );
+        let SettingValue::Choice { options, .. } = &page.rows[3].value else {
+            panic!("a choice");
+        };
+        let widths: Vec<_> = options.iter().map(|o| o.label.as_str()).collect();
+        assert_eq!(widths, ["aspect", "integer", "fill"]);
+        let video = video_page(&config, names);
+        assert_eq!(video.rows[0].label, "TV picture width");
+        assert!(video.rows[0].scopes.game, "the width of one game");
     }
 }

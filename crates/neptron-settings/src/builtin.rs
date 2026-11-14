@@ -80,7 +80,25 @@ pub const AUDIO_OUTPUT: &str = "audio.output";
 /// The longest playback device name that [`AUDIO_OUTPUT`] holds, in bytes.
 pub const AUDIO_OUTPUT_MAX_LEN: usize = 128;
 
-static BUILTIN: [Entry; 9] = [
+/// The key of the TV standard of a composite output: `auto` (NTSC) or one of
+/// [`TV_STANDARDS`].
+pub const DISPLAY_TV: &str = "display.tv";
+
+/// The choices of [`DISPLAY_TV`], in menu order: `auto`, then the keys of the ten
+/// standards of the encoder in the order of `TvStandard::ALL`.
+pub const TV_STANDARDS: &[&str] = &[
+    "auto", "ntsc", "ntsc_j", "ntsc_443", "pal_60", "pal_m", "pal", "pal_n", "secam", "mono_60",
+    "mono_50",
+];
+
+/// The key of the width of the game on a TV: one of [`TV_WIDTHS`].
+pub const DISPLAY_TV_WIDTH: &str = "display.tv_width";
+
+/// The choices of [`DISPLAY_TV_WIDTH`], in menu order. `aspect` gives the console's own
+/// shape, `integer` a whole factor of the game width, `fill` the full 4:3 width.
+pub const TV_WIDTHS: &[&str] = &["aspect", "integer", "fill"];
+
+static BUILTIN: [Entry; 11] = [
     Entry {
         key: DISPLAY_OUTPUT,
         label: "Output",
@@ -103,7 +121,7 @@ static BUILTIN: [Entry; 9] = [
         levels: Levels::GLOBAL,
         live: true,
         safety: Safety::ConfirmOrRevert,
-        applies_to: AppliesTo::Every,
+        applies_to: AppliesTo::NotTv,
     },
     Entry {
         key: DISPLAY_STYLE,
@@ -192,6 +210,32 @@ static BUILTIN: [Entry; 9] = [
         safety: Safety::None,
         applies_to: AppliesTo::Every,
     },
+    // The standard is the monitor of a TV, so it is global as the monitor is: the guard
+    // keeps the monitor of the boot for every game, and a per-game standard would revert.
+    Entry {
+        key: DISPLAY_TV,
+        label: "TV standard",
+        kind: Kind::Choice {
+            choices: TV_STANDARDS,
+            default: "auto",
+        },
+        levels: Levels::GLOBAL,
+        live: true,
+        safety: Safety::ConfirmOrRevert,
+        applies_to: AppliesTo::Tv,
+    },
+    Entry {
+        key: DISPLAY_TV_WIDTH,
+        label: "TV picture width",
+        kind: Kind::Choice {
+            choices: TV_WIDTHS,
+            default: "aspect",
+        },
+        levels: Levels::ALL,
+        live: true,
+        safety: Safety::Validated,
+        applies_to: AppliesTo::Tv,
+    },
 ];
 
 impl Schema {
@@ -266,6 +310,76 @@ mod tests {
         assert_eq!(default(DISPLAY_SCANLINE_STRENGTH), "75");
         assert_eq!(default(AUDIO_VOLUME), "80");
         assert_eq!(default(AUDIO_OUTPUT), "auto");
+        assert_eq!(default(DISPLAY_TV), "auto");
+        assert_eq!(default(DISPLAY_TV_WIDTH), "aspect");
+    }
+
+    #[test]
+    fn the_tv_standard_is_global_and_the_width_is_at_every_level() {
+        let schema = Schema::builtin();
+        let tv = schema.get(DISPLAY_TV).unwrap();
+        assert_eq!(tv.levels, Levels::GLOBAL);
+        assert_eq!(tv.safety, Safety::ConfirmOrRevert);
+        assert_eq!(tv.applies_to, AppliesTo::Tv);
+        let width = schema.get(DISPLAY_TV_WIDTH).unwrap();
+        assert_eq!(width.levels, Levels::ALL);
+        assert_eq!(width.safety, Safety::Validated);
+        assert_eq!(width.applies_to, AppliesTo::Tv);
+        let parsed = parse_layer(
+            &schema,
+            Level::Global,
+            "[display]\ntv = \"pal_60\"\ntv_width = \"integer\"\n",
+        );
+        assert_eq!(parsed.issues, []);
+        assert_eq!(
+            parsed.layer.get(DISPLAY_TV),
+            Some(&Value::Text("pal_60".into()))
+        );
+        let game = parse_layer(
+            &schema,
+            Level::Game,
+            "[display]\ntv = \"pal\"\ntv_width = \"fill\"\n",
+        );
+        assert_eq!(game.layer.get(DISPLAY_TV), None);
+        assert_eq!(
+            game.issues[0].kind,
+            IssueKind::LevelNotAllowed { level: Level::Game }
+        );
+        assert_eq!(
+            game.layer.get(DISPLAY_TV_WIDTH),
+            Some(&Value::Text("fill".into()))
+        );
+        let bad = parse_layer(&schema, Level::Global, "[display]\ntv = \"pal_70\"\n");
+        assert_eq!(bad.layer.get(DISPLAY_TV), None);
+        assert!(matches!(
+            bad.issues[0].kind,
+            IssueKind::Invalid {
+                reason: Invalid::NotAChoice { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn a_tv_setting_shows_only_on_a_tv_and_the_monitor_never_applies_there() {
+        let schema = Schema::builtin();
+        for entry in schema.entries() {
+            let tv_only = [DISPLAY_TV, DISPLAY_TV_WIDTH].contains(&entry.key);
+            for class in [DisplayClass::Crt, DisplayClass::FlatPanel] {
+                assert_eq!(
+                    entry.applies_to.shown(class),
+                    !tv_only,
+                    "{} {class:?}",
+                    entry.key
+                );
+            }
+            assert!(entry.applies_to.shown(DisplayClass::Tv), "{}", entry.key);
+            assert_eq!(
+                entry.applies_to.applies(DisplayClass::Tv),
+                entry.key != DISPLAY_MONITOR,
+                "{}",
+                entry.key
+            );
+        }
     }
 
     #[test]
@@ -549,6 +663,9 @@ mod tests {
     fn style_and_refresh_policy_apply_only_to_a_crt() {
         let schema = Schema::builtin();
         for entry in schema.entries() {
+            if entry.applies_to == AppliesTo::Tv {
+                continue;
+            }
             let crt_only = [DISPLAY_STYLE, DISPLAY_REFRESH_POLICY].contains(&entry.key);
             assert!(entry.applies_to.applies(DisplayClass::Crt), "{}", entry.key);
             assert_eq!(

@@ -134,16 +134,24 @@ pub enum DisplayClass {
     Crt,
     /// A flat panel: the game is scaled into a mode that the panel lists.
     FlatPanel,
+    /// A TV on a composite encoder: a CRT whose modes are the fixed modes
+    /// of a broadcast standard.
+    Tv,
 }
 
 /// The displays on which a setting has an effect. The settings screen, the quick menu and
-/// the UI crawler read it, so a row that has no effect on the display shows as disabled.
+/// the UI crawler read it: a row that has no effect on the display shows as disabled, and a
+/// row of a TV setting shows only on a TV.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AppliesTo {
     /// Every display.
     Every,
-    /// A CRT only. The flat-panel path ignores the value.
+    /// A CRT, a TV included. The flat-panel path ignores the value.
     Crt,
+    /// A TV only. The menus show the row only on a TV.
+    Tv,
+    /// Every display but a TV: a TV takes its monitor profile from its standard.
+    NotTv,
 }
 
 impl AppliesTo {
@@ -151,8 +159,17 @@ impl AppliesTo {
     pub fn applies(self, class: DisplayClass) -> bool {
         match self {
             AppliesTo::Every => true,
-            AppliesTo::Crt => class == DisplayClass::Crt,
+            AppliesTo::Crt => class != DisplayClass::FlatPanel,
+            AppliesTo::Tv => class == DisplayClass::Tv,
+            AppliesTo::NotTv => class != DisplayClass::Tv,
         }
+    }
+
+    /// True when the menus show the row of the setting on a display of `class`: a TV
+    /// setting is hidden on every other display, and any other setting shows, disabled
+    /// where it does not apply.
+    pub fn shown(self, class: DisplayClass) -> bool {
+        self != AppliesTo::Tv || class == DisplayClass::Tv
     }
 }
 

@@ -3,8 +3,9 @@
 
 use neptron_settings::{
     AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
-    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, INPUT_MENU_HOLD_START_SECONDS,
-    Layer, Layers, Level, Resolved, Schema, SetError, Storage, Target, Value, resolve_key,
+    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH,
+    INPUT_MENU_HOLD_START_SECONDS, Layer, Layers, Level, Resolved, Schema, SetError, Storage,
+    Target, Value, resolve_key,
 };
 use neptron_video::{
     PolicySettings, ScanlineSettings, SettingsError, policy_settings, scanline_settings,
@@ -159,7 +160,8 @@ impl Config {
         }
     }
 
-    /// The picture style and refresh policy of the context.
+    /// The picture style, the refresh policy and the TV width of the
+    /// context.
     ///
     /// # Errors
     ///
@@ -169,11 +171,12 @@ impl Config {
             &self.text(DISPLAY_STYLE),
             &self.text(DISPLAY_REFRESH_POLICY),
             None,
+            &self.text(DISPLAY_TV_WIDTH),
         )
     }
 
-    /// The picture style and refresh policy of the global level, which the
-    /// guard starts from.
+    /// The picture style, the refresh policy and the TV width of the global
+    /// level, which the guard starts from.
     ///
     /// # Errors
     ///
@@ -184,7 +187,12 @@ impl Config {
                 .map(|r| r.value.to_string())
                 .unwrap_or_default()
         };
-        policy_settings(&text(DISPLAY_STYLE), &text(DISPLAY_REFRESH_POLICY), None)
+        policy_settings(
+            &text(DISPLAY_STYLE),
+            &text(DISPLAY_REFRESH_POLICY),
+            None,
+            &text(DISPLAY_TV_WIDTH),
+        )
     }
 
     /// The scanline settings of the context.
@@ -220,6 +228,11 @@ impl Config {
     /// The monitor setting: `auto` or a profile id.
     pub fn monitor(&self) -> String {
         self.text(DISPLAY_MONITOR)
+    }
+
+    /// The TV standard setting: `auto` (NTSC) or the key of a standard.
+    pub fn tv(&self) -> String {
+        self.text(DISPLAY_TV)
     }
 
     /// The output setting: `auto` or a connector name.
@@ -323,6 +336,21 @@ mod tests {
             c.set(Level::Game, DISPLAY_MONITOR, Value::Text("x".to_owned()))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn the_tv_width_of_the_game_wins_and_the_standard_is_global() {
+        let c = config(
+            "[display]\ntv = \"pal\"\ntv_width = \"fill\"\n",
+            "[display]\ntv_width = \"integer\"\n",
+            "",
+        );
+        assert_eq!(c.policy().expect("policy").tv_width.key(), "integer");
+        assert_eq!(c.global_policy().expect("policy").tv_width.key(), "fill");
+        assert_eq!(c.tv(), "pal");
+        let (none, _) = Config::load(&Storage::new("/nonexistent/config"), None);
+        assert_eq!(none.tv(), "auto");
+        assert_eq!(none.policy().expect("policy").tv_width.key(), "aspect");
     }
 
     #[test]

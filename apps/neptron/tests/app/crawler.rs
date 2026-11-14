@@ -3,7 +3,8 @@
 //! dead end, on clipped text of any row, on a row outside the
 //! overscan-safe area, on a schema setting it could not reach, and on a
 //! setting row whose disabled state does not follow the schema's
-//! `applies_to` for the display of the run.
+//! `applies_to` for the display of the run. A TV setting must show on a
+//! TV and nowhere else.
 //!
 //! It also checks the row rule of the menus: a row that opens a screen has
 //! the kind `page` (the arrow), an enabled `page` row opens a screen, and
@@ -14,7 +15,9 @@
 use std::collections::BTreeSet;
 
 use neptron::NextRun;
-use neptron::pages::{NOT_USED_ON_A_PANEL, REBOOT_LABEL, RESCAN_LABEL, SHUT_DOWN_LABEL};
+use neptron::pages::{
+    NOT_USED_ON_A_PANEL, NOT_USED_ON_A_TV, REBOOT_LABEL, RESCAN_LABEL, SHUT_DOWN_LABEL,
+};
 use neptron_settings::{DisplayClass, Schema};
 use neptron_types::Control;
 use neptron_ui::RowKind;
@@ -145,9 +148,10 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
         );
     }
     for entry in Schema::builtin().entries() {
-        assert!(
+        assert_eq!(
             found.labels.contains(entry.label),
-            "the setting {} ({}) is on no screen",
+            entry.applies_to.shown(class),
+            "the setting {} ({}) is on a screen only where it shows",
             entry.key,
             entry.label
         );
@@ -185,7 +189,8 @@ fn crawl(rig: &mut Rig, found: &mut Found, depth: usize) {
         );
         let schema = Schema::builtin();
         if let Some(entry) = row.setting.as_deref().and_then(|key| schema.get(key)) {
-            let disabled = row.value.as_deref() == Some(NOT_USED_ON_A_PANEL);
+            let disabled =
+                [Some(NOT_USED_ON_A_PANEL), Some(NOT_USED_ON_A_TV)].contains(&row.value.as_deref());
             assert_eq!(
                 disabled,
                 !entry.applies_to.applies(found.class),
