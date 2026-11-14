@@ -147,7 +147,7 @@ A callback finds the state through the thread-local slot, with `try_with` and `R
 - The slot holds a state only during a call from the host into the core, on the host's thread.
 - A callback on another thread, or a callback outside a call from the host (for example from a core thread after `retro_run` returned), finds no state. It then does nothing and returns the default: `false` for the environment, `0` for input, the full count for audio (the samples are dropped, so a core that loops until its audio is taken does not hang).
 - A callback that finds the slot borrowed (a nested callback) also gets the default.
-- Pointers that the host gives to the core (directory strings, option values, content data and strings, the log function) point into heap memory of the state. That memory does not move when the box moves. Each pointer stays valid as long as the header requires: directories for the life of the host, an option value until that option changes, content until `retro_unload_game`.
+- Pointers that the host gives to the core (directory strings, option values, content data and strings, the log function) point into heap memory of the state. That memory does not move when the box moves. Each pointer stays valid as long as the header requires: directories for the life of the host, an option value until that option changes or the core declares the options again, content until `retro_unload_game`.
 
 ## Panics
 
@@ -207,10 +207,10 @@ The sample rate is in millihertz, not hertz, because cores report fractions (32,
 
 - `retro_get_system_av_info` after `retro_load_game`: a value that fails a check fails the load with `LoadError::InvalidAvInfo`. The host unloads the game first.
 - `SET_GEOMETRY`: `libretro.h` says the maximum does not change, so the host keeps the current maximum and checks the new base size against it. On success: `true` and `Event::Geometry`. On failure: `false` and `Event::Refused`.
-- `SET_SYSTEM_AV_INFO`: the full check. On success the host grows the buffers if the maximum grew, then answers `true` and adds `Event::AvInfo`. On failure: `false` and `Event::Refused`.
+- `SET_SYSTEM_AV_INFO`: the full check. On success the host grows the frame buffer if the maximum grew and the audio buffer if the frames per run grew, then answers `true` and adds `Event::AvInfo`. A value that fails a check gives `false` and `Event::Refused(Refusal::AvInfo)`. An allocation that fails gives `false` and `Event::Refused(Refusal::OutOfMemory)`.
 - Either call before `load_game` has read the AV info: the host answers `true` and ignores it, because the AV info read after the load supersedes it. It logs this once.
 
-The engine gets the event in the output of the frame where the core made the call. The frames after the call in the same `retro_run` already use the new size.
+The engine gets the event in the output of the frame where the core made the call. The frames after the call in the same `retro_run` use the new size.
 
 ## Pixel formats
 
@@ -306,7 +306,7 @@ Zip content:
 
 - The host opens the archive read-only and never changes it.
 - It takes the first entry in central-directory order that is not a directory and whose extension is in `request.extensions` (compared without case).
-- No such entry: `LoadError::Zip(ZipError::NoMatchingEntry)`.
+- No such entry: `LoadError::Zip { path, source: ZipError::NoMatchingEntry { extensions } }`.
 - `need_fullpath` for the entry's extension: `LoadError::ZipNeedsFullPath`. The MVP does not extract to a file.
 - The entry is read into memory: stored or deflate only, at most `MAX_CONTENT_BYTES`, CRC-32 checked. A damaged archive, an encrypted entry, another method, ZIP64, a multi-disk archive or an entry above the limit is a typed `ZipError`.
 - The core gets the data and the path `<archive path>#<entry name>`, as RetroArch names it.
@@ -321,7 +321,7 @@ ROMs and BIOS files are user data. The host opens content read-only and never wr
 
 ### The zip reader
 
-The host reads zip files with `miniz_oxide` (raw deflate) and its own central-directory reader of about 250 lines.
+The host reads zip files with `miniz_oxide` (raw deflate) and its own central-directory reader of about 340 lines.
 
 - `miniz_oxide` is pure Rust, licensed MIT, Zlib or Apache-2.0, and has one dependency (`adler2`, 0BSD, MIT or Apache-2.0). It compiles in about one second. It is the deflate code that `flate2` and the Rust standard library's backtrace code use.
 - The `zip` crate with only deflate pulls in `flate2`, `crc32fast`, `indexmap` and more, and also writes archives. The host needs one read path.
@@ -379,6 +379,7 @@ Each module owns its error enum, made with `thiserror`. Each variant carries the
 | `MIN_FPS_MHZ`, `MAX_FPS_MHZ` | 1,000, 1,000,000 |
 | `MIN_SAMPLE_RATE_MHZ`, `MAX_SAMPLE_RATE_MHZ` | 1,000, 384,000,000 |
 | `MAX_CONTENT_BYTES` | 64 MiB |
+| `MAX_CENTRAL_DIRECTORY_BYTES` | 16 MiB |
 | `MAX_SAVE_RAM_BYTES` | 16 MiB |
 | `MAX_CORE_STRING_BYTES` | 16,384 |
 | `MAX_OPTIONS` | 1,024 |
@@ -387,6 +388,7 @@ Each module owns its error enum, made with `thiserror`. Each variant carries the
 | `EVENT_CAPACITY` | 32 per frame |
 | `LOG_CAPACITY`, `LOG_TEXT_MAX_BYTES` | 64 records, 1,024 bytes |
 | `MAX_LOGGED_COMMANDS` | 64 |
+| `MESSAGE_MAX_BYTES` | 1,024 |
 
 ## No allocation in the frame path
 
