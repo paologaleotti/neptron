@@ -38,8 +38,9 @@ On Raspberry Pi the GPIO DAC cannot be detected, and loading its overlay needs a
 
 **Composite on a Pi at first boot** needs no file and carries no signal risk, because composite timings are fixed broadcast standards.
 
-- Pi 3: composite is available alongside HDMI, so with no HDMI display detected NEPTRON simply uses it.
-- Pi 4, Pi 5 and Zero 2 W: composite needs `enable_tvout=1`, which the firmware reads before NEPTRON starts and which switches HDMI off. With no HDMI display detected and no file entry, NEPTRON writes that line and reboots once, then comes up on composite. Setting `output = "Composite-1"` in the file skips the extra reboot.
+- Pi 3: composite and HDMI both exist with no reboot, but HDMI and the composite encoder share one pixel valve, so only one of them is driven at a time. With no HDMI display detected NEPTRON uses composite.
+- Pi 4 and Zero 2 W: composite needs `enable_tvout=1`, which the firmware reads before NEPTRON starts and which switches HDMI off. With no HDMI display detected and no file entry, NEPTRON writes that line and reboots once, then comes up on composite. Setting `output = "Composite-1"` in the file skips the extra reboot.
+- Pi 5: composite comes from the RP1 encoder on the `J7` pad and does not switch HDMI off.
 - The standard: with `tv = "auto"` NEPTRON starts in NTSC timing at 60 Hz with a sound cue, and the wizard's first question is whether the picture is stable and in colour, with a one-button switch to PAL under confirm-or-revert. A wrong standard gives a black-and-white or rolling picture, never damage.
 - Composite is never chosen when a GPIO DAC is named in the file. A DAC is never tried automatically: driving GPIO pins with an unknown board attached is the one probe NEPTRON does not make.
 
@@ -52,7 +53,7 @@ output  = "auto"       # auto | VGA-1 | HDMI-A-1 | DP-1 | DPI-1 | Composite-1
 monitor = "auto"       # auto | arcade_15 | generic_15 | ntsc | pal | pc_31_120 | vesa_480 | flat
 style   = "auto"       # auto | native | 2x | 3x | 4x
 pi_dac  = "none"       # none | vga666 | rgb-pi | pi2scart   (Raspberry Pi only)
-tv      = "auto"       # auto | pal | ntsc              (composite only)
+tv      = "auto"       # auto | ntsc | ntsc_j | ntsc_443 | pal_60 | pal_m | pal | pal_n | secam | mono_60 | mono_50  (composite only)
 
 [network]
 wifi_ssid     = ""
