@@ -293,6 +293,9 @@ jobs:
           fi
           if [ "$STATE" != ccache ]; then
             zstd -dc "$WORK/base/out.tar.zst" | sudo tar --numeric-owner -xpf - -C "$OUT_DIR"
+            # The base holds no images/. Without these stamps the kernel and
+            # the boot loaders install their files there again.
+            sudo find "$OUT_DIR/build" -mindepth 2 -maxdepth 2 -name .stamp_images_installed -delete
             # The output says every package is downloaded, so Buildroot never
             # fetches those archives again, but make legal-info copies them.
             if [ -f "$WORK/base/dl.tar" ]; then
