@@ -98,7 +98,8 @@ precision highp float;
 uniform sampler2D u_texture;
 uniform vec4 u_dest;
 uniform vec4 u_crop;
-// The frame width and height in pixels, then their inverses.
+// The frame width and height in pixels, then the inverse width and height
+// of the texture storage, which can be larger than the frame.
 uniform vec4 u_frame;
 // 1 / (2 * dest width) and 1 / (2 * dest height), then the prescale of
 // each axis.

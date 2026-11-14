@@ -69,8 +69,10 @@ use crate::{Image, OutputBuffer, RectKind};
 /// made it. Each call makes the context current first, which replaces any
 /// other context that is current on the thread. Dropping the renderer
 /// releases the current context of the thread. Textures, the buffer of
-/// source texels and the read-back buffer are made on the first call and
-/// again when a size changes; other calls allocate nothing.
+/// source texels and the read-back buffer are made on the first call. A
+/// source texture and the buffer of source texels only grow; the read-back
+/// buffer is made again when the output size changes. Other calls allocate
+/// nothing.
 ///
 /// # Byte order
 ///
@@ -307,7 +309,7 @@ impl GlesRenderer {
                 // shader tests check it for each one.
                 let (program, uniforms) = &self.programs[draw.quad.variant.index()];
                 gl.bind_quad(*program, self.corners, texture.texture);
-                uniforms.set(&gl, &draw.quad, width, height);
+                uniforms.set(&gl, &draw.quad, (width, height), texture.size);
                 gl.draw_quad();
             }
         }
@@ -424,17 +426,27 @@ impl SourceTexture {
         })
     }
 
-    /// Copies `frame` into the texture. The caller checked the frame and
-    /// the texture limit, so both sides fit a `u32`.
+    /// Copies `frame` into the top left of the texture. The storage only
+    /// grows, so a game that switches between sizes (a hi-res or
+    /// interlaced SNES frame, the two widths of the Mega Drive) allocates
+    /// at its largest size once, not at each switch. The caller checked
+    /// the frame and the texture limit, so both sides fit a `u32`.
     fn upload(&mut self, gl: &Gl<'_>, frame: &Frame<'_>) -> Result<(), GlesError> {
         let size = (u32::from(frame.width), u32::from(frame.height));
-        if self.size != size {
-            gl.allocate(self.texture, Storage::Source, size.0, size.1);
-            self.size = size;
+        let storage = grown(self.size, size);
+        if storage != self.size {
+            gl.allocate(self.texture, Storage::Source, storage.0, storage.1);
+            self.size = storage;
         }
         let data = texels::packed(frame, &mut self.staging)?;
         gl.upload(self.texture, data, size.0, size.1)
     }
+}
+
+/// The storage that holds a frame of `frame` texels after storage of
+/// `storage`: each side only grows.
+fn grown(storage: (u32, u32), frame: (u32, u32)) -> (u32, u32) {
+    (storage.0.max(frame.0), storage.1.max(frame.1))
 }
 
 /// The framebuffer object that the headless renderer draws into, and the
@@ -524,7 +536,9 @@ impl Uniforms {
         }
     }
 
-    fn set(&self, gl: &Gl<'_>, quad: &Quad, width: u32, height: u32) {
+    /// Sets every uniform of `quad` on an output of `width` by `height`,
+    /// from a texture whose storage is `storage` texels.
+    fn set(&self, gl: &Gl<'_>, quad: &Quad, (width, height): (u32, u32), storage: (u32, u32)) {
         gl.set_vec4(
             self.output.as_ref(),
             [width as f32, height as f32, 0.0, 0.0],
@@ -532,7 +546,17 @@ impl Uniforms {
         gl.set_vec4(self.visible.as_ref(), quad.visible);
         gl.set_vec4(self.dest.as_ref(), quad.dest);
         gl.set_vec4(self.crop.as_ref(), quad.crop);
-        gl.set_vec4(self.frame.as_ref(), quad.frame);
+        let [frame_width, frame_height, ..] = quad.frame;
+        let inverse = |side: u32| 1.0 / side.max(1) as f32;
+        gl.set_vec4(
+            self.frame.as_ref(),
+            [
+                frame_width,
+                frame_height,
+                inverse(storage.0),
+                inverse(storage.1),
+            ],
+        );
         gl.set_vec4(self.axis.as_ref(), quad.axis);
         gl.set_vec4(self.bounds.as_ref(), quad.bounds);
         gl.set_vec4(self.scan.as_ref(), quad.scan);
@@ -549,6 +573,14 @@ mod tests {
     fn headless_without_libegl_is_a_load_error() {
         let err = GlesRenderer::headless().unwrap_err();
         assert!(matches!(err, GlesError::LoadEgl { .. }), "{err}");
+    }
+
+    #[test]
+    fn the_source_storage_only_grows() {
+        assert_eq!(grown((0, 0), (256, 224)), (256, 224));
+        assert_eq!(grown((256, 224), (512, 224)), (512, 224));
+        assert_eq!(grown((512, 224), (256, 448)), (512, 448));
+        assert_eq!(grown((512, 448), (256, 224)), (512, 448));
     }
 
     #[test]

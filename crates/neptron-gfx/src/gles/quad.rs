@@ -24,8 +24,9 @@ pub(super) struct Quad {
     pub(super) dest: [f32; 4],
     /// The crop: x, y, width, height, in source pixels.
     pub(super) crop: [f32; 4],
-    /// The source width and height in pixels, then their inverses: the
-    /// texture holds one texel per pixel.
+    /// The source width and height in pixels, then 0 and 0: the renderer
+    /// sets the inverse size of the texture storage, which can be larger
+    /// than the frame.
     pub(super) frame: [f32; 4],
     /// `1 / (2 * dest.w)` and `1 / (2 * dest.h)`, for the exact quotients,
     /// then the prescale `p` of each axis.
@@ -96,12 +97,7 @@ pub(super) fn quad(
         visible: [x.first_out, y.first_out, x.len, y.len],
         dest: [x.first_index, y.first_index, dest.w as f32, dest.h as f32],
         crop: [x.crop_start, y.crop_start, crop.w as f32, crop.h as f32],
-        frame: [
-            f32::from(frame.width),
-            f32::from(frame.height),
-            1.0 / f32::from(frame.width),
-            1.0 / f32::from(frame.height),
-        ],
+        frame: [f32::from(frame.width), f32::from(frame.height), 0.0, 0.0],
         axis: [x.recip, y.recip, x.prescale, y.prescale],
         bounds: [x.bounds.0, y.bounds.0, x.bounds.1, y.bounds.1],
         variant: Variant {
@@ -214,7 +210,7 @@ mod tests {
         assert_eq!(q.visible, [4.0, 3.0, 24.0, 18.0]);
         assert_eq!(q.dest, [0.0, 0.0, 24.0, 18.0]);
         assert_eq!(q.crop, [1.0, 2.0, 8.0, 6.0]);
-        assert_eq!(q.frame, [10.0, 8.0, 0.1, 0.125]);
+        assert_eq!(q.frame, [10.0, 8.0, 0.0, 0.0]);
         assert_eq!(q.axis, [1.0 / 48.0, 1.0 / 36.0, 3.0, 3.0]);
         assert_eq!(q.bounds, [1.0, 2.0, 8.0, 7.0]);
         assert_eq!(q.variant, Variant::ALL[0], "a whole scale blends nothing");
