@@ -1749,27 +1749,86 @@ impl Run {
     }
 }
 
-/// The boot that only makes the offer scans the first 256 MiB after the
-/// planned start; the request boot scans the first 4 GiB of partition 4
-/// before the format.
+/// The offer runs the scan of the request, so it never promises what the
+/// request refuses.
 #[test]
-fn the_offer_scans_256_mib_and_the_request_scans_4_gib() {
+fn the_offer_and_the_request_scan_the_same_window() {
     let sectors = 512 * MIB_SECTORS;
-    let within = Run::with_large_partition_4("scan-offer-within", sectors);
-    within.exfat_at(PLANNED + 255 * MIB_SECTORS);
-    within
-        .start()
-        .assert_no_offer(Some("an exFAT boot sector starts at sector"));
-
-    let beyond = Run::with_large_partition_4("scan-offer-beyond", sectors);
-    beyond.exfat_at(PLANNED + 256 * MIB_SECTORS);
-    let offered = beyond.boot(&[]);
-    assert!(offered.offer().is_some(), "{offered:#?}");
-    beyond.write_request(&beyond.sda4(), PLANNED, sectors, "7");
-    beyond.boot(&[]).assert_request_refused(&format!(
+    let run = Run::with_large_partition_4("scan-same-window", sectors);
+    run.exfat_at(PLANNED + 300 * MIB_SECTORS);
+    let offer = run.boot(&[]);
+    offer.assert_no_offer(Some(&format!(
         "an exFAT boot sector starts at sector {} of the disk",
-        PLANNED + 256 * MIB_SECTORS
+        PLANNED + 300 * MIB_SECTORS
+    )));
+    run.write_request(&run.sda4(), PLANNED, sectors, "7");
+    run.boot(&[]).assert_request_refused(&format!(
+        "an exFAT boot sector starts at sector {} of the disk",
+        PLANNED + 300 * MIB_SECTORS
     ));
+}
+
+impl Run {
+    /// A disk whose last partition is an empty partition 4 of type 7 at
+    /// `start` with `sectors`, in the table and in the kernel, with no
+    /// marker. The disk ends with partition 4.
+    fn with_partition_4_at(name: &str, start: u64, sectors: u64) -> Self {
+        let run = Run::new(name);
+        std::fs::write(
+            run.path("sys/devices/blk/sda/size"),
+            format!("{}\n", start + sectors),
+        )
+        .unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(run.path("dev/sda"))
+            .unwrap()
+            .set_len((start + sectors) * 512)
+            .unwrap();
+        run.table_partition_4(start, sectors, "7");
+        run.add_partition(4, start, sectors);
+        run
+    }
+}
+
+/// The space between the planned start and a partition 4 far after it
+/// would cost minutes of scan, and a share there could run into
+/// partition 4: such a partition is neither offered nor formatted.
+#[test]
+fn a_partition_4_far_past_the_planned_start_cannot_be_checked() {
+    let gap = 4096 * MIB_SECTORS + MIB_SECTORS;
+    let start = PLANNED + gap;
+    let run = Run::with_partition_4_at("gap-too-large", start, 64 * MIB_SECTORS)
+        .set("FAKE_DD_LOG", "yes");
+    let offer = run.boot(&[]);
+    offer.assert_no_offer(Some(&format!(
+        "it cannot be checked, because it starts {gap} sectors after the planned start of the share, more than 8388608"
+    )));
+    run.write_request(&run.sda4(), start, 64 * MIB_SECTORS, "7");
+    let request = run.boot(&[]);
+    request.assert_request_refused("it cannot be checked");
+    for out in [&offer, &request] {
+        assert_eq!(
+            out.log
+                .lines()
+                .filter(|l| l.starts_with("dd ") && l.contains("bs=1 "))
+                .count(),
+            0,
+            "no scan runs: {out:#?}"
+        );
+    }
+}
+
+/// Within the bound, the scan covers the whole space before partition 4.
+#[test]
+fn an_old_share_in_the_gap_before_partition_4_is_found() {
+    let start = PLANNED + 300 * MIB_SECTORS;
+    let run = Run::with_partition_4_at("gap-share", start, 64 * MIB_SECTORS);
+    run.exfat_at(start - MIB_SECTORS);
+    run.start().assert_no_offer(Some(&format!(
+        "an exFAT boot sector starts at sector {} of the disk",
+        start - MIB_SECTORS
+    )));
 }
 
 #[test]
