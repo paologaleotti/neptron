@@ -1233,3 +1233,33 @@ fn the_post_fakeroot_check_refuses_a_share_account_that_can_log_in() {
         assert!(err.contains(fault), "{name}: {err}");
     }
 }
+
+/// The x86-64 and Pi images have a read-only EROFS root, so init cannot
+/// make the mount point of the 9p share at boot. The common post-build
+/// step makes it in every image, and the mount script only mounts.
+#[test]
+fn every_image_has_the_mount_point_of_the_host_share() {
+    let dir = TempDir::create("mnt-host");
+    let (ok, err, _) = post_build(&dir, "auto lo\niface lo inet loopback\n", false);
+    assert!(ok, "{err}");
+    let mount_point = super::trace::GUEST_SHARE.trim_start_matches('/');
+    let made = dir.path("target").join(mount_point);
+    assert!(made.is_dir(), "{} is not a directory", made.display());
+    assert_eq!(std::fs::read_dir(&made).unwrap().count(), 0, "not empty");
+    let again = run_post_build(&dir);
+    assert!(again.status.success(), "{again:?}");
+
+    for arch in [Arch::Aarch64, Arch::X86_64] {
+        assert!(
+            defconfig(arch)["BR2_ROOTFS_POST_BUILD_SCRIPT"]
+                .contains("$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/post-build.sh"),
+            "{arch:?}"
+        );
+    }
+    let mounts = read(&format!("{OVERLAY}/etc/init.d/S05neptron-mounts"));
+    assert!(
+        mounts.contains(&format!("neptron {}\n", super::trace::GUEST_SHARE)),
+        "{mounts}"
+    );
+    assert!(!mounts.contains("mkdir"), "the root is read-only: {mounts}");
+}
