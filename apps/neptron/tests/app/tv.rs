@@ -389,3 +389,133 @@ fn a_game_on_a_tv_runs_in_the_modes_of_the_standard() {
         },
     );
 }
+
+/// The global settings file with `text` after the version.
+fn write_global(rig: &Rig, text: &str) {
+    std::fs::create_dir_all(rig.paths.config()).expect("config");
+    std::fs::write(
+        rig.paths.config().join("global.toml"),
+        format!("schema_version = 1\n\n{text}"),
+    )
+    .expect("global.toml");
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn a_boot_prompt_on_a_new_standard_that_times_out_writes_the_kept_one() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "a_boot_prompt_on_a_new_standard_that_times_out_writes_the_kept_one",
+        ),
+        |dir| {
+            let mut rig = composite_rig(dir);
+            rig.boot(None);
+            rig.frames(2);
+            rig.keep();
+            rig.finish();
+            let record = rig.state_file("video/guard.toml");
+            assert!(record.contains("id = \"tv_ntsc\""), "{record}");
+
+            // PAL from a file, as neptron.toml or a hand edit gives it.
+            write_global(&rig, "[display]\ntv = \"pal\"\n");
+            rig.boot(None);
+            rig.frames(2);
+            assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+            assert_eq!(on_wire(&rig), (TV_625_288P, TvStandard::Pal));
+            rig.frames(CONFIRM_WINDOW_FRAMES);
+            assert_eq!(on_wire(&rig), (TV_525_240P, TvStandard::Ntsc));
+            assert_only_tv_modes(&rig);
+            rig.finish();
+            let global = rig.state_file("config/global.toml");
+            assert!(global.contains("tv = \"ntsc\""), "{global}");
+            assert!(
+                !global.contains("monitor"),
+                "display.monitor unchanged: {global}"
+            );
+        },
+    );
+}
+
+/// A 640x480 source at the NTSC rate: the session takes 480 lines as
+/// interlaced.
+const SCRIPT_480: &str = "\
+neptron-testcore 1
+pixel_format rgb565
+geometry 640 480 1333
+max_size 640 480
+timing 59940 48000
+";
+
+/// Runs the 480-line game on `standard` in two runs of one boot and
+/// returns the mode and the UI rectangle of its last frame.
+fn interlaced_game(dir: &Path, stage: u32, standard: &str) -> Option<(Modeline, Rect)> {
+    let mut rig = composite_rig(dir);
+    if stage == 0 {
+        write_global(&rig, &format!("[display]\ntv = \"{standard}\"\n"));
+        rig.boot(None);
+        rig.frames(2);
+        rig.keep();
+        rig.until(600, "the scan", |r| {
+            !r.shell().snapshot().systems.is_empty()
+        });
+        rig.finish();
+        return None;
+    }
+    std::fs::write(dir.join("script.ntc"), SCRIPT_480).expect("the script");
+    rig.boot(Some(game()));
+    rig.frames(60);
+    assert_only_tv_modes(&rig);
+    let found = (
+        rig.display.active_mode().expect("a mode"),
+        last_ui_dest(&rig),
+    );
+    rig.finish();
+    Some(found)
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn the_ui_on_480i_is_640x480_at_the_top() {
+    in_children(
+        &test_name(module_path!(), "the_ui_on_480i_is_640x480_at_the_top"),
+        2,
+        |dir, stage| {
+            if let Some((mode, ui)) = interlaced_game(dir, stage, "ntsc") {
+                assert_eq!(mode, neptron_types::TV_525_480I);
+                assert_eq!(
+                    ui,
+                    Rect {
+                        x: 40,
+                        y: 0,
+                        w: 640,
+                        h: 480
+                    }
+                );
+            }
+        },
+    );
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn the_ui_on_576i_is_640x480_48_lines_down() {
+    in_children(
+        &test_name(module_path!(), "the_ui_on_576i_is_640x480_48_lines_down"),
+        2,
+        |dir, stage| {
+            if let Some((mode, ui)) = interlaced_game(dir, stage, "pal") {
+                assert_eq!(mode, neptron_types::TV_625_576I);
+                assert_eq!(
+                    ui,
+                    Rect {
+                        x: 40,
+                        y: 48,
+                        w: 640,
+                        h: 480
+                    }
+                );
+            }
+        },
+    );
+}
