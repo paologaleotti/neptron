@@ -6,13 +6,13 @@ Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 
 ## Public API
 
-- `AudioPipeline<S: AudioSink>`: `new(sink, CoreTiming, run_rate_mhz, Resampling)`, `with_volume_percent` (no ramp), `set_volume_percent` (a 20 ms ramp), `volume_percent`, `set_run_rate_mhz`, `push_samples` (from the core's audio callbacks), `end_frame` (once per core frame), `mute`, `unmute`, `stats`, `sink`. It takes interleaved `i16` stereo at the core's rate and writes to any `AudioSink`.
+- `AudioPipeline<S: AudioSink>`: `new(sink, CoreTiming, run_rate_mhz, Resampling)`, `with_volume_percent` (no ramp), `set_volume_percent` (a 20 ms ramp), `volume_percent`, `set_run_rate_mhz`, `push_samples` (the frame's audio from the host), `end_frame` (once per core frame), `idle_frame` (a frame with no core run), `write_cue` and `pending_cue` (a short tone mixed into the next frames), `mute`, `unmute`, `stats`, `sink`. It takes interleaved `i16` stereo at the core's rate and writes to any `AudioSink`.
 - `CoreTiming { sample_rate_mhz, frame_rate_mhz }`: the core's AV timing, in millihertz.
 - `Resampling::{Sinc, Polynomial}`: the interpolation. `Sinc` is the default.
 - `RateControl`: the law alone, `factor(queued_frames)`.
 - The volume: `gain_q24(percent)`, the cubic curve `(v / 100)^3` in Q24 fixed point, and `scale(sample, gain)`; `VOLUME_MAX_PERCENT`, `GAIN_UNITY_Q24`, `VOLUME_RAMP_MS`. At 100 the stage is skipped, so the output is bit for bit the same as with no volume.
 - `FlipRateMeter`: the run rate from flip times, for the desktop window.
-- `AudioStats`, `AudioError`, and the limits as named constants.
+- `AudioStats`: the counters of the pipeline. `underruns` counts the frames that find the queue empty while the device played the frames before; the first frame and the first frame after `idle_frame` do not count, a muted queue that runs dry counts, and a new pipeline starts at 0. Also `AudioError`, and the limits as named constants.
 - The output device: the trait `AudioOutputs` (driver, the devices as `OutputDevice` with name, label, detail and `Monitor`, open of the default or a named device). The pure `open_output(outputs, setting)` follows the chain of the spec: the named device, else `auto`'s choice, then the first analog device, then the default device, then no sound, with an `OutputNotice` at each step down and every error in `failures`; it never changes the setting. `auto_choice(devices)` takes an HDMI or DisplayPort device only when exactly one has a monitor, else the first analog device, else the default device. `OpenedOutput`, `OpenedDevice`, `AutoChoice`, `OutputError`, `AUTO_OUTPUT`, `ALSA_DRIVER`, `output_label`.
 - The ALSA list: `AlsaText::read(root)` reads `cards`, `pcm` and the `eld#*` files under `/proc/asound` once (the only file access of the crate; a missing file is empty text), and the pure `alsa_outputs(&AlsaText)` makes the devices: stored as `hw:CARD=<id>,DEV=<n>`, opened as `plughw:` (`open_name`), labelled `Analog (<card>)`, `Digital (<card>)` (S/PDIF), `<monitor> (HDMI/DP)` or `HDMI/DP <k> (<card>)` (numbered across cards when two cards have HDMI), with the card id, then the PCM name, then the device number added to a label that two devices share. Only an `OutputKind::Analog` device is taken by `auto` or the analog fallback. `/proc` does not map an HDMI PCM to its pin, so a monitor is named only when the counts of its card settle it. The parsers `parse_cards`, `parse_pcms`, `parse_eld` are public for the tests and the bench.
 - With the `sdl3` feature: `Sdl3Sink: AudioSink`, `Sdl3Outputs: AudioOutputs`, `SinkError`. With the ALSA driver, `Sdl3Outputs` lists the PCMs of `/proc/asound` and opens one as SDL's default device through the hint `SDL_AUDIO_ALSA_DEFAULT_PLAYBACK_DEVICE`; with another driver it uses SDL's list.
@@ -28,7 +28,7 @@ Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 
 - The law is RetroArch's: `ratio = nominal * (1 + d * clamp((A_B - 2q) / A_B, -1, 1))`, `d` = 0.5%, `A_B` = 64 ms, target 32 ms.
 - rubato 5.0.1 `Async`, fixed input, with the chunk size set to each frame's input: no input waits for a full chunk. Sinc: 128 taps, linear interpolation, Blackman-Harris window, 95 output frames of delay from 32 kHz to 48 kHz. Measured on an M1 Pro core: 0.33% of real time in release, 21% in the dev profile. The polynomial mode costs 0.08% and 0.64%.
-- SDL3 push model: the frame thread puts samples into an SDL audio stream, and SDL's device thread plays them. No code of this crate runs on the audio thread, so there is no ring buffer and no callback. The stream runs at the device's rate, so SDL does not resample. The sink limits its queue to 128 ms.
+- SDL3 push model: the frame thread puts samples into an SDL audio stream, and SDL's device thread plays them. No code of this crate runs on the audio thread, so there is no ring buffer and no callback. The stream runs at the device's rate, so SDL does not resample. The sink limits its queue to 128 ms (`SINK_CAPACITY_MS`). It asks SDL for a device period of 1024 frames (`DEVICE_PERIOD_FRAMES`, 21.3 ms at 48 kHz), and SDL's ALSA backend makes a buffer of two periods. With periods of 512 frames the analog output of the Pi 3 (`bcm2835`) ran short of data 14 times a second.
 - The sdl3 crate's safe API covers the sink. The crate is on the `unsafe` allow-list but uses none: every target root carries `#![forbid(unsafe_code)]`.
 
 ## Tests
@@ -65,4 +65,4 @@ cargo xtask clippy -p neptron-audio --features sdl3
 
 ## Status
 
-Complete for the MVP. The SDL3 sink has run on macOS only; the target hardware is not checked.
+Complete for the MVP. The SDL3 sink runs on macOS, on the i3-6100T and on a Pi 3 B. `docs/hardware-checklist.md` lists the checks that are still open.

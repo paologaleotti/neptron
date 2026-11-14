@@ -56,7 +56,7 @@ The defaults of the RetroArch keyboard driver for player one, by physical key (L
 | Enter | Start |
 | Right Shift | Select |
 
-`neptron-window` has the same defaults by SDL scancode. The shared fixture `tests/fixtures/retroarch-keyboard.txt` lists the pairs by RetroArch key name, and a test holds `KEY_MAP` to it. The window table is not tested against the fixture yet (see open points).
+`neptron-window` has the same defaults by SDL scancode. The shared fixture `tests/fixtures/retroarch-keyboard.txt` lists the pairs by RetroArch key name, and a test holds `KEY_MAP` to it. No test checks the window table against the fixture (see open points).
 
 The frontend actions of a keyboard come from the hotkeys: Right Shift and Enter together open the quick menu.
 
@@ -174,4 +174,4 @@ These need a device and are not verified:
 
 ## Status
 
-Complete for the MVP. The SDL3 path compiles and passes clippy and its tests on macOS; no gamepad has run it. The evdev path compiles only on Linux: the review built it on aarch64 Linux in a container (check, clippy with warnings denied, tests with `--features evdev`). No keyboard has run it.
+Complete for the MVP. The SDL3 path compiles and passes clippy and its tests on macOS. The evdev path compiles only on Linux. The `kms` build of the frontend, with both paths, runs on the i3-6100T and on a Pi 3 B, where games were played. No record names the input devices of those sessions (UNVERIFIED).

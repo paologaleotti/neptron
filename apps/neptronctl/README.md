@@ -1,8 +1,8 @@
 # neptronctl
 
-Command-line client: print a modeline, test a mode, self-test, diagnostics. It talks to the frontend on the control socket.
+Command-line client of the control API, and the video self-test. It talks to the frontend on the control socket.
 
-Each command sends one request of the control API (see `crates/neptron-ipc/README.md`) and prints the `data` of the reply as one JSON line on stdout. The client asks at its own protocol version, and prints the fields of that version. A server answers only with names of the request version, so nothing that a correct server sends is lost.
+Each command sends one request of the control API (see `crates/neptron-ipc/README.md`) and prints the `data` of the reply as one JSON line on stdout. The client asks at its own protocol version. When the server is older, it answers `unsupported_version`, and the client asks again once at the newest version of the server (`Client::call`). It prints the fields of the version in use, so `stats` of a version 1 server has no `fields_missed`.
 
 ## Usage
 
@@ -158,7 +158,7 @@ The parser is written by hand. The grammar is a few fixed words, and a parser cr
 
 ## Status
 
-The control API client is done. `selftest video` is done, and it runs in the QEMU guest on `vkms` (`cargo xtask os selftest-check`). The policy gives every CRT mode a pixel clock in whole kHz (ADR 0009), which the KMS backend takes as it is. The tool is not run on real hardware yet. `modeline` and a mode test are not written yet.
+The control API client is done. `selftest video` is done, and it runs in the QEMU guest on `vkms` (`cargo xtask os selftest-check`). The policy gives every CRT mode a pixel clock in whole kHz (ADR 0009), which the KMS backend takes as it is. No run of the self-test on real hardware is recorded. There is no `modeline` command and no mode test command.
 
 ## The copy of the mode conversion in `tools/kms-spike` (OP-060)
 

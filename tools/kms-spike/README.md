@@ -1,6 +1,6 @@
 # kms-spike
 
-Standalone hardware spike (WP 1.1). It shows 240p, 480i and 480p test modes for a named monitor preset, each for 10 seconds, and records what the driver programmed. The owner runs it on real hardware before the KMS backend is written.
+Standalone hardware spike (WP 1.1). It shows 240p, 480i and 480p test modes for a named monitor preset, each for 10 seconds, and records what the driver programmed. It is a tool for the owner to run on real hardware. `neptronctl selftest video` covers the same checks through the product backend (OP-060, OP-074).
 
 The tool is the first NEPTRON code that drives a real CRT. Safety comes first: read "Safety behaviour" before the first run.
 

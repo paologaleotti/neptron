@@ -4,7 +4,7 @@ NEPTRON is an open-source, Buildroot-based retro-gaming OS. Its first job is to 
 
 ## Status
 
-Early development. There is no release yet. The current milestone is the MVP: one playable path on an x86_64 PC.
+Early development. There is no release yet. The current milestone is the MVP: one playable path on an x86_64 PC. A 64-bit Raspberry Pi 3 image with composite video also exists. The PC development image ran on an i3-6100T on 2026-11-13: a game played, with audio and the SMB share. A Pi 3 B on a composite TV showed NTSC 240p on 2026-11-14, and NES, SNES and Mega Drive games held 60.054 frames per second.
 
 ## Build and verify
 

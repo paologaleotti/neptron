@@ -118,7 +118,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 | `input_send`, `input_script`, `session_launch`, `settings_set` | With the `control` feature. A display setting goes through the guard, as a menu choice does |
 | `wait` | Always, on the frame thread |
 | `clock_step` | `unavailable`: the binary runs in real time. The tier 2 tests step the simulated clock themselves |
-| `screenshot` | `unavailable`: no PNG encoder in the frontend yet |
+| `screenshot` | `unavailable`: the frontend has no PNG encoder |
 
 ## The log and the stop
 
@@ -156,8 +156,8 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 - Only `intel_gen9` has digital limits today: 300 MHz on HDMI, 165 MHz on DVI-D, 533.25 MHz on DP, 4096x2160. Every other GPU gives a digital output its analog values (165 MHz, 1920x1200), so a 1440p or 4K panel there runs in its largest listed mode of at least 50 Hz that fits, usually 1080p60, with a notice.
 - An adapter that shows its own digital EDID with a CRT behind it, and no analog subconnector, is taken for a flat panel. The protections: a monitor preset in `display.monitor` always wins; the panel mode is only `wanted` under the boot prompt and never the safe default until it is kept on this output, so with no answer it is on the wire for one confirm window (10 s) per boot and the guard then goes to `generic_15`; two boots with no confirmation start in safe mode.
 - The menu source is 60 Hz also on a 50 Hz profile; the policy picks the mode.
-- `video_state` gives no validator verdicts yet.
+- `video_state` gives an empty `verdicts` list.
 
 ## Status
 
-Complete for the MVP on the fakes and the window. The KMS build has not run.
+Complete for the MVP on the fakes and the window. The KMS build runs on the i3-6100T (2026-11-13) and on a Pi 3 B on composite (2026-11-14).

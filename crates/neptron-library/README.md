@@ -1,6 +1,6 @@
 # neptron-library
 
-ROM scan, index cache, core and system metadata. Import of `gamelist.xml` is not in the crate yet.
+ROM scan, index cache, core and system metadata. The crate does not import `gamelist.xml` (OP-023).
 
 The crate reads the folder layout of Batocera and RetroPie: `share/roms/<system>/`, with the folder names and aliases of `data/systems`. It never opens, changes or deletes a ROM file. The scan reads directory entries and their types only.
 
@@ -72,7 +72,7 @@ One binary file, all integers little-endian:
 | Offset | Size | Field |
 | --- | --- | --- |
 | 0 | 8 | magic `NEPTRIDX` |
-| 8 | 4 | format version, now 2 |
+| 8 | 4 | format version (`CACHE_VERSION`, 2) |
 | 12 | 8 | payload length in bytes |
 | 20 | 4 | CRC-32 (IEEE) of the payload |
 | 24 | n | payload: system count, then per system its id, its game count, and per game its name, path and size (`u64`). Then the folder count, and per folder its path, a trust byte (1 or 0), the seconds (`i64`) and nanoseconds (`u32`) of its time (both 0 when the byte is 0). A count is a `u32`; a string is a `u32` byte length and UTF-8 bytes. |

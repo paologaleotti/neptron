@@ -78,4 +78,4 @@ A stop signal that comes before the end of the run, or before the command, wins:
 
 ## Status
 
-Complete for the MVP. It has not run on the target.
+Complete for the MVP. It runs on the PC image and the Pi image.

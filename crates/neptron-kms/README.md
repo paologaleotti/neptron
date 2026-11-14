@@ -88,4 +88,4 @@ let flip = display.wait_flip()?;
 
 ## Status
 
-The backend runs on `vkms` in the QEMU guest. It is not checked on a real GPU or monitor; `docs/hardware-checklist.md` has the checks.
+The backend runs on `vkms` in the QEMU guest, on i915 on the i3-6100T, and on `vc4` composite on a Pi 3 B in NTSC 240p. `docs/hardware-checklist.md` lists the checks that are still open.

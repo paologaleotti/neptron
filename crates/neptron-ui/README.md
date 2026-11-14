@@ -79,7 +79,7 @@ The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-m
 
 `RESERVED_ID_MIN` is `0xFFFF_0000`. The UI carries out the reserved actions itself and never sends them as `Intent::Action`. The app numbers its own pages and actions below it.
 
-`SETTINGS_PANELS` is the list of the Settings page: a static table of `Panel { label, page }`, `Display`, `Audio`, `Library` and `System` today. A new panel is one entry and a page that the app answers for. Any page other than the display panel shows in the generic page screen (`PagePanel`), so a new panel needs no screen code.
+`SETTINGS_PANELS` is the list of the Settings page: a static table of `Panel { label, page }`, `Display`, `Audio`, `Library` and `System`. A new panel is one entry and a page that the app answers for. Any page other than the display panel shows in the generic page screen (`PagePanel`), so a new panel needs no screen code.
 
 ### Home and the game list
 

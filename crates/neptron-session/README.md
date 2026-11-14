@@ -9,7 +9,7 @@ Game lifecycle: launch, the display-locked loop, pause, quick menu, exit and sav
 - `Session<D: Display, S: AudioSink, I: InputSource, C: Clock>`: one game, from launch to exit. The same type runs the real cores and the test core, on KMS, the window or the fakes.
   - `launch(&GameLaunch, VideoSetup<D>, Devices<S, I, C>, SessionOptions) -> Result<Session, LaunchError>`.
   - `run_frame(ui: Option<Frame>) -> Result<FrameReport, SessionError>`: one frame of the loop.
-  - `resume()`, `reset()`, `set_start_hold_ns(ns)`, `set_volume_percent(percent)`, `quit() -> ExitReport`.
+  - `resume()`, `reset()`, `set_start_hold_ns(ns)`, `set_volume_percent(percent)`, `write_cue(samples)` (a tone mixed into the next core frames), `quit() -> ExitReport`.
   - Reads for the UI snapshot and the control API: `paused()`, `ended()`, `video_status(&mut VideoStatusText)`, `video()`, `last_frame()`, `source()`, `input_events()`, `ports()`, `message()`, `host()` (system info, core options), `core_logs()`, `audio_stats()`, `audio_sink()`, `volume_percent()`, `run_rate_mhz()`, `save_stats()`, `counters()`.
   - Live changes: `video_mut()` (`set_settings`, `set_scanlines`, `set_monitor`, `retry` of the engine), `host_mut()` (`set_option`).
 - `GameLaunch`: the core, the content, the extensions, the BIOS and save folders, the core option values.
@@ -112,4 +112,4 @@ A late flip takes one frame of audio (16.7 ms) from the 32 ms queue, and the law
 
 ## Status
 
-Complete for the MVP on the fakes. No real core and no hardware has run it.
+Complete for the MVP. It runs the real cores on the i3-6100T and on a Pi 3 B. On composite NTSC on the Pi, NES, SNES and Mega Drive games hold 60.054 frames per second with no missed field (OP-103).
