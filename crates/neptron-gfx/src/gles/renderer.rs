@@ -8,7 +8,7 @@ use super::ffi::{
 };
 use super::quad::{Quad, quad};
 use super::shader::{self, VARIANTS, Variant};
-use super::texels::{self, Texels};
+use super::texels;
 use crate::reference::{Pattern, check_frame, check_output, check_rect, check_scanlines};
 use crate::{Image, OutputBuffer, RectKind};
 
@@ -22,10 +22,8 @@ use crate::{Image, OutputBuffer, RectKind};
 /// filter. The fragment shader computes the source pixel of each output
 /// pixel from its position with the integer rules of the reference, in
 /// 32-bit floats that hold every value exactly. Each source image is a
-/// texture in the GL format of its pixel format, so the texture unit
-/// expands 5-bit and 6-bit channels as GL defines it, which is the
-/// expansion of the reference. So nearest output equals the reference
-/// byte for byte. The shader rounds a
+/// texture of 8-bit channels, expanded on upload with the code of the
+/// reference. So nearest output equals the reference byte for byte. The shader rounds a
 /// sharp bilinear blend half up, as the reference does, but in floats: a
 /// blend whose exact value is within float error of a half can round the
 /// other way, so a channel can differ by 1. The shader needs highp floats
@@ -66,10 +64,9 @@ use crate::{Image, OutputBuffer, RectKind};
 /// The renderer is not `Send`: its GL context stays on the thread that
 /// made it. Each call makes the context current first, which replaces any
 /// other context that is current on the thread. Dropping the renderer
-/// releases the current context of the thread. Textures, the buffer that
-/// packs source rows and the read-back buffer are made on the first call
-/// and again when a size or a pixel format changes; other calls allocate
-/// nothing.
+/// releases the current context of the thread. Textures, the buffer of
+/// source texels and the read-back buffer are made on the first call and
+/// again when a size changes; other calls allocate nothing.
 ///
 /// # Byte order
 ///
@@ -365,12 +362,11 @@ fn texture_size(frame: &Frame<'_>) -> (u64, u32) {
 /// it on every driver.
 const BGRA_EXTENSION: &str = "GL_EXT_texture_format_BGRA8888";
 
-/// A texture that holds one source image, with the size and the format of
-/// its storage, and the buffer that packs rows that GL cannot read as they
-/// are.
+/// A texture that holds one source image, with the size of its storage,
+/// and the buffer that holds texels that GL cannot read from the frame.
 struct SourceTexture {
     texture: Texture,
-    storage: Option<(Texels, u32, u32)>,
+    size: (u32, u32),
     staging: Vec<u8>,
 }
 
@@ -378,7 +374,7 @@ impl SourceTexture {
     fn new(gl: &Gl<'_>) -> Result<Self, GlesError> {
         Ok(Self {
             texture: gl.texture()?,
-            storage: None,
+            size: (0, 0),
             staging: Vec::new(),
         })
     }
@@ -386,15 +382,13 @@ impl SourceTexture {
     /// Copies `frame` into the texture. The caller checked the frame and
     /// the texture limit, so both sides fit a `u32`.
     fn upload(&mut self, gl: &Gl<'_>, frame: &Frame<'_>) -> Result<(), GlesError> {
-        let texels = Texels::of(frame.format);
-        let (width, height) = (u32::from(frame.width), u32::from(frame.height));
-        let storage = Some((texels, width, height));
-        if self.storage != storage {
-            gl.allocate(self.texture, Storage::Source(texels), width, height);
-            self.storage = storage;
+        let size = (u32::from(frame.width), u32::from(frame.height));
+        if self.size != size {
+            gl.allocate(self.texture, Storage::Source, size.0, size.1);
+            self.size = size;
         }
         let data = texels::packed(frame, &mut self.staging)?;
-        gl.upload(self.texture, texels, data, width, height)
+        gl.upload(self.texture, data, size.0, size.1)
     }
 }
 

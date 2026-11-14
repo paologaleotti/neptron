@@ -9,12 +9,14 @@ mod scanline;
 
 pub use error::{Image, MAX_RECT_SIDE_PX, RectKind, RenderError};
 pub(crate) use error::{check_frame, check_output, check_rect, check_scanlines};
+pub(crate) use pixel::Rgb;
+#[cfg(feature = "gles")]
+pub(crate) use pixel::{from_rgb565, from_xrgb1555};
 pub(crate) use scanline::Pattern;
 
 use neptron_types::{Frame, Scene};
 
 use axis::{AxisMap, Tap};
-use pixel::Rgb;
 use scanline::FULL_PERCENT;
 
 /// The buffer that [`ReferenceRenderer::render`] writes, owned by the

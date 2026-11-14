@@ -49,7 +49,8 @@ fn from_xrgb8888(v: u32) -> Rgb {
     }
 }
 
-fn from_rgb565(v: u16) -> Rgb {
+/// The colour of an `RGB565` pixel.
+pub(crate) fn from_rgb565(v: u16) -> Rgb {
     Rgb {
         r: expand5(v >> 11),
         g: expand6(v >> 5),
@@ -57,7 +58,8 @@ fn from_rgb565(v: u16) -> Rgb {
     }
 }
 
-fn from_xrgb1555(v: u16) -> Rgb {
+/// The colour of an `XRGB1555` pixel.
+pub(crate) fn from_xrgb1555(v: u16) -> Rgb {
     Rgb {
         r: expand5(v >> 10),
         g: expand5(v >> 5),
@@ -65,8 +67,9 @@ fn from_xrgb1555(v: u16) -> Rgb {
     }
 }
 
-/// `round(v * 255 / 31)`. This is what a GPU gives for a normalised 5-bit
-/// channel. Bit replication differs from it for some values. `v * 255 / 31`
+/// `round(v * 255 / 31)`. This is what GL defines for a normalised 5-bit
+/// channel. Bit replication, which the `vc4` texture unit does, differs
+/// from it by 1 for some values. `v * 255 / 31`
 /// never ends in exactly one half, because 31 is odd.
 fn expand5(v: u16) -> u8 {
     ((u32::from(v & 0x1F) * 255 + 15) / 31) as u8

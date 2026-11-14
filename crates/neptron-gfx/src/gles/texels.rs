@@ -1,49 +1,24 @@
 use neptron_types::{Frame, PixelFormat};
 
 use super::GlesError;
+use crate::reference::{Rgb, from_rgb565, from_xrgb1555};
 
-/// The GL texture format that holds a source pixel format, so the texture
-/// unit decodes the channels and the fragment shader does no per-pixel
-/// arithmetic for it. GL converts a normalised channel `v` of `b` bits to
-/// `v / (2^b - 1)`, the expansion of the reference.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Texels {
-    /// `RGB` with `UNSIGNED_SHORT_5_6_5`: the libretro `RGB565` layout,
-    /// red in the high bits of a native-endian `u16`. Uploaded as it is.
-    Rgb565,
-    /// `BGRA_EXT` bytes (`GL_EXT_texture_format_BGRA8888`): `XRGB8888` as
-    /// a little-endian `u32` is the bytes B, G, R, X. Uploaded as it is;
-    /// the shader ignores the alpha channel.
-    Bgra8888,
-    /// `RGBA` with `UNSIGNED_SHORT_5_5_5_1`. `XRGB1555` has no GL layout:
-    /// each pixel moves one bit to the left on upload, which puts red,
-    /// green and blue where GL reads them, and alpha in bit 0.
-    Rgba5551,
-}
+/// Bytes of one texel of a source texture: `BGRA_EXT` bytes
+/// (`GL_EXT_texture_format_BGRA8888`).
+pub(super) const BYTES_PER_TEXEL: usize = 4;
 
-impl Texels {
-    /// The texture format of `format`.
-    pub(super) fn of(format: PixelFormat) -> Self {
-        match format {
-            PixelFormat::Rgb565 => Self::Rgb565,
-            PixelFormat::Xrgb8888 => Self::Bgra8888,
-            PixelFormat::Xrgb1555 => Self::Rgba5551,
-        }
-    }
-
-    /// Bytes of one texel.
-    pub(super) fn bytes_per_texel(self) -> usize {
-        match self {
-            Self::Rgb565 | Self::Rgba5551 => 2,
-            Self::Bgra8888 => 4,
-        }
-    }
-}
-
-/// The texels of `frame`, as packed rows that GL reads in one call: the
-/// frame's own bytes when its rows are packed and need no change, else a
-/// copy in `staging`. `staging` grows only when a frame needs more bytes
-/// than it holds.
+/// The texels of `frame` as packed rows of `BGRA_EXT` bytes, which GL reads
+/// in one call, with the alpha byte ignored by the shader.
+///
+/// An `XRGB8888` pixel as a little-endian `u32` is the bytes B, G, R, X, so
+/// a frame with packed rows goes to GL as it is. Other frames are written
+/// into `staging`: `XRGB8888` rows with a pitch above the row are packed,
+/// and `RGB565` and `XRGB1555` pixels are expanded to 8 bits per channel
+/// with the code of the reference. The texture unit of `vc4` expands a
+/// 5-bit or 6-bit channel by bit replication, which differs by 1 from the
+/// `round(v * 255 / 31)` that GL defines for some values; the expansion on
+/// the CPU is the same on every GPU. `staging` grows only when a frame
+/// needs more bytes than it holds.
 ///
 /// # Errors
 ///
@@ -54,25 +29,25 @@ pub(super) fn packed<'a>(
     frame: &Frame<'a>,
     staging: &'a mut Vec<u8>,
 ) -> Result<&'a [u8], GlesError> {
-    let texels = Texels::of(frame.format);
-    let row_bytes = usize::from(frame.width) * texels.bytes_per_texel();
+    let width = usize::from(frame.width);
     let rows = usize::from(frame.height);
-    let out_of_bounds = || GlesError::UploadOutOfBounds {
-        len: frame.data.len(),
-        width: row_bytes as u32,
-        rows: u32::from(frame.height),
-        pitch: frame.pitch,
-    };
+    let source_row = width * frame.format.bytes_per_pixel();
     let needed = rows.checked_sub(1).map_or(Some(0), |r| {
-        r.checked_mul(frame.pitch)?.checked_add(row_bytes)
+        r.checked_mul(frame.pitch)?.checked_add(source_row)
     });
-    if needed.is_none_or(|n| n > frame.data.len()) || frame.pitch < row_bytes {
-        return Err(out_of_bounds());
+    if needed.is_none_or(|n| n > frame.data.len()) || frame.pitch < source_row {
+        return Err(GlesError::UploadOutOfBounds {
+            len: frame.data.len(),
+            width: source_row as u32,
+            rows: u32::from(frame.height),
+            pitch: frame.pitch,
+        });
     }
-    if texels != Texels::Rgba5551 && frame.pitch == row_bytes {
-        return Ok(&frame.data[..row_bytes * rows]);
-    }
+    let row_bytes = width * BYTES_PER_TEXEL;
     let len = row_bytes * rows;
+    if frame.format == PixelFormat::Xrgb8888 && frame.pitch == row_bytes {
+        return Ok(&frame.data[..len]);
+    }
     if staging.len() < len {
         staging.resize(len, 0);
     }
@@ -82,17 +57,26 @@ pub(super) fn packed<'a>(
     }
     for (r, to) in out.chunks_exact_mut(row_bytes).enumerate() {
         let start = r * frame.pitch;
-        let from = &frame.data[start..start + row_bytes];
-        if texels == Texels::Rgba5551 {
-            for (t, f) in to.chunks_exact_mut(2).zip(from.chunks_exact(2)) {
-                let v = u16::from_ne_bytes([f[0], f[1]]);
-                t.copy_from_slice(&(v << 1).to_ne_bytes());
-            }
-        } else {
-            to.copy_from_slice(from);
+        let from = &frame.data[start..start + source_row];
+        match frame.format {
+            PixelFormat::Xrgb8888 => to.copy_from_slice(from),
+            PixelFormat::Rgb565 => expand(to, from, from_rgb565),
+            PixelFormat::Xrgb1555 => expand(to, from, from_xrgb1555),
         }
     }
     Ok(out)
+}
+
+/// Writes each native-endian 16-bit pixel of `from` into `to` as `BGRA_EXT`
+/// bytes.
+fn expand(to: &mut [u8], from: &[u8], colour: fn(u16) -> Rgb) {
+    for (t, f) in to
+        .chunks_exact_mut(BYTES_PER_TEXEL)
+        .zip(from.chunks_exact(2))
+    {
+        let c = colour(u16::from_ne_bytes([f[0], f[1]]));
+        t.copy_from_slice(&[c.b, c.g, c.r, 0xFF]);
+    }
 }
 
 #[cfg(test)]
@@ -110,40 +94,48 @@ mod tests {
     }
 
     #[test]
-    fn packed_rows_go_to_gl_as_they_are() {
+    fn packed_xrgb8888_goes_to_gl_as_it_is() {
         let data: Vec<u8> = (0..16).collect();
         let mut staging = Vec::new();
         let f = frame(&data, 2, 2, 8, PixelFormat::Xrgb8888);
-        assert_eq!(packed(&f, &mut staging).unwrap(), &data[..]);
-        assert!(staging.is_empty(), "no copy");
-        let f = frame(&data, 4, 2, 8, PixelFormat::Rgb565);
         assert_eq!(packed(&f, &mut staging).unwrap(), &data[..]);
         assert!(staging.is_empty(), "no copy");
     }
 
     #[test]
     fn padded_rows_are_packed() {
-        let data: Vec<u8> = (0..12).collect();
+        let data: Vec<u8> = (0..24).collect();
         let mut staging = Vec::new();
-        let f = frame(&data, 2, 2, 6, PixelFormat::Rgb565);
-        assert_eq!(packed(&f, &mut staging).unwrap(), [0, 1, 2, 3, 6, 7, 8, 9]);
+        let f = frame(&data, 2, 2, 12, PixelFormat::Xrgb8888);
+        let expected: Vec<u8> = (0..8).chain(12..20).collect();
+        assert_eq!(packed(&f, &mut staging).unwrap(), &expected[..]);
+    }
+
+    /// Every 16-bit value expands as the reference renderer reads it.
+    #[test]
+    fn sixteen_bit_pixels_expand_as_the_reference() {
+        let data: Vec<u8> = (0..=u16::MAX).flat_map(u16::to_ne_bytes).collect();
+        let mut staging = Vec::new();
+        for (format, colour) in [
+            (PixelFormat::Rgb565, from_rgb565 as fn(u16) -> Rgb),
+            (PixelFormat::Xrgb1555, from_xrgb1555),
+        ] {
+            let f = frame(&data, 256, 256, 512, format);
+            let out = packed(&f, &mut staging).unwrap();
+            for (v, texel) in (0..=u16::MAX).zip(out.chunks_exact(4)) {
+                let c = colour(v);
+                assert_eq!(texel, [c.b, c.g, c.r, 0xFF], "{format:?} {v:#06x}");
+            }
+        }
     }
 
     #[test]
-    fn xrgb1555_moves_one_bit_to_the_left() {
-        // X set, red 31, green 1, blue 2; then X clear, red 1, green 31,
-        // blue 0.
-        let pixels = [0x8000_u16 | 31 << 10 | 1 << 5 | 2, 1 << 10 | 31 << 5];
-        let data: Vec<u8> = pixels.iter().flat_map(|p| p.to_ne_bytes()).collect();
+    fn a_channel_expands_with_rounding_not_bit_replication() {
+        // Red 3 of RGB565: round(3 * 255 / 31) = 25; bit replication gives 24.
+        let data = (3_u16 << 11).to_ne_bytes();
         let mut staging = Vec::new();
-        let f = frame(&data, 2, 1, 4, PixelFormat::Xrgb1555);
-        let out = packed(&f, &mut staging).unwrap();
-        let texels: Vec<u16> = out
-            .chunks_exact(2)
-            .map(|b| u16::from_ne_bytes([b[0], b[1]]))
-            .collect();
-        // RGBA5551: red in bits 15-11, green 10-6, blue 5-1, alpha bit 0.
-        assert_eq!(texels, [31 << 11 | 1 << 6 | 2 << 1, 1 << 11 | 31 << 6]);
+        let f = frame(&data, 1, 1, 2, PixelFormat::Rgb565);
+        assert_eq!(packed(&f, &mut staging).unwrap(), [0, 0, 25, 0xFF]);
     }
 
     #[test]
@@ -153,8 +145,8 @@ mod tests {
         let f = frame(&data, 4, 4, 16, PixelFormat::Xrgb1555);
         packed(&f, &mut staging).unwrap();
         let (len, at) = (staging.len(), staging.as_ptr());
-        let f = frame(&data, 2, 2, 16, PixelFormat::Xrgb1555);
-        assert_eq!(packed(&f, &mut staging).unwrap().len(), 8);
+        let f = frame(&data, 2, 2, 16, PixelFormat::Rgb565);
+        assert_eq!(packed(&f, &mut staging).unwrap().len(), 16);
         assert_eq!((staging.len(), staging.as_ptr()), (len, at));
     }
 

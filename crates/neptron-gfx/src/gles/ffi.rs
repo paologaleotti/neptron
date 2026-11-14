@@ -15,7 +15,7 @@ use glow::HasContext as _;
 use khronos_egl as egl;
 
 use super::GlesError;
-use super::texels::Texels;
+use super::texels::BYTES_PER_TEXEL;
 use super::version;
 
 /// EGL 1.5, loaded at run time from `libEGL.so.1`.
@@ -397,18 +397,16 @@ pub(super) type Uniform = glow::NativeUniformLocation;
 pub(super) enum Storage {
     /// The colour buffer of the offscreen target: `RGBA` bytes.
     Target,
-    /// A source image.
-    Source(Texels),
+    /// A source image: `BGRA_EXT` bytes.
+    Source,
 }
 
 impl Storage {
-    /// The GL format and type.
-    fn gl(self) -> (u32, u32) {
+    /// The GL format; the type is `UNSIGNED_BYTE`.
+    fn format(self) -> u32 {
         match self {
-            Self::Target => (glow::RGBA, glow::UNSIGNED_BYTE),
-            Self::Source(Texels::Rgb565) => (glow::RGB, glow::UNSIGNED_SHORT_5_6_5),
-            Self::Source(Texels::Bgra8888) => (glow::BGRA, glow::UNSIGNED_BYTE),
-            Self::Source(Texels::Rgba5551) => (glow::RGBA, glow::UNSIGNED_SHORT_5_5_5_1),
+            Self::Target => glow::RGBA,
+            Self::Source => glow::BGRA,
         }
     }
 }
@@ -621,7 +619,7 @@ impl Gl<'_> {
     /// Gives `texture` new storage of `width` by `height` texels of
     /// `storage`, with no content.
     pub(super) fn allocate(&self, texture: Texture, storage: Storage, width: u32, height: u32) {
-        let (format, kind) = storage.gl();
+        let format = storage.format();
         // SAFETY: the context is current. The caller checked the size
         // against GL_MAX_TEXTURE_SIZE, so both sides fit an i32. A null
         // pointer asks for storage with no content. GL ES 2 needs the
@@ -636,23 +634,23 @@ impl Gl<'_> {
                 height as i32,
                 0,
                 format,
-                kind,
+                glow::UNSIGNED_BYTE,
                 glow::PixelUnpackData::Slice(None),
             );
         }
     }
 
-    /// Writes `rows` packed rows of `width` texels of `texels` from `data`
-    /// into `texture`, whose storage holds at least that many.
+    /// Writes `rows` packed rows of `width` `BGRA_EXT` texels from `data`
+    /// into the source texture `texture`, whose storage holds at least
+    /// that many.
     pub(super) fn upload(
         &self,
         texture: Texture,
-        texels: Texels,
         data: &[u8],
         width: u32,
         rows: u32,
     ) -> Result<(), GlesError> {
-        let row_bytes = width as usize * texels.bytes_per_texel();
+        let row_bytes = width as usize * BYTES_PER_TEXEL;
         if row_bytes.checked_mul(rows as usize) != Some(data.len()) {
             return Err(GlesError::UploadOutOfBounds {
                 len: data.len(),
@@ -661,7 +659,6 @@ impl Gl<'_> {
                 pitch: row_bytes,
             });
         }
-        let (format, kind) = Storage::Source(texels).gl();
         // SAFETY: the context is current. UNPACK_ALIGNMENT 1 makes GL read
         // rows of exactly row_bytes bytes, and the check above proves that
         // data holds `rows` of them. The texture has storage of at least
@@ -676,8 +673,8 @@ impl Gl<'_> {
                 0,
                 width as i32,
                 rows as i32,
-                format,
-                kind,
+                Storage::Source.format(),
+                glow::UNSIGNED_BYTE,
                 glow::PixelUnpackData::Slice(Some(data)),
             );
         }
