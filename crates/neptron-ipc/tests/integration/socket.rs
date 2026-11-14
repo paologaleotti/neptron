@@ -10,8 +10,8 @@ use std::thread;
 use std::time::Duration;
 
 use neptron_ipc::{
-    ClientError, ClockStepArgs, Command, ControlListener, ErrorCode, FrameReached, ListenError,
-    Reply, ScreenshotArgs, Stage, serve_stream,
+    Client, ClientError, ClockStepArgs, Command, ControlListener, ErrorCode, FrameReached,
+    ListenError, PROTOCOL_VERSION, Reply, ScreenshotArgs, Stage, serve_stream,
 };
 
 use crate::fixture::FixedHandler;
@@ -298,4 +298,77 @@ fn a_response_for_another_request_is_refused() {
         "{err}"
     );
     server.join().unwrap();
+}
+
+/// A server that speaks only version `speaks`: it answers a request of
+/// another version with `unsupported_version`, and `stats` with the fields
+/// of version 1. Returns the versions of the requests it read.
+fn old_server(stream: UnixStream, speaks: u32) -> thread::JoinHandle<Vec<u64>> {
+    thread::spawn(move || {
+        let mut versions = Vec::new();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 {
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let (v, id) = (
+                request["v"].as_u64().unwrap(),
+                request["id"].as_u64().unwrap(),
+            );
+            versions.push(v);
+            let response = if v == u64::from(speaks) {
+                format!(
+                    "{{\"v\":{v},\"id\":{id},\"reply\":\"stats\",\"data\":{{\"frames_presented\":7,\
+                     \"frames_dropped\":0,\"frames_repeated\":0,\"audio_underruns\":0,\
+                     \"audio_queued_frames\":0,\"input_to_frame_ns\":0}}}}\n"
+                )
+            } else {
+                format!(
+                    "{{\"v\":{speaks},\"id\":{id},\"error\":{{\"code\":\"unsupported_version\",\
+                     \"message\":\"old\",\"min_version\":1,\"max_version\":{speaks}}}}}\n"
+                )
+            };
+            writer.write_all(response.as_bytes()).unwrap();
+            line.clear();
+        }
+        versions
+    })
+}
+
+/// A client of a newer version learns the version of an older server from
+/// its `unsupported_version`, sends the command again at that version, and
+/// keeps it for the next call.
+#[test]
+fn a_client_falls_back_to_the_version_of_an_older_server() {
+    let (ours, theirs) = UnixStream::pair().unwrap();
+    ours.set_read_timeout(Some(GUARD)).unwrap();
+    let server = old_server(theirs, 1);
+    let mut client = Client::from_stream(ours);
+    assert_eq!(client.version(), PROTOCOL_VERSION);
+    let Reply::Stats(stats) = client.call(Command::Stats).unwrap() else {
+        panic!("not stats");
+    };
+    assert_eq!((stats.frames_presented, stats.fields_missed), (7, None));
+    assert_eq!(client.version(), 1);
+    client.call(Command::Stats).unwrap();
+    drop(client);
+    assert_eq!(server.join().unwrap(), [2, 1, 1]);
+}
+
+/// A server that names no version the client speaks gives the error back,
+/// with no second request.
+#[test]
+fn a_client_does_not_fall_back_below_its_oldest_version() {
+    let (ours, theirs) = UnixStream::pair().unwrap();
+    ours.set_read_timeout(Some(GUARD)).unwrap();
+    let server = old_server(theirs, 0);
+    let mut client = Client::from_stream(ours);
+    let err = client.call(Command::Stats).unwrap_err();
+    assert!(
+        matches!(&err, ClientError::Server(e) if e.code == ErrorCode::UnsupportedVersion),
+        "{err}"
+    );
+    assert_eq!(client.version(), PROTOCOL_VERSION);
+    drop(client);
+    assert_eq!(server.join().unwrap(), [2]);
 }

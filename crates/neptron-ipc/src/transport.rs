@@ -5,8 +5,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::command::Command;
-use crate::envelope::{CodecError, PROTOCOL_VERSION, Request, decode_response, encode_request};
-use crate::error::ErrorBody;
+use crate::envelope::{
+    CodecError, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, Request, decode_response, encode_request,
+};
+use crate::error::{ErrorBody, ErrorCode};
 use crate::line::{LineRead, MAX_RESPONSE_LINE_BYTES, read_line};
 use crate::reply::Reply;
 use crate::server::{Handler, ServeError, serve_lines};
@@ -67,6 +69,9 @@ pub enum ListenError {
 pub struct Client<S> {
     stream: BufReader<S>,
     next_id: u64,
+    /// The protocol version of the requests: [`PROTOCOL_VERSION`] until a
+    /// server says it speaks only older ones.
+    version: u32,
     max_line_bytes: usize,
     line: Vec<u8>,
 }
@@ -233,6 +238,7 @@ impl<S: Read + Write> Client<S> {
         Self {
             stream: BufReader::new(stream),
             next_id: 1,
+            version: PROTOCOL_VERSION,
             max_line_bytes: MAX_RESPONSE_LINE_BYTES,
             line: Vec::new(),
         }
@@ -249,13 +255,37 @@ impl<S: Read + Write> Client<S> {
         self.stream.get_ref()
     }
 
-    /// Sends one command and waits for its reply.
+    /// The protocol version the client sends: [`PROTOCOL_VERSION`], or the
+    /// newest version of an older server after its `unsupported_version`.
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+
+    /// Sends one command and waits for its reply. A server that does not
+    /// speak the client's version answers `unsupported_version` with the
+    /// range it speaks; the client then sends the command again once, at
+    /// the newest version of that range that it speaks too, and keeps that
+    /// version for the next calls, as the version discovery of the README
+    /// says.
     pub fn call(&mut self, command: Command) -> Result<Reply, ClientError> {
+        match self.call_at(self.version, command.clone()) {
+            Err(ClientError::Server(error)) => match fallback(self.version, &error) {
+                Some(version) => {
+                    self.version = version;
+                    self.call_at(version, command)
+                }
+                None => Err(ClientError::Server(error)),
+            },
+            outcome => outcome,
+        }
+    }
+
+    fn call_at(&mut self, version: u32, command: Command) -> Result<Reply, ClientError> {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
         let name = command.name();
         let request = encode_request(&Request {
-            version: PROTOCOL_VERSION,
+            version,
             id,
             command,
         })
@@ -286,6 +316,19 @@ impl<S: Read + Write> Client<S> {
             }),
         }
     }
+}
+
+/// The version to send again after `error` from a request of `version`: the
+/// newest version the server speaks, when it is older than `version` and
+/// not older than [`MIN_PROTOCOL_VERSION`].
+fn fallback(version: u32, error: &ErrorBody) -> Option<u32> {
+    if error.code != ErrorCode::UnsupportedVersion {
+        return None;
+    }
+    let newest = error.max_version?;
+    (MIN_PROTOCOL_VERSION..version)
+        .contains(&newest)
+        .then_some(newest)
 }
 
 fn map_io(error: io::Error) -> ClientError {

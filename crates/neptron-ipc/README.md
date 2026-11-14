@@ -86,7 +86,7 @@ The versions so far:
 | 1 | Everything above except what a later version adds |
 | 2 | `fields_missed` in the `stats` reply: the fields in which no new frame reached the display while the core ran (`FIELDS_MISSED_VERSION`). `Reply::for_version` removes it from a reply to a version 1 request, and `handle_line` applies it to every reply |
 
-Version discovery: a client sends `hello` at its own version. A server that speaks it answers with `protocol`, its newest version. A server that does not answers `unsupported_version` with `min_version` and `max_version`, and the client then picks a version in that range.
+Version discovery: a client sends `hello` at its own version. A server that speaks it answers with `protocol`, its newest version. A server that does not answers `unsupported_version` with `min_version` and `max_version`, and the client then picks a version in that range. `Client::call` does this for any command: on `unsupported_version` it sends the command again once, at the newest version of the server when that is older than its own and not older than `MIN_PROTOCOL_VERSION`, and keeps that version for the next calls (`Client::version`). A request of the older version gets only the fields of that version, so `neptronctl` of this version reads `stats` of a version 1 server with no `fields_missed`.
 
 ### Binary payloads
 
