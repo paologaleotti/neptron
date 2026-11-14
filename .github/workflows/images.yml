@@ -431,6 +431,12 @@ jobs:
           NEPTRON_OS_IMAGES: ${{ env.IMAGES }}
         run: umask 0000 && cargo xtask core-trace --arch ${{ matrix.arch }} --allow-missing-roms
 
+      - name: Check the share partition
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && contains(matrix.checks, 'share') }}
+        env:
+          NEPTRON_OS_IMAGES: ${{ env.IMAGES }}
+        run: cargo xtask os share-check --arch ${{ matrix.arch }}
+
       - name: Upload the check reports
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

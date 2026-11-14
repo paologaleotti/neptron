@@ -16,7 +16,7 @@
       "artifact": "neptron-pc-x86_64-no15khz",
       "upload_image": true,
       "rebuild": ["neptron", "neptron-launch", "neptronctl", "neptron-capture", "neptron-vkms-probe"],
-      "checks": ["boot-bios", "boot-uefi", "app", "kms", "gles", "selftest", "core"],
+      "checks": ["boot-bios", "boot-uefi", "app", "kms", "gles", "selftest", "core", "share"],
       "build_minutes": 320
     },
     {
