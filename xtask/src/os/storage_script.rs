@@ -1891,13 +1891,55 @@ impl Run {
 
 /// A file system whose head is gone keeps backup copies of its header
 /// further in; each one stops the offer.
+/// An ext superblock: its magic, and its block group number at 0x5A.
+fn ext_superblock(group: u16) -> Vec<u8> {
+    let mut bytes = vec![0_u8; 1024];
+    bytes[56..58].copy_from_slice(&[0x53, 0xef]);
+    bytes[0x5a..0x5c].copy_from_slice(&group.to_le_bytes());
+    bytes
+}
+
+/// A boot sector of NTFS with `total` sectors of `sector_bytes`.
+fn ntfs_boot_sector(sector_bytes: u16, total: u64) -> Vec<u8> {
+    let mut bytes = vec![0_u8; 0x30];
+    bytes[3..11].copy_from_slice(b"NTFS    ");
+    bytes[0x0b..0x0d].copy_from_slice(&sector_bytes.to_le_bytes());
+    bytes[0x28..0x30].copy_from_slice(&total.to_le_bytes());
+    bytes
+}
+
+/// A FAT32 boot sector whose file system starts `hidden` sectors into the
+/// disk.
+fn fat32_boot_sector(hidden: u32) -> Vec<u8> {
+    let mut bytes = vec![0_u8; 90];
+    bytes[0x1c..0x20].copy_from_slice(&hidden.to_le_bytes());
+    bytes[82..90].copy_from_slice(b"FAT32   ");
+    bytes
+}
+
+/// A btrfs superblock that names `bytenr` as its own place.
+fn btrfs_superblock(bytenr: u64) -> Vec<u8> {
+    let mut bytes = vec![0_u8; 72];
+    bytes[0x30..0x38].copy_from_slice(&bytenr.to_le_bytes());
+    bytes[64..72].copy_from_slice(b"_BHRfS_M");
+    bytes
+}
+
+/// A file system whose head is gone keeps backup copies of its header
+/// further in; each one that belongs to a file system at the start of
+/// partition 4 stops the offer.
 #[test]
 fn an_ext_backup_superblock_stops_the_offer() {
-    // The primary superblock, and the backup of block group 1 for blocks of
-    // 1, 2 and 4 KiB.
-    for at in [1024_u64, 8_389_632, 33_554_432, 134_217_728] {
+    // The primary superblock (group 0), and the backup of block group 1 for
+    // blocks of 1, 2 and 4 KiB.
+    for (at, group) in [
+        (1024_u64, 0_u16),
+        (8_389_632, 1),
+        (33_554_432, 1),
+        (134_217_728, 1),
+    ] {
         let run = Run::with_large_partition_4(&format!("no-offer-ext-{at}"), 512 * MIB_SECTORS);
-        run.write_sda4(at + 56, &[0x53, 0xef]);
+        run.write_sda4(at, &ext_superblock(group));
         run.start().assert_no_offer(Some(&format!(
             "it holds an ext2, ext3 or ext4 superblock at byte {at}"
         )));
@@ -1906,17 +1948,25 @@ fn an_ext_backup_superblock_stops_the_offer() {
 
 #[test]
 fn a_fat32_backup_boot_sector_stops_the_offer() {
-    let run = Run::new("no-offer-fat32").with_partition_4();
-    run.write_sda4(6 * 512 + 82, b"FAT32   ");
-    run.start()
-        .assert_no_offer(Some("it holds a FAT32 backup boot sector (sector 6)"));
+    // The start of partition 4, and 0, which some tools write.
+    for hidden in [PLANNED as u32, 0] {
+        let run = Run::new(&format!("no-offer-fat32-{hidden}")).with_partition_4();
+        run.write_sda4(6 * 512, &fat32_boot_sector(hidden));
+        run.start()
+            .assert_no_offer(Some("it holds a FAT32 backup boot sector (sector 6)"));
+    }
 }
 
 #[test]
 fn an_ntfs_backup_boot_sector_stops_the_offer() {
-    for sector_bytes in [512_u64, 4096] {
+    for sector_bytes in [512_u16, 4096] {
+        let bytes = u64::from(sector_bytes);
         let run = Run::new(&format!("no-offer-ntfs-{sector_bytes}")).with_partition_4();
-        run.write_sda4(FREE_SECTORS * 512 - sector_bytes + 3, b"NTFS    ");
+        let total = FREE_SECTORS * 512 / bytes - 1;
+        run.write_sda4(
+            FREE_SECTORS * 512 - bytes,
+            &ntfs_boot_sector(sector_bytes, total),
+        );
         run.start().assert_no_offer(Some(&format!(
             "it holds an NTFS backup boot sector in its last {sector_bytes} bytes"
         )));
@@ -1926,9 +1976,37 @@ fn an_ntfs_backup_boot_sector_stops_the_offer() {
 #[test]
 fn a_btrfs_superblock_mirror_stops_the_offer() {
     let run = Run::new("no-offer-btrfs").with_partition_4();
-    run.write_sda4(64 * 1024 * 1024 + 64, b"_BHRfS_M");
+    run.write_sda4(64 * 1024 * 1024, &btrfs_superblock(64 * 1024 * 1024));
     run.start()
         .assert_no_offer(Some("it holds a btrfs superblock mirror at 64 MiB"));
+}
+
+/// A header that belongs to a file system at another start is a remain
+/// of an older layout, not the user's data on partition 4: the user gets
+/// the offer and decides, and the request formats.
+#[test]
+fn a_foreign_header_gives_an_offer_and_the_request_formats() {
+    let sectors = 512 * MIB_SECTORS;
+    let ntfs_end = sectors * 512 - 512;
+    let cases: [(&str, u64, Vec<u8>); 4] = [
+        ("foreign-ext", 134_217_728, ext_superblock(3)),
+        (
+            "foreign-ntfs",
+            ntfs_end,
+            ntfs_boot_sector(512, sectors + 4096),
+        ),
+        ("foreign-fat32", 6 * 512, fat32_boot_sector(2048)),
+        ("foreign-btrfs", 64 * 1024 * 1024, btrfs_superblock(0)),
+    ];
+    for (name, at, bytes) in cases {
+        let run = Run::with_large_partition_4(name, sectors);
+        run.write_sda4(at, &bytes);
+        let offer = run.boot(&[]);
+        assert!(offer.offer().is_some(), "{name}: {offer:#?}");
+        run.write_request(&run.sda4(), PLANNED, sectors, "7");
+        let request = run.boot(&[]);
+        assert_eq!(request.calls("mkfs.exfat"), 1, "{name}: {request:#?}");
+    }
 }
 
 /// sfdisk --part-type writes the whole MBR sector: a change of anything

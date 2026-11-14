@@ -258,6 +258,13 @@ bytes_at() {
 	dd if="$1" bs=1 skip="$2" count="$3" 2>/dev/null
 }
 
+# The unsigned little-endian integer of $3 bytes (2, 4 or 8) at byte $2 of
+# device $1, in decimal, or nothing when it cannot be read. dd does the
+# seek: od of BusyBox can read every byte up to the offset.
+uint_at() {
+	dd if="$1" bs=1 skip="$2" count="$3" 2>/dev/null | od -An -tu"$3" | tr -d ' \n'
+}
+
 # The 8 bytes of the file system name of the boot sector at sector $2 of
 # device $1 (offset 3 of the sector). One dd seeks to the byte: the scans
 # for an old share run it thousands of times at boot.
@@ -653,32 +660,56 @@ user_format_refusal() {
 		fi
 	done
 	# A file system whose head was wiped keeps copies of its header
-	# further in, which blkid -p does not read.
+	# further in, which blkid -p does not read. A copy counts only when its
+	# own fields place it in a file system that starts at partition 4: a
+	# copy of another layout is a remain, and the user decides on it. A
+	# field that cannot be read counts.
 	for at in $EXT_SUPERBLOCK_BYTES; do
 		[ $((at + 1024)) -le "$part_bytes" ] || continue
-		if [ "$(bytes_at "$1" $((at + 56)) 2)" = "$EXT_MAGIC" ]; then
+		[ "$(bytes_at "$1" $((at + 56)) 2)" = "$EXT_MAGIC" ] || continue
+		# s_block_group_nr: 0 in the primary copy, 1 in a backup of group 1.
+		group=$(uint_at "$1" $((at + 90)) 2)
+		expected=1
+		[ "$at" = 1024 ] && expected=0
+		if [ -z "$group" ] || [ "$group" = "$expected" ]; then
 			echo "cannot be offered a format: it holds an ext2, ext3 or ext4 superblock at byte $at"
 			return
 		fi
 	done
 	if [ $((7 * 512)) -le "$part_bytes" ] &&
 		[ "$(bytes_at "$1" $((6 * 512 + 82)) 8)" = "FAT32   " ]; then
-		echo "cannot be offered a format: it holds a FAT32 backup boot sector (sector 6)"
-		return
+		# The hidden sectors: the start of the file system on the disk.
+		# Some tools write 0, so 0 counts too.
+		hidden=$(uint_at "$1" $((6 * 512 + 28)) 4)
+		if [ -z "$hidden" ] || [ "$hidden" = 0 ] || [ "$hidden" = "$2" ]; then
+			echo "cannot be offered a format: it holds a FAT32 backup boot sector (sector 6)"
+			return
+		fi
 	fi
 	# NTFS keeps its backup boot sector in the last sector of the
-	# partition, of 512 or 4096 bytes.
+	# partition, of 512 or 4096 bytes. It counts when the size of its
+	# volume fits in partition 4.
 	for sector_bytes in 512 4096; do
 		[ "$sector_bytes" -le "$part_bytes" ] || continue
-		if [ "$(bytes_at "$1" $(($3 * 512 - sector_bytes + 3)) 8)" = "NTFS    " ]; then
+		at=$((part_bytes - sector_bytes))
+		[ "$(bytes_at "$1" $((at + 3)) 8)" = "NTFS    " ] || continue
+		bps=$(uint_at "$1" $((at + 11)) 2)
+		total=$(uint_at "$1" $((at + 40)) 8)
+		if [ -z "$bps" ] || [ "$bps" = 0 ] || [ -z "$total" ] ||
+			{ [ "${#total}" -le 18 ] && [ "$total" -le $((part_bytes / bps)) ]; }; then
 			echo "cannot be offered a format: it holds an NTFS backup boot sector in its last $sector_bytes bytes"
 			return
 		fi
 	done
 	if [ $((BTRFS_MIRROR_BYTES + 4096)) -le "$part_bytes" ] &&
 		[ "$(bytes_at "$1" $((BTRFS_MIRROR_BYTES + 64)) 8)" = "_BHRfS_M" ]; then
-		echo "cannot be offered a format: it holds a btrfs superblock mirror at 64 MiB"
-		return
+		# bytenr: the place of this copy, counted from the start of the
+		# file system.
+		bytenr=$(uint_at "$1" $((BTRFS_MIRROR_BYTES + 48)) 8)
+		if [ -z "$bytenr" ] || [ "$bytenr" = "$BTRFS_MIRROR_BYTES" ]; then
+			echo "cannot be offered a format: it holds a btrfs superblock mirror at 64 MiB"
+			return
+		fi
 	fi
 	# An old share can start before partition 4, at the planned start,
 	# and run into it, so the scan starts there and covers the space
