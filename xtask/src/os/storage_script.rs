@@ -1993,13 +1993,28 @@ fn a_partition_4_that_overlaps_another_entry_is_never_offered_a_format() {
 /// offer or of the request may start or end past its device.
 #[test]
 fn no_read_goes_past_the_end_of_its_device() {
-    let sectors = 100 * MIB_SECTORS;
-    let run = Run::with_large_partition_4("reads-in-bounds", sectors).set("FAKE_DD_LOG", "yes");
+    // At the planned start, and 3 MiB after it with another size.
+    for (name, start, sectors) in [
+        ("reads-in-bounds", PLANNED, 100 * MIB_SECTORS),
+        (
+            "reads-in-bounds-moved",
+            PLANNED + 3 * MIB_SECTORS,
+            77 * MIB_SECTORS + 512,
+        ),
+    ] {
+        reads_stay_inside(name, start, sectors);
+    }
+}
+
+/// Runs the offer and the request on an empty partition 4 at `start` with
+/// `sectors`, the last of the disk, and checks every read of both boots.
+fn reads_stay_inside(name: &str, start: u64, sectors: u64) {
+    let run = Run::with_partition_4_at(name, start, sectors).set("FAKE_DD_LOG", "yes");
     let offer = run.boot(&[]);
-    assert!(offer.offer().is_some(), "{offer:#?}");
-    run.write_request(&run.sda4(), PLANNED, sectors, "7");
+    assert!(offer.offer().is_some(), "{name}: {offer:#?}");
+    run.write_request(&run.sda4(), start, sectors, "7");
     let request = run.boot(&[]);
-    assert_eq!(request.calls("mkfs.exfat"), 1, "{request:#?}");
+    assert_eq!(request.calls("mkfs.exfat"), 1, "{name}: {request:#?}");
     let sda = format!("{}/dev/sda", run.dir.display());
     let sda4 = run.sda4();
     let mut reads = 0;
@@ -2017,7 +2032,7 @@ fn no_read_goes_past_the_end_of_its_device() {
             let bs: u64 = arg("bs=").and_then(|b| b.parse().ok()).expect(line);
             let end = (skip.parse::<u64>().unwrap() + count.parse::<u64>().unwrap()) * bs;
             let size = if input == sda {
-                (PLANNED + sectors) * 512
+                (start + sectors) * 512
             } else if input == sda4 {
                 sectors * 512
             } else {
@@ -2025,12 +2040,12 @@ fn no_read_goes_past_the_end_of_its_device() {
             };
             assert!(
                 end <= size,
-                "{line}: ends at {end}, the device has {size} bytes"
+                "{name}: {line}: ends at {end}, the device has {size} bytes"
             );
             reads += 1;
         }
     }
-    assert!(reads > 50, "the scan and the checks read: {reads}");
+    assert!(reads > 50, "{name}: the scan and the checks read: {reads}");
 }
 
 /// The marker of the planned partition opens the normal format rules. A
