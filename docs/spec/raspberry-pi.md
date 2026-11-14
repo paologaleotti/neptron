@@ -1,13 +1,13 @@
 # Raspberry Pi image and composite video
 
-This spec settles the first Raspberry Pi image of NEPTRON and its composite video output. It writes no code. It says which boards come first, what the composite encoder of the kernel gives, how a fixed broadcast standard fits the ODREN video model, how sharp a composite picture can be, how the SD card image is built, how it is verified, and in which order the build tasks run. Open point OP-096 asks for it.
+This spec describes the first Raspberry Pi image of NEPTRON and its composite video output. It says which boards come first, what the composite encoder of the kernel gives, how a fixed broadcast standard fits the ODREN video model, how sharp a composite picture can be, how the SD card image is built, how it is verified, and in which order the build tasks run. Open point OP-096 asked for it. Tasks P02 to P06, P10 and P11 built it; section 7 lists what is left.
 
 ## The owner's decisions
 
 - Composite is the default output of the Pi image: NTSC at 60 Hz. The user can change the standard to PAL at 50 Hz, PAL at 60 Hz and every other combination that the hardware gives.
 - The picture must be as sharp as composite allows and must work perfectly. A soft image is part of the charm of composite, but the result must be better than RetroPie, which "looked pretty OK".
 - The test is a 15 kHz tube on composite.
-- The first image targets the Raspberry Pi 3 B and 3 B+. The owner's board is a 3 B+, and the hardware checklist is written for it. The Zero 2 W is in the same image only if it costs nothing extra; it is not a goal.
+- The first image targets the Raspberry Pi 3 B and 3 B+. The checklist names a 3 B+; the measurements of 2026-11-14 come from a Pi 3 B. The Zero 2 W is in the same image only if it costs nothing extra; it is not a goal.
 - HDMI is in the first image, as a flat panel through the existing panel path.
 - The GPIO DACs (VGA666, RGB-Pi, Pi2SCART) are not in the first image. They stay an open point, or the user edits a configuration file on the SD card before the boot.
 
@@ -32,16 +32,16 @@ The file `drivers/gpu/drm/vc4/vc4_vec.c` is the same in the Pi fork 6.12 and the
 ## Summary
 
 1. One 64-bit image, `rpi-arm64`, for the Pi 3 B and 3 B+. It holds the Zero 2 W files too, untested. The Pi 4 is the next step and the Pi 5 the step after it.
-2. The kernel is the Raspberry Pi fork, branch `rpi-6.18.y`, at a pinned commit. The definition already decides this tree (`15-decisions-and-open-points.md`). No 15 kHz patch is in the Pi kernel.
+2. The kernel is the Raspberry Pi fork, branch `rpi-6.18.y`, at the pinned commit `ea17ae02ca28`. The definition already decides this tree (`15-decisions-and-open-points.md`). No 15 kHz patch is in the Pi kernel.
 3. Composite is a new kind of monitor profile: a TV standard. `MonitorKind::Tv { standard }` holds one of ten standards. Each standard has a fixed table of two modes: 240p and 480i for the 525-line standards, 288p and 576i for the 625-line standards. Switchres is not used for it.
 4. The validator accepts a mode on a TV profile only when it is one of the two modes of the table, field for field, and when it also passes the 15 kHz hard rails. `ValidatedMode` carries the standard. The KMS backend sets the connector property `TV mode` in the same atomic commit as the mode.
 5. A change of standard is a change of the monitor. The guard puts it under confirm-or-revert with the 10 s timed revert, keeps it as last known good, and the blind recovery goes back to NTSC.
-6. The policy gets a small planner for a TV profile: progressive 240p or 288p for every game up to 240 or 288 lines (centred with black lines, or with the existing crop of at most 8 lines per edge), interlaced 480i or 576i for taller games, and the filtered fit last. The game runs at the encoder's rate. A difference up to 5000 ppm is silent and the audio rate control absorbs it; a larger one is a speed change with the alert, as on a flat panel.
-7. Horizontally every mode has 720 samples at 13.5 MHz. The game gets the width of its display aspect (about 640 samples for a 256-wide or 320-wide console), snapped to a whole factor when one is near, with nearest at a whole factor and the existing sharp bilinear filter otherwise. No line is ever scaled vertically.
+6. The policy has a small planner for a TV profile: progressive 240p or 288p for every game up to 240 or 288 lines (centred with black lines, or with the existing crop of at most 8 lines per edge), interlaced 480i or 576i for taller games, and the filtered fit last. The game runs at the encoder's field rate, and the audio run rate is the field rate that the driver reads back. A difference up to 5000 ppm gives no alert; a larger one shows the speed alert, as on a flat panel.
+7. Horizontally every mode has 720 samples at 13.5 MHz. The game gets the width of its display aspect (640 samples for a 256-wide or 320-wide console), snapped to a whole or half factor of its width when one is within 3 %, with nearest at a whole factor and the existing sharp bilinear filter otherwise. No line is ever scaled vertically.
 8. The settings are `display.tv` (the standard, default NTSC) and `display.tv_width` (`aspect`, `integer`, `fill`). Monochrome (colour burst off) is one of the standards: it gives the sharpest luma.
-9. The output rule: an HDMI display that answers wins; with none, the composite connector is used; a name in the settings or in `neptron.toml` wins over both. On a Pi 3 the two outputs share one pixel valve, so only one is driven at a time.
+9. The output rule: an HDMI display that answers wins; with none, the composite connector is used; a name in `display.output` wins over both (`neptron.toml` sets it after P07). The first run of a boot chooses the output, and every relaunch of that boot keeps it (`run/output`). On a Pi 3 the two outputs share one pixel valve, so only one is driven at a time.
 10. The SD card has the PC layout: FAT32 boot (firmware, kernel, `config.txt`, `neptron.toml`), EROFS root, ext4 state, and the exFAT share that the first boot makes as `mmcblk0p4` with the same storage script.
-11. CI builds the image without QEMU checks and uploads it. The aarch64 QEMU image keeps testing the frontend. The first composite picture needs a hardware session with the checklist below.
+11. CI builds the image without QEMU checks and uploads it (task P08, not built). The aarch64 QEMU image keeps testing the frontend. The hardware checklist holds the checks of the board.
 
 ## 1. Boards
 
@@ -62,7 +62,7 @@ The file `drivers/gpu/drm/vc4/vc4_vec.c` is the same in the Pi fork 6.12 and the
 
 | Board | First image | Why |
 | --- | --- | --- |
-| Pi 3 B, 3 B+ | Yes, tested | The owner's board. Composite needs no reboot and no firmware switch. HDMI and composite live on one card with no change to `config.txt`. vc4 GLES 2 and its limits are already in the hardware checklist |
+| Pi 3 B, 3 B+ | Yes, tested on a Pi 3 B | The owner's board. Composite needs no reboot and no firmware switch. HDMI and composite live on one card with no change to `config.txt`. vc4 GLES 2 and its limits are already in the hardware checklist |
 | Zero 2 W | Files in the image, not tested, no checklist | Same SoC family and the same kernel and `vc4` driver. The cost is one device tree file and a `[pi02]` section in `config.txt` with `enable_tvout=1`. But it has no Ethernet (the network share needs a USB adapter or Wi-Fi), its composite is on test pads, it has 512 MB, and its audio needs HDMI, USB or a GPIO remap (see "Audio"). It is never a target until someone tests it |
 | Pi 4 | Next image step | Same `vc4` VEC and the same fixed table. It needs the "write `enable_tvout=1` and reboot once" path of the definition, `start4.elf`, and `v3d` in Mesa |
 | Pi 5 | After the Pi 4 | A different encoder and driver (RP1), a pad instead of a jack, and a variable pixel clock that needs its own policy work |
@@ -171,11 +171,11 @@ The task that writes the table takes the full 480i and 576i values from `drm_ana
 
 ### The problem
 
-ODREN asks Switchres for a modeline from the ranges of a monitor profile, with a free pixel clock in whole kHz (ADR 0009). The composite encoder has a fixed clock, a fixed horizontal total, and two line totals per standard. Switchres cannot calculate for it, and the policy returns no mode for `pi_vc4_composite` today (OP-047; `crates/neptron-modeline/tests/golden/policy_gpus.toml`).
+ODREN asks Switchres for a modeline from the ranges of a monitor profile, with a free pixel clock in whole kHz (ADR 0009). The composite encoder has a fixed clock, a fixed horizontal total, and two line totals per standard. Switchres cannot calculate for it: a CRT profile on `pi_vc4_composite` gets no mode (OP-047; `crates/neptron-modeline/tests/golden/policy_gpus.toml`).
 
 ### Design
 
-A TV is a **monitor kind**, not an output kind. `OutputKind` (ADR 0010) picks the GPU limits, and composite keeps `Analog`. The set of modes a display accepts is the business of the monitor profile, and the guard and the last known good already work on the monitor. So a standard change rides on everything that exists.
+ADR 0012 records the design. A TV is a **monitor kind**, not an output kind. `OutputKind` (ADR 0010) picks the GPU limits, and composite keeps `Analog`. The set of modes a display accepts is the business of the monitor profile, and the guard and the last known good already work on the monitor. So a standard change rides on everything that exists.
 
 **`neptron-types`**
 
@@ -185,13 +185,12 @@ A TV is a **monitor kind**, not an output kind. `OutputKind` (ADR 0010) picks th
 
 **`neptron-safety`**
 
-- `validate` gets one arm: for `MonitorKind::Tv { standard }`, the mode must equal one of `standard.modes()` field for field (new rejection `NotATvMode { mode, standard }`), and must then pass `check_rails` as a second opinion. The GPU check (`check_gpu`) runs first as for every kind. This is stricter than the CRT path, never wider.
-- `ValidatedMode` gets a private field `tv: Option<TvStandard>` and the reader `tv_standard()`. `validate` sets it from the profile. So the standard that reaches the wire is the one that was validated with the mode, and nothing else can set it.
-- About 40 lines. `neptron-safety` stays near its size limit.
+- `validate` has one arm: for `MonitorKind::Tv { standard }`, the mode must equal one of `standard.modes()` field for field (new rejection `NotATvMode { mode, standard }`), and must then pass `check_rails` as a second opinion. The GPU check (`check_gpu`) runs first as for every kind. This is stricter than the CRT path, never wider.
+- `ValidatedMode` has a private field `tv: Option<TvStandard>` and the reader `tv_standard()`. `validate` sets it from the profile. So the standard that reaches the wire is the one that was validated with the mode, and nothing else can set it.
 
 **`neptron-backend`**
 
-- The `Display::set_mode` doc gets one rule: for a mode with a TV standard, the backend sets the connector's standard in the same atomic commit. A backend refuses with `ModeRefused` and changes nothing in three cases: a standard and no `TV mode` property; a standard and no value of that name; no standard on a connector that has the `TV mode` property. The third case keeps the standard on the wire equal to the standard that was validated with the mode: the encoder would keep the standard that is on the connector. So on such a connector every mode, recovery and safe mode included, comes from a TV profile. A request whose mode and standard both equal what is on the wire changes nothing; a change of either one is a modeset.
+- The `Display::set_mode` doc has one rule: for a mode with a TV standard, the backend sets the connector's standard in the same atomic commit. A backend refuses with `ModeRefused` and changes nothing in three cases: a standard and no `TV mode` property; a standard and no value of that name; no standard on a connector that has the `TV mode` property. The third case keeps the standard on the wire equal to the standard that was validated with the mode: the encoder would keep the standard that is on the connector. So on such a connector every mode, recovery and safe mode included, comes from a TV profile. A request whose mode and standard both equal what is on the wire changes nothing; a change of either one is a modeset.
 
 **`neptron-kms`**
 
@@ -205,7 +204,7 @@ A TV is a **monitor kind**, not an output kind. `OutputKind` (ADR 0010) picks th
 
 **`neptron-modeline`**
 
-- `decide` dispatches a `MonitorKind::Tv` profile to a new module `policy/tv.rs`. It does not call Switchres. It returns the same `Plan`, `Considered`, `Proposal`, `Placement`, `Timing` and `Notice` types, so `choose`, `switch_for`, the engine and the status block need no change for it.
+- `decide` dispatches a `MonitorKind::Tv` profile to `policy/tv.rs`. It does not call Switchres. It returns the same `Plan`, `Considered`, `Proposal`, `Placement`, `Timing` and `Notice` types, so `choose`, `switch_for`, the engine and the status block need no change for it.
 - The rungs, in order:
   1. **Native progressive.** The game's lines fit the progressive mode (240 at 525, 288 at 625): the game is centred with black lines. One game line is one scan line.
   2. **Native progressive with the overscan crop.** The game has up to 16 lines more: the existing crop rule hides at most `OVERSCAN_CROP_MAX_LINES_PER_EDGE` (8) lines per edge.
@@ -213,24 +212,25 @@ A TV is a **monitor kind**, not an output kind. `OutputKind` (ADR 0010) picks th
   4. **Fitted.** The last resort, as on every profile: the game scaled into the progressive mode, with the notice `fitted`.
 - **Refresh.** The only target is the mode's own rate. `exact_x2`, `force_50` and `force_60` are skipped with the reason "the TV standard fixes the rate" (`Plan::skipped`), as for a target no range covers.
 - **Picture style.** `auto` and `native` both walk the rungs above. `2x`, `3x` and `4x` have no mode on a TV: the Display panel greys them out with the reason.
-- **Width.** See "Sharpness". The new field `PolicySettings::tv_width` (`aspect`, `integer`, `fill`) feeds it.
-- **Speed notice.** On a TV profile the notice `game_mhz` and `shown_mhz` appears only when the game rate and the field rate differ by more than `TV_SPEED_SILENT_PPM` (5000 ppm), the bound of the audio rate control. Below it the game is called exact. This is the flat-panel rule (`PANEL_SPEED_SILENT_PPM`), for the same reason: the user cannot choose another rate.
+- **Width.** See "Sharpness". The field `PolicySettings::tv_width` (`aspect`, `integer`, `fill`) feeds it.
+- **Speed notice.** On a TV profile the notice `game_mhz` and `shown_mhz` appears only when the game rate and the field rate differ by more than `TV_SPEED_SILENT_PPM` (5000 ppm), equal to the bound of the audio rate control. Below it the game is called exact. This is the flat-panel rule (`PANEL_SPEED_SILENT_PPM`), for the same reason: the user cannot choose another rate. The bound is only the threshold of the alert: the game and its sound always run at the field rate (see "The audio rate").
 
 **`neptron-video`**
 
 - The engine needs no change for the rungs. `Monitor::Profile` holds the TV profile.
-- The video status writes the standard after the mode, for example `720x240p  15.73 kHz 60.054 Hz  native NTSC`, and uses `TV_SPEED_SILENT_PPM` for the `speed` result on a TV profile.
+- On a TV the mode line of the video status names the standard first and leaves out the rung word: `NTSC 240p 15.73 kHz 60.054 Hz`, or `NTSC 4.43 480i 15.73 kHz 59.940 Hz` (`write_tv_mode` in `crates/neptron-video/src/status.rs`). The Display panel shows the short form `NTSC 240p 60.05 Hz`. The status uses `TV_SPEED_SILENT_PPM` for the `speed` result on a TV profile.
 - The guard needs no change. A standard change is a new monitor: `propose` opens the prompt, `decline` or no press in `CONFIRM_WINDOW_NS` (10 s) reverts, `confirm` makes it the last known good.
 
 **`neptron-platform` and `data/hardware/matrix.toml`**
 
-- The entry `pi_vc4_composite` exists (13.5 MHz fixed, interlace, 720x576). It gets one more quirk, `tv_encoder`, appended. The app uses the quirk to know that a composite connector takes a TV profile. A composite connector of a GPU without the quirk (an old PC TV-out) stays on the CRT path and is used only when named.
+- The entry `pi_vc4_composite` (13.5 MHz fixed, interlace, 720x576) has the quirk `tv_encoder`. The quirk drives only the composite fallback of the output rule and its shorter display wait (`tv_fallback` and `wait_max_ns` in `apps/neptron/src/display_wait.rs`). A composite connector of a GPU without the quirk (an old PC TV-out) is used only when named.
+- The app detects a TV from the connector, not from the quirk: after the open, the KMS backend reads the `TV mode` property of the connector in use, and a connector with that property is a TV output (`is_tv` in `apps/neptron/src/display.rs`).
 
 **`neptron-settings` and the app**
 
 - `display.tv`: `auto` (the default, which is `ntsc`), `ntsc`, `ntsc_j`, `ntsc_443`, `pal_60`, `pal_m`, `pal`, `pal_n`, `secam`, `mono_60`, `mono_50`. Global level only, like `display.monitor`: the guard keeps the monitor of the boot for every game (`Guard::continue_boot`), so a per-game standard would revert at once.
 - `display.tv_width`: `aspect` (default), `integer`, `fill`. System and game levels allowed: it changes only the placement.
-- On a connector of a GPU with the `tv_encoder` quirk, the app builds the monitor `MonitorProfile { id: "tv", kind: Tv { standard } }` from `display.tv`. `display.monitor` has no effect there, and a value other than `auto` gives a notice that says so.
+- On a connector with the `TV mode` property, the app builds the monitor from `display.tv` with `TvStandard::profile()`: `MonitorProfile { id: "tv_<key>", kind: Tv { standard } }`, for example `tv_ntsc` (ADR 0012). The id carries the standard, because the guard record stores a monitor by its id. `display.monitor` has no effect there, and a value other than `auto` gives a notice that says so.
 - The safe default of a TV output is `ntsc`, for the boot prompt and for the blind recovery (the definition's "safe default for the detected output").
 
 ### Choosing the mode for a game
@@ -260,7 +260,7 @@ The ppm values are COMPUTED from the console rates in `crates/neptron-modeline/t
 | Encoder 288p | 50.080 Hz | 312 lines. NES and SNES PAL 50.007 Hz, Mega Drive PAL 49.70 Hz |
 | Encoder 576i | 50.000 Hz | |
 
-**The audio rate control.** The core runs one frame per flip, so the game runs at the encoder's rate. The audio pipeline resamples with dynamic rate control, whose correction is at most `MAX_RATE_DEVIATION_PPM` (5000 ppm, `crates/neptron-audio/src/control.rs`). A game within 5000 ppm of the field rate keeps its nominal audio rate, and the control absorbs the rest; the pitch moves by at most 8.6 cents, and by 1.3 cents for an NES (COMPUTED). Beyond 5000 ppm the nominal audio rate follows the field rate (`Timing::changes_speed`), the sound plays faster or slower by the ratio, and the speed alert shows. Every 60 Hz console of the MVP is within the bound on NTSC; the Mega Drive PAL is the one 50 Hz console beyond it on PAL.
+**The audio rate.** The core runs one frame per flip, so the game runs at the encoder's field rate. The session sets the audio run rate to the field rate that the driver reads back (`RunRateSource::ReadBack`, `crates/neptron-session`), at every difference. So the sound plays faster or slower by the ratio of the field rate to the game's rate, and the pitch moves with it: by 1.3 cents for an NES on NTSC, by 8.6 cents at 5000 ppm (COMPUTED). The dynamic rate control of the audio pipeline (at most `MAX_RATE_DEVIATION_PPM`, 5000 ppm, `crates/neptron-audio/src/control.rs`) corrects only the drift between the read-back rate and the real rate of the display and the sound card. `TV_SPEED_SILENT_PPM` decides only whether the speed alert shows (`Timing::changes_speed`). Every 60 Hz console of the MVP is within 5000 ppm on NTSC, so none shows the alert; the Mega Drive PAL is the one 50 Hz console beyond it on PAL.
 
 ### The safety rails for a fixed standard
 
@@ -271,13 +271,13 @@ The definition says composite carries no signal risk, because the timings are br
 | Type gate | Unchanged: only `validate` makes a `ValidatedMode`, and only a table mode passes |
 | Range checks and hard rails | The table check, then the 15 kHz rails as a second opinion. A table typo cannot reach the wire |
 | Confirm or revert | Kept for every standard change. A wrong standard gives no colour, a rolling picture or no lock. The timed revert brings back the standard that worked, also when the user cannot read the prompt |
-| Last known good | The confirmed standard is kept, with the connector, as today |
+| Last known good | The confirmed standard is kept, with the connector, as for every monitor |
 | Blind recovery | Holding the combination for 5 s goes back to NTSC |
 | Silent kernel | Unchanged: no fbdev, no console, no `video=` on the command line |
 
-### Contracts that change, and the ADR
+### Contracts, and the ADR
 
-One ADR (the next free number, 0012 on 2026-11-13), "A TV standard is a monitor kind with a fixed mode table", records:
+ADR 0012, "A TV standard is a monitor kind with a fixed mode table", records:
 
 1. `TvStandard` and `MonitorKind::Tv` in `neptron-types` (a profile format addition).
 2. The TV arm of `validate`, the field of `ValidatedMode`, and `Rejection::NotATvMode` in `neptron-safety` (a contract change of the safety crate).
@@ -285,21 +285,20 @@ One ADR (the next free number, 0012 on 2026-11-13), "A TV standard is a monitor 
 4. The output rule for a composite connector of a TV encoder (below).
 5. The speed notice bound of a TV profile (`TV_SPEED_SILENT_PPM`).
 
-### What stays untouched
+### What the TV path does not touch
 
 The Switchres wrapper and every CRT and panel path of the policy, every golden of them, the guard state machine, the engine's directive machine, `Scene` and the renderer, the audio pipeline, the input stack and the launcher.
 
 ### The output rule
 
-The definition: "a Pi uses HDMI when a display is detected there and composite otherwise" (`05-crt-safety-model.md`). The code does not do this today: `choose` in `neptron-kms` never takes an analog connector without EDID unless it is named, and composite reports nothing, so `auto` on a Pi with no HDMI display ends with `ChoiceError::NoneConnected` and exit code 69 (VERIFIED: `crates/neptron-kms/src/connector.rs`, `docs/flows/02-frontend-boot.md`).
+The definition: "a Pi uses HDMI when a display is detected there and composite otherwise" (`05-crt-safety-model.md`). `choose` in `neptron-kms` never takes an analog connector without EDID unless it is named, and composite reports nothing (`crates/neptron-kms/src/connector.rs`). So the app holds the Pi rule (`apps/neptron/src/display_wait.rs` and `boot_output.rs`, where the platform and the matrix are known), with `choose` unchanged:
 
-The rule for the Pi, in the app (`apps/neptron`, where the platform and the matrix are known), with `choose` unchanged:
-
-1. `display.output` names a connector (in `global.toml`, or in `neptron.toml` through its import): that connector, as today. `Composite-1` gives composite also with an HDMI display connected.
-2. `auto`: `choose` as today. An HDMI display that reports its EDID is a candidate, so HDMI wins, through the flat-panel path.
+1. `display.output` names a connector (in `global.toml`, or in `neptron.toml` through its import after P07): that connector. `Composite-1` gives composite also with an HDMI display connected.
+2. `auto`: `choose`. An HDMI display that reports its EDID is a candidate, so HDMI wins, through the flat-panel path.
 3. `auto` and `choose` finds no candidate, and a `Composite` connector exists whose GPU entry has the `tv_encoder` quirk: the app opens that connector by name.
-4. The display wait: with `auto`, the app waits for an HDMI display at most `COMPOSITE_FALLBACK_WAIT_NS` (a new constant, 3 s as a first value), not the full `DISPLAY_WAIT_MAX_NS` (15 s), before it takes composite. The value is UNVERIFIED: the time `vc4` needs to report a connected HDMI display after the driver loads is a hardware check.
-5. When a display is unplugged, the mode stays (the definition's rule). Nothing switches between HDMI and composite while the frontend runs.
+4. The display wait: with `auto`, the app waits for an HDMI display at most `COMPOSITE_FALLBACK_WAIT_NS` (3 s as a first value), not the full `DISPLAY_WAIT_MAX_NS` (15 s), before it takes composite. The value is UNVERIFIED: the time `vc4` needs to report a connected HDMI display after the driver loads is a hardware check.
+5. The output is chosen once per boot. The first run of a boot removes `run/output`, runs the rule, and writes the connector it drives to `run/output` (a RAM folder). Each relaunch of that boot (a game launch, the return to the game list) opens that connector by name, with no wait. So a composite-only Pi waits once per boot, and an HDMI display that answers late cannot take a game away from the TV.
+6. When a display is unplugged, the mode stays (the definition's rule). Nothing switches between HDMI and composite while the frontend runs.
 
 This rule is safe: the composite fallback can only produce the four broadcast modes. It applies only to a GPU that the matrix marks as a TV encoder.
 
@@ -320,11 +319,17 @@ The master clocks are VERIFIED for the NES ([nesdev](https://www.nesdev.org/wiki
 
 **The width rule** (`display.tv_width`):
 
-- `aspect` (default): the width from the game's display aspect (`SourceGeometry::aspect_milli`): one line of a 240p mode is 2.2 samples high at 525 lines and 1.833 at 625 lines, so the width is `aspect x lines x 2.2` (COMPUTED from 704 samples for 4:3 over 480 or 576 lines). When a whole factor of the game width is within 3 % of that width, the whole factor wins, with nearest. Results: 320 wide gives 640 (factor 2, nearest), 640 gives 640 (factor 1), 256 gives about 644 (factor 2.5, no whole factor near, sharp bilinear), 512 gives about 644 (factor 1.25, sharp bilinear), 160x144 (Game Boy) gives about 352 (factor 2.2, sharp bilinear).
+- `aspect` (default), in `crates/neptron-modeline/src/policy/tv/width.rs`:
+  1. The aspect width: `aspect x field_lines x 704 x 3 / (4 x picture_lines)`, rounded to the nearest sample. `aspect` is the game's display aspect (`SourceGeometry::aspect_milli`; the frame's own shape when the core gives 0), `field_lines` the lines of one field that the frame spans as placed, and `picture_lines` 240 on the 525-line system and 288 on the 625-line system. So a line of aspect 1 is 2.2 samples wide at 525 lines and 1.8333 at 625 lines (704 samples for 4:3 over 240 or 288 lines, COMPUTED).
+  2. The console case: a 4:3 source (1333 or 1334 thousandths) of 224 to 240 lines per field takes the console width instead, 644 samples at 525 lines and 650 at 625 lines (`TV_525_CONSOLE_WIDTH_SAMPLES`, `TV_625_CONSOLE_WIDTH_SAMPLES`, from the dot clocks below). A taller 4:3 source takes the larger of the console width and the aspect width, so the width never falls as the lines rise.
+  3. The snap: when a whole or half factor of the game width is within 3 % of that width (`TV_WHOLE_FACTOR_TOLERANCE_PERCENT`) and inside 704 samples, it wins.
+  4. The result is at least 1 and at most 704 samples (`TV_SAFE_WIDTH_SAMPLES`).
+
+  Results on 525 lines: 256 wide gives 640 (factor 2.5, sharp bilinear), 320 gives 640 (factor 2, nearest), 512 gives 644 (no factor near, sharp bilinear), 640 gives 640 (factor 1, nearest), 160x144 (Game Boy, 10:9) gives 352 (factor 2.2, sharp bilinear). On 625 lines 256 and 320 also give 640, and 512 gives 650.
 - `integer`: the largest whole factor whose width is at most 704. 256 gives 512 (narrow: tall pixels), 320 gives 640, 512 gives 512, 640 gives 640. Every pixel has the same width.
 - `fill`: 704 samples, the full 4:3 width. Wider than any console, and the edges may sit in the TV's overscan.
 
-**Nearest against sharp bilinear.** The existing rule stays: nearest when the factor is whole, sharp bilinear otherwise (`Placement` and `ScaleClaim`). At 2.5 samples per pixel, nearest makes pixels of 2 and 3 samples in turn (148 and 222 ns), which shows as columns of uneven width on a sharp set. Sharp bilinear makes every pixel 2.5 samples wide with one blended sample at some edges. A composite channel with 4.2 MHz of luma bandwidth (NTSC) has a rise time of about 100 ns (UNVERIFIED for a given TV), longer than one sample, so the blended sample is not visible, and the even widths are. This is why the default for 256-wide games is sharp bilinear and not nearest.
+**Nearest against sharp bilinear.** The rule of every profile holds: nearest when the factor is whole, sharp bilinear otherwise (`Placement` and `ScaleClaim`). At 2.5 samples per pixel, nearest makes pixels of 2 and 3 samples in turn (148 and 222 ns), which shows as columns of uneven width on a sharp set. Sharp bilinear makes every pixel 2.5 samples wide with one blended sample at some edges. A composite channel with 4.2 MHz of luma bandwidth (NTSC) has a rise time of about 100 ns (UNVERIFIED for a given TV), longer than one sample, so the blended sample is not visible, and the even widths are. This is why 256-wide games get sharp bilinear and not nearest.
 
 **Borders against fill.** Black side borders are what a console made. They are not lost picture: the TV's overscan eats the edges of 720 samples anyway.
 
@@ -345,9 +350,9 @@ The master clocks are VERIFIED for the NES ([nesdev](https://www.nesdev.org/wiki
 
 ### Overscan and the safe area
 
-- A TV hides part of the 720 samples and a few lines at the top and the bottom. Console games kept their content inside that area. The default does nothing for overscan: the picture is placed as a console placed it.
+- A TV hides part of the 720 samples and a few lines at the top and the bottom. Console games kept their content inside that area. The default does nothing for overscan: the picture is placed as a console placed it. The menu is 640 of the 720 samples wide by design (`ui_dest` in `policy/tv.rs`: the largest whole factor inside 704 samples), so a TV shows a black band at each side of it (OP-097, OP-102).
 - The kernel margin properties stay 0 (see section 2).
-- Picture position (a shift in samples and in lines, in software, with no modeset) is the definition's "image position". It is a later setting; the first image has none.
+- Picture position (a shift in samples and in lines, in software, with no modeset) is the definition's "image position". It is a later setting (OP-097); the first image has none.
 
 ### Black level and setup
 
@@ -365,7 +370,7 @@ The master clocks are VERIFIED for the NES ([nesdev](https://www.nesdev.org/wiki
 2. The width is computed per game to the console's own shape, with nearest at whole factors and sharp bilinear elsewhere. No firmware scaler with its bilinear smear, no fixed framebuffer.
 3. No vertical resampling ever.
 4. Every standard of the encoder, PAL-60 and monochrome included, is a menu choice under confirm-or-revert.
-5. Frame pacing follows the encoder's real field rate, with the audio rate control: no tearing and no drift.
+5. Frame pacing and the audio run rate follow the encoder's real field rate, read back from the driver: no tearing and no drift.
 
 **What composite cannot do**, and the spec does not promise: RGB sharpness, clean colour edges, a picture without dot crawl on detailed colour content, or a 263-line 240p mode at a console's exact rate.
 
@@ -416,9 +421,10 @@ enable_tvout=1
 
 ### Kernel
 
-- Tree: `raspberrypi/linux`, branch `rpi-6.18.y`, one pinned commit, the tarball's SHA-256 in a hash file.
+- Tree: `raspberrypi/linux`, branch `rpi-6.18.y`, commit `ea17ae02ca28483e508b05c7c44190c01a1ef8eb`, the tarball's SHA-256 in `os/board/rpi/patches/linux/linux.hash`.
 - Configuration: `bcm2711_defconfig` (VERIFIED: the Pi docs give it for 64-bit Pi 3, Zero 2 W, 4 and 5; Buildroot uses it for its Pi 3 and Zero 2 W 64-bit defconfigs), 4K pages, plus the NEPTRON fragments: `vc4` and `v3d` built in, the SD host and EROFS, ext4, exFAT and FAT built in (no initramfs), no `CONFIG_VT`, no `CONFIG_FB`, no fbdev emulation, no framebuffer console, no `simpledrm`, no DRM panic screen, the USB HID and Ethernet drivers, `ksmbd`.
-- The PC's post-build check of the silent kernel (layer 8) runs on the Pi kernel too.
+- The PC's post-build check of the silent kernel (layer 8) runs on the Pi kernel too (`os/board/rpi/check-kernel-config.sh`).
+- The CPU governor is `performance` (`CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE` in `os/board/rpi/system.config`). With `ondemand` the clock fell to 600 MHz in a light scene, and the next heavy frame missed its field: an SNES game on a Pi 3 B lost 24 to 30 fields in a burst. With `performance` the same game held 60.054 frames per second for 155 s with no missed field and no audio underrun (2026-11-14, commit `d6f51ea`). The firmware still lowers the clock when the board is too hot.
 - **No 15 kHz patch.** The 15 kHz patch set enters the PC build only through `BR2_LINUX_KERNEL_PATCH` in `os/configs/neptron_pc_x86_64_defconfig`. `os/patches/linux` holds only `linux.hash`, no patch file (VERIFIED: the tree on 2026-11-13). The Pi defconfig sets no `BR2_LINUX_KERNEL_PATCH` and uses its own global patch directory `os/board/rpi/patches` (with the hash of the Pi kernel tarball), so no file of the PC kernel setup is in its path. A post-build check fails the Pi build when `BR2_LINUX_KERNEL_PATCH` is not empty. So OP-070 does not block the Pi image, and the Pi image can be distributed when its other licences allow it. The VEC needs nothing from the set: NEPTRON sets its modes through atomic KMS, and the set patches the console mode and AMD and Intel drivers.
 
 ### Mesa and the GPU
@@ -428,7 +434,33 @@ enable_tvout=1
 | Pi 3, Zero 2 W | VideoCore IV | Gallium `vc4` | OpenGL ES 2 |
 | Pi 4, Pi 5 | VideoCore VI, VII | Gallium `v3d` (needs `vc4` for the display) | OpenGL ES 3.1 |
 
-VERIFIED: `package/mesa3d/Config.in` of Buildroot 2026.08.1 (Mesa 26.1.8), which says "Driver for Broadcom VC4 (rpi0/1/2/3) GPUs" and "Driver for Broadcom VC6/7 (rpi4/5) GPUs (needs vc4)". Neither needs LLVM, so the Pi image builds without the host and target LLVM that take most of the PC build time. The first image selects `vc4` only, and softpipe for tests. The renderer's GLES 2 path is the one the Pi 3 runs; the GLES checks of the Pi 3 are already in `docs/hardware-checklist.md` (T19). A composite buffer is 720x576, well under the 2048 texture limit of `vc4` (`apps/neptron/src/kms.rs` sizes the buffers from the caps).
+VERIFIED: `package/mesa3d/Config.in` of Buildroot 2026.08.1 (Mesa 26.1.8), which says "Driver for Broadcom VC4 (rpi0/1/2/3) GPUs" and "Driver for Broadcom VC6/7 (rpi4/5) GPUs (needs vc4)". Neither needs LLVM, so the Pi image builds without the host and target LLVM that take most of the PC build time. The image selects `vc4`, and softpipe for tests. A composite buffer is 720x576, well under the 2048 texture limit of `vc4` (`apps/neptron/src/kms.rs` sizes the buffers from the caps).
+
+### The renderer on vc4
+
+The Pi 3 runs the GLES 2 path of `crates/neptron-gfx/src/gles`. vc4 differs from Mesa's softpipe in three ways that change the picture, so the renderer does not depend on them:
+
+- **One texel per pixel, BGRA bytes.** Every source texture holds `BGRA_EXT` bytes, one texel per source pixel. XRGB8888 goes to GL as it is. RGB565 and XRGB1555 are expanded on the CPU before the upload, with the expansion of the reference renderer (`round(v x 255 / 31)` and `round(v x 255 / 63)`, as integer steps). The texture unit of vc4 expands 5-bit and 6-bit channels by bit replication, which is 1 off for about a third of the values. The expansion of a 256x224 RGB565 frame takes about 0.5 ms on a Pi 3, and the upload about 0.5 ms (commit `ab90f9a`).
+- **The destination index from a varying.** The vertex stage gives the destination index of each corner as a varying, and the fragment stage takes the floor of it. vc4 gives `gl_FragCoord` at the pixel corner, and Mesa turns its y upside down for a window-system framebuffer and not for a framebuffer object, so the renderer does not read `gl_FragCoord`.
+- **Four programs, by blending axes.** The renderer compiles one program for each pair of axes that blend (`BLEND_X`, `BLEND_Y`) at setup and picks one per quad. An axis blends only with sharp bilinear at a scale that is not whole. The vc4 compiler turns a branch on a uniform into a select, so one program with branches ran every path for every pixel. Each tap of sharp bilinear is one `NEAREST` read; the blend is in the shader, because the `LINEAR` filter of vc4 works in fixed point and is up to 5 off. The quad covers only the output pixels whose near source pixel is inside the frame.
+
+A source texture grows on each side and never shrinks, so a game that switches between sizes allocates GL storage only at the first frame of its largest size (OP-103 point 4).
+
+`gles_compare` on a Pi 3 (VC4 V3D 2.1, Mesa 26.1.8) passes every scene through the framebuffer object and through the window path, except the two axis product cases: their 4096-pixel output is above the 2048 limit of vc4 (2026-11-14, commit `e03f6f7`).
+
+### The frame loop on the Pi 3
+
+The session runs each frame in this order: flip event, input, core, mute when asked, present, `end_frame` (the audio resampling, 1.3 to 1.4 ms on the Pi 3), wait for the flip (`docs/spec/pacing-audio.md`, "Frame order"). The CPU resamples while the GPU draws, and the atomic commit waits for the render fence.
+
+The stats reply of the control protocol (version 2) gives `fields_missed`: the fields in which no new frame reached the display while the core ran. A late flip shows the frame before for one more field, and no other counter sees it. `audio_underruns` counts the times the pipeline queue ran empty in play.
+
+Measured on a Pi 3 B on composite, NTSC 240p, with the development build of `os push` (no LTO), on 2026-11-14 (OP-103):
+
+- NES, SNES and Mega Drive games hold 60.054 frames per second with no missed field.
+- Super Mario World leaves 1.66 ms in its worst frame. The release image is not measured.
+- A keep or revert dialog over a running game halves the rate while it is open.
+- A change of the TV standard takes about 75 ms from the last flip of the old mode to the first flip of the new one. The muted queue covers about 32 ms, so the underrun count goes up by one.
+- With the vc4 vblank sequence in 480i not checked, `fields_missed` can hide real misses in interlace (UNVERIFIED).
 
 ### SD card layout
 
@@ -460,7 +492,9 @@ VERIFIED: `package/mesa3d/Config.in` of Buildroot 2026.08.1 (Mesa 26.1.8), which
 | None on the board | Zero 2 W | | No jack. HDMI audio is off when composite is on. USB audio, or PWM on GPIO through the `audremap` overlay (VERIFIED: the overlay exists in the README; UNVERIFIED: that it works with composite on) |
 | USB audio | All | `snd-usb-audio` | A USB DAC is the way to better sound than PWM |
 
-- The existing output list (`docs/spec/audio-settings.md`, ADR 0011) takes the analog jack under `auto`, which is right on composite. `S08neptron-mixer` sets `PCM` and the other controls to 0 dB; the `snd_bcm2835` control name `PCM` is UNVERIFIED.
+- The output list (`docs/spec/audio-settings.md`, ADR 0011) takes the analog jack under `auto`, which is right on composite. `S08neptron-mixer` (from the PC overlay, which the Pi image also uses) sets `PCM` and the other controls to 0 dB; the `snd_bcm2835` control name `PCM` is UNVERIFIED.
+- The list labels the PCM of the `vc4-hdmi` card "Analog", because the kind of a PCM comes from its name and `MAI PCM i2s-hifi-0` has no HDMI word. With no jack card, `auto` takes it, and the open fails while HDMI is off (OP-102 point 2).
+- SDL gets device periods of 1024 frames (`DEVICE_PERIOD_FRAMES` in `crates/neptron-audio/src/sdl.rs`). With 512 the analog output of the Pi 3 (44100 Hz) ran short of data 14 times a second; with 1024 ALSA logged no underrun in 60 s (commit `dff9f44`). The mean output latency is about 64 ms (`docs/spec/pacing-audio.md`).
 - The jack carries video on its sleeve, so audio and video leave on one cable.
 - Expect hiss and limited dynamic range from the 11-bit PWM (VERIFIED in principle: the bit depth; UNVERIFIED: how it sounds).
 
@@ -485,7 +519,7 @@ The definition gives 3 s from kernel start to the first UI frame for the Pi 4 an
 
 ### `neptron.toml` on the boot partition
 
-The definition describes the file and its keys (`05-crt-safety-model.md`, `10-os-layer.md`). No code reads it today (VERIFIED: `docs/flows/01-power-on.md`, notes 4 and 12). The Pi image needs it, because it is how a user picks composite with an HDMI display connected, or PAL, before the first boot.
+The definition describes the file and its keys (`05-crt-safety-model.md`, `10-os-layer.md`). No code reads it (task P07, not built; `docs/flows/01-power-on.md`). The Pi image needs it, because it is how a user picks composite with an HDMI display connected, or PAL, before the first boot. This section is the design for P07.
 
 - **Place.** `/neptron.toml` at the root of the FAT32 boot partition. On the Pi the firmware's files are beside it.
 - **Mount.** The init scripts mount the boot partition read-only at `/boot` before the launcher starts. A read-write remount is only for the later writes (the Wi-Fi blanking of the definition).
@@ -524,7 +558,7 @@ QEMU cannot test the Pi display: its Pi machines model the firmware framebuffer 
 
 ### The CI entry
 
-The disabled `rpi-arm64` entry of `.github/image-targets.json` (branch `ci/setup`) is enabled when the board task is merged:
+Task P08 enables the `rpi-arm64` entry of `.github/image-targets.json` (on the branch `ci/setup`, not on `main`):
 
 - `defconfig`: `neptron_rpi_arm64_defconfig`; `fragments`: none; `build_args`: `--arch rpi-arm64`; `images_dir`: `rpi-arm64`; `image_files`: `neptron-rpi-arm64.img`; `artifact`: `neptron-rpi-arm64`; `upload_image`: true; `rebuild`: `neptron`, `neptron-launch`, `neptronctl`; `checks`: none.
 - The upload carries the image, `SHA256SUMS`, `legal/`, `LICENCES.txt` and the `README.txt` that says the image must not be sold, and the `legal-info` sources as a second artifact, as for the PC.
@@ -565,7 +599,9 @@ These lines go into `docs/hardware-checklist.md` with the board task, each `need
 
 ## 7. Build plan
 
-Each task is one branch `mvp/<task>` under the run rules. The names are proposals for the taskboard.
+Each task is one branch `mvp/<task>` under the run rules. `docs/taskboard.toml` holds the status.
+
+**Merged:** P01 (this spec), P02, P03, P04, P05, P06, and two tasks that the first composite tests raised, P10 and P11: the frame budget and the renderer on vc4 (the programs by blending axes, one texel per pixel with the CPU expansion, the destination index from a varying, the window path in `gles_compare`, the texture that only grows, the audio frame after the present, the underrun count and `fields_missed`, the 1024-frame audio period, the `performance` governor). **Left:** P07, P08 and P09.
 
 | Task | Scope | Owns | Needs | Gate | Parallel with |
 | --- | --- | --- | --- | --- | --- |
@@ -578,37 +614,29 @@ Each task is one branch `mvp/<task>` under the run rules. The names are proposal
 | P08 CI | Enable `rpi-arm64` in `.github/image-targets.json`, the upload, `docs/ci.md` | `.github/**`, `docs/ci.md` | P04, and the CI branch merged | The workflow on a branch | P07 |
 | P09 Bench session | The checklist above on the owner's Pi 3 B+ | `docs/hardware-checklist.md` (results) | P06 image built | The checklist | |
 
-**The first card the owner can boot** comes from **P04**: a development image that boots, mounts its partitions, makes the share, runs the frontend on HDMI through the panel path, and gives SSH. It shows no composite picture yet: before P06, `auto` finds no composite candidate. **The first composite picture** comes from the image built after **P06** is merged, through `os push` onto the P04 card or a new image.
+**The first composite picture** (2026-11-14, a Pi 3 B on a Samsung tube, the development image of P04 with the frontend of P06 and later through `os push`): the picture locks in NTSC 240p, the menu is sharp, and the grid of the 240p test suite fills the tube with correct geometry; the game picture reaches the edges of the visible area. NES, SNES and Mega Drive games hold the field rate after P10 and P11. OP-102 and OP-103 hold the open points of these tests. P09 runs the rest of the checklist.
 
 Later steps, not in this plan: the pre-filter shader; picture position; a second standard for 50 Hz games; the Pi 4 (`enable_tvout` and the one reboot, `start4.elf`, `v3d`); the Pi 5 RP1 VEC with its variable clock; the GPIO DACs with `include` in `config.txt`; Wi-Fi.
 
 ## 8. Open questions for the owner
 
-Each has a default that the build tasks take if no answer comes.
+Each has a default that the build tasks took. The owner decided 1 (the default), 4 (`aspect`), 5 (later, OP-098) and 7 (the ten standards) on 2026-11-13 (OP-096, OP-098).
 
 1. **The Zero 2 W in the first image.** Default: its device tree and the `[pi02]` lines are in the image at no extra cost, it is not tested, and the documentation calls it untested (no network share without an adapter, no analog audio).
 2. **What a PAL-only TV shows on the default NTSC.** A set with no NTSC decoder shows black and white if it locks to 60 Hz, or a rolling picture if it does not (UNVERIFIED per set). The ways out: `tv = "pal"` (or `pal_60`) in `neptron.toml` on any PC before the boot, or the Display panel when the picture locks. The owner's bench TV is a European SCART set (`15-decisions-and-open-points.md`), so check 6 tells which standards it decodes. Default: NTSC, as decided. Option for later: a first-boot standard probe that shows NTSC, PAL-60 and PAL for 15 s each with a sound cue, until a button press, like the blind probe.
 3. **The speed notice on composite.** Default: silent up to 5000 ppm (the audio bound), as on a flat panel. The alternative, the CRT rule (5 mHz), would show the alert for every console game, because no game matches 60.054 Hz.
 4. **The width default.** Default: `aspect`, with the whole factor when it is within 3 %. Alternative: `integer` (exact pixels, but a 256-wide game is narrow).
-5. **A second standard for 50 Hz games** (`display.tv_50`, for TVs that show both NTSC and PAL). Default: later. It needs a guard rule, because a game run never changes the monitor today.
+5. **A second standard for 50 Hz games** (`display.tv_50`, for TVs that show both NTSC and PAL). Default: later. It needs a guard rule, because a game run never changes the monitor.
 6. **The GPIO DAC configuration file.** Default: later, with the definition's `pi_dac` key and an `include` file in `config.txt`; the first image ignores the key with a notice.
 7. **The key name and values.** Default: `display.tv`, as in the definition's `neptron.toml` sample, with the ten standards plus `auto`. The definition lists only `auto | pal | ntsc`.
 8. **The Pi kernel.** Default: `rpi-6.18.y` at a pinned commit, not the 6.12.61 that Buildroot pins. The definition already decides 6.18.
 
-## 9. Errors and gaps found in other documents
+## 9. Gaps against other documents
 
-These are reported, not changed (the task does not edit them).
-
-- `docs/definition/05-crt-safety-model.md`, "Composite on a Pi at first boot": "Pi 3: composite is available alongside HDMI". Both connectors exist and either can be driven without a reboot, but not both at once: on the BCM2835 family HDMI and the VEC share pixel valve 2 (`bcm2835_pv2_data` in `vc4_crtc.c`).
-- The same section puts the Pi 5 with the boards where `enable_tvout=1` turns HDMI off. The Pi documentation says composite turns HDMI off "for all models except Raspberry Pi 5", and the Pi 5 composite output is the `J7` pad, not a jack.
-- The same section's `neptron.toml` sample offers `tv = auto | pal | ntsc`. The encoder has ten standards; the spec proposes the larger list under the same key.
-- `docs/definition/07-hardware-support-matrix.md`, "Raspberry Pi composite": progressive 240p and 288p are attributed to raspberrypi/linux PR #4406. Mainline has progressive VEC modes since v6.3 (commit `71c541ebe82b`); the Pi fork adds them to the listed modes. The Pi 5 RP1 VEC does not have a fixed pixel clock (6.75 to 21.6 MHz).
-- `docs/definition/10-os-layer.md` says that `config.txt` is generated from the settings. The first Pi image ships a fixed `config.txt`; generation comes with the GPIO DACs.
-- Buildroot 2026.08.1 labels `rpi-firmware` as `BSD-3-Clause`. `LICENCE.broadcom` limits use to Raspberry Pi devices and forbids modification. The legal manifest of the image repeats the wrong label unless `LICENCES.txt` corrects it.
-- The code does not follow the definition's output rule on a Pi: `choose` never takes composite under `auto` (section 3, "The output rule").
-- No code reads `neptron.toml` (already noted in `docs/flows/01-power-on.md` and `02-frontend-boot.md`).
-- `crates/neptron-modeline/README.md` ("Known limits") and OP-047 say that composite gets no mode. This design replaces that limit; P03 updates the README, and the orchestrator updates OP-047.
+- The definition's output rule for a Pi needs the app: `choose` in `neptron-kms` never takes composite under `auto`, so the app falls back to the composite connector of a TV encoder (section 3, "The output rule").
+- No code reads `neptron.toml` (P07).
 - `data/hardware/matrix.toml` gives `pi_vc4_composite` `flip_per_field = false`, and the policy does not read the field; the flip cadence of 480i on `vc4` is unknown (OP-030).
+- Buildroot 2026.08.1 labels `rpi-firmware` as `BSD-3-Clause`. `LICENCE.broadcom` limits use to Raspberry Pi devices and forbids modification. `os/board/rpi/LICENCES.txt` gives the real terms.
 
 ## Sources
 
