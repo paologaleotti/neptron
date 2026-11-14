@@ -970,3 +970,18 @@ Each open point is one section:
 - Where: `crates/neptron-modeline/src/policy/tv.rs` (UI rectangle), `crates/neptron-audio` (the output list and its labels), `os/board/rpi/config.txt`
 - How to change: for 1, a setting for the menu width on a TV, or the result of OP-097. For 2, take the kind of a PCM from its card driver (`vc4-hdmi` is HDMI) as well as from its name, and do not offer an HDMI output while its connector is off.
 - Decision:
+
+### OP-103: Frame budget on the Raspberry Pi 3, and what still costs fields.
+
+- Raised by: P10 and P11 (measured on a Pi 3 B, composite, 2026-11-14)
+- Status: open
+- Default: NES, SNES and Mega Drive games hold the field rate with no missed field. The CPU governor of the Pi image is `performance`. The points that stay open:
+  1. A keep or revert dialog over a running game halves the rate while it is open: a flip comes every second field for 3 to 4 s. Each change of the TV standard added about 110 missed fields and about 50 audio underruns.
+  2. A change of the TV standard takes about 75 ms from the last flip of the old mode to the first flip of the new one. The muted audio queue covers about 32 ms, so it runs dry in silence and the underrun count goes up by one.
+  3. Super Mario World leaves 1.66 ms in its worst frame with the development build (`os push`, no LTO). The release image is not measured yet.
+  4. The source texture grows at the first frame of a larger size, because the `Display` contract does not carry the maximum geometry of the core. A game that changes its size in play makes one allocation at that moment.
+  5. The DRM vblank sequence of vc4 in 480i is not checked: if it counts frames and not fields, `fields_missed` hides real misses in interlace.
+  6. `neptronctl screenshot` answers `unavailable` on the image, because the build has no PNG encoder.
+- Where: `crates/neptron-session` (frame loop), `crates/neptron-ui` and `apps/neptron` (the dialog path), `crates/neptron-audio` (mute cover), `crates/neptron-gfx/src/gles`, `os/board/rpi/system.config`
+- How to change: for 1, find why the dialog path presents every second field (two presents in a frame, or a UI draw that misses the field) with the per-phase trace of P10. For 2, a longer muted cover, which adds delay after a short modeset. For 3, measure with the release image. For 4, pass the maximum geometry through the contract (an ADR). For 5, the hardware check in the checklist.
+- Decision:
