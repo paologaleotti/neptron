@@ -4,11 +4,9 @@
 //! renderer in 32-bit floats: every value is an integer below `2^24`, so
 //! it is exact, and every division is corrected to the exact quotient.
 //!
-//! The shader blends the taps itself, from `NEAREST` texture reads. The
-//! `LINEAR` filter of the texture unit would need one read, but the unit of
-//! `vc4` computes its weights in fixed point: on the Raspberry Pi 3 it
-//! differs from the reference by up to 5 per channel even with exact
-//! sample points, above the tolerance of 1.
+//! The shader blends the taps itself, from `NEAREST` texture reads: the
+//! `LINEAR` filter of the `vc4` texture unit computes its weights in fixed
+//! point, outside the tolerance of 1 of the reference.
 
 /// One build of the fragment program. Which axes blend is a constant of
 /// the source, not a uniform: the `vc4` compiler of the Raspberry Pi turns
@@ -143,6 +141,9 @@ vec3 tap(float i, float crop_start, float n, float m, float rm, float p,
     float e = den - abs(2.0 * qr.y - den);
     float weight = max(0.0, den - e * p);
     float far = 2.0 * qr.y < den ? near - 1.0 : near + 1.0;
+    // weight / (4m), with the float inverse of 2m: its error, below 2^-22
+    // of the weight, moves a channel by less than 0.001, inside the
+    // tolerance of 1. vc4 computes a division as that same reciprocal.
     return vec3(near, clamp(far, first, last), weight * rm * 0.5);
 }
 

@@ -29,14 +29,11 @@ pub(super) enum Texels<'a> {
 /// `UNSIGNED_SHORT_5_6_5` texture by bit replication, which differs by 1
 /// from the `round(v * 255 / 31)` that GL and the reference define for
 /// some values, so the CPU expands, with integer steps equal to the
-/// expansion of the reference for every value. On the Raspberry Pi 3 a
-/// 256x224 frame takes about half a millisecond; a table of all 65 536
-/// values took 0.8 ms there, because its reads miss the first level cache.
+/// expansion of the reference for every value.
 ///
 /// The loops index the slices and use no iterator adapter: the bench build
 /// of `cargo xtask os push` (incremental, 16 codegen units, no LTO) does not
-/// inline the adapters of `core`, and with them a loop took 3 ms for a
-/// 256x224 frame on the Raspberry Pi 3.
+/// inline the adapters of `core`, so each pixel would make calls.
 ///
 /// # Errors
 ///
