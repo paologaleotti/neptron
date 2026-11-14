@@ -451,7 +451,7 @@ name = "Raspberry Pi: the board and the image for the Pi 3 B/B+ (rpi-arm64), wit
 owns = ["os/board/rpi", "os/configs", "os/patches", "xtask/src/os", "os/README.md"]
 needs = ["P01"]
 gate = "T0 and T1; os build for rpi-arm64; the aarch64 boot check still passes"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "P03"
