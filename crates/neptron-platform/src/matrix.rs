@@ -103,6 +103,17 @@ pub enum Quirk {
     Needs15khzPatches,
     /// The encoder runs at one pixel clock.
     FixedPixelClock,
+    /// The connector is a composite encoder with fixed broadcast
+    /// standards: it takes only the modes of a TV profile, and the app
+    /// opens it when no other display answers.
+    TvEncoder,
+    /// The connector shares its pixel valve (CRTC) with HDMI: only one of
+    /// the two is driven at a time.
+    SharedPixelValve,
+    /// Only the Raspberry Pi kernel lists the 240p and 288p modes. Mainline
+    /// accepts them from Linux 6.3 but lists only 480i and 576i; the app
+    /// sends its own modes, so the list does not limit it.
+    ProgressiveListedOnlyByPiKernel,
 }
 
 /// Why the table was refused.
@@ -262,6 +273,11 @@ impl GpuEntry {
         let connector =
             self.connectors.is_empty() || self.connectors.iter().any(|kind| kind == connector_kind);
         driver && pci && of && connector
+    }
+
+    /// The entry names `quirk`.
+    pub fn has(&self, quirk: Quirk) -> bool {
+        self.quirks.contains(&quirk)
     }
 
     fn precision(&self) -> (bool, bool) {

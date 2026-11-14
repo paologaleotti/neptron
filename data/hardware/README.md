@@ -50,7 +50,7 @@ Each `[[gpu]]` table is one entry:
 | `amd_amdgpu`, `amd_radeon` | Matrix: low pixel clock and interlace with the 15 kHz patch set, tier 2 until a card is tested |
 | `nvidia_nouveau` | Matrix: super resolution, interlace unreliable, 25 MHz floor for older cards |
 | `pi_vc4_dpi` | Matrix: GPIO DPI with any timing, interlace needs a vc4 DPI patch |
-| `pi_vc4_composite` | Matrix: 240p, 288p, 480i and 576i at a fixed pixel clock. The 13.5 MHz clock and the 720 by 576 size are the modes of the Linux `vc4_vec.c` driver |
+| `pi_vc4_composite` | Matrix: 240p, 288p, 480i and 576i at a fixed pixel clock. The 13.5 MHz clock and the 720 by 576 size are the modes of the Linux `vc4_vec.c` driver. `tv_encoder`: the encoder has fixed broadcast standards, set with the connector property `TV mode` (`docs/spec/raspberry-pi.md`). `shared_pixel_valve`: on the Pi 3 and the Zero 2 W, HDMI and the encoder share pixel valve 2 (`bcm2835_pv2_data` in `vc4_crtc.c`), so only one of them is driven at a time; on the Pi 4 the firmware turns HDMI off when composite is on. `progressive_listed_only_by_pi_kernel`: the Raspberry Pi kernel lists `720x240` and `720x288`; mainline accepts progressive modes from Linux 6.3 (commit `71c541ebe82b`) but lists only 480i and 576i |
 | `pi5_rp1_dpi` | Matrix: GPIO DPI with any timing, interlace through the RP1 PIO block |
 
 The driver names and compatible strings of the Raspberry Pi entries are not yet checked on a board. A wrong one makes the GPU unknown, which gives the conservative values.

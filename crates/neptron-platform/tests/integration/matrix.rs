@@ -105,6 +105,13 @@ fn pi_entries_depend_on_the_connector() {
     assert_eq!(composite.id, "pi_vc4_composite");
     assert!(composite.caps.interlace);
     assert_eq!(composite.caps.pclock_min_hz, composite.caps.pclock_max_hz);
+    for quirk in [
+        Quirk::TvEncoder,
+        Quirk::SharedPixelValve,
+        Quirk::ProgressiveListedOnlyByPiKernel,
+    ] {
+        assert!(composite.has(quirk), "{quirk:?}");
+    }
     assert_eq!(matrix.caps_for(&vc4, "HDMI-A"), UNKNOWN_GPU_CAPS);
     let pi4 = of_gpu("vc4-drm", "brcm,bcm2711-vc5");
     assert_eq!(matrix.lookup(&pi4, "DPI").unwrap().id, "pi_vc4_dpi");

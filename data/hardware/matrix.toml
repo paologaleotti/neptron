@@ -161,7 +161,12 @@ interlace = true
 flip_per_field = false
 max_width = 720
 max_height = 576
-quirks = ["fixed_pixel_clock"]
+quirks = [
+    "fixed_pixel_clock",
+    "tv_encoder",
+    "shared_pixel_valve",
+    "progressive_listed_only_by_pi_kernel",
+]
 
 [[gpu]]
 id = "pi5_rp1_dpi"
