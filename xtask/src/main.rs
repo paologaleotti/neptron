@@ -92,6 +92,7 @@ commands:
                        build the GLES comparison for the guest in the
                        development container and run it in QEMU (tier T3)
   core-trace [--arch A] [--timeout SECS] [--bless] [--dump FRAME[,FRAME...]]
+             [--allow-missing-roms]
                        run the test ROMs in the real cores in QEMU and compare
                        the traces with tests/traces (tier T4)
   kms-check [--arch A] [--timeout SECS]

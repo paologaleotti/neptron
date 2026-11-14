@@ -16,6 +16,10 @@ cargo xtask verify --tier 1
 
 This runs formatting, clippy, the dependency rules, the licence check and all tests. It writes `target/verify/report.json`. Run `cargo xtask help` for the other commands.
 
+## Continuous integration
+
+GitHub Actions runs the same `cargo xtask verify` on every pull request, on Linux and macOS, and builds the OS images on `main` and every night. Make the check `ci-ok` required. The images that CI uploads are built without the 15 kHz kernel patch set, because its licence is not clear (OP-070). [docs/ci.md](docs/ci.md) describes the jobs, the caches, the times and the artifacts.
+
 ## Repository layout
 
 - `crates/`: libraries (types, safety validator, modeline solver, backends, UI, session).
