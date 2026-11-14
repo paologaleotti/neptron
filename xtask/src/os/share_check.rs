@@ -99,7 +99,7 @@ impl ShareCheckArgs {
                         .find(|c| c.name() == value)
                         .ok_or_else(|| {
                             OsError::Usage(format!(
-                                "unknown case {value:?}; the cases are rewrite, offer and retype"
+                                "unknown case {value:?}; the cases are rewrite, offer, retype and reused"
                             ))
                         })?;
                     out.cases.push(case);
@@ -124,10 +124,13 @@ pub enum Case {
     /// An empty partition 4 of type 0x83, given type 7 and formatted on the
     /// request.
     Retype,
+    /// A card that held another system: an old ext4 backup superblock in the
+    /// free space. The first boot formats over it.
+    Reused,
 }
 
 /// Every case, in the order of a full run.
-pub const CASES: [Case; 3] = [Case::Rewrite, Case::Offer, Case::Retype];
+pub const CASES: [Case; 4] = [Case::Rewrite, Case::Offer, Case::Retype, Case::Reused];
 
 impl Case {
     /// The name in the output, on the command line and in the folder name.
@@ -136,6 +139,7 @@ impl Case {
             Self::Rewrite => "rewrite",
             Self::Offer => "offer",
             Self::Retype => "retype",
+            Self::Reused => "reused",
         }
     }
 
@@ -145,6 +149,18 @@ impl Case {
             Self::Rewrite => &[Step::Fresh, Step::Rewritten, Step::Again],
             Self::Offer => &[Step::Offered, Step::Formatted, Step::Kept, Step::Refused],
             Self::Retype => &[Step::RetypeOffered, Step::Retyped, Step::RetypeAgain],
+            Self::Reused => &[Step::Fresh, Step::Again],
+        }
+    }
+
+    /// An old ext superblock that the host writes before the first boot:
+    /// its byte after the planned start of the share, and its block group
+    /// number, which places it in a file system at another start.
+    pub fn stale_ext(self) -> Option<(u64, u16)> {
+        match self {
+            Self::Rewrite | Self::Retype => None,
+            Self::Offer => Some((STALE_EXT_BYTE, 3)),
+            Self::Reused => Some((STALE_EXT_BYTE, 7)),
         }
     }
 
@@ -155,6 +171,7 @@ impl Case {
             Self::Rewrite => None,
             Self::Offer => Some(0x07),
             Self::Retype => Some(0x83),
+            Self::Reused => None,
         }
     }
 }
@@ -330,20 +347,7 @@ pub fn add_partition_4(disk: &Path, kind: u8) -> Result<(u64, u64), OsError> {
         .read(true)
         .open(disk)
         .map_err(io)?;
-    let mut mbr = [0_u8; 512];
-    file.read_exact(&mut mbr).map_err(io)?;
-    let entry_3 = &mbr[MBR_ENTRY_3_OFFSET as usize..MBR_ENTRY_3_OFFSET as usize + 16];
-    let word =
-        |bytes: &[u8]| u64::from(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
-    let state_end = word(&entry_3[8..12]) + word(&entry_3[12..16]);
-    let disk_sectors = file.metadata().map_err(io)?.len() / SECTOR_BYTES;
-    let start = state_end.div_ceil(ALIGN_SECTORS) * ALIGN_SECTORS;
-    if state_end == 0 || start >= disk_sectors {
-        return Err(OsError::Usage(format!(
-            "{} has no partition 3 with room after it",
-            disk.display()
-        )));
-    }
+    let (start, disk_sectors) = planned_start(&mut file, disk)?;
     let size = disk_sectors - start;
     let too_large = |_| OsError::Usage(format!("{} is too large for an MBR entry", disk.display()));
     let mut entry = [0_u8; 16];
@@ -358,6 +362,55 @@ pub fn add_partition_4(disk: &Path, kind: u8) -> Result<(u64, u64), OsError> {
     file.write_all(&entry).map_err(io)?;
     file.flush().map_err(io)?;
     Ok((start, size))
+}
+
+/// Writes an ext superblock magic and block group number `group` at byte
+/// `byte` after the planned start of the share in `disk`, as an older
+/// system left it there. Returns its byte on the disk.
+pub fn write_stale_ext(disk: &Path, byte: u64, group: u16) -> Result<u64, OsError> {
+    let io = |source| OsError::Io {
+        path: disk.to_owned(),
+        source,
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .read(true)
+        .open(disk)
+        .map_err(io)?;
+    let (start, _) = planned_start(&mut file, disk)?;
+    let at = start * SECTOR_BYTES + byte;
+    let mut superblock = [0_u8; 1024];
+    superblock[56..58].copy_from_slice(&[0x53, 0xef]);
+    superblock[0x5a..0x5c].copy_from_slice(&group.to_le_bytes());
+    file.seek(SeekFrom::Start(at)).map_err(io)?;
+    file.write_all(&superblock).map_err(io)?;
+    file.flush().map_err(io)?;
+    Ok(at)
+}
+
+/// The first 1 MiB boundary after partition 3 of `file`, where the
+/// storage script plans the share, and the size of the disk, in sectors.
+fn planned_start(file: &mut std::fs::File, disk: &Path) -> Result<(u64, u64), OsError> {
+    let io = |source| OsError::Io {
+        path: disk.to_owned(),
+        source,
+    };
+    file.seek(SeekFrom::Start(0)).map_err(io)?;
+    let mut mbr = [0_u8; 512];
+    file.read_exact(&mut mbr).map_err(io)?;
+    let entry_3 = &mbr[MBR_ENTRY_3_OFFSET as usize..MBR_ENTRY_3_OFFSET as usize + 16];
+    let word =
+        |bytes: &[u8]| u64::from(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]));
+    let state_end = word(&entry_3[8..12]) + word(&entry_3[12..16]);
+    let disk_sectors = file.metadata().map_err(io)?.len() / SECTOR_BYTES;
+    let start = state_end.div_ceil(ALIGN_SECTORS) * ALIGN_SECTORS;
+    if state_end == 0 || start >= disk_sectors {
+        return Err(OsError::Usage(format!(
+            "{} has no partition 3 with room after it",
+            disk.display()
+        )));
+    }
+    Ok((start, disk_sectors))
 }
 
 /// `cargo xtask os share-check`.
@@ -393,6 +446,13 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
             let (start, size) = add_partition_4(&disk, kind)?;
             println!(
                 "share-check {}: partition 4 of type {kind:x} at sector {start} with {size} sectors, empty, no marker",
+                case.name()
+            );
+        }
+        if let Some((byte, group)) = case.stale_ext() {
+            let at = write_stale_ext(&disk, byte, group)?;
+            println!(
+                "share-check {}: an old ext superblock of block group {group} at byte {at} of the disk",
                 case.name()
             );
         }
@@ -504,6 +564,10 @@ const PLANT_REQUEST: &str = r#"printf 'device=/dev/sda4\nstart=%s\nsize=%s\ntype
 /// The check of a boot that made partition 4: the table was read back
 /// from the device.
 const FLUSHED: &str = "logged 'blockdev --flushbufs exit 0: the table is read back after a flush of the cache' || fail \"the table was not read back after a flush of the cache\"\n";
+/// Where the cases write an old ext superblock, in bytes after the planned
+/// start of the share: the backup of block group 1 for blocks of 1 KiB, a
+/// place that the checks read, inside the 128 MiB of free space.
+const STALE_EXT_BYTE: u64 = 8_389_632;
 /// The file that a boot writes to the share.
 const FILE: &str = "share-check.txt";
 /// The byte offset of the third primary entry of an MBR.
@@ -641,6 +705,36 @@ mod tests {
         ] {
             assert!(refused.contains(part), "{part}: {refused}");
         }
+    }
+
+    #[test]
+    fn a_stale_ext_superblock_is_written_after_the_planned_start() {
+        let dir = std::env::temp_dir().join(format!("xtask-share-ext-{}", std::process::id()));
+        // A leftover of an earlier run with the same process id; absence is fine.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let disk = dir.join("disk.img");
+        let mut bytes = vec![0_u8; 40_000 * 512];
+        let entry_3 = 446 + 32;
+        bytes[entry_3 + 8..entry_3 + 12].copy_from_slice(&4096_u32.to_le_bytes());
+        bytes[entry_3 + 12..entry_3 + 16].copy_from_slice(&6000_u32.to_le_bytes());
+        std::fs::write(&disk, &bytes).unwrap();
+        let at = write_stale_ext(&disk, 1024, 7).unwrap();
+        assert_eq!(at, 10_240 * 512 + 1024);
+        let written = std::fs::read(&disk).unwrap();
+        let at = at as usize;
+        assert_eq!(&written[at + 56..at + 58], &[0x53, 0xef]);
+        assert_eq!(&written[at + 0x5a..at + 0x5c], &7_u16.to_le_bytes());
+        assert_eq!(&written[..512], &bytes[..512], "the table stays");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_cases_with_an_old_ext_superblock() {
+        assert_eq!(Case::Reused.stale_ext(), Some((STALE_EXT_BYTE, 7)));
+        assert_eq!(Case::Offer.stale_ext(), Some((STALE_EXT_BYTE, 3)));
+        assert_eq!(Case::Reused.partition_4_type(), None);
+        assert_eq!(Case::Reused.steps(), &[Step::Fresh, Step::Again]);
     }
 
     #[test]
