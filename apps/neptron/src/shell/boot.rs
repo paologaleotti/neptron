@@ -118,7 +118,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         // The record holds a last known good only for this output, so a
         // panel is the safe default only once the user kept it here.
         let safe = detected.safe(&presets, record.last_known_good.as_ref())?;
-        if detected.is_tv() && config.monitor() != crate::display::AUTO {
+        // A relaunch is a run of the same boot: the first run said it.
+        if next.is_none() && detected.is_tv() && config.monitor() != crate::display::AUTO {
             found.warn(format!(
                 "display.monitor {:?} has no effect on a TV output: display.tv sets its standard.",
                 config.monitor()

@@ -325,6 +325,21 @@ fn a_monitor_preset_has_no_effect_on_a_tv_and_says_so() {
             }
             assert_only_tv_modes(&rig);
             rig.finish();
+
+            // A relaunch is a run of the same boot: no notice again.
+            rig.boot(Some(NextRun {
+                game: None,
+                notice: None,
+            }));
+            rig.frames(2);
+            let again = rig
+                .shell()
+                .snapshot()
+                .notices
+                .iter()
+                .any(|n| n.text.contains("no effect on a TV output"));
+            assert!(!again, "the notice shows once per boot");
+            rig.finish();
         },
     );
 }
