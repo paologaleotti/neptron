@@ -27,11 +27,13 @@ The backend turns on the client capabilities `UNIVERSAL_PLANES` and `ATOMIC`. Wh
 4. Several candidates: with a CRT profile, the first analog candidate wins; with a flat-panel profile, the first digital candidate wins. When the class the rule asks for has no candidate, the first candidate wins (open point, see below).
 5. No candidate: an error. The blind probe (driving every analog connector without EDID) is the safety layer's work, not the backend's.
 
-Analog connector types: VGA, DVI-A, DVI-I, Composite, S-Video, Component, 9-pin DIN, TV and DPI (the Raspberry Pi GPIO DAC). Every other type is digital. A writeback connector is never a candidate. The order is the order of the kernel's resource list.
+Analog connector types: VGA, DVI-A, Composite, S-Video, Component, 9-pin DIN, TV and DPI (the Raspberry Pi GPIO DAC). A DVI-I connector carries both signals. It is digital when its `subconnector` is not `DVI-A` and its EDID passes the structural checks of `neptron-platform` and has the digital input bit (byte 0x14, bit 7). In every other case it is analog: analog wins when in doubt. Every other type is digital. A writeback connector is never a candidate. The order is the order of the kernel's resource list.
 
-**The CRTC and the plane.** The CRTC that drives the connector now, or else a CRTC that no connector uses and that an encoder of the connector can drive. A CRTC that also drives another connector is refused at open: that display would get the modes of this one. The primary plane that feeds the CRTC now, or else a free primary plane that can feed it.
+**The CRTC and the plane.** At open, the backend takes the CRTC that drives the connector, or else a CRTC that no connector uses and that an encoder of the connector can drive. A CRTC that also drives another connector is refused at open: that display would get the modes of this one. The plane is the primary plane that feeds that CRTC at open, or else a free primary plane that can feed it.
 
 `open` sets no mode and makes no commit. It only reads the state. Until the first `set_mode`, the display shows what it showed before: on x86 the firmware's mode that i915 inherited, on a Pi and on `vkms` nothing.
+
+**Connector facts.** At open the backend reads, for the chosen connector, its `subconnector` property, its `TV mode` property with its values by name, and the ids of its `left margin`, `right margin`, `top margin` and `bottom margin` properties. `connector_class()` gives the class of the connector in use; a composite connector is `Analog`. `subconnector()` gives the enum name of the `subconnector` property, or `None`. `tv_standards()` gives `None` when the connector has no `TV mode` property (HDMI, VGA, `vkms`); otherwise it gives the standards whose `TvStandard::kms_name` is a value of the property. `lower_caps(limit)` lowers the highest pixel clock and the largest mode that `caps()` reports, never raises them, and keeps the buffers. The caller uses it when the output is analog after the display opened with digital limits (ADR 0010).
 
 ## Buffers
 
@@ -52,15 +54,15 @@ Every commit uses the atomic API. A commit is all or nothing: when the kernel re
 **`set_mode(mode)`**
 
 1. A flip is pending: `DisplayError::Device`, nothing changes (OP-032, as the fake display). The engine calls `wait_flip` first.
-2. The mode equals the mode set now: no commit. The call returns the mode read back before. When that readback failed (step 8), the call reads the mode back again, still with no commit.
-3. The kernel mode record is built from the `ValidatedMode` and from nothing else (see "The kernel mode record"). A pixel clock that is not a whole number of kHz, and a mode larger than the buffers, give `DisplayError::ModeRefused`, with no commit.
+2. The mode and its TV standard both equal the mode and the standard on the wire: no commit. The call returns the mode read back before. When that readback failed (step 8), the call reads the mode back again, still with no commit. After a TV standard read back that differs from the request (step 8), the same request commits again. A change of the mode or of the standard alone is a modeset.
+3. The kernel mode record is built from the `ValidatedMode` and from nothing else (see "The kernel mode record"). The call gives `DisplayError::ModeRefused`, with no commit and nothing drawn, for: a pixel clock that is not a whole number of kHz; a mode with a TV standard on a connector with no `TV mode` property; a mode with a TV standard whose name (`TvStandard::kms_name`) is not a value of the connector's `TV mode` property; a mode with no TV standard on a connector that has a `TV mode` property (the encoder would keep a standard that did not pass validation with the mode, ADR 0012); and a mode larger than the buffers.
 4. The renderer draws a black frame of the new size, and the backend takes its buffer.
-5. One request holds: the connector on the CRTC, the writeback connector on the CRTC when writeback is on, the mode blob and `ACTIVE` 1 on the CRTC, and the plane (framebuffer, CRTC, source and destination rectangles).
+5. One request holds: the connector on the CRTC, with its `TV mode` value when the mode has a TV standard and each margin property it has at 0; the writeback connector on the CRTC when writeback is on; the mode blob and `ACTIVE` 1 on the CRTC; and the plane (framebuffer, CRTC, source and destination rectangles). A margin shrinks the plane in the scaler of a TV encoder, which resamples the lines, so each modeset sets every margin to 0. The standard and the mode go to the kernel in the same atomic commit.
 6. A test-only commit with `ALLOW_MODESET`. A refusal is `DisplayError::ModeRefused` with the kernel's error. The old mode stays.
 7. The real commit with `ALLOW_MODESET`, blocking. When it returns, the mode is on the wire. A refusal here is `DisplayError::Device`; the old mode stays, because the commit is all or nothing.
-8. The backend records the new mode as the mode on the wire, then reads the mode of the CRTC back, converts it to a `Modeline` and returns it. A mode that cannot be read or converted is `DisplayError::Device`, and the new mode stays recorded as on the wire: a later request for the old mode is a real commit, and the restore at drop runs (`WireMode`).
+8. The backend records the new mode as the mode on the wire, then reads the mode of the CRTC back, converts it to a `Modeline` and returns it. A mode that cannot be read or converted is `DisplayError::Device`, and the new mode stays recorded as on the wire: a later request for the old mode is a real commit, and the restore at drop runs (`WireMode`). For a mode with a TV standard, the backend also reads the connector's `TV mode` value. The value name and the horizontal total of the mode read back (858 for 525 lines, 864 for 625) must give the standard of the request: `PAL` is PAL-60 on 858 and PAL on 864, and `Mono` is `mono_60` on 858 and `mono_50` on 864. Any other result is `DisplayError::Device`; the mode stays recorded as on the wire and is marked (`WireMode::recommit`), so the next request for the same mode and standard commits again.
 
-`ALLOW_MODESET` is set only here, in `blank` and in the output-off commit of the restore. Only this path writes a non-zero `MODE_ID`, and only a blob of `ModeRecord::from_validated`, for a mode that differs from the mode set now. No other commit of the backend can change a mode.
+`ALLOW_MODESET` is set only here, in `blank` and in the output-off commit of the restore. Only this path writes a non-zero `MODE_ID`, and only a blob of `ModeRecord::from_validated`, for a request whose mode or TV standard differs from what is on the wire, or after a wrong TV standard read back. Only this path writes `TV mode`. No other commit of the backend can change a mode or a standard.
 
 **`blank()`**
 
@@ -89,9 +91,9 @@ The present path allocates nothing: the request is a fixed array of object, prop
 
 When the event comes, the buffer that was on the screen goes back to the GBM surface, and the new one becomes the buffer on the screen.
 
-**Bounded waits.** `wait_flip` polls the descriptor with a limit of `FLIP_WAIT_LIMIT_MS` (500 ms) in total, and reads only when the poll says that data is there, so a read never blocks. The slowest field of any shipped profile is about 20 ms, and an interlaced frame about 40 ms; 500 ms also covers `vkms` under a loaded QEMU. A flip that does not complete in that time is `DisplayError::Device` with `operation` "wait for the page flip". The flip stays pending: a later `wait_flip` waits again, and `present` and `set_mode` stay refused until the event comes. The frame thread never hangs on a flip.
+**Bounded waits.** `wait_flip` polls the descriptor with a limit of `FLIP_WAIT_LIMIT_MS` (500 ms) in total, and reads only when the poll says that data is there, so a read never blocks. The slowest field of any shipped profile is about 20 ms, and an interlaced frame about 40 ms; 500 ms also covers `vkms` under a loaded QEMU. A flip that does not complete in that time is `DisplayError::Device` with `operation` "wait for the page flip". The flip stays pending: a later `wait_flip` waits again, and `present`, `set_mode` and `blank` stay refused until the event comes. The frame thread never hangs on a flip.
 
-The `Display` contract states this bounded wait (ADR 0007), and the fake display of `neptron-testkit` follows it: on a timeout `wait_flip` returns `DisplayError::Device`, the flip can still complete, a later `wait_flip` returns its event, and until then `set_mode` and `present` return `DisplayError::Device` as busy. A failed event read also keeps the flip pending.
+The `Display` contract states this bounded wait (ADR 0007), and the fake display of `neptron-testkit` follows it: on a timeout `wait_flip` returns `DisplayError::Device`, the flip can still complete, a later `wait_flip` returns its event, and until then `set_mode`, `present` and `blank` return `DisplayError::Device` as busy. A failed event read also keeps the flip pending.
 
 `wait_flip` with no flip queued is `DisplayError::Device` and does not block, and before the first `set_mode` and after a `blank` it is `DisplayError::NoMode`, as on the fake display.
 
@@ -111,10 +113,10 @@ The conversion back (the readback) refuses a kernel mode with a flag or a field 
 
 | `DisplayError` | When |
 | --- | --- |
-| `ModeRefused` | The mode cannot be expressed for the kernel (clock not a whole kHz), is larger than the buffers, or the test-only commit refused it. Nothing changed |
+| `ModeRefused` | The mode cannot be expressed for the kernel (clock not a whole kHz), its TV standard cannot be set on the connector (no `TV mode` property, or no value of its name), it has no TV standard on a connector with a `TV mode` property, it is larger than the buffers, or the test-only commit refused it. Nothing changed |
 | `SceneRefused` | The renderer refuses the scene, with the reasons of the reference renderer, or a limit of the GLES renderer |
 | `NoMode` | `present` or `wait_flip` before the first `set_mode` or after a `blank` |
-| `Device` | A flip is pending (`present`, `set_mode`, `blank`), the blank commit failed, no flip is queued (`wait_flip`), a flip did not complete in time, the real commit, the readback, the GL context, the GBM surface or the event read failed |
+| `Device` | A flip is pending (`present`, `set_mode`, `blank`), the blank commit failed, no flip is queued (`wait_flip`), a flip did not complete in time, the real commit, the readback, the TV standard read back, the GL context, the GBM surface or the event read failed |
 
 Errors of `open` and `from_env` are `KmsError`: the descriptor, the device, the connector choice, the CRTC, the plane, a property that is missing, the buffers and the renderer.
 
@@ -155,8 +157,9 @@ Timing check 7 runs in the aarch64 QEMU guest on `vkms`, with Mesa softpipe for 
 4. The writeback picture equals the reference renderer's output for the same scene, byte for byte in the colour bytes, for two nearest scenes with the UI in each test mode. In each mode with a whole vertical multiple of 2 (480p, 480i), a scene with black scanlines at 50 % gives the same writeback picture as the reference renderer and as `GlesRenderer::render` (the read-back path): the window path and the read-back path share one draw function, and this proves it on the output.
 5. Flips: 30 presents with `wait_flip` in each progressive mode. The sequence grows by at least one per flip, the time grows, and the mean time per vblank is within 1 % of the period of the mode. Missed vblanks are counted and printed, not failed: the guest is not real time.
 6. `set_mode` with the mode that is on the wire makes no commit: the CRTC's `MODE_ID` blob id stays the same, while every modeset makes a new blob. The errors of the contract: `present` and `set_mode` while a flip is pending, `wait_flip` with no flip queued, `present` and `wait_flip` before the first mode, a mode larger than the buffers, all as the fake display.
-7. Blank: with a flip pending it is a device error. Then it succeeds, and a second descriptor sees the CRTC with `ACTIVE` 0, `MODE_ID` 0, no mode and no plane, and the connector with `CRTC_ID` 0. `present` and `wait_flip` give `NoMode`, and a second blank succeeds. `set_mode` of the mode set before the blank commits (a blob in `MODE_ID` again), its read back equals the request field by field, a second descriptor reads the same mode, and a flip completes.
-8. Drop: after the display drops, the CRTC keeps the last mode with no plane, or is off.
+7. TV: the `vkms` connector is digital and has no `TV mode` property. The four TV table modes (`TV_525_240P`, `TV_525_480I`, `TV_625_288P`, `TV_625_576I`), validated as plain modes, commit, and each reads back equal to the request field by field, also through a second descriptor. For each of the ten standards and each of its two modes, `set_mode` gives `ModeRefused`, and the CRTC's `MODE_ID`, its mode, the plane's framebuffer and the connector's CRTC stay the same.
+8. Blank: with a flip pending it is a device error. Then it succeeds, and a second descriptor sees the CRTC with `ACTIVE` 0, `MODE_ID` 0, no mode and no plane, and the connector with `CRTC_ID` 0. `present` and `wait_flip` give `NoMode`, and a second blank succeeds. `set_mode` of the mode set before the blank commits (a blob in `MODE_ID` again), its read back equals the request field by field, a second descriptor reads the same mode, and a flip completes.
+9. Drop: after the display drops, the CRTC keeps the last mode with no plane, or is off.
 
 What the run showed (aarch64 guest, Mesa softpipe, kernel 6.18): every check passes. Mesa's GBM on `vkms` takes no modifiers, so the buffers are linear through the usage flag. The flip period equals the period of each progressive mode to 0 ppm; 480i gives one vblank per 8.33 ms, twice the field rate (OP-030). The dev build draws about four frames per second with software GL, so most vblanks have no flip; the check counts them and does not fail on them. The kernel logs "Overflow of CRC buffer" while the CRC file is open and not read; the check reads the newest entries after the picture settles.
 
@@ -167,6 +170,7 @@ What the run showed (aarch64 guest, Mesa softpipe, kernel 6.18): every check pas
 - What a real driver does at the last close (the CRTC off or on), and the console takeover: `vkms` has no console.
 - The modifier path: Mesa's `kms_swrast` on `vkms` may not take modifiers, so the fallback with the linear usage flag can be the one that runs. The program prints which path ran.
 - Real-time behaviour: QEMU on a loaded host misses vblanks.
+- Setting a TV standard: `vkms` has no `TV mode` property, and no virtual driver of kernel 6.18 has one. Setting a standard and reading it back need a Raspberry Pi (`docs/hardware-checklist.md`).
 
 The hardware checks go to `docs/hardware-checklist.md`.
 
