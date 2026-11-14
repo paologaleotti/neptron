@@ -56,6 +56,11 @@ const FAKES: &[(&str, &str)] = &[
         "echo \"logger $*\" >> \"$LOG\"; exit \"${FAKE_LOGGER_EXIT:-0}\"",
     ),
     ("sync", "echo sync >> \"$LOG\""),
+    (
+        "dd",
+        "if [ -n \"$FAKE_DD_LOG\" ]; then echo \"dd $*\" >> \"$LOG\"; fi\n\
+         exec /bin/dd \"$@\"",
+    ),
     ("chown", "echo \"chown $*\" >> \"$LOG\""),
     ("date", "echo DATE"),
     (
@@ -1921,4 +1926,49 @@ fn a_partition_4_that_overlaps_another_entry_is_never_offered_a_format() {
     let sda1 = format!("{}/dev/sda1", run.dir.display());
     run.start()
         .assert_no_offer(Some(&format!("it overlaps {sda1} of the partition table")));
+}
+
+/// Linux refuses a seek past the end of a block device, and dd then reads
+/// every byte up to the offset: at boot that never ends. No read of the
+/// offer or of the request may start or end past its device.
+#[test]
+fn no_read_goes_past_the_end_of_its_device() {
+    let sectors = 100 * MIB_SECTORS;
+    let run = Run::with_large_partition_4("reads-in-bounds", sectors).set("FAKE_DD_LOG", "yes");
+    let offer = run.boot(&[]);
+    assert!(offer.offer().is_some(), "{offer:#?}");
+    run.write_request(&run.sda4(), PLANNED, sectors, "7");
+    let request = run.boot(&[]);
+    assert_eq!(request.calls("mkfs.exfat"), 1, "{request:#?}");
+    let sda = format!("{}/dev/sda", run.dir.display());
+    let sda4 = run.sda4();
+    let mut reads = 0;
+    for out in [&offer, &request] {
+        for line in out.log.lines().filter(|l| l.starts_with("dd ")) {
+            let arg = |key: &str| {
+                line.split(' ')
+                    .find_map(|w| w.strip_prefix(key))
+                    .map(str::to_owned)
+            };
+            let (Some(input), Some(skip), Some(count)) = (arg("if="), arg("skip="), arg("count="))
+            else {
+                continue;
+            };
+            let bs: u64 = arg("bs=").and_then(|b| b.parse().ok()).expect(line);
+            let end = (skip.parse::<u64>().unwrap() + count.parse::<u64>().unwrap()) * bs;
+            let size = if input == sda {
+                (PLANNED + sectors) * 512
+            } else if input == sda4 {
+                sectors * 512
+            } else {
+                continue;
+            };
+            assert!(
+                end <= size,
+                "{line}: ends at {end}, the device has {size} bytes"
+            );
+            reads += 1;
+        }
+    }
+    assert!(reads > 50, "the scan and the checks read: {reads}");
 }
