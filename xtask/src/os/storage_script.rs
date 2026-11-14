@@ -2277,3 +2277,48 @@ fn a_boot_code_that_cannot_be_read_stops_the_type_change() {
         }
     }
 }
+
+/// On the offer and the request, a read that fails is no proof that
+/// nothing is there: it refuses.
+#[test]
+fn a_read_error_refuses_the_offer() {
+    let scan_byte = PLANNED * 512 + MIB_SECTORS * 512 + 3;
+    let cases: [(&str, String, &str); 3] = [
+        (
+            "unread-scan",
+            format!("skip={scan_byte}"),
+            "cannot be offered a format: sector",
+        ),
+        (
+            "unread-magic",
+            "skip=1080".to_owned(),
+            "byte 1080 of it cannot be read",
+        ),
+        (
+            "unread-group",
+            "skip=1114".to_owned(),
+            "byte 1114 of it cannot be read",
+        ),
+    ];
+    for (name, word, why) in cases {
+        let run = Run::new(name).with_partition_4().fail_reads(&word, "1 2 3");
+        if name == "unread-group" {
+            run.write_sda4(1024, &ext_superblock(0));
+        }
+        let out = run.start();
+        out.assert_no_offer(None);
+        assert!(out.log.contains(why), "{name}: {why}: {out:#?}");
+    }
+}
+
+/// The first boot must bring the share up: a read error in the scan for an
+/// old share counts as no share there, as an unreadable old share cannot be
+/// mounted anyway.
+#[test]
+fn a_read_error_in_the_first_boot_scan_still_gives_the_share() {
+    let scan_byte = PLANNED * 512 + MIB_SECTORS * 512 + 3;
+    let out = Run::new("unread-first-boot")
+        .fail_reads(&format!("skip={scan_byte}"), "1 2 3")
+        .start();
+    out.assert_share_mounted(true);
+}
