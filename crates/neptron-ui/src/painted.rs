@@ -15,6 +15,7 @@ pub struct SceneCanvas {
     canvas: CpuCanvas,
     shown: UiScene,
     painted: bool,
+    paints: u64,
 }
 
 impl SceneCanvas {
@@ -33,7 +34,13 @@ impl SceneCanvas {
         scene.render(&mut self.canvas);
         self.shown.copy_from(scene);
         self.painted = true;
+        self.paints = self.paints.saturating_add(1);
         true
+    }
+
+    /// How many scenes [`SceneCanvas::paint`] has drawn.
+    pub fn paints(&self) -> u64 {
+        self.paints
     }
 
     /// The pixels of the last scene drawn.
@@ -77,6 +84,7 @@ mod tests {
         assert!(canvas.paint(&red));
         assert!(!canvas.paint(&red.clone()));
         assert_eq!(*canvas.canvas(), painted(&red));
+        assert_eq!(canvas.paints(), 1);
     }
 
     #[test]

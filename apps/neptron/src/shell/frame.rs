@@ -77,7 +77,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         let shown = match &mut self.stage {
             Stage::List(list) => {
                 list.engine.begin_frame(MENU_SOURCE);
-                let presented = list.engine.present(None, Some(canvas_frame(&self.canvas)));
+                let presented = list
+                    .engine
+                    .present(None, Some(canvas_frame(self.canvas.canvas())));
                 presented.is_ok() && list.engine.wait_flip().is_ok()
             }
             _ => true,
@@ -118,7 +120,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             }
         }
         self.update_ui(now_ns);
-        let ui = self.screens.shows_ui().then(|| canvas_frame(&self.canvas));
+        let ui = self
+            .screens
+            .shows_ui()
+            .then(|| canvas_frame(self.canvas.canvas()));
         let Stage::Game(game) = &mut self.stage else {
             return;
         };
@@ -154,7 +159,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         self.screens.update(&self.snap, &self.actions, &mut self.ui);
         self.carry_out(now_ns);
         if self.screens.shows_ui() {
-            self.ui.render(&mut self.canvas);
+            self.canvas.paint(&self.ui.scene);
         }
     }
 

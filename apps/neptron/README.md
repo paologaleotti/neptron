@@ -66,6 +66,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 | Navigation from the events, with key repeat | Navigation from `Session::input_events`, only while the UI shows; else only the menu button after `menu_opened` |
 | Snapshot: confirm, display mode | Snapshot: confirm, session, `video_status` (the read back, never a proposal), display mode |
 | `Screens::update`, then the intents | The same |
+| `SceneCanvas::paint`: the canvas is drawn only when the scene changed | The same, while the UI shows |
 | `begin_frame(MENU_SOURCE)`, `present(None, canvas)`, `wait_flip` | `run_frame(canvas or None)` |
 | `Guard::tick`, also after a failed present | `Guard::tick` |
 | No flip: the loop waits for itself one 60 Hz frame | `blanked`: the same |

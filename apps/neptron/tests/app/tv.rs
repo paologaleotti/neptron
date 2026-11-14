@@ -8,6 +8,7 @@ use std::path::Path;
 use neptron::NextRun;
 use neptron::pages::NOT_USED_ON_A_TV;
 use neptron_input::BLIND_RECOVERY_HOLD_NS;
+use neptron_settings::Level;
 use neptron_testkit::{DisplayOptions, FakeDisplay};
 use neptron_types::{
     Control, GpuCaps, Modeline, Rect, TV_525_240P, TV_625_288P, TV_PCLOCK_HZ, TvStandard,
@@ -516,6 +517,94 @@ fn the_ui_on_576i_is_640x480_48_lines_down() {
                     }
                 );
             }
+        },
+    );
+}
+
+/// Sets the global TV standard as `neptronctl settings set display.tv
+/// global <value>` does, and checks that the keep or revert dialog opens
+/// over the running game.
+fn set_tv_in_game(rig: &mut Rig, value: &str) {
+    rig.shell()
+        .set_from_protocol(
+            "display.tv",
+            Level::Global,
+            &serde_json::Value::String(value.to_owned()),
+        )
+        .expect("the change");
+    rig.frames(2);
+    assert_eq!(rig.screen(), "confirm");
+    assert!(!rig.shell().paused(), "the game runs under the dialog");
+}
+
+fn fields_missed(rig: &mut Rig) -> u64 {
+    rig.shell().stats_now().fields_missed.expect("a game")
+}
+
+/// The keep or revert dialog over a running game holds the field rate: no
+/// field is missed while it shows, on the old standard or the new one,
+/// whether it reverts by itself or is kept. Its canvas is drawn again only
+/// when its scene changes, about once a second for the count, not in
+/// every frame. The fake display gives the frame loop no cost in time, so
+/// this proves the frame order and the work per frame, not the time a
+/// frame takes on a Raspberry Pi.
+#[test]
+#[ignore = "tier 2"]
+fn the_keep_or_revert_dialog_over_a_game_misses_no_field() {
+    in_children(
+        &test_name(
+            module_path!(),
+            "the_keep_or_revert_dialog_over_a_game_misses_no_field",
+        ),
+        2,
+        |dir, stage| {
+            let mut rig = composite_rig(dir);
+            if stage == 0 {
+                rig.boot(None);
+                rig.frames(2);
+                rig.keep();
+                rig.until(600, "the scan", |r| {
+                    !r.shell().snapshot().systems.is_empty()
+                });
+                rig.finish();
+                return;
+            }
+            rig.boot(Some(game()));
+            rig.frames(120);
+            dismiss_notices(&mut rig);
+            assert_eq!(fields_missed(&mut rig), 0);
+
+            set_tv_in_game(&mut rig, "pal");
+            assert_eq!(on_wire(&rig), (TV_625_288P, TvStandard::Pal));
+            let paints = rig.shell().canvas().paints();
+            let flips = rig.display.flips().len();
+            rig.frames(CONFIRM_WINDOW_FRAMES);
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            assert_eq!(on_wire(&rig), (TV_525_240P, TvStandard::Ntsc));
+            assert_eq!(fields_missed(&mut rig), 0);
+            let drawn = rig.shell().canvas().paints() - paints;
+            assert!(
+                drawn <= 30,
+                "{drawn} canvas draws in {CONFIRM_WINDOW_FRAMES} frames"
+            );
+            let shown = rig.display.flips().len() - flips;
+            assert!(
+                shown >= CONFIRM_WINDOW_FRAMES as usize - 1,
+                "{shown} flips in {CONFIRM_WINDOW_FRAMES} frames"
+            );
+            dismiss_notices(&mut rig);
+
+            set_tv_in_game(&mut rig, "pal");
+            rig.keep();
+            assert_eq!(on_wire(&rig), (TV_625_288P, TvStandard::Pal));
+            set_tv_in_game(&mut rig, "auto");
+            rig.keep();
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            assert_eq!(on_wire(&rig), (TV_525_240P, TvStandard::Ntsc));
+            assert_eq!(rig.shell().config().tv(), "auto");
+            rig.frames(60);
+            assert_eq!(fields_missed(&mut rig), 0);
+            rig.finish();
         },
     );
 }

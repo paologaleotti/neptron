@@ -14,7 +14,7 @@ use neptron_session::{Devices as SessionDevices, GameLaunch, Session, SessionOpt
 use neptron_settings::Storage;
 use neptron_ui::screens::Screens;
 use neptron_ui::snapshot::{DisplayInfo, NoticeKind, ProfileEntry, ProfileId};
-use neptron_ui::{CpuCanvas, Snapshot, Theme, UiFrame};
+use neptron_ui::{SceneCanvas, Snapshot, Theme, UiFrame};
 use neptron_video::{
     DisplayConfig, Guard, GuardEvent, GuardRecord, ScanlineSettings, VideoEngine, VideoStatusText,
 };
@@ -272,7 +272,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             runtime,
             screens: Screens::new(theme),
             ui: UiFrame::new(),
-            canvas: CpuCanvas::new(),
+            canvas: SceneCanvas::new(),
             snap: Snapshot::default(),
             nav: Navigator::new(),
             actions: Vec::with_capacity(16),

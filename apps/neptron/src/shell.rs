@@ -25,7 +25,7 @@ use neptron_session::{RunRateSource, Session};
 use neptron_settings::{Level, Value};
 use neptron_types::{InputEvent, Modeline, Rotation, SourceGeometry, TvStandard};
 use neptron_ui::screens::Screens;
-use neptron_ui::{CpuCanvas, Snapshot, UiAction, UiFrame};
+use neptron_ui::{SceneCanvas, Snapshot, UiAction, UiFrame};
 use neptron_video::{DisplayConfig, Guard, VideoEngine, VideoStatusText};
 
 use crate::config::Config;
@@ -145,7 +145,7 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
     runtime: Runtime,
     screens: Screens,
     ui: UiFrame,
-    canvas: CpuCanvas,
+    canvas: SceneCanvas,
     snap: Snapshot,
     nav: Navigator,
     actions: Vec<UiAction>,
@@ -286,8 +286,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         &self.ui
     }
 
-    /// The canvas of the last frame that drew the UI.
-    pub fn canvas(&self) -> &CpuCanvas {
+    /// The canvas of the UI: the pixels of the last scene drawn, and how
+    /// many scenes it drew.
+    pub fn canvas(&self) -> &SceneCanvas {
         &self.canvas
     }
 
