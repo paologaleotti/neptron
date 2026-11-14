@@ -25,16 +25,17 @@ use crate::{Image, OutputBuffer, RectKind};
 /// quad is drawn only in the parts of its area outside the UI quad, with
 /// one scissor rectangle each, and not at all (with no upload) when the UI
 /// covers it. The pixels are the same, and a menu or a dialog over a game
-/// costs the GPU less than the game alone. A quad covers only the output pixels
-/// whose source pixel is inside the frame; the rest stays black, as in the
-/// reference. Each quad uses the program of the axes that blend: sharp
-/// bilinear at a scale that is not a whole number. The fragment shader
-/// computes the taps of each output pixel from its position with the
-/// integer rules of the reference, in 32-bit floats that hold every value
-/// exactly, and reads each tap with one `NEAREST` texture read. Each source
-/// image is a texture of 8-bit channels, expanded on upload exactly as the
-/// reference expands them. So nearest output equals the reference byte for
-/// byte.
+/// costs the GPU less than the game alone.
+///
+/// A quad covers only the output pixels whose source pixel is inside the
+/// frame; the rest stays black, as in the reference. Each quad uses the
+/// program of the axes that blend: sharp bilinear at a scale that is not
+/// a whole number. The fragment shader computes the taps of each output
+/// pixel from its position with the integer rules of the reference, in
+/// 32-bit floats that hold every value exactly, and reads each tap with
+/// one `NEAREST` texture read. Each source image is a texture of 8-bit
+/// channels, expanded on upload exactly as the reference expands them. So
+/// nearest output equals the reference byte for byte.
 /// The shader blends the taps and rounds half up, as the reference does,
 /// but in floats: a blend whose exact value is within float error of a
 /// half can round the other way, so a channel can differ by 1. The shader
