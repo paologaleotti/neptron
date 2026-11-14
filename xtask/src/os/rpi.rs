@@ -231,6 +231,8 @@ fn each_kernel_fragment_holds_its_concern() {
     for (file, option, value) in [
         ("system.config", "CONFIG_ARM64_4K_PAGES", "y"),
         ("system.config", "CONFIG_BCM2835_WDT", "y"),
+        ("system.config", "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE", "y"),
+        ("system.config", "CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND", "n"),
         ("video.config", "CONFIG_DRM_VC4", "y"),
         ("video.config", "CONFIG_DRM_V3D", "y"),
         ("video.config", "CONFIG_I2C_BCM2835", "y"),
