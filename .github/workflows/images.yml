@@ -180,11 +180,13 @@ jobs:
         env:
           DEFCONFIG: ${{ matrix.defconfig }}
           FRAGMENTS: ${{ join(matrix.fragments, ' ') }}
+          BASE_PATHS: ${{ join(matrix.base_paths, ' ') }}
           TARGET: ${{ matrix.name }}
         run: |
           files="Dockerfile os/configs/$DEFCONFIG"
           for f in $FRAGMENTS; do files="$files os/configs/$f"; done
-          files="$files $(git ls-files os/patches 'os/package/libretro-*' | tr '\n' ' ')"
+          # shellcheck disable=SC2086
+          files="$files $(git ls-files -- $BASE_PATHS | tr '\n' ' ')"
           base=$({ echo "$BASE_EPOCH"; for f in $files; do echo "$f"; sha256sum < "$f"; done; } \
             | sha256sum | cut -c1-16)
           dl=$(git ls-files '*.hash' 'os/configs/*' Dockerfile | xargs sha256sum | sha256sum | cut -c1-16)
