@@ -14,12 +14,17 @@ use crate::{
 /// span. SDL's stream has no limit of its own.
 pub const SINK_CAPACITY_MS: u32 = 128;
 
-/// The device buffer SDL is asked for, in frames: 21.3 ms at 48 kHz, and
-/// SDL's own default at that rate. SDL's ALSA backend makes a buffer of two
-/// such periods. The analog output of the Raspberry Pi 3 (`bcm2835`) runs
-/// short of data many times a second with periods of 512 frames, while
-/// SDL's stream still holds audio.
-pub const DEVICE_BUFFER_FRAMES: u32 = 1024;
+/// The device period SDL is asked for (`SDL_AUDIO_DEVICE_SAMPLE_FRAMES`),
+/// in stereo frames: 21.3 ms at 48 kHz, 23.2 ms at 44.1 kHz, and SDL's own
+/// default at those rates. SDL's ALSA backend makes a buffer of two such
+/// periods. The analog output of the Raspberry Pi 3 (`bcm2835`) runs short
+/// of data many times a second with periods of 512 frames, while SDL's
+/// stream still holds audio.
+pub const DEVICE_PERIOD_FRAMES: u32 = 1024;
+
+/// The earlier name of [`DEVICE_PERIOD_FRAMES`], kept for its callers: the
+/// value is one device period, not the whole device buffer.
+pub const DEVICE_BUFFER_FRAMES: u32 = DEVICE_PERIOD_FRAMES;
 
 /// The SDL hint that names the ALSA PCM of SDL's default playback device.
 /// SDL reads it when the device opens (`ALSA_OpenDevice`).
@@ -132,7 +137,7 @@ impl Sdl3Sink {
         // choice.
         let _hint_set = sdl3::hint::set(
             "SDL_AUDIO_DEVICE_SAMPLE_FRAMES",
-            &DEVICE_BUFFER_FRAMES.to_string(),
+            &DEVICE_PERIOD_FRAMES.to_string(),
         );
         match name {
             None => Self::open_default(sdl, audio),

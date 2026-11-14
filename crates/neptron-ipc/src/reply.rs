@@ -169,7 +169,9 @@ pub struct Stats {
     pub frames_dropped: u64,
     /// Flips that showed the previous frame again.
     pub frames_repeated: u64,
-    /// Times the audio buffer ran empty.
+    /// Times the audio buffer ran empty while the game ran. It counts from
+    /// 0 again after a core timing change, which makes a new audio
+    /// pipeline. A muted queue that ran dry, as at a mode change, counts.
     pub audio_underruns: u64,
     /// Audio frames in the output buffer now.
     pub audio_queued_frames: u64,

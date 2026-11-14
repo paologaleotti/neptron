@@ -33,4 +33,6 @@ pub use rates::{
     MIN_CORE_FRAME_RATE_MHZ, MIN_CORE_SAMPLE_RATE_MHZ, MIN_DEVICE_RATE_HZ, check_device_rate,
 };
 #[cfg(feature = "sdl3")]
-pub use sdl::{DEVICE_BUFFER_FRAMES, SINK_CAPACITY_MS, Sdl3Outputs, Sdl3Sink, SinkError};
+pub use sdl::{
+    DEVICE_BUFFER_FRAMES, DEVICE_PERIOD_FRAMES, SINK_CAPACITY_MS, Sdl3Outputs, Sdl3Sink, SinkError,
+};

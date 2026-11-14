@@ -54,7 +54,9 @@ pub struct AudioStats {
     /// device was playing the frames of the frames before: the device ran
     /// out of audio. The first frame, and the first frame after a pause
     /// ([`AudioPipeline::idle_frame`]), let the queue run empty on purpose
-    /// and do not count.
+    /// and do not count. A muted queue that runs dry counts too, for
+    /// example during a long modeset. The count is per pipeline, so it
+    /// starts from 0 when a core timing change makes a new one.
     pub underruns: u64,
     /// Calls in which the resampler refused its input or its ratio. The
     /// frame's audio is lost; it does not happen with the buffers that
