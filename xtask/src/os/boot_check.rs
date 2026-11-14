@@ -33,7 +33,8 @@ pub const GAME_LIST_SCREEN: &str = "notice";
 pub const GOLDEN: &str = "os/tests/golden/boot-game-list.ppm";
 /// The marker line before the picture.
 pub const CAPTURE_BEGIN: &str = "NEPTRON-CAPTURE-BEGIN";
-/// The marker line after the picture.
+/// The marker line after the picture. An image of this tree adds the size
+/// of the PPM file and its CRC-32 in 8 hex digits.
 pub const CAPTURE_END: &str = "NEPTRON-CAPTURE-END";
 /// What `neptron-capture` prints, then the uptime, when the screen is on
 /// show.
@@ -237,6 +238,9 @@ pub struct CheckOutput {
     pub picture: Option<Vec<u8>>,
     /// The mode line of the capture tool.
     pub mode: Option<String>,
+    /// Lines inside the picture that are not base64, such as kernel
+    /// messages on the same console. Only a picture with a CRC skips them.
+    pub foreign_lines: usize,
 }
 
 /// An error in the picture that the guest printed.
@@ -251,6 +255,28 @@ pub enum CaptureError {
         /// The line number in the picture, from 1.
         line: usize,
     },
+    /// An end marker whose fields are not a size and 8 hex digits.
+    #[error("the end marker of the picture is not \"{CAPTURE_END} <bytes> <crc32>\": {line:?}")]
+    BadEnd {
+        /// The end marker line.
+        line: String,
+    },
+    /// The decoded picture does not have the size or the CRC-32 of its end
+    /// marker: a foreign line on the console cut a picture line.
+    #[error(
+        "the picture is damaged: the end marker gives {bytes} bytes with CRC-32 {crc:08x}, \
+         the decoded picture has {got_bytes} bytes with CRC-32 {got_crc:08x}"
+    )]
+    Damaged {
+        /// The size in the end marker.
+        bytes: usize,
+        /// The CRC-32 in the end marker.
+        crc: u32,
+        /// The size of the decoded picture.
+        got_bytes: usize,
+        /// The CRC-32 of the decoded picture.
+        got_crc: u32,
+    },
 }
 
 /// Reads the output lines of the guest script.
@@ -260,13 +286,16 @@ pub fn parse_output(lines: &[String]) -> Result<CheckOutput, CaptureError> {
         screen_uptime_ms: None,
         picture: None,
         mode: None,
+        foreign_lines: 0,
     };
     let mut picture: Option<Vec<String>> = None;
     for line in lines {
         let line = line.trim_end();
         if let Some(text) = picture.as_mut() {
-            if line == CAPTURE_END {
-                out.picture = Some(decode_base64(text)?);
+            if let Some(fields) = line.strip_prefix(CAPTURE_END) {
+                let (bytes, foreign) = end_picture(line, fields, text)?;
+                out.picture = Some(bytes);
+                out.foreign_lines += foreign;
                 picture = None;
             } else {
                 text.push(line.to_owned());
@@ -293,6 +322,58 @@ pub fn parse_output(lines: &[String]) -> Result<CheckOutput, CaptureError> {
 /// console, and a log line without its end can come before the mark.
 fn after<'a>(line: &'a str, mark: &str) -> Option<&'a str> {
     line.find(mark).map(|at| &line[at + mark.len()..])
+}
+
+/// Decodes the lines of a picture at its end marker `line`, whose text
+/// after the marker is `fields`. With a size and a CRC-32 there, the lines
+/// that are not base64 are foreign and skipped, and the content must match
+/// both; with no fields every line must be base64. Returns the picture and
+/// the number of skipped lines.
+fn end_picture(
+    line: &str,
+    fields: &str,
+    text: &[String],
+) -> Result<(Vec<u8>, usize), CaptureError> {
+    if fields.is_empty() {
+        return Ok((decode_base64(text)?, 0));
+    }
+    let bad = || CaptureError::BadEnd {
+        line: line.to_owned(),
+    };
+    let fields: Vec<&str> = fields.split_whitespace().collect();
+    let [bytes, crc] = fields.as_slice() else {
+        return Err(bad());
+    };
+    let bytes: usize = bytes.parse().map_err(|_| bad())?;
+    if crc.len() != 8 {
+        return Err(bad());
+    }
+    let crc = u32::from_str_radix(crc, 16).map_err(|_| bad())?;
+    let (base64, foreign): (Vec<String>, Vec<String>) =
+        text.iter().cloned().partition(|l| is_picture_line(l));
+    let picture = decode_base64(&base64)?;
+    let got_crc = crc32_ieee(&picture);
+    if picture.len() != bytes || got_crc != crc {
+        return Err(CaptureError::Damaged {
+            bytes,
+            crc,
+            got_bytes: picture.len(),
+            got_crc,
+        });
+    }
+    Ok((picture, foreign.len()))
+}
+
+/// CRC-32 of IEEE 802.3, as zlib computes it.
+pub fn crc32_ieee(data: &[u8]) -> u32 {
+    let mut crc = u32::MAX;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = (crc >> 1) ^ (0xedb8_8320 & 0u32.wrapping_sub(crc & 1));
+        }
+    }
+    !crc
 }
 
 /// Decodes standard base64 lines with `=` padding.
@@ -435,6 +516,12 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
         println!("{line}");
     }
     let parsed = parse_output(&lines).map_err(|e| OsError::Usage(format!("boot-check: {e}")))?;
+    if parsed.foreign_lines > 0 {
+        println!(
+            "boot-check: {} foreign lines inside the picture were skipped; its size and CRC-32 match",
+            parsed.foreign_lines
+        );
+    }
     let verdict = judge(&repo.root, &out_dir, &label, &parsed, args.bless)?;
     let report = Report {
         label: &label,
@@ -953,6 +1040,95 @@ mod tests {
     }
 
     #[test]
+    fn the_crc_is_crc32_ieee() {
+        assert_eq!(crc32_ieee(b"123456789"), 0xcbf4_3926);
+        assert_eq!(crc32_ieee(b""), 0);
+    }
+
+    /// The bytes of the 1x1 picture in the tests, and its size and CRC-32.
+    const PICTURE: &[u8] = b"P6\n1 1\n255\n\xff\0\0";
+    const PICTURE_END: &str = "NEPTRON-CAPTURE-END 14 6687f686";
+
+    #[test]
+    fn a_foreign_line_in_a_picture_with_a_crc_is_skipped() {
+        let out = parse_output(&strings(&[
+            "NEPTRON-CAPTURE-BEGIN 1 1",
+            "UDYKMSAx",
+            "[   93.513276] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:",
+            "",
+            "CjI1NQr/AAA=",
+            PICTURE_END,
+        ]))
+        .unwrap();
+        assert_eq!(out.picture.as_deref(), Some(PICTURE));
+        assert_eq!(out.foreign_lines, 2);
+    }
+
+    #[test]
+    fn a_picture_that_does_not_match_its_crc_or_size_is_refused() {
+        let damaged = CaptureError::Damaged {
+            bytes: 14,
+            crc: 0x6687_f686,
+            got_bytes: 14,
+            got_crc: crc32_ieee(b"P6\n1 1\n255\n\xff\0\x01"),
+        };
+        assert_eq!(
+            parse_output(&strings(&[
+                "NEPTRON-CAPTURE-BEGIN 1 1",
+                "UDYKMSAx",
+                "CjI1NQr/AAE=",
+                PICTURE_END,
+            ])),
+            Err(damaged)
+        );
+        // A kernel line that cut a picture line in two loses its start.
+        let cut = parse_output(&strings(&[
+            "NEPTRON-CAPTURE-BEGIN 1 1",
+            "UDYK[   93.5] rcu: INFO: rcu_preempt detected stalls",
+            "MSAx",
+            "CjI1NQr/AAA=",
+            PICTURE_END,
+        ]));
+        assert!(
+            matches!(cut, Err(CaptureError::Damaged { got_bytes: 11, .. })),
+            "{cut:?}"
+        );
+    }
+
+    #[test]
+    fn an_end_marker_with_bad_fields_is_an_error() {
+        for end in [
+            "NEPTRON-CAPTURE-END 14",
+            "NEPTRON-CAPTURE-END 14 6687f686 x",
+            "NEPTRON-CAPTURE-END x 6687f686",
+            "NEPTRON-CAPTURE-END 14 6687f68",
+            "NEPTRON-CAPTURE-END 14 zz87f686",
+        ] {
+            assert_eq!(
+                parse_output(&strings(&["NEPTRON-CAPTURE-BEGIN 1 1", "UDYK", end])),
+                Err(CaptureError::BadEnd {
+                    line: end.to_owned()
+                }),
+                "{end}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_picture_with_no_crc_takes_no_foreign_line() {
+        assert_eq!(
+            parse_output(&strings(&[
+                "NEPTRON-CAPTURE-BEGIN 1 1",
+                "UDYKMSAx",
+                "[   93.5] rcu: INFO",
+                "CjI1NQr/AAA=",
+                "NEPTRON-CAPTURE-END",
+            ])),
+            Err(CaptureError::NotBase64 { line: 2 })
+        );
+    }
+
+    #[test]
     fn picture_lines_are_left_out_of_the_printed_output() {
         assert!(is_picture_line("UDYKMSAx"));
         assert!(!is_picture_line("screen home uptime 1.00"));
@@ -1001,6 +1177,7 @@ mod tests {
             screen_uptime_ms: Some(5_250),
             picture: None,
             mode: Some("320x240".into()),
+            foreign_lines: 0,
         };
         let verdict = Verdict::Same {
             width: 320,

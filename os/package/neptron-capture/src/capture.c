@@ -31,7 +31,11 @@
 //   mode <W>x<H> clock <KHZ> ...        the mode on the CRTC
 //   NEPTRON-CAPTURE-BEGIN <W> <H>
 //   <base64 of the PPM file, 76 characters a line>
-//   NEPTRON-CAPTURE-END
+//   NEPTRON-CAPTURE-END <BYTES> <CRC32>
+// BYTES is the size of the PPM file and CRC32 its CRC-32 (IEEE 802.3) in
+// 8 hex digits. The picture shares the serial console with the kernel log:
+// the tool turns the console log level down to 1 while it prints, and the
+// reader skips a foreign line and still proves the content with the CRC.
 // The exit code is 0 when the picture was printed, else 1.
 
 #define _GNU_SOURCE
@@ -65,6 +69,10 @@
 #define FLIP_SETTLE_MS 200
 #define FENCE_WAIT_MS 2000
 #define BASE64_LINE_CHARS 76
+#define PRINTK_PATH "/proc/sys/kernel/printk"
+// Only KERN_EMERG reaches the console. An RCU stall warning (KERN_ERR) on
+// a starved runner once landed inside the picture.
+#define QUIET_CONSOLE_LEVEL "1"
 
 static int failed(const char *what, int err)
 {
@@ -315,6 +323,37 @@ static void print_base64(const uint8_t *data, size_t size)
 	}
 }
 
+static uint32_t crc32_ieee(const uint8_t *data, size_t size)
+{
+	uint32_t crc = 0xffffffffu;
+
+	for (size_t i = 0; i < size; i++) {
+		crc ^= data[i];
+		for (int bit = 0; bit < 8; bit++)
+			crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1u)));
+	}
+	return ~crc;
+}
+
+// Writes level as the console log level and returns the old one in old,
+// which is empty when the file cannot be read. A failure only leaves the
+// kernel log on the console, which the CRC still catches.
+static void set_console_level(const char *level, char *old, size_t old_size)
+{
+	FILE *f = fopen(PRINTK_PATH, "r");
+
+	if (old_size)
+		old[0] = '\0';
+	if (f) {
+		if (old_size && fscanf(f, "%7s", old) != 1)
+			old[0] = '\0';
+		fclose(f);
+	}
+	f = fopen(PRINTK_PATH, "w");
+	if (!f || fputs(level, f) == EOF || fclose(f) == EOF)
+		fprintf(stderr, "neptron-capture: cannot set the console log level: %s\n", strerror(errno));
+}
+
 struct dumb {
 	uint32_t handle, pitch, fb_id;
 	uint64_t size;
@@ -360,6 +399,7 @@ static int capture(int fd)
 	struct pollfd pfd;
 	uint8_t *ppm;
 	size_t header, size;
+	char old_level[8];
 	int ret;
 
 	if (drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) ||
@@ -447,10 +487,14 @@ static int capture(int fd)
 			ppm[size++] = row[x * 4];
 		}
 	}
+	fflush(stdout);
+	set_console_level(QUIET_CONSOLE_LEVEL, old_level, sizeof(old_level));
 	printf("\nNEPTRON-CAPTURE-BEGIN %u %u\n", w, h);
 	print_base64(ppm, size);
-	printf("NEPTRON-CAPTURE-END\n");
+	printf("NEPTRON-CAPTURE-END %zu %08" PRIx32 "\n", size, crc32_ieee(ppm, size));
 	fflush(stdout);
+	if (old_level[0])
+		set_console_level(old_level, NULL, 0);
 	free(ppm);
 	return 0;
 }
