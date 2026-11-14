@@ -2381,3 +2381,13 @@ fn a_cached_old_share_still_refuses() {
     second.assert_no_offer(Some("an exFAT boot sector starts at sector"));
     assert_eq!(scan_steps(&second), 0, "{second:#?}");
 }
+
+/// A gap of exactly the bound is allowed: the scan covers it in full.
+#[test]
+fn a_gap_of_exactly_the_bound_is_offered() {
+    let gap = 4096 * MIB_SECTORS;
+    let run = Run::with_partition_4_at("gap-at-bound", PLANNED + gap, 64 * MIB_SECTORS);
+    let out = run.start();
+    let (_, start, _, _) = out.offer().expect("an offer");
+    assert_eq!(start, (PLANNED + gap).to_string(), "{out:#?}");
+}
