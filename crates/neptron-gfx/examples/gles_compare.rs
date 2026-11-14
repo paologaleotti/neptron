@@ -92,6 +92,10 @@ fn main() -> ExitCode {
     if !ui_uploads(&mut reference) {
         failed = failed.saturating_add(1);
     }
+    count += 1;
+    if !game_under_the_ui(&mut reference) {
+        failed = failed.saturating_add(1);
+    }
     for (name, ok) in error_checks(&mut gles) {
         count += 1;
         println!("{} {name}", if ok { "ok  " } else { "FAIL" });
@@ -211,6 +215,118 @@ fn ui_uploads(reference: &mut ReferenceRenderer) -> bool {
             if step { "ok  " } else { "FAIL" }
         );
         ok &= step;
+    }
+    ok
+}
+
+/// A UI over the bottom right corner of a game: the game shows above it
+/// and left of it, in two parts that differ in size. A scissor that counts
+/// rows from the wrong edge shows the wrong part.
+fn ui_in_a_corner() -> Case {
+    Case::game(
+        "ui_in_a_corner",
+        Source::pattern(16, 12, PixelFormat::Rgb565),
+        rect(0, 0, 16, 12),
+        rect(0, 0, 64, 48),
+        Filter::Nearest,
+        (64, 48),
+    )
+    .with_ui(
+        Source::pattern(8, 6, PixelFormat::Xrgb8888),
+        rect(40, 30, 24, 18),
+    )
+}
+
+/// A UI at lines 40 to 199 of a 300-line output, over a game at lines 0 to
+/// 239: the game shows in 40 lines above the UI, 40 lines below it, and
+/// in the columns at its sides. The output has 60 lines below the game.
+fn ui_in_the_middle_rows() -> Case {
+    Case::game(
+        "ui_in_the_middle_rows",
+        Source::pattern(32, 24, PixelFormat::Xrgb1555),
+        rect(0, 0, 32, 24),
+        rect(0, 0, 320, 240),
+        Filter::Nearest,
+        (320, 300),
+    )
+    .with_ui(
+        Source::pattern(16, 16, PixelFormat::Xrgb8888),
+        rect(40, 40, 160, 160),
+    )
+}
+
+/// The game under the UI, through a new offscreen renderer and a new
+/// pbuffer renderer: each scene equals the reference, and the game goes
+/// to the GPU and is drawn in the parts that the UI leaves, and not at all
+/// when the UI covers it. Prints one line per scene and path. True when
+/// every check holds.
+fn game_under_the_ui(reference: &mut ReferenceRenderer) -> bool {
+    let covered = Case::game(
+        "game_covered_by_the_ui",
+        Source::pattern(8, 6, PixelFormat::Rgb565),
+        rect(0, 0, 8, 6),
+        rect(8, 6, 32, 24),
+        Filter::Nearest,
+        (48, 36),
+    )
+    .with_ui(
+        Source::pattern(16, 12, PixelFormat::Xrgb8888),
+        rect(0, 0, 48, 36),
+    );
+    let no_ui = Case::game(
+        "game_with_no_ui",
+        Source::pattern(8, 6, PixelFormat::Rgb565),
+        rect(0, 0, 8, 6),
+        rect(8, 6, 32, 24),
+        Filter::Nearest,
+        (48, 36),
+    );
+    // (case, uploads, parts): the corner leaves the band above the UI and
+    // the columns left of it; the middle rows leave four parts.
+    let steps = [
+        (covered, 0, 0),
+        (no_ui, 1, 1),
+        (ui_in_a_corner(), 1, 2),
+        (ui_in_the_middle_rows(), 1, 4),
+    ];
+    let mut offscreen = match GlesRenderer::headless() {
+        Ok(r) => r,
+        Err(e) => {
+            println!("FAIL game_under_the_ui: a new renderer: {e}");
+            return false;
+        }
+    };
+    let mut window = match GlesRenderer::pbuffer(320, 300) {
+        Ok(r) => r,
+        Err(e) => {
+            println!("FAIL game_under_the_ui: a new pbuffer renderer: {e}");
+            return false;
+        }
+    };
+    let mut ok = true;
+    for (case, uploads, parts) in &steps {
+        for path in ["offscreen", "window"] {
+            let gles = if path == "window" {
+                &mut window
+            } else {
+                &mut offscreen
+            };
+            let before = (gles.game_uploads(), gles.game_parts_drawn());
+            let same = if path == "window" {
+                compare_window(gles, reference, case)
+            } else {
+                compare(gles, reference, case)
+            };
+            let sent = gles.game_uploads() - before.0;
+            let drawn = gles.game_parts_drawn() - before.1;
+            let step = same && sent == *uploads && drawn == *parts;
+            println!(
+                "{} game_under_the_ui: {} ({path}): {sent} uploads and {drawn} parts, {uploads} and {parts} expected",
+                if step { "ok  " } else { "FAIL" },
+                case.name
+            );
+            ok &= step;
+        }
     }
     ok
 }
@@ -609,6 +725,8 @@ fn extra_cases() -> Vec<Case> {
             SharpBilinear,
             (32, 24),
         ),
+        ui_in_a_corner(),
+        ui_in_the_middle_rows(),
         Case::game(
             "ui_canvas_of_zero_width",
             pattern(8, 6, Xrgb8888),

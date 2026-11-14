@@ -99,6 +99,8 @@ pub struct GlesRenderer {
     game: SourceTexture,
     ui: SourceTexture,
     ui_rows_uploaded: u64,
+    game_uploads: u64,
+    game_parts_drawn: u64,
     target: Option<Offscreen>,
     /// One program for each [`Variant`], in [`Variant::index`] order.
     programs: [(Program, Uniforms); VARIANTS],
@@ -230,6 +232,8 @@ impl GlesRenderer {
             game,
             ui,
             ui_rows_uploaded: 0,
+            game_uploads: 0,
+            game_parts_drawn: 0,
             target: None,
             programs,
             corners,
@@ -329,10 +333,12 @@ impl GlesRenderer {
         };
         if let Some(draw) = game.as_ref().filter(|_| parts.iter().any(Option::is_some)) {
             self.game.upload(&gl, &draw.frame)?;
+            self.game_uploads = self.game_uploads.saturating_add(1);
             self.bind(&gl, draw, &self.game, (width, height));
             for part in parts.into_iter().flatten() {
                 gl.scissor(cover.map(|_| part), height);
                 gl.draw_quad();
+                self.game_parts_drawn = self.game_parts_drawn.saturating_add(1);
             }
             gl.scissor(None, height);
         }
@@ -370,6 +376,19 @@ impl GlesRenderer {
     /// that the texture holds, so a UI that does not change adds nothing.
     pub fn ui_rows_uploaded(&self) -> u64 {
         self.ui_rows_uploaded
+    }
+
+    /// The game frames that went to the GPU since the renderer was made. A
+    /// game that the UI covers wholly is not sent.
+    pub fn game_uploads(&self) -> u64 {
+        self.game_uploads
+    }
+
+    /// The draws of the game quad since the renderer was made: one for a
+    /// game with no UI over it, else one for each part of the game outside
+    /// the UI (at most four), and none for a game that the UI covers.
+    pub fn game_parts_drawn(&self) -> u64 {
+        self.game_parts_drawn
     }
 
     /// `GL_MAX_TEXTURE_SIZE`: a source image with more pixels in a row, or
