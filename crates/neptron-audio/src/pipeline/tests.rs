@@ -526,3 +526,54 @@ fn a_cue_plays_at_its_level_at_volume_zero() {
     assert_eq!(loud, cue.len(), "the whole cue at its own level");
     assert_eq!(pipeline.stats().cue_frames, 1_000);
 }
+
+#[test]
+fn a_queue_that_ran_dry_while_playing_is_an_underrun() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    assert_eq!(pipeline.stats().underruns, 0, "the first frame primes");
+    clock.advance(16 * MS);
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    assert_eq!(pipeline.stats().underruns, 0, "a steady frame");
+    clock.advance(200 * MS);
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    assert_eq!(audio.underruns().len(), 1);
+    assert_eq!(pipeline.stats().underruns, 1);
+    assert_eq!(pipeline.stats().restarts, 2);
+}
+
+#[test]
+fn a_queue_that_ran_dry_in_a_pause_is_no_underrun() {
+    let clock = SimClock::new();
+    let (mut pipeline, _) = pipeline(&clock);
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    pipeline.mute();
+    pipeline.idle_frame();
+    clock.advance(500 * MS);
+    pipeline.idle_frame();
+    pipeline.unmute();
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    assert_eq!(pipeline.stats().restarts, 2);
+    assert_eq!(pipeline.stats().underruns, 0);
+}
+
+#[test]
+fn a_muted_queue_that_ran_dry_is_an_underrun() {
+    let clock = SimClock::new();
+    let (mut pipeline, _) = pipeline(&clock);
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    pipeline.mute();
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    clock.advance(500 * MS);
+    pipeline.push_samples(&[100; 533 * 2]);
+    pipeline.end_frame();
+    assert_eq!(pipeline.stats().underruns, 1);
+}

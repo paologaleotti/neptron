@@ -50,6 +50,12 @@ pub struct AudioStats {
     /// Times the queue was found empty and primed again, the first frame
     /// included.
     pub restarts: u64,
+    /// Times [`AudioPipeline::end_frame`] found the queue empty while the
+    /// device was playing the frames of the frames before: the device ran
+    /// out of audio. The first frame, and the first frame after a pause
+    /// ([`AudioPipeline::idle_frame`]), let the queue run empty on purpose
+    /// and do not count.
+    pub underruns: u64,
     /// Calls in which the resampler refused its input or its ratio. The
     /// frame's audio is lost; it does not happen with the buffers that
     /// [`AudioPipeline::new`] makes.
@@ -94,6 +100,9 @@ pub struct AudioPipeline<S> {
     /// Output frames still to fade in.
     fade_in_left: usize,
     muted: bool,
+    /// The last end of a frame left audio in the queue, so an empty queue
+    /// at the next one is an underrun.
+    playing: bool,
     /// The user volume, applied after the fade-in.
     gain: Gain,
     /// The last frame written, for the fade-out of a mute.
@@ -151,6 +160,7 @@ impl<S: AudioSink> AudioPipeline<S> {
             fade_frames,
             fade_in_left: 0,
             muted: false,
+            playing: false,
             gain: Gain::new(u32::try_from(ramp_frames).unwrap_or(u32::MAX)),
             last: [0; 2],
             cue: Vec::new(),
@@ -207,6 +217,9 @@ impl<S: AudioSink> AudioPipeline<S> {
             self.stats.resampler_errors += 1;
         }
 
+        if level == 0 && self.playing {
+            self.stats.underruns += 1;
+        }
         let mut level = level;
         if level == 0 && !self.muted {
             level += self.write_silence(self.control.target_frames());
@@ -232,6 +245,7 @@ impl<S: AudioSink> AudioPipeline<S> {
         if self.muted {
             self.top_up(level);
         }
+        self.playing = self.sink.queued_frames() > 0;
     }
 
     /// The part of the cue that has not played yet, interleaved. Empty with
@@ -246,6 +260,7 @@ impl<S: AudioSink> AudioPipeline<S> {
     /// time and never overruns the sink. With no cue pending it does
     /// nothing. It allocates nothing.
     pub fn idle_frame(&mut self) {
+        self.playing = false;
         if self.cue_at >= self.cue.len() {
             return;
         }
