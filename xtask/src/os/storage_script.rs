@@ -56,11 +56,6 @@ const FAKES: &[(&str, &str)] = &[
         "echo \"logger $*\" >> \"$LOG\"; exit \"${FAKE_LOGGER_EXIT:-0}\"",
     ),
     ("sync", "echo sync >> \"$LOG\""),
-    (
-        "dd",
-        "if [ -n \"$FAKE_DD_LOG\" ]; then echo \"dd $*\" >> \"$LOG\"; fi\n\
-         exec /bin/dd \"$@\"",
-    ),
     ("chown", "echo \"chown $*\" >> \"$LOG\""),
     ("date", "echo DATE"),
     (
@@ -208,6 +203,17 @@ impl Run {
 
     fn path(&self, rel: &str) -> PathBuf {
         self.dir.join(rel)
+    }
+
+    /// Logs every call of dd. Only the tests that read the log get the
+    /// fake: it puts a shell before each dd, and a scan of 4 GiB runs 4096
+    /// of them.
+    fn log_reads(self) -> Self {
+        write_exec(
+            &self.path("bin/dd"),
+            "#!/bin/sh\necho \"dd $*\" >> \"$LOG\"\nexec /bin/dd \"$@\"\n",
+        );
+        self
     }
 
     fn set(mut self, name: &str, value: &str) -> Self {
@@ -1799,8 +1805,7 @@ impl Run {
 fn a_partition_4_far_past_the_planned_start_cannot_be_checked() {
     let gap = 4096 * MIB_SECTORS + MIB_SECTORS;
     let start = PLANNED + gap;
-    let run = Run::with_partition_4_at("gap-too-large", start, 64 * MIB_SECTORS)
-        .set("FAKE_DD_LOG", "yes");
+    let run = Run::with_partition_4_at("gap-too-large", start, 64 * MIB_SECTORS).log_reads();
     let offer = run.boot(&[]);
     offer.assert_no_offer(Some(&format!(
         "it cannot be checked, because it starts {gap} sectors after the planned start of the share, more than 8388608"
@@ -2009,7 +2014,7 @@ fn no_read_goes_past_the_end_of_its_device() {
 /// Runs the offer and the request on an empty partition 4 at `start` with
 /// `sectors`, the last of the disk, and checks every read of both boots.
 fn reads_stay_inside(name: &str, start: u64, sectors: u64) {
-    let run = Run::with_partition_4_at(name, start, sectors).set("FAKE_DD_LOG", "yes");
+    let run = Run::with_partition_4_at(name, start, sectors).log_reads();
     let offer = run.boot(&[]);
     assert!(offer.offer().is_some(), "{name}: {offer:#?}");
     run.write_request(&run.sda4(), start, sectors, "7");
@@ -2073,9 +2078,7 @@ fn the_normal_rules_check_what_a_request_checks() {
 /// partition is made covers the window of the format checks.
 #[test]
 fn the_first_boot_scans_the_free_space_once() {
-    let out = Run::new("first-boot-one-scan")
-        .set("FAKE_DD_LOG", "yes")
-        .start();
+    let out = Run::new("first-boot-one-scan").log_reads().start();
     out.assert_share_mounted(true);
     let steps = out
         .log
