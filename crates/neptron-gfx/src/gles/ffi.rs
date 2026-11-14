@@ -704,13 +704,14 @@ impl Gl<'_> {
     }
 
     /// Writes `rows` packed rows of `width` `BGRA_EXT` texels from `texels`
-    /// into the source texture `texture`, whose storage holds at least
-    /// that many.
+    /// into the source texture `texture` from row `first` down, where its
+    /// storage holds at least that many.
     pub(super) fn upload(
         &self,
         texture: Texture,
         texels: Texels<'_>,
         width: u32,
+        first: u32,
         rows: u32,
     ) -> Result<(), GlesError> {
         let data = match texels {
@@ -734,7 +735,8 @@ impl Gl<'_> {
         // SAFETY: the context is current. UNPACK_ALIGNMENT 1 makes GL read
         // rows of exactly row_bytes bytes, and the check above proves that
         // data holds `rows` of them. The texture has storage of at least
-        // width by rows texels, from the caller, so both sides fit an i32.
+        // width by first + rows texels, from the caller, so every value
+        // fits an i32.
         unsafe {
             self.gl.bind_texture(glow::TEXTURE_2D, Some(texture));
             self.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
@@ -742,7 +744,7 @@ impl Gl<'_> {
                 glow::TEXTURE_2D,
                 0,
                 0,
-                0,
+                first as i32,
                 width as i32,
                 rows as i32,
                 Storage::Source.format(),

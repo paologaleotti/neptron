@@ -88,6 +88,10 @@ fn main() -> ExitCode {
     if !second_renderer(&mut gles, &mut reference, &cases[..2]) {
         failed = failed.saturating_add(1);
     }
+    count += 1;
+    if !ui_uploads(&mut reference) {
+        failed = failed.saturating_add(1);
+    }
     for (name, ok) in error_checks(&mut gles) {
         count += 1;
         println!("{} {name}", if ok { "ok  " } else { "FAIL" });
@@ -123,6 +127,92 @@ fn second_renderer(
         if ok && still { "ok  " } else { "FAIL" }
     );
     ok && still
+}
+
+/// A UI canvas over a game on the composite 240p output, drawn in turn as
+/// it changes: each step must equal the reference, and send to the GPU
+/// only the rows from the first to the last that changed. Prints one line
+/// per step. True when every step holds.
+fn ui_uploads(reference: &mut ReferenceRenderer) -> bool {
+    // The canvas, with the pixels of `rows` changed by `change`.
+    let canvas = |rows: std::ops::Range<u16>, change: u32| {
+        Source::from_fn(320, 240, PixelFormat::Xrgb8888, move |x, y| {
+            let base = u32::from(x) << 16 | u32::from(y) << 8 | 0x40;
+            if rows.contains(&y) {
+                base ^ change
+            } else {
+                base
+            }
+        })
+    };
+    let case = |ui: Source| {
+        Case::game(
+            "ui_uploads",
+            Source::pattern(256, 224, PixelFormat::Rgb565),
+            rect(0, 0, 256, 224),
+            rect(8, 8, 704, 224),
+            Filter::SharpBilinear,
+            (720, 240),
+        )
+        .with_ui(ui, rect(40, 0, 640, 240))
+    };
+    // Rows 20 and 200 of `ui` changed: the band 20 to 200 goes.
+    let two_rows = |mut ui: Source| {
+        for row in [20, 200] {
+            let at = row * ui.pitch;
+            ui.data[at] ^= 0xFF;
+        }
+        ui
+    };
+    // A byte of the row padding changed, which no pixel shows.
+    let padding = |mut ui: Source| {
+        let at = 30 * ui.pitch - 1;
+        ui.data[at] ^= 0xFF;
+        ui
+    };
+    let changed = || canvas(100..110, 0x00FF_00FF);
+    let steps = [
+        ("a new canvas goes whole", canvas(0..0, 0), 240),
+        ("the same canvas sends no row", canvas(0..0, 0), 0),
+        ("ten changed rows send ten rows", changed(), 10),
+        (
+            "two changed rows send the rows between them",
+            two_rows(changed()),
+            181,
+        ),
+        (
+            "the row padding sends no row",
+            padding(two_rows(changed())),
+            0,
+        ),
+        (
+            "the first canvas again sends the changed band",
+            padding(canvas(0..0, 0)),
+            181,
+        ),
+    ];
+    // A new renderer, so that no canvas of the other checks is held.
+    let mut gles = match GlesRenderer::headless() {
+        Ok(r) => r,
+        Err(e) => {
+            println!("FAIL ui_uploads: a new renderer: {e}");
+            return false;
+        }
+    };
+    let gles = &mut gles;
+    let mut ok = true;
+    for (what, ui, rows) in steps {
+        let before = gles.ui_rows_uploaded();
+        let same = compare(gles, reference, &case(ui));
+        let sent = gles.ui_rows_uploaded() - before;
+        let step = same && sent == rows;
+        println!(
+            "{} ui_uploads: {what}: {sent} rows sent, {rows} expected",
+            if step { "ok  " } else { "FAIL" }
+        );
+        ok &= step;
+    }
+    ok
 }
 
 /// Every strength from 0 to 100 % on every 8-bit channel value, at 2x with

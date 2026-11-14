@@ -1,8 +1,10 @@
+use std::ops::Range;
 use std::rc::Rc;
 
 use neptron_types::{Filter, Frame, Rect, Scene};
 
 use super::GlesError;
+use super::changed::Shown;
 use super::ffi::{
     Buffer, EglContext, Framebuffer, GbmTarget, Gl, Program, Storage, Texture, Uniform,
 };
@@ -69,10 +71,18 @@ use crate::{Image, OutputBuffer, RectKind};
 /// made it. Each call makes the context current first, which replaces any
 /// other context that is current on the thread. Dropping the renderer
 /// releases the current context of the thread. Textures, the buffer of
-/// source texels and the read-back buffer are made on the first call. A
-/// source texture and the buffer of source texels only grow; the read-back
-/// buffer is made again when the output size changes. Other calls allocate
-/// nothing.
+/// source texels, the copy of the UI canvas and the read-back buffer are
+/// made on the first call. A source texture, the buffer of source texels
+/// and the copy of the canvas only grow; the read-back buffer is made
+/// again when the output size changes. Other calls allocate nothing.
+///
+/// # UI uploads
+///
+/// The UI texture keeps its canvas between calls. A call sends only the
+/// rows of the canvas from the first to the last that differ from the
+/// canvas the texture holds, and a canvas with no change sends nothing
+/// ([`ui_rows_uploaded`](Self::ui_rows_uploaded) counts the rows sent).
+/// The game frame goes whole in every call.
 ///
 /// # Byte order
 ///
@@ -82,6 +92,7 @@ use crate::{Image, OutputBuffer, RectKind};
 pub struct GlesRenderer {
     game: SourceTexture,
     ui: SourceTexture,
+    ui_rows_uploaded: u64,
     target: Option<Offscreen>,
     /// One program for each [`Variant`], in [`Variant::index`] order.
     programs: [(Program, Uniforms); VARIANTS],
@@ -212,6 +223,7 @@ impl GlesRenderer {
         Ok(Self {
             game,
             ui,
+            ui_rows_uploaded: 0,
             target: None,
             programs,
             corners,
@@ -301,10 +313,15 @@ impl GlesRenderer {
             }
             Surface::Window => gl.begin_window(width, height),
         }
-        for (draw, texture) in [(game, &mut self.game), (ui, &mut self.ui)] {
+        if let Some(draw) = &game {
+            self.game.upload(&gl, &draw.frame)?;
+        }
+        if let Some(draw) = &ui {
+            let rows = self.ui.upload_changed(&gl, &draw.frame)?;
+            self.ui_rows_uploaded = self.ui_rows_uploaded.saturating_add(u64::from(rows));
+        }
+        for (draw, texture) in [(game, &self.game), (ui, &self.ui)] {
             if let Some(draw) = draw {
-                texture.upload(&gl, &draw.frame)?;
-                gl.check("source texture upload")?;
                 // Variant::index is below VARIANTS for every variant: the
                 // shader tests check it for each one.
                 let (program, uniforms) = &self.programs[draw.quad.variant.index()];
@@ -325,6 +342,13 @@ impl GlesRenderer {
     /// [`GlesError::Egl`] when the context cannot be made current.
     pub fn gl_strings(&self) -> Result<(String, String), GlesError> {
         Ok(self.context.current()?.names())
+    }
+
+    /// The rows of UI canvases that went to the GPU since the renderer was
+    /// made. A canvas goes only in the rows that differ from the canvas
+    /// that the texture holds, so a UI that does not change adds nothing.
+    pub fn ui_rows_uploaded(&self) -> u64 {
+        self.ui_rows_uploaded
     }
 
     /// `GL_MAX_TEXTURE_SIZE`: a source image with more pixels in a row, or
@@ -410,11 +434,13 @@ fn texture_size(frame: &Frame<'_>) -> (u64, u32) {
 const BGRA_EXTENSION: &str = "GL_EXT_texture_format_BGRA8888";
 
 /// A texture that holds one source image, with the size of its storage,
-/// and the buffer that holds texels that GL cannot read from the frame.
+/// the buffer that holds texels that GL cannot read from the frame, and
+/// the copy of the rows it holds for [`SourceTexture::upload_changed`].
 struct SourceTexture {
     texture: Texture,
     size: (u32, u32),
     staging: Vec<u32>,
+    shown: Shown,
 }
 
 impl SourceTexture {
@@ -423,24 +449,82 @@ impl SourceTexture {
             texture: gl.texture()?,
             size: (0, 0),
             staging: Vec::new(),
+            shown: Shown::default(),
         })
     }
 
-    /// Copies `frame` into the top left of the texture. The storage only
-    /// grows, so a game that switches between sizes (a hi-res or
-    /// interlaced SNES frame, the two widths of the Mega Drive) allocates
-    /// at its largest size once, not at each switch. The caller checked
-    /// the frame and the texture limit, so both sides fit a `u32`.
+    /// Copies `frame` into the top left of the texture.
     fn upload(&mut self, gl: &Gl<'_>, frame: &Frame<'_>) -> Result<(), GlesError> {
+        self.reserve(gl, frame);
+        self.shown.forget();
+        self.write_rows(gl, frame, 0..frame.height)
+    }
+
+    /// Copies the rows of `frame` that differ from the image the texture
+    /// holds, and returns how many. A frame with no change copies nothing.
+    /// The texture keeps its image between frames, so this is for an
+    /// image that is often the same, as the UI canvas is.
+    fn upload_changed(&mut self, gl: &Gl<'_>, frame: &Frame<'_>) -> Result<u16, GlesError> {
+        self.reserve(gl, frame);
+        let Some(rows) = self.shown.changed(frame) else {
+            return Ok(0);
+        };
+        if let Err(e) = self.write_rows(gl, frame, rows.clone()) {
+            self.shown.forget();
+            return Err(e);
+        }
+        self.shown.record(frame, rows.clone());
+        Ok(rows.end - rows.start)
+    }
+
+    /// Makes the storage large enough for `frame`. The storage only grows,
+    /// so a game that switches between sizes (a hi-res or interlaced SNES
+    /// frame, the two widths of the Mega Drive) allocates at its largest
+    /// size once, not at each switch. New storage holds no image. The
+    /// caller checked the frame and the texture limit, so both sides fit
+    /// a `u32`.
+    fn reserve(&mut self, gl: &Gl<'_>, frame: &Frame<'_>) {
         let size = (u32::from(frame.width), u32::from(frame.height));
         let storage = grown(self.size, size);
         if storage != self.size {
             gl.allocate(self.texture, Storage::Source, storage.0, storage.1);
             self.size = storage;
+            self.shown.forget();
         }
-        let data = texels::packed(frame, &mut self.staging)?;
-        gl.upload(self.texture, data, size.0, size.1)
     }
+
+    /// Copies `rows` of `frame` into the same rows of the texture.
+    fn write_rows(
+        &mut self,
+        gl: &Gl<'_>,
+        frame: &Frame<'_>,
+        rows: Range<u16>,
+    ) -> Result<(), GlesError> {
+        let band = band(frame, rows.clone())?;
+        let data = texels::packed(&band, &mut self.staging)?;
+        let (first, count) = (u32::from(rows.start), u32::from(band.height));
+        gl.upload(self.texture, data, u32::from(frame.width), first, count)?;
+        gl.check("source texture upload")
+    }
+}
+
+/// The frame of `rows` of `frame`.
+fn band<'a>(frame: &Frame<'a>, rows: Range<u16>) -> Result<Frame<'a>, GlesError> {
+    let start = usize::from(rows.start) * frame.pitch;
+    let data = frame
+        .data
+        .get(start..)
+        .ok_or(GlesError::UploadOutOfBounds {
+            len: frame.data.len(),
+            width: u32::from(frame.width),
+            rows: u32::from(frame.height),
+            pitch: frame.pitch,
+        })?;
+    Ok(Frame {
+        data,
+        height: rows.end.saturating_sub(rows.start),
+        ..*frame
+    })
 }
 
 /// The storage that holds a frame of `frame` texels after storage of
