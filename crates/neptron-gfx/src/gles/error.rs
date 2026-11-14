@@ -47,6 +47,12 @@ pub enum GlesError {
         /// The precision the renderer needs.
         needed: i32,
     },
+    /// GL lacks an extension that the renderer needs.
+    #[error("GL has no {name}")]
+    MissingExtension {
+        /// The name of the extension.
+        name: &'static str,
+    },
     /// GL could not make an object.
     #[error("{call} failed: {message}")]
     GlObject {
@@ -94,7 +100,7 @@ pub enum GlesError {
     TextureTooLarge {
         /// The image.
         image: Image,
-        /// Texture width: one texel per byte of a row.
+        /// Texture width: one texel per pixel.
         width: u64,
         /// Texture height, in rows.
         height: u32,

@@ -2,7 +2,7 @@
 //! pixels of the reference renderer.
 
 #[cfg(target_endian = "big")]
-compile_error!("the GLES shader reads source pixels as little-endian integers");
+compile_error!("the GLES renderer uploads XRGB8888 pixels as little-endian bytes");
 
 #[forbid(unsafe_code)]
 mod error;
@@ -13,6 +13,8 @@ mod quad;
 mod renderer;
 #[forbid(unsafe_code)]
 mod shader;
+#[forbid(unsafe_code)]
+mod texels;
 #[forbid(unsafe_code)]
 mod version;
 

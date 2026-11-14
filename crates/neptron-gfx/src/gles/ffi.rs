@@ -15,6 +15,7 @@ use glow::HasContext as _;
 use khronos_egl as egl;
 
 use super::GlesError;
+use super::texels::Texels;
 use super::version;
 
 /// EGL 1.5, loaded at run time from `libEGL.so.1`.
@@ -391,6 +392,27 @@ pub(super) type Program = glow::NativeProgram;
 /// A GL uniform location.
 pub(super) type Uniform = glow::NativeUniformLocation;
 
+/// What a texture holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Storage {
+    /// The colour buffer of the offscreen target: `RGBA` bytes.
+    Target,
+    /// A source image.
+    Source(Texels),
+}
+
+impl Storage {
+    /// The GL format and type.
+    fn gl(self) -> (u32, u32) {
+        match self {
+            Self::Target => (glow::RGBA, glow::UNSIGNED_BYTE),
+            Self::Source(Texels::Rgb565) => (glow::RGB, glow::UNSIGNED_SHORT_5_6_5),
+            Self::Source(Texels::Bgra8888) => (glow::BGRA, glow::UNSIGNED_BYTE),
+            Self::Source(Texels::Rgba5551) => (glow::RGBA, glow::UNSIGNED_SHORT_5_5_5_1),
+        }
+    }
+}
+
 /// The GL calls of the renderer, valid while its context is current.
 pub(super) struct Gl<'a> {
     gl: &'a glow::Context,
@@ -596,13 +618,14 @@ impl Gl<'_> {
         }
     }
 
-    /// Gives `texture` new storage of `width` by `height` texels, with no
-    /// content: one byte per texel (`LUMINANCE`) or four (`RGBA`).
-    pub(super) fn allocate(&self, texture: Texture, rgba: bool, width: u32, height: u32) {
-        let format = if rgba { glow::RGBA } else { glow::LUMINANCE };
+    /// Gives `texture` new storage of `width` by `height` texels of
+    /// `storage`, with no content.
+    pub(super) fn allocate(&self, texture: Texture, storage: Storage, width: u32, height: u32) {
+        let (format, kind) = storage.gl();
         // SAFETY: the context is current. The caller checked the size
         // against GL_MAX_TEXTURE_SIZE, so both sides fit an i32. A null
-        // pointer asks for storage with no content.
+        // pointer asks for storage with no content. GL ES 2 needs the
+        // internal format equal to the format.
         unsafe {
             self.gl.bind_texture(glow::TEXTURE_2D, Some(texture));
             self.gl.tex_image_2d(
@@ -613,76 +636,60 @@ impl Gl<'_> {
                 height as i32,
                 0,
                 format,
-                glow::UNSIGNED_BYTE,
+                kind,
                 glow::PixelUnpackData::Slice(None),
             );
         }
     }
 
-    /// Writes `rows` rows of `width` bytes from `data` into the one-byte
-    /// texture `texture`, from row `y` down. Row `r` starts at byte
-    /// `r * pitch` of `data`. One call when the rows are packed, else one
-    /// call per row, so GL never reads past the end of `data`.
+    /// Writes `rows` packed rows of `width` texels of `texels` from `data`
+    /// into `texture`, whose storage holds at least that many.
     pub(super) fn upload(
         &self,
         texture: Texture,
+        texels: Texels,
         data: &[u8],
         width: u32,
         rows: u32,
-        pitch: usize,
     ) -> Result<(), GlesError> {
-        let row_bytes = width as usize;
-        let needed = (rows as usize)
-            .checked_sub(1)
-            .map_or(Some(0), |r| r.checked_mul(pitch)?.checked_add(row_bytes));
-        if needed.is_none_or(|n| n > data.len()) || pitch < row_bytes {
+        let row_bytes = width as usize * texels.bytes_per_texel();
+        if row_bytes.checked_mul(rows as usize) != Some(data.len()) {
             return Err(GlesError::UploadOutOfBounds {
                 len: data.len(),
-                width,
+                width: row_bytes as u32,
                 rows,
-                pitch,
+                pitch: row_bytes,
             });
         }
+        let (format, kind) = Storage::Source(texels).gl();
         // SAFETY: the context is current. UNPACK_ALIGNMENT 1 makes GL read
-        // exactly width bytes per row. The check above proves that every
-        // slice below is inside data and holds width * rows bytes (packed)
-        // or width bytes (one row). The texture has storage of at least
-        // width by rows texels, from the caller.
+        // rows of exactly row_bytes bytes, and the check above proves that
+        // data holds `rows` of them. The texture has storage of at least
+        // width by rows texels, from the caller, so both sides fit an i32.
         unsafe {
             self.gl.bind_texture(glow::TEXTURE_2D, Some(texture));
             self.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
-            if pitch == row_bytes {
-                let all = &data[..row_bytes * rows as usize];
-                self.sub_image(0, width, rows, all);
-            } else {
-                for r in 0..rows {
-                    let start = r as usize * pitch;
-                    self.sub_image(r, width, 1, &data[start..start + row_bytes]);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// # Safety
-    ///
-    /// The context is current, a one-byte texture with at least `y + rows`
-    /// rows of `width` texels is bound, UNPACK_ALIGNMENT is 1, and `data`
-    /// holds `width * rows` bytes.
-    unsafe fn sub_image(&self, y: u32, width: u32, rows: u32, data: &[u8]) {
-        // SAFETY: the caller keeps the contract above.
-        unsafe {
             self.gl.tex_sub_image_2d(
                 glow::TEXTURE_2D,
                 0,
                 0,
-                y as i32,
+                0,
                 width as i32,
                 rows as i32,
-                glow::LUMINANCE,
-                glow::UNSIGNED_BYTE,
+                format,
+                kind,
                 glow::PixelUnpackData::Slice(Some(data)),
             );
+        }
+        Ok(())
+    }
+
+    /// Checks that the context has the GL extension `name`.
+    pub(super) fn require_extension(&self, name: &'static str) -> Result<(), GlesError> {
+        if self.gl.supported_extensions().contains(name) {
+            Ok(())
+        } else {
+            Err(GlesError::MissingExtension { name })
         }
     }
 

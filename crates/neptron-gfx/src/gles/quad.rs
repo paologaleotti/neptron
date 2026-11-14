@@ -28,10 +28,10 @@ pub(super) struct Quad {
     pub(super) dest: [f32; 4],
     /// The crop: x, y, width, height, in source pixels.
     pub(super) crop: [f32; 4],
-    /// The source width and height in pixels, then the texture width (bytes
-    /// per row) and height.
+    /// The source width and height in pixels, then their inverses: the
+    /// texture holds one texel per pixel.
     pub(super) frame: [f32; 4],
-    /// The program that draws it: the pixel format and the filter.
+    /// The program that draws it: the filter.
     pub(super) variant: Variant,
     /// The scanline pattern: the period in destination lines (0 for no
     /// scanlines), the first dark line of a period, the percent that a dark
@@ -75,7 +75,6 @@ pub(super) fn quad(
     }
     let first = |start: u32, pos: i32| (i64::from(start) - i64::from(pos)) as f32;
     let clamp = |v: i32| v.clamp(-CROP_POSITION_LIMIT_PX, CROP_POSITION_LIMIT_PX) as f32;
-    let bpp = frame.format.bytes_per_pixel() as f32;
     Ok(Some(Quad {
         visible: [x0 as f32, y0 as f32, (x1 - x0) as f32, (y1 - y0) as f32],
         dest: [
@@ -88,10 +87,10 @@ pub(super) fn quad(
         frame: [
             f32::from(frame.width),
             f32::from(frame.height),
-            f32::from(frame.width) * bpp,
-            f32::from(frame.height),
+            1.0 / f32::from(frame.width),
+            1.0 / f32::from(frame.height),
         ],
-        variant: Variant::of(frame.format, filter),
+        variant: Variant::of(filter),
         // A period is at most dest.h and the percent at most 100, so the
         // floats are exact.
         scan: pattern.map_or([0.0; 4], |p| {
@@ -139,11 +138,8 @@ mod tests {
         assert_eq!(q.visible, [4.0, 3.0, 24.0, 18.0]);
         assert_eq!(q.dest, [0.0, 0.0, 24.0, 18.0]);
         assert_eq!(q.crop, [1.0, 2.0, 8.0, 6.0]);
-        assert_eq!(q.frame, [10.0, 8.0, 20.0, 8.0]);
-        assert_eq!(
-            q.variant,
-            Variant::of(PixelFormat::Rgb565, Filter::SharpBilinear)
-        );
+        assert_eq!(q.frame, [10.0, 8.0, 0.1, 0.125]);
+        assert_eq!(q.variant, Variant::of(Filter::SharpBilinear));
         assert_eq!(q.scan, [0.0; 4]);
     }
 
@@ -231,37 +227,14 @@ mod tests {
     }
 
     #[test]
-    fn format_and_filter_codes() {
-        let f = frame(PixelFormat::Xrgb1555);
-        let q = quad(
-            &f,
-            (rect(0, 0, 1, 1), rect(0, 0, 1, 1)),
-            Filter::Nearest,
-            None,
-            RectKind::UiDest,
-            OUT,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            q.variant,
-            Variant::of(PixelFormat::Xrgb1555, Filter::Nearest)
-        );
-        let f = frame(PixelFormat::Xrgb8888);
-        let q = quad(
-            &f,
-            (rect(0, 0, 1, 1), rect(0, 0, 1, 1)),
-            Filter::Nearest,
-            None,
-            RectKind::UiDest,
-            OUT,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            q.variant,
-            Variant::of(PixelFormat::Xrgb8888, Filter::Nearest)
-        );
-        assert_eq!(q.frame[2], 40.0);
+    fn the_filter_picks_the_program() {
+        for filter in [Filter::Nearest, Filter::SharpBilinear] {
+            let f = frame(PixelFormat::Xrgb1555);
+            let rects = (rect(0, 0, 1, 1), rect(0, 0, 1, 1));
+            let q = quad(&f, rects, filter, None, RectKind::UiDest, OUT)
+                .unwrap()
+                .unwrap();
+            assert_eq!(q.variant, Variant::of(filter));
+        }
     }
 }

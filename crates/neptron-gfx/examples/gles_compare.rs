@@ -701,7 +701,7 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
             strength_ok,
         ),
         (
-            "a row above GL_MAX_TEXTURE_SIZE bytes is refused",
+            "a row above GL_MAX_TEXTURE_SIZE pixels is refused",
             texture_ok,
         ),
         ("an output above the GL limits is refused", output_ok),
@@ -714,7 +714,7 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
 /// Clears `untouched` when the output changes.
 fn texture_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
     let limit = gles.max_texture_side();
-    let Ok(width) = u16::try_from(limit / 4 + 1) else {
+    let Ok(width) = u16::try_from(limit + 1) else {
         println!("FAIL GL_MAX_TEXTURE_SIZE {limit} is too large for a frame wider than it");
         return false;
     };
@@ -740,7 +740,7 @@ fn texture_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
     result
         == Err(GlesError::TextureTooLarge {
             image: Image::Game,
-            width: u64::from(width) * 4,
+            width: u64::from(width),
             height: 1,
             limit,
         })

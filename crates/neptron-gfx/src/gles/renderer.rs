@@ -3,9 +3,12 @@ use std::rc::Rc;
 use neptron_types::{Filter, Frame, Rect, Scene};
 
 use super::GlesError;
-use super::ffi::{Buffer, EglContext, Framebuffer, GbmTarget, Gl, Program, Texture, Uniform};
+use super::ffi::{
+    Buffer, EglContext, Framebuffer, GbmTarget, Gl, Program, Storage, Texture, Uniform,
+};
 use super::quad::{Quad, quad};
 use super::shader::{self, VARIANTS, Variant};
+use super::texels::{self, Texels};
 use crate::reference::{Pattern, check_frame, check_output, check_rect, check_scanlines};
 use crate::{Image, OutputBuffer, RectKind};
 
@@ -16,11 +19,13 @@ use crate::{Image, OutputBuffer, RectKind};
 ///
 /// The renderer draws two quads: the game frame into `dest`, then the UI
 /// canvas into `ui_dest`, over black. Each quad uses the program of its
-/// pixel format and filter. The fragment shader computes the source pixel
-/// of each output pixel from its position with the integer rules of the
-/// reference, in 32-bit floats that hold every value exactly. It reads the source bytes as they are in memory and
-/// expands 5-bit and 6-bit channels with the rounding of the reference. So
-/// nearest output equals the reference byte for byte. The shader rounds a
+/// filter. The fragment shader computes the source pixel of each output
+/// pixel from its position with the integer rules of the reference, in
+/// 32-bit floats that hold every value exactly. Each source image is a
+/// texture in the GL format of its pixel format, so the texture unit
+/// expands 5-bit and 6-bit channels as GL defines it, which is the
+/// expansion of the reference. So nearest output equals the reference
+/// byte for byte. The shader rounds a
 /// sharp bilinear blend half up, as the reference does, but in floats: a
 /// blend whose exact value is within float error of a half can round the
 /// other way, so a channel can differ by 1. The shader needs highp floats
@@ -61,14 +66,16 @@ use crate::{Image, OutputBuffer, RectKind};
 /// The renderer is not `Send`: its GL context stays on the thread that
 /// made it. Each call makes the context current first, which replaces any
 /// other context that is current on the thread. Dropping the renderer
-/// releases the current context of the thread. Textures and the
-/// read-back buffer are made on the first call and again when a size
-/// changes; other calls allocate nothing.
+/// releases the current context of the thread. Textures, the buffer that
+/// packs source rows and the read-back buffer are made on the first call
+/// and again when a size or a pixel format changes; other calls allocate
+/// nothing.
 ///
 /// # Byte order
 ///
-/// Source pixels are native-endian; the shader reads them as little-endian,
-/// so the module does not build for a big-endian target.
+/// Source pixels are native-endian. An `XRGB8888` pixel goes to GL as the
+/// bytes B, G, R, X, which is its little-endian layout, so the module does
+/// not build for a big-endian target.
 pub struct GlesRenderer {
     game: SourceTexture,
     ui: SourceTexture,
@@ -96,8 +103,8 @@ impl GlesRenderer {
     /// # Errors
     ///
     /// [`GlesError`] when EGL does not load, the platform or an OpenGL ES 2
-    /// context is not available, highp floats are not 32-bit floats, or the
-    /// program does not compile.
+    /// context is not available, highp floats are not 32-bit floats, GL has
+    /// no `GL_EXT_texture_format_BGRA8888`, or the program does not compile.
     pub fn headless() -> Result<Self, GlesError> {
         Self::on(EglContext::surfaceless()?)
     }
@@ -147,11 +154,12 @@ impl GlesRenderer {
     fn on(context: EglContext) -> Result<Self, GlesError> {
         let gl = context.current()?;
         gl.check_highp()?;
+        gl.require_extension(BGRA_EXTENSION)?;
         // On an error below, dropping the context deletes every object
         // made in it.
-        let [a, b, c, d, e, f] =
+        let [nearest, sharp] =
             Variant::ALL.map(|variant| gl.program(shader::VERTEX, &variant.fragment()));
-        let programs = [a?, b?, c?, d?, e?, f?].map(|p| (p, Uniforms::of(&gl, p)));
+        let programs = [nearest?, sharp?].map(|p| (p, Uniforms::of(&gl, p)));
         let corners = gl.corner_buffer()?;
         let game = SourceTexture::new(&gl)?;
         let ui = SourceTexture::new(&gl)?;
@@ -275,8 +283,8 @@ impl GlesRenderer {
         Ok(self.context.current()?.names())
     }
 
-    /// `GL_MAX_TEXTURE_SIZE`: a source row of more bytes, or more rows,
-    /// gives [`GlesError::TextureTooLarge`].
+    /// `GL_MAX_TEXTURE_SIZE`: a source image with more pixels in a row, or
+    /// more rows, gives [`GlesError::TextureTooLarge`].
     pub fn max_texture_side(&self) -> u32 {
         self.max_texture
     }
@@ -348,36 +356,45 @@ fn draw_of<'a>(
     )
 }
 
-/// The texture of a source image: one texel per byte of a row.
+/// The texture of a source image: one texel per pixel.
 fn texture_size(frame: &Frame<'_>) -> (u64, u32) {
-    let row = u64::from(frame.width) * frame.format.bytes_per_pixel() as u64;
-    (row, u32::from(frame.height))
+    (u64::from(frame.width), u32::from(frame.height))
 }
 
-/// A texture that holds one source image, with the size of its storage.
+/// The GL extension that uploads `XRGB8888` with no conversion. Mesa has
+/// it on every driver.
+const BGRA_EXTENSION: &str = "GL_EXT_texture_format_BGRA8888";
+
+/// A texture that holds one source image, with the size and the format of
+/// its storage, and the buffer that packs rows that GL cannot read as they
+/// are.
 struct SourceTexture {
     texture: Texture,
-    size: (u32, u32),
+    storage: Option<(Texels, u32, u32)>,
+    staging: Vec<u8>,
 }
 
 impl SourceTexture {
     fn new(gl: &Gl<'_>) -> Result<Self, GlesError> {
         Ok(Self {
             texture: gl.texture()?,
-            size: (0, 0),
+            storage: None,
+            staging: Vec::new(),
         })
     }
 
     /// Copies `frame` into the texture. The caller checked the frame and
-    /// the texture limit, so the row width fits a `u32`.
+    /// the texture limit, so both sides fit a `u32`.
     fn upload(&mut self, gl: &Gl<'_>, frame: &Frame<'_>) -> Result<(), GlesError> {
-        let (row, rows) = texture_size(frame);
-        let row = row as u32;
-        if self.size != (row, rows) {
-            gl.allocate(self.texture, false, row, rows);
-            self.size = (row, rows);
+        let texels = Texels::of(frame.format);
+        let (width, height) = (u32::from(frame.width), u32::from(frame.height));
+        let storage = Some((texels, width, height));
+        if self.storage != storage {
+            gl.allocate(self.texture, Storage::Source(texels), width, height);
+            self.storage = storage;
         }
-        gl.upload(self.texture, frame.data, row, rows, frame.pitch)
+        let data = texels::packed(frame, &mut self.staging)?;
+        gl.upload(self.texture, texels, data, width, height)
     }
 }
 
@@ -415,7 +432,7 @@ fn ensure_target<'t>(
         }
     };
     if (t.width, t.height) != (width, height) {
-        gl.allocate(t.texture, true, width, height);
+        gl.allocate(t.texture, Storage::Target, width, height);
         gl.check_framebuffer(t.framebuffer)?;
         gl.check("framebuffer setup")?;
         t.pixels.clear();
