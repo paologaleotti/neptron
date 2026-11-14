@@ -259,7 +259,9 @@ impl Canvas for CpuCanvas {
         // where a loop over the pixels costs about 30 ns a pixel on the
         // Cortex-A53 of a Raspberry Pi 3.
         for y in 1..area.h as usize {
-            let (done, rest) = self.bytes.split_at_mut(first + y * pitch);
+            let Some((done, rest)) = self.bytes.split_at_mut_checked(first + y * pitch) else {
+                return;
+            };
             if let (Some(to), Some(from)) = (rest.get_mut(..len), done.get(first..first + len)) {
                 to.copy_from_slice(from);
             }
