@@ -128,7 +128,7 @@ fn a_sound_device_lost_during_a_game_stops_nothing() {
         |dir| {
             let lost = Arc::new(AtomicBool::new(false));
             let flag = lost.clone();
-            let (mut session, _clock) = launch_on(dir, move |clock| Losable {
+            let (mut session, _clock) = launch_on(dir, Setup::default(), move |clock, _| Losable {
                 inner: FakeAudio::new(clock.clone(), DEVICE_RATE_HZ, SINK_CAPACITY_FRAMES),
                 lost: flag,
             });

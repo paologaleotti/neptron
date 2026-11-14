@@ -164,14 +164,14 @@ pub struct Rig {
     pub session: TestSession,
 }
 
-/// Launches the test core with the script in `dir` and the default setup
-/// on `audio`, a sink of the test's own type, made on the session's
-/// clock.
+/// Launches the test core with the script in `dir` and `setup` on `audio`,
+/// a sink of the test's own type, made on the session's clock with a
+/// clone of the display.
 pub fn launch_on<S: AudioSink>(
     dir: &Path,
-    audio: impl FnOnce(&SimClock) -> S,
+    setup: Setup,
+    audio: impl FnOnce(&SimClock, &FakeDisplay) -> S,
 ) -> (Session<FakeDisplay, S, ScriptedInput, SimClock>, SimClock) {
-    let setup = Setup::default();
     let clock = SimClock::starting_at(START_NS);
     let display = FakeDisplay::with_options(clock.clone(), setup.caps, setup.display);
     let save_dir = dir.join("saves");
@@ -187,6 +187,7 @@ pub fn launch_on<S: AudioSink>(
         save_dir: &save_dir,
         core_options: &setup.core_options,
     };
+    let sink = audio(&clock, &display);
     let video = VideoSetup {
         display,
         monitor: Monitor::Profile(monitor_preset(setup.monitor).expect("monitor preset")),
@@ -194,7 +195,7 @@ pub fn launch_on<S: AudioSink>(
         scanlines: setup.scanlines,
     };
     let devices = Devices {
-        audio: audio(&clock),
+        audio: sink,
         input: ScriptedInput::new(clock.clone(), Vec::new()),
         clock: clock.clone(),
     };

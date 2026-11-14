@@ -1,15 +1,20 @@
 //! The scripted session: launch, play, the quick menu, save RAM, double
 //! refresh and exit, on the fakes with the test core.
 
-use neptron_backend::Clock;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use neptron_backend::{AudioSink, Clock};
 use neptron_session::{EndReason, Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SessionError};
-use neptron_testkit::{DisplayOptions, Render};
+use neptron_testkit::{DisplayOptions, FakeAudio, FakeDisplay, Render};
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_video::{
-    PictureStyle, PolicySettings, RefreshPolicy, VideoStatusText, scanline_settings,
+    Directive, PictureStyle, PolicySettings, RefreshPolicy, VideoStatusText, scanline_settings,
 };
 
-use crate::harness::{Rig, Setup, TestSession, expected, frame_hash};
+use crate::harness::{
+    DEVICE_RATE_HZ, Rig, SINK_CAPACITY_FRAMES, Setup, TestSession, expected, frame_hash, launch_on,
+};
 use crate::with_script;
 
 const SCRIPT: &str = "\
@@ -709,39 +714,138 @@ fn a_timing_change_keeps_the_rest_of_the_tone() {
     );
 }
 
-/// The audio of a frame goes out after its present and before the wait for
-/// its flip, so the resampler runs while the GPU draws. A modeset in the
-/// present takes time, which shows the order: the audio of the modeset
-/// frame goes out after it.
+/// A sink that records, for each write, whether a flip of the display was
+/// pending then: true between a present and its flip.
+struct Ordered {
+    audio: FakeAudio,
+    display: FakeDisplay,
+    writes: Rc<RefCell<Vec<(usize, bool)>>>,
+}
+
+impl AudioSink for Ordered {
+    fn rate_hz(&self) -> u32 {
+        self.audio.rate_hz()
+    }
+
+    fn queued_frames(&self) -> usize {
+        self.audio.queued_frames()
+    }
+
+    fn write(&mut self, stereo: &[i16]) -> usize {
+        let frames = self.display.frames();
+        let pending = frames
+            .last()
+            .is_some_and(|f| f.present.is_ok() && f.flip.is_none());
+        self.writes.borrow_mut().push((frames.len(), pending));
+        self.audio.write(stereo)
+    }
+}
+
+/// What [`ordered_run`] saw.
+struct OrderedRun {
+    /// For each write: the presents made before it, and whether a flip was
+    /// pending.
+    writes: Vec<(usize, bool)>,
+    /// The frames whose directive was a modeset.
+    modesets: Vec<usize>,
+    /// The audio device.
+    audio: FakeAudio,
+    /// The underruns that the pipeline counted.
+    underruns: u64,
+}
+
+/// Runs `frames` frames of the script in `dir` with a modeset of
+/// `modeset_ns` and the recording sink.
+fn ordered_run(dir: &std::path::Path, modeset_ns: u64, frames: u64) -> OrderedRun {
+    let writes = Rc::new(RefCell::new(Vec::new()));
+    let log = writes.clone();
+    let device = Rc::new(RefCell::new(None));
+    let keep = device.clone();
+    let setup = Setup {
+        display: DisplayOptions {
+            modeset_ns,
+            ..DisplayOptions::default()
+        },
+        ..Setup::default()
+    };
+    let (mut session, _clock) = launch_on(dir, setup, move |clock, display| {
+        let audio = FakeAudio::new(clock.clone(), DEVICE_RATE_HZ, SINK_CAPACITY_FRAMES);
+        *keep.borrow_mut() = Some(audio.clone());
+        Ordered {
+            audio,
+            display: display.clone(),
+            writes: log,
+        }
+    });
+    let mut modesets = Vec::new();
+    for index in 0..frames {
+        let report = session.run_frame(None).expect("frame");
+        if report.directive == Directive::Modeset {
+            modesets.push(usize::try_from(index).unwrap());
+        }
+    }
+    let audio = device.borrow_mut().take().unwrap();
+    let writes = writes.borrow().clone();
+    let underruns = session.audio_stats().unwrap().underruns;
+    OrderedRun {
+        writes,
+        modesets,
+        audio,
+        underruns,
+    }
+}
+
+/// The audio of each frame goes out after its present and before the wait
+/// for its flip, so the resampler runs while the GPU draws. The sink tells
+/// the two orders apart in every frame: it records whether a flip was
+/// pending at each write. Only the mute of a modeset frame writes before
+/// its present.
 #[test]
-fn the_audio_of_a_frame_goes_out_between_its_present_and_its_flip() {
+fn the_audio_of_each_frame_goes_out_between_its_present_and_its_flip() {
+    let script = format!("{SCRIPT}at 300 av_info 256 224 1333 320 240 50007 32040\n");
     with_script!(
-        "the_audio_of_a_frame_goes_out_between_its_present_and_its_flip",
-        SCRIPT,
+        "the_audio_of_each_frame_goes_out_between_its_present_and_its_flip",
+        &script,
         |dir| {
-            let setup = Setup {
-                display: DisplayOptions {
-                    modeset_ns: 40_000_000,
-                    ..DisplayOptions::default()
-                },
-                ..Setup::default()
-            };
-            let mut rig = Rig::launch(dir, setup);
-            rig.run(30);
-            let writes = rig.audio.writes();
-            let frames = rig.display.frames();
-            assert_eq!(rig.display.mode_calls().len(), 1);
-            for frame in &frames {
-                let flip_ns = frame.flip.expect("every frame flips").time_ns;
-                let between = writes
-                    .iter()
-                    .filter(|w| w.time_ns >= frame.present_ns && w.time_ns < flip_ns);
-                assert!(between.count() >= 1, "present {}", frame.index);
+            let OrderedRun {
+                writes, modesets, ..
+            } = ordered_run(dir, 0, 600);
+            assert_eq!(modesets.len(), 2, "the launch mode and the new timing");
+            // Frame n (from 0) writes before its present when n presents
+            // were made, or after it, with its flip pending, when n + 1 were.
+            for (presents, pending) in &writes {
+                assert!(
+                    *pending || modesets.contains(presents),
+                    "a write before the present of frame {presents}, which sets no mode"
+                );
             }
-            assert!(
-                writes.iter().any(|w| w.time_ns == frames[0].present_ns),
-                "the first frame writes after its modeset"
-            );
+            for n in 0..600 {
+                assert!(writes.contains(&(n + 1, true)), "frame {n}");
+            }
+        }
+    );
+}
+
+/// A 30 ms modeset at launch (60.099 Hz) and another in the game (to
+/// 50.007 Hz). The mute leaves the queue at the target, 32 ms, which covers
+/// the modeset; the frame's audio, written after the present, covers the
+/// field until the first flip of the new mode. So the device never runs
+/// dry, and the pipeline counts no underrun. A modeset longer than the
+/// target empties the queue; the audio before the present would not help,
+/// because then the target and one frame must cover the modeset and that
+/// field, which at 50 Hz is longer than a frame at 60 Hz.
+#[test]
+fn a_30_ms_modeset_leaves_audio_in_the_queue() {
+    let script = format!("{SCRIPT}at 300 av_info 256 224 1333 320 240 50007 32040\n");
+    with_script!(
+        "a_30_ms_modeset_leaves_audio_in_the_queue",
+        &script,
+        |dir| {
+            let run = ordered_run(dir, 30_000_000, 600);
+            assert_eq!(run.modesets.len(), 2);
+            let dry = run.audio.underruns();
+            assert!(dry.is_empty(), "{dry:?}");
+            assert_eq!(run.underruns, 0);
         }
     );
 }
