@@ -6,6 +6,11 @@
 # udhcpc tries again by itself. The kernel names wired ports eth* (no udev
 # renames them); en* covers a later rename.
 
+# mdev runs this script through net-hotplug with umask 0. The pid files
+# name the processes that root kills later, and udhcpc writes
+# /etc/resolv.conf: no file of this script may be writable by others.
+umask 022
+
 # NEPTRON_RUN and NEPTRON_SYS_NET change /run/neptron and /sys/class/net
 # for a test.
 PIDDIR=${NEPTRON_RUN:-/run/neptron}/dhcp

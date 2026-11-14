@@ -287,6 +287,13 @@ impl TempDir {
     /// output. The output goes to a file, not a pipe: a background job of
     /// the script keeps the console, and a pipe would wait for it.
     fn run(&self, script: &str, action: &str) -> (bool, String) {
+        self.run_args(script, &[action])
+    }
+
+    /// Runs `script` with `args` as [`run`](Self::run) does, with umask 0,
+    /// as mdev runs its commands: the script must set its own umask.
+    fn run_args(&self, script: &str, args: &[&str]) -> (bool, String) {
+        let action = args.join("-");
         let path = format!(
             "{}:{}",
             self.path("bin").display(),
@@ -295,8 +302,11 @@ impl TempDir {
         let out_path = self.path(&format!("{action}.out"));
         let out = std::fs::File::create(&out_path).unwrap();
         let child = Command::new("sh")
+            .arg("-c")
+            .arg("umask 000; exec sh \"$@\"")
+            .arg("sh")
             .arg(os_dir().join(script))
-            .arg(action)
+            .args(args)
             .env("PATH", path)
             .env("LOG", self.path("log"))
             .env("NEPTRON_STATE", self.path("state"))
@@ -744,6 +754,36 @@ fn a_wired_port_added_after_the_boot_gets_its_dhcp_client() {
             "{action} {device}"
         );
     }
+}
+
+/// Both scripts set umask 022 before they make any file: mdev runs them
+/// with umask 0.
+#[test]
+fn the_network_scripts_set_their_umask_first() {
+    for rel in [HOTPLUG, NETWORK_SCRIPT] {
+        let text = read(rel);
+        let first = text
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty() && !l.starts_with('#'));
+        assert_eq!(first, Some("umask 022"), "{rel}");
+    }
+    let dir = TempDir::create("dhcp-umask");
+    std::fs::create_dir_all(dir.path("sys/eth0")).unwrap();
+    dir.logging_fakes(&["ip", "udhcpc"]);
+    dir.fake("hostname", "echo neptron");
+    let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
+    assert!(ok, "{out}");
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |rel: &str| {
+        std::fs::metadata(dir.path(rel))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777
+    };
+    assert_eq!(mode("run/dhcp"), 0o755);
+    assert_eq!(mode("run/dhcp/eth0.pid"), 0o644);
 }
 
 /// Two starts can overlap (the boot and a port that appears). A start waits
