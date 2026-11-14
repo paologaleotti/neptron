@@ -71,6 +71,15 @@ impl UiScene {
         self.text.clear();
     }
 
+    /// Makes this scene equal to `other`. It keeps the memory, as
+    /// [`UiScene::clear`] does, so a copy of a frame no larger than an
+    /// earlier one does not allocate.
+    pub fn copy_from(&mut self, other: &UiScene) {
+        self.clear();
+        self.commands.extend_from_slice(&other.commands);
+        self.text.push_str(&other.text);
+    }
+
     /// The commands, in drawing order.
     pub fn commands(&self) -> &[DrawCommand] {
         &self.commands

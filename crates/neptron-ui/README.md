@@ -16,6 +16,7 @@ The sealed UI: snapshot in, scene and intents out. A 320x240 XRGB8888 canvas, a 
 - `UiFrame`: the output of one frame. `scene: UiScene` (draw commands), `tree: UiTree` (rows for `ui tree` in the control API, each with its `RowKind` when it is a row of a list), `intents: Vec<Intent>`. Make one at launch and reuse it; `clear()` keeps the memory.
 - `UiScene`: the four primitives. `rect`, `sprite`, `text_run` (or `text_fmt`), `clip`. `render(&mut impl Canvas)` replays them.
 - `trait Canvas` and `CpuCanvas`: `CpuCanvas::as_bytes()` is XRGB8888, little-endian, pitch 1280, ready for the `ui` frame of a `Scene` in `neptron-types`.
+- `SceneCanvas`: a `CpuCanvas` and the scene on it. `paint(&UiScene) -> bool` draws only a scene that differs from the scene on the canvas, so a UI that does not move costs one comparison of the commands per frame. A fill writes one row with doubling copies and copies it to the other rows: a loop over the pixels took 5.5 ms a frame for the quick menu on a Raspberry Pi 3.
 - `font`: Spleen 6x12, printable ASCII and Latin-1, 6x12 glyph box, 6 px advance, capitals 8 px tall. Other characters draw `?`.
 - `text`: `fit`, `draw_in` (cut with `...`, aligned, reports clipping), `wrap`, `StackText` (formatting with no allocation), `value_text`.
 - `skin`: `parse(text) -> Result<Theme, SkinError>` reads a skin file (see "Skin" below).
@@ -190,7 +191,7 @@ The format is binary PPM (`P6`, maxval 255): the header `P6\n320 240\n255\n`, th
 
 ## No allocation per frame
 
-`UiScene`, `UiTree` and the intent list keep their memory on `clear()`. Text goes into the store of the scene; numbers are formatted with `StackText` on the stack. `CpuCanvas` makes its buffer once in `new()`; drawing writes into it. A unit test draws every registered scene twice and checks that no buffer grew or moved. That test is a proxy: the crate forbids `unsafe`, so it cannot install a counting allocator. Fixture data of the scenes (the `Vec<MenuItem>` of a scene) is made when the scene is built and is not part of the frame.
+`UiScene`, `UiTree` and the intent list keep their memory on `clear()`. Text goes into the store of the scene; numbers are formatted with `StackText` on the stack. `CpuCanvas` makes its buffer once in `new()`; drawing writes into it. `SceneCanvas` copies the scene it drew with `UiScene::copy_from`, which keeps the memory. A unit test draws every registered scene twice and checks that no buffer grew or moved. That test is a proxy: the crate forbids `unsafe`, so it cannot install a counting allocator. Fixture data of the scenes (the `Vec<MenuItem>` of a scene) is made when the scene is built and is not part of the frame.
 
 For the router, the tests prove three things about the scene, the tree, the intent list and the screen stack: a static screen or overlay keeps their capacity after its first frame; a round trip from the top of a 10,000-game list to its end and back keeps it after one warm-up round trip; and a confirmation, a notice and the quick menu that open and close over a game keep it after one warm-up round, with and without the video block. What can still grow: a frame with more or longer text than any frame before it grows the scene and the tree once, to the new size; opening the quick menu allocates one box for its state, which is freed when it closes; the snapshot belongs to the app and is not counted.
 
