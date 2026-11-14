@@ -14,8 +14,12 @@ use crate::{
 /// span. SDL's stream has no limit of its own.
 pub const SINK_CAPACITY_MS: u32 = 128;
 
-/// The device buffer SDL is asked for, in frames: 10.7 ms at 48 kHz.
-pub const DEVICE_BUFFER_FRAMES: u32 = 512;
+/// The device buffer SDL is asked for, in frames: 21.3 ms at 48 kHz, and
+/// SDL's own default at that rate. SDL's ALSA backend makes a buffer of two
+/// such periods. The analog output of the Raspberry Pi 3 (`bcm2835`) runs
+/// short of data many times a second with periods of 512 frames, while
+/// SDL's stream still holds audio.
+pub const DEVICE_BUFFER_FRAMES: u32 = 1024;
 
 /// The SDL hint that names the ALSA PCM of SDL's default playback device.
 /// SDL reads it when the device opens (`ALSA_OpenDevice`).
