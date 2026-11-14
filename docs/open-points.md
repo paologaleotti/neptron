@@ -939,3 +939,22 @@ Each open point is one section:
   3. After the first test on a real tube, look at the composite width rule again; if the general rule looks right, remove the console case.
   4. Replace the 289-line guess with the interlace report of the core.
 - Decision: the owner: it is acceptable as it is; keep these points open (2026-11-13).
+
+### OP-101: An old share at another place, and the other limits of the format checks.
+
+- Raised by: C18 (fourth review, 2026-11-14)
+- Status: open
+- Default: the first boot protects an older exFAT share that it finds in the scan window. When that share does not start at the planned start of partition 4, the first boot makes no partition and formats nothing. The data is safe, but the run has no share, and the UI gives no way out. Example: the PC image written on a stick that held the Pi image, whose share starts later. The other limits:
+  1. The scan finds only a share with a good main boot sector. A damaged old share at another start is not seen, and the format of the new partition 4 can erase its head.
+  2. A request does not write its scan result to the cache. After a refused request, a stale cache can show the offer again. No format follows.
+  3. When a request is refused for a read error and a marker exists, the marker rules format in the same boot. The status then says that the format was refused.
+  4. A signature that blkid finds exactly at the planned start, from an older layout, gives no share and no offer.
+  5. No test covers a read error on the request path with a cached result, an NTFS header with a sector size of 0, or a FAT32 header with other hidden sectors.
+- Where: `os/board/common/rootfs-overlay/etc/init.d/S06neptron-storage`, `xtask/src/os/storage_script.rs`, `os/README.md` (storage)
+- How to change:
+  1. Add a row that adopts an old share where it lies: partition 4 is made at the start of the old share, after the user confirms. This closes the main case.
+  2. Check the backup boot region (sector + 12) at each scan step.
+  3. Let the request write the cache, or remove the cache when a request is refused.
+  4. Make no marker format in a boot that refused a request.
+  5. Add the missing tests.
+- Decision:

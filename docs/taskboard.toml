@@ -433,7 +433,7 @@ name = "Settings > System: format the share partition, with a confirm, for the s
 owns = ["os", "apps/neptron", "apps/neptron-launch", "crates/neptron-ui", "xtask/src/os"]
 needs = ["C16", "C17"]
 gate = "T1 and T2; the boot checks and a share-check case"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "P02"
