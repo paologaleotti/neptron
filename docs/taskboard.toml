@@ -489,3 +489,48 @@ needs = ["C13", "P06"]
 gate = "T1; the boot checks and the share check"
 status = "pending"
 
+
+[[task]]
+id = "P07"
+wave = 11
+name = "Raspberry Pi: the neptron.toml reader on the boot partition"
+owns = ["os/board/common/rootfs-overlay", "apps/neptron", "os/board/rpi", "os/board/pc"]
+needs = ["P04", "P06"]
+gate = "T2; boot check on aarch64 and x86_64"
+status = "pending"
+
+[[task]]
+id = "P08"
+wave = 11
+name = "Raspberry Pi: the rpi-arm64 image in CI and its upload"
+owns = [".github", "docs/ci.md"]
+needs = ["P04"]
+gate = "The workflow on a branch"
+status = "pending"
+
+[[task]]
+id = "P09"
+wave = 11
+name = "Raspberry Pi: the bench session of the checklist on a Pi 3"
+owns = ["docs/hardware-checklist.md"]
+needs = ["P06"]
+gate = "The checklist of docs/spec/raspberry-pi.md, section 6"
+status = "pending"
+
+[[task]]
+id = "P10"
+wave = 11
+name = "Raspberry Pi: the frame budget on the Pi 3 (programs per filter, underrun count, 1024-frame audio period, performance governor)"
+owns = ["crates/neptron-gfx", "crates/neptron-audio", "apps/neptron", "os/board/rpi", "xtask/src/os"]
+needs = ["P06"]
+gate = "T1; gles-compare; games at the field rate on a Pi 3"
+status = "merged"
+
+[[task]]
+id = "P11"
+wave = 11
+name = "Raspberry Pi: sharp bilinear and the frame budget on vc4 (texel per pixel, varying index, window path, audio after the present, fields_missed)"
+owns = ["crates/neptron-gfx", "crates/neptron-session", "crates/neptron-audio", "crates/neptron-ipc", "apps/neptron", "docs"]
+needs = ["P10"]
+gate = "T1; gles-compare under softpipe and on a Pi 3"
+status = "merged"
