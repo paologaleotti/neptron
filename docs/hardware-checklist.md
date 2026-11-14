@@ -579,3 +579,15 @@ This image shows no composite picture. Composite needs the TV standard of tasks 
 - [ ] Do: Settings > System > Reboot. Expect: the board restarts through the watchdog and boots again. Record: the serial log.
 - [ ] Do: the release image (`images/rpi-arm64/neptron-rpi-arm64.img`) on the same card. Expect: no SSH (port 22 closed), no serial console (no `enable_uart`), the network share on, the menu on HDMI. Record: a port scan of the Pi.
 - [ ] Do: after 30 minutes of play, run `dmesg | grep -i voltage` over SSH (the image has no `vcgencmd`). Expect: no line. Record: the power supply used.
+
+## P05 TV standard on Composite-1 (Pi 3 B+)
+
+Each check is `needs-hardware`. The setup: a Pi 3 B+ with the development image built after P05, a 15 kHz TV on composite through a TRRS cable with video on the sleeve, and SSH. Stop the frontend and the launcher first (`touch /run/neptron/hold && kill $(pidof neptron-launch)`). Run `kms-check` and `modetest` as root over SSH. The four table modes are 720x240p and 720x480i (525 lines) and 720x288p and 720x576i (625 lines), all at 13 500 kHz.
+
+- [ ] Do: `modetest -M vc4 -c`. Expect: the connector `Composite-1` has the property `TV mode` with its 8 values (`NTSC`, `NTSC-443`, `NTSC-J`, `PAL`, `PAL-M`, `PAL-N`, `SECAM`, `Mono`), the legacy `mode` property, and the four margins `left margin`, `right margin`, `top margin` and `bottom margin`. Record: the property lines of `Composite-1`.
+- [ ] Do: commit each table mode with each standard of its line system: 240p and 480i with `ntsc`, `ntsc_j`, `ntsc_443`, `pal_60`, `pal_m` and `mono_60`; 288p and 576i with `pal`, `pal_n`, `secam` and `mono_50`. That is 20 commits. Expect: each commit passes, the mode and the `TV mode` value read back as asked, and the TV shows a locked picture (in colour where the TV decodes the standard). Record: for each commit, the read back and what the TV shows.
+- [ ] Do: with 240p on `ntsc`, change only the standard to `ntsc_j`. Expect: the commit is a modeset (the picture goes off for a moment), and `TV mode` reads back `NTSC-J`. Record: the log of the commit.
+- [ ] Do: after any modeset on `Composite-1`, read the four margin properties. Expect: all four read 0. Record: the values.
+- [ ] Do: try to commit 288p with the value `NTSC`. Expect: the commit is refused, nothing changes on the wire, and the earlier mode and standard stay on the TV and read back unchanged. Record: the error and the read back.
+- [ ] Do: with an HDMI display connected, start the frontend with `display.output = "Composite-1"`. Expect: only composite is driven: `modetest -M vc4 -c` shows `HDMI-A-1` with no CRTC, and the HDMI display gets no signal. Record: the CRTC of each connector.
+- [ ] Do: start the frontend on HDMI with the margins forced to 0 by the backend. Expect: the HDMI picture is correct, not cut and not shifted, and its margins read 0. Record: the mode and a photo.
