@@ -14,11 +14,13 @@ disable_splash=1
 # sets no mode of its own; the frontend sets every mode through the
 # validator.
 disable_fw_kms_setup=1
+# The analog audio driver of the 3.5 mm jack (off by default). This line
+# must come before every dtoverlay line: a dtparam after an overlay sets a
+# parameter of that overlay, and vc4-kms-v3d has its own `audio`.
+dtparam=audio=on
 # The KMS display driver vc4 for HDMI, with the composite encoder (VEC)
 # on. On a Pi 3 this does not turn HDMI off.
 dtoverlay=vc4-kms-v3d,composite
-# The analog audio driver of the 3.5 mm jack (off by default).
-dtparam=audio=on
 # A constant core clock, so the timing of the display and the serial port
 # does not change with the load.
 core_freq_fixed=1

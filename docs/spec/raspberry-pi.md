@@ -395,8 +395,8 @@ arm_64bit=1
 kernel=Image
 disable_splash=1
 disable_fw_kms_setup=1
-dtoverlay=vc4-kms-v3d,composite
 dtparam=audio=on
+dtoverlay=vc4-kms-v3d,composite
 core_freq_fixed=1
 
 [pi02]
@@ -407,7 +407,7 @@ enable_tvout=1
 
 - `dtoverlay=vc4-kms-v3d,composite` turns on the KMS driver and the VEC (VERIFIED: fragment 11 of `vc4-kms-v3d-overlay.dts` is enabled by `composite`, Pi fork 6.12). It does not turn HDMI off on a Pi 3: only `nohdmi` does (VERIFIED: the same overrides).
 - `disable_fw_kms_setup=1` stops the firmware passing a `video=` mode on the command line (VERIFIED: `config_txt/video.adoc`). With no fbdev the kernel would set no mode anyway; this keeps the command line plain.
-- `dtparam=audio=on` turns on the analog audio driver of the jack (VERIFIED: overlay README, base parameter `audio`, default off).
+- `dtparam=audio=on` turns on the analog audio driver of the jack (VERIFIED: overlay README, base parameter `audio`, default off). It comes before every `dtoverlay` line: after an overlay it sets the `audio` parameter of `vc4-kms-v3d`, and the jack gets no sound card (seen on a Pi 3 B, 2026-11-14).
 - `core_freq_fixed=1` is the definition's choice (`07-hardware-support-matrix.md`) and keeps the core clock constant (VERIFIED: [`config_txt/overclocking.adoc`](https://github.com/raspberrypi/documentation/blob/master/documentation/asciidoc/computers/config_txt/overclocking.adoc)).
 - `[pi02]` with `enable_tvout=1` is the Zero 2 W cost: composite on, HDMI off (VERIFIED: model filters in `config_txt/conditional.adoc`, and `enable_tvout`).
 - A later `include neptron-display.txt` line can carry a GPIO DAC overlay (VERIFIED: `include` exists in `config.txt`; settings that the bootloader handles must stay in `config.txt` itself, per `what_is_config_txt.adoc`). Not in the first image.

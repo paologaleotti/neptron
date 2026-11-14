@@ -586,8 +586,8 @@ fn config_txt_holds_the_keys_of_the_spec_each_with_its_reason() {
             "kernel=Image",
             "disable_splash=1",
             "disable_fw_kms_setup=1",
-            "dtoverlay=vc4-kms-v3d,composite",
             "dtparam=audio=on",
+            "dtoverlay=vc4-kms-v3d,composite",
             "core_freq_fixed=1",
             "[pi02]",
             "enable_tvout=1",
@@ -595,6 +595,12 @@ fn config_txt_holds_the_keys_of_the_spec_each_with_its_reason() {
         ]
     );
     assert!(text.starts_with("# Written by the NEPTRON image."));
+    // A dtparam after a dtoverlay sets a parameter of that overlay, and
+    // vc4-kms-v3d has an `audio` of its own: the jack then has no card.
+    let keys = entries(&text);
+    let audio = keys.iter().position(|l| *l == "dtparam=audio=on");
+    let overlay = keys.iter().position(|l| l.starts_with("dtoverlay="));
+    assert!(audio < overlay, "dtparam=audio=on is after an overlay");
     let lines: Vec<&str> = text.lines().collect();
     for (i, line) in lines.iter().enumerate() {
         if line.contains('=') && !line.starts_with('#') {

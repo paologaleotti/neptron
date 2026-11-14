@@ -958,3 +958,15 @@ Each open point is one section:
   4. Make no marker format in a boot that refused a request.
   5. Add the missing tests.
 - Decision:
+
+### OP-102: First composite picture on a Pi 3 B, and what it showed.
+
+- Raised by: the owner's first test on a tube (Samsung, composite, 2026-11-14)
+- Status: open
+- Default: the picture locks in NTSC 240p, the menu is sharp, and the grid pattern fills the tube. Three points stay open:
+  1. The menu is 640 samples wide in the 720 samples of the line, so the tube shows a black band at each side of the menu. This is the UI rectangle of the spec, not the TV. A wider menu needs the overscan decision of OP-097.
+  2. The audio list gives the name "Analog" to the PCM of the `vc4-hdmi` card, because its PCM name (`MAI PCM i2s-hifi-0`) has no HDMI word. With no jack card, `auto` then took the HDMI card as an analog output, and the open failed with error 524 while HDMI was off.
+  3. `dtparam=audio=on` after the overlay line gave no jack card. The order is corrected and a test pins it.
+- Where: `crates/neptron-modeline/src/policy/tv.rs` (UI rectangle), `crates/neptron-audio` (the output list and its labels), `os/board/rpi/config.txt`
+- How to change: for 1, a setting for the menu width on a TV, or the result of OP-097. For 2, take the kind of a PCM from its card driver (`vc4-hdmi` is HDMI) as well as from its name, and do not offer an HDMI output while its connector is off.
+- Decision:
