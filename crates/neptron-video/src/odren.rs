@@ -487,6 +487,12 @@ impl Odren {
         if on_screen_refused {
             return Switch::Modeset;
         }
+        // A TV standard is part of the signal but not of the mode: two
+        // standards of one line system share their modes, and only a
+        // modeset puts the new standard on the wire.
+        if current.chosen.token.tv_standard() != winner.token.tv_standard() {
+            return Switch::Modeset;
+        }
         switch_for(Some(current.chosen.token.mode()), winner.token.mode())
     }
 

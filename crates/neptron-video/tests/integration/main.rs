@@ -11,6 +11,7 @@ mod guard_boot;
 mod guard_confirm;
 mod guard_recovery;
 mod guard_rig;
+mod guard_tv;
 mod harness;
 mod inputs;
 mod panel;
