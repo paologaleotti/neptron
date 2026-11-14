@@ -132,10 +132,11 @@ float darken(float v, float keep) {
 }
 
 void main() {
-    // gl_FragCoord is at a pixel centre, half a pixel away from any edge,
-    // so floor gives the pixel without a rounding risk.
+    // Only the integer part of gl_FragCoord names the pixel: GL puts it at
+    // the pixel centre, but vc4 gives the corner, and the output row
+    // counted from the top must not depend on which.
     float i = floor(gl_FragCoord.x) - u_visible.x + u_dest.x;
-    float j = floor(u_output.y - gl_FragCoord.y) - u_visible.y + u_dest.y;
+    float j = u_output.y - 1.0 - floor(gl_FragCoord.y) - u_visible.y + u_dest.y;
     if (i < 0.0 || j < 0.0 || i >= u_dest.z || j >= u_dest.w) {
         discard;
     }
