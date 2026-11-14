@@ -4,7 +4,9 @@
 #[forbid(unsafe_code)]
 mod reference;
 
-#[cfg(feature = "gles")]
+// The tests of the default build also build the pure parts of the GLES
+// renderer, so the tier gates run their unit tests.
+#[cfg(any(feature = "gles", test))]
 pub mod gles;
 
 pub use reference::{
