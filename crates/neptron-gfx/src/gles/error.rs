@@ -62,16 +62,20 @@ pub enum GlesError {
         message: String,
     },
     /// A shader did not compile.
-    #[error("the {stage} shader does not compile:\n{log}")]
+    #[error("the {stage} shader of the {program} program does not compile:\n{log}")]
     Compile {
+        /// The program: the filter and the axes that blend.
+        program: &'static str,
         /// `vertex` or `fragment`.
         stage: &'static str,
         /// The info log of the shader.
         log: String,
     },
     /// The program did not link.
-    #[error("the shader program does not link:\n{log}")]
+    #[error("the {program} shader program does not link:\n{log}")]
     Link {
+        /// The program: the filter and the axes that blend.
+        program: &'static str,
         /// The info log of the program.
         log: String,
     },
@@ -150,4 +154,26 @@ pub enum GlesError {
         /// Bytes from one row to the next.
         pitch: usize,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_compile_or_link_error_names_the_program() {
+        let compile = GlesError::Compile {
+            program: "sharp bilinear across columns",
+            stage: "fragment",
+            log: "0:1: error".to_owned(),
+        };
+        let text = compile.to_string();
+        assert!(text.contains("fragment shader of the sharp bilinear across columns program"));
+        assert!(text.ends_with("0:1: error"), "{text}");
+        let link = GlesError::Link {
+            program: "nearest",
+            log: "no main".to_owned(),
+        };
+        assert!(link.to_string().starts_with("the nearest shader program"));
+    }
 }

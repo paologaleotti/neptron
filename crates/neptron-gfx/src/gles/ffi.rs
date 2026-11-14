@@ -488,11 +488,16 @@ impl Gl<'_> {
         (positive(texture), positive(viewport[0].min(viewport[1])))
     }
 
-    /// Compiles and links the program from its two sources. The corner
-    /// attribute is bound to [`CORNER_ATTRIBUTE`].
-    pub(super) fn program(&self, vertex: &str, fragment: &str) -> Result<Program, GlesError> {
-        let vs = self.shader(glow::VERTEX_SHADER, "vertex", vertex)?;
-        let fs = match self.shader(glow::FRAGMENT_SHADER, "fragment", fragment) {
+    /// Compiles and links the program `name` from its two sources. The
+    /// corner attribute is bound to [`CORNER_ATTRIBUTE`].
+    pub(super) fn program(
+        &self,
+        name: &'static str,
+        vertex: &str,
+        fragment: &str,
+    ) -> Result<Program, GlesError> {
+        let vs = self.shader(name, glow::VERTEX_SHADER, "vertex", vertex)?;
+        let fs = match self.shader(name, glow::FRAGMENT_SHADER, "fragment", fragment) {
             Ok(fs) => fs,
             Err(e) => {
                 // SAFETY: the context is current and vs is its shader.
@@ -526,13 +531,14 @@ impl Gl<'_> {
             } else {
                 let log = self.gl.get_program_info_log(p);
                 self.gl.delete_program(p);
-                Err(GlesError::Link { log })
+                Err(GlesError::Link { program: name, log })
             }
         }
     }
 
     fn shader(
         &self,
+        program: &'static str,
         kind: u32,
         stage: &'static str,
         source: &str,
@@ -553,7 +559,11 @@ impl Gl<'_> {
             } else {
                 let log = self.gl.get_shader_info_log(shader);
                 self.gl.delete_shader(shader);
-                Err(GlesError::Compile { stage, log })
+                Err(GlesError::Compile {
+                    program,
+                    stage,
+                    log,
+                })
             }
         }
     }

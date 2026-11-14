@@ -46,6 +46,16 @@ impl Variant {
         usize::from(self.blend_x) + 2 * usize::from(self.blend_y)
     }
 
+    /// The name of the program, for an error.
+    pub(super) fn name(self) -> &'static str {
+        match (self.blend_x, self.blend_y) {
+            (false, false) => "nearest",
+            (true, false) => "sharp bilinear across columns",
+            (false, true) => "sharp bilinear across lines",
+            (true, true) => "sharp bilinear across columns and lines",
+        }
+    }
+
     /// The fragment shader source of this variant.
     pub(super) fn fragment(self) -> String {
         format!(
@@ -192,9 +202,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_variant_has_its_own_index() {
+    fn every_variant_has_its_own_index_and_name() {
         for (i, variant) in Variant::ALL.iter().enumerate() {
             assert_eq!(variant.index(), i, "{variant:?}");
+            let same_name = Variant::ALL.iter().filter(|v| v.name() == variant.name());
+            assert_eq!(same_name.count(), 1, "{variant:?}");
         }
     }
 

@@ -159,7 +159,7 @@ impl GlesRenderer {
         // On an error below, dropping the context deletes every object
         // made in it.
         let [a, b, c, d] =
-            Variant::ALL.map(|variant| gl.program(shader::VERTEX, &variant.fragment()));
+            Variant::ALL.map(|v| gl.program(v.name(), shader::VERTEX, &v.fragment()));
         let programs = [a?, b?, c?, d?].map(|p| (p, Uniforms::of(&gl, p)));
         let corners = gl.corner_buffer()?;
         let game = SourceTexture::new(&gl)?;
