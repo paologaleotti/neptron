@@ -474,7 +474,10 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
 /// not offer cannot be chosen.
 fn tv_option(choice: &str, detected: &Detected) -> ChoiceOption {
     let (option, standard) = match TvStandard::from_key(choice) {
-        Some(standard) => (ChoiceOption::new(crate::tv::label(standard)), standard),
+        Some(standard) => (
+            ChoiceOption::new(crate::tv::label(standard)).with_short(crate::tv::short(standard)),
+            standard,
+        ),
         None => (
             ChoiceOption::new(choice).with_detail(crate::tv::label(TV_AUTO_STANDARD)),
             TV_AUTO_STANDARD,
@@ -1004,6 +1007,11 @@ mod tests {
         assert_eq!(shown[0], ("auto", "NTSC (60 Hz)"));
         assert_eq!(shown[1], ("NTSC (60 Hz)", ""));
         assert_eq!(shown[4], ("PAL 60 (60 Hz)", ""));
+        assert_eq!(
+            options[4].value_text(),
+            "PAL 60",
+            "the short form in the row"
+        );
         assert_eq!(shown[6], ("PAL (50 Hz)", ""));
         assert_eq!(options.len(), neptron_settings::TV_STANDARDS.len());
         assert!(page.rows[2].scopes.global && !page.rows[2].scopes.game);

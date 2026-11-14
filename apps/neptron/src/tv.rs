@@ -19,6 +19,18 @@ pub fn name(standard: TvStandard) -> &'static str {
     }
 }
 
+/// The short name of `standard` for the value column of a settings row:
+/// [`name`], and the rate of the two monochrome standards, which share a
+/// name: `PAL 60`, `Mono 50`.
+pub fn short(standard: TvStandard) -> String {
+    match standard {
+        TvStandard::Mono60 | TvStandard::Mono50 => {
+            format!("{} {}", name(standard), field_rate_hz(standard))
+        }
+        _ => name(standard).to_owned(),
+    }
+}
+
 /// The name of `standard` with its field rate, for the menus:
 /// `NTSC (60 Hz)`, `PAL (50 Hz)`, `Mono (50 Hz)`.
 pub fn label(standard: TvStandard) -> String {
@@ -51,6 +63,22 @@ mod tests {
                 "SECAM (50 Hz)",
                 "Mono (60 Hz)",
                 "Mono (50 Hz)",
+            ]
+        );
+        let shorts: Vec<String> = TvStandard::ALL.into_iter().map(short).collect();
+        assert_eq!(
+            shorts,
+            [
+                "NTSC",
+                "NTSC-J",
+                "NTSC 4.43",
+                "PAL 60",
+                "PAL-M",
+                "PAL",
+                "PAL-N",
+                "SECAM",
+                "Mono 60",
+                "Mono 50",
             ]
         );
     }
