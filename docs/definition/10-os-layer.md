@@ -63,7 +63,7 @@ config/
 - **Bad input never blocks boot.** An unknown or invalid key is ignored on its own and listed on the diagnostics page with file and line. Display keys still pass the safety validator, whoever wrote them.
 - **`neptron.toml` is an inbox, not a second system.** It uses the same keys as `global.toml`. When it has changed since the last boot, its values are copied into `config/global.toml` once. It exists because the state partition is ext4 and cannot be read by plugging the disk into a Windows or Mac PC.
 - **No secrets in `config/`.** The share is open on the LAN, so passwords are kept in the internal area.
-- **Firmware files are generated.** `config.txt` on a Pi and the GRUB configuration are written from the settings. Hand edits to them are overwritten.
+- **Firmware files are generated.** `config.txt` on a Pi and the GRUB configuration are written from the settings. Hand edits to them are overwritten. The first Pi image ships a fixed `config.txt`, because no setting needs a line in it yet; the GPIO DACs bring the first one.
 
 **Folder layout.** The share partition uses the folder names of Batocera and RetroPie, so an existing `roms` and `bios` collection copies over unchanged.
 
