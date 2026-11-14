@@ -620,11 +620,11 @@ Each check is `needs-hardware`. The setup: the Pi 3 with the development image, 
   - Do: set `display.tv` to `pal` through the app (`neptronctl settings set display.tv global pal`, then Keep), run the SNES 240p suite for 60 s with the trace, then set the old value back and Keep.
   - Expect: 288p at 50.08 Hz, 50.08 frames per second, no missed field in steady play, then 240p at 60.054 Hz again.
   - Record: the video state of both modes and the frame budget.
-- [ ] `needs-hardware` **A dialog over a running game.**
-  - Do: change a display setting during a game, so the Keep dialog opens over it, with the trace on.
-  - Expect: the rate while the dialog is open. On the Pi the frontend flipped every second field for the 3 to 4 s of the dialog.
-  - Record: the flip intervals and `fields_missed` before and after.
-  - Result (2026-11-14, Pi 3 B): a flip every second field for the 3 to 4 s of the dialog; each change of the TV standard added about 110 missed fields and about 50 audio underruns (OP-103 point 1). The rate halves, so the box stays empty; OP-103 holds the point.
+- [x] **A dialog over a running game.** (P12)
+  - Do: run the SNES 240p suite on NTSC. Change `display.tv` to PAL with Keep, then back to `auto` with Keep, 8 times (`neptronctl settings set display.tv global pal`, then `auto`). Also open the quick menu for 10 s, and leave a PAL dialog until it reverts by itself. Keep the trace on for one change.
+  - Expect: `fields_missed` stays the same while each dialog shows. Each modeset adds at most 1 missed field and 2 audio underruns. The quick menu adds no missed field. The game list holds 60 frames per second. In the trace, the render of a dialog frame ends at most about 10 ms after the flip event.
+  - Record: `fields_missed` and `audio_underruns` before and after each step, and the GPU submit time, the GPU time and the end of the render after the flip event, for a dialog frame and for a game frame.
+  - Result (2026-11-14, Pi 3 B, the development build of `os push`): no missed field while a dialog shows, in 36 NTSC dialogs over the SNES suite and in each Sonic run. A modeset adds 1 to 2 audio underruns and at most 1 missed field (OP-103 point 2). The quick menu adds no missed field, and the game list holds 60.06 frames per second. A dialog frame: GPU submit 6.2 ms and render end 8.35 ms after the flip event, GPU time 2.2 ms. A game frame alone: 6.45 ms, 9.87 ms and 3.41 ms (OP-103 point 1).
 - [ ] `needs-hardware` **The vblank count of an interlaced mode.**
   - Do: run a game in 480i on composite with the trace of `drm_vblank_event_delivered`, and compare the `seq` of the flip events with their times.
   - Expect: to know whether the DRM vblank sequence of vc4 counts fields or frames in 480i. The session counts a missed field when two flips are more than 2 sequence numbers apart in an interlaced mode on a driver that flips once per frame (`flip_per_field` false). If vc4 counts frames, two flips one frame apart differ by 1 and a late frame by 2, so the subtraction of 2 hides each late frame.
