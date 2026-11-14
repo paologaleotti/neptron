@@ -216,6 +216,25 @@ impl Run {
         self
     }
 
+    /// Makes the calls of dd whose arguments hold the word `word` fail,
+    /// at the call numbers in `calls` (counted from 1), with no output, as
+    /// a stick with a read error does.
+    fn fail_reads(self, word: &str, calls: &str) -> Self {
+        write_exec(
+            &self.path("bin/dd"),
+            &format!(
+                "#!/bin/sh\n\
+                 case \" $* \" in *' {word} '*)\n\
+                 \tn=$(($(cat \"$FAKE_ROOT/dd-fail-calls\" 2>/dev/null || echo 0) + 1))\n\
+                 \techo \"$n\" > \"$FAKE_ROOT/dd-fail-calls\"\n\
+                 \tcase ' {calls} ' in *\" $n \"*) echo 'dd: read error' >&2; exit 1 ;; esac ;;\n\
+                 esac\n\
+                 exec /bin/dd \"$@\"\n"
+            ),
+        );
+        self
+    }
+
     fn set(mut self, name: &str, value: &str) -> Self {
         self.env.push((name.to_owned(), value.to_owned()));
         self
@@ -2229,4 +2248,32 @@ fn a_type_change_that_changes_the_boot_code_formats_nothing() {
     let out = run.start();
     out.assert_request_refused("the boot code of the MBR (bytes 0 to 439) changed");
     out.assert_share_ram("the boot code of the MBR (bytes 0 to 439) changed");
+}
+
+/// cksum of no input is not empty: the boot code counts as read only when
+/// the sum covers 440 bytes.
+#[test]
+fn a_boot_code_that_cannot_be_read_stops_the_type_change() {
+    for (name, calls, changed) in [
+        ("boot-code-first", "1", false),
+        ("boot-code-both", "1 2", false),
+        ("boot-code-second", "2", true),
+    ] {
+        let run = Run::empty_partition_4(name, PLANNED, "83").fail_reads("bs=440", calls);
+        run.request_planned("83");
+        let out = run.start();
+        assert_eq!(out.calls("mkfs.exfat"), 0, "{name}: {out:#?}");
+        assert_eq!(
+            out.calls("sfdisk-set-type"),
+            usize::from(changed),
+            "{name}: {out:#?}"
+        );
+        if changed {
+            out.assert_request_refused(
+                "the boot code of the MBR cannot be read back after the type change",
+            );
+        } else {
+            out.assert_request_refused("cannot be read, so the type change cannot be checked");
+        }
+    }
 }
