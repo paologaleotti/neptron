@@ -701,6 +701,14 @@ fn the_safe_default_of_a_tv_output_is_ntsc() {
         assert_eq!(safe.monitor, Monitor::Profile(TvStandard::Ntsc.profile()));
         assert_eq!(safe.settings.style.key(), "auto");
     }
+    assert_eq!(
+        composite(&[]).safe(&presets(), None),
+        Err(MonitorError::NoTvStandard),
+        "never a profile the connector refuses"
+    );
+    assert!(!usable_tv_output(Some(&[])));
+    assert!(usable_tv_output(Some(&[TvStandard::Pal])));
+    assert!(usable_tv_output(None));
     let pal_only = composite(&[TvStandard::Pal, TvStandard::Secam]);
     let safe = pal_only.safe(&presets(), None).expect("safe");
     assert_eq!(

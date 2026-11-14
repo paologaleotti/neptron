@@ -103,6 +103,10 @@ pub enum MonitorError {
     /// `display.tv` names a standard that the TV output does not offer.
     #[error("the TV standard {0:?} is not offered by this output; the safe default is used")]
     TvStandard(String),
+    /// The connector has a `TV mode` property with no standard that
+    /// NEPTRON knows, so it takes no mode at all.
+    #[error("the TV mode property of this output lists no standard that NEPTRON knows")]
+    NoTvStandard,
     /// `flat` with no EDID that lists a mode the system can send.
     #[error(
         "the monitor profile \"flat\" needs a display that lists its modes; the safe default is used"
@@ -272,7 +276,9 @@ impl Detected {
     ///
     /// # Errors
     ///
-    /// [`MonitorError::NoSafeProfile`].
+    /// [`MonitorError::NoSafeProfile`], and [`MonitorError::NoTvStandard`]
+    /// for a TV output that offers no standard: it would refuse every
+    /// profile, so none is given.
     pub fn safe(
         &self,
         presets: &Presets,
@@ -282,7 +288,7 @@ impl Detected {
             let standard = if offered.contains(&TV_SAFE_STANDARD) {
                 TV_SAFE_STANDARD
             } else {
-                offered.first().copied().unwrap_or(TV_SAFE_STANDARD)
+                *offered.first().ok_or(MonitorError::NoTvStandard)?
             };
             return Ok(DisplayConfig {
                 monitor: Monitor::Profile(standard.profile()),
@@ -509,6 +515,14 @@ impl Detected {
             Some((w.max(m.hactive), h.max(m.vactive)))
         })
     }
+}
+
+/// Whether a connector whose `TV mode` property offers `tv` (`None`: no
+/// such property) can show a picture. A property that lists no standard
+/// NEPTRON knows makes every mode refused (ADR 0012), so such a connector
+/// is no usable display.
+pub fn usable_tv_output(tv: Option<&[TvStandard]>) -> bool {
+    tv.is_none_or(|standards| !standards.is_empty())
 }
 
 /// The standard that `value` (a value of `display.tv`) names: `auto` is

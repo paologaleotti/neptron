@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use neptron::boot_output::{self, OutputPlan};
 use neptron::devices::{audio_output_setting, open_audio};
-use neptron::display::{AUTO, Detected};
+use neptron::display::{AUTO, Detected, usable_tv_output};
 use neptron::display_wait::{Look, NO_DISPLAY_EXIT_CODE, auto_output, wait_line, wait_with_looks};
 use neptron::logbook::LogLines;
 use neptron::options::Options;
@@ -145,6 +145,14 @@ pub fn run(
         }
     };
     let output = display.connector_name().to_owned();
+    let tv_standards = display.tv_standards();
+    if !usable_tv_output(tv_standards.as_deref()) {
+        crate::say!(
+            "neptron: cannot use {output}: its TV mode property lists no standard that NEPTRON \
+             knows, so it would refuse every mode"
+        );
+        return ExitCode::from(NO_DISPLAY_EXIT_CODE);
+    }
     // Only the rule writes the name: a named output is named again in
     // every run, and a kept one is in the file already.
     if plan == OutputPlan::Rule
@@ -153,7 +161,6 @@ pub fn run(
         crate::say!("neptron: cannot keep the output of this boot: {e}");
     }
     let subconnector = display.subconnector().map(str::to_owned);
-    let tv_standards = display.tv_standards();
     // The kernel reports the subconnector only now: a DAC behind the DP
     // connector, or a digital adapter with no EDID, makes the output
     // analog, and the CRT path must not run with the digital limits.
