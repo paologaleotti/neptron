@@ -97,6 +97,7 @@ fn run_check(rig: &mut Rig, check: &Check) {
         late,
         "the only repeated blanks are the late flips of the display"
     );
+    assert_eq!(counters.missed_fields, late, "the session counts each one");
     let hashes = rig.display.frame_hashes();
     if !hashes.is_empty() {
         assert!(

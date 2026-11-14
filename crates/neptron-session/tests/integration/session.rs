@@ -430,6 +430,7 @@ fn double_refresh_presents_each_frame_twice_at_the_game_rate() {
             let counters = *rig.session.counters();
             assert_eq!(counters.core_frames, 600);
             assert_eq!(counters.flips, 1_200);
+            assert_eq!(counters.missed_fields, 0, "the second flip is on time");
             let mode = rig.display.active_mode().unwrap();
             let field = mode.field_rate_mhz();
             assert!(field.abs_diff(2 * 60_099) < 10, "field rate {field}");

@@ -6,7 +6,7 @@
 use neptron_safety::Rejection;
 use neptron_session::{FLIPLESS_FRAMES_LIMIT, SessionError};
 use neptron_testkit::{DEFAULT_FLIP_TIMEOUT_NS, FlipFault};
-use neptron_types::Modeline;
+use neptron_types::{Control, Modeline};
 use neptron_video::{Directive, VideoError};
 
 use crate::harness::{Rig, Setup};
@@ -177,6 +177,67 @@ fn with_the_output_off_the_core_waits_and_the_session_goes_on() {
             rig.run(10);
             assert_eq!(rig.session.counters().core_frames, frozen + 1 + 10);
             assert!(rig.display.active_mode().is_some());
+        }
+    );
+}
+
+/// A flip on time misses no field, from the first flip of the launch mode
+/// on. A flip late by two fields counts 2, and so does the flip of a
+/// frame whose wait timed out, by the fields it came after its target.
+#[test]
+fn a_late_flip_counts_the_fields_it_missed() {
+    with_script!("a_late_flip_counts_the_fields_it_missed", SCRIPT, |dir| {
+        let mut rig = Rig::launch(dir, Setup::default());
+        rig.run(120);
+        assert_eq!(rig.session.counters().missed_fields, 0);
+        let index = rig.display.next_present_index();
+        rig.display
+            .fault_flip(index, FlipFault::Late { vblanks: 2 });
+        rig.run(60);
+        assert_eq!(rig.session.counters().missed_fields, 2);
+        let index = rig.display.next_present_index();
+        rig.display
+            .fault_flip(index, FlipFault::Slow { timeouts: 1 });
+        rig.run(60);
+        let counters = *rig.session.counters();
+        let late: u64 = rig
+            .display
+            .frames()
+            .iter()
+            .filter_map(|f| f.late_by())
+            .sum();
+        assert_eq!(rig.display.repeated_vblanks(), late);
+        assert_eq!(counters.missed_fields, late, "{counters:?}");
+        assert!(late > 2, "the slow flip missed fields too");
+        assert_eq!(
+            counters.flipless_frames, 1,
+            "frames_dropped keeps its meaning"
+        );
+    });
+}
+
+/// A late flip under the quick menu does not count: the core does not run.
+#[test]
+fn a_late_flip_under_the_quick_menu_is_not_counted() {
+    with_script!(
+        "a_late_flip_under_the_quick_menu_is_not_counted",
+        SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(10);
+            rig.press(&[Control::Select, Control::Start]);
+            rig.run(1);
+            rig.release(&[Control::Select, Control::Start]);
+            rig.run(1);
+            assert!(rig.session.paused());
+            let index = rig.display.next_present_index();
+            rig.display
+                .fault_flip(index, FlipFault::Late { vblanks: 3 });
+            rig.run(10);
+            assert_eq!(rig.display.repeated_vblanks(), 3);
+            rig.session.resume();
+            rig.run(30);
+            assert_eq!(rig.session.counters().missed_fields, 0);
         }
     );
 }

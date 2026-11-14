@@ -51,6 +51,13 @@ pub struct Counters {
     pub flips: u64,
     /// Loop frames with no completed flip, the output on.
     pub flipless_frames: u64,
+    /// Fields in which no new frame reached the display while the core
+    /// ran: the vertical blanks between two flips beyond the blanks one
+    /// flip of the mode takes (1, or 2 for an interlaced mode on a driver
+    /// that flips once per frame). A flip late by one field adds 1. Each
+    /// flip of a frame in which the core ran counts its gap to the flip
+    /// before; the first flip of a mode counts nothing.
+    pub missed_fields: u64,
     /// Loop frames with the output off.
     pub blanked_frames: u64,
     /// Frames the host refused (`Video::Rejected`).

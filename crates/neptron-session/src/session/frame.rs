@@ -211,9 +211,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 Ok(presented) => {
                     if let Some(flip) = presented.drained_flip {
                         self.meter.push(flip.time_ns);
+                        self.count_missed_fields(flip.sequence, report.ran_core);
                     }
                     if presented.modeset.is_some() {
                         self.meter.reset();
+                        self.last_flip = None;
                         report.modeset = presented.modeset;
                     }
                 }
@@ -225,6 +227,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             match self.engine.wait_flip() {
                 Ok(flip) => {
                     self.meter.push(flip.time_ns);
+                    self.count_missed_fields(flip.sequence, report.ran_core);
                     report.flips += 1;
                     self.counters.flips += 1;
                 }
@@ -248,6 +251,30 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             } else {
                 audio.idle_frame();
             }
+        }
+    }
+
+    /// Counts the fields between the flip with vertical blank count
+    /// `sequence` and the flip before, beyond the blanks one flip takes,
+    /// when `ran_core`. A flip of a frame with no core (the quick menu)
+    /// still marks the place the next gap counts from.
+    fn count_missed_fields(&mut self, sequence: u64, ran_core: bool) {
+        if let Some(last) = self.last_flip.filter(|_| ran_core) {
+            let gap = sequence.saturating_sub(last);
+            let missed = gap.saturating_sub(self.fields_per_flip());
+            self.counters.missed_fields = self.counters.missed_fields.saturating_add(missed);
+        }
+        self.last_flip = Some(sequence);
+    }
+
+    /// Vertical blanks between two flips that come on time: 2 for an
+    /// interlaced mode on a driver that flips once per frame, else 1.
+    fn fields_per_flip(&self) -> u64 {
+        let interlaced = self.engine.current().is_some_and(|c| c.read_back.interlace);
+        if interlaced && !self.engine.display().caps().flip_per_field {
+            2
+        } else {
+            1
         }
     }
 

@@ -67,6 +67,9 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     message: String,
     message_frames: u32,
     flipless: u32,
+    /// The vertical blank count of the last flip; `None` before the first
+    /// flip of a mode.
+    last_flip: Option<u64>,
     counters: Counters,
 }
 

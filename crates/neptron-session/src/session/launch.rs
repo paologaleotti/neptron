@@ -106,6 +106,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             message: String::with_capacity(MESSAGE_MAX_BYTES),
             message_frames: 0,
             flipless: 0,
+            last_flip: None,
             counters: Counters {
                 refused_options: refused_options as u64,
                 ..Counters::default()
