@@ -442,12 +442,12 @@ These need a Raspberry Pi 3 or a 15 kHz display (a SCART TV or an arcade monitor
 ### Raspberry Pi 3
 
 - [ ] `needs-hardware` **The renderer on the Pi 3.** (T19)
-  - Do: run `gles_compare` on a Raspberry Pi 3B (vc4, Mesa).
-  - Expect: highp floats are available in the fragment shader, and `GL_MAX_TEXTURE_SIZE` (2048 on vc4) is enough: a 320x240 XRGB8888 frame needs a 1280-texel-wide texture, and a 1920x240 output needs 1920.
+  - Do: run `gles_compare` on a Raspberry Pi 3B (vc4, Mesa): `cargo xtask gles-compare`, then copy `target/gles-compare/gles_compare` to the Pi and run it there.
+  - Expect: highp floats are available in the fragment shader, and `GL_MAX_TEXTURE_SIZE` (2048 on vc4) is enough: a source texture holds one texel per pixel (`BGRA_EXT` bytes), so a 320x240 frame needs 320 texels per row, and a 1920x240 output needs 1920. Every scene passes through the framebuffer object and through the window path (a pbuffer), except the two axis product cases, whose 4096-pixel output is above the 2048 limit.
   - Record: the program output.
 - [ ] `needs-hardware` **Precision on the Pi 3.** (T19)
   - Do: the same run.
-  - Expect: `headless()` passes the highp check (at least 23 bits). Nearest texel addressing at `(x + 0.5) / width` picks the exact byte texel on textures up to 2048. The every-value scenes and the 1920x240 scenes are byte-equal.
+  - Expect: `headless()` passes the highp check (at least 23 bits). The destination index from the varying of the vertex stage is exact after `floor` on both paths, and the `NEAREST` read at `(x + 0.5) / width` of the texture storage picks the exact texel. The every-value scenes and the 1920x240 scenes are byte-equal, and sharp bilinear stays within 1 per channel.
   - Record: the program output.
 - [ ] `needs-hardware` **Blank on the Pi 3.** (C07)
   - Do: the three blank checks of the KMS section (blank, set a mode after a blank, blank before the first mode) on vc4.
@@ -616,7 +616,7 @@ Each check is `needs-hardware`. The setup: the Pi 3 with the development image, 
 
 - [ ] `needs-hardware` **The renderer against the reference on vc4.**
   - Do: `cargo xtask gles-compare`, copy `target/gles-compare/gles_compare` to `/tmp` on the Pi, and run it there.
-  - Expect: every scene equal, or inside the sharp bilinear tolerance of 1, except `nearest_at_the_axis_product_limit` and `sharp_bilinear_at_the_axis_product_limit`, whose 4096-pixel output is above the 2048 limit of vc4.
+  - Expect: every scene equal, or inside the sharp bilinear tolerance of 1, through the framebuffer object and through the window path (the `window` lines), except `nearest_at_the_axis_product_limit` and `sharp_bilinear_at_the_axis_product_limit`, whose 4096-pixel output is above the 2048 limit of vc4.
   - Record: the program output.
 - [ ] `needs-hardware` **The picture on the TV.**
   - Do: the 240p test suite on the SNES (sharp bilinear, 256 to 640 columns) and Sonic on the Mega Drive (nearest), on the TV.
@@ -638,6 +638,10 @@ Each check is `needs-hardware`. The setup: the Pi 3 with the development image, 
   - Do: change a display setting during a game, so the Keep dialog opens over it, with the trace on.
   - Expect: the rate while the dialog is open. On the Pi the frontend flipped every second field for the 3 to 4 s of the dialog.
   - Record: the flip intervals and `fields_missed` before and after.
+- [ ] `needs-hardware` **The vblank count of an interlaced mode.**
+  - Do: run a game in 480i on composite with the trace of `drm_vblank_event_delivered`, and compare the `seq` of the flip events with their times.
+  - Expect: to know whether the DRM vblank sequence of vc4 counts fields or frames in 480i. The session counts a missed field when two flips are more than 2 sequence numbers apart in an interlaced mode on a driver that flips once per frame (`flip_per_field` false). If vc4 counts frames, two flips one frame apart differ by 1 and a late frame by 2, so the subtraction of 2 hides each late frame.
+  - Record: the sequence step and the time step of steady flips.
 - [ ] `needs-hardware` **Listening.**
   - Do: play each game above with headphones on the analog output.
   - Expect: no crackle and no gap in steady play.
