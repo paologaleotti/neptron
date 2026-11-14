@@ -80,6 +80,13 @@ impl Paths {
         self.run.join("library-scanned")
     }
 
+    /// `run/output`, the connector of this boot: the output that the first
+    /// run of the boot chose under `auto`, which every relaunch keeps. The
+    /// run folder is a RAM folder, so a new power cycle has none.
+    pub fn boot_output(&self) -> PathBuf {
+        self.run.join("output")
+    }
+
     /// `run/next.toml`, the relaunch file.
     pub fn relaunch(&self) -> PathBuf {
         self.run.join("next.toml")

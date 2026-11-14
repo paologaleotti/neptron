@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod atomic;
+pub mod boot_output;
 pub mod config;
 pub mod control;
 pub mod devices;

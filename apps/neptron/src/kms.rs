@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use neptron::boot_output::{self, OutputPlan};
 use neptron::devices::{audio_output_setting, open_audio};
 use neptron::display::{AUTO, Detected};
 use neptron::display_wait::{Look, NO_DISPLAY_EXIT_CODE, auto_output, wait_line, wait_with_looks};
@@ -65,32 +66,54 @@ pub fn run(
             .and_then(|l| l.parsed.layer.get(key).map(ToString::to_string))
             .unwrap_or_else(|| AUTO.to_owned())
     };
-    let mut output = Some(setting(neptron_settings::DISPLAY_OUTPUT)).filter(|o| o != AUTO);
+    let named = Some(setting(neptron_settings::DISPLAY_OUTPUT)).filter(|o| o != AUTO);
     let monitor = setting(neptron_settings::DISPLAY_MONITOR);
     let clock = Monotonic {
         start: Instant::now(),
     };
-    // A named output is used whatever its status, so only `auto` waits.
-    if output.is_none() {
-        // The table is built in, so a failure is a build defect: logged
-        // once, and the wait then has no composite to fall back on.
-        let matrix = Matrix::builtin()
-            .inspect_err(|e| crate::say!("neptron: {e}; no composite fallback"))
-            .ok();
-        wait_for_a_display(&paths.sysfs, matrix.as_ref(), &clock, &stop);
-        if stop.load(Ordering::Relaxed) {
-            return ExitCode::SUCCESS;
+    let boot_output = paths.boot_output();
+    // The first run of a boot chooses the output; a relaunch keeps it.
+    let kept = match &next {
+        Some(_) => boot_output::read(&boot_output),
+        None => {
+            if let Err(e) = boot_output::clear(&boot_output) {
+                crate::say!("neptron: cannot clear {}: {e}", boot_output.display());
+            }
+            None
         }
-        // A composite connector never reports a display, so the
-        // connector choice never takes it: with no display that answers,
-        // the composite connector of a TV encoder is opened by name.
-        output = neptron_platform::detect(&paths.sysfs)
-            .ok()
-            .and_then(|p| auto_output(&p, matrix.as_ref()));
-        if let Some(name) = &output {
-            crate::say!("neptron: no display answers; the output is {name}");
+    };
+    let platform = neptron_platform::detect(&paths.sysfs).unwrap_or_default();
+    let plan = boot_output::plan(named.as_deref(), kept.as_deref(), &platform);
+    let output = match &plan {
+        OutputPlan::Named(name) | OutputPlan::Kept(name) => Some(name.clone()),
+        OutputPlan::Rule => {
+            if let Some(name) = &kept {
+                crate::say!(
+                    "neptron: the output of this boot, {name}, is gone; the output rule decides again"
+                );
+            }
+            // The table is built in, so a failure is a build defect: logged
+            // once, and the wait then has no composite to fall back on.
+            let matrix = Matrix::builtin()
+                .inspect_err(|e| crate::say!("neptron: {e}; no composite fallback"))
+                .ok();
+            wait_for_a_display(&paths.sysfs, matrix.as_ref(), &clock, &stop);
+            if stop.load(Ordering::Relaxed) {
+                return ExitCode::SUCCESS;
+            }
+            // A composite connector never reports a display, so the
+            // connector choice never takes it: with no display that
+            // answers, the composite connector of a TV encoder is opened
+            // by name.
+            let fallback = neptron_platform::detect(&paths.sysfs)
+                .ok()
+                .and_then(|p| auto_output(&p, matrix.as_ref()));
+            if let Some(name) = &fallback {
+                crate::say!("neptron: no display answers; the output is {name}");
+            }
+            fallback
         }
-    }
+    };
     // Before the display opens, the subconnector is not known: the class
     // here only orders the connectors, and the boot reads the class again
     // for the connector in use.
@@ -122,6 +145,13 @@ pub fn run(
         }
     };
     let output = display.connector_name().to_owned();
+    // Only the rule writes the name: a named output is named again in
+    // every run, and a kept one is in the file already.
+    if plan == OutputPlan::Rule
+        && let Err(e) = boot_output::write(&boot_output, &output)
+    {
+        crate::say!("neptron: cannot keep the output of this boot: {e}");
+    }
     let subconnector = display.subconnector().map(str::to_owned);
     let tv_standards = display.tv_standards();
     // The kernel reports the subconnector only now: a DAC behind the DP
