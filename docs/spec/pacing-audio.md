@@ -98,9 +98,9 @@ So the session must give the real `f_run`. Then `e` is only the device crystal e
 | --- | --- | --- |
 | Queue just before a write | 32 ms (target), 25.6 to 38.4 ms with a 0.1% crystal error | `queued_frames()` before each write; in the fakes, from `FakeAudio::writes` |
 | Queue between writes | plus up to one core frame of audio (16.7 ms at 60 Hz) | Same |
-| SDL device buffer | 1024 frames, 21.3 ms at 48 kHz, 23.2 ms at 44.1 kHz (`SDL_AUDIO_DEVICE_SAMPLE_FRAMES` hint, `DEVICE_PERIOD_FRAMES`) | `Sdl3Sink::device_buffer_frames` |
+| SDL device period | 1024 frames, 21.3 ms at 48 kHz, 23.2 ms at 44.1 kHz (`SDL_AUDIO_DEVICE_SAMPLE_FRAMES` hint, `DEVICE_PERIOD_FRAMES`). SDL's ALSA backend makes a buffer of two periods | `Sdl3Sink::device_buffer_frames` (one period) |
 | Resampler delay | 95 output frames, 2.0 ms (sinc, at 48 kHz from 32 kHz); 2 frames (polynomial) | rubato `output_delay()`, tested |
-| Total, mean | about 64 ms | The sum. The delay from the DAC to the speaker needs hardware to measure |
+| Total, mean | about 64 ms, plus up to one more device period with ALSA (UNVERIFIED) | The sum. The delay from the DAC to the speaker needs hardware to measure |
 
 The input side adds no delay: each core frame is resampled in one call, whatever its length, so no input waits for a full chunk.
 
@@ -109,14 +109,14 @@ The input side adds no delay: each core frame is resampled in one call, whatever
 The session runs one frame in this order:
 
 ```text
-flip event -> input -> core (retro_run) -> mute if asked -> present -> end_frame -> wait for the flip
+flip event -> input -> core (retro_run) -> mute if asked -> present -> end_frame -> wait for the flip -> unmute when no longer asked -> run rate update
 ```
 
 The present uploads the frame, queues the GPU's work and asks for a nonblocking page flip, which the kernel makes once the GPU has drawn the frame. `end_frame` resamples the frame's audio (1.3 to 1.4 ms on the Raspberry Pi 3) while the GPU draws, so it is off the path from the flip event to the GPU submit. A frame with no core (the quick menu) calls `idle_frame` at the same place. A failed present still ends the audio of the frame. With double refresh only the first present of the core frame is followed by `end_frame`.
 
-A modeset happens inside the present and blocks it, and the first flip of the new mode comes one field of that mode after it. The mute stays before the present: it leaves the queue at the target, about 32 ms, which covers the modeset, and the frame's audio, written after the present, covers the field until the first flip. So the device keeps playing through a modeset of up to about 32 ms. With the audio before the present (the order before this one), the target and one frame, about 49 ms, had to cover the modeset and that field: the same limit at 60 Hz, and a lower one into a 50 Hz mode, whose field is longer than a 60 Hz frame (a session test runs a 30 ms modeset into 50.007 Hz: the earlier order lost 64 frames, this one none). A longer modeset empties the muted queue: the device plays silence it does not have, which is still silence, and the pipeline counts an underrun. On the Raspberry Pi 3 a change of the TV standard took about 75 ms from the last flip of the old mode to the first flip of the new one (ftrace), longer than either order covers.
+A modeset happens inside the present and blocks it. The first flip of the new mode comes one field of that mode after it. The mute comes before the present: it leaves the queue at the target, about 32 ms, which covers the modeset. The frame's audio, written after the present, covers the field until the first flip. So the device keeps playing through a modeset of up to about 32 ms, also into a 50 Hz mode, whose field is longer than a 60 Hz frame. A session test runs a 30 ms modeset into 50.007 Hz and loses no frame. A longer modeset empties the muted queue: the device plays silence it does not have, which is still silence, and the pipeline counts an underrun. On the Raspberry Pi 3 a change of the TV standard takes about 75 ms from the last flip of the old mode to the first flip of the new one (ftrace). That is longer than the muted queue covers, so the underrun count goes up by one.
 
-What this changes for the control law: `q` is read later in the frame by the time of the present (about 0.7 ms on the Pi), and still at the same point of every frame. The law holds `q` at its target at that point, so the target, the time constant and the fixed point do not change. The audio of a frame reaches the sink later by the time of the present, while the picture keeps its timing; the latency of the table above is measured from the write and does not change. The tests of timing check 6 run on the simulated clock, where a present takes no time, so the new order gives them the same queue levels; they also check now that the session counts each late blank of the display as a missed field. A session test records, at each write of the sink, whether a flip of the fake display is pending, and so checks in every frame that the audio goes out between the present and the flip.
+The pipeline reads `q` after the present, at the same point of every frame. The law holds `q` at its target at that point, so the target, the time constant and the fixed point are those above. The audio of a frame reaches the sink after the present, about 0.7 ms later on the Pi, while the picture keeps its timing. The latency in the table above is measured from the write. The session counts missed fields (`Counters::missed_fields`, `fields_missed` in the stats reply): each flip of a frame in which the core ran counts the vertical blanks since the flip before, beyond the blanks that one flip takes (1, or 2 for an interlaced mode on a driver that flips once per frame). The first flip of a mode counts nothing. The tests of timing check 6 run on the simulated clock, where a present takes no time, and check that the session counts each late blank as a missed field. A session test records, at each write of the sink, whether a flip of the fake display is pending, and so checks in every frame that the audio goes out between the present and the flip.
 
 ## Resampler
 
@@ -131,7 +131,7 @@ What this changes for the control law: `q` is read later in the frame by the tim
 | CPU, this machine, dev profile (`opt-level = 0`) | 21% of real time | 0.64% |
 | CPU, Raspberry Pi 3 class (Cortex-A53, 1.2 GHz), estimate | 3% to 4% of one core, with NEON | under 1% |
 
-The Pi 3 figure is an estimate: the M1 release figure times 10, the usual ratio for a NEON inner loop between these cores. It needs a measurement on the Pi.
+The Pi 3 figure is an estimate: the M1 release figure times 10, the usual ratio for a NEON inner loop between these cores. On a Pi 3, `end_frame` as a whole (resampler, rate control, write) takes 1.3 to 1.4 ms per core frame, about 8 % of one core at 60 Hz (commit `9ef1978`). The resampler part alone is not measured.
 
 - The sinc filter is what dynamic rate control needs: a variable ratio with band-limited interpolation. 256 taps with cubic interpolation cost 2.4 times more (0.78%) for a cut-off at 0.947; retro sound chips have little content above 14 kHz, so 128 taps is the choice.
 - The resampler is made with a maximum relative ratio of 4.04: `f_run` may go from one end of its range (half the core rate) to the other (twice the core rate) after launch, a factor of 4, and `d` comes on top of it.
@@ -155,7 +155,7 @@ No NEPTRON code runs on the audio thread, so the real-time rule (no lock, no all
 
 What the frame thread takes from SDL:
 
-- SDL's stream lock, also taken by the device thread while it takes one device buffer (1024 frames). The device thread holds it for the copy and the format conversion of one buffer, so the frame thread waits at most microseconds.
+- SDL's stream lock, also taken by the device thread while it takes one device period (1024 frames). The device thread holds it for the copy and the format conversion of one period, so the frame thread waits at most microseconds.
 - SDL's queue memory. SDL keeps the queue in chunks. This is SDL's code, not ours, and whether it allocates in the steady state is a point to check on the target.
 
 The stream is opened at the device's own rate (`SDL_GetAudioDeviceFormat`), in 16-bit stereo, so SDL does not resample: rubato does all of it. SDL's queue has no limit, so `Sdl3Sink` sets one: 128 ms of frames (`SINK_CAPACITY_MS`), twice the control span. A write takes only what fits, as the `AudioSink` contract asks. An SDL error makes the sink act as full: `write` takes nothing and `queued_frames` reports the capacity.
@@ -166,7 +166,7 @@ Only the SDL audio subsystem is initialised. `Sdl3Sink::open` must run on the th
 
 **Start.** The first `end_frame` finds an empty queue. The pipeline writes `A_B / 2` frames of silence first (priming), then the frame's audio with a 5 ms fade-in (`FADE_MS`). The level starts at the target, so the law has nothing to correct.
 
-**Underrun.** When `end_frame` finds the queue empty, the device has run dry or is about to: the session missed frames. The pipeline primes again (silence to the target) and fades in, and counts a restart. It does not prime at any level above zero: inserting silence while audio still plays would add a gap. A level that is low but not zero is the law's job.
+**Underrun.** When `end_frame` finds the queue empty, the device has run dry or is about to. When the frame before left audio in the queue, the pipeline counts an underrun (`AudioStats::underruns`). The first frame and the first frame after `idle_frame` let the queue run empty on purpose and do not count. A muted queue that runs dry counts. The count is per pipeline. When not muted, the pipeline primes again (silence to the target), fades in, and counts a restart. When muted, it writes the frame's silence and tops up to the target. It does not prime at any level above zero: inserting silence while audio still plays would add a gap. A level that is low but not zero is the law's job.
 
 **Overrun.** When the sink takes fewer frames than offered, the rest are lost and counted (`AudioStats::overrun_frames`). With the session following the rules, the queue never reaches the sink limit: the law keeps it near 32 ms, and the limit is 128 ms. An overrun means a rate figure far from the truth, or a core that makes much more audio than its AV info says.
 
@@ -174,19 +174,19 @@ Only the SDL audio subsystem is initialised. `Sdl3Sink::open` must run on the th
 
 **Unmute** (`unmute()`). The next `end_frame` fades the audio in over 5 ms. If the queue is empty, it primes first.
 
-**Mode switch.** The engine mutes the video for the frames the monitor needs to resync. The session calls `mute()` before it starts the modeset and `unmute()` after the first flip in the new mode. A blocking modeset longer than the queue (32 ms plus one frame) lets the device run dry, but it plays silence, so nothing is heard; the first frame after the switch primes the queue again. That first frame finds the queue empty and fills it to the target, so from the second frame the level before each write is back at the target, and the law has nothing to recover. After the switch the session gives the new `f_run`.
+**Mode switch.** The engine mutes the video for the frames the monitor needs to resync. The session calls `mute()` before it starts the modeset and `unmute()` after the first flip in the new mode. A blocking modeset longer than the muted queue (about 32 ms) lets the device run dry. It plays silence, so nothing is heard, and the pipeline counts one underrun. The `end_frame` of the modeset frame runs after the present, still muted, and tops the queue up to the target with silence. From the next frame the level before each write is back at the target, and the law has nothing to recover. After the switch the session gives the new `f_run`.
 
-**Pause** (quick menu). The session calls `mute()` and stops calling `end_frame`. The queue plays out the ramp and the silence, then runs dry. On resume it calls `unmute()`; the first frame primes.
+**Pause** (quick menu). The session calls `mute()`. While the menu is open, each frame calls `idle_frame` in place of `end_frame`: it writes a pending cue with silence after it up to the target, and nothing when no cue is pending. The queue plays out the ramp and the silence, then runs dry; this is not counted as an underrun. On resume, the first core frame's `end_frame` runs still muted and fills the queue to the target with silence. The session unmutes after that frame's flip, and the next frame fades the audio in.
 
 **Late flip without mute.** A missed vblank means one core frame of audio less in that time. The queue drops by one frame of audio (16.7 ms), and the law brings it back with the time constant `tau` (6.4 s). If the queue runs dry, this is an underrun (above).
 
-**Forced 50 or 60 Hz.** The Definition says that without a region option the game runs at the forced rate and its speed changes by the ratio. The session gives the forced rate as `f_run`, so `r0` follows: the audio keeps in step with the game, and its pitch changes by the same ratio. A 50 Hz game forced to 60 Hz plays 20% faster and 20% higher (3.2 semitones); a 60 Hz game forced to 50 Hz plays 16.7% slower and lower. The resampler does not correct the pitch: that needs time stretching, which is not in the MVP. The quick menu already says that the speed changes; it should also say that the pitch changes.
+**Forced 50 or 60 Hz.** The Definition says that without a region option the game runs at the forced rate and its speed changes by the ratio. The session gives the forced rate as `f_run`, so `r0` follows: the audio keeps in step with the game, and its pitch changes by the same ratio. A 50 Hz game forced to 60 Hz plays 20% faster and 20% higher (3.2 semitones); a 60 Hz game forced to 50 Hz plays 16.7% slower and lower. The resampler does not correct the pitch: that needs time stretching, which is not in the MVP. The video status shows a `speed` alert for the change. It does not mention the pitch.
 
 **Double refresh.** The session gives half the flip rate as `f_run`. Nothing else changes.
 
 **Fast-forward and slow motion.** Not in the MVP. When they come, the session mutes during fast-forward (the queue cannot take audio at several times the rate), as RetroArch does by default.
 
-**Core rate change** (libretro `SET_SYSTEM_AV_INFO`). The session makes a new `AudioPipeline`. That is the only time the pipeline allocates after launch.
+**Core rate change** (libretro `SET_SYSTEM_AV_INFO`). The session makes a new `AudioPipeline` with the same sink, the user volume and the rest of a pending cue. It keeps the run rate when the new core rate accepts it, else it uses the core's frame rate. The counters, `underruns` included, start from 0. A core rate change and `write_cue` (a frontend cue, rare) are the only times the pipeline allocates after launch.
 
 ## API for the session
 
@@ -199,8 +199,12 @@ impl<S: AudioSink> AudioPipeline<S> {
     pub fn new(sink: S, core: CoreTiming, run_rate_mhz: u64, resampling: Resampling)
         -> Result<Self, AudioError>;                  // allocates
     pub fn set_run_rate_mhz(&mut self, run_rate_mhz: u64) -> Result<(), AudioError>;
-    pub fn push_samples(&mut self, stereo: &[i16]);   // from the core's audio callbacks, any number per frame
+    pub fn push_samples(&mut self, stereo: &[i16]);   // the frame's audio from the host; any number of calls per frame
     pub fn end_frame(&mut self);                      // once per core frame, after retro_run and the present
+    pub fn idle_frame(&mut self);                     // a frame with no core: writes a pending cue only
+    pub fn write_cue(&mut self, stereo: &[i16]) -> usize; // a frontend cue, mixed after the gain
+    pub fn set_volume_percent(&mut self, percent: u32); // ramps over VOLUME_RAMP_MS
+    pub fn run_rate_mhz(&self) -> u64;
     pub fn mute(&mut self);
     pub fn unmute(&mut self);
     pub fn stats(&self) -> &AudioStats;
@@ -262,10 +266,10 @@ The fixed points are those of equation (6): 0.40, 0.60, 0.30 and 0.70. The devia
 - Largest step of the 440 Hz tone at a quarter of full scale: 473, against a bound of 511 (567 against 606 at 528 Hz).
 - Mode switch: the first frame after the 100 ms pause primes the queue; from the second frame the level before each write is 0.500 to 0.501 of the span.
 - Late flip: 0.497 to 0.498 of the span 30 s after one missed flip.
-- SDL3 smoke test on this machine (macOS, built-in output): the device opened at 44 100 Hz with a 512-frame buffer and played one second of samples in 1.01 s, with no overrun. A person must listen to know whether the tone is heard.
+- SDL3 smoke test on this machine (macOS, built-in output), before the 1024-frame period hint: the device opened at 44 100 Hz with a 512-frame buffer and played one second of samples in 1.01 s, with no overrun. A person must listen to know whether the tone is heard.
 
 ## Open points
 
 - `AudioSink` has no pause. With one, the session could stop the device during a modeset, and the queue (silence) would survive the switch, with no dry device. Default: mute, let it run dry, prime again. Where: `AudioPipeline::mute`. How to change: add `pause` and `resume` to `AudioSink` (a contract change, rule 4).
 - The paper's section 2.5 re-estimates `R'` from the mean level. RetroArch does not. Default: no re-estimation; the session gives `f_run`. Where: `RateControl`. How to change: add a slow estimate of the mean level and correct `r0` with equation (8).
-- The latency from the queue to the speaker, the SDL device buffer on the target, SDL's queue allocations, and the CPU cost on a Pi 3 need hardware.
+- The latency from the queue to the speaker, SDL's queue allocations, and the cost of the resampler alone on a Pi 3 need hardware. On the Pi 3 analog output, periods of 1024 frames play with no ALSA underrun in 60 s (commit `dff9f44`), and `end_frame` takes 1.3 to 1.4 ms.
