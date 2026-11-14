@@ -1,8 +1,73 @@
-//! The one program of the renderer, in GLSL ES 1.00. It draws the game
-//! quad and the UI quad. The fragment shader repeats the integer rules of
+//! The programs of the renderer, in GLSL ES 1.00: one source, built once
+//! for each pixel format and filter. They draw the game quad and the UI
+//! quad. The fragment shader repeats the integer rules of
 //! the reference renderer in 32-bit floats: every value is an integer below
 //! `2^24`, so it is exact, and every division is corrected to the exact
 //! quotient.
+
+use neptron_types::{Filter, PixelFormat};
+
+/// One build of the fragment program: the pixel format and the filter are
+/// constants of the source, not uniforms. The `vc4` compiler of the
+/// Raspberry Pi turns a branch on a uniform into a select, so with uniforms
+/// every pixel runs the sharp bilinear path and all three format decoders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Variant {
+    /// The pixel format of the source.
+    pub(super) format: PixelFormat,
+    /// Sharp bilinear, else nearest.
+    pub(super) sharp: bool,
+}
+
+/// The number of programs: three formats, two filters.
+pub(super) const VARIANTS: usize = 6;
+
+impl Variant {
+    /// The program for a source in `format` drawn with `filter`.
+    pub(super) fn of(format: PixelFormat, filter: Filter) -> Self {
+        Self {
+            format,
+            sharp: filter == Filter::SharpBilinear,
+        }
+    }
+
+    /// Every variant, in [`index`](Self::index) order.
+    pub(super) const ALL: [Variant; VARIANTS] = [
+        Self::new(PixelFormat::Xrgb8888, false),
+        Self::new(PixelFormat::Xrgb8888, true),
+        Self::new(PixelFormat::Rgb565, false),
+        Self::new(PixelFormat::Rgb565, true),
+        Self::new(PixelFormat::Xrgb1555, false),
+        Self::new(PixelFormat::Xrgb1555, true),
+    ];
+
+    const fn new(format: PixelFormat, sharp: bool) -> Self {
+        Self { format, sharp }
+    }
+
+    /// The place of this variant in [`all`](Self::all).
+    pub(super) fn index(self) -> usize {
+        format_code(self.format) * 2 + usize::from(self.sharp)
+    }
+
+    /// The fragment shader source of this variant.
+    pub(super) fn fragment(self) -> String {
+        format!(
+            "#version 100\n#define FORMAT {}\n#define SHARP {}\n{FRAGMENT_BODY}",
+            format_code(self.format),
+            u8::from(self.sharp)
+        )
+    }
+}
+
+/// The `FORMAT` value of the shader.
+fn format_code(format: PixelFormat) -> usize {
+    match format {
+        PixelFormat::Xrgb8888 => 0,
+        PixelFormat::Rgb565 => 1,
+        PixelFormat::Xrgb1555 => 2,
+    }
+}
 
 /// Maps the unit square to the visible rectangle, given in output pixels
 /// from the top left.
@@ -19,9 +84,9 @@ void main() {
 
 /// The source pixels arrive as a one-byte texture: one texel per byte of a
 /// row, so the shader reads the pixel bytes as they are in memory
-/// (little-endian) and expands the channels itself.
-pub(super) const FRAGMENT: &str = r"#version 100
-#ifdef GL_FRAGMENT_PRECISION_HIGH
+/// (little-endian) and expands the channels itself. `FORMAT` and `SHARP`
+/// come from [`Variant::fragment`].
+const FRAGMENT_BODY: &str = r"#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
 #else
 #error the renderer needs highp floats in the fragment shader
@@ -33,7 +98,6 @@ uniform vec4 u_visible;
 uniform vec4 u_dest;
 uniform vec4 u_crop;
 uniform vec4 u_frame;
-uniform vec4 u_mode;
 // Period, first dark line and kept percent of the scanlines; period 0 for
 // none.
 uniform vec4 u_scan;
@@ -62,9 +126,9 @@ vec4 tap(float i, float crop_start, float n, float m, float frame_len) {
     if (near < 0.0 || near >= frame_len) {
         return vec4(0.0);
     }
-    if (u_mode.y < 0.5) {
-        return vec4(near, near, 0.0, 1.0);
-    }
+#if SHARP == 0
+    return vec4(near, near, 0.0, 1.0);
+#else
     float prescale = max(1.0, divmod(m, n).x);
     // The reference weight is max(0, dist * p - (p - 1) * den), over 4m.
     // It equals den - (den - dist) * p, and that product is exact whenever
@@ -75,6 +139,7 @@ vec4 tap(float i, float crop_start, float n, float m, float frame_len) {
     float last = min(crop_start + n, frame_len) - 1.0;
     float far = 2.0 * qr.y < den ? near - 1.0 : near + 1.0;
     return vec4(near, clamp(far, first, last), weight / (4.0 * m), 1.0);
+#endif
 }
 
 float byte_at(float x, float y) {
@@ -95,24 +160,26 @@ float expand6(float v) {
 
 // The 8-bit channels of source pixel (x, y), from 0 to 255.
 vec3 pixel(float x, float y) {
-    if (u_mode.x < 0.5) {
-        float b = 4.0 * x;
-        return vec3(byte_at(b + 2.0, y), byte_at(b + 1.0, y), byte_at(b, y));
-    }
+#if FORMAT == 0
+    float b = 4.0 * x;
+    return vec3(byte_at(b + 2.0, y), byte_at(b + 1.0, y), byte_at(b, y));
+#else
     float b = 2.0 * x;
     float v = byte_at(b, y) + 256.0 * byte_at(b + 1.0, y);
     // Products with powers of two are exact; so is each floor below.
     float blue = v - 32.0 * floor(v * (1.0 / 32.0));
     float high = floor(v * (1.0 / 32.0));
-    if (u_mode.x < 1.5) {
-        float green = high - 64.0 * floor(high * (1.0 / 64.0));
-        float red = floor(v * (1.0 / 2048.0));
-        return vec3(expand5(red), expand6(green), expand5(blue));
-    }
+#if FORMAT == 1
+    float green = high - 64.0 * floor(high * (1.0 / 64.0));
+    float red = floor(v * (1.0 / 2048.0));
+    return vec3(expand5(red), expand6(green), expand5(blue));
+#else
     float green = high - 32.0 * floor(high * (1.0 / 32.0));
     float red5 = floor(v * (1.0 / 1024.0));
     float red = red5 - 32.0 * floor(red5 * (1.0 / 32.0));
     return vec3(expand5(red), expand5(green), expand5(blue));
+#endif
+#endif
 }
 
 // round(v * keep / 100) with a half rounded up, exact for an integer
@@ -157,3 +224,42 @@ void main() {
     gl_FragColor = vec4(c / 255.0, 1.0);
 }
 ";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_variant_has_its_own_index() {
+        let all = Variant::ALL;
+        for (i, variant) in all.iter().enumerate() {
+            assert_eq!(variant.index(), i, "{variant:?}");
+        }
+        let formats = [
+            PixelFormat::Xrgb8888,
+            PixelFormat::Rgb565,
+            PixelFormat::Xrgb1555,
+        ];
+        for format in formats {
+            for filter in [Filter::Nearest, Filter::SharpBilinear] {
+                let variant = Variant::of(format, filter);
+                assert_eq!(all[variant.index()], variant);
+            }
+        }
+    }
+
+    /// The format and the filter are constants of each program: no source
+    /// reads them from a uniform, so no driver has a branch on them.
+    #[test]
+    fn a_variant_fixes_the_format_and_the_filter_in_its_source() {
+        for variant in Variant::ALL {
+            let source = variant.fragment();
+            assert!(source.starts_with("#version 100\n"), "{variant:?}");
+            let format = format!("#define FORMAT {}\n", format_code(variant.format));
+            let sharp = format!("#define SHARP {}\n", u8::from(variant.sharp));
+            assert!(source.contains(&format), "{variant:?}");
+            assert!(source.contains(&sharp), "{variant:?}");
+            assert!(!source.contains("u_mode"), "{variant:?}");
+        }
+    }
+}

@@ -5,7 +5,7 @@ use neptron_types::{Filter, Frame, Rect, Scene};
 use super::GlesError;
 use super::ffi::{Buffer, EglContext, Framebuffer, GbmTarget, Gl, Program, Texture, Uniform};
 use super::quad::{Quad, quad};
-use super::shader;
+use super::shader::{self, VARIANTS, Variant};
 use crate::reference::{Pattern, check_frame, check_output, check_rect, check_scanlines};
 use crate::{Image, OutputBuffer, RectKind};
 
@@ -14,11 +14,11 @@ use crate::{Image, OutputBuffer, RectKind};
 ///
 /// # Pixels
 ///
-/// The renderer draws two quads with one program: the game frame into
-/// `dest`, then the UI canvas into `ui_dest`, over black. The fragment
-/// shader computes the source pixel of each output pixel from its position
-/// with the integer rules of the reference, in 32-bit floats that hold
-/// every value exactly. It reads the source bytes as they are in memory and
+/// The renderer draws two quads: the game frame into `dest`, then the UI
+/// canvas into `ui_dest`, over black. Each quad uses the program of its
+/// pixel format and filter. The fragment shader computes the source pixel
+/// of each output pixel from its position with the integer rules of the
+/// reference, in 32-bit floats that hold every value exactly. It reads the source bytes as they are in memory and
 /// expands 5-bit and 6-bit channels with the rounding of the reference. So
 /// nearest output equals the reference byte for byte. The shader rounds a
 /// sharp bilinear blend half up, as the reference does, but in floats: a
@@ -73,9 +73,9 @@ pub struct GlesRenderer {
     game: SourceTexture,
     ui: SourceTexture,
     target: Option<Offscreen>,
-    program: Program,
+    /// One program for each [`Variant`], in [`Variant::index`] order.
+    programs: [(Program, Uniforms); VARIANTS],
     corners: Buffer,
-    uniforms: Uniforms,
     max_texture: u32,
     max_output: u32,
     context: EglContext,
@@ -149,20 +149,20 @@ impl GlesRenderer {
         gl.check_highp()?;
         // On an error below, dropping the context deletes every object
         // made in it.
-        let program = gl.program(shader::VERTEX, shader::FRAGMENT)?;
+        let [a, b, c, d, e, f] =
+            Variant::ALL.map(|variant| gl.program(shader::VERTEX, &variant.fragment()));
+        let programs = [a?, b?, c?, d?, e?, f?].map(|p| (p, Uniforms::of(&gl, p)));
         let corners = gl.corner_buffer()?;
         let game = SourceTexture::new(&gl)?;
         let ui = SourceTexture::new(&gl)?;
-        let uniforms = Uniforms::of(&gl, program);
         let (max_texture, max_viewport) = gl.limits();
         gl.check("renderer setup")?;
         Ok(Self {
             game,
             ui,
             target: None,
-            program,
+            programs,
             corners,
-            uniforms,
             max_texture,
             max_output: max_texture.min(max_viewport),
             context,
@@ -253,8 +253,11 @@ impl GlesRenderer {
             if let Some(draw) = draw {
                 texture.upload(&gl, &draw.frame)?;
                 gl.check("source texture upload")?;
-                gl.bind_quad(self.program, self.corners, texture.texture);
-                self.uniforms.set(&gl, &draw.quad, width, height);
+                // Variant::index is below VARIANTS for every variant: the
+                // shader tests check it for each one.
+                let (program, uniforms) = &self.programs[draw.quad.variant.index()];
+                gl.bind_quad(*program, self.corners, texture.texture);
+                uniforms.set(&gl, &draw.quad, width, height);
                 gl.draw_quad();
             }
         }
@@ -444,7 +447,6 @@ struct Uniforms {
     dest: Option<Uniform>,
     crop: Option<Uniform>,
     frame: Option<Uniform>,
-    mode: Option<Uniform>,
     scan: Option<Uniform>,
     texture: Option<Uniform>,
 }
@@ -457,7 +459,6 @@ impl Uniforms {
             dest: gl.uniform(program, "u_dest"),
             crop: gl.uniform(program, "u_crop"),
             frame: gl.uniform(program, "u_frame"),
-            mode: gl.uniform(program, "u_mode"),
             scan: gl.uniform(program, "u_scan"),
             texture: gl.uniform(program, "u_texture"),
         }
@@ -472,7 +473,6 @@ impl Uniforms {
         gl.set_vec4(self.dest.as_ref(), quad.dest);
         gl.set_vec4(self.crop.as_ref(), quad.crop);
         gl.set_vec4(self.frame.as_ref(), quad.frame);
-        gl.set_vec4(self.mode.as_ref(), quad.mode);
         gl.set_vec4(self.scan.as_ref(), quad.scan);
         gl.set_int(self.texture.as_ref(), 0);
     }

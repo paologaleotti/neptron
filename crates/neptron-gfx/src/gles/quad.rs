@@ -1,6 +1,7 @@
-use neptron_types::{Filter, Frame, PixelFormat, Rect};
+use neptron_types::{Filter, Frame, Rect};
 
 use super::GlesError;
+use super::shader::Variant;
 use crate::RectKind;
 use crate::reference::{Pattern, visible};
 
@@ -30,9 +31,8 @@ pub(super) struct Quad {
     /// The source width and height in pixels, then the texture width (bytes
     /// per row) and height.
     pub(super) frame: [f32; 4],
-    /// The pixel format code (0 XRGB8888, 1 RGB565, 2 XRGB1555), then 1 for
-    /// sharp bilinear or 0 for nearest.
-    pub(super) mode: [f32; 4],
+    /// The program that draws it: the pixel format and the filter.
+    pub(super) variant: Variant,
     /// The scanline pattern: the period in destination lines (0 for no
     /// scanlines), the first dark line of a period, the percent that a dark
     /// line keeps, then 0.
@@ -91,12 +91,7 @@ pub(super) fn quad(
             f32::from(frame.width) * bpp,
             f32::from(frame.height),
         ],
-        mode: [
-            format_code(frame.format),
-            f32::from(u8::from(filter == Filter::SharpBilinear)),
-            0.0,
-            0.0,
-        ],
+        variant: Variant::of(frame.format, filter),
         // A period is at most dest.h and the percent at most 100, so the
         // floats are exact.
         scan: pattern.map_or([0.0; 4], |p| {
@@ -110,16 +105,10 @@ pub(super) fn quad(
     }))
 }
 
-fn format_code(format: PixelFormat) -> f32 {
-    match format {
-        PixelFormat::Xrgb8888 => 0.0,
-        PixelFormat::Rgb565 => 1.0,
-        PixelFormat::Xrgb1555 => 2.0,
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use neptron_types::PixelFormat;
+
     use super::*;
 
     const OUT: (u32, u32) = (320, 240);
@@ -151,7 +140,10 @@ mod tests {
         assert_eq!(q.dest, [0.0, 0.0, 24.0, 18.0]);
         assert_eq!(q.crop, [1.0, 2.0, 8.0, 6.0]);
         assert_eq!(q.frame, [10.0, 8.0, 20.0, 8.0]);
-        assert_eq!(q.mode, [1.0, 1.0, 0.0, 0.0]);
+        assert_eq!(
+            q.variant,
+            Variant::of(PixelFormat::Rgb565, Filter::SharpBilinear)
+        );
         assert_eq!(q.scan, [0.0; 4]);
     }
 
@@ -251,7 +243,10 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(q.mode, [2.0, 0.0, 0.0, 0.0]);
+        assert_eq!(
+            q.variant,
+            Variant::of(PixelFormat::Xrgb1555, Filter::Nearest)
+        );
         let f = frame(PixelFormat::Xrgb8888);
         let q = quad(
             &f,
@@ -263,6 +258,10 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!((q.mode[0], q.frame[2]), (0.0, 40.0));
+        assert_eq!(
+            q.variant,
+            Variant::of(PixelFormat::Xrgb8888, Filter::Nearest)
+        );
+        assert_eq!(q.frame[2], 40.0);
     }
 }
