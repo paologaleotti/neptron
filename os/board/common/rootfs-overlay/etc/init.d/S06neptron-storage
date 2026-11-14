@@ -67,6 +67,7 @@ req_type=
 request_result=
 request_reason=
 table_touched=no
+share_scanned=
 fix_device=
 fix_start=
 fix_size=
@@ -349,6 +350,12 @@ format_refusal() {
 			return
 		fi
 	done
+	# The checks of a format request too, so the marker never formats with
+	# fewer checks than the user's request.
+	why=$(user_format_refusal "$1")
+	if [ -n "$why" ]; then
+		echo "was left untouched: ${why#cannot be offered a format: }"
+	fi
 }
 
 # The first sector from sector $1 of the disk and before sector $2 that
@@ -387,6 +394,9 @@ make_partition() {
 	fi
 	old=$(old_share)
 	planned=$(planned_start)
+	# The scan covered the window of the format checks for a partition 4
+	# at the planned start; they do not read it again at this boot.
+	[ -z "$old" ] && share_scanned=$planned
 	if [ -n "$old" ] && [ "$old" != "$planned" ]; then
 		say "an old exFAT share starts at sector $old, not at $planned; no share partition made, the disk is left untouched"
 		return 1
@@ -510,6 +520,11 @@ prepare_share() {
 		return 1
 		;;
 	esac
+	# format_refusal and the checks it runs read the table.
+	if ! read_table; then
+		say "the share partition $share was left untouched: the partition table of $disk_dev cannot be read"
+		return 1
+	fi
 	reason=$(format_refusal "$share")
 	if [ -n "$reason" ]; then
 		say "the share partition $share $reason"
@@ -663,7 +678,8 @@ user_format_refusal() {
 	[ "$2" -lt "$from" ] && from=$2
 	to=$(($2 + OLD_SHARE_SCAN_SECTORS))
 	[ "$to" -gt $(($2 + $3)) ] && to=$(($2 + $3))
-	inside=$(exfat_from "$from" "$to")
+	inside=
+	[ "$share_scanned" = "$2" ] || inside=$(exfat_from "$from" "$to")
 	if [ -n "$inside" ]; then
 		echo "cannot be offered a format: an exFAT boot sector starts at sector $inside of the disk, before or inside it, so it can hold an old share"
 	fi

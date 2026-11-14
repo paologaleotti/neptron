@@ -2031,3 +2031,40 @@ fn no_read_goes_past_the_end_of_its_device() {
     }
     assert!(reads > 50, "the scan and the checks read: {reads}");
 }
+
+/// The marker of the planned partition opens the normal format rules. A
+/// type change that a refused request left must not open them with fewer
+/// checks than the request: they run the same checks.
+#[test]
+fn the_normal_rules_check_what_a_request_checks() {
+    let ext = marked_partition_4("rules-ext", PLANNED, "7");
+    ext.write_sda4(8_389_632 + 56, &[0x53, 0xef]);
+    let out = ext.start();
+    out.assert_share_ram(
+        "was left untouched: it holds an ext2, ext3 or ext4 superblock at byte 8389632",
+    );
+    assert!(out.marker, "{out:#?}");
+
+    let inside = marked_partition_4("rules-inside", PLANNED, "7");
+    inside.exfat_at(PLANNED + 4096);
+    inside.start().assert_share_ram(&format!(
+        "was left untouched: an exFAT boot sector starts at sector {} of the disk",
+        PLANNED + 4096
+    ));
+}
+
+/// The first boot scans the free space once: the scan before the
+/// partition is made covers the window of the format checks.
+#[test]
+fn the_first_boot_scans_the_free_space_once() {
+    let out = Run::new("first-boot-one-scan")
+        .set("FAKE_DD_LOG", "yes")
+        .start();
+    out.assert_share_mounted(true);
+    let steps = out
+        .log
+        .lines()
+        .filter(|l| l.starts_with("dd ") && l.contains("/dev/sda bs=1 ") && l.ends_with("count=8"))
+        .count();
+    assert_eq!(steps as u64, FREE_SECTORS / MIB_SECTORS, "{out:#?}");
+}
