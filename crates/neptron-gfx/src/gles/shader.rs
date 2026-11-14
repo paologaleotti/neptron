@@ -67,15 +67,21 @@ impl Variant {
 }
 
 /// Maps the unit square to the visible rectangle, given in output pixels
-/// from the top left.
+/// from the top left, and gives the fragment shader the destination index
+/// of each corner.
 pub(super) const VERTEX: &str = r"#version 100
 attribute vec2 a_corner;
 uniform vec4 u_visible;
 uniform vec4 u_output;
+uniform vec4 u_dest;
+// The destination column and line, counted from the top left; at a pixel
+// centre the index plus one half.
+varying vec2 v_index;
 
 void main() {
     vec2 p = (u_visible.xy + a_corner * u_visible.zw) / u_output.xy * 2.0 - 1.0;
     gl_Position = vec4(p.x, -p.y, 0.0, 1.0);
+    v_index = u_dest.xy + a_corner * u_visible.zw;
 }
 ";
 
@@ -90,8 +96,6 @@ precision highp float;
 #endif
 
 uniform sampler2D u_texture;
-uniform vec4 u_output;
-uniform vec4 u_visible;
 uniform vec4 u_dest;
 uniform vec4 u_crop;
 // The frame width and height in pixels, then their inverses.
@@ -104,6 +108,7 @@ uniform vec4 u_bounds;
 // Period, first dark line, kept percent and inverse period of the
 // scanlines; period 0 for none.
 uniform vec4 u_scan;
+varying vec2 v_index;
 
 // floor(a / b) and the remainder, exact for integers a < 2^24 and b > 0,
 // with rb the float inverse of b. The float quotient can be one off, and
@@ -154,11 +159,12 @@ float darken(float v, float keep) {
 }
 
 void main() {
-    // Only the integer part of gl_FragCoord names the pixel: GL puts it at
-    // the pixel centre, but vc4 gives the corner, and the line counted
-    // from the top must not depend on which.
-    float i = floor(gl_FragCoord.x) - u_visible.x + u_dest.x;
-    float j = u_output.y - 1.0 - floor(gl_FragCoord.y) - u_visible.y + u_dest.y;
+    // The index comes from a varying, not from gl_FragCoord: vc4 gives
+    // gl_FragCoord at the pixel corner, and Mesa turns its y upside down
+    // for a window surface and not for a framebuffer object. The varying
+    // is half a pixel from any edge, so floor is exact.
+    float i = floor(v_index.x);
+    float j = floor(v_index.y);
     vec3 tx = tap(i, u_crop.x, u_crop.z, u_dest.z, u_axis.x, u_axis.z,
                   u_bounds.x, u_bounds.z, BLEND_X == 1);
     vec3 ty = tap(j, u_crop.y, u_crop.w, u_dest.w, u_axis.y, u_axis.w,
