@@ -91,14 +91,16 @@ fn on_a_flat_panel_the_rows_it_ignores_are_disabled() {
 
 #[test]
 #[ignore = "tier 2"]
-fn on_a_tv_the_tv_rows_show_and_the_monitor_row_is_disabled() {
+fn on_a_tv_the_tv_rows_show_and_the_monitor_and_refresh_rows_are_disabled() {
     let name = test_name(
         module_path!(),
-        "on_a_tv_the_tv_rows_show_and_the_monitor_row_is_disabled",
+        "on_a_tv_the_tv_rows_show_and_the_monitor_and_refresh_rows_are_disabled",
     );
     in_child(&name, |dir| {
         let found = crawl_all(crate::tv::composite_rig(dir), DisplayClass::Tv);
-        let expected: BTreeSet<String> = ["Monitor profile"].map(str::to_owned).into();
+        let expected: BTreeSet<String> = ["Monitor profile", "Refresh policy"]
+            .map(str::to_owned)
+            .into();
         assert_eq!(found.disabled, expected);
     });
 }

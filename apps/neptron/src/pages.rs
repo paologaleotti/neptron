@@ -996,6 +996,11 @@ mod tests {
             ]
         );
         assert_eq!(page.rows[1].unavailable.as_deref(), Some(NOT_USED_ON_A_TV));
+        assert_eq!(
+            page.rows[5].unavailable.as_deref(),
+            Some(NOT_USED_ON_A_TV),
+            "the standard fixes the rate"
+        );
         let SettingValue::Choice { index, options } = &page.rows[2].value else {
             panic!("a choice");
         };

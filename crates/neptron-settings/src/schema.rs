@@ -152,6 +152,9 @@ pub enum AppliesTo {
     Tv,
     /// Every display but a TV: a TV takes its monitor profile from its standard.
     NotTv,
+    /// A CRT that is no TV. A flat panel ignores the value, and a TV standard fixes the
+    /// rate.
+    CrtNotTv,
 }
 
 impl AppliesTo {
@@ -162,6 +165,7 @@ impl AppliesTo {
             AppliesTo::Crt => class != DisplayClass::FlatPanel,
             AppliesTo::Tv => class == DisplayClass::Tv,
             AppliesTo::NotTv => class != DisplayClass::Tv,
+            AppliesTo::CrtNotTv => class == DisplayClass::Crt,
         }
     }
 

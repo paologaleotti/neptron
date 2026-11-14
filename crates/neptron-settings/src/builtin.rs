@@ -145,7 +145,7 @@ static BUILTIN: [Entry; 11] = [
         levels: Levels::ALL,
         live: true,
         safety: Safety::Validated,
-        applies_to: AppliesTo::Crt,
+        applies_to: AppliesTo::CrtNotTv,
     },
     Entry {
         key: INPUT_MENU_HOLD_START_SECONDS,
@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tv_setting_shows_only_on_a_tv_and_the_monitor_never_applies_there() {
+    fn a_tv_setting_shows_only_on_a_tv_and_the_monitor_and_the_rate_never_apply_there() {
         let schema = Schema::builtin();
         for entry in schema.entries() {
             let tv_only = [DISPLAY_TV, DISPLAY_TV_WIDTH].contains(&entry.key);
@@ -375,8 +375,8 @@ mod tests {
             assert!(entry.applies_to.shown(DisplayClass::Tv), "{}", entry.key);
             assert_eq!(
                 entry.applies_to.applies(DisplayClass::Tv),
-                entry.key != DISPLAY_MONITOR,
-                "{}",
+                ![DISPLAY_MONITOR, DISPLAY_REFRESH_POLICY].contains(&entry.key),
+                "{}: the monitor and the rate come from the TV standard",
                 entry.key
             );
         }
