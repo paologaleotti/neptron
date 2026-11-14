@@ -488,6 +488,44 @@ mod tests {
         }
     }
 
+    /// The caps of the composite entry of the capability table.
+    const COMPOSITE: GpuCaps = GpuCaps {
+        pclock_min_hz: neptron_types::TV_PCLOCK_HZ,
+        pclock_max_hz: neptron_types::TV_PCLOCK_HZ,
+        interlace: true,
+        flip_per_field: false,
+        max_width: 720,
+        max_height: 576,
+    };
+
+    /// On a TV the self-test shows the two table modes of the standard and
+    /// nothing else: the progressive mode in the 240p or the 288p family,
+    /// the interlaced mode in the 480i or the 576i family.
+    #[test]
+    fn a_tv_profile_plans_only_the_table_modes_of_its_standard() {
+        for standard in neptron_types::TvStandard::ALL {
+            let profile = standard.profile();
+            let outcomes = plan(&profile, &COMPOSITE);
+            let [progressive, interlaced] = standard.modes();
+            let (p_family, i_family) = if standard.lines() == 525 {
+                ("240p", "480i")
+            } else {
+                ("288p", "576i")
+            };
+            let got: Vec<(&str, Modeline)> = planned(&outcomes)
+                .map(|p| (p.family, *p.token.mode()))
+                .collect();
+            assert_eq!(
+                got,
+                [(p_family, progressive), (i_family, interlaced)],
+                "{standard:?}: {outcomes:#?}"
+            );
+            for p in planned(&outcomes) {
+                assert_eq!(p.token.tv_standard(), Some(standard), "{}", p.family);
+            }
+        }
+    }
+
     #[test]
     fn an_empty_profile_plans_nothing_and_says_why() {
         let empty = MonitorProfile {

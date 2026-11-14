@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+use neptron_types::{MonitorKind, MonitorProfile, TvStandard};
+
 /// The process names of the frontend and the launcher. While one of them
 /// runs, it holds the DRM device, and the self-test must not take it.
 pub const FRONTEND_PROCESSES: [&str; 2] = ["neptron", "neptron-launch"];
@@ -76,6 +78,40 @@ pub fn connector_refusal(detected: Option<&str>, backend: &str) -> Option<String
     }
 }
 
+/// Why `profile` cannot run on a connector whose `TV mode` property offers
+/// `offered` (`None`: no such property), or `None` when it can.
+///
+/// A connector with the property takes only the modes of a TV profile, so
+/// on a composite output the self-test shows only the table modes of one
+/// standard: the profile `tv_<standard>`, with a standard the connector
+/// offers. A TV profile needs that property, because the standard is set
+/// with the mode.
+#[cfg_attr(not(all(feature = "kms", target_os = "linux")), allow(dead_code))]
+pub fn tv_refusal(
+    profile: &MonitorProfile,
+    connector: &str,
+    offered: Option<&[TvStandard]>,
+) -> Option<String> {
+    match (&profile.kind, offered) {
+        (MonitorKind::Tv { standard }, Some(offered)) if !offered.contains(standard) => {
+            Some(format!(
+                "{connector} does not offer the TV standard {}; name a standard it offers",
+                standard.key()
+            ))
+        }
+        (MonitorKind::Tv { .. }, Some(_)) => None,
+        (MonitorKind::Tv { .. }, None) => Some(format!(
+            "{connector} has no TV mode property, so it cannot take a TV profile; a TV profile \
+             is for a composite output"
+        )),
+        (_, Some(_)) => Some(format!(
+            "{connector} is a TV output and takes only the modes of a TV standard; run with \
+             --profile tv_ntsc or the profile of another standard, such as tv_pal"
+        )),
+        (_, None) => None,
+    }
+}
+
 /// Why the device of `--device` cannot be used, or `None`. The GPU values
 /// come from the card that sysfs detection chose; the device must be the
 /// node of the same card. `device_card` is the file name of the device
@@ -137,6 +173,31 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    #[test]
+    fn a_tv_output_takes_only_a_tv_profile_of_a_standard_it_offers() {
+        let crt = MonitorProfile {
+            id: "generic_15".to_owned(),
+            kind: MonitorKind::Crt { ranges: Vec::new() },
+        };
+        let all = TvStandard::ALL.to_vec();
+        let ntsc = TvStandard::Ntsc.profile();
+        assert_eq!(tv_refusal(&ntsc, "Composite-1", Some(&all)), None);
+        assert_eq!(tv_refusal(&crt, "VGA-1", None), None);
+        let refused = tv_refusal(&crt, "Composite-1", Some(&all)).expect("a CRT on a TV");
+        assert!(refused.contains("tv_ntsc"), "{refused}");
+        let pal = tv_refusal(
+            &TvStandard::Pal.profile(),
+            "Composite-1",
+            Some(&[TvStandard::Ntsc]),
+        )
+        .expect("a standard it does not offer");
+        assert!(pal.contains("pal"), "{pal}");
+        assert!(
+            tv_refusal(&ntsc, "VGA-1", None).is_some(),
+            "no TV mode property"
+        );
+    }
 
     fn quiet() -> Frontend {
         Frontend::default()

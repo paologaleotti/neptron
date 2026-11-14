@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use neptron_platform::{ConnectorStatus, Matrix, Platform, UNKNOWN_GPU_CAPS, profile_from_edid};
-use neptron_types::{GpuCaps, MonitorProfile};
+use neptron_types::{GpuCaps, MonitorProfile, TvStandard};
 
 use super::args::ProfileChoice;
 use super::error::SelftestError;
@@ -47,6 +47,8 @@ pub struct GpuFacts {
 }
 
 /// Reads the platform under `sysfs` and the profile, and builds the setup.
+/// A profile id `tv_<standard>` (`TvStandard::profile`) is the built-in TV
+/// profile of that standard, not a file.
 ///
 /// # Errors
 ///
@@ -62,7 +64,10 @@ pub fn read(
     // GPU gets the values of an unknown GPU.
     let platform = neptron_platform::detect(sysfs).unwrap_or_default();
     let preset = match choice {
-        ProfileChoice::Preset(id) => Some(load_preset(monitors, id)?),
+        ProfileChoice::Preset(id) => Some(match TvStandard::from_profile_id(id) {
+            Some(standard) => standard.profile(),
+            None => load_preset(monitors, id)?,
+        }),
         ProfileChoice::Edid => None,
     };
     setup(preset, &platform, connector)
@@ -221,6 +226,28 @@ mod tests {
         let profile = load_preset(&monitors_dir(), "pc_31_120").unwrap();
         assert_eq!(profile.id, "pc_31_120");
         assert!(matches!(profile.kind, MonitorKind::Crt { ref ranges } if ranges.len() == 2));
+    }
+
+    #[test]
+    fn a_tv_profile_id_is_the_built_in_profile_of_its_standard() {
+        let tree = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/neptron-platform/tests/fixtures/sysfs/pi3_composite");
+        let choice = ProfileChoice::Preset("tv_pal_60".into());
+        let setup = read(
+            &choice,
+            Path::new("/nonexistent"),
+            &tree,
+            Some("Composite-1"),
+        )
+        .unwrap();
+        assert_eq!(setup.profile, TvStandard::Pal60.profile());
+        assert_eq!(setup.gpu.table_entry.as_deref(), Some("pi_vc4_composite"));
+        assert_eq!(setup.caps.pclock_min_hz, 13_500_000);
+        let unknown = ProfileChoice::Preset("tv_pal_70".into());
+        assert!(
+            read(&unknown, &monitors_dir(), &tree, None).is_err(),
+            "no such file"
+        );
     }
 
     #[test]

@@ -125,7 +125,10 @@ fn on_device(
     report::write(&args.report, &plan)?;
     let started = (|| -> Result<_, SelftestError> {
         let stop = device::stop_flag()?;
-        let crt = matches!(setup.profile.kind, neptron_types::MonitorKind::Crt { .. });
+        let crt = matches!(
+            setup.profile.kind,
+            neptron_types::MonitorKind::Crt { .. } | neptron_types::MonitorKind::Tv { .. }
+        );
         let display = device::open(
             &args.device,
             args.connector.clone(),
@@ -138,6 +141,12 @@ fn on_device(
             .connector
             .as_deref()
             .and_then(|c| preflight::connector_refusal(setup.gpu.connector.as_deref(), c))
+        {
+            return Err(SelftestError::Refused { reason });
+        }
+        let offered = display.tv_standards();
+        if let Some(reason) =
+            preflight::tv_refusal(&setup.profile, display.connector_name(), offered.as_deref())
         {
             return Err(SelftestError::Refused { reason });
         }
