@@ -231,6 +231,10 @@ MARKER=$STATE/share-pending
 # The boot code of the MBR, before the disk signature and the table, in
 # bytes: the type change must leave it as it was.
 MBR_BOOT_CODE_BYTES=440
+# The result of the last scan of an offer for an old share, a cache: it
+# can be deleted at any time, and a file that does not parse is scanned
+# again.
+SCAN_CACHE=$STATE/cache/share-scan
 # The format request of the user, which the frontend writes.
 REQUEST=$STATE/share-format-request
 # MBR types of an extended partition: it holds other partitions, so it is
@@ -588,6 +592,36 @@ format_exfat() {
 # decides. A request formats only the partition that it names, with the
 # same start, size and type.
 
+# The result of the scan that the cache holds for the key $1: nothing or
+# the sector of an exFAT boot sector. Fails when the cache has no valid
+# result for this key.
+cached_scan() {
+	[ "$(sed -n 1p "$SCAN_CACHE" 2>/dev/null)" = "version=1" ] || return 1
+	[ "$(sed -n 2p "$SCAN_CACHE" 2>/dev/null)" = "key=$1" ] || return 1
+	result=$(sed -n 3p "$SCAN_CACHE" 2>/dev/null)
+	case $result in
+	result=none) return 0 ;;
+	result=*[!0-9]* | result=) return 1 ;;
+	result=*) echo "${result#result=}" ;;
+	*) return 1 ;;
+	esac
+}
+
+# Keeps the scan result $2 for the key $1. A result with a read error is
+# not kept: the next offer scans again. A cache that cannot be written
+# only costs the scan of the next boot.
+keep_scan() {
+	case $2 in
+	unreadable*)
+		rm -f "$SCAN_CACHE"
+		return
+		;;
+	esac
+	mkdir -p "${SCAN_CACHE%/*}" 2>/dev/null &&
+		printf 'version=1\nkey=%s\nresult=%s\n' "$1" "${2:-none}" > "$SCAN_CACHE.new" 2>/dev/null &&
+		mv "$SCAN_CACHE.new" "$SCAN_CACHE" 2>/dev/null
+}
+
 # The refusal of a byte $1 of partition 4 that cannot be read.
 unreadable_at() {
 	echo "cannot be offered a format: byte $1 of it cannot be read"
@@ -596,8 +630,11 @@ unreadable_at() {
 # Why partition 4 ($1) may not be formatted for the user, as the end of a
 # sentence that starts with its name, or nothing. The offer and the
 # request run the same checks, so an offer never promises what the
-# request refuses. read_table has read the table.
+# request refuses. $2 is offer or request: the scan of an offer comes from
+# the cache when its key is the same; a request always scans. read_table
+# has read the table.
 user_format_refusal() {
+	mode=$2
 	if [ "$state_writable" != yes ]; then
 		echo "cannot be offered a format: the state partition is not mounted"
 		return
@@ -775,7 +812,15 @@ user_format_refusal() {
 	[ "$2" -lt "$from" ] && from=$2
 	to=$(($2 + OLD_SHARE_SCAN_SECTORS))
 	[ "$to" -gt $(($2 + $3)) ] && to=$(($2 + $3))
-	inside=$(exfat_from "$from" "$to" strict)
+	# The key: the disk, its identity in the table, partition 4 and the
+	# window of the scan.
+	key="$(cat "$disk/size") $(printf '%s\n' "$table" | sed -n 's/^label-id: //p') $2 $3 $4 $from"
+	if [ "$mode" = offer ] && inside=$(cached_scan "$key"); then
+		:
+	else
+		inside=$(exfat_from "$from" "$to" strict)
+		[ "$mode" = offer ] && keep_scan "$key" "$inside"
+	fi
 	case $inside in
 	'') ;;
 	unreadable*)
@@ -794,7 +839,7 @@ note_offer() {
 		log "no format is offered: the partition table of $disk_dev cannot be read"
 		return
 	fi
-	why=$(user_format_refusal "$1")
+	why=$(user_format_refusal "$1" offer)
 	if [ -n "$why" ]; then
 		log "the share partition $1 $why"
 		return
@@ -831,7 +876,7 @@ request_mismatch() {
 		echo "it names start $req_start, size $req_size and type $req_type, but the table holds partition 4 as (${now:-nothing})"
 		return
 	fi
-	why=$(user_format_refusal "$1")
+	why=$(user_format_refusal "$1" request)
 	[ -n "$why" ] && echo "$1 $why"
 }
 

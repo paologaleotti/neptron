@@ -2322,3 +2322,62 @@ fn a_read_error_in_the_first_boot_scan_still_gives_the_share() {
         .start();
     out.assert_share_mounted(true);
 }
+
+/// The steps of the scan for an old share in the log of dd.
+fn scan_steps(out: &Outcome) -> usize {
+    out.log
+        .lines()
+        .filter(|l| l.starts_with("dd ") && l.contains("/dev/sda bs=1 ") && l.ends_with("count=8"))
+        .count()
+}
+
+/// A standing offer costs a scan at every boot. The result of the offer
+/// scan is a cache on the state partition, keyed by the disk and partition
+/// 4: a boot with the same key does not scan again. The request always
+/// scans.
+#[test]
+fn the_offer_scan_is_cached_and_the_request_scans_again() {
+    let run = Run::new("scan-cache").with_partition_4().log_reads();
+    let first = run.boot(&[]);
+    assert!(first.offer().is_some(), "{first:#?}");
+    assert!(scan_steps(&first) > 0, "{first:#?}");
+    assert!(run.path("state/cache/share-scan").exists());
+    let second = run.boot(&[]);
+    assert!(second.offer().is_some(), "{second:#?}");
+    assert_eq!(scan_steps(&second), 0, "{second:#?}");
+    run.request_planned("7");
+    let request = run.boot(&[]);
+    assert!(scan_steps(&request) > 0, "{request:#?}");
+    assert_eq!(request.calls("mkfs.exfat"), 1, "{request:#?}");
+}
+
+#[test]
+fn a_changed_key_or_a_damaged_cache_scans_again() {
+    let run = Run::new("scan-cache-key").with_partition_4().log_reads();
+    assert!(scan_steps(&run.boot(&[])) > 0);
+    // Another disk identity in the table.
+    let table = std::fs::read_to_string(run.path("table"))
+        .unwrap()
+        .replace("label: dos\n", "label: dos\nlabel-id: 0x4e505444\n");
+    std::fs::write(run.path("table"), table).unwrap();
+    let changed = run.boot(&[]);
+    assert!(scan_steps(&changed) > 0, "{changed:#?}");
+    assert!(changed.offer().is_some(), "{changed:#?}");
+    assert_eq!(scan_steps(&run.boot(&[])), 0, "the new key is kept");
+    std::fs::write(run.path("state/cache/share-scan"), "garbage\n").unwrap();
+    let damaged = run.boot(&[]);
+    assert!(scan_steps(&damaged) > 0, "{damaged:#?}");
+    assert!(damaged.offer().is_some(), "{damaged:#?}");
+}
+
+/// A cached old share keeps the offer away without a scan.
+#[test]
+fn a_cached_old_share_still_refuses() {
+    let run = Run::new("scan-cache-share").with_partition_4().log_reads();
+    run.exfat_at(PLANNED + 4096);
+    run.boot(&[])
+        .assert_no_offer(Some("an exFAT boot sector starts at sector"));
+    let second = run.boot(&[]);
+    second.assert_no_offer(Some("an exFAT boot sector starts at sector"));
+    assert_eq!(scan_steps(&second), 0, "{second:#?}");
+}
