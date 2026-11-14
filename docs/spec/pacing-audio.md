@@ -56,7 +56,7 @@ The pipeline refuses `f_run / f_core` outside `[1/2, 2]` (`AudioError::RunRatio`
 
 ## The control law
 
-Once per core frame, before the write, the pipeline reads `q` and sets the ratio:
+Once per core frame, before the write, the pipeline reads `q` and sets the ratio. The session calls `end_frame` after the present of the frame and before the wait for its flip (see "Frame order"), so the read is at the same point of every frame:
 
 ```
 direction = clamp((A_B - 2 q) / A_B, -1, 1)
@@ -98,11 +98,23 @@ So the session must give the real `f_run`. Then `e` is only the device crystal e
 | --- | --- | --- |
 | Queue just before a write | 32 ms (target), 25.6 to 38.4 ms with a 0.1% crystal error | `queued_frames()` before each write; in the fakes, from `FakeAudio::writes` |
 | Queue between writes | plus up to one core frame of audio (16.7 ms at 60 Hz) | Same |
-| SDL device buffer | 512 frames, 10.7 ms at 48 kHz (`SDL_AUDIO_DEVICE_SAMPLE_FRAMES` hint) | `Sdl3Sink::device_buffer_frames` |
+| SDL device buffer | 1024 frames, 21.3 ms at 48 kHz, 23.2 ms at 44.1 kHz (`SDL_AUDIO_DEVICE_SAMPLE_FRAMES` hint, `DEVICE_PERIOD_FRAMES`) | `Sdl3Sink::device_buffer_frames` |
 | Resampler delay | 95 output frames, 2.0 ms (sinc, at 48 kHz from 32 kHz); 2 frames (polynomial) | rubato `output_delay()`, tested |
-| Total, mean | about 53 ms | The sum. The delay from the DAC to the speaker needs hardware to measure |
+| Total, mean | about 64 ms | The sum. The delay from the DAC to the speaker needs hardware to measure |
 
 The input side adds no delay: each core frame is resampled in one call, whatever its length, so no input waits for a full chunk.
+
+## Frame order
+
+The session runs one frame in this order:
+
+```text
+flip event -> input -> core (retro_run) -> mute if asked -> present -> end_frame -> wait for the flip
+```
+
+The present uploads the frame, queues the GPU's work and asks for a nonblocking page flip, which the kernel makes once the GPU has drawn the frame. `end_frame` resamples the frame's audio (1.3 to 1.4 ms on the Raspberry Pi 3) while the GPU draws, so it is off the path from the flip event to the GPU submit. A frame with no core (the quick menu) calls `idle_frame` at the same place. The mute stays before the present, so a modeset frame writes its silence before the modeset. A failed present still ends the audio of the frame. With double refresh only the first present of the core frame is followed by `end_frame`.
+
+What this changes for the control law: `q` is read later in the frame by the time of the present (about 0.7 ms on the Pi), and still at the same point of every frame. The law holds `q` at its target at that point, so the target, the time constant and the fixed point do not change. The audio of a frame reaches the sink later by the time of the present, while the picture keeps its timing; the latency of the table above is measured from the write and does not change. The tests of timing check 6 run on the simulated clock, where a present takes no time, and are unchanged. A modeset in the present takes time, and a session test checks that the audio of each frame goes out between its present and its flip.
 
 ## Resampler
 
@@ -141,7 +153,7 @@ No NEPTRON code runs on the audio thread, so the real-time rule (no lock, no all
 
 What the frame thread takes from SDL:
 
-- SDL's stream lock, also taken by the device thread while it takes one device buffer (512 frames). The device thread holds it for the copy and the format conversion of one buffer, so the frame thread waits at most microseconds.
+- SDL's stream lock, also taken by the device thread while it takes one device buffer (1024 frames). The device thread holds it for the copy and the format conversion of one buffer, so the frame thread waits at most microseconds.
 - SDL's queue memory. SDL keeps the queue in chunks. This is SDL's code, not ours, and whether it allocates in the steady state is a point to check on the target.
 
 The stream is opened at the device's own rate (`SDL_GetAudioDeviceFormat`), in 16-bit stereo, so SDL does not resample: rubato does all of it. SDL's queue has no limit, so `Sdl3Sink` sets one: 128 ms of frames (`SINK_CAPACITY_MS`), twice the control span. A write takes only what fits, as the `AudioSink` contract asks. An SDL error makes the sink act as full: `write` takes nothing and `queued_frames` reports the capacity.
@@ -186,7 +198,7 @@ impl<S: AudioSink> AudioPipeline<S> {
         -> Result<Self, AudioError>;                  // allocates
     pub fn set_run_rate_mhz(&mut self, run_rate_mhz: u64) -> Result<(), AudioError>;
     pub fn push_samples(&mut self, stereo: &[i16]);   // from the core's audio callbacks, any number per frame
-    pub fn end_frame(&mut self);                      // once per core frame, after retro_run
+    pub fn end_frame(&mut self);                      // once per core frame, after retro_run and the present
     pub fn mute(&mut self);
     pub fn unmute(&mut self);
     pub fn stats(&self) -> &AudioStats;

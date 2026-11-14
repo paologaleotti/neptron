@@ -267,7 +267,7 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Record: the measured run rate.
 - [ ] `needs-hardware` **Audio latency on the i3-6100T.**
   - Do: play a click on a frame, and measure the time from the flip to the sound.
-  - Expect: about 53 ms.
+  - Expect: about 64 ms.
   - Record: the measured time.
 - [ ] `needs-hardware` **SDL queue allocation.**
   - Do: a 10-minute game with an allocation tracer.
@@ -275,7 +275,7 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Record: any stall in the frame times.
 - [ ] `needs-hardware` **Device buffer.**
   - Do: read `Sdl3Sink::device_buffer_frames()` and the device rate on each output.
-  - Expect: the 512-frame hint is honoured.
+  - Expect: the 1024-frame hint is honoured.
   - Record: the frames and the rate.
 - [ ] `needs-hardware` **The tone is heard.**
   - Do: `cargo xtask test -p neptron-audio --features sdl3 --run-ignored only`.
@@ -455,7 +455,7 @@ These need a Raspberry Pi 3 or a 15 kHz display (a SCART TV or an arcade monitor
   - Record: the results.
 - [ ] `needs-hardware` **Audio latency on the Pi 3.** (T17)
   - Do: play a click on a frame, and measure the time from the flip to the sound.
-  - Expect: about 53 ms.
+  - Expect: about 64 ms.
   - Record: the measured time.
 - [ ] `needs-hardware` **Resampler cost on the Pi 3.** (T17)
   - Do: a release build, and the CPU share of `AudioPipeline::end_frame` with Sinc.
@@ -609,3 +609,36 @@ Each check is `needs-hardware`. Read `/run/neptron/storage.toml`, `grep neptron-
 - [ ] Do: on a stick whose partition 4 starts 2 to 4 GiB after the planned start (made on another computer, empty), time the boot that offers the format. Expect: the offer, after up to 8192 steps. With a gap of more than 4 GiB, expect `it cannot be checked` and no offer. Record: the times and the lines.
 - [ ] Do: write the image to an SD card or stick that held Raspberry Pi OS (or RetroPie, or Armbian) before, with no wipe, and boot. Expect: on the first boot the share partition is made, formatted and mounted (`share = "partition"`), with no offer and no notice. Record: the storage lines of the boot, and the old layout of the card (`sfdisk --dump` before the write).
 - [ ] Do: on a Raspberry Pi 3 with an SD card, an empty partition 4 with no marker, time the first boot that offers the format and the second boot. Expect: the second boot scans nothing (no new `neptron-storage` lines of the scan; `/state/cache/share-scan` holds the key and `result=none`). Record: the time of the storage script at each boot (the first and the last `neptron-storage` line in `/var/log/messages`).
+
+## P11 sharp bilinear and the frame budget on the Raspberry Pi 3
+
+Each check is `needs-hardware`. The setup: the Pi 3 with the development image, the frontend from `cargo xtask os push --arch rpi-arm64`, a 15 kHz TV on composite, SSH. The frame budget comes from ftrace (`/sys/kernel/debug/tracing`): `drm_vblank_event_delivered` (the flip event), `vc4_submit_cl_ioctl` (the GPU submit) and `vc4_rcl_end_irq` (the end of the render). Disable every event after the run.
+
+- [ ] `needs-hardware` **The renderer against the reference on vc4.**
+  - Do: `cargo xtask gles-compare`, copy `target/gles-compare/gles_compare` to `/tmp` on the Pi, and run it there.
+  - Expect: every scene equal, or inside the sharp bilinear tolerance of 1, except `nearest_at_the_axis_product_limit` and `sharp_bilinear_at_the_axis_product_limit`, whose 4096-pixel output is above the 2048 limit of vc4.
+  - Record: the program output.
+- [ ] `needs-hardware` **The picture on the TV.**
+  - Do: the 240p test suite on the SNES (sharp bilinear, 256 to 640 columns) and Sonic on the Mega Drive (nearest), on the TV.
+  - Expect: the top line of the game is at the top of the picture, not one line lower; each source column edge shows at most one blended column; the colours of the colour bars match the suite.
+  - Record: a photo of the grid and of the colour bars.
+- [ ] `needs-hardware` **The frame budget of each system.**
+  - Do: 3 minutes of play with scrolling scenes in the SNES 240p suite and in Super Mario World, 2 minutes of NES (nova) and of Sonic, with the trace on.
+  - Expect: 60.054 frames per second over each 60 s, `fields_missed` 0 in steady play, `audio_underruns` steady, no `underrun occurred` line of ALSA in the log, and at least 2 ms left in the 16.65 ms field at the worst frame.
+  - Record: the frames per second, `fields_missed`, the CPU time from the flip event to the submit and the GPU time (mean and worst), and the margin at the worst frame.
+- [ ] `needs-hardware` **The CPU clock in play.**
+  - Do: read `/sys/devices/system/cpu/cpu0/cpufreq/stats/time_in_state` before and after a game, and trace `power/cpu_frequency` with the frame events.
+  - Expect: with the `ondemand` governor the core runs below 1.2 GHz for much of a game. A frame that starts at 600 to 750 MHz after a light scene can take 13 to 16 ms on the CPU and miss its field.
+  - Record: the time in each state, and the frequency at the start of the late frames.
+- [ ] `needs-hardware` **PAL.**
+  - Do: set `display.tv` to `pal` through the app (`neptronctl settings set display.tv global pal`, then Keep), run the SNES 240p suite for 60 s with the trace, then set the old value back and Keep.
+  - Expect: 288p at 50.08 Hz, 50.08 frames per second, no missed field in steady play, then 240p at 60.054 Hz again.
+  - Record: the video state of both modes and the frame budget.
+- [ ] `needs-hardware` **A dialog over a running game.**
+  - Do: change a display setting during a game, so the Keep dialog opens over it, with the trace on.
+  - Expect: the rate while the dialog is open. On the Pi the frontend flipped every second field for the 3 to 4 s of the dialog.
+  - Record: the flip intervals and `fields_missed` before and after.
+- [ ] `needs-hardware` **Listening.**
+  - Do: play each game above with headphones on the analog output.
+  - Expect: no crackle and no gap in steady play.
+  - Record: what is heard.
