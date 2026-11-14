@@ -33,10 +33,23 @@ A new push to a pull request cancels the older run of that pull request. Runs of
 | `test-macos (T0 to T2)` | `macos-15` (Apple Silicon) | `cargo xtask verify --tier 2` |
 | `images / plan` | `ubuntu-24.04` | Reads `.github/image-targets.json` and the path filter, and gives the matrix |
 | `images / image x86_64` | `ubuntu-24.04` | The PC image without the 15 kHz patch set, then the tier 3 checks under KVM |
-| `images / image aarch64` | `ubuntu-24.04-arm` | The aarch64 QEMU test image, then the tier 3 checks |
+| `images / image aarch64` | `ubuntu-24.04-arm` | The aarch64 QEMU test image, then the tier 3 checks that do not measure time |
+| `images / image rpi-arm64` | `ubuntu-24.04-arm` | The Raspberry Pi image (release variant), then the check of its SD card layout |
 | `ci-ok` | `ubuntu-24.04` | The summary |
 
-The tier 3 checks of each image, in this order, each one also after an earlier one failed: `os boot-check` (x86\_64: BIOS and UEFI), `os app-check`, `kms-check`, `gles-compare`, `os selftest-check`, `core-trace --allow-missing-roms`. The tier 2 job is the same command as on a laptop, so a green local run predicts a green pull request.
+The checks of each image, in this order, each one also after an earlier one failed:
+
+| Target | Checks |
+| --- | --- |
+| `x86_64` (KVM) | `os boot-check --firmware bios`, `os boot-check --firmware uefi`, `os app-check`, `kms-check`, `gles-compare`, `os selftest-check`, `core-trace --allow-missing-roms`, `os share-check` (all cases) |
+| `aarch64` (TCG) | `os boot-check`, `os app-check`, `gles-compare` |
+| `rpi-arm64` | The build runs `board/rpi/check-kernel-config.sh` and `board/rpi/check-kernel-patches.sh`; then `.github/check-pi-image.sh` reads the SD card image |
+
+`ubuntu-24.04-arm` has no KVM, so the aarch64 guest runs under TCG, about 100 times slower than with a hypervisor. The checks that measure time (`kms-check`, `os selftest-check`, `core-trace`) cannot pass at that speed. The owner decided: CI runs them on x86\_64 under KVM only. For aarch64 they run on a developer machine with a hypervisor (an Apple Silicon Mac, or an arm64 Linux host with KVM), before a change to the aarch64 image or to the device crates merges.
+
+QEMU does not boot the Pi image (its Pi machines have no `vc4` display). `.github/check-pi-image.sh` checks what can be checked without a Pi: the MBR table with the release signature `4e505052`, the boot, root and state partitions at 4, 132 and 516 MiB with their sizes and types, no partition 4, the files of the boot partition (firmware, kernel, device trees, the `vc4` overlay, `LICENCES.txt`, `legal/`), no overlay of the development variant, and the release `cmdline.txt` with `quiet` and the release root.
+
+The tier 2 job is the same command as on a laptop, so a green local run predicts a green pull request.
 
 ### Path filters
 
@@ -60,21 +73,23 @@ The runners now have a 145 GB root disk. The often quoted 14 GB free is out of d
 
 ## Measured times
 
-From the runs of pull request 1 and two manual runs on 2026-11-13 and 2026-11-14. Cold means no cache and no base. Warm means the Cargo cache of the job, or a complete base for the key.
+From the runs of pull request 1 (2026-11-13 and 2026-11-14) and of pull request 2 (2026-11-14: manual run 43622509874, pull request run 43624818679). Cold means no cache and no base. Warm means the Cargo cache of the job, or a complete base for the key.
 
 | Job | Cold | Warm |
 | --- | --- | --- |
-| `lint` | 34 to 44 s | 31 s (`verify --tier 0`: 13 s) |
-| `test-linux` | 1 min 54 s to 2 min 55 s (`verify --tier 2`: 98 s) | 1 min 43 s (`verify --tier 2`: 80 s) |
-| `test-macos` | 2 min 49 s to 3 min 31 s (`verify --tier 2`: 145 s) | 2 min 21 s (`verify --tier 2`: 109 s) |
-| `image aarch64`, build step | 40 min, 57 min and 63 min | 208 s |
-| `image x86_64`, build step | more than 320 min (the step limit; it stopped in the kernel build), 4 h 26 min, 3 h 45 min | 219 s |
-| `image x86_64`, whole job | about 4 h | 14 min: base download 1.5 min, unpacking 3 min, build 3.7 min, both boot checks 2 min, the other checks and the uploads |
-| `image aarch64`, whole job | about 1 h 10 min | 34 min, of which 22 min are `kms-check` and `gles-compare` under TCG |
+| `lint` | 33 to 46 s | 31 s (`verify --tier 0`: 13 s) |
+| `test-linux` | 1 min 54 s to 3 min 45 s (`verify --tier 2`: 98 s) | 1 min 43 s (`verify --tier 2`: 80 s) |
+| `test-macos` | 2 min 49 s to 5 min 33 s (`verify --tier 2`: 145 s) | 2 min 21 s (`verify --tier 2`: 109 s) |
+| `image x86_64`, build step | more than 320 min (the step limit; it stopped in the kernel build), 4 h 26 min, 3 h 45 min | 208 to 219 s |
+| `image aarch64`, build step | 40 min, 57 min, 63 min | 208 to 209 s |
+| `image rpi-arm64`, build step | 83 min and 90 min | Not measured yet |
+| `image x86_64`, whole job | about 4 h | 20 min 23 s: base download 4 min 48 s, unpacking 4 min 54 s, build 3 min 28 s, both boot checks 1 min 26 s, `app-check` 41 s, `kms-check`, `gles-compare`, `selftest-check` and `core-trace` together 65 s, `share-check` 55 s, the uploads |
+| `image aarch64`, whole job | 1 h 10 min to 1 h 16 min | 19 min 43 s: base download 4 min 57 s, unpacking 1 min 23 s, build 3 min 29 s, boot check 73 s, `app-check` 43 s, `gles-compare` under TCG 6 min 38 s |
+| `image rpi-arm64`, whole job | 1 h 28 min and 1 h 38 min, with the uploads of the image, its sources and the base | Not measured yet; expected near the aarch64 job without its QEMU checks |
 
-Every pull request check that does not build an image stays under the 5-minute target, warm and cold. The Cargo caches are small: 53 MB for `lint`, 118 MB for `test-linux`, 115 MB for `test-macos`.
+The test jobs of pull request 2 ran with no Cargo cache: a pull request restores only the caches of `main` and of its own ref, and `main` has not run this workflow yet. With warm caches every pull request check that does not build an image stays under the 5-minute target; a cold `test-macos` can take up to 5 min 33 s. The Cargo caches are small: 53 MB for `lint`, 118 MB for `test-linux`, 115 MB for `test-macos`.
 
-A warm image build compiles every NEPTRON package again (`<package>-reconfigure`), so a change to the frontend alone costs the same 3.5 to 4 minutes as any other warm build. A change to a defconfig makes a new key: a pull request then builds on the older base (incremental; its time depends on what changed, and it is not measured yet), and `main` builds cold.
+A warm image build compiles every NEPTRON package again (`<package>-reconfigure`), so a change to the frontend alone costs the same 3.5 minutes as any other warm build. A change to a path of the key makes a new key: the pull request of that change builds on an older base of its own branch or of `main` (incremental; its time depends on what changed, and it is not measured yet), or cold.
 
 The shared runners vary a lot: the same cold PC build took more than 320 minutes once, and 225 minutes another time. The partial base (see below) makes the slow case finish in a second run instead of failing every time.
 
@@ -85,28 +100,29 @@ Sizes of a cold build:
 | Target | Buildroot output | Downloads | Compiler cache | Base artifact (output, compiler cache, downloads) |
 | --- | --- | --- | --- | --- |
 | x86\_64 | 44 GB (`build/` 38 GB; host and target LLVM and clang about 3 GB each) | 1.8 GB | 1.1 GB | 9.31 GB; packing 653 s |
-| aarch64 | 17 GB (`build/` 15 GB) | 1.6 GB | 0.3 GB | 4.69 GB; packing 200 s |
+| aarch64 | 17 GB (`build/` 15 GB) | 1.6 GB | 0.3 GB | 4.69 GB; packing 185 to 200 s |
+| rpi-arm64 | 17 GB (`build/` 16 GB) | 1.9 GB | 0.6 GB | 5.51 GB; packing 198 to 349 s |
 
-An upload of the base runs at about 160 MB/s.
+An upload of the base runs at about 160 MB/s. The Pi image artifact is 49 MB (the 772 MiB image, compressed), and its sources artifact 1.0 GB.
 
 ## Tier 3 results
 
-From the cold run of 2026-11-14 (run 43502222190), with the code of `main` at that time.
+From pull request run 43624818679 of 2026-11-14 (commit b36f2b7), warm on both QEMU targets.
 
 | Check | x86\_64 (KVM) | aarch64 (TCG on the arm runner) |
 | --- | --- | --- |
-| `os boot-check` | UEFI PASS: first frame 5.5 s after QEMU start, the notice at 15.1 s. BIOS PASS in one run (4.6 s and 14.1 s), FAIL in another (see below) | PASS: first frame 96.8 s, the notice at 103.3 s |
-| `os app-check` | PASS, 44 s | PASS, 28 s |
-| `kms-check` | FAIL: the program is not in the guest (see below) | Every check passes, but the run does not end before the guest deadline of 900 s |
-| `gles-compare` | FAIL: the program is not in the guest | PASS, 65 checks |
-| `os selftest-check` | FAIL: the program is not in the guest | FAIL: "1 flips completed, at least 2 are needed" in each mode |
-| `core-trace --allow-missing-roms` | FAIL: the program is not in the guest. The 4 SNES and Mega Drive cases are reported as skipped, as they must be | FAIL: the guest stopped before the command ended |
+| `os boot-check` | BIOS PASS: first frame 4.9 s after QEMU start, 41 s for the step. UEFI PASS: first frame 5.2 s, 45 s | PASS: first frame 59.4 s, 73 s for the step |
+| `os app-check` | PASS, 41 s | PASS, 43 s |
+| `kms-check` | PASS, 0 failed, 20 s | Not in CI (see "The jobs") |
+| `gles-compare` | PASS, 119 checks, 9 s | PASS, 6 min 38 s |
+| `os selftest-check` | PASS, 2 profiles, 0 failures, 29 s | Not in CI |
+| `core-trace --allow-missing-roms` | PASS: 6 cases, 2 ran (NES), 4 skipped (no SNES and Mega Drive ROMs, OP-053), 0 failures, 7 s | Not in CI |
+| `os share-check` | PASS: 12 of 12 boots (cases `rewrite`, `offer`, `retype`, and a second `rewrite` on a reused disk), 55 s | Not in CI |
 
-What these failures are. CI did not cause them, and none is hidden:
+Two product faults kept the x86\_64 checks red before, and both are fixed:
 
-- **x86\_64: no `/mnt/host` in the PC image.** `S05neptron-mounts` runs `mkdir -p /mnt/host` and then mounts the 9p share there. The root filesystem of the PC image is read-only EROFS, so the `mkdir` fails ("Read-only file system"), and every program that a check shares with the guest is "not found". The aarch64 image has a writable ext4 root, so it works there. `os/README.md` lists these x86\_64 checks as never run. The fix belongs in `os/`: an empty `/mnt/host` in the PC overlay, or a mount point under `/run`.
-- **x86\_64 BIOS boot check, once.** While the guest printed the captured picture in base64 on the serial console, the kernel printed an RCU stall message ("rcu_preempt detected stalls") on the same console, and xtask refused the picture ("line 15995 of the picture is not base64"). The stall says that the guest CPU got no time for about 20 s on the shared runner. It is a flaky interaction of the kernel console and the picture on one serial port.
-- **aarch64 under TCG.** `ubuntu-24.04-arm` has no `/dev/kvm`, so the aarch64 guest runs about 100 times slower than with the hypervisor of a Mac. Checks that measure time cannot pass at that speed: the self-test sees one flip where it needs two, and `kms-check` runs out of its 900 s. These checks pass on a Mac with the hypervisor, and their x86\_64 versions run under KVM in CI once the share mount works.
+- **No `/mnt/host` in the PC image.** `S05neptron-mounts` ran `mkdir -p /mnt/host` on the read-only EROFS root, so the 9p mount failed, and `kms-check`, `gles-compare`, `os selftest-check` and `core-trace` found no program in the guest. The common post-build step now makes `/mnt/host` in every image, and the script only mounts. The path stays the one of the aarch64 image and of every xtask command.
+- **A kernel message inside the boot check picture.** On a starved runner the kernel printed an RCU stall warning on the serial console while `neptron-capture` printed the picture there, and xtask refused the picture ("line 15995 of the picture is not base64"). `neptron-capture` now sets the console log level to 1 while it prints, and its end marker carries the size and the CRC-32 of the picture. `boot-check` skips a line inside the picture that is not base64 and refuses a picture whose size or CRC-32 does not match.
 
 ## Caches
 
@@ -115,7 +131,7 @@ What these failures are. CI did not cause them, and none is hidden:
 | Cargo registry and `target/` of `lint` | Actions cache | OS, CPU, job, hash of `rust-toolchain.toml` and `Cargo.lock` | `main` and manual runs |
 | Cargo registry and `target/` of `test-linux` and `test-macos` | Actions cache | The same, per runner | `main` and manual runs |
 | Buildroot downloads (`neptron-br-dl`) | Actions cache | Target and hash of every `*.hash` file, `os/configs/*` and `Dockerfile`; an older key is the fallback | `main` |
-| Buildroot output, compiler cache and downloads: the "base" | Workflow artifact `br-base-v<format>-<target>-<key>`, 30 days | Target and hash of `Dockerfile`, the defconfig and fragments of the target, `os/patches/` and the core packages `os/package/libretro-*` | Any run that built it |
+| Buildroot output, compiler cache and downloads: the "base" | Workflow artifact `br-base-v<format>-<target>-<key>`, 30 days | Target and hash of `Dockerfile`, the defconfig and fragments of the target, and the paths in its `base_paths`: `os/patches` and the core packages `os/package/libretro-*` for `x86_64` and `aarch64`, `os/board/rpi/patches` and the core packages for `rpi-arm64` | Any run that built it |
 
 A pull request restores the caches of `main` and saves none. CI sets `CARGO_INCREMENTAL=0` and no debug info, because both make the cache large and help nothing on a fresh runner. `cargo-nextest` and `cargo-deny` are prebuilt binaries at pinned versions (`taiki-e/install-action`); CI never runs `cargo install`.
 
@@ -129,10 +145,10 @@ How an image job finds its base, in order:
 
 1. `br-base-v<format>-<target>-<key>`: a complete base for this key. The build is warm.
 2. `br-partial-v<format>-<target>-<key>`: a build for this key that failed or ran out of time. The build goes on from there.
-3. An older base of the target. A pull request builds on top of it: quick, but not clean, because Buildroot does not remove what an old configuration installed. `main`, the nightly run and a manual run use only its compiler cache, and build cold.
+3. An older base of the target, from `main` or from the branch of the run. A pull request builds on top of it: quick, but not clean, because Buildroot does not remove what an old configuration installed. `main`, the nightly run and a manual run use only its compiler cache, and build cold.
 4. Nothing: a cold build.
 
-Only artifacts of this repository, from `main` or from the branch of the run, are used. A fork can upload an artifact with any name, so the job checks the head repository and the branch of the run that made each artifact.
+Only artifacts of this repository are used. A fork can upload an artifact with any name, so the job checks the head repository of the run that made each artifact; only a writer can push a branch to this repository. A complete or partial base with the exact key comes from any branch: the key hashes every input of the base, so the first run of `main` after a merge finds the base that the branch built and is warm. An older base, built from other inputs, comes only from `main` or from the branch of the run.
 
 A run that built cold, or went on from a partial base, uploads a new base. A run that ran out of time or failed uploads a partial base. A warm run uploads nothing.
 
@@ -148,7 +164,12 @@ Why not a container image on GHCR: it would also work, and container storage on 
 
 ## Licence rules in CI
 
-- **OP-070, the 15 kHz kernel patch set.** Its licence is not clear, so no image, kernel or Buildroot output with those patches may be distributed. The artifacts and the caches of a public repository can be read by others, so they count as distribution. Every image build in CI that uploads or caches anything uses `--no-kernel-15khz` (the `x86_64` entry of `.github/image-targets.json`). The base is built without the patches too. The nightly run then builds the patched kernel in the same job, after every upload and after the base is packed, boots it once with BIOS, and uploads nothing of it. No step may come after that one.
+- **OP-070, the 15 kHz kernel patch set.** Its licence is not clear, so no image, kernel or Buildroot output with those patches may be distributed. The artifacts and the caches of a public repository can be read by others, so they count as distribution. How each job obeys the rule:
+  - `image x86_64`: the build uses `--no-kernel-15khz` (its entry in `.github/image-targets.json`), in its own images directory `x86_64-no15khz`. The base is built without the patches too. The nightly run then builds the patched kernel in the same job, after every upload, after the base is packed and after the downloads are saved, boots it once with BIOS, deletes its images and reports, and uploads nothing of it. No step may come after that one.
+  - `image aarch64`: its defconfig names no kernel patch, and its global patch directory holds only hash files. It uploads no image.
+  - `image rpi-arm64`: its defconfig names no kernel patch, and `board/rpi/check-kernel-patches.sh` fails the build when `BR2_LINUX_KERNEL_PATCH` is set, when the global patch directory is not `board/rpi/patches`, or when that directory holds a file other than the two hash files.
+  - Every image job: the step "Check that the output holds no 15 kHz kernel patch" reads the final `.config` of the output (`BR2_LINUX_KERNEL_PATCH=""`) and the list of patches that the kernel applied (`build/linux-*/.applied_patches_list`). The image upload, the sources upload, the base and the downloads cache run only after it passed.
+  - `lint`, `test-linux`, `test-macos`: they build no kernel.
 - **OP-054, non-commercial cores.** The PC image holds Snes9x and Genesis Plus GX. The owner accepts that for a free, non-commercial product. The image artifact carries the licence manifest (`legal/manifest.csv`, the licence texts), `LICENCES.txt` and a `README.txt` that says that the image must never be sold. The sources of the GPL and LGPL packages (`make legal-info`) are a second artifact of the same run, with the same retention. There is no GitHub Release: artifacts with a short retention are enough for now.
 - **OP-053, test ROMs.** The SNES and Mega Drive ROMs are not in the repository, and CI never downloads a ROM. `core-trace --allow-missing-roms` reports their cases as skipped; the NES cases must pass, and a ROM with a wrong hash still fails the run.
 
@@ -158,7 +179,9 @@ Why not a container image on GHCR: it would also work, and container storage on 
 | --- | --- | --- | --- |
 | `neptron-pc-x86_64-no15khz` | `image x86_64`, on success | 7 days | `neptron-x86_64.img`, `SHA256SUMS`, `legal/`, `LICENCES.txt`, `README.txt` |
 | `neptron-pc-x86_64-no15khz-sources` | `image x86_64`, on success | 7 days | The source archives of `make legal-info` |
-| `t3-<target>` | Each image job | 14 days | The boot check report, the captured picture (PPM and PNG), the expected and diff pictures on a failure, the QEMU console logs, the core traces |
+| `neptron-rpi-arm64` | `image rpi-arm64`, on success | 7 days | `neptron-rpi-arm64.img`, `SHA256SUMS`, `legal/`, `LICENCES.txt`, `README.txt` |
+| `neptron-rpi-arm64-sources` | `image rpi-arm64`, on success | 7 days | The source archives of `make legal-info` |
+| `t3-<target>` | Each QEMU image job | 14 days | The boot check report, the captured picture (PPM and PNG), the expected and diff pictures on a failure, the QEMU console logs, the core traces |
 | `verify-lint`, `verify-linux`, `verify-macos` | A failed check job | 14 days | `target/verify/report.json`; for a golden failure the expected, actual and diff pictures of `cargo xtask golden` and the actual pictures of the `neptron-gfx` goldens |
 | `br-base-v<format>-<target>-<key>`, `br-partial-v<format>-<target>-<key>` | Image jobs | 30 days | The Buildroot base (see above) |
 
@@ -173,21 +196,14 @@ Get them on the run page (Summary, Artifacts) or with `gh run download RUN_ID --
 ## Add an image target
 
 1. Add the defconfig to `os/configs` and the target to `xtask` (`os build --arch NAME` and the commands of tier 3), with tests.
-2. Add an entry to `.github/image-targets.json`: `name`, `runner`, `arch`, `defconfig`, `fragments`, `build_args` (the arguments of `cargo xtask os build`), `images_dir` (the directory under `~/.cache/neptron/buildroot/images`), `image_files`, `artifact`, `upload_image`, `rebuild` (the local packages that the defconfig selects), `checks` (from `boot`, `boot-bios`, `boot-uefi`, `app`, `kms`, `gles`, `selftest`, `core`) and `build_minutes` (the time limit of the build step; the job stops at 355 minutes).
+2. Add an entry to `.github/image-targets.json`: `name`, `runner`, `arch`, `defconfig`, `fragments`, `base_paths` (the paths whose files go into the key of the base, beside the Dockerfile, the defconfig and the fragments), `build_args` (the arguments of `cargo xtask os build`), `images_dir` (the directory under `~/.cache/neptron/buildroot/images`), `image_files`, `licences` (the licence notes that go into the image artifact), `artifact`, `upload_image`, `rebuild` (the local packages that the defconfig selects), `checks` (from `boot`, `boot-bios`, `boot-uefi`, `app`, `kms`, `gles`, `selftest`, `core`, `share`, `pi-layout`) and `build_minutes` (the time limit of the build step; the job stops at 355 minutes).
 3. Set `"enabled": true`.
 
-A target whose image could hold the 15 kHz patch set gets `--no-kernel-15khz` in `build_args`.
+A target whose image could hold the 15 kHz patch set gets `--no-kernel-15khz` in `build_args`. The check step of OP-070 runs for every target, so a target without it fails before any upload.
 
 ### The Raspberry Pi image
 
-The `rpi-arm64` entry is in the file and disabled: the board support does not exist yet. The task that adds the Pi image must provide:
-
-- the defconfig `os/configs/neptron_rpi_arm64_defconfig`, with its board files under `os/board/rpi`;
-- the target name `rpi-arm64` in `xtask` (`cargo xtask os build --arch rpi-arm64`, images in `~/.cache/neptron/buildroot/images/rpi-arm64`);
-- the image file `neptron-rpi-arm64.img`, with the licence manifest on its boot partition as the PC image has;
-- the list of local packages in its defconfig (the entry names `neptron`, `neptron-launch`, `neptronctl`);
-- the tier 3 checks that apply to it, if any (the Pi image does not boot in QEMU; the aarch64 test image covers the guest checks);
-- then `"enabled": true`. The artifact is `neptron-rpi-arm64`. The runner is `ubuntu-24.04-arm`, so the Buildroot host is arm64, as on a Mac.
+The `rpi-arm64` target builds the release variant (`cargo xtask os build --arch rpi-arm64`) on `ubuntu-24.04-arm`, so the Buildroot host is arm64, as on a Mac. It rebuilds the local packages `neptron`, `neptron-launch` and `neptronctl` (its defconfig has no QEMU test tools). The artifact `neptron-rpi-arm64` holds `neptron-rpi-arm64.img`, `SHA256SUMS`, `legal/`, the `LICENCES.txt` of `os/board/rpi` (with the terms of the Broadcom firmware) and `README.txt`. The development variant is never built in CI: it holds an SSH server and a key.
 
 ## Repository settings
 
@@ -202,7 +218,8 @@ These are the settings that only the owner can change. Nothing in CI needs a sec
 ## Open questions and limits
 
 - **Artifact storage.** GitHub's billing pages say that standard runners are free in a public repository. They do not say that artifact storage is free. The bases are 5 to 9 GB each and stay 30 days. If GitHub bills them or refuses an upload for the storage quota, move the base to a container image on GHCR (`packages: write` on `main`; the owner decides the package visibility; it must stay without the 15 kHz patches).
-- **Cold builds on `main`.** A change to a defconfig, a fragment, `os/patches`, a core package or the Dockerfile makes a new key, and the next `main` run builds cold: about 4 hours for the PC image. Pull requests do not wait for it; they build on the older base. A cold build that runs out of time leaves a partial base, and the next run goes on from there. The resume from a partial base is implemented but not yet proven in a run: the keys changed between the runs that would have shown it.
-- **aarch64 without KVM.** See "Tier 3 results". The owner chooses: keep these checks red as a record, run the timing checks only on x86\_64 under KVM, or add a self-hosted arm64 runner with KVM.
+- **Cold builds.** A change to a defconfig, a fragment, a path of `base_paths` or the Dockerfile makes a new key. The pull request of that change builds cold (or on an older base of its own branch or of `main`), uploads the base, and the first `main` run after the merge takes that base. A `main` run builds cold only when no branch built the key: about 4 hours for the PC image.
+- **Not proven yet.** The resume from a partial base is implemented but not yet proven in a run: no build has run out of time since it exists. The Buildroot downloads cache is saved only by `main`, and `main` has not run this workflow yet, so every image job until then gets its downloads from the base or from the network.
+- **aarch64 without KVM.** The owner decided: `kms-check`, `os selftest-check` and `core-trace` run in CI on x86\_64 under KVM only. For aarch64 they run on a developer machine with a hypervisor. A self-hosted arm64 runner with KVM would bring them back into CI: add them to the `checks` of the `aarch64` entry.
 - **`os build` on Linux.** The container user `br` has uid 1000. On a Linux host whose user has another uid, the copy of the images and the export of the guest programs fail with "Permission denied". CI works around it (it gives the directories to uid 1000, and runs the guest checks with `umask 0000`). A fix in `xtask` would help every Linux developer.
 
