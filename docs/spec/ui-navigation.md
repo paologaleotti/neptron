@@ -1,25 +1,25 @@
 # UI navigation: the Settings page, the row arrow and the breadcrumb
 
-This spec settles OP-090. It changes how the menus are put together. It does not change a setting, a level, the guard or the confirm dialog. `docs/flows/07-screens.md` describes the screens as built.
+This spec settles OP-090. It describes how the menus are put together. It does not change a setting, a level, the guard or the confirm dialog. `docs/flows/07-screens.md` describes the screens as built.
 
 ## Facts that drive the design
 
 - The snapshot holds the rows of one settings page at a time (`Snapshot::settings`). A screen asks for its page with `Intent::LoadSettings`, and the app answers in a later frame.
 - Each screen on the stack of the router keeps its own cursor. A screen that closes gives the screen under it back with its cursor.
-- The quick menu notes each change at the game level, so that the keep prompt can move it to the system or the global level. Today it reads the scopes of a noted row from the snapshot when the prompt opens. With sub pages that row is often not in the snapshot then.
-- The tier 3 boot golden `os/tests/golden/boot-game-list.ppm` shows the empty home screen under a notice: the empty-state text and one row `Display`, with the focus, across the full width of its box. Tier 3 needs QEMU. The orchestrator rebuilds the images and blesses that golden for this change.
-- The control protocol (`neptron-ipc`, version 1) is append-only. A new reply field needs a new protocol version, and the handlers do not see the version of a request today.
+- The quick menu notes each change at the game level, so that the keep prompt can move it to the system or the global level. It notes the scopes of the row with the change, because with sub pages the row is often not in the snapshot when the prompt opens.
+- The tier 3 boot golden `os/tests/golden/boot-game-list.ppm` shows the empty home screen under a notice: the empty-state text and one row `Settings`, with the focus and its arrow. Tier 3 needs QEMU.
+- The control protocol (`neptron-ipc`, version 2, serving versions 1 and 2) is append-only. A new reply field needs a new protocol version; a reply holds only the fields of the version of its request.
 - The session ignores the quick menu hotkey while the core is paused (`Hotkey::QuickMenu` only acts in `State::Running`). The end-to-end test checks that a second hotkey does not close the menu.
 
 ## Home
 
-Home lists the systems that have games, then `Favourites`, `Recent games` and one row `Settings`. The rows `Display` and `Audio` are no longer on home.
+Home lists the systems that have games, then `Favourites`, `Recent games` and one row `Settings`. Home has no `Display` or `Audio` row.
 
-Home with no games follows the same rule: the text that says where the games go, and one row `Settings` at the bottom, with its arrow. So Settings and every panel are reachable on a new stick with no games, when a user needs them most. The display panel is two presses away: `Settings > Display`. No notice or hint text names the row. The boot golden of tier 3 changes for this reason; the orchestrator blesses it.
+Home with no games follows the same rule: the text that says where the games go, and one row `Settings` at the bottom, with its arrow. So Settings and every panel are reachable on a new stick with no games, when a user needs them most. The display panel is two presses away: `Settings > Display`. No notice or hint text names the row. The boot golden of tier 3 shows this row.
 
 ## The Settings page
 
-`Settings` opens a page that lists the settings panels. The list is data: `screens::SETTINGS_PANELS`, a static table of `Panel { label, page }` in `neptron-ui`. Today it holds `Display` (`DISPLAY_PAGE`), `Audio` (`AUDIO_PAGE`), `Library` (`LIBRARY_PAGE`) and `System` (`SYSTEM_PAGE`), in that order. A new panel is one line in that table and one page id; the app then answers `LoadSettings` for that page. A panel page other than the display page shows in the generic page screen (see "Pages"), so a new panel needs no new screen code.
+`Settings` opens a page that lists the settings panels. The list is data: `screens::SETTINGS_PANELS`, a static table of `Panel { label, page }` in `neptron-ui`. It holds `Display` (`DISPLAY_PAGE`), `Audio` (`AUDIO_PAGE`), `Library` (`LIBRARY_PAGE`) and `System` (`SYSTEM_PAGE`), in that order. A new panel is one line in that table and one page id; the app then answers `LoadSettings` for that page. A panel page other than the display page shows in the generic page screen (see "Pages"), so a new panel needs no new screen code.
 
 The Settings page writes nothing. Its panels write at the global level, also when the page opens from the quick menu.
 
@@ -38,7 +38,7 @@ A row has one of four kinds. The kind decides how the row looks, what accept doe
 
 The kind of a settings row comes from its value:
 
-- `SettingValue::Page(id)` (new): `page`. Accept opens page `id`.
+- `SettingValue::Page(id)`: `page`. Accept opens page `id`.
 - `SettingValue::Choice` in a list with pickers (every screen): `page`. Accept opens the option list.
 - `SettingValue::Toggle` and `SettingValue::Number`: `value`.
 - `SettingValue::Action(id)`: `action`.
@@ -46,7 +46,7 @@ The kind of a settings row comes from its value:
 
 The kind of a `List` row is in `ListItem::kind`. Home rows and Settings rows are `page`; game rows and option rows are `action`.
 
-`SettingValue::Page` replaces the reserved actions `OPEN_DISPLAY` and `GRID_PATTERN`. The grid pattern gets the reserved page id `GRID_PAGE`: it is not a settings page, but a row that opens it is a `page` row like the others.
+The grid pattern has the reserved page id `GRID_PAGE`: it is not a settings page, but a row that opens it is a `page` row like the others.
 
 ### The arrow
 
@@ -56,11 +56,11 @@ With the default skin the label column of a settings row is 118 px (19 character
 
 ### The value column
 
-A settings row shows a short form of a long value. `ChoiceOption` gets an optional `short` text (`ChoiceOption::with_short`). The row shows `short` when the option has one, else the label. The option list always shows the full label. The app sets `short` for an audio output: the head of the label before ` (`, so `HDMI/DP 1 (HDA Intel PCH)` shows as `HDMI/DP 1` and `Analog (HDA Intel PCH)` as `Analog`. Any other option can use it.
+A settings row shows a short form of a long value. `ChoiceOption` gets an optional `short` text (`ChoiceOption::with_short`). The row shows `short` when the option has one, else the label. The option list always shows the full label. The app sets `short` for an audio output: the head of the label before ` (`, so `HDMI/DP 1 (HDA Intel PCH)` shows as `HDMI/DP 1` and `Analog (HDA Intel PCH)` as `Analog`. It sets `short` for a TV standard too: the name of the standard, and the field rate for the two monochrome standards (`Mono 60`, `Mono 50`).
 
 ### The tree
 
-`TreeRow` gets `kind: Option<RowKind>`: `Some` for a row of a list or a settings list, `None` for a label, a dialog text, a button and a video line. The control protocol does not carry the kind in this task, because that needs protocol version 2 (see "Not in this task"). The UI crawler reads the kind from the tree of the frame (`Shell::ui`), not from the protocol.
+`TreeRow` gets `kind: Option<RowKind>`: `Some` for a row of a list or a settings list, `None` for a label, a dialog text, a button and a video line. The control protocol does not carry the kind: that needs a new protocol version (see "Not built"). The UI crawler reads the kind from the tree of the frame (`Shell::ui`), not from the protocol.
 
 ## The breadcrumb
 
@@ -90,7 +90,7 @@ The text is formatted into a `StackText` and allocates nothing. The tree has one
 
 ## Back and the focus
 
-Back closes the screen on top and nothing else. The screen under it keeps its cursor, so the focus is on the row that opened the closed screen. This holds at every level: Settings, a panel, an option list, the quick menu and its sub pages. On the first page of the quick menu Back resumes the game, as today (through the keep prompt after a change).
+Back closes the screen on top and nothing else. The screen under it keeps its cursor, so the focus is on the row that opened the closed screen. This holds at every level: Settings, a panel, an option list, the quick menu and its sub pages. On the first page of the quick menu Back resumes the game, through the keep prompt after a change.
 
 A page whose rows are not in the snapshot yet takes only Back. An up, down or accept in that frame would clamp the cursor to an empty list and lose the row the player came from.
 
@@ -102,7 +102,7 @@ The left hint follows the kind of the focused row (see the table above). A page 
 
 A page that is not the display panel, the Settings page, the grid pattern or the first page of the quick menu shows in one generic screen: a framed box with the rows of the page, under the breadcrumb. It writes at the level of the screen that opened it: the global level from the Settings page, the game level from a quick menu page. The display panel always writes the global level.
 
-The generic screen shows the video block above its rows for `VIDEO_PAGE` while a game runs with a video status, with the rule of today (at least 2 rows under it).
+The generic screen shows the video block above its rows for `VIDEO_PAGE` while a game runs with a video status, when the block leaves room for at least 2 rows under it.
 
 Screen ids: `audio` for `AUDIO_PAGE`, `library` for `LIBRARY_PAGE`, `system` for `SYSTEM_PAGE`, `quick-menu/video` for `VIDEO_PAGE`, `page` for any other page.
 
@@ -121,13 +121,13 @@ Screen ids: `audio` for `AUDIO_PAGE`, `library` for `LIBRARY_PAGE`, `system` for
 
 When the player confirms, the app ends its run as a quit (the settings and the guard record are written, the threads are joined, the display stays in the last validated mode) and exits with a code that asks the launcher for a reboot or a power-off. The launcher then asks init, and init runs the shutdown steps of the image (`docs/flows/01-power-on.md`, "Shutdown"). A confirm before the boot is good gives back the failed boot that the guard counted at the start, but only on a boot the guard does not hold to be failed (`Confirmed`, `Safe(NothingConfirmed)`). After `Safe(NoValidMode)` the count stays, so boots with no valid picture still reach `Safe(FailedBoots)`; `Safe(FailedBoots)` and `Safe(Recovery)` keep their own rules.
 
-In a game the panel is still listed, and both rows are disabled with the reason `Not during a game`, the rule of the rescan row. A game has save RAM that only its own quit writes in full, so the player quits the game first and a save is never cut.
+In a game the panel is still listed, and both rows are disabled with the reason `Not during a game`, the rule of the rescan row. With no power control the reason is `Needs the launcher`, in a game too. A game has save RAM that only its own quit writes in full, so the player quits the game first and a save is never cut.
 
 A run that no launcher with power control started (the desktop window, a bench run of the frontend alone) shows both rows disabled with the reason `Needs the launcher`. The rows stay in the list, so the panel looks the same on every rig and the crawler finds it everywhere. A hidden row would make the desktop and the image differ. The launcher gives power control only with a DRM device, never with `--no-device`, so a desktop run can never reboot the computer it runs on.
 
 #### Format share
 
-A third action row, `Format share`, comes after `Shut down`, but only when the storage script offers a format: `storage.toml` holds `share_fix = "format"` with the device, start, size and type of partition 4 (`os/README.md`, "A format that the user confirms"). With no offer the row is absent, not disabled: no other state has a format that can fix it. In a game the row is disabled with `Not during a game`, and with no power control with `Needs the launcher`, as the other two rows.
+A third action row, `Format share`, comes after `Shut down`, but only when the storage script offers a format: `storage.toml` holds `share_fix = "format"` with the device, start, size and type of partition 4 (`os/README.md`, "A format that the user confirms"). With no offer the row is absent, not disabled: no other state has a format that can fix it. The row takes the reason of the other two rows: `Needs the launcher` with no power control, else `Not during a game` in a game.
 
 | Row | Dialog title | Dialog message | Buttons |
 | --- | --- | --- | --- |
@@ -164,27 +164,27 @@ The first page of the quick menu (`QUICK_MENU_PAGE`, written at the game level):
 | `Settings` | page | Opens the Settings page: Display, Audio, Library and System, at the global level |
 | `Quit game` | action | Ends the game, through the keep prompt after a change |
 
-`VIDEO_PAGE` (new, written at the game level): the video block, then `Picture style`, `Refresh policy`, `Scanlines` and `Scanline strength`. These are the display rows of the quick menu of today.
+`VIDEO_PAGE` (written at the game level): the video block, then `TV picture width` (on a TV only), `Picture style`, `Refresh policy`, `Scanlines` and `Scanline strength`.
 
-Every function of the quick menu of today stays reachable: the four display rows under `Video`, the volume on the first page, and the global display panel under `Settings > Display`. The global audio panel is now reachable in a game too.
+In a game the player reaches the display rows of the game under `Video`, the volume on the first page, and the global panels under `Settings`: Display, Audio, Library and System.
 
 ### The keep prompt with sub pages
 
-The quick menu notes a change at the game level from any screen above it, as today. It now also notes the scopes of the row when it notes the change, from the page in the snapshot of that frame (the page that sent the change). The prompt moves a change to the system or global level when those noted scopes allow the level. The app checks the scopes of each `SetValue` again.
+The quick menu notes a change at the game level from any screen above it, with the scopes of the row, from the page in the snapshot of that frame (the page that sent the change). The prompt moves a change to the system or global level when those noted scopes allow the level. The app checks the scopes of each `SetValue` again.
 
 A change that the app took back (the guard reverted it) must not be asked about. The quick menu checks this at two moments: when the player leaves a sub page with Back, and when the prompt would open. It checks a change only against the page that made it (the page in the snapshot of that frame). A global panel holds the same keys with a value that never comes from the game level, so its rows must not count. A change whose page is not in the snapshot at that moment stays noted. The UI takes no more actions in the frame of a change at the game level: the snapshot of that frame still shows the old value, and the confirm dialog of a display change opens in the next frame. So the player is still on the page of the change when the dialog opens, the dialog takes every action until it closes, and the player leaves the page later with Back, which checks the change.
 
 ### The hotkey
 
-The quick menu hotkey does nothing while the menu is open, at any depth. The session ignores it while the core is paused, so the UI gets no `Menu` action from it. This is the rule of today, and the end-to-end test checks it. The menu closes only through Resume or Back on its first page, and Quit game. The Menu button (X) on a settings row resets the value at the level of the page, on every page.
+The quick menu hotkey does nothing while the menu is open, at any depth. The session ignores it while the core is paused, so the UI gets no `Menu` action from it. The end-to-end test checks it. The menu closes only through Resume or Back on its first page, and Quit game. The Menu button (X) on a settings row resets the value at the level of the page, on every page.
 
 ## Ids
 
 | Id | Value | Use |
 | --- | --- | --- |
-| `DISPLAY_PAGE` | `PageId(RESERVED_ID_MIN + 1)` | The display panel (unchanged) |
+| `DISPLAY_PAGE` | `PageId(RESERVED_ID_MIN + 1)` | The display panel |
 | `QUICK_MENU_PAGE` | `PageId(RESERVED_ID_MIN + 2)` | The first page of the quick menu |
-| `AUDIO_PAGE` | `PageId(RESERVED_ID_MIN + 3)` | The audio panel (unchanged) |
+| `AUDIO_PAGE` | `PageId(RESERVED_ID_MIN + 3)` | The audio panel |
 | `GRID_PAGE` | `PageId(RESERVED_ID_MIN + 4)` | The grid pattern, as the target of a `page` row |
 | `SETTINGS_PAGE` | `PageId(RESERVED_ID_MIN + 5)` | The Settings page, as the target of a `page` row. The app never loads it |
 | `VIDEO_PAGE` | `PageId(RESERVED_ID_MIN + 6)` | The video page of the quick menu |
@@ -192,11 +192,11 @@ The quick menu hotkey does nothing while the menu is open, at any depth. The ses
 | `SYSTEM_PAGE` | `PageId(RESERVED_ID_MIN + 8)` | The System panel: reboot, shut down, and the format of the share partition when it is on offer |
 | `RESUME`, `QUIT_GAME` | unchanged | The actions of the quick menu |
 
-`OPEN_DISPLAY` and `GRID_PATTERN` go: `SettingValue::Page(DISPLAY_PAGE)` and `SettingValue::Page(GRID_PAGE)` replace them. `MAX_DEPTH` stays 8. The deepest stack is home, game list, game, quick menu, Settings, display panel, option list: 7 screens.
+A row opens the display panel with `SettingValue::Page(DISPLAY_PAGE)` and the grid pattern with `SettingValue::Page(GRID_PAGE)`. `MAX_DEPTH` is 8. The deepest stack is home, game list, game, quick menu, Settings, display panel, option list: 7 screens.
 
 ## Scenes and goldens
 
-New scenes: `screens/system` (the System panel), `screens/system-shutdown-confirm` (the confirm question of `Shut down`, with the focus on `Cancel`), `screens/system-shutting-down` (the last frame after the confirm), `screens/settings` (the Settings page), `screens/breadcrumb-long` (a long game title cut by the rule, on the video page) and `screens/library-scanning` (the Library panel during a scan, with a focused disabled row). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. Every golden that shows a settings row, a list row that opens a page, a title or a hint changes; the task report lists each one. `screens/home-empty` shows the `Settings` row with its arrow, and the tier 3 boot golden changes with it.
+Scenes: `screens/system` (the System panel), `screens/system-shutdown-confirm` (the confirm question of `Shut down`, with the focus on `Cancel`), `screens/system-shutting-down` (the last frame after the confirm), `screens/settings` (the Settings page), `screens/breadcrumb-long` (a long game title cut by the rule, on the video page) and `screens/library-scanning` (the Library panel during a scan, with a focused disabled row). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. `screens/home-empty` shows the `Settings` row with its arrow, as the tier 3 boot golden does. The TV scenes `screens/display-tv`, `screens/display-tv-standard` and `screens/quick-menu-video-filtered` show the Display panel on a TV, its standard list and the video page with a filtered result.
 
 ## Tests
 
@@ -210,7 +210,7 @@ New scenes: `screens/system` (the System panel), `screens/system-shutdown-confir
 - The System panel (tier 2): confirm `Reboot` ends the run with `Outcome::Reboot`, confirm `Shut down` with `Outcome::PowerOff`, cancel changes nothing, and in a game both rows are disabled.
 - The format row (tier 2): an offer in `storage.toml` shows the row, and no offer hides it; confirm writes the request file with the numbers of the offer and ends the run with `Outcome::Reboot`; cancel writes nothing; in a game and with no power control the row is disabled. The crawler, with an offer, finds the row and never accepts it. Scenes `screens/system-format` (the panel with the row) and `screens/system-format-confirm` (its question, focus on `Cancel`).
 
-## Not in this task
+## Not built
 
-- The kind in the control protocol (`ui_tree` of `neptronctl`). It needs protocol version 2 and the request version in the handlers: a contract change with its own branch and ADR.
-- The `Network` panel. Its task adds a line to `SETTINGS_PANELS`, a page id and the page in the app.
+- The kind in the control protocol (`ui_tree` of `neptronctl`). It needs a new protocol version: a contract change with its own branch and ADR.
+- The `Network` panel. It needs a line in `SETTINGS_PANELS`, a page id and the page in the app.
