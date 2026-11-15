@@ -566,6 +566,7 @@ status = "merged"
 # What is left for the MVP, version 0.1 (the owner, 2026-11-15).
 # The order of the ids is the order of priority. A task marked "discuss first"
 # starts with a talk with the owner and a spec, before any code.
+# M15 (the screensaver) was added later: its priority is after M04 and before M05.
 # Later milestones get their own taskboard.
 # ---------------------------------------------------------------------------
 
@@ -693,4 +694,13 @@ name = "Release 0.1: clean builds of the release images, the version, the releas
 owns = ["os", ".github", "docs", "README.md"]
 needs = ["M12", "M13"]
 gate = "ci-ok green on the release commit; the release images boot on both machines"
+status = "pending"
+
+[[task]]
+id = "M15"
+wave = 12
+name = "Screensaver (spec first): on by default, to protect a CRT from burn-in. After a time with no input the menu, a paused game and the quick menu go to a dark, moving picture; any input brings the picture back. Settings: on or off and the time. The spec also decides what a running game does. Animated styles (in the manner of the 1990s) are for a later milestone"
+owns = ["crates/neptron-ui", "crates/neptron-settings", "crates/neptron-session", "apps/neptron", "docs/spec"]
+needs = []
+gate = "T2 with the simulated clock; scenes and goldens; the crawler finds the settings; no missed field while it runs on the Pi 3"
 status = "pending"
