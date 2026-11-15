@@ -506,7 +506,7 @@ name = "Raspberry Pi: the rpi-arm64 image in CI and its upload"
 owns = [".github", "docs/ci.md"]
 needs = ["P04"]
 gate = "The workflow on a branch"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "P09"
@@ -534,3 +534,163 @@ owns = ["crates/neptron-gfx", "crates/neptron-session", "crates/neptron-audio", 
 needs = ["P10"]
 gate = "T1; gles-compare under softpipe and on a Pi 3"
 status = "merged"
+
+[[task]]
+id = "P12"
+wave = 11
+name = "Raspberry Pi: a UI over a running game holds the field rate (canvas drawn on change, changed rows uploaded, game drawn outside the UI)"
+owns = ["crates/neptron-ui", "crates/neptron-gfx", "apps/neptron", "docs"]
+needs = ["P11"]
+gate = "T2; gles-compare under softpipe and on a Pi 3"
+status = "merged"
+
+[[task]]
+id = "CI01"
+wave = 11
+name = "CI green on main: tier 2 on Linux and macOS, the x86_64, aarch64 and Raspberry Pi image jobs with their checks"
+owns = [".github", "docs/ci.md", "xtask", "os"]
+needs = ["P04"]
+gate = "ci-ok green on main"
+status = "merged"
+
+[[task]]
+id = "D01"
+wave = 11
+name = "Documentation and open points brought to the built system"
+owns = ["docs", "README.md", "crate READMEs"]
+needs = []
+gate = "T1"
+status = "merged"
+
+# ---------------------------------------------------------------------------
+# What is left for the MVP, version 0.1 (the owner, 2026-11-15).
+# The order of the ids is the order of priority. A task marked "discuss first"
+# starts with a talk with the owner and a spec, before any code.
+# Later milestones get their own taskboard.
+# ---------------------------------------------------------------------------
+
+[[task]]
+id = "M01"
+wave = 12
+name = "The keep or revert dialog of the display (discuss first): it shows in too many places, it shows again at a restart after the settings were kept, and Keep sometimes reports that the settings were reverted. See OP-105"
+owns = ["crates/neptron-video", "crates/neptron-ui", "apps/neptron", "docs/spec"]
+needs = []
+gate = "T2; the cases of OP-105 as tests; a check on the PC and on the Pi"
+status = "pending"
+
+[[task]]
+id = "M02"
+wave = 12
+name = "The file neptron-ip.txt on the share always says none: write the address when a port gets its lease, also a late one"
+owns = ["os/board/common", "xtask/src/os"]
+needs = []
+gate = "T1; a guest check with a network card; a check on the Pi"
+status = "pending"
+
+[[task]]
+id = "M03"
+wave = 12
+name = "Settings > Network (spec first): the local address, the host name, the state of the share and its switch"
+owns = ["crates/neptron-settings", "crates/neptron-ui", "crates/neptron-platform", "apps/neptron", "docs/spec"]
+needs = ["M02"]
+gate = "T2; scenes and goldens; the crawler finds the panel"
+status = "pending"
+
+[[task]]
+id = "M04"
+wave = 12
+name = "Input for four players (spec first): four ports, the order of the controllers, a controller that comes and goes, and Settings > Input"
+owns = ["crates/neptron-input", "crates/neptron-session", "crates/neptron-settings", "crates/neptron-ui", "apps/neptron", "docs/spec"]
+needs = []
+gate = "T2; a game with two and with four pads on hardware"
+status = "pending"
+
+[[task]]
+id = "M05"
+wave = 13
+name = "Input remapping in Settings > Input (spec first): a map per controller, kept in the settings. The lowest priority of M01 to M05"
+owns = ["crates/neptron-input", "crates/neptron-settings", "crates/neptron-ui", "apps/neptron", "docs/spec"]
+needs = ["M04"]
+gate = "T2; scenes and goldens"
+status = "pending"
+
+[[task]]
+id = "M06"
+wave = 12
+name = "Arcade, part 1 (discuss first, spec first): choose the cores with measurements on the Pi 3 and on the PC, their licences, the ROM sets and the BIOS files, the systems data, and how a vertical game is shown (the scene has no rotation, OP-047)"
+owns = ["docs/spec", "docs/adr", "data/systems", "data/cores"]
+needs = []
+gate = "A spec that the owner accepts; an ADR for each contract change"
+status = "pending"
+
+[[task]]
+id = "M07"
+wave = 13
+name = "Arcade, part 2: the core packages in both images, the library scan of arcade sets, the BIOS check, core traces"
+owns = ["os/package", "os/configs", "crates/neptron-library", "crates/neptron-libretro", "data", "xtask"]
+needs = ["M06"]
+gate = "T1; core-trace; app-check; an arcade game on the PC and on the Pi"
+status = "pending"
+
+[[task]]
+id = "M08"
+wave = 13
+name = "Arcade, part 3: vertical games and the arcade refresh rates, as M06 decides (rotation in the scene and the renderer needs an ADR)"
+owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-modeline", "crates/neptron-session", "docs/adr"]
+needs = ["M06"]
+gate = "T2; gles-compare; fields_missed stays 0 on the Pi 3 for the chosen games"
+status = "pending"
+
+[[task]]
+id = "M09"
+wave = 12
+name = "Adopt an older share that lies at another place on the disk, after the user confirms (OP-101)"
+owns = ["os/board/common", "xtask/src/os", "crates/neptron-ui", "apps/neptron", "docs/spec"]
+needs = []
+gate = "T2; os share-check with a new case"
+status = "pending"
+
+[[task]]
+id = "M10"
+wave = 13
+name = "The Raspberry Pi leftovers: the HDMI sound card named Analog (OP-102), the menu width on a TV (OP-097), the audio cover of a TV standard change (OP-103)"
+owns = ["crates/neptron-audio", "crates/neptron-modeline", "apps/neptron"]
+needs = ["M01"]
+gate = "T2; a check on the Pi"
+status = "pending"
+
+[[task]]
+id = "M11"
+wave = 13
+name = "Build tooling: a push or a build from another worktree never links a stale crate, and a warm image build rebuilds the NEPTRON packages (OP-089)"
+owns = ["xtask", "os/package"]
+needs = []
+gate = "T1; a test that fails with the old behaviour"
+status = "pending"
+
+[[task]]
+id = "M12"
+wave = 14
+name = "The 15 kHz kernel patches for a release (OP-070): the answer of the author, or our own patch set"
+owns = ["os/patches", "os/board/pc", "docs"]
+needs = []
+gate = "A licence statement that allows the release image; kms-check"
+status = "blocked"
+
+[[task]]
+id = "M13"
+wave = 14
+name = "The bench sessions: the PC with the CRT and with a flat panel, and the Raspberry Pi 3 (P09), by the hardware checklist"
+owns = ["docs/hardware-checklist.md"]
+needs = ["M01", "M04", "M07"]
+gate = "Every check of the checklist has a recorded result"
+status = "pending"
+
+[[task]]
+id = "M14"
+wave = 14
+name = "Release 0.1: clean builds of the release images, the version, the release notes, the licence manifest, and the artifacts from CI"
+owns = ["os", ".github", "docs", "README.md"]
+needs = ["M12", "M13"]
+gate = "ci-ok green on the release commit; the release images boot on both machines"
+status = "pending"

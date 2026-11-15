@@ -102,6 +102,7 @@ The state column is one line. The full entry below is the reference.
 | OP-102 | First composite picture: open points | Menu width, HDMI PCM label |
 | OP-103 | Frame budget on the Pi 3 | Dialog rate fixed; standard change underruns |
 | OP-104 | CI limits | aarch64 timing checks not in CI; two paths not proven |
+| OP-105 | The keep or revert dialog of the display | Three faults seen on the Pi; discuss first |
 
 ### Decided
 
@@ -1095,7 +1096,7 @@ The state column is one line. The full entry below is the reference.
 
 - Raised by: the owner's first test on a tube (Samsung, composite, Pi 3 B, 2026-11-14)
 - Status: open for points 1 and 2; point 3 is closed by commit `fd713d9`
-- Default: the picture locks in NTSC 240p, the menu is sharp, and the grid pattern of the 240p test suite fills the tube with correct geometry. The points:
+- Default: the owner reports on 2026-11-15, with the image of commit `7f2e31e` on the Pi 3 B: SNES and Mega Drive games on composite are very sharp, and the audio is fine. Earlier on 2026-11-14: the picture locks in NTSC 240p, the menu is sharp, and the grid pattern of the 240p test suite fills the tube with correct geometry. The points:
   1. The menu is 640 samples wide in the 720 samples of the line, so the tube shows a black band at each side of the menu. This is the UI rectangle of `policy/tv.rs` by design, not the TV. A wider menu needs the overscan decision of OP-097.
   2. The audio list labels the PCM of the `vc4-hdmi` card "Analog", because the kind of a PCM comes from its name only, and its name (`MAI PCM i2s-hifi-0`) has no HDMI word (`crates/neptron-audio/src/alsa.rs`). With no jack card, `auto` then took the HDMI card as an analog output, and the open failed with error 524 while HDMI was off.
   3. `dtparam=audio=on` after the overlay line gave no jack card. `os/board/rpi/config.txt` puts it before the overlay line, and a test pins the order.
@@ -1126,3 +1127,16 @@ The state column is one line. The full entry below is the reference.
 - Where: `.github/image-targets.json`, `.github/workflows/images.yml`, `docs/ci.md`
 - How to change: add a self-hosted arm64 runner with KVM and add `kms`, `selftest` and `core` to the aarch64 entry of `.github/image-targets.json`. Force a partial base once and read the run. Read the billing page after some days.
 - Decision: the owner: the three timing checks run on x86_64 only (2026-11-14).
+
+### OP-105: The keep or revert dialog of the display behaves wrongly.
+
+- Raised by: the owner, on the Raspberry Pi 3 with a composite TV (2026-11-15)
+- Status: open; the owner wants to discuss it before any change (task M01)
+- Default: the dialog stays as it is. The owner saw three faults:
+  1. The dialog shows in too many places.
+  2. After the settings were kept, the dialog shows again at the next restart.
+  3. A press of Keep sometimes gives the notice that the settings were reverted, although they were kept.
+  Known facts that can be part of the cause: the first boot of an image has nothing confirmed, so the guard opens the boot prompt (OP-076); a frontend that restarts several times goes to the safe mode for failed boots; on the Pi the record of the guard is kept per connector. None of these is proven as the cause.
+- Where: `crates/neptron-video` (the guard and its record), `apps/neptron/src/shell` (the boot prompt, the dialog, the notices), `docs/spec`
+- How to change: reproduce each fault on the Pi with the log of the guard, write the rules for when a prompt is needed (a mode that the display never confirmed) and when it is not (a kept mode at a restart), and agree them with the owner in a spec before the code.
+- Decision:
