@@ -106,19 +106,19 @@ While the game is shown alone (top screen `Game`, no confirm dialog), the app dr
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Locked : new confirmation id, focus on Revert
-    Locked --> Locked : a direction action resets the count
-    Locked --> Free : 60 frames in a row with no direction
-    Locked --> Answered : Accept or Back sends RevertMode
-    Free --> Answered : Accept on Revert or Back sends RevertMode
-    Free --> Answered : Right then Accept sends KeepMode
+    [*] --> OnRevert : new confirmation id
+    OnRevert --> OnKeep : Right, a fresh press, while time is left
+    OnKeep --> OnRevert : Left, or the time runs out
+    OnRevert --> Answered : Accept or Back sends RevertMode
+    OnKeep --> Answered : Accept sends KeepMode
+    OnKeep --> Answered : Back sends RevertMode
     Answered --> [*] : snapshot drops the confirmation
-    Locked --> [*] : deadline, the app reverts
-    Free --> [*] : deadline, the app reverts
+    OnRevert --> [*] : deadline, the app reverts
+    OnKeep --> [*] : deadline, the app reverts
     Answered --> [*] : deadline, the app reverts
 ```
 
-`Locked` and `Free` are not names in the code. They stand for `quiet_frames < QUIET_FRAMES_BEFORE_MOVE` and `quiet_frames >= QUIET_FRAMES_BEFORE_MOVE` in `Confirm`. `Answered` is the field `answered`.
+`OnRevert` and `OnKeep` are not names in the code. They stand for the focus of the `Dialog` in `Confirm`. `Answered` is the field `answered`. The UI cannot tell a fresh press from a key repeat; the app sends only fresh presses to a confirmation, because `Navigator::hold_back` stops every repeat and ignores every key held when the prompt opens. At 0 s the dialog shows `Revert` alone.
 
 ### Detail: what a settings change does
 
@@ -161,7 +161,7 @@ The screen id is the id in the widget tree (`out.tree.set_screen`).
 | Quick menu | `quick-menu` | Title: the game name. Right of the title: `Paused`. The rows `Resume`, `Volume`, `Video`, `Settings`, `Quit game`. Hints of the focused row, `Back: resume`. | [quick-menu.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu.ppm), [quick-menu-volume.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-volume.ppm) |
 | Video page | `quick-menu/video` | Title `<game> > Video`. The video block (when a status exists and there is room), then the display rows of the game. Hints of the focused row, `Back: return`. | [quick-menu-video.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-video.ppm), [quick-menu-video-filtered.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-video-filtered.ppm), [quick-menu-video-long.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-video-long.ppm), [quick-menu-panel.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-panel.ppm), [breadcrumb-long.ppm](../../crates/neptron-ui/tests/golden/screens/breadcrumb-long.ppm) |
 | Keep prompt | `quick-menu/keep` | A dialog over the quick menu. Title `Keep the changes?`. Message `Keep the new settings for this game only, for all games of this system, or for all games?`. Buttons `This game` (focus), `System`, `All games`. Hints `Accept: choose`, `Back: cancel`. | [quick-menu-keep.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-keep.ppm) |
-| Confirm dialog | `confirm` | A dialog over any screen, also over a running game. Title `Keep this picture?`. Message: `Keep the new picture?`, `No answer brings the old one back.`, an empty line, then `The old picture comes back in N s.` (N counts down, rounded up to whole seconds), or `The old picture comes back now.` at 0. Buttons `Revert` (focus), `Keep`. Hints `Accept: revert`, `Right, then Accept: keep`. In the frame of an answer the last line is `One moment.` and the hints are empty. | [confirm-10s.ppm](../../crates/neptron-ui/tests/golden/screens/confirm-10s.ppm), [confirm-3s.ppm](../../crates/neptron-ui/tests/golden/screens/confirm-3s.ppm) |
+| Confirm dialog | `confirm` | A dialog over any screen, also over a running game. Title `Keep this picture?`. Message: `Keep the new picture?`, `No answer brings the old one back.`, an empty line, then `The old picture comes back in N s.` (N counts down, rounded up to whole seconds), or `The old picture comes back now.` at 0. Buttons `Revert` (focus), `Keep`. Hints `Accept: revert`, `Right, then Accept: keep`. At 0 s only `Revert` shows, with the hint `Accept: revert`. In the frame of an answer the last line is `One moment.` and the hints are empty. | [confirm-10s.ppm](../../crates/neptron-ui/tests/golden/screens/confirm-10s.ppm), [confirm-3s.ppm](../../crates/neptron-ui/tests/golden/screens/confirm-3s.ppm), [confirm-0s.ppm](../../crates/neptron-ui/tests/golden/screens/confirm-0s.ppm) |
 | Notice | `notice` | A dialog over any screen except a game shown alone. Title `Note`, `Warning` or `Error`, coloured by kind (see [Notices](#notices)). The text. One button `OK`. Hint `Accept: OK`. | [notice.ppm](../../crates/neptron-ui/tests/golden/screens/notice.ppm) (error), [notice-warning.ppm](../../crates/neptron-ui/tests/golden/screens/notice-warning.ppm) (warning) |
 
 ## Transitions
@@ -209,7 +209,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Quick menu | quitting | `Quit game` with no change, or after the keep prompt | none | `QuitGame`: the session ends, save RAM is written, the run exits 75 and the next run starts on Home. While it waits, the quick menu takes only Back. |
 | any | Confirm dialog | The guard opens a prompt (a display change) | `CONFIRM_WINDOW_NS` = 10 s | The new mode is on the wire. Every held key is ignored until its release (`hold_back`). |
 | Confirm dialog | screen under it | Accept with the focus on `Revert`, or Back | none | `RevertMode`: the guard declines, the old mode goes back on the wire, a Note notice |
-| Confirm dialog | screen under it | Right, then Accept on `Keep` | `QUIET_FRAMES_BEFORE_MOVE` = 60 frames with no direction before Right works | `KeepMode`: the guard confirms, the waiting settings go to their files, the guard record is saved |
+| Confirm dialog | screen under it | Right, then Accept on `Keep` | none: a fresh press moves the focus at once | `KeepMode`: the guard confirms, the waiting settings go to their files, the guard record is saved |
 | Confirm dialog | screen under it | No answer before the deadline | `CONFIRM_WINDOW_NS` = 10 s | The guard reverts (`Timeout`), a Note notice |
 | Notice | screen under it | Accept or Back | `NOTICES_MAX` = 8 notices kept, the oldest goes | `DismissNotice` removes it from the snapshot. The next notice shows. |
 | any | safe mode | Select and Start held together on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | The guard puts the safe default on the wire. A Warning notice. Also a short tone, in the game list and in a game (`CUE_MS` = 200 ms at `CUE_HZ` = 880 Hz). See [the guard](03-guard.md). |

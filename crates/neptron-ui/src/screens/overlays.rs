@@ -28,17 +28,6 @@ const MESSAGE_BYTES: usize = 256;
 /// Width of the background ring that separates a dialog from the screen
 /// under it, in pixels.
 const RING_PX: u32 = 4;
-/// The frames in a row with no direction action that the confirm dialog
-/// waits for before left and right move its focus.
-///
-/// `UiAction` has no press or repeat flag, so the dialog cannot see that a
-/// key is still held: a direction held from the screen below reaches it as
-/// key repeat. One quiet frame proves nothing, because key repeat leaves
-/// gaps (a first delay of about 400 ms, then a press every few frames).
-/// 60 frames is longer than such a delay at every refresh up to 120 Hz, so
-/// a held key keeps the dialog waiting, and the player who releases the
-/// key can keep the mode about one second later.
-pub(super) const QUIET_FRAMES_BEFORE_MOVE: u32 = 60;
 /// The notices that the UI remembers as dismissed until the app removes
 /// them from the snapshot.
 const DISMISSED_SLOTS: usize = 8;
@@ -55,15 +44,18 @@ const DISMISSED_SLOTS: usize = 8;
 /// confirmation, the app refused the keep, and the dialog takes input
 /// again, with the focus where it was.
 ///
-/// A held direction must not move the focus to Keep: after a confirmation
-/// appears, the dialog ignores left and right until it has seen
-/// [`QUIET_FRAMES_BEFORE_MOVE`] frames in a row with no direction action.
-/// Accept and back work at once, and revert while the focus is on Revert.
+/// A held direction must not move the focus to Keep. The UI cannot see
+/// that a key is held, because `UiAction` has no press or repeat flag: the
+/// app stops every key repeat and ignores every key held when a
+/// confirmation opens, so each direction that reaches the dialog is a
+/// fresh press, and it moves the focus at once.
+///
+/// When no time is left, the dialog shows Revert alone: the app refuses a
+/// keep at the deadline, so a Keep button there would do nothing.
 pub(super) struct Confirm {
     dialog: Dialog,
     answered: bool,
     id: Option<ConfirmId>,
-    quiet_frames: u32,
 }
 
 /// The notices of the snapshot, oldest first, one at a time.
@@ -78,7 +70,6 @@ impl Confirm {
             dialog: Dialog::new(REVERT),
             answered: false,
             id: None,
-            quiet_frames: 0,
         }
     }
 
@@ -97,44 +88,22 @@ impl Confirm {
         self.answered = false;
     }
 
-    /// Counts the frames in a row with no direction action, once per frame
-    /// after its actions. A direction starts the count again until the
-    /// dialog takes left and right.
-    pub(super) fn end_frame(&mut self, actions: &[UiAction]) {
-        if self.takes_directions() {
-            return;
-        }
-        let direction = actions.iter().any(|a| {
-            matches!(
-                a,
-                UiAction::Up | UiAction::Down | UiAction::Left | UiAction::Right
-            )
-        });
-        self.quiet_frames = if direction {
-            0
-        } else {
-            self.quiet_frames.saturating_add(1)
-        };
-    }
-
-    pub(super) fn handle(&mut self, action: UiAction, out: &mut Vec<Intent>) {
+    pub(super) fn handle(
+        &mut self,
+        action: UiAction,
+        pending: &PendingConfirm,
+        out: &mut Vec<Intent>,
+    ) {
         if self.answered {
             return;
         }
-        if matches!(action, UiAction::Left | UiAction::Right) && !self.takes_directions() {
-            return;
-        }
-        let intent = match self.dialog.handle(action, CONFIRM_BUTTONS.len()) {
+        let intent = match self.dialog.handle(action, buttons(pending).len()) {
             DialogEvent::Chosen(KEEP) => Intent::KeepMode,
             DialogEvent::Chosen(_) | DialogEvent::Cancelled => Intent::RevertMode,
             DialogEvent::None | DialogEvent::Moved => return,
         };
         out.push(intent);
         self.answered = true;
-    }
-
-    fn takes_directions(&self) -> bool {
-        self.quiet_frames >= QUIET_FRAMES_BEFORE_MOVE
     }
 
     pub(super) fn draw(&self, pending: &PendingConfirm, theme: &Theme, frame: &mut UiFrame) {
@@ -157,12 +126,14 @@ impl Confirm {
         let content = DialogContent {
             title: "Keep this picture?",
             message: message.as_str(),
-            buttons: &CONFIRM_BUTTONS,
+            buttons: buttons(pending),
             tone: DialogTone::Normal,
         };
         draw_dialog(&self.dialog, &content, theme, frame);
         if self.answered {
             chrome::hints(frame, theme, "", "");
+        } else if pending.remaining_ns == 0 {
+            chrome::hints(frame, theme, "Accept: revert", "");
         } else {
             chrome::hints(frame, theme, "Accept: revert", "Right, then Accept: keep");
         }
@@ -241,6 +212,16 @@ impl Notices {
         if let Some(entry) = slot.and_then(|i| self.dismissed.get_mut(i)) {
             *entry = Some(id);
         }
+    }
+}
+
+/// The buttons of the confirm dialog for `pending`: Revert alone when no
+/// time is left.
+fn buttons(pending: &PendingConfirm) -> &'static [&'static str] {
+    if pending.remaining_ns == 0 {
+        &CONFIRM_BUTTONS[..1]
+    } else {
+        &CONFIRM_BUTTONS
     }
 }
 

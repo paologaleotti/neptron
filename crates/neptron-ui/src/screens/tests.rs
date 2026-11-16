@@ -11,7 +11,6 @@ use crate::snapshot::{
 use crate::theme::Theme;
 
 use super::game_list::{PREFETCH_ROWS, WINDOW_ROWS};
-use super::overlays::QUIET_FRAMES_BEFORE_MOVE;
 use super::scenes::{
     AUDIO_OUTPUT, LONG_LIST, MEGA_DRIVE, REBOOT, REFRESH, SETTINGS_ROW, SHUT_DOWN, SNES, STYLE,
     TO_AUDIO, TO_DISPLAY, TO_GAME_DISPLAY, TO_SYSTEM, TO_VIDEO, VOLUME, exact_status,
@@ -500,15 +499,6 @@ fn confirming(remaining_ns: u64) -> (Run, Snapshot) {
     (run, snap)
 }
 
-/// Steps the frames with no action after which the confirm dialog takes
-/// left and right.
-fn release(run: &mut Run, snap: &Snapshot) {
-    for _ in 0..QUIET_FRAMES_BEFORE_MOVE {
-        run.step(snap, &[]);
-        assert!(run.intents().is_empty());
-    }
-}
-
 fn message(run: &Run) -> &str {
     run.frame
         .tree
@@ -540,7 +530,6 @@ fn a_blind_press_reverts_the_signal_change() {
 #[test]
 fn keep_needs_a_move_to_keep_then_accept() {
     let (mut run, snap) = confirming(10 * SECOND_NS);
-    release(&mut run, &snap);
     run.step(&snap, &[Right]);
     assert!(run.intents().is_empty());
     assert_eq!(run.focused(), Some("Keep"));
@@ -552,7 +541,6 @@ fn keep_needs_a_move_to_keep_then_accept() {
 #[test]
 fn one_answer_per_frame_and_the_dialog_takes_input_again_while_it_stays() {
     let (mut run, snap) = confirming(10 * SECOND_NS);
-    release(&mut run, &snap);
     run.step(&snap, &[Right, Accept, Back, Left, Accept]);
     assert_eq!(run.intents(), [Intent::KeepMode]);
     assert!(message(&run).contains("One moment."));
@@ -569,54 +557,49 @@ fn one_answer_per_frame_and_the_dialog_takes_input_again_while_it_stays() {
 }
 
 #[test]
-fn a_held_right_never_moves_the_focus_to_keep() {
+fn a_fresh_right_then_accept_keeps() {
     let (mut run, snap) = confirming(10 * SECOND_NS);
-    for _ in 0..200 {
-        run.step(&snap, &[Right]);
-        assert_eq!(run.focused(), Some("Revert"));
-    }
-    run.step(&snap, &[Accept]);
-    assert_eq!(run.intents(), [Intent::RevertMode]);
-}
-
-#[test]
-fn key_repeat_with_gaps_never_moves_the_focus_to_keep() {
-    let mut run = Run::new();
-    let mut snap = with_display();
-    run.step(&snap, &TO_DISPLAY);
     run.step(&snap, &[Right]);
-    snap.confirm = Some(PendingConfirm::new(ConfirmId(4), "2x", 10 * SECOND_NS));
-    for _ in 0..23 {
-        run.step(&snap, &[]);
-    }
-    for frame in 0..300 {
-        let actions: &[UiAction] = if frame % 4 == 0 { &[Right] } else { &[] };
-        run.step(&snap, actions);
-        assert_eq!(run.focused(), Some("Revert"), "frame {frame}");
-    }
+    assert_eq!(run.focused(), Some("Keep"), "a fresh press moves at once");
     run.step(&snap, &[Accept]);
-    assert_eq!(run.intents(), [Intent::RevertMode]);
-}
-
-#[test]
-fn up_and_down_also_count_as_a_held_key() {
-    let (mut run, snap) = confirming(10 * SECOND_NS);
-    // `confirming` already stepped one quiet frame.
-    for _ in 0..QUIET_FRAMES_BEFORE_MOVE - 2 {
-        run.step(&snap, &[]);
-    }
-    run.step(&snap, &[Down]);
-    run.step(&snap, &[Right]);
-    assert_eq!(run.focused(), Some("Revert"));
-    release(&mut run, &snap);
-    run.step(&snap, &[Right, Accept]);
     assert_eq!(run.intents(), [Intent::KeepMode]);
+
+    let (mut run, snap) = confirming(10 * SECOND_NS);
+    run.step(&snap, &[Right, Accept]);
+    assert_eq!(run.intents(), [Intent::KeepMode], "in one frame too");
+}
+
+#[test]
+fn with_no_time_left_only_revert_shows() {
+    let (mut run, snap) = confirming(0);
+    let buttons: Vec<&str> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::Button)
+        .map(|r| r.label)
+        .collect();
+    assert_eq!(buttons, ["Revert"]);
+    assert_eq!(hints(&run), ["Accept: revert"]);
+    run.step(&snap, &[Right, Accept]);
+    assert_eq!(run.intents(), [Intent::RevertMode], "no keep at 0 s");
+}
+
+#[test]
+fn keep_turns_into_revert_when_the_time_runs_out() {
+    let (mut run, mut snap) = confirming(SECOND_NS);
+    run.step(&snap, &[Right]);
+    assert_eq!(run.focused(), Some("Keep"));
+    snap.confirm = Some(PendingConfirm::new(ConfirmId(1), "640x480 at 59.94 Hz", 0));
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some("Revert"));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::RevertMode]);
 }
 
 #[test]
 fn every_new_confirmation_starts_on_revert() {
     let (mut run, mut snap) = confirming(10 * SECOND_NS);
-    release(&mut run, &snap);
     run.step(&snap, &[Right]);
     snap.confirm = None;
     run.step(&snap, &[]);
@@ -633,7 +616,6 @@ fn every_new_confirmation_starts_on_revert() {
 #[test]
 fn a_confirmation_that_replaces_another_at_once_starts_again() {
     let (mut run, mut snap) = confirming(4 * SECOND_NS);
-    release(&mut run, &snap);
     run.step(&snap, &[Right]);
     assert_eq!(run.focused(), Some("Keep"));
     snap.confirm = Some(PendingConfirm::new(
@@ -662,7 +644,6 @@ fn a_confirmation_that_replaces_another_at_once_starts_again() {
 #[test]
 fn more_time_left_with_the_same_id_is_the_same_confirmation() {
     let (mut run, mut snap) = confirming(4 * SECOND_NS);
-    release(&mut run, &snap);
     run.step(&snap, &[Right]);
     snap.confirm = Some(PendingConfirm::new(
         ConfirmId(1),
@@ -1318,7 +1299,7 @@ mod fuzz {
                     snap = rng.snapshot();
                 }
                 if idle_frames == 0 && rng.chance(4) {
-                    idle_frames = QUIET_FRAMES_BEFORE_MOVE + 10;
+                    idle_frames = 10;
                     if rng.chance(50) {
                         next_id += 1;
                         let pending = PendingConfirm::new(ConfirmId(next_id), "2x", SECOND_NS);
@@ -1351,11 +1332,10 @@ mod fuzz {
                 if out.intents.contains(&Intent::KeepMode) {
                     assert!(
                         may_keep,
-                        "frame {frame}: keep without the dialog, a quiet time, right, then accept: {actions:?}"
+                        "frame {frame}: keep without the dialog, time left, right, then accept: {actions:?}"
                     );
                     keeps += 1;
                 }
-                keep.after_frame(&actions);
                 for row in out.tree.rows() {
                     assert!(SAFE_AREA.contains(&row.rect), "frame {frame}: {row:?}");
                 }
@@ -1378,20 +1358,18 @@ mod fuzz {
         assert!(keeps > 0, "the fuzz never reached a deliberate keep");
     }
 
-    /// What the player did during the confirmation on screen, as the rule
-    /// of the dialog needs it: the quiet frames after it appeared, and a
-    /// right after them.
+    /// The focus of the confirm dialog as its rule sets it: Revert for a
+    /// new confirmation, Revert alone when no time is left, and each left
+    /// or right moves it at once.
     #[derive(Default)]
     struct KeepModel {
         id: Option<ConfirmId>,
-        quiet_frames: u32,
-        moved: bool,
+        on_keep: bool,
     }
 
     impl KeepModel {
-        /// True when the frame may keep: the confirmation was on screen
-        /// for the quiet frames, and a right came after them, before an
-        /// accept of this frame.
+        /// True when an accept of this frame may keep: a confirmation with
+        /// time left is on screen and the focus is on Keep at that accept.
         fn before_frame(&mut self, snap: &Snapshot, actions: &[UiAction]) -> bool {
             let id = snap.confirm.as_ref().map(|c| c.id);
             if id != self.id {
@@ -1400,25 +1378,22 @@ mod fuzz {
                     ..Self::default()
                 };
             }
-            if id.is_none() || self.quiet_frames < QUIET_FRAMES_BEFORE_MOVE {
-                return false;
-            }
-            let moved_before = self.moved;
-            self.moved |= actions.contains(&Right);
-            let Some(accept) = actions.iter().rposition(|a| *a == Accept) else {
+            let Some(confirm) = &snap.confirm else {
                 return false;
             };
-            moved_before || actions[..accept].contains(&Right)
-        }
-
-        fn after_frame(&mut self, actions: &[UiAction]) {
-            if self.quiet_frames >= QUIET_FRAMES_BEFORE_MOVE {
-                return;
+            let keep_shown = confirm.remaining_ns > 0;
+            // After one answer the dialog ignores the rest of the frame.
+            for action in actions {
+                self.on_keep &= keep_shown;
+                match action {
+                    Left => self.on_keep = false,
+                    Right => self.on_keep = keep_shown,
+                    Accept => return self.on_keep,
+                    Back => return false,
+                    _ => {}
+                }
             }
-            let direction = actions
-                .iter()
-                .any(|a| matches!(a, Up | Down | Left | Right));
-            self.quiet_frames = if direction { 0 } else { self.quiet_frames + 1 };
+            false
         }
     }
 }

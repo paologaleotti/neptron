@@ -137,7 +137,6 @@ impl Screens {
                 break;
             }
         }
-        self.confirm.end_frame(actions);
         if let Some(request) = self.request(snap) {
             out.intents.push(request);
         }
@@ -184,8 +183,8 @@ impl Screens {
     }
 
     fn handle(&mut self, action: UiAction, snap: &Snapshot, out: &mut Vec<Intent>) {
-        if snap.confirm.is_some() {
-            self.confirm.handle(action, out);
+        if let Some(pending) = &snap.confirm {
+            self.confirm.handle(action, pending, out);
             return;
         }
         if !self.in_game() && self.notices.current(snap).is_some() {

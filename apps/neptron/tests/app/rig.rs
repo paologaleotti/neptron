@@ -356,10 +356,14 @@ impl Rig {
         panic!("no row {label:?} on {}: {:?}", self.screen(), self.tree());
     }
 
-    /// Keeps the open confirmation: the dialog moves its focus only after
-    /// 60 quiet frames, then right and accept.
+    /// Keeps the open confirmation: a fresh right, then accept, once the
+    /// change shows a picture.
     pub fn keep(&mut self) {
-        self.frames(61);
+        assert!(
+            self.shell().guard().pending().is_some(),
+            "no confirmation to keep"
+        );
+        self.frames(2);
         self.tap(&[Control::Right]);
         self.tap(&[Control::A]);
     }

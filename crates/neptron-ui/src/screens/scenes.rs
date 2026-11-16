@@ -81,6 +81,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: confirm_3s,
     },
     SceneDef {
+        name: "screens/confirm-0s",
+        build: confirm_0s,
+    },
+    SceneDef {
         name: "screens/notice",
         build: notice,
     },
@@ -767,6 +771,11 @@ fn confirm_10s(frame: &mut UiFrame, theme: &Theme) {
 
 fn confirm_3s(frame: &mut UiFrame, theme: &Theme) {
     confirm_at(frame, theme, 2_400_000_000);
+}
+
+/// No time left: the dialog shows Revert alone.
+fn confirm_0s(frame: &mut UiFrame, theme: &Theme) {
+    confirm_at(frame, theme, 0);
 }
 
 fn notice(frame: &mut UiFrame, theme: &Theme) {
