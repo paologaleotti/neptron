@@ -490,6 +490,18 @@ Each check is `needs-hardware`. `docs/spec/network-share.md` is the spec. Use th
 - [ ] Do: on the release image, from another computer, `nmap -sT -sU -p 1-65535 <address>` (or a TCP scan of all ports and a UDP scan of 53, 67, 68, 137, 138, 5353). Expect: TCP 445 and UDP 5353 open, UDP 68 open or filtered while the PC holds a lease, nothing else. Record: the scan output.
 - [ ] Do: from Windows, try `\\NEPTRON\state`, `\\NEPTRON\root`, and in the share make a shortcut or a link that points to `/state` (from Linux: `smbclient //neptron.local/share -N -c 'symlink ../.. up'`). Expect: no other share; the link is refused or cannot be followed. Record: the error texts.
 
+### Network panel (M03)
+
+Each check is `needs-hardware`. `docs/spec/network-panel.md` is the spec. Use the release image, with the machine on the router by an Ethernet cable unless a check says otherwise.
+
+- [ ] Do: on the PC, boot with the cable in, wait for the game list, open `Settings > Network`. Expect: `Address eth0` with the address that the router lists for `neptron`, `Host name` `neptron`, `Network name` `neptron.local`, `Share` `On`, and the two share paths with that address; `\\<address>\share` from Windows and `smb://<address>/share` from a Mac open the share as the panel says. Record: the address, the router's address for `neptron`, and whether each path opened.
+- [ ] Do: the same on the Raspberry Pi 3 (its USB Ethernet port appears after the boot). Expect: the port name of the Pi (`eth0`, or an `enx...` name) with the address the router lists; every row fits with no `...`. Record: the port name and the address.
+- [ ] Do: boot with no cable, open `Settings > Network` and stay there. Expect: `Address` `None (no cable or no network)`. Plug in the cable. Expect: within about 2 s after the router gives the lease (the console line `neptron: address eth0 ...` on the development image), the row changes to `Address eth0` with the address, with no key press. Record: the time from the plug to the change on screen.
+- [ ] Do: with the panel open and an address on screen, pull the cable, wait 30 s, then plug it in again. Expect: the address row goes back to `None (no cable or no network)` once `udhcpc` drops the lease (or stays, when the lease is kept: record which), and the address shows again after the replug. Nothing else on screen changes; the menu stays responsive. Record: what the row shows at each step and how long each change took.
+- [ ] Do: on the PC, plug in a USB Ethernet adapter with a second cable after the boot, with the panel open. Expect: a second address row for the adapter's port, in the order of the port names; the share paths keep the first address. Record: both port names and addresses.
+- [ ] Do: on the development image, `touch /state/network-share-off`, reboot, open the panel. Expect: `Share` `Off`, and no `Network name` row, no share path and no account rows. Remove the file and reboot. Expect: the rows are back. Record: what the panel shows in each state.
+- [ ] Do: on the 15 kHz CRT (the 740s at 15 kHz, or a TV), open the panel. Expect: every row reads clearly, the dotted address and the `\\` and `/` of the paths included. Record: a photo of the screen.
+
 ### Reboot and shut down (C17)
 
 Each check is `needs-hardware`. `docs/spec/ui-navigation.md`, "The System panel", is the spec, and `docs/flows/01-power-on.md`, "Shutdown", the order of the steps. Use the release image unless a check says otherwise, with the serial console on `ttyS0` when one is at hand.

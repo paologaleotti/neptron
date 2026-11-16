@@ -14,7 +14,7 @@ One run of the frontend is one process. A run shows the menus, or it runs one ga
 flowchart TD
     Home["Home<br/>systems, Favourites,<br/>Recent games, Settings"]
     List["Game list"]
-    Set["Settings page<br/>Display, Audio, Library, System"]
+    Set["Settings page<br/>Display, Audio, Library, Network, System"]
     Sys["System panel<br/>Reboot, Shut down"]
     Ask["Confirm question<br/>focus on Cancel"]
     Power["Run ends: exit 80 or 81<br/>launcher asks init"]
@@ -35,6 +35,8 @@ flowchart TD
     Set -->|"Accept on System"| Sys
     Set -->|"Accept on Library"| Lib["Library panel<br/>Rescan games"]
     Lib -->|"Back"| Set
+    Set -->|"Accept on Network"| Net["Network panel<br/>address, host name, share"]
+    Net -->|"Back"| Set
     Sys -->|"Accept on Reboot or Shut down<br/>game list run only"| Ask
     Ask -->|"Accept on Cancel, or Back"| Sys
     Ask -->|"Right, then Accept"| Power
@@ -145,8 +147,9 @@ The screen id is the id in the widget tree (`out.tree.set_screen`).
 | --- | --- | --- | --- |
 | Home | `home` | Title `NEPTRON`. A box with one row per system that has games (name, then `1 game` or `N games`), then `Favourites`, `Recent games`, `Settings`, each with an arrow. Hint `Accept: open`. | [home.ppm](../../crates/neptron-ui/tests/golden/screens/home.ppm) |
 | Home with no games | `home` | The text `No games yet.` and where to copy games (`roms/nes   roms/snes   roms/megadrive`, plain files and `.zip` files), then one row `Settings` at the bottom, with its arrow. The tier 3 boot golden shows this screen under a notice. | [home-empty.ppm](../../crates/neptron-ui/tests/golden/screens/home-empty.ppm) |
-| Settings page | `settings` | Title `Settings` (the breadcrumb). One row per panel of `SETTINGS_PANELS`: `Display`, `Audio`, `Library`, `System`. Hints `Accept: open`, `Back: return`. | [settings.ppm](../../crates/neptron-ui/tests/golden/screens/settings.ppm) |
+| Settings page | `settings` | Title `Settings` (the breadcrumb). One row per panel of `SETTINGS_PANELS`: `Display`, `Audio`, `Library`, `Network`, `System`. Hints `Accept: open`, `Back: return`. | [settings.ppm](../../crates/neptron-ui/tests/golden/screens/settings.ppm) |
 | Library panel | `library` | Title `Settings > Library`. One action row, `Rescan games` (see the transitions). | [library-scanning.ppm](../../crates/neptron-ui/tests/golden/screens/library-scanning.ppm) |
+| Network panel | `network` | Title `Settings > Network`. Information rows only (kind `Info`: no input, no hint, no arrow): `Address <port>` with its IPv4 address for each wired port (or `Address` with `None (no cable or no network)`, `Not known` or `Reading...`), `Host name`, `Share` (`On` or `Off`) and, with the share on, `Network name` (`<host_name>.local`), `Windows` (`\\<address>\share`), `macOS, Linux` (`smb://<address>/share`), `Share user` and `Share password` (`neptron`). The rows follow `/run/neptron/network.toml` while the panel is on screen. Hint `Back: return`. `docs/spec/network-panel.md` has every state. | [network.ppm](../../crates/neptron-ui/tests/golden/screens/network.ppm), [network-no-address.ppm](../../crates/neptron-ui/tests/golden/screens/network-no-address.ppm), [network-unknown.ppm](../../crates/neptron-ui/tests/golden/screens/network-unknown.ppm), [network-share-off.ppm](../../crates/neptron-ui/tests/golden/screens/network-share-off.ppm), [network-two-ports.ppm](../../crates/neptron-ui/tests/golden/screens/network-two-ports.ppm) |
 | System panel | `system` | Title `Settings > System`. Two action rows, `Reboot` and `Shut down`, with no arrow, and a third, `Format share`, only when `storage.toml` offers a format of the share partition. In a game every row is disabled with the reason `Not during a game`; in a run with no launcher that has power control, with `Needs the launcher`. Hints `Accept: choose`, `Back: return`. | [system.ppm](../../crates/neptron-ui/tests/golden/screens/system.ppm), [system-format.ppm](../../crates/neptron-ui/tests/golden/screens/system-format.ppm) |
 | Confirm question | `confirm-action` | A dialog over the System panel. Title `Reboot NEPTRON?` or `Shut down NEPTRON?`. Message `Settings and saves are written first. Then the machine starts again.` or `... Then the machine turns off.`. For the format: title `Format the share partition?`, message `NEPTRON finds no file system it can read on the partition for games (<size>). Formatting it erases everything on it.`. Buttons `Cancel` (focus) and the label of the row. Hints `Accept: choose`, `Back: cancel`. | [system-shutdown-confirm.ppm](../../crates/neptron-ui/tests/golden/screens/system-shutdown-confirm.ppm), [system-format-confirm.ppm](../../crates/neptron-ui/tests/golden/screens/system-format-confirm.ppm) |
 | After the confirm | `confirm-action/working` | A box with no buttons over the System panel. Title `Shut down`, `Reboot` or `Format share`. Text `Shutting down...`, `Restarting...` or `Formatting at the next start...`. No hints. It is the last frame of the run, and it stays on the wire until init stops the launcher. Back closes it. | [system-shutting-down.ppm](../../crates/neptron-ui/tests/golden/screens/system-shutting-down.ppm) |
@@ -174,7 +177,8 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | any menu | same | A held direction repeats | `REPEAT_DELAY_NS` = 400 ms, then `REPEAT_INTERVAL_NS` = 66 ms | nothing |
 | Home | Game list | Accept on a system row, `Favourites` or `Recent games` | none | `LoadGames` asks for rows |
 | Home, also with no games | Settings page | Accept on `Settings` | none | nothing: the UI shows the page |
-| Settings page | Display, audio, Library or System panel | Accept on `Display`, `Audio`, `Library` or `System` | none | `LoadSettings` for `DISPLAY_PAGE`, `AUDIO_PAGE`, `LIBRARY_PAGE` or `SYSTEM_PAGE` |
+| Settings page | Display, audio, Library, Network or System panel | Accept on `Display`, `Audio`, `Library`, `Network` or `System` | none | `LoadSettings` for `DISPLAY_PAGE`, `AUDIO_PAGE`, `LIBRARY_PAGE`, `NETWORK_PAGE` or `SYSTEM_PAGE` |
+| Network panel | same | The panel comes on screen, then every second while it stays there | none | The app asks the reader thread for a read of `network.toml`; a changed status rebuilds the page. Accept, left, right and Menu do nothing. Nothing is read while the panel is closed |
 | Settings page | Home or quick menu | Back | none | nothing |
 | Game list | Home | Back | none | nothing |
 | Game list | same | Scroll past the loaded rows | `WINDOW_ROWS` = 128, `PREFETCH_ROWS` = 32 | One `LoadGames` per frame, 128 rows centred on the visible rows, until the snapshot holds the visible rows plus 32 on each side |
@@ -373,7 +377,7 @@ Against `docs/definition/08-frontend-and-ux.md`:
 4. Screens table, "Game list": no sort, filter or search. Menu (X) on a game sends a favourite toggle that the app ignores.
 5. Screens table, "Game page": there is none. Accept on a game launches it.
 6. Screens table, "Display panel": no geometry row. One test pattern (the grid). The panel also holds `Scanlines`, `Scanline strength` and `Hold Start for menu`. `Output` is read-only.
-7. Screens table, "Settings" (full tree): the Settings page has four panels, `Display`, `Audio`, `Library` and `System`.
+7. Screens table, "Settings" (full tree): the Settings page has five panels, `Display`, `Audio`, `Library`, `Network` and `System`.
 8. "Settings model", "offers reset to inherited": there is no row or option for it. The Menu button (X) on a row resets it. A pad with two buttons cannot reset.
 9. "Quick menu", combination: Select+Start is fixed (`QUICK_MENU_COMBO`), not configurable. The Start hold exists but is off by default (`input.menu_hold_start_seconds` = 0, max 10 s); the definition says the arcade default is a 2 s hold.
 10. "Quick menu", contents: the code has `Resume`, `Volume`, `Video` (`Picture style`, `Refresh policy`, `Scanlines`, `Scanline strength`), `Settings` (the global panels) and `Quit game`. No save states, interlace, position, shader, rotation, core options, controls, disc swap or reset.
