@@ -9,6 +9,7 @@ use neptron_libretro_sys::{RETRO_API_VERSION, RETRO_DEVICE_JOYPAD};
 use neptron_types::{PixelFormat, Rotation};
 
 use crate::content::{ContentRequest, ContentRules, LoadedContent, c_path};
+use crate::descriptor::InputDescriptor;
 use crate::error::{LoadError, OpenError, RunError};
 use crate::ffi::{self, Core, CoreSystemInfo, OpenFailure, Poisoned};
 use crate::geometry::AvInfo;
@@ -137,6 +138,14 @@ impl Host {
     /// The options that the core declared, with their current values.
     pub fn options(&self) -> &[CoreOption] {
         self.state().map_or(&[], State::options)
+    }
+
+    /// The input descriptors of the last `SET_INPUT_DESCRIPTORS`: what each
+    /// input does in the game. At most
+    /// [`MAX_INPUT_DESCRIPTORS`](crate::MAX_INPUT_DESCRIPTORS); the rest is
+    /// cut and logged once.
+    pub fn input_descriptors(&self) -> &[InputDescriptor] {
+        self.state().map_or(&[], State::input_descriptors)
     }
 
     /// Sets the value of a declared option. The core sees the change at its

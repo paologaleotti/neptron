@@ -11,6 +11,7 @@
 mod audio;
 mod content;
 mod crc32;
+mod descriptor;
 mod error;
 #[allow(unsafe_code)]
 mod ffi;
@@ -26,6 +27,7 @@ mod video;
 mod zip;
 
 pub use content::{ContentRequest, MAX_CONTENT_BYTES};
+pub use descriptor::{InputDescriptor, MAX_INPUT_DESCRIPTORS};
 pub use error::{LoadError, OpenError, RunError};
 pub use ffi::MAX_CORE_STRING_BYTES;
 pub use geometry::{

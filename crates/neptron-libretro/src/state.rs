@@ -9,6 +9,7 @@ use neptron_types::{PixelFormat, Rotation};
 
 use crate::audio::AudioBuffer;
 use crate::content::{ContentOverride, overrides_of};
+use crate::descriptor::{InputDescriptor, MAX_INPUT_DESCRIPTORS, RawDescriptor};
 use crate::geometry::{AvInfo, GameGeometry, Timing};
 use crate::log::{LogLevel, LogQueue, LogRecord, LogSource};
 use crate::options::{CoreOption, OptionError, OptionStore};
@@ -71,6 +72,7 @@ pub(crate) struct State {
     logged_commands: Vec<u32>,
     in_run: bool,
     options: OptionStore,
+    descriptors: Vec<InputDescriptor>,
     overrides: Vec<ContentOverride>,
     /// The content of the loaded game for `GET_GAME_INFO_EXT`, or null. The
     /// host owns the pointee and clears this before it drops it.
@@ -96,6 +98,7 @@ impl State {
             logged_commands: Vec::with_capacity(MAX_LOGGED_COMMANDS),
             in_run: false,
             options: OptionStore::default(),
+            descriptors: Vec::new(),
             overrides: Vec::new(),
             game_info_ext: std::ptr::null(),
         }
@@ -216,6 +219,35 @@ impl State {
     /// `GET_VARIABLE_UPDATE`: true once after a value changed.
     pub(crate) fn take_option_update(&mut self) -> bool {
         self.options.take_update()
+    }
+
+    pub(crate) fn input_descriptors(&self) -> &[InputDescriptor] {
+        &self.descriptors
+    }
+
+    /// `SET_INPUT_DESCRIPTORS`: replaces the list with the first
+    /// [`MAX_INPUT_DESCRIPTORS`] entries. `cut` says that the core gave more;
+    /// that is logged once.
+    pub(crate) fn set_input_descriptors(
+        &mut self,
+        cmd: u32,
+        entries: &[RawDescriptor<'_>],
+        cut: bool,
+    ) {
+        self.descriptors = entries
+            .iter()
+            .take(MAX_INPUT_DESCRIPTORS)
+            .map(InputDescriptor::from_raw)
+            .collect();
+        if (cut || entries.len() > MAX_INPUT_DESCRIPTORS) && self.first_time(cmd) {
+            self.logs.push_fmt(
+                LogLevel::Warn,
+                LogSource::Host,
+                format_args!(
+                    "the core declares more than {MAX_INPUT_DESCRIPTORS} input descriptors; the host keeps the first {MAX_INPUT_DESCRIPTORS}"
+                ),
+            );
+        }
     }
 
     pub(crate) fn content_overrides(&self) -> &[ContentOverride] {
@@ -568,6 +600,57 @@ mod tests {
                 Event::Rotation(Rotation::R0),
                 Event::Refused(Refusal::Rotation { value: u32::MAX }),
             ]
+        );
+    }
+
+    fn raw(id: u32, description: &[u8]) -> RawDescriptor<'_> {
+        RawDescriptor {
+            port: 1,
+            device: 1,
+            index: 0,
+            id,
+            description,
+        }
+    }
+
+    #[test]
+    fn input_descriptors_are_kept_and_cut_at_the_limit() {
+        let mut s = state();
+        s.begin_call();
+        s.set_input_descriptors(11, &[raw(0, b"Coin"), raw(3, b"Bad \xFF")], false);
+        assert_eq!(
+            s.input_descriptors(),
+            [
+                InputDescriptor {
+                    port: 1,
+                    device: 1,
+                    index: 0,
+                    id: 0,
+                    description: "Coin".to_owned()
+                },
+                InputDescriptor {
+                    port: 1,
+                    device: 1,
+                    index: 0,
+                    id: 3,
+                    description: "Bad \u{FFFD}".to_owned()
+                },
+            ]
+        );
+        assert!(s.logs().is_empty());
+        let many: Vec<_> = (0..MAX_INPUT_DESCRIPTORS as u32)
+            .map(|id| raw(id, b"Button"))
+            .collect();
+        for _ in 0..2 {
+            s.set_input_descriptors(11, &many, true);
+        }
+        assert_eq!(s.input_descriptors().len(), MAX_INPUT_DESCRIPTORS);
+        assert_eq!(s.logs().len(), 1, "the cut is logged once");
+        assert_eq!(s.logs()[0].level, LogLevel::Warn);
+        s.set_input_descriptors(11, &[], false);
+        assert!(
+            s.input_descriptors().is_empty(),
+            "a new list replaces the old"
         );
     }
 

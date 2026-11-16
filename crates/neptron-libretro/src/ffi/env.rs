@@ -12,6 +12,7 @@ use std::ffi::{c_char, c_void};
 use neptron_libretro_sys::*;
 
 use super::{c_str_bytes, core_av_info, neptron_libretro_log_printf};
+use crate::descriptor::{MAX_INPUT_DESCRIPTORS, RawDescriptor};
 use crate::options::MAX_OPTIONS;
 use crate::state::{MAX_CONTENT_OVERRIDES, State};
 
@@ -113,9 +114,19 @@ pub(super) unsafe fn dispatch(state: &mut State, cmd: u32, data: *mut c_void) ->
             // host until `retro_unload_game`.
             !info.is_null() && unsafe { write(data, info) }
         }
-        RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS
-        | RETRO_ENVIRONMENT_SET_CONTROLLER_INFO
-        | RETRO_ENVIRONMENT_GET_INPUT_BITMASKS => true,
+        RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS => {
+            if data.is_null() {
+                return false;
+            }
+            // SAFETY: SET_INPUT_DESCRIPTORS takes an array of
+            // `struct retro_input_descriptor` that ends with a null
+            // description, with NUL-terminated strings, valid for the length
+            // of the call.
+            let (entries, cut) = unsafe { input_descriptors(data.cast()) };
+            state.set_input_descriptors(cmd, &entries, cut);
+            true
+        }
+        RETRO_ENVIRONMENT_SET_CONTROLLER_INFO | RETRO_ENVIRONMENT_GET_INPUT_BITMASKS => true,
         RETRO_ENVIRONMENT_SHUTDOWN => {
             state.shutdown();
             true
@@ -203,6 +214,44 @@ unsafe fn variables<'a>(array: *const retro_variable) -> Vec<(&'a [u8], &'a [u8]
         entries.push((key.unwrap_or_default(), value.unwrap_or_default()));
     }
     entries
+}
+
+/// The entries of a `retro_input_descriptor` array up to the null
+/// description, at most [`MAX_INPUT_DESCRIPTORS`], and whether the array
+/// goes on after them. An entry with an unterminated description is
+/// skipped.
+///
+/// # Safety
+///
+/// `array` points to entries that end with a null description, with
+/// NUL-terminated strings, valid for `'a`.
+unsafe fn input_descriptors<'a>(
+    array: *const retro_input_descriptor,
+) -> (Vec<RawDescriptor<'a>>, bool) {
+    let mut entries = Vec::new();
+    for i in 0..=MAX_INPUT_DESCRIPTORS {
+        // SAFETY: the array goes on until the null description, and the
+        // loop stops there, so entry `i` exists. The read needs no
+        // alignment.
+        let entry = unsafe { array.add(i).read_unaligned() };
+        if entry.description.is_null() {
+            return (entries, false);
+        }
+        if i == MAX_INPUT_DESCRIPTORS {
+            break;
+        }
+        // SAFETY: the string is NUL-terminated and valid for `'a`.
+        if let Some(description) = unsafe { c_str_bytes(entry.description) } {
+            entries.push(RawDescriptor {
+                port: entry.port,
+                device: entry.device,
+                index: entry.index,
+                id: entry.id,
+                description,
+            });
+        }
+    }
+    (entries, true)
 }
 
 /// The extensions and `need_fullpath` of each override entry up to the one

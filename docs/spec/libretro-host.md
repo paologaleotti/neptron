@@ -56,6 +56,7 @@ impl Host {
     pub fn av_info(&self) -> Option<AvInfo>;
     pub fn pixel_format(&self) -> PixelFormat;
     pub fn rotation(&self) -> Rotation;
+    pub fn input_descriptors(&self) -> &[InputDescriptor];
     pub fn set_pad(&mut self, port: usize, pad: Pad) -> Result<(), InputError>;
     pub fn run_frame(&mut self) -> Result<FrameOutput<'_>, RunError>;
     pub fn reset(&mut self) -> Result<(), RunError>;
@@ -257,6 +258,10 @@ FinalBurn Neo calls it in `retro_load_game` and when its vertical-mode option ch
 
 `input_poll` does nothing: the state is already set.
 
+### Input descriptors
+
+`SET_INPUT_DESCRIPTORS` gives an array of `retro_input_descriptor` that ends with a null description. The host keeps `InputDescriptor { port, device, index, id, description }` for each entry, at most `MAX_INPUT_DESCRIPTORS` (256). A longer list is cut, and the cut is logged once (level warn). A description is a C string, read as every core string (at most `MAX_CORE_STRING_BYTES`); an entry whose description has no NUL in that range is skipped. A second call replaces the list. `Host::input_descriptors()` gives it. Nothing reads it in the MVP; the remapping screen will show it.
+
 ## Environment calls
 
 An unknown call returns `false` and gets one log record (level warn) per command number. The host remembers up to 64 command numbers; after that it stops logging new ones. A known call that the host refuses also gets one log record per command number (level info).
@@ -273,7 +278,7 @@ An unknown call returns `false` and gets one log record (level warn) per command
 | `GET_CORE_OPTIONS_VERSION` | `true`, writes 0 |
 | `SET_CORE_OPTIONS`, `_INTL`, `_V2`, `_V2_INTL`, `SET_CORE_OPTIONS_DISPLAY`, `SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK` | `false`, logged once |
 | `GET_LOG_INTERFACE` | `true`, writes the log function (see Log) |
-| `SET_INPUT_DESCRIPTORS` | `true`, ignored |
+| `SET_INPUT_DESCRIPTORS` | `true`, stores the list (see Input descriptors) |
 | `SET_CONTROLLER_INFO` | `true`, ignored |
 | `GET_INPUT_BITMASKS` | `true` |
 | `SHUTDOWN` | `true`, `Event::Shutdown` |
@@ -405,6 +410,7 @@ Each module owns its error enum, made with `thiserror`. Each variant carries the
 | `MAX_SAVE_RAM_BYTES` | 16 MiB |
 | `MAX_CORE_STRING_BYTES` | 16,384 |
 | `MAX_OPTIONS` | 1,024 |
+| `MAX_INPUT_DESCRIPTORS` | 256 |
 | `MAX_CONTENT_OVERRIDES` | 64 |
 | `MAX_PORTS` | 4 |
 | `EVENT_CAPACITY` | 32 per frame |
@@ -414,7 +420,7 @@ Each module owns its error enum, made with `thiserror`. Each variant carries the
 
 ## No allocation in the frame path
 
-`run_frame` allocates nothing in the steady state. The frame buffer, the audio buffer, the event queue and the log queue (with the text buffer of each record) are made at `Host::open` or `load_game`, or at a timing change. The exceptions are rare and bounded: `Event::Message` allocates its text, a `SET_SYSTEM_AV_INFO` with a larger maximum grows the buffers, a `SET_VARIABLES` allocates the option list.
+`run_frame` allocates nothing in the steady state. The frame buffer, the audio buffer, the event queue and the log queue (with the text buffer of each record) are made at `Host::open` or `load_game`, or at a timing change. The exceptions are rare and bounded: `Event::Message` allocates its text, a `SET_SYSTEM_AV_INFO` with a larger maximum grows the buffers, a `SET_VARIABLES` allocates the option list, a `SET_INPUT_DESCRIPTORS` allocates the descriptor list.
 
 ## Tests
 

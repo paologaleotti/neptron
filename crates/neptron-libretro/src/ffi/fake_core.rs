@@ -744,6 +744,61 @@ fn a_rotation_at_load_is_kept_with_no_event() {
     assert_eq!(host.rotation(), Rotation::R270);
 }
 
+fn descriptor(id: u32, description: *const c_char) -> retro_input_descriptor {
+    retro_input_descriptor {
+        port: 0,
+        device: RETRO_DEVICE_JOYPAD,
+        index: 0,
+        id,
+        description,
+    }
+}
+
+#[test]
+fn input_descriptors_are_stored_and_bounded() {
+    script(|s| {
+        s.on_load = Some(|cb| {
+            let mut list = [
+                descriptor(RETRO_DEVICE_ID_JOYPAD_SELECT, c"Coin".as_ptr()),
+                descriptor(RETRO_DEVICE_ID_JOYPAD_START, c"Start".as_ptr()),
+                descriptor(0, std::ptr::null()),
+                descriptor(RETRO_DEVICE_ID_JOYPAD_A, c"after the end".as_ptr()),
+            ];
+            assert!(cb.env(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, list.as_mut_ptr()));
+            assert!(!cb.env(
+                RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS,
+                std::ptr::null_mut::<retro_input_descriptor>()
+            ));
+        });
+        s.on_run = Some(|cb| {
+            let mut long: Vec<_> = (0..crate::MAX_INPUT_DESCRIPTORS as u32 + 40)
+                .map(|id| descriptor(id, c"Button".as_ptr()))
+                .collect();
+            long.push(descriptor(0, std::ptr::null()));
+            assert!(cb.env(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, long.as_mut_ptr()));
+        });
+    });
+    let mut host = loaded();
+    let list: Vec<_> = host
+        .input_descriptors()
+        .iter()
+        .map(|d| (d.port, d.device, d.index, d.id, d.description.as_str()))
+        .collect();
+    assert_eq!(
+        list,
+        [
+            (0, 1, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Coin"),
+            (0, 1, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start"),
+        ]
+    );
+    for _ in 0..2 {
+        let out = host.run_frame().unwrap();
+        assert!(out.events.is_empty(), "descriptors are not events");
+    }
+    assert_eq!(host.input_descriptors().len(), crate::MAX_INPUT_DESCRIPTORS);
+    assert_eq!(host.input_descriptors()[255].id, 255);
+}
+
 #[test]
 fn options_follow_the_version_0_api() {
     script(|s| {

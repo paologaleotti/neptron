@@ -7,7 +7,7 @@ The host produces data and decides nothing for the session. It does not own the 
 ## Public API
 
 - `Host::open(core, HostConfig)`: claims the process, loads the library, checks the 25 entry points and the API version, gives the callbacks, calls `retro_init`.
-- `system_info()`, `options()`, `set_option(key, value)`.
+- `system_info()`, `options()`, `set_option(key, value)`, `input_descriptors()` (`SET_INPUT_DESCRIPTORS`, at most 256, for the remapping screen).
 - `load_game(Option<ContentRequest>) -> AvInfo`: a plain file, one entry of a `.zip` file, or no content.
 - `set_pad(port, Pad)`, then `run_frame() -> FrameOutput<'_>`: the video (`Frame`, `Duplicate` with the last frame, `Missing` or `Rejected`), the audio, the events (`Geometry`, `AvInfo`, `PixelFormat`, `Rotation`, `Shutdown`, `Message`, `Refused`), the log records and the drop counts.
 - `reset()`, `av_info()`, `pixel_format()`, `rotation()`, `logs()`.
