@@ -44,7 +44,7 @@ pub use trace::{
 /// The policy types that the engine's callers name. Only this crate may
 /// depend on `neptron-modeline`.
 pub use neptron_modeline::policy::{
-    Dropped, HorizontalStrategy, Notice, PictureStyle, Placement, PolicyError, PolicySettings,
-    Proposal, RefreshKind, RefreshPolicy, RefreshTarget, Refused, Rung, StyleRow,
-    TV_SPEED_SILENT_PPM, Timing, TvWidth,
+    Dropped, HorizontalStrategy, Notice, PanelScale, PictureStyle, Placement, PolicyError,
+    PolicySettings, Proposal, RefreshKind, RefreshPolicy, RefreshTarget, Refused, Rung, StyleRow,
+    TV_SPEED_SILENT_PPM, Timing, TvWidth, VerticalMode,
 };

@@ -497,6 +497,9 @@ fn rule(
         }
         return "ok: overscan crop";
     }
+    if let MonitorKind::FlatPanel { .. } = profile.kind {
+        return panel_rule(plan, p);
+    }
     let MonitorKind::Crt { ranges } = &profile.kind else {
         return fit_reason(profile, plan, considered);
     };
@@ -572,6 +575,21 @@ fn fit_allowed(
             Err("tv fit")
         }
         _ => Ok(()),
+    }
+}
+
+/// The panel rule of 2026-11-16: from a scale of 4.0 the game fills the
+/// height (or the width) at its shape; under it, the largest whole
+/// multiple that fits; a game larger than the mode fits.
+fn panel_rule(plan: &Plan, p: &Proposal) -> &'static str {
+    let scale = panel_fill_scale_milli(plan, &p.mode);
+    let whole = p.placement.scale.y.is_some();
+    let d = p.placement.dest;
+    let fills = d.h == u32::from(p.mode.vactive) || d.w == u32::from(p.mode.hactive);
+    match scale {
+        s if s >= 4_000 && (whole || !fills) => "panel scale",
+        s if (1_000..4_000).contains(&s) && !whole => "panel scale",
+        _ => "ok",
     }
 }
 

@@ -13,7 +13,7 @@ use neptron_types::{
     Filter, Frame, GpuCaps, Modeline, MonitorKind, MonitorProfile, PixelFormat, Rect,
     SourceGeometry,
 };
-use neptron_video::{Monitor, PolicySettings, VideoEngine, VideoStatusText};
+use neptron_video::{Monitor, PanelScale, PolicySettings, VideoEngine, VideoStatusText};
 
 use crate::harness::{SNES, SNES_PAL, frame, source};
 
@@ -69,9 +69,24 @@ fn panel(modes: Vec<Modeline>) -> Monitor {
     })
 }
 
+/// The engine with `display.panel_scale = integer`: the largest whole
+/// multiple at every scale, the rule that most tests of this file check.
+/// The default `auto` fills the height from a scale of 4
+/// (`a_large_scale_fills_the_height_with_the_shape_kept`).
 fn engine(monitor: Monitor) -> (FakeDisplay, VideoEngine<FakeDisplay>) {
+    let integer = PolicySettings {
+        panel_scale: PanelScale::Integer,
+        ..PolicySettings::default()
+    };
+    engine_with(monitor, integer)
+}
+
+fn engine_with(
+    monitor: Monitor,
+    settings: PolicySettings,
+) -> (FakeDisplay, VideoEngine<FakeDisplay>) {
     let fake = FakeDisplay::new(SimClock::new(), CAPS_4K);
-    let engine = VideoEngine::new(fake.clone(), monitor, PolicySettings::default());
+    let engine = VideoEngine::new(fake.clone(), monitor, settings);
     (fake, engine)
 }
 
@@ -276,5 +291,30 @@ fn sharp_bilinear_blends_only_a_narrow_band_at_each_source_edge() {
         let a = screen.pixel(400, 92 + row).unwrap();
         let b = screen.pixel(400, 92 + (row / 4) * 4).unwrap();
         assert_eq!(a, b, "line {row}");
+    }
+}
+
+#[test]
+fn a_large_scale_fills_the_height_with_the_shape_kept() {
+    // 1080 / 224 = 4.82, at least 4: the default fills the height at 4:3,
+    // with sharp bilinear. 720 / 224 = 3.21 keeps the whole multiple 3.
+    for ((w, h), dest, filter) in [
+        (
+            (1920, 1080),
+            rect(240, 0, 1440, 1080),
+            Filter::SharpBilinear,
+        ),
+        ((1280, 720), rect(192, 24, 896, 672), Filter::SharpBilinear),
+    ] {
+        let (_, mut engine) = engine_with(panel(vec![mode(w, h, 60)]), PolicySettings::default());
+        engine.begin_frame(SNES);
+        engine.present(Some(frame(&SNES)), None).unwrap();
+        engine.wait_flip().unwrap();
+        let placement = engine.current().unwrap().chosen.proposal.placement;
+        assert_eq!(
+            (placement.dest, placement.filter),
+            (dest, filter),
+            "{w}x{h}"
+        );
     }
 }

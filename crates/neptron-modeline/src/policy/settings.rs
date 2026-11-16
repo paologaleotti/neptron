@@ -66,6 +66,10 @@ pub struct PolicySettings {
     pub solver: Settings,
     /// How wide a game is on a TV profile. Only a TV profile reads it.
     pub tv_width: TvWidth,
+    /// How a flat panel scales a game. Only a flat panel reads it.
+    pub panel_scale: PanelScale,
+    /// How a turned game shows on a horizontal display.
+    pub vertical: VerticalMode,
     /// The source is an arcade board (the systems `arcade` and `neogeo`).
     /// A board fills its monitor, so on a TV it gets the width of its
     /// aspect; and a board below every range of a CRT shows each frame
@@ -86,6 +90,32 @@ pub enum TvWidth {
     Integer,
     /// The full safe width.
     Fill,
+}
+
+/// How a flat panel scales a game. In the settings files: `auto`,
+/// `integer`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PanelScale {
+    /// The game fills the height when that scale is at least
+    /// `PANEL_FILL_MIN_SCALE_MILLI`, with a sharp filter and its shape
+    /// kept; under it, the largest whole multiple that fits.
+    #[default]
+    Auto,
+    /// The largest whole multiple that fits, at every scale.
+    Integer,
+}
+
+/// How a turned game (a vertical game on a horizontal display) shows. In
+/// the settings files: `exact`, `fit`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum VerticalMode {
+    /// Every pixel exact: the rule of every other game, with black borders,
+    /// and on a 15 kHz screen or a TV interlaced.
+    #[default]
+    Exact,
+    /// The picture fills the height of the screen with its shape kept,
+    /// scaled with a filter; on a 15 kHz screen or a TV progressive.
+    Fit,
 }
 
 /// The widths that a fixed super width uses, widest first.
@@ -133,6 +163,44 @@ impl TvWidth {
     }
 }
 
+impl PanelScale {
+    /// Every value, in the order of the Display panel.
+    pub const ALL: [Self; 2] = [Self::Auto, Self::Integer];
+
+    /// The value in the settings files.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Integer => "integer",
+        }
+    }
+}
+
+impl VerticalMode {
+    /// Every value, in the order of the Display panel.
+    pub const ALL: [Self; 2] = [Self::Exact, Self::Fit];
+
+    /// The value in the settings files.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Exact => "exact",
+            Self::Fit => "fit",
+        }
+    }
+}
+
+impl fmt::Display for PanelScale {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.key())
+    }
+}
+
+impl fmt::Display for VerticalMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.key())
+    }
+}
+
 impl HorizontalStrategy {
     /// The default for a GPU: a GPU with a pixel clock floor needs a super
     /// width, and a GPU without one sends the game width.
@@ -158,7 +226,8 @@ impl HorizontalStrategy {
 impl Default for PolicySettings {
     /// The defaults of the settings schema: `auto` and `exact`, the GPU's
     /// horizontal strategy, the default generator settings, `aspect` for a
-    /// TV, and a source that is not an arcade board.
+    /// TV, `auto` for a panel, `exact` for a turned game, and a source that
+    /// is not an arcade board.
     fn default() -> Self {
         Self {
             style: PictureStyle::Auto,
@@ -166,6 +235,8 @@ impl Default for PolicySettings {
             horizontal: None,
             solver: Settings::default(),
             tv_width: TvWidth::Aspect,
+            panel_scale: PanelScale::Auto,
+            vertical: VerticalMode::Exact,
             arcade: false,
         }
     }
@@ -208,6 +279,8 @@ pub(crate) struct Effective {
     pub(crate) horizontal: HorizontalStrategy,
     pub(crate) solver: Settings,
     pub(crate) tv_width: TvWidth,
+    pub(crate) panel_scale: PanelScale,
+    pub(crate) vertical: VerticalMode,
     pub(crate) arcade: bool,
 }
 
@@ -230,6 +303,8 @@ pub(crate) fn read_settings(settings: &PolicySettings, caps: &GpuCaps) -> Effect
         horizontal,
         solver: settings.solver,
         tv_width: settings.tv_width,
+        panel_scale: settings.panel_scale,
+        vertical: settings.vertical,
         arcade: settings.arcade,
     }
 }

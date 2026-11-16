@@ -157,10 +157,10 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             assert_eq!((back.hactive, back.vactive), (1920, 1080));
             rig.finish();
 
-            // The game: 256x224 at 4:3. 1080 / 224 = 4 lines each, 896
-            // lines; the width at 4:3 is 896 * 1333 / 1000 = 1194.4, so
-            // 1194, a fraction of 256: sharp bilinear. (1920 - 1194) / 2 =
-            // 363 and (1080 - 896) / 2 = 92.
+            // The game: 256x224 at 4:3. 1080 / 224 = 4.82, at least 4, so
+            // the game fills the height (display.panel_scale = auto): 1080
+            // lines, 1080 * 1333 / 1000 = 1439.6, so 1440 wide, with sharp
+            // bilinear. (1920 - 1440) / 2 = 240.
             rig.boot(Some(NextRun {
                 game: Some(neptron::relaunch::GameRef {
                     system: "nes".to_owned(),
@@ -173,7 +173,7 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             rig.frames(60);
             let switches = rig.display.mode_switches().len();
             let scene = rig.display.frames().last().expect("a frame").scene;
-            assert_eq!(scene.dest, rect(363, 92, 1194, 896));
+            assert_eq!(scene.dest, rect(240, 0, 1440, 1080));
             let screen = rig.display.screen().expect("the screen");
             assert_black_outside(&screen, scene.dest);
             assert_eq!(scene.filter, Filter::SharpBilinear);
@@ -189,13 +189,13 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
                 rig.shell().snapshot().notices
             );
 
-            // At core frame 300 the game is 256x240: 4 lines each, 960
-            // lines, 1280 wide, 5 times 256, so nearest on both axes, at
-            // (320, 60). The panel keeps its mode.
+            // At core frame 300 the game is 256x240: 1080 / 240 = 4.5, so
+            // it fills the height again, 1440 wide, sharp bilinear. The
+            // panel keeps its mode.
             rig.frames(300);
             let scene = rig.display.frames().last().expect("a frame").scene;
-            assert_eq!(scene.dest, rect(320, 60, 1280, 960));
-            assert_eq!(scene.filter, Filter::Nearest);
+            assert_eq!(scene.dest, rect(240, 0, 1440, 1080));
+            assert_eq!(scene.filter, Filter::SharpBilinear);
             assert_eq!(
                 rig.display.mode_switches().len(),
                 switches,
@@ -203,7 +203,7 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             );
             assert_eq!(
                 rig.shell().snapshot().video.clone().expect("status").result,
-                "exact"
+                "sharp"
             );
             rig.finish();
         },

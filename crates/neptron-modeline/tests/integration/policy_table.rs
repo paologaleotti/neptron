@@ -3,9 +3,9 @@
 //! a GPU, the rung and the mode family that win after the validator.
 
 use neptron_modeline::policy::{
-    Considered, Dropped, HorizontalScale, HorizontalStrategy, PictureStyle, Plan, PolicySettings,
-    Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy, Rung, SkippedTarget, Switch, choose,
-    decide, notice, style_rows, switch_for,
+    Considered, Dropped, HorizontalScale, HorizontalStrategy, PanelScale, PictureStyle, Plan,
+    PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy, Rung, SkippedTarget,
+    Switch, choose, decide, notice, style_rows, switch_for,
 };
 use neptron_safety::validate;
 use neptron_types::{
@@ -1321,13 +1321,13 @@ fn the_ui_fills_a_crt_mode_and_scales_uniformly_on_a_panel() {
     let p = plan.proposals().next().unwrap().2;
     assert_eq!(p.placement.ui_dest, ui_dest_fill(1_280, 224));
 
-    let plan = decide(
-        &snes(),
-        &PolicySettings::default(),
-        &panel_1080(),
-        &open_caps(),
-    )
-    .unwrap();
+    // The whole multiple of `integer`; `auto` fills the height from a
+    // scale of 4 (1080 / 224 = 4.82).
+    let integer = PolicySettings {
+        panel_scale: PanelScale::Integer,
+        ..PolicySettings::default()
+    };
+    let plan = decide(&snes(), &integer, &panel_1080(), &open_caps()).unwrap();
     let p = plan.proposals().next().unwrap().2;
     assert_eq!(
         p.placement.ui_dest,

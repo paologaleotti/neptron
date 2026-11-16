@@ -1,8 +1,14 @@
 use neptron_types::Modeline;
 
-use super::placement::panel_placement;
+use super::placement::{panel_placement, scale_milli};
 use super::settings::Effective;
-use super::{Considered, OrientedSource, Plan, Proposal, RefreshKind, RefreshTarget, Rung, Timing};
+use super::{
+    Considered, OrientedSource, PanelScale, Plan, Proposal, RefreshKind, RefreshTarget, Rung,
+    Timing, VerticalMode,
+};
+
+/// One, in thousandths.
+const SCALE_ONE_MILLI: u32 = 1_000;
 
 /// The plan on a flat panel: each listed mode, the game scaled into it by
 /// the largest whole vertical factor that fits.
@@ -12,12 +18,23 @@ use super::{Considered, OrientedSource, Plan, Proposal, RefreshKind, RefreshTarg
 /// fraction; then modes of the preferred size; then the mode whose rate per
 /// game frame is nearest the game's; then the order of the list. A mode near
 /// twice the game's rate shows each frame twice.
+/// The scale, in thousandths, from which a game fills the height of a
+/// flat panel instead of taking the largest whole multiple (the owner's
+/// decision of 2026-11-16): from there a filtered scale stays sharp
+/// enough, and a whole multiple would leave a large border.
+pub const PANEL_FILL_MIN_SCALE_MILLI: u32 = 4_000;
+
 pub(crate) fn panel_plan(
     source: &OrientedSource,
     settings: &Effective,
     modes: &[Modeline],
 ) -> Plan {
     let preferred = modes.first().map(|m| (m.hactive, m.vactive));
+    let fill_from = match (settings.panel_scale, settings.vertical) {
+        (_, VerticalMode::Fit) if source.turned => Some(0),
+        (PanelScale::Auto, _) => Some(PANEL_FILL_MIN_SCALE_MILLI),
+        (PanelScale::Integer, _) => None,
+    };
     let game = u64::from(source.refresh_mhz);
     let mut entries: Vec<_> = modes
         .iter()
@@ -29,8 +46,12 @@ pub(crate) fn panel_plan(
             } else {
                 1
             };
-            let placement = panel_placement(source, mode);
-            let rung = if placement.scale.y.is_some() {
+            let placement = panel_placement(source, mode, fill_from);
+            // A fill by the panel rule is the panel's own rung; only a game
+            // larger than the mode is a fit.
+            let fills = fill_from.is_some_and(|from| scale_milli(source, mode) >= from)
+                && scale_milli(source, mode) >= SCALE_ONE_MILLI;
+            let rung = if placement.scale.y.is_some() || fills {
                 Rung::Panel
             } else {
                 Rung::Fitted

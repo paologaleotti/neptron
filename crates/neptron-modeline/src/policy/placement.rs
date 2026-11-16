@@ -141,15 +141,22 @@ fn fill_size(source: &OrientedSource, mode: &Modeline, monitor_aspect: Aspect) -
     (full.0, h.min(full.1))
 }
 
-/// The placement of the game in a flat-panel mode: the largest whole
-/// vertical scale at which the game, at its display aspect, fits the mode,
-/// centred. A game larger than the mode fits with a fractional scale.
-pub(crate) fn panel_placement(source: &OrientedSource, mode: &Modeline) -> Placement {
+/// The placement of the game in a flat-panel mode, centred: the fill of
+/// the mode at the game's display aspect when that scale is at least
+/// `fill_from_milli`, else the largest whole vertical scale at which the
+/// game fits. A game larger than the mode fits with a fractional scale.
+pub(crate) fn panel_placement(
+    source: &OrientedSource,
+    mode: &Modeline,
+    fill_from_milli: Option<u32>,
+) -> Placement {
     let largest = mode.vactive / source.height;
+    let fills = fill_from_milli.is_some_and(|from| scale_milli(source, mode) >= from);
     let fits = (1..=largest)
         .rev()
         .map(|k| (Some(k), u32::from(source.height) * u32::from(k)))
-        .find(|&(_, h)| aspect_width(source, h) <= u32::from(mode.hactive));
+        .find(|&(_, h)| aspect_width(source, h) <= u32::from(mode.hactive))
+        .filter(|_| !fills);
     let (claim_y, h) = fits.unwrap_or_else(|| (None, fitted_height(source, mode)));
     let w = aspect_width(source, h).min(u32::from(mode.hactive));
     let scale = ScaleClaim {
@@ -197,6 +204,13 @@ fn aspect_width(source: &OrientedSource, h: u32) -> u32 {
         ),
         aspect => div_round(u64::from(h) * u64::from(aspect), 1_000),
     }
+}
+
+/// The scale at which the game, at its display aspect, fills a panel mode
+/// on one axis, in thousandths of its lines.
+pub(crate) fn scale_milli(source: &OrientedSource, mode: &Modeline) -> u32 {
+    let h = fitted_height(source, mode);
+    div_round(u64::from(h) * 1_000, u64::from(source.height.max(1)))
 }
 
 /// The height at which the game fills the mode on one axis.
@@ -473,8 +487,24 @@ mod tests {
     }
 
     #[test]
+    fn a_panel_fills_the_height_from_a_scale_of_four() {
+        // 1080 / 224 = 4.82: the NES fills the height at 4:3, sharp.
+        let p = panel_placement(&source(256, 224, 1_333), &mode(1_920, 1_080), Some(4_000));
+        assert_eq!(p.dest, rect(240, 0, 1_440, 1_080));
+        assert_eq!(p.scale.y, None);
+        assert_eq!(p.filter, Filter::SharpBilinear);
+        // 720 / 224 = 3.21: under 4, the largest whole multiple stays.
+        let p = panel_placement(&source(256, 224, 1_333), &mode(1_280, 720), Some(4_000));
+        assert_eq!(p.scale.y, Some(3));
+        assert_eq!(
+            scale_milli(&source(256, 224, 1_333), &mode(1_280, 720)),
+            3_214
+        );
+    }
+
+    #[test]
     fn a_panel_scales_the_lines_by_the_largest_whole_factor_that_fits() {
-        let p = panel_placement(&source(256, 224, 1_333), &mode(1_920, 1_080));
+        let p = panel_placement(&source(256, 224, 1_333), &mode(1_920, 1_080), None);
         // 224 x 4 = 896 lines, 896 x 4:3 = 1194 pixels.
         assert_eq!(p.dest, rect(363, 92, 1_194, 896));
         assert_eq!(
@@ -489,7 +519,7 @@ mod tests {
 
     #[test]
     fn a_panel_with_square_pixels_scales_both_axes_by_the_same_factor() {
-        let p = panel_placement(&source(320, 240, 0), &mode(1_920, 1_080));
+        let p = panel_placement(&source(320, 240, 0), &mode(1_920, 1_080), None);
         assert_eq!(p.dest, rect(320, 60, 1_280, 960));
         assert_eq!(
             p.scale,
@@ -506,22 +536,22 @@ mod tests {
         // SNES hires on 720p: 224 x 3 = 672 lines, 896 pixels, 1.75 per
         // source pixel. Sharp bilinear has a prescale of 1 there, which is
         // plain bilinear: blurry. Nearest keeps it sharp.
-        let hires = panel_placement(&source(512, 224, 1_333), &mode(1_280, 720));
+        let hires = panel_placement(&source(512, 224, 1_333), &mode(1_280, 720), None);
         assert_eq!(hires.dest, rect(192, 24, 896, 672));
         assert_eq!(hires.scale.x, None);
         assert_eq!(hires.filter, Filter::Nearest);
         // On 1080p it is 1194 pixels, 2.33 per source pixel: sharp
         // bilinear with a prescale of 2.
-        let fhd = panel_placement(&source(512, 224, 1_333), &mode(1_920, 1_080));
+        let fhd = panel_placement(&source(512, 224, 1_333), &mode(1_920, 1_080), None);
         assert_eq!(fhd.filter, Filter::SharpBilinear);
         // A scale of exactly 1 is whole: nearest, as before.
-        let one = panel_placement(&source(640, 480, 0), &mode(640, 480));
+        let one = panel_placement(&source(640, 480, 0), &mode(640, 480), None);
         assert_eq!(one.filter, Filter::Nearest);
     }
 
     #[test]
     fn a_game_larger_than_the_panel_fits_with_a_fraction() {
-        let p = panel_placement(&source(640, 480, 1_333), &mode(640, 400));
+        let p = panel_placement(&source(640, 480, 1_333), &mode(640, 400), None);
         assert_eq!(p.dest, rect(53, 0, 533, 400));
         assert_eq!(p.scale.y, None);
         assert_eq!(p.filter, Filter::SharpBilinear);
