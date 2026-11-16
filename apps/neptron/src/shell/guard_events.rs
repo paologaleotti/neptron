@@ -227,11 +227,14 @@ fn reverted_text(reason: RevertReason) -> Option<&'static str> {
     }
 }
 
-fn safe_text(reason: SafeReason) -> &'static str {
+/// The notice of safe mode for `reason`.
+pub(super) fn safe_text(reason: SafeReason) -> &'static str {
     match reason {
-        SafeReason::FailedBoots => "Safe mode: the last starts gave no confirmed picture.",
+        SafeReason::FailedBoots => {
+            "Safe mode: the last starts gave no picture. Keep a picture in Settings, Display to leave it."
+        }
         SafeReason::Recovery => {
-            "Safe mode: the picture was reset. Keep a display setting to leave it."
+            "Safe mode: the picture was reset. Keep a picture in Settings, Display to leave it."
         }
         SafeReason::NoValidMode => "Safe mode: the display settings gave no picture.",
         SafeReason::NothingConfirmed => "Safe mode: no display setting was kept.",

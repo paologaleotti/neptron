@@ -93,6 +93,13 @@ impl Paths {
         self.run.join("output")
     }
 
+    /// `run/safe-notice-shown`: present when a start of this power cycle
+    /// showed the safe-mode notice. The run folder is a RAM folder, so a
+    /// new power cycle shows it again.
+    pub fn safe_notice_shown(&self) -> PathBuf {
+        self.run.join("safe-notice-shown")
+    }
+
     /// `run/next.toml`, the relaunch file.
     pub fn relaunch(&self) -> PathBuf {
         self.run.join("next.toml")

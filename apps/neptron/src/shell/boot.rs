@@ -16,7 +16,8 @@ use neptron_ui::screens::Screens;
 use neptron_ui::snapshot::{DisplayInfo, NoticeKind, ProfileEntry, ProfileId};
 use neptron_ui::{SceneCanvas, Snapshot, Theme, UiFrame};
 use neptron_video::{
-    DisplayConfig, Guard, GuardRecord, ScanlineSettings, VideoEngine, VideoStatusText,
+    DisplayConfig, Guard, GuardEvent, GuardRecord, SafeReason, ScanlineSettings, VideoEngine,
+    VideoStatusText,
 };
 
 use super::{ControlInput, Devices, GameStage, ListStage, Runtime, Shell, Stage};
@@ -297,6 +298,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             outcome: None,
         };
         shell.first_snapshot();
+        if let Some(GuardEvent::SafeMode(reason)) = step.event.take() {
+            shell.start_in_safe_mode(reason);
+        }
         shell.on_guard(step, now_ns);
         if let Some(text) = unrecorded {
             // A boot that cannot count itself could fail again and again
@@ -325,6 +329,26 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             shell.notice(kind, text);
         }
         Ok(Booted::Ready(Box::new(shell)))
+    }
+
+    /// The notice of a start in safe mode, once per power cycle: every
+    /// relaunch and every restart of the launcher starts in it again, and
+    /// the notice would stand in the way each time. It plays no tone; the
+    /// tone confirms a hold of the blind recovery.
+    fn start_in_safe_mode(&mut self, reason: SafeReason) {
+        self.log(format!("guard: start in safe mode ({reason:?})"));
+        let marker = self.paths.safe_notice_shown();
+        if marker.exists() {
+            return;
+        }
+        // With no marker the next start of this power cycle shows the
+        // notice again, which only repeats it.
+        let _ =
+            std::fs::create_dir_all(&self.paths.run).and_then(|()| std::fs::write(&marker, b""));
+        self.notice(
+            NoticeKind::Warning,
+            super::guard_events::safe_text(reason).to_owned(),
+        );
     }
 
     fn first_snapshot(&mut self) {

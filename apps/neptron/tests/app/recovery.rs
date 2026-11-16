@@ -182,3 +182,64 @@ fn safe_mode_ends_when_the_picture_on_screen_is_kept() {
         },
     );
 }
+
+/// The texts of the safe-mode notices of the run.
+fn safe_notices(rig: &mut Rig) -> usize {
+    rig.shell()
+        .snapshot()
+        .notices
+        .iter()
+        .filter(|n| n.text.starts_with("Safe mode"))
+        .count()
+}
+
+/// A start in safe mode shows its notice once per power cycle, not at
+/// every relaunch or restart.
+#[test]
+#[ignore = "tier 2"]
+fn the_safe_mode_notice_of_a_start_shows_once_per_power_cycle() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "the_safe_mode_notice_of_a_start_shows_once_per_power_cycle",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            rig.boot(None);
+            rig.scanned();
+            rig.hold(&[Control::Select, Control::Start]);
+            rig.until(HOLD_FRAMES, "the recovery", |r| {
+                r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
+            });
+            rig.release(&[Control::Select, Control::Start]);
+            rig.frames(2);
+            assert_eq!(safe_notices(&mut rig), 1, "the hold always says it");
+            rig.finish();
+
+            // A new power cycle: the run folder is empty.
+            std::fs::remove_dir_all(&rig.paths.run).expect("the run folder");
+            rig.boot(None);
+            assert_eq!(
+                rig.shell().guard().phase(),
+                Phase::Safe(SafeReason::Recovery)
+            );
+            assert_eq!(safe_notices(&mut rig), 1, "the first start says it");
+            rig.finish();
+            for next in [
+                None,
+                Some(NextRun {
+                    game: None,
+                    notice: None,
+                }),
+            ] {
+                rig.boot(next);
+                assert_eq!(
+                    rig.shell().guard().phase(),
+                    Phase::Safe(SafeReason::Recovery)
+                );
+                assert_eq!(safe_notices(&mut rig), 0, "said once");
+                rig.finish();
+            }
+        },
+    );
+}
