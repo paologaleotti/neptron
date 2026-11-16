@@ -58,8 +58,12 @@ pub(crate) fn whole_khz(mode: Modeline, range: Option<&CrtRange>) -> Modeline {
     let Some(range) = range else {
         return nearest(mode);
     };
-    let want = mode.field_rate_mhz();
-    let mut best: Option<(u64, Modeline)> = None;
+    // A field rate outside the range is never the aim: the validator
+    // refuses it, and a range of one field rate (`ntsc`) takes only that.
+    let want = mode
+        .field_rate_mhz()
+        .clamp(range.v_min_mhz, range.v_max_mhz.max(range.v_min_mhz));
+    let mut best: Option<((bool, u64), Modeline)> = None;
     for htotal in totals(mode.htotal) {
         for pclock_hz in clocks(mode.pclock_hz, mode.htotal, htotal) {
             let next = Modeline {
@@ -71,11 +75,13 @@ pub(crate) fn whole_khz(mode: Modeline, range: Option<&CrtRange>) -> Modeline {
                 continue;
             }
             let error = next.field_rate_mhz().abs_diff(want);
-            if error == 0 {
+            // A mode inside the range ranks before one outside it.
+            let key = (!inside(&next, range), error);
+            if key == (false, 0) {
                 return next;
             }
-            if best.is_none_or(|(e, _)| error < e) {
-                best = Some((error, next));
+            if best.is_none_or(|(k, _)| key < k) {
+                best = Some((key, next));
             }
         }
     }
@@ -97,15 +103,17 @@ pub(crate) fn whole_khz(mode: Modeline, range: Option<&CrtRange>) -> Modeline {
 /// rates, or a change that would leave no back porch, comes back as it is.
 /// [`whole_khz`] then sets the clock to whole kHz inside the range.
 pub(crate) fn onto_fixed_line_rate(mode: Modeline, range: &CrtRange) -> Modeline {
-    if range.h_min_mhz != range.h_max_mhz || mode.vtotal == 0 {
+    if mode.vtotal == 0 {
         return mode;
     }
     let field = mode.field_rate_mhz().max(1);
     let line = mode.line_rate_mhz();
-    let high = range.h_max_mhz;
-    let low = high.saturating_sub(field);
+    let (low, high) = line_band(range, field);
     if (low..=high).contains(&line) {
         return mode;
+    }
+    if line < low {
+        return onto_line_floor(mode, low, field);
     }
     // The line rate is the field rate times the total over the fields per
     // frame. The band is one field rate wide, so the largest total at or
@@ -132,6 +140,30 @@ pub(crate) fn onto_fixed_line_rate(mode: Modeline, range: &CrtRange) -> Modeline
         pclock_hz,
         vtotal,
         ..mode
+    }
+}
+
+/// The mode with the fewest lines whose line rate reaches `low` at the
+/// same field rate: lines added to the vertical back porch, the clock
+/// scaled. A total that does not fit comes back as it is.
+fn onto_line_floor(mode: Modeline, low: u64, field: u64) -> Modeline {
+    let fewest = if mode.interlace {
+        let fewest = (2 * low).div_ceil(field);
+        fewest + (fewest + u64::from(mode.vtotal)) % 2
+    } else {
+        low.div_ceil(field)
+    };
+    let Ok(vtotal) = u16::try_from(fewest) else {
+        return mode;
+    };
+    let scaled = u64::from(mode.pclock_hz) * u64::from(vtotal) / u64::from(mode.vtotal);
+    match u32::try_from(scaled) {
+        Ok(pclock_hz) => Modeline {
+            pclock_hz,
+            vtotal,
+            ..mode
+        },
+        Err(_) => mode,
     }
 }
 
@@ -183,21 +215,31 @@ fn floor_step(pclock_hz: u64) -> u32 {
     u32::try_from(pclock_hz / step * step).unwrap_or(0)
 }
 
+/// The line rate and the field rate of `mode` lie where the validator
+/// takes them for `range`: the field rate inside its limits, the line rate
+/// from the lower of `h_min` and `h_max` less one field rate up to `h_max`.
+fn inside(mode: &Modeline, range: &CrtRange) -> bool {
+    let (low, high) = line_band(range, mode.field_rate_mhz());
+    (low..=high).contains(&mode.line_rate_mhz())
+        && (range.v_min_mhz..=range.v_max_mhz).contains(&mode.field_rate_mhz())
+}
+
+/// The line rates the validator takes from `range` at `field_mhz`.
+fn line_band(range: &CrtRange, field_mhz: u64) -> (u64, u64) {
+    let high = range.h_max_mhz;
+    (range.h_min_mhz.min(high.saturating_sub(field_mhz)), high)
+}
+
 fn keeps_range(next: &Modeline, before: &Modeline, range: &CrtRange) -> bool {
     let keeps = |rate: fn(&Modeline) -> u64, min: u64, max: u64| {
         let inside = |m: &Modeline| (min..=max).contains(&rate(m));
         inside(next) || !inside(before)
     };
-    if range.h_min_mhz == range.h_max_mhz {
-        // One line rate: the validator takes a band of one field rate
-        // under it, and `onto_fixed_line_rate` put the mode there, so the
-        // clock must keep it there.
-        let high = range.h_max_mhz;
-        let low = high.saturating_sub(next.field_rate_mhz());
-        if !(low..=high).contains(&next.line_rate_mhz()) {
-            return false;
-        }
-    } else if !keeps(Modeline::line_rate_mhz, range.h_min_mhz, range.h_max_mhz) {
+    // The band of the validator: `onto_fixed_line_rate` put the mode
+    // inside it where it can, and the clock must keep it there.
+    let (low, high) = line_band(range, next.field_rate_mhz());
+    let line_inside = |m: &Modeline| (low..=high).contains(&m.line_rate_mhz());
+    if !line_inside(next) && line_inside(before) {
         return false;
     }
     keeps(Modeline::field_rate_mhz, range.v_min_mhz, range.v_max_mhz)
