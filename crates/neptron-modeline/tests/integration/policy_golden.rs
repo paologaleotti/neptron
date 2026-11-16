@@ -9,9 +9,10 @@ use std::path::Path;
 
 use neptron_modeline::policy::{PolicySettings, RefreshKind, TvWidth, choose, decide};
 use neptron_safety::validate;
-use neptron_types::{Filter, GpuCaps, MonitorProfile, SourceGeometry, TvStandard};
+use neptron_types::{Filter, GpuCaps, MonitorProfile, Rotation, SourceGeometry, TvStandard};
 use serde::Deserialize;
 
+use crate::arcade_table;
 use crate::golden::golden;
 use crate::presets::{edid_caps, gpu_table, open_caps, panel_1080, pc_crt_30_71, preset};
 
@@ -229,4 +230,53 @@ fn every_system_on_a_tv_gives_its_golden_decision() {
         }
     }
     compare("policy_tv.toml", actual);
+}
+
+/// The arcade boards of `arcade_table` on every display of its table: each
+/// cell whose winner follows the arcade rule of docs/spec/arcade.md is a
+/// golden in tests/golden/policy_arcade.toml, and the file holds no other
+/// cell. A cell that breaks the rule is work for the policy, not a golden.
+#[test]
+fn every_arcade_board_that_follows_the_rule_gives_its_golden_decision() {
+    let displays = arcade_table::displays();
+    let mut actual = BTreeMap::new();
+    for board in &arcade_table::BOARDS {
+        for display in &displays {
+            if arcade_table::cell(board, display).rule != "ok" {
+                continue;
+            }
+            let key = format!("{} {}", board.name, display.profile.id);
+            let got = outcome(&board.source(), &display.profile, &display.caps);
+            actual.insert(key, got);
+        }
+    }
+    compare("policy_arcade.toml", actual);
+}
+
+/// A turn of 270 degrees gives the same decision as a turn of 90, and a
+/// turn of 180 the same as none: the policy sees the upright picture, and
+/// the renderer makes the turn.
+#[test]
+fn the_direction_of_a_turn_does_not_change_the_decision() {
+    let displays = arcade_table::displays();
+    for board in &arcade_table::BOARDS {
+        let pair = match board.rotation {
+            Rotation::R0 | Rotation::R180 => [Rotation::R0, Rotation::R180],
+            Rotation::R90 | Rotation::R270 => [Rotation::R90, Rotation::R270],
+        };
+        let [a, b] = pair.map(|rotation| SourceGeometry {
+            rotation,
+            ..board.source()
+        });
+        for display in &displays {
+            let (profile, caps) = (&display.profile, &display.caps);
+            assert_eq!(
+                outcome(&a, profile, caps),
+                outcome(&b, profile, caps),
+                "{} on {}",
+                board.name,
+                profile.id
+            );
+        }
+    }
 }
