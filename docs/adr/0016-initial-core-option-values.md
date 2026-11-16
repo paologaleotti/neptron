@@ -18,7 +18,7 @@ A core reads its options with `GET_VARIABLE` right after it declares them, insid
 2. The host keeps a copy of the held values for its whole life, at most `MAX_OPTIONS` (1,024) pairs. More pairs are cut and logged once.
 3. When `hold_options` runs, each held key that is declared already gets its held value at once, if the value is in the key's value list.
 4. At each later `SET_VARIABLES`, after the host has read the new list and kept the current values that are still valid (the present rule), each newly declared key with a held value gets that value, if the value is in its list. A key that was declared before keeps its current value: a change from the quick menu is never undone by a second declaration.
-5. Applying a held value does not set the flag that `GET_VARIABLE_UPDATE` reads. The core reads its values after it declares them.
+5. A held value that applies at a declaration does not set the flag that `GET_VARIABLE_UPDATE` reads: the core reads its values after it declares them. A held value for a key that is already declared applies at once and sets the flag, as `set_option` does, so a core that declares its options at init behaves as before.
 6. After `load_game`, `Host::held_option_report()` gives the held keys that the core has not declared and the held values that its list does not have. The session counts them in `refused_options` and logs them once, as it does today for refused `set_option` calls.
 7. `set_option` keeps its meaning: it changes a declared option now. The quick menu uses it after the load.
 8. `core_trace` writes an `option` line for each option declared during `load_game` too, so a test can check the default values of `data/cores` for a core that declares its options late.

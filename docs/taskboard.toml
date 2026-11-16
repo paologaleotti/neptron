@@ -577,7 +577,7 @@ name = "The keep or revert dialog of the display (discuss first): it shows in to
 owns = ["crates/neptron-video", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = []
 gate = "T2; the cases of OP-105 as tests; a check on the PC and on the Pi"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M02"
@@ -586,7 +586,7 @@ name = "The file neptron-ip.txt on the share always says none: write the address
 owns = ["os/board/common", "xtask/src/os"]
 needs = []
 gate = "T1; a guest check with a network card; a check on the Pi"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M03"

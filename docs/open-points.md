@@ -84,7 +84,6 @@ The state column is one line. The full entry below is the reference.
 | OP-073 | Whole-kHz pixel clocks on a tube | Bench check |
 | OP-074 | The hardware self-test | Bench check |
 | OP-075 | Flat panels: limits | Bench and after the MVP |
-| OP-076 | Boot prompt when nothing would change | Confusing notice |
 | OP-077 | The PC image: what is not proven | Release image from CI only |
 | OP-080 | Variable refresh rate | After the MVP |
 | OP-081 | Menu and game modes differ on a panel | No change now |
@@ -102,7 +101,6 @@ The state column is one line. The full entry below is the reference.
 | OP-102 | First composite picture: open points | Menu width, HDMI PCM label |
 | OP-103 | Frame budget on the Pi 3 | Dialog rate fixed; standard change underruns |
 | OP-104 | CI limits | aarch64 timing checks not in CI; two paths not proven |
-| OP-105 | The keep or revert dialog of the display | Three faults seen on the Pi; discuss first |
 | OP-106 | Open questions of the arcade spec | Defaults in `docs/spec/arcade.md`, section 19 |
 
 ### Decided
@@ -151,6 +149,8 @@ The state column is one line. The full entry below is the reference.
 | OP-094 | Reboot and shut down from the UI | C17 |
 | OP-095 | First boot did not attach the share | C16 and C18 |
 | OP-096 | The Raspberry Pi image | P01 to P06; P07 to P09 left |
+| OP-076 | Boot prompt when nothing would change | M01: no prompt for the safe default |
+| OP-105 | The keep or revert dialog of the display | M01, ADR 0013 |
 
 ## List
 
@@ -839,7 +839,7 @@ The state column is one line. The full entry below is the reference.
 ### OP-076: The first boot shows a confirm prompt also when nothing would change.
 
 - Raised by: T28 review
-- Status: open, needs a look from the owner
+- Status: closed by M01 (ADR 0013): a boot whose wanted monitor is the safe default, is trusted by its class, or is confirmed at this place opens no prompt and shows no notice. The text below describes the state before M01
 - Default: with no confirmed record, `Guard::boot` opens the boot prompt for the wanted configuration and reverts to the safe default after 10 s. When the wanted and the safe configuration are the same (a monitor with EDID on first boot, or vkms with `generic_15`), the prompt "reverts" to the same mode and a notice says "The display change went back: it was not kept in time." until the user presses OK. Nothing is wrong on the wire, but the text confuses. The boot-check golden shows this notice.
 - Where: `crates/neptron-video/src/guard/machine.rs` (`Guard::boot`), `apps/neptron` (the notice), `os/tests/golden/boot-game-list.ppm`
 - How to change: when the wanted configuration equals the safe default, open no prompt and record nothing as confirmed; or keep the prompt and give the notice another text. A change in the guard needs a review, and the golden changes with it.
@@ -849,7 +849,7 @@ The state column is one line. The full entry below is the reference.
 
 - Raised by: T28 and its three reviews
 - Status: open; points 1 to 3 come before the first release image
-- Default: (1) No release image holds the final code. The release image that passed the gate (SHA-256 fb6dce6c..., kept in `~/.cache/neptron/buildroot/images/x86_64-release-fb6dce6c`) is older than the last fixes. The x86_64 output volume holds the development packages, so the release build refuses it. A release image needs a clean build in an empty output: `cargo xtask os build --arch x86_64 --output x86_64-clean`, about 5 hours and about 45 GB in the Docker disk, which has about 9 GB free. Then `os boot-check` on BIOS and UEFI, the size and the SHA-256. (2) The development image is the one for the first bench session: `images/x86_64-dev/neptron-x86_64.img`, SHA-256 4602b70dfd0234658268a219d097556782037f535f589e2acdc2873dca602e6c, with SSH for one public key, the hot folder `/state/hot`, `cargo xtask os push`, `os logs` and `os ssh`, the log under `/state/log`, and the address in `neptron-ip.txt` on the share partition. It was built step by step, not clean. (3) The 15 kHz patch set is in both images (OP-070): nothing is given to anybody. (4) Mesa has the Intel `iris` driver; no firmware files are in the image, so AMD GPUs do not work and the Intel DMC firmware is not loaded. The i915 and amdgpu firmware licences allow redistribution of the binaries only. (5) About 104 MiB of clang libraries that nothing uses are in the root. (6) Before the frontend's first commit a CRT gets the firmware and GRUB picture at 31 kHz or more; the launcher does not blank the output. A 15 kHz-only tube needs a sync-protecting adapter or a late power-on. (7) The share partition is made at first boot. The format rule is strict (a marker, a clean read, no file system and no exFAT backup record). Not run: a real read error, a re-flash with a different layout, a 4096-byte sector disk. A power cut during mkfs leaves a share that needs a format on another computer. (8) A quit in the UI restarts the frontend; nothing powers the PC off. (9) Each variant has a fixed disk signature, so two sticks of one variant in one PC share a PARTUUID. (10) Test tools and QEMU hooks are in the image; they refuse to act unless the DRM driver is vkms. (11) The crates of the frontend are pinned by Cargo.lock checksums through `cargo vendor --locked`. (12) The development image waits for DHCP at boot, so its first frame comes later. (13) The boot check runs only in QEMU; the x86_64 times are emulated.
+- Default: (1) No release image holds the final code. The release image that passed the gate (SHA-256 fb6dce6c..., kept in `~/.cache/neptron/buildroot/images/x86_64-release-fb6dce6c`) is older than the last fixes. The x86_64 output volume holds the development packages, so the release build refuses it. A release image needs a clean build in an empty output: `cargo xtask os build --arch x86_64 --output x86_64-clean`, about 5 hours and about 45 GB in the Docker disk, which has about 9 GB free. Then `os boot-check` on BIOS and UEFI, the size and the SHA-256. (2) The development image is the one for the first bench session: `images/x86_64-dev/neptron-x86_64.img`, SHA-256 4602b70dfd0234658268a219d097556782037f535f589e2acdc2873dca602e6c, with SSH for one public key, the hot folder `/state/hot`, `cargo xtask os push`, `os logs` and `os ssh`, the log under `/state/log`, and, until M02, the address in `neptron-ip.txt` on the share partition (later images write `/run/neptron/network.toml` and nothing to the share). It was built step by step, not clean. (3) The 15 kHz patch set is in both images (OP-070): nothing is given to anybody. (4) Mesa has the Intel `iris` driver; no firmware files are in the image, so AMD GPUs do not work and the Intel DMC firmware is not loaded. The i915 and amdgpu firmware licences allow redistribution of the binaries only. (5) About 104 MiB of clang libraries that nothing uses are in the root. (6) Before the frontend's first commit a CRT gets the firmware and GRUB picture at 31 kHz or more; the launcher does not blank the output. A 15 kHz-only tube needs a sync-protecting adapter or a late power-on. (7) The share partition is made at first boot. The format rule is strict (a marker, a clean read, no file system and no exFAT backup record). Not run: a real read error, a re-flash with a different layout, a 4096-byte sector disk. A power cut during mkfs leaves a share that needs a format on another computer. (8) A quit in the UI restarts the frontend; nothing powers the PC off. (9) Each variant has a fixed disk signature, so two sticks of one variant in one PC share a PARTUUID. (10) Test tools and QEMU hooks are in the image; they refuse to act unless the DRM driver is vkms. (11) The crates of the frontend are pinned by Cargo.lock checksums through `cargo vendor --locked`. (12) The development image waits for DHCP at boot, so its first frame comes later. (13) The boot check runs only in QEMU; the x86_64 times are emulated.
 - Where: `os/`, `os/README.md`, `xtask/src/os`, `xtask/README.md`
 - How to change: see `os/README.md`, sections "The PC image" and "Working on the bench".
 - Decision: Owner, 2026-11-13: the release image is built in CI only and is uploaded as a workflow artifact; no local release build.
@@ -1132,7 +1132,7 @@ The state column is one line. The full entry below is the reference.
 ### OP-105: The keep or revert dialog of the display behaves wrongly.
 
 - Raised by: the owner, on the Raspberry Pi 3 with a composite TV (2026-11-15)
-- Status: open; the owner wants to discuss it before any change (task M01)
+- Status: closed by M01 (2026-11-16): the spec `docs/spec/display-guard.md` and ADR 0013. The owner accepted trust by display class (an EDID flat panel and a composite TV get no boot prompt), a 15 s window from the first settled picture, a failed boot only for a run that ends abnormally before its first picture, one record per place, and two rows to leave the safe mode. The causes found: the boot prompt asked to confirm the safe default itself, a return from a game was a new boot, and the record held one place only. The hardware checks are in `docs/hardware-checklist.md`
 - Default: the dialog stays as it is. The owner saw three faults:
   1. The dialog shows in too many places.
   2. After the settings were kept, the dialog shows again at the next restart.
