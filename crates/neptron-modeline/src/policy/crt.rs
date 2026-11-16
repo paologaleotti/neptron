@@ -72,7 +72,10 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
     for (tier, &(target, rungs)) in walk.iter().enumerate() {
         for (place, &rung) in rungs.iter().enumerate() {
             let mut outcomes = candidate(rung, target, true, crt)?;
-            if !rung.is_fitted() && !outcomes.iter().any(Result::is_ok) {
+            // Each range alone too: the whole profile may give a mode that
+            // the validator refuses (a sync pulse too long on a narrow
+            // mode) where another range holds the game.
+            if !rung.is_fitted() {
                 outcomes.extend(per_range(rung, target, crt, &singles)?);
             }
             for (sub, outcome) in outcomes.into_iter().enumerate() {
@@ -177,10 +180,16 @@ fn per_range(
         let MonitorKind::Crt { ranges } = &single.kind else {
             continue;
         };
-        if !ranges
+        let covering = crt
+            .ranges
             .iter()
-            .all(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz)
-        {
+            .filter(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz)
+            .count();
+        let covers = ranges
+            .iter()
+            .all(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz);
+        // With one covering range the whole profile is that range already.
+        if covering < 2 || !covers {
             continue;
         }
         let one = Crt {
