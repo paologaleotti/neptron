@@ -363,11 +363,14 @@ fn check_token(source: &Source<'_>, value: &str, what: &'static str) -> Result<(
     }
 }
 
-/// A core option key: ASCII letters, digits and `_`, as libretro cores
-/// name them. libretro joins a key and its value with `=` and `;`, so
-/// neither may appear.
+/// A core option key: ASCII letters, digits, `_` and `-`, as libretro
+/// cores name them (FinalBurn Neo uses `-`). libretro joins a key and its
+/// value with `=` and `;`, so neither may appear.
 fn check_option_key(source: &Source<'_>, key: &str) -> Result<(), CatalogError> {
-    let ok = !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+    let ok = !key.is_empty()
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
     if ok {
         Ok(())
     } else {

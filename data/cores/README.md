@@ -12,7 +12,7 @@ One TOML file per libretro core. `neptron-library` embeds these files at build t
 | `library` | string | File name of the core's shared library. |
 | `systems` | list of strings | Systems that the core runs, by the `folder` of `data/systems`. |
 | `licence` | string | SPDX licence expression of the core. A licence with no SPDX id uses a `LicenseRef-` name. |
-| `options` | table of strings, optional | Default core options, `key = "value"`. The frontend passes them to the core at launch. A key is ASCII letters, digits and `_`; a value is not empty and holds no `\|` or `;`. Each key and value must be one that the core announces: check it against the `option` lines of `tests/traces`. |
+| `options` | table of strings, optional | Default core options, `key = "value"`. The frontend passes them to the core at launch. A key is ASCII letters, digits, `_` and `-`; a value is not empty and holds no `\|` or `;`. Each key and value must be one that the core announces: check it against the `option` lines of `tests/traces`. |
 
 The format is append-only. A new key gets a default, or a new `format` value. A key is never renamed or removed. The parser rejects an unknown key. Each system has exactly one core.
 

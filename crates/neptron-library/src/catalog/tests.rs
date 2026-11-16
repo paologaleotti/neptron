@@ -292,9 +292,30 @@ fn core_options_are_read_sorted_by_key() {
 }
 
 #[test]
+fn core_option_keys_may_hold_a_hyphen() {
+    let text = format!("{CORE_NES}\n[options]\nnes-diagnostic-input = \"Start + L + R\"\n");
+    let catalog = catalog(
+        &ok_systems(),
+        &[src("nescore", &text), src("mdcore", CORE_MD)],
+    )
+    .expect("a key with `-` is valid");
+    let core = catalog.core_for("nes").expect("the core");
+    assert_eq!(
+        core.options,
+        [(
+            "nes-diagnostic-input".to_owned(),
+            "Start + L + R".to_owned()
+        )]
+    );
+}
+
+#[test]
 fn bad_core_options_are_rejected() {
     for table in [
         "\"bad key\" = \"1\"",
+        "\"a=b\" = \"1\"",
+        "\"a;b\" = \"1\"",
+        "\"a.b\" = \"1\"",
         "\"\" = \"1\"",
         "key = \"\"",
         "key = \"a|b\"",
