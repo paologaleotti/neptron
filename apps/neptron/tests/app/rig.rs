@@ -44,6 +44,11 @@ pub fn audio_outputs() -> Vec<neptron_audio::OutputDevice> {
     })
 }
 
+/// The longest real time that [`Rig::scanned`] waits for the game scan:
+/// a guard against a hang only, far above what a scan of the test folder
+/// takes on a loaded machine.
+const SCAN_WAIT_MAX: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// The device rate of the fake audio.
 const DEVICE_RATE_HZ: u32 = 48_000;
 /// The queue of the fake audio, in frames.
@@ -354,6 +359,22 @@ impl Rig {
             self.tap(&[Control::Down]);
         }
         panic!("no row {label:?} on {}: {:?}", self.screen(), self.tree());
+    }
+
+    /// Runs frames until the game scan of the start has ended and the run
+    /// has taken its result, so a scan that ends during a walk through the
+    /// menus does not move the focus. The scan thread runs in real time,
+    /// so the bound is real time, not a count of frames.
+    pub fn scanned(&mut self) {
+        let deadline = std::time::Instant::now() + SCAN_WAIT_MAX;
+        while self.shell().library().scanning() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the scan did not end in {SCAN_WAIT_MAX:?}"
+            );
+            self.frames(1);
+        }
+        self.frames(2);
     }
 
     /// Keeps the open confirmation: a fresh right, then accept, once the

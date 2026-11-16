@@ -91,7 +91,7 @@ fn a_missing_device_is_a_notice_and_the_run_goes_on() {
     assert!(shown);
     assert!(
         rig.state_file("video/guard.toml")
-            .contains("failed_boots = 1")
+            .contains("run_open = true")
     );
     rig.finish();
 }
@@ -115,7 +115,7 @@ fn a_state_partition_in_ram_is_a_notice_and_counts_its_boots_in_ram() {
     assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
     assert!(
         rig.state_file("video/guard.toml")
-            .contains("failed_boots = 1")
+            .contains("run_open = true")
     );
     let notices: Vec<String> = rig
         .shell()

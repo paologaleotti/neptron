@@ -184,8 +184,8 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             rig.finish();
             let record = rig.state_file("video/guard.toml");
             assert!(
-                record.contains("failed_boots = 1"),
-                "one boot counted: {record}"
+                record.contains("failed_boots = 0") && record.contains("run_open = false"),
+                "the runs ended cleanly: {record}"
             );
         },
     );
@@ -229,9 +229,9 @@ fn a_chain_of_two_games_counts_one_boot() {
                 "stage {stage}"
             );
             rig.finish();
-            // Every later run continues the boot of stage 0, which counts
-            // once.
-            let count = 1;
+            // Every run ends cleanly, and every later run continues the
+            // boot of stage 0: no failed boot.
+            let count = 0;
             let record = rig.state_file("video/guard.toml");
             assert!(
                 record.contains(&format!("failed_boots = {count}")),

@@ -33,14 +33,15 @@ pub const CONFIRM_WINDOW_NS: u64 = 15_000_000_000;
 /// settles late can stay.
 pub const PENDING_LIMIT_NS: u64 = 30_000_000_000;
 
-/// Boots in a row that never reach a confirmed picture before the next
-/// boot starts in safe mode.
+/// Failed boots in a row before the next boot starts in safe mode. A
+/// failed boot is a run that ended abnormally before a good picture.
 pub const SAFE_MODE_FAILED_BOOTS: u32 = 2;
 
-/// How long the confirmed configuration must show a picture before the
-/// boot counts as good, in nanoseconds. A frontend that crashes or hangs
-/// before this time counts as a failed boot.
-pub const GOOD_BOOT_PICTURE_NS: u64 = 10_000_000_000;
+/// How long a settled picture of the confirmed configuration or of the
+/// safe default must hold before the run counts as good, in nanoseconds.
+/// A frontend that crashes or hangs before this time, with no clean exit,
+/// counts as a failed boot.
+pub const GOOD_BOOT_PICTURE_NS: u64 = 3_000_000_000;
 
 /// How long the engine may report no valid picture (the output is off, a
 /// mode the inputs refuse is on the display, or no mode is set) before the

@@ -24,6 +24,7 @@ fn on_the_system_panel(rig: &mut Rig) {
 
 /// Opens `Settings > System` from home or the quick menu.
 fn open_system(rig: &mut Rig) {
+    rig.scanned();
     rig.focus("Settings");
     rig.tap(&[Control::A]);
     assert_eq!(rig.screen(), "settings");
@@ -120,7 +121,7 @@ fn confirm_shut_down_writes_the_settings_and_ends_with_the_power_off_code() {
         |dir| {
             let mut rig = Rig::new(dir);
             rig.boot(None);
-            rig.frames(2);
+            rig.scanned();
             rig.focus("Settings");
             rig.tap(&[Control::A]);
             rig.focus("Audio");
@@ -348,28 +349,66 @@ fn modes_at_31_khz(dir: &std::path::Path) -> Vec<Modeline> {
     panic!("the engine tries more than 16 modes: {modes:?}");
 }
 
+/// A frontend that dies before a good picture, with no clean exit, counts
+/// a failed boot; the third boot after two of them starts in safe mode.
 #[test]
 #[ignore = "tier 2"]
-fn reboots_of_boots_with_no_valid_mode_still_reach_safe_mode() {
+fn crashes_before_a_good_picture_reach_safe_mode() {
     in_child(
         &test_name(
             module_path!(),
-            "reboots_of_boots_with_no_valid_mode_still_reach_safe_mode",
+            "crashes_before_a_good_picture_reach_safe_mode",
         ),
         |dir| {
             let mut rig = with_monitor_31(dir);
-            // The first boot keeps the 31 kHz monitor; then the driver
-            // refuses every mode of it, so each later boot gives no picture
-            // with the last known good, and the guard holds it failed.
             rig.boot(None);
             rig.frames(2);
             rig.keep();
             assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
             rig.finish();
+            for crash in 0..SAFE_MODE_FAILED_BOOTS {
+                rig.boot(None);
+                rig.frames(2);
+                assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+                // The run dies: no `finish`, so no clean exit.
+                rig.shell = None;
+                assert!(
+                    rig.state_file("video/guard.toml")
+                        .contains(&format!("failed_boots = {crash}")),
+                    "crash {crash}: {}",
+                    rig.state_file("video/guard.toml")
+                );
+            }
+            rig.boot(None);
+            assert_eq!(
+                rig.shell().guard().phase(),
+                Phase::Safe(SafeReason::FailedBoots)
+            );
+            rig.finish();
+        },
+    );
+}
+
+/// A reboot is a clean exit: boots whose picture the driver refuses, and
+/// that the player reboots, never count toward safe mode.
+#[test]
+#[ignore = "tier 2"]
+fn reboots_of_boots_with_no_valid_mode_count_no_failed_boot() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "reboots_of_boots_with_no_valid_mode_count_no_failed_boot",
+        ),
+        |dir| {
+            let mut rig = with_monitor_31(dir);
+            rig.boot(None);
+            rig.frames(2);
+            rig.keep();
+            rig.finish();
             for mode in modes_at_31_khz(&dir.join("discover")) {
                 rig.display.fault_requested_mode(mode, refused());
             }
-            for boot in 1..=SAFE_MODE_FAILED_BOOTS {
+            for boot in 0..=SAFE_MODE_FAILED_BOOTS {
                 rig.boot(None);
                 rig.until(300, "the safe default", |r| {
                     r.shell().guard().phase() == Phase::Safe(SafeReason::NoValidMode)
@@ -381,17 +420,11 @@ fn reboots_of_boots_with_no_valid_mode_still_reach_safe_mode() {
                 rig.finish();
                 assert!(
                     rig.state_file("video/guard.toml")
-                        .contains(&format!("failed_boots = {boot}")),
-                    "boot {boot}: the failed boot stays counted: {}",
+                        .contains("failed_boots = 0"),
+                    "boot {boot}: {}",
                     rig.state_file("video/guard.toml")
                 );
             }
-            rig.boot(None);
-            assert_eq!(
-                rig.shell().guard().phase(),
-                Phase::Safe(SafeReason::FailedBoots)
-            );
-            rig.finish();
         },
     );
 }

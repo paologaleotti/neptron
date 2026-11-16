@@ -22,7 +22,7 @@ pub struct Guard {
     /// The safe default for the detected output.
     safe: DisplayConfig,
     record: GuardRecord,
-    /// The boot reached a confirmed picture.
+    /// The run reached a good picture, or the user kept a configuration.
     boot_good: bool,
     last_prompt: u32,
     /// The latest time any call gave. The guard never uses an earlier one.
@@ -61,8 +61,8 @@ pub struct PromptId(pub u32);
 /// Why the safe default is on the engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SafeReason {
-    /// [`SAFE_MODE_FAILED_BOOTS`] boots in a row reached no confirmed
-    /// picture.
+    /// [`SAFE_MODE_FAILED_BOOTS`] runs in a row ended abnormally before a
+    /// good picture.
     FailedBoots,
     /// The user held the blind recovery combination, in this boot or in an
     /// earlier one that confirmed nothing since.
@@ -118,7 +118,8 @@ pub enum GuardEvent {
     /// The safe default is on the engine. Close any dialog. For
     /// [`SafeReason::Recovery`], play the audio cue.
     SafeMode(SafeReason),
-    /// The boot reached a confirmed picture.
+    /// The run reached a good picture: a settled picture of the confirmed
+    /// configuration or of the safe default for [`GOOD_BOOT_PICTURE_NS`].
     GoodBoot,
 }
 
@@ -220,13 +221,13 @@ impl Guard {
     /// `record` is what the last boot saved. `wanted` is the configuration
     /// of the user settings. `safe` is the safe default for the detected
     /// output. `trusted` says that the app trusts the monitor of `wanted`
-    /// by the class of the display. The boot counts as failed until it
-    /// reaches a confirmed picture, so the returned step always saves the
-    /// record with one more failed boot; the app writes it before it sets
-    /// the first mode.
+    /// by the class of the display. The boot sets the run marker
+    /// ([`GuardRecord::run_open`]), and a marker that the run before left
+    /// set counts one failed boot. The returned step always saves the
+    /// record; the app writes it before it sets the first mode.
     ///
-    /// - [`SAFE_MODE_FAILED_BOOTS`] failed boots before this one, or a
-    ///   record in safe mode: the safe default.
+    /// - [`SAFE_MODE_FAILED_BOOTS`] failed boots, or a record in safe
+    ///   mode: the safe default.
     /// - The monitor of `wanted` is known: the monitor of the safe
     ///   default, a trusted monitor, or the last known good. `wanted`,
     ///   confirmed, with no prompt.
@@ -251,6 +252,8 @@ impl Guard {
     /// So a `wanted` that is not known gives the revert target at once,
     /// with no event: the last known good monitor with the wanted
     /// settings, confirmed, or the safe default (`Safe(NothingConfirmed)`).
+    /// It counts no boot and leaves the run marker as it is; the step
+    /// saves the record only when it changed.
     pub fn continue_boot<D: Display>(
         record: GuardRecord,
         wanted: DisplayConfig,
@@ -279,7 +282,8 @@ impl Guard {
         engine: &mut VideoEngine<D>,
         start: Start,
     ) -> (Self, GuardStep) {
-        let failed_before = record.failed_boots;
+        let new_boot = start == Start::Boot;
+        let before = record.clone();
         let known = trusted
             || wanted.monitor == safe.monitor
             || record.last_known_good.as_ref() == Some(&wanted.monitor);
@@ -294,8 +298,13 @@ impl Guard {
             picture_since_ns: None,
             no_picture_since_ns: None,
         };
-        guard.record.failed_boots = failed_before.saturating_add(1);
-        let event = if failed_before >= SAFE_MODE_FAILED_BOOTS {
+        if new_boot {
+            if guard.record.run_open {
+                guard.record.failed_boots = guard.record.failed_boots.saturating_add(1);
+            }
+            guard.record.run_open = true;
+        }
+        let event = if guard.record.failed_boots >= SAFE_MODE_FAILED_BOOTS {
             Some(guard.enter_safe(SafeReason::FailedBoots, engine))
         } else if guard.record.safe_mode {
             Some(guard.enter_safe(SafeReason::Recovery, engine))
@@ -310,7 +319,7 @@ impl Guard {
                 }),
                 None => Fallback::Safe(SafeReason::NothingConfirmed),
             };
-            if start == Start::Boot {
+            if new_boot {
                 let chain = Chain {
                     since_ns: now_ns,
                     from_settings: true,
@@ -329,7 +338,7 @@ impl Guard {
                 None
             }
         };
-        let save = Some(guard.record.clone());
+        let save = (new_boot || guard.record != before).then(|| guard.record.clone());
         (guard, GuardStep { event, save })
     }
 
@@ -365,7 +374,7 @@ impl Guard {
         &self.record
     }
 
-    /// The boot reached a confirmed picture.
+    /// The run reached a good picture, or the user kept a configuration.
     pub fn boot_good(&self) -> bool {
         self.boot_good
     }
@@ -464,6 +473,7 @@ impl Guard {
             last_known_good: Some(self.active.monitor.clone()),
             failed_boots: 0,
             safe_mode: false,
+            run_open: false,
         };
         Ok(GuardStep {
             event: Some(GuardEvent::Confirmed),
@@ -524,8 +534,11 @@ impl Guard {
     ///   than a time the guard has seen.
     /// - The confirmed configuration that gives no valid picture for
     ///   [`NO_PICTURE_LIMIT_NS`] gives way to the safe default.
-    /// - The confirmed configuration that shows a picture for
-    ///   [`GOOD_BOOT_PICTURE_NS`] makes the boot good.
+    /// - The confirmed configuration or the safe default that shows a
+    ///   settled picture for [`GOOD_BOOT_PICTURE_NS`] makes the run good:
+    ///   the run marker clears, and outside safe mode the failed boots go
+    ///   to 0. In safe mode they stay, so the next boot is in safe mode
+    ///   for the same reason.
     pub fn tick<D: Display>(&mut self, now_ns: u64, engine: &mut VideoEngine<D>) -> GuardStep {
         let (now_ns, went_back) = self.clock(now_ns);
         let health = Health::of(engine);
@@ -566,15 +579,30 @@ impl Guard {
             State::Confirmed if no_picture => {
                 GuardStep::event(self.enter_safe(SafeReason::NoValidMode, engine))
             }
-            State::Confirmed
+            State::Confirmed | State::Safe(_)
                 if !self.boot_good && picture_ns.is_some_and(|ns| ns >= GOOD_BOOT_PICTURE_NS) =>
             {
                 let before = self.record.clone();
                 self.boot_good = true;
-                self.record.failed_boots = 0;
+                self.record.run_open = false;
+                if !self.record.safe_mode {
+                    self.record.failed_boots = 0;
+                }
                 self.finish(GuardEvent::GoodBoot, &before)
             }
             _ => GuardStep::default(),
+        }
+    }
+
+    /// The run ends cleanly: a relaunch, a quit, a reboot or a power-off.
+    /// The run marker clears, so the next boot counts no failed boot. The
+    /// step saves the record when it changed.
+    pub fn close_run(&mut self) -> GuardStep {
+        let before = self.record.clone();
+        self.record.run_open = false;
+        GuardStep {
+            event: None,
+            save: (self.record != before).then(|| self.record.clone()),
         }
     }
 

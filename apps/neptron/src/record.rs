@@ -79,12 +79,18 @@ struct RecordFile {
     version: u32,
     failed_boots: u32,
     safe_mode: bool,
+    /// A file with no `run_open` has no run marker set; a build that does
+    /// not know the field ignores it.
+    #[serde(default)]
+    run_open: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_known_good: Option<MonitorRef>,
-    /// Added after version 1 was written; optional, so older files read.
+    /// The connector of the last known good; a file with none has no
+    /// place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     output: Option<String>,
-    /// Added after `output`; optional, so older files read.
+    /// The monitor identity of the last known good; a file with none has
+    /// no place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     monitor: Option<String>,
 }
@@ -109,6 +115,7 @@ pub fn encode(record: &GuardRecord, place: Option<&Place>) -> String {
         version: RECORD_VERSION,
         failed_boots: record.failed_boots,
         safe_mode: record.safe_mode,
+        run_open: record.run_open,
         last_known_good: record.last_known_good.as_ref().map(MonitorRef::of),
         output: place.map(|p| p.output.clone()),
         monitor: place.map(|p| p.monitor.clone()),
@@ -139,6 +146,7 @@ pub fn decode(
             last_known_good: file.last_known_good.as_ref().and_then(rebuild),
             failed_boots: file.failed_boots,
             safe_mode: file.safe_mode,
+            run_open: file.run_open,
         },
         output: file.output,
         monitor: file.monitor,
@@ -193,17 +201,6 @@ pub fn for_place(stored: Stored, place: &Place) -> GuardRecord {
     record
 }
 
-/// The record for a run that continues the boot of the run before it: a
-/// planned relaunch into a game or back to the game list. `Guard::boot`
-/// counts one failed boot for each start, and the run before has already
-/// counted this boot, so this gives that count back. A crash, a power
-/// cut or a restart of the launcher gives no relaunch file, and then the
-/// start counts.
-pub fn for_continued_boot(mut record: GuardRecord) -> GuardRecord {
-    record.failed_boots = record.failed_boots.saturating_sub(1);
-    record
-}
-
 #[cfg(test)]
 mod tests {
     use neptron_types::{MonitorKind, MonitorProfile};
@@ -237,6 +234,7 @@ mod tests {
             last_known_good: Some(profile("pc_31_120")),
             failed_boots: 1,
             safe_mode: true,
+            run_open: true,
         };
         let text = encode(&record, Some(&place("VGA-1", "none")));
         assert!(text.contains("kind = \"profile\""), "{text}");
@@ -252,6 +250,7 @@ mod tests {
             last_known_good: Some(profile("gone")),
             failed_boots: 0,
             safe_mode: false,
+            run_open: false,
         };
         let back = decode(&encode(&record, None), rebuild).expect("decode");
         assert_eq!(back.record.last_known_good, None);
@@ -279,10 +278,9 @@ mod tests {
     #[test]
     fn a_later_field_is_ignored() {
         let text = "version = 1\nfailed_boots = 2\nsafe_mode = false\nnew_field = 3\n";
-        assert_eq!(
-            decode(text, rebuild).expect("decode").record.failed_boots,
-            2
-        );
+        let stored = decode(text, rebuild).expect("decode");
+        assert_eq!(stored.record.failed_boots, 2);
+        assert!(!stored.record.run_open, "a file before the run marker");
     }
 
     #[test]
@@ -298,6 +296,7 @@ mod tests {
                 last_known_good: Some(profile("pc_31_120")),
                 failed_boots: 1,
                 safe_mode: false,
+                run_open: false,
             },
             output: output.map(str::to_owned),
             monitor: monitor.map(str::to_owned),
@@ -329,18 +328,5 @@ mod tests {
             None,
             "a file from before the monitor field"
         );
-    }
-
-    #[test]
-    fn a_continued_boot_gives_back_its_count() {
-        let record = GuardRecord {
-            last_known_good: None,
-            failed_boots: 1,
-            safe_mode: true,
-        };
-        let continued = for_continued_boot(record);
-        assert_eq!(continued.failed_boots, 0);
-        assert!(continued.safe_mode);
-        assert_eq!(for_continued_boot(GuardRecord::default()).failed_boots, 0);
     }
 }

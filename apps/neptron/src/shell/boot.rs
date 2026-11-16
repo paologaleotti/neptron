@@ -107,14 +107,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             output: runtime.output.clone(),
             monitor: detected.identity(),
         };
-        let (record, record_place) = load_record(
-            &paths,
-            &detected,
-            &presets,
-            &here,
-            next.is_some(),
-            &mut found,
-        );
+        let (record, record_place) = load_record(&paths, &detected, &presets, &here, &mut found);
         let setting = config.monitor();
         let safe = detected.safe(&presets, &setting)?;
         let trusted = detected.trusts(&setting);
@@ -392,7 +385,6 @@ fn load_record(
     detected: &Detected,
     presets: &Presets,
     here: &record::Place,
-    continued: bool,
     found: &mut Found,
 ) -> (GuardRecord, Option<record::Place>) {
     let stored = record::load(&paths.guard_record(), |r| detected.rebuild(presets, r))
@@ -401,13 +393,7 @@ fn load_record(
             record::Stored::default()
         });
     let kept = record::confirmed_at(&stored, here).then(|| here.clone());
-    let record = record::for_place(stored, here);
-    let record = if continued {
-        record::for_continued_boot(record)
-    } else {
-        record
-    };
-    (record, kept)
+    (record::for_place(stored, here), kept)
 }
 
 fn load_theme(path: &Path, found: &mut Found) -> Theme {

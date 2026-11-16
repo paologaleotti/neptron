@@ -345,8 +345,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     }
 
     /// Ends the run off the frame loop: every queued write reaches its
-    /// file. Returns the writes that failed.
-    pub fn finish(self) -> Vec<String> {
+    /// file. Returns the writes that failed. The end is clean, so the
+    /// guard record clears its run marker first.
+    pub fn finish(mut self) -> Vec<String> {
+        if let Some(record) = self.guard.close_run().save {
+            self.outbox.send(crate::outbox::Job::Record {
+                record,
+                place: self.record_place.clone(),
+            });
+        }
         let Self { stage, outbox, .. } = self;
         let mut messages = Vec::new();
         if let Stage::Game(game) = stage {

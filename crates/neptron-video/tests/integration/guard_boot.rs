@@ -62,9 +62,10 @@ fn a_boot_on_the_last_known_good_needs_no_confirmation() {
     assert_eq!(
         rig.saves.len(),
         1,
-        "the boot is counted before the first mode"
+        "the run marker is saved before the first mode"
     );
-    assert_eq!(rig.saves[0].failed_boots, 1);
+    assert_eq!(rig.saves[0].failed_boots, 0);
+    assert!(rig.saves[0].run_open);
     rig.frame();
     assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
 }
@@ -91,13 +92,15 @@ fn two_failed_boots_start_the_third_in_safe_mode() {
     let wanted = crt_31();
     let safe = crt_15();
     let mut record = confirmed(pc_31_120());
-    for boot in 1..=SAFE_MODE_FAILED_BOOTS {
-        // The frontend dies before the picture is stable.
+    for boot in 0..SAFE_MODE_FAILED_BOOTS {
+        // The frontend dies before the picture is good, with no clean
+        // exit: the next boot finds the run marker set.
         let mut rig = GuardRig::boot(record, wanted.clone(), safe.clone());
         rig.run_for(GOOD_BOOT_PICTURE_NS / 2);
         assert_eq!(rig.guard.phase(), Phase::Confirmed);
         record = rig.saves.last().unwrap().clone();
-        assert_eq!(record.failed_boots, boot);
+        assert!(record.run_open);
+        assert_eq!(record.failed_boots, boot, "the run before counts");
     }
 
     let mut rig = GuardRig::boot(record, wanted, safe.clone());
@@ -115,10 +118,59 @@ fn two_failed_boots_start_the_third_in_safe_mode() {
     );
     rig.run_for(2 * GOOD_BOOT_PICTURE_NS);
     assert_eq!(rig.wire(), Some(mode_of(&safe)));
-    assert!(
-        !rig.guard.boot_good(),
-        "safe mode is not a confirmed picture"
+    assert!(rig.guard.boot_good(), "a safe picture is a good run");
+    let saved = rig.saves.last().unwrap();
+    assert!(!saved.run_open);
+    assert_eq!(
+        saved.failed_boots, SAFE_MODE_FAILED_BOOTS,
+        "safe mode keeps its count, so the next boot is in it too"
     );
+}
+
+#[test]
+fn clean_restarts_count_no_failed_boot() {
+    let mut record = confirmed(pc_31_120());
+    for restart in 0..5 {
+        let mut rig = GuardRig::boot(record, crt_31(), crt_15());
+        assert_eq!(rig.guard.phase(), Phase::Confirmed, "restart {restart}");
+        // A relaunch, a quit or a reboot before the picture is good.
+        rig.run_for(GOOD_BOOT_PICTURE_NS / 3);
+        let step = rig.guard.close_run();
+        rig.take(step);
+        record = rig.saves.last().unwrap().clone();
+        assert!(!record.run_open, "restart {restart}");
+        assert_eq!(record.failed_boots, 0, "restart {restart}");
+    }
+    let mut rig = GuardRig::boot(record, crt_31(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    rig.run_for(GOOD_BOOT_PICTURE_NS + FRAME_NS);
+    let saves = rig.saves.len();
+    let step = rig.guard.close_run();
+    assert_eq!(
+        step,
+        Default::default(),
+        "a good run has no marker to clear"
+    );
+    rig.take(step);
+    assert_eq!(rig.saves.len(), saves);
+}
+
+#[test]
+fn a_safe_state_with_a_picture_makes_the_run_good() {
+    let record = GuardRecord {
+        safe_mode: true,
+        failed_boots: 1,
+        run_open: true,
+        ..GuardRecord::default()
+    };
+    let mut rig = GuardRig::boot(record, crt_31(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::FailedBoots));
+    rig.run_for(GOOD_BOOT_PICTURE_NS + FRAME_NS);
+    assert!(rig.guard.boot_good());
+    assert!(rig.event_list().contains(&GuardEvent::GoodBoot));
+    let saved = rig.saves.last().unwrap();
+    assert!(!saved.run_open);
+    assert!(saved.safe_mode, "only a kept configuration ends safe mode");
 }
 
 #[test]
@@ -315,7 +367,7 @@ fn a_continued_boot_never_prompts_and_starts_on_what_was_kept() {
     assert_eq!(rig.guard.active().monitor, pc_31_120());
     rig.frame();
     assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
-    assert_eq!(rig.saves.len(), 1, "the boot is counted as by boot");
+    assert_eq!(rig.saves, [], "a continued boot counts no boot");
 }
 
 #[test]
@@ -325,8 +377,12 @@ fn a_continued_boot_with_nothing_kept_starts_in_the_safe_default() {
     assert_eq!(rig.event_list(), []);
     rig.run_for(CONFIRM_WINDOW_NS);
     assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
-    assert_eq!(rig.event_list(), [], "no prompt, no revert");
-    assert!(!rig.saves.last().unwrap().safe_mode);
+    assert_eq!(
+        rig.event_list(),
+        [GuardEvent::GoodBoot],
+        "no prompt, no revert"
+    );
+    assert!(rig.saves.iter().all(|r| !r.safe_mode));
 }
 
 #[test]

@@ -6,8 +6,8 @@
 use neptron_testkit::{DisplayOptions, FakeDisplay, SimClock};
 use neptron_types::{Modeline, TV_525_240P, TV_625_288P, TvStandard};
 use neptron_video::{
-    CONFIRM_WINDOW_NS, DisplayConfig, Guard, GuardEvent, GuardRecord, Monitor, Phase,
-    PolicySettings, RevertReason, SafeReason, VideoEngine,
+    CONFIRM_WINDOW_NS, DisplayConfig, GOOD_BOOT_PICTURE_NS, Guard, GuardEvent, GuardRecord,
+    Monitor, Phase, PolicySettings, RevertReason, SafeReason, VideoEngine,
 };
 
 use crate::guard_rig::{FRAME_NS, reverted};
@@ -197,5 +197,26 @@ fn a_first_boot_on_a_tv_opens_no_prompt_for_any_standard() {
         rig.run_for(CONFIRM_WINDOW_NS + 2 * FRAME_NS);
         assert_eq!(rig.wire().1, standard, "nothing reverts");
         rig.assert_only_tv_modes();
+    }
+}
+
+#[test]
+fn power_cuts_on_a_kept_or_trusted_tv_never_reach_safe_mode() {
+    for first in [GuardRecord::default(), confirmed(TvStandard::Pal)] {
+        let mut record = first;
+        for cut in 0..5 {
+            let wanted = match &record.last_known_good {
+                Some(_) => tv(TvStandard::Pal),
+                None => tv(TvStandard::Ntsc),
+            };
+            let mut rig = TvRig::boot(record, wanted);
+            assert_eq!(rig.guard.phase(), Phase::Confirmed, "power-on {cut}");
+            rig.run_for(GOOD_BOOT_PICTURE_NS + 2 * FRAME_NS);
+            assert!(rig.guard.boot_good(), "power-on {cut}");
+            // The power goes off: no clean exit, the last save stays.
+            record = rig.saves.last().expect("a save").clone();
+            assert!(!record.run_open, "power-on {cut}");
+            assert_eq!(record.failed_boots, 0, "power-on {cut}");
+        }
     }
 }
