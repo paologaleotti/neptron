@@ -1858,3 +1858,29 @@ fn a_rate_with_no_window_takes_the_exact_rung_at_the_nearest_rate_that_has_one()
             .all(|c| c.target.kind != RefreshKind::Nearest)
     );
 }
+
+#[test]
+fn a_console_takes_double_refresh_only_below_every_range() {
+    let caps = open_caps();
+    let won = |source: SourceGeometry, profile: &MonitorProfile| {
+        let plan = decide(&source, &PolicySettings::default(), profile, &caps).unwrap();
+        let (considered, p) = winner(&plan, profile, &caps);
+        (
+            considered.target.kind,
+            p.timing.repeat(),
+            p.timing.field_rate_mhz,
+        )
+    };
+    // Mega Drive PAL, 49.701 Hz, on a 50 to 160 Hz tube: no range covers
+    // it, 99.402 Hz shows each frame twice at its own speed.
+    let (kind, repeat, field) = won(source(320, 240, 49_701), &pc_crt_30_71());
+    assert_eq!((kind, repeat), (RefreshKind::NativeDouble, 2));
+    assert!(field.abs_diff(99_402) < REFRESH_MATCH_MHZ);
+    // A 15 kHz tube covers 49.701 Hz: the game's own rate, once per frame.
+    let (kind, repeat, field) = won(source(320, 240, 49_701), &preset("generic_15"));
+    assert_eq!((kind, repeat), (RefreshKind::Exact, 1));
+    assert!(field.abs_diff(49_701) < REFRESH_MATCH_MHZ);
+    // A PAL set at 50 Hz covers a 50 Hz game: no change.
+    let (kind, repeat, _) = won(source(256, 240, 50_000), &preset("pal"));
+    assert_eq!((kind, repeat), (RefreshKind::Exact, 1));
+}

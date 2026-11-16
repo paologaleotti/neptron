@@ -78,8 +78,7 @@ pub struct PolicySettings {
     pub panel_scanlines: bool,
     /// The source is an arcade board (the systems `arcade` and `neogeo`).
     /// A board fills its monitor, so on a TV it gets the width of its
-    /// aspect; and a board below every range of a CRT shows each frame
-    /// twice at twice its rate, so it keeps its speed.
+    /// aspect.
     pub arcade: bool,
 }
 

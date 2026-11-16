@@ -103,7 +103,7 @@
 "md_ntsc_h40 pc_31_120" = "2x exact 320x448p 31.459kHz 59.923Hz game 320x448+0+0 nearest"
 "md_pal_h40 arcade_15" = "native exact 320x240p 15.655kHz 49.701Hz game 320x240+0+0 nearest"
 "md_pal_h40 arcade_31" = "2x exact 320x480p 31.410kHz 49.701Hz game 320x480+0+0 nearest"
-"md_pal_h40 edid_npt_0071" = "2x nearest in range 320x480p 30.000kHz 50.000Hz game 320x480+0+0 nearest"
+"md_pal_h40 edid_npt_0071" = "native double refresh for native 320x240p 30.019kHz 99.402Hz game 320x240+0+0 nearest"
 "md_pal_h40 generic_15" = "native exact 320x240p 15.655kHz 49.701Hz game 320x240+0+0 nearest"
 "md_pal_h40 panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 1440x1080+240+0 sharp"
 "md_pal_h40 pc_31_120" = "2x nearest in range 320x480p 31.400kHz 50.000Hz game 320x480+0+0 nearest"

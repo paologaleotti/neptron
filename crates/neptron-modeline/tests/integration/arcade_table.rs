@@ -726,12 +726,11 @@ fn rule(
                 .iter()
                 .any(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz)
         };
-        // Double refresh below every range is for an arcade board only; a
-        // console takes the nearest rate.
-        if covered(game) && traded_for_window(plan, p, profile, caps) {
+        if traded_for_window(plan, p, profile, caps) {
             return "ok: no window at the game's rate";
         }
-        if covered(game) || (board.arcade && covered(2 * game)) {
+        // Below every range, twice the rate keeps the speed.
+        if covered(game) || covered(2 * game) {
             return "rate";
         }
         // A board below every range takes each frame twice at the rate
@@ -746,7 +745,7 @@ fn rule(
         let error = |shown: u64, wanted: u64| shown.abs_diff(wanted) * 1_000_000 / wanted.max(1);
         let won = error(p.timing.field_rate_mhz, game * u64::from(p.timing.repeat()));
         let best = error(nearest(game), game).min(error(nearest(2 * game), 2 * game));
-        if board.arcade && won > best + 5_000 {
+        if won > best + 5_000 {
             return "rate";
         }
     }
@@ -1208,11 +1207,24 @@ pub fn traded_for_window(
     let better_fit = plan.proposals().any(|(_, c, q)| {
         c.rung.is_fitted() && speed(q) + 5 <= speed(p) && validate(&q.mode, profile, caps).is_ok()
     });
-    // No exact mode at the game's rate validates.
-    let exact_at_rate = plan.proposals().any(|(_, c, q)| {
+    // The rate the walk aims for first: the game's own, or the nearest
+    // covered one. No exact mode there validates.
+    let base = plan
+        .considered
+        .iter()
+        .filter(|c| matches!(c.target.kind, RefreshKind::Exact | RefreshKind::Nearest))
+        .filter(|c| c.target.repeat == 1)
+        .map(|c| c.target.rate_mhz)
+        .max()
+        .unwrap_or(0);
+    let exact_at_base = plan.proposals().any(|(_, c, q)| {
         !c.rung.is_fitted()
-            && c.target.kind == RefreshKind::Exact
+            && c.target.rate_mhz == base
+            && c.target.repeat == 1
             && validate(&q.mode, profile, caps).is_ok()
     });
-    p.timing.target.kind == RefreshKind::Nearest && !exact_at_rate && !better_fit
+    p.timing.target.kind == RefreshKind::Nearest
+        && p.timing.target.rate_mhz < base
+        && !exact_at_base
+        && !better_fit
 }

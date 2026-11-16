@@ -53,8 +53,7 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
     let (mut targets, skipped) =
         refresh_targets(crt.settings.refresh, crt.source.refresh_mhz, crt.ranges);
     let below =
-        below_ranges_double_target(crt.settings.refresh, crt.source.refresh_mhz, crt.ranges)
-            .filter(|_| crt.settings.arcade);
+        below_ranges_double_target(crt.settings.refresh, crt.source.refresh_mhz, crt.ranges);
     if let Some(double) = below {
         targets.insert(targets.len().saturating_sub(1), double);
     }

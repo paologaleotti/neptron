@@ -113,7 +113,8 @@ fn limits(profile: &MonitorProfile, lines: u32, rate: u32) -> Vec<bool> {
                 let rate = asked.clamp(r.v_min_mhz, r.v_max_mhz.max(r.v_min_mhz));
                 let cap = u32::from(r.progressive_lines_max).min(field_lines(r, rate));
                 let icap = u32::from(r.interlaced_lines_max).min(2 * field_lines(r, rate));
-                let cap2 = u32::from(r.progressive_lines_max).min(field_lines(r, 2 * rate));
+                let double_rate = (2 * asked).clamp(r.v_min_mhz, r.v_max_mhz.max(r.v_min_mhz));
+                let cap2 = u32::from(r.progressive_lines_max).min(field_lines(r, double_rate));
                 [
                     covers,
                     double,
@@ -126,6 +127,10 @@ fn limits(profile: &MonitorProfile, lines: u32, rate: u32) -> Vec<bool> {
                     lines >= u32::from(r.progressive_lines_min),
                     u32::from(r.progressive_lines_min) <= cap,
                     u32::from(r.interlaced_lines_min) <= icap,
+                    // The windows at twice the rate, for double refresh.
+                    u32::from(r.progressive_lines_min) <= cap2,
+                    u32::from(r.interlaced_lines_min)
+                        <= u32::from(r.interlaced_lines_max).min(2 * field_lines(r, double_rate)),
                     lines <= u32::from(r.interlaced_lines_min),
                 ]
             })
@@ -164,7 +169,7 @@ fn near_edge(profile: &MonitorProfile, rate: u32) -> bool {
 /// an exact mode that the test finds itself: a whole multiple of the lines,
 /// progressive, or interlaced 1:1, in one range alone, at the game's rate
 /// or the nearest covered one, at twice it or the nearest covered rate to
-/// twice it (each frame twice, for an arcade board), and at the highest
+/// twice it (each frame twice), and at the highest
 /// rate of each range that holds a window of lines; Switchres gives the
 /// mode and the validator takes it. `None` when no rate gives one.
 fn exact_speed(
@@ -172,7 +177,6 @@ fn exact_speed(
     (width, lines, aspect_milli): (u16, u16, u32),
     ranges: &[CrtRange],
     caps: &GpuCaps,
-    arcade: bool,
 ) -> Option<u64> {
     let game = u64::from(source.refresh_mhz);
     let nearest = |rate: u64| {
@@ -183,10 +187,7 @@ fn exact_speed(
             .unwrap_or(rate)
     };
     // (field rate, frames shown per game frame)
-    let mut rates = vec![(nearest(game), 1)];
-    if arcade {
-        rates.push((nearest(2 * game), 2));
-    }
+    let mut rates = vec![(nearest(game), 1), (nearest(2 * game), 2)];
     for r in ranges {
         let blank = (u128::from(r.v_front_porch_ns)
             + u128::from(r.v_sync_ns)
@@ -492,7 +493,7 @@ impl Sweep {
                 );
                 let fit_speed = (p.timing.field_rate_mhz / u64::from(p.timing.repeat().max(1)))
                     .abs_diff(u64::from(source.refresh_mhz));
-                let exact = exact_speed(source, shown, ranges, caps, self.settings.arcade);
+                let exact = exact_speed(source, shown, ranges, caps);
                 // An exact mode beats the fit when it changes the speed no
                 // more than the fit, within the 5 mHz match.
                 let beaten = exact.is_some_and(|e| e < fit_speed + REFRESH_MATCH_MHZ);

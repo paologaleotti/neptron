@@ -25,8 +25,8 @@ pub enum RefreshKind {
     Double,
     /// Twice the game's rate, which the policy takes on its own when the
     /// refresh policy did not ask for it: the `native` style where the
-    /// game's lines do not fit at its rate, and every style for an arcade
-    /// board below every range. Each game frame is shown twice, and the game
+    /// game's lines do not fit at its rate, and every style for a source
+    /// below every range. Each game frame is shown twice, and the game
     /// speed does not change. The notice says so.
     NativeDouble,
     /// `force_50`: the game speed changes by the ratio.
@@ -103,7 +103,7 @@ pub(crate) fn refresh_targets(
     (targets, skipped)
 }
 
-/// The extra target of an arcade board below every range: twice its rate,
+/// The extra target of a source below every range: twice its rate,
 /// each frame shown twice, so the board keeps its speed before the nearest
 /// rate changes it; when no range covers twice the rate, the covered rate
 /// nearest twice it, each frame twice, if that changes the speed less than
