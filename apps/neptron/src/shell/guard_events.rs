@@ -135,7 +135,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// stays: the monitor setting has no effect on a TV, and the next
     /// output may be no TV. A value of `display.tv` that already gives the
     /// standard, such as `auto` for NTSC, stays too.
-    fn rewrite_global(&mut self, config: &DisplayConfig) {
+    pub(super) fn rewrite_global(&mut self, config: &DisplayConfig) {
         let tv = tv_setting(&config.monitor);
         if let Some(key) = tv {
             let current = tv_standard(&self.config.tv()).map(|s| s.key());

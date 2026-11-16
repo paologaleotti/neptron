@@ -126,3 +126,59 @@ fn a_picture_style_in_safe_mode_opens_the_dialog() {
         },
     );
 }
+
+/// The picture on screen in safe mode can be kept from the Display panel,
+/// and keeping it ends safe mode for the next boots.
+#[test]
+#[ignore = "tier 2"]
+fn safe_mode_ends_when_the_picture_on_screen_is_kept() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "safe_mode_ends_when_the_picture_on_screen_is_kept",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            rig.boot(None);
+            rig.scanned();
+            rig.hold(&[Control::Select, Control::Start]);
+            rig.until(HOLD_FRAMES, "the recovery", |r| {
+                r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
+            });
+            rig.release(&[Control::Select, Control::Start]);
+            rig.frames(2);
+            while rig.screen() == "notice" {
+                rig.tap(&[Control::A]);
+            }
+            rig.focus("Settings");
+            rig.tap(&[Control::A]);
+            rig.focus("Display");
+            rig.tap(&[Control::A]);
+            rig.focus(neptron::pages::KEEP_PICTURE_LABEL);
+            rig.tap(&[Control::A]);
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            let labels: Vec<String> = rig
+                .shell()
+                .snapshot()
+                .settings
+                .rows
+                .iter()
+                .map(|r| r.label.clone())
+                .collect();
+            assert!(
+                !labels
+                    .iter()
+                    .any(|l| l == neptron::pages::KEEP_PICTURE_LABEL),
+                "the row goes with safe mode: {labels:?}"
+            );
+            rig.finish();
+            let record = rig.state_file("video/guard.toml");
+            assert!(record.contains("safe_mode = false"), "{record}");
+
+            rig.boot(None);
+            rig.frames(2);
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            rig.finish();
+        },
+    );
+}

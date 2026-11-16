@@ -133,7 +133,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             outputs: &self.runtime.audio_outputs,
         };
         self.snap.settings = match page {
-            DISPLAY_PAGE => pages::display_page(&self.config, names),
+            DISPLAY_PAGE => {
+                let mut page = pages::display_page(&self.config, names);
+                page.rows.extend(pages::safe_mode_rows(self.guard.phase()));
+                page
+            }
             LIBRARY_PAGE => pages::library_page(self.library.scanning(), self.in_game()),
             SYSTEM_PAGE => pages::system_page(
                 self.in_game(),

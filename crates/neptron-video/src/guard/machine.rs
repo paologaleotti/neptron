@@ -172,6 +172,13 @@ pub enum ConfirmError {
     /// mode.
     #[error("no frame has shown the change yet")]
     NotShown,
+    /// The picture on screen can be kept only in safe mode; outside it,
+    /// the user keeps a change through its prompt.
+    #[error("the guard is not in safe mode: {phase:?}")]
+    NotSafe {
+        /// Where the guard is.
+        phase: Phase,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -467,6 +474,12 @@ impl Guard {
         if self.picture_since_ns.is_none() {
             return Err(ConfirmError::NotShown);
         }
+        Ok(self.keep_active())
+    }
+
+    /// The configuration on the engine becomes the confirmed one and the
+    /// last known good; the run is good and safe mode ends.
+    fn keep_active(&mut self) -> GuardStep {
         self.state = State::Confirmed;
         self.boot_good = true;
         self.record = GuardRecord {
@@ -475,10 +488,92 @@ impl Guard {
             safe_mode: false,
             run_open: false,
         };
-        Ok(GuardStep {
+        GuardStep {
             event: Some(GuardEvent::Confirmed),
             save: Some(self.record.clone()),
-        })
+        }
+    }
+
+    /// The user keeps the picture on screen in safe mode: the safe default
+    /// becomes the confirmed configuration and the last known good, the
+    /// run counts as good, and safe mode ends. The app writes the safe
+    /// default to the settings, so the next boot starts on it.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfirmError::NotSafe`] outside safe mode, and
+    /// [`ConfirmError::NoPicture`] or [`ConfirmError::NotShown`] as for
+    /// [`Guard::confirm`]. The guard does not change.
+    pub fn keep_shown<D: Display>(
+        &mut self,
+        engine: &VideoEngine<D>,
+    ) -> Result<GuardStep, ConfirmError> {
+        if !matches!(self.state, State::Safe(_)) {
+            return Err(ConfirmError::NotSafe {
+                phase: self.phase(),
+            });
+        }
+        let health = Health::of(engine);
+        if !health.picture {
+            return Err(ConfirmError::NoPicture { health });
+        }
+        if self.picture_since_ns.is_none() {
+            return Err(ConfirmError::NotShown);
+        }
+        Ok(self.keep_active())
+    }
+
+    /// The user asks for the configuration of the settings again in safe
+    /// mode, after failed boots. Safe mode ends and the failed boots go to
+    /// 0. A known monitor of `wanted` (the safe default's, a trusted one
+    /// as `trusted` says, or the last known good) applies with no prompt;
+    /// any other opens a prompt as the boot prompt does, which reverts to
+    /// the last known good monitor or to the safe default. The run counts
+    /// again from here: the run marker is set and the run is not good, so
+    /// a hang on the settings counts as a failed boot, and a good picture
+    /// clears the marker. Outside `Safe(FailedBoots)` it does nothing.
+    pub fn retry_settings<D: Display>(
+        &mut self,
+        wanted: DisplayConfig,
+        trusted: bool,
+        now_ns: u64,
+        engine: &mut VideoEngine<D>,
+    ) -> GuardStep {
+        if !matches!(self.state, State::Safe(SafeReason::FailedBoots)) {
+            return GuardStep::default();
+        }
+        let (now_ns, _) = self.clock(now_ns);
+        let before = self.record.clone();
+        self.record.safe_mode = false;
+        self.record.failed_boots = 0;
+        self.record.run_open = true;
+        self.boot_good = false;
+        let known = trusted
+            || wanted.monitor == self.safe.monitor
+            || self.record.last_known_good.as_ref() == Some(&wanted.monitor);
+        let event = if known {
+            self.state = State::Confirmed;
+            self.active = wanted;
+            self.apply(engine);
+            None
+        } else {
+            let fallback = match self.record.last_known_good.clone() {
+                Some(monitor) => Fallback::Confirmed(DisplayConfig {
+                    monitor,
+                    settings: wanted.settings,
+                }),
+                None => Fallback::Safe(SafeReason::NothingConfirmed),
+            };
+            let chain = Chain {
+                since_ns: now_ns,
+                from_settings: true,
+            };
+            Some(self.open_prompt(wanted, fallback, chain, now_ns, engine))
+        };
+        GuardStep {
+            event,
+            save: (self.record != before).then(|| self.record.clone()),
+        }
     }
 
     /// The user reverts the pending change `id` at once.

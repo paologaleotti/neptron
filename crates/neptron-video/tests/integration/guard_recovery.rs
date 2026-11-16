@@ -130,3 +130,135 @@ fn recovery_after_device_errors_blocked_the_source() {
     assert_ne!(rig.wire(), Some(mode_of(&crt_15())));
     assert_recovers(&mut rig);
 }
+
+#[test]
+fn safe_mode_ends_when_the_picture_on_screen_is_kept() {
+    let mut rig = GuardRig::confirmed_on(crt_31(), crt_15());
+    rig.recover();
+    assert!(
+        rig.guard.keep_shown(&rig.engine).is_err(),
+        "no frame has shown the safe default yet"
+    );
+    rig.frame();
+    rig.frame();
+    let step = rig.guard.keep_shown(&rig.engine).expect("kept");
+    assert_eq!(step.event, Some(GuardEvent::Confirmed));
+    let saved = step.save.expect("a save");
+    assert!(!saved.safe_mode);
+    assert_eq!(saved.failed_boots, 0);
+    assert_eq!(saved.last_known_good, Some(crt_15().monitor));
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    assert_eq!(rig.guard.active(), &crt_15());
+    let next = GuardRig::boot(saved, crt_15(), crt_15());
+    assert_eq!(
+        next.guard.phase(),
+        Phase::Confirmed,
+        "no safe mode any more"
+    );
+    assert!(matches!(
+        rig.guard.keep_shown(&rig.engine),
+        Err(neptron_video::ConfirmError::NotSafe { .. })
+    ));
+}
+
+#[test]
+fn trying_the_settings_again_ends_safe_mode_and_asks_for_an_unknown_monitor() {
+    let record = GuardRecord {
+        failed_boots: neptron_video::SAFE_MODE_FAILED_BOOTS,
+        ..GuardRecord::default()
+    };
+    let mut rig = GuardRig::boot(record.clone(), crt_31(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::FailedBoots));
+    rig.frame();
+    let step = rig
+        .guard
+        .retry_settings(crt_31(), false, rig.now(), &mut rig.engine);
+    assert!(matches!(step.event, Some(GuardEvent::PromptOpened(_))));
+    let saved = step.save.clone().expect("a save");
+    assert!(!saved.safe_mode);
+    assert_eq!(saved.failed_boots, 0);
+    rig.take(step);
+    rig.run_past_deadline();
+    assert_eq!(
+        rig.guard.phase(),
+        Phase::Safe(SafeReason::NothingConfirmed),
+        "no answer: the safe default, outside safe mode"
+    );
+    assert!(!rig.guard.record().safe_mode);
+
+    // A trusted monitor applies with no prompt.
+    let mut rig = GuardRig::boot(record, crt_31(), crt_15());
+    let step = rig
+        .guard
+        .retry_settings(crt_31(), true, rig.now(), &mut rig.engine);
+    assert_eq!(step.event, None);
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    rig.frame();
+    assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
+}
+
+#[test]
+fn a_hang_after_trying_the_settings_again_still_counts() {
+    let mut record = GuardRecord {
+        failed_boots: neptron_video::SAFE_MODE_FAILED_BOOTS,
+        safe_mode: true,
+        ..GuardRecord::default()
+    };
+    let mut rig = GuardRig::boot(record.clone(), crt_31(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::FailedBoots));
+    rig.run_for(neptron_video::GOOD_BOOT_PICTURE_NS + FRAME_NS);
+    assert!(rig.guard.boot_good(), "the safe picture made the run good");
+    let step = rig
+        .guard
+        .retry_settings(crt_31(), true, rig.now(), &mut rig.engine);
+    let saved = step.save.clone().expect("a save");
+    assert!(
+        saved.run_open,
+        "the settings run counts until its picture is good"
+    );
+    assert!(!rig.guard.boot_good());
+    rig.take(step);
+    // The frontend hangs on the settings: no good picture, no clean exit.
+    record = rig.saves.last().unwrap().clone();
+    for hang in 1..neptron_video::SAFE_MODE_FAILED_BOOTS {
+        let mut rig = GuardRig::boot_with(record, crt_31(), crt_15(), true);
+        assert_eq!(rig.guard.phase(), Phase::Confirmed, "hang {hang}");
+        assert_eq!(rig.guard.record().failed_boots, hang);
+        rig.frame();
+        record = rig.saves.last().unwrap().clone();
+    }
+    let rig = GuardRig::boot_with(record, crt_31(), crt_15(), true);
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::FailedBoots));
+
+    // A good picture after the retry clears the marker.
+    let record = GuardRecord {
+        failed_boots: neptron_video::SAFE_MODE_FAILED_BOOTS,
+        safe_mode: true,
+        ..GuardRecord::default()
+    };
+    let mut rig = GuardRig::boot(record, crt_31(), crt_15());
+    let step = rig
+        .guard
+        .retry_settings(crt_31(), true, rig.now(), &mut rig.engine);
+    rig.take(step);
+    rig.run_for(neptron_video::GOOD_BOOT_PICTURE_NS + 2 * FRAME_NS);
+    assert!(rig.guard.boot_good());
+    assert!(!rig.saves.last().unwrap().run_open);
+}
+
+#[test]
+fn trying_the_settings_again_outside_failed_boots_changes_nothing() {
+    let record = GuardRecord {
+        safe_mode: true,
+        ..GuardRecord::default()
+    };
+    let mut rig = GuardRig::boot(record, crt_31(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::Recovery));
+    let before = rig.guard.record().clone();
+    let step = rig
+        .guard
+        .retry_settings(crt_31(), true, rig.now(), &mut rig.engine);
+    assert_eq!(step, Default::default());
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::Recovery));
+    assert_eq!(rig.guard.record(), &before);
+}

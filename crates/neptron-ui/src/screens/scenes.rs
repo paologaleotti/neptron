@@ -65,6 +65,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: display_style,
     },
     SceneDef {
+        name: "screens/display-safe-mode",
+        build: display_safe_mode,
+    },
+    SceneDef {
         name: "screens/display-tv",
         build: display_tv,
     },
@@ -525,6 +529,34 @@ fn display(frame: &mut UiFrame, theme: &Theme) {
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &TO_DISPLAY, frame);
     screens.update(&snap, &[UiAction::Down, UiAction::Down], frame);
+}
+
+/// The actions of the fixture rows that end safe mode.
+const KEEP_PICTURE: crate::snapshot::ActionId = crate::snapshot::ActionId(5);
+const TRY_SETTINGS: crate::snapshot::ActionId = crate::snapshot::ActionId(6);
+
+/// The display panel in safe mode after failed boots, as the app gives it:
+/// the rows that end safe mode at its end, with the focus on the first.
+fn display_safe_mode(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = with_display();
+    snap.display = Some(DisplayInfo::new("VGA-1", "320x240 59.94 Hz (safe mode)"));
+    snap.active_profile = Some(ProfileId(1));
+    snap.settings.rows.extend([
+        MenuItem::new(
+            SettingKey(0x0001_0009),
+            "Keep this picture",
+            SettingValue::Action(KEEP_PICTURE),
+        ),
+        MenuItem::new(
+            SettingKey(0x0001_000A),
+            "Try my settings again",
+            SettingValue::Action(TRY_SETTINGS),
+        ),
+    ]);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_DISPLAY, frame);
+    screens.update(&snap, &[UiAction::Down; 32], frame);
+    screens.update(&snap, &[UiAction::Up], frame);
 }
 
 fn display_style(frame: &mut UiFrame, theme: &Theme) {

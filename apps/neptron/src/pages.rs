@@ -17,6 +17,7 @@ use neptron_ui::snapshot::{
     ActionId, ChoiceOption, Level as UiLevel, MenuItem, PageId, Scopes, SettingKey, SettingValue,
     SettingsPage,
 };
+use neptron_video::{Phase, SafeReason};
 
 use crate::config::Config;
 use crate::display::{AUTO, Detected, FLAT};
@@ -50,6 +51,21 @@ pub const POWER_OFF: ActionId = ActionId(3);
 
 /// The action of the `Format share` row of the System panel.
 pub const FORMAT_SHARE: ActionId = ActionId(4);
+
+/// The action of the `Keep this picture` row of the Display panel in safe
+/// mode.
+pub const KEEP_PICTURE: ActionId = ActionId(5);
+
+/// The label of the row that keeps the picture on screen in safe mode.
+pub const KEEP_PICTURE_LABEL: &str = "Keep this picture";
+
+/// The action of the `Try my settings again` row of the Display panel in
+/// safe mode after failed boots.
+pub const TRY_SETTINGS: ActionId = ActionId(6);
+
+/// The label of the row that ends safe mode after failed boots and applies
+/// the settings again.
+pub const TRY_SETTINGS_LABEL: &str = "Try my settings again";
 
 /// The label of the row that asks for the format of the share partition.
 pub const FORMAT_SHARE_LABEL: &str = "Format share";
@@ -197,6 +213,20 @@ pub fn display_page(config: &Config, names: Names<'_>) -> SettingsPage {
         .collect();
     rows.push(page_row(0, "Grid pattern", GRID_PAGE));
     SettingsPage::new(DISPLAY_PAGE, "Display", rows)
+}
+
+/// The rows that end safe mode, at the end of the Display panel: `Keep
+/// this picture` in every safe state, and `Try my settings again` after
+/// failed boots. None outside safe mode.
+pub fn safe_mode_rows(phase: Phase) -> Vec<MenuItem> {
+    let Phase::Safe(reason) = phase else {
+        return Vec::new();
+    };
+    let mut rows = vec![action(9, KEEP_PICTURE_LABEL, KEEP_PICTURE)];
+    if reason == SafeReason::FailedBoots {
+        rows.push(action(10, TRY_SETTINGS_LABEL, TRY_SETTINGS));
+    }
+    rows
 }
 
 /// The rows of the audio panel.

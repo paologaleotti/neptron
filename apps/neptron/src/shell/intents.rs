@@ -70,6 +70,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             Intent::Action(pages::REBOOT) => self.request_power(PowerRequest::Reboot),
             Intent::Action(pages::POWER_OFF) => self.request_power(PowerRequest::PowerOff),
             Intent::Action(pages::FORMAT_SHARE) => self.request_share_format(),
+            Intent::Action(pages::KEEP_PICTURE) => self.keep_picture(now_ns),
+            Intent::Action(pages::TRY_SETTINGS) => self.try_settings(now_ns),
             Intent::Action(_) => {}
             Intent::SelectProfile(id) => {
                 let profile = self.presets.profiles().get(id.0 as usize);
@@ -267,6 +269,46 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
     }
 
+    /// The row `Keep this picture` in safe mode: the picture on screen
+    /// becomes the kept configuration, and the global settings name it, so
+    /// the next boot starts on it with no prompt.
+    fn keep_picture(&mut self, now_ns: u64) {
+        let result = match &self.stage {
+            Stage::List(list) => self.guard.keep_shown(&list.engine),
+            Stage::Game(game) => self.guard.keep_shown(game.session.video()),
+            Stage::Ended => return,
+        };
+        match result {
+            Ok(step) => {
+                self.on_guard(step, now_ns);
+                let kept = self.guard.active().clone();
+                self.rewrite_global(&kept);
+                self.reload_page();
+            }
+            Err(e) => self.log(format!("keep refused: {e}")),
+        }
+    }
+
+    /// The row `Try my settings again` after failed boots: safe mode ends,
+    /// and the configuration of the settings applies, under a prompt when
+    /// its monitor is not known.
+    fn try_settings(&mut self, now_ns: u64) {
+        let Some(config) = self.display_config() else {
+            self.notice(
+                NoticeKind::Error,
+                "The display setting does not map to a picture.".to_owned(),
+            );
+            return;
+        };
+        let trusted = self.detected.trusts(&self.config.monitor());
+        if let Some(step) =
+            self.with_engine(|guard, engine| guard.retry_settings(config, trusted, now_ns, engine))
+        {
+            self.on_guard(step, now_ns);
+        }
+        self.reload_page();
+    }
+
     /// Sets (`Some`) or unsets (`None`) a setting at a level. A setting with
     /// no effect on the signal is written at once and applied live. A
     /// picture style, refresh policy or TV width on a confirmed monitor is
@@ -336,7 +378,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             );
             return;
         };
-        if self.guard.pending().is_none() && &config == self.guard.active() {
+        // In safe mode the configuration on screen still waits for a Keep:
+        // keeping it ends safe mode.
+        if self.guard.phase() == Phase::Confirmed && &config == self.guard.active() {
             for change in std::mem::take(&mut self.pending) {
                 self.write_setting(change.level, change.key, change.new);
             }
