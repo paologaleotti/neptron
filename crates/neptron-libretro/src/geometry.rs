@@ -28,6 +28,10 @@ pub struct GameGeometry {
     pub max_height: u16,
     /// Display aspect ratio, width over height, in thousandths.
     pub aspect_milli: u32,
+    /// The core reported the aspect. `false` when the core gave 0 or less,
+    /// NaN or infinity, and the host used the base width over the base
+    /// height: the shape of the frame as the core draws it.
+    pub aspect_from_core: bool,
 }
 
 /// The frame rate and the audio sample rate of a core.
@@ -125,12 +129,14 @@ impl GameGeometry {
                 max_height: max_height.into(),
             });
         }
+        let (aspect_milli, aspect_from_core) = aspect_milli(aspect, base_width, base_height)?;
         Ok(Self {
             base_width,
             base_height,
             max_width,
             max_height,
-            aspect_milli: aspect_milli(aspect, base_width, base_height)?,
+            aspect_milli,
+            aspect_from_core,
         })
     }
 
@@ -192,19 +198,20 @@ fn check_size(width: u32, height: u32) -> Result<(u16, u16), GeometryError> {
     ))
 }
 
-fn aspect_milli(aspect: f32, width: u16, height: u16) -> Result<u32, GeometryError> {
+/// The aspect in thousandths, and whether the core gave it.
+fn aspect_milli(aspect: f32, width: u16, height: u16) -> Result<(u32, bool), GeometryError> {
     if !aspect.is_finite() || aspect <= 0.0 {
         let (w, h) = (u32::from(width), u32::from(height));
         // `h` is at least 1 and `w` at most 4096: no overflow. A very tall
         // frame rounds to 0, which the contract cannot use, so 1 is the floor.
-        return Ok(((w * 1000 + h / 2) / h).max(1));
+        return Ok((((w * 1000 + h / 2) / h).max(1), false));
     }
     let milli = (f64::from(aspect) * 1000.0).round();
     if milli < 1.0 || milli > f64::from(MAX_ASPECT_MILLI) {
         return Err(GeometryError::Aspect { aspect });
     }
     // In range, so the cast is exact.
-    Ok(milli as u32)
+    Ok((milli as u32, true))
 }
 
 fn millihertz(hz: f64, min: u32, max: u32) -> Option<u32> {
@@ -231,6 +238,7 @@ mod tests {
                 max_width: 320,
                 max_height: 240,
                 aspect_milli: 1333,
+                aspect_from_core: true,
             }
         );
     }
@@ -240,9 +248,23 @@ mod tests {
         for aspect in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             let g = GameGeometry::from_core(320, 240, 320, 240, aspect).unwrap();
             assert_eq!(g.aspect_milli, 1333, "aspect {aspect}");
+            assert!(!g.aspect_from_core, "aspect {aspect}");
         }
         let g = GameGeometry::from_core(1, 4096, 1, 4096, 0.0).unwrap();
         assert_eq!(g.aspect_milli, 1, "the floor is one thousandth");
+        assert!(!g.aspect_from_core);
+    }
+
+    /// A board drawn on its side: the core gives the aspect of the upright
+    /// picture, which differs from the shape of the frame.
+    #[test]
+    fn a_reported_aspect_is_marked_as_the_core_s() {
+        let g = GameGeometry::from_core(320, 240, 320, 240, 0.75).unwrap();
+        assert_eq!(g.aspect_milli, 750);
+        assert!(g.aspect_from_core);
+        let r = g.resized(320, 240, 0.0).unwrap();
+        assert_eq!(r.aspect_milli, 1333);
+        assert!(!r.aspect_from_core, "a resize reports its own origin");
     }
 
     #[test]

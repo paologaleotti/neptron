@@ -478,6 +478,7 @@ mod tests {
             max_width: 320,
             max_height: 240,
             aspect_milli: 1333,
+            aspect_from_core: true,
         };
         let out = s.output();
         assert_eq!(out.events.len(), 4);

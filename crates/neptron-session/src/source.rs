@@ -74,6 +74,7 @@ mod tests {
         max_width: 348,
         max_height: 240,
         aspect_milli: 1_306,
+        aspect_from_core: true,
     };
     const TIMING: Timing = Timing {
         fps_mhz: 59_923,

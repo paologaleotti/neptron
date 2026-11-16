@@ -93,7 +93,8 @@ pub enum Event {
 }
 
 pub struct GameGeometry { pub base_width: u16, pub base_height: u16,
-                          pub max_width: u16, pub max_height: u16, pub aspect_milli: u32 }
+                          pub max_width: u16, pub max_height: u16, pub aspect_milli: u32,
+                          pub aspect_from_core: bool }
 pub struct Timing { pub fps_mhz: u32, pub sample_rate_mhz: u32 }
 pub struct AvInfo { pub geometry: GameGeometry, pub timing: Timing }
 ```
@@ -202,6 +203,8 @@ The core gives floating-point values. The host converts each one time, with the 
 | `sample_rate` (`f64`) | finite, then `round(rate * 1000)` mHz | 1,000 to 384,000,000 mHz |
 
 The derived aspect is `round(base_width * 1000 / base_height)`, in integers.
+
+`GameGeometry::aspect_from_core` tells the two cases apart: `true` when the core reported an aspect above 0, `false` when the host used the derived aspect. The derived aspect is the shape of the frame as the core draws it. A reported aspect can be another shape: FinalBurn Neo reports the shape of the upright picture for a board that draws on its side. The session needs the difference for a turned source (`docs/spec/arcade.md`, section 11).
 
 The sample rate is in millihertz, not hertz, because cores report fractions (32,040.5 Hz for some SNES cores).
 

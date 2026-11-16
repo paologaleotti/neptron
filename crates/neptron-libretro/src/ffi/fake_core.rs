@@ -702,7 +702,8 @@ fn environment_answers() {
                 base_height: 240,
                 max_width: 320,
                 max_height: 240,
-                aspect_milli: 1333
+                aspect_milli: 1333,
+                aspect_from_core: false,
             }),
             Event::Shutdown,
         ]

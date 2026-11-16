@@ -156,6 +156,7 @@ fn a_scripted_run_matches_the_test_core() {
                 max_width: 320,
                 max_height: 240,
                 aspect_milli: 1333,
+                aspect_from_core: true,
             },
             timing: Timing {
                 fps_mhz: 60_000,
@@ -252,6 +253,7 @@ fn a_scripted_run_matches_the_test_core() {
             max_width: 512,
             max_height: 480,
             aspect_milli: 1333,
+            aspect_from_core: false,
         },
         timing: Timing {
             fps_mhz: 50_000,
@@ -269,6 +271,7 @@ fn a_scripted_run_matches_the_test_core() {
                     max_width: 320,
                     max_height: 240,
                     aspect_milli: 1333,
+                    aspect_from_core: true,
                 })
             ),
             (6, Event::AvInfo(pal)),

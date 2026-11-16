@@ -193,6 +193,7 @@ mod tests {
             max_width,
             max_height,
             aspect_milli: 1333,
+            aspect_from_core: true,
         }
     }
 

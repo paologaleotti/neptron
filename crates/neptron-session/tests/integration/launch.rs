@@ -61,6 +61,7 @@ fn without_the_settle_the_engine_sets_two_modes() {
         max_width: 348,
         max_height: 240,
         aspect_milli: 1_306,
+        aspect_from_core: true,
     };
     let timing = neptron_libretro::Timing {
         fps_mhz: 59_923,
