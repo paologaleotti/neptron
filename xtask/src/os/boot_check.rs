@@ -22,13 +22,15 @@ use super::{Arch, OsError, RunScript, transcript};
 use crate::load::LoadPolicy;
 use crate::repo::Repo;
 
-/// The screen that the check waits for. The image boots with nothing
-/// confirmed, so the guard opens the boot prompt over the game list,
-/// reverts to the safe default when nobody answers in 10 s, and shows a
-/// notice over the home screen of the game list run until the player
-/// presses OK. That picture has no timer, so the golden image is the same
-/// on every run.
-pub const GAME_LIST_SCREEN: &str = "notice";
+/// The screen that the check waits for: the home screen of the game list.
+/// `vkms` reports no EDID, so `display.monitor = auto` gives `generic_15`,
+/// which is also the safe default: the guard opens no boot prompt and
+/// shows no notice (ADR 0013). The home screen has no timer, so the golden
+/// image is the same on every run.
+pub const GAME_LIST_SCREEN: &str = "home";
+/// The screen of a notice: the check waits for it before it dismisses the
+/// notice of a RAM folder.
+pub const NOTICE_SCREEN: &str = "notice";
 /// The golden image of the game list, relative to the checkout.
 pub const GOLDEN: &str = "os/tests/golden/boot-game-list.ppm";
 /// The marker line before the picture.
@@ -38,7 +40,7 @@ pub const CAPTURE_BEGIN: &str = "NEPTRON-CAPTURE-BEGIN";
 pub const CAPTURE_END: &str = "NEPTRON-CAPTURE-END";
 /// What `neptron-capture` prints, then the uptime, when the screen is on
 /// show.
-pub const SCREEN_LINE: &str = "screen notice uptime ";
+pub const SCREEN_LINE: &str = "screen home uptime ";
 /// What `neptron-capture` prints, then the uptime, at the first frame.
 pub const FIRST_FRAME_LINE: &str = "frame 1 uptime ";
 /// The disk image of the x86-64 target in the images directory.
@@ -144,10 +146,10 @@ impl BootCheckArgs {
 /// screen itself before the guest deadline kills it. When it fails, the
 /// script asks the frontend what it shows, for the console log.
 ///
-/// The disks of the check have RAM folders, and the frontend shows a
-/// notice for each one before the notice of the golden picture. The check
-/// states what it expects ([`expected_storage`]): another storage, or a
-/// missing notice, fails it.
+/// A disk of the check can have RAM folders, and the frontend then shows a
+/// notice for each one over the game list. The check states what it
+/// expects ([`expected_storage`]): another storage, or a missing notice,
+/// fails it. After the notices the game list shows with nothing over it.
 ///
 /// The script starts with the launcher, before the frontend, so it first
 /// waits for the control socket and the storage status. One deadline
@@ -201,7 +203,7 @@ network_share() {
 	done
 }
 dismiss() {
-	neptronctl wait screen SCREEN --within-ms "$(left_ms)" > /dev/null || return 1
+	neptronctl wait screen NOTICE --within-ms "$(left_ms)" > /dev/null || return 1
 	neptronctl ui tree | grep -q "The $1 partition is not in use" || { echo "neptron-check: no notice for /$1"; return 1; }
 	neptronctl input send 0 a 1 > /dev/null && neptronctl input send 0 a 0 > /dev/null || return 1
 	n=0
@@ -210,7 +212,7 @@ dismiss() {
 		in_time "the notice for /$1 stays" || return 1
 	done
 }
-STEPSneptron-capture --screen SCREEN --timeout-ms "$(left_ms)" --settle-ms SETTLE && exit 0
+STEPSneptron-capture --screen GAME_LIST --timeout-ms "$(left_ms)" --settle-ms SETTLE && exit 0
 for command in 'ui tree' 'video state' 'session state' stats 'log tail 40'; do
 	echo "neptronctl $command:"; neptronctl $command
 done
@@ -220,7 +222,8 @@ exit 1
         .replace("WAIT_SECS", &wait_secs.to_string())
         .replace("SOCKET", CONTROL_SOCKET)
         .replace("STORAGE", STORAGE_STATUS)
-        .replace("SCREEN", GAME_LIST_SCREEN)
+        .replace("NOTICE", NOTICE_SCREEN)
+        .replace("GAME_LIST", GAME_LIST_SCREEN)
         .replace("POLLS", &DISMISS_POLLS.to_string())
         .replace("SETTLE", &SETTLE_MS.to_string())
         .replace("STEPS", &steps)
@@ -231,8 +234,8 @@ exit 1
 pub struct CheckOutput {
     /// Guest uptime when the frontend reported its first frame, in ms.
     pub first_frame_uptime_ms: Option<u64>,
-    /// Guest uptime when the frontend showed the first-boot notice over the
-    /// game list, in ms.
+    /// Guest uptime when the frontend showed the home screen of the game
+    /// list with nothing over it, in ms.
     pub screen_uptime_ms: Option<u64>,
     /// The picture, a binary PPM file.
     pub picture: Option<Vec<u8>>,
@@ -670,7 +673,7 @@ impl Report<'_> {
             ms(self.parsed.first_frame_uptime_ms)
         ));
         text.push_str(&format!(
-            "  first-boot notice on screen: {} after QEMU start, guest uptime {}\n",
+            "  game list on screen: {} after QEMU start, guest uptime {}\n",
             host(self.screen_host),
             ms(self.parsed.screen_uptime_ms)
         ));
@@ -907,7 +910,7 @@ mod tests {
         );
         assert!(
             script.contains(
-                "neptron-capture --screen notice --timeout-ms \"$(left_ms)\" --settle-ms 3000 && exit 0\n"
+                "neptron-capture --screen home --timeout-ms \"$(left_ms)\" --settle-ms 3000 && exit 0\n"
             ),
             "{script}"
         );
@@ -1013,7 +1016,7 @@ mod tests {
         let out = parse_output(&strings(&[
             "neptron: some log line",
             "ALSA lib pcm.c:8787:(snd_pcm_recover) [error.pcm] frame 1 uptime 9.87",
-            "screen notice uptime 12.34",
+            "screen home uptime 12.34",
             "mode 320x240 clock 6700 kHz",
             "NEPTRON-CAPTURE-BEGIN 1 1",
             "UDYKMSAx",
@@ -1199,9 +1202,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains(
-                "first-boot notice on screen: 61.005 s after QEMU start, guest uptime 5.250 s"
-            ),
+            text.contains("game list on screen: 61.005 s after QEMU start, guest uptime 5.250 s"),
             "{text}"
         );
         assert!(text.ends_with("boot-check x86_64-bios: PASS\n"), "{text}");
