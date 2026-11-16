@@ -807,7 +807,8 @@ fn panel_rule(plan: &Plan, p: &Proposal) -> &'static str {
     let d = p.placement.dest;
     let fills = d.h == u32::from(p.mode.vactive) || d.w == u32::from(p.mode.hactive);
     match scale {
-        s if s >= 4_000 && (whole || !fills) => "panel scale",
+        // A fill that is a whole multiple takes the whole path.
+        s if s >= 4_000 && !fills => "panel scale",
         s if (1_000..4_000).contains(&s) && !whole => "panel scale",
         _ => "ok",
     }

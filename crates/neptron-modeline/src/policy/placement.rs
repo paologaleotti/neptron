@@ -152,11 +152,14 @@ pub(crate) fn panel_placement(
 ) -> Placement {
     let largest = mode.vactive / source.height;
     let fills = fill_from_milli.is_some_and(|from| scale_milli(source, mode) >= from);
+    // A fill whose height is a whole multiple of the lines is that
+    // multiple: it takes the whole path.
+    let fill_height = fitted_height(source, mode);
     let fits = (1..=largest)
         .rev()
         .map(|k| (Some(k), u32::from(source.height) * u32::from(k)))
         .find(|&(_, h)| aspect_width(source, h) <= u32::from(mode.hactive))
-        .filter(|_| !fills);
+        .filter(|&(_, h)| !fills || h == fill_height);
     let (claim_y, h) = fits.unwrap_or_else(|| (None, fitted_height(source, mode)));
     let w = aspect_width(source, h).min(u32::from(mode.hactive));
     let scale = ScaleClaim {
@@ -207,10 +210,12 @@ fn aspect_width(source: &OrientedSource, h: u32) -> u32 {
 }
 
 /// The scale at which the game, at its display aspect, fills a panel mode
-/// on one axis, in thousandths of its lines.
+/// on one axis, in thousandths of its lines, rounded down: a scale just
+/// under a threshold stays under it.
 pub(crate) fn scale_milli(source: &OrientedSource, mode: &Modeline) -> u32 {
-    let h = fitted_height(source, mode);
-    div_round(u64::from(h) * 1_000, u64::from(source.height.max(1)))
+    let h = u64::from(fitted_height(source, mode));
+    let milli = h * 1_000 / u64::from(source.height.max(1));
+    u32::try_from(milli).unwrap_or(u32::MAX)
 }
 
 /// The height at which the game fills the mode on one axis.
@@ -500,6 +505,25 @@ mod tests {
             scale_milli(&source(256, 224, 1_333), &mode(1_280, 720)),
             3_214
         );
+    }
+
+    #[test]
+    fn a_fill_that_is_a_whole_multiple_takes_the_whole_path() {
+        // 1440 / 240 = 6: the fill is 6x, nearest on the lines.
+        let p = panel_placement(&source(256, 240, 1_333), &mode(2_560, 1_440), Some(4_000));
+        assert_eq!(p.scale.y, Some(6));
+        assert_eq!(p.dest, rect(320, 0, 1_920, 1_440));
+    }
+
+    #[test]
+    fn the_fill_scale_rounds_down_at_the_threshold() {
+        // 3.9995: 7999 lines over 2000 is under 4.000, so the whole
+        // multiple 3 stays.
+        let s = source(100, 2_000, 1_000);
+        let m = mode(9_000, 7_999);
+        assert_eq!(scale_milli(&s, &m), 3_999);
+        let p = panel_placement(&s, &m, Some(4_000));
+        assert_eq!(p.scale.y, Some(3));
     }
 
     #[test]

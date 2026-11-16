@@ -595,7 +595,7 @@
 "pwrinst2 ntsc" = "native nearest in range 320x240p 15.704kHz 59.940Hz game 320x240+0+0 nearest"
 "pwrinst2 pal" = "native nearest in range 320x240p 15.600kHz 50.000Hz game 320x240+0+0 nearest"
 "pwrinst2 panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1440x1080+240+0 sharp"
-"pwrinst2 panel_1440" = "panel panel rate 2560x1440p 88.786kHz 59.951Hz game 1920x1440+320+0 sharp"
+"pwrinst2 panel_1440" = "panel panel rate 2560x1440p 88.786kHz 59.951Hz game 1920x1440+320+0 nearest"
 "pwrinst2 panel_2160" = "panel panel rate 3840x2160p 135.000kHz 60.000Hz game 2879x2160+480+0 sharp"
 "pwrinst2 panel_720" = "panel panel rate 1280x720p 45.000kHz 60.000Hz game 960x720+160+0 nearest"
 "pwrinst2 panel_768" = "panel panel rate 1366x768p 47.712kHz 59.790Hz game 960x720+203+24 nearest"
