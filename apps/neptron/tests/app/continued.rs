@@ -158,3 +158,78 @@ fn a_return_to_the_list_after_an_unanswered_prompt_opens_no_prompt() {
         );
     }
 }
+
+/// A Keep at the deadline cannot be taken: in the frame of the deadline
+/// the dialog shows Revert alone, so the Accept of a player who moved to
+/// Keep before it reverts, and the guard never sees a late Keep.
+#[test]
+#[ignore = "tier 2"]
+fn an_accept_on_keep_at_the_deadline_reverts() {
+    let dir = std::env::temp_dir().join(format!("neptron-app-late-keep-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    set_monitor(&rig, "arcade_31");
+    rig.boot(None);
+    rig.frames(2);
+    rig.tap(&[Control::Right]);
+    assert_eq!(rig.focused().as_deref(), Some("Keep"));
+    let prompt = rig.shell().guard().pending().expect("the boot prompt");
+    let now = neptron_backend::Clock::now_ns(&rig.clock);
+    rig.clock.advance(prompt.deadline_ns.saturating_sub(now));
+    rig.tap(&[Control::A]);
+    assert!(
+        rig.shell().guard().pending().is_none(),
+        "the deadline reverts"
+    );
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Safe(SafeReason::NothingConfirmed),
+        "nothing was kept"
+    );
+    let lines = rig.shell().log_lines(100);
+    assert!(
+        !lines.iter().any(|l| l.contains("guard: Confirmed")),
+        "{lines:?}"
+    );
+    rig.finish();
+}
+
+/// A Keep that the guard refuses goes to the log with its reason, and the
+/// dialog stays: here the display refuses every mode of the change, so it
+/// shows no picture when the player presses Keep.
+#[test]
+#[ignore = "tier 2"]
+fn a_refused_keep_is_logged_and_the_dialog_stays() {
+    let dir = std::env::temp_dir().join(format!("neptron-app-refused-keep-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    set_monitor(&rig, "arcade_31");
+    let first = rig.display.next_mode_call();
+    for call in first..first + 64 {
+        rig.display.fault_mode(
+            call,
+            neptron_testkit::ModeFault::Refuse {
+                reason: "a driver that takes no mode of the change".to_owned(),
+            },
+        );
+    }
+    rig.boot(None);
+    rig.frames(2);
+    rig.tap(&[Control::Right]);
+    assert_eq!(rig.focused().as_deref(), Some("Keep"));
+    rig.tap(&[Control::A]);
+    let lines = rig.shell().log_lines(100);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("keep refused: no valid picture is on the display")),
+        "{lines:?}"
+    );
+    assert!(rig.shell().guard().pending().is_some(), "not kept");
+    assert_eq!(rig.screen(), "confirm", "the dialog stays");
+    rig.finish();
+}

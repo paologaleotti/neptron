@@ -8,7 +8,7 @@ use neptron_settings::{
 };
 use neptron_ui::Intent;
 use neptron_ui::snapshot::NoticeKind;
-use neptron_video::{ConfirmError, DisplayConfig, Phase};
+use neptron_video::{DisplayConfig, Phase};
 
 use super::{Outcome, PendingChange, Shell, Stage};
 use crate::library::{ScanKind, ScanStart};
@@ -250,9 +250,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         self.outcome = Some(Outcome::Relaunch(NextRun { game: None, notice }));
     }
 
-    /// The answer Keep of the confirm dialog. A confirmation the guard
-    /// refuses keeps the dialog; one after the deadline is dropped, and the
-    /// deadline reverts.
+    /// The answer Keep of the confirm dialog. Every confirmation that the
+    /// guard refuses goes to the log, and the dialog stays: for example a
+    /// Keep while the change shows no valid picture. The UI shows no Keep
+    /// at 0 s, so a refusal for the deadline only comes from a fault.
     fn keep(&mut self, now_ns: u64) {
         let Some(prompt) = self.guard.pending() else {
             return;
@@ -264,7 +265,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         };
         match result {
             Ok(step) => self.on_guard(step, now_ns),
-            Err(ConfirmError::Expired { .. }) => {}
             Err(e) => self.log(format!("keep refused: {e}")),
         }
     }
