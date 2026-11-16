@@ -290,8 +290,8 @@ When the first picture of a game is cropped, padded or (on a CRT) fitted, the ap
 
 | Kind | Title | Title bar colour (default palette) | Examples from the code |
 | --- | --- | --- | --- |
-| Info | `Note` | accent `#50C8F0` | After a scan: `3 games added, 1 removed.`, `1 game changed.`, `No games added or removed.` (a rescan only). `The display change went back: it was not kept in time.`, `The display change went back.`, `The display change went back: it gave no picture.`, `The display change went back: a new setting replaced it.`, `The display change went back: the clock went back.` |
-| Warning | `Warning` | warning `#FF8020` | `Safe mode: the last starts gave no confirmed picture.`, `Safe mode: the picture was reset. Keep a display setting to leave it.`, `Safe mode: the display settings gave no picture.`, `Safe mode: no display setting was kept.`, `Picture: <result>.`, `The game scan failed: <error>.` (the list keeps its games), `The game scan did not start: <error>.`, settings file issues and backend issues from the boot |
+| Info | `Note` | accent `#50C8F0` | After a scan: `3 games added, 1 removed.`, `1 game changed.`, `No games added or removed.` (a rescan only). `Display change undone: not kept in time.`, `Display change undone.`, `Display change undone: no picture.`, `Display change undone: the clock went back.` A superseded change, and a revert to the configuration on screen, show none. |
+| Warning | `Warning` | warning `#FF8020` | `Safe mode: the last starts gave no picture. Keep a picture in Settings, Display to leave it.`, `Safe mode: the picture was reset. Keep a picture in Settings, Display to leave it.` (at a start: once per power cycle), `Safe mode: the display settings gave no picture.`, `Safe mode: no display setting was kept.`, `Picture: <result>.`, `The game scan failed: <error>.` (the list keeps its games), `The game scan did not start: <error>.`, settings file issues and backend issues from the boot |
 | Error | `Error` | error `#FF6060` | `The setting was not changed: <error>.`, `The display setting does not map to a picture.`, a failed write of the writer thread (for example `cannot write the guard record: <error>`), and the notice of the relaunch file: `The game stopped: <error>.`, `The game was not saved: <error>.`, or why a game did not start |
 
 Notices show oldest first, one at a time. Only Accept or Back dismisses one, so a notice cannot be passed over by accident. A notice never shows over a game shown alone: it waits for the quick menu, where it takes the buttons first. The notices of a run live in memory only. A notice from a game run that the player did not see is lost when the run ends, except the one that the run writes into the relaunch file.
@@ -318,10 +318,10 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 
 | Case | What the user sees | Way out |
 | --- | --- | --- |
-| A display change that the player cannot see | The confirm dialog over a dark or wrong picture, counting down from 10 s. | Press nothing, or press Accept or Back: the old picture comes back. Only Right then Accept keeps, and Right works only after 60 frames with no direction. |
-| A held direction when the dialog opens | The focus stays on `Revert`. | Release the key. Held keys are ignored until their release, and Right needs 60 quiet frames. |
-| Keep refused by the guard (no valid picture now, or no frame of the change shown yet) | The dialog says `One moment.` for one frame, then shows the count again with the focus on `Keep`. | Press Accept again when the picture is on screen. With no accepted keep the change goes back at the deadline with `The display change went back: it was not kept in time.` |
-| No answer in time | `The display change went back: it was not kept in time.` | Make the change again and keep it. |
+| A display change that the player cannot see | The confirm dialog over a dark or wrong picture, counting down from 15 s after the change settles. | Press nothing, or press Accept or Back: the old picture comes back. Only Right then Accept keeps. |
+| A held direction when the dialog opens | The focus stays on `Revert`. | Release the key. Held keys are ignored until their release (`Navigator::hold_back`); then a fresh Right moves the focus at once. |
+| Keep refused by the guard (no valid picture now, or no frame of the change shown yet) | The dialog says `One moment.` for one frame, then shows the count again with the focus on `Keep`. | Press Accept again when the picture is on screen. The app logs `keep refused: <reason>`. With no accepted keep the change goes back at the deadline with `Display change undone: not kept in time.` |
+| No answer in time | At 0 s only `Revert` shows; then `Display change undone: not kept in time.` | Make the change again and keep it. |
 | A style the monitor cannot show | The option is dim, with `Needs another monitor` in the row and `Not available. Needs another monitor` under the list. Accept does nothing. | Choose another style, or change the monitor profile. |
 | A game the monitor cannot show exactly | The video block result is `[!] filtered` or `[!] speed (X to Y Hz)` in the warning colour, or `cropped N lines` or `small picture N%`. A Warning notice `Picture: <result>.` waits for the quick menu. | Try another picture style or refresh policy in the quick menu. See [the policy](05-policy.md). |
 | A change on the in-game display panel (`Settings > Display`) has no visible effect | The row changes to `global`, no confirm dialog. | The game or its system has its own value, which wins over global. Change it on the video page of the quick menu, or reset the game row with Menu (X). |
@@ -345,7 +345,7 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 - [crates/neptron-ui/src/screens/display.rs](../../crates/neptron-ui/src/screens/display.rs): `DisplayPanel::handle`, `DisplayPanel::sync`, `DisplayPanel::draw`.
 - [crates/neptron-ui/src/screens/options.rs](../../crates/neptron-ui/src/screens/options.rs): `Options::handle`, `Options::draw`.
 - [crates/neptron-ui/src/screens/quick_menu.rs](../../crates/neptron-ui/src/screens/quick_menu.rs): `QuickMenu::handle`, `record`, `forget_taken_back`, `ask`, `leave`, `keep_at`, `KEEP_BUTTONS`, `MAX_CHANGES`.
-- [crates/neptron-ui/src/screens/overlays.rs](../../crates/neptron-ui/src/screens/overlays.rs): `Confirm::follow`, `Confirm::end_frame`, `Confirm::handle`, `Confirm::draw`, `Notices::current`, `Notices::handle`, `Notices::draw`, `QUIET_FRAMES_BEFORE_MOVE`.
+- [crates/neptron-ui/src/screens/overlays.rs](../../crates/neptron-ui/src/screens/overlays.rs): `Confirm::follow`, `Confirm::handle`, `Confirm::draw`, `Notices::current`, `Notices::handle`, `Notices::draw`.
 - [crates/neptron-ui/src/screens/video.rs](../../crates/neptron-ui/src/screens/video.rs): `status`, `fits`, `draw`, `result`, `MIN_PAGE_ROWS`.
 - [crates/neptron-ui/src/screens/pattern.rs](../../crates/neptron-ui/src/screens/pattern.rs): `handle`, `draw`, `GRID_PITCH_PX`.
 - [crates/neptron-ui/src/widgets/settings_list.rs](../../crates/neptron-ui/src/widgets/settings_list.rs): `SettingsList::handle`, `SettingsList::kind`, `SettingsList::hint`, `intent_for`, `next_value`, `next_choice`, `source_label`.
@@ -358,7 +358,7 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 - [apps/neptron/src/power.rs](../../apps/neptron/src/power.rs): `REBOOT_EXIT_CODE`, `POWER_OFF_EXIT_CODE`, `POWER_ENV`, `control_from`, `exit_code`.
 - [apps/neptron/src/shell/intents.rs](../../apps/neptron/src/shell/intents.rs): `intent`, `launch`, `end_for`, `end_game`, `keep`, `change_setting`, `propose`, `apply_live`.
 - [apps/neptron/src/shell/view.rs](../../apps/neptron/src/shell/view.rs): `refresh_view`, `refresh_mode`, `refresh_profile`, `load_page`, `style_options`, `notice`, `CONFIRM_TEXT`, `NOTICES_MAX`.
-- [apps/neptron/src/shell/guard_events.rs](../../apps/neptron/src/shell/guard_events.rs): `on_guard`, `offer_panel`, `recover`, `reverted_text`, `safe_text`, `write_setting`.
+- [apps/neptron/src/shell/guard_events.rs](../../apps/neptron/src/shell/guard_events.rs): `on_guard`, `recover`, `reverted_text`, `safe_text`, `write_setting`.
 - [apps/neptron/src/shell/frame.rs](../../apps/neptron/src/shell/frame.rs): `list_frame`, `game_frame`, `update_ui`, `notice_picture`.
 - [crates/neptron-input/src/hotkeys.rs](../../crates/neptron-input/src/hotkeys.rs): `Hotkeys::update`, `QUICK_MENU_COMBO`, `BLIND_RECOVERY_HOLD_NS`.
 - [crates/neptron-settings/src/builtin.rs](../../crates/neptron-settings/src/builtin.rs): the eleven settings with their labels, choices, levels and safety.

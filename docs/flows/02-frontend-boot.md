@@ -19,7 +19,7 @@ flowchart TD
     E -->|"opened"| F["Read class again with subconnector<br/>lower caps if analog"]
     F --> G["Open audio and gamepads<br/>a failure is a notice"]
     G --> H["Shell::boot: presets, settings,<br/>detection, fit to caps"]
-    H --> I["Guard record: load,<br/>for_place, for_continued_boot"]
+    H --> I["Guard record: load,<br/>for_place (the entry of this place)"]
     I --> J["safe and wanted"]
     J -->|"game in NextRun"| K["Session::launch"]
     K -->|"launch fails"| R["Exit 75<br/>relaunch to list with notice"]
@@ -86,12 +86,11 @@ flowchart TD
     B -->|"file there and valid"| C["Continued boot<br/>file removed"]
     B -->|"no file"| D["New boot"]
     B -->|"read error or bad file"| E["New boot<br/>file removed, log line"]
-    C --> F["failed_boots minus 1<br/>for_continued_boot"]
-    D --> G["failed_boots as stored"]
+    C --> F["Guard::continue_boot<br/>no count, no run marker"]
+    D --> G["Guard::boot: run marker set<br/>by the run before adds 1;<br/>then set the run marker"]
     E --> G
-    F --> H["Guard::boot adds 1"]
-    G --> H
-    H --> I["Record written<br/>before the first modeset"]
+    F --> I["Record written only<br/>when it changed"]
+    G --> J["Record written<br/>before the first modeset"]
 ```
 
 ## States and screens
@@ -102,7 +101,7 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 | --- | --- |
 | `Booted::Ready`, guard `Confirmed` | The game list (or the game) in the wanted configuration. Any boot issue shows as a notice. |
 | `Booted::Ready`, guard `Pending` (the boot prompt) | The wanted configuration and the confirm dialog: title "Keep this picture?", text "Keep the new picture?\nNo answer brings the old one back." with "The old picture comes back in N s.", buttons "Revert" (focus) and "Keep". See [The guard](03-guard.md). |
-| `Booted::Ready`, guard `Safe(reason)` | The safe default and a warning notice, for example "Safe mode: the last starts gave no confirmed picture." The display panel shows "(safe mode)" after the mode. |
+| `Booted::Ready`, guard `Safe(reason)` | The safe default, and once per power cycle a warning notice, for example "Safe mode: the last starts gave no picture. Keep a picture in Settings, Display to leave it." The display panel shows "(safe mode)" after the mode and the row "Keep this picture". |
 | `Booted::Ready` after a failed record write | The safe default and the warning "Safe mode: the guard record cannot be written ({e}). This start uses the safe picture." No tone. |
 | `Booted::Relaunch` (a game did not start) | Nothing from this run. The next run shows the game list with an error notice, for example "{name} did not start: {e}." |
 | `BootError` | No picture from this run. The log line "neptron: the frontend cannot start: {e}". Exit code 1, and the launcher starts the frontend again after its backoff. |
@@ -122,25 +121,23 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 | Settings | `state/config` global layer, and for a game its system and game layers | none | A file that cannot be read or parsed is an empty layer and a warning. The boot never stops on bad settings. |
 | Fit the panel | A panel profile and the display caps | `PANEL_WIDTH_MAX_PX` = 3840, `PANEL_HEIGHT_MAX_PX` = 2160 | Native mode too large: notice "The panel's native mode {native} is above what this system sends ({limits}). It runs at {shown}." No mode fits: notice "The panel lists no mode that this system sends ({limits})." and no panel profile. |
 | Load the record | `state/video/guard.toml` | `RECORD_VERSION` = 1 | Missing file: the default record, no notice. Bad file: the default record and the warning "{e}; the guard starts with no last known good". |
-| Drop a foreign last known good | The record's `output` is not the connector of this run, or its `monitor` is not the identity of the monitor on it (`Detected::identity`: `edid-` and a hash of the EDID, or `none`), or the file has either field missing | none | `last_known_good` = `None`. The counts stay. |
-| Continued boot | A valid relaunch file | none | `failed_boots` minus 1, not below 0. |
+| The last known good of this place | The record's `[[places]]` entry whose `output` is the connector of this run and whose `monitor` is the identity of the monitor on it (`Detected::identity`: `edid-` and a hash of the EDID, or `none`). A file with no `places` gives one place from its top fields | `PLACES_MAX` = 8 | No entry: `last_known_good` = `None`. The counts stay, and the entries of the other places stay in the file. |
+| Trust | `Detected::trusts(display.monitor)`: a TV output, or an EDID flat panel on a digital link with `auto` or `flat` | none | A trusted monitor boots with no prompt, and a trusted panel is the safe default of the run (ADR 0013). |
 | `wanted` | `display.monitor` maps to a monitor, and the global picture style and refresh policy map to the policy  On a TV output (a `TV mode` property): the TV profile of `display.tv` (`auto` is NTSC), and `display.monitor` has no effect; the safe default is the NTSC profile, or the first standard the output offers. | none | A monitor error: the safe monitor and the error as a notice. A policy error: the safe settings and the notice "{e}; the safe picture style applies". |
 | Launch a game | `NextRun.game` is set | none | Failure: `Booted::Relaunch` to the list with "{name} did not start: the system {system} is unknown." or "{name} did not start: {e}.". Exit 75. |
-| `Guard::boot` | The game list run |  `SAFE_MODE_FAILED_BOOTS` = 2 | `failed_boots` plus 1. The engine gets the chosen inputs; no modeset yet. |
-| `Guard::continue_boot` | The game run | `SAFE_MODE_FAILED_BOOTS` = 2 | As `Guard::boot`, but it never opens a prompt: the game list run had it. A `wanted` monitor that is not the last known good gives the revert target at once, with no event and no notice: the last known good monitor with the wanted settings (`Confirmed`), or the safe default (`Safe(NothingConfirmed)`). So a display that was not kept never reaches the wire in a game. |
-| Write the record | Always after `Guard::boot` or `Guard::continue_boot` | none | `record::save` on the frame thread, before the first frame: temp file, fsync, rename. A failure starts this run in the safe default (`safe_for_this_run`). |
-| Boot panel prompt | The boot opened a prompt, `auto` gives a panel, and `display.monitor` is `auto` | `PANEL_WINDOWS_PER_RUN` = 2 | `panel_windows` = 1 for this run. See [The guard](03-guard.md). |
+| `Guard::boot` | The game list run of a new boot (no relaunch file) | `SAFE_MODE_FAILED_BOOTS` = 2 | `failed_boots` plus 1 when the run before left the run marker set; the run marker is set. The engine gets the chosen inputs; no modeset yet. |
+| `Guard::continue_boot` | Every run with a relaunch file: a game, or the game list after a game | `SAFE_MODE_FAILED_BOOTS` = 2 | As `Guard::boot`, but it never opens a prompt and counts nothing: the first run of the boot had the prompt. A `wanted` monitor that is not known gives the revert target at once, with no event and no notice: the last known good monitor with the wanted settings (`Confirmed`), or the safe default (`Safe(NothingConfirmed)`). So a display that was not kept never reaches the wire after a relaunch. |
+| Write the record | After `Guard::boot` always; after `Guard::continue_boot` when it changed | none | `record::save` on the frame thread, before the first frame: temp file, fsync, rename. A failure starts this run in the safe default (`safe_for_this_run`). |
 | Game settings | The run is a game | none | `Guard::follow_settings` with the game's resolved policy. No prompt is open, so nothing reverts. In safe mode the safe settings stay. |
 | Library scan | The run is the game list | `MTIME_TRUST_WINDOW_NS` = 2 s | The index of the cache shows at once. A new boot (no relaunch file) starts a full scan of `share/roms` on the scan thread: every folder is read. A return to the list (a relaunch file) starts a refresh only when `/run/neptron/library-scanned` exists, that is when a scan of every folder reached the cache in this power cycle: one `stat` per known folder, and only the folders whose time changed are read. With no marker the return reads every folder too. When it ends, the list is updated in place, and a notice says what changed, for example "2 games added.", when the cache held games and something changed. A failure is the warning "the game scan did not start: {e}". |
 
 ### What counts as a failed boot
 
-- Every run that reaches `Guard::boot` or `Guard::continue_boot` adds 1 to `failed_boots` and writes it before the first mode.
-- The count goes back to 0 when the user keeps a change (`Confirmed`), or when the confirmed configuration shows a picture for `GOOD_BOOT_PICTURE_NS` = 10 s (`GoodBoot`).
-- A run in safe mode never reaches `GoodBoot`. Only a confirmation ends it.
-- A run that starts from the relaunch file subtracts 1 first, so a planned relaunch does not add to the count of the run before. When the run before was already good (count 0), the new run still counts 1 until it is good itself.
-- A reboot or a power-off from `Settings > System` before the boot is good gives the count of this start back (`power::gives_back_boot`), only when the guard does not hold the boot to be failed: in `Confirmed` and in `Safe(NothingConfirmed)`. In `Safe(NoValidMode)` the configuration gave no picture, so the count stays, and two such boots in a row still reach `Safe(FailedBoots)`. In `Safe(FailedBoots)` and `Safe(Recovery)` the record keeps its own rules, and the count stays.
-- A crash, a hang killed by the launcher, a power cut, or a restart of the launcher leaves no relaunch file (it lives in `/run`, a RAM file system), so the next start counts.
+- A new boot (`Guard::boot`) sets the run marker `run_open` and writes it before the first mode. A boot that finds it set counts the run before as failed: `failed_boots` plus 1.
+- The marker clears when the run shows a settled picture for `GOOD_BOOT_PICTURE_NS` = 3 s, in the confirmed configuration or in a safe state (`GoodBoot`), when the user keeps a configuration, and at every clean exit (`Shell::finish` calls `Guard::close_run`): a relaunch, a quit (SIGTERM, SIGINT, a closed window), a reboot and a power-off.
+- `failed_boots` goes back to 0 when the user keeps a configuration, and at `GoodBoot` outside safe mode. In safe mode it stays, so the next boot is in safe mode for the same reason until the user keeps a configuration.
+- A run that follows a relaunch file never sets the marker and never counts.
+- A crash, a hang killed by the launcher, or a power cut before a good picture leaves the marker set, so the next start counts.
 - After `SAFE_MODE_FAILED_BOOTS` = 2 failed boots in a row, the next boot starts in safe mode.
 
 ### When the boot prompt appears
@@ -177,7 +174,7 @@ So the prompt appears on the first boot on any display, after the monitor moved 
 - [kms.rs](../../apps/neptron/src/kms.rs): `run` (settings read before the open, `KmsConfig`, `lower_caps`, audio and gamepads).
 - [boot.rs](../../apps/neptron/src/shell/boot.rs): `Shell::boot`, `load_presets`, `load_record`, `launch`, `BootError`, `Booted`.
 - [display.rs](../../apps/neptron/src/display.rs): `Detected::of`, `Detected::read`, `Detected::fit_to`, `Detected::safe`, `Detected::monitor`, `Detected::auto_is_panel`, `Detected::rebuild`, `Detected::output_for`, `Detected::policy_caps`, `Detected::backend_caps`, `Detected::is_crt`, `SAFE_START_PROFILE`, `AUTO`, `FLAT`, `MonitorError`.
-- [record.rs](../../apps/neptron/src/record.rs): `load`, `save`, `decode`, `encode`, `for_place`, `for_continued_boot`, `MonitorRef`, `RECORD_VERSION`.
+- [record.rs](../../apps/neptron/src/record.rs): `load`, `save`, `decode`, `encode`, `for_place`, `merge`, `MonitorRef`, `PlaceEntry`, `RECORD_VERSION`, `PLACES_MAX`.
 - [relaunch.rs](../../apps/neptron/src/relaunch.rs): `take`, `write`, `GameRef::check`, `RELAUNCH_EXIT_CODE`, `RELAUNCH_VERSION`.
 - [config.rs](../../apps/neptron/src/config.rs): `Config::load`, `Config::policy`, `Config::global_policy`, `Config::monitor`.
 - [presets.rs](../../apps/neptron/src/presets.rs): `Presets::load`, `PresetError`.

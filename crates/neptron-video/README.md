@@ -113,11 +113,13 @@ The guard owns a `DisplayConfig`: the monitor and the policy settings. Only the 
 
 | Constant | Value | Meaning |
 | --- | --- | --- |
-| `CONFIRM_WINDOW_NS` | 10 s | A change the user asks for reverts unless confirmed in this time |
+| `CONFIRM_WINDOW_NS` | 15 s | A change the user asks for reverts unless confirmed in this time, counted from the first settled frame of the change (until then, from the change) |
 | `SAFE_MODE_FAILED_BOOTS` | 2 | Failed boots in a row before the next boot starts in safe mode |
-| `GOOD_BOOT_PICTURE_NS` | 10 s | A picture of the confirmed configuration this long makes the boot good |
+| `GOOD_BOOT_PICTURE_NS` | 3 s | A settled picture of the confirmed configuration or of the safe default this long makes the run good |
 | `NO_PICTURE_LIMIT_NS` | 1 s | No valid picture this long makes the guard leave the configuration |
 | `PENDING_LIMIT_NS` | 30 s | Changes with no confirmation, one after the other, revert at the latest this long after the first |
+
+`docs/spec/display-guard.md` holds the rules, and ADR 0013 the changes to the safety model.
 
 The hold time of the blind recovery (5 s, `BLIND_RECOVERY_HOLD_NS`) belongs to `neptron-input`. It sends one `Hotkey::BlindRecovery`, and the app calls `Guard::recover`.
 
@@ -128,6 +130,7 @@ The CRT safety model (rows 4 to 6) asks more than the guard does. These parts ar
 - Confirm or revert covers the monitor profile and the policy settings. The connector (`display.output`) is not an input of the engine, so the app must put a connector change under its own prompt. Signal geometry offsets do not exist in the MVP.
 - Last known good holds the monitor only, not the policy settings, because those resolve per game. A revert restores the settings that were active before the change, from memory.
 - The guard starts at `Guard::boot`. The blind recovery before that (the launcher, the first frames of the frontend) belongs to the launcher and the app. Safe mode at boot comes from the record, which the guard wrote in an earlier boot.
+- A boot needs no confirmation for a known monitor: the safe default's, one the app trusts by the class of the display (a TV output, an EDID flat panel on a digital link with `auto` or `flat`), or the last known good (ADR 0013).
 
 ### States
 
@@ -137,11 +140,13 @@ The CRT safety model (rows 4 to 6) asks more than the guard does. These parts ar
 
 | From | Call or condition | To | Event |
 | --- | --- | --- | --- |
-| Boot | `failed_boots` at least 2 | Safe(FailedBoots) | `SafeMode` |
+| Boot | `failed_boots` at least 2 (a set run marker counts one more first) | Safe(FailedBoots) | `SafeMode` |
 | Boot | the record is in safe mode | Safe(Recovery) | `SafeMode` |
-| Boot | the settings' monitor is the last known good | Confirmed | none |
+| Boot | the settings' monitor is the safe default's, trusted, or the last known good | Confirmed | none |
 | Boot | otherwise | Pending, reverts to the last known good or to the safe default | `PromptOpened` |
+| Continued boot (`continue_boot`) | as Boot, but never Pending: the revert target at once; counts no boot | Confirmed or Safe | `SafeMode` only for safe mode |
 | Confirmed or Safe | `propose` of a new configuration | Pending | `PromptOpened` |
+| Pending | `tick`: the first settled picture of the change | Pending; the deadline becomes now plus 15 s (no later than 30 s after the first change) | none |
 | Pending | `propose` of another configuration | Pending with a new id and deadline (no later than 30 s after the first change), same revert target | `PromptOpened` |
 | Pending | `propose` at or after the pending deadline | the revert target; the change is not applied | `Reverted(Timeout)` |
 | Pending | `propose` of the confirmed configuration, or `follow_settings` | the revert target | `Reverted(Superseded)` |
@@ -151,11 +156,15 @@ The CRT safety model (rows 4 to 6) asks more than the guard does. These parts ar
 | Pending | `tick`: no valid picture for 1 s | the revert target | `Reverted(NoPicture)` |
 | Pending | `tick` with a time earlier than one the guard has seen | the revert target | `Reverted(ClockWentBack)` |
 | Confirmed | `tick`: no valid picture for 1 s | Safe(NoValidMode) | `SafeMode` |
-| Confirmed | `tick`: a picture for 10 s, first time in the boot | Confirmed; `failed_boots` 0 | `GoodBoot` |
+| Confirmed or Safe | `tick`: a settled picture for 3 s, first time in the run | the same; run marker off; `failed_boots` 0 unless the record is in safe mode | `GoodBoot` |
+| Safe | `keep_shown`, with a settled picture | Confirmed on the safe default; it is last known good; `failed_boots` 0; safe mode off | `Confirmed` |
+| Safe(FailedBoots) | `retry_settings` (any other state: nothing) | safe mode off, `failed_boots` 0, run marker on and the run not good; then Confirmed for a known monitor, else Pending as the boot prompt | `PromptOpened` or none |
+| Any | `close_run` (a clean exit) | the same; run marker off | none |
 | Any | `recover` | Safe(Recovery); the record is in safe mode | `SafeMode` |
 
 - The guard never uses a time earlier than one it has seen, so a clock that goes back cannot stretch a deadline or start a watch again.
-- `Reverted` carries `rewrite: Option<DisplayConfig>`. It is `Some` when the first change of the pending chain is the boot prompt: the settings files still hold that unconfirmed configuration, and every boot would show it again for up to 10 s. It holds the revert target as the revert set it, so a `follow_settings` after it (the settings of a game) never reaches the global settings. A change the user asked for in the menus is never in the settings files before `Confirmed`, so its revert gives `None`.
+- `Reverted` carries `changed: bool`: false when the restored configuration equals the change, so nothing on screen went back and the app shows no notice.
+- `Reverted` carries `rewrite: Option<DisplayConfig>`. It is `Some` when the first change of the pending chain is the boot prompt: the settings files still hold that unconfirmed configuration, and every boot would show it again. It holds the revert target as the revert set it, so a `follow_settings` after it (the settings of a game) never reaches the global settings. A change the user asked for in the menus is never in the settings files before `Confirmed`, so its revert gives `None`.
 - No valid picture (`Health::no_picture`): the output is off, a refused mode is on the display, or the engine has set no mode. A mode that waits for its first flip is not counted, because a flip can be late.
 - The no-picture watch stops only when a valid picture is seen or a pending change reverts. A new change, a `propose` while pending or a `follow_settings` does not start it again, so a loop of changes with no picture still reaches the 1 s limit. After a revert the restored configuration gets its own 1 s, so one transient error on the restore modeset does not send it to safe mode.
 - `confirm` is refused with `ConfirmError` when no prompt is open, the id is another one, the time is at or after the deadline, the engine shows no valid picture, or no `tick` has seen a valid picture of the change (`NotShown`). Nothing changes; the deadline still reverts.
@@ -166,11 +175,12 @@ The CRT safety model (rows 4 to 6) asks more than the guard does. These parts ar
 
 ### Last known good and failed boots
 
-`GuardRecord` is plain data: `last_known_good: Option<Monitor>`, `failed_boots`, `safe_mode`. It is kept apart from the user settings.
+`GuardRecord` is plain data: `last_known_good: Option<Monitor>`, `failed_boots`, `safe_mode`, `run_open`. It is kept apart from the user settings. The app keeps one last known good per place (connector and monitor identity) and gives the guard the one of its place.
 
-- Recorded only when the user confirms. A long stable picture makes the boot good, but records nothing.
-- `failed_boots` goes up by one at each `Guard::boot`, before the first mode, and goes to 0 at a confirmation or a good boot. A boot that crashes or hangs before 10 s of picture is a failed boot. A boot in safe mode never counts as good, so safe mode stays until the user confirms a configuration.
-- `safe_mode` is set by a recovery and by safe mode after failed boots. Only a confirmation clears it.
+- Recorded only when the user keeps a configuration. A long stable picture makes the run good, but records no monitor.
+- `run_open` is the run marker. `Guard::boot` sets it, before the first mode; a settled picture of 3 s in Confirmed or Safe clears it, and so does `close_run` at a clean exit. A boot that finds it set adds one to `failed_boots`. So only a run that crashes, hangs or loses power before a good picture is a failed boot. `continue_boot` neither sets it nor counts.
+- `failed_boots` goes to 0 when the user keeps a configuration, and at a good picture outside safe mode. In safe mode it stays, so a start in `Safe(FailedBoots)` stays in it until the user keeps a configuration.
+- `safe_mode` is set by a recovery and by safe mode after failed boots. Only a kept configuration (`confirm`, `keep_shown`) or `retry_settings` clears it.
 - The guard never clears `last_known_good`. The app gives `None` when it cannot build the stored profile again.
 
 ### Engine states

@@ -25,7 +25,7 @@ The frontend falls back to its safe default when it has no settings, after two f
 
 - Do the check "Find the VGA connector" first. Its result decides the rest:
   - **EDID**: the `edid` file of the connector is not empty. The safe default is the EDID profile, and every check below can run.
-  - **No EDID**: the file is empty. Before the frontend starts with the 740s connected, write the preset into `/state/config/global.toml` (`[display]` with `monitor = "pc_31_120"`), and confirm the boot prompt within 10 s; with no confirmation the guard reverts to the safe default. Skip each check marked "Needs EDID", and write "skipped: no EDID through the bridge" under it.
+  - **No EDID**: the file is empty. Before the frontend starts with the 740s connected, write the preset into `/state/config/global.toml` (`[display]` with `monitor = "pc_31_120"`), and confirm the boot prompt within 15 s; with no confirmation the guard reverts to the safe default. Skip each check marked "Needs EDID", and write "skipped: no EDID through the bridge" under it.
 - Keep a hand on the power switch of the monitor. Switch the monitor off at once if it whines, clicks, or shows a rolling or folded picture, and write down what the tool or the frontend showed at that moment.
 - A check marked "Needs EDID" can make the frontend fall back to the safe default.
 
@@ -221,15 +221,15 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
 ### Engine and guard (T26)
 
 - [ ] `needs-hardware` **A change with no button press reverts.**
-  - Do: on the 740s, change the monitor or the style and press nothing.
-  - Expect: the change reverts after 10 s.
+  - Do: on the 740s, change the monitor profile and press nothing.
+  - Expect: the change reverts 15 s after its picture appears.
   - Record: the time to the revert.
 - [ ] `needs-hardware` **A confirmed change stays.**
   - Do: confirm a change, then reboot.
   - Expect: the mode is the same after the reboot.
   - Record: the mode before and after.
 - [ ] `needs-hardware` **Two failed boots give the safe default.** Needs EDID.
-  - Do: kill the frontend twice before 10 s of picture.
+  - Do: kill the frontend with SIGKILL twice before 3 s of picture.
   - Expect: the third start comes up in the safe default.
   - Record: the profile of the third start.
 - [ ] `needs-hardware` **Blind recovery.** Needs EDID.
@@ -272,6 +272,15 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Expect: the 1024-frame hint is honoured.
   - Record: the frames and the rate.
 
+### Display guard (M01)
+
+Each check is `needs-hardware`. `docs/spec/display-guard.md` describes the rules.
+
+- [ ] With EDID through the bridge, no settings file. Do: boot. Expect: the EDID profile with no prompt and no notice. Record: the mode.
+- [ ] No EDID, `pc_31_120` written in `global.toml`. Do: boot and press nothing. Expect: the boot prompt; 15 s after the 31 kHz picture appears, the 15 kHz safe start comes back (out of range on the 740s). Record: the time from the picture to the revert.
+- [ ] No EDID, `pc_31_120` written. Do: boot, press Right, then Accept within the window. Expect: Keep is taken at once (no wait after the press), no "Display change undone" notice, and the next boot has no prompt. Record: the notices.
+- [ ] Blind recovery on this monitor, with and without EDID. Do: hold Select and Start for 5 s. Expect: the safe default with the tone; in Settings, Display, the row "Keep this picture" ends safe mode. Record: what the monitor shows.
+
 ### MVP exit on the 740s
 
 - [ ] `needs-hardware` **Confirm-or-revert and blind recovery on the 740s.** (MVP exit) Needs EDID.
@@ -298,12 +307,20 @@ Results recorded:
 
 Each check is `needs-hardware`.
 
-- [ ] An HDMI 1080p panel on the HD 530. Do: first boot with no settings. Expect: 1920x1080 at 60 Hz under the confirm prompt, the menu at 4x and centred; after a confirmation, the next boot has no prompt. A SNES game is 1194x896, centred, sharp, with black around it. Record: the mode line of the Video block.
-- [ ] The same panel, no confirmation. Do: let the prompt time out, then press a button once. Expect: no picture after 10 s, the prompt again after the press, and no further offer in that run.
+- [ ] An HDMI 1080p panel on the HD 530. Do: first boot with no settings. Expect: 1920x1080 at 60 Hz with no prompt (ADR 0013), the menu at 4x and centred. A SNES game is 1194x896, centred, sharp, with black around it. Record: the mode line of the Video block.
 - [ ] A 4K panel on DisplayPort. Expect: 3840x2160 at 60 Hz. Record: whether the start succeeds and the frame times.
 - [ ] A 4K panel on HDMI. Expect: 1920x1080 at 60 Hz with the notice.
 - [ ] A 720p TV. Expect: 1280x720, and 50 Hz for a PAL game.
-- [ ] An HDMI-to-VGA adapter with its own digital EDID, with a PC monitor behind it, never a 15 kHz tube. Expect: at most two windows of the panel mode, then the safe start. Record: what the monitor shows.
+- [ ] An HDMI-to-VGA adapter with its own digital EDID, with a PC monitor behind it, never a 15 kHz tube. Expect: the panel mode of the adapter's EDID with no prompt (ADR 0013 accepts this). With `display.monitor` set to the monitor's preset: the boot prompt, and with no answer the 15 kHz safe start. Record: what the monitor shows in each case.
+
+### Display guard on a panel (M01)
+
+Each check is `needs-hardware`.
+
+- [ ] An HDMI panel on the first boot of a new image. Expect: its native mode with no prompt and no notice. Record: the mode.
+- [ ] The same panel switched on 30 s after power-on. Expect: when the kernel read the EDID at boot, the native mode when the panel wakes, with no revert. With no EDID at boot the display is not trusted, and the 15 kHz safe start applies. Record: which case, and what the panel shows.
+- [ ] Blind recovery on the panel. Expect: the panel mode again, with the tone. Record: the mode.
+- [ ] A hotplug within one run: boot on the trusted panel, then unplug it and plug a CRT (or an adapter with a CRT) into the same connector while the frontend runs. Expect: record what the CRT gets. The trust and the safe default were decided at boot from the panel's EDID, so this run can still send the panel mode; the next boot reads the new display. Record: the mode on the wire and what the CRT shows, with a hand on its power switch.
 
 ### C11 findings of the first hardware session
 
@@ -575,6 +592,13 @@ Results recorded: none on HDMI.
 - [ ] Do: the release image (`images/rpi-arm64/neptron-rpi-arm64.img`) on the same card. Expect: no SSH (port 22 closed), no serial console (no `enable_uart`), the network share on, the menu on HDMI. Record: a port scan of the Pi.
 - [ ] Do: after 30 minutes of play, run `dmesg | grep -i voltage` over SSH (the image has no `vcgencmd`). Expect: no line. Record: the power supply used.
 
+### Display guard on HDMI (M01)
+
+Each check is `needs-hardware`.
+
+- [ ] Do: keep a monitor preset on an HDMI TV, then power on with the TV off. Wait until the boot falls back to composite, then reboot with the TV on. Expect: the HDMI boot starts on the kept preset with no prompt: the composite boot did not delete the HDMI record. Record: `/state/video/guard.toml` after each boot.
+- [ ] Do: first boot of a new image on an HDMI panel. Expect: the native mode with no prompt. Record: the mode.
+
 ## 6. Raspberry Pi 3 on composite
 
 The setup: a Pi 3 with the development image, the frontend from `cargo xtask os push --arch rpi-arm64` where a check says so, a 15 kHz TV on composite through a TRRS cable with video on the sleeve, and SSH. `docs/spec/raspberry-pi.md`, section 6, holds the full checklist of the first bench session (task P09); the checks below are the ones that tasks added.
@@ -597,6 +621,17 @@ Each check is `needs-hardware`. The setup: a Pi 3 B+ with the development image 
 - [ ] Do: try to commit 288p with the value `NTSC`. Expect: the commit is refused, nothing changes on the wire, and the earlier mode and standard stay on the TV and read back unchanged. Record: the error and the read back.
 - [ ] Do: with an HDMI display connected, start the frontend with `display.output = "Composite-1"`. Expect: only composite is driven: `modetest -M vc4 -c` shows `HDMI-A-1` with no CRTC, and the HDMI display gets no signal. Record: the CRTC of each connector.
 - [ ] Do: start the frontend on HDMI with the margins forced to 0 by the backend. Expect: the HDMI picture is correct, not cut and not shifted, and its margins read 0. Record: the mode and a photo.
+
+### Display guard on composite (M01)
+
+Each check is `needs-hardware`.
+
+- [ ] Do: first boot of a new image on the composite TV, then wait 30 s. Expect: NTSC 240p with no prompt and no "Display change undone" notice. Record: the log lines that start with `guard:`.
+- [ ] Do: start a game, quit it, and do it again 3 times. Expect: no prompt and no notice at any return to the game list. Record: the `guard:` log lines.
+- [ ] Do: 5 power cuts, each 10 s or more after the menu shows. Expect: no safe mode at any boot; `failed_boots = 0` and `run_open = false` in `/state/video/guard.toml`. Record: the file after the last boot.
+- [ ] Do: 2 power cuts, each within 2 s of the first picture, then power on. Expect: the third boot starts in safe mode with one Warning notice; a relaunch (a game, then the list) shows the notice no more. Then Settings, Display, "Keep this picture". Expect: safe mode ends, and the next boot has none. Record: the notices and the file.
+- [ ] Do: change the TV standard to PAL, press Right, then Accept at once. Expect: PAL is kept, with no "undone" notice. Record: the notices.
+- [ ] Do: the blind recovery. Expect: NTSC with the tone. Record: the time to the picture.
 
 ### The renderer, the frame budget and the audio (T17, T19, C07, P11)
 
