@@ -11,16 +11,23 @@ use crate::Aspect;
 /// rate; when none fits, in the smallest height in range that holds it.
 pub const BORDER_LINES: [u16; 2] = [224, 240];
 
-/// The most source lines that the overscan crop hides at each edge, top
-/// and bottom, in lines of the game.
+/// The most lines that the overscan crop hides at each edge, top and
+/// bottom: at most this many source lines, and at most this many lines of
+/// a 240-line screen ([`OVERSCAN_CROP_SCREEN_LINES`]) on the screen.
 ///
 /// A whole multiple that misses the lines a range holds by a few lines is
 /// cropped, as the overscan of a CRT hides the edge lines, so the picture
-/// stays pixel exact at nearly full height. 8 lines per edge is the classic
-/// NES crop (240 to 224 lines) that emulator cores apply by default;
-/// MiSTer and hardware scalers crop the same amount for whole-number
-/// scales, and a consumer CRT hides at least that much.
+/// stays pixel exact at nearly full height. The overscan of a tube is a
+/// share of its height, not of the game's lines, so the bound is a share
+/// of the lines the range holds: 8 of 240 lines per edge, so a Game Boy at
+/// 2x (16 screen lines per edge) on a 256-line 15 kHz tube is not cropped,
+/// and a 2x game on 31 kHz (16 of 480) is. 8 lines of 240 is the classic NES crop (240 to 224 lines)
+/// that emulator cores apply by default, and a consumer CRT hides at least
+/// that much. The bound of one TV mode is 8 lines.
 pub const OVERSCAN_CROP_MAX_LINES_PER_EDGE: u16 = 8;
+
+/// The screen lines that [`OVERSCAN_CROP_MAX_LINES_PER_EDGE`] counts in.
+pub const OVERSCAN_CROP_SCREEN_LINES: u16 = 240;
 
 /// The source lines that the overscan crop hides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -210,7 +217,15 @@ pub(crate) fn overscan_crop(
     let held = capacity / shape.factor;
     let lines_per_edge = source.height.saturating_sub(held).div_ceil(2);
     let shown = source.height.checked_sub(lines_per_edge.checked_mul(2)?)?;
-    if lines_per_edge > OVERSCAN_CROP_MAX_LINES_PER_EDGE || shown == 0 {
+    // The bound in lines of the screen: the share of the lines the range
+    // holds at the rate, rounded up.
+    let mode_lines_per_edge = u32::from(lines_per_edge) * u32::from(shape.factor);
+    let bound = (u32::from(OVERSCAN_CROP_MAX_LINES_PER_EDGE) * u32::from(capacity))
+        .div_ceil(u32::from(OVERSCAN_CROP_SCREEN_LINES));
+    if lines_per_edge > OVERSCAN_CROP_MAX_LINES_PER_EDGE
+        || mode_lines_per_edge > bound
+        || shown == 0
+    {
         return None;
     }
     let game_lines = shown * shape.factor;
@@ -656,6 +671,11 @@ mod tests {
         // 2x of 122 lines: 244 in 241 holds 120 source lines, 1 per edge.
         let s = crop(122, Rung::Multiple(2)).unwrap();
         assert_eq!((s.game_lines, s.factor), (240, 2));
+        // 2x of 128 lines: 4 source lines per edge, 8 lines of the screen,
+        // inside the bound of 8 x 241 / 240, rounded up: 9.
+        assert_eq!(crop(128, Rung::Multiple(2)).unwrap().game_lines, 240);
+        // 2x of 130 lines: 5 source lines per edge, 10 of the screen.
+        assert_eq!(crop(130, Rung::Multiple(2)), None);
     }
 
     #[test]

@@ -61,7 +61,9 @@ pub use settings::{
     FIXED_SUPER_WIDTHS, HorizontalStrategy, PanelScale, PictureStyle, PolicySettings,
     RefreshPolicy, TvWidth, VerticalMode,
 };
-pub use shape::{BORDER_LINES, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OverscanCrop};
+pub use shape::{
+    BORDER_LINES, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OVERSCAN_CROP_SCREEN_LINES, OverscanCrop,
+};
 pub use source::OrientedSource;
 pub use tv::{
     TV_525_CONSOLE_WIDTH_SAMPLES, TV_525_PICTURE_LINES, TV_625_CONSOLE_WIDTH_SAMPLES,
