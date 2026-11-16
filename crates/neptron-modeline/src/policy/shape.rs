@@ -74,8 +74,11 @@ pub(crate) fn shape(
     monitor_aspect: Aspect,
     rate_mhz: u32,
 ) -> Result<Shape, Dropped> {
+    // An interlaced game on ranges with no interlaced window at the rate
+    // shows progressive (480i as 480p), so it takes the progressive border.
+    let deinterlaced = source.interlaced && interlaced_min(ranges, rate_mhz).is_none();
     let (factor, interlace) = match rung {
-        Rung::Native | Rung::Fitted | Rung::Panel => (1, source.interlaced),
+        Rung::Native | Rung::Fitted | Rung::Panel => (1, source.interlaced && !deinterlaced),
         Rung::Multiple(n) => (u16::from(n), false),
         Rung::Interlaced => {
             interlaced_rung(source, ranges, caps, rate_mhz)?;
@@ -115,7 +118,48 @@ pub(crate) fn shape(
         // turned game) keeps its shape only in a mode wider than itself.
         shape.base_width = border_width(source, game_lines, shape.lines, monitor_aspect);
     }
+    if rung != Rung::Fitted {
+        widen_for_shape(&mut shape, source, ranges, caps, monitor_aspect, rate_mhz)?;
+    }
     Ok(shape)
+}
+
+/// A game wider than the face keeps its shape only with black lines above
+/// and below it: the mode needs `lines x game aspect / face aspect` lines
+/// at least. Such a mode is bordered, at a height a range holds at the
+/// rate, or the rung drops.
+fn widen_for_shape(
+    shape: &mut Shape,
+    source: &OrientedSource,
+    ranges: &[CrtRange],
+    caps: &GpuCaps,
+    monitor_aspect: Aspect,
+    rate_mhz: u32,
+) -> Result<(), Dropped> {
+    let game = u64::from(game_aspect_milli(source));
+    let face_w = u64::from(monitor_aspect.width) * 1_000;
+    let face_h = u64::from(monitor_aspect.height);
+    let needed = (u64::from(shape.game_lines) * game * face_h).div_ceil(face_w);
+    if same_aspect(source, monitor_aspect) || needed <= u64::from(shape.lines) {
+        return Ok(());
+    }
+    let needed = u16::try_from(needed).unwrap_or(u16::MAX);
+    let lines = if shape.interlace {
+        let fits = ranges
+            .iter()
+            .any(|r| r.interlaced_lines_min <= needed && needed <= r.interlaced_lines_max);
+        fits.then_some(needed)
+    } else {
+        border_lines(needed, 1, ranges, rate_mhz)
+    }
+    .ok_or(Dropped::NoBorderMode {
+        lines: needed,
+        line_min: shape.lines,
+    })?;
+    shape.lines = fit_height(u32::from(lines), caps)?;
+    shape.base_width = border_width(source, shape.game_lines, shape.lines, monitor_aspect);
+    shape.bordered = true;
+    Ok(())
 }
 
 /// The source has the shape of the screen, within one thousandth of its
@@ -150,6 +194,13 @@ pub(crate) fn overscan_crop(
 ) -> Option<Shape> {
     let multiple = matches!(shape.rung, Rung::Native | Rung::Multiple(_));
     if !multiple || shape.interlace || shape.bordered || shape.factor == 0 {
+        return None;
+    }
+    // A cropped game fills the height; a game wider than the face would
+    // then lose its shape.
+    let face = u64::from(monitor_aspect.width) * 1_000;
+    let wide = u64::from(game_aspect_milli(source)) * u64::from(monitor_aspect.height) > face;
+    if wide && !same_aspect(source, monitor_aspect) {
         return None;
     }
     let capacity = progressive_capacity(ranges, rate_mhz);
