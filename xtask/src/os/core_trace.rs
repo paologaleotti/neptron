@@ -121,6 +121,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
         share: Some(share.clone()),
         disk: None,
         ssh_port: None,
+        nic: false,
         beside_launcher: false,
         job: Job::Script(script),
     };

@@ -491,6 +491,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
         }),
         share: None,
         ssh_port: None,
+        nic: false,
     };
     let policy = LoadPolicy::from_env().map_err(|e| OsError::Usage(e.to_string()))?;
     let mut cmd = super::under_load_policy(&policy, args.arch.qemu_binary());

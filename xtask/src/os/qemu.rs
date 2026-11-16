@@ -53,6 +53,10 @@ pub struct QemuArgs {
     /// A host port on 127.0.0.1 that QEMU forwards to port 22 of the
     /// guest, on an emulated Ethernet card with user networking.
     pub ssh_port: Option<u16>,
+    /// An emulated Ethernet card with user networking, no forwarded port
+    /// and no route out of the guest (`restrict=on`); the DHCP server of
+    /// QEMU still answers. `ssh_port` gives a card too.
+    pub nic: bool,
     /// Run the command beside the launcher (the boot check entry), not
     /// instead of it.
     pub beside_launcher: bool,
@@ -72,6 +76,7 @@ impl QemuArgs {
             share: None,
             disk: None,
             ssh_port: None,
+            nic: false,
             beside_launcher: false,
             job: Job::Interactive,
         };
@@ -203,8 +208,11 @@ pub struct QemuPlan {
     pub job: Option<GuestJob>,
     /// The host directory shared over 9p.
     pub share: Option<PathBuf>,
-    /// The host port forwarded to SSH in the guest; `None` for no network.
+    /// The host port forwarded to SSH in the guest.
     pub ssh_port: Option<u16>,
+    /// An Ethernet card with user networking and no route out when
+    /// `ssh_port` is `None`.
+    pub nic: bool,
 }
 
 impl QemuPlan {
@@ -282,12 +290,13 @@ impl QemuPlan {
         if !keep_writes {
             push(&["-snapshot"]);
         }
-        match self.ssh_port {
-            Some(port) => push(&[
+        match (self.ssh_port, self.nic) {
+            (Some(port), _) => push(&[
                 "-nic",
                 &format!("user,model=e1000e,hostfwd=tcp:127.0.0.1:{port}-:22"),
             ]),
-            None => push(&["-nic", "none"]),
+            (None, true) => push(&["-nic", "user,model=e1000e,restrict=on"]),
+            (None, false) => push(&["-nic", "none"]),
         }
         push(&["-no-reboot"]);
         // Without a display card vkms is the only DRM device, card0. The q35
@@ -376,6 +385,7 @@ mod tests {
             }),
             share: None,
             ssh_port: None,
+            nic: false,
         }
     }
 
@@ -574,6 +584,14 @@ mod tests {
         );
         assert!(!s.contains("-nic none"), "{s}");
         assert!(joined(&plan(Arch::X86_64, Accel::Tcg, true)).contains("-nic none -no-reboot"));
+        let mut p = plan(Arch::X86_64, Accel::Tcg, true);
+        p.nic = true;
+        let s = joined(&p);
+        assert!(
+            s.contains("-nic user,model=e1000e,restrict=on -no-reboot"),
+            "{s}"
+        );
+        assert!(!s.contains("hostfwd"), "{s}");
         let a = QemuArgs::parse(
             &[
                 "--ssh-port",

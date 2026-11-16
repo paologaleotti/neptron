@@ -307,6 +307,7 @@ fn boot(args: &QemuArgs, out: &mut dyn std::io::Write) -> Result<Option<i32>, Os
         job,
         share: args.share.clone(),
         ssh_port: args.ssh_port,
+        nic: args.nic,
     };
     let policy = LoadPolicy::from_env().map_err(|e| OsError::Usage(e.to_string()))?;
     let mut cmd = under_load_policy(&policy, args.arch.qemu_binary());
