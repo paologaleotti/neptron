@@ -790,9 +790,9 @@ fn a_written_request_with_no_reboot_says_when_it_runs() {
             // gives back the result: the run takes no reboot then.
             rig.shell()
                 .set_from_protocol(
-                    "display.style",
+                    "display.monitor",
                     Level::Global,
-                    &serde_json::Value::String("2x".to_owned()),
+                    &serde_json::Value::String("arcade_31".to_owned()),
                 )
                 .expect("the change");
             assert!(rig.shell().guard().pending().is_some());

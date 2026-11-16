@@ -88,3 +88,41 @@ fn the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu() {
         },
     );
 }
+
+/// In safe mode a picture style still waits for a Keep: the monitor on
+/// screen is the safe default, not a kept configuration.
+#[test]
+#[ignore = "tier 2"]
+fn a_picture_style_in_safe_mode_opens_the_dialog() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "a_picture_style_in_safe_mode_opens_the_dialog",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            rig.boot(None);
+            rig.scanned();
+            rig.hold(&[Control::Select, Control::Start]);
+            rig.until(HOLD_FRAMES, "the recovery", |r| {
+                r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
+            });
+            rig.release(&[Control::Select, Control::Start]);
+            rig.frames(2);
+            while rig.screen() == "notice" {
+                rig.tap(&[Control::A]);
+            }
+            rig.focus("Settings");
+            rig.tap(&[Control::A]);
+            rig.focus("Display");
+            rig.tap(&[Control::A]);
+            rig.focus("Picture style");
+            rig.tap(&[Control::A]);
+            rig.focus("native");
+            rig.tap(&[Control::A]);
+            assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+            assert_eq!(rig.screen(), "confirm");
+            rig.finish();
+        },
+    );
+}

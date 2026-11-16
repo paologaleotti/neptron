@@ -9,9 +9,6 @@ use neptron_video::Phase;
 
 use crate::rig::{Rig, in_child, in_children, test_name};
 
-/// Frames of 15 s at 60 Hz, the confirm window, and a margin.
-const CONFIRM_WINDOW_FRAMES: u32 = 960;
-
 #[test]
 #[ignore = "tier 2"]
 fn list_launch_mode_switches_quick_menu_and_quit() {
@@ -119,31 +116,18 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
                 "{options:?}"
             );
 
-            // A display change with no answer goes back after 15 s.
+            // A picture style on a confirmed monitor applies with no
+            // dialog: the validator alone decides the modes of a style.
             rig.focus("Picture style");
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "options");
             rig.focus("native");
             rig.tap(&[Control::A]);
-            assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
-            let confirm = rig.shell().snapshot().confirm.clone();
-            assert_eq!(rig.screen(), "confirm", "{confirm:?} {:?}", rig.tree());
-            assert_eq!(rig.shell().config().text("display.style"), "native");
-            rig.frames(CONFIRM_WINDOW_FRAMES);
             assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
-            assert_eq!(rig.shell().config().text("display.style"), "auto");
-
-            // The same change kept reaches the game's settings file.
-            assert_eq!(rig.screen(), "notice");
-            rig.tap(&[Control::A]);
-            assert_eq!(rig.screen(), "quick-menu/video");
-            rig.focus("Picture style");
-            rig.tap(&[Control::A]);
-            rig.focus("native");
-            rig.tap(&[Control::A]);
-            rig.keep();
-            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            assert_eq!(rig.screen(), "quick-menu/video", "{:?}", rig.tree());
             assert_eq!(rig.shell().config().text("display.style"), "native");
+            rig.frames(2);
+            assert_eq!(rig.shell().guard().active().settings.style.key(), "native");
 
             // Quit: the quick menu asks where to keep the change.
             rig.tap(&[Control::B]);

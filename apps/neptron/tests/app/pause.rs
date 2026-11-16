@@ -41,9 +41,9 @@ fn the_menu_hotkey_under_a_confirm_dialog_opens_the_quick_menu_after_it() {
             let mut rig = in_game(dir);
             rig.shell()
                 .set_from_protocol(
-                    "display.style",
-                    Level::Game,
-                    &serde_json::Value::String("native".to_owned()),
+                    "display.monitor",
+                    Level::Global,
+                    &serde_json::Value::String("arcade_31".to_owned()),
                 )
                 .expect("the change");
             rig.frames(2);

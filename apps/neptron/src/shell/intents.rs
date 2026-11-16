@@ -8,7 +8,7 @@ use neptron_settings::{
 };
 use neptron_ui::Intent;
 use neptron_ui::snapshot::NoticeKind;
-use neptron_video::{ConfirmError, DisplayConfig};
+use neptron_video::{ConfirmError, DisplayConfig, Phase};
 
 use super::{Outcome, PendingChange, Shell, Stage};
 use crate::library::{ScanKind, ScanStart};
@@ -269,8 +269,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
 
     /// Sets (`Some`) or unsets (`None`) a setting at a level. A setting with
     /// no effect on the signal is written at once and applied live. A
-    /// display setting goes to the guard: it is on screen at once and
-    /// reaches its file only when the player keeps it.
+    /// picture style, refresh policy or TV width on a confirmed monitor is
+    /// written at once and goes to the guard with no prompt: it only
+    /// changes which modes the validator gave for that monitor the policy
+    /// picks. Any other display setting goes to the guard under a prompt:
+    /// it is on screen at once and reaches its file only when the player
+    /// keeps it.
     pub(super) fn change_setting(
         &mut self,
         key: &'static str,
@@ -304,6 +308,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 self.write_setting(level, key, value);
                 self.apply_live(key);
             }
+            Safety::Validated if self.guard.phase() == Phase::Confirmed => {
+                self.write_setting(level, key, value);
+                self.follow(now_ns);
+            }
             Safety::Validated | Safety::ConfirmOrRevert => {
                 self.pending.push(PendingChange {
                     level,
@@ -335,6 +343,23 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             return;
         }
         if let Some(step) = self.with_engine(|guard, engine| guard.propose(config, now_ns, engine))
+        {
+            self.on_guard(step, now_ns);
+        }
+    }
+
+    /// Gives the policy settings of the settings in memory to the guard,
+    /// with no prompt.
+    fn follow(&mut self, now_ns: u64) {
+        let Some(config) = self.display_config() else {
+            self.notice(
+                NoticeKind::Error,
+                "The display setting does not map to a picture.".to_owned(),
+            );
+            return;
+        };
+        if let Some(step) =
+            self.with_engine(|guard, engine| guard.follow_settings(config.settings, engine))
         {
             self.on_guard(step, now_ns);
         }
