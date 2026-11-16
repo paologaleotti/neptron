@@ -10,7 +10,7 @@ use super::{
     Dropped, HorizontalScale, HorizontalStrategy, OrientedSource, Proposal, REFRESH_MATCH_MHZ,
     RefreshTarget, Rung, Timing,
 };
-use crate::{Candidate, ConvertError, ModelineError, modelines_with};
+use crate::{Aspect, Candidate, ConvertError, ModelineError, modelines_with};
 
 /// The most Switchres calls the dynamic super width makes for one
 /// candidate. Each step at least adds one to the multiple, and the estimate
@@ -64,6 +64,7 @@ pub(crate) fn solve(
     Ok(picked.map(|(candidate, horizontal)| {
         proposal(
             shape,
+            crt.settings.solver.monitor_aspect,
             target,
             &crt.source,
             crt.ranges,
@@ -245,6 +246,7 @@ fn multiple_width(base: u16, k: u32) -> Option<u32> {
 
 fn proposal(
     shape: &Shape,
+    monitor_aspect: Aspect,
     target: RefreshTarget,
     source: &OrientedSource,
     ranges: &[CrtRange],
@@ -271,7 +273,14 @@ fn proposal(
         mode,
         source_index: candidate.range_index,
         horizontal: Some(horizontal),
-        placement: crt_placement(source, &mode, vertical, horizontal, shape.base_width),
+        placement: crt_placement(
+            source,
+            &mode,
+            vertical,
+            horizontal,
+            shape.base_width,
+            monitor_aspect,
+        ),
         timing: Timing {
             game_mhz: source.refresh_mhz,
             target,

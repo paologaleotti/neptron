@@ -123,7 +123,8 @@ fn candidate(
     let missed = matches!(outcomes.last(), Some(Err(Dropped::RefreshMissed { .. })));
     let lines_missed = missed || matches!(outcomes.last(), Some(Err(Dropped::LinesChanged { .. })));
     if lines_missed
-        && let Some(cropped) = overscan_crop(&shape, &crt.source, crt.ranges, target.rate_mhz)
+        && let Some(cropped) =
+            overscan_crop(&shape, &crt.source, crt.ranges, aspect, target.rate_mhz)
     {
         outcomes.extend(solve_replacing(&cropped, target, enforce_refresh, crt)?);
         return Ok(outcomes);

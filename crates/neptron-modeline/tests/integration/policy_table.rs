@@ -573,14 +573,16 @@ fn rows() -> Vec<Row> {
         },
         // Donkey Kong, turned (256 lines) on pc_31_120 at 60.606 Hz: 2x
         // needs 512 lines, the range holds 502. 256 - 2c lines at 2x fit
-        // 502 from c = 2.5, so 3 lines per edge: 250 lines, 500 at 2x.
+        // 502 from c = 2.5, so 3 lines per edge: 250 lines, 500 at 2x. The
+        // 3:4 picture of 250 lines keeps its shape on the 4:3 face in a mode
+        // 224 x (4/3) x 250 / (0.75 x 256) = 388.9 pixels wide.
         Row {
             source: SourceGeometry {
                 rotation: Rotation::R90,
                 ..source(256, 224, 60_606)
             },
             rung: Rung::Multiple(2),
-            mode: "224x500p",
+            mode: "389x500p",
             rate_mhz: 60_606,
             ..row(
                 "crop_donkey_kong_2x_on_31khz",
@@ -1471,8 +1473,9 @@ fn drop_rows() -> Vec<DropRow> {
                 preset("generic_15"),
             )
         },
-        // A 16:9 monitor aspect makes Switchres widen the mode by
-        // (16/9) / (4/3): 256 x 4/3 = 341.3, truncated to 341.
+        // On a 16:9 face a 4:3 game keeps its shape in a mode of
+        // 256 x (16/9) / (4/3) = 341.3 pixels, and Switchres widens that
+        // by (16/9) / (4/3) again: 341 x 4/3 = 454.7, truncated to 454.
         DropRow {
             solver: neptron_modeline::Settings {
                 monitor_aspect: neptron_modeline::Aspect {
@@ -1485,8 +1488,8 @@ fn drop_rows() -> Vec<DropRow> {
                 "width_changed",
                 Rung::Native,
                 Dropped::WidthChanged {
-                    asked: 256,
-                    got: 341,
+                    asked: 341,
+                    got: 454,
                 },
                 preset("generic_15"),
             )

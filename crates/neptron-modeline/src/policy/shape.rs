@@ -110,8 +110,30 @@ pub(crate) fn shape(
         shape.lines = fit_height(u32::from(lines), caps)?;
         shape.base_width = border_width(source, game_lines, shape.lines, monitor_aspect);
         shape.bordered = true;
+    } else if rung != Rung::Fitted && !same_aspect(source, monitor_aspect) {
+        // The mode covers the whole 4:3 face, so a game of another shape (a
+        // turned game) keeps its shape only in a mode wider than itself.
+        shape.base_width = border_width(source, game_lines, shape.lines, monitor_aspect);
     }
     Ok(shape)
+}
+
+/// The source has the shape of the screen, within one thousandth of its
+/// aspect: its picture fills the whole face of the tube at the game width.
+pub(crate) fn same_aspect(source: &OrientedSource, monitor_aspect: Aspect) -> bool {
+    let game = u64::from(game_aspect_milli(source));
+    let screen_width = u64::from(monitor_aspect.width) * 1_000;
+    let screen_height = u64::from(monitor_aspect.height);
+    (game * screen_height).abs_diff(screen_width) <= screen_height
+}
+
+/// The display aspect of the source in thousandths: the core's, or square
+/// pixels when the core gives none.
+pub(crate) fn game_aspect_milli(source: &OrientedSource) -> u32 {
+    match source.aspect_milli {
+        0 => div_round(u64::from(source.width) * 1_000, u64::from(source.height)),
+        a => a,
+    }
 }
 
 /// The shape of a progressive whole multiple (the native rung is the
@@ -123,6 +145,7 @@ pub(crate) fn overscan_crop(
     shape: &Shape,
     source: &OrientedSource,
     ranges: &[CrtRange],
+    monitor_aspect: Aspect,
     rate_mhz: u32,
 ) -> Option<Shape> {
     let multiple = matches!(shape.rung, Rung::Native | Rung::Multiple(_));
@@ -143,9 +166,18 @@ pub(crate) fn overscan_crop(
     if progressive_min(ranges, rate_mhz).is_some_and(|min| game_lines < min) {
         return None;
     }
+    // The pixels keep their shape: the hidden lines narrow the picture, so
+    // a game of another shape than the screen gets a wider mode. A game of
+    // the screen's shape keeps its width; the crop is the overscan.
+    let base_width = if same_aspect(source, monitor_aspect) {
+        shape.base_width
+    } else {
+        border_width(source, shape.game_lines, game_lines, monitor_aspect)
+    };
     Some(Shape {
         game_lines,
         lines: game_lines,
+        base_width,
         crop: Some(OverscanCrop {
             lines_per_edge,
             asked_lines: shape.game_lines,
@@ -334,13 +366,7 @@ fn border_width(
     mode_lines: u16,
     monitor_aspect: Aspect,
 ) -> u16 {
-    let game_aspect_milli = match source.aspect_milli {
-        0 => u64::from(div_round(
-            u64::from(source.width) * 1_000,
-            u64::from(source.height),
-        )),
-        a => u64::from(a),
-    };
+    let game_aspect_milli = u64::from(game_aspect_milli(source));
     let numerator =
         u64::from(source.width) * u64::from(mode_lines) * u64::from(monitor_aspect.width) * 1_000;
     let denominator = u64::from(monitor_aspect.height) * u64::from(game_lines) * game_aspect_milli;
@@ -410,6 +436,35 @@ mod tests {
             Aspect::STANDARD_CRT,
             60_000,
         )
+    }
+
+    #[test]
+    fn a_turned_game_gets_a_mode_wider_than_itself() {
+        // 240x320 upright at 3:4 fills 3:4 of the height on a 4:3 face:
+        // 240 * (4/3) / (3/4) = 426.7 pixels of mode width.
+        let turned = OrientedSource {
+            aspect_milli: 750,
+            ..source(240, 320, false)
+        };
+        let wide = vec![range((192, 1_000), (0, 0))];
+        let s = shape(
+            Rung::Native,
+            &turned,
+            &wide,
+            &caps(true),
+            Aspect::STANDARD_CRT,
+            60_000,
+        )
+        .unwrap();
+        assert!(!s.bordered);
+        assert_eq!((s.lines, s.base_width), (320, 427));
+    }
+
+    #[test]
+    fn a_game_of_the_screen_shape_keeps_its_width() {
+        let s = shape_of(Rung::Native, &source(256, 224, false), true).unwrap();
+        assert_eq!(s.base_width, 256);
+        assert!(same_aspect(&source(256, 224, false), Aspect::STANDARD_CRT));
     }
 
     #[test]
@@ -524,7 +579,7 @@ mod tests {
             let s = source(256, height, false);
             let shaped =
                 shape(rung, &s, &ranges, &caps(true), Aspect::STANDARD_CRT, 60_000).unwrap();
-            overscan_crop(&shaped, &s, &ranges, 60_000)
+            overscan_crop(&shaped, &s, &ranges, Aspect::STANDARD_CRT, 60_000)
         };
         assert_eq!(crop(241, Rung::Native), None);
         // 242 lines: 1 too many, so 1 per edge and 240 lines shown.
@@ -562,7 +617,10 @@ mod tests {
                 bordered: false,
                 crop: None,
             };
-            assert_eq!(overscan_crop(&shaped, &s, &ranges, 60_000), None);
+            assert_eq!(
+                overscan_crop(&shaped, &s, &ranges, Aspect::STANDARD_CRT, 60_000),
+                None
+            );
         }
         let huge = source(256, u16::MAX, false);
         let shaped = Shape {
@@ -575,7 +633,10 @@ mod tests {
             bordered: false,
             crop: None,
         };
-        assert_eq!(overscan_crop(&shaped, &huge, &ranges, 60_000), None);
+        assert_eq!(
+            overscan_crop(&shaped, &huge, &ranges, Aspect::STANDARD_CRT, 60_000),
+            None
+        );
     }
 
     #[test]

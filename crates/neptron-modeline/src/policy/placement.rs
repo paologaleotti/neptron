@@ -1,7 +1,9 @@
 use neptron_types::{Filter, Modeline, Rect, ui_dest_fill, ui_dest_uniform};
 
 use super::OrientedSource;
+use super::shape::{game_aspect_milli, same_aspect};
 use super::source::div_round;
+use crate::Aspect;
 
 /// Size of the UI canvas, in pixels.
 pub const UI_CANVAS: (u16, u16) = (320, 240);
@@ -63,14 +65,17 @@ pub(crate) enum Vertical {
 }
 
 /// The placement of the game in a CRT mode. `base_width` is the width the
-/// horizontal multiple applies to. The UI fills the active area.
+/// horizontal multiple applies to. The UI fills the active area. A fit
+/// keeps the game's shape on the face of shape `monitor_aspect`.
 pub(crate) fn crt_placement(
     source: &OrientedSource,
     mode: &Modeline,
     vertical: Vertical,
     horizontal: HorizontalScale,
     base_width: u16,
+    monitor_aspect: Aspect,
 ) -> Placement {
+    let fill = fill_size(source, mode, monitor_aspect);
     let (y, h, claim_y) = match vertical {
         Vertical::Exact { lines, factor, .. } => (
             centre(mode.vactive, u32::from(lines)),
@@ -78,13 +83,13 @@ pub(crate) fn crt_placement(
             Some(factor),
         ),
         Vertical::Fill => (
-            0,
-            u32::from(mode.vactive),
-            whole(mode.vactive, source.height),
+            centre(mode.vactive, fill.1),
+            fill.1,
+            whole_u32(fill.1, source.height),
         ),
     };
     let w = match (vertical, horizontal) {
-        (Vertical::Fill, _) => u32::from(mode.hactive),
+        (Vertical::Fill, _) => fill.0,
         (_, HorizontalScale::Multiple(k)) => u32::from(source.width) * u32::from(k),
         (_, HorizontalScale::Fixed(width)) => div_round(
             u64::from(source.width) * u64::from(width),
@@ -113,6 +118,27 @@ pub(crate) fn crt_placement(
         ui_dest: ui_dest_fill(mode.hactive, mode.vactive),
         scale,
     }
+}
+
+/// The largest size at which the game, at its shape, fills a CRT mode
+/// whose active area covers a face of shape `monitor_aspect`: the full
+/// height, or the full width for a game wider than the face.
+fn fill_size(source: &OrientedSource, mode: &Modeline, monitor_aspect: Aspect) -> (u32, u32) {
+    let full = (u32::from(mode.hactive), u32::from(mode.vactive));
+    if same_aspect(source, monitor_aspect) {
+        return full;
+    }
+    let game = u64::from(game_aspect_milli(source));
+    let face_w = u64::from(monitor_aspect.width) * 1_000;
+    let face_h = u64::from(monitor_aspect.height);
+    // A sliver of a game still gets one pixel, so the rectangle is never
+    // empty.
+    let w = div_round(u64::from(full.0) * game * face_h, face_w).max(1);
+    if w <= full.0 {
+        return (w, full.1);
+    }
+    let h = div_round(u64::from(full.1) * face_w, game * face_h).max(1);
+    (full.0, h.min(full.1))
 }
 
 /// The placement of the game in a flat-panel mode: the largest whole
@@ -284,6 +310,36 @@ mod tests {
     }
 
     #[test]
+    fn a_fit_keeps_the_shape_of_a_turned_game() {
+        // A 3:4 game on a 4:3 face fills the height and 9/16 of the width.
+        let turned = source(240, 320, 750);
+        let p = crt_placement(
+            &turned,
+            &mode(640, 480),
+            Vertical::Fill,
+            HorizontalScale::Multiple(1),
+            640,
+            Aspect::STANDARD_CRT,
+        );
+        assert_eq!(p.dest, rect(140, 0, 360, 480));
+        assert_eq!(p.filter, Filter::SharpBilinear);
+    }
+
+    #[test]
+    fn a_fit_of_a_wide_game_fills_the_width() {
+        let wide = source(400, 200, 2_000);
+        let p = crt_placement(
+            &wide,
+            &mode(640, 480),
+            Vertical::Fill,
+            HorizontalScale::Multiple(1),
+            640,
+            Aspect::STANDARD_CRT,
+        );
+        assert_eq!(p.dest, rect(0, 80, 640, 320));
+    }
+
+    #[test]
     fn an_exact_crt_mode_fills_its_width_and_its_lines() {
         let p = crt_placement(
             &source(256, 224, 1_333),
@@ -295,6 +351,7 @@ mod tests {
             },
             HorizontalScale::Multiple(5),
             256,
+            Aspect::STANDARD_CRT,
         );
         assert_eq!(p.crop, rect(0, 0, 256, 224));
         assert_eq!(p.dest, rect(0, 0, 1_280, 224));
@@ -322,6 +379,7 @@ mod tests {
             },
             HorizontalScale::Multiple(1),
             256,
+            Aspect::STANDARD_CRT,
         );
         assert_eq!(p.crop, rect(0, 1, 256, 238));
         assert_eq!(p.dest, rect(0, 0, 256, 476));
@@ -343,6 +401,7 @@ mod tests {
             },
             HorizontalScale::Multiple(1),
             224,
+            Aspect::STANDARD_CRT,
         );
         assert_eq!(p.crop, rect(3, 0, 250, 224));
         assert_eq!(p.dest, rect(0, 0, 224, 500));
@@ -361,6 +420,7 @@ mod tests {
             },
             HorizontalScale::Multiple(1),
             320,
+            Aspect::STANDARD_CRT,
         );
         assert_eq!(p.dest, rect(80, 40, 160, 144));
         assert_eq!(p.filter, Filter::Nearest);
@@ -378,6 +438,7 @@ mod tests {
             },
             HorizontalScale::Fixed(1_920),
             256,
+            Aspect::STANDARD_CRT,
         );
         assert_eq!(p.dest, rect(0, 0, 1_920, 224));
         assert_eq!(
@@ -398,6 +459,7 @@ mod tests {
             Vertical::Fill,
             HorizontalScale::Multiple(2),
             384,
+            Aspect::STANDARD_CRT,
         );
         assert_eq!(p.dest, rect(0, 0, 768, 576));
         assert_eq!(
