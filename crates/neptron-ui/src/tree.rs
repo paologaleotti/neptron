@@ -39,6 +39,8 @@ pub enum RowKind {
     Action,
     /// The row takes no input now.
     Disabled,
+    /// The row shows a text to read and takes no input: it is no control.
+    Info,
 }
 
 /// One visible row of the tree, as a view into the tree.

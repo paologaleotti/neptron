@@ -106,6 +106,7 @@ impl SettingsList {
             SettingValue::Page(_) => RowKind::Page,
             SettingValue::Choice { .. } if self.pickers => RowKind::Page,
             SettingValue::Action(_) => RowKind::Action,
+            SettingValue::Text(_) => RowKind::Info,
             SettingValue::Toggle(_) | SettingValue::Number { .. } | SettingValue::Choice { .. } => {
                 RowKind::Value
             }
@@ -113,13 +114,14 @@ impl SettingsList {
     }
 
     /// The footer hint for the focused row of `items`: what accept or the
-    /// arrows do there. Empty for a disabled row and for no rows.
+    /// arrows do there. Empty for a disabled row, an information row and
+    /// for no rows.
     pub fn hint(&self, items: &[MenuItem]) -> &'static str {
         let Some(item) = items.get(self.list.cursor().min(items.len().saturating_sub(1))) else {
             return "";
         };
         match (self.kind(item), &item.value) {
-            (RowKind::Disabled, _) => "",
+            (RowKind::Disabled | RowKind::Info, _) => "",
             (RowKind::Page, _) => HINT_OPEN,
             (RowKind::Action, _) => HINT_CHOOSE,
             (RowKind::Value, SettingValue::Number { .. }) => HINT_STEP,
@@ -144,7 +146,7 @@ impl SettingsList {
         let Some(item) = items.get(self.list.cursor()) else {
             return SettingsEvent::None;
         };
-        if !item.is_enabled() {
+        if !item.is_enabled() || matches!(item.value, SettingValue::Text(_)) {
             return SettingsEvent::None;
         }
         if let SettingValue::Page(_) = item.value {
@@ -194,7 +196,7 @@ fn draw_row(
     focused: bool,
 ) {
     let arrows = focused && kind == RowKind::Value;
-    let (color, dim) = if focused && !item.is_enabled() {
+    let (color, dim) = if focused && (!item.is_enabled() || kind == RowKind::Info) {
         // The look of a focused option that cannot be chosen (`List`): a
         // solid bar, which a scanline cannot hide as it can a thin edge.
         frame.scene.rect(row, theme.colors.border);
@@ -221,6 +223,10 @@ fn draw_row(
         padded.w.saturating_sub(ARROW_COLUMN_PX),
         padded.h,
     );
+    if let (SettingValue::Text(text), None) = (&item.value, &item.unavailable) {
+        draw_info(frame, row, padded, item, text, color, focused);
+        return;
+    }
     if let (SettingValue::Action(_) | SettingValue::Page(_), None) =
         (&item.value, &item.unavailable)
     {
@@ -297,6 +303,40 @@ fn draw_row(
     );
 }
 
+/// An information row: the label at the left in its own width, and the
+/// text right-aligned in the rest of the row after one character of space.
+/// The text takes the arrow column too: the row has no arrow.
+fn draw_info(
+    frame: &mut UiFrame,
+    row: Rect,
+    padded: Rect,
+    item: &MenuItem,
+    text: &str,
+    color: crate::geom::Color,
+    focused: bool,
+) {
+    let label_w = font::text_width(&item.label).min(padded.w);
+    let label_box = Rect::new(padded.x, row.y, label_w, row.h);
+    let label_clipped = text::draw_in(&mut frame.scene, label_box, Align::Left, color, &item.label);
+    let gap = label_w.saturating_add(font::ADVANCE);
+    let text_box = Rect::new(
+        add(padded.x, gap),
+        row.y,
+        padded.w.saturating_sub(gap),
+        row.h,
+    );
+    let text_clipped = text::draw_in(&mut frame.scene, text_box, Align::Right, color, text);
+    push(
+        frame,
+        item,
+        RowKind::Info,
+        row,
+        Some(text),
+        focused,
+        label_clipped || text_clipped,
+    );
+}
+
 fn push(
     frame: &mut UiFrame,
     item: &MenuItem,
@@ -306,13 +346,16 @@ fn push(
     focused: bool,
     clipped: bool,
 ) {
-    let is_action = matches!(item.value, SettingValue::Action(_) | SettingValue::Page(_));
+    let no_source = matches!(
+        item.value,
+        SettingValue::Action(_) | SettingValue::Page(_) | SettingValue::Text(_)
+    );
     frame.tree.push(TreeRow {
         widget: WidgetKind::SettingsList,
         kind: Some(kind),
         label: &item.label,
         value,
-        source: (!is_action).then_some(item.source),
+        source: (!no_source).then_some(item.source),
         rect,
         focused,
         clipped,
@@ -365,7 +408,7 @@ fn next_value(action: UiAction, value: &SettingValue) -> Option<Value> {
         SettingValue::Choice { index, options } => {
             next_choice(*index, options, direction).map(Value::Choice)
         }
-        SettingValue::Action(_) | SettingValue::Page(_) => None,
+        SettingValue::Action(_) | SettingValue::Page(_) | SettingValue::Text(_) => None,
     }
 }
 
@@ -973,5 +1016,119 @@ mod tests {
                 ("Setting 4", None, None, false),
             ]
         );
+    }
+
+    fn info(key: u32, label: &str, text: &str) -> MenuItem {
+        MenuItem::new(SettingKey(key), label, SettingValue::Text(text.to_owned()))
+    }
+
+    #[test]
+    fn an_information_row_takes_no_input_and_has_no_hint() {
+        let mut items = vec![info(1, "Address eth0", "192.168.0.112")];
+        // Scopes that would let a value row change or reset.
+        items[0].scopes = ALL;
+        items[0].source = Level::Game;
+        let mut l = SettingsList::new(Rect::new(16, 12, 288, 48), 12).with_pickers();
+        assert_eq!(l.kind(&items[0]), RowKind::Info);
+        assert_eq!(l.hint(&items), "");
+        for action in [
+            UiAction::Accept,
+            UiAction::Left,
+            UiAction::Right,
+            UiAction::Menu,
+        ] {
+            assert_eq!(l.handle(action, &items, Level::Game), SettingsEvent::None);
+        }
+        let disabled = items[0].clone().unavailable("Not now");
+        assert_eq!(l.kind(&disabled), RowKind::Disabled);
+    }
+
+    #[test]
+    fn an_information_row_shows_its_label_and_its_text_right_aligned() {
+        let theme = Theme::default();
+        let items = vec![
+            info(1, "Address eth0", "192.168.0.112"),
+            info(2, "macOS, Linux", "smb://255.255.255.255/share"),
+        ];
+        let mut l = SettingsList::new(Rect::new(16, 12, 288, 48), 12);
+        at(&mut l, 1);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &theme, &items);
+        let rows: Vec<_> = frame
+            .tree
+            .rows()
+            .map(|r| (r.label, r.value, r.source, r.kind, r.focused, r.clipped))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (
+                    "Address eth0",
+                    Some("192.168.0.112"),
+                    None,
+                    Some(RowKind::Info),
+                    false,
+                    false
+                ),
+                (
+                    "macOS, Linux",
+                    Some("smb://255.255.255.255/share"),
+                    None,
+                    Some(RowKind::Info),
+                    true,
+                    false
+                ),
+            ]
+        );
+        // The text ends at the right edge of the padding: the arrow column
+        // is free on a row with no arrow.
+        let edge = 16 + 288 - 4;
+        let mut ends = Vec::new();
+        for c in frame.scene.commands() {
+            if let crate::DrawCommand::Text { x, span, color, .. } = *c {
+                let text = frame.scene.text(span);
+                if text.contains('.') {
+                    ends.push(x + font::text_width(text) as i32);
+                }
+                assert_eq!(color, theme.colors.text, "full brightness: {text}");
+            }
+        }
+        assert_eq!(ends, [edge, edge]);
+        let fills: Vec<_> = frame
+            .scene
+            .commands()
+            .iter()
+            .filter_map(|c| match *c {
+                crate::DrawCommand::Rect { rect, color } => Some((rect, color)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            fills,
+            [(l.list.row_rect(1, false), theme.colors.border)],
+            "the focus bar of a row that cannot act, and no arrow"
+        );
+    }
+
+    #[test]
+    fn an_information_row_that_does_not_fit_is_cut_and_marked_clipped() {
+        let long = "smb://a-very-long-host-name-for-this-row.local/share";
+        let items = vec![info(1, "macOS, Linux", long)];
+        let l = SettingsList::new(Rect::new(16, 12, 288, 48), 12);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), &items);
+        let row = frame.tree.rows().next().expect("a row");
+        assert!(row.clipped);
+        assert_eq!(row.value, Some(long), "the tree has the whole text");
+        let texts: Vec<_> = frame
+            .scene
+            .commands()
+            .iter()
+            .filter_map(|c| match *c {
+                crate::DrawCommand::Text { span, .. } => Some(frame.scene.text(span)),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.contains(&crate::text::ELLIPSIS), "{texts:?}");
     }
 }

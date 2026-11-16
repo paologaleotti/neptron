@@ -230,6 +230,9 @@ pub enum SettingValue {
     /// page, or a screen of the UI with a reserved page id such as
     /// [`crate::screens::GRID_PAGE`].
     Page(PageId),
+    /// A text that the player reads, such as an address. The row takes no
+    /// change and has no source.
+    Text(String),
 }
 
 /// One option of a [`SettingValue::Choice`]: its label, what it gives, and
