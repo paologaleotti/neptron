@@ -82,6 +82,59 @@ pub(crate) fn whole_khz(mode: Modeline, range: Option<&CrtRange>) -> Modeline {
     best.map_or_else(|| nearest(mode), |(_, m)| m)
 }
 
+/// The mode of Switchres moved onto the line rate of a range that has one
+/// line rate only (`h_min == h_max`: `ntsc`, `pal`, `arcade_25`).
+///
+/// Switchres picks the lines per field and then the clock, and on such a
+/// range it can end one line per field off: 24.989 kHz on a range of
+/// 24.960 kHz. The validator takes a line rate from `h_max` less one field
+/// rate up to `h_max` there (one line per field of room), and refuses the
+/// mode. This function gives the mode the one total of lines per field
+/// whose line rate lies in that band at the same field rate: it adds lines
+/// to or takes them from the vertical back porch, and scales the clock so
+/// the field rate stays. The active lines, the sync and the front porch do
+/// not move. A mode that is inside already, a range with a band of line
+/// rates, or a change that would leave no back porch, comes back as it is.
+/// [`whole_khz`] then sets the clock to whole kHz inside the range.
+pub(crate) fn onto_fixed_line_rate(mode: Modeline, range: &CrtRange) -> Modeline {
+    if range.h_min_mhz != range.h_max_mhz || mode.vtotal == 0 {
+        return mode;
+    }
+    let field = mode.field_rate_mhz().max(1);
+    let line = mode.line_rate_mhz();
+    let high = range.h_max_mhz;
+    let low = high.saturating_sub(field);
+    if (low..=high).contains(&line) {
+        return mode;
+    }
+    // The line rate is the field rate times the total over the fields per
+    // frame. The band is one field rate wide, so the largest total at or
+    // under `h_max` lies in it; an interlaced total keeps its parity, which
+    // gives the half line of the second field.
+    let most = if mode.interlace {
+        let most = 2 * high / field;
+        most - (most + u64::from(mode.vtotal)) % 2
+    } else {
+        high / field
+    };
+    let Ok(vtotal) = u16::try_from(most) else {
+        return mode;
+    };
+    if vtotal <= mode.vsync_end {
+        return mode;
+    }
+    // Below 2^32 * 2^16, so the product fits a u64.
+    let scaled = u64::from(mode.pclock_hz) * u64::from(vtotal) / u64::from(mode.vtotal);
+    let Ok(pclock_hz) = u32::try_from(scaled) else {
+        return mode;
+    };
+    Modeline {
+        pclock_hz,
+        vtotal,
+        ..mode
+    }
+}
+
 /// Switchres's total, then one pixel more and one less, two more and two
 /// less, and so on, each total that fits a `u16` once.
 fn totals(htotal: u16) -> impl Iterator<Item = u16> {
@@ -135,8 +188,19 @@ fn keeps_range(next: &Modeline, before: &Modeline, range: &CrtRange) -> bool {
         let inside = |m: &Modeline| (min..=max).contains(&rate(m));
         inside(next) || !inside(before)
     };
-    keeps(Modeline::line_rate_mhz, range.h_min_mhz, range.h_max_mhz)
-        && keeps(Modeline::field_rate_mhz, range.v_min_mhz, range.v_max_mhz)
+    if range.h_min_mhz == range.h_max_mhz {
+        // One line rate: the validator takes a band of one field rate
+        // under it, and `onto_fixed_line_rate` put the mode there, so the
+        // clock must keep it there.
+        let high = range.h_max_mhz;
+        let low = high.saturating_sub(next.field_rate_mhz());
+        if !(low..=high).contains(&next.line_rate_mhz()) {
+            return false;
+        }
+    } else if !keeps(Modeline::line_rate_mhz, range.h_min_mhz, range.h_max_mhz) {
+        return false;
+    }
+    keeps(Modeline::field_rate_mhz, range.v_min_mhz, range.v_max_mhz)
 }
 
 fn keeps_porches(next: &Modeline, before: &Modeline, range: &CrtRange) -> bool {
@@ -242,6 +306,79 @@ mod tests {
             hsync_positive: false,
             vsync_positive: false,
         }
+    }
+
+    /// The `arcade_25` preset: 24.960 kHz only.
+    fn arcade_25() -> CrtRange {
+        CrtRange {
+            h_min_mhz: 24_960_000,
+            h_max_mhz: 24_960_000,
+            v_min_mhz: 49_500,
+            v_max_mhz: 65_000,
+            interlaced_lines_min: 768,
+            interlaced_lines_max: 800,
+            progressive_lines_min: 384,
+            progressive_lines_max: 400,
+            ..ntsc()
+        }
+    }
+
+    /// An interlaced mode one line per field above 24.960 kHz at 60 Hz:
+    /// 60 Hz x 833 / 2 = 24.990 kHz.
+    fn one_line_high() -> Modeline {
+        Modeline {
+            pclock_hz: 33_236_700,
+            hactive: 1_024,
+            hsync_start: 1_050,
+            hsync_end: 1_150,
+            htotal: 1_330,
+            vactive: 768,
+            vsync_start: 773,
+            vsync_end: 783,
+            vtotal: 833,
+            interlace: true,
+            doublescan: false,
+            hsync_positive: false,
+            vsync_positive: false,
+        }
+    }
+
+    #[test]
+    fn a_mode_above_a_single_line_rate_gets_one_line_per_field_less() {
+        let m = one_line_high();
+        assert_eq!(m.field_rate_mhz(), 60_000);
+        let moved = onto_fixed_line_rate(m, &arcade_25());
+        // 831 lines: 60 Hz x 831 / 2 = 24.930 kHz, inside 24.900 to 24.960.
+        assert_eq!(moved.vtotal, 831);
+        assert_eq!(moved.field_rate_mhz(), 60_000);
+        assert!((24_900_000..=24_960_000).contains(&moved.line_rate_mhz()));
+        assert_eq!(
+            (moved.vactive, moved.vsync_start, moved.vsync_end),
+            (768, 773, 783)
+        );
+        let clocked = whole_khz(moved, Some(&arcade_25()));
+        assert!(clocked.pclock_is_whole_khz());
+        assert!((24_900_000..=24_960_000).contains(&clocked.line_rate_mhz()));
+        assert!(clocked.field_rate_mhz().abs_diff(60_000) < 5);
+    }
+
+    #[test]
+    fn a_mode_inside_or_on_a_band_of_line_rates_stays() {
+        let inside = Modeline {
+            vtotal: 831,
+            pclock_hz: 33_156_900,
+            ..one_line_high()
+        };
+        assert_eq!(onto_fixed_line_rate(inside, &arcade_25()), inside);
+        let band = CrtRange {
+            h_min_mhz: 15_625_000,
+            h_max_mhz: 16_200_000,
+            ..arcade_25()
+        };
+        assert_eq!(
+            onto_fixed_line_rate(one_line_high(), &band),
+            one_line_high()
+        );
     }
 
     #[test]

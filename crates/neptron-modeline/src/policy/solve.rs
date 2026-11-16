@@ -1,6 +1,6 @@
 use neptron_types::{CrtRange, GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry};
 
-use super::clock::whole_khz;
+use super::clock::{onto_fixed_line_rate, whole_khz};
 use super::crt::Crt;
 use super::padding::padding;
 use super::placement::{Vertical, crt_placement};
@@ -181,7 +181,11 @@ impl Ask<'_> {
         };
         for candidate in &mut list {
             let range = ranges.get(candidate.range_index);
-            candidate.modeline = whole_khz(candidate.modeline, range);
+            let onto = match range {
+                Some(range) => onto_fixed_line_rate(candidate.modeline, range),
+                None => candidate.modeline,
+            };
+            candidate.modeline = whole_khz(onto, range);
         }
         Ok(self.pick(&list, width))
     }
