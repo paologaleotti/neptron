@@ -622,7 +622,7 @@ name = "Arcade, part 1 (discuss first, spec first): choose the cores with measur
 owns = ["docs/spec", "docs/adr", "data/systems", "data/cores"]
 needs = []
 gate = "A spec that the owner accepts; an ADR for each contract change"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M07"
@@ -672,18 +672,18 @@ status = "pending"
 [[task]]
 id = "M12"
 wave = 14
-name = "The 15 kHz kernel patches for a release (OP-070): the answer of the author, or our own patch set"
+name = "The 15 kHz kernel patches for a release (OP-070): the author set GPL-2.0-only on 2026-11-15; record it, pin a commit with the licence, let the release image carry the set"
 owns = ["os/patches", "os/board/pc", "docs"]
 needs = []
 gate = "A licence statement that allows the release image; kms-check"
-status = "blocked"
+status = "pending"
 
 [[task]]
 id = "M13"
 wave = 14
 name = "The bench sessions: the PC with the CRT and with a flat panel, and the Raspberry Pi 3 (P09), by the hardware checklist"
 owns = ["docs/hardware-checklist.md"]
-needs = ["M01", "M04", "M07"]
+needs = ["M01", "M04", "M07c", "M08a"]
 gate = "Every check of the checklist has a recorded result"
 status = "pending"
 

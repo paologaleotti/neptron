@@ -103,6 +103,7 @@ The state column is one line. The full entry below is the reference.
 | OP-103 | Frame budget on the Pi 3 | Dialog rate fixed; standard change underruns |
 | OP-104 | CI limits | aarch64 timing checks not in CI; two paths not proven |
 | OP-105 | The keep or revert dialog of the display | Three faults seen on the Pi; discuss first |
+| OP-106 | Open questions of the arcade spec | Defaults in `docs/spec/arcade.md`, section 19 |
 
 ### Decided
 
@@ -784,7 +785,7 @@ The state column is one line. The full entry below is the reference.
 ### OP-070: Licence of the 15 kHz kernel patch set. Must be closed before any image with the set is distributed.
 
 - Raised by: T28
-- Status: open, blocks the distribution of a PC image with the set; waits for an answer from the patch author
+- Status: open until task M12 lands. The author answered on 2026-11-15 in issue 22: the patches are GPL-2.0-only (upstream commits `c57e6508` and `e106247a`). The pinned commit is older than the licence change, so no image with the set is given to anybody until M12 pins a commit that carries the licence and records it
 - Default: the repository `D0023R/linux_kernel_15khz` has a GPL-3.0 LICENSE file, and its patches carry no licence line. The Linux kernel is GPL-2.0-only, and GPL-3.0-only code cannot be combined with it. The PC images (release and development) apply the nine patches of the pinned commit. No image with these patches is given to anybody until this point is closed. `cargo xtask os build --arch x86_64 --no-kernel-15khz` builds the PC image without them, in its own output (`os/configs/neptron_pc_x86_64_no15khz.fragment`). The Raspberry Pi image never takes a kernel patch: `os/board/rpi/check-kernel-patches.sh` fails its build when `BR2_LINUX_KERNEL_PATCH` is set or its patch directory holds a patch, and a test in `xtask/src/os/rpi.rs` pins this. So this point does not block the Pi image. The files of the set are not committed to this repository; the pin is a commit id and the SHA-256 values in `os/patches/linux/linux.hash`. The owner asked the author to state the licence of the patches: https://github.com/D0023R/linux_kernel_15khz/issues/22. The last recorded check (2026-11-13) found no answer.
 - Where: `os/patches/linux`, `os/configs/neptron_pc_x86_64_defconfig`, `os/README.md`, `os/board/pc/LICENCES.txt`, `os/board/rpi/check-kernel-patches.sh`
 - How to change: when the author states GPL-2.0 for the patches, record the answer here and in `os/README.md` and close the point. With no answer or a GPL-3.0-only answer, write NEPTRON's own patch (below) and remove the pinned set.
@@ -1139,4 +1140,13 @@ The state column is one line. The full entry below is the reference.
   Known facts that can be part of the cause: the first boot of an image has nothing confirmed, so the guard opens the boot prompt (OP-076); a frontend that restarts several times goes to the safe mode for failed boots; on the Pi the record of the guard is kept per connector. None of these is proven as the cause.
 - Where: `crates/neptron-video` (the guard and its record), `apps/neptron/src/shell` (the boot prompt, the dialog, the notices), `docs/spec`
 - How to change: reproduce each fault on the Pi with the log of the guard, write the rules for when a prompt is needed (a mode that the display never confirmed) and when it is not (a kept mode at a restart), and agree them with the owner in a spec before the code.
+- Decision:
+
+### OP-106: Open questions of the arcade spec.
+
+- Raised by: M06 (2026-11-16)
+- Status: open; each question has a default that the build tasks use
+- Default: the questions A1 to A6 of `docs/spec/arcade.md`, section 19: the XML reader for the DAT in xtask (`roxmltree`, xtask only), how the image build runs the index generator (a hook of the package), which Neo Geo BIOS files and optional ROMs are mandatory (block only when no BIOS file matches), where one-time notices are stored (`state/config/notices.toml`), PAL composite runs arcade boards 9 to 16 % slow (accepted with the speed alert), and the shape of the TATE setting (decided by the TATE task). The owner decided on 2026-11-16: FinalBurn Neo on every board, no donations, 480i as the default for a vertical game on a horizontal 15 kHz CRT, the speed change on composite accepted. Measured on the Pi 3 B on 2026-11-16 (aarch64, composite NTSC 240p): DoDonPachi and Metal Slug X run with 0 missed fields and 0 underruns, worst field 11.83 ms of 16.65 ms; late stages and HDMI are not measured. TATE (the monitor on its side with a turned UI) is after the MVP and important to the owner.
+- Where: `docs/spec/arcade.md`, ADR 0014, 0015 and 0016
+- How to change: each build task (M07a to M08b) closes its questions in its report.
 - Decision:
