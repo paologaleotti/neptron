@@ -14,6 +14,7 @@ The host produces data and decides nothing for the session. It does not own the 
 - `copy_save_ram(&mut Vec<u8>)`, `load_save_ram(&[u8])`.
 - File functions for the session to call off the frame thread: `save_file_path`, `read_save_file`, `write_save_file` (temp file, fsync, rename, one `.bak`).
 - `read_zip_entry`, `GameGeometry::from_core`, `Timing::from_core`: the checks, usable on their own (for example to replay core traces).
+- `zip_entries`: the files of a zip archive (name, CRC-32, uncompressed size) from its central directory alone, for the arcade set check. Its own limits keep a hostile file small: a directory of at most 1 MiB and 256 KiB of names.
 
 ## Decisions
 

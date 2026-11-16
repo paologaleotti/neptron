@@ -1,5 +1,6 @@
 //! Reads one entry of a zip archive into memory: stored and deflate entries
-//! only, no ZIP64, no encryption, no multi-disk archives.
+//! only, no ZIP64, no encryption, no multi-disk archives. Lists the files
+//! of an archive from its central directory alone.
 //!
 //! The reader only reads. Content archives are user data, and the caller
 //! opens them read-only.
@@ -15,6 +16,18 @@ pub struct ZipEntry {
     pub name: String,
     /// The uncompressed bytes.
     pub data: Vec<u8>,
+}
+
+/// One file of a zip archive, as its central directory gives it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ZipDirectoryEntry {
+    /// The name of the entry in the archive, with its folders.
+    pub name: String,
+    /// The CRC-32 of the uncompressed bytes, as the archive gives it. The
+    /// listing reads no entry data, so it does not check it.
+    pub crc32: u32,
+    /// The uncompressed size in bytes, as the archive gives it.
+    pub uncompressed_size: u32,
 }
 
 /// Why a zip entry could not be read.
@@ -56,6 +69,19 @@ pub enum ZipError {
         name: String,
         /// The method number of the archive.
         method: u16,
+    },
+    /// A part of the archive is larger than the limit of the listing
+    /// ([`zip_entries`]).
+    #[error(
+        "the {part} of the archive has {size} bytes or more, above the listing limit of {limit} bytes"
+    )]
+    ListingTooLarge {
+        /// The part: the central directory or the entry names.
+        part: &'static str,
+        /// The size found so far, in bytes.
+        size: u64,
+        /// The limit, in bytes.
+        limit: u64,
     },
     /// The entry is larger than the limit.
     #[error("entry {name} has {size} bytes, more than the limit of {limit} bytes")]
@@ -121,6 +147,81 @@ pub fn read_zip_entry<R: Read + Seek>(
     let directory = read_at(archive, eocd.directory_offset, eocd.directory_size)?;
     let entry = find_entry(&directory, eocd.entries, extensions)?;
     read_entry(archive, &entry, eocd.directory_offset, limit_bytes)
+}
+
+/// The largest central directory that [`zip_entries`] reads, in bytes.
+/// The listing runs in the menu process for a file of the share, so its
+/// limit is far below [`MAX_CENTRAL_DIRECTORY_BYTES`]. An arcade set holds a
+/// few hundred entries at most, about 64 bytes each.
+pub const MAX_LISTING_DIRECTORY_BYTES: u64 = 1024 * 1024;
+/// The largest total of name bytes that [`zip_entries`] returns. A name
+/// can grow when it is decoded (each byte that is not ASCII in a code page
+/// 437 name becomes three bytes), so the directory limit alone does not
+/// bound it.
+pub const MAX_LISTING_NAME_BYTES: u64 = 256 * 1024;
+
+/// Lists the files of a zip archive, in central-directory order: name,
+/// CRC-32 and uncompressed size. It reads only the end record and the
+/// central directory, at most [`MAX_LISTING_DIRECTORY_BYTES`], and no entry
+/// data. Folder entries are left out. The names together hold at most
+/// [`MAX_LISTING_NAME_BYTES`]. The directory must hold exactly the entries
+/// that its end record counts.
+///
+/// The arcade set check compares these values with the ROMs of a set, as
+/// FinalBurn Neo matches ROMs by CRC-32 and size.
+///
+/// # Errors
+///
+/// [`ZipError::NoEndOfCentralDirectory`], [`ZipError::MultiDisk`],
+/// [`ZipError::Zip64`] (also for an entry with a ZIP64 size),
+/// [`ZipError::ListingTooLarge`], [`ZipError::CentralDirectory`] (also for
+/// a count in the end record that differs from the entries of the
+/// directory) and [`ZipError::Io`].
+pub fn zip_entries<R: Read + Seek>(archive: &mut R) -> Result<Vec<ZipDirectoryEntry>, ZipError> {
+    let eocd = find_end_of_central_directory(archive)?;
+    if eocd.directory_size > MAX_LISTING_DIRECTORY_BYTES {
+        return Err(ZipError::ListingTooLarge {
+            part: "central directory",
+            size: eocd.directory_size,
+            limit: MAX_LISTING_DIRECTORY_BYTES,
+        });
+    }
+    let directory = read_at(archive, eocd.directory_offset, eocd.directory_size)?;
+    // The count of the end record is not trusted for the allocation: each
+    // entry takes at least a header in the directory just read.
+    let room = usize::from(eocd.entries).min(directory.len() / CENTRAL_HEADER_LEN);
+    let mut entries = Vec::with_capacity(room);
+    let mut name_bytes = 0u64;
+    let mut at = 0usize;
+    for _ in 0..eocd.entries {
+        let (entry, next) = parse_central_entry(&directory, at)?;
+        at = next;
+        if entry.compressed_size == ZIP64_MARK_32 || entry.uncompressed_size == ZIP64_MARK_32 {
+            return Err(ZipError::Zip64);
+        }
+        if entry.name.ends_with('/') {
+            continue;
+        }
+        name_bytes += entry.name.len() as u64;
+        if name_bytes > MAX_LISTING_NAME_BYTES {
+            return Err(ZipError::ListingTooLarge {
+                part: "entry names",
+                size: name_bytes,
+                limit: MAX_LISTING_NAME_BYTES,
+            });
+        }
+        entries.push(ZipDirectoryEntry {
+            name: entry.name,
+            crc32: entry.crc,
+            uncompressed_size: entry.uncompressed_size,
+        });
+    }
+    if at != directory.len() {
+        return Err(ZipError::CentralDirectory(
+            "it holds more than the entries that its end record counts",
+        ));
+    }
+    Ok(entries)
 }
 
 const EOCD_SIGNATURE: u32 = 0x0605_4b50;
@@ -718,6 +819,176 @@ pub(crate) mod tests {
         zip[len - 2..].copy_from_slice(&(comment.len() as u16).to_le_bytes());
         zip.extend_from_slice(&comment);
         assert_eq!(read(&zip, &["nes"], 1024).unwrap().data, ROM);
+    }
+
+    fn list(bytes: &[u8]) -> Result<Vec<ZipDirectoryEntry>, ZipError> {
+        zip_entries(&mut Cursor::new(bytes))
+    }
+
+    #[test]
+    fn the_listing_gives_each_file_with_its_crc_and_size() {
+        let zip = build(&[
+            TestEntry {
+                name: "roms/",
+                data: b"",
+                deflate: false,
+            },
+            TestEntry {
+                name: "roms/prg.bin",
+                data: ROM,
+                deflate: true,
+            },
+            TestEntry {
+                name: "gfx.bin",
+                data: b"tiles",
+                deflate: false,
+            },
+        ]);
+        assert_eq!(
+            list(&zip).unwrap(),
+            [
+                ZipDirectoryEntry {
+                    name: "roms/prg.bin".to_owned(),
+                    crc32: crc32(ROM),
+                    uncompressed_size: ROM.len() as u32,
+                },
+                ZipDirectoryEntry {
+                    name: "gfx.bin".to_owned(),
+                    crc32: crc32(b"tiles"),
+                    uncompressed_size: 5,
+                },
+            ]
+        );
+        assert_eq!(list(&build(&[])).unwrap(), []);
+    }
+
+    /// The listing reads no entry data: damaged data or a local header
+    /// does not change it. Only the set check, or the core, finds those.
+    #[test]
+    fn the_listing_reads_only_the_central_directory() {
+        let mut zip = one("game.nes", false);
+        zip[0] = 0;
+        zip[30 + "game.nes".len()] ^= 0xFF;
+        let cd = directory_offset(&zip);
+        zip[cd + 8] |= 1;
+        zip[cd + 10] = 14;
+        let entries = list(&zip).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].crc32, crc32(ROM));
+    }
+
+    #[test]
+    fn the_listing_refuses_what_it_cannot_read() {
+        assert!(matches!(
+            list(b"short"),
+            Err(ZipError::NoEndOfCentralDirectory)
+        ));
+        let base = one("game.nes", false);
+        let eocd = base.len() - 22;
+        let cd = directory_offset(&base);
+        let mut zip = base.clone();
+        zip[eocd + 4] = 1;
+        assert!(matches!(list(&zip), Err(ZipError::MultiDisk)));
+        let mut zip = base.clone();
+        zip[cd + 24..cd + 28].copy_from_slice(&ZIP64_MARK_32.to_le_bytes());
+        assert!(matches!(list(&zip), Err(ZipError::Zip64)));
+        let mut zip = base.clone();
+        zip[cd + 28] = 0xFF;
+        assert!(matches!(list(&zip), Err(ZipError::CentralDirectory(_))));
+    }
+
+    /// The end record of an archive from [`build`] says `count` entries.
+    fn with_count(mut zip: Vec<u8>, count: u16) -> Vec<u8> {
+        let eocd = zip.len() - 22;
+        zip[eocd + 8..eocd + 10].copy_from_slice(&count.to_le_bytes());
+        zip[eocd + 10..eocd + 12].copy_from_slice(&count.to_le_bytes());
+        zip
+    }
+
+    #[test]
+    fn an_entry_count_that_lies_is_refused() {
+        let two = build(&[
+            TestEntry {
+                name: "a.bin",
+                data: b"a",
+                deflate: false,
+            },
+            TestEntry {
+                name: "b.bin",
+                data: b"b",
+                deflate: false,
+            },
+        ]);
+        assert_eq!(list(&two).unwrap().len(), 2);
+        assert!(matches!(
+            list(&with_count(two.clone(), u16::MAX - 1)),
+            Err(ZipError::CentralDirectory(_))
+        ));
+        assert!(matches!(
+            list(&with_count(two, 1)),
+            Err(ZipError::CentralDirectory(_))
+        ));
+    }
+
+    /// A directory above the listing limit, but under the limit of the
+    /// content reader.
+    #[test]
+    fn a_directory_over_the_listing_limit_is_refused() {
+        let names: Vec<String> = (0..20_000).map(|i| format!("rom{i:05}.bin")).collect();
+        let entries: Vec<TestEntry<'_>> = names
+            .iter()
+            .map(|name| TestEntry {
+                name,
+                data: b"",
+                deflate: false,
+            })
+            .collect();
+        let zip = build(&entries);
+        let directory = zip.len() as u64 - 22 - directory_offset(&zip) as u64;
+        assert!(directory > MAX_LISTING_DIRECTORY_BYTES);
+        assert!(directory < MAX_CENTRAL_DIRECTORY_BYTES);
+        assert!(matches!(
+            list(&zip),
+            Err(ZipError::ListingTooLarge {
+                part: "central directory",
+                limit: MAX_LISTING_DIRECTORY_BYTES,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn names_over_the_listing_limit_are_refused() {
+        // Each byte above 0x7F of a code page 437 name decodes to three
+        // bytes, so 8 KiB of directory gives 24 KiB of names.
+        let raw = vec![0xE9u8; 8 * 1024];
+        let mut zip = Vec::new();
+        let mut central = Vec::new();
+        let count = (MAX_LISTING_NAME_BYTES / (3 * raw.len() as u64) + 1) as u16;
+        for _ in 0..count {
+            central.extend_from_slice(&CENTRAL_HEADER_SIGNATURE.to_le_bytes());
+            central.extend_from_slice(&[0; 24]);
+            central.extend_from_slice(&(raw.len() as u16).to_le_bytes());
+            central.extend_from_slice(&[0; 16]);
+            central.extend_from_slice(&raw);
+        }
+        zip.extend_from_slice(&central);
+        zip.extend_from_slice(&EOCD_SIGNATURE.to_le_bytes());
+        zip.extend_from_slice(&[0; 4]);
+        zip.extend_from_slice(&count.to_le_bytes());
+        zip.extend_from_slice(&count.to_le_bytes());
+        zip.extend_from_slice(&(central.len() as u32).to_le_bytes());
+        zip.extend_from_slice(&0u32.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        assert!((central.len() as u64) < MAX_LISTING_DIRECTORY_BYTES);
+        assert!(matches!(
+            list(&zip),
+            Err(ZipError::ListingTooLarge {
+                part: "entry names",
+                limit: MAX_LISTING_NAME_BYTES,
+                ..
+            })
+        ));
     }
 
     #[test]

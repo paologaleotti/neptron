@@ -112,6 +112,13 @@ pub fn read_save_file(path: &Path) -> Result<Option<Vec<u8>>, SaveFileError>;
 pub fn write_save_file(path: &Path, bytes: &[u8]) -> Result<(), SaveFileError>;
 ```
 
+A free function for the arcade set check (it reads a file, so the caller runs it off the frame thread):
+
+```rust
+pub fn zip_entries<R: Read + Seek>(archive: &mut R) -> Result<Vec<ZipDirectoryEntry>, ZipError>;
+pub struct ZipDirectoryEntry { pub name: String, pub crc32: u32, pub uncompressed_size: u32 }
+```
+
 `Pad` holds the 16 RetroPad buttons and the two analog sticks of one port. `Pad::apply(control, value)` takes one `Control` and value from an `InputEvent`. The session maps input devices to ports.
 
 The session does not get a `SourceGeometry` from the host. The engine builds it from `AvInfo`, the frame sizes and its own settings (interlace, rotation).
@@ -356,6 +363,8 @@ The host reads zip files with `miniz_oxide` (raw deflate) and its own central-di
 - The `zip` crate with only deflate pulls in `flate2`, `crc32fast`, `indexmap` and more, and also writes archives. The host needs one read path.
 - The reader works on `Read + Seek`, so the tests build archives in memory, damaged ones too. CRC-32 is a 256-entry table in the crate.
 
+`zip_entries(archive)` lists the files of an archive with the same central-directory reader: name, CRC-32 and uncompressed size, in central-directory order, folder entries left out. It reads only the end record and the central directory, and no entry data, so it does not check a CRC-32, the method or the encryption flag. The listing runs in the menu process for a file of the share, so it has its own smaller limits: a central directory of at most `MAX_LISTING_DIRECTORY_BYTES` (1 MiB) and at most `MAX_LISTING_NAME_BYTES` (256 KiB) of returned names. A set over either limit is `ZipError::ListingTooLarge`. The count of the end record bounds no allocation: the list reserves at most one entry per 46-byte header in the directory read. A count that differs from the entries of the directory, high or low, is `ZipError::CentralDirectory`. A ZIP64 archive or entry, a multi-disk archive and a damaged directory are a typed `ZipError` too. The arcade set check (`docs/spec/arcade.md`, section 10) compares the list with the ROMs of a set; `neptron-session` re-exports the function, because the app reaches the host only through the session.
+
 ## Save RAM
 
 `copy_save_ram` reads `retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)` and `retro_get_memory_size` and copies the bytes into the caller's buffer. `load_save_ram` copies bytes into the core's memory. Both run between frames, never during a call into the core.
@@ -399,7 +408,7 @@ Each module owns its error enum, made with `thiserror`. Each variant carries the
 
 - `OpenError`: `ProcessAlreadyUsed`, `InvalidPath` (a folder path that is not UTF-8), `Library` (the file is not a loadable library), `MissingSymbol { name }`, `ApiVersion { found, expected }`, `InvalidSystemInfo`, `HostPoisoned`.
 - `LoadError`: `GameAlreadyLoaded`, `NoContent`, `InvalidPath`, `ReadContent`, `ContentTooLarge`, `Zip { path, source: ZipError }`, `ZipNeedsFullPath`, `Refused`, `InvalidAvInfo`, `OutOfMemory`, `HostPoisoned`.
-- `ZipError`: `Io`, `NoEndOfCentralDirectory`, `MultiDisk`, `Zip64`, `CentralDirectory`, `NoMatchingEntry`, `Encrypted`, `Method`, `TooLarge`, `LocalHeader`, `Inflate`, `SizeMismatch`, `Crc`.
+- `ZipError`: `Io`, `NoEndOfCentralDirectory`, `MultiDisk`, `Zip64`, `CentralDirectory`, `NoMatchingEntry`, `Encrypted`, `Method`, `ListingTooLarge`, `TooLarge`, `LocalHeader`, `Inflate`, `SizeMismatch`, `Crc`.
 - `RunError`: `NoGame`, `HostPoisoned`.
 - `SaveRamError`: `NoGame`, `TooLarge`, `OutOfMemory`, `HostPoisoned`.
 - `SaveFileError`: `Read`, `Write`, `TooLarge`, `NoFileName`.
@@ -418,6 +427,7 @@ Each module owns its error enum, made with `thiserror`. Each variant carries the
 | `MIN_SAMPLE_RATE_MHZ`, `MAX_SAMPLE_RATE_MHZ` | 1,000, 384,000,000 |
 | `MAX_CONTENT_BYTES` | 64 MiB |
 | `MAX_CENTRAL_DIRECTORY_BYTES` | 16 MiB |
+| `MAX_LISTING_DIRECTORY_BYTES`, `MAX_LISTING_NAME_BYTES` | 1 MiB, 256 KiB (the zip listing) |
 | `MAX_SAVE_RAM_BYTES` | 16 MiB |
 | `MAX_CORE_STRING_BYTES` | 16,384 |
 | `MAX_OPTIONS` | 1,024 |

@@ -45,4 +45,7 @@ pub use save::{
 };
 pub use state::{EVENT_CAPACITY, MAX_CONTENT_OVERRIDES, MAX_LOGGED_COMMANDS, MESSAGE_MAX_BYTES};
 pub use video::MAX_PITCH_BYTES;
-pub use zip::{MAX_CENTRAL_DIRECTORY_BYTES, ZipEntry, ZipError, read_zip_entry};
+pub use zip::{
+    MAX_CENTRAL_DIRECTORY_BYTES, MAX_LISTING_DIRECTORY_BYTES, MAX_LISTING_NAME_BYTES,
+    ZipDirectoryEntry, ZipEntry, ZipError, read_zip_entry, zip_entries,
+};
