@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+mod arcade_table;
 mod golden;
 mod policy_golden;
 mod policy_property;
