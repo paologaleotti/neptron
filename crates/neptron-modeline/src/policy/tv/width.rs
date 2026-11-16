@@ -87,6 +87,39 @@ pub(crate) fn tv_samples(
     }
 }
 
+/// The width of an arcade board with the rule `aspect`: the width of its
+/// display aspect over `field_lines` lines, snapped to a whole or half
+/// factor as for a console. A board fills its monitor, so the console
+/// width of a 4:3 picture does not apply.
+pub(crate) fn board_samples(
+    system: LineSystem,
+    width: u16,
+    height: u16,
+    aspect_milli: u32,
+    field_lines: u16,
+) -> u32 {
+    let width = u32::from(width.max(1));
+    let aspect = match aspect_milli {
+        0 => div_round(u64::from(width) * 1_000, u64::from(height.max(1))),
+        a => a,
+    };
+    snap(width, plain_aspect_samples(system, aspect, field_lines))
+}
+
+/// The width that keeps the display aspect over `field_lines` lines of
+/// the line system, at most the safe width.
+fn plain_aspect_samples(system: LineSystem, aspect_milli: u32, field_lines: u16) -> u32 {
+    let picture_lines = match system {
+        LineSystem::L525 => TV_525_PICTURE_LINES,
+        LineSystem::L625 => TV_625_PICTURE_LINES,
+    };
+    div_round(
+        u64::from(aspect_milli) * u64::from(field_lines) * u64::from(TV_SAFE_WIDTH_SAMPLES) * 3,
+        4_000 * u64::from(picture_lines),
+    )
+    .clamp(1, u32::from(TV_SAFE_WIDTH_SAMPLES))
+}
+
 /// The width that keeps the display aspect over `field_lines` lines of
 /// the line system, or the console width for a 4:3 console picture.
 ///
@@ -144,6 +177,18 @@ mod tests {
 
     fn aspect(system: LineSystem, width: u16, lines: u16, aspect_milli: u32) -> u32 {
         tv_samples(TvWidth::Aspect, system, width, lines, aspect_milli, lines)
+    }
+
+    #[test]
+    fn a_board_fills_the_width_of_its_aspect() {
+        use LineSystem::{L525, L625};
+        // 320x240 at 4:3 on 240 lines of NTSC: all 704 samples, where a
+        // console gets 644 (snapped to 640).
+        assert_eq!(board_samples(L525, 320, 240, FOUR_THIRDS, 240), 704);
+        // 304x224 on PAL: 224 of 288 lines are 547.4 samples wide.
+        assert_eq!(board_samples(L625, 304, 224, FOUR_THIRDS, 224), 547);
+        // 384x256 on PAL: 625.8, and 1.5 x 384 = 576 is 8 % off: no snap.
+        assert_eq!(board_samples(L625, 384, 256, FOUR_THIRDS, 256), 626);
     }
 
     #[test]

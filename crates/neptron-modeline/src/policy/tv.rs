@@ -15,7 +15,7 @@ use super::settings::Effective;
 use super::{
     Considered, Dropped, FORCE_50_MHZ, FORCE_60_MHZ, OVERSCAN_CROP_MAX_LINES_PER_EDGE,
     OrientedSource, OverscanCrop, Placement, Plan, Proposal, RefreshKind, RefreshPolicy,
-    RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, UI_CANVAS, walk_ladder,
+    RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, TvWidth, UI_CANVAS, walk_ladder,
 };
 
 /// The largest difference between the game's rate and the field rate of a
@@ -265,14 +265,24 @@ impl Tv<'_> {
         };
         let fields = if mode.interlace { 2 } else { 1 };
         let field_lines = u16::try_from(frame_lines.div_ceil(fields)).unwrap_or(u16::MAX);
-        let w = width::tv_samples(
-            self.settings.tv_width,
-            self.system,
-            source.width,
-            source.height,
-            source.aspect_milli,
-            field_lines,
-        )
+        let w = if self.settings.arcade && self.settings.tv_width == TvWidth::Aspect {
+            width::board_samples(
+                self.system,
+                source.width,
+                source.height,
+                source.aspect_milli,
+                field_lines,
+            )
+        } else {
+            width::tv_samples(
+                self.settings.tv_width,
+                self.system,
+                source.width,
+                source.height,
+                source.aspect_milli,
+                field_lines,
+            )
+        }
         .min(u32::from(mode.hactive));
         let scale = ScaleClaim {
             x: whole_u32(w, source.width),
