@@ -95,8 +95,15 @@ fn outcome_with(
     } else {
         ""
     };
+    // Each frame twice at a rate near twice the game's: the kind alone
+    // does not say it.
+    let twice = if w.considered.target.kind == RefreshKind::Nearest && p.timing.repeat() == 2 {
+        " x2"
+    } else {
+        ""
+    };
     format!(
-        "{} {} {}x{}{} {}.{:03}kHz {}.{:03}Hz game {}x{}+{}+{} {}{crop}{speed}",
+        "{} {} {}x{}{} {}.{:03}kHz {}.{:03}Hz game {}x{}+{}+{} {}{crop}{speed}{twice}",
         w.considered.rung,
         w.considered.target.kind,
         m.hactive,

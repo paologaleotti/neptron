@@ -105,22 +105,39 @@ pub(crate) fn refresh_targets(
 
 /// The extra target of an arcade board below every range: twice its rate,
 /// each frame shown twice, so the board keeps its speed before the nearest
-/// rate changes it. `None` when a range covers the game's rate, when the
-/// refresh policy asks for double refresh already, or when no range covers
-/// twice the rate. The policy puts it before the game's own target.
+/// rate changes it; when no range covers twice the rate, the covered rate
+/// nearest twice it, each frame twice, if that changes the speed less than
+/// the nearest rate. `None` when a range covers the game's rate, or when
+/// the refresh policy asks for double refresh already. The policy puts it
+/// before the game's own target.
 pub(crate) fn below_ranges_double_target(
     policy: RefreshPolicy,
     game_mhz: u32,
     ranges: &[CrtRange],
 ) -> Option<RefreshTarget> {
-    let double = u64::from(game_mhz) * 2;
-    let below = !covers(ranges, u64::from(game_mhz)) && covers(ranges, double);
-    if policy == RefreshPolicy::ExactX2 || !below {
+    let game = u64::from(game_mhz);
+    let double = game * 2;
+    if policy == RefreshPolicy::ExactX2 || covers(ranges, game) {
         return None;
     }
-    Some(RefreshTarget {
-        kind: RefreshKind::NativeDouble,
-        rate_mhz: u32::try_from(double).ok()?,
+    if covers(ranges, double) {
+        return Some(RefreshTarget {
+            kind: RefreshKind::NativeDouble,
+            rate_mhz: u32::try_from(double).ok()?,
+            repeat: 2,
+        });
+    }
+    // No range covers twice the rate either: each frame twice at the rate
+    // nearest twice the game's, when that changes the speed less than the
+    // nearest rate does once per frame (30 Hz on ntsc: -0.1 % against
+    // +99.8 %).
+    let once = nearest_covered(game_mhz, ranges);
+    let twice = nearest_covered(u32::try_from(double).ok()?, ranges);
+    let error_ppm =
+        |shown: u32, wanted: u64| u64::from(shown).abs_diff(wanted) * 1_000_000 / wanted.max(1);
+    (error_ppm(twice, double) < error_ppm(once, game)).then_some(RefreshTarget {
+        kind: RefreshKind::Nearest,
+        rate_mhz: twice,
         repeat: 2,
     })
 }
@@ -271,8 +288,32 @@ mod tests {
             below_ranges_double_target(RefreshPolicy::Exact, 57_550, &ranges),
             None
         );
+        // 20 Hz: 40 Hz is below the range too, and 49.5 Hz once per frame
+        // (+147 %) is worse than 49.5 Hz twice (+23.8 %).
         assert_eq!(
             below_ranges_double_target(RefreshPolicy::Exact, 20_000, &ranges),
+            Some(target(RefreshKind::Nearest, 49_500, 2))
+        );
+    }
+
+    #[test]
+    fn a_board_below_a_range_of_one_rate_shows_each_frame_twice_when_that_is_nearer() {
+        // ntsc: 59.940 Hz only. 30 Hz once per frame is +99.8 %, twice
+        // -0.1 %.
+        let ntsc = [range(59_940, 59_940)];
+        assert_eq!(
+            below_ranges_double_target(RefreshPolicy::Exact, 30_000, &ntsc),
+            Some(target(RefreshKind::Nearest, 59_940, 2))
+        );
+        // pal: 50 Hz only. 30 Hz once is +66.7 %, twice -16.7 %.
+        let pal = [range(50_000, 50_000)];
+        assert_eq!(
+            below_ranges_double_target(RefreshPolicy::Exact, 30_000, &pal),
+            Some(target(RefreshKind::Nearest, 50_000, 2))
+        );
+        // 57.55 Hz on ntsc: once is +4.2 %, twice -47.9 %: no extra target.
+        assert_eq!(
+            below_ranges_double_target(RefreshPolicy::Exact, 57_550, &ntsc),
             None
         );
     }

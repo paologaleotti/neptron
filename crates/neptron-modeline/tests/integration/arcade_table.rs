@@ -726,9 +726,24 @@ fn rule(
                 .iter()
                 .any(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz)
         };
-        // Double refresh below every range is for an arcade board only
-        // (decision A11); a console takes the nearest rate.
+        // Double refresh below every range is for an arcade board only; a
+        // console takes the nearest rate.
         if covered(game) || (board.arcade && covered(2 * game)) {
+            return "rate";
+        }
+        // A board below every range takes each frame twice at the rate
+        // nearest twice its own when that changes its speed less.
+        let nearest = |rate: u64| {
+            ranges
+                .iter()
+                .map(|r| rate.clamp(r.v_min_mhz, r.v_max_mhz.max(r.v_min_mhz)))
+                .min_by_key(|&c| c.abs_diff(rate))
+                .unwrap_or(rate)
+        };
+        let error = |shown: u64, wanted: u64| shown.abs_diff(wanted) * 1_000_000 / wanted.max(1);
+        let won = error(p.timing.field_rate_mhz, game * u64::from(p.timing.repeat()));
+        let best = error(nearest(game), game).min(error(nearest(2 * game), 2 * game));
+        if board.arcade && won > best + 5_000 {
             return "rate";
         }
     }
