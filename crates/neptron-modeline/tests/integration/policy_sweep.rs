@@ -18,7 +18,9 @@ use neptron_modeline::{Settings, modelines_with};
 use neptron_safety::{Rejection, validate};
 use neptron_types::{CrtRange, GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry};
 
-use crate::arcade_table::{Display, crop_lines, displays, field_lines, shape_error};
+use crate::arcade_table::{
+    Display, crop_lines, displays, field_lines, shape_error, traded_for_window,
+};
 
 const WIDTHS: [u16; 4] = [160, 320, 512, 800];
 const HEIGHTS: [u16; 8] = [100, 144, 224, 240, 288, 320, 480, 640];
@@ -405,7 +407,11 @@ impl Sweep {
                 .any(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz);
             if covered && !fitted {
                 let shown = p.timing.field_rate_mhz;
-                let exact = shown.abs_diff(rate) < 5 || shown.abs_diff(2 * rate) < 5;
+                // An exact picture at the nearest rate where a range holds
+                // a window, when none holds one at the game's rate and no
+                // fit keeps the speed better, is the rule.
+                let traded = traded_for_window(&plan, p, ranges, profile, caps);
+                let exact = traded || shown.abs_diff(rate) < 5 || shown.abs_diff(2 * rate) < 5;
                 self.check("the rate is exact where a range covers it", exact, || {
                     format!("{}: shown {shown} mHz ({:?})", what(), p.timing.target.kind)
                 });

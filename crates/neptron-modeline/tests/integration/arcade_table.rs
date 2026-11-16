@@ -728,6 +728,9 @@ fn rule(
         };
         // Double refresh below every range is for an arcade board only; a
         // console takes the nearest rate.
+        if covered(game) && traded_for_window(plan, p, ranges, profile, caps) {
+            return "ok: no window at the game's rate";
+        }
         if covered(game) || (board.arcade && covered(2 * game)) {
             return "rate";
         }
@@ -1169,4 +1172,45 @@ fn sources_table() {
     let all: Vec<&Board> = BOARDS.iter().chain(SOURCES.iter()).collect();
     out.push_str(&summary(&all, &displays));
     println!("{out}");
+}
+
+/// No range holds a window of lines at `rate_mhz`: the fewest progressive
+/// or interlaced lines of every covering range are more than its field
+/// holds there.
+pub fn no_window_at(ranges: &[CrtRange], rate_mhz: u64) -> bool {
+    ranges
+        .iter()
+        .filter(|r| r.v_min_mhz <= rate_mhz && rate_mhz <= r.v_max_mhz)
+        .all(|r| {
+            let field = field_lines(r, rate_mhz);
+            let progressive =
+                r.progressive_lines_min > 0 && u32::from(r.progressive_lines_min) <= field;
+            let interlaced =
+                r.interlaced_lines_min > 0 && u32::from(r.interlaced_lines_min) <= 2 * field;
+            !progressive && !interlaced
+        })
+}
+
+/// The winner trades the game's rate for an exact picture: no range holds
+/// a window at the rate, the winner is exact at the nearest rate, and no
+/// fit that validates changes the speed less.
+pub fn traded_for_window(
+    plan: &Plan,
+    p: &Proposal,
+    ranges: &[CrtRange],
+    profile: &MonitorProfile,
+    caps: &GpuCaps,
+) -> bool {
+    // The speed change in millihertz; within the 5 mHz match two changes
+    // count as equal.
+    let speed = |q: &Proposal| {
+        let shown = q.timing.field_rate_mhz / u64::from(q.timing.repeat().max(1));
+        shown.abs_diff(u64::from(q.timing.game_mhz))
+    };
+    let better_fit = plan.proposals().any(|(_, c, q)| {
+        c.rung.is_fitted() && speed(q) + 5 <= speed(p) && validate(&q.mode, profile, caps).is_ok()
+    });
+    p.timing.target.kind == RefreshKind::Nearest
+        && no_window_at(ranges, u64::from(plan.source.refresh_mhz))
+        && !better_fit
 }

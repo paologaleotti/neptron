@@ -1822,3 +1822,38 @@ fn every_picture_that_is_not_exact_says_why() {
         [NoticeReason::SmallPicture { fill_permille: 592 }]
     );
 }
+
+#[test]
+fn a_rate_with_no_window_takes_the_exact_rung_at_the_nearest_rate_that_has_one() {
+    // arcade_25 holds 384 progressive lines at most up to 60.000 Hz: at
+    // 60.099 Hz no window exists, and the fit runs at 60.000 Hz anyway.
+    // 1x of the NES in 384 lines at 60.000 Hz changes the speed no more.
+    let profile = preset("arcade_25");
+    let caps = open_caps();
+    let plan = decide(
+        &source(256, 240, 60_099),
+        &PolicySettings::default(),
+        &profile,
+        &caps,
+    )
+    .unwrap();
+    let (considered, p) = winner(&plan, &profile, &caps);
+    assert_eq!(considered.rung, Rung::Native);
+    assert_eq!(considered.target.kind, RefreshKind::Nearest);
+    assert_eq!((p.mode.vactive, p.placement.dest.h), (384, 240));
+    // A fit at the game's own rate keeps a nearer exact rung after it: on
+    // generic_15 a 320-line game at 60 Hz has a window (interlaced), so no
+    // nearest rate is added at all.
+    let plan = decide(
+        &source(256, 320, 60_000),
+        &PolicySettings::default(),
+        &preset("generic_15"),
+        &caps,
+    )
+    .unwrap();
+    assert!(
+        plan.considered
+            .iter()
+            .all(|c| c.target.kind != RefreshKind::Nearest)
+    );
+}

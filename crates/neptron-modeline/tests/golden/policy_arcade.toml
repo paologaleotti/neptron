@@ -539,7 +539,7 @@
 "pacman_60606 arcade_15_25_31" = "native exact 654x473p 31.454kHz 60.606Hz game 224x288+215+92 nearest"
 "pacman_60606 arcade_15_31" = "native exact 654x473p 31.454kHz 60.606Hz game 224x288+215+92 nearest"
 "pacman_60606 arcade_15ex" = "interlaced 1:1 exact 619x448i 15.666kHz 60.606Hz game 224x288+197+80 nearest"
-"pacman_60606 arcade_25" = "fitted unmatched 1024x768i 24.929kHz 60.000Hz game 576x768+224+0 sharp"
+"pacman_60606 arcade_25" = "native nearest in range 531x384p 24.959kHz 59.999Hz game 224x288+153+48 nearest"
 "pacman_60606 arcade_31" = "native exact 654x473p 31.454kHz 60.606Hz game 224x288+215+92 nearest"
 "pacman_60606 d9200" = "2x exact 398x576p 37.030kHz 60.606Hz game 224x576+87+0 nearest"
 "pacman_60606 d9400" = "native exact 398x288p 18.908kHz 60.606Hz game 224x288+87+0 nearest"
