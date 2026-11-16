@@ -18,6 +18,7 @@ pub mod display_wait;
 pub mod library;
 pub mod logbook;
 pub mod nav;
+pub mod network;
 pub mod options;
 pub mod outbox;
 pub mod pages;
