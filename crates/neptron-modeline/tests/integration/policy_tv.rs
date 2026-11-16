@@ -335,7 +335,7 @@ fn a_tall_or_interlaced_game_takes_the_interlaced_mode_1_to_1() {
 }
 
 #[test]
-fn a_game_taller_than_every_mode_is_fitted_into_the_progressive_mode() {
+fn a_game_taller_than_every_mode_is_fitted_into_the_interlaced_mode() {
     let settings = PolicySettings::default();
     let source = game(640, 600, 60_000, false);
     let plan = plan(&source, &settings, TvStandard::Ntsc);
@@ -351,13 +351,17 @@ fn a_game_taller_than_every_mode_is_fitted_into_the_progressive_mode() {
             mode_lines: 480
         })
     );
+    // The interlaced mode keeps 480 of the 600 lines; the progressive fit
+    // after it would keep 240.
     let w = won(&source, &settings, TvStandard::Ntsc);
     assert_eq!(
         (w.rung, w.mode, w.dest.y, w.dest.h),
-        (Rung::Fitted, TV_525_240P, 0, 240)
+        (Rung::Fitted, TV_525_480I, 0, 480)
     );
     assert_eq!(w.filter, Filter::SharpBilinear);
-    let n = notice(&plan, &plan.considered[plan.considered.len() - 1]).unwrap();
+    let last = &plan.considered[plan.considered.len() - 1];
+    assert_eq!(last.outcome.as_ref().unwrap().mode, TV_525_240P);
+    let n = notice(&plan, last).unwrap();
     assert!(n.fitted);
 }
 
@@ -857,9 +861,19 @@ fn a_board_taller_than_the_interlaced_mode_fits_into_it() {
     assert_eq!(w.rung, Rung::Fitted);
     assert!(w.mode.interlace);
     assert_eq!(w.dest.h, 480);
-    // A console keeps the progressive fit, as its goldens record.
+    // A console fits into the interlaced mode too.
     let w = won(&board, &PolicySettings::default(), TvStandard::Ntsc);
-    assert!(!w.mode.interlace);
+    assert!(w.mode.interlace);
+    // 576i on NTSC: 576 lines into 480i, 0.83, not into 240p, 0.42.
+    let pal = won(
+        &game(720, 576, 50_000, true),
+        &PolicySettings::default(),
+        TvStandard::Ntsc,
+    );
+    assert_eq!(
+        (pal.rung, pal.mode.vactive, pal.dest.h),
+        (Rung::Fitted, 480, 480)
+    );
 }
 
 #[test]

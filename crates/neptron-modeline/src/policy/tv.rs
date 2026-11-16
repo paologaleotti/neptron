@@ -91,8 +91,8 @@ pub(crate) fn tv_plan(
         });
     }
     let fit = source.turned && settings.vertical == VerticalMode::Fit;
-    if settings.arcade && caps.interlace && tv.taller_than_progressive() && !fit {
-        // A board taller than the progressive mode and its crop keeps
+    if caps.interlace && tv.taller_than_progressive() && !fit {
+        // A game taller than the progressive mode and its crop keeps
         // twice the lines in the interlaced mode, so its fit goes there.
         considered.push(tv.proposal(Rung::Fitted, INTERLACED, Fit::Fill));
     }

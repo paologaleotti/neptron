@@ -815,11 +815,7 @@ fn fit_allowed(
         }
         // A game taller than the progressive mode of a TV fits into the
         // interlaced mode, which keeps more of its lines.
-        // A console keeps the progressive fit (its TV goldens): a stated
-        // exception, an open question in the spec.
-        MonitorKind::Tv { .. }
-            if !p.mode.interlace && lines > u32::from(p.mode.vactive) && plan.source.turned =>
-        {
+        MonitorKind::Tv { .. } if !p.mode.interlace && lines > u32::from(p.mode.vactive) => {
             Err("tv fit")
         }
         _ => Ok(()),
