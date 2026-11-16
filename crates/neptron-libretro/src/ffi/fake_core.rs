@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use neptron_libretro_sys::*;
-use neptron_types::PixelFormat;
+use neptron_types::{PixelFormat, Rotation};
 
 use super::{Core, EntryPoints};
 use crate::host::Host;
@@ -647,8 +647,10 @@ fn environment_answers() {
                 std::ptr::null_mut::<u8>(),
             ));
             let mut rotation = 1u32;
-            out.push(!cb.env(RETRO_ENVIRONMENT_SET_ROTATION, &raw mut rotation));
-            out.push(!cb.env(RETRO_ENVIRONMENT_SET_ROTATION, &raw mut rotation));
+            out.push(cb.env(RETRO_ENVIRONMENT_SET_ROTATION, &raw mut rotation));
+            let mut bad_rotation = 4u32;
+            out.push(!cb.env(RETRO_ENVIRONMENT_SET_ROTATION, &raw mut bad_rotation));
+            out.push(!cb.env(RETRO_ENVIRONMENT_SET_ROTATION, std::ptr::null_mut::<u32>()));
             out.push(!cb.env(0x24E54, std::ptr::null_mut::<u8>()));
             out.push(!cb.env(0x24E54, std::ptr::null_mut::<u8>()));
             let mut msg = retro_message {
@@ -692,6 +694,8 @@ fn environment_answers() {
     assert_eq!(
         out.events,
         [
+            Event::Rotation(Rotation::R90),
+            Event::Refused(Refusal::Rotation { value: 4 }),
             Event::Message {
                 text: "Saved".to_owned(),
                 frames: 120
@@ -711,18 +715,33 @@ fn environment_answers() {
     let logs: Vec<_> = out.logs.iter().map(|l| (l.level, l.text.clone())).collect();
     assert_eq!(
         logs,
-        [
-            (
-                LogLevel::Info,
-                "environment call 0x1 refused: rotation is not supported".to_owned()
-            ),
-            (
-                LogLevel::Warn,
-                "unknown environment call 0x24e54".to_owned()
-            ),
-        ]
+        [(
+            LogLevel::Warn,
+            "unknown environment call 0x24e54".to_owned()
+        )]
     );
     assert_eq!(seen().calls.last().unwrap(), "failed []");
+    assert_eq!(host.rotation(), Rotation::R90);
+}
+
+#[test]
+fn a_rotation_at_load_is_kept_with_no_event() {
+    script(|s| {
+        s.on_load = Some(|cb| {
+            let mut rotation = 3u32;
+            assert!(cb.env(RETRO_ENVIRONMENT_SET_ROTATION, &raw mut rotation));
+            let mut bad = 9u32;
+            assert!(!cb.env(RETRO_ENVIRONMENT_SET_ROTATION, &raw mut bad));
+        });
+    });
+    let mut host = loaded();
+    assert_eq!(host.rotation(), Rotation::R270);
+    assert_eq!(
+        host.run_frame().unwrap().events,
+        [Event::Refused(Refusal::Rotation { value: 9 })],
+        "the refusal of the load comes with the first frame"
+    );
+    assert_eq!(host.rotation(), Rotation::R270);
 }
 
 #[test]

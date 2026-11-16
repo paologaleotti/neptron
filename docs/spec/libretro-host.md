@@ -13,12 +13,12 @@ In scope:
 - Content from a plain file, or from one entry of a `.zip` file (stored or deflate).
 - Save RAM in memory and in a `.srm` file.
 - Core options with the version 0 API (`SET_VARIABLES`).
+- Rotation (`SET_ROTATION`): the host stores the turn that the core asks for and reports it. The renderers turn the picture (ADR 0015).
 
 Out of scope for the MVP:
 
 - Hardware rendering (`SET_HW_RENDER` and its interfaces).
 - Save states, disk control, VFS, rumble, the frame-time callback, audio buffer status, the software framebuffer, memory maps, achievements, subsystems.
-- Rotation. The scope table puts it after the MVP.
 - `.7z` content. Zip content for a core that needs a path on disk.
 
 ## Trust boundary
@@ -55,6 +55,7 @@ impl Host {
     pub fn load_game(&mut self, content: Option<ContentRequest<'_>>) -> Result<AvInfo, LoadError>;
     pub fn av_info(&self) -> Option<AvInfo>;
     pub fn pixel_format(&self) -> PixelFormat;
+    pub fn rotation(&self) -> Rotation;
     pub fn set_pad(&mut self, port: usize, pad: Pad) -> Result<(), InputError>;
     pub fn run_frame(&mut self) -> Result<FrameOutput<'_>, RunError>;
     pub fn reset(&mut self) -> Result<(), RunError>;
@@ -87,6 +88,7 @@ pub enum Event {
     Geometry(GameGeometry),       // SET_GEOMETRY: new base size or aspect, same maximum
     AvInfo(AvInfo),               // SET_SYSTEM_AV_INFO: geometry and timing
     PixelFormat(PixelFormat),     // SET_PIXEL_FORMAT during a frame
+    Rotation(Rotation),           // SET_ROTATION during a frame
     Shutdown,                     // the core asks to stop
     Message { text: String, frames: u32 }, // SET_MESSAGE: a notice for the UI
     Refused(Refusal),             // the host refused a request of the core, with the reason
@@ -225,6 +227,23 @@ The engine gets the event in the output of the frame where the core made the cal
 
 Another value: `false` and `Event::Refused`. A change during `run_frame` also adds `Event::PixelFormat`. A change during `load_game` is in `pixel_format()`.
 
+## Rotation
+
+`SET_ROTATION` takes a `const unsigned *`: the turn, counter-clockwise, that the picture needs to be upright, in quarter turns. The frame stays as the core draws it.
+
+| Value | `Rotation` |
+| --- | --- |
+| 0 | `R0` |
+| 1 | `R90` |
+| 2 | `R180` |
+| 3 | `R270` |
+
+- 0 to 3: `true`. The host stores the value, and `Host::rotation()` gives it. It is `R0` until the core asks.
+- A call during `run_frame` also adds `Event::Rotation` to the output of that frame. A call during `Host::open` or `load_game` only sets `Host::rotation()`.
+- Another value: `false` and `Event::Refused(Refusal::Rotation { value })`. The stored value does not change.
+
+FinalBurn Neo calls it in `retro_load_game` and when its vertical-mode option changes (`docs/spec/arcade.md`, section 8.2).
+
 ## Input
 
 `set_pad(port, pad)` sets the state that the core reads in the next `run_frame`. `MAX_PORTS` is 4; a higher port is `InputError::NoSuchPort`.
@@ -264,7 +283,7 @@ An unknown call returns `false` and gets one log record (level warn) per command
 | `GET_LANGUAGE` | `true`, writes `RETRO_LANGUAGE_ENGLISH` |
 | `SET_MESSAGE` | `true`, `Event::Message` with the text (at most 1,024 bytes) and the frame count |
 | `GET_AUDIO_VIDEO_ENABLE` | `true`, writes video and audio enabled (3) |
-| `SET_ROTATION` | `false`, logged once. Rotation is after the MVP |
+| `SET_ROTATION` | see Rotation |
 | `SET_HW_RENDER`, `GET_HW_RENDER_INTERFACE`, `SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE`, `GET_PREFERRED_HW_RENDER` | `false`, logged once |
 | `SET_CONTENT_INFO_OVERRIDE` | `true`, records `need_fullpath` per extension (see Content) |
 | `GET_GAME_INFO_EXT` | `true` during and after `retro_load_game`, writes a pointer to the extended content information; `false` with no content |

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use neptron_libretro_sys::{RETRO_API_VERSION, RETRO_DEVICE_JOYPAD};
-use neptron_types::PixelFormat;
+use neptron_types::{PixelFormat, Rotation};
 
 use crate::content::{ContentRequest, ContentRules, LoadedContent, c_path};
 use crate::error::{LoadError, OpenError, RunError};
@@ -212,6 +212,16 @@ impl Host {
     pub fn pixel_format(&self) -> PixelFormat {
         self.state()
             .map_or(PixelFormat::Xrgb1555, State::pixel_format)
+    }
+
+    /// The turn, counter-clockwise, that the core asked for with
+    /// `SET_ROTATION`: the picture needs it to be upright. `R0` until the
+    /// core asks. A change in a frame is also an [`Event::Rotation`] of
+    /// that frame.
+    ///
+    /// [`Event::Rotation`]: crate::Event::Rotation
+    pub fn rotation(&self) -> Rotation {
+        self.state().map_or(Rotation::R0, State::rotation)
     }
 
     /// Sets what the core reads from `port` in the next frame.

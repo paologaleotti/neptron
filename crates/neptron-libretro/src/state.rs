@@ -5,7 +5,7 @@
 use std::ffi::{CStr, CString};
 
 use neptron_libretro_sys::retro_game_info_ext;
-use neptron_types::PixelFormat;
+use neptron_types::{PixelFormat, Rotation};
 
 use crate::audio::AudioBuffer;
 use crate::content::{ContentOverride, overrides_of};
@@ -55,6 +55,7 @@ impl CoreAvInfo {
 #[derive(Debug)]
 pub(crate) struct State {
     pixel_format: PixelFormat,
+    rotation: Rotation,
     av: Option<AvInfo>,
     supports_no_game: bool,
     system_dir: CString,
@@ -80,6 +81,7 @@ impl State {
     pub(crate) fn new(system_dir: CString, save_dir: CString) -> Self {
         Self {
             pixel_format: PixelFormat::Xrgb1555,
+            rotation: Rotation::R0,
             av: None,
             supports_no_game: false,
             system_dir,
@@ -171,6 +173,10 @@ impl State {
         self.pixel_format
     }
 
+    pub(crate) fn rotation(&self) -> Rotation {
+        self.rotation
+    }
+
     pub(crate) fn supports_no_game(&self) -> bool {
         self.supports_no_game
     }
@@ -254,6 +260,26 @@ impl State {
             self.push_event(Event::PixelFormat(format));
         }
         self.pixel_format = format;
+        true
+    }
+
+    /// `SET_ROTATION`: 0 to 3 quarter turns, counter-clockwise. A call in a
+    /// frame is also an event of that frame.
+    pub(crate) fn set_rotation(&mut self, value: u32) -> bool {
+        let rotation = match value {
+            0 => Rotation::R0,
+            1 => Rotation::R90,
+            2 => Rotation::R180,
+            3 => Rotation::R270,
+            _ => {
+                self.push_event(Event::Refused(Refusal::Rotation { value }));
+                return false;
+            }
+        };
+        self.rotation = rotation;
+        if self.in_run {
+            self.push_event(Event::Rotation(rotation));
+        }
         true
     }
 
@@ -515,12 +541,43 @@ mod tests {
     }
 
     #[test]
+    fn rotation_is_kept_and_a_call_in_a_frame_is_an_event() {
+        let mut s = state();
+        assert_eq!(s.rotation(), Rotation::R0);
+        s.begin_outside_run();
+        assert!(s.set_rotation(1), "during the load");
+        assert_eq!(s.rotation(), Rotation::R90);
+        assert!(!s.set_rotation(4));
+        assert_eq!(
+            s.rotation(),
+            Rotation::R90,
+            "a refused value changes nothing"
+        );
+        s.begin_run();
+        assert!(s.set_rotation(2));
+        assert!(s.set_rotation(3));
+        assert!(s.set_rotation(0));
+        assert!(!s.set_rotation(u32::MAX));
+        assert_eq!(s.rotation(), Rotation::R0);
+        assert_eq!(
+            s.output().events,
+            [
+                Event::Refused(Refusal::Rotation { value: 4 }),
+                Event::Rotation(Rotation::R180),
+                Event::Rotation(Rotation::R270),
+                Event::Rotation(Rotation::R0),
+                Event::Refused(Refusal::Rotation { value: u32::MAX }),
+            ]
+        );
+    }
+
+    #[test]
     fn unknown_and_refused_calls_are_logged_once_each() {
         let mut s = loaded();
         s.begin_call();
         for _ in 0..3 {
             assert!(!s.unknown(0x24E54));
-            assert!(!s.refuse(1, "rotation is not supported"));
+            assert!(!s.refuse(1, "memory maps are not used"));
         }
         let logs = s.logs();
         assert_eq!(logs.len(), 2);
@@ -529,7 +586,7 @@ mod tests {
         assert_eq!(logs[1].level, LogLevel::Info);
         assert_eq!(
             logs[1].text,
-            "environment call 0x1 refused: rotation is not supported"
+            "environment call 0x1 refused: memory maps are not used"
         );
     }
 

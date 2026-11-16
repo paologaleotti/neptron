@@ -9,8 +9,8 @@ The host produces data and decides nothing for the session. It does not own the 
 - `Host::open(core, HostConfig)`: claims the process, loads the library, checks the 25 entry points and the API version, gives the callbacks, calls `retro_init`.
 - `system_info()`, `options()`, `set_option(key, value)`.
 - `load_game(Option<ContentRequest>) -> AvInfo`: a plain file, one entry of a `.zip` file, or no content.
-- `set_pad(port, Pad)`, then `run_frame() -> FrameOutput<'_>`: the video (`Frame`, `Duplicate` with the last frame, `Missing` or `Rejected`), the audio, the events (`Geometry`, `AvInfo`, `PixelFormat`, `Shutdown`, `Message`, `Refused`), the log records and the drop counts.
-- `reset()`, `av_info()`, `pixel_format()`, `logs()`.
+- `set_pad(port, Pad)`, then `run_frame() -> FrameOutput<'_>`: the video (`Frame`, `Duplicate` with the last frame, `Missing` or `Rejected`), the audio, the events (`Geometry`, `AvInfo`, `PixelFormat`, `Rotation`, `Shutdown`, `Message`, `Refused`), the log records and the drop counts.
+- `reset()`, `av_info()`, `pixel_format()`, `rotation()`, `logs()`.
 - `copy_save_ram(&mut Vec<u8>)`, `load_save_ram(&[u8])`.
 - File functions for the session to call off the frame thread: `save_file_path`, `read_save_file`, `write_save_file` (temp file, fsync, rename, one `.bak`).
 - `read_zip_entry`, `GameGeometry::from_core`, `Timing::from_core`: the checks, usable on their own (for example to replay core traces).
@@ -24,7 +24,8 @@ The host produces data and decides nothing for the session. It does not own the 
 - **Core options.** Version 0 (`SET_VARIABLES`). FCEUmm, Snes9x and Genesis Plus GX use the libretro-common options template, which falls back to version 0 when the frontend reports version 0.
 - **Zip content.** `miniz_oxide` for deflate and a small central-directory reader in this crate. FCEUmm and Genesis Plus GX report `need_fullpath` and lower it per extension with `SET_CONTENT_INFO_OVERRIDE`, then read the data with `GET_GAME_INFO_EXT`; the host supports both, so all three MVP cores take zip content. A core that needs a path for the zip entry gets `LoadError::ZipNeedsFullPath`.
 - **Memory of a zip load.** The reader holds the compressed entry (at most about 68 MiB: the 64 MiB content limit plus the deflate bound) and the inflated output (at most 64 MiB) at the same time, plus the central directory (at most 16 MiB). The peak is about 148 MiB in the worst case, during the load only. After the load the host keeps the output, at most 64 MiB, until the game is unloaded.
-- **Rotation, memory maps, hardware rendering, options v1 and v2** are refused and logged once. An unknown environment call returns false and is logged once.
+- **Rotation.** `SET_ROTATION` with 0 to 3 is stored as a `Rotation` (`Host::rotation`); in a frame it is also an event. The frame stays as the core draws it: the renderers turn the picture (ADR 0015).
+- **Memory maps, hardware rendering, options v1 and v2** are refused and logged once. An unknown environment call returns false and is logged once.
 
 ## Tests
 

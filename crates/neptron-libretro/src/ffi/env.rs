@@ -164,7 +164,11 @@ pub(super) unsafe fn dispatch(state: &mut State, cmd: u32, data: *mut c_void) ->
             // `enum retro_av_enable_flags *`.
             data.is_null() || unsafe { write(data, enabled) }
         }
-        RETRO_ENVIRONMENT_SET_ROTATION => state.refuse(cmd, "rotation is not supported"),
+        RETRO_ENVIRONMENT_SET_ROTATION => {
+            // SAFETY: SET_ROTATION takes a `const unsigned *`.
+            let value = unsafe { read::<u32>(data) };
+            value.is_some_and(|v| state.set_rotation(v))
+        }
         RETRO_ENVIRONMENT_SET_MEMORY_MAPS => state.refuse(cmd, "memory maps are not used"),
         RETRO_ENVIRONMENT_SET_HW_RENDER
         | RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE

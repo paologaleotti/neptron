@@ -128,7 +128,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                     set_message(&mut self.message, text, MESSAGE_LIMIT);
                     self.message_frames = *frames;
                 }
-                Event::PixelFormat(_) | Event::Refused(_) => {}
+                Event::PixelFormat(_) | Event::Rotation(_) | Event::Refused(_) => {}
             }
         }
         match out.video {

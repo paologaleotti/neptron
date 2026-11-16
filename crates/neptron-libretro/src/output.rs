@@ -1,6 +1,6 @@
 //! What one frame of the core produced.
 
-use neptron_types::{Frame, PixelFormat};
+use neptron_types::{Frame, PixelFormat, Rotation};
 
 use crate::geometry::{AvInfo, GameGeometry, GeometryError};
 use crate::log::LogRecord;
@@ -46,6 +46,9 @@ pub enum Event {
     AvInfo(AvInfo),
     /// `SET_PIXEL_FORMAT` during a frame.
     PixelFormat(PixelFormat),
+    /// `SET_ROTATION` during a frame: the turn, counter-clockwise, that the
+    /// picture needs to be upright. The frame stays as the core draws it.
+    Rotation(Rotation),
     /// `SHUTDOWN`: the core asks to stop.
     Shutdown,
     /// `SET_MESSAGE`: a notice to show.
@@ -68,6 +71,11 @@ pub enum Refusal {
     AvInfo(GeometryError),
     /// `SET_PIXEL_FORMAT` with a value that libretro does not define.
     PixelFormat {
+        /// The value given.
+        value: u32,
+    },
+    /// `SET_ROTATION` with a value above 3.
+    Rotation {
         /// The value given.
         value: u32,
     },
