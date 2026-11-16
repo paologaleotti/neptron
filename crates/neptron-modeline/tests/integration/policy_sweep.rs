@@ -12,7 +12,8 @@
 use std::collections::BTreeMap;
 
 use neptron_modeline::policy::{
-    Plan, PolicyError, PolicySettings, Proposal, REFRESH_MATCH_MHZ, Rung, choose, decide,
+    Plan, PolicyError, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, choose,
+    decide,
 };
 use neptron_modeline::{Settings, modelines_with};
 use neptron_safety::{Rejection, validate};
@@ -152,42 +153,75 @@ fn near_edge(profile: &MonitorProfile, rate: u32) -> bool {
         return false;
     };
     let rate = u64::from(rate);
-    // A rate that no range covers becomes an edge itself.
-    let covered = ranges
-        .iter()
-        .any(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz);
-    !covered
-        || ranges.iter().any(|r| {
-            [r.v_min_mhz, r.v_max_mhz].iter().any(|&edge| {
-                edge.abs_diff(rate) < REFRESH_MATCH_MHZ
-                    || edge.abs_diff(2 * rate) < REFRESH_MATCH_MHZ
-            })
+    ranges.iter().any(|r| {
+        [r.v_min_mhz, r.v_max_mhz].iter().any(|&edge| {
+            edge.abs_diff(rate) < REFRESH_MATCH_MHZ || edge.abs_diff(2 * rate) < REFRESH_MATCH_MHZ
         })
+    })
 }
 
-/// An exact mode exists for the source on a CRT profile when a range
-/// holds a whole multiple of its lines, progressive or interlaced 1:1, at
-/// its rate or twice it, and Switchres gives that mode at that rate. The
-/// search asks each range alone, so the policy's own walk is not used.
-fn exact_exists(
+/// The smallest change of the game's speed, in millihertz of its rate, of
+/// an exact mode that the test finds itself: a whole multiple of the lines,
+/// progressive, or interlaced 1:1, in one range alone, at the game's rate
+/// or the nearest covered one, at twice it or the nearest covered rate to
+/// twice it (each frame twice, for an arcade board), and at the highest
+/// rate of each range that holds a window of lines; Switchres gives the
+/// mode and the validator takes it. `None` when no rate gives one.
+fn exact_speed(
     source: &SourceGeometry,
     (width, lines, aspect_milli): (u16, u16, u32),
     ranges: &[CrtRange],
     caps: &GpuCaps,
+    arcade: bool,
+) -> Option<u64> {
+    let game = u64::from(source.refresh_mhz);
+    let nearest = |rate: u64| {
+        ranges
+            .iter()
+            .map(|r| rate.clamp(r.v_min_mhz, r.v_max_mhz.max(r.v_min_mhz)))
+            .min_by_key(|&c| c.abs_diff(rate))
+            .unwrap_or(rate)
+    };
+    // (field rate, frames shown per game frame)
+    let mut rates = vec![(nearest(game), 1)];
+    if arcade {
+        rates.push((nearest(2 * game), 2));
+    }
+    for r in ranges {
+        let blank = (u128::from(r.v_front_porch_ns)
+            + u128::from(r.v_sync_ns)
+            + u128::from(r.v_back_porch_ns))
+            * u128::from(r.h_max_mhz)
+            / 1_000_000_000_000
+            + 1;
+        let blank = u64::try_from(blank).unwrap_or(u64::MAX);
+        for (fewest, fields) in [(r.progressive_lines_min, 1), (r.interlaced_lines_min, 2)] {
+            if fewest == 0 {
+                continue;
+            }
+            let rate =
+                (fields * r.h_max_mhz / (u64::from(fewest) + fields * blank)).min(r.v_max_mhz);
+            if rate >= r.v_min_mhz {
+                rates.push((rate, 1));
+            }
+        }
+    }
+    let found = |rate: u32| exact_at(rate, (width, lines, aspect_milli), ranges, caps);
+    rates
+        .into_iter()
+        .filter(|&(rate, _)| u32::try_from(rate).is_ok_and(found))
+        .map(|(rate, repeat)| (rate / repeat).abs_diff(game))
+        .min()
+}
+
+/// An exact mode at `rate_mhz` in one range alone, as `exact_speed` says.
+fn exact_at(
+    rate_mhz: u32,
+    (width, lines, aspect_milli): (u16, u16, u32),
+    ranges: &[CrtRange],
+    caps: &GpuCaps,
 ) -> bool {
-    // The rate the policy uses for a console: the game's own, or the
-    // nearest covered one when no range covers it.
-    let rate = u64::from(source.refresh_mhz);
-    let covered = ranges
-        .iter()
-        .any(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz);
-    let nearest = ranges
-        .iter()
-        .map(|r| rate.clamp(r.v_min_mhz, r.v_max_mhz.max(r.v_min_mhz)))
-        .min_by_key(|&c| c.abs_diff(rate))
-        .unwrap_or(rate);
-    let chosen = if covered { rate } else { nearest };
-    let rates = [u32::try_from(chosen).unwrap_or(u32::MAX)];
+    let rates = [rate_mhz];
     ranges.iter().any(|range| {
         let single = MonitorProfile {
             id: "single".into(),
@@ -285,10 +319,15 @@ impl Failures {
 struct Outcome {
     class: Class,
     lines: u32,
+    /// The winner is exact at the window rate, which wins over the fit by
+    /// the speed rule (within the 5 mHz match): the class may change where
+    /// the fit's own rate does.
+    window: bool,
 }
 
 #[derive(Default)]
 struct Sweep {
+    settings: PolicySettings,
     cases: usize,
     checked: BTreeMap<&'static str, usize>,
     failed: BTreeMap<&'static str, Failures>,
@@ -318,7 +357,7 @@ impl Sweep {
                 source.refresh_mhz
             )
         };
-        let settings = PolicySettings::default();
+        let settings = self.settings;
         let plan = match decide(source, &settings, profile, caps) {
             Ok(plan) => plan,
             Err(PolicyError::EmptySource { .. }) => unreachable!("the grid has no empty source"),
@@ -327,6 +366,7 @@ impl Sweep {
                 return Outcome {
                     class: Class::NoMode,
                     lines: 0,
+                    window: false,
                 };
             }
         };
@@ -337,10 +377,22 @@ impl Sweep {
             // The allowed reasons: a range of one line rate or one field
             // rate (the clock of a narrow mode cannot hit it), or the
             // display's pixel clock limit refuses every proposal.
+            // Only a range of one rate that covers the game's rate, or the
+            // nearest one when none covers it.
             let one_rate = match &profile.kind {
-                MonitorKind::Crt { ranges } => ranges
-                    .iter()
-                    .any(|r| r.h_min_mhz == r.h_max_mhz || r.v_min_mhz == r.v_max_mhz),
+                MonitorKind::Crt { ranges } => {
+                    let rate = u64::from(source.refresh_mhz);
+                    let near = ranges
+                        .iter()
+                        .map(|r| rate.clamp(r.v_min_mhz, r.v_max_mhz.max(r.v_min_mhz)))
+                        .min_by_key(|&c| c.abs_diff(rate))
+                        .unwrap_or(rate);
+                    ranges.iter().any(|r| {
+                        (r.h_min_mhz == r.h_max_mhz || r.v_min_mhz == r.v_max_mhz)
+                            && r.v_min_mhz <= near
+                            && near <= r.v_max_mhz
+                    })
+                }
                 _ => false,
             };
             let clock = !choice.refused.is_empty()
@@ -354,6 +406,7 @@ impl Sweep {
             return Outcome {
                 class: Class::NoMode,
                 lines,
+                window: false,
             };
         };
         let p = w.proposal;
@@ -372,6 +425,46 @@ impl Sweep {
             );
         }
         self.shape(&plan, profile, p, &what);
+        if let Some(crop) = p.overscan_crop {
+            let k = u32::from(p.placement.scale.y.unwrap_or(1));
+            let screen = u32::from(crop.lines_per_edge) * k;
+            let bound = (8 * u32::from(crop.capacity_lines)).div_ceil(240);
+            self.check(
+                "the crop stays within 8 source lines and 8 of 240 screen lines",
+                crop.lines_per_edge <= 8 && screen <= bound.max(8),
+                || format!("{}: {crop:?} at {k}x", what()),
+            );
+        }
+        if matches!(profile.kind, MonitorKind::FlatPanel { .. }) && settings.panel_scanlines {
+            self.check(
+                "scanlines on a panel imply a whole vertical scale",
+                p.placement.scale.y.is_some() || w.considered.rung == Rung::Fitted,
+                || format!("{}: {:?}", what(), p.placement),
+            );
+        }
+        if let MonitorKind::Crt { .. } = profile.kind
+            && !fitted
+            && !p.mode.interlace
+            && p.padding.is_none()
+            && p.overscan_crop.is_none()
+        {
+            let k = p.placement.scale.y.unwrap_or(1);
+            let smaller = plan.proposals().any(|(_, c, q)| {
+                !c.rung.is_fitted()
+                    && c.target == w.considered.target
+                    && !q.mode.interlace
+                    && q.padding.is_none()
+                    && q.overscan_crop.is_none()
+                    && q.placement.scale.y.is_some_and(|j| j < k)
+                    && validate(&q.mode, profile, caps).is_ok()
+            });
+            let style_asks = settings.style == neptron_modeline::policy::PictureStyle::Auto;
+            self.check(
+                "a CRT takes the smallest whole multiple that fills",
+                !style_asks || !smaller,
+                || format!("{}: {k}x", what()),
+            );
+        }
         if !fitted && w.considered.rung != Rung::Panel {
             let shown = lines - 2 * crop_lines(p);
             let whole = p
@@ -385,20 +478,28 @@ impl Sweep {
         }
         if let MonitorKind::Crt { ranges } = &profile.kind {
             if fitted {
-                // A range of one field rate (ntsc, pal) takes a mode only
+                // A profile of one field rate (ntsc, pal) takes a mode only
                 // at that rate to the millihertz, which the whole-kHz clock
                 // of a narrow mode may not reach: a stated exception.
-                let one_field = ranges.iter().any(|r| r.v_min_mhz == r.v_max_mhz);
+                let one_field = ranges.iter().all(|r| r.v_min_mhz == r.v_max_mhz);
+                // `display.vertical = fit` asks a turned game for the fit.
+                let chosen = plan.source.turned
+                    && self.settings.vertical == neptron_modeline::policy::VerticalMode::Fit;
                 let shown = (
                     plan.source.width,
                     plan.source.height,
                     plan.source.aspect_milli,
                 );
-                let exact = exact_exists(source, shown, ranges, caps);
+                let fit_speed = (p.timing.field_rate_mhz / u64::from(p.timing.repeat().max(1)))
+                    .abs_diff(u64::from(source.refresh_mhz));
+                let exact = exact_speed(source, shown, ranges, caps, self.settings.arcade);
+                // An exact mode beats the fit when it changes the speed no
+                // more than the fit, within the 5 mHz match.
+                let beaten = exact.is_some_and(|e| e < fit_speed + REFRESH_MATCH_MHZ);
                 self.check(
                     "no soft fit when an exact mode exists",
-                    one_field || !exact,
-                    what,
+                    one_field || chosen || !beaten,
+                    || format!("{}: fit {fit_speed} mHz off, exact {exact:?}", what()),
                 );
             }
             let rate = u64::from(source.refresh_mhz);
@@ -410,7 +511,7 @@ impl Sweep {
                 // An exact picture at the nearest rate where a range holds
                 // a window, when none holds one at the game's rate and no
                 // fit keeps the speed better, is the rule.
-                let traded = traded_for_window(&plan, p, ranges, profile, caps);
+                let traded = traded_for_window(&plan, p, profile, caps);
                 let exact = traded || shown.abs_diff(rate) < 5 || shown.abs_diff(2 * rate) < 5;
                 self.check("the rate is exact where a range covers it", exact, || {
                     format!("{}: shown {shown} mHz ({:?})", what(), p.timing.target.kind)
@@ -426,6 +527,7 @@ impl Sweep {
                 }
             },
             lines,
+            window: !fitted && w.considered.target.kind == RefreshKind::Nearest,
         }
     }
 
@@ -443,8 +545,22 @@ impl Sweep {
         let d = p.placement.dest;
         let rounding = 1_000 / i64::from(d.w.max(1)) + 1_000 / i64::from(d.h.max(1));
         let crop = i64::from(crop_lines(p)) * 2_000 / i64::from(plan.source.height.max(1));
-        let tv_console = matches!(profile.kind, MonitorKind::Tv { .. });
-        let tolerance = SHAPE_TOLERANCE_PERMILLE + rounding + crop;
+        // The console width rule of a TV: a console source of 4:3 with 224
+        // lines per field or more; an arcade board keeps its shape.
+        let fields = if p.mode.interlace { 2 } else { 1 };
+        let field_lines = u32::from(plan.source.height) / fields;
+        let tv_console = matches!(profile.kind, MonitorKind::Tv { .. })
+            && !self.settings.arcade
+            && plan.source.aspect_milli.abs_diff(1_333) <= 1
+            && field_lines >= 224;
+        // A TV snaps the width to a whole or half factor of the game within
+        // TV_WHOLE_FACTOR_TOLERANCE_PERCENT, a decided rule.
+        let tv_snap = if matches!(profile.kind, MonitorKind::Tv { .. }) {
+            i64::from(neptron_modeline::policy::TV_WHOLE_FACTOR_TOLERANCE_PERCENT) * 10
+        } else {
+            0
+        };
+        let tolerance = (SHAPE_TOLERANCE_PERMILLE + rounding + crop).max(tv_snap + rounding + crop);
         let name = if tv_console {
             "the shape is kept (TV: console width rule)"
         } else {
@@ -514,7 +630,9 @@ fn the_policy_keeps_its_invariants_over_a_grid_of_sources() {
                     let crossed = limits(profile, here.lines, rate)
                         != limits(profile, there.lines, next_rate)
                         || near_edge(profile, rate)
-                        || near_edge(profile, next_rate);
+                        || near_edge(profile, next_rate)
+                        || here.window
+                        || there.window;
                     if here.class != there.class && !crossed {
                         continuity.add(format!(
                             "{} {}x{} {:?} at {rate} mHz: {:?}, then {}x{} at {next_rate}: {:?}",
@@ -532,7 +650,71 @@ fn the_policy_keeps_its_invariants_over_a_grid_of_sources() {
             }
         }
     }
+    // The other settings on the fixed rates, with no continuity pairs.
+    let variants = [
+        (
+            "arcade",
+            PolicySettings {
+                arcade: true,
+                ..PolicySettings::default()
+            },
+        ),
+        (
+            "vertical fit",
+            PolicySettings {
+                vertical: neptron_modeline::policy::VerticalMode::Fit,
+                ..PolicySettings::default()
+            },
+        ),
+        (
+            "panel integer",
+            PolicySettings {
+                panel_scale: neptron_modeline::policy::PanelScale::Integer,
+                ..PolicySettings::default()
+            },
+        ),
+        (
+            "panel scanlines",
+            PolicySettings {
+                panel_scanlines: true,
+                ..PolicySettings::default()
+            },
+        ),
+    ];
+    let mut variant_report = String::new();
+    for (name, settings) in variants {
+        let mut variant = Sweep {
+            settings,
+            ..Sweep::default()
+        };
+        for display in displays() {
+            for &rate in &RATES_MHZ {
+                for base in sources() {
+                    variant.case(
+                        &SourceGeometry {
+                            refresh_mhz: rate,
+                            ..base
+                        },
+                        &display,
+                    );
+                }
+            }
+        }
+        let failed: usize = variant.failed.values().map(|f| f.count).sum();
+        variant_report.push_str(&format!(
+            "--- {name}: {failed} failed\n{}",
+            variant.report()
+        ));
+        for (key, failures) in variant.failed {
+            let entry = sweep.failed.entry(key).or_default();
+            entry.count += failures.count;
+            entry
+                .first
+                .extend(failures.first.into_iter().take(PRINTED_FAILURES));
+        }
+    }
     let mut report = sweep.report();
+    report.push_str(&variant_report);
     report.push_str(&format!(
         "continuity: {continuity_checked} checked, {} failed\n",
         continuity.count

@@ -375,18 +375,19 @@ fn rows() -> Vec<Row> {
                 open_caps(),
             )
         },
-        // The last resort: 70 Hz on arcade_25 (24.96 kHz fixed, 384 to 400
-        // lines, no interlace on this GPU). The nearest covered rate is 65
-        // Hz; 384 lines need 384 + ceil(1.28 ms x 24.96 kHz) = 416 lines per
-        // field, and 24,960 / 416 = 60.000 Hz. Nothing reaches 65 Hz, so the
-        // fitted rung at the rate Switchres reaches wins: 384 lines, 4:3
-        // wide (512).
+        // 70 Hz on arcade_25 (24.96 kHz fixed, 384 to 400 lines, no
+        // interlace on this GPU). The nearest covered rate is 65 Hz; 384
+        // lines need 384 + ceil(1.28 ms x 24.96 kHz) = 416 lines per field,
+        // and 24,960 / 416 = 60.000 Hz. Nothing reaches 65 Hz. The fit runs
+        // at the 60 Hz that Switchres reaches; the exact native rung at the
+        // nearest rate with a window, 60.000 Hz, changes the speed no more,
+        // so it wins: 240 lines centred in 384, 4:3 wide (512).
         Row {
             source: source(320, 240, 70_000),
-            rung: Rung::Fitted,
+            rung: Rung::Native,
             mode: "512x384p",
-            kind: RefreshKind::Unmatched,
-            rate_mhz: 65_000,
+            kind: RefreshKind::Nearest,
+            rate_mhz: 60_000,
             ..row(
                 "step5_unmatched_last_resort",
                 preset("arcade_25"),

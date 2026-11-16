@@ -66,13 +66,6 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
     {
         walk.push((double, &[Rung::Native]));
     }
-    // The exact rungs at the nearest rate where a range holds a window,
-    // after every target before them.
-    let window = window_target(crt.source.refresh_mhz, crt.ranges);
-    let exact_rungs: Vec<Rung> = rungs.iter().copied().filter(|r| !r.is_fitted()).collect();
-    if let Some(target) = window {
-        walk.push((target, &exact_rungs));
-    }
 
     let singles = single_ranges(crt.profile, crt.ranges);
     let mut entries = Vec::with_capacity(walk.len() * rungs.len() + 1);
@@ -85,6 +78,27 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
             if !rung.is_fitted() {
                 outcomes.extend(per_range(rung, target, crt, &singles)?);
             }
+            for (sub, outcome) in outcomes.into_iter().enumerate() {
+                let outcome = vertical_fit(crt, rung, outcome);
+                entries.push(entry(style, (tier, place, sub), rung, target, outcome));
+            }
+        }
+    }
+    // The exact rungs gave no mode at the game's rate (or the nearest
+    // covered one): try them at the nearest rate where a range holds the
+    // game's lines.
+    let base = game_target(crt.source.refresh_mhz, crt.ranges);
+    let exact_at_base = entries
+        .iter()
+        .any(|(_, c)| !c.rung.is_fitted() && c.target == base && c.outcome.is_ok());
+    let window = (!exact_at_base)
+        .then(|| window_target(base.rate_mhz, crt.source.height, crt.ranges))
+        .flatten();
+    if let Some(target) = window {
+        let tier = walk.len() + 1;
+        for (place, &rung) in rungs.iter().enumerate().filter(|(_, r)| !r.is_fitted()) {
+            let mut outcomes = candidate(rung, target, true, crt)?;
+            outcomes.extend(per_range(rung, target, crt, &singles)?);
             for (sub, outcome) in outcomes.into_iter().enumerate() {
                 let outcome = vertical_fit(crt, rung, outcome);
                 entries.push(entry(style, (tier, place, sub), rung, target, outcome));
@@ -127,49 +141,37 @@ type Outcome = Result<Proposal, Dropped>;
 /// The band after every fitted entry.
 const AFTER_FIT_BAND: u8 = 3;
 
-/// The target of the exact rungs when the game's rate is covered but no
-/// range holds a window of lines there: the covered rate nearest the
-/// game's at which a range holds its fewest progressive or interlaced
-/// lines (`arcade_25` holds 384 progressive lines up to 60.000 Hz, not at
-/// 60.099 Hz). `None` when no range covers the game's rate, or when a
-/// range holds a window at it.
-fn window_target(game_mhz: u32, ranges: &[CrtRange]) -> Option<RefreshTarget> {
-    let game = u64::from(game_mhz);
-    let covering = || {
-        ranges
-            .iter()
-            .filter(move |r| r.v_min_mhz <= game && game <= r.v_max_mhz)
-    };
-    // A window at the game's rate: its fewest lines fit the field there.
-    let window_at_rate = covering().any(|r| {
-        let field = (r.h_max_mhz / game.max(1)).saturating_sub(blank_lines(r, r.h_max_mhz));
-        let progressive =
-            r.progressive_lines_min > 0 && u64::from(r.progressive_lines_min) <= field;
-        let interlaced =
-            r.interlaced_lines_min > 0 && u64::from(r.interlaced_lines_min) <= 2 * field;
-        progressive || interlaced
-    });
-    if covering().next().is_none() || window_at_rate {
-        return None;
-    }
-    let highest = |range: &CrtRange, lines: u64, fields: u64| {
+/// The target of the exact rungs when they gave no mode at `base_mhz`
+/// (the game's rate, or the nearest covered one): the rate nearest it, at
+/// or below it, at which a range holds the game's lines, progressive or
+/// interlaced, at least its fewest lines (`arcade_25` holds 384
+/// progressive lines up to 60.000 Hz, not at 60.099 Hz). Fewer lines per
+/// field at a lower rate is the only way a fixed line rate gives more.
+/// `None` when no range holds them below `base_mhz`.
+fn window_target(base_mhz: u32, game_lines: u16, ranges: &[CrtRange]) -> Option<RefreshTarget> {
+    let base = u64::from(base_mhz);
+    let highest = |range: &CrtRange, fewest: u16, most: u16, fields: u64| {
+        let lines = u64::from(game_lines.max(fewest));
+        if fewest == 0 || lines > u64::from(most) {
+            return None;
+        }
+        // A field holds the lines of the field and the blanking.
         let blank = blank_lines(range, range.h_max_mhz);
-        // The line rate is the field rate times the lines of a field.
         let rate = fields * range.h_max_mhz / (lines + fields * blank).max(1);
-        let rate = rate.min(range.v_max_mhz);
-        (lines > 0 && rate >= range.v_min_mhz).then_some(rate)
+        let rate = rate.min(range.v_max_mhz).min(base);
+        (rate >= range.v_min_mhz && rate < base).then_some(rate)
     };
     let rate = ranges
         .iter()
         .flat_map(|r| {
             [
-                highest(r, u64::from(r.progressive_lines_min), 1),
-                highest(r, u64::from(r.interlaced_lines_min), 2),
+                highest(r, r.progressive_lines_min, r.progressive_lines_max, 1),
+                highest(r, r.interlaced_lines_min, r.interlaced_lines_max, 2),
             ]
         })
         .flatten()
-        .min_by_key(|&rate| rate.abs_diff(game))?;
-    (rate != game).then_some(RefreshTarget {
+        .max()?;
+    Some(RefreshTarget {
         kind: RefreshKind::Nearest,
         rate_mhz: u32::try_from(rate).ok()?,
         repeat: 1,

@@ -728,7 +728,7 @@ fn rule(
         };
         // Double refresh below every range is for an arcade board only; a
         // console takes the nearest rate.
-        if covered(game) && traded_for_window(plan, p, ranges, profile, caps) {
+        if covered(game) && traded_for_window(plan, p, profile, caps) {
             return "ok: no window at the game's rate";
         }
         if covered(game) || (board.arcade && covered(2 * game)) {
@@ -771,11 +771,22 @@ fn fit_allowed(
             Err("panel scale")
         };
     }
-    let exact = plan
+    // An exact mode that changes the game's speed more than the fit (by
+    // the 5 mHz match) does not beat it.
+    let speed = |q: &Proposal| {
+        let shown = q.timing.field_rate_mhz / u64::from(q.timing.repeat().max(1));
+        shown.abs_diff(u64::from(q.timing.game_mhz))
+    };
+    let exact: Vec<&Proposal> = plan
         .proposals()
-        .any(|(_, c, q)| !c.rung.is_fitted() && validate(&q.mode, profile, caps).is_ok());
-    if exact {
+        .filter(|(_, c, q)| !c.rung.is_fitted() && validate(&q.mode, profile, caps).is_ok())
+        .map(|(_, _, q)| q)
+        .collect();
+    if exact.iter().any(|q| speed(q) < speed(p) + 5) {
         return Err("soft fit");
+    }
+    if !exact.is_empty() {
+        return Ok(());
     }
     if one_field_rate(profile) {
         return Ok(());
@@ -847,6 +858,10 @@ fn fit_reason(profile: &MonitorProfile, plan: &Plan, considered: &Considered) ->
     }
     if one_field_rate(profile) {
         return "ok: one field rate only";
+    }
+    let exact = plan.proposals().any(|(_, c, _)| !c.rung.is_fitted());
+    if exact && !matches!(profile.kind, MonitorKind::FlatPanel { .. }) {
+        return "ok: the exact mode changes the speed more";
     }
     match &profile.kind {
         MonitorKind::FlatPanel { .. } => "ok: panel fill",
@@ -1174,30 +1189,13 @@ fn sources_table() {
     println!("{out}");
 }
 
-/// No range holds a window of lines at `rate_mhz`: the fewest progressive
-/// or interlaced lines of every covering range are more than its field
-/// holds there.
-pub fn no_window_at(ranges: &[CrtRange], rate_mhz: u64) -> bool {
-    ranges
-        .iter()
-        .filter(|r| r.v_min_mhz <= rate_mhz && rate_mhz <= r.v_max_mhz)
-        .all(|r| {
-            let field = field_lines(r, rate_mhz);
-            let progressive =
-                r.progressive_lines_min > 0 && u32::from(r.progressive_lines_min) <= field;
-            let interlaced =
-                r.interlaced_lines_min > 0 && u32::from(r.interlaced_lines_min) <= 2 * field;
-            !progressive && !interlaced
-        })
-}
-
-/// The winner trades the game's rate for an exact picture: no range holds
-/// a window at the rate, the winner is exact at the nearest rate, and no
-/// fit that validates changes the speed less.
+/// The winner trades the game's rate for an exact picture: no exact mode
+/// at the game's rate validates, the winner is exact at the nearest rate
+/// where a range holds the game, and no fit that validates changes the
+/// speed less.
 pub fn traded_for_window(
     plan: &Plan,
     p: &Proposal,
-    ranges: &[CrtRange],
     profile: &MonitorProfile,
     caps: &GpuCaps,
 ) -> bool {
@@ -1210,7 +1208,11 @@ pub fn traded_for_window(
     let better_fit = plan.proposals().any(|(_, c, q)| {
         c.rung.is_fitted() && speed(q) + 5 <= speed(p) && validate(&q.mode, profile, caps).is_ok()
     });
-    p.timing.target.kind == RefreshKind::Nearest
-        && no_window_at(ranges, u64::from(plan.source.refresh_mhz))
-        && !better_fit
+    // No exact mode at the game's rate validates.
+    let exact_at_rate = plan.proposals().any(|(_, c, q)| {
+        !c.rung.is_fitted()
+            && c.target.kind == RefreshKind::Exact
+            && validate(&q.mode, profile, caps).is_ok()
+    });
+    p.timing.target.kind == RefreshKind::Nearest && !exact_at_rate && !better_fit
 }

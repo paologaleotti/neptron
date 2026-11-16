@@ -13,8 +13,8 @@
 
 use neptron_modeline::policy::{
     Considered, HorizontalStrategy, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OrientedSource, PictureStyle,
-    Plan, PolicyError, PolicySettings, Proposal, RefreshKind, RefreshPolicy, Rung, Winner, choose,
-    decide, notice,
+    Plan, PolicyError, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy,
+    Rung, Winner, choose, decide, notice,
 };
 use neptron_safety::validate;
 use neptron_types::{GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry, ui_dest_fill};
@@ -250,11 +250,10 @@ fn check_clock(p: &Proposal) -> Result<(), String> {
     Ok(())
 }
 
-/// How far the game's speed moves, in ppm of its rate.
-fn speed_ppm(p: &Proposal) -> u64 {
+/// How far the game's speed moves, in millihertz of its rate.
+fn speed_mhz(p: &Proposal) -> u64 {
     let shown = p.timing.field_rate_mhz / u64::from(p.timing.repeat().max(1));
-    let game = u64::from(p.timing.game_mhz).max(1);
-    shown.abs_diff(game) * 1_000_000 / game
+    shown.abs_diff(u64::from(p.timing.game_mhz))
 }
 
 fn check_plan(plan: &Plan, profile: &MonitorProfile, caps: &GpuCaps) -> Result<(), String> {
@@ -274,10 +273,9 @@ fn check_plan(plan: &Plan, profile: &MonitorProfile, caps: &GpuCaps) -> Result<(
         // may follow the fit: it changes the game's speed more than the
         // fit does, so it ranks after it.
         let speed_traded = considered.target.kind == RefreshKind::Nearest
-            && proposal.timing.changes_speed()
-            && plan
-                .proposals()
-                .any(|(_, c, p)| c.rung.is_fitted() && speed_ppm(p) < speed_ppm(proposal));
+            && plan.proposals().any(|(_, c, p)| {
+                c.rung.is_fitted() && speed_mhz(p) + REFRESH_MATCH_MHZ <= speed_mhz(proposal)
+            });
         match (considered.rung.is_fitted(), fitted_seen) {
             (true, None) => fitted_seen = Some(index),
             (false, Some(_)) if speed_traded => {}
@@ -340,9 +338,15 @@ fn check_no_interlaced_fit<V>(
     if plan.source.interlaced || !interlaced_fit {
         return Ok(());
     }
-    let progressive_exact = plan
-        .proposals()
-        .any(|(_, c, p)| !c.rung.is_fitted() && !p.mode.interlace && valid(p));
+    // An exact mode at the nearest rate with a window that changes the
+    // speed more than the fit ranks after the fit by the speed rule.
+    let progressive_exact = plan.proposals().any(|(_, c, p)| {
+        !c.rung.is_fitted()
+            && !p.mode.interlace
+            && valid(p)
+            && !(c.target.kind == RefreshKind::Nearest
+                && speed_mhz(p) >= speed_mhz(w.proposal) + REFRESH_MATCH_MHZ)
+    });
     if progressive_exact {
         return Err(format!(
             "winner {} is an interlaced fit, a progressive exact mode validates",
