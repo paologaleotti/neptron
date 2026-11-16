@@ -116,6 +116,8 @@ For one boot only, and the next boot recovers: the table cannot be read back aft
 
 **Boot.** GRUB, `timeout=0`, no menu and no video module, so it sets no display mode. The kernel command line is `root=PARTUUID=<signature>-02 rootfstype=erofs ro rootwait quiet console=ttyS0,115200 panic=10`. The kernel has the USB, SATA, NVMe and virtio disk drivers, EROFS, ext4, exFAT and FAT built in. There is no initramfs.
 
+The build also makes `rootfs.ext4` (`BR2_TARGET_ROOTFS_EXT2_SIZE`, 512 MiB) from the same target tree. It is not in the disk image, and its size changes no partition. `cargo xtask qemu --arch x86_64` without `--disk` boots the kernel with it as a virtio disk, as the aarch64 test image does. With FinalBurn Neo the target tree is 443.7 MB (2026-11-16, development variant), and the 512 MiB filesystem keeps 65 MiB free; the old 384 MiB did not hold it, and `mkfs.ext4` failed with "Could not allocate block". Check the free space again when a large package comes in.
+
 **What a CRT gets before the frontend runs.** NEPTRON sets no mode until the frontend makes its first validated commit, but the PC sets one before it:
 
 1. The BIOS or UEFI POST, and the GRUB text console (GRUB loads no video module, so it keeps that mode), show in the mode that the firmware set. That mode is 31 kHz or higher.
