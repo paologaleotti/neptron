@@ -116,3 +116,45 @@ fn a_game_on_an_unkept_panel_never_shows_the_panel_mode() {
         },
     );
 }
+
+/// A return to the game list is a relaunch of the same boot: it never
+/// opens the boot prompt again, also when the run before ended while the
+/// prompt was open, and it counts no boot.
+#[test]
+#[ignore = "tier 2"]
+fn a_return_to_the_list_after_an_unanswered_prompt_opens_no_prompt() {
+    let dir = std::env::temp_dir().join(format!("neptron-app-return-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    set_monitor(&rig, "arcade_31");
+    rig.boot(None);
+    rig.frames(2);
+    assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+    rig.finish();
+    let counted = rig.state_file("video/guard.toml");
+
+    for _ in 0..3 {
+        rig.boot(Some(NextRun {
+            game: None,
+            notice: None,
+        }));
+        rig.frames(2);
+        assert!(
+            rig.shell().guard().pending().is_none(),
+            "no boot prompt on a return"
+        );
+        assert_eq!(
+            rig.shell().guard().phase(),
+            Phase::Safe(SafeReason::NothingConfirmed)
+        );
+        assert_ne!(rig.screen(), "confirm");
+        rig.finish();
+        assert_eq!(
+            rig.state_file("video/guard.toml"),
+            counted,
+            "a return counts no boot"
+        );
+    }
+}

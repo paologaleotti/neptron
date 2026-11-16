@@ -151,8 +151,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 let mut engine =
                     VideoEngine::new(devices.display, wanted.monitor.clone(), wanted.settings);
                 engine.set_scanlines(scanlines);
+                // A return from a game is a run of the same boot: the first
+                // run had the boot prompt, so this one never prompts.
+                let start = if next.is_some() {
+                    Guard::continue_boot
+                } else {
+                    Guard::boot
+                };
                 let (guard, step) =
-                    Guard::boot(record, wanted, safe.clone(), trusted, now_ns, &mut engine);
+                    start(record, wanted, safe.clone(), trusted, now_ns, &mut engine);
                 let mut hotkeys = Hotkeys::new();
                 hotkeys.set_start_hold_ns(config.start_hold_ns());
                 let list = ListStage {
