@@ -187,6 +187,7 @@ usage: cargo xtask os build [--arch aarch64|x86_64|rpi-arm64] [--jobs N] [--dev-
        cargo xtask os boot-check [--arch A] [--firmware bios|uefi] [--timeout SECS]
                                  [--images DIR] [--bless]
        cargo xtask os share-check [--arch x86_64] [--timeout SECS] [--images DIR]
+                                  [--case rewrite|offer|retype|reused|address]...
        cargo xtask os push --host H [--arch x86_64|rpi-arm64] [--output NAME]
                            [--user U] [--port P] [--data] [--no-restart]
        cargo xtask os logs --host H [--user U] [--port P] [--follow]

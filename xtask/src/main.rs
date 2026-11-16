@@ -70,9 +70,11 @@ commands:
                        vkms writeback picture with its golden image and
                        record the boot time (tier T3)
   os share-check [--arch x86_64] [--timeout SECS] [--images DIR]
-                       boot a copy of the PC image three times: a fresh
-                       stick, the image written again over it, a normal
-                       boot; the share keeps its files (tier T3)
+                 [--case rewrite|offer|retype|reused|address]...
+                       boot copies of the PC image: the share partition of
+                       a fresh, a rewritten and a reused stick and a format
+                       request; and, with a network card, the address file
+                       of a lease and of a late port (tier T3)
   os push --host H [--user U] [--port P] [--data] [--no-restart]
                        build the frontend, the launcher and neptronctl in the
                        bench profile and put them in the hot folder of a PC

@@ -35,6 +35,15 @@
 //! 3. `retype-again`: the disk still boots after sfdisk wrote its MBR, and
 //!    the share mounts with no format.
 //!
+//! `address`, the run file of the addresses with a network card (QEMU
+//! user network, whose DHCP server gives 10.0.2.15):
+//!
+//! 1. `address`: `/run/neptron/network.toml` holds 10.0.2.15. The guest
+//!    removes the PCI device of `eth0`: the file lists no address. A PCI
+//!    rescan brings the port back late, as a USB port of a Pi: mdev starts
+//!    its DHCP client, and the file holds the address again. The share
+//!    must hold no `neptron-ip.txt`.
+//!
 //! Each boot checks `/run/neptron/storage.toml`, `/proc/mounts` and the
 //! lines of the storage script in `/var/log/messages`.
 
@@ -99,7 +108,7 @@ impl ShareCheckArgs {
                         .find(|c| c.name() == value)
                         .ok_or_else(|| {
                             OsError::Usage(format!(
-                                "unknown case {value:?}; the cases are rewrite, offer, retype and reused"
+                                "unknown case {value:?}; the cases are rewrite, offer, retype, reused and address"
                             ))
                         })?;
                     out.cases.push(case);
@@ -127,10 +136,19 @@ pub enum Case {
     /// A card that held another system: an old ext4 backup superblock in the
     /// free space. The first boot formats over it.
     Reused,
+    /// The run file of the addresses with a network card, and a port that
+    /// comes late.
+    Address,
 }
 
 /// Every case, in the order of a full run.
-pub const CASES: [Case; 4] = [Case::Rewrite, Case::Offer, Case::Retype, Case::Reused];
+pub const CASES: [Case; 5] = [
+    Case::Rewrite,
+    Case::Offer,
+    Case::Retype,
+    Case::Reused,
+    Case::Address,
+];
 
 impl Case {
     /// The name in the output, on the command line and in the folder name.
@@ -140,6 +158,7 @@ impl Case {
             Self::Offer => "offer",
             Self::Retype => "retype",
             Self::Reused => "reused",
+            Self::Address => "address",
         }
     }
 
@@ -150,6 +169,7 @@ impl Case {
             Self::Offer => &[Step::Offered, Step::Formatted, Step::Kept, Step::Refused],
             Self::Retype => &[Step::RetypeOffered, Step::Retyped, Step::RetypeAgain],
             Self::Reused => &[Step::Fresh, Step::Again],
+            Self::Address => &[Step::Address],
         }
     }
 
@@ -158,7 +178,7 @@ impl Case {
     /// number, which places it in a file system at another start.
     pub fn stale_ext(self) -> Option<(u64, u16)> {
         match self {
-            Self::Rewrite | Self::Retype => None,
+            Self::Rewrite | Self::Retype | Self::Address => None,
             Self::Offer => Some((STALE_EXT_BYTE, 3)),
             Self::Reused => Some((STALE_EXT_BYTE, 7)),
         }
@@ -171,7 +191,7 @@ impl Case {
             Self::Rewrite => None,
             Self::Offer => Some(0x07),
             Self::Retype => Some(0x83),
-            Self::Reused => None,
+            Self::Reused | Self::Address => None,
         }
     }
 }
@@ -199,6 +219,9 @@ pub enum Step {
     Retyped,
     /// A normal boot after the type change.
     RetypeAgain,
+    /// A boot with a network card: the address files, a removed port and a
+    /// port that comes back.
+    Address,
 }
 
 impl Step {
@@ -215,6 +238,7 @@ impl Step {
             Self::RetypeOffered => "retype-offered",
             Self::Retyped => "retyped",
             Self::RetypeAgain => "retype-again",
+            Self::Address => "address",
         }
     }
 
@@ -297,6 +321,7 @@ pub fn guest_script(step: Step, nonce: &str) -> String {
             );
             s.push_str(&read_back);
         }
+        Step::Address => s.push_str(ADDRESS),
     }
     s.push_str("grep neptron-storage /var/log/messages\necho \"share-check: STEP PASS\"\nexit 0\n");
     s.replace("STEP", step.name())
@@ -469,7 +494,7 @@ pub fn run(args: &[&str]) -> Result<ExitCode, OsError> {
                 share: None,
                 disk: Some(disk.clone()),
                 ssh_port: None,
-                nic: false,
+                nic: step == Step::Address,
                 beside_launcher: false,
                 job: Job::Script(script),
             };
@@ -561,6 +586,42 @@ grep -q '^share_fix' /run/neptron/storage.toml && fail "a format is still offere
 "#;
 /// Plants a request for partition 4, which holds a filesystem now.
 const PLANT_REQUEST: &str = r#"printf 'device=/dev/sda4\nstart=%s\nsize=%s\ntype=7\n' "$(cat /sys/class/block/sda4/start)" "$(cat /sys/class/block/sda4/size)" > /state/share-format-request && sync || fail "the request cannot be planted"
+"#;
+/// The checks of the run file of the addresses: a lease, a removed port,
+/// and a port that comes back after the boot. The QEMU user network gives
+/// 10.0.2.15. Each of the three waits polls once a second for at most
+/// 60 s, so the waits end within 180 s of the default 300 s of the boot:
+/// a lease comes within seconds, and `udhcpc` asks again 20 s after a
+/// lost discover.
+const ADDRESS: &str = r#"# 0 when the run file says $1: an address, or none.
+says() {
+	[ -f /run/neptron/network.toml ] || return 1
+	if [ "$1" = none ]; then
+		! grep -q '^ipv4 = ' /run/neptron/network.toml
+	else
+		grep -qx "ipv4 = \"$1\"" /run/neptron/network.toml
+	fi
+}
+await() {
+	n=0
+	until says "$1"; do
+		n=$((n + 1))
+		[ "$n" -le 60 ] || return 1
+		sleep 1
+	done
+}
+report() {
+	sed 's/^/share-check: network.toml: /' /run/neptron/network.toml
+	grep -e neptron-address -e udhcpc -e neptron-network /var/log/messages | sed 's/^/share-check: /'
+}
+await 10.0.2.15 || { report; fail "the run file does not hold the lease 10.0.2.15"; }
+port=$(readlink -f /sys/class/net/eth0/device) || fail "eth0 has no device"
+echo 1 > "$port/remove" || fail "the device of eth0 cannot be removed"
+await none || { report; fail "the removed port keeps its address in the run file"; }
+echo 1 > /sys/bus/pci/rescan || fail "the PCI bus cannot be scanned again"
+await 10.0.2.15 || { report; fail "the port that came back has no address in the run file"; }
+[ ! -e /share/neptron-ip.txt ] || fail "/share/neptron-ip.txt is there; nothing writes the address to the share"
+report
 "#;
 /// The check of a boot that made partition 4: the table was read back
 /// from the device.
@@ -728,6 +789,44 @@ mod tests {
         assert_eq!(&written[at + 0x5a..at + 0x5c], &7_u16.to_le_bytes());
         assert_eq!(&written[..512], &bytes[..512], "the table stays");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_address_boot_waits_for_the_lease_a_removed_port_and_a_late_port() {
+        assert_eq!(Case::Address.steps(), &[Step::Address]);
+        assert_eq!(Case::Address.partition_4_type(), None);
+        assert_eq!(Case::Address.stale_ext(), None);
+        let s = guest_script(Step::Address, "n0nce");
+        assert!(s.contains(MOUNTED), "{s}");
+        let order = [
+            "await 10.0.2.15 ||",
+            "echo 1 > \"$port/remove\"",
+            "await none ||",
+            "echo 1 > /sys/bus/pci/rescan",
+            "await 10.0.2.15 || { report; fail \"the port that came back",
+        ];
+        let mut at = 0;
+        for part in order {
+            let found = s[at..]
+                .find(part)
+                .unwrap_or_else(|| panic!("{part} after byte {at}: {s}"));
+            at += found + part.len();
+        }
+        assert!(s.contains("grep -qx \"ipv4 = \\\"$1\\\"\" /run/neptron/network.toml"));
+        assert!(s.contains("[ ! -e /share/neptron-ip.txt ] || fail"));
+        // The waits must end within the deadline of the boot.
+        let waits = ADDRESS.matches("\nawait ").count() as u64;
+        let wait_secs: u64 = ADDRESS
+            .split("[ \"$n\" -le ")
+            .nth(1)
+            .and_then(|rest| rest.split(' ').next())
+            .and_then(|n| n.parse().ok())
+            .unwrap();
+        assert_eq!(waits, 3);
+        assert!(
+            waits * wait_secs < DEFAULT_TIMEOUT_SECS,
+            "{waits} x {wait_secs} s"
+        );
     }
 
     #[test]
