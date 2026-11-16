@@ -88,21 +88,22 @@ pub(crate) fn whole_khz(mode: Modeline, range: Option<&CrtRange>) -> Modeline {
     best.map_or_else(|| nearest(mode), |(_, m)| m)
 }
 
-/// The mode of Switchres moved onto the line rate of a range that has one
-/// line rate only (`h_min == h_max`: `ntsc`, `pal`, `arcade_25`).
+/// The mode of Switchres moved into the line rates that the validator
+/// takes from `range`: from the lower of `h_min` and `h_max` less one field
+/// rate, up to `h_max`.
 ///
-/// Switchres picks the lines per field and then the clock, and on such a
-/// range it can end one line per field off: 24.989 kHz on a range of
-/// 24.960 kHz. The validator takes a line rate from `h_max` less one field
-/// rate up to `h_max` there (one line per field of room), and refuses the
-/// mode. This function gives the mode the one total of lines per field
-/// whose line rate lies in that band at the same field rate: it adds lines
-/// to or takes them from the vertical back porch, and scales the clock so
-/// the field rate stays. The active lines, the sync and the front porch do
-/// not move. A mode that is inside already, a range with a band of line
-/// rates, or a change that would leave no back porch, comes back as it is.
-/// [`whole_khz`] then sets the clock to whole kHz inside the range.
-pub(crate) fn onto_fixed_line_rate(mode: Modeline, range: &CrtRange) -> Modeline {
+/// Switchres picks the lines per field and then the clock, and it can end
+/// one line per field off: 24.989 kHz on `arcade_25` (24.960 kHz only),
+/// 16.217 kHz at the top of `arcade_15` (up to 16.200 kHz). The validator
+/// refuses such a mode. This function gives the mode the total of lines
+/// per field whose line rate lies in that band at the same field rate: the
+/// most lines at or under `h_max`, or the fewest at or over the low end.
+/// It adds lines to or takes them from the vertical back porch, and scales
+/// the clock so the field rate stays. The active lines, the sync and the
+/// front porch do not move. A mode that is inside already, or a change that
+/// would end the frame at or before the end of the sync, comes back as it
+/// is. [`whole_khz`] then sets the clock to whole kHz inside the range.
+pub(crate) fn onto_line_band(mode: Modeline, range: &CrtRange) -> Modeline {
     if mode.vtotal == 0 {
         return mode;
     }
@@ -235,7 +236,7 @@ fn keeps_range(next: &Modeline, before: &Modeline, range: &CrtRange) -> bool {
         let inside = |m: &Modeline| (min..=max).contains(&rate(m));
         inside(next) || !inside(before)
     };
-    // The band of the validator: `onto_fixed_line_rate` put the mode
+    // The band of the validator: `onto_line_band` put the mode
     // inside it where it can, and the clock must keep it there.
     let (low, high) = line_band(range, next.field_rate_mhz());
     let line_inside = |m: &Modeline| (low..=high).contains(&m.line_rate_mhz());
@@ -389,7 +390,7 @@ mod tests {
     fn a_mode_above_a_single_line_rate_gets_one_line_per_field_less() {
         let m = one_line_high();
         assert_eq!(m.field_rate_mhz(), 60_000);
-        let moved = onto_fixed_line_rate(m, &arcade_25());
+        let moved = onto_line_band(m, &arcade_25());
         // 831 lines: 60 Hz x 831 / 2 = 24.930 kHz, inside 24.900 to 24.960.
         assert_eq!(moved.vtotal, 831);
         assert_eq!(moved.field_rate_mhz(), 60_000);
@@ -405,22 +406,66 @@ mod tests {
     }
 
     #[test]
-    fn a_mode_inside_or_on_a_band_of_line_rates_stays() {
-        let inside = Modeline {
-            vtotal: 831,
-            pclock_hz: 33_156_900,
+    fn a_move_that_would_end_the_frame_in_the_sync_keeps_the_mode() {
+        // The sync ends on line 831: the 831-line total that the band asks
+        // for leaves no back porch, so the mode stays as it is.
+        let tight = Modeline {
+            vsync_start: 826,
+            vsync_end: 831,
             ..one_line_high()
         };
-        assert_eq!(onto_fixed_line_rate(inside, &arcade_25()), inside);
+        assert_eq!(onto_line_band(tight, &arcade_25()), tight);
+        // One line earlier the total of 831 stays above the sync.
+        let room = Modeline {
+            vsync_start: 825,
+            vsync_end: 830,
+            ..one_line_high()
+        };
+        assert_eq!(onto_line_band(room, &arcade_25()).vtotal, 831);
+    }
+
+    #[test]
+    fn a_mode_above_the_top_of_a_band_comes_down_into_it() {
         let band = CrtRange {
             h_min_mhz: 15_625_000,
             h_max_mhz: 16_200_000,
             ..arcade_25()
         };
-        assert_eq!(
-            onto_fixed_line_rate(one_line_high(), &band),
-            one_line_high()
+        // 65 Hz x 499 / 2 = 16.2175 kHz: above the band.
+        let high = Modeline {
+            vtotal: 499,
+            vactive: 456,
+            vsync_start: 460,
+            vsync_end: 466,
+            pclock_hz: 12_000_000,
+            htotal: 740,
+            ..one_line_high()
+        };
+        let moved = onto_line_band(high, &band);
+        assert!(
+            moved.line_rate_mhz() <= 16_200_000,
+            "{}",
+            moved.line_rate_mhz()
         );
+        assert!(moved.vtotal % 2 == 1 && moved.vtotal > moved.vsync_end);
+    }
+
+    #[test]
+    fn a_mode_inside_the_band_stays() {
+        let inside = Modeline {
+            vtotal: 831,
+            pclock_hz: 33_156_900,
+            ..one_line_high()
+        };
+        assert_eq!(onto_line_band(inside, &arcade_25()), inside);
+        // 24.99 kHz on a 15 kHz band needs 540 lines, fewer than the 783
+        // that end the sync: the mode stays, and the validator judges it.
+        let band = CrtRange {
+            h_min_mhz: 15_625_000,
+            h_max_mhz: 16_200_000,
+            ..arcade_25()
+        };
+        assert_eq!(onto_line_band(one_line_high(), &band), one_line_high());
     }
 
     #[test]
