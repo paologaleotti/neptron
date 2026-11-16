@@ -30,3 +30,4 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0012](0012-tv-standard-is-a-monitor-kind.md) | A TV standard is a monitor kind with a fixed mode table | accepted, amended by P03, P05, P06 | P02 |
 | [0014](0014-fbneo-arcade-core-and-licence.md) | FinalBurn Neo is the arcade core, under its non-commercial licence | accepted | M06 |
 | [0015](0015-rotation-in-scene.md) | The scene carries the rotation of the game picture | accepted | M06, M08a |
+| [0016](0016-initial-core-option-values.md) | The host holds initial core option values and applies them when the core declares its options | accepted | M06, M07a |
