@@ -102,6 +102,7 @@ The state column is one line. The full entry below is the reference.
 | OP-103 | Frame budget on the Pi 3 | Dialog rate fixed; standard change underruns |
 | OP-104 | CI limits | aarch64 timing checks not in CI; two paths not proven |
 | OP-106 | Open questions of the arcade spec | Defaults in `docs/spec/arcade.md`, section 19 |
+| OP-107 | TATE: a monitor on its side, with the UI and the games turned | After the MVP; design notes in the arcade spec |
 
 ### Decided
 
@@ -1149,4 +1150,13 @@ The state column is one line. The full entry below is the reference.
 - Default: the questions A1 to A6 of `docs/spec/arcade.md`, section 19: the XML reader for the DAT in xtask (`roxmltree`, xtask only), how the image build runs the index generator (a hook of the package), which Neo Geo BIOS files and optional ROMs are mandatory (block only when no BIOS file matches), where one-time notices are stored (`state/config/notices.toml`), PAL composite runs arcade boards 9 to 16 % slow (accepted with the speed alert), and the shape of the TATE setting (decided by the TATE task). The owner decided on 2026-11-16: FinalBurn Neo on every board, no donations, 480i as the default for a vertical game on a horizontal 15 kHz CRT, the speed change on composite accepted. Measured on the Pi 3 B on 2026-11-16 (aarch64, composite NTSC 240p): DoDonPachi and Metal Slug X run with 0 missed fields and 0 underruns, worst field 11.83 ms of 16.65 ms; late stages and HDMI are not measured. TATE (the monitor on its side with a turned UI) is after the MVP and important to the owner.
 - Where: `docs/spec/arcade.md`, ADR 0014, 0015 and 0016
 - How to change: each build task (M07a to M08b) closes its questions in its report.
+- Decision:
+
+### OP-107: TATE mode: a monitor on its side, with the UI and the games turned.
+
+- Raised by: the owner (2026-11-16); important to him, planned after the MVP
+- Status: open; not on the taskboard of the MVP, which holds only the tasks of version 0.1
+- Default: version 0.1 shows a vertical game upright on a horizontal display (rotation in the renderer, task M08a). It has no mode for a monitor that stands on its side: the menu is not turned, and a vertical game is not shown at its native lines on such a monitor.
+- Where: `docs/spec/arcade.md` (the TATE section has the design notes), ADR 0015, `docs/definition/06-flat-panels-shaders-and-vertical-games.md` (`screen_orientation`)
+- How to change: a task of the first taskboard after the MVP. It covers a setting for the screen orientation with a direction (left or right), the UI drawn turned, a vertical game at its native lines with no rotation (240p at the game's own rate on 15 kHz), a horizontal game turned or refused on such a screen, the input directions turned in the menu, and the boot picture. The setting shape is question A6 of the arcade spec (OP-106).
 - Decision:
