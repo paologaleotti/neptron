@@ -9,8 +9,8 @@ use neptron_video::Phase;
 
 use crate::rig::{Rig, in_child, in_children, test_name};
 
-/// Frames of 10 s at 60 Hz, the confirm window, and a margin.
-const CONFIRM_WINDOW_FRAMES: u32 = 660;
+/// Frames of 15 s at 60 Hz, the confirm window, and a margin.
+const CONFIRM_WINDOW_FRAMES: u32 = 960;
 
 #[test]
 #[ignore = "tier 2"]
@@ -119,7 +119,7 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
                 "{options:?}"
             );
 
-            // A display change with no answer goes back after 10 s.
+            // A display change with no answer goes back after 15 s.
             rig.focus("Picture style");
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "options");

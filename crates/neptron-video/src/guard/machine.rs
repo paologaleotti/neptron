@@ -183,6 +183,9 @@ enum State {
         since_ns: u64,
         /// The first of them came from the settings files at boot.
         from_settings: bool,
+        /// A tick has seen the change settled, and the deadline counts
+        /// from that tick.
+        settled: bool,
     },
     Safe(SafeReason),
 }
@@ -368,15 +371,18 @@ impl Guard {
     }
 
     /// A display change that the user asks for: a monitor profile, a
-    /// picture style, a refresh policy. It applies at once and reverts at
-    /// `now_ns` plus [`CONFIRM_WINDOW_NS`] unless the user confirms it.
+    /// picture style, a refresh policy. It applies at once and reverts
+    /// [`CONFIRM_WINDOW_NS`] after the first tick that sees it settled
+    /// unless the user confirms it. Until that tick the deadline is
+    /// `now_ns` plus [`CONFIRM_WINDOW_NS`].
     ///
     /// A change while another one is pending replaces it with a new prompt
     /// and a new deadline, but no later than [`PENDING_LIMIT_NS`] after the
     /// first change with no confirmation; a revert still restores the
     /// configuration that was confirmed before both. A change at or after
-    /// the deadline of the pending one reverts it and is not applied. The confirmed configuration itself ends
-    /// the pending change with no prompt.
+    /// the deadline of the pending one reverts it and is not applied. The
+    /// confirmed configuration itself ends the pending change with no
+    /// prompt.
     pub fn propose<D: Display>(
         &mut self,
         config: DisplayConfig,
@@ -538,6 +544,19 @@ impl Guard {
         let shown = health.picture && health.decided;
         let picture_ns = watch(&mut self.picture_since_ns, shown, now_ns);
         let no_picture = no_picture_ns.is_some_and(|ns| ns >= NO_PICTURE_LIMIT_NS);
+        if shown
+            && !went_back
+            && let State::Pending {
+                prompt,
+                since_ns,
+                settled: settled @ false,
+                ..
+            } = &mut self.state
+            && now_ns < prompt.deadline_ns
+        {
+            *settled = true;
+            prompt.deadline_ns = deadline(now_ns, *since_ns);
+        }
         match &self.state {
             State::Pending { .. } if went_back => self.revert(RevertReason::ClockWentBack, engine),
             State::Pending { prompt, .. } if now_ns >= prompt.deadline_ns => {
@@ -590,16 +609,16 @@ impl Guard {
         engine: &mut VideoEngine<D>,
     ) -> GuardEvent {
         self.last_prompt = self.last_prompt.wrapping_add(1);
-        let window_end_ns = now_ns.saturating_add(CONFIRM_WINDOW_NS);
         let prompt = Prompt {
             id: PromptId(self.last_prompt),
-            deadline_ns: window_end_ns.min(chain.since_ns.saturating_add(PENDING_LIMIT_NS)),
+            deadline_ns: deadline(now_ns, chain.since_ns),
         };
         self.state = State::Pending {
             prompt,
             fallback,
             since_ns: chain.since_ns,
             from_settings: chain.from_settings,
+            settled: false,
         };
         self.active = target;
         self.apply(engine);
@@ -685,6 +704,14 @@ impl GuardStep {
             save: None,
         }
     }
+}
+
+/// The deadline of a change whose window starts at `start_ns`, in a chain
+/// that began at `since_ns`.
+fn deadline(start_ns: u64, since_ns: u64) -> u64 {
+    start_ns
+        .saturating_add(CONFIRM_WINDOW_NS)
+        .min(since_ns.saturating_add(PENDING_LIMIT_NS))
 }
 
 /// How long `on` has held without a break at `now_ns`, or `None` when it

@@ -19,17 +19,19 @@ pub use machine::{
 pub use record::GuardRecord;
 
 /// How long a display change the user asks for stays without a
-/// confirmation, in nanoseconds. Then the last confirmed configuration
-/// comes back.
-pub const CONFIRM_WINDOW_NS: u64 = 10_000_000_000;
+/// confirmation, in nanoseconds, counted from the first frame that shows
+/// the change settled. Then the last confirmed configuration comes back.
+/// Until that frame, the window counts from the change itself, so a
+/// change that never settles still reverts.
+pub const CONFIRM_WINDOW_NS: u64 = 15_000_000_000;
 
 /// The longest time that changes with no confirmation can stay, one after
 /// the other, in nanoseconds. Each new change gets a new prompt, but its
 /// deadline never passes the start of the first change plus this time, so
 /// a loop of changes (from the control protocol, or a held key) cannot
-/// keep an unconfirmed mode on the tube. Three confirm windows leave time
-/// to step through the picture style rows of the Display panel.
-pub const PENDING_LIMIT_NS: u64 = 3 * CONFIRM_WINDOW_NS;
+/// keep an unconfirmed mode on the tube. It is also the most a change that
+/// settles late can stay.
+pub const PENDING_LIMIT_NS: u64 = 30_000_000_000;
 
 /// Boots in a row that never reach a confirmed picture before the next
 /// boot starts in safe mode.

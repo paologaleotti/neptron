@@ -46,10 +46,10 @@ fn a_trusted_monitor_boots_with_no_prompt() {
 #[test]
 fn an_unknown_display_with_a_hand_set_31_khz_preset_still_prompts_and_reverts() {
     let mut rig = GuardRig::boot(GuardRecord::default(), crt_31(), crt_15());
-    let prompt = rig.guard.pending().expect("the boot prompt");
+    assert!(rig.guard.pending().is_some(), "the boot prompt");
     rig.frame();
     assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
-    rig.run_until(prompt.deadline_ns + 2 * FRAME_NS);
+    rig.run_past_deadline();
     assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::NothingConfirmed));
     assert_eq!(rig.wire(), Some(mode_of(&crt_15())), "no input: the revert");
 }
@@ -153,8 +153,8 @@ fn a_change_in_safe_mode_that_reverts_goes_back_to_safe_mode() {
         ..GuardRecord::default()
     };
     let mut rig = GuardRig::boot(record, crt_31(), crt_15());
-    let prompt = rig.propose(crt_31());
-    rig.run_until(prompt.deadline_ns + FRAME_NS);
+    rig.propose(crt_31());
+    rig.run_past_deadline();
     assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::FailedBoots));
     assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
 }
@@ -162,10 +162,10 @@ fn a_change_in_safe_mode_that_reverts_goes_back_to_safe_mode() {
 #[test]
 fn settings_that_differ_from_the_last_known_good_wait_for_a_confirmation() {
     let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), arcade());
-    let Some(GuardEvent::PromptOpened(prompt)) = rig.event_list().first().cloned() else {
+    let Some(GuardEvent::PromptOpened(_)) = rig.event_list().first().cloned() else {
         panic!("a prompt at boot");
     };
-    rig.run_until(prompt.deadline_ns + FRAME_NS);
+    rig.run_past_deadline();
     assert!(
         rig.event_list().contains(&GuardEvent::Reverted {
             reason: RevertReason::Timeout,
@@ -188,7 +188,7 @@ fn a_first_boot_with_nothing_confirmed_falls_back_to_the_safe_default() {
     let mut rig = GuardRig::boot(GuardRecord::default(), crt_31(), crt_15());
     let prompt = rig.guard.pending().unwrap();
     assert_eq!(prompt.deadline_ns, CONFIRM_WINDOW_NS);
-    rig.run_until(prompt.deadline_ns + FRAME_NS);
+    rig.run_past_deadline();
     assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::NothingConfirmed));
     assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
     assert!(

@@ -213,6 +213,20 @@ impl GuardRig {
         }
     }
 
+    /// Frames while a change is pending, until its deadline, then one
+    /// more frame, which shows what the revert restored. The guard moves
+    /// the deadline once, at the first settled frame of the change, so a
+    /// deadline read at the change can be too early.
+    pub fn run_past_deadline(&mut self) {
+        while let Some(prompt) = self.guard.pending() {
+            if self.now() > prompt.deadline_ns + FRAME_NS {
+                break;
+            }
+            self.frame();
+        }
+        self.frame();
+    }
+
     /// Frames for `duration_ns` from now.
     pub fn run_for(&mut self, duration_ns: u64) {
         self.run_until(self.now() + duration_ns);

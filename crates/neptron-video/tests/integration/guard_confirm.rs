@@ -28,6 +28,8 @@ fn a_change_with_no_confirmation_reverts_at_the_deadline() {
         Some(mode_of(&crt_31())),
         "the change applies at once"
     );
+    let prompt = rig.guard.pending().expect("the settled prompt");
+    assert_eq!(prompt.deadline_ns, rig.now() + CONFIRM_WINDOW_NS);
 
     rig.run_before(prompt.deadline_ns);
     assert_eq!(
@@ -80,8 +82,9 @@ fn a_confirmation_that_does_not_match_is_refused() {
         rig.guard.confirm(asked, rig.now(), &rig.engine),
         Err(ConfirmError::NoPrompt { asked })
     );
-    let prompt = rig.propose(crt_31());
+    rig.propose(crt_31());
     rig.frame();
+    let prompt = rig.guard.pending().expect("the settled prompt");
     assert_eq!(
         rig.guard.confirm(asked, rig.now(), &rig.engine),
         Err(ConfirmError::WrongPrompt {
@@ -170,6 +173,9 @@ fn a_new_change_while_one_is_pending_reverts_to_the_confirmed_one() {
         rig.now() + CONFIRM_WINDOW_NS,
         "a new deadline"
     );
+    rig.frame();
+    let second = rig.guard.pending().expect("the settled prompt");
+    assert_eq!(second.deadline_ns, rig.now() + CONFIRM_WINDOW_NS);
     assert!(
         rig.guard.confirm(first.id, rig.now(), &rig.engine).is_err(),
         "the old prompt is gone"
@@ -579,4 +585,45 @@ fn a_revert_to_the_same_configuration_shows_no_notice() {
         rig.event_list()
     );
     assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::FailedBoots));
+}
+
+#[test]
+fn a_change_window_starts_at_the_first_settled_frame() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    let opened = rig.propose(crt_31());
+    assert_eq!(opened.deadline_ns, rig.now() + CONFIRM_WINDOW_NS);
+    // No frame for a while: the change is not on screen yet.
+    rig.clock.advance(CONFIRM_WINDOW_NS / 3);
+    rig.frame();
+    let settled_at = rig.now();
+    let prompt = rig.guard.pending().expect("still pending");
+    assert_eq!(prompt.id, opened.id, "the same prompt");
+    assert_eq!(prompt.deadline_ns, settled_at + CONFIRM_WINDOW_NS);
+    rig.run_until(opened.deadline_ns + FRAME_SLACK_NS);
+    assert_eq!(
+        rig.guard.pending(),
+        Some(prompt),
+        "the window did not start at the change"
+    );
+    rig.run_for(CONFIRM_WINDOW_NS);
+    assert!(rig.event_list().contains(&reverted(RevertReason::Timeout)));
+    let reverted_at = rig.time_of(reverted(RevertReason::Timeout)).unwrap();
+    assert!(reverted_at >= settled_at + CONFIRM_WINDOW_NS);
+}
+
+#[test]
+fn a_change_that_never_settles_reverts_at_its_first_deadline() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    let prompt = rig.propose(crt_31());
+    let first = rig.fake.next_mode_call();
+    for call in first..first + 4 * u64::from(MODESET_ATTEMPTS) {
+        rig.fake.fault_mode(
+            call,
+            ModeFault::Device {
+                reason: "EIO".to_owned(),
+            },
+        );
+    }
+    rig.run_until(prompt.deadline_ns + FRAME_SLACK_NS);
+    assert!(rig.guard.pending().is_none(), "{:?}", rig.guard.phase());
 }
