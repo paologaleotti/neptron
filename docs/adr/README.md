@@ -28,3 +28,4 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0010](0010-output-kind-picks-the-gpu-limits.md) | The output kind picks the GPU limits | accepted | C08 |
 | [0011](0011-audio-outputs-trait-and-text-setting.md) | An audio outputs trait, and a text kind of setting | accepted | C12 |
 | [0012](0012-tv-standard-is-a-monitor-kind.md) | A TV standard is a monitor kind with a fixed mode table | accepted, amended by P03, P05, P06 | P02 |
+| [0014](0014-fbneo-arcade-core-and-licence.md) | FinalBurn Neo is the arcade core, under its non-commercial licence | accepted | M06 |
