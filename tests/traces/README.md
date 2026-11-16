@@ -1,6 +1,6 @@
 # Core traces
 
-Each `.trace` file is the golden trace of one case of the tier T4 check, `cargo xtask core-trace`. A case is one core, one 240p Test Suite ROM from `tests/roms`, and one input script. The case table is `CASES` in `xtask/src/os/trace.rs`. The program that prints the trace is `crates/neptron-libretro/examples/core_trace.rs`.
+Each `.trace` file is the golden trace of one case of the tier T4 check, `cargo xtask core-trace`. A case is one core, one ROM from `tests/roms` (a 240p Test Suite build or a free arcade set), and one input script. The case table is `CASES` in `xtask/src/os/trace.rs`. The program that prints the trace is `crates/neptron-libretro/examples/core_trace.rs`.
 
 A trace is a golden (run rule 11). `cargo xtask core-trace --bless` writes new traces. Read every changed line before you commit them, and look at the frames with `--dump`.
 
@@ -14,8 +14,11 @@ A trace is a golden (run rule 11). `cargo xtask core-trace --bless` writes new t
 | `snes9x-zip` | Snes9x | `snes/240pSuite.sfc` | a zip file |
 | `genesis_plus_gx` | Genesis Plus GX | `megadrive/240pSuite-1.32.bin` | the plain file |
 | `genesis_plus_gx-zip` | Genesis Plus GX | `megadrive/240pSuite-1.32.bin` | a zip file |
+| `fbneo` | FinalBurn Neo | `arcade/robby.zip` | the set, a zip file that the core opens |
 
 Each case runs 900 frames. The input script on port 0 leaves the start screen, goes through the menus to the audio sync test, and starts it. The frames from about 450 on show the test: a dot that falls, and a beep when it lands. A zip case runs the same script as its plain case. The check makes sure that its frame, audio, video, event and save RAM lines are equal to those of the plain case.
+
+The `fbneo` case runs a free arcade set (`tests/roms/README.md`). Its script puts a coin in at frame 300 (Select) and presses Start at frame 360; the coin gives the only sound of the run. An arcade set is already a zip, so the case has no zip twin. FinalBurn Neo declares its options in `retro_load_game`, so its `option` lines follow the `load` logs; the DIP switches of the set are options too (`fbneo-dipswitch-robby-...`).
 
 ## The SNES and Mega Drive ROMs
 
@@ -56,6 +59,7 @@ The host logs the number of each call that it does not serve. These are the numb
 | --- | --- |
 | `0x8` | `SET_PERFORMANCE_LEVEL` |
 | `0xd` | `SET_DISK_CONTROL_INTERFACE` |
+| `0x17` | `GET_RUMBLE_INTERFACE` |
 | `0x22` | `SET_SUBSYSTEM_INFO` |
 | `0x2c` | `SET_SERIALIZATION_QUIRKS` |
 | `0x37` | `SET_CORE_OPTIONS_DISPLAY` (refused: only version 0 of the options API) |
@@ -64,11 +68,13 @@ The host logs the number of each call that it does not serve. These are the numb
 | `0x3f` | `SET_MINIMUM_AUDIO_LATENCY` |
 | `0x45` | `SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK` (refused) |
 | `0x46` | `SET_VARIABLE` |
+| `0x57` | `SET_SERIALIZATION_QUIRKS_2` (the vendored `libretro.h`; FinalBurn Neo's own copy names 87 `SET_SERIALIZATION_QUIRKS`) |
 | `0x10024` | `SET_MEMORY_MAPS` (refused) |
 | `0x10028` | `GET_CURRENT_SOFTWARE_FRAMEBUFFER` |
 | `0x1002a` | `SET_SUPPORT_ACHIEVEMENTS` |
 | `0x1002d` | `GET_VFS_INTERFACE` |
 | `0x1002e` | `GET_LED_INTERFACE` |
+| `0x10048` | `GET_SAVESTATE_CONTEXT` |
 | `0x10051` | `GET_TARGET_SAMPLE_RATE` |
 
 ## Findings for later work
@@ -76,6 +82,9 @@ The host logs the number of each call that it does not serve. These are the numb
 - Genesis Plus GX reports 256x192 at load and sends 4 frames at 256x192. At frame 4 it calls `SET_GEOMETRY` with 320x224. The first mode of a Mega Drive game must not come from the AV info of the load alone.
 - Genesis Plus GX calls `SET_SERIALIZATION_QUIRKS` in `retro_init`, which the host does not serve. At the pinned commit it sets `PLATFORM_DEPENDENT` only: a state cannot be loaded on another architecture. When save states come, the host must serve this call and honour each quirk: `MUST_INITIALIZE` (`retro_serialize_size`, `retro_serialize` and `retro_unserialize` fail until the core has run for a time), `CORE_VARIABLE_SIZE` (the state size can change during a session: ask for it before each save), and `PLATFORM_DEPENDENT` (keep the architecture with the state).
 - Snes9x writes `Map_LoROMMap` to standard output, past the log interface.
+- FinalBurn Neo seeds its random number source (`BurnRandom` in `src/burn/burn.cpp`) with the time of day at each load, unless it records or plays back its own input. A game whose driver uses it gives other frames in each run. A replay of recorded input (`neptron-testkit`) of such a game is therefore not exact. The `fbneo` case uses a driver with no random source.
+- FinalBurn Neo declares its options in `retro_load_game`, and the list depends on the game. For `robby` it does not declare `fbneo-diagnostic-input`.
+- FinalBurn Neo has no save RAM (`save_ram size=0`). It writes NVRAM files itself, to its save folder.
 
 ## Architectures
 

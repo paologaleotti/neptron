@@ -1,0 +1,161 @@
+format 1
+arch aarch64
+core fbneo_libretro.so
+content robby.zip
+run frames=900 hash_every=30
+press 300 select frames=6
+press 360 start frames=6
+system name="FinalBurn Neo" version="v1.0.0.03 261115 GITd7450cf" need_fullpath=true block_extract=true
+extensions zip|7z|cue|ccd|chd|m3u
+log open Info Host environment call 0x45 refused: only the version 0 option API is supported
+log open Warn Host unknown environment call 0x22
+log open Warn Host unknown environment call 0x57
+log open Info Core [FBNeo] Running v1.0.0.03 261115 GITd7450cf
+log open Warn Host unknown environment call 0x3b
+log open Warn Host unknown environment call 0x3e
+log open Warn Host unknown environment call 0x10048
+log open Warn Core [FBNeo] Frontend doesn\'t support RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT
+log open Warn Core [FBNeo] hiscore.dat requires this feature to work in a runahead context
+log load Info Core Setting save dir to /tmp/core-trace/fbneo/saves
+log load Info Core Setting system dir to /tmp/core-trace/fbneo/system
+log load Info Core [FBNeo] Romset name: robby
+log load Info Core [FBNeo] Romset description: The Adventures of Robby Roto! - Roto to the Rescue!
+log load Info Core DIP switches offset: 16.
+log load Debug Core [FBNeo] nSwitchCode 0x00 : P1 Coin
+log load Debug Core [FBNeo] nSwitchCode 0x01 : P1 Start
+log load Debug Core [FBNeo] nSwitchCode 0x02 : P1 Up
+log load Debug Core [FBNeo] nSwitchCode 0x03 : P1 Down
+log load Debug Core [FBNeo] nSwitchCode 0x04 : P1 Left
+log load Debug Core [FBNeo] nSwitchCode 0x05 : P1 Right
+log load Debug Core [FBNeo] nSwitchCode 0x06 : P1 Button 1
+log load Debug Core [FBNeo] nSwitchCode 0x07 : P2 Coin
+log load Debug Core [FBNeo] nSwitchCode 0x08 : P2 Start
+log load Debug Core [FBNeo] nSwitchCode 0x09 : P2 Up
+log load Debug Core [FBNeo] nSwitchCode 0x0A : P2 Down
+log load Debug Core [FBNeo] nSwitchCode 0x0B : P2 Left
+log load Debug Core [FBNeo] nSwitchCode 0x0C : P2 Right
+log load Debug Core [FBNeo] nSwitchCode 0x0D : P2 Button 1
+log load Warn Host unknown environment call 0x17
+log load Info Core Initialize DIP switches.
+log load Debug Core Cheat engine, game name: robby
+log load Warn Host unknown environment call 0x1002d
+log load Info Core [FBNeo] Searching all possible locations for romset robby
+log load Info Core [FBNeo] No patched romset found at /tmp/core-trace/fbneo/system/fbneo/patched/robby
+log load Info Core [FBNeo] Romset found at /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] No romset found at /tmp/core-trace/fbneo/system/fbneo/robby
+log load Info Core [FBNeo] No romset found at /tmp/core-trace/fbneo/system/robby
+log load Info Core [FBNeo] Using ROM with known crc 0xa431b85a and name rotox1.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] Using ROM with known crc 0x33cdda83 and name rotox2.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] Using ROM with known crc 0xdbf97491 and name rotox3.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] Using ROM with known crc 0xa3b90ac8 and name rotox4.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] Using ROM with known crc 0x46ae8a94 and name rotox5.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] Using ROM with known crc 0x7916b730 and name rotox6.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] Using ROM with known crc 0x276dc4a5 and name rotox7.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] Using ROM with known crc 0x1ef13457 and name rotox8.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] Using ROM with known crc 0x370352bf and name rotox9.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] Using ROM with known crc 0xe762cbda and name rotox10.bin from archive /mnt/host/roms/arcade/robby
+log load Info Core [FBNeo] No missing files, proceeding
+log load Info Core [FBNeo] Samplerate set to 48000
+log load Info Host environment call 0x37 refused: only the version 0 option API is supported
+log load Info Core [FBNeo] Applied dipswitches from core options
+log load Debug Core Cheat cpu-register INIT.
+log load Debug Core CPU-registry: Z80 cpu #0 ...
+log load Debug Core resetting astrocde snd #0
+log load Debug Core resetting astrocde snd #1
+log load Info Core [FBNeo] Initialized driver for robby
+log load Info Core [FBNeo] Adjusted audio buffer to match driver\'s refresh rate (60.000000 Hz)
+log load Info Core [Cheevos] System RAM set to 0x<address>, size is 139264
+log load Info Core [FBNeo] Driver successfully started
+log load Info Core [FBNeo] Timing set to 60.000000 Hz
+log load Info Core [FBNeo] Unknown device type for port 0, forcing \"Classic\" instead
+log load Info Core [FBNeo] Unknown device type for port 1, forcing \"Classic\" instead
+option fbneo-allow-patched-romsets = "enabled" [enabled|disabled] Allow patched romsets
+option fbneo-cpu-speed-adjust = "100%" [100%|25%|26%|27%|28%|29%|30%|31%|32%|33%|34%|35%|36%|37%|38%|39%|40%|41%|42%|43%|44%|45%|46%|47%|48%|49%|50%|51%|52%|53%|54%|55%|56%|57%|58%|59%|60%|61%|62%|63%|64%|65%|66%|67%|68%|69%|70%|71%|72%|73%|74%|75%|76%|77%|78%|79%|80%|81%|82%|83%|84%|85%|86%|87%|88%|89%|90%|91%|92%|93%|94%|95%|96%|97%|98%|99%|105%|110%|115%|120%|125%|130%|135%|140%|145%|150%|155%|160%|165%|170%|175%|180%|185%|190%|195%|200%|210%|220%|230%|240%|250%|260%|270%|280%|290%|300%|310%|320%|330%|340%|350%|360%|370%|380%|390%|400%] CPU clock
+option fbneo-samplerate = "48000" [48000|44100] Samplerate
+option fbneo-sample-interpolation = "4-point 3rd order" [4-point 3rd order|disabled|2-point 1st order] Sample Interpolation
+option fbneo-fm-interpolation = "4-point 3rd order" [4-point 3rd order|disabled] FM Interpolation
+option fbneo-lowpass-filter = "disabled" [disabled|enabled] LowPass Filter
+option fbneo-analog-speed = "100%" [100%|25%|26%|27%|28%|29%|30%|31%|32%|33%|34%|35%|36%|37%|38%|39%|40%|41%|42%|43%|44%|45%|46%|47%|48%|49%|50%|51%|52%|53%|54%|55%|56%|57%|58%|59%|60%|61%|62%|63%|64%|65%|66%|67%|68%|69%|70%|71%|72%|73%|74%|75%|76%|77%|78%|79%|80%|81%|82%|83%|84%|85%|86%|87%|88%|89%|90%|91%|92%|93%|94%|95%|96%|97%|98%|99%|105%|110%|115%|120%|125%|130%|135%|140%|145%|150%|155%|160%|165%|170%|175%|180%|185%|190%|195%|200%|210%|220%|230%|240%|250%|260%|270%|280%|290%|300%|310%|320%|330%|340%|350%|360%|370%|380%|390%|400%] Analog Speed
+option fbneo-socd = "3" [3|0|1|2|4|5|6] SOCD Mode
+option fbneo-lightgun-crosshair-emulation = "hide with lightgun device" [hide with lightgun device|always hide|always show] Crosshair emulation
+option fbneo-rumble = "enabled" [enabled|disabled] Rumble
+option fbneo-force-60hz = "disabled" [disabled|enabled] Force 60Hz
+option fbneo-resolution = "640x480" [640x480|800x600|1024x768|1080x810|1280x960|1440x1080|1600x1200|1920x1440|2160x1620|2880x2160] Resolution
+option fbneo-allow-depth-32 = "enabled" [enabled|disabled] Use 32-bits color depth when available
+option fbneo-vertical-mode = "disabled" [disabled|enabled|alternate|TATE|TATE alternate] Vertical mode
+option fbneo-fixed-frameskip = "0" [0|1|2|3|4|5] Fixed Frameskip
+option fbneo-dipswitch-robby-Service_Mode = "Off" [Off|On] [Dipswitch] Service Mode
+option fbneo-dipswitch-robby-Use_Service_Mode_Settings = "Yes" [Yes|Reset] [Dipswitch] Use Service Mode Settings
+option fbneo-dipswitch-robby-Free_Play = "Off" [Off|On] [Dipswitch] Free Play
+option fbneo-dipswitch-robby-Cabinet = "Upright" [Upright|Cocktail] [Dipswitch] Cabinet
+option fbneo-dipswitch-robby-Demo_Sounds = "On" [On|Off] [Dipswitch] Demo Sounds
+av base=352x240 max=352x352 aspect_milli=1333 fps_mhz=60000 sample_rate_mhz=48000000
+pixel_format Xrgb8888
+options_after_load count=20
+video 0-0 duplicate
+log 15 Debug Core WM: c5df, 28
+log 15 Debug Core WM: c5e0, 3d
+hash 29 352x240 Xrgb8888 abad5b287726284d
+audio 0-29 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 59 352x240 Xrgb8888 cf481b84b8b4a050
+audio 30-59 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 89 352x240 Xrgb8888 8f5967ed8564bf1f
+audio 60-89 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 119 352x240 Xrgb8888 7f8da19346fb5764
+audio 90-119 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 149 352x240 Xrgb8888 9ae2c425277e8650
+audio 120-149 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 179 352x240 Xrgb8888 0e7fa6fea9de43ee
+audio 150-179 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 209 352x240 Xrgb8888 ac647c2f25c20e3a
+audio 180-209 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 239 352x240 Xrgb8888 f6aedc6c79bdb861
+audio 210-239 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 269 352x240 Xrgb8888 6c9fadfeb94f70ad
+audio 240-269 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 299 352x240 Xrgb8888 f936eb9a3f40a214
+audio 270-299 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 329 352x240 Xrgb8888 1c6d6e1f91ba24ad
+audio 300-329 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 359 352x240 Xrgb8888 e45411c11b87524d
+audio 330-359 stereo_frames=24000 nonzero_samples=10602 8c69120fc4c37991
+hash 389 352x240 Xrgb8888 6ceb64bd4609a519
+audio 360-389 stereo_frames=24000 nonzero_samples=47987 992d1bb61a925803
+hash 419 352x240 Xrgb8888 9f4a7c5bfd7c34f4
+audio 390-419 stereo_frames=24000 nonzero_samples=3584 ad8fd128ba370ac2
+hash 449 352x240 Xrgb8888 0358dbe9d818df77
+audio 420-449 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 479 352x240 Xrgb8888 6fa08cc4dfad2504
+audio 450-479 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 509 352x240 Xrgb8888 d0e10bcdb3c9b7db
+audio 480-509 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 539 352x240 Xrgb8888 0dfcab7e68af38bc
+audio 510-539 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 569 352x240 Xrgb8888 e86fc049efd84a97
+audio 540-569 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 599 352x240 Xrgb8888 74d90329b74a40b9
+audio 570-599 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 629 352x240 Xrgb8888 10bf9ca5c607b982
+audio 600-629 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 659 352x240 Xrgb8888 593dc49b38b33223
+audio 630-659 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 689 352x240 Xrgb8888 57c76871cdcef431
+audio 660-689 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 719 352x240 Xrgb8888 72dbb8fd0f304f6e
+audio 690-719 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 749 352x240 Xrgb8888 3a255892bb5df5b0
+audio 720-749 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 779 352x240 Xrgb8888 b633c2b3ebeed17c
+audio 750-779 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 809 352x240 Xrgb8888 c40319b956b3218d
+audio 780-809 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 839 352x240 Xrgb8888 88b1356004b7832d
+audio 810-839 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 869 352x240 Xrgb8888 d74ef901489f531e
+audio 840-869 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+hash 899 352x240 Xrgb8888 78461c06cb48cbd7
+audio 870-899 stereo_frames=24000 nonzero_samples=0 5eac53d274f9ef25
+video 1-899 frame 352x240
+save_ram size=0 cbf29ce484222325
+end
+exit 0

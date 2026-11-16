@@ -207,7 +207,15 @@ fn ensure_system_folders_makes_only_missing_folders() {
     fs::write(&rom, b"ROM").expect("write the ROM");
 
     let made = ensure_system_folders(&roms, &catalog()).expect("the folders are made");
-    assert_eq!(made, [roms.join("snes"), roms.join("megadrive")]);
+    assert_eq!(
+        made,
+        [
+            roms.join("snes"),
+            roms.join("megadrive"),
+            roms.join("arcade"),
+            roms.join("neogeo")
+        ]
+    );
     assert_eq!(fs::read(&rom).expect("read the ROM"), b"ROM");
 
     let made = ensure_system_folders(&roms, &catalog()).expect("the folders exist");

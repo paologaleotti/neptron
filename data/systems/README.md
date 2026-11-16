@@ -38,3 +38,18 @@ The extension list of a system is the intersection of two lists, plus `zip`. The
 | `megadrive` | `.7z .smd .bin .gen .md .sg .zip` | `m3u mdx md smd gen bin cue iso chd bms sms gg sg 68k sgd` | `bin gen md sg smd zip` |
 
 The display names are the RetroPie `_fullname` values, except for `megadrive`, which takes the Batocera name "Mega Drive".
+
+## Arcade
+
+`arcade` and `neogeo` hold FinalBurn Neo ROM sets. `docs/spec/arcade.md` (sections 3 and 4) gives the decision and its sources:
+
+| System | Aliases | Extensions | Core |
+| --- | --- | --- | --- |
+| `arcade` | `fbneo` (the Batocera folder), `fba` (the RetroPie folder) | `zip` | `fbneo` |
+| `neogeo` | none | `zip` | `fbneo` |
+
+- A set is a `.zip` file, and its file name is the set name of FinalBurn Neo. The core opens the zip itself and finds the parent set and the BIOS set by name.
+- `.7z` is not accepted: NEPTRON has no `.7z` reader to check a set.
+- `mame`, `mame-libretro`, `mame2003` and `mame2003-plus` are not system folders. MAME sets need a MAME core, and NEPTRON has none yet.
+- Both systems set `always_progressive`: an arcade board draws progressive frames, also tall ones.
+- The scan hides a BIOS set of the core (for example `neogeo.zip`). The list is in `crates/neptron-library/src/catalog.rs`.

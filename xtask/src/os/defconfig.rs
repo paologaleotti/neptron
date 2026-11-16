@@ -687,9 +687,8 @@ mod tests {
         ("libretro-fbneo", "LIBRETRO_FBNEO", "fbneo"),
     ];
 
-    /// The cores that have a file in `data/cores`. FinalBurn Neo gets its
-    /// file with the arcade systems.
-    const CORES_WITH_DATA: [&str; 3] = ["fceumm", "snes9x", "genesis_plus_gx"];
+    /// The cores that have a file in `data/cores`.
+    const CORES_WITH_DATA: [&str; 4] = ["fceumm", "snes9x", "genesis_plus_gx", "fbneo"];
 
     #[test]
     fn both_targets_build_every_core() {

@@ -499,19 +499,26 @@ mod tests {
         let share = temp_dir("share");
         let nes = b"NES\x1a";
         let snes = b"SNES";
+        let set = b"PK\x05\x06";
         write_bytes(&roms.join("nes/240pee.nes"), nes).unwrap();
         write_bytes(&rom_cache.join("240pSuite.sfc"), snes).unwrap();
+        write_bytes(&rom_cache.join("robby.zip"), set).unwrap();
         write_bytes(&rom_cache.join("240pSuite-1.32.bin"), b"other").unwrap();
         let sums = format!(
-            "{}  nes/240pee.nes\n{}  snes/240pSuite.sfc\n{}  megadrive/240pSuite-1.32.bin\n",
+            "{}  nes/240pee.nes\n{}  snes/240pSuite.sfc\n{}  megadrive/240pSuite-1.32.bin\n\
+             {}  arcade/robby.zip\n",
             sha256::hex(nes),
             sha256::hex(snes),
-            sha256::hex(b"md")
+            sha256::hex(b"md"),
+            sha256::hex(set)
         );
         write_bytes(&roms.join("SHA256SUMS"), sums.as_bytes()).unwrap();
         let (cases, skipped) = stage_content(&roms, &rom_cache, &share).unwrap();
         let names: Vec<&str> = cases.iter().map(|c| c.name).collect();
-        assert_eq!(names, ["fceumm", "fceumm-zip", "snes9x", "snes9x-zip"]);
+        assert_eq!(
+            names,
+            ["fceumm", "fceumm-zip", "snes9x", "snes9x-zip", "fbneo"]
+        );
         let names: Vec<&str> = skipped.iter().map(|s| s.case).collect();
         assert_eq!(names, ["genesis_plus_gx", "genesis_plus_gx-zip"]);
         assert!(
@@ -529,15 +536,20 @@ mod tests {
             std::fs::read(share.join("roms/snes/240pSuite.sfc")).unwrap(),
             snes
         );
+        assert_eq!(
+            std::fs::read(share.join("roms/arcade/robby.zip")).unwrap(),
+            set,
+            "an arcade set is copied as it is, not packed again"
+        );
         let zip = std::fs::read(share.join("zips/fceumm-zip.zip")).unwrap();
         assert_eq!(zip, trace::stored_zip("240pee.nes", nes).unwrap());
 
         std::fs::remove_dir_all(&rom_cache).unwrap();
         let (cases, skipped) = stage_content(&roms, &rom_cache, &share).unwrap();
         assert_eq!(cases.len(), 2);
-        assert_eq!(skipped.len(), 4);
+        assert_eq!(skipped.len(), 5);
         assert!(skipped.iter().all(|s| s.missing));
-        assert_eq!(skip_failures(&skipped, cases.len(), false), 4);
+        assert_eq!(skip_failures(&skipped, cases.len(), false), 5);
         assert_eq!(skip_failures(&skipped, cases.len(), true), 0);
         let reason = &skipped[0].reason;
         assert!(

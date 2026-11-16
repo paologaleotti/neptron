@@ -1,0 +1,13 @@
+# FinalBurn Neo. See data/cores/README.md for the sources.
+format = 1
+id = "fbneo"
+name = "FinalBurn Neo"
+library = "fbneo_libretro.so"
+systems = ["arcade", "neogeo"]
+licence = "LicenseRef-FBNeo"
+
+# The core's own default, pinned: the renderer turns a vertical game by the
+# rotation that the core asks for, and that rotation depends on this mode
+# (tests/traces/fbneo.trace).
+[options]
+fbneo-vertical-mode = "disabled"

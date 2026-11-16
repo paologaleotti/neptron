@@ -68,10 +68,13 @@ const MD_PRESSES: &[&str] = &[
     "340:down:6",
     "380:y:6",
 ];
+/// FinalBurn Neo maps the coin to Select. A coin and a start leave the
+/// attract mode, so the trace holds game frames and their audio too.
+const ARCADE_PRESSES: &[&str] = &["300:select:6", "360:start:6"];
 
 /// Every case. A zip case runs the same script as the plain case of its
 /// core, so its frames and audio must be the same.
-pub const CASES: [Case; 6] = [
+pub const CASES: [Case; 7] = [
     Case {
         name: "fceumm",
         library: "fceumm_libretro.so",
@@ -119,6 +122,16 @@ pub const CASES: [Case; 6] = [
         extensions: "bin,gen,md,sg,smd,zip",
         zip: true,
         presses: MD_PRESSES,
+    },
+    // An arcade set is a zip file that the core opens itself, so the
+    // plain case already loads a zip and has no zip twin.
+    Case {
+        name: "fbneo",
+        library: "fbneo_libretro.so",
+        rom: "arcade/robby.zip",
+        extensions: "zip",
+        zip: false,
+        presses: ARCADE_PRESSES,
     },
 ];
 
@@ -670,7 +683,7 @@ mod tests {
     fn only_the_cleared_roms_are_committed_and_they_match_their_checksums() {
         let dir = repo_dir().join("tests/roms");
         let sums = parse_sums(&std::fs::read_to_string(dir.join("SHA256SUMS")).unwrap()).unwrap();
-        assert_eq!(sums.len(), 3);
+        assert_eq!(sums.len(), 4);
         for case in CASES {
             assert!(sums.iter().any(|(_, p)| p == case.rom), "{}", case.rom);
         }

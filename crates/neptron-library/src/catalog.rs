@@ -166,6 +166,14 @@ const BUILTIN_SYSTEMS: &[Source<'static>] = &[
         name: "megadrive",
         text: include_str!("../../../data/systems/megadrive.toml"),
     },
+    Source {
+        name: "arcade",
+        text: include_str!("../../../data/systems/arcade.toml"),
+    },
+    Source {
+        name: "neogeo",
+        text: include_str!("../../../data/systems/neogeo.toml"),
+    },
 ];
 
 const BUILTIN_CORES: &[Source<'static>] = &[
@@ -180,6 +188,10 @@ const BUILTIN_CORES: &[Source<'static>] = &[
     Source {
         name: "genesis_plus_gx",
         text: include_str!("../../../data/cores/genesis_plus_gx.toml"),
+    },
+    Source {
+        name: "fbneo",
+        text: include_str!("../../../data/cores/fbneo.toml"),
     },
 ];
 

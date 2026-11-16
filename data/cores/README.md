@@ -23,8 +23,11 @@ The format is append-only. A new key gets a default, or a new `format` value. A 
 | `fceumm` | `fceumm_overscan_v_top = "0"`, `fceumm_overscan_v_bottom = "0"` | The full 256x240 picture. The core crops 8 lines at each edge by default |
 | `snes9x` | `snes9x_overscan = "auto"` | 224 or 239 lines as the game asks. The default crops to 224 |
 | `genesis_plus_gx` | `genesis_plus_gx_overscan = "disabled"` | No border. This is also the core's default |
+| `fbneo` | `fbneo-vertical-mode = "disabled"` | The core's own default, pinned. The renderer turns a vertical game by the rotation that the core asks for, and the rotation and the aspect that the core reports depend on this mode |
 
 The policy crops overscan itself where the mode needs it, so the cores give the whole picture.
+
+FinalBurn Neo declares its options in `retro_load_game`, and the list depends on the game: it holds the DIP switches of the game. `docs/spec/arcade.md` proposes `fbneo-diagnostic-input = "Start + L + R"`, but the core does not declare that key for `robby` (and not for `gridlee`, tried first), so no trace shows its values and the file does not set it.
 
 ## Sources
 
@@ -35,5 +38,6 @@ Read on 2026-11-11, from each core's `master` branch at the commit below. The Bu
 | `fceumm` | `libretro/libretro-fceumm`, `e0f3086a8104f8fbbe49a2615b10401504a9533f` | `src/drivers/libretro/libretro.c`: `FCEUmm`, `fds\|nes\|unf\|unif` | GPL version 2 "or (at your option) any later version", from the file headers, for example `src/fceu.c` |
 | `snes9x` | `libretro/snes9x`, `fae2fea08f74180759ef540ee94259213f503480` | `libretro/libretro.cpp`: `Snes9x`, `smc\|sfc\|swc\|fig\|bs\|st` | The Snes9x licence in `LICENSE`: non-commercial use only |
 | `genesis_plus_gx` | `libretro/Genesis-Plus-GX`, `b9c2316441978d4015ba30e9a95d9b0e6f8ee981` | `libretro/libretro.c`: `Genesis Plus GX`, `m3u\|mdx\|md\|smd\|gen\|bin\|cue\|iso\|chd\|bms\|sms\|gg\|sg\|68k\|sgd` | The Genesis Plus GX licence in `LICENSE.txt`: no sale, no commercial use |
+| `fbneo` | `libretro/FBNeo`, `d7450cf138ef553c9ba00c86dd4fb5fb1d7646bb` (the pin of `os/package/libretro-fbneo`) | `tests/traces/fbneo.trace`: `FinalBurn Neo`, `zip\|7z\|cue\|ccd\|chd\|m3u` | The FB Neo licence in `src/license.txt`, with the MAME licence: no sale, no monetary profit, no requests for donations. It has no SPDX id, so the file names it `LicenseRef-FBNeo`. ADR 0014 records the decision |
 
 The library file names follow the libretro convention `<core>_libretro.so`. RetroPie uses the same names, for example `genesis_plus_gx_libretro.so` in `scriptmodules/libretrocores/lr-genesis-plus-gx.sh`.

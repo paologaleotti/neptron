@@ -51,14 +51,14 @@ fn ok_cores() -> [Source<'static>; 2] {
 }
 
 #[test]
-fn builtin_catalog_has_the_three_mvp_systems() {
+fn builtin_catalog_has_the_mvp_systems() {
     let catalog = Catalog::builtin().expect("the built-in definitions are valid");
     let folders: Vec<&str> = catalog
         .systems()
         .iter()
         .map(|s| s.folder.as_str())
         .collect();
-    assert_eq!(folders, ["nes", "snes", "megadrive"]);
+    assert_eq!(folders, ["nes", "snes", "megadrive", "arcade", "neogeo"]);
     assert_eq!(catalog.system_for_folder("genesis"), Some(2));
     assert_eq!(
         catalog.core_for("nes").map(|c| c.id.as_str()),
@@ -73,6 +73,39 @@ fn builtin_catalog_has_the_three_mvp_systems() {
         Some("genesis_plus_gx_libretro.so")
     );
     assert!(catalog.cores().iter().all(|c| !c.licence.is_empty()));
+}
+
+#[test]
+fn builtin_arcade_systems_run_fbneo_from_zip_sets() {
+    let catalog = Catalog::builtin().expect("the built-in definitions are valid");
+    for folder in ["arcade", "fbneo", "fba", "FBA", "neogeo"] {
+        let system = catalog
+            .system_for_folder(folder)
+            .and_then(|i| catalog.systems().get(i))
+            .unwrap_or_else(|| panic!("{folder} is a system folder"));
+        assert_eq!(system.extensions, ["zip"], "{folder}");
+        assert!(system.always_progressive, "{folder}");
+        let core = catalog.core_for(&system.folder).expect("the core");
+        assert_eq!(core.id, "fbneo");
+        assert_eq!(core.library, "fbneo_libretro.so");
+    }
+    assert_eq!(
+        catalog.system_for_folder("fbneo"),
+        catalog.system_for_folder("arcade")
+    );
+    assert_ne!(
+        catalog.system_for_folder("neogeo"),
+        catalog.system_for_folder("arcade")
+    );
+    for folder in ["mame", "mame2003", "mame2003-plus", "mame-libretro"] {
+        assert_eq!(catalog.system_for_folder(folder), None, "{folder}");
+    }
+    for console in ["nes", "snes", "megadrive"] {
+        assert!(!catalog.system(console).unwrap().always_progressive);
+    }
+    assert!(catalog.is_bios_set("arcade", "neogeo"));
+    assert!(catalog.is_bios_set("neogeo", "neogeo"));
+    assert!(!catalog.is_bios_set("nes", "neogeo"));
 }
 
 #[test]
@@ -373,6 +406,16 @@ fn announced(trace: &str) -> Vec<(String, Vec<String>)> {
         .collect()
 }
 
+/// The `name` of the `system` line of a core trace: the core's
+/// `library_name`.
+fn library_name(trace: &str) -> Option<&str> {
+    trace
+        .lines()
+        .find_map(|line| line.strip_prefix("system name=\""))
+        .and_then(|rest| rest.split_once('"'))
+        .map(|(name, _)| name)
+}
+
 #[test]
 fn builtin_core_options_are_announced_by_the_cores() {
     let traces = [
@@ -388,8 +431,19 @@ fn builtin_core_options_are_announced_by_the_cores() {
             "genesis_plus_gx",
             include_str!("../../../../tests/traces/genesis_plus_gx.trace"),
         ),
+        (
+            "fbneo",
+            include_str!("../../../../tests/traces/fbneo.trace"),
+        ),
     ];
     let catalog = Catalog::builtin().expect("the built-in definitions are valid");
+    for core in catalog.cores() {
+        assert!(
+            traces.iter().any(|(id, _)| *id == core.id),
+            "{} has no core trace to check its options against",
+            core.id
+        );
+    }
     for (id, trace) in traces {
         let core = catalog
             .cores()
@@ -397,6 +451,7 @@ fn builtin_core_options_are_announced_by_the_cores() {
             .find(|c| c.id == id)
             .expect("the core");
         assert!(!core.options.is_empty(), "{id} has default options");
+        assert_eq!(library_name(trace), Some(core.name.as_str()), "{id}");
         let announced = announced(trace);
         for (key, value) in &core.options {
             let values = announced

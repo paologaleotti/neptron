@@ -1,0 +1,7 @@
+# Neo Geo, FinalBurn Neo sets. See data/systems/README.md for the sources.
+format = 1
+folder = "neogeo"
+aliases = []
+name = "Neo Geo"
+extensions = ["zip"]
+always_progressive = true

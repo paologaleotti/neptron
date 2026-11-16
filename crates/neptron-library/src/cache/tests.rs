@@ -263,8 +263,15 @@ fn more_systems_than_the_catalog_are_refused_by_the_count() {
         matches!(err, CacheError::Malformed { what: "system count", offset } if offset == HEADER_BYTES + 4),
         "{err}"
     );
-    let four = systems_payload(&[b"nes", b"snes", b"megadrive", b"nes"]);
-    let err = decode(&with_payload(&four)).expect_err("four systems");
+    let catalog = catalog();
+    let mut one_more: Vec<&[u8]> = catalog
+        .systems()
+        .iter()
+        .map(|s| s.folder.as_bytes())
+        .collect();
+    one_more.push(b"nes");
+    let err = decode(&with_payload(&systems_payload(&one_more)))
+        .expect_err("one system more than the catalog");
     assert!(
         matches!(
             err,

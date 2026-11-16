@@ -1,12 +1,12 @@
 # Test ROMs
 
-The 240p Test Suite builds for NES, SNES and Mega Drive. The tier T4 check (`cargo xtask core-trace`) runs each one in its real core. These files are test data: no NEPTRON image contains them.
+The 240p Test Suite builds for NES, SNES and Mega Drive, and one free arcade set. The tier T4 check (`cargo xtask core-trace`) runs each one in its real core. These files are test data: no NEPTRON image contains them.
 
-Only the NES build is in the repository. The SNES and Mega Drive builds stay outside it, in a cache directory on each machine (see below).
+Only the NES build is in the repository. The SNES and Mega Drive builds and the arcade set stay outside it, in a cache directory on each machine (see below).
 
 ## Manifest
 
-Downloaded on 2026-11-11. `SHA256SUMS` holds the hash of all three files. `cargo xtask core-trace` checks each file against it, in the repository and in the cache.
+Downloaded on 2026-11-11. `SHA256SUMS` holds the hash of every file. `cargo xtask core-trace` checks each file against it, in the repository and in the cache.
 
 | File | Build | Bytes | SHA-256 | Where |
 | --- | --- | --- | --- | --- |
@@ -39,6 +39,18 @@ itch.io serves only the newest upload of each build. When the author publishes a
 | `nes/240pee.nes` | `https://github.com/pinobatch/240p-test-mini/releases/download/v0.23/240pee.nes`, the release asset of tag `v0.23` | `https://github.com/pinobatch/240p-test-mini`, tag `v0.23`, commit `019a524b6b042c1ea1c2e8414e79f152d5997ab3` |
 | `snes/240pSuite.sfc` | `https://artemiourbina.itch.io/240p-test-suite`, upload of 2026-09-26 | `https://github.com/ArtemioUrbina/240pTestSuite`, directory `240psuite/SNES`. Commit `89adfdd66853746fa9db9105104314ac58021791` (2026-09-26) is the nearest to the build |
 | `megadrive/240pSuite-1.32.bin` | `https://artemiourbina.itch.io/240p-test-suite`, upload of 2026-04-03 | `https://github.com/ArtemioUrbina/240pTestSuite`, directory `240psuite/Genesis`. Commit `ff52715155e04a28e89cb7babb890396b904b7e6` (2026-04-03, "Updated release date and version") is the nearest to the build |
+
+## The arcade set
+
+The FinalBurn Neo case runs `arcade/robby.zip`: "The Adventures of Robby Roto!", Dave Nutting Associates and Bally Midway, 1981. It is one of the ROM sets on `https://www.mamedev.org/roms/`, which the rights holders allow MAME to give out for free, from that site only. It is not in the repository, and no image contains it.
+
+| File | Bytes | SHA-256 | Where |
+| --- | --- | --- | --- |
+| `arcade/robby.zip` | 27,915 | `d3f7ae3afeeedb7d2476ea05e326a6a6f6e851c969f07a1de36133fcb4d0a8d8` | The cache, as `robby.zip` |
+
+To fill the cache, download `https://www.mamedev.org/roms/robby/robby.zip` (downloaded on 2026-11-16) and put it in the cache directory as it is. Do not extract it: FinalBurn Neo opens the zip itself. Its 10 ROMs have the CRC-32 and size of the `robby` set in the arcade DAT of the FinalBurn Neo commit that `os/package/libretro-fbneo` pins.
+
+Why this set: the FinalBurn Neo driver of the Bally Astrocade boards (`d_astrocde.cpp`) has no random number source. Most drivers use `BurnRandom`, which FinalBurn Neo seeds with the time of day, so their frames change from run to run. Gridlee, the first set tried, does this. Alien Arena needs ROMs that the zip of the MAME site does not hold.
 
 ## Licence of the NES ROM
 
