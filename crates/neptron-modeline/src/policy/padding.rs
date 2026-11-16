@@ -15,8 +15,9 @@ use super::shape::blank_lines;
 pub const PADDED_FILL_MIN_PERCENT: u64 = 75;
 
 /// The share of the picture lines, in percent, below which a picture is
-/// small: its border is too big (the owner's decision of 2026-11-16).
-/// Below it, an interlaced 1:1 mode that fills more wins where the profile
+/// small: its border is too big. A 320-line game on a 31 kHz tube fills
+/// 62 % to 66 % and is not small; a Game Boy on 15 kHz fills 59.5 %. Below
+/// it, an interlaced 1:1 mode that fills more wins where the profile
 /// declares interlace, and the notice says the picture is small. The
 /// policy never takes a soft fit for it.
 pub const SMALL_PICTURE_MIN_PERCENT: u64 = 60;

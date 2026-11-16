@@ -674,8 +674,8 @@ pub fn cell(board: &Board, display: &Display) -> Cell {
     }
 }
 
-/// The verdict of the arcade rule of docs/spec/arcade.md (section 11, as
-/// the owner decided it on 2026-11-16) on a winner: "ok", "ok: " and an
+/// The verdict of the video rule of docs/spec/arcade.md (section 11) on a
+/// winner: "ok", "ok: " and an
 /// allowed reason, or the first rule that the winner breaks.
 ///
 /// The allowed reasons: no exact mode exists on the profile; the profile
@@ -819,7 +819,7 @@ fn fit_allowed(
     }
 }
 
-/// The panel rule of 2026-11-16: from a scale of 4.0 the game fills the
+/// The panel rule: from a scale of 4.0 the game fills the
 /// height (or the width) at its shape; under it, the largest whole
 /// multiple that fits; a game larger than the mode fits.
 fn panel_rule(plan: &Plan, p: &Proposal) -> &'static str {

@@ -19,9 +19,10 @@ const SCALE_ONE_MILLI: u32 = 1_000;
 /// game frame is nearest the game's; then the order of the list. A mode near
 /// twice the game's rate shows each frame twice.
 /// The scale, in thousandths, from which a game fills the height of a
-/// flat panel instead of taking the largest whole multiple (the owner's
-/// decision of 2026-11-16): from there a filtered scale stays sharp
-/// enough, and a whole multiple would leave a large border.
+/// flat panel instead of taking the largest whole multiple. From a scale
+/// of 4 sharp bilinear prescales by a whole 4 or more, so a blended edge is
+/// at most a quarter of a game pixel; under 4 the blend is wider, and the
+/// whole multiple stays sharper.
 pub const PANEL_FILL_MIN_SCALE_MILLI: u32 = 4_000;
 
 pub(crate) fn panel_plan(
