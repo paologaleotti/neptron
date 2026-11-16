@@ -617,7 +617,7 @@ fn fit_reason(profile: &MonitorProfile, plan: &Plan, considered: &Considered) ->
 
 /// The active lines of one field that a range holds at `rate_mhz`, less
 /// its vertical blanking at its highest line rate.
-fn field_lines(range: &CrtRange, rate_mhz: u64) -> u32 {
+pub fn field_lines(range: &CrtRange, rate_mhz: u64) -> u32 {
     let total = range.h_max_mhz / rate_mhz.max(1);
     let blank_ns = u128::from(range.v_front_porch_ns)
         + u128::from(range.v_sync_ns)
@@ -628,7 +628,7 @@ fn field_lines(range: &CrtRange, rate_mhz: u64) -> u32 {
 
 /// The scale at which the game, at its shape, fills the height of a panel
 /// mode, or its width when the width comes first, in thousandths.
-fn panel_fill_scale_milli(plan: &Plan, mode: &Modeline) -> u64 {
+pub fn panel_fill_scale_milli(plan: &Plan, mode: &Modeline) -> u64 {
     let s = plan.source;
     let aspect = if s.aspect_milli == 0 {
         u64::from(s.width) * 1_000 / u64::from(s.height)
@@ -695,7 +695,7 @@ fn crt_order(plan: &Plan, p: &Proposal, profile: &MonitorProfile, caps: &GpuCaps
 /// The allowed reason of a cell with no mode: a range of one line rate
 /// covers the game's rate, so the whole-kHz pixel clock may find no mode
 /// inside it; else no mode breaks the rule.
-fn no_mode_reason(profile: &MonitorProfile, board: &Board) -> &'static str {
+pub fn no_mode_reason(profile: &MonitorProfile, board: &Board) -> &'static str {
     let rate = u64::from(board.refresh_mhz);
     match &profile.kind {
         MonitorKind::Crt { ranges }
@@ -713,7 +713,7 @@ fn is_crt(profile: &MonitorProfile) -> bool {
     matches!(profile.kind, MonitorKind::Crt { .. })
 }
 
-fn crop_lines(p: &Proposal) -> u32 {
+pub fn crop_lines(p: &Proposal) -> u32 {
     p.overscan_crop.map_or(0, |c| u32::from(c.lines_per_edge))
 }
 
@@ -734,7 +734,7 @@ fn rate(considered: &Considered, p: &Proposal) -> String {
 /// The shape on the screen over the game's own shape, less 1, in per
 /// mille. A CRT shows its active area on a 4:3 face; a TV shows 704 of
 /// its 720 samples as 4:3; a panel has square pixels.
-fn shape_error(plan: &Plan, profile: &MonitorProfile, p: &Proposal) -> i64 {
+pub fn shape_error(plan: &Plan, profile: &MonitorProfile, p: &Proposal) -> i64 {
     let d = p.placement.dest;
     let m = &p.mode;
     let height_share = f64::from(d.h) / f64::from(m.vactive);

@@ -8,6 +8,7 @@ mod arcade_table;
 mod golden;
 mod policy_golden;
 mod policy_property;
+mod policy_sweep;
 mod policy_table;
 mod policy_tv;
 mod presets;
