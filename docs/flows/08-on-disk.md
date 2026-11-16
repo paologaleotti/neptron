@@ -12,7 +12,7 @@ flowchart LR
     DISK --> P2["2: root, EROFS, 384 MiB<br/>read-only"]
     DISK --> P3["3: state, ext4, 256 MiB in the image<br/>label neptron-state, at /state"]
     DISK -->|"made at the first boot"| P4["4: share, exFAT, rest of the disk<br/>label NEPTRON, at /share"]
-    RAM["RAM file system"] --> RUN["/run/neptron<br/>next.toml, storage.toml, hold, control.sock"]
+    RAM["RAM file system"] --> RUN["/run/neptron<br/>next.toml, storage.toml, network.toml, hold, control.sock"]
 ```
 
 ### The state partition
@@ -40,7 +40,6 @@ flowchart TD
     SH["/share"] --> R["roms"]
     R --> RS["megadrive, nes, snes<br/>made at every boot"]
     SH --> B["bios<br/>system folder of the cores"]
-    SH --> IP["neptron-ip.txt<br/>development image"]
     DATA["/usr/share/neptron<br/>read-only"] --> M["monitors<br/>presets"]
     DATA --> SK["skins/default/skin.toml"]
     DATA --> SYS["systems"]
@@ -88,6 +87,7 @@ flowchart LR
 | `/state/cache/mesa/` | The Mesa shader cache, at most 64 MiB | Mesa, with `MESA_SHADER_CACHE_DIR` from the `mesa-cache` script | Mesa's own | Nothing: a cache |
 | `/state/cache/share-scan` | The result of the last old-share scan of the format offer | `S06neptron-storage` | | Nothing: the next boot scans again |
 | `/state/network-share-off` | Present: the SMB share and mDNS do not start | The user, over SSH | | The share is on |
+| `/run/neptron/network.toml` | `version` = 1, `host_name`, one `[[address]]` table (`port`, `ipv4`) for each wired port with a lease | `net-address`, from the hook of `udhcpc` and from `S40neptron-network` | A temp file of its own (`.network.toml.<pid>.new`) and a rename, only when the content changes; a `flock` on `address.lock` | RAM only. The next lease event or boot writes it again |
 | `/run/neptron/hold` | Present: the launch script does not start the launcher | The `stop` script, the bench tools | `touch` | RAM only |
 | `/run/neptron/control.sock` | The control socket (`DEFAULT_SOCKET_PATH`) | The frontend | | See [Control and bench](09-control-and-bench.md) |
 | `/share/roms/<system>/` | The ROMs. The image makes `megadrive`, `nes` and `snes` | The user; `S06neptron-storage` makes the folders | NEPTRON never writes or deletes a ROM | |
@@ -97,7 +97,6 @@ flowchart LR
 | `/state/hot/DISABLED` | Development image: present, the hot folder is not used | The user | | |
 | `/state/log/neptron/current` | Development image: the output of the launcher and the frontend | `svlogd` | A new file at 4 MiB (`s4194304`), 2 old files kept (`n2`) | Only the log |
 | `/state/dropbear/` | Development image: the SSH host keys | Dropbear, at its first start | | A new host key at the next start |
-| `/share/neptron-ip.txt` | Development image: the address of `eth0`, or `none` | `S41neptron-address` | `echo`, `sync` | |
 
 ### The three settings levels
 
@@ -165,7 +164,8 @@ Hand edits: the files are plain TOML. A hand edit takes effect at the next start
 - [save.rs (session)](../../crates/neptron-session/src/save.rs): `SaveRamWriter`, `Flush`.
 - [save.rs (libretro)](../../crates/neptron-libretro/src/save.rs): `save_file_path`, `read_save_file`, `write_save_file`.
 - [cache.rs](../../crates/neptron-library/src/cache.rs): `write`.
-- [launch (development)](../../os/board/pc/dev-overlay/usr/libexec/neptron/launch), [neptron-hot.sh](../../os/board/pc/dev-overlay/etc/profile.d/neptron-hot.sh), [S41neptron-address](../../os/board/pc/dev-overlay/etc/init.d/S41neptron-address), [S49neptron-ssh-keys](../../os/board/pc/dev-overlay/etc/init.d/S49neptron-ssh-keys).
+- [launch (development)](../../os/board/pc/dev-overlay/usr/libexec/neptron/launch), [neptron-hot.sh](../../os/board/pc/dev-overlay/etc/profile.d/neptron-hot.sh), [S49neptron-ssh-keys](../../os/board/pc/dev-overlay/etc/init.d/S49neptron-ssh-keys).
+- [net-address](../../os/board/common/rootfs-overlay/usr/libexec/neptron/net-address), [S40neptron-network](../../os/board/common/rootfs-overlay/etc/init.d/S40neptron-network).
 - [S06neptron-storage](../../os/board/common/rootfs-overlay/etc/init.d/S06neptron-storage), [genimage.cfg](../../os/board/pc/genimage.cfg), [post-image.sh](../../os/board/pc/post-image.sh).
 
 ## Differences from docs/definition

@@ -11,11 +11,17 @@
 # /etc/resolv.conf: no file of this script may be writable by others.
 umask 022
 
-# NEPTRON_RUN, NEPTRON_SYS_NET and NEPTRON_PROC change /run/neptron,
-# /sys/class/net and /proc for a test.
+# NEPTRON_RUN, NEPTRON_SYS_NET, NEPTRON_PROC and NEPTRON_ADDRESS change
+# /run/neptron, /sys/class/net, /proc and the address script for a test.
 PIDDIR=${NEPTRON_RUN:-/run/neptron}/dhcp
 SYS_NET=${NEPTRON_SYS_NET:-/sys/class/net}
 PROC=${NEPTRON_PROC:-/proc}
+# Writes the addresses of the ports to /run/neptron/network.toml. The hook
+# of udhcpc runs it at each lease event; this script runs it at boot, so
+# the file exists with no port or no lease, and when a port goes. It never
+# waits for a lock and writes only to /run, so the boot and mdev do not
+# wait for it.
+ADDRESS=${NEPTRON_ADDRESS:-/usr/libexec/neptron/net-address}
 # mdev runs this script again for a port that appears or goes after the
 # boot (usr/libexec/neptron/net-hotplug), so two runs can overlap. A run
 # tries to take the lock at most LOCK_TRIES times, with a pause of
@@ -23,6 +29,8 @@ PROC=${NEPTRON_PROC:-/proc}
 LOCK=$PIDDIR.lock
 LOCK_TRIES=50
 LOCK_RETRY_US=100000
+# 10 pauses of LOCK_RETRY_US: 1 s for a client to end.
+STOP_TRIES=10
 
 wired() {
 	for path in "$SYS_NET"/eth* "$SYS_NET"/en*; do
@@ -63,11 +71,22 @@ unlock() {
 }
 
 # Stops the client of port $1, when its pid file names one, and removes
-# the pid file.
+# the pid file. The client runs its deconfig event before it ends, which
+# removes the address of its port: so this waits until it ended, at most
+# STOP_TRIES pauses of LOCK_RETRY_US, or that late event could remove the
+# address of a new client of a port that came back with the same name.
 stop_port() {
 	if client_runs "$1"; then
 		kill "$pid" 2>/dev/null
 		echo "neptron-network: the DHCP client of $1 stops"
+		tries=0
+		while client_runs "$1" && [ "$tries" -lt "$STOP_TRIES" ]; do
+			usleep "$LOCK_RETRY_US"
+			tries=$((tries + 1))
+		done
+		if client_runs "$1"; then
+			echo "neptron-network: the DHCP client of $1 still runs after $tries pauses"
+		fi
 	fi
 	rm -f "$PIDDIR/$1.pid"
 }
@@ -94,6 +113,7 @@ start() {
 		echo "neptron-network: DHCP on $iface in the background"
 	done
 	unlock
+	"$ADDRESS" start < /dev/null > /dev/null 2>&1
 }
 
 # A port that went away: its client serves a port that is gone.
@@ -104,6 +124,7 @@ port_gone() {
 	fi
 	stop_port "$1"
 	unlock
+	"$ADDRESS" port-gone "$1" < /dev/null > /dev/null 2>&1
 }
 
 stop() {

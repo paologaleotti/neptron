@@ -21,6 +21,16 @@
 # line of net-hotplug goes before the rule is appended: an output that
 # runs this step again keeps one copy, the current one.
 #
+# The hook of udhcpc (usr/share/udhcpc/default.script.d/neptron-address)
+# writes /run/neptron/network.toml at each lease event. Buildroot's busybox
+# package installs the udhcpc script that runs the hooks; the build fails
+# when that script or the hook is missing. An output built before keeps
+# the old address script of the development overlay, which wrote
+# /share/neptron-ip.txt once at boot, so it goes. The address script takes
+# its lock with the flock command (util-linux or the BusyBox applet; the PC
+# and Pi images install the util-linux one); the build fails when the
+# image has no /usr/bin/flock.
+#
 # S05neptron-mounts mounts the 9p share of the QEMU checks at /mnt/host.
 # The root of the PC and Pi images is read-only EROFS, so the mount point
 # must be in the image.
@@ -29,7 +39,7 @@ set -eu
 
 target=$1
 
-rm -f "$target/etc/init.d/S50mdnsd"
+rm -f "$target/etc/init.d/S50mdnsd" "$target/etc/init.d/S41neptron-address"
 mkdir -p "$target/mnt/host"
 
 interfaces=$target/etc/network/interfaces
@@ -62,3 +72,17 @@ if [ -s "$mdev_conf" ] && [ -n "$(tail -c 1 "$mdev_conf")" ]; then
 	echo >> "$mdev_conf"
 fi
 printf '%s\n' "$mdev_rule" >> "$mdev_conf"
+
+udhcpc_script=$target/usr/share/udhcpc/default.script
+if ! grep -q 'HOOK_DIR="$0.d"' "$udhcpc_script" 2>/dev/null; then
+	echo "post-build: the image has no /usr/share/udhcpc/default.script that runs the hooks in default.script.d" >&2
+	exit 1
+fi
+if [ ! -x "$udhcpc_script.d/neptron-address" ] || [ ! -x "$target/usr/libexec/neptron/net-address" ]; then
+	echo "post-build: the image has no executable udhcpc hook neptron-address or /usr/libexec/neptron/net-address" >&2
+	exit 1
+fi
+if [ ! -e "$target/usr/bin/flock" ] && [ ! -L "$target/usr/bin/flock" ]; then
+	echo "post-build: the image has no /usr/bin/flock for the lock of /usr/libexec/neptron/net-address" >&2
+	exit 1
+fi

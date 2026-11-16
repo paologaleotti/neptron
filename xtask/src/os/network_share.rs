@@ -293,6 +293,12 @@ impl TempDir {
     /// Runs `script` with `args` as [`run`](Self::run) does, with umask 0,
     /// as mdev runs its commands: the script must set its own umask.
     fn run_args(&self, script: &str, args: &[&str]) -> (bool, String) {
+        self.run_env(script, args, &[])
+    }
+
+    /// Runs `script` as [`run_args`](Self::run_args) does, with `env` on top
+    /// of the test paths.
+    fn run_env(&self, script: &str, args: &[&str], env: &[(&str, &str)]) -> (bool, String) {
         let action = args.join("-");
         let path = format!(
             "{}:{}",
@@ -314,6 +320,10 @@ impl TempDir {
             .env("NEPTRON_RUN", self.path("run"))
             .env("NEPTRON_SYS_NET", self.path("sys"))
             .env("NEPTRON_PROC", self.path("proc"))
+            .env("NEPTRON_DEV_MARK", self.path("development"))
+            .env("NEPTRON_CONSOLE", self.path("console"))
+            .env("NEPTRON_ADDRESS", self.path("bin/net-address"))
+            .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(out.try_clone().unwrap())
             .stderr(out)
@@ -610,6 +620,7 @@ fn post_build(dir: &TempDir, interfaces: &str, read_only: bool) -> (bool, String
         std::fs::write(&file, "").unwrap();
     }
     std::fs::write(target.join("etc/mdev.conf"), MDEV_CONF).unwrap();
+    udhcpc_files(&target);
     let file = target.join("etc/network/interfaces");
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(&file, interfaces).unwrap();
@@ -627,6 +638,132 @@ fn post_build(dir: &TempDir, interfaces: &str, read_only: bool) -> (bool, String
         String::from_utf8_lossy(&out.stderr).into_owned(),
         std::fs::read_to_string(&file).unwrap(),
     )
+}
+
+/// The last lines of the udhcpc script that Buildroot's busybox package
+/// installs (`/usr/share/udhcpc/default.script` of the Pi image of
+/// 2026-11-14, Buildroot 2026.08.1): the loop that runs the hooks with the
+/// event `$ACTION` as their one argument.
+const UDHCPC_SCRIPT_END: &str = "HOOK_DIR=\"$0.d\"\nfor hook in \"${HOOK_DIR}/\"*; do\n    \
+                                 [ -f \"${hook}\" -a -x \"${hook}\" ] || continue\n    \
+                                 \"${hook}\" \"$ACTION\"\ndone\n\nexit 0\n";
+
+const ADDRESS_SCRIPT: &str = "board/common/rootfs-overlay/usr/libexec/neptron/net-address";
+const ADDRESS_HOOK: &str =
+    "board/common/rootfs-overlay/usr/share/udhcpc/default.script.d/neptron-address";
+
+/// Puts the udhcpc script of the busybox package and the two address
+/// scripts of the overlay, executable, in the image folder `target`.
+fn udhcpc_files(target: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    for (rel, text) in [
+        (
+            "usr/share/udhcpc/default.script",
+            UDHCPC_SCRIPT_END.to_owned(),
+        ),
+        (
+            "usr/share/udhcpc/default.script.d/neptron-address",
+            read(ADDRESS_HOOK),
+        ),
+        ("usr/libexec/neptron/net-address", read(ADDRESS_SCRIPT)),
+        ("usr/bin/flock", String::new()),
+    ] {
+        let file = target.join(rel);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, text).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// The address files come from a hook of udhcpc, so the post-build step
+/// fails when the udhcpc script of the image runs no hooks or the hook is
+/// not executable, and it removes the address script of an older build,
+/// which wrote the share file once at boot.
+#[test]
+fn the_post_build_checks_the_udhcpc_hook_and_removes_the_old_address_script() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::create("udhcpc-hook");
+    let (ok, err, _) = post_build(&dir, "auto lo\niface lo inet loopback\n", false);
+    assert!(ok, "{err}");
+    let target = dir.path("target");
+    let old = target.join("etc/init.d/S41neptron-address");
+    std::fs::write(&old, "#!/bin/sh\n").unwrap();
+    let again = run_post_build(&dir);
+    assert!(again.status.success(), "{again:?}");
+    assert!(!old.exists(), "the address script of an older build stays");
+
+    let hook = target.join("usr/share/udhcpc/default.script.d/neptron-address");
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let out = run_post_build(&dir);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("no executable udhcpc hook"),
+        "{out:?}"
+    );
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    std::fs::write(
+        target.join("usr/share/udhcpc/default.script"),
+        "#!/bin/sh\nexit 0\n",
+    )
+    .unwrap();
+    let out = run_post_build(&dir);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("runs the hooks"),
+        "{out:?}"
+    );
+    std::fs::write(
+        target.join("usr/share/udhcpc/default.script"),
+        UDHCPC_SCRIPT_END,
+    )
+    .unwrap();
+
+    std::fs::remove_file(target.join("usr/bin/flock")).unwrap();
+    let out = run_post_build(&dir);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("no /usr/bin/flock"),
+        "{out:?}"
+    );
+}
+
+/// The lock of the address script is a flock. Every image builds BusyBox
+/// with the common fragment, which keeps the applet on.
+#[test]
+fn every_image_keeps_the_flock_applet_of_busybox() {
+    let fragment = parse(&read("board/common/busybox.config"));
+    assert_eq!(fragment.get("CONFIG_FLOCK").map(String::as_str), Some("y"));
+    for rel in [
+        "configs/neptron_pc_x86_64_defconfig",
+        "configs/neptron_rpi_arm64_defconfig",
+        "configs/neptron_qemu_aarch64_defconfig",
+    ] {
+        let options = parse(&read(rel));
+        assert!(
+            options["BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES"]
+                .contains("$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/busybox.config"),
+            "{rel}"
+        );
+        assert!(
+            !options.contains_key("BR2_PACKAGE_BUSYBOX_CONFIG"),
+            "{rel} replaces the Buildroot base configuration of BusyBox"
+        );
+    }
+    for rel in [
+        "configs/neptron_pc_x86_64_dev.fragment",
+        "configs/neptron_pc_x86_64_no15khz.fragment",
+        "configs/neptron_rpi_arm64_dev.fragment",
+    ] {
+        let options = parse(&read(rel));
+        for key in [
+            "BR2_PACKAGE_BUSYBOX_CONFIG",
+            "BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES",
+        ] {
+            assert!(!options.contains_key(key), "{rel} changes {key}");
+        }
+    }
+    assert!(read(ADDRESS_SCRIPT).contains("flock -n 9"));
 }
 
 /// Buildroot does not install ifupdown-scripts again when BR2_SYSTEM_DHCP
@@ -819,7 +956,7 @@ fn net_hotplug_starts_an_added_port_and_stops_a_removed_one() {
 /// with umask 0.
 #[test]
 fn the_network_scripts_set_their_umask_first() {
-    for rel in [HOTPLUG, NETWORK_SCRIPT] {
+    for rel in [HOTPLUG, NETWORK_SCRIPT, ADDRESS_SCRIPT] {
         let text = read(rel);
         let first = text
             .lines()
@@ -897,7 +1034,7 @@ impl Drop for Process {
 }
 
 fn dhcp_fakes(dir: &TempDir) {
-    dir.logging_fakes(&["ip", "udhcpc"]);
+    dir.logging_fakes(&["ip", "udhcpc", "usleep"]);
     dir.fake("hostname", "echo neptron");
 }
 
@@ -1262,4 +1399,504 @@ fn every_image_has_the_mount_point_of_the_host_share() {
         "{mounts}"
     );
     assert!(!mounts.contains("mkdir"), "the root is read-only: {mounts}");
+}
+
+/// Every image runs the address script from a hook of udhcpc and from the
+/// network script: both are in the common overlay, executable, and the
+/// overlay of every image (PC, Raspberry Pi, QEMU test image, and the
+/// development variants) starts with the common overlay.
+#[test]
+fn every_image_has_the_executable_udhcpc_hook_of_the_addresses() {
+    use std::os::unix::fs::PermissionsExt;
+    for rel in [ADDRESS_HOOK, ADDRESS_SCRIPT] {
+        let mode = std::fs::metadata(os_dir().join(rel))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111, "{rel} is not executable");
+    }
+    assert!(
+        read(ADDRESS_HOOK)
+            .contains("exec \"${NEPTRON_ADDRESS:-/usr/libexec/neptron/net-address}\" \"$@\""),
+        "the hook passes the event on"
+    );
+    assert!(
+        read(NETWORK_SCRIPT)
+            .contains("ADDRESS=${NEPTRON_ADDRESS:-/usr/libexec/neptron/net-address}")
+    );
+    for rel in [
+        "configs/neptron_pc_x86_64_defconfig",
+        "configs/neptron_pc_x86_64_dev.fragment",
+        "configs/neptron_rpi_arm64_defconfig",
+        "configs/neptron_rpi_arm64_dev.fragment",
+        "configs/neptron_qemu_aarch64_defconfig",
+    ] {
+        let options = parse(&read(rel));
+        assert!(
+            options["BR2_ROOTFS_OVERLAY"]
+                .starts_with("$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/rootfs-overlay "),
+            "{rel}"
+        );
+        if let Some(scripts) = options.get("BR2_ROOTFS_POST_BUILD_SCRIPT") {
+            assert!(
+                scripts.contains("$(BR2_EXTERNAL_NEPTRON_PATH)/board/common/post-build.sh"),
+                "{rel}: the check of the hook does not run"
+            );
+        }
+    }
+    assert!(
+        !os_dir()
+            .join("board/pc/dev-overlay/etc/init.d/S41neptron-address")
+            .exists(),
+        "the boot script that wrote the share file once is back"
+    );
+}
+
+/// A folder for the address script: a development image (for the console
+/// line), and fakes of the commands it calls.
+fn address_dir(name: &str) -> TempDir {
+    let dir = TempDir::create(name);
+    std::fs::write(dir.path("development"), "").unwrap();
+    dir.fake("hostname", "echo neptron");
+    dir.fake("flock", FLOCK);
+    dir.logging_fakes(&["logger"]);
+    dir
+}
+
+/// `flock -n FD` and `flock -u FD` as BusyBox and util-linux run them,
+/// through the flock(2) call of Perl. The tests always use this shim, on
+/// every host, because macOS has no flock command. The lock is on the open
+/// file of the descriptor that the script holds, so it stays after this
+/// process ends, as with the real command.
+const FLOCK: &str = r#"case $1 in
+-n) op='LOCK_EX|LOCK_NB' ;;
+-u) op=LOCK_UN ;;
+*) exit 2 ;;
+esac
+exec perl -e 'use Fcntl qw(:flock); open(my $fh, ">&=", $ARGV[0]) or exit 2; flock($fh, '"$op"') or exit 1; exit 0' "$2""#;
+
+/// Runs a udhcpc event through the hook of the image, as the udhcpc script
+/// does: the event as the argument, the port and the address in the
+/// environment.
+fn lease(dir: &TempDir, event: &str, port: &str, address: &str) {
+    let script = os_dir().join(ADDRESS_SCRIPT);
+    let (ok, out) = dir.run_env(
+        ADDRESS_HOOK,
+        &[event],
+        &[
+            ("interface", port),
+            ("ip", address),
+            ("NEPTRON_ADDRESS", script.to_str().unwrap()),
+        ],
+    );
+    assert!(ok, "{event} {port} {address}: {out}");
+}
+
+fn address_script(dir: &TempDir, args: &[&str]) {
+    let (ok, out) = dir.run_args(ADDRESS_SCRIPT, args);
+    assert!(ok, "{args:?}: {out}");
+}
+
+fn network_toml(dir: &TempDir) -> String {
+    std::fs::read_to_string(dir.path("run/network.toml")).unwrap()
+}
+
+fn inode(path: &Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).unwrap().ino()
+}
+
+/// The run file for the frontend with these ports and addresses.
+fn toml_with(addresses: &[(&str, &str)]) -> String {
+    let mut text = "version = 1\nhost_name = \"neptron\"\n".to_owned();
+    for (port, address) in addresses {
+        text.push_str(&format!(
+            "\n[[address]]\nport = \"{port}\"\nipv4 = \"{address}\"\n"
+        ));
+    }
+    text
+}
+
+/// The lock is free: a run that must write gets it and writes.
+fn assert_lock_free(dir: &TempDir) {
+    // A file that is not there is fine: the run writes it again.
+    let _ = std::fs::remove_file(dir.path("run/network.toml"));
+    let (ok, out) = dir.run_args(ADDRESS_SCRIPT, &["start"]);
+    assert!(ok, "{out}");
+    assert!(
+        dir.path("run/network.toml").exists(),
+        "the lock is still held"
+    );
+    assert!(!dir.path("run/address.dirty").exists());
+}
+
+/// No hidden temp file is left beside the run file.
+fn no_temp_files(dir: &TempDir) {
+    for entry in std::fs::read_dir(dir.path("run")).unwrap() {
+        let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+        assert!(!name.ends_with(".new"), "run/{name}");
+    }
+}
+
+/// A lease writes its address to the run file, with mode 0644 under the
+/// umask 0 of udhcpc, a syslog line, and the console line of the
+/// development image.
+#[test]
+fn a_lease_writes_the_address_to_the_run_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = address_dir("address-bound");
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    assert_eq!(network_toml(&dir), toml_with(&[("eth0", "192.168.0.112")]));
+    let mode = std::fs::metadata(dir.path("run/network.toml"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o644);
+    assert_eq!(
+        std::fs::read_to_string(dir.path("console")).unwrap(),
+        "neptron: address eth0 192.168.0.112\n"
+    );
+    assert!(
+        dir.log()
+            .contains("logger -t neptron-address addresses: eth0 192.168.0.112\n"),
+        "{}",
+        dir.log()
+    );
+    no_temp_files(&dir);
+}
+
+/// A renew with the same address writes nothing (same inode, no console
+/// line); a renew with a new address writes the file again.
+#[test]
+fn a_renew_writes_only_a_changed_address() {
+    let dir = address_dir("address-renew");
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    let run = dir.path("run/network.toml");
+    let before = inode(&run);
+    std::fs::remove_file(dir.path("console")).unwrap();
+    lease(&dir, "renew", "eth0", "192.168.0.112");
+    assert_eq!(inode(&run), before, "an unchanged renew wrote the run file");
+    assert!(!dir.path("console").exists());
+
+    lease(&dir, "renew", "eth0", "192.168.0.120");
+    assert_ne!(inode(&run), before);
+    assert_eq!(network_toml(&dir), toml_with(&[("eth0", "192.168.0.120")]));
+    no_temp_files(&dir);
+}
+
+/// A lost lease (deconfig, a failed or refused lease) and a removed port
+/// leave no address in the run file.
+#[test]
+fn a_lost_lease_or_a_removed_port_gives_no_address() {
+    for event in ["deconfig", "leasefail", "nak", "port-gone"] {
+        let dir = address_dir(&format!("address-{event}"));
+        lease(&dir, "bound", "eth0", "192.168.0.112");
+        if event == "port-gone" {
+            address_script(&dir, &["port-gone", "eth0"]);
+        } else {
+            lease(&dir, event, "eth0", "");
+        }
+        assert_eq!(network_toml(&dir), toml_with(&[]), "{event}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path("console")).unwrap(),
+            "neptron: address none\n",
+            "{event}"
+        );
+    }
+}
+
+/// Two ports: one table for each address, in the order of the port names;
+/// a port that loses its lease leaves the other one.
+#[test]
+fn two_ports_give_one_table_each() {
+    let dir = address_dir("address-two");
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    lease(&dir, "bound", "enx001122334455", "10.0.0.2");
+    assert_eq!(
+        network_toml(&dir),
+        toml_with(&[("enx001122334455", "10.0.0.2"), ("eth0", "192.168.0.112")])
+    );
+    lease(&dir, "deconfig", "enx001122334455", "");
+    assert_eq!(network_toml(&dir), toml_with(&[("eth0", "192.168.0.112")]));
+}
+
+/// The boot writes the run file with no lease, so the frontend always finds
+/// it. Nothing goes to the share: an old neptron-ip.txt of an older image
+/// stays as the user left it.
+#[test]
+fn the_boot_writes_the_run_file_and_nothing_goes_to_the_share() {
+    let dir = address_dir("address-boot");
+    std::fs::create_dir_all(dir.path("share")).unwrap();
+    std::fs::write(dir.path("share/neptron-ip.txt"), "192.168.0.99\n").unwrap();
+    address_script(&dir, &["start"]);
+    assert_eq!(network_toml(&dir), toml_with(&[]));
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    lease(&dir, "deconfig", "eth0", "");
+    assert_eq!(
+        std::fs::read_to_string(dir.path("share/neptron-ip.txt")).unwrap(),
+        "192.168.0.99\n"
+    );
+    assert!(
+        !read(ADDRESS_SCRIPT).contains("/share"),
+        "the address script names the share"
+    );
+}
+
+/// The release image writes the run file and prints no console line.
+#[test]
+fn the_release_image_prints_no_console_line() {
+    let dir = address_dir("address-release");
+    std::fs::remove_file(dir.path("development")).unwrap();
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    assert!(!dir.path("console").exists());
+    assert_eq!(network_toml(&dir), toml_with(&[("eth0", "192.168.0.112")]));
+}
+
+/// The values come from a DHCP server and from mdev: only a wired port name
+/// and a dotted IPv4 address are kept.
+#[test]
+fn the_address_script_keeps_only_a_wired_port_and_an_ipv4_address() {
+    let dir = address_dir("address-invalid");
+    for (port, address) in [
+        ("wlan0", "192.168.0.112"),
+        ("eth0/../x", "192.168.0.112"),
+        ("eth0", "192.168.0.112\"\nx = 1"),
+        ("eth0", "192.168.0"),
+        ("eth0", "1.2.3.4.5"),
+        ("eth0", "1..2.3"),
+        ("eth0", "1.2.3.4."),
+        ("eth0", ".1.2.3"),
+        ("eth0", "999.1.1.1"),
+        ("eth0", "1.2.3.256"),
+        ("eth0", "0001.2.3.4"),
+        ("eth0", "1.2.3.-4"),
+        ("eth0", ""),
+    ] {
+        lease(&dir, "bound", port, address);
+        assert_eq!(network_toml(&dir), toml_with(&[]), "{port} {address}");
+    }
+    for address in ["0.0.0.0", "255.255.255.255", "10.0.2.15"] {
+        lease(&dir, "bound", "eth0", address);
+        assert_eq!(network_toml(&dir), toml_with(&[("eth0", address)]));
+    }
+    let (ok, out) = dir.run_args(ADDRESS_SCRIPT, &["reboot"]);
+    assert!(!ok, "{out}");
+}
+
+/// A write of the run file that fails: the hook still exits 0, so udhcpc
+/// goes on; syslog has the line, and no temp file is left.
+#[test]
+fn a_failed_write_of_the_run_file_is_logged_and_leaves_no_temp_file() {
+    let dir = address_dir("address-write-fails");
+    dir.fake(
+        "mv",
+        "case \"$*\" in *network.toml*) exit 1 ;; esac\nPATH=${PATH#*:} exec mv \"$@\"",
+    );
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    assert!(
+        dir.log().contains("network.toml cannot be written"),
+        "{}",
+        dir.log()
+    );
+    assert!(!dir.path("run/network.toml").exists());
+    assert!(!dir.path("console").exists());
+    assert!(
+        dir.path("run/address.d/eth0").exists(),
+        "the record is kept"
+    );
+    no_temp_files(&dir);
+    // The next event writes the kept record.
+    std::fs::remove_file(dir.path("bin/mv")).unwrap();
+    assert_lock_free(&dir);
+    assert_eq!(network_toml(&dir), toml_with(&[("eth0", "192.168.0.112")]));
+}
+
+/// udhcpc waits for its script, so an event never waits for the lock: a
+/// second event while the first one writes records its port, leaves the
+/// flag and returns at once. The holder writes again before it ends, so
+/// the file holds both addresses.
+#[test]
+fn an_event_returns_while_the_writer_is_blocked() {
+    let dir = address_dir("address-race");
+    let reached = dir.path("reached");
+    let gate = dir.path("gate");
+    mkfifo(&reached);
+    mkfifo(&gate);
+    // The first look at the host name blocks until the test opens the gate.
+    dir.fake(
+        "hostname",
+        &format!(
+            "if [ ! -e \"{once}\" ]; then : > \"{once}\"; echo in > \"{reached}\"; read -r _ < \"{gate}\"; fi\necho neptron",
+            once = dir.path("once").display(),
+            reached = reached.display(),
+            gate = gate.display()
+        ),
+    );
+    std::thread::scope(|scope| {
+        let first = scope.spawn(|| lease(&dir, "bound", "eth0", "192.168.0.112"));
+        assert_eq!(read_fifo(&reached), "in\n");
+        // The writer holds the lock and is blocked: this event must return.
+        lease(&dir, "bound", "eth1", "192.168.0.113");
+        assert!(dir.path("run/address.dirty").exists());
+        assert!(!dir.path("run/network.toml").exists());
+        write_fifo(&gate, "go\n");
+        first.join().unwrap();
+    });
+    assert_eq!(
+        network_toml(&dir),
+        toml_with(&[("eth0", "192.168.0.112"), ("eth1", "192.168.0.113")])
+    );
+    assert_lock_free(&dir);
+    assert!(!dir.path("run/address.dirty").exists());
+}
+
+/// The lock is a flock, which the kernel frees when its holder ends. A
+/// lock file that a killed run left behind does not block the next event.
+#[test]
+fn a_lock_file_left_by_a_dead_run_does_not_block() {
+    let dir = address_dir("address-old-lock");
+    std::fs::create_dir_all(dir.path("run")).unwrap();
+    std::fs::write(dir.path("run/address.lock"), "4242\n").unwrap();
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    assert_eq!(network_toml(&dir), toml_with(&[("eth0", "192.168.0.112")]));
+    assert!(!dir.path("run/address.dirty").exists());
+}
+
+/// A lock file that cannot be opened (here a folder at its path), or a
+/// flock that cannot run: the hook still exits 0, so udhcpc goes on, and
+/// syslog says why nothing was written.
+#[test]
+fn a_lock_that_cannot_be_taken_is_logged_and_the_hook_exits_0() {
+    let dir = address_dir("address-lock-dir");
+    std::fs::create_dir_all(dir.path("run/address.lock")).unwrap();
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    assert!(
+        dir.log().contains("address.lock cannot be opened"),
+        "{}",
+        dir.log()
+    );
+    assert!(!dir.path("run/network.toml").exists());
+
+    let dir = address_dir("address-no-flock");
+    dir.fake("flock", "exit 127");
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    assert!(dir.log().contains("flock cannot run"), "{}", dir.log());
+    assert!(!dir.path("run/network.toml").exists());
+}
+
+/// The holder looks at the flag again after it freed the lock. An event
+/// that comes after the last look of the inner loop and before the unlock
+/// finds the lock taken and returns; that look writes its address.
+#[test]
+fn an_event_just_before_the_unlock_is_written_by_the_holder() {
+    let dir = address_dir("address-unlock");
+    let reached = dir.path("reached");
+    let gate = dir.path("gate");
+    mkfifo(&reached);
+    mkfifo(&gate);
+    // The first unlock blocks until the test opens the gate.
+    dir.fake(
+        "flock",
+        &format!(
+            "if [ \"$1\" = -u ] && [ ! -e \"{once}\" ]; then : > \"{once}\"; echo in > \"{reached}\"; read -r _ < \"{gate}\"; fi\n{FLOCK}",
+            once = dir.path("once").display(),
+            reached = reached.display(),
+            gate = gate.display()
+        ),
+    );
+    std::thread::scope(|scope| {
+        let first = scope.spawn(|| lease(&dir, "bound", "eth0", "192.168.0.112"));
+        assert_eq!(read_fifo(&reached), "in\n");
+        assert_eq!(network_toml(&dir), toml_with(&[("eth0", "192.168.0.112")]));
+        lease(&dir, "bound", "eth1", "192.168.0.113");
+        assert!(dir.path("run/address.dirty").exists());
+        write_fifo(&gate, "go\n");
+        first.join().unwrap();
+    });
+    assert_eq!(
+        network_toml(&dir),
+        toml_with(&[("eth0", "192.168.0.112"), ("eth1", "192.168.0.113")])
+    );
+    assert!(!dir.path("run/address.dirty").exists());
+}
+
+/// A flag that cannot be removed would keep the holder in its loop: it
+/// writes once, logs the fault and returns.
+#[test]
+fn a_flag_that_cannot_be_removed_ends_the_loop() {
+    let dir = address_dir("address-flag");
+    dir.fake(
+        "rm",
+        "case \"$*\" in *address.dirty*) exit 1 ;; esac\nPATH=${PATH#*:} exec rm \"$@\"",
+    );
+    lease(&dir, "bound", "eth0", "192.168.0.112");
+    assert_eq!(network_toml(&dir), toml_with(&[("eth0", "192.168.0.112")]));
+    assert!(
+        dir.log().contains("address.dirty cannot be removed"),
+        "{}",
+        dir.log()
+    );
+    assert_eq!(dir.log().matches("addresses: ").count(), 1, "{}", dir.log());
+}
+
+/// The network script runs the address script at boot and when a port
+/// goes; the stop leaves it to the releases of the clients.
+#[test]
+fn the_network_script_runs_the_address_script() {
+    let dir = TempDir::create("address-network");
+    dhcp_fakes(&dir);
+    dir.logging_fakes(&["net-address"]);
+    std::fs::create_dir_all(dir.path("sys/eth0")).unwrap();
+    let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
+    assert!(ok, "{out}");
+    assert!(dir.log().contains("net-address start\n"), "{}", dir.log());
+
+    std::fs::write(dir.path("log"), "").unwrap();
+    let (ok, out) = dir.run_args(NETWORK_SCRIPT, &["port-gone", "eth0"]);
+    assert!(ok, "{out}");
+    assert_eq!(dir.log(), "net-address port-gone eth0\n");
+
+    std::fs::write(dir.path("log"), "").unwrap();
+    let (ok, out) = dir.run(NETWORK_SCRIPT, "stop");
+    assert!(ok, "{out}");
+    assert!(!dir.log().contains("net-address"), "{}", dir.log());
+}
+
+/// A stopped client runs its deconfig event before it ends. The network
+/// script waits until it ended (at most 10 pauses), so that late event
+/// cannot remove the address of a new client of a port that came back with
+/// the same name.
+#[test]
+fn a_stopped_client_is_waited_for() {
+    for (name, ends_after, pauses) in [("ends", Some(3), 3), ("stays", None, 10)] {
+        let dir = TempDir::create(&format!("dhcp-wait-{name}"));
+        std::fs::create_dir_all(dir.path("run/dhcp")).unwrap();
+        let client = Process::start();
+        fake_client(&dir, client.pid(), "eth0");
+        std::fs::write(dir.path("run/dhcp/eth0.pid"), format!("{}\n", client.pid())).unwrap();
+        dhcp_fakes(&dir);
+        // The fake /proc shows the client until the pause that ends it.
+        let cmdline = dir.path(&format!("proc/{}/cmdline", client.pid()));
+        let end = ends_after.map_or(String::new(), |n| {
+            format!(
+                "[ \"$(grep -c usleep \"$LOG\")\" -ge {n} ] && rm -f \"{}\"",
+                cmdline.display()
+            )
+        });
+        dir.fake("usleep", &format!("echo \"usleep $*\" >> \"$LOG\"\n{end}"));
+        let (ok, out) = dir.run_args(NETWORK_SCRIPT, &["port-gone", "eth0"]);
+        assert!(ok, "{name}: {out}");
+        assert_eq!(
+            dir.log().matches("usleep 100000").count(),
+            pauses,
+            "{name}: {}",
+            dir.log()
+        );
+        assert_eq!(
+            out.contains("still runs after 10 pauses"),
+            ends_after.is_none(),
+            "{name}: {out}"
+        );
+        assert!(!dir.path("run/dhcp/eth0.pid").exists(), "{name}");
+    }
 }

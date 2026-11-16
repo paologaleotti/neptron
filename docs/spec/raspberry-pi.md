@@ -513,7 +513,7 @@ The definition gives 3 s from kernel start to the first UI frame for the Pi 4 an
 
 ### The development variant
 
-- `cargo xtask os build --arch rpi-arm64 --dev-key KEY` builds it in its own output, as on the PC: Dropbear with the key only, the hot folder `/state/hot`, the log, the `control` feature, and the address in `neptron-ip.txt` on the share.
+- `cargo xtask os build --arch rpi-arm64 --dev-key KEY` builds it in its own output, as on the PC: Dropbear with the key only, the hot folder `/state/hot`, the log, and the `control` feature. The address is in `/run/neptron/network.toml`, as on every image, and on the serial console at each change.
 - `cargo xtask os push --arch rpi-arm64 --host A.B.C.D` builds the frontend, the launcher and `neptronctl` for the Pi and sends them. It must link against the glibc of the Pi output, not of the QEMU aarch64 output, because the two outputs can hold different glibc builds. The cross build uses the Buildroot toolchain of the `rpi-arm64` output.
 - A serial console on GPIO 14 and 15 helps the first boot: `console=serial0,115200` and, on the Pi 3, `dtoverlay=disable-bt` or `miniuart-bt` in the development `config.txt` only (UNVERIFIED: which one keeps the serial clock stable with `core_freq_fixed=1`).
 

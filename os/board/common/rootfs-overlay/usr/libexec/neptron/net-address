@@ -1,0 +1,192 @@
+#!/bin/sh
+# Keeps the IPv4 addresses of the wired ports in /run/neptron/network.toml,
+# for the Network panel of the frontend. A lease can come at any time after
+# the boot (a slow router, a cable plugged in later, a USB port that appears
+# late), and it can change or go, so every event writes the file again:
+#
+#   bound, renew, deconfig, leasefail, nak  udhcpc, through its hook
+#                                           (default.script.d/neptron-address)
+#   start                                   S40neptron-network at boot
+#   port-gone PORT                          S40neptron-network, port removed
+#
+# An event records or removes the address of one port under address.d,
+# then writes the file from all records. So the result does not depend on
+# the order of two events.
+#
+# udhcpc waits for its script, so this script never waits for a lock: a run
+# that finds the lock taken leaves a flag and returns, and the holder writes
+# again before it ends. The lock is a flock on address.lock, which the
+# kernel frees when its holder ends in any way.
+
+# mdev and udhcpc can run this script with umask 0.
+umask 022
+
+# NEPTRON_RUN, NEPTRON_DEV_MARK and NEPTRON_CONSOLE change /run/neptron,
+# /etc/neptron/development and /dev/console for a test.
+RUN=${NEPTRON_RUN:-/run/neptron}
+DEV_MARK=${NEPTRON_DEV_MARK:-/etc/neptron/development}
+CONSOLE=${NEPTRON_CONSOLE:-/dev/console}
+RECORDS=$RUN/address.d
+NETWORK=$RUN/network.toml
+DIRTY=$RUN/address.dirty
+LOCK=$RUN/address.lock
+
+log() {
+	logger -t neptron-address "$1" 2>/dev/null
+}
+
+# 0 for a wired port name that is safe as a file name and in TOML.
+wired_port() {
+	case $1 in
+	*[!A-Za-z0-9_-]*) return 1 ;;
+	eth* | en*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+# 0 for a dotted IPv4 address: four groups of 0 to 255.
+ipv4() {
+	case $1 in
+	'' | *[!0-9.]* | .* | *. | *..*) return 1 ;;
+	esac
+	set -f
+	old_ifs=$IFS
+	IFS=.
+	set -- $1
+	IFS=$old_ifs
+	set +f
+	[ "$#" -eq 4 ] || return 1
+	for group in "$@"; do
+		case $group in
+		'' | ????*) return 1 ;;
+		esac
+		[ "$group" -le 255 ] || return 1
+	done
+}
+
+# Takes the lock on descriptor 9 with no wait. A failed redirection of
+# exec ends a non-interactive ash, and udhcpc must see the hook end with
+# 0: so a subshell tries the open first.
+lock() {
+	if ! ( : > "$LOCK" ) 2>/dev/null; then
+		log "$LOCK cannot be opened; the addresses are not written"
+		return 1
+	fi
+	exec 9> "$LOCK"
+	flock -n 9
+	case $? in
+	0) return 0 ;;
+	127) log "flock cannot run; the addresses are not written" ;;
+	esac
+	exec 9>&-
+	return 1
+}
+
+unlock() {
+	flock -u 9
+	exec 9>&-
+}
+
+# Writes $2 and a newline to the file $1 when its content differs, through
+# a hidden temp file and a rename, so a reader never sees a part of it.
+# Returns 0 after a write, 1 when the content is the same, and 2 when the
+# write failed.
+write_file() {
+	if [ -f "$1" ] && [ "$(cat "$1" 2>/dev/null)" = "$2" ]; then
+		return 1
+	fi
+	tmp=${1%/*}/.${1##*/}.$$.new
+	if printf '%s\n' "$2" 2>/dev/null > "$tmp" && mv -f "$tmp" "$1"; then
+		return 0
+	fi
+	rm -f "$tmp" 2>/dev/null
+	return 2
+}
+
+# Writes the file from the records.
+publish() {
+	host=$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9.-')
+	toml="version = 1
+host_name = \"$host\""
+	console=
+	for record in "$RECORDS"/*; do
+		[ -f "$record" ] || continue
+		port=${record##*/}
+		wired_port "$port" || continue
+		read -r address < "$record" || continue
+		ipv4 "$address" || continue
+		toml="$toml
+
+[[address]]
+port = \"$port\"
+ipv4 = \"$address\""
+		console="$console${console:+, }$port $address"
+	done
+	write_file "$NETWORK" "$toml"
+	case $? in
+	0)
+		log "addresses: ${console:-none}"
+		if [ -e "$DEV_MARK" ]; then
+			echo "neptron: address ${console:-none}" > "$CONSOLE" 2>/dev/null
+		fi
+		;;
+	2) log "$NETWORK cannot be written" ;;
+	esac
+}
+
+# The flag goes up before the lock is tried, and the holder looks at it
+# again after it freed the lock: a run that missed the lock in between is
+# never lost. A run killed between the removal of the flag and its write
+# leaves the change to the next event.
+update() {
+	mkdir -p "$RUN" || return
+	: > "$DIRTY"
+	while lock; do
+		while [ -e "$DIRTY" ]; do
+			if ! rm -f "$DIRTY" 2>/dev/null; then
+				# A flag that cannot go would keep the holder here.
+				log "$DIRTY cannot be removed; the addresses are written once"
+				publish
+				unlock
+				return
+			fi
+			publish
+		done
+		unlock
+		[ -e "$DIRTY" ] || return
+	done
+}
+
+remember() {
+	wired_port "$1" || return
+	ipv4 "$2" || return
+	mkdir -p "$RECORDS" || return
+	printf '%s\n' "$2" > "$RECORDS/.$1.$$.new" && mv -f "$RECORDS/.$1.$$.new" "$RECORDS/$1"
+}
+
+forget() {
+	wired_port "$1" || return
+	rm -f "$RECORDS/$1"
+}
+
+# udhcpc gives the port and the address in the variables interface and ip.
+case $1 in
+bound | renew)
+	remember "${interface:-}" "${ip:-}"
+	update
+	;;
+deconfig | leasefail | nak)
+	forget "${interface:-}"
+	update
+	;;
+start) update ;;
+port-gone)
+	forget "${2:-}"
+	update
+	;;
+*)
+	echo "usage: $0 bound|renew|deconfig|leasefail|nak|start|port-gone PORT"
+	exit 1
+	;;
+esac
+exit 0

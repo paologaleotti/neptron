@@ -1,0 +1,5 @@
+#!/bin/sh
+# Buildroot's udhcpc script runs each executable file of this folder after
+# it applied the event, with the event as the argument and the lease in the
+# environment. NEPTRON_ADDRESS changes the script for a test.
+exec "${NEPTRON_ADDRESS:-/usr/libexec/neptron/net-address}" "$@"

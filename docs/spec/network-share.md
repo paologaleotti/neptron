@@ -86,6 +86,41 @@ So no server lets Windows 11 24H2 connect as guest with no change on the Windows
 - **No Wi-Fi** in this task. It is a later step (`iwd`, as the definition says).
 - **The boot.** Nothing waits for the network. `S40neptron-network` sets the links up and starts `udhcpc` as background jobs. The share script starts `ksmbd.mountd` and `mdnsd` in a background job. The kernel server listens on each interface when it comes up, so a cable plugged in later works too. A PC with no cable boots as fast as one with a cable.
 
+**The address file.** A lease can come at any time after the boot: a slow router, a router that starts with the machine, a cable plugged in later, a USB port that appears late, a lease that changes or goes. So the file that holds the addresses is written at each event, not once at boot. The script `/usr/libexec/neptron/net-address` (common overlay) writes it. It runs:
+
+- from the hook of `udhcpc`, `/usr/share/udhcpc/default.script.d/neptron-address`, at each event: `bound` and `renew` record the address of the port; `deconfig`, `leasefail` and `nak` remove it. Buildroot's `default.script` runs each executable file of that folder after it applied the event. `board/common/post-build.sh` fails the build when the script runs no hooks or the hook is not executable.
+- from `S40neptron-network start` at boot, so the file is there also with no port or no lease.
+- from `S40neptron-network port-gone PORT`: the address of the removed port goes.
+
+Each event records or removes the address of one port in `/run/neptron/address.d/<port>`, then writes the file again from all records. So the result does not depend on the order of two events.
+
+**The contract: `/run/neptron/network.toml`**, in every image. It is the only file of the addresses; the Network panel of the frontend reads it.
+
+```toml
+version = 1
+host_name = "neptron"
+
+[[address]]
+port = "eth0"
+ipv4 = "192.168.0.112"
+```
+
+- `version` is 1. The format is append-only: a later version adds fields and never renames or removes one.
+- `host_name` is the system host name. The mDNS name is `<host_name>.local` (`mdnsd` announces the system host name).
+- One `[[address]]` table for each port with a lease, in the order of the port names. No table when no port has an address.
+- **IPv4 only.** `udhcpc` asks for IPv4, and the kernels of the images have no IPv6 (`/proc/sys/net/ipv6` is missing on the Pi).
+- **Only a wired port name** (`eth*`, `en*`, letters, digits, `_` and `-`) and **only a dotted IPv4 address** (four groups, each 0 to 255, at most three digits) are kept. The values come from a DHCP server and from mdev.
+- **No write when the content is the same.** A renew every half lease writes nothing.
+- **Temp file and rename.** The new content goes to `/run/neptron/.network.toml.<pid>.new`, a name of its own for each run, and replaces the file with a rename, so a reader never sees a part of it. `/run` is a RAM folder: the file is new at each boot, and a write costs no disk.
+- **A failed write** gives the syslog line `/run/neptron/network.toml cannot be written`, removes the temp file, and the script still exits 0, so `udhcpc` goes on. The record stays, and the next event writes the file.
+- **udhcpc never waits.** `udhcpc` runs its script in the foreground. The script takes the lock with no wait: `flock -n` on descriptor 9, open on `/run/neptron/address.lock`. The kernel frees a flock when its holder ends in any way, so a lock file that a killed run left behind blocks nothing. A run that finds the lock taken leaves the flag `/run/neptron/address.dirty` and returns at once. The holder writes again while the flag is there, and looks at the flag once more after it frees the lock, so no event is lost. A run that is killed between the removal of the flag and its write leaves its change to the next event: the record is kept, so nothing is lost. A flag that cannot be removed ends the loop after one write, with a syslog line. `flock` is in every image: the common BusyBox fragment keeps the applet on (`CONFIG_FLOCK=y`), and `board/common/post-build.sh` fails when the image has no `/usr/bin/flock`. The PC and Pi images hold the `flock` of util-linux at that path; both take `-n` and `-u` on a descriptor.
+- **umask 022.** mdev and `udhcpc` can run the script with umask 0; it sets its own first.
+- **Logs.** Every changed file gives a syslog line with the tag `neptron-address`. On the development image (`/etc/neptron/development`) it also prints `neptron: address eth0 192.168.0.112` (or `neptron: address none`) on `/dev/console`, the serial console of the Pi.
+
+**For the frontend**: read `/run/neptron/network.toml` off the frame thread, as the other files of `/run/neptron`. It is a RAM file and needs no network I/O.
+
+**Nothing goes to the share.** NEPTRON writes no file of the address to `/share` on any image (owner, 2026-11-16): a user on the share already knows the address, and the Network panel shows it. Development images before 2026-11-16 wrote `/share/neptron-ip.txt`. A share that holds that file keeps it: NEPTRON never deletes a file that a user can see on the share. The post-build step removes the old writer, `S41neptron-address`, from an output built before.
+
 ## 4. Attack surface
 
 Every release image opens an **open, writable guest share on the local network, on by default**. The owner decided this. Anyone on the same network can read, add, change and delete every file of the share partition: the games, the BIOS files, and anything else there. This is the Batocera habit. It is for a home network only: do not forward port 445 to the internet, and do not plug the PC into a network you do not trust.
@@ -144,7 +179,7 @@ The test image gets the same server so that the boot check can see port 445 list
 
 ## Checks
 
-- xtask tests read the files of `os/` and pin: the share path, guests and the one published account (the user database line, computed again from the password, and a system user with no login), `bad user`, SMB2 minimum, no `wide links` and no `follow symlinks`, `store dos attributes = no`, the off switch in the share script, the mount options of the share partition, the kernel options and the check script, the packages in every image and variant (`network_share.rs` for the PC and QEMU images, `rpi.rs` for the Raspberry Pi), the network script that never waits, the hotplug of a late or replugged port, and the stop order.
+- xtask tests read the files of `os/` and pin: the share path, guests and the one published account (the user database line, computed again from the password, and a system user with no login), `bad user`, SMB2 minimum, no `wide links` and no `follow symlinks`, `store dos attributes = no`, the off switch in the share script, the mount options of the share partition, the kernel options and the check script, the packages in every image and variant (`network_share.rs` for the PC and QEMU images, `rpi.rs` for the Raspberry Pi), the network script that never waits, the hotplug of a late or replugged port, and the stop order. The address script runs against fakes: a lease, a changed and an unchanged renew (the inode of the file), a lost lease, a removed port, two ports, the boot with no lease and an old share file that stays, the release image, input that is not a port or an address, a failed write, an event that returns while the writer is blocked, an event just before the unlock, a lock file left by a dead run, a flag that cannot be removed, and the hook and `flock` in every image. The network script waits at most 1 s for a stopped client to end, so its late `deconfig` cannot remove the address of a new client on a port that came back with the same name.
 - The boot check (`cargo xtask os boot-check`, tier 3) waits, inside its deadline, until a socket listens on port 445 and `mdnsd` runs, before it waits for the picture.
 - Hardware checks in `docs/hardware-checklist.md`: Windows 11, Windows 10, macOS, Linux; a large copy; the cable pulled during a copy; a power cut during a copy; the off switch; a boot with no cable.
 
@@ -154,4 +189,4 @@ The test image gets the same server so that the boot check can see port 445 list
 - WS-Discovery (`wsdd2`), so Windows lists the PC under "Network".
 - Wi-Fi with `iwd`.
 - The shares of `docs/definition/10-os-layer.md` for `config`, `saves` and `states` on the state partition. This task shares `/share` only, as the owner asked.
-- Show the address of the PC in the UI, so a user can type `\\<address>\share`.
+- Show the address of the PC in the UI, so a user can type `\\<address>\share`. The UI reads `/run/neptron/network.toml` (section 3).
