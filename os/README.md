@@ -312,6 +312,21 @@ The first three are the commits that `data/cores/README.md` names. Each package 
 
 Snes9x, Genesis Plus GX and FinalBurn Neo allow non-commercial use only. The owner decided (OP-054): NEPTRON is open source and not commercial, so the image holds them, with their licence texts and the `make legal-info` output, and it is never sold. The FB Neo licence also forbids requests for donations for a project that uses its source; the owner accepted it, and NEPTRON takes no donations (ADR 0014). `board/pc/LICENCES.txt` and `board/rpi/LICENCES.txt` say so on the boot partition.
 
+### FinalBurn Neo speed on the Raspberry Pi 3
+
+Measured on 2026-11-16 on a Raspberry Pi 3 B with the development image (aarch64), the `performance` governor at 1.2 GHz, about 48 °C, on composite NTSC 240p: one field is 16.652 ms (60.054 Hz), and the game runs one frame per field. The core is the build of this package with `platform=rpi3_64` (`-O3 -ffast-math -frounding-math -march=armv8-a+crc+simd -mtune=cortex-a53`, and `-mcpu=cortex-a53` from the Buildroot wrapper; Musashi 68000 in C, no LTO). The sets are the owner's `ddonpach` (Cave, 57.55 Hz) and `mslugx` with `neogeo` (59.18 Hz); their files match the DAT of the pin by CRC and size.
+
+Method. The frontend has no `data/cores` entry for the core yet, so the run used the image's own launcher and frontend, started by hand after the bench handover (`/run/neptron/hold`), with `--cores` on a folder where the library name of a known core points to `fbneo_libretro.so`, and the sets in a subfolder `arcade` of that system (FinalBurn Neo chooses its console mode from the name of the parent folder). Rotation is refused today, so the vertical game shows on its side; that does not change the cost. `ftrace` recorded `sched_switch` of the frontend threads, `drm_vblank_event` and `vc4_submit_cl_ioctl`. "Frame thread" is the on-CPU time of the frame thread in each field: core, upload, render and the audio resample. "Core bound" is the time from the flip event to the first GPU submit of the field: input, `retro_run` and the texture upload, an upper bound of the core time. The play rows follow a coin, a start and fire held; the picture was not checked.
+
+| Run | Fields | Missed fields | Underruns | Frame thread p50 / p99 / max | Core bound p50 / p99 / max |
+| --- | --- | --- | --- | --- | --- |
+| `ddonpach` attract, 180 s | 10,810 | 0 | 0 | 7.31 / 8.64 / 8.99 ms | 5.83 / 7.16 / 7.50 ms |
+| `ddonpach` play, 120 s | 7,207 | 0 | 0 | 7.46 / 8.78 / 9.38 ms | 5.98 / 7.28 / 7.74 ms |
+| `mslugx` attract, 180 s | 10,810 | 0 | 0 | 8.88 / 10.83 / 11.33 ms | 7.42 / 9.37 / 9.79 ms |
+| `mslugx` play, 120 s | 7,207 | 0 | 0 | 9.58 / 11.16 / 11.83 ms | 8.13 / 9.69 / 10.28 ms |
+
+Both games run at full speed with margin: the worst field used 11.83 ms of 16.65 ms. The frame thread used 44 to 57 % of one core. These rows come from a build with the 7z support in. The shipped build (`INCLUDE_7Z_SUPPORT=0`) was checked again for 60 s of each attract mode: no missed field and no underrun, frame thread p99 8.15 ms (`ddonpach`) and 10.79 ms (`mslugx`), core bound p99 6.67 ms and 9.33 ms.
+
 ## neptron-vkms-probe
 
 A small C program on libdrm. For each mode on its command line it makes a framebuffer with a test pattern, and reports: the test-only and the real atomic commit, the mode read back from the CRTC, the vblank period and the flip-event period next to the period of the mode, three frame CRCs from debugfs, and a writeback capture compared pixel by pixel with the pattern. The exit code is the number of failed commits, readbacks, CRC reads and writeback captures. The periods are reported only, not judged. For an interlaced mode the `vkms` vblank interval on kernel 6.18 is half the field period: `crtc_vtotal` is already halved for interlace, and the timestamping code halves the frame duration again. The probe prints a line that says so.
