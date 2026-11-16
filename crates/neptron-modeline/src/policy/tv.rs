@@ -76,6 +76,11 @@ pub(crate) fn tv_plan(
         considered.extend(tv.progressive_native());
         considered.push(tv.interlaced(Rung::Interlaced, caps));
     }
+    if settings.arcade && caps.interlace && tv.taller_than_progressive() {
+        // A board taller than the progressive mode and its crop keeps
+        // twice the lines in the interlaced mode, so its fit goes there.
+        considered.push(tv.proposal(Rung::Fitted, INTERLACED, Fit::Fill));
+    }
     considered.push(tv.proposal(Rung::Fitted, PROGRESSIVE, Fit::Fill));
     Plan {
         source: *source,
@@ -110,6 +115,13 @@ enum Fit {
 }
 
 impl Tv<'_> {
+    /// The source has more lines than the progressive mode shows with the
+    /// overscan crop.
+    fn taller_than_progressive(&self) -> bool {
+        let reach = self.modes[PROGRESSIVE].vactive + 2 * OVERSCAN_CROP_MAX_LINES_PER_EDGE;
+        self.source.height > reach
+    }
+
     /// Rung 1 of a progressive game: centred when its lines fit, else the
     /// drop and, when at most the crop bound per edge is missing, the crop.
     fn progressive_native(&self) -> Vec<Considered> {

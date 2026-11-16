@@ -839,3 +839,24 @@ fn every_setting_gives_a_mode_on_every_standard() {
         }
     }
 }
+
+#[test]
+fn a_board_taller_than_the_interlaced_mode_fits_into_it() {
+    // 480x640 upright (Ikaruga): 640 lines into 480i keep 0.75 of them;
+    // the progressive fit would keep 0.375.
+    let board = SourceGeometry {
+        rotation: Rotation::R90,
+        ..game(640, 480, 60_000, false)
+    };
+    let arcade = PolicySettings {
+        arcade: true,
+        ..PolicySettings::default()
+    };
+    let w = won(&board, &arcade, TvStandard::Ntsc);
+    assert_eq!(w.rung, Rung::Fitted);
+    assert!(w.mode.interlace);
+    assert_eq!(w.dest.h, 480);
+    // A console keeps the progressive fit, as its goldens record.
+    let w = won(&board, &PolicySettings::default(), TvStandard::Ntsc);
+    assert!(!w.mode.interlace);
+}
