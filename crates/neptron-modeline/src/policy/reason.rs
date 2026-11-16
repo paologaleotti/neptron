@@ -99,6 +99,17 @@ pub enum Dropped {
         /// The field rate of the mode, in millihertz.
         got_mhz: u64,
     },
+    /// `display.vertical = fit` asks a turned game to fill the screen: an
+    /// interlaced 1:1 mode, or an exact picture below
+    /// `SMALL_PICTURE_MIN_PERCENT` of the picture lines, gives way to the
+    /// fit.
+    VerticalFit {
+        /// The share of the picture lines the exact picture fills, in per
+        /// mille.
+        fill_permille: u32,
+        /// The exact mode is interlaced.
+        interlaced: bool,
+    },
 }
 
 impl Dropped {
@@ -119,6 +130,7 @@ impl Dropped {
             Self::ScanChanged { .. } => "scan_changed",
             Self::WidthChanged { .. } => "width_changed",
             Self::RefreshMissed { .. } => "refresh_missed",
+            Self::VerticalFit { .. } => "vertical_fit",
         }
     }
 }
@@ -190,6 +202,20 @@ impl fmt::Display for Dropped {
                 "aimed for {}, the range reaches {}",
                 Hz(u64::from(target_mhz)),
                 Hz(got_mhz)
+            ),
+            Self::VerticalFit {
+                fill_permille,
+                interlaced,
+            } => write!(
+                f,
+                "vertical games fit: the exact {} picture fills {}.{} % of the lines",
+                if interlaced {
+                    "interlaced"
+                } else {
+                    "progressive"
+                },
+                fill_permille / 10,
+                fill_permille % 10
             ),
         }
     }

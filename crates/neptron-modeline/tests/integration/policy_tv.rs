@@ -6,7 +6,8 @@
 
 use neptron_modeline::policy::{
     Dropped, PictureStyle, Plan, PolicySettings, RefreshKind, RefreshPolicy, Rung, SkippedTarget,
-    TV_SAFE_WIDTH_SAMPLES, TV_SPEED_SILENT_PPM, TvWidth, choose, decide, notice, style_rows,
+    TV_SAFE_WIDTH_SAMPLES, TV_SPEED_SILENT_PPM, TvWidth, VerticalMode, choose, decide, notice,
+    style_rows,
 };
 use neptron_safety::validate;
 use neptron_types::{
@@ -858,5 +859,22 @@ fn a_board_taller_than_the_interlaced_mode_fits_into_it() {
     assert_eq!(w.dest.h, 480);
     // A console keeps the progressive fit, as its goldens record.
     let w = won(&board, &PolicySettings::default(), TvStandard::Ntsc);
+    assert!(!w.mode.interlace);
+}
+
+#[test]
+fn vertical_fit_shows_a_turned_game_progressive_on_a_tv() {
+    let turned = SourceGeometry {
+        rotation: Rotation::R90,
+        ..game(320, 240, 57_550, false)
+    };
+    let exact = won(&turned, &PolicySettings::default(), TvStandard::Ntsc);
+    assert_eq!(exact.rung, Rung::Interlaced);
+    let fit = PolicySettings {
+        vertical: VerticalMode::Fit,
+        ..PolicySettings::default()
+    };
+    let w = won(&turned, &fit, TvStandard::Ntsc);
+    assert_eq!(w.rung, Rung::Fitted);
     assert!(!w.mode.interlace);
 }

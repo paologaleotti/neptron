@@ -15,7 +15,8 @@ use super::settings::Effective;
 use super::{
     Considered, Dropped, FORCE_50_MHZ, FORCE_60_MHZ, OVERSCAN_CROP_MAX_LINES_PER_EDGE,
     OrientedSource, OverscanCrop, Placement, Plan, Proposal, RefreshKind, RefreshPolicy,
-    RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, TvWidth, UI_CANVAS, walk_ladder,
+    RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, TvWidth, UI_CANVAS, VerticalMode,
+    walk_ladder,
 };
 
 /// The largest difference between the game's rate and the field rate of a
@@ -74,9 +75,23 @@ pub(crate) fn tv_plan(
         considered.push(tv.dropped(Rung::Interlaced, INTERLACED, Dropped::SameAsNative));
     } else {
         considered.extend(tv.progressive_native());
-        considered.push(tv.interlaced(Rung::Interlaced, caps));
+        let fit = source.turned && settings.vertical == VerticalMode::Fit;
+        considered.push(if fit {
+            // The fit fills the progressive mode with no flicker.
+            tv.dropped(
+                Rung::Interlaced,
+                INTERLACED,
+                Dropped::VerticalFit {
+                    fill_permille: tv.interlaced_fill_permille(),
+                    interlaced: true,
+                },
+            )
+        } else {
+            tv.interlaced(Rung::Interlaced, caps)
+        });
     }
-    if settings.arcade && caps.interlace && tv.taller_than_progressive() {
+    let fit = source.turned && settings.vertical == VerticalMode::Fit;
+    if settings.arcade && caps.interlace && tv.taller_than_progressive() && !fit {
         // A board taller than the progressive mode and its crop keeps
         // twice the lines in the interlaced mode, so its fit goes there.
         considered.push(tv.proposal(Rung::Fitted, INTERLACED, Fit::Fill));
@@ -115,6 +130,13 @@ enum Fit {
 }
 
 impl Tv<'_> {
+    /// The game's share of the active lines of the interlaced mode, in
+    /// per mille.
+    fn interlaced_fill_permille(&self) -> u32 {
+        let lines = u32::from(self.source.height) * 1_000;
+        (lines / u32::from(self.modes[INTERLACED].vactive.max(1))).min(1_000)
+    }
+
     /// The source has more lines than the progressive mode shows with the
     /// overscan crop.
     fn taller_than_progressive(&self) -> bool {

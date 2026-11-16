@@ -10,6 +10,7 @@ use super::solve::solve;
 use super::{
     Considered, Dropped, HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError,
     Proposal, RefreshKind, RefreshTarget, Rung, SMALL_PICTURE_MIN_PERCENT, StrategyReplaced,
+    VerticalMode,
 };
 use crate::ModelineError;
 
@@ -75,6 +76,7 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
                 outcomes.extend(per_range(rung, target, crt, &singles)?);
             }
             for (sub, outcome) in outcomes.into_iter().enumerate() {
+                let outcome = vertical_fit(crt, rung, outcome);
                 entries.push(entry(style, (tier, place, sub), rung, target, outcome));
             }
         }
@@ -108,6 +110,29 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
 }
 
 type Outcome = Result<Proposal, Dropped>;
+
+/// `display.vertical = fit` for a turned game: an interlaced 1:1 mode and
+/// an exact picture below [`SMALL_PICTURE_MIN_PERCENT`] of the picture
+/// lines drop, so the fit fills the screen with no flicker. An exact
+/// picture that fills more stays: the fit would not be larger.
+fn vertical_fit(crt: &Crt<'_>, rung: Rung, outcome: Outcome) -> Outcome {
+    let asked = crt.source.turned && crt.settings.vertical == VerticalMode::Fit;
+    let Ok(proposal) = outcome else {
+        return outcome;
+    };
+    if !asked || rung.is_fitted() {
+        return Ok(proposal);
+    }
+    let fill_permille = proposal.padding.map_or(1_000, |p| p.fill_permille());
+    let small = u64::from(fill_permille) * 100 < SMALL_PICTURE_MIN_PERCENT * 1_000;
+    if proposal.mode.interlace || small {
+        return Err(Dropped::VerticalFit {
+            fill_permille,
+            interlaced: proposal.mode.interlace,
+        });
+    }
+    Ok(proposal)
+}
 
 /// Each range of a profile with more than one range as a profile of its
 /// own, with the index of the range in the whole profile.
@@ -195,7 +220,7 @@ fn candidate(
         aspect,
         target.rate_mhz,
     ) {
-        Ok(shape) => shape,
+        Ok(shape) => fit_progressive(shape, target, crt),
         Err(dropped) => return Ok(vec![Err(dropped)]),
     };
     let mut outcomes = solve_replacing(&shape, target, enforce_refresh, crt)?;
@@ -216,6 +241,22 @@ fn candidate(
         return Ok(retry);
     }
     Ok(outcomes)
+}
+
+/// The fitted rung of a turned game with `display.vertical = fit`: the
+/// most progressive lines a range holds at the rate, so the fit has no
+/// flicker. Every other shape stays.
+fn fit_progressive(shape: Shape, target: RefreshTarget, crt: &Crt<'_>) -> Shape {
+    let asked = crt.source.turned && crt.settings.vertical == VerticalMode::Fit;
+    let capacity = progressive_capacity(crt.ranges, target.rate_mhz);
+    if !asked || !shape.rung.is_fitted() || capacity == 0 || capacity >= shape.lines {
+        return shape;
+    }
+    Shape {
+        lines: capacity,
+        interlace: false,
+        ..shape
+    }
 }
 
 /// Step 5 with the strategy of the settings, and the dynamic super width

@@ -5,7 +5,7 @@
 use neptron_modeline::policy::{
     Considered, Dropped, HorizontalScale, HorizontalStrategy, PanelScale, PictureStyle, Plan,
     PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy, Rung, SkippedTarget,
-    Switch, choose, decide, notice, style_rows, switch_for,
+    Switch, VerticalMode, choose, decide, notice, style_rows, switch_for,
 };
 use neptron_safety::validate;
 use neptron_types::{
@@ -1721,4 +1721,40 @@ fn an_interlaced_mode_wins_only_over_a_small_progressive_picture() {
     let (rung, p) = vertical_winner(&preset("generic_15"));
     assert_eq!(rung, Rung::Interlaced);
     assert!(p.mode.interlace);
+}
+
+#[test]
+fn vertical_fit_fills_the_screen_where_the_exact_picture_is_small_or_interlaced() {
+    let fit = PolicySettings {
+        vertical: VerticalMode::Fit,
+        ..PolicySettings::default()
+    };
+    let turned = SourceGeometry {
+        rotation: Rotation::R90,
+        ..source(320, 240, 57_550)
+    };
+    let caps = open_caps();
+    // 15 kHz: the interlaced 1:1 mode drops; the fit is progressive.
+    let profile = preset("generic_15");
+    let plan = decide(&turned, &fit, &profile, &caps).unwrap();
+    let (considered, p) = winner(&plan, &profile, &caps);
+    assert_eq!(considered.rung, Rung::Fitted);
+    assert!(!p.mode.interlace);
+    assert!(plan.considered.iter().any(|c| matches!(
+        c.outcome,
+        Err(Dropped::VerticalFit {
+            interlaced: true,
+            ..
+        })
+    )));
+    // A multi-sync tube: 2x fills the screen, so fit changes nothing.
+    let profile = pc_crt_30_71();
+    let caps = edid_caps(open_caps());
+    let plan = decide(&turned, &fit, &profile, &caps).unwrap();
+    assert_eq!(winner(&plan, &profile, &caps).0.rung, Rung::Multiple(2));
+    // A horizontal game ignores the setting.
+    let profile = preset("generic_15");
+    let caps = open_caps();
+    let plan = decide(&source(320, 240, 57_550), &fit, &profile, &caps).unwrap();
+    assert_eq!(winner(&plan, &profile, &caps).0.rung, Rung::Native);
 }
