@@ -542,7 +542,7 @@ geometry 256 224 1333
 max_size 512 480
 timing 60099 32040
 at 20 geometry 512 448 1333
-at 40 geometry 256 224 1500
+at 40 geometry 256 224 1334
 at 41 geometry 512 448 1333
 ";
 
