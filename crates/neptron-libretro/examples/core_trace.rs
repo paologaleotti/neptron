@@ -9,6 +9,14 @@
 //! console that the kernel also writes to. The exit code is 0 when the core
 //! loaded and ran every frame, and 1 otherwise; the trace is printed in both
 //! cases.
+//!
+//! The trace text only grows, so the committed traces stay valid: a line
+//! that a core of those traces never causes is the only kind of new line.
+//! An `option` line follows the `load` logs for each option that the core
+//! declared first during `load_game` (FinalBurn Neo declares all of its
+//! options there). A `rotation r90` line (`r180`, `r270`) follows the `av`
+//! line when the core asked for a turn during the load, and an
+//! `event <frame> rotation r90` line when it asks in a frame.
 
 #![forbid(unsafe_code)]
 
@@ -17,10 +25,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use neptron_libretro::{
-    ContentRequest, Event, Host, HostConfig, LogRecord, Pad, Video, read_save_file, save_file_path,
-    write_save_file,
+    ContentRequest, CoreOption, Event, Host, HostConfig, LogRecord, Pad, Video, read_save_file,
+    save_file_path, write_save_file,
 };
-use neptron_types::{Control, Frame};
+use neptron_types::{Control, Frame, Rotation};
 
 /// The version of the trace text. A change to the lines adds a version.
 const TRACE_FORMAT: u32 = 1;
@@ -193,6 +201,18 @@ impl Out<'_> {
         }
     }
 
+    /// `option <key> = "<value>" [<values>] <description>`.
+    fn option(&self, option: &CoreOption) {
+        let values: Vec<&str> = option.values().collect();
+        self.line(&format!(
+            "option {} = {:?} [{}] {}",
+            option.key(),
+            option.value(),
+            values.join("|"),
+            escape(option.description())
+        ));
+    }
+
     fn dump(&self, frame_no: u32, frame: &Frame<'_>) {
         let mut hex = String::with_capacity(frame.data.len() * 2);
         for row in 0..usize::from(frame.height) {
@@ -265,15 +285,9 @@ fn run(args: &Args, out: &Out<'_>) -> bool {
     out.line(&format!("extensions {}", info.extensions.join("|")));
     out.logs("open", host.logs());
     for option in host.options() {
-        let values: Vec<&str> = option.values().collect();
-        out.line(&format!(
-            "option {} = {:?} [{}] {}",
-            option.key(),
-            option.value(),
-            values.join("|"),
-            escape(option.description())
-        ));
+        out.option(option);
     }
+    let declared_at_open: Vec<String> = host.options().iter().map(|o| o.key().to_owned()).collect();
 
     let request = ContentRequest {
         path: &args.content,
@@ -281,6 +295,11 @@ fn run(args: &Args, out: &Out<'_>) -> bool {
     };
     let loaded = host.load_game(Some(request));
     out.logs("load", host.logs());
+    for option in host.options() {
+        if !declared_at_open.iter().any(|k| k == option.key()) {
+            out.option(option);
+        }
+    }
     let av = match loaded {
         Ok(av) => av,
         Err(e) => {
@@ -299,6 +318,9 @@ fn run(args: &Args, out: &Out<'_>) -> bool {
         av.timing.fps_mhz,
         av.timing.sample_rate_mhz
     ));
+    if host.rotation() != Rotation::R0 {
+        out.line(&format!("rotation {}", rotation_text(host.rotation())));
+    }
     out.line(&format!("pixel_format {:?}", host.pixel_format()));
     let options_after_load: Vec<String> = host
         .options()
@@ -429,7 +451,17 @@ fn event_text(event: &Event) -> String {
             av.timing.sample_rate_mhz
         ),
         Event::Message { text, frames } => format!("message frames={frames} {}", escape(text)),
+        Event::Rotation(rotation) => format!("rotation {}", rotation_text(*rotation)),
         other => format!("{other:?}"),
+    }
+}
+
+fn rotation_text(rotation: Rotation) -> &'static str {
+    match rotation {
+        Rotation::R0 => "r0",
+        Rotation::R90 => "r90",
+        Rotation::R180 => "r180",
+        Rotation::R270 => "r270",
     }
 }
 
