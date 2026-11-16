@@ -48,7 +48,7 @@ pub use choose::{
     Choice, Notice, Refused, StyleRow, Switch, Winner, choose, notice, style_rows, switch_for,
 };
 pub use ladder::{Rung, walk_ladder};
-pub use padding::{PADDED_FILL_MIN_PERCENT, Padding};
+pub use padding::{PADDED_FILL_MIN_PERCENT, Padding, SMALL_PICTURE_MIN_PERCENT};
 pub use placement::{HorizontalScale, Placement, ScaleClaim, UI_CANVAS};
 pub use plan::{Considered, Plan, Proposal, StrategyReplaced, Timing};
 pub use reason::Dropped;

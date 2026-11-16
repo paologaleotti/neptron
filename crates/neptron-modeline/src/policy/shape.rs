@@ -215,13 +215,18 @@ fn interlaced_rung(
 /// The most progressive lines that a range covering `rate_mhz` can show at
 /// that rate: its line limit, or fewer when the highest line rate allows
 /// only `floor(h_max / rate)` lines per field, less the vertical blanking
-/// at that line rate. 0 when no range covers the rate.
+/// at that line rate. 0 when no range covers the rate. A range whose fewest
+/// lines are more than that holds no progressive mode at the rate
+/// (`arcade_25` at 60.606 Hz: 384 lines at least, 379 at most), so it adds
+/// nothing.
 pub(crate) fn progressive_capacity(ranges: &[CrtRange], rate_mhz: u32) -> u16 {
     let rate = u64::from(rate_mhz).max(1);
     ranges
         .iter()
         .filter(|r| r.progressive_lines_min > 0 && r.v_min_mhz <= rate && rate <= r.v_max_mhz)
-        .map(|r| range_capacity(r, rate_mhz))
+        .map(|r| (r.progressive_lines_min, range_capacity(r, rate_mhz)))
+        .filter(|&(fewest, most)| fewest <= most)
+        .map(|(_, most)| most)
         .max()
         .unwrap_or(0)
 }

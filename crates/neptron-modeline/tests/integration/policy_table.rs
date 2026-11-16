@@ -1682,3 +1682,43 @@ fn a_timing_outside_its_contract_field_drops_only_that_candidate() {
         "{native}"
     );
 }
+
+/// The winner of a turned 320x240 frame at 57.55 Hz (DoDonPachi) with the
+/// default settings.
+fn vertical_winner(profile: &MonitorProfile) -> (Rung, Proposal) {
+    let source = SourceGeometry {
+        rotation: Rotation::R90,
+        ..source(320, 240, 57_550)
+    };
+    let caps = open_caps();
+    let plan = decide(&source, &PolicySettings::default(), profile, &caps).unwrap();
+    let (considered, proposal) = winner(&plan, profile, &caps);
+    (considered.rung, *proposal)
+}
+
+#[test]
+fn each_range_of_a_profile_is_its_own_window() {
+    // 15 kHz holds 192 to 288 lines, 31 kHz 400 to 512. A 320-line game
+    // is 1:1 in the 31 kHz range with a border, not a soft fit.
+    let (rung, p) = vertical_winner(&preset("arcade_15_31"));
+    assert_eq!(rung, Rung::Native);
+    assert_eq!((p.mode.vactive, p.placement.dest.h), (501, 320));
+    assert_eq!(p.source_index, 1);
+    // 25 kHz holds 384 to 400 lines: 320 lines fill 80 %.
+    let (rung, p) = vertical_winner(&preset("arcade_15_25"));
+    assert_eq!(rung, Rung::Native);
+    assert_eq!((p.mode.vactive, p.source_index), (400, 1));
+}
+
+#[test]
+fn an_interlaced_mode_wins_only_over_a_small_progressive_picture() {
+    // ms929 has 15 kHz (interlaced 448 to 576) and 25 kHz (384 to 400 at
+    // most): 320 lines in a 384-line mode fill 83 %, so progressive wins.
+    let (rung, p) = vertical_winner(&preset("ms929"));
+    assert_eq!(rung, Rung::Native);
+    assert!(!p.mode.interlace);
+    // On a 15 kHz tube the interlaced 1:1 mode is the only exact one.
+    let (rung, p) = vertical_winner(&preset("generic_15"));
+    assert_eq!(rung, Rung::Interlaced);
+    assert!(p.mode.interlace);
+}

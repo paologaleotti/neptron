@@ -500,6 +500,11 @@ fn rule(
     let MonitorKind::Crt { ranges } = &profile.kind else {
         return fit_reason(profile, plan, considered);
     };
+    // A fit that no exact mode beats is the last resort, at the rate that
+    // the profile reaches.
+    if considered.rung.is_fitted() {
+        return fit_reason(profile, plan, considered);
+    }
     if p.timing.changes_speed() {
         let game = u64::from(board.refresh_mhz);
         let covered = |rate: u64| {
@@ -510,9 +515,6 @@ fn rule(
         if covered(game) || covered(2 * game) {
             return "rate";
         }
-    }
-    if considered.rung.is_fitted() {
-        return fit_reason(profile, plan, considered);
     }
     crt_order(plan, p, profile, caps)
 }
@@ -550,10 +552,16 @@ fn fit_allowed(
                     // A rate that the range does not cover becomes the
                     // nearest one it covers, as the policy's `Nearest`.
                     let rate = u64::from(rate).clamp(r.v_min_mhz, r.v_max_mhz);
+                    // A window holds the game when its most lines hold the
+                    // game and its fewest lines fit the field at the rate.
                     let progressive = u32::from(r.progressive_lines_max).min(field_lines(r, rate));
                     let interlaced =
                         u32::from(r.interlaced_lines_max).min(2 * field_lines(r, rate));
-                    lines <= progressive || (caps.interlace && lines <= interlaced)
+                    let p_window = u32::from(r.progressive_lines_min) <= progressive;
+                    let i_window = r.interlaced_lines_max > 0
+                        && u32::from(r.interlaced_lines_min) <= interlaced;
+                    (p_window && lines <= progressive)
+                        || (caps.interlace && i_window && lines <= interlaced)
                 })
             });
             if fits { Err("soft fit") } else { Ok(()) }

@@ -1,4 +1,4 @@
-use neptron_types::{CrtRange, GpuCaps, MonitorProfile};
+use neptron_types::{CrtRange, GpuCaps, MonitorKind, MonitorProfile};
 
 use super::ladder::walk_ladder;
 use super::refresh::{
@@ -9,7 +9,7 @@ use super::shape::{Shape, overscan_crop, progressive_capacity, shape};
 use super::solve::solve;
 use super::{
     Considered, Dropped, HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError,
-    Proposal, RefreshKind, RefreshTarget, Rung, StrategyReplaced,
+    Proposal, RefreshKind, RefreshTarget, Rung, SMALL_PICTURE_MIN_PERCENT, StrategyReplaced,
 };
 use crate::ModelineError;
 
@@ -66,10 +66,15 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
         walk.push((double, &[Rung::Native]));
     }
 
+    let singles = single_ranges(crt.profile, crt.ranges);
     let mut entries = Vec::with_capacity(walk.len() * rungs.len() + 1);
     for (tier, &(target, rungs)) in walk.iter().enumerate() {
         for (place, &rung) in rungs.iter().enumerate() {
-            for (sub, outcome) in candidate(rung, target, true, crt)?.into_iter().enumerate() {
+            let mut outcomes = candidate(rung, target, true, crt)?;
+            if !rung.is_fitted() && !outcomes.iter().any(Result::is_ok) {
+                outcomes.extend(per_range(rung, target, crt, &singles)?);
+            }
+            for (sub, outcome) in outcomes.into_iter().enumerate() {
                 entries.push(entry(style, (tier, place, sub), rung, target, outcome));
             }
         }
@@ -103,6 +108,71 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
 }
 
 type Outcome = Result<Proposal, Dropped>;
+
+/// Each range of a profile with more than one range as a profile of its
+/// own, with the index of the range in the whole profile.
+fn single_ranges(profile: &MonitorProfile, ranges: &[CrtRange]) -> Vec<(usize, MonitorProfile)> {
+    if ranges.len() < 2 {
+        return Vec::new();
+    }
+    ranges
+        .iter()
+        .enumerate()
+        .map(|(index, range)| {
+            let single = MonitorProfile {
+                id: profile.id.clone(),
+                kind: MonitorKind::Crt {
+                    ranges: vec![*range],
+                },
+            };
+            (index, single)
+        })
+        .collect()
+}
+
+/// Steps 4 and 5 for one rung in each range that covers the target rate,
+/// as if the range were the whole profile.
+///
+/// The ranges of a profile have gaps: 15 kHz holds 192 to 288 lines,
+/// 31 kHz 400 to 512. Taken as one window, a 320-line game needs no
+/// border (192 is the least) and fits no interlaced rung (512 is the
+/// most), and Switchres then puts it in a range whose window starts above
+/// it. Each range alone gives the border, the capacity and the interlaced
+/// window of that range. The proposal keeps the index of the range in the
+/// whole profile, so the validator and the padding read the right range.
+fn per_range(
+    rung: Rung,
+    target: RefreshTarget,
+    crt: &Crt<'_>,
+    singles: &[(usize, MonitorProfile)],
+) -> Result<Vec<Outcome>, ModelineError> {
+    let rate = u64::from(target.rate_mhz);
+    let mut outcomes = Vec::new();
+    for (index, single) in singles {
+        let MonitorKind::Crt { ranges } = &single.kind else {
+            continue;
+        };
+        if !ranges
+            .iter()
+            .all(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz)
+        {
+            continue;
+        }
+        let one = Crt {
+            profile: single,
+            ranges,
+            ..*crt
+        };
+        let found = candidate(rung, target, true, &one)?;
+        outcomes.extend(found.into_iter().map(|outcome| {
+            outcome.map(|proposal| Proposal {
+                source_index: *index,
+                ..proposal
+            })
+        }));
+    }
+    Ok(outcomes)
+}
 
 /// Steps 4 and 5 for one rung at one target. One outcome, or two when the
 /// horizontal strategy of the settings is below the GPU's pixel clock
@@ -233,7 +303,7 @@ fn entry(
     let key = match (rung.is_fitted(), style) {
         (true, _) => (2, 0, tier, 0, place, sub),
         (false, PictureStyle::Native) => native_key(band, rung, rank, (tier, place, sub)),
-        (false, _) => (band, 0, tier, rank, place, sub),
+        (false, _) => (band, 0, tier, order_rank(rung, &outcome), place, sub),
     };
     (
         key,
@@ -260,6 +330,34 @@ fn native_key(band: u8, rung: Rung, rank: usize, (tier, place, sub): (usize, usi
 
 /// The rank of a cropped mode that is not padded.
 const CROPPED_RANK: usize = 1;
+
+/// The first rank of a small picture: a mode below
+/// [`SMALL_PICTURE_MIN_PERCENT`] of the picture lines, and every
+/// interlaced 1:1 mode. Every padded rank of a larger progressive picture
+/// is below it.
+const SMALL_RANK: usize = 1_002;
+
+/// The rank of an exact entry of every style but `native`, within its
+/// target: [`padded_rank`], except that a progressive picture of at least
+/// [`SMALL_PICTURE_MIN_PERCENT`] of the picture lines ranks before every
+/// interlaced 1:1 mode, and a smaller picture ranks with the interlaced
+/// modes by its fill. So an interlaced 1:1 mode wins only where every
+/// progressive exact picture is small, and then only when it fills more.
+fn order_rank(rung: Rung, outcome: &Outcome) -> usize {
+    let Ok(proposal) = outcome else {
+        return 0;
+    };
+    let fill = proposal.padding.map_or(PERMILLE, |p| {
+        usize::try_from(p.fill_permille()).unwrap_or(0)
+    });
+    let small = fill * 100 < usize::try_from(SMALL_PICTURE_MIN_PERCENT).unwrap_or(0) * PERMILLE;
+    if rung == Rung::Interlaced || small {
+        return SMALL_RANK + PERMILLE.saturating_sub(fill);
+    }
+    padded_rank(outcome)
+}
+
+const PERMILLE: usize = 1_000;
 
 /// The rank of an exact entry within its target: 0 for a mode with no
 /// crop and no padding (and for a dropped entry); [`CROPPED_RANK`] for a
