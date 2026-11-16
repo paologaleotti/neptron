@@ -11,6 +11,7 @@ One TOML file per system. `neptron-library` embeds these files at build time and
 | `aliases` | list of strings | Other folder names that hold games of this system. |
 | `name` | string | Display name. |
 | `extensions` | list of strings | File extensions of games, lower case, with no dot. The scan compares them with no regard to ASCII case. |
+| `always_progressive` | boolean, optional, default `false` | Every frame of the system is progressive. The line count of a frame does not make it interlaced. An arcade board draws progressive frames, also tall ones. |
 
 The format is append-only. A new key gets a default, or a new `format` value. A key is never renamed or removed. The parser rejects an unknown key, so a typing error cannot pass.
 

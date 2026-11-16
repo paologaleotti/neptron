@@ -6,7 +6,7 @@ The crate reads the folder layout of Batocera and RetroPie: `share/roms/<system>
 
 ## Public API
 
-- `Catalog`: the system and core definitions. `Catalog::builtin()` parses `data/systems` and `data/cores`, which the crate embeds at build time. `system_for_folder`, `core_for`. `CoreDef::options` holds the default core options of `data/cores` (the optional `options` table), sorted by key; the app passes them to the core at launch.
+- `Catalog`: the system and core definitions. `Catalog::builtin()` parses `data/systems` and `data/cores`, which the crate embeds at build time. `system_for_folder`, `core_for`. `CoreDef::options` holds the default core options of `data/cores` (the optional `options` table), sorted by key; the app passes them to the core at launch. `SystemDef::always_progressive` is the optional `always_progressive` key of `data/systems` (default `false`): every frame of the system is progressive. Nothing reads it yet; the session is to take it from the launch request (`docs/spec/arcade.md`, section 9).
 - `scan(roms_root, catalog, cancel, progress)`: builds an `Index` and a `ScanReport`. It reads every folder. It checks `cancel` before each directory entry and calls `progress` after each folder.
 - `refresh(roms_root, catalog, previous, now, cancel, progress)`: the same result as `scan`, but it keeps the games of each folder whose stamp in `previous` has not changed, and reads only the other folders. See "Change detection".
 - `changes(old, new)`: the games added, removed and changed between two indexes (a renamed file is one removed and one added), for the notice after a scan.

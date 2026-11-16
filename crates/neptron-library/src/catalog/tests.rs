@@ -98,6 +98,25 @@ fn folder_and_extension_match_ignore_ascii_case() {
 }
 
 #[test]
+fn always_progressive_defaults_to_false() {
+    let c = catalog(&ok_systems(), &ok_cores()).unwrap();
+    assert!(!c.system("nes").unwrap().always_progressive);
+    let text = format!("{NES}always_progressive = true\n");
+    let c = catalog(&[src("nes", &text)], &[src("nescore", CORE_NES)]).unwrap();
+    assert!(c.system("nes").unwrap().always_progressive);
+    let text = format!("{NES}always_progressive = false\n");
+    let c = catalog(&[src("nes", &text)], &[src("nescore", CORE_NES)]).unwrap();
+    assert!(!c.system("nes").unwrap().always_progressive);
+}
+
+#[test]
+fn always_progressive_must_be_a_boolean() {
+    let text = format!("{NES}always_progressive = \"yes\"\n");
+    let err = catalog(&[src("nes", &text)], &[src("nescore", CORE_NES)]).unwrap_err();
+    assert!(matches!(err, CatalogError::Parse { .. }), "{err:?}");
+}
+
+#[test]
 fn bad_toml_is_a_parse_error() {
     let err = catalog(&[src("nes", "format = ")], &[]).unwrap_err();
     assert!(matches!(err, CatalogError::Parse { ref source_name, .. } if source_name == "nes"));

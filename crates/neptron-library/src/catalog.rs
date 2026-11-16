@@ -18,6 +18,10 @@ pub struct SystemDef {
     pub name: String,
     /// File extensions of games, lower case, with no dot.
     pub extensions: Vec<String>,
+    /// Every frame of the system is progressive, so the line count of a
+    /// frame does not make it interlaced. False when the file has no
+    /// `always_progressive` key.
+    pub always_progressive: bool,
 }
 
 /// One libretro core and the systems that it runs.
@@ -243,6 +247,8 @@ struct SystemFile {
     aliases: Vec<String>,
     name: String,
     extensions: Vec<String>,
+    #[serde(default)]
+    always_progressive: bool,
 }
 
 #[derive(Deserialize)]
@@ -283,6 +289,7 @@ fn parse_system(source: &Source<'_>) -> Result<SystemDef, CatalogError> {
         aliases: file.aliases,
         name: file.name,
         extensions: file.extensions,
+        always_progressive: file.always_progressive,
     })
 }
 
