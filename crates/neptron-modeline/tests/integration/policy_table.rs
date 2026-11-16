@@ -1884,3 +1884,28 @@ fn a_console_takes_double_refresh_only_below_every_range() {
     let (kind, repeat, _) = won(source(256, 240, 50_000), &preset("pal"));
     assert_eq!((kind, repeat), (RefreshKind::Exact, 1));
 }
+
+#[test]
+fn a_panel_tells_a_speed_change_above_five_percent() {
+    use neptron_modeline::policy::NoticeReason;
+    let speed = |rate: u32| {
+        let plan = decide(
+            &source(224, 144, rate),
+            &PolicySettings::default(),
+            &panel_1080(),
+            &open_caps(),
+        )
+        .unwrap();
+        let (considered, _) = winner(&plan, &panel_1080(), &open_caps());
+        notice(&plan, considered)
+            .map(|n| {
+                n.reasons()
+                    .any(|r| matches!(r, NoticeReason::SpeedChange { .. }))
+            })
+            .unwrap_or(false)
+    };
+    // WonderSwan, 75.472 Hz, on a 60 Hz panel: -20.5 %, the notice shows.
+    assert!(speed(75_472));
+    // NES, 60.099 Hz: -0.16 %, the status only.
+    assert!(!speed(60_099));
+}

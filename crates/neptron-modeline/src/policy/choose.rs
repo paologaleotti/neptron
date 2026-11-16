@@ -2,7 +2,7 @@ use neptron_types::{GpuCaps, Modeline, MonitorProfile, SourceGeometry};
 
 use super::{
     Considered, Dropped, PictureStyle, Plan, PolicyError, PolicySettings, Proposal, RefreshKind,
-    Rung, SMALL_PICTURE_MIN_PERCENT, StrategyReplaced, decide,
+    Rung, SMALL_PICTURE_MIN_PERCENT, StrategyReplaced, Timing, decide,
 };
 
 /// The result of step 6: the first proposal that the validator accepts,
@@ -234,7 +234,11 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
     let proposal = considered.outcome.as_ref().ok()?;
     let timing = &proposal.timing;
     let fitted = considered.rung == Rung::Fitted;
-    let refresh_differs = timing.changes_speed() && timing.target.kind != RefreshKind::Panel;
+    // A panel runs every game at its own rate and the status shows the
+    // speed; the notice speaks only for a large change.
+    let refresh_differs = timing.changes_speed()
+        && (timing.target.kind != RefreshKind::Panel
+            || speed_ppm(timing) > PANEL_SPEED_NOTICE_MIN_PPM);
     let strategy_replaced = proposal.strategy_replaced;
     let double_refresh = timing.target.kind == RefreshKind::NativeDouble;
     let style_fallback = !on_own_rung(plan, plan.style, considered.rung);
@@ -265,6 +269,18 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         soft,
         small_fill_permille,
     })
+}
+
+/// The speed change of a flat panel, in ppm of the game's rate, from
+/// which the notice shows it: 5 %. A smaller change shows in the status
+/// only.
+pub const PANEL_SPEED_NOTICE_MIN_PPM: u64 = 50_000;
+
+/// How far the game's speed moves, in ppm of its rate.
+fn speed_ppm(timing: &Timing) -> u64 {
+    let shown = timing.field_rate_mhz / u64::from(timing.repeat().max(1));
+    let game = u64::from(timing.game_mhz).max(1);
+    shown.abs_diff(game) * 1_000_000 / game
 }
 
 /// Why the fitted winner of `plan` is soft, from the reasons of the exact
