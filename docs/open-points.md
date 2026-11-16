@@ -988,9 +988,10 @@ The state column is one line. The full entry below is the reference.
 
 - Raised by: C13 (2026-11-13)
 - Status: open, after the MVP unless the owner asks sooner
-- Default: not built: a settings row "Network share" (the hook is the off switch file and `S45neptron-share restart`); the address of the machine shown in the UI; WS-Discovery, so the machine shows in the Windows network view (needs a new package); Wi-Fi; shares for saves, states and config, which `docs/definition/10-os-layer.md` describes; DHCP for a USB network adapter plugged in after boot; a clean power-off on the release image. On Windows 11 a plain open of the share in Explorer probably shows an error and no prompt; the ways that work are in the spec. The check for `inet dhcp` in `os/board/common/post-build.sh` can never fail after the fixed write above it and can go.
+- Default: not built: a settings row "Network share" (the hook is the off switch file and `S45neptron-share restart`); WS-Discovery, so the machine shows in the Windows network view (needs a new package); Wi-Fi; shares for saves, states and config, which `docs/definition/10-os-layer.md` describes; DHCP for a USB network adapter plugged in after boot; a clean power-off on the release image. On Windows 11 a plain open of the share in Explorer probably shows an error and no prompt; the ways that work are in the spec. The check for `inet dhcp` in `os/board/common/post-build.sh` can never fail after the fixed write above it and can go.
 - Where: `os/`, `docs/spec/network-share.md`, `crates/neptron-ui`
 - How to change: one task per step.
+- Built since: M03 (2026-11-16) shows the address, the host name and the state of the share in Settings > Network (`docs/spec/network-panel.md`). The panel shows the switch as text; the settings row for the switch is still a later step.
 - Decision: Owner, 2026-11-13: a second share for saves and states is wanted (task C19, after the Raspberry Pi work); config stays local.
 
 ### OP-093: The control protocol does not give the kind of a UI row.

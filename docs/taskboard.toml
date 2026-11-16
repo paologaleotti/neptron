@@ -595,7 +595,7 @@ name = "Settings > Network (spec first): the local address, the host name, the s
 owns = ["crates/neptron-settings", "crates/neptron-ui", "crates/neptron-platform", "apps/neptron", "docs/spec"]
 needs = ["M02"]
 gate = "T2; scenes and goldens; the crawler finds the panel"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M04"
@@ -631,7 +631,7 @@ name = "Arcade, part 2: the core packages in both images, the library scan of ar
 owns = ["os/package", "os/configs", "crates/neptron-library", "crates/neptron-libretro", "data", "xtask"]
 needs = ["M06"]
 gate = "T1; core-trace; app-check; an arcade game on the PC and on the Pi"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "M08"
@@ -640,7 +640,7 @@ name = "Arcade, part 3: vertical games and the arcade refresh rates, as M06 deci
 owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-modeline", "crates/neptron-session", "docs/adr"]
 needs = ["M06"]
 gate = "T2; gles-compare; fields_missed stays 0 on the Pi 3 for the chosen games"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "M09"
