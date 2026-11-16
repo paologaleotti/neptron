@@ -78,6 +78,7 @@ pub fn reverted(reason: RevertReason) -> GuardEvent {
     GuardEvent::Reverted {
         reason,
         rewrite: None,
+        changed: true,
     }
 }
 

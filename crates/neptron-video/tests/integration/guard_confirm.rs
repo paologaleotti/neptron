@@ -558,3 +558,25 @@ fn a_change_after_the_pending_limit_reverts_and_is_not_applied() {
         "a new chain"
     );
 }
+
+#[test]
+fn a_revert_to_the_same_configuration_shows_no_notice() {
+    let record = neptron_video::GuardRecord {
+        failed_boots: neptron_video::SAFE_MODE_FAILED_BOOTS,
+        ..neptron_video::GuardRecord::default()
+    };
+    let mut rig = GuardRig::boot(record, crt_31(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::FailedBoots));
+    let prompt = rig.propose(crt_15());
+    rig.run_until(prompt.deadline_ns + FRAME_SLACK_NS);
+    assert!(
+        rig.event_list().contains(&GuardEvent::Reverted {
+            reason: RevertReason::Timeout,
+            rewrite: None,
+            changed: false,
+        }),
+        "the target is what the change put on screen: {:?}",
+        rig.event_list()
+    );
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::FailedBoots));
+}

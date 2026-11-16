@@ -126,6 +126,7 @@ fn settings_that_differ_from_the_last_known_good_wait_for_a_confirmation() {
         rig.event_list().contains(&GuardEvent::Reverted {
             reason: RevertReason::Timeout,
             rewrite: Some(crt_31()),
+            changed: true,
         }),
         "the settings still hold the unconfirmed monitor: the app writes the revert target"
     );
@@ -238,6 +239,7 @@ fn a_change_that_replaces_a_boot_prompt_still_asks_for_the_settings() {
         Some(GuardEvent::Reverted {
             reason: RevertReason::Declined,
             rewrite: Some(crt_31()),
+            changed: true,
         })
     );
     assert_eq!(rig.guard.active().monitor, pc_31_120());
@@ -254,6 +256,7 @@ fn a_game_setting_during_a_boot_prompt_is_not_what_the_app_writes() {
         Some(GuardEvent::Reverted {
             reason: RevertReason::Superseded,
             rewrite: Some(crt_31()),
+            changed: true,
         }),
         "the revert target with the global settings, not the game's"
     );

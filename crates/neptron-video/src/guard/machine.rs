@@ -110,6 +110,10 @@ pub enum GuardEvent {
         /// captured at the revert, so a later `follow_settings` does not
         /// change it. `None`: write no setting.
         rewrite: Option<DisplayConfig>,
+        /// The restored configuration differs from the change. False when
+        /// the change was the restored configuration itself: nothing on
+        /// screen went back, so the app shows no notice.
+        changed: bool,
     },
     /// The safe default is on the engine. Close any dialog. For
     /// [`SafeReason::Recovery`], play the audio cue.
@@ -592,6 +596,7 @@ impl Guard {
         };
         let from_settings = *from_settings;
         let before = self.record.clone();
+        let change = self.active.clone();
         // The restored configuration gets its own no-picture limit: the
         // time with no picture belonged to the change.
         self.no_picture_since_ns = None;
@@ -608,6 +613,7 @@ impl Guard {
         let event = GuardEvent::Reverted {
             reason,
             rewrite: from_settings.then(|| self.active.clone()),
+            changed: self.active != change,
         };
         self.finish(event, &before)
     }

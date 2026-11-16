@@ -68,13 +68,19 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 }
                 self.snap.confirm = None;
             }
-            GuardEvent::Reverted { reason, rewrite } => {
+            GuardEvent::Reverted {
+                reason,
+                rewrite,
+                changed,
+            } => {
                 self.roll_back();
                 if let Some(config) = rewrite {
                     self.rewrite_global(&config);
                 }
                 self.snap.confirm = None;
-                self.notice(NoticeKind::Info, reverted_text(reason).to_owned());
+                if let Some(text) = reverted_text(reason).filter(|_| changed) {
+                    self.notice(NoticeKind::Info, text.to_owned());
+                }
             }
             GuardEvent::SafeMode(reason) => {
                 self.roll_back();
@@ -255,13 +261,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     }
 }
 
-fn reverted_text(reason: RevertReason) -> &'static str {
+/// The notice of a revert. A superseded change has none: the setting that
+/// replaced it is what the user asked for.
+fn reverted_text(reason: RevertReason) -> Option<&'static str> {
     match reason {
-        RevertReason::Timeout => "The display change went back: it was not kept in time.",
-        RevertReason::Declined => "The display change went back.",
-        RevertReason::NoPicture => "The display change went back: it gave no picture.",
-        RevertReason::Superseded => "The display change went back: a new setting replaced it.",
-        RevertReason::ClockWentBack => "The display change went back: the clock went back.",
+        RevertReason::Timeout => Some("Display change undone: not kept in time."),
+        RevertReason::Declined => Some("Display change undone."),
+        RevertReason::NoPicture => Some("Display change undone: no picture."),
+        RevertReason::Superseded => None,
+        RevertReason::ClockWentBack => Some("Display change undone: the clock went back."),
     }
 }
 

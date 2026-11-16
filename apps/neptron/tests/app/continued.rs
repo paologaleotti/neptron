@@ -62,10 +62,7 @@ fn game_after_an_unkept_prompt(dir: &Path, panel: bool) -> Rig {
         .iter()
         .map(|n| n.text.clone())
         .collect();
-    assert!(
-        !notices.iter().any(|n| n.contains("went back")),
-        "{notices:?}"
-    );
+    assert!(!notices.iter().any(|n| n.contains("undone")), "{notices:?}");
     rig
 }
 
