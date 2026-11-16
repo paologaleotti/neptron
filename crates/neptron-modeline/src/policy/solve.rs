@@ -321,6 +321,7 @@ mod tests {
             monitor_aspect: crate::Aspect::STANDARD_CRT,
         },
         tv_width: TvWidth::Aspect,
+        arcade: false,
     };
 
     const CAPS: GpuCaps = GpuCaps {

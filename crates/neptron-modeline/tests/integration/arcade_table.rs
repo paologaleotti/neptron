@@ -379,10 +379,20 @@ pub struct Cell {
     pub rule: &'static str,
 }
 
-/// The cell of one board on one display, with the default settings.
+/// The settings of an arcade board: the defaults of the schema, with the
+/// source marked as an arcade board, as the systems `arcade` and `neogeo`
+/// mark it.
+pub fn settings() -> PolicySettings {
+    PolicySettings {
+        arcade: true,
+        ..PolicySettings::default()
+    }
+}
+
+/// The cell of one board on one display, with [`settings`].
 pub fn cell(board: &Board, display: &Display) -> Cell {
     let (profile, caps) = (&display.profile, &display.caps);
-    let plan = decide(&board.source(), &PolicySettings::default(), profile, caps)
+    let plan = decide(&board.source(), &settings(), profile, caps)
         .unwrap_or_else(|e| panic!("{} on {}: {e}", board.name, profile.id));
     let best = best_whole(&plan, profile, caps);
     let best_whole = best.map_or_else(

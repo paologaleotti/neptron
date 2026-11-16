@@ -246,7 +246,12 @@ fn every_arcade_board_that_follows_the_rule_gives_its_golden_decision() {
                 continue;
             }
             let key = format!("{} {}", board.name, display.profile.id);
-            let got = outcome(&board.source(), &display.profile, &display.caps);
+            let got = outcome_with(
+                &board.source(),
+                &arcade_table::settings(),
+                &display.profile,
+                &display.caps,
+            );
             actual.insert(key, got);
         }
     }
@@ -270,9 +275,10 @@ fn the_direction_of_a_turn_does_not_change_the_decision() {
         });
         for display in &displays {
             let (profile, caps) = (&display.profile, &display.caps);
+            let settings = arcade_table::settings();
             assert_eq!(
-                outcome(&a, profile, caps),
-                outcome(&b, profile, caps),
+                outcome_with(&a, &settings, profile, caps),
+                outcome_with(&b, &settings, profile, caps),
                 "{} on {}",
                 board.name,
                 profile.id

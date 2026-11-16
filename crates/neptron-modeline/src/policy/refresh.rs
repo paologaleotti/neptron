@@ -23,9 +23,11 @@ pub enum RefreshKind {
     Exact,
     /// Twice the game's rate; each game frame is shown twice.
     Double,
-    /// Twice the game's rate, which the `native` style takes on its own
-    /// when the refresh policy did not ask for it: each game frame is shown
-    /// twice, and the game speed does not change. The notice says so.
+    /// Twice the game's rate, which the policy takes on its own when the
+    /// refresh policy did not ask for it: the `native` style where the
+    /// game's lines do not fit at its rate, and every style for an arcade
+    /// board below every range. Each game frame is shown twice, and the game
+    /// speed does not change. The notice says so.
     NativeDouble,
     /// `force_50`: the game speed changes by the ratio.
     Forced50,
@@ -99,6 +101,28 @@ pub(crate) fn refresh_targets(
     }
     targets.push(game_target(game_mhz, ranges));
     (targets, skipped)
+}
+
+/// The extra target of an arcade board below every range: twice its rate,
+/// each frame shown twice, so the board keeps its speed before the nearest
+/// rate changes it. `None` when a range covers the game's rate, when the
+/// refresh policy asks for double refresh already, or when no range covers
+/// twice the rate. The policy puts it before the game's own target.
+pub(crate) fn below_ranges_double_target(
+    policy: RefreshPolicy,
+    game_mhz: u32,
+    ranges: &[CrtRange],
+) -> Option<RefreshTarget> {
+    let double = u64::from(game_mhz) * 2;
+    let below = !covers(ranges, u64::from(game_mhz)) && covers(ranges, double);
+    if policy == RefreshPolicy::ExactX2 || !below {
+        return None;
+    }
+    Some(RefreshTarget {
+        kind: RefreshKind::NativeDouble,
+        rate_mhz: u32::try_from(double).ok()?,
+        repeat: 2,
+    })
 }
 
 /// The extra target of the `native` style: twice the game's rate, for a
@@ -226,6 +250,31 @@ mod tests {
         assert_eq!(targets, [target(RefreshKind::Nearest, 65_000, 1)]);
         let (targets, _) = refresh_targets(RefreshPolicy::Exact, 30_000, &[range(49_500, 65_000)]);
         assert_eq!(targets, [target(RefreshKind::Nearest, 49_500, 1)]);
+    }
+
+    #[test]
+    fn a_board_below_every_range_shows_each_frame_twice_where_a_range_covers_twice_it() {
+        // Little Robin, 30 Hz: every range covers 60 Hz, which keeps the
+        // game's speed.
+        let ranges = [range(49_500, 65_000)];
+        for policy in [RefreshPolicy::Exact, RefreshPolicy::Force50] {
+            assert_eq!(
+                below_ranges_double_target(policy, 30_000, &ranges),
+                Some(target(RefreshKind::NativeDouble, 60_000, 2))
+            );
+        }
+        assert_eq!(
+            below_ranges_double_target(RefreshPolicy::ExactX2, 30_000, &ranges),
+            None
+        );
+        assert_eq!(
+            below_ranges_double_target(RefreshPolicy::Exact, 57_550, &ranges),
+            None
+        );
+        assert_eq!(
+            below_ranges_double_target(RefreshPolicy::Exact, 20_000, &ranges),
+            None
+        );
     }
 
     #[test]

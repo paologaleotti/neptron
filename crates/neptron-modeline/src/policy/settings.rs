@@ -66,6 +66,11 @@ pub struct PolicySettings {
     pub solver: Settings,
     /// How wide a game is on a TV profile. Only a TV profile reads it.
     pub tv_width: TvWidth,
+    /// The source is an arcade board (the systems `arcade` and `neogeo`).
+    /// A board fills its monitor, so on a TV it gets the width of its
+    /// aspect; and a board below every range of a CRT shows each frame
+    /// twice at twice its rate, so it keeps its speed.
+    pub arcade: bool,
 }
 
 /// How wide the game is on a TV profile, in samples of the 720-sample
@@ -152,8 +157,8 @@ impl HorizontalStrategy {
 
 impl Default for PolicySettings {
     /// The defaults of the settings schema: `auto` and `exact`, the GPU's
-    /// horizontal strategy, the default generator settings, and `aspect`
-    /// for a TV.
+    /// horizontal strategy, the default generator settings, `aspect` for a
+    /// TV, and a source that is not an arcade board.
     fn default() -> Self {
         Self {
             style: PictureStyle::Auto,
@@ -161,6 +166,7 @@ impl Default for PolicySettings {
             horizontal: None,
             solver: Settings::default(),
             tv_width: TvWidth::Aspect,
+            arcade: false,
         }
     }
 }
@@ -202,6 +208,7 @@ pub(crate) struct Effective {
     pub(crate) horizontal: HorizontalStrategy,
     pub(crate) solver: Settings,
     pub(crate) tv_width: TvWidth,
+    pub(crate) arcade: bool,
 }
 
 /// Step 2: read the effective settings. No strategy gives the GPU default.
@@ -223,6 +230,7 @@ pub(crate) fn read_settings(settings: &PolicySettings, caps: &GpuCaps) -> Effect
         horizontal,
         solver: settings.solver,
         tv_width: settings.tv_width,
+        arcade: settings.arcade,
     }
 }
 

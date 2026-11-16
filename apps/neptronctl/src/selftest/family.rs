@@ -2,10 +2,9 @@
 //! family that a monitor profile supports. Every mode comes from the policy
 //! and passes `validate`; nothing here touches a display.
 
-use neptron_modeline::Settings;
 use neptron_modeline::policy::{
     self, Choice, HorizontalScale, HorizontalStrategy, PictureStyle, PolicySettings, RefreshPolicy,
-    Rung, TvWidth, Winner,
+    Rung, Winner,
 };
 use neptron_safety::{Rejection, ValidatedMode, validate};
 use neptron_types::{GpuCaps, Modeline, MonitorProfile, Rotation, SourceGeometry};
@@ -237,8 +236,7 @@ fn plan_family(
         style: family.style,
         refresh: family.refresh,
         horizontal: family.horizontal,
-        solver: Settings::default(),
-        tv_width: TvWidth::default(),
+        ..PolicySettings::default()
     };
     let plan = policy::decide(&family.source, &settings, profile, caps)
         .map_err(|e| format!("the policy gives no plan: {e}"))?;

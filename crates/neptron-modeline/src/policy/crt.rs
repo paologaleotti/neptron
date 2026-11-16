@@ -1,7 +1,9 @@
 use neptron_types::{CrtRange, GpuCaps, MonitorProfile};
 
 use super::ladder::walk_ladder;
-use super::refresh::{game_target, native_double_target, refresh_targets};
+use super::refresh::{
+    below_ranges_double_target, game_target, native_double_target, refresh_targets,
+};
 use super::settings::Effective;
 use super::shape::{Shape, overscan_crop, progressive_capacity, shape};
 use super::solve::solve;
@@ -47,10 +49,17 @@ pub(crate) struct Crt<'a> {
 pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
     let style = crt.settings.style;
     let rungs = walk_ladder(style);
-    let (targets, skipped) =
+    let (mut targets, skipped) =
         refresh_targets(crt.settings.refresh, crt.source.refresh_mhz, crt.ranges);
+    let below =
+        below_ranges_double_target(crt.settings.refresh, crt.source.refresh_mhz, crt.ranges)
+            .filter(|_| crt.settings.arcade);
+    if let Some(double) = below {
+        targets.insert(targets.len().saturating_sub(1), double);
+    }
     let mut walk: Vec<(RefreshTarget, &[Rung])> = targets.iter().map(|&t| (t, rungs)).collect();
     if style == PictureStyle::Native
+        && below.is_none()
         && let Some(double) =
             native_double_target(crt.settings.refresh, crt.source.refresh_mhz, crt.ranges)
     {
