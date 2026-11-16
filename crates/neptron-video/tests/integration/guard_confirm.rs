@@ -627,3 +627,21 @@ fn a_change_that_never_settles_reverts_at_its_first_deadline() {
     rig.run_until(prompt.deadline_ns + FRAME_SLACK_NS);
     assert!(rig.guard.pending().is_none(), "{:?}", rig.guard.phase());
 }
+
+#[test]
+fn a_keep_at_a_time_that_went_back_is_refused_and_the_change_reverts() {
+    let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
+    let prompt = rig.propose(crt_31());
+    rig.run_for(CONFIRM_WINDOW_NS / 3);
+    let back = rig.now() - CONFIRM_WINDOW_NS / 6;
+    assert_eq!(
+        rig.guard.confirm(prompt.id, back, &rig.engine),
+        Err(ConfirmError::ClockWentBack {
+            now_ns: back,
+            latest_ns: rig.now(),
+        })
+    );
+    assert!(rig.guard.pending().is_some(), "the guard does not change");
+    let step = rig.guard.tick(back, &mut rig.engine);
+    assert_eq!(step.event, Some(reverted(RevertReason::ClockWentBack)));
+}

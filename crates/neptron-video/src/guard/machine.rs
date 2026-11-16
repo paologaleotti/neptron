@@ -160,6 +160,15 @@ pub enum ConfirmError {
         /// When the confirmation came.
         now_ns: u64,
     },
+    /// The time of the confirmation is earlier than a time the guard has
+    /// seen. The tick of the same frame reverts the change.
+    #[error("confirmation at {now_ns} ns, earlier than {latest_ns} ns that the guard has seen")]
+    ClockWentBack {
+        /// When the confirmation came.
+        now_ns: u64,
+        /// The latest time the guard has seen.
+        latest_ns: u64,
+    },
     /// The engine shows no valid picture now, so the user cannot see what
     /// they keep.
     #[error("no valid picture is on the display: {health:?}")]
@@ -450,7 +459,8 @@ impl Guard {
     /// # Errors
     ///
     /// [`ConfirmError`] when no change waits, `id` is not the open one,
-    /// `now_ns` is at or after the deadline, the engine shows no valid
+    /// `now_ns` is earlier than a time the guard has seen or at or after
+    /// the deadline, the engine shows no valid
     /// picture, or no [`Guard::tick`] has seen a valid picture of the
     /// change since it was given to the engine. The guard does not change.
     pub fn confirm<D: Display>(
@@ -460,7 +470,12 @@ impl Guard {
         engine: &VideoEngine<D>,
     ) -> Result<GuardStep, ConfirmError> {
         let prompt = self.open_prompt_id(id)?;
-        let (now_ns, _) = self.clock(now_ns);
+        if now_ns < self.latest_ns {
+            return Err(ConfirmError::ClockWentBack {
+                now_ns,
+                latest_ns: self.latest_ns,
+            });
+        }
         if now_ns >= prompt.deadline_ns {
             return Err(ConfirmError::Expired {
                 deadline_ns: prompt.deadline_ns,
