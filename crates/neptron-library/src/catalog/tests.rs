@@ -408,3 +408,23 @@ fn builtin_core_options_are_announced_by_the_cores() {
         }
     }
 }
+
+#[test]
+fn bios_sets_belong_to_the_core_of_the_system() {
+    let arcade = "format = 1\nfolder = \"arcade\"\naliases = []\nname = \"Arcade\"\n\
+                  extensions = [\"zip\"]\n";
+    let fbneo = "format = 1\nid = \"fbneo\"\nname = \"FB\"\nlibrary = \"fbneo_libretro.so\"\n\
+                 systems = [\"arcade\"]\nlicence = \"MIT\"\n";
+    let c = catalog(
+        &[src("nes", NES), src("arcade", arcade)],
+        &[src("nescore", CORE_NES), src("fbneo", fbneo)],
+    )
+    .unwrap();
+    assert!(c.is_bios_set("arcade", "neogeo"));
+    assert!(c.is_bios_set("arcade", "NEOGEO"));
+    assert!(c.is_bios_set("arcade", "pgm"));
+    assert!(!c.is_bios_set("arcade", "mslug"));
+    assert!(!c.is_bios_set("arcade", "neogeo2"));
+    assert!(!c.is_bios_set("nes", "neogeo"), "another core");
+    assert!(!c.is_bios_set("psx", "neogeo"), "an unknown system");
+}

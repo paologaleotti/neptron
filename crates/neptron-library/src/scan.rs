@@ -42,6 +42,9 @@ pub struct ScanReport {
     pub more_unknown_folders: u32,
     /// Files with an extension that the system does not accept, and files directly in `share/roms/`.
     pub ignored_files: u32,
+    /// Files that name a BIOS set of the core of their system
+    /// ([`Catalog::is_bios_set`]). They are not games.
+    pub bios_sets: u32,
     /// Entries whose name starts with `.`.
     pub hidden_entries: u32,
     /// Symbolic links. The scan does not follow them.
@@ -113,6 +116,8 @@ pub enum ScanError {
 ///   [`MAX_FOLDER_DEPTH`] and puts their games in the same list.
 /// - A game is a regular file whose extension the system accepts. Its name
 ///   is the file name with no extension.
+/// - A file that names a BIOS set of the system's core is not a game. It
+///   is counted in [`ScanReport::bios_sets`].
 /// - Entries whose name starts with `.` are hidden and skipped. This also
 ///   skips the `._` files that macOS writes on exFAT.
 /// - Symbolic links are skipped, so a link cannot make a loop or show a
@@ -417,6 +422,15 @@ impl Scanner<'_> {
             bump(&mut self.report.ignored_files);
             return;
         };
+        let bios = self
+            .catalog
+            .systems()
+            .get(system)
+            .is_some_and(|s| self.catalog.is_bios_set(&s.folder, stem));
+        if bios {
+            bump(&mut self.report.bios_sets);
+            return;
+        }
         // The entry type came from the directory; the size needs a `stat`,
         // which does not follow a link.
         let size = match entry.metadata() {

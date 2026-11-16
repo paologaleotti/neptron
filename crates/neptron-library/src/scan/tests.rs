@@ -607,3 +607,113 @@ fn a_folder_with_an_entry_that_cannot_be_read_is_read_again() {
         Some(crate::Mtime::of(t(0)))
     );
 }
+
+/// A catalog with two arcade systems of the `fbneo` core, which has BIOS
+/// sets, and one system of another core.
+fn arcade_catalog() -> Catalog {
+    use crate::catalog::Source;
+    let system = |folder: &str| {
+        format!(
+            "format = 1\nfolder = \"{folder}\"\naliases = []\nname = \"{folder}\"\n\
+             extensions = [\"zip\"]\n"
+        )
+    };
+    let arcade = system("arcade");
+    let neogeo = system("neogeo");
+    let other = system("other");
+    let core = |id: &str, systems: &str| {
+        format!(
+            "format = 1\nid = \"{id}\"\nname = \"{id}\"\nlibrary = \"{id}.so\"\n\
+             systems = [{systems}]\nlicence = \"MIT\"\n"
+        )
+    };
+    let fbneo = core("fbneo", "\"arcade\", \"neogeo\"");
+    let othercore = core("othercore", "\"other\"");
+    Catalog::from_sources(
+        &[
+            Source {
+                name: "arcade",
+                text: &arcade,
+            },
+            Source {
+                name: "neogeo",
+                text: &neogeo,
+            },
+            Source {
+                name: "other",
+                text: &other,
+            },
+        ],
+        &[
+            Source {
+                name: "fbneo",
+                text: &fbneo,
+            },
+            Source {
+                name: "othercore",
+                text: &othercore,
+            },
+        ],
+    )
+    .expect("a valid test catalog")
+}
+
+#[test]
+fn bios_sets_of_the_core_are_not_games() {
+    let dir = TestDir::new("bios");
+    for file in [
+        "arcade/neogeo.zip",
+        "arcade/mslug.zip",
+        "arcade/bios/NeoGeo.ZIP",
+        "neogeo/neogeo.zip",
+        "neogeo/kof98.zip",
+        "other/neogeo.zip",
+    ] {
+        dir.file(file);
+    }
+    let catalog = arcade_catalog();
+    let outcome =
+        scan(dir.path(), &catalog, &AtomicBool::new(false), &mut |_| {}).expect("the scan");
+    let index = &outcome.index;
+    assert_eq!(names(index, "arcade"), ["mslug"]);
+    assert_eq!(names(index, "neogeo"), ["kof98"]);
+    assert_eq!(
+        names(index, "other"),
+        ["neogeo"],
+        "another core has no BIOS sets"
+    );
+    assert_eq!(outcome.report.bios_sets, 3);
+    assert_eq!(outcome.report.ignored_files, 0);
+}
+
+#[test]
+fn a_set_that_only_starts_with_a_bios_name_is_a_game() {
+    let dir = TestDir::new("bios-prefix");
+    dir.file("neogeo/neogeo2.zip");
+    dir.file("neogeo/neogeo.zip.zip");
+    let catalog = arcade_catalog();
+    let outcome =
+        scan(dir.path(), &catalog, &AtomicBool::new(false), &mut |_| {}).expect("the scan");
+    assert_eq!(names(&outcome.index, "neogeo"), ["neogeo.zip", "neogeo2"]);
+    assert_eq!(outcome.report.bios_sets, 0);
+}
+
+#[test]
+fn a_refresh_keeps_bios_sets_hidden() {
+    let dir = TestDir::new("bios-refresh");
+    dir.file("arcade/neogeo.zip");
+    dir.file("arcade/mslug.zip");
+    let catalog = arcade_catalog();
+    let first = scan(dir.path(), &catalog, &AtomicBool::new(false), &mut |_| {}).expect("the scan");
+    dir.file("arcade/sub/neogeo.zip");
+    let again = refresh(
+        dir.path(),
+        &catalog,
+        &first.index,
+        SystemTime::now(),
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("the refresh");
+    assert_eq!(names(&again.index, "arcade"), ["mslug"]);
+}

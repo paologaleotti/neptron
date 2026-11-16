@@ -53,6 +53,7 @@ The cache file belongs on the state partition (ext4), for example `state/cache/l
 | Nested folders | Read down to 8 levels below the system folder. Their games join the system list; the path keeps the subfolder. |
 | Game files | Regular files whose extension the system accepts, with no regard to ASCII case. The name is the file name with no extension. |
 | `.zip` files | One game each, listed by the file name with no extension, like any other ROM. The scan never opens the archive; the core host reads it at launch. `Game::is_zip()` tells an archive from a plain file by the extension, so the index and the cache need no extra field. |
+| BIOS sets | A file whose name with no extension is a BIOS set of the system's core (`Catalog::is_bios_set`, for example `neogeo` for FinalBurn Neo) is not a game. The scan counts it in `ScanReport::bios_sets`. The match ignores ASCII case. The table of BIOS sets is in `catalog.rs`. For FinalBurn Neo it holds every set that the arcade DAT of the pinned commit marks `isbios="yes"` (14 sets); a new pin can change it. |
 | Unknown extensions | Skipped and counted. This includes `.7z`, which NEPTRON does not read. |
 | Hidden entries | A name that starts with `.` is skipped. This also skips the `._` files that macOS writes on exFAT. |
 | Symbolic links | Not followed, for files and folders. A link cannot make a loop or show a game twice (RetroPie links `genesis` to `megadrive`). exFAT has no links. |

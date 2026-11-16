@@ -139,6 +139,20 @@ pub enum CatalogError {
     },
 }
 
+/// The BIOS sets of each core, by core id. The scan hides them, so a BIOS
+/// file in a game folder does not show as a game that cannot start.
+/// FinalBurn Neo looks for a BIOS set in the folder of the game first, so
+/// users put it there.
+const BIOS_SETS: &[(&str, &[&str])] = &[(
+    "fbneo",
+    // Every set with `isbios="yes"` in the arcade DAT of the commit that
+    // `os/package/libretro-fbneo` pins. A new pin can change the list.
+    &[
+        "atarisy1", "bubsys", "cchip", "decocass", "isgsm", "midssio", "namcoc69", "namcoc70",
+        "namcoc75", "neogeo", "nmk004", "pgm", "skns", "ym2608",
+    ],
+)];
+
 const BUILTIN_SYSTEMS: &[Source<'static>] = &[
     Source {
         name: "nes",
@@ -221,6 +235,21 @@ impl Catalog {
         self.cores
             .iter()
             .find(|c| c.systems.iter().any(|s| s == system))
+    }
+
+    /// True when `stem`, a file name with no extension, names a BIOS set
+    /// of the core of `system`: a file that the core reads for other
+    /// games and that is not a game itself. The match ignores ASCII case,
+    /// as exFAT does.
+    pub fn is_bios_set(&self, system: &str, stem: &str) -> bool {
+        let Some(core) = self.core_for(system) else {
+            return false;
+        };
+        BIOS_SETS
+            .iter()
+            .filter(|(id, _)| *id == core.id)
+            .flat_map(|(_, sets)| sets.iter())
+            .any(|set| set.eq_ignore_ascii_case(stem))
     }
 }
 
