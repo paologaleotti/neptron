@@ -412,15 +412,15 @@ To make the table again: `cargo xtask test -p neptron-modeline --no-capture arca
 
 #### The main cases
 
-DoDonPachi (240x320 upright, 57.55 Hz) and the 480x640 board (Ikaruga, 60 Hz). "Proposed" is the rule set below with its recommended defaults.
+DoDonPachi (240x320 upright, 57.55 Hz) and the 480x640 board (Ikaruga, 60 Hz). "Proposed" is the rule below, without the panel rule R8 of 2026-11-16.
 
 | Display | DoDonPachi today | DoDonPachi proposed | 480x640 today | 480x640 proposed |
 | --- | --- | --- | --- | --- |
 | 15 kHz (`generic_15`) | 448i, 320 lines 1:1, 57.550 Hz, 71 % of the lines, right shape | The same | Fit into 480i, 0.75, soft, stretched to 4:3 | Fit into 480i, 0.75, soft, right shape, `fitted` notice. No exact mode exists |
 | 31 kHz only (`edid_31`) | 520p, 320 lines 1:1, 57.550 Hz, 62 %, right shape | The same | Fit into 509p, 0.80, soft, stretched | Fit into 509p, 0.80, soft, right shape. No exact mode exists |
 | Multi-sync to 54 kHz (`edid_30_54`) | 2x, 640p at 38.2 kHz, 57.550 Hz, full height, stretched to 4:3 | 2x, 640p, 427 pixels wide, right shape | 1x, 640p at 39.9 kHz, stretched | 1x, 640p, 853 pixels wide, right shape |
-| Multi-sync to 96 kHz (`edid_30_96`) | 2x, 640p, stretched; 4x 1280p is possible | 2x, 640p, right shape (or 4x, 1280p at about 76 kHz: open point A7) | 1x, 640p, stretched; 2x 1280p is possible | 1x, 640p, right shape (or 2x, 1280p: A7) |
-| Panel 1080p | 3x, 720x960, nearest, 89 %, +4.26 % speed | The same | 1x, 480x640, nearest, 59 % | The same, with the small-picture notice (A9) |
+| Multi-sync to 96 kHz (`edid_30_96`) | 2x, 640p, stretched; 4x 1280p is possible | 2x, 640p, right shape: the smallest multiple that fills (A7) | 1x, 640p, stretched; 2x 1280p is possible | 1x, 640p, right shape (A7) |
+| Panel 1080p | 3x, 720x960, nearest, 89 %, +4.26 % speed | The same | 1x, 480x640, nearest, 59 % | The same, with the small-picture notice (decided, A9) |
 | Panel 4K | 6x, 1440x1920, nearest, 89 % | The same | 3x, 1440x1920, nearest, 89 % | The same |
 | Composite NTSC | 480i, 320 lines 1:1, 67 %, +4.15 % speed | The same | Fit into 240p, 0.38, soft | Fit into 480i, 0.75, soft, right shape |
 
@@ -432,14 +432,31 @@ DoDonPachi (240x320 upright, 57.55 Hz) and the 480x640 board (Ikaruga, 60 Hz). "
 4. **Rate (rule `rate`).** Little Robin (30.00 Hz) runs 33 % to 67 % fast on every CRT: no range covers 30 Hz, so the target is the nearest rate a range covers (`Nearest`). Every range covers 60 Hz, where each frame shows twice at the right speed. With `exact`, `refresh_targets` offers twice the rate only for the `native` style (`native_double_target`). A panel and a TV already show each frame twice (`repeat` 2).
 5. **TV fit (rule `soft fit`).** A board taller than the interlaced mode (Gain Ground 496 lines, the 480x640 board) gets the fit into the progressive mode (0.48 and 0.38 of its lines) and not into the interlaced mode (0.97 and 0.75). `tv_plan` puts the fitted rung on the progressive mode only.
 6. **TV width (rule `shape`).** On PAL, 224-line boards are 18.7 % too wide and 256-line boards 3.9 % too wide. On NTSC, a 240-line board is 9.1 % too narrow and a 256-line board 6.2 % too narrow (the width stops at the 704 safe samples). The `aspect` width rule gives a 4:3 source of 224 to 240 lines the console width (644 or 650 samples), because a console does not fill the line. An arcade board fills its monitor. OP-099 covers the Neo Geo on NTSC only.
-7. **Smaller scale (rule `smaller scale`).** On a multi-sync tube a horizontal board gets 2x (full height) where 3x or 4x also keep the rate; on a tube with 15 kHz and 31 kHz ranges it gets 1x on 15 kHz where 2x on 31 kHz keeps the rate; Bonanza Bros gets 1x where 2x to 4x keep the rate. On a CRT these give the same picture size (open point A7).
+7. **Smaller scale (rule `smaller scale`).** On a multi-sync tube a horizontal board gets 2x (full height) where 3x or 4x also keep the rate; on a tube with 15 kHz and 31 kHz ranges it gets 1x on 15 kHz where 2x on 31 kHz keeps the rate; Bonanza Bros gets 1x where 2x to 4x keep the rate. On a CRT these give the same picture size, and the smallest multiple that fills is the rule (A7).
 8. **Borders that the rule accepts.** A 320-line board on a 31 kHz-only tube is 1:1 in 482 to 520 lines (62 % to 66 %); Pac-Man is 288 lines in 473 to 506 (57 % to 61 %); Donkey Kong is 256 lines in 479 on `arcade_31` (53 %). No whole multiple above 1 fits these tubes, and the overscan crop (8 lines per edge at most) does not reach it. The rule refuses a soft fit, so these stay. On a 1080p panel the 480x640 board is 1x, 59 % of the height.
 9. **15 kHz mode size.** The interlaced 1:1 mode on a 15 kHz preset is 448i, the smallest interlaced mode of the range, not 480i. The game's lines are the same on the tube: the rest of the field is black lines or blanking. The rule holds.
 10. **Panel filter.** On a panel the vertical scale is whole and nearest. The horizontal scale is whole only when the board's pixels are square at that scale (DoDonPachi 3x: 720 pixels for 240). Gunbird (224 pixels, 3:4 at 320 lines) gets 720 pixels at 3x, 3.21 times its width, with sharp bilinear on that axis. This is the present panel rule for every source with pixels that are not square.
 
 The goldens of `tests/golden/policy_arcade.toml` hold the 319 cells that follow the rule today. The other cells are the work of the policy change below.
 
-### The proposed rule
+### The decisions of 2026-11-16
+
+The owner decided the open points of the first version of this section (A7 to A13) on 2026-11-16. The rule below holds them:
+
+| Item | Decision |
+| --- | --- |
+| CRT multiple (A7) | The smallest whole multiple that fills the screen. The picture styles `3x` and `4x` still ask for more |
+| Interlace | Never an interlaced mode, and never any mode, that the monitor profile does not declare. Interlace is allowed on composite TV and on a profile that declares it (the 15 kHz and 25 kHz ranges). Nothing widens a profile range or a validator limit |
+| Border too big (A8) | A picture below 60 % of the screen height. Below it, an interlaced 1:1 mode that fills more wins where the profile declares interlace; else the small exact picture stays. The policy never falls to a soft fit on its own when an exact mode exists |
+| Flat panel, every game (A9) | When the scale that fills the height is 4.0 or more, the game fills the height, sharp bilinear, with its shape kept. Under 4.0 it takes the largest whole multiple that fits. The value `integer` of `display.panel_scale` forces whole multiples at every scale. A picture below 60 % of the height at 1x keeps 1x, with a notice |
+| TV width (A10) | The systems `arcade` and `neogeo` fill the TV width by their aspect (a board fills its monitor), not by the console width rule |
+| Double refresh (A11) | A board below every CRT range gets double refresh, each frame shown twice, for every style |
+| `display.vertical` (A12) | The values `exact` (default) and `fit`, on a CRT, a TV and a panel |
+| Task order (A13) | The policy change is done on the branch of M08b, before M08a |
+| Notices | Every result that is not exact tells the user through the notice of the quick menu: a soft picture because no exact mode exists (with the reason), a small picture, a speed change, double refresh. The policy returns them as data |
+| Vertical games | A vertical game on a horizontal display is the best possible case: no odd modes and no odd default scaling. TATE is the right answer later (OP-107); it is not designed here |
+
+### The rule
 
 The rule applies to every arcade source and, where it says so, to a turned source. It decides in the policy and gives the validator every mode, as today. It widens no limit: every mode stays inside a range of the profile, an interlaced mode needs an interlaced window of the range, and `neptron_safety::validate` judges every proposal.
 
@@ -451,11 +468,12 @@ Terms: `h` is the game's lines after the turn, `r` its rate, `a` its display asp
 
 **R3. Ranges on a CRT.** Each range is its own window. For each rung and each range that covers the rate, the policy shapes the mode inside that range: its own minimum (for the border), its own capacity (for the multiple and the crop), its own interlaced window (for rung 3). Rung 3 is open when the game's lines do not fit the progressive capacity of every range, or when the interlaced mode fills more than every progressive exact mode that is below the fill threshold (R4).
 
-**R4. Order on a CRT.** Among exact modes at one target:
+**R4. Order on a CRT.** Among exact modes at one target (the fill thresholds are `PADDED_FILL_MIN_PERCENT`, 75 %, and `SMALL_PICTURE_MIN_PERCENT`, 60 %):
 
-1. Progressive modes with a fill of at least `ARCADE_FILL_MIN_PERCENT` (proposed 60 %). Among them, the smallest whole multiple (A7).
-2. Interlaced 1:1 modes with a fill of at least 60 %.
-3. Every other exact mode, the fuller first, with the small-picture notice.
+1. Exact modes that are not padded (fill of 75 % or more), in ladder order: the smallest whole multiple that fills the screen first (decided, A7), then rung 3.
+2. Exact modes with an overscan crop.
+3. Progressive exact modes with a fill of at least 60 %, the fuller first.
+4. Every other exact mode, interlaced 1:1 included, the fuller first. A mode below 60 % carries the small-picture notice.
 
 The present order of the targets holds above this. The fit comes after every exact mode at every target. With `display.vertical = exact` it carries the `fitted` notice and keeps the shape (R1).
 
@@ -472,9 +490,9 @@ So on 15 kHz a 320-line board is interlaced 1:1 (448i or 480i, 71 %); on 25 kHz 
 - On a panel: the largest whole scale (1x on 720p to 1080p, 2x on 1440p, 3x on 4K).
 - On a TV: the fit into 480i (0.75) or 576i (0.90), not into 240p or 288p (R7).
 
-**R7. TV.** The fit of a board taller than the interlaced mode goes into the interlaced mode. An arcade board (the systems `arcade` and `neogeo`) gets the aspect width (`aspect x lines x 2.2` on 525 lines, `x 1.8333` on 625 lines, at most 704 samples), not the console width (A10). The rest of the TV rules hold: lines 1:1, the crop up to 8 lines per edge, the speed alert.
+**R7. TV.** The fit of a board taller than the interlaced mode goes into the interlaced mode. An arcade board (the systems `arcade` and `neogeo`) gets the aspect width (`aspect x lines x 2.2` on 525 lines, `x 1.8333` on 625 lines, at most 704 samples), not the console width (decided, A10). The rest of the TV rules hold: lines 1:1, the crop up to 8 lines per edge, the speed alert.
 
-**R8. Panel.** The largest whole vertical scale at which the game fits the preferred mode, nearest on that axis, centred (the present rule). Below 60 % of the height (the 480x640 board on 720p to 1080p) the small-picture notice shows; `display.vertical = fit` gives the fitted scale. The panel never gets a mode that its own scaler stretches.
+**R8. Panel, every game.** Let `s` be the scale at which the game, at its aspect, fills the height of the preferred mode (or its width, when the width is reached first), in thousandths. When `s` is at least `PANEL_FILL_MIN_SCALE_MILLI` (4,000), the game fills that height, centred, with its shape kept, sharp bilinear. Under 4,000 it takes the largest whole vertical multiple that fits, nearest on that axis, centred (the rule before 2026-11-16). `display.panel_scale = integer` takes the largest whole multiple at every scale. Below 60 % of the height at 1x (the 480x640 board on 720p to 1080p) the picture stays 1x with the small-picture notice; `display.vertical = fit` fills the height for a turned game. The panel never gets a mode that its own scaler stretches.
 
 **R9. Horizontal boards.** They differ from consoles in four points, and the rest of the console rules hold:
 
@@ -501,6 +519,32 @@ Each item changes `crates/neptron-modeline/src` and is not part of M08b:
 | W8 | | `display.vertical` (below) | |
 
 W1 and W4 are small and change nothing that the rule wants kept. W1 must come before a turned game shows (M08a): today a turned game on a multi-sync tube or on a fit would show stretched.
+
+### The notices
+
+The policy returns the reason for every result that is not exact as data: `Notice::reasons`, a list of `NoticeReason` values, beside the flags that `Notice` already holds. The app shows them in the quick menu with the other notices. The app texts (the app owns them):
+
+| `NoticeReason` | When | Proposed text |
+| --- | --- | --- |
+| `Soft(NoExactMode::TooTall { lines, capacity })` | The game's lines do not fit any mode of the profile at its rate | "Soft picture: this screen cannot show the game's {lines} lines (at most {capacity})." |
+| `Soft(NoExactMode::NoInterlace { lines })` | The game needs an interlaced mode, and the profile declares none | "Soft picture: the game needs {lines} lines, and this monitor profile has no interlaced mode." |
+| `Soft(NoExactMode::NoRate)` | No exact mode at any rate the profile covers | "Soft picture: no sharp mode at this game's rate." |
+| `Soft(NoExactMode::Chosen)` | `display.vertical = fit` | "Soft picture: Vertical games is set to Fit." |
+| `Soft(NoExactMode::PanelFill { scale_milli })` | A panel fills the height at 4.0 or more | No notice: this is the panel rule |
+| `SmallPicture { fill_permille }` | Below 60 % of the screen height | "Small picture: the game uses {fill} % of the screen height, to stay sharp." |
+| `SpeedChange { game_mhz, shown_mhz }` | The game runs at another rate | "The game runs at {shown} Hz, not {game} Hz: {percent} % speed." |
+| `DoubleRefresh` | Each frame shows twice | "Each frame shows twice at {shown} Hz. The game speed does not change." |
+
+### The setting `display.panel_scale`
+
+| Key | `display.panel_scale` |
+| --- | --- |
+| Label | Panel scale |
+| Choices, in menu order | `auto` (default): rule R8. `integer`: the largest whole multiple at every scale |
+| Levels | game, system, global (`Levels::ALL`) |
+| Applies to | A flat panel only |
+| Safety | `Validated` |
+| Help text | "How a game fills a flat panel. Auto fills the height when the picture is large, and uses whole steps when it is small. Integer always uses whole steps, with black borders." |
 
 ### The setting `display.vertical`
 
@@ -645,11 +689,11 @@ M06 is this spec and ADRs 0014, 0015 and 0016. The tasks below replace M07 and M
 | M07b, package and data | `os/package/libretro-fbneo`: pinned commit, sha256, `platform=unix-rpi3_64` on the Pi and `unix` with `USE_X64_DRC=1` on the PC (the Batocera settings, research reading), `license.txt` verbatim and the licence texts of the third-party parts in each built `.so` (ADR 0014). `LICENCES.txt` lines for the core and for the arcade index. Build time and `.so` size measured and recorded. The three data files (section 4), the embed list, `-` in option keys, the `always_progressive` key. Core traces of free sets: the ROMs stay outside the repository (OP-053 rule), the traces go into `tests/traces`, where the catalog test reads them with `include_str!`. A trace of a missing-ROM case. The README of `data/systems` and `data/cores` | `os/package/libretro-fbneo`, `os/Config.in`, `os/configs`, `os/board/*/LICENCES.txt`, `xtask/src/os`, `data/systems`, `data/cores`, `crates/neptron-library/src/catalog*`, `tests/traces` | M07a (for the trace; the package work can start at once, the merge waits) |
 | M07c, library and set check | The index format, reader and encoder (`neptron-library`, module `arcade`). `cargo xtask arcade-index`. The index in the image. The scan lookup: title, folding, BIOS hidden, marks. The cache version. The set check, its thread `neptron-set-check` and its messages. "Other versions" in the list. The diagnostics lines (`mame` folders, unknown sets, the index state, the full check list) | `crates/neptron-library` (except `catalog*`), `xtask/src/arcade*`, `xtask/src/main.rs`, `xtask/Cargo.toml`, `os/package/libretro-fbneo` (install hook), `crates/neptron-ui`, `apps/neptron` | M07a, M07b, and the orchestrator's `build(deps)` commit for the XML reader in the root `Cargo.toml` |
 | M08b, arcade policy table and goldens | The policy table of section 11 and Appendix A (`tests/integration/arcade_table.rs`), made from the policy as it is. The owner's rule, the findings, the proposed rule set and `display.vertical`, in section 11. Policy goldens (`tests/golden/policy_arcade.toml`) for every cell that follows the rule, and a test that a turn of 270 degrees gives the decision of 90, and 180 that of 0. No change of the policy source | `crates/neptron-modeline/tests`, `docs/spec/arcade.md` | M06 |
-| M08c, arcade video rule | The work items W1 to W8 of section 11, after the owner decides A7 to A12. Every golden that the rule changes, with the reason in the commit; the cells of Appendix A that break the rule become goldens | `crates/neptron-modeline/src`, `crates/neptron-modeline/tests`, `crates/neptron-modeline/README.md` | M08b |
+| M08c, arcade video rule | The work items W1 to W8 of section 11, the panel rule R8, `display.panel_scale` and the notices as data, with the decisions of 2026-11-16. Done on the branch of M08b. Every golden that the rule changes, with the reason in the commit; the cells of Appendix A that follow the rule become goldens | `crates/neptron-modeline`, `crates/neptron-settings`, and the callers of the settings | M08b |
 | M08a, rotation | ADR 0015: `Scene::rotation`, both renderers, every `Scene` caller, the testkit hash, `gles-compare` scenes with `R90`, `R180` and `R270`. The session: the source rotation, the aspect inversion (section 11), `always_progressive`. The setting `display.vertical` and its policy effect. The notice and its store | `crates/neptron-types`, `crates/neptron-gfx`, `crates/neptron-testkit`, `crates/neptron-video`, `crates/neptron-session`, `crates/neptron-modeline/src`, `crates/neptron-settings`, `crates/neptron-ui`, `crates/neptron-kms/src/kms/mode.rs`, `crates/neptron-kms/examples`, `crates/neptron-window/examples`, `apps/neptron`, `apps/neptronctl`, `docs/adr` | M07a, M07b, M07c, M08b |
 
 - Build order: M07a; then M07b; then M07c and M08b; then M08c; then M08a. M08b needs only M06 and can start at once.
-- M08a needs at least W1 of M08c: without it a turned game shows stretched on a multi-sync tube and on every fit. The proposal is that M08c merges before M08a, and that M08a builds `display.vertical` (W8) on the rule of M08c. This is open point A13.
+- M08a needs W1 of M08c: without it a turned game shows stretched on a multi-sync tube and on every fit. M08c is done on the branch of M08b and merges with it, before M08a (decided 2026-11-16). M08c adds `display.vertical` to the schema and to the policy; M08a passes the source rotation, which makes it take effect.
 - M08a needs M07c because both own `crates/neptron-ui` and `apps/neptron`.
 - M08a needs M08b because both touch `neptron-modeline`: M08a its source, M08b its golden tests. If M08a adds a field to `PolicySettings` (for `display.vertical`), every golden case must set it. M08b merges first, and M08a rebases onto it and fixes the golden cases it then breaks, with no change of an expected result.
 - M13 (the bench sessions) needs M07c and M08a in place of M07.
@@ -685,7 +729,7 @@ The results go into `docs/hardware-checklist.md` through M13. No hardware result
 | The donation clause of the FBNeo licence | ADR 0014: the project takes no donations; a later plan removes FBNeo first |
 | FBNeo's own error screen when a set passes the check and still fails | The check before launch; the session ends the game at `SHUTDOWN` |
 | 480i on Intel and on the Pi `vc4` not proven (OP-103 point 5) | The bench session checks it. `display.vertical = fit` is the way out |
-| A turned game shows stretched on a multi-sync tube and on every fit (section 11, finding 1) | W1 of M08c before M08a (A13) |
+| A turned game shows stretched on a multi-sync tube and on every fit (section 11, finding 1) | W1 of M08c, before M08a |
 | A display profile with a range of one line rate gets no mode for some boards (section 11, finding 3) | W3 of M08c. The validator refuses the mode, so nothing unsafe reaches the display |
 | Build time and image size: the full FBNeo build is large (a 21.4 MB zip on the libretro buildbot) | M07b measures both. The subset builds are the later size option |
 | The core's NVRAM writes are not atomic | Recorded. A patch to the core is a later item |
@@ -705,13 +749,8 @@ These are questions with a default. The orchestrator records each in `docs/open-
 | A4 | Where does the frontend keep the one-time notices it has shown? | `state/config/notices.toml`, atomic write | `apps/neptron` | A settings key, or another state file |
 | A5 | PAL composite runs arcade boards 9 to 16 % slow. Accept for 0.1? | Accept, with the speed alert, as for NTSC | `crates/neptron-modeline/src/policy/tv.rs` | The "keep game speed" choice |
 | A6 | TATE: `screen_orientation` with one `vertical` choice and a direction, or two choices? | Decided by the TATE task with the owner | `crates/neptron-settings` | The TATE ADR |
-| A7 | On a CRT, which whole multiple when several fill the screen at the game's rate (a multi-sync tube: 2x, 3x or 4x of a 320-line board)? | The smallest multiple that fills at least `ARCADE_FILL_MIN_PERCENT`. On a CRT every multiple that fills gives the same picture size; the smallest keeps the line structure of the board, the lowest line rate and pixel clock, and the margin under the limits of an old tube. The picture styles `3x` and `4x` ask for more | `crates/neptron-modeline/src/policy/crt.rs` (the order key) | The largest multiple that keeps the rate, as the owner's words say it |
-| A8 | Below which fill is a border "too big"? | 60 % of the picture lines (`ARCADE_FILL_MIN_PERCENT`). Below it, an interlaced 1:1 mode that fills more wins over a progressive one, and the small-picture notice shows. Never a soft fit | `crates/neptron-modeline/src/policy` | Another percentage. 65 % makes a 320-line board on `arcade_15_31` interlaced on 15 kHz (71 %) instead of progressive on 31 kHz (64.5 %) |
-| A9 | A panel where 1x fills less than 60 % (the 480x640 board on 720p to 1080p, 59 % to 89 %): keep 1x? | Keep 1x, nearest, with the small-picture notice. `display.vertical = fit` gives the fitted scale | `crates/neptron-modeline/src/policy/panel.rs` | The fit by default below the threshold |
-| A10 | The TV width of an arcade board: the console width or the aspect width? | The aspect width for the systems `arcade` and `neogeo`: a board fills its monitor | `crates/neptron-modeline/src/policy/tv.rs`, the systems data | The console width, as today |
-| A11 | A board below every CRT range (Little Robin, 30 Hz): double refresh? | Yes: twice the rate before the nearest rate, for every style, so the game keeps its speed | `crates/neptron-modeline/src/policy/refresh.rs` | The nearest rate, as today |
-| A12 | The choices of `display.vertical` | `exact` (default) and `fit`, on every display | `crates/neptron-settings`, `crates/neptron-modeline/src/policy` | The first version: `interlaced` and `fitted`, for 15 kHz only |
-| A13 | Order of the tasks: the arcade video rule before the rotation? | M08c (at least W1) merges before M08a | `docs/taskboard.toml` | M08a takes W1 into its own scope |
+
+The owner decided A7 to A13 on 2026-11-16. Section 11 ("The decisions of 2026-11-16") holds the decisions.
 
 ## Appendix A: the arcade policy table
 
