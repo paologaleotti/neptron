@@ -340,32 +340,189 @@ FBNeo draws a vertical game as the board draws it, on its side, and calls `SET_R
 - So for `R90` and `R270`, **and only when the core reported the aspect** (`GameGeometry::aspect_from_core`, section 8.6), the session sets `aspect_milli = round(1_000_000 / core_aspect_milli)`. DoDonPachi: the core gives 750, the source gets 1,333, the policy gets 750 back for 240x320.
 - When the core gives no aspect (0 or less), the host falls back to the base width over the base height (`crates/neptron-libretro/src/geometry.rs`). That value is already the shape of the frame as drawn, so the session keeps it. A turned 320x240 frame then gets 1,333, and the policy gives the upright 240x320 picture square pixels.
 - The research does not cover this step; without it a vertical game is placed with the inverse shape.
-- The policy places the upright picture as it does today: it swaps the axes and treats the long side as lines.
+- The policy places the upright picture by the rule below: it swaps the axes, treats the long side as lines, and keeps the shape of the upright picture.
 - `Scene` carries the rotation, and both renderers turn the game picture (ADR 0015). The UI canvas is never turned.
 - `data/cores/fbneo.toml` pins `fbneo-vertical-mode = "disabled"`, the core's default, so that the turns and the aspect above do not change if the core's default changes.
 
-### The setting for a 15 kHz screen
+### The owner's rule
 
-A vertical game has 256 to 320 lines on its long side. A horizontal 15 kHz CRT holds about 240 progressive lines. The Definition makes an interlaced mode with the game's lines 1:1 the default.
+The owner decided the video rule for arcade games on 2026-11-16. In substance:
+
+- A sharp picture comes first. A soft picture is worse than a border.
+- A game is never stretched. It keeps its shape on every display.
+- Black borders above and below are acceptable when they are not too big. The owner does not like large borders, but he likes a soft picture less.
+- On a 15 kHz screen a vertical game is 480i, with its lines 1:1.
+- On a VGA CRT or a flat panel more modes exist, so the policy chooses a better fit: the largest whole-number scale of the game's lines that the display can show at the game's own rate, also when that mode has more lines than the 480p that a horizontal game gets.
+- On a CRT the horizontal scale is free (the signal is analog). The policy chooses the mode width for the right shape. Only the line count must be a whole multiple of the game's lines.
+- A soft "fit" is only an opt-in value of the setting.
+
+### The reference boards
+
+The policy table (next section) runs these boards. The size is the frame as the core draws it, and the turn is the one the core asks for. Unless the source names MAME, the size is the one of the FBNeo driver entry and the rate is the one FBNeo reports: its `BurnSetRefreshRate` value cut to 0.01 Hz, or 60.00 Hz when the driver sets no rate (`nBurnFPS` starts at 6000 in `burn.cpp`). The drivers were read at `libretro/FBNeo` master on 2026-11-16, and the MAME drivers at `mamedev/mame` master on the same day.
+
+| Name in the table | Game, board | Frame, turn | Upright | Rate | Source |
+| --- | --- | --- | --- | --- | --- |
+| `ddonpach` | DoDonPachi, Cave 68000 | 320x240, R90 | 240x320 | 57.55 Hz | `d_dodonpachi.cpp`, `CAVE_REFRESHRATE` 15625 / 271.5 |
+| `batsugun` | Batsugun, Toaplan 2 | 320x240, R90 | 240x320 | 59.63 Hz | `d_batsugun.cpp`, `TOA_REFRESHRATE` 59.637405 |
+| `gunbird` | Gunbird, Psikyo | 320x224, R90 | 224x320 | 59.29 Hz | `d_psikyo.cpp`, 15625 / 263.5 |
+| `gunlock` | Gunlock, Taito F3 | 320x224, R270 | 224x320 | 58.94 Hz | `d_taitof3.cpp`, vertical and flipped, 58.943844 |
+| `pacman` | Pac-Man | 288x224, R270 | 224x288 | 60.00 Hz | `d_pacman.cpp`: no rate set |
+| `pacman_60606` | Pac-Man at the board's rate | 288x224, R270 | 224x288 | 60.606 Hz | MAME timing, 6.144 MHz / 384 / 264 (`tests/golden/systems.toml`) |
+| `dkong` | Donkey Kong | 256x224, R270 | 224x256 | 60.00 Hz | `d_dkong.cpp`: no rate set |
+| `gground` | Gain Ground, Sega System 24 | 496x384, R270 | 384x496 | 57.524 Hz | MAME `segas24.cpp`: ROT270, 16 MHz / 656 / 424; 24.39 kHz |
+| `ikaruga` | Ikaruga, NAOMI | 640x480, R270 | 480x640 | 60.00 Hz | MAME `naomi.cpp`: ROT270. The rate is the nominal VGA rate. UNVERIFIED: the MAME raw screen (26.917 MHz, 820 by 532) gives 61.70 Hz |
+| `neogeo` | Neo Geo MVS | 304x224, R0 | | 59.18 Hz | section 12; the width is the research reading of OP-099 |
+| `cps2` | CPS-1 and CPS-2 | 384x224, R0 | | 59.63 Hz | section 12 |
+| `pwrinst2` | Power Instinct 2, Cave 68000 | 320x240, R0 | | 57.55 Hz | `d_pwrinst2.cpp` |
+| `dariusg` | Darius Gaiden, Taito F3 | 320x232, R0 | | 58.94 Hz | `d_taitof3.cpp` |
+| `rtype` | R-Type, Irem M72 | 384x256, R0 | | 55.00 Hz | `d_m72.cpp` |
+| `mk` | Mortal Kombat, Midway Y Unit | 400x256, R0 | | 54.70 Hz | `d_yunit.cpp`: 54.70, or 54.82 for a 400-line screen |
+| `sfiii3ws` | Street Fighter III 3rd Strike, CPS-3 wide mode | 496x224, R0 | | 59.59 Hz | `cps3run.cpp`: 59.59949; the normal mode is 384x224 |
+| `bnzabros` | Bonanza Bros, Sega System 24 | 496x384, R0 | | 57.524 Hz | MAME `segas24.cpp`: ROT0 |
+| `littlerb` | Little Robin | 338x288, R0 | | 30.00 Hz | `d_littlerb.cpp` |
+
+Notes on the owner's candidates:
+
+- Mortal Kombat is 400x256 in FBNeo, not 400x254, at 54.70 Hz.
+- Pac-Man, Galaga and Donkey Kong: FBNeo sets no rate for them, so it reports 60.00 Hz. The boards run at 60.606 Hz. The game then runs 1 % slower than the board on every display, also on a CRT that shows 60.00 Hz exactly. The policy cannot know the board's rate. `pacman_60606` shows the result for a core that reports the board's rate. Galaga (224x288) gives the same cells as Pac-Man.
+- Radiant Silvergun: MAME `stv.cpp` lists `rsgun` as ROT0, so it is not a vertical board. ST-V has no FBNeo driver. It is not in the table.
+- Rainbow Islands (`d_taitomisc.cpp`, 320x224, no rate set, so 60.00 Hz) gives the same cells as other 224-line boards at 60 Hz. It is not in the table.
+- A horizontal board of 288 lines: the only ones in FBNeo are Little Robin and its clone (338x288). Little Robin reports 30.00 Hz, so it is also the case of a board below every CRT range.
+- 24 kHz boards: Sega System 24 is the medium-resolution case (496x384 at 24.39 kHz). Gain Ground and Scramble Spirits are System 24 boards that are vertical (ROT270): 496 lines upright. No FBNeo driver exists for System 24, so these need a MAME core, after the MVP.
+- No board in the list runs above 60.606 Hz. NAOMI is the 31 kHz board.
+
+### The policy today: the table
+
+`crates/neptron-modeline/tests/integration/arcade_table.rs` runs each board through `decide` and `choose` with `neptron_safety::validate`, with the default settings (`auto`, `exact`), on these displays:
+
+- Every preset of `data/monitors`, with a GPU that has no pixel clock floor and sends interlace, as the policy goldens do. A pixel clock floor changes the width of a mode, not its lines.
+- Four profiles that `profile_from_edid` builds from the range limits of typical PC tubes (one range, GTF porches, no interlace), with the GPU's pixel clock limited to the EDID's: `edid_31` (31 to 32 kHz, 50 to 75 Hz, 40 MHz), `edid_30_54` (30 to 54 kHz, 50 to 120 Hz, 80 MHz), `edid_30_70` (30 to 70 kHz, 50 to 160 Hz, 110 MHz), `edid_30_96` (30 to 96 kHz, 50 to 160 Hz, 230 MHz). The test copies the GTF rule of `neptron-platform`, and a test holds the copy to the platform's result for a 30 to 71 kHz tube.
+- Flat panels with their 60 Hz mode: `panel_720`, `panel_768`, `panel_1080` (the panel of the policy goldens, which also lists 50 Hz and 720p), `panel_1440`, `panel_2160`.
+- `tv_ntsc` and `tv_pal`, on the composite output of the Raspberry Pi.
+
+To make the table again: `cargo xtask test -p neptron-modeline --no-capture arcade_table`. Appendix A holds the whole table. The columns:
+
+- Rung, mode (active size and scan), total lines (a frame of both fields when interlaced), line rate and field rate of the winner.
+- Rate: `exact` when the field rate is the game's rate within 5 mHz, `exact x2` at twice it; else the refresh kind and the speed change. On a panel and a TV, the speed change.
+- Scale: the vertical scale, whole or a fraction for a fit. Filter: of the game picture.
+- Height: the game's share of the active lines of the mode. Border: the black lines of the mode.
+- Shape: the shape on the screen against the game's own shape. A CRT shows its active area on a 4:3 face, a TV shows 704 of its 720 samples as 4:3, a panel has square pixels. +77.8 % is a 3:4 picture stretched to 4:3.
+- Best whole: the largest whole scale that a proposal of the plan has at the game's rate and that the validator accepts.
+- Rule: `ok` when the winner follows the owner's rule; else the first rule it breaks (`no mode`, `soft fit`, `shape` beyond 2 %, `rate` when a range covers the game's rate or twice it, `smaller scale` when a larger whole scale keeps the rate on a CRT).
+
+#### The main cases
+
+DoDonPachi (240x320 upright, 57.55 Hz) and the 480x640 board (Ikaruga, 60 Hz). "Proposed" is the rule set below with its recommended defaults.
+
+| Display | DoDonPachi today | DoDonPachi proposed | 480x640 today | 480x640 proposed |
+| --- | --- | --- | --- | --- |
+| 15 kHz (`generic_15`) | 448i, 320 lines 1:1, 57.550 Hz, 71 % of the lines, right shape | The same | Fit into 480i, 0.75, soft, stretched to 4:3 | Fit into 480i, 0.75, soft, right shape, `fitted` notice. No exact mode exists |
+| 31 kHz only (`edid_31`) | 520p, 320 lines 1:1, 57.550 Hz, 62 %, right shape | The same | Fit into 509p, 0.80, soft, stretched | Fit into 509p, 0.80, soft, right shape. No exact mode exists |
+| Multi-sync to 54 kHz (`edid_30_54`) | 2x, 640p at 38.2 kHz, 57.550 Hz, full height, stretched to 4:3 | 2x, 640p, 427 pixels wide, right shape | 1x, 640p at 39.9 kHz, stretched | 1x, 640p, 853 pixels wide, right shape |
+| Multi-sync to 96 kHz (`edid_30_96`) | 2x, 640p, stretched; 4x 1280p is possible | 2x, 640p, right shape (or 4x, 1280p at about 76 kHz: open point A7) | 1x, 640p, stretched; 2x 1280p is possible | 1x, 640p, right shape (or 2x, 1280p: A7) |
+| Panel 1080p | 3x, 720x960, nearest, 89 %, +4.26 % speed | The same | 1x, 480x640, nearest, 59 % | The same, with the small-picture notice (A9) |
+| Panel 4K | 6x, 1440x1920, nearest, 89 % | The same | 3x, 1440x1920, nearest, 89 % | The same |
+| Composite NTSC | 480i, 320 lines 1:1, 67 %, +4.15 % speed | The same | Fit into 240p, 0.38, soft | Fit into 480i, 0.75, soft, right shape |
+
+#### What the table shows
+
+1. **Stretch (rule `shape`).** A turned board in a CRT mode with no border of the policy's own fills the whole 4:3 width: +77.8 % for a 3:4 picture. This is every multi-sync tube (2x 640p for a 320-line board), `d9400` and `d9800` (240x320p), Donkey Kong on every 15 kHz preset (224x240p to 224x256p), the 496-line Gain Ground on every display that holds 496 lines, and every fit of a turned board. Cause: `shape` (`policy/shape.rs`) gives a mode the board's aspect width (`border_width`) only when the mode is bordered; otherwise `base_width` is the game width, and `crt_placement` fills the width with it. The fitted rung fills the active area (`Vertical::Fill`). A turned board shows correctly today only by chance, in a bordered mode. Some existing goldens of `policy.toml` hold such stretched results for turned systems: `donkey_kong` on `arcade_15`, `pc_31_120` and `edid_npt_0071`; `pacman` on `edid_npt_0071`; `space_invaders` on `generic_15`, `arcade_15`, `arcade_31`, `pc_31_120` and `edid_npt_0071`.
+2. **Soft fit on multi-range presets (rule `soft fit`).** On `arcade_15_25`, `arcade_15_31`, `m3129`, `d9200`, `ms929`, `ms2930`, `r666b` and `pstar`, a 320-line vertical board gets the fit, stretched, although a 25 kHz or 31 kHz range holds 320 lines with a border and the 15 kHz range holds them interlaced 1:1. The 384-line Bonanza Bros gets the fit on `arcade_15_31`, `m3129` and `d9200` the same way. Cause: `progressive_min` and `interlaced_min` take the smallest minimum of all ranges that cover the rate, so 320 lines count as "needs no border"; Switchres then puts the mode in a range whose window starts above 320 lines (`LinesChanged`). Rung 3 drops with `FitsProgressive` because `progressive_capacity` is the largest capacity of all ranges. The policy looks at the ranges as one window, but they have gaps.
+3. **No mode (rule `no mode`).** Gunlock on `arcade_15_25` and `arcade_15_25_31`, the 480x640 board on `arcade_15_25`, `arcade_15_25_31` and `arcade_25`, and Pac-Man at 60.606 Hz on `arcade_25` get no mode at all. The validator refuses each proposal for its line rate: 24.989 kHz and 24.961 kHz on a range of exactly 24.960 kHz. The same cause gives DoDonPachi, Batsugun, Pac-Man and Gain Ground the fit on the `ntsc` preset (checked for DoDonPachi): its interlaced 1:1 mode has 15.734353 kHz against a range of exactly 15.734260 kHz. The validator is right. The policy must propose a mode inside a range whose lowest and highest line rate are equal.
+4. **Rate (rule `rate`).** Little Robin (30.00 Hz) runs 33 % to 67 % fast on every CRT: no range covers 30 Hz, so the target is the nearest rate a range covers (`Nearest`). Every range covers 60 Hz, where each frame shows twice at the right speed. With `exact`, `refresh_targets` offers twice the rate only for the `native` style (`native_double_target`). A panel and a TV already show each frame twice (`repeat` 2).
+5. **TV fit (rule `soft fit`).** A board taller than the interlaced mode (Gain Ground 496 lines, the 480x640 board) gets the fit into the progressive mode (0.48 and 0.38 of its lines) and not into the interlaced mode (0.97 and 0.75). `tv_plan` puts the fitted rung on the progressive mode only.
+6. **TV width (rule `shape`).** On PAL, 224-line boards are 18.7 % too wide and 256-line boards 3.9 % too wide. On NTSC, a 240-line board is 9.1 % too narrow and a 256-line board 6.2 % too narrow (the width stops at the 704 safe samples). The `aspect` width rule gives a 4:3 source of 224 to 240 lines the console width (644 or 650 samples), because a console does not fill the line. An arcade board fills its monitor. OP-099 covers the Neo Geo on NTSC only.
+7. **Smaller scale (rule `smaller scale`).** On a multi-sync tube a horizontal board gets 2x (full height) where 3x or 4x also keep the rate; on a tube with 15 kHz and 31 kHz ranges it gets 1x on 15 kHz where 2x on 31 kHz keeps the rate; Bonanza Bros gets 1x where 2x to 4x keep the rate. On a CRT these give the same picture size (open point A7).
+8. **Borders that the rule accepts.** A 320-line board on a 31 kHz-only tube is 1:1 in 482 to 520 lines (62 % to 66 %); Pac-Man is 288 lines in 473 to 506 (57 % to 61 %); Donkey Kong is 256 lines in 479 on `arcade_31` (53 %). No whole multiple above 1 fits these tubes, and the overscan crop (8 lines per edge at most) does not reach it. The rule refuses a soft fit, so these stay. On a 1080p panel the 480x640 board is 1x, 59 % of the height.
+9. **15 kHz mode size.** The interlaced 1:1 mode on a 15 kHz preset is 448i, the smallest interlaced mode of the range, not 480i. The game's lines are the same on the tube: the rest of the field is black lines or blanking. The rule holds.
+10. **Panel filter.** On a panel the vertical scale is whole and nearest. The horizontal scale is whole only when the board's pixels are square at that scale (DoDonPachi 3x: 720 pixels for 240). Gunbird (224 pixels, 3:4 at 320 lines) gets 720 pixels at 3x, 3.21 times its width, with sharp bilinear on that axis. This is the present panel rule for every source with pixels that are not square.
+
+The goldens of `tests/golden/policy_arcade.toml` hold the 319 cells that follow the rule today. The other cells are the work of the policy change below.
+
+### The proposed rule
+
+The rule applies to every arcade source and, where it says so, to a turned source. It decides in the policy and gives the validator every mode, as today. It widens no limit: every mode stays inside a range of the profile, an interlaced mode needs an interlaced window of the range, and `neptron_safety::validate` judges every proposal.
+
+Terms: `h` is the game's lines after the turn, `r` its rate, `a` its display aspect after the turn. A mode is **exact** when its game lines are `k x h` for a whole `k` (or `h` interlaced, rung 3), its field rate is `r` or `2r` within `REFRESH_MATCH_MHZ`, and its filter is nearest on the vertical axis. The **fill** of a mode is the game's lines over the picture lines of the range at that rate (`Padding::fill_permille`, which already counts the lines that the minimum line rate forces).
+
+**R1. Shape, every display.** The game keeps its display aspect within one pixel. On a CRT the mode width is the width at which the game's lines have the aspect `a` on the 4:3 face: `border_width` for every rung, bordered or not, and for the fit. A turned board is pillarboxed. The game's pixel width stays a whole multiple of its width (native or dynamic super width); only the mode width changes. On a TV and a panel, the present width rules hold, except R7.
+
+**R2. Rates on a CRT.** The targets in order: the asked rate (`exact_x2`, `force_50`, `force_60`) when a range covers it; `r`; `2r` when no range covers `r` and a range covers `2r` (new, every style: the game keeps its speed); the nearest covered rate; the last resort.
+
+**R3. Ranges on a CRT.** Each range is its own window. For each rung and each range that covers the rate, the policy shapes the mode inside that range: its own minimum (for the border), its own capacity (for the multiple and the crop), its own interlaced window (for rung 3). Rung 3 is open when the game's lines do not fit the progressive capacity of every range, or when the interlaced mode fills more than every progressive exact mode that is below the fill threshold (R4).
+
+**R4. Order on a CRT.** Among exact modes at one target:
+
+1. Progressive modes with a fill of at least `ARCADE_FILL_MIN_PERCENT` (proposed 60 %). Among them, the smallest whole multiple (A7).
+2. Interlaced 1:1 modes with a fill of at least 60 %.
+3. Every other exact mode, the fuller first, with the small-picture notice.
+
+The present order of the targets holds above this. The fit comes after every exact mode at every target. With `display.vertical = exact` it carries the `fitted` notice and keeps the shape (R1).
+
+So on 15 kHz a 320-line board is interlaced 1:1 (448i or 480i, 71 %); on 25 kHz it is 1:1 in 384 to 400 lines (80 % to 83 %); on 31 kHz only it is 1:1 in about 500 lines (62 % to 66 %); on a 15 kHz and 31 kHz tube it is 1:1 on 31 kHz (64.5 %, no flicker) before interlaced 1:1 on 15 kHz; on a multi-sync tube it is 2x, 640p, full height.
+
+**R5. When the border is too big.** Below 60 % fill, the next option is an exact interlaced 1:1 mode that fills more, on a range whose profile declares interlace (the 15 kHz and 25 kHz ranges of the presets; no EDID profile and no 31 kHz preset declares it). When no such mode exists, the small exact mode stays, with the small-picture notice. A soft fit is never the next option; it comes only from `display.vertical = fit`.
+
+**R6. When not even 1x fits.** The 480x640 board needs 640 lines at 60 Hz:
+
+- On 15 kHz: no exact mode (the interlaced maximum at 60 Hz is about 480 lines). The fit, 0.75, into the interlaced mode, with the shape kept and the `fitted` notice.
+- On 25 kHz (`arcade_25`, `pstar`): interlaced 1:1, 640 lines in 768i (83 %). Exact, inside the profile.
+- On 31 kHz only: an interlaced 31 kHz mode would give 640 lines 1:1 in about 1,000 lines, but no 31 kHz profile and no EDID profile declares an interlaced window. A profile without one must not get an interlaced mode: that widens a limit. So the fit, 0.80, progressive, with the shape kept and the `fitted` notice. A crop does not help: 640 lines need 66 lines per edge, and the limit is 8.
+- On a multi-sync tube from 40 kHz: 1x, 640p.
+- On a panel: the largest whole scale (1x on 720p to 1080p, 2x on 1440p, 3x on 4K).
+- On a TV: the fit into 480i (0.75) or 576i (0.90), not into 240p or 288p (R7).
+
+**R7. TV.** The fit of a board taller than the interlaced mode goes into the interlaced mode. An arcade board (the systems `arcade` and `neogeo`) gets the aspect width (`aspect x lines x 2.2` on 525 lines, `x 1.8333` on 625 lines, at most 704 samples), not the console width (A10). The rest of the TV rules hold: lines 1:1, the crop up to 8 lines per edge, the speed alert.
+
+**R8. Panel.** The largest whole vertical scale at which the game fits the preferred mode, nearest on that axis, centred (the present rule). Below 60 % of the height (the 480x640 board on 720p to 1080p) the small-picture notice shows; `display.vertical = fit` gives the fitted scale. The panel never gets a mode that its own scaler stretches.
+
+**R9. Horizontal boards.** They differ from consoles in four points, and the rest of the console rules hold:
+
+- An arcade board fills its 4:3 monitor, so on a TV it gets the aspect width (R7).
+- Board rates are 54.70 Hz to 60.606 Hz, and 30 Hz for Little Robin. A CRT shows each rate exactly (R2). A panel and a TV change the speed (section 12).
+- Heights of 256 lines (R-Type, Mortal Kombat) are 1:1 on 15 kHz at 55 Hz and below, and 2x 512 lines on 31 kHz; on NTSC they lose 8 lines per edge.
+- Medium-resolution boards (384 lines, System 24) are interlaced 1:1 on 15 kHz (the present rule), 1:1 on 25 kHz, 1:1 in about 500 lines on 31 kHz (74 % to 77 %), and on a multi-sync tube 1x or 2x by A7.
+
+**R10. Safety.** Nothing in R1 to R9 changes a validator rule, a range, the hard rails or `ValidatedMode`. A change of the mode width, of the range that makes a mode, or of the target rate is a different modeline that the validator judges as today.
+
+### The work for the policy change
+
+Each item changes `crates/neptron-modeline/src` and is not part of M08b:
+
+| Item | Finding | Change | Cells it changes |
+| --- | --- | --- | --- |
+| W1 | 1 | `shape`: `base_width = border_width(...)` for every rung; `overscan_crop` keeps it; `crt_placement` with `Vertical::Fill` places the fit at the aspect width | Every `shape` cell of a CRT; 9 cases of `policy.toml` (finding 1) |
+| W2 | 2 | Shape per range (R3) | Every `soft fit` cell of a multi-range preset |
+| W3 | 3 | Step 5 keeps the line rate of a range with one line rate: the pixel clock and the horizontal total must give that rate within the range | Every `no mode` cell; the `ntsc` cells of finding 3 |
+| W4 | 4 | `refresh_targets`: `2r` before `Nearest` (R2) | Little Robin on every CRT. No existing golden has a rate below 50 Hz |
+| W5 | 5 | `tv_plan`: the fitted rung on the interlaced mode for a game taller than it | Gain Ground and the 480x640 board on NTSC and PAL |
+| W6 | 6 | TV width: an `arcade` flag in the source or the settings, and the aspect width for it | Every arcade cell on a TV; the TV goldens of `neogeo` and `cps1` if the flag covers them |
+| W7 | 7 | R4 order: fill threshold, then the multiple by A7 | `smaller scale` cells, by A7 |
+| W8 | | `display.vertical` (below) | |
+
+W1 and W4 are small and change nothing that the rule wants kept. W1 must come before a turned game shows (M08a): today a turned game on a multi-sync tube or on a fit would show stretched.
+
+### The setting `display.vertical`
 
 | Key | `display.vertical` |
 | --- | --- |
 | Label | Vertical games |
-| Choices, in menu order | `interlaced` (default): lines 1:1 in an interlaced mode, every pixel exact, with interlace flicker. `fitted`: the picture scaled into the progressive mode, soft, with no flicker |
+| Choices, in menu order | `exact` (default): every pixel exact, with the largest picture that a whole scale gives; on 15 kHz and on a TV interlaced, with flicker. `fit`: the picture fills the height of the screen with its shape kept, scaled, soft; on 15 kHz and on a TV progressive, with no flicker |
 | Levels | game, system, global (`Levels::ALL`) |
 | Where the row shows | Settings > Display, next to the picture style, which writes at the global level. And the Video page of the quick menu while a game runs, which writes at the game level; its keep prompt then moves the change to the system or the global level, as for the picture style |
-| Applies to | `Crt` (a CRT and a TV) |
-| Effect | Only for a turned source (`R90`, `R270`) on a screen of the 15 kHz class. On 31 kHz, on a flat panel and for a horizontal game it changes nothing |
+| Applies to | Every display: a CRT, a TV and a flat panel |
+| Effect | Only for a turned source (`R90`, `R270`). `exact` is rule R1 to R8. `fit` drops every exact rung below the fill threshold for that source (a `Dropped` reason, `VerticalFit`), so the fit wins where the exact picture is small: on 15 kHz and on a TV the progressive fit (240p or 288p, sharp bilinear); on 31 kHz only the fit into about 500 lines; on a panel the fractional scale. Where an exact mode fills at least the threshold (a multi-sync tube, a panel at 3x and above), `fit` changes nothing |
 | Safety | `Validated`, as the picture style |
-| Help text | "How a vertical game shows on a horizontal 15 kHz screen or TV. Interlaced shows every pixel exact, with flicker. Fitted shows a soft picture with no flicker." |
+| Help text | "How a vertical game shows on a horizontal screen. Exact shows every pixel exact, with black borders, and on a 15 kHz screen or a TV with flicker. Fit fills the height, with a soft picture." |
 
-- The choices are append-only. The Definition also names a fitted interlaced view and a cropped 1:1 view; they are later choices at the end of the list.
-- With `fitted`, the policy drops the interlaced 1:1 rung for a turned source (a new `Dropped` reason, `VerticalFitted`), on the CRT ladder and on the TV ladder. The fitted rung then wins and carries its `fitted` notice.
+- This replaces the choices `interlaced` and `fitted` of the first version of this spec. The setting is not built yet (M08a), so no stored value changes.
+- The choices are append-only from M08a on. A cropped 1:1 view and the TATE choices are later values at the end of the list.
+- The picture style still applies: `3x` or `4x` on a multi-sync tube asks for that multiple of a vertical game.
 - The crawler finds the setting, as every setting.
 
 ### The notice the first time
 
-The first time a vertical game gets the interlaced rung on a 15 kHz CRT or a TV, the frontend shows this notice once:
+The first time a vertical game gets the interlaced rung on a 15 kHz CRT or a TV with `display.vertical = exact`, the frontend shows this notice once:
 
 > This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Settings > Display > Vertical games, or Video in the quick menu, can show it as a soft picture with no flicker. A screen turned on its side (TATE) comes in a later version.
 
@@ -373,16 +530,17 @@ The frontend keeps the notices already shown in `state/config/notices.toml`. The
 
 ### Expected results for DoDonPachi (240x320 upright, 57.55 Hz)
 
-| Display | Expected result |
-| --- | --- |
-| 15 kHz PC CRT | Rung 3: 480i at 57.55 Hz, 320 lines 1:1, centred, pillarboxed. With `fitted`: 240p, the picture fitted, sharp bilinear |
-| 31 kHz PC CRT | 320 lines 1:1 at 57.55 Hz, centred in a taller mode, with the `padded` notice |
-| Flat panel, 1080p | Upright, factor 3: 720x960, nearest, pillarboxed. The game runs at the panel rate |
-| Flat panel, 720p | Upright, factor 2: 480x640, nearest |
-| TV, NTSC (Pi composite) | 480i, 320 lines 1:1, about 264 of the 704 samples wide (the `aspect` width rule), sharp bilinear. 59.940 Hz: +4.15 % speed |
-| TV, PAL | 576i, 320 lines 1:1, about 220 samples wide. 50.000 Hz: -13.1 % speed |
+| Display | Today (the goldens) | With the proposed rule |
+| --- | --- | --- |
+| 15 kHz PC CRT | Rung 3: 448i at 57.550 Hz, 320 lines 1:1, centred, pillarboxed | The same. With `fit`: 240p, the picture fitted, sharp bilinear |
+| 31 kHz PC CRT | 320 lines 1:1 at 57.550 Hz, centred in 501 to 520 lines (62 % to 64 %), pillarboxed | The same, with the small-picture notice only below 60 % |
+| Multi-sync PC CRT | 2x, 640p, stretched to 4:3 | 2x, 640p, about 427 pixels wide, pillarboxed |
+| Flat panel, 1080p | Upright, factor 3: 720x960, nearest, pillarboxed. The game runs at the panel rate | The same |
+| Flat panel, 720p | Upright, factor 2: 480x640, nearest | The same |
+| TV, NTSC (Pi composite) | 480i, 320 lines 1:1, 264 of the 704 samples wide (the `aspect` width rule), sharp bilinear. 59.940 Hz: +4.15 % speed | The same |
+| TV, PAL | 576i, 320 lines 1:1, 220 samples wide. 50.000 Hz: -13.1 % speed | The same |
 
-These follow from the present rules; the goldens of M08b check them (section 16). The 480i field order on the Pi `vc4` is not checked yet (OP-103 point 5).
+The goldens of M08b check the column "Today" (`tests/golden/policy_arcade.toml`), except the multi-sync row, which breaks the rule. The 480i field order on the Pi `vc4` is not checked yet (OP-103 point 5).
 
 ## 12. Rates
 
@@ -398,7 +556,11 @@ The present policy stays. FBNeo reports each board's rate, cut to 0.01 Hz (`Burn
 | Cave 68000 | 57.55 Hz (15625/271.5) | `cave.h` |
 | Data East dec0 | 57.41 Hz | `d_dec0.cpp` |
 | Irem M72 | 55.00 Hz | `d_m72.cpp` |
-| Midway Y/T-unit | about 54.7 Hz | UNVERIFIED |
+| Midway Y Unit | 54.70 Hz (54.82 for a 400-line screen) | `d_yunit.cpp`: `BurnSetRefreshRate((nScreenHeight == 400) ? 54.82 : 54.70)`, read for M08b. Mortal Kombat is 400x256 |
+| Midway T Unit | about 54.7 Hz | UNVERIFIED |
+| CPS-3 | 59.59 Hz (59.59949, cut) | `cps3run.cpp`, read for M08b. 384x224, or 496x224 in the wide mode |
+| Pac-Man, Galaga, Donkey Kong | 60.00 Hz (board: 60.606 Hz) | `d_pacman.cpp`, `d_galaga.cpp`, `d_dkong.cpp` set no rate, so `nBurnFPS` keeps 6000 (`burn.cpp`), read for M08b. The game runs 1 % slower than the board on every display |
+| Little Robin | 30.00 Hz | `d_littlerb.cpp`, read for M08b. A CRT needs double refresh for it (section 11, R2) |
 
 ### Expected result per display class
 
@@ -455,7 +617,7 @@ TATE is a screen turned on its side. It gives a vertical game its native mode: D
 
 - The game turn that the renderer applies is the core's rotation less the screen rotation, modulo 360 degrees.
 - A vertical game on a vertical screen: turn 0. The policy gets the frame as drawn (320x240) and finds its native mode.
-- A horizontal game on a vertical screen: turn 90 or 270. The policy swaps the axes and the game gets the fitted or interlaced treatment that a vertical game gets today on a horizontal screen. `display.vertical` then applies to horizontal games: its meaning is "a game whose long side is across the tube's lines".
+- A horizontal game on a vertical screen: turn 90 or 270. The policy swaps the axes and the game gets the treatment of section 11 that a vertical game gets on a horizontal screen. `display.vertical` then applies to horizontal games: its meaning is "a game whose long side is across the tube's lines".
 - The core keeps `fbneo-vertical-mode = "disabled"`, so it always reports the turn that the board needs (`R0`, `R90`, `R180` or `R270`, section 8.2) and the aspect of the upright picture. NEPTRON does all turns, so one code path serves both orientations. The core's `TATE` modes are not used: they move the turn into the core and change the aspect it reports.
 - The validator and the hard rails see the real raster of the tube, as today. TATE changes no safety rule.
 
@@ -482,10 +644,12 @@ M06 is this spec and ADRs 0014, 0015 and 0016. The tasks below replace M07 and M
 | M07a, host | ADR 0016: held option values. `SET_ROTATION` (`Host::rotation`, `Event::Rotation`, `Refusal::Rotation`). `GameGeometry::aspect_from_core` (section 8.6). Input descriptors stored. The public zip entry list and its re-export from `neptron-session` (section 8.5). `core_trace` writes options declared at load and the rotation. Session: held values in place of `set_option` before load. Test core cases: options declared in `retro_load_game`; a rotation at load and in a frame; a 320x240 frame with `R90`, `R180` and `R270`; an aspect of 0 with a turn; no save RAM. `docs/spec/libretro-host.md` updated | `crates/neptron-libretro`, `crates/neptron-testcore`, `crates/neptron-session` (launch, the re-export), `docs/spec/libretro-host.md` | M06 |
 | M07b, package and data | `os/package/libretro-fbneo`: pinned commit, sha256, `platform=unix-rpi3_64` on the Pi and `unix` with `USE_X64_DRC=1` on the PC (the Batocera settings, research reading), `license.txt` verbatim and the licence texts of the third-party parts in each built `.so` (ADR 0014). `LICENCES.txt` lines for the core and for the arcade index. Build time and `.so` size measured and recorded. The three data files (section 4), the embed list, `-` in option keys, the `always_progressive` key. Core traces of free sets: the ROMs stay outside the repository (OP-053 rule), the traces go into `tests/traces`, where the catalog test reads them with `include_str!`. A trace of a missing-ROM case. The README of `data/systems` and `data/cores` | `os/package/libretro-fbneo`, `os/Config.in`, `os/configs`, `os/board/*/LICENCES.txt`, `xtask/src/os`, `data/systems`, `data/cores`, `crates/neptron-library/src/catalog*`, `tests/traces` | M07a (for the trace; the package work can start at once, the merge waits) |
 | M07c, library and set check | The index format, reader and encoder (`neptron-library`, module `arcade`). `cargo xtask arcade-index`. The index in the image. The scan lookup: title, folding, BIOS hidden, marks. The cache version. The set check, its thread `neptron-set-check` and its messages. "Other versions" in the list. The diagnostics lines (`mame` folders, unknown sets, the index state, the full check list) | `crates/neptron-library` (except `catalog*`), `xtask/src/arcade*`, `xtask/src/main.rs`, `xtask/Cargo.toml`, `os/package/libretro-fbneo` (install hook), `crates/neptron-ui`, `apps/neptron` | M07a, M07b, and the orchestrator's `build(deps)` commit for the XML reader in the root `Cargo.toml` |
-| M08b, rate goldens | Policy goldens for real boards: Neo Geo, CPS, Cave (horizontal, and vertical with `R90`, `R180` and `R270`), Taito F3, Irem M72, Psikyo, on every CRT profile, on a 1080p and a 720p panel, and on TV NTSC and PAL. The sizes come from the DAT of the pin (facts, not an excerpt). The expected results are those of sections 11 and 12. No new rule is expected; a golden that shows a wrong result stops the task and is reported | `crates/neptron-modeline/tests/golden`, `crates/neptron-modeline/tests/integration/policy_golden.rs` | M06 |
+| M08b, arcade policy table and goldens | The policy table of section 11 and Appendix A (`tests/integration/arcade_table.rs`), made from the policy as it is. The owner's rule, the findings, the proposed rule set and `display.vertical`, in section 11. Policy goldens (`tests/golden/policy_arcade.toml`) for every cell that follows the rule, and a test that a turn of 270 degrees gives the decision of 90, and 180 that of 0. No change of the policy source | `crates/neptron-modeline/tests`, `docs/spec/arcade.md` | M06 |
+| M08c, arcade video rule | The work items W1 to W8 of section 11, after the owner decides A7 to A12. Every golden that the rule changes, with the reason in the commit; the cells of Appendix A that break the rule become goldens | `crates/neptron-modeline/src`, `crates/neptron-modeline/tests`, `crates/neptron-modeline/README.md` | M08b |
 | M08a, rotation | ADR 0015: `Scene::rotation`, both renderers, every `Scene` caller, the testkit hash, `gles-compare` scenes with `R90`, `R180` and `R270`. The session: the source rotation, the aspect inversion (section 11), `always_progressive`. The setting `display.vertical` and its policy effect. The notice and its store | `crates/neptron-types`, `crates/neptron-gfx`, `crates/neptron-testkit`, `crates/neptron-video`, `crates/neptron-session`, `crates/neptron-modeline/src`, `crates/neptron-settings`, `crates/neptron-ui`, `crates/neptron-kms/src/kms/mode.rs`, `crates/neptron-kms/examples`, `crates/neptron-window/examples`, `apps/neptron`, `apps/neptronctl`, `docs/adr` | M07a, M07b, M07c, M08b |
 
-- Build order: M07a; then M07b; then M07c and M08b; then M08a. M08b needs only M06 and can start at once.
+- Build order: M07a; then M07b; then M07c and M08b; then M08c; then M08a. M08b needs only M06 and can start at once.
+- M08a needs at least W1 of M08c: without it a turned game shows stretched on a multi-sync tube and on every fit. The proposal is that M08c merges before M08a, and that M08a builds `display.vertical` (W8) on the rule of M08c. This is open point A13.
 - M08a needs M07c because both own `crates/neptron-ui` and `apps/neptron`.
 - M08a needs M08b because both touch `neptron-modeline`: M08a its source, M08b its golden tests. If M08a adds a field to `PolicySettings` (for `display.vertical`), every golden case must set it. M08b merges first, and M08a rebases onto it and fixes the golden cases it then breaks, with no change of an expected result.
 - M13 (the bench sessions) needs M07c and M08a in place of M07.
@@ -520,7 +684,9 @@ The results go into `docs/hardware-checklist.md` through M13. No hardware result
 | FBNeo changes its sets between commits ("might change from time to time") | One pinned commit. The index and the diagnostics name it |
 | The donation clause of the FBNeo licence | ADR 0014: the project takes no donations; a later plan removes FBNeo first |
 | FBNeo's own error screen when a set passes the check and still fails | The check before launch; the session ends the game at `SHUTDOWN` |
-| 480i on Intel and on the Pi `vc4` not proven (OP-103 point 5) | The bench session checks it. `display.vertical = fitted` is the way out |
+| 480i on Intel and on the Pi `vc4` not proven (OP-103 point 5) | The bench session checks it. `display.vertical = fit` is the way out |
+| A turned game shows stretched on a multi-sync tube and on every fit (section 11, finding 1) | W1 of M08c before M08a (A13) |
+| A display profile with a range of one line rate gets no mode for some boards (section 11, finding 3) | W3 of M08c. The validator refuses the mode, so nothing unsafe reaches the display |
 | Build time and image size: the full FBNeo build is large (a 21.4 MB zip on the libretro buildbot) | M07b measures both. The subset builds are the later size option |
 | The core's NVRAM writes are not atomic | Recorded. A patch to the core is a later item |
 | Select and Start held together open the quick menu | Bench check with a stick |
@@ -539,3 +705,752 @@ These are questions with a default. The orchestrator records each in `docs/open-
 | A4 | Where does the frontend keep the one-time notices it has shown? | `state/config/notices.toml`, atomic write | `apps/neptron` | A settings key, or another state file |
 | A5 | PAL composite runs arcade boards 9 to 16 % slow. Accept for 0.1? | Accept, with the speed alert, as for NTSC | `crates/neptron-modeline/src/policy/tv.rs` | The "keep game speed" choice |
 | A6 | TATE: `screen_orientation` with one `vertical` choice and a direction, or two choices? | Decided by the TATE task with the owner | `crates/neptron-settings` | The TATE ADR |
+| A7 | On a CRT, which whole multiple when several fill the screen at the game's rate (a multi-sync tube: 2x, 3x or 4x of a 320-line board)? | The smallest multiple that fills at least `ARCADE_FILL_MIN_PERCENT`. On a CRT every multiple that fills gives the same picture size; the smallest keeps the line structure of the board, the lowest line rate and pixel clock, and the margin under the limits of an old tube. The picture styles `3x` and `4x` ask for more | `crates/neptron-modeline/src/policy/crt.rs` (the order key) | The largest multiple that keeps the rate, as the owner's words say it |
+| A8 | Below which fill is a border "too big"? | 60 % of the picture lines (`ARCADE_FILL_MIN_PERCENT`). Below it, an interlaced 1:1 mode that fills more wins over a progressive one, and the small-picture notice shows. Never a soft fit | `crates/neptron-modeline/src/policy` | Another percentage. 65 % makes a 320-line board on `arcade_15_31` interlaced on 15 kHz (71 %) instead of progressive on 31 kHz (64.5 %) |
+| A9 | A panel where 1x fills less than 60 % (the 480x640 board on 720p to 1080p, 59 % to 89 %): keep 1x? | Keep 1x, nearest, with the small-picture notice. `display.vertical = fit` gives the fitted scale | `crates/neptron-modeline/src/policy/panel.rs` | The fit by default below the threshold |
+| A10 | The TV width of an arcade board: the console width or the aspect width? | The aspect width for the systems `arcade` and `neogeo`: a board fills its monitor | `crates/neptron-modeline/src/policy/tv.rs`, the systems data | The console width, as today |
+| A11 | A board below every CRT range (Little Robin, 30 Hz): double refresh? | Yes: twice the rate before the nearest rate, for every style, so the game keeps its speed | `crates/neptron-modeline/src/policy/refresh.rs` | The nearest rate, as today |
+| A12 | The choices of `display.vertical` | `exact` (default) and `fit`, on every display | `crates/neptron-settings`, `crates/neptron-modeline/src/policy` | The first version: `interlaced` and `fitted`, for 15 kHz only |
+| A13 | Order of the tasks: the arcade video rule before the rotation? | M08c (at least W1) merges before M08a | `docs/taskboard.toml` | M08a takes W1 into its own scope |
+
+## Appendix A: the arcade policy table
+
+The table of section 11, made by `cargo xtask test -p neptron-modeline --no-capture arcade_table` on 2026-11-16 from the policy as it is. Section 11 explains the columns. The rule column names the first rule of the owner's rule that the cell breaks.
+
+### `ddonpach`: 320x240 frame, R90, 57.550 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | interlaced 1:1 | 597x448i | 545 | 15.682 | 57.550 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| arcade_15 | interlaced 1:1 | 597x448i | 545 | 15.682 | 57.550 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| arcade_15ex | interlaced 1:1 | 597x448i | 545 | 15.682 | 57.550 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| h9110 | interlaced 1:1 | 597x448i | 545 | 15.682 | 57.550 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| polo | interlaced 1:1 | 597x448i | 545 | 15.682 | 57.550 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| k7131 | interlaced 1:1 | 597x448i | 545 | 15.682 | 57.550 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| k7000 | interlaced 1:1 | 597x448i | 545 | 15.682 | 57.550 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range +4.15 % | 1.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pal | interlaced 1:1 | 597x448i | 625 | 15.625 | 50.000 | nearest in range -13.12 % | 1 | nearest | 71.4 % | 128 | +0.1 % | none | ok |
+| arcade_15_25 | fitted | 1066x800i | 867 | 24.948 | 57.550 | exact | 2.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_25_31 | fitted | 1066x800i | 867 | 24.948 | 57.550 | exact | 2.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_31 | fitted | 661x496p | 546 | 31.422 | 57.550 | exact | 1.55 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| m3129 | fitted | 672x504p | 549 | 31.595 | 57.550 | exact | 1.57 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9200 | fitted | 800x600p | 643 | 37.004 | 57.550 | exact | 1.88 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9400 | native | 240x320p | 357 | 20.545 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 320p | shape |
+| d9800 | native | 240x320p | 357 | 20.545 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 320p | shape |
+| ms929 | fitted | 512x384p | 425 | 24.458 | 57.550 | exact | 1.20 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ms2930 | fitted | 672x504p | 552 | 31.767 | 57.550 | exact | 1.57 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| r666b | fitted | 682x512p | 561 | 32.285 | 57.550 | exact | 1.60 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pstar | fitted | 1066x800i | 881 | 25.350 | 57.550 | exact | 2.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_25 | native | 533x400p | 433 | 24.919 | 57.550 | exact | 1 | nearest | 80.0 % | 80 | +0.1 % | 1x 320p | ok |
+| arcade_31 | native | 668x501p | 546 | 31.422 | 57.550 | exact | 1 | nearest | 63.8 % | 181 | +0.0 % | 1x 320p | ok |
+| pc_31_120 | native | 683x512p | 546 | 31.422 | 57.550 | exact | 1 | nearest | 62.5 % | 192 | +0.0 % | 1x 320p | ok |
+| pc_70_120 | 2x | 240x640p | 668 | 38.443 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 960p | shape |
+| m2929 | 2x | 240x640p | 662 | 38.098 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 640p | shape |
+| edid_31 | native | 693x520p | 539 | 31.019 | 57.550 | exact | 1 | nearest | 61.5 % | 200 | +0.0 % | 1x 320p | ok |
+| edid_30_54 | 2x | 240x640p | 664 | 38.212 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 640p | shape |
+| edid_30_70 | 2x | 240x640p | 664 | 38.212 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 960p | shape |
+| edid_30_96 | 2x | 240x640p | 665 | 38.270 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1280p | shape |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +4.26 % | 2 | nearest | 88.8 % | 80 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +3.89 % | 2 | nearest | 83.3 % | 128 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +4.26 % | 3 | nearest | 88.8 % | 120 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +4.17 % | 4 | nearest | 88.8 % | 160 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +4.26 % | 6 | nearest | 88.8 % | 240 | +0.0 % | - | ok |
+| tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | +4.15 % | 1 | sharp | 66.6 % | 160 | +0.0 % | - | ok |
+| tv_pal | interlaced 1:1 | 720x576i | 625 | 15.625 | 50.000 | -13.12 % | 1 | sharp | 55.5 % | 256 | +0.0 % | - | ok |
+
+### `batsugun`: 320x240 frame, R90, 59.630 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | interlaced 1:1 | 597x448i | 527 | 15.712 | 59.630 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| arcade_15 | interlaced 1:1 | 597x448i | 527 | 15.712 | 59.630 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| arcade_15ex | interlaced 1:1 | 597x448i | 527 | 15.712 | 59.630 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| h9110 | interlaced 1:1 | 597x448i | 527 | 15.712 | 59.630 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| polo | interlaced 1:1 | 597x448i | 527 | 15.712 | 59.630 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| k7131 | interlaced 1:1 | 597x448i | 527 | 15.712 | 59.630 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| k7000 | interlaced 1:1 | 597x448i | 527 | 15.712 | 59.630 | exact | 1 | nearest | 71.4 % | 128 | +0.1 % | 1x 320i | ok |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range +0.52 % | 1.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pal | interlaced 1:1 | 597x448i | 625 | 15.625 | 50.000 | nearest in range -16.15 % | 1 | nearest | 71.4 % | 128 | +0.1 % | none | ok |
+| arcade_15_25 | fitted | 1024x768i | 837 | 24.955 | 59.630 | exact | 2.40 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_25_31 | fitted | 1024x768i | 837 | 24.955 | 59.630 | exact | 2.40 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_31 | fitted | 640x480p | 527 | 31.425 | 59.630 | exact | 1.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| m3129 | fitted | 650x488p | 533 | 31.782 | 59.630 | exact | 1.52 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9200 | fitted | 800x600p | 627 | 37.388 | 59.630 | exact | 1.88 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9400 | native | 240x320p | 355 | 21.168 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 320p | shape |
+| d9800 | native | 240x320p | 355 | 21.168 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 320p | shape |
+| ms929 | fitted | 650x488i | 533 | 15.891 | 59.630 | exact | 1.52 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ms2930 | fitted | 640x480p | 528 | 31.484 | 59.630 | exact | 1.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| r666b | fitted | 661x496p | 545 | 32.498 | 59.630 | exact | 1.55 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pstar | fitted | 1066x800i | 851 | 25.372 | 59.630 | exact | 2.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_25 | native | 515x386p | 418 | 24.925 | 59.630 | exact | 1 | nearest | 82.9 % | 66 | -0.1 % | 1x 320p | ok |
+| arcade_31 | native | 643x482p | 527 | 31.424 | 59.630 | exact | 1 | nearest | 66.3 % | 162 | -0.1 % | 1x 320p | ok |
+| pc_31_120 | native | 679x509p | 527 | 31.425 | 59.630 | exact | 1 | nearest | 62.8 % | 189 | +0.0 % | 1x 320p | ok |
+| pc_70_120 | 2x | 240x640p | 669 | 39.892 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 960p | shape |
+| m2929 | 2x | 240x640p | 663 | 39.534 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 640p | shape |
+| edid_31 | native | 668x501p | 520 | 31.007 | 59.629 | exact | 1 | nearest | 63.8 % | 181 | +0.0 % | 1x 320p | ok |
+| edid_30_54 | 2x | 240x640p | 665 | 39.653 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 640p | shape |
+| edid_30_70 | 2x | 240x640p | 665 | 39.653 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 960p | shape |
+| edid_30_96 | 2x | 240x640p | 666 | 39.713 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1280p | shape |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +0.62 % | 2 | nearest | 88.8 % | 80 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +0.27 % | 2 | nearest | 83.3 % | 128 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +0.62 % | 3 | nearest | 88.8 % | 120 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +0.54 % | 4 | nearest | 88.8 % | 160 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.62 % | 6 | nearest | 88.8 % | 240 | +0.0 % | - | ok |
+| tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | +0.52 % | 1 | sharp | 66.6 % | 160 | +0.0 % | - | ok |
+| tv_pal | interlaced 1:1 | 720x576i | 625 | 15.625 | 50.000 | -16.15 % | 1 | sharp | 55.5 % | 256 | +0.0 % | - | ok |
+
+### `gunbird`: 320x224 frame, R90, 59.290 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | interlaced 1:1 | 558x448i | 529 | 15.682 | 59.290 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| arcade_15 | interlaced 1:1 | 558x448i | 529 | 15.682 | 59.290 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| arcade_15ex | interlaced 1:1 | 558x448i | 529 | 15.682 | 59.290 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| h9110 | interlaced 1:1 | 558x448i | 529 | 15.682 | 59.290 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| polo | interlaced 1:1 | 558x448i | 529 | 15.682 | 59.290 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| k7131 | interlaced 1:1 | 558x448i | 529 | 15.682 | 59.290 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| k7000 | interlaced 1:1 | 558x448i | 529 | 15.682 | 59.290 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| ntsc | interlaced 1:1 | 558x448i | 525 | 15.734 | 59.940 | nearest in range +1.10 % | 1 | nearest | 71.4 % | 128 | -0.1 % | none | ok |
+| pal | interlaced 1:1 | 558x448i | 625 | 15.625 | 50.000 | nearest in range -15.67 % | 1 | nearest | 71.4 % | 128 | -0.1 % | none | ok |
+| arcade_15_25 | fitted | 1034x776i | 841 | 24.931 | 59.290 | exact | 2.42 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_25_31 | fitted | 1034x776i | 841 | 24.931 | 59.290 | exact | 2.42 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_31 | fitted | 640x480p | 530 | 31.423 | 59.290 | exact | 1.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| m3129 | fitted | 650x488p | 533 | 31.601 | 59.290 | exact | 1.52 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9200 | fitted | 800x600p | 627 | 37.175 | 59.290 | exact | 1.88 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9400 | native | 224x320p | 355 | 21.048 | 59.290 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 320p | shape |
+| d9800 | native | 224x320p | 355 | 21.048 | 59.290 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 320p | shape |
+| ms929 | fitted | 661x496i | 541 | 16.037 | 59.290 | exact | 1.55 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ms2930 | fitted | 650x488p | 536 | 31.779 | 59.290 | exact | 1.52 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| r666b | fitted | 661x496p | 545 | 32.313 | 59.290 | exact | 1.55 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pstar | fitted | 1066x800i | 855 | 25.346 | 59.290 | exact | 2.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_25 | native | 483x388p | 420 | 24.901 | 59.290 | exact | 1 | nearest | 82.4 % | 68 | +0.0 % | 1x 320p | ok |
+| arcade_31 | native | 604x485p | 530 | 31.423 | 59.290 | exact | 1 | nearest | 65.9 % | 165 | -0.1 % | 1x 320p | ok |
+| pc_31_120 | native | 637x512p | 530 | 31.423 | 59.290 | exact | 1 | nearest | 62.5 % | 192 | +0.0 % | 1x 320p | ok |
+| pc_70_120 | 2x | 224x640p | 669 | 39.665 | 59.291 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 960p | shape |
+| m2929 | 2x | 224x640p | 663 | 39.309 | 59.290 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 640p | shape |
+| edid_31 | native | 627x504p | 523 | 31.008 | 59.290 | exact | 1 | nearest | 63.4 % | 184 | +0.0 % | 1x 320p | ok |
+| edid_30_54 | 2x | 224x640p | 665 | 39.428 | 59.290 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 640p | shape |
+| edid_30_70 | 2x | 224x640p | 665 | 39.428 | 59.290 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 960p | shape |
+| edid_30_96 | 2x | 224x640p | 666 | 39.486 | 59.290 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1280p | shape |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +1.20 % | 2 | sharp | 88.8 % | 80 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +0.84 % | 2 | sharp | 83.3 % | 128 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +1.20 % | 3 | sharp | 88.8 % | 120 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +1.11 % | 4 | sharp | 88.8 % | 160 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +1.20 % | 6 | sharp | 88.8 % | 240 | +0.0 % | - | ok |
+| tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | +1.10 % | 1 | sharp | 66.6 % | 160 | +0.0 % | - | ok |
+| tv_pal | interlaced 1:1 | 720x576i | 625 | 15.625 | 50.000 | -15.67 % | 1 | nearest | 55.5 % | 256 | +1.8 % | - | ok |
+
+### `gunlock`: 320x224 frame, R270, 58.940 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | interlaced 1:1 | 558x448i | 533 | 15.707 | 58.940 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| arcade_15 | interlaced 1:1 | 558x448i | 533 | 15.707 | 58.940 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| arcade_15ex | interlaced 1:1 | 558x448i | 533 | 15.707 | 58.940 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| h9110 | interlaced 1:1 | 558x448i | 533 | 15.707 | 58.940 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| polo | interlaced 1:1 | 558x448i | 533 | 15.707 | 58.940 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| k7131 | interlaced 1:1 | 558x448i | 533 | 15.707 | 58.940 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| k7000 | interlaced 1:1 | 558x448i | 533 | 15.707 | 58.940 | exact | 1 | nearest | 71.4 % | 128 | -0.1 % | 1x 320i | ok |
+| ntsc | interlaced 1:1 | 558x448i | 525 | 15.734 | 59.940 | nearest in range +1.70 % | 1 | nearest | 71.4 % | 128 | -0.1 % | none | ok |
+| pal | interlaced 1:1 | 558x448i | 625 | 15.625 | 50.000 | nearest in range -15.17 % | 1 | nearest | 71.4 % | 128 | -0.1 % | none | ok |
+| arcade_15_25 | none | - | 0 | 0.000 | 0.000 | - | - | - | 0.0 % | 0 | +0.0 % | none | no mode |
+| arcade_15_25_31 | none | - | 0 | 0.000 | 0.000 | - | - | - | 0.0 % | 0 | +0.0 % | none | no mode |
+| arcade_15_31 | fitted | 650x488p | 533 | 31.415 | 58.940 | exact | 1.52 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| m3129 | fitted | 661x496p | 542 | 31.945 | 58.940 | exact | 1.55 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9200 | fitted | 800x600p | 628 | 37.014 | 58.940 | exact | 1.88 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9400 | native | 224x320p | 355 | 20.923 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 320p | shape |
+| d9800 | native | 224x320p | 355 | 20.923 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 320p | shape |
+| ms929 | fitted | 661x496i | 541 | 15.943 | 58.940 | exact | 1.55 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ms2930 | fitted | 650x488p | 536 | 31.591 | 58.940 | exact | 1.52 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| r666b | fitted | 661x496p | 545 | 32.122 | 58.940 | exact | 1.55 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pstar | fitted | 1066x800i | 861 | 25.373 | 58.940 | exact | 2.50 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_25 | native | 487x391p | 423 | 24.931 | 58.940 | exact | 1 | nearest | 81.8 % | 71 | -0.1 % | 1x 320p | ok |
+| arcade_31 | native | 607x488p | 533 | 31.415 | 58.940 | exact | 1 | nearest | 65.5 % | 168 | +0.0 % | 1x 320p | ok |
+| pc_31_120 | native | 637x512p | 533 | 31.415 | 58.940 | exact | 1 | nearest | 62.5 % | 192 | +0.0 % | 1x 320p | ok |
+| pc_70_120 | 2x | 224x640p | 669 | 39.430 | 58.940 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 960p | shape |
+| m2929 | 2x | 224x640p | 662 | 39.017 | 58.939 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 640p | shape |
+| edid_31 | native | 631x507p | 526 | 31.002 | 58.940 | exact | 1 | nearest | 63.1 % | 187 | +0.0 % | 1x 320p | ok |
+| edid_30_54 | 2x | 224x640p | 665 | 39.194 | 58.940 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 640p | shape |
+| edid_30_70 | 2x | 224x640p | 665 | 39.194 | 58.940 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 960p | shape |
+| edid_30_96 | 2x | 224x640p | 666 | 39.254 | 58.940 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1280p | shape |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +1.80 % | 2 | sharp | 88.8 % | 80 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +1.44 % | 2 | sharp | 83.3 % | 128 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +1.80 % | 3 | sharp | 88.8 % | 120 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +1.72 % | 4 | sharp | 88.8 % | 160 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +1.80 % | 6 | sharp | 88.8 % | 240 | +0.0 % | - | ok |
+| tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | +1.70 % | 1 | sharp | 66.6 % | 160 | +0.0 % | - | ok |
+| tv_pal | interlaced 1:1 | 720x576i | 625 | 15.625 | 50.000 | -15.17 % | 1 | nearest | 55.5 % | 256 | +1.8 % | - | ok |
+
+### `pacman`: 288x224 frame, R270, 60.000 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | interlaced 1:1 | 619x448i | 523 | 15.689 | 60.000 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| arcade_15 | interlaced 1:1 | 619x448i | 523 | 15.689 | 60.000 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| arcade_15ex | interlaced 1:1 | 619x448i | 523 | 15.689 | 60.000 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| h9110 | interlaced 1:1 | 619x448i | 523 | 15.689 | 60.000 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| polo | interlaced 1:1 | 619x448i | 523 | 15.689 | 60.000 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| k7131 | interlaced 1:1 | 619x448i | 523 | 15.689 | 60.000 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| k7000 | interlaced 1:1 | 619x448i | 523 | 15.689 | 60.000 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range -0.10 % | 1.67 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pal | native | 224x288p | 312 | 15.600 | 50.000 | nearest in range -16.67 % | 1 | nearest | 100.0 % | 0 | +77.8 % | none | shape |
+| arcade_15_25 | fitted | 224x288p | 309 | 16.200 | 52.427 | unmatched -12.62 % | 1 | nearest | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_25_31 | fitted | 224x288p | 309 | 16.200 | 52.427 | unmatched -12.62 % | 1 | nearest | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_31 | fitted | 640x480p | 525 | 31.500 | 60.000 | exact | 1.67 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| m3129 | fitted | 640x480p | 525 | 31.500 | 60.000 | exact | 1.67 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9200 | 2x | 224x576p | 617 | 37.020 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 576p | shape |
+| d9400 | native | 224x288p | 312 | 18.720 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 576p | shape |
+| d9800 | native | 224x288p | 312 | 18.720 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 576p | shape |
+| ms929 | fitted | 650x488i | 533 | 15.989 | 59.999 | exact | 1.69 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ms2930 | fitted | 640x480p | 528 | 31.679 | 60.000 | exact | 1.67 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| r666b | fitted | 650x488p | 537 | 32.220 | 60.000 | exact | 1.69 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pstar | fitted | 1066x800i | 845 | 25.349 | 60.000 | exact | 2.78 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_25 | native | 531x384p | 416 | 24.959 | 59.998 | exact | 1 | nearest | 75.0 % | 96 | +0.0 % | 1x 288p | ok |
+| arcade_31 | native | 662x479p | 524 | 31.440 | 60.000 | exact | 1 | nearest | 60.1 % | 191 | +0.0 % | 1x 288p | ok |
+| pc_31_120 | native | 700x506p | 524 | 31.439 | 60.000 | exact | 1 | nearest | 56.9 % | 218 | +0.0 % | 1x 288p | ok |
+| pc_70_120 | 2x | 224x576p | 602 | 36.120 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 864p | shape |
+| m2929 | 2x | 224x576p | 597 | 35.819 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 576p | shape |
+| edid_31 | native | 689x498p | 517 | 31.019 | 60.000 | exact | 1 | nearest | 57.8 % | 210 | -0.1 % | 1x 288p | ok |
+| edid_30_54 | 2x | 224x576p | 599 | 35.939 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 864p | shape |
+| edid_30_70 | 2x | 224x576p | 599 | 35.939 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1120p | shape |
+| edid_30_96 | 2x | 224x576p | 599 | 35.939 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1152p | shape |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +0.00 % | 2 | nearest | 80.0 % | 144 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | -0.35 % | 2 | nearest | 75.0 % | 192 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +0.00 % | 3 | sharp | 80.0 % | 216 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -0.08 % | 5 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.00 % | 7 | sharp | 93.3 % | 144 | +0.0 % | - | ok |
+| tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | -0.10 % | 1 | sharp | 60.0 % | 192 | +0.2 % | - | ok |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -16.53 % | 1 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+
+### `pacman_60606`: 288x224 frame, R270, 60.606 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | interlaced 1:1 | 619x448i | 517 | 15.666 | 60.606 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| arcade_15 | interlaced 1:1 | 619x448i | 517 | 15.666 | 60.606 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| arcade_15ex | interlaced 1:1 | 619x448i | 517 | 15.666 | 60.606 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| h9110 | interlaced 1:1 | 619x448i | 517 | 15.666 | 60.606 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| polo | interlaced 1:1 | 619x448i | 517 | 15.666 | 60.606 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| k7131 | interlaced 1:1 | 619x448i | 517 | 15.666 | 60.606 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| k7000 | interlaced 1:1 | 619x448i | 517 | 15.666 | 60.606 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range -1.10 % | 1.67 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pal | native | 224x288p | 312 | 15.600 | 50.000 | nearest in range -17.50 % | 1 | nearest | 100.0 % | 0 | +77.8 % | none | shape |
+| arcade_15_25 | fitted | 650x488i | 531 | 16.090 | 60.606 | exact | 1.69 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_25_31 | fitted | 629x472p | 519 | 31.454 | 60.606 | exact | 1.64 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_31 | fitted | 629x472p | 519 | 31.454 | 60.606 | exact | 1.64 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| m3129 | fitted | 640x480p | 526 | 31.878 | 60.606 | exact | 1.67 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9200 | 2x | 224x576p | 611 | 37.030 | 60.606 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 576p | shape |
+| d9400 | native | 224x288p | 312 | 18.909 | 60.606 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 576p | shape |
+| d9800 | native | 224x288p | 312 | 18.909 | 60.606 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 576p | shape |
+| ms929 | fitted | 640x480i | 525 | 15.909 | 60.606 | exact | 1.67 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ms2930 | fitted | 224x479i | 529 | 16.030 | 60.606 | exact | 1.66 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| r666b | fitted | 640x480p | 529 | 32.060 | 60.606 | exact | 1.67 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pstar | fitted | 1066x800i | 837 | 25.363 | 60.606 | exact | 2.78 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_25 | none | - | 0 | 0.000 | 0.000 | - | - | - | 0.0 % | 0 | +0.0 % | none | no mode |
+| arcade_31 | native | 654x473p | 519 | 31.454 | 60.606 | exact | 1 | nearest | 60.8 % | 185 | +0.0 % | 1x 288p | ok |
+| pc_31_120 | native | 693x501p | 519 | 31.454 | 60.606 | exact | 1 | nearest | 57.4 % | 213 | +0.0 % | 1x 288p | ok |
+| pc_70_120 | 2x | 224x576p | 603 | 36.545 | 60.606 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 864p | shape |
+| m2929 | 2x | 224x576p | 597 | 36.181 | 60.606 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 576p | shape |
+| edid_31 | native | 682x493p | 512 | 31.030 | 60.606 | exact | 1 | nearest | 58.4 % | 205 | +0.0 % | 1x 288p | ok |
+| edid_30_54 | 2x | 224x576p | 599 | 36.303 | 60.606 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 852p | shape |
+| edid_30_70 | 2x | 224x576p | 599 | 36.303 | 60.606 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1104p | shape |
+| edid_30_96 | 2x | 224x576p | 600 | 36.363 | 60.606 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1152p | shape |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | -1.00 % | 2 | nearest | 80.0 % | 144 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | -1.35 % | 2 | nearest | 75.0 % | 192 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | -1.00 % | 3 | sharp | 80.0 % | 216 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -1.08 % | 5 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | -1.00 % | 7 | sharp | 93.3 % | 144 | +0.0 % | - | ok |
+| tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | -1.10 % | 1 | sharp | 60.0 % | 192 | +0.2 % | - | ok |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -17.37 % | 1 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+
+### `dkong`: 256x224 frame, R270, 60.000 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | native | 224x240p | 261 | 15.659 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +66.7 % | 1x 240p | shape |
+| arcade_15 | native | 224x248p | 269 | 16.139 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +72.2 % | 1x 248p | shape |
+| arcade_15ex | native | 224x252p | 273 | 16.380 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +75.0 % | 1x 252p | shape |
+| h9110 | native | 224x256p | 277 | 16.620 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 256p | shape |
+| polo | native | 224x256p | 277 | 16.620 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 256p | shape |
+| k7131 | native | 224x256p | 277 | 16.620 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 256p | shape |
+| k7000 | native | 224x242p | 262 | 15.719 | 59.999 | exact | 1 | nearest | 100.0 % | 0 | +68.1 % | 1x 242p | shape |
+| ntsc | native | 224x240p | 262 | 15.704 | 59.940 | nearest in range -0.10 % | 1 | nearest | 100.0 % | 0 | +66.7 % | none | shape |
+| pal | native | 224x256p | 312 | 15.600 | 50.000 | nearest in range -16.67 % | 1 | nearest | 100.0 % | 0 | +77.8 % | none | shape |
+| arcade_15_25 | fitted | 224x256p | 277 | 16.200 | 58.484 | unmatched -2.53 % | 1 | nearest | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_25_31 | fitted | 224x256p | 277 | 16.200 | 58.484 | unmatched -2.53 % | 1 | nearest | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_31 | fitted | 224x479p | 524 | 31.440 | 60.000 | exact | 1.87 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| m3129 | fitted | 224x487p | 533 | 31.979 | 59.999 | exact | 1.90 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9200 | 2x | 224x512p | 617 | 37.020 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 512p | shape |
+| d9400 | native | 224x256p | 279 | 16.739 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 512p | shape |
+| d9800 | native | 224x256p | 279 | 16.739 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 512p | shape |
+| ms929 | fitted | 650x488i | 533 | 15.989 | 59.999 | exact | 1.91 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ms2930 | 2x | 224x484p | 532 | 31.920 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +68.1 % | 2x 484p | shape |
+| r666b | 2x | 224x488p | 537 | 32.219 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +69.4 % | 2x 488p | shape |
+| pstar | native | 224x256p | 270 | 16.200 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 500p | shape |
+| arcade_25 | native | 597x384p | 416 | 24.960 | 60.000 | exact | 1 | nearest | 66.6 % | 128 | +0.1 % | 1x 256p | ok |
+| arcade_31 | native | 745x479p | 524 | 31.439 | 60.000 | exact | 1 | nearest | 53.4 % | 223 | +0.0 % | 1x 256p | ok |
+| pc_31_120 | 2x | 224x504p | 524 | 31.440 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +75.0 % | 2x 504p | shape |
+| pc_70_120 | 2x | 224x512p | 535 | 32.100 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1024p | shape |
+| m2929 | 2x | 224x512p | 530 | 31.800 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 512p | shape |
+| edid_31 | 2x | 224x512p | 531 | 31.860 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 2x 512p | shape |
+| edid_30_54 | 2x | 224x512p | 532 | 31.919 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 3x 768p | shape |
+| edid_30_70 | 2x | 224x512p | 532 | 31.919 | 60.000 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1024p | shape |
+| edid_30_96 | 2x | 224x512p | 533 | 31.979 | 59.999 | exact | 2 | nearest | 100.0 % | 0 | +77.8 % | 4x 1024p | shape |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +0.00 % | 2 | nearest | 71.1 % | 208 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | -0.35 % | 3 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +0.00 % | 4 | sharp | 94.8 % | 56 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -0.08 % | 5 | sharp | 88.8 % | 160 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.00 % | 8 | sharp | 94.8 % | 112 | +0.0 % | - | ok |
+| tv_ntsc | native | 720x240p | 262 | 15.734 | 60.054 | +0.09 % | 1 | sharp | 100.0 % | 0 | -0.1 % | - | ok |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -16.53 % | 1 | sharp | 88.8 % | 32 | +0.0 % | - | ok |
+
+### `gground`: 496x384 frame, R270, 57.524 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | interlaced 1:1 | 384x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496i | shape |
+| arcade_15 | interlaced 1:1 | 384x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496i | shape |
+| arcade_15ex | interlaced 1:1 | 384x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496i | shape |
+| h9110 | interlaced 1:1 | 384x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496i | shape |
+| polo | interlaced 1:1 | 384x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496i | shape |
+| k7131 | interlaced 1:1 | 384x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496i | shape |
+| k7000 | interlaced 1:1 | 384x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496i | shape |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range +4.20 % | 0.97 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pal | interlaced 1:1 | 384x496i | 625 | 15.625 | 50.000 | nearest in range -13.08 % | 1 | nearest | 100.0 % | 0 | +77.8 % | none | shape |
+| arcade_15_25 | interlaced 1:1 | 384x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496i | shape |
+| arcade_15_25_31 | native | 384x496p | 546 | 31.408 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| arcade_15_31 | native | 384x496p | 546 | 31.408 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| m3129 | native | 384x496p | 540 | 31.062 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| d9200 | native | 384x496p | 540 | 31.062 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| d9400 | native | 384x496p | 557 | 32.041 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| d9800 | native | 384x496p | 557 | 32.041 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| ms929 | interlaced 1:1 | 384x496i | 541 | 15.560 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496i | shape |
+| ms2930 | native | 384x496p | 543 | 31.235 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| r666b | native | 384x496p | 543 | 31.235 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| pstar | native | 384x496p | 548 | 31.523 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| arcade_25 | interlaced 1:1 | 1057x768i | 867 | 24.936 | 57.524 | exact | 1 | nearest | 64.5 % | 272 | +0.0 % | 1x 496i | ok |
+| arcade_31 | native | 384x496p | 546 | 31.408 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| pc_31_120 | native | 384x496p | 546 | 31.408 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| pc_70_120 | native | 384x496p | 522 | 30.026 | 57.523 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 992p | shape |
+| m2929 | native | 384x496p | 522 | 30.027 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| edid_31 | native | 384x496p | 539 | 31.006 | 57.525 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| edid_30_54 | native | 384x496p | 522 | 30.026 | 57.523 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 496p | shape |
+| edid_30_70 | native | 384x496p | 522 | 30.026 | 57.523 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 992p | shape |
+| edid_30_96 | native | 384x496p | 522 | 30.026 | 57.523 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 3x 1488p | shape |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +4.30 % | 1 | sharp | 68.8 % | 224 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +3.94 % | 1 | sharp | 64.5 % | 272 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +4.30 % | 2 | nearest | 91.8 % | 88 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +4.22 % | 2 | nearest | 68.8 % | 448 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +4.30 % | 4 | sharp | 91.8 % | 176 | +0.0 % | - | ok |
+| tv_ntsc | fitted | 720x240p | 262 | 15.734 | 60.054 | +4.40 % | 0.48 | sharp | 100.0 % | 0 | +0.0 % | - | soft fit |
+| tv_pal | interlaced 1:1 | 720x576i | 625 | 15.625 | 50.000 | -13.08 % | 1 | sharp | 86.1 % | 80 | +0.0 % | - | ok |
+
+### `ikaruga`: 640x480 frame, R270, 60.000 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | fitted | 640x480i | 523 | 15.689 | 60.000 | exact | 0.75 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15 | fitted | 661x496i | 539 | 16.169 | 60.000 | exact | 0.78 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15ex | fitted | 672x504i | 547 | 16.409 | 60.000 | exact | 0.79 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| h9110 | fitted | 682x512i | 555 | 16.650 | 60.000 | exact | 0.80 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| polo | fitted | 682x512i | 555 | 16.650 | 60.000 | exact | 0.80 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| k7131 | fitted | 682x512i | 555 | 16.650 | 60.000 | exact | 0.80 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| k7000 | fitted | 640x480i | 523 | 15.689 | 60.000 | exact | 0.75 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range -0.10 % | 0.75 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pal | fitted | 768x576i | 625 | 15.625 | 50.000 | nearest in range -16.67 % | 0.90 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_15_25 | none | - | 0 | 0.000 | 0.000 | - | - | - | 0.0 % | 0 | +0.0 % | none | no mode |
+| arcade_15_25_31 | none | - | 0 | 0.000 | 0.000 | - | - | - | 0.0 % | 0 | +0.0 % | none | no mode |
+| arcade_15_31 | fitted | 640x480p | 525 | 31.500 | 60.000 | exact | 0.75 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| m3129 | fitted | 640x480p | 525 | 31.500 | 60.000 | exact | 0.75 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9200 | fitted | 800x600p | 628 | 37.680 | 60.000 | exact | 0.94 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9400 | fitted | 800x600p | 628 | 37.680 | 60.000 | exact | 0.94 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| d9800 | fitted | 800x600p | 628 | 37.680 | 60.000 | exact | 0.94 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ms929 | fitted | 650x488i | 533 | 15.989 | 59.999 | exact | 0.76 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| ms2930 | fitted | 640x480p | 528 | 31.679 | 60.000 | exact | 0.75 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| r666b | fitted | 650x488p | 537 | 32.220 | 60.000 | exact | 0.76 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pstar | fitted | 1066x800i | 845 | 25.349 | 60.000 | exact | 1.25 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| arcade_25 | none | - | 0 | 0.000 | 0.000 | - | - | - | 0.0 % | 0 | +0.0 % | none | no mode |
+| arcade_31 | fitted | 640x480p | 525 | 31.500 | 60.000 | exact | 0.75 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pc_31_120 | fitted | 672x504p | 524 | 31.440 | 60.000 | exact | 0.79 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| pc_70_120 | native | 480x640p | 669 | 40.139 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 640p | shape |
+| m2929 | native | 480x640p | 663 | 39.779 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 640p | shape |
+| edid_31 | fitted | 678x509p | 528 | 31.679 | 60.000 | exact | 0.80 | sharp | 100.0 % | 0 | +77.8 % | none | soft fit |
+| edid_30_54 | native | 480x640p | 665 | 39.899 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 640p | shape |
+| edid_30_70 | native | 480x640p | 666 | 39.960 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 1x 640p | shape |
+| edid_30_96 | native | 480x640p | 666 | 39.960 | 60.000 | exact | 1 | nearest | 100.0 % | 0 | +77.8 % | 2x 1280p | shape |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +0.00 % | 1 | nearest | 88.8 % | 80 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | -0.35 % | 1 | nearest | 83.3 % | 128 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +0.00 % | 1 | nearest | 59.2 % | 440 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -0.08 % | 2 | nearest | 88.8 % | 160 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.00 % | 3 | nearest | 88.8 % | 240 | +0.0 % | - | ok |
+| tv_ntsc | fitted | 720x240p | 262 | 15.734 | 60.054 | +0.09 % | 0.38 | sharp | 100.0 % | 0 | +0.0 % | - | soft fit |
+| tv_pal | fitted | 720x288p | 312 | 15.625 | 50.080 | -16.53 % | 0.45 | sharp | 100.0 % | 0 | +0.0 % | - | soft fit |
+
+### `neogeo`: 304x224 frame, R0, 59.180 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| arcade_15 | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| arcade_15ex | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| h9110 | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| polo | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| k7131 | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| k7000 | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| ntsc | native | 304x224p | 262 | 15.704 | 59.940 | nearest in range +1.28 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| pal | native | 304x224p | 312 | 15.600 | 50.000 | nearest in range -15.51 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| arcade_15_25 | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| arcade_15_25_31 | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| arcade_15_31 | native | 304x224p | 265 | 15.682 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| m3129 | native | 304x224p | 258 | 15.268 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| d9200 | native | 304x224p | 258 | 15.268 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| d9400 | native | 304x224p | 258 | 15.268 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| d9800 | native | 304x224p | 258 | 15.268 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| ms929 | native | 304x224p | 262 | 15.505 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| ms2930 | native | 304x224p | 262 | 15.505 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| r666b | native | 304x224p | 262 | 15.505 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| pstar | native | 304x224p | 266 | 15.741 | 59.180 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| arcade_25 | native | 528x389p | 421 | 24.914 | 59.180 | exact | 1 | nearest | 57.5 % | 165 | +0.0 % | 1x 224p | ok |
+| arcade_31 | 2x | 304x448p | 531 | 31.424 | 59.180 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | ok |
+| pc_31_120 | 2x | 304x448p | 531 | 31.424 | 59.180 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | ok |
+| pc_70_120 | 2x | 304x448p | 507 | 30.005 | 59.182 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 896p | smaller scale |
+| m2929 | 2x | 304x448p | 507 | 30.005 | 59.182 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 3x 636p | smaller scale |
+| edid_31 | 2x | 304x448p | 524 | 31.010 | 59.180 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | ok |
+| edid_30_54 | 2x | 304x448p | 507 | 30.005 | 59.182 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 872p | smaller scale |
+| edid_30_70 | 2x | 304x448p | 507 | 30.005 | 59.182 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 896p | smaller scale |
+| edid_30_96 | 2x | 304x448p | 507 | 30.005 | 59.182 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 896p | smaller scale |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +1.39 % | 3 | sharp | 93.3 % | 48 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +1.03 % | 3 | sharp | 87.5 % | 96 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +1.39 % | 4 | sharp | 82.9 % | 184 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +1.30 % | 6 | sharp | 93.3 % | 96 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +1.39 % | 9 | sharp | 93.3 % | 144 | +0.0 % | - | ok |
+| tv_ntsc | native | 720x240p | 262 | 15.734 | 60.054 | +1.48 % | 1 | sharp | 93.3 % | 16 | -2.0 % | - | ok |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -15.38 % | 1 | sharp | 77.7 % | 64 | +18.7 % | - | shape |
+
+### `cps2`: 384x224 frame, R0, 59.630 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| arcade_15 | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| arcade_15ex | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| h9110 | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| polo | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| k7131 | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| k7000 | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| ntsc | native | 384x224p | 262 | 15.704 | 59.940 | nearest in range +0.52 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| pal | native | 384x224p | 312 | 15.600 | 50.000 | nearest in range -16.15 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| arcade_15_25 | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| arcade_15_25_31 | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| arcade_15_31 | native | 384x224p | 263 | 15.682 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| m3129 | native | 384x224p | 256 | 15.265 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| d9200 | native | 384x224p | 256 | 15.265 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| d9400 | native | 384x224p | 256 | 15.265 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| d9800 | native | 384x224p | 256 | 15.265 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| ms929 | native | 384x224p | 260 | 15.503 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| ms2930 | native | 384x224p | 260 | 15.504 | 59.631 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| r666b | native | 384x224p | 260 | 15.504 | 59.631 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| pstar | native | 384x224p | 264 | 15.742 | 59.630 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| arcade_25 | native | 662x386p | 418 | 24.925 | 59.630 | exact | 1 | nearest | 58.0 % | 162 | +0.0 % | 1x 224p | ok |
+| arcade_31 | 2x | 384x448p | 527 | 31.425 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | ok |
+| pc_31_120 | 2x | 384x448p | 527 | 31.425 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | ok |
+| pc_70_120 | 2x | 384x448p | 504 | 30.053 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 896p | smaller scale |
+| m2929 | 2x | 384x448p | 504 | 30.053 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 3x 636p | smaller scale |
+| edid_31 | 2x | 384x448p | 520 | 31.008 | 59.631 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | ok |
+| edid_30_54 | 2x | 384x448p | 504 | 30.053 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 864p | smaller scale |
+| edid_30_70 | 2x | 384x448p | 504 | 30.053 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 896p | smaller scale |
+| edid_30_96 | 2x | 384x448p | 504 | 30.053 | 59.630 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 896p | smaller scale |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +0.62 % | 3 | sharp | 93.3 % | 48 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +0.27 % | 3 | sharp | 87.5 % | 96 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +0.62 % | 4 | sharp | 82.9 % | 184 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +0.54 % | 6 | sharp | 93.3 % | 96 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.62 % | 9 | sharp | 93.3 % | 144 | +0.0 % | - | ok |
+| tv_ntsc | native | 720x240p | 262 | 15.734 | 60.054 | +0.71 % | 1 | sharp | 93.3 % | 16 | -2.0 % | - | ok |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -16.02 % | 1 | sharp | 77.7 % | 64 | +18.7 % | - | shape |
+
+### `pwrinst2`: 320x240 frame, R0, 57.550 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 240p | ok |
+| arcade_15 | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 240p | ok |
+| arcade_15ex | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 240p | ok |
+| h9110 | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 240p | ok |
+| polo | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 240p | ok |
+| k7131 | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 240p | ok |
+| k7000 | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 240p | ok |
+| ntsc | native | 320x240p | 262 | 15.704 | 59.940 | nearest in range +4.15 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| pal | native | 320x240p | 312 | 15.600 | 50.000 | nearest in range -13.12 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| arcade_15_25 | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 240p | ok |
+| arcade_15_25_31 | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | smaller scale |
+| arcade_15_31 | native | 320x240p | 272 | 15.653 | 57.551 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | smaller scale |
+| m3129 | native | 320x240p | 265 | 15.250 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | smaller scale |
+| d9200 | native | 320x240p | 265 | 15.250 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | smaller scale |
+| d9400 | native | 320x240p | 265 | 15.250 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | smaller scale |
+| d9800 | native | 320x240p | 265 | 15.250 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | smaller scale |
+| ms929 | native | 320x240p | 269 | 15.480 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 240p | ok |
+| ms2930 | native | 320x240p | 269 | 15.480 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | smaller scale |
+| r666b | native | 320x240p | 269 | 15.480 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | smaller scale |
+| pstar | native | 320x240p | 273 | 15.711 | 57.550 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | smaller scale |
+| arcade_25 | native | 533x400p | 433 | 24.919 | 57.550 | exact | 1 | nearest | 60.0 % | 160 | +0.1 % | 1x 240p | ok |
+| arcade_31 | 2x | 320x480p | 546 | 31.422 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | ok |
+| pc_31_120 | 2x | 320x480p | 546 | 31.422 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | ok |
+| pc_70_120 | 2x | 320x480p | 522 | 30.041 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 960p | smaller scale |
+| m2929 | 2x | 320x480p | 522 | 30.041 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | ok |
+| edid_31 | 2x | 320x480p | 539 | 31.019 | 57.550 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 480p | ok |
+| edid_30_54 | 2x | 320x480p | 522 | 30.041 | 57.551 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 904p | smaller scale |
+| edid_30_70 | 2x | 320x480p | 522 | 30.041 | 57.551 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 960p | smaller scale |
+| edid_30_96 | 2x | 320x480p | 522 | 30.041 | 57.551 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 960p | smaller scale |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +4.26 % | 3 | nearest | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +3.89 % | 3 | nearest | 93.7 % | 48 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +4.26 % | 4 | nearest | 88.8 % | 120 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +4.17 % | 6 | nearest | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +4.26 % | 9 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| tv_ntsc | native | 720x240p | 262 | 15.734 | 60.054 | +4.35 % | 1 | nearest | 100.0 % | 0 | -9.1 % | - | shape |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -12.98 % | 1 | nearest | 83.3 % | 48 | +9.1 % | - | shape |
+
+### `dariusg`: 320x232 frame, R0, 58.940 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| arcade_15 | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| arcade_15ex | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| h9110 | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| polo | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| k7131 | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| k7000 | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| ntsc | native | 320x232p | 262 | 15.704 | 59.940 | nearest in range +1.70 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| pal | native | 320x232p | 312 | 15.600 | 50.000 | nearest in range -15.17 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| arcade_15_25 | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| arcade_15_25_31 | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | smaller scale |
+| arcade_15_31 | native | 320x232p | 266 | 15.677 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | smaller scale |
+| m3129 | native | 320x232p | 259 | 15.265 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | smaller scale |
+| d9200 | native | 320x232p | 259 | 15.265 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | smaller scale |
+| d9400 | native | 320x232p | 259 | 15.265 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | smaller scale |
+| d9800 | native | 320x232p | 259 | 15.265 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | smaller scale |
+| ms929 | native | 320x232p | 263 | 15.501 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| ms2930 | native | 320x232p | 263 | 15.501 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 232p | ok |
+| r666b | native | 320x232p | 263 | 15.501 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | smaller scale |
+| pstar | native | 320x232p | 267 | 15.736 | 58.940 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | smaller scale |
+| arcade_25 | native | 539x391p | 423 | 24.931 | 58.940 | exact | 1 | nearest | 59.3 % | 159 | +0.1 % | 1x 232p | ok |
+| arcade_31 | 2x | 320x464p | 533 | 31.414 | 58.940 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | ok |
+| pc_31_120 | 2x | 320x464p | 533 | 31.415 | 58.940 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | ok |
+| pc_70_120 | 2x | 320x464p | 509 | 30.000 | 58.939 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 928p | smaller scale |
+| m2929 | 2x | 320x464p | 509 | 30.000 | 58.939 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | ok |
+| edid_31 | 2x | 320x464p | 526 | 31.002 | 58.940 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 464p | ok |
+| edid_30_54 | 2x | 320x464p | 509 | 30.000 | 58.939 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 880p | smaller scale |
+| edid_30_70 | 2x | 320x464p | 509 | 30.000 | 58.939 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 928p | smaller scale |
+| edid_30_96 | 2x | 320x464p | 509 | 30.000 | 58.939 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 928p | smaller scale |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +1.80 % | 3 | sharp | 96.6 % | 24 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +1.44 % | 3 | sharp | 90.6 % | 72 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +1.80 % | 4 | sharp | 85.9 % | 152 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +1.72 % | 6 | sharp | 96.6 % | 48 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +1.80 % | 9 | sharp | 96.6 % | 72 | +0.0 % | - | ok |
+| tv_ntsc | native | 720x240p | 262 | 15.734 | 60.054 | +1.89 % | 1 | nearest | 96.6 % | 8 | -5.9 % | - | shape |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -15.03 % | 1 | nearest | 80.5 % | 56 | +12.9 % | - | shape |
+
+### `rtype`: 384x256 frame, R0, 55.000 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| arcade_15 | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| arcade_15ex | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| h9110 | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| polo | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| k7131 | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| k7000 | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| ntsc | native | 384x240p | 262 | 15.704 | 59.940 | nearest in range +8.98 % | 1 | nearest | 100.0 % | 0 | -6.2 % | none | shape |
+| pal | native | 384x256p | 312 | 15.600 | 50.000 | nearest in range -9.09 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| arcade_15_25 | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| arcade_15_25_31 | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| arcade_15_31 | native | 384x256p | 285 | 15.674 | 54.999 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| m3129 | native | 384x256p | 278 | 15.290 | 55.000 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| d9200 | native | 384x256p | 278 | 15.290 | 55.000 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| d9400 | native | 384x256p | 278 | 15.290 | 55.000 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| d9800 | native | 384x256p | 278 | 15.290 | 55.000 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| ms929 | native | 384x256p | 281 | 15.455 | 55.000 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| ms2930 | native | 384x256p | 281 | 15.455 | 55.000 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| r666b | native | 384x256p | 281 | 15.455 | 55.000 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| pstar | native | 384x256p | 286 | 15.730 | 55.000 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| arcade_25 | native | 600x400p | 453 | 24.914 | 55.000 | exact | 1 | nearest | 64.0 % | 144 | +0.0 % | 1x 256p | ok |
+| arcade_31 | 2x | 384x512p | 571 | 31.404 | 55.000 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | ok |
+| pc_31_120 | 2x | 384x512p | 571 | 31.404 | 55.000 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | ok |
+| pc_70_120 | 2x | 384x512p | 546 | 30.030 | 55.000 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 1024p | smaller scale |
+| m2929 | 2x | 384x512p | 546 | 30.030 | 55.000 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | ok |
+| edid_31 | 2x | 384x512p | 564 | 31.020 | 55.001 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | ok |
+| edid_30_54 | 2x | 384x512p | 546 | 30.030 | 55.001 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 3x 768p | smaller scale |
+| edid_30_70 | 2x | 384x512p | 546 | 30.030 | 55.001 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 1024p | smaller scale |
+| edid_30_96 | 2x | 384x512p | 546 | 30.030 | 55.001 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 1024p | smaller scale |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +9.09 % | 2 | nearest | 71.1 % | 208 | -0.1 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +8.71 % | 3 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +9.09 % | 4 | sharp | 94.8 % | 56 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +9.00 % | 5 | sharp | 88.8 % | 160 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +9.09 % | 8 | sharp | 94.8 % | 112 | +0.0 % | - | ok |
+| tv_ntsc | native | 720x240p | 262 | 15.734 | 60.054 | +9.19 % | 1 | sharp | 100.0 % | 0 | -6.2 % | - | shape |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -8.95 % | 1 | sharp | 88.8 % | 32 | +3.9 % | - | shape |
+
+### `mk`: 400x256 frame, R0, 54.700 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| arcade_15 | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| arcade_15ex | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| h9110 | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| polo | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| k7131 | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| k7000 | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| ntsc | native | 400x240p | 262 | 15.704 | 59.940 | nearest in range +9.58 % | 1 | nearest | 100.0 % | 0 | -6.2 % | none | shape |
+| pal | native | 400x256p | 312 | 15.600 | 50.000 | nearest in range -8.59 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| arcade_15_25 | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| arcade_15_25_31 | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| arcade_15_31 | native | 400x256p | 286 | 15.644 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| m3129 | native | 400x256p | 279 | 15.261 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| d9200 | native | 400x256p | 279 | 15.261 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| d9400 | native | 400x256p | 279 | 15.261 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| d9800 | native | 400x256p | 279 | 15.261 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| ms929 | native | 400x256p | 283 | 15.480 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 256p | ok |
+| ms2930 | native | 400x256p | 283 | 15.480 | 54.701 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| r666b | native | 400x256p | 283 | 15.480 | 54.701 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| pstar | native | 400x256p | 288 | 15.753 | 54.700 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | smaller scale |
+| arcade_25 | native | 625x400p | 456 | 24.943 | 54.700 | exact | 1 | nearest | 64.0 % | 144 | +0.0 % | 1x 256p | ok |
+| arcade_31 | 2x | 400x512p | 575 | 31.452 | 54.700 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | ok |
+| pc_31_120 | 2x | 400x512p | 575 | 31.452 | 54.700 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | ok |
+| pc_70_120 | 2x | 400x512p | 549 | 30.029 | 54.699 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 1024p | smaller scale |
+| m2929 | 2x | 400x512p | 549 | 30.030 | 54.700 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | ok |
+| edid_31 | 2x | 400x512p | 567 | 31.014 | 54.699 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 512p | ok |
+| edid_30_54 | 2x | 400x512p | 549 | 30.030 | 54.700 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 3x 768p | smaller scale |
+| edid_30_70 | 2x | 400x512p | 549 | 30.030 | 54.700 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 1024p | smaller scale |
+| edid_30_96 | 2x | 400x512p | 549 | 30.030 | 54.700 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 1024p | smaller scale |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +9.69 % | 2 | nearest | 71.1 % | 208 | -0.1 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +9.31 % | 3 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 56.250 | 50.000 | -8.59 % | 4 | sharp | 94.8 % | 56 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +9.60 % | 5 | sharp | 88.8 % | 160 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +9.69 % | 8 | sharp | 94.8 % | 112 | +0.0 % | - | ok |
+| tv_ntsc | native | 720x240p | 262 | 15.734 | 60.054 | +9.79 % | 1 | sharp | 100.0 % | 0 | -6.2 % | - | shape |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -8.45 % | 1 | sharp | 88.8 % | 32 | +3.9 % | - | shape |
+
+### `sfiii3ws`: 496x224 frame, R0, 59.590 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| arcade_15 | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| arcade_15ex | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| h9110 | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| polo | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| k7131 | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| k7000 | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| ntsc | native | 496x224p | 262 | 15.704 | 59.940 | nearest in range +0.59 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| pal | native | 496x224p | 312 | 15.600 | 50.000 | nearest in range -16.09 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| arcade_15_25 | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| arcade_15_25_31 | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| arcade_15_31 | native | 496x224p | 263 | 15.672 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| m3129 | native | 496x224p | 256 | 15.255 | 59.590 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| d9200 | native | 496x224p | 256 | 15.255 | 59.590 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| d9400 | native | 496x224p | 256 | 15.255 | 59.590 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| d9800 | native | 496x224p | 256 | 15.255 | 59.590 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| ms929 | native | 496x224p | 260 | 15.493 | 59.589 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| ms2930 | native | 496x224p | 260 | 15.493 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 224p | ok |
+| r666b | native | 496x224p | 260 | 15.493 | 59.591 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| pstar | native | 496x224p | 264 | 15.731 | 59.590 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | smaller scale |
+| arcade_25 | native | 855x386p | 418 | 24.908 | 59.590 | exact | 1 | nearest | 58.0 % | 162 | +0.0 % | 1x 224p | ok |
+| arcade_31 | 2x | 496x448p | 527 | 31.404 | 59.590 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | ok |
+| pc_31_120 | 2x | 496x448p | 527 | 31.403 | 59.590 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | ok |
+| pc_70_120 | 2x | 496x448p | 504 | 30.033 | 59.590 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 896p | smaller scale |
+| m2929 | 2x | 496x448p | 504 | 30.033 | 59.590 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 3x 636p | smaller scale |
+| edid_31 | 2x | 496x448p | 521 | 31.046 | 59.590 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 2x 448p | ok |
+| edid_30_54 | 2x | 496x448p | 504 | 30.033 | 59.590 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 872p | smaller scale |
+| edid_30_70 | 2x | 496x448p | 504 | 30.033 | 59.590 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 896p | smaller scale |
+| edid_30_96 | 2x | 496x448p | 504 | 30.033 | 59.590 | exact | 2 | nearest | 100.0 % | 0 | +0.0 % | 4x 896p | smaller scale |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +0.69 % | 3 | nearest | 93.3 % | 48 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +0.34 % | 3 | nearest | 87.5 % | 96 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +0.69 % | 4 | sharp | 82.9 % | 184 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +0.61 % | 6 | sharp | 93.3 % | 96 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.69 % | 9 | sharp | 93.3 % | 144 | +0.0 % | - | ok |
+| tv_ntsc | native | 720x240p | 262 | 15.734 | 60.054 | +0.78 % | 1 | sharp | 93.3 % | 16 | -2.0 % | - | ok |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -15.96 % | 1 | sharp | 77.7 % | 64 | +18.7 % | - | shape |
+
+### `bnzabros`: 496x384 frame, R0, 57.524 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | interlaced 1:1 | 579x448i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 85.7 % | 64 | +0.0 % | 1x 384i | ok |
+| arcade_15 | interlaced 1:1 | 579x448i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 85.7 % | 64 | +0.0 % | 1x 384i | ok |
+| arcade_15ex | interlaced 1:1 | 579x448i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 85.7 % | 64 | +0.0 % | 1x 384i | ok |
+| h9110 | interlaced 1:1 | 579x448i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 85.7 % | 64 | +0.0 % | 1x 384i | ok |
+| polo | interlaced 1:1 | 579x448i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 85.7 % | 64 | +0.0 % | 1x 384i | ok |
+| k7131 | interlaced 1:1 | 579x448i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 85.7 % | 64 | +0.0 % | 1x 384i | ok |
+| k7000 | interlaced 1:1 | 579x448i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 85.7 % | 64 | +0.0 % | 1x 384i | ok |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range +4.20 % | 1.25 | sharp | 100.0 % | 0 | +0.0 % | none | soft fit |
+| pal | interlaced 1:1 | 579x448i | 625 | 15.625 | 50.000 | nearest in range -13.08 % | 1 | nearest | 85.7 % | 64 | +0.0 % | none | ok |
+| arcade_15_25 | native | 496x384p | 433 | 24.907 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| arcade_15_25_31 | native | 496x384p | 433 | 24.907 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| arcade_15_31 | fitted | 661x496p | 546 | 31.407 | 57.524 | exact | 1.29 | sharp | 100.0 % | 0 | +0.0 % | none | soft fit |
+| m3129 | fitted | 672x504p | 549 | 31.580 | 57.524 | exact | 1.31 | sharp | 100.0 % | 0 | +0.0 % | none | soft fit |
+| d9200 | fitted | 800x600p | 644 | 37.045 | 57.524 | exact | 1.56 | sharp | 100.0 % | 0 | +0.0 % | none | soft fit |
+| d9400 | native | 496x384p | 425 | 24.447 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| d9800 | native | 496x384p | 425 | 24.447 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| ms929 | native | 496x384p | 425 | 24.447 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| ms2930 | native | 496x384p | 427 | 24.562 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| r666b | native | 496x384p | 427 | 24.562 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| pstar | native | 496x384p | 440 | 25.310 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| arcade_25 | native | 496x384p | 433 | 24.907 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| arcade_31 | native | 647x501p | 546 | 31.408 | 57.524 | exact | 1 | nearest | 76.6 % | 117 | +0.0 % | 1x 384p | ok |
+| pc_31_120 | native | 661x512p | 546 | 31.408 | 57.524 | exact | 1 | nearest | 75.0 % | 128 | +0.1 % | 1x 384p | ok |
+| pc_70_120 | native | 646x500p | 522 | 30.027 | 57.524 | exact | 1 | nearest | 76.8 % | 116 | +0.0 % | 2x 768p | smaller scale |
+| m2929 | native | 496x384p | 522 | 30.028 | 57.525 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 384p | ok |
+| edid_31 | native | 672x520p | 539 | 31.005 | 57.525 | exact | 1 | nearest | 73.8 % | 136 | +0.0 % | 1x 384p | ok |
+| edid_30_54 | native | 496x384p | 522 | 30.027 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 2x 768p | smaller scale |
+| edid_30_70 | native | 496x384p | 522 | 30.027 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 3x 1152p | smaller scale |
+| edid_30_96 | native | 496x384p | 522 | 30.027 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 4x 1536p | smaller scale |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +4.30 % | 1 | nearest | 53.3 % | 336 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +3.94 % | 2 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +4.30 % | 2 | sharp | 71.1 % | 312 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +4.22 % | 3 | sharp | 80.0 % | 288 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +4.30 % | 5 | sharp | 88.8 % | 240 | +0.0 % | - | ok |
+| tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | +4.20 % | 1 | sharp | 80.0 % | 96 | +0.0 % | - | ok |
+| tv_pal | interlaced 1:1 | 720x576i | 625 | 15.625 | 50.000 | -13.08 % | 1 | sharp | 66.6 % | 192 | +0.0 % | - | ok |
+
+### `littlerb`: 338x288 frame, R0, 30.000 Hz
+
+| Display | Rung | Mode | Total | kHz | Hz | Rate | Scale | Filter | Height | Border | Shape | Best whole | Rule |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic_15 | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| arcade_15 | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| arcade_15ex | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| h9110 | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| polo | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| k7131 | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| k7000 | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range +99.80 % | 1.67 | sharp | 100.0 % | 0 | +0.0 % | none | soft fit |
+| pal | native | 338x288p | 312 | 15.600 | 50.000 | nearest in range +66.67 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| arcade_15_25 | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| arcade_15_25_31 | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| arcade_15_31 | native | 338x288p | 316 | 15.641 | 49.500 | nearest in range +65.00 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| m3129 | native | 338x288p | 382 | 15.280 | 40.000 | nearest in range +33.33 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| d9200 | native | 338x288p | 382 | 15.280 | 40.000 | nearest in range +33.33 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| d9400 | native | 338x288p | 382 | 15.280 | 40.000 | nearest in range +33.33 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| d9800 | native | 338x288p | 382 | 15.280 | 40.000 | nearest in range +33.33 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| ms929 | native | 338x288p | 310 | 15.500 | 50.000 | nearest in range +66.67 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| ms2930 | native | 338x288p | 312 | 15.600 | 50.000 | nearest in range +66.67 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| r666b | native | 338x288p | 312 | 15.600 | 50.000 | nearest in range +66.67 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| pstar | fitted | 1066x800i | 1013 | 25.325 | 50.000 | nearest in range +66.67 % | 2.78 | sharp | 100.0 % | 0 | +0.0 % | none | soft fit |
+| arcade_25 | native | 470x400p | 504 | 24.947 | 49.500 | nearest in range +65.00 % | 1 | nearest | 72.0 % | 112 | -0.1 % | none | rate |
+| arcade_31 | native | 601x512p | 635 | 31.432 | 49.500 | nearest in range +65.00 % | 1 | nearest | 56.2 % | 224 | +0.0 % | none | rate |
+| pc_31_120 | native | 601x512p | 628 | 31.400 | 50.000 | nearest in range +66.67 % | 1 | nearest | 56.2 % | 224 | +0.0 % | none | rate |
+| pc_70_120 | 2x | 338x576p | 600 | 30.000 | 50.000 | nearest in range +66.67 % | 2 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| m2929 | 2x | 338x576p | 639 | 30.033 | 47.001 | nearest in range +56.67 % | 2 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| edid_31 | 2x | 338x576p | 620 | 31.000 | 50.000 | nearest in range +66.67 % | 2 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| edid_30_54 | 2x | 338x576p | 600 | 30.000 | 50.000 | nearest in range +66.67 % | 2 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| edid_30_70 | 2x | 338x576p | 600 | 30.000 | 50.000 | nearest in range +66.67 % | 2 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| edid_30_96 | 2x | 338x576p | 600 | 30.000 | 50.000 | nearest in range +66.67 % | 2 | nearest | 100.0 % | 0 | +0.0 % | none | rate |
+| panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +0.00 % | 2 | sharp | 80.0 % | 144 | +0.0 % | - | ok |
+| panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | -0.35 % | 2 | sharp | 75.0 % | 192 | +0.0 % | - | ok |
+| panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +0.00 % | 3 | sharp | 80.0 % | 216 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -0.08 % | 5 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.00 % | 7 | sharp | 93.3 % | 144 | +0.0 % | - | ok |
+| tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | -0.10 % | 1 | sharp | 60.0 % | 192 | -0.1 % | - | ok |
+| tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -16.53 % | 1 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
