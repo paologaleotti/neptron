@@ -20,6 +20,9 @@ mod source;
 
 pub use config::{Devices, GameLaunch, RunRateSource, SessionOptions, VideoSetup};
 pub use error::{LaunchError, SessionError};
+/// The zip listing of the core host, for the arcade set check of the app,
+/// which reaches the host only through the session.
+pub use neptron_libretro::{ZipDirectoryEntry, ZipError, zip_entries};
 pub use pads::CORE_PORTS;
 pub use report::{Counters, EndReason, ExitReport, FrameReport};
 pub use save::{Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SaveStats};

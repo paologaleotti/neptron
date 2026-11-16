@@ -16,6 +16,7 @@ Game lifecycle: launch, the display-locked loop, pause, quick menu, exit and sav
 - `VideoSetup<D>`: the display, the monitor, the policy settings and the scanline settings. The scanline settings are part of the launch because the engine draws none until it gets them.
 - `Devices<S, I, C>`, `SessionOptions` (`Resampling`, `RunRateSource`, the Start hold, the volume in percent), `RunRateSource::{ReadBack, Measured}`.
 - `FrameReport`, `EndReason`, `Counters`, `ExitReport`, `Flush`, `SaveStats`, `SaveError`, `LaunchError`, `SessionError`.
+- `zip_entries`, `ZipDirectoryEntry`, `ZipError`: the zip listing of the core host, re-exported for the arcade set check of the app, which reaches the host only through the session (`docs/spec/arcade.md`, section 10).
 - `source_geometry(width, height, &GameGeometry, &Timing) -> SourceGeometry`, and the constants `LAUNCH_STABLE_FRAMES`, `LAUNCH_SETTLE_MAX_FRAMES`, `INTERLACE_MIN_LINES`, `FLIPLESS_FRAMES_LIMIT`, `SAVE_RAM_FLUSH_INTERVAL_NS`, `CORE_PORTS`.
 
 ## One frame

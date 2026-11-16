@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+mod arcade;
 mod faults;
 mod harness;
 mod launch;
