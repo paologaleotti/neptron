@@ -45,7 +45,8 @@ mod units;
 use std::fmt;
 
 pub use choose::{
-    Choice, Notice, Refused, StyleRow, Switch, Winner, choose, notice, style_rows, switch_for,
+    Choice, Notice, NoticeReason, Refused, SoftReason, StyleRow, Switch, Winner, choose, notice,
+    style_rows, switch_for,
 };
 pub use ladder::{Rung, walk_ladder};
 pub use padding::{PADDED_FILL_MIN_PERCENT, Padding, SMALL_PICTURE_MIN_PERCENT};

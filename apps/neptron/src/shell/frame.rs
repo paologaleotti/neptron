@@ -302,12 +302,15 @@ mod tests {
         Notice {
             fitted,
             game_mhz: 60_099,
+            speed_change: false,
             shown_mhz: 60_054,
             strategy_replaced: None,
             double_refresh: false,
             style_fallback: fitted,
             cropped_lines,
             padded_fill_permille: None,
+            soft: None,
+            small_fill_permille: None,
         }
     }
 

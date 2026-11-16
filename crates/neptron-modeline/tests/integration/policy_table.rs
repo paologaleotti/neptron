@@ -1758,3 +1758,67 @@ fn vertical_fit_fills_the_screen_where_the_exact_picture_is_small_or_interlaced(
     let plan = decide(&source(320, 240, 57_550), &fit, &profile, &caps).unwrap();
     assert_eq!(winner(&plan, &profile, &caps).0.rung, Rung::Native);
 }
+
+/// The notice of the winner of a turned 320x240 frame at 57.55 Hz or a
+/// 640x480 frame at 60 Hz (both R90) on `profile`, with `settings`.
+fn turned_notice(
+    frame: (u16, u16, u32),
+    settings: &PolicySettings,
+    profile: &MonitorProfile,
+    caps: &GpuCaps,
+) -> Option<neptron_modeline::policy::Notice> {
+    let source = SourceGeometry {
+        rotation: Rotation::R90,
+        ..source(frame.0, frame.1, frame.2)
+    };
+    let plan = decide(&source, settings, profile, caps).unwrap();
+    let (considered, _) = winner(&plan, profile, caps);
+    notice(&plan, considered)
+}
+
+#[test]
+fn every_picture_that_is_not_exact_says_why() {
+    use neptron_modeline::policy::{NoticeReason, SoftReason};
+    let defaults = PolicySettings::default();
+    let reasons = |n: Option<neptron_modeline::policy::Notice>| -> Vec<NoticeReason> {
+        n.map(|n| n.reasons().collect()).unwrap_or_default()
+    };
+    // 640 lines on a 31 kHz tube with no interlace: soft, the lines do not
+    // fit.
+    let n = turned_notice(
+        (640, 480, 60_000),
+        &defaults,
+        &preset("arcade_31"),
+        &open_caps(),
+    );
+    assert_eq!(
+        reasons(n),
+        [NoticeReason::Soft(SoftReason::TooTall { lines: 640 })]
+    );
+    // 320 lines in about 500 on 31 kHz: 64 %, not small, exact: no reason.
+    let n = turned_notice(
+        (320, 240, 57_550),
+        &defaults,
+        &preset("arcade_31"),
+        &open_caps(),
+    );
+    assert_eq!(reasons(n), []);
+    // The fit that the user asked for says so.
+    let fit = PolicySettings {
+        vertical: VerticalMode::Fit,
+        ..PolicySettings::default()
+    };
+    let n = turned_notice(
+        (320, 240, 57_550),
+        &fit,
+        &preset("generic_15"),
+        &open_caps(),
+    );
+    assert_eq!(reasons(n), [NoticeReason::Soft(SoftReason::Chosen)]);
+    // 640 lines at 1x on 1080 lines: 59 %, a small picture.
+    let n = turned_notice((640, 480, 60_000), &defaults, &panel_1080(), &open_caps());
+    assert_eq!(
+        reasons(n),
+        [NoticeReason::SmallPicture { fill_permille: 592 }]
+    );
+}
