@@ -674,9 +674,9 @@ mod tests {
         }
     }
 
-    /// The core packages, their make prefix, and the library that
-    /// `data/cores` names.
-    const CORE_PACKAGES: [(&str, &str, &str); 3] = [
+    /// The core packages, their make prefix, and the core name of their
+    /// library `<core>_libretro.so`.
+    const CORE_PACKAGES: [(&str, &str, &str); 4] = [
         ("libretro-fceumm", "LIBRETRO_FCEUMM", "fceumm"),
         ("libretro-snes9x", "LIBRETRO_SNES9X", "snes9x"),
         (
@@ -684,10 +684,15 @@ mod tests {
             "LIBRETRO_GENESIS_PLUS_GX",
             "genesis_plus_gx",
         ),
+        ("libretro-fbneo", "LIBRETRO_FBNEO", "fbneo"),
     ];
 
+    /// The cores that have a file in `data/cores`. FinalBurn Neo gets its
+    /// file with the arcade systems.
+    const CORES_WITH_DATA: [&str; 3] = ["fceumm", "snes9x", "genesis_plus_gx"];
+
     #[test]
-    fn both_targets_build_the_three_cores() {
+    fn both_targets_build_every_core() {
         for arch in [Arch::Aarch64, Arch::X86_64] {
             let options = defconfig(arch);
             for (_, prefix, _) in CORE_PACKAGES {
@@ -724,11 +729,9 @@ mod tests {
                 f.len() == 3 && f[0] == "sha256" && f[1].len() == 64 && f[2] == tarball
             });
             assert!(pinned, "{package}: no sha256 for {tarball}");
-            let files = mk
-                .lines()
-                .find_map(|l| l.strip_prefix(&format!("{prefix}_LICENSE_FILES = ")))
-                .unwrap();
-            for file in files.split_whitespace() {
+            let files = licence_files(&mk, prefix);
+            assert!(!files.is_empty(), "{package}: no licence file");
+            for file in files {
                 assert!(
                     hashes.lines().any(|l| l.ends_with(&format!("  {file}"))),
                     "{package}: no hash for the licence file {file}"
@@ -739,12 +742,41 @@ mod tests {
                 mk.contains(&format!("$(TARGET_DIR)/usr/lib/libretro/{library}")),
                 "{package}"
             );
+        }
+    }
+
+    #[test]
+    fn each_core_with_data_names_the_library_of_its_package() {
+        for core in CORES_WITH_DATA {
+            assert!(
+                CORE_PACKAGES.iter().any(|(_, _, c)| *c == core),
+                "{core} has no package"
+            );
             let data = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../data/cores")
                 .join(format!("{core}.toml"));
             let data = std::fs::read_to_string(data).unwrap();
+            let library = format!("{core}_libretro.so");
             assert!(data.contains(&format!("library = \"{library}\"")), "{core}");
         }
+    }
+
+    /// The files of `<PREFIX>_LICENSE_FILES`, which may continue over
+    /// lines that end with a backslash.
+    fn licence_files(mk: &str, prefix: &str) -> Vec<String> {
+        let key = format!("{prefix}_LICENSE_FILES = ");
+        let mut lines = mk.lines().skip_while(|l| !l.starts_with(&key));
+        let mut files = Vec::new();
+        let mut line = lines.next().map(|l| &l[key.len()..]);
+        while let Some(text) = line {
+            let (text, more) = match text.trim_end().strip_suffix('\\') {
+                Some(head) => (head, true),
+                None => (text, false),
+            };
+            files.extend(text.split_whitespace().map(str::to_owned));
+            line = if more { lines.next() } else { None };
+        }
+        files
     }
 
     #[test]

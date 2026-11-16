@@ -104,6 +104,7 @@ fn the_pi_image_makes_the_os_decisions_of_the_pc_image() {
         "BR2_PACKAGE_LIBRETRO_FCEUMM",
         "BR2_PACKAGE_LIBRETRO_SNES9X",
         "BR2_PACKAGE_LIBRETRO_GENESIS_PLUS_GX",
+        "BR2_PACKAGE_LIBRETRO_FBNEO",
         "BR2_PACKAGE_NEPTRON",
         "BR2_PACKAGE_NEPTRON_LAUNCH",
         "BR2_PACKAGE_NEPTRONCTL",
