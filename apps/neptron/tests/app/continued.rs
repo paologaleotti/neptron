@@ -22,13 +22,29 @@ fn game() -> NextRun {
     }
 }
 
+/// Writes `monitor` as `display.monitor` to the global settings.
+pub(crate) fn set_monitor(rig: &Rig, monitor: &str) {
+    let config = rig.paths.config();
+    std::fs::create_dir_all(&config).expect("the config folder");
+    std::fs::write(
+        config.join("global.toml"),
+        format!("schema_version = 1\n\n[display]\nmonitor = \"{monitor}\"\n"),
+    )
+    .expect("the settings");
+}
+
 /// A boot prompt with no answer in the game list, then a game run. Returns
-/// the rig in the game run, after some frames.
+/// the rig in the game run, after some frames. The prompt is for a 31 kHz
+/// preset that nobody kept, on a display with no EDID or on a panel, where
+/// a named preset is not trusted.
 fn game_after_an_unkept_prompt(dir: &Path, panel: bool) -> Rig {
     let mut rig = Rig::new(dir);
     if panel {
         sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
         rig.output = "HDMI-A-1".to_owned();
+        set_monitor(&rig, "pc_31_120");
+    } else {
+        set_monitor(&rig, "arcade_31");
     }
     rig.boot(None);
     rig.frames(2);
@@ -45,9 +61,11 @@ fn game_after_an_unkept_prompt(dir: &Path, panel: bool) -> Rig {
     assert!(rig.shell().in_game());
     assert!(rig.shell().guard().pending().is_none(), "no boot prompt");
     rig.frames(60);
+    let guard = rig.shell().guard();
     assert_eq!(
-        rig.shell().guard().phase(),
-        Phase::Safe(SafeReason::NothingConfirmed)
+        guard.active().monitor,
+        guard.safe().monitor,
+        "the revert wrote the safe default to the settings"
     );
     for switch in &rig.display.mode_switches()[switches..] {
         assert!(

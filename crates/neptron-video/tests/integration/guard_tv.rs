@@ -32,7 +32,7 @@ struct TvRig {
 
 impl TvRig {
     /// A boot on a connector that offers every standard, with NTSC as the
-    /// safe default.
+    /// safe default. The app trusts a TV output by its class.
     fn boot(record: GuardRecord, wanted: DisplayConfig) -> Self {
         let clock = SimClock::new();
         let fake = FakeDisplay::with_options(
@@ -45,7 +45,7 @@ impl TvRig {
         );
         let safe = tv(TvStandard::Ntsc);
         let mut engine = VideoEngine::new(fake.clone(), safe.monitor.clone(), safe.settings);
-        let (guard, step) = Guard::boot(record, wanted, safe, 0, &mut engine);
+        let (guard, step) = Guard::boot(record, wanted, safe, true, 0, &mut engine);
         let mut rig = Self {
             clock,
             fake,
@@ -180,4 +180,22 @@ fn the_blind_recovery_on_a_tv_gives_ntsc() {
     assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::Recovery));
     assert_eq!(rig.wire(), (TV_525_240P, TvStandard::Ntsc));
     rig.assert_only_tv_modes();
+}
+
+#[test]
+fn a_first_boot_on_a_tv_opens_no_prompt_for_any_standard() {
+    for standard in [TvStandard::Ntsc, TvStandard::Pal] {
+        let mut rig = TvRig::boot(GuardRecord::default(), tv(standard));
+        assert_eq!(rig.guard.phase(), Phase::Confirmed, "{standard:?}");
+        assert!(
+            !rig.events
+                .iter()
+                .any(|e| matches!(e, GuardEvent::PromptOpened(_) | GuardEvent::Reverted { .. })),
+            "{standard:?}: {:?}",
+            rig.events
+        );
+        rig.run_for(CONFIRM_WINDOW_NS + 2 * FRAME_NS);
+        assert_eq!(rig.wire().1, standard, "nothing reverts");
+        rig.assert_only_tv_modes();
+    }
 }

@@ -5,14 +5,13 @@ use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_settings::{
     DISPLAY_MONITOR, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE, DISPLAY_TV, Level, Value,
 };
-use neptron_types::{Control, InputEvent};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_video::{
-    DisplayConfig, Guard, GuardEvent, GuardStep, Phase, RevertReason, SafeReason, VideoEngine,
+    DisplayConfig, Guard, GuardEvent, GuardStep, RevertReason, SafeReason, VideoEngine,
 };
 
 use super::{Shell, Stage};
-use crate::display::{AUTO, SAFE_START_PROFILE, tv_setting, tv_standard};
+use crate::display::{tv_setting, tv_standard};
 use crate::outbox::Job;
 use crate::record::Place;
 
@@ -96,42 +95,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         self.reload_page();
     }
 
-    /// The way back to a flat panel that the 15 kHz safe start leaves
-    /// dark. It proposes `display.monitor = auto` (the panel) under a new
-    /// prompt with a full window when all hold:
-    ///
-    /// - `pressed`: a fresh press of a button ([`any_press`]);
-    /// - the guard is in safe mode, not after a blind recovery, which
-    ///   always ends in the safe start;
-    /// - nothing is confirmed on this output;
-    /// - `display.monitor` is `auto` and gives a panel: an explicit preset
-    ///   is never overridden;
-    /// - no offer came yet in this run, and the run has had fewer than
-    ///   [`PANEL_WINDOWS_PER_RUN`] panel windows (the boot prompt counts).
-    ///
-    /// Returns whether it did, so that press does not also move the menu.
-    /// After the one offer every press goes to the menu.
-    pub(super) fn offer_panel(&mut self, pressed: bool, now_ns: u64) -> bool {
-        let safe = matches!(self.guard.phase(), Phase::Safe(r) if r != SafeReason::Recovery);
-        let lost = safe
-            && self.guard.record().last_known_good.is_none()
-            && self.detected.auto_is_panel()
-            && self.config.monitor() == AUTO;
-        let left = !self.panel_offered && self.panel_windows < PANEL_WINDOWS_PER_RUN;
-        if !pressed || !lost || !left {
-            return false;
-        }
-        self.panel_offered = true;
-        self.panel_windows = self.panel_windows.saturating_add(1);
-        self.change_setting(
-            DISPLAY_MONITOR,
-            Level::Global,
-            Some(Value::Text(AUTO.to_owned())),
-            now_ns,
-        );
-        self.guard.pending().is_some()
-    }
-
     /// The blind recovery hotkey: the safe default, in every screen and
     /// state, also with a dialog open.
     pub(super) fn recover(&mut self, now_ns: u64) {
@@ -169,11 +132,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// settings, so the next boot does not show the change again. It is the
     /// revert target the guard gives, never the active configuration.
     ///
-    /// When `auto` gives a flat panel and the revert target is the 15 kHz
-    /// safe start, `auto` stays: the next boot asks for the panel again,
-    /// for one confirm window at most, and the failed boots still lead to
-    /// safe mode.
-    ///
     /// A TV profile is written as `display.tv`, and `display.monitor`
     /// stays: the monitor setting has no effect on a TV, and the next
     /// output may be no TV. A value of `display.tv` that already gives the
@@ -193,9 +151,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 }
             }
         }
-        let panel_left = self.detected.auto_is_panel()
-            && self.config.monitor() == AUTO
-            && self.detected.monitor_setting(&config.monitor) == SAFE_START_PROFILE;
         let values = [
             (
                 DISPLAY_MONITOR,
@@ -208,7 +163,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             ),
         ];
         for (key, value) in values {
-            if key == DISPLAY_MONITOR && (panel_left || tv.is_some()) {
+            if key == DISPLAY_MONITOR && tv.is_some() {
                 continue;
             }
             let value = Value::Text(value);
@@ -271,25 +226,6 @@ fn reverted_text(reason: RevertReason) -> Option<&'static str> {
         RevertReason::Superseded => None,
         RevertReason::ClockWentBack => Some("Display change undone: the clock went back."),
     }
-}
-
-/// The panel windows a run can open at most: the boot prompt of a panel
-/// and one offer after it.
-pub const PANEL_WINDOWS_PER_RUN: u8 = 2;
-
-/// The value of a fresh press; a key repeat is 2.
-const PRESS_VALUE: i16 = 1;
-
-/// Whether `events` hold a fresh press of a button: not a release, not a
-/// key repeat, not a stick move.
-pub(super) fn any_press(events: &[InputEvent]) -> bool {
-    events.iter().any(|e| {
-        e.value == PRESS_VALUE
-            && !matches!(
-                e.control,
-                Control::LeftX | Control::LeftY | Control::RightX | Control::RightY
-            )
-    })
 }
 
 fn safe_text(reason: SafeReason) -> &'static str {

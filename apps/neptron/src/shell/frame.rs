@@ -10,7 +10,6 @@ use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
 use neptron_video::{Notice, RefreshKind};
 
-use super::guard_events::any_press;
 use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS};
 use crate::library::{ScanKind, Scanned, changes_text};
 use crate::outbox::Job;
@@ -61,9 +60,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         if recover {
             self.recover(now_ns);
         }
-        if self.offer_panel(any_press(&self.events), now_ns) {
-            self.events.clear();
-        }
         self.nav.update(&self.events, now_ns, &mut self.actions);
         self.update_ui(now_ns);
         // A reboot or a power-off keeps its last frame on screen until the
@@ -104,14 +100,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         if self.snap.confirm.is_none() && std::mem::take(&mut self.menu_hotkey) {
             self.actions.push(UiAction::Menu);
         }
-        let pressed = match &self.stage {
-            Stage::Game(game) => any_press(game.session.input_events()),
-            _ => false,
-        };
-        let offered = self.offer_panel(pressed, now_ns);
-        if let Stage::Game(game) = &self.stage
-            && !offered
-        {
+        if let Stage::Game(game) = &self.stage {
             let start = self.actions.len();
             self.nav
                 .update(game.session.input_events(), now_ns, &mut self.actions);

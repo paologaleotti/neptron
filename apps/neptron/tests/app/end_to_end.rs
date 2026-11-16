@@ -23,14 +23,12 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
         |dir| {
             let mut rig = Rig::new(dir);
 
-            // Run 1, a new boot: nothing was ever confirmed, so the
-            // settings wait for a confirmation over the game list.
+            // Run 1, a new boot: the settings give the safe default, so
+            // nothing waits for a confirmation.
             rig.boot(None);
             rig.frames(2);
-            assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
-            assert_eq!(rig.screen(), "confirm");
-            rig.keep();
             assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            assert_ne!(rig.screen(), "confirm");
             rig.until(600, "the scan", |r| {
                 !r.shell().snapshot().systems.is_empty()
             });
@@ -56,8 +54,6 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             );
             rig.release(&[Control::A]);
             rig.finish();
-            let record = rig.state_file("video/guard.toml");
-            assert!(record.contains("id = \"generic_15\""), "{record}");
 
             // Run 2, the game: the confirmed monitor needs no prompt.
             rig.boot(Some(next));
@@ -221,7 +217,6 @@ fn a_chain_of_two_games_counts_one_boot() {
                 0 => {
                     rig.boot(None);
                     rig.frames(2);
-                    rig.keep();
                 }
                 1 | 3 => rig.boot(Some(game)),
                 _ => rig.boot(Some(list)),
@@ -234,9 +229,9 @@ fn a_chain_of_two_games_counts_one_boot() {
                 "stage {stage}"
             );
             rig.finish();
-            // The confirmation of stage 0 clears the count; every later run
-            // continues that boot, which counts once.
-            let count = if stage == 0 { 0 } else { 1 };
+            // Every later run continues the boot of stage 0, which counts
+            // once.
+            let count = 1;
             let record = rig.state_file("video/guard.toml");
             assert!(
                 record.contains(&format!("failed_boots = {count}")),

@@ -19,7 +19,6 @@ fn a_stalled_display_ends_the_game_and_relaunches_the_list() {
             let mut rig = Rig::new(dir);
             rig.boot(None);
             rig.frames(2);
-            rig.keep();
             rig.finish();
             let next = NextRun {
                 game: Some(neptron::relaunch::GameRef {

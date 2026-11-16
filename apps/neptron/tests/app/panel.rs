@@ -1,14 +1,12 @@
-//! A fake 1080p HDMI panel: the boot asks for the panel profile in its
-//! native mode, the menu sits at one whole scale, a game gets a whole
-//! vertical scale with black borders, a change to a CRT preset is taken
-//! back with no answer, and an unanswered first boot goes to the 15 kHz
-//! safe start until a press asks again.
+//! A fake 1080p HDMI panel: a trusted display, so the boot shows the panel
+//! in its native mode with no prompt, the menu sits at one whole scale, a
+//! game gets a whole vertical scale with black borders, and a change to a
+//! CRT preset is taken back with no answer.
 
 use std::path::Path;
 
 use neptron::NextRun;
 use neptron::pages::NOT_USED_ON_A_PANEL;
-use neptron_backend::Clock;
 use neptron_input::BLIND_RECOVERY_HOLD_NS;
 use neptron_types::{Control, Filter, Rect};
 use neptron_ui::snapshot::SettingValue;
@@ -75,10 +73,10 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
             rig.output = "HDMI-A-1".to_owned();
 
-            // A new boot on the panel: its native mode, under the prompt.
+            // A new boot on the panel: its native mode, with no prompt.
             rig.boot(None);
             rig.frames(2);
-            assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
             let mode = rig.display.active_mode().expect("a mode");
             assert_eq!(
                 (mode.hactive, mode.vactive, mode.field_rate_mhz()),
@@ -92,8 +90,6 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             let screen = rig.display.screen().expect("the screen");
             assert_eq!((screen.width(), screen.height()), (1920, 1080));
             assert_black_outside(&screen, rect(320, 60, 1280, 960));
-            rig.keep();
-            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
 
             // The display panel names the panel and its native mode.
             rig.until(600, "the scan", |r| {
@@ -160,9 +156,6 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             let back = rig.display.active_mode().expect("a mode");
             assert_eq!((back.hactive, back.vactive), (1920, 1080));
             rig.finish();
-            let record = rig.state_file("video/guard.toml");
-            assert!(record.contains("id = \"panel_npt_1080\""), "{record}");
-            assert!(record.contains("output = \"HDMI-A-1\""), "{record}");
 
             // The game: 256x224 at 4:3. 1080 / 224 = 4 lines each, 896
             // lines; the width at 4:3 is 896 * 1333 / 1000 = 1194.4, so
@@ -217,79 +210,34 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
     );
 }
 
-/// A panel mode is never the safe default until it is kept on this
-/// output: an unanswered first boot leaves the panel mode after the
-/// confirm window, a button press asks again, and a kept panel starts the
-/// next boot with no prompt.
+/// A trusted panel boots in its native mode with no prompt, stays in it
+/// with no answer, and is its own safe default.
 #[test]
 #[ignore = "tier 2"]
-fn an_unconfirmed_panel_leaves_the_wire_and_a_press_asks_again() {
-    let dir = std::env::temp_dir().join(format!("neptron-app-panel-{}", std::process::id()));
-    // A leftover of an earlier run with the same process id; absence is fine.
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("the folder");
-    let mut rig = Rig::new(&dir);
-    sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
-    rig.output = "HDMI-A-1".to_owned();
-
-    rig.boot(None);
-    rig.frames(2);
-    assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
-    let panel = rig.display.active_mode().expect("a mode");
-    assert_eq!((panel.hactive, panel.vactive), (1920, 1080));
-    assert_eq!(
-        rig.shell().guard().safe().monitor.profile().id,
-        "generic_15",
-        "an unconfirmed panel is not the safe default"
-    );
-
-    // No answer: the panel mode leaves the wire within the window.
-    rig.frames(CONFIRM_WINDOW_FRAMES);
-    assert_eq!(
-        rig.shell().guard().phase(),
-        Phase::Safe(SafeReason::NothingConfirmed)
-    );
-    let safe = rig.display.active_mode().expect("a mode");
-    assert!(safe.line_rate_mhz() < 20_000_000, "15 kHz: {safe:?}");
-    assert_eq!(
-        rig.shell().config().text("display.monitor"),
-        "auto",
-        "the next boot asks for the panel again"
-    );
-
-    // Nothing comes back by itself.
-    rig.frames(120);
-    assert_eq!(
-        rig.shell().guard().phase(),
-        Phase::Safe(SafeReason::NothingConfirmed)
-    );
-
-    // A press asks again, with a full window, and a confirmation sticks.
-    rig.tap(&[Control::B]);
-    let Phase::Pending(prompt) = rig.shell().guard().phase() else {
-        panic!("a press asks for the panel again");
-    };
-    assert!(prompt.deadline_ns >= rig.clock.now_ns() + 9_900_000_000);
-    let again = rig.display.active_mode().expect("a mode");
-    assert_eq!((again.hactive, again.vactive), (1920, 1080));
-    rig.keep();
-    assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
-    rig.finish();
-    let record = rig.state_file("video/guard.toml");
-    assert!(record.contains("id = \"panel_npt_1080\""), "{record}");
-
-    // A later boot on the same output starts in the panel, no prompt.
-    rig.boot(None);
-    rig.frames(2);
-    assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
-    let kept = rig.display.active_mode().expect("a mode");
-    assert_eq!((kept.hactive, kept.vactive), (1920, 1080));
-    assert_eq!(
-        rig.shell().guard().safe().monitor.profile().id,
-        "panel_npt_1080",
-        "a kept panel is the safe default on this output"
-    );
-    rig.finish();
+fn a_trusted_panel_boots_native_with_no_prompt() {
+    let mut rig = panel_rig("trusted");
+    for boot in 0..2 {
+        rig.boot(None);
+        rig.frames(2);
+        assert_eq!(rig.shell().guard().phase(), Phase::Confirmed, "boot {boot}");
+        assert_eq!(
+            rig.shell().guard().safe().monitor.profile().id,
+            "panel_npt_1080",
+            "a trusted panel is the safe default"
+        );
+        for _ in 0..CONFIRM_WINDOW_FRAMES {
+            rig.frames(1);
+            assert_ne!(rig.screen(), "confirm", "boot {boot}");
+        }
+        let mode = rig.display.active_mode().expect("a mode");
+        assert_eq!((mode.hactive, mode.vactive), (1920, 1080), "boot {boot}");
+        assert!(
+            rig.shell().snapshot().notices.is_empty(),
+            "{:?}",
+            rig.shell().snapshot().notices
+        );
+        rig.finish();
+    }
 }
 
 /// A rig on a fresh folder with the fake 1080p panel on `HDMI-A-1`.
@@ -304,75 +252,48 @@ fn panel_rig(name: &str) -> Rig {
     rig
 }
 
-/// Boots and lets the boot prompt of the panel time out.
-fn boot_into_the_safe_start(rig: &mut Rig) {
-    rig.boot(None);
-    rig.frames(2);
-    assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
-    rig.frames(CONFIRM_WINDOW_FRAMES);
-    assert_eq!(
-        rig.shell().guard().phase(),
-        Phase::Safe(SafeReason::NothingConfirmed)
-    );
-}
-
-/// The panel offer comes once per run: a press after a reverted offer
-/// moves the menu and leaves the safe start on the wire.
+/// A named CRT preset on a display with a panel EDID is not trusted: a
+/// CRT can be behind an adapter. The boot prompt opens, and with no answer
+/// the 15 kHz safe start comes back.
 #[test]
 #[ignore = "tier 2"]
-fn the_panel_is_offered_once_per_run() {
-    let mut rig = panel_rig("offer-once");
-    boot_into_the_safe_start(&mut rig);
-    // A key repeat is not a press.
-    let now = rig.clock.now_ns();
-    rig.input.set(now, 0, Control::Down, 2);
-    rig.frames(3);
-    assert_eq!(
-        rig.shell().guard().phase(),
-        Phase::Safe(SafeReason::NothingConfirmed),
-        "a repeat offers nothing"
-    );
-    rig.input.set(rig.clock.now_ns(), 0, Control::Down, 0);
+fn a_panel_edid_with_a_named_crt_preset_prompts() {
+    let mut rig = panel_rig("named-preset");
+    let config = rig.paths.config();
+    std::fs::create_dir_all(&config).expect("the config folder");
+    std::fs::write(
+        config.join("global.toml"),
+        "schema_version = 1\n\n[display]\nmonitor = \"pc_31_120\"\n",
+    )
+    .expect("the settings");
+    rig.boot(None);
     rig.frames(2);
-    rig.tap(&[Control::B]);
-    assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+    assert!(
+        matches!(rig.shell().guard().phase(), Phase::Pending(_)),
+        "{:?}",
+        rig.shell().guard().phase()
+    );
+    assert_eq!(
+        rig.shell().guard().safe().monitor.profile().id,
+        "generic_15",
+        "the safe start, not the panel"
+    );
     rig.frames(CONFIRM_WINDOW_FRAMES);
     assert_eq!(
         rig.shell().guard().phase(),
         Phase::Safe(SafeReason::NothingConfirmed)
     );
-    // The reverts show notices; each press that closes one reaches the
-    // menu and offers nothing.
-    assert_eq!(rig.screen(), "notice");
-    for _ in 0..4 {
-        if rig.screen() != "notice" {
-            break;
-        }
-        rig.tap(&[Control::A]);
-        assert_eq!(
-            rig.shell().guard().phase(),
-            Phase::Safe(SafeReason::NothingConfirmed),
-            "no second offer in a run"
-        );
-    }
-    assert_ne!(rig.screen(), "notice", "the presses reach the menu");
-    let before = rig.focused();
-    rig.tap(&[Control::Down]);
-    assert_eq!(
-        rig.shell().guard().phase(),
-        Phase::Safe(SafeReason::NothingConfirmed)
-    );
-    assert_ne!(rig.focused(), before, "the press moves the menu");
     let safe = rig.display.active_mode().expect("a mode");
     assert!(safe.line_rate_mhz() < 20_000_000, "15 kHz: {safe:?}");
     rig.finish();
 }
 
-/// After a blind recovery the safe start stays: no press offers the panel.
+/// The blind recovery on a trusted panel gives the panel mode, its safe
+/// default.
 #[test]
 #[ignore = "tier 2"]
-fn a_blind_recovery_ends_the_panel_offers() {
-    let mut rig = panel_rig("offer-recovery");
+fn the_blind_recovery_on_a_trusted_panel_gives_the_panel_mode() {
+    let mut rig = panel_rig("recovery");
     rig.boot(None);
     rig.frames(2);
     rig.hold(&[Control::Select, Control::Start]);
@@ -381,47 +302,7 @@ fn a_blind_recovery_ends_the_panel_offers() {
     });
     rig.release(&[Control::Select, Control::Start]);
     rig.frames(2);
-    rig.finish();
-
-    rig.boot(None);
-    rig.frames(2);
-    assert_eq!(
-        rig.shell().guard().phase(),
-        Phase::Safe(SafeReason::Recovery)
-    );
-    rig.tap(&[Control::Down]);
-    assert_eq!(
-        rig.shell().guard().phase(),
-        Phase::Safe(SafeReason::Recovery),
-        "a press after a recovery offers nothing"
-    );
-    rig.finish();
-}
-
-/// An explicit monitor preset is never overridden by the panel offer.
-#[test]
-#[ignore = "tier 2"]
-fn an_explicit_preset_gets_no_panel_offer() {
-    let mut rig = panel_rig("offer-preset");
-    let config = rig.paths.config();
-    std::fs::create_dir_all(&config).expect("the config folder");
-    std::fs::write(
-        config.join("global.toml"),
-        "schema_version = 1\n\n[display]\nmonitor = \"generic_15\"\n",
-    )
-    .expect("the settings");
-    rig.boot(None);
-    rig.frames(2);
-    rig.frames(CONFIRM_WINDOW_FRAMES);
-    assert!(
-        matches!(rig.shell().guard().phase(), Phase::Safe(_)),
-        "{:?}",
-        rig.shell().guard().phase()
-    );
-    rig.tap(&[Control::Down]);
-    assert!(
-        matches!(rig.shell().guard().phase(), Phase::Safe(_)),
-        "no offer over generic_15"
-    );
+    let mode = rig.display.active_mode().expect("a mode");
+    assert_eq!((mode.hactive, mode.vactive), (1920, 1080));
     rig.finish();
 }

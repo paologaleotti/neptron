@@ -109,10 +109,21 @@ impl GuardRig {
     /// A boot: the engine starts on the safe default, and the guard gives
     /// it the configuration it chooses.
     pub fn boot(record: GuardRecord, wanted: DisplayConfig, safe: DisplayConfig) -> Self {
+        Self::boot_with(record, wanted, safe, false)
+    }
+
+    /// A boot whose wanted monitor the app trusts by the class of the
+    /// display, or not.
+    pub fn boot_with(
+        record: GuardRecord,
+        wanted: DisplayConfig,
+        safe: DisplayConfig,
+        trusted: bool,
+    ) -> Self {
         let clock = SimClock::new();
         let fake = FakeDisplay::new(clock.clone(), CAPS_LOW_CLOCK);
         let mut engine = VideoEngine::new(fake.clone(), safe.monitor.clone(), safe.settings);
-        let (guard, step) = Guard::boot(record, wanted, safe, clock.now_ns(), &mut engine);
+        let (guard, step) = Guard::boot(record, wanted, safe, trusted, clock.now_ns(), &mut engine);
         let mut rig = Self {
             clock,
             fake,
@@ -133,7 +144,8 @@ impl GuardRig {
         let clock = SimClock::new();
         let fake = FakeDisplay::new(clock.clone(), CAPS_LOW_CLOCK);
         let mut engine = VideoEngine::new(fake.clone(), safe.monitor.clone(), safe.settings);
-        let (guard, step) = Guard::continue_boot(record, wanted, safe, clock.now_ns(), &mut engine);
+        let (guard, step) =
+            Guard::continue_boot(record, wanted, safe, false, clock.now_ns(), &mut engine);
         let mut rig = Self {
             clock,
             fake,

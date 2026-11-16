@@ -23,7 +23,6 @@ fn the_hold_in_the_game_list_restores_the_safe_default() {
             let mut rig = Rig::new(dir);
             rig.boot(None);
             rig.frames(2);
-            rig.keep();
             assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
             rig.hold(&[Control::Select, Control::Start]);
             rig.until(HOLD_FRAMES, "the recovery", |r| {
@@ -51,7 +50,6 @@ fn the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu() {
             let mut rig = Rig::new(dir);
             rig.boot(None);
             rig.frames(2);
-            rig.keep();
             rig.until(600, "the scan", |r| {
                 !r.shell().snapshot().systems.is_empty()
             });

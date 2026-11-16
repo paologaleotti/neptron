@@ -141,7 +141,7 @@ fn a_tv_output_starts_on_ntsc_240p_with_the_menu_at_twice_its_width() {
             let mut rig = composite_rig(dir);
             rig.boot(None);
             rig.frames(2);
-            assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
             assert_eq!(on_wire(&rig), (TV_525_240P, TvStandard::Ntsc));
             assert_eq!(
                 last_ui_dest(&rig),
@@ -156,13 +156,8 @@ fn a_tv_output_starts_on_ntsc_240p_with_the_menu_at_twice_its_width() {
             assert_eq!(display.output, "Composite-1");
             assert_eq!(display.mode, "NTSC 240p 60.05 Hz");
             assert_eq!(display.monitor, "Composite TV");
-            rig.keep();
-            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
             assert_only_tv_modes(&rig);
             rig.finish();
-            let record = rig.state_file("video/guard.toml");
-            assert!(record.contains("id = \"tv_ntsc\""), "{record}");
-            assert!(record.contains("output = \"Composite-1\""), "{record}");
         },
     );
 }
@@ -179,7 +174,6 @@ fn a_new_standard_reverts_unless_kept_and_is_written_when_kept() {
             let mut rig = composite_rig(dir);
             rig.boot(None);
             rig.frames(2);
-            rig.keep();
             rig.until(600, "the scan", |r| {
                 !r.shell().snapshot().systems.is_empty()
             });
@@ -244,7 +238,6 @@ fn the_blind_recovery_on_a_tv_gives_ntsc() {
             .expect("global.toml");
             rig.boot(None);
             rig.frames(2);
-            rig.keep();
             assert_eq!(on_wire(&rig), (TV_625_288P, TvStandard::Pal));
             rig.hold(&[Control::Select, Control::Start]);
             rig.until(HOLD_FRAMES, "the recovery", |r| {
@@ -299,7 +292,6 @@ fn a_monitor_preset_has_no_effect_on_a_tv_and_says_so() {
                     .any(|n| n.contains("no effect on a TV output")),
                 "{notices:?}"
             );
-            rig.keep();
             assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
             rig.until(600, "the scan", |r| {
                 !r.shell().snapshot().systems.is_empty()
@@ -359,7 +351,6 @@ fn a_game_on_a_tv_runs_in_the_modes_of_the_standard() {
             if stage == 0 {
                 rig.boot(None);
                 rig.frames(2);
-                rig.keep();
                 rig.until(600, "the scan", |r| {
                     !r.shell().snapshot().systems.is_empty()
                 });
@@ -401,39 +392,51 @@ fn write_global(rig: &Rig, text: &str) {
     .expect("global.toml");
 }
 
+/// The texts of the notices of the run.
+fn notice_texts(rig: &mut Rig) -> Vec<String> {
+    rig.shell()
+        .snapshot()
+        .notices
+        .iter()
+        .map(|n| n.text.clone())
+        .collect()
+}
+
+/// The first boot of an image on a composite TV: the safe default is the
+/// wanted configuration, so nothing asks and nothing goes back. A
+/// standard from a file boots with no prompt too: a TV output is trusted.
 #[test]
 #[ignore = "tier 2"]
-fn a_boot_prompt_on_a_new_standard_that_times_out_writes_the_kept_one() {
+fn a_tv_first_boot_opens_no_prompt_and_no_reverted_notice() {
     in_child(
         &test_name(
             module_path!(),
-            "a_boot_prompt_on_a_new_standard_that_times_out_writes_the_kept_one",
+            "a_tv_first_boot_opens_no_prompt_and_no_reverted_notice",
         ),
         |dir| {
             let mut rig = composite_rig(dir);
             rig.boot(None);
-            rig.frames(2);
-            rig.keep();
+            for _ in 0..(2 * CONFIRM_WINDOW_FRAMES) {
+                rig.frames(1);
+                assert_ne!(rig.screen(), "confirm");
+            }
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            assert_eq!(on_wire(&rig), (TV_525_240P, TvStandard::Ntsc));
+            let notices = notice_texts(&mut rig);
+            assert!(!notices.iter().any(|n| n.contains("undone")), "{notices:?}");
             rig.finish();
-            let record = rig.state_file("video/guard.toml");
-            assert!(record.contains("id = \"tv_ntsc\""), "{record}");
 
-            // PAL from a file, as neptron.toml or a hand edit gives it.
+            // PAL from a file, as a hand edit gives it.
             write_global(&rig, "[display]\ntv = \"pal\"\n");
             rig.boot(None);
             rig.frames(2);
-            assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
-            assert_eq!(on_wire(&rig), (TV_625_288P, TvStandard::Pal));
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
             rig.frames(CONFIRM_WINDOW_FRAMES);
-            assert_eq!(on_wire(&rig), (TV_525_240P, TvStandard::Ntsc));
+            assert_eq!(on_wire(&rig), (TV_625_288P, TvStandard::Pal));
+            let notices = notice_texts(&mut rig);
+            assert!(!notices.iter().any(|n| n.contains("undone")), "{notices:?}");
             assert_only_tv_modes(&rig);
             rig.finish();
-            let global = rig.state_file("config/global.toml");
-            assert!(global.contains("tv = \"ntsc\""), "{global}");
-            assert!(
-                !global.contains("monitor"),
-                "display.monitor unchanged: {global}"
-            );
         },
     );
 }
@@ -456,7 +459,6 @@ fn interlaced_game(dir: &Path, stage: u32, standard: &str) -> Option<(Modeline, 
         write_global(&rig, &format!("[display]\ntv = \"{standard}\"\n"));
         rig.boot(None);
         rig.frames(2);
-        rig.keep();
         rig.until(600, "the scan", |r| {
             !r.shell().snapshot().systems.is_empty()
         });
@@ -562,7 +564,6 @@ fn the_keep_or_revert_dialog_over_a_game_misses_no_field() {
             if stage == 0 {
                 rig.boot(None);
                 rig.frames(2);
-                rig.keep();
                 rig.until(600, "the scan", |r| {
                     !r.shell().snapshot().systems.is_empty()
                 });

@@ -10,6 +10,50 @@ use crate::guard_rig::{
     with_style,
 };
 
+/// A safe default that is neither the wanted nor the last known good
+/// configuration of a test, so a boot prompt opens for the wanted one.
+fn arcade() -> neptron_video::DisplayConfig {
+    config(crate::guard_rig::arcade_15_25_31())
+}
+
+#[test]
+fn a_wanted_monitor_that_is_the_safe_default_needs_no_confirmation() {
+    let mut rig = GuardRig::boot(GuardRecord::default(), crt_15(), crt_15());
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    assert_eq!(rig.event_list(), [], "no prompt, no notice");
+    rig.run_for(CONFIRM_WINDOW_NS + FRAME_NS);
+    assert!(
+        !rig.event_list()
+            .iter()
+            .any(|e| matches!(e, GuardEvent::Reverted { .. }))
+    );
+    assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
+    assert!(
+        rig.saves.iter().all(|r| r.last_known_good.is_none()),
+        "nothing is kept that the user did not keep"
+    );
+}
+
+#[test]
+fn a_trusted_monitor_boots_with_no_prompt() {
+    let mut rig = GuardRig::boot_with(GuardRecord::default(), crt_31(), crt_15(), true);
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    assert_eq!(rig.event_list(), []);
+    rig.frame();
+    assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
+}
+
+#[test]
+fn an_unknown_display_with_a_hand_set_31_khz_preset_still_prompts_and_reverts() {
+    let mut rig = GuardRig::boot(GuardRecord::default(), crt_31(), crt_15());
+    let prompt = rig.guard.pending().expect("the boot prompt");
+    rig.frame();
+    assert_eq!(rig.wire(), Some(mode_of(&crt_31())));
+    rig.run_until(prompt.deadline_ns + 2 * FRAME_NS);
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::NothingConfirmed));
+    assert_eq!(rig.wire(), Some(mode_of(&crt_15())), "no input: the revert");
+}
+
 #[test]
 fn a_boot_on_the_last_known_good_needs_no_confirmation() {
     let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_31(), crt_15());
@@ -117,7 +161,7 @@ fn a_change_in_safe_mode_that_reverts_goes_back_to_safe_mode() {
 
 #[test]
 fn settings_that_differ_from_the_last_known_good_wait_for_a_confirmation() {
-    let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), crt_15());
+    let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), arcade());
     let Some(GuardEvent::PromptOpened(prompt)) = rig.event_list().first().cloned() else {
         panic!("a prompt at boot");
     };
@@ -202,7 +246,7 @@ fn a_boot_prompt_comes_back_on_each_boot_until_the_settings_are_written() {
     let record = confirmed(pc_31_120());
     let mut written = crt_15();
     for boot in 0..3 {
-        let mut rig = GuardRig::boot(record.clone(), written.clone(), crt_15());
+        let mut rig = GuardRig::boot(record.clone(), written.clone(), arcade());
         if boot == 2 {
             assert_eq!(rig.guard.phase(), Phase::Confirmed, "no prompt any more");
             assert_eq!(rig.wire(), None);
@@ -230,7 +274,7 @@ fn a_boot_prompt_comes_back_on_each_boot_until_the_settings_are_written() {
 
 #[test]
 fn a_change_that_replaces_a_boot_prompt_still_asks_for_the_settings() {
-    let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), crt_15());
+    let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), arcade());
     rig.frame();
     let prompt = rig.propose(with_style(crt_15(), PictureStyle::X2));
     let step = rig.guard.decline(prompt.id, &mut rig.engine).unwrap();
@@ -247,7 +291,7 @@ fn a_change_that_replaces_a_boot_prompt_still_asks_for_the_settings() {
 
 #[test]
 fn a_game_setting_during_a_boot_prompt_is_not_what_the_app_writes() {
-    let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), crt_15());
+    let mut rig = GuardRig::boot(confirmed(pc_31_120()), crt_15(), arcade());
     rig.frame();
     let game = with_style(crt_31(), PictureStyle::X2).settings;
     let step = rig.guard.follow_settings(game, &mut rig.engine);
@@ -265,7 +309,7 @@ fn a_game_setting_during_a_boot_prompt_is_not_what_the_app_writes() {
 
 #[test]
 fn a_continued_boot_never_prompts_and_starts_on_what_was_kept() {
-    let mut rig = GuardRig::continued(confirmed(pc_31_120()), crt_15(), crt_15());
+    let mut rig = GuardRig::continued(confirmed(pc_31_120()), crt_15(), arcade());
     assert_eq!(rig.guard.phase(), Phase::Confirmed);
     assert_eq!(rig.event_list(), []);
     assert_eq!(rig.guard.active().monitor, pc_31_120());

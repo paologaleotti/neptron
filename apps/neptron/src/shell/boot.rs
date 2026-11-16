@@ -16,7 +16,7 @@ use neptron_ui::screens::Screens;
 use neptron_ui::snapshot::{DisplayInfo, NoticeKind, ProfileEntry, ProfileId};
 use neptron_ui::{SceneCanvas, Snapshot, Theme, UiFrame};
 use neptron_video::{
-    DisplayConfig, Guard, GuardEvent, GuardRecord, ScanlineSettings, VideoEngine, VideoStatusText,
+    DisplayConfig, Guard, GuardRecord, ScanlineSettings, VideoEngine, VideoStatusText,
 };
 
 use super::{ControlInput, Devices, GameStage, ListStage, Runtime, Shell, Stage};
@@ -115,9 +115,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             next.is_some(),
             &mut found,
         );
-        // The record holds a last known good only for this output, so a
-        // panel is the safe default only once the user kept it here.
-        let safe = detected.safe(&presets, record.last_known_good.as_ref())?;
+        let setting = config.monitor();
+        let safe = detected.safe(&presets, &setting)?;
+        let trusted = detected.trusts(&setting);
         // A relaunch is a run of the same boot: the first run said it.
         if next.is_none() && detected.is_tv() && config.monitor() != crate::display::AUTO {
             found.warn(format!(
@@ -151,7 +151,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 let mut engine =
                     VideoEngine::new(devices.display, wanted.monitor.clone(), wanted.settings);
                 engine.set_scanlines(scanlines);
-                let (guard, step) = Guard::boot(record, wanted, safe.clone(), now_ns, &mut engine);
+                let (guard, step) =
+                    Guard::boot(record, wanted, safe.clone(), trusted, now_ns, &mut engine);
                 let mut hotkeys = Hotkeys::new();
                 hotkeys.set_start_hold_ns(config.start_hold_ns());
                 let list = ListStage {
@@ -197,15 +198,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                     record,
                     wanted,
                     safe.clone(),
+                    trusted,
                     now_ns,
                     game.session.video_mut(),
                 );
                 (Stage::Game(Box::new(game)), guard, step, Some(library))
             }
         };
-        let boot_panel_prompt = matches!(step.event, Some(GuardEvent::PromptOpened(_)))
-            && detected.auto_is_panel()
-            && config.monitor() == crate::display::AUTO;
         let storage = match StorageStatus::read(&paths.run) {
             Ok(status) => status,
             Err(e) => {
@@ -284,8 +283,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             shown_safe: false,
             now_ns,
             menu_hotkey: false,
-            panel_windows: u8::from(boot_panel_prompt),
-            panel_offered: false,
             picture_noticed: false,
             next_notice: 1,
             frame,

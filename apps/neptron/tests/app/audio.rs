@@ -30,7 +30,6 @@ fn the_audio_panel_writes_the_volume_and_the_output_to_the_global_file() {
             let mut rig = Rig::new(dir);
             rig.boot(None);
             rig.frames(2);
-            rig.keep();
             rig.until(600, "the scan", |r| {
                 !r.shell().snapshot().systems.is_empty()
             });
@@ -86,7 +85,6 @@ fn the_quick_menu_volume_reaches_the_game_at_once() {
                 0 => {
                     rig.boot(None);
                     rig.frames(2);
-                    rig.keep();
                 }
                 1 => {
                     rig.boot(Some(game()));

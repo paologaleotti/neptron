@@ -259,15 +259,16 @@ impl Detected {
     }
 
     /// The safe default for the detected output, with the picture style
-    /// `auto` and the refresh policy `exact`.
+    /// `auto` and the refresh policy `exact`. `setting` is the value of
+    /// `display.monitor` at boot.
     ///
     /// - A CRT that gives EDID: its range profile.
-    /// - A flat panel whose profile is `confirmed` (the last known good on
-    ///   this output): the panel in its native mode.
-    /// - Every other case, an unconfirmed panel included: the 15 kHz safe
-    ///   start. An adapter that shows its own digital EDID with a CRT
-    ///   behind it looks like a panel, so a panel mode is never the safe
-    ///   default until the user has kept it on this output.
+    /// - A trusted flat panel ([`Self::trusts`] for `setting`): the panel
+    ///   in its native mode.
+    /// - Every other case: the 15 kHz safe start. A named preset on a
+    ///   display with a flat-panel EDID says that a CRT can be behind an
+    ///   adapter that shows its own digital EDID, so the panel mode is not
+    ///   safe there.
     ///
     /// A TV output overrides all of these: its safe default is the TV
     /// profile of NTSC ([`TV_SAFE_STANDARD`]), or of the first standard it
@@ -279,11 +280,7 @@ impl Detected {
     /// [`MonitorError::NoSafeProfile`], and [`MonitorError::NoTvStandard`]
     /// for a TV output that offers no standard: it would refuse every
     /// profile, so none is given.
-    pub fn safe(
-        &self,
-        presets: &Presets,
-        confirmed: Option<&Monitor>,
-    ) -> Result<DisplayConfig, MonitorError> {
+    pub fn safe(&self, presets: &Presets, setting: &str) -> Result<DisplayConfig, MonitorError> {
         if let Some(offered) = &self.tv {
             let standard = if offered.contains(&TV_SAFE_STANDARD) {
                 TV_SAFE_STANDARD
@@ -297,15 +294,33 @@ impl Detected {
         }
         let monitor = match &self.edid {
             Some(edid) if !is_panel(edid) => Monitor::Edid(edid.clone()),
-            Some(edid) if confirmed == Some(&Monitor::Edid(edid.clone())) => {
-                Monitor::Edid(edid.clone())
-            }
+            Some(edid) if self.trusts(setting) => Monitor::Edid(edid.clone()),
             _ => safe_start(presets)?,
         };
         Ok(DisplayConfig {
             monitor,
             settings: safe_settings(),
         })
+    }
+
+    /// Whether the display on the driven connector is trusted by its class
+    /// when `display.monitor` is `setting`, so a boot drives it with no
+    /// prompt:
+    ///
+    /// - a TV output: it takes only the fixed modes of its standards;
+    /// - a flat panel on a digital link whose EDID the driven connector
+    ///   reports, with `setting` `auto` or `flat`. A named preset is never
+    ///   trusted.
+    pub fn trusts(&self, setting: &str) -> bool {
+        self.is_tv() || (self.trusted_panel() && matches!(setting, AUTO | FLAT))
+    }
+
+    /// The driven connector is a digital link to a flat panel. The output
+    /// kind is digital only for a digital connector with no analog
+    /// subconnector and an EDID with a digital input
+    /// (`DisplayClass::output_kind`).
+    fn trusted_panel(&self) -> bool {
+        self.output == OutputKind::Digital && self.edid_hash.is_some() && self.auto_is_panel()
     }
 
     /// The monitor that `name` (a value of `display.monitor`) gives:

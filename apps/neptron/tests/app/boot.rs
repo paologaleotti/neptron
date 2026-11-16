@@ -111,12 +111,8 @@ fn a_state_partition_in_ram_is_a_notice_and_counts_its_boots_in_ram() {
     .expect("the status");
     rig.boot(None);
     // The record in the RAM folder counts the boots of this power cycle,
-    // so the guard boots as usual: the boot prompt, nothing kept.
-    assert!(
-        matches!(rig.shell().guard().phase(), Phase::Pending(_)),
-        "{:?}",
-        rig.shell().guard().phase()
-    );
+    // so the guard boots as usual: the safe default, nothing kept.
+    assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
     assert!(
         rig.state_file("video/guard.toml")
             .contains("failed_boots = 1")

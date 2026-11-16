@@ -194,6 +194,15 @@ struct Chain {
     from_settings: bool,
 }
 
+/// How a run starts the guard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Start {
+    /// A new boot: it may open the boot prompt.
+    Boot,
+    /// A run that continues a boot: it never prompts.
+    Continued,
+}
+
 /// What a revert restores.
 #[derive(Debug, Clone)]
 enum Fallback {
@@ -207,13 +216,17 @@ impl Guard {
     ///
     /// `record` is what the last boot saved. `wanted` is the configuration
     /// of the user settings. `safe` is the safe default for the detected
-    /// output. The boot counts as failed until it reaches a confirmed
-    /// picture, so the returned step always saves the record with one more
-    /// failed boot; the app writes it before it sets the first mode.
+    /// output. `trusted` says that the app trusts the monitor of `wanted`
+    /// by the class of the display. The boot counts as failed until it
+    /// reaches a confirmed picture, so the returned step always saves the
+    /// record with one more failed boot; the app writes it before it sets
+    /// the first mode.
     ///
     /// - [`SAFE_MODE_FAILED_BOOTS`] failed boots before this one, or a
     ///   record in safe mode: the safe default.
-    /// - `wanted` has the last known good monitor: `wanted`, confirmed.
+    /// - The monitor of `wanted` is known: the monitor of the safe
+    ///   default, a trusted monitor, or the last known good. `wanted`,
+    ///   confirmed, with no prompt.
     /// - Otherwise `wanted` waits for a confirmation, as a user change
     ///   does. It reverts to the last known good monitor, or to the safe
     ///   default when there is none.
@@ -221,38 +234,52 @@ impl Guard {
         record: GuardRecord,
         wanted: DisplayConfig,
         safe: DisplayConfig,
+        trusted: bool,
         now_ns: u64,
         engine: &mut VideoEngine<D>,
     ) -> (Self, GuardStep) {
-        Self::start(record, wanted, safe, now_ns, engine, true)
+        Self::start(record, wanted, safe, trusted, now_ns, engine, Start::Boot)
     }
 
-    /// Starts the guard for a run that continues a boot, such as the run
-    /// of a game after the game list. It is [`Guard::boot`], except that
-    /// it never opens a prompt: the run before it had the prompt, and the
-    /// user did not keep `wanted` there. So `wanted` without the last
-    /// known good monitor gives the revert target at once, with no event:
-    /// the last known good monitor with the wanted settings, confirmed, or
-    /// the safe default (`Safe(NothingConfirmed)`).
+    /// Starts the guard for a run that continues a boot: the run of a
+    /// game after the game list, or the game list after a game. It is
+    /// [`Guard::boot`], except that it never opens a prompt: the run
+    /// before it had the prompt, and the user did not keep `wanted` there.
+    /// So a `wanted` that is not known gives the revert target at once,
+    /// with no event: the last known good monitor with the wanted
+    /// settings, confirmed, or the safe default (`Safe(NothingConfirmed)`).
     pub fn continue_boot<D: Display>(
         record: GuardRecord,
         wanted: DisplayConfig,
         safe: DisplayConfig,
+        trusted: bool,
         now_ns: u64,
         engine: &mut VideoEngine<D>,
     ) -> (Self, GuardStep) {
-        Self::start(record, wanted, safe, now_ns, engine, false)
+        Self::start(
+            record,
+            wanted,
+            safe,
+            trusted,
+            now_ns,
+            engine,
+            Start::Continued,
+        )
     }
 
     fn start<D: Display>(
         record: GuardRecord,
         wanted: DisplayConfig,
         safe: DisplayConfig,
+        trusted: bool,
         now_ns: u64,
         engine: &mut VideoEngine<D>,
-        prompt: bool,
+        start: Start,
     ) -> (Self, GuardStep) {
         let failed_before = record.failed_boots;
+        let known = trusted
+            || wanted.monitor == safe.monitor
+            || record.last_known_good.as_ref() == Some(&wanted.monitor);
         let mut guard = Self {
             state: State::Confirmed,
             active: wanted.clone(),
@@ -269,7 +296,7 @@ impl Guard {
             Some(guard.enter_safe(SafeReason::FailedBoots, engine))
         } else if guard.record.safe_mode {
             Some(guard.enter_safe(SafeReason::Recovery, engine))
-        } else if guard.record.last_known_good.as_ref() == Some(&wanted.monitor) {
+        } else if known {
             guard.apply(engine);
             None
         } else {
@@ -280,7 +307,7 @@ impl Guard {
                 }),
                 None => Fallback::Safe(SafeReason::NothingConfirmed),
             };
-            if prompt {
+            if start == Start::Boot {
                 let chain = Chain {
                     since_ns: now_ns,
                     from_settings: true,

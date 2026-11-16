@@ -53,8 +53,8 @@ fn the_socket_serves_the_frame_thread() {
 
     assert!(matches!(hello, Reply::Hello(h) if h.server.starts_with("neptron")));
     assert!(
-        matches!(tree, Reply::UiTree(t) if t.screen == "confirm"),
-        "the boot prompt"
+        matches!(tree, Reply::UiTree(t) if t.screen == "home"),
+        "the game list: the safe default needs no boot prompt"
     );
     assert!(matches!(state, Reply::SessionState(s) if s.state == SessionState::Idle));
     let Reply::SettingsGet(style) = style else {

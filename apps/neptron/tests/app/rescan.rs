@@ -30,7 +30,6 @@ fn list_with_two_games(dir: &Path) -> Rig {
     add_game(&rig, "nes/Beta Game.nes");
     rig.boot(None);
     rig.frames(2);
-    rig.keep();
     rig.until(600, "the first scan", |r| nes_games(r) == 2);
     rig
 }
@@ -226,7 +225,6 @@ fn a_return_with_no_scan_in_this_power_cycle_reads_every_folder() {
     age_nes_folder(&rig);
     rig.boot(None);
     rig.frames(2);
-    rig.keep();
     rig.until(600, "the first scan", |r| nes_games(r) == 1);
     rig.finish();
 

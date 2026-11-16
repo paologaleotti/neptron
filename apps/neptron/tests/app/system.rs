@@ -19,7 +19,6 @@ use crate::rig::{Rig, in_child, test_name};
 fn on_the_system_panel(rig: &mut Rig) {
     rig.boot(None);
     rig.frames(2);
-    rig.keep();
     open_system(rig);
 }
 
@@ -122,7 +121,6 @@ fn confirm_shut_down_writes_the_settings_and_ends_with_the_power_off_code() {
             let mut rig = Rig::new(dir);
             rig.boot(None);
             rig.frames(2);
-            rig.keep();
             rig.focus("Settings");
             rig.tap(&[Control::A]);
             rig.focus("Audio");
@@ -271,13 +269,10 @@ fn quick_reboots_in_a_row_do_not_give_safe_mode() {
                     "boot {boot}: {:?}",
                     rig.shell().guard().phase()
                 );
-                // The first boot keeps its picture, which makes it good;
-                // the later ones show it with no prompt and reboot at once.
-                if boot == 0 {
-                    rig.keep();
-                }
+                // Each boot shows the safe default with no prompt and
+                // reboots at once, before the picture makes the boot good.
                 open_system(&mut rig);
-                assert_eq!(rig.shell().guard().boot_good(), boot == 0);
+                assert!(!rig.shell().guard().boot_good());
                 assert_eq!(confirm(&mut rig, REBOOT_LABEL), Outcome::Reboot);
                 rig.finish();
                 assert!(
@@ -454,7 +449,6 @@ fn offered(rig: &mut Rig) {
     storage_status(rig, OFFER);
     rig.boot(None);
     rig.frames(2);
-    rig.keep();
     dismiss_notices(rig);
     open_system(rig);
 }
@@ -485,7 +479,6 @@ fn an_offer_shows_the_format_row_and_its_notice_says_where() {
                 "{notices:?}"
             );
             rig.frames(2);
-            rig.keep();
             dismiss_notices(&mut rig);
             open_system(&mut rig);
             assert_eq!(
@@ -519,7 +512,6 @@ fn with_no_offer_the_format_row_is_absent() {
             );
             rig.boot(None);
             rig.frames(2);
-            rig.keep();
             dismiss_notices(&mut rig);
             open_system(&mut rig);
             assert_eq!(labels(&mut rig), [REBOOT_LABEL, SHUT_DOWN_LABEL]);

@@ -3,6 +3,7 @@
 
 use neptron_video::{Phase, SafeReason};
 
+use crate::panel::CONFIRM_WINDOW_FRAMES;
 use crate::rig::Rig;
 
 #[test]
@@ -13,6 +14,13 @@ fn a_new_output_asks_again_and_reverts_to_the_safe_default() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("the folder");
     let mut rig = Rig::new(&dir);
+    let config = rig.paths.config();
+    std::fs::create_dir_all(&config).expect("the config folder");
+    std::fs::write(
+        config.join("global.toml"),
+        "schema_version = 1\n\n[display]\nmonitor = \"arcade_31\"\n",
+    )
+    .expect("the settings");
     rig.boot(None);
     rig.frames(2);
     rig.keep();
@@ -39,7 +47,7 @@ fn a_new_output_asks_again_and_reverts_to_the_safe_default() {
         matches!(rig.shell().guard().phase(), Phase::Pending(_)),
         "a new output opens the boot prompt"
     );
-    rig.frames(660);
+    rig.frames(CONFIRM_WINDOW_FRAMES);
     assert_eq!(
         rig.shell().guard().phase(),
         Phase::Safe(SafeReason::NothingConfirmed)

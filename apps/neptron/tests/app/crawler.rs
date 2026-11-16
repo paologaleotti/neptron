@@ -120,7 +120,6 @@ fn with_a_format_offer_the_row_is_found_and_never_accepted() {
         crate::system::storage_status(&rig, crate::system::OFFER);
         rig.boot(None);
         rig.frames(2);
-        rig.keep();
         for _ in 0..8 {
             if rig.screen() != "notice" {
                 break;
@@ -153,7 +152,6 @@ fn with_a_format_offer_the_row_is_found_and_never_accepted() {
 fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
     rig.boot(None);
     rig.frames(2);
-    rig.keep();
     rig.until(600, "the scan", |r| {
         !r.shell().snapshot().systems.is_empty()
     });

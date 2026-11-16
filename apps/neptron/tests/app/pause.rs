@@ -23,7 +23,6 @@ pub fn in_game(dir: &std::path::Path) -> Rig {
     let mut rig = Rig::new(dir);
     rig.boot(None);
     rig.frames(2);
-    rig.keep();
     rig.finish();
     rig.boot(Some(game()));
     rig.frames(30);
