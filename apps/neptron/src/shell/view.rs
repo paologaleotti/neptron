@@ -5,7 +5,7 @@ use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_settings::DisplayClass;
 use neptron_types::{Modeline, MonitorKind, TvStandard};
 use neptron_ui::screens::{
-    AUDIO_PAGE, DISPLAY_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
+    AUDIO_PAGE, DISPLAY_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
 };
 use neptron_ui::snapshot::{
     ConfirmId, GameId, Notice, NoticeId, NoticeKind, PageId, PendingConfirm, SessionInfo,
@@ -139,6 +139,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 page
             }
             LIBRARY_PAGE => pages::library_page(self.library.scanning(), self.in_game()),
+            NETWORK_PAGE => {
+                self.network_builds += 1;
+                pages::network_page(self.network_info.as_ref())
+            }
             SYSTEM_PAGE => pages::system_page(
                 self.in_game(),
                 self.runtime.power,

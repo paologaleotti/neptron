@@ -114,6 +114,9 @@ pub fn in_child(test: &str, body: impl FnOnce(&Path)) {
         dir.join("done").exists(),
         "the child ran no test named {test}"
     );
+    // The child has ended and passed: its folder is not needed. A folder
+    // that cannot be removed only leaves files in the temp folder.
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The variable that gives a child of [`in_children`] its stage.

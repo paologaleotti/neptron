@@ -6,12 +6,15 @@
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::Hotkey;
 use neptron_types::{Frame, PixelFormat};
+use neptron_ui::screens::{NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
 use neptron_video::{Notice, RefreshKind};
 
 use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS};
+
 use crate::library::{ScanKind, Scanned, changes_text};
+use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
 use crate::outbox::Job;
 
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
@@ -27,6 +30,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
         self.poll_format_request();
         self.poll_library();
+        self.poll_network(now_ns);
         match self.stage {
             Stage::List(_) => self.list_frame(now_ns),
             Stage::Game(_) => self.game_frame(now_ns),
@@ -182,6 +186,41 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             Err(e) => self.notice(NoticeKind::Warning, format!("The game scan failed: {e}.")),
         }
         self.reload_page();
+    }
+
+    /// Asks for a read of the network status when the Network panel comes
+    /// on screen and every `NETWORK_REFRESH_NS` while it stays there, and
+    /// takes a changed status: the panel shows it with no need to leave it.
+    /// The snapshot keeps the page after the panel closes, so the screen on
+    /// show of the last frame decides. The frame thread never waits for the
+    /// reader.
+    fn poll_network(&mut self, now_ns: u64) {
+        let Some(watch) = &self.network else {
+            return;
+        };
+        let shown = self.ui.tree.screen() == NETWORK_SCREEN;
+        let opened = shown && !self.network_shown;
+        self.network_shown = shown;
+        if opened || (shown && now_ns >= self.network_next_ns) {
+            watch.request();
+            self.network_requests += 1;
+            self.network_next_ns = now_ns.saturating_add(NETWORK_REFRESH_NS);
+        }
+        let taken = watch.poll();
+        // A status taken while the panel was closed is not on the page yet.
+        if opened && taken.is_none() && self.snap.settings.is_for(NETWORK_PAGE) {
+            self.load_page(NETWORK_PAGE);
+        }
+        let Some(info) = taken else {
+            return;
+        };
+        if let NetworkInfo::Unknown { reason } = &info {
+            self.log(format!("network: {reason}"));
+        }
+        self.network_info = Some(info);
+        if shown {
+            self.load_page(NETWORK_PAGE);
+        }
     }
 
     /// A notice when the first picture of the game is filtered, cropped or

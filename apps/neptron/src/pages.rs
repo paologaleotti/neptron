@@ -10,8 +10,8 @@ use neptron_settings::{
 use neptron_types::TvStandard;
 use neptron_ui::Value as UiValue;
 use neptron_ui::screens::{
-    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
-    SETTINGS_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, QUIT_GAME,
+    RESUME, SETTINGS_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
 };
 use neptron_ui::snapshot::{
     ActionId, ChoiceOption, Level as UiLevel, MenuItem, PageId, Scopes, SettingKey, SettingValue,
@@ -21,6 +21,7 @@ use neptron_video::{Phase, SafeReason};
 
 use crate::config::Config;
 use crate::display::{AUTO, Detected, FLAT};
+use crate::network::NetworkInfo;
 use crate::presets::Presets;
 use crate::storage::FormatOffer;
 
@@ -127,6 +128,29 @@ pub const TV_AUTO_STANDARD: TvStandard = crate::display::TV_SAFE_STANDARD;
 /// The reason that a TV standard the output does not offer cannot be
 /// chosen.
 pub const NOT_OFFERED: &str = "Not offered by this output";
+
+/// The label of the address row with no port: no address, or none known.
+pub const ADDRESS_LABEL: &str = "Address";
+
+/// The text of the address row when the file is valid and no port has an
+/// address.
+pub const NO_ADDRESS: &str = "None (no cable or no network)";
+
+/// The text of the address row when the address file is missing, cannot
+/// be read, or is not valid.
+pub const ADDRESS_NOT_KNOWN: &str = "Not known";
+
+/// The text of the address row before the first read of the run ended.
+pub const ADDRESS_READING: &str = "Reading...";
+
+/// The name and the password of the published account of the network
+/// share. They are public by design and must follow the user database of
+/// the image (`os/board/common/rootfs-overlay/etc/ksmbd/ksmbdpwd.db`).
+pub const SHARE_ACCOUNT: &str = "neptron";
+
+/// The first key of the address rows of the Network panel: one row for
+/// each port, after the action keys of the other rows.
+const ADDRESS_KEY_BASE: u32 = ACTION_KEY_BASE + 0x100;
 
 /// The rows of the display panel, written at the global level. It also
 /// holds the global settings that are not about the picture or the sound.
@@ -323,6 +347,69 @@ pub fn system_page(
         })
         .collect();
     SettingsPage::new(SYSTEM_PAGE, "System", rows)
+}
+
+/// The information rows of the Network panel: one address row for each
+/// port, the host name, the state of the share and, with the share on, its
+/// mDNS name and how to reach it. With no read yet (`None`) or an unknown
+/// status, the address row alone: the host name comes from the same file.
+/// With no valid host name the name rows go, and the share paths use the
+/// first address, or go too when there is none.
+pub fn network_page(info: Option<&NetworkInfo>) -> SettingsPage {
+    let rows = match info {
+        None => vec![text_row(11, ADDRESS_LABEL, ADDRESS_READING)],
+        Some(NetworkInfo::Unknown { .. }) => vec![text_row(11, ADDRESS_LABEL, ADDRESS_NOT_KNOWN)],
+        Some(NetworkInfo::Known { status, share_on }) => {
+            let mut rows: Vec<MenuItem> = status
+                .addresses
+                .iter()
+                .zip(ADDRESS_KEY_BASE..)
+                .map(|(a, key)| {
+                    MenuItem::new(
+                        SettingKey(key),
+                        format!("{ADDRESS_LABEL} {}", a.port),
+                        SettingValue::Text(a.ipv4.to_string()),
+                    )
+                })
+                .collect();
+            if rows.is_empty() {
+                rows.push(text_row(11, ADDRESS_LABEL, NO_ADDRESS));
+            }
+            // mDNS runs only with the share on: the share script starts
+            // `mdnsd` with the SMB server.
+            let mdns = status
+                .host_name
+                .as_ref()
+                .filter(|_| *share_on)
+                .map(|name| format!("{name}.local"));
+            let target = status
+                .addresses
+                .first()
+                .map(|a| a.ipv4.to_string())
+                .or_else(|| mdns.clone());
+            if let Some(name) = &status.host_name {
+                rows.push(text_row(12, "Host name", name));
+            }
+            if let Some(mdns) = &mdns {
+                rows.push(text_row(13, "Network name", mdns));
+            }
+            rows.push(text_row(14, "Share", if *share_on { "On" } else { "Off" }));
+            if *share_on {
+                if let Some(target) = &target {
+                    rows.push(text_row(15, "Windows", &format!("\\\\{target}\\share")));
+                    rows.push(text_row(
+                        16,
+                        "macOS, Linux",
+                        &format!("smb://{target}/share"),
+                    ));
+                }
+                rows.push(text_row(17, "Share user", SHARE_ACCOUNT));
+                rows.push(text_row(18, "Share password", SHARE_ACCOUNT));
+            }
+            rows
+        }
+    };
+    SettingsPage::new(NETWORK_PAGE, "Network", rows)
 }
 
 /// The rows of the video page of the quick menu: the display settings of
@@ -611,6 +698,15 @@ fn page_row(n: u32, label: &str, page: PageId) -> MenuItem {
         SettingKey(ACTION_KEY_BASE + n),
         label,
         SettingValue::Page(page),
+    )
+}
+
+/// An information row. Its key is an action key: it holds no setting.
+fn text_row(n: u32, label: &str, text: &str) -> MenuItem {
+    MenuItem::new(
+        SettingKey(ACTION_KEY_BASE + n),
+        label,
+        SettingValue::Text(text.to_owned()),
     )
 }
 
@@ -1199,5 +1295,148 @@ mod tests {
             .map(|o| o.label.as_str())
             .collect();
         assert_eq!(enabled, ["auto", "NTSC (60 Hz)", "PAL (50 Hz)"]);
+    }
+
+    fn network(addresses: &[(&str, [u8; 4])], share_on: bool) -> NetworkInfo {
+        named(Some("neptron"), addresses, share_on)
+    }
+
+    fn named(host: Option<&str>, addresses: &[(&str, [u8; 4])], share_on: bool) -> NetworkInfo {
+        NetworkInfo::Known {
+            status: neptron_platform::NetworkStatus {
+                host_name: host.map(str::to_owned),
+                addresses: addresses
+                    .iter()
+                    .map(|&(port, ipv4)| neptron_platform::PortAddress {
+                        port: port.to_owned(),
+                        ipv4: std::net::Ipv4Addr::from(ipv4),
+                    })
+                    .collect(),
+            },
+            share_on,
+        }
+    }
+
+    fn texts(page: &SettingsPage) -> Vec<(&str, &str)> {
+        page.rows
+            .iter()
+            .map(|r| match &r.value {
+                SettingValue::Text(text) => (r.label.as_str(), text.as_str()),
+                other => panic!("not an information row: {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_network_rows_of_one_port_with_the_share_on() {
+        let page = network_page(Some(&network(&[("eth0", [192, 168, 0, 112])], true)));
+        assert!(page.is_for(NETWORK_PAGE));
+        assert_eq!(
+            texts(&page),
+            [
+                ("Address eth0", "192.168.0.112"),
+                ("Host name", "neptron"),
+                ("Network name", "neptron.local"),
+                ("Share", "On"),
+                ("Windows", "\\\\192.168.0.112\\share"),
+                ("macOS, Linux", "smb://192.168.0.112/share"),
+                ("Share user", "neptron"),
+                ("Share password", "neptron"),
+            ]
+        );
+    }
+
+    #[test]
+    fn several_ports_give_one_row_each_and_the_share_uses_the_first() {
+        let info = network(
+            &[
+                ("enx001122334455", [10, 0, 0, 5]),
+                ("eth0", [192, 168, 0, 2]),
+            ],
+            true,
+        );
+        let page = network_page(Some(&info));
+        let rows = texts(&page);
+        assert_eq!(rows[0], ("Address enx001122334455", "10.0.0.5"));
+        assert_eq!(rows[1], ("Address eth0", "192.168.0.2"));
+        assert!(rows.contains(&("macOS, Linux", "smb://10.0.0.5/share")));
+        let keys: std::collections::BTreeSet<_> = page.rows.iter().map(|r| r.key).collect();
+        assert_eq!(keys.len(), page.rows.len(), "every key differs");
+        let labels: std::collections::BTreeSet<_> = page.rows.iter().map(|r| &r.label).collect();
+        assert_eq!(labels.len(), page.rows.len(), "every label differs");
+        assert!(page.rows.iter().all(|r| r.key.0 >= ACTION_KEY_BASE));
+    }
+
+    #[test]
+    fn with_no_address_the_share_uses_the_network_name() {
+        let page = network_page(Some(&network(&[], true)));
+        let rows = texts(&page);
+        assert_eq!(rows[0], (ADDRESS_LABEL, NO_ADDRESS));
+        assert!(rows.contains(&("Windows", "\\\\neptron.local\\share")));
+        assert!(rows.contains(&("macOS, Linux", "smb://neptron.local/share")));
+    }
+
+    #[test]
+    fn with_the_share_off_the_panel_does_not_say_how_to_reach_it() {
+        let page = network_page(Some(&network(&[("eth0", [192, 168, 0, 112])], false)));
+        assert_eq!(
+            texts(&page),
+            [
+                ("Address eth0", "192.168.0.112"),
+                ("Host name", "neptron"),
+                ("Share", "Off"),
+            ],
+            "with the share off mdnsd does not run, so no network name"
+        );
+    }
+
+    #[test]
+    fn an_unknown_status_or_no_read_gives_the_address_row_alone() {
+        let unknown = NetworkInfo::Unknown {
+            reason: "cannot read /run/neptron/network.toml".to_owned(),
+        };
+        assert_eq!(
+            texts(&network_page(Some(&unknown))),
+            [(ADDRESS_LABEL, ADDRESS_NOT_KNOWN)]
+        );
+        assert_eq!(
+            texts(&network_page(None)),
+            [(ADDRESS_LABEL, ADDRESS_READING)]
+        );
+    }
+
+    #[test]
+    fn with_no_valid_host_name_the_name_rows_go_and_the_address_stays() {
+        let page = network_page(Some(&named(None, &[("eth0", [192, 168, 0, 112])], true)));
+        assert_eq!(
+            texts(&page),
+            [
+                ("Address eth0", "192.168.0.112"),
+                ("Share", "On"),
+                ("Windows", "\\\\192.168.0.112\\share"),
+                ("macOS, Linux", "smb://192.168.0.112/share"),
+                ("Share user", "neptron"),
+                ("Share password", "neptron"),
+            ]
+        );
+        let page = network_page(Some(&named(None, &[], true)));
+        assert_eq!(
+            texts(&page),
+            [
+                (ADDRESS_LABEL, NO_ADDRESS),
+                ("Share", "On"),
+                ("Share user", "neptron"),
+                ("Share password", "neptron"),
+            ],
+            "no address and no name: no share path"
+        );
+    }
+
+    #[test]
+    fn a_host_name_with_dots_is_shown_as_it_is() {
+        let page = network_page(Some(&named(Some("neptron.lan"), &[], true)));
+        let rows = texts(&page);
+        assert!(rows.contains(&("Host name", "neptron.lan")));
+        assert!(rows.contains(&("Network name", "neptron.lan.local")));
     }
 }

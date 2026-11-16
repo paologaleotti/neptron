@@ -172,6 +172,22 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
     /// at this boot.
     share_offer: Option<crate::storage::FormatOffer>,
     format_request: FormatRequest,
+    /// The reader of the network status, `None` when its thread did not
+    /// start.
+    network: Option<crate::network::NetworkWatch>,
+    /// The last network status the reader gave, `None` before its first,
+    /// `Unknown` when the reader did not start.
+    network_info: Option<crate::network::NetworkInfo>,
+    /// The time of the next read while the Network panel is open, in
+    /// nanoseconds of the clock.
+    network_next_ns: u64,
+    /// True when the Network panel was the screen on show in the last
+    /// frame.
+    network_shown: bool,
+    /// The reads asked for since the start.
+    network_requests: u64,
+    /// The builds of the Network page since the start.
+    network_builds: u64,
     outcome: Option<Outcome>,
 }
 
@@ -293,6 +309,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// The guard.
     pub fn guard(&self) -> &Guard {
         &self.guard
+    }
+
+    /// The reads of the network status asked for, and the builds of the
+    /// Network page, since the start: they stay still while the panel is
+    /// closed.
+    pub fn network_counts(&self) -> (u64, u64) {
+        (self.network_requests, self.network_builds)
     }
 
     /// The library.

@@ -25,6 +25,7 @@ use crate::config::{Config, GameContext};
 use crate::display::{Detected, MonitorError};
 use crate::library::{Library, ScanKind};
 use crate::nav::Navigator;
+use crate::network::{NetworkInfo, NetworkWatch};
 use crate::outbox::{Outbox, Places};
 use crate::paths::Paths;
 use crate::presets::Presets;
@@ -260,6 +261,21 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         })
         .map_err(BootError::Writer)?;
         let share_offer = storage.as_ref().and_then(StorageStatus::format_offer);
+        // The first read starts now, so the Network panel has its rows when
+        // the player opens it.
+        let (network, network_info) =
+            match NetworkWatch::start(paths.run.clone(), paths.state.clone()) {
+                Ok(watch) => {
+                    watch.request();
+                    (Some(watch), None)
+                }
+                Err(e) => (
+                    None,
+                    Some(NetworkInfo::Unknown {
+                        reason: format!("the reader thread did not start: {e}"),
+                    }),
+                ),
+            };
         let theme = load_theme(&paths.skin(), &mut found);
         let mut shell = Shell {
             paths,
@@ -295,9 +311,20 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             places,
             share_offer,
             format_request: super::FormatRequest::None,
+            network,
+            network_info,
+            network_next_ns: 0,
+            network_shown: false,
+            network_requests: 0,
+            network_builds: 0,
             outcome: None,
         };
         shell.first_snapshot();
+        if let Some(NetworkInfo::Unknown { reason }) = &shell.network_info {
+            // The panel shows `Not known` for this run; the run goes on.
+            let line = format!("network: {reason}");
+            shell.log(line);
+        }
         if let Some(GuardEvent::SafeMode(reason)) = step.event.take() {
             shell.start_in_safe_mode(reason);
         }

@@ -15,6 +15,7 @@ mod control;
 mod crawler;
 mod end_to_end;
 mod faults;
+mod network;
 mod output;
 mod panel;
 mod pause;

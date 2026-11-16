@@ -186,6 +186,7 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
         "display",
         "audio",
         "library",
+        "network",
         "system",
         "options",
         "pattern/grid",
