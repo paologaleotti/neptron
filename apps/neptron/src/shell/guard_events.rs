@@ -7,13 +7,13 @@ use neptron_settings::{
 };
 use neptron_ui::snapshot::NoticeKind;
 use neptron_video::{
-    DisplayConfig, Guard, GuardEvent, GuardStep, RevertReason, SafeReason, VideoEngine,
+    DisplayConfig, Guard, GuardEvent, GuardRecord, GuardStep, RevertReason, SafeReason, VideoEngine,
 };
 
 use super::{Shell, Stage};
 use crate::display::{tv_setting, tv_standard};
 use crate::outbox::Job;
-use crate::record::Place;
+use crate::record;
 
 /// The length of the audio cue of the blind recovery, in milliseconds.
 const CUE_MS: u32 = 200;
@@ -37,19 +37,21 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         Some(f(&mut self.guard, engine))
     }
 
+    /// Sends `record` to the writer thread, with its last known good as
+    /// the entry of this place and the entries of the other places as
+    /// they are.
+    pub(super) fn save_record(&mut self, record: GuardRecord) {
+        self.places = record::merge(&self.places, &self.here, record.last_known_good.as_ref());
+        self.outbox.send(Job::Record {
+            record,
+            places: self.places.clone(),
+        });
+    }
+
     /// Acts on one step of the guard.
     pub(super) fn on_guard(&mut self, step: GuardStep, now_ns: u64) {
-        if matches!(step.event, Some(GuardEvent::Confirmed)) {
-            self.record_place = Some(Place {
-                output: self.runtime.output.clone(),
-                monitor: self.detected.identity(),
-            });
-        }
         if let Some(record) = step.save {
-            self.outbox.send(Job::Record {
-                record,
-                place: self.record_place.clone(),
-            });
+            self.save_record(record);
         }
         let Some(event) = step.event else {
             return;
@@ -109,10 +111,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     pub(super) fn safe_for_this_run(&mut self, notice: String) {
         if let Some(step) = self.with_engine(|guard, engine| guard.recover(engine)) {
             if let Some(record) = step.save {
-                self.outbox.send(Job::Record {
-                    record,
-                    place: self.record_place.clone(),
-                });
+                self.save_record(record);
             }
             self.roll_back();
             self.snap.confirm = None;

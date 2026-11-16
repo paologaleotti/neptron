@@ -107,7 +107,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             output: runtime.output.clone(),
             monitor: detected.identity(),
         };
-        let (record, record_place) = load_record(&paths, &detected, &presets, &here, &mut found);
+        let (record, places) = load_record(&paths, &detected, &presets, &here, &mut found);
         let setting = config.monitor();
         let safe = detected.safe(&presets, &setting)?;
         let trusted = detected.trusts(&setting);
@@ -217,8 +217,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         // and a new power cycle has no last known good: its boot prompt
         // reverts to the safe default. Only a write that fails is a boot
         // that counts nothing.
+        let mut places = places;
         let unrecorded = step.save.take().and_then(|saved| {
-            record::save(&paths.guard_record(), &saved, record_place.as_ref())
+            places = record::merge(&places, &here, saved.last_known_good.as_ref());
+            record::save(&paths.guard_record(), &saved, &places)
                 .err()
                 .map(|e| {
                     format!(
@@ -288,7 +290,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             frame,
             control_queue: queue,
             log: VecDeque::new(),
-            record_place,
+            here,
+            places,
             share_offer,
             format_request: super::FormatRequest::None,
             outcome: None,
@@ -378,22 +381,21 @@ fn load_presets(dir: &Path, found: &mut Found) -> Presets {
     }
 }
 
-/// The record for this start, and the place of its last known good, which
-/// every later write of the record keeps.
+/// The record for this start at `here`, and the last known good of every
+/// place, which every later write of the record keeps.
 fn load_record(
     paths: &Paths,
     detected: &Detected,
     presets: &Presets,
     here: &record::Place,
     found: &mut Found,
-) -> (GuardRecord, Option<record::Place>) {
-    let stored = record::load(&paths.guard_record(), |r| detected.rebuild(presets, r))
-        .unwrap_or_else(|e| {
-            found.warn(format!("{e}; the guard starts with no last known good"));
-            record::Stored::default()
-        });
-    let kept = record::confirmed_at(&stored, here).then(|| here.clone());
-    (record::for_place(stored, here), kept)
+) -> (GuardRecord, Vec<record::PlaceEntry>) {
+    let stored = record::load(&paths.guard_record()).unwrap_or_else(|e| {
+        found.warn(format!("{e}; the guard starts with no last known good"));
+        record::Stored::default()
+    });
+    let record = record::for_place(&stored, here, |r| detected.rebuild(presets, r));
+    (record, stored.places)
 }
 
 fn load_theme(path: &Path, found: &mut Found) -> Theme {

@@ -47,12 +47,53 @@ fn a_new_output_asks_again_and_reverts_to_the_safe_default() {
         matches!(rig.shell().guard().phase(), Phase::Pending(_)),
         "a new output opens the boot prompt"
     );
+    rig.finish();
+}
+
+/// A boot at another place, such as a Pi that falls back to composite when
+/// its HDMI TV is off, never deletes the confirmation of the first place.
+#[test]
+#[ignore = "tier 2"]
+fn a_boot_at_another_place_keeps_the_confirmation_of_the_first() {
+    let dir = std::env::temp_dir().join(format!("neptron-app-places-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id; absence is fine.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("the folder");
+    let mut rig = Rig::new(&dir);
+    let config = rig.paths.config();
+    std::fs::create_dir_all(&config).expect("the config folder");
+    let preset = "schema_version = 1\n\n[display]\nmonitor = \"arcade_31\"\n";
+    std::fs::write(config.join("global.toml"), preset).expect("the settings");
+    rig.boot(None);
+    rig.frames(2);
+    rig.keep();
+    rig.finish();
+
+    // Another output, nothing kept there: the boot prompt times out.
+    rig.output = "fake-2".to_owned();
+    rig.boot(None);
+    rig.frames(2);
+    assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
     rig.frames(CONFIRM_WINDOW_FRAMES);
     assert_eq!(
         rig.shell().guard().phase(),
         Phase::Safe(SafeReason::NothingConfirmed)
     );
     rig.finish();
+
+    // Back on the first output, with the preset in the settings again.
+    std::fs::write(config.join("global.toml"), preset).expect("the settings");
+    rig.output = "fake-1".to_owned();
+    rig.boot(None);
+    rig.frames(2);
+    assert_eq!(
+        rig.shell().guard().phase(),
+        Phase::Confirmed,
+        "the first output keeps its confirmation"
+    );
+    rig.finish();
+    let record = rig.state_file("video/guard.toml");
+    assert!(record.contains("[[places]]"), "{record}");
 }
 
 /// The EDID of an analog CRT, made from the specification.

@@ -162,9 +162,12 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
     frame: Rc<Cell<u64>>,
     control_queue: Rc<RefCell<VecDeque<(u64, InputEvent)>>>,
     log: VecDeque<String>,
-    /// The connector and the monitor of the last known good in the guard
+    /// The connector and the monitor of this run, the place of the guard
     /// record.
-    record_place: Option<crate::record::Place>,
+    here: crate::record::Place,
+    /// The last known good of every place in the guard record, as the
+    /// last write left them.
+    places: Vec<crate::record::PlaceEntry>,
     /// The format of the share partition that the storage script offers
     /// at this boot.
     share_offer: Option<crate::storage::FormatOffer>,
@@ -349,10 +352,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// guard record clears its run marker first.
     pub fn finish(mut self) -> Vec<String> {
         if let Some(record) = self.guard.close_run().save {
-            self.outbox.send(crate::outbox::Job::Record {
-                record,
-                place: self.record_place.clone(),
-            });
+            self.save_record(record);
         }
         let Self { stage, outbox, .. } = self;
         let mut messages = Vec::new();

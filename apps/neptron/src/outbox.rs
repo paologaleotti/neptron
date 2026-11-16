@@ -53,9 +53,9 @@ pub enum Job {
     Record {
         /// The record.
         record: GuardRecord,
-        /// The connector and the monitor the last known good was confirmed
-        /// on.
-        place: Option<record::Place>,
+        /// The last known good of each place, the place used last at the
+        /// end.
+        places: Vec<record::PlaceEntry>,
     },
     /// Write the library index cache.
     Cache {
@@ -240,7 +240,10 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, replies: &Replies) {
                     .apply(&schema, target.as_target(), &changes)
                     .map_err(|e| e.to_string())
             }
-            Job::Record { record: r, place } => record::save(&places.record, r, place.as_ref())
+            Job::Record {
+                record: r,
+                places: p,
+            } => record::save(&places.record, r, p)
                 .map_err(|e| format!("cannot write the guard record: {e}")),
             Job::ShareFormatRequest { text } => {
                 let result =
@@ -380,7 +383,7 @@ mod tests {
                 failed_boots: 1,
                 ..GuardRecord::default()
             },
-            place: None,
+            places: Vec::new(),
         });
         assert!(outbox.finish().is_empty());
         let text = std::fs::read_to_string(places.config.join("global.toml")).expect("global");
