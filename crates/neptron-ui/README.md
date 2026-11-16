@@ -76,12 +76,13 @@ The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-m
 | `VIDEO_PAGE` | `PageId(RESERVED_ID_MIN + 6)` | The video page of the quick menu: the video block and the display settings of the game. Written at the game level |
 | `LIBRARY_PAGE` | `PageId(RESERVED_ID_MIN + 7)` | The Library panel: the rescan row of the app |
 | `SYSTEM_PAGE` | `PageId(RESERVED_ID_MIN + 8)` | The System panel: the reboot and shut down rows of the app |
+| `NETWORK_PAGE` | `PageId(RESERVED_ID_MIN + 9)` | The Network panel: information rows of the app with the address, the host name and the share (`docs/spec/network-panel.md`). Screen id `network` (`NETWORK_SCREEN`), which the app reads to know whether the panel is on screen |
 | `RESUME` | `ActionId(RESERVED_ID_MIN + 1)` | Close the quick menu: `Intent::Resume` |
 | `QUIT_GAME` | `ActionId(RESERVED_ID_MIN + 2)` | Stop the game: `Intent::QuitGame` |
 
 `RESERVED_ID_MIN` is `0xFFFF_0000`. The UI carries out the reserved actions itself and never sends them as `Intent::Action`. The app numbers its own pages and actions below it.
 
-`SETTINGS_PANELS` is the list of the Settings page: a static table of `Panel { label, page }`, `Display`, `Audio`, `Library` and `System`. A new panel is one entry and a page that the app answers for. Any page other than the display panel shows in the generic page screen (`PagePanel`), so a new panel needs no screen code.
+`SETTINGS_PANELS` is the list of the Settings page: a static table of `Panel { label, page }`, `Display`, `Audio`, `Library`, `Network` and `System`. A new panel is one entry and a page that the app answers for. Any page other than the display panel shows in the generic page screen (`PagePanel`), so a new panel needs no screen code.
 
 ### Home and the game list
 

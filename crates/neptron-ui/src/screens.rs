@@ -70,6 +70,14 @@ pub const LIBRARY_PAGE: PageId = PageId(RESERVED_ID_MIN + 7);
 /// machine.
 pub const SYSTEM_PAGE: PageId = PageId(RESERVED_ID_MIN + 8);
 
+/// The Network panel: information rows of the app with the address, the
+/// host name and the network share. It changes nothing.
+pub const NETWORK_PAGE: PageId = PageId(RESERVED_ID_MIN + 9);
+
+/// The screen id of the Network panel in the tree. The app reads the
+/// screen on show to know whether the panel is open.
+pub const NETWORK_SCREEN: &str = "network";
+
 /// One row of the Settings page: a panel and the page it opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Panel {
@@ -96,6 +104,10 @@ pub static SETTINGS_PANELS: &[Panel] = &[
     Panel {
         label: "Library",
         page: LIBRARY_PAGE,
+    },
+    Panel {
+        label: "Network",
+        page: NETWORK_PAGE,
     },
     Panel {
         label: "System",

@@ -14,7 +14,7 @@ use super::chrome::{self, Layout};
 use super::page::{Crumb, Page};
 use super::router::Nav;
 use super::video;
-use super::{AUDIO_PAGE, LIBRARY_PAGE, SYSTEM_PAGE, VIDEO_PAGE};
+use super::{AUDIO_PAGE, LIBRARY_PAGE, NETWORK_PAGE, NETWORK_SCREEN, SYSTEM_PAGE, VIDEO_PAGE};
 
 /// The screen id of a page that has no id of its own.
 const PAGE_SCREEN: &str = "page";
@@ -52,6 +52,7 @@ impl PagePanel {
         match self.page.id() {
             AUDIO_PAGE => "audio",
             LIBRARY_PAGE => "library",
+            NETWORK_PAGE => NETWORK_SCREEN,
             SYSTEM_PAGE => "system",
             VIDEO_PAGE => "quick-menu/video",
             _ => PAGE_SCREEN,

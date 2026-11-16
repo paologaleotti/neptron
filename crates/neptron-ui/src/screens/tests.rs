@@ -2332,8 +2332,97 @@ fn the_library_panel_is_a_page_of_the_settings_page() {
             ("Display", page),
             ("Audio", page),
             ("Library", page),
+            ("Network", page),
             ("System", page)
         ]
+    );
+}
+
+#[test]
+fn the_network_panel_shows_information_rows_and_takes_no_change() {
+    let mut run = Run::new();
+    let empty = with_systems();
+    run.step(&empty, &super::scenes::TO_NETWORK);
+    assert_eq!(run.screen(), "network");
+    assert_eq!(
+        run.intents(),
+        [Intent::LoadSettings {
+            page: super::NETWORK_PAGE
+        }]
+    );
+    let mut snap = with_systems();
+    snap.settings = crate::snapshot::SettingsPage::new(
+        super::NETWORK_PAGE,
+        "Network",
+        super::scenes::network_rows(&[("eth0", "192.168.0.112")], true),
+    );
+    run.step(&snap, &[]);
+    assert_eq!(title(&run), ("Settings > Network", None));
+    assert_eq!(run.focused(), Some("Address eth0"));
+    let rows: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::SettingsList)
+        .map(|r| (r.label, r.value, r.kind, r.clipped))
+        .collect();
+    let info = Some(crate::RowKind::Info);
+    assert_eq!(
+        rows,
+        [
+            ("Address eth0", Some("192.168.0.112"), info, false),
+            ("Host name", Some("neptron"), info, false),
+            ("Network name", Some("neptron.local"), info, false),
+            ("Share", Some("On"), info, false),
+            ("Windows", Some("\\\\192.168.0.112\\share"), info, false),
+            (
+                "macOS, Linux",
+                Some("smb://192.168.0.112/share"),
+                info,
+                false
+            ),
+            ("Share user", Some("neptron"), info, false),
+            ("Share password", Some("neptron"), info, false),
+        ]
+    );
+    run.step(&snap, &[Accept, Left, Right, Menu]);
+    assert_eq!(run.intents(), []);
+    assert_eq!(run.screen(), "network");
+    run.step(&snap, &[Down, Down, Down, Down, Down, Down, Down]);
+    assert_eq!(run.focused(), Some("Share password"));
+    run.step(&snap, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("Network")));
+}
+
+#[test]
+fn the_longest_network_rows_fit() {
+    let mut run = Run::new();
+    let mut snap = with_systems();
+    snap.settings = crate::snapshot::SettingsPage::new(
+        super::NETWORK_PAGE,
+        "Network",
+        super::scenes::network_rows(
+            &[
+                ("enx001122334455", "255.255.255.255"),
+                ("eth0", "192.168.0.112"),
+            ],
+            true,
+        ),
+    );
+    run.step(&snap, &super::scenes::TO_NETWORK);
+    let clipped: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.clipped)
+        .map(|r| r.label)
+        .collect();
+    assert_eq!(clipped, Vec::<&str>::new());
+    assert!(
+        run.frame
+            .tree
+            .rows()
+            .any(|r| r.value == Some("smb://255.255.255.255/share"))
     );
 }
 

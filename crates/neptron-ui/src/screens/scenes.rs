@@ -15,8 +15,8 @@ use crate::theme::Theme;
 use super::game_list::WINDOW_ROWS;
 use super::router::Screen;
 use super::{
-    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, QUICK_MENU_PAGE, QUIT_GAME, RESUME,
-    SETTINGS_PAGE, SYSTEM_PAGE, Screens, VIDEO_PAGE,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, QUIT_GAME,
+    RESUME, SETTINGS_PAGE, SYSTEM_PAGE, Screens, VIDEO_PAGE,
 };
 
 pub(super) const SCENES: &[SceneDef] = &[
@@ -145,6 +145,26 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: library_scanning,
     },
     SceneDef {
+        name: "screens/network",
+        build: network,
+    },
+    SceneDef {
+        name: "screens/network-two-ports",
+        build: network_two_ports,
+    },
+    SceneDef {
+        name: "screens/network-no-address",
+        build: network_no_address,
+    },
+    SceneDef {
+        name: "screens/network-unknown",
+        build: network_unknown,
+    },
+    SceneDef {
+        name: "screens/network-share-off",
+        build: network_share_off,
+    },
+    SceneDef {
         name: "screens/system",
         build: system,
     },
@@ -220,14 +240,29 @@ pub(super) const TO_LIBRARY: [UiAction; 9] = [
     UiAction::Accept,
 ];
 
-/// The path from home to the System panel with the fixture systems.
-pub(super) const TO_SYSTEM: [UiAction; 10] = [
+/// The path from home to the Network panel with the fixture systems.
+pub(super) const TO_NETWORK: [UiAction; 10] = [
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Accept,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+];
+
+/// The path from home to the System panel with the fixture systems.
+pub(super) const TO_SYSTEM: [UiAction; 11] = [
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+    UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
@@ -772,6 +807,108 @@ fn system_format_confirm(frame: &mut UiFrame, theme: &Theme) {
         &snap,
         &[UiAction::Down, UiAction::Down, UiAction::Accept],
         frame,
+    );
+}
+
+/// The rows of the Network panel as the app gives them for `addresses`
+/// (port and address), with the share on or off. No address gives the row
+/// of a valid file with no lease. The network name is announced only with
+/// the share on.
+pub(super) fn network_rows(addresses: &[(&str, &str)], share_on: bool) -> Vec<MenuItem> {
+    let text = |key: u32, label: String, text: &str| {
+        MenuItem::new(SettingKey(key), label, SettingValue::Text(text.to_owned()))
+    };
+    let mut rows: Vec<MenuItem> = addresses
+        .iter()
+        .zip(20..)
+        .map(|(&(port, ipv4), key)| text(key, format!("Address {port}"), ipv4))
+        .collect();
+    if rows.is_empty() {
+        rows.push(text(
+            20,
+            "Address".to_owned(),
+            "None (no cable or no network)",
+        ));
+    }
+    let target = addresses.first().map_or("neptron.local", |&(_, ipv4)| ipv4);
+    rows.push(text(30, "Host name".to_owned(), "neptron"));
+    if share_on {
+        rows.push(text(31, "Network name".to_owned(), "neptron.local"));
+    }
+    rows.push(text(
+        32,
+        "Share".to_owned(),
+        if share_on { "On" } else { "Off" },
+    ));
+    if share_on {
+        rows.push(text(
+            33,
+            "Windows".to_owned(),
+            &format!("\\\\{target}\\share"),
+        ));
+        rows.push(text(
+            34,
+            "macOS, Linux".to_owned(),
+            &format!("smb://{target}/share"),
+        ));
+        rows.push(text(35, "Share user".to_owned(), "neptron"));
+        rows.push(text(36, "Share password".to_owned(), "neptron"));
+    }
+    rows
+}
+
+/// The Network panel with `rows`, the focus on the first row.
+fn network_with(frame: &mut UiFrame, theme: &Theme, rows: Vec<MenuItem>) {
+    let mut snap = with_systems();
+    snap.settings = SettingsPage::new(NETWORK_PAGE, "Network", rows);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_NETWORK, frame);
+    screens.update(&snap, &[], frame);
+}
+
+/// One port with an address, the share on.
+fn network(frame: &mut UiFrame, theme: &Theme) {
+    network_with(
+        frame,
+        theme,
+        network_rows(&[("eth0", "192.168.0.112")], true),
+    );
+}
+
+/// Two ports with addresses: the longest port name and the longest
+/// address, so the share lines are the longest they get.
+fn network_two_ports(frame: &mut UiFrame, theme: &Theme) {
+    let rows = network_rows(
+        &[
+            ("enx001122334455", "255.255.255.255"),
+            ("eth0", "192.168.0.112"),
+        ],
+        true,
+    );
+    network_with(frame, theme, rows);
+}
+
+/// A valid file with no address: no cable, or no lease yet.
+fn network_no_address(frame: &mut UiFrame, theme: &Theme) {
+    network_with(frame, theme, network_rows(&[], true));
+}
+
+/// No file, a damaged file, or a file of another version.
+fn network_unknown(frame: &mut UiFrame, theme: &Theme) {
+    let row = MenuItem::new(
+        SettingKey(20),
+        "Address",
+        SettingValue::Text("Not known".to_owned()),
+    );
+    network_with(frame, theme, vec![row]);
+}
+
+/// One address, the share switched off.
+fn network_share_off(frame: &mut UiFrame, theme: &Theme) {
+    network_with(
+        frame,
+        theme,
+        network_rows(&[("eth0", "192.168.0.112")], false),
     );
 }
 
