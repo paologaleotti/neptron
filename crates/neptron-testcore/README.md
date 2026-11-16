@@ -18,6 +18,8 @@ The setup lines come next. Each one is optional and can appear once.
 | `timing <fps_mhz> <sample_rate_hz>` | Frame rate and audio sample rate at load | `60000 48000` |
 | `audio <batch\|single\|off>` | One `audio_sample_batch` call per frame, one `audio_sample` call per stereo frame, or no audio | `batch` |
 | `save_ram <bytes>` | Size of the save RAM. 0 means none | `0` |
+| `options <init\|load>` | When the core declares its options. `load`: it also declares them in `retro_load_game`, with `neptron_testcore_dip` added, then reads each one with `GET_VARIABLE` and logs `option <key> = <value>` at info level, as FinalBurn Neo declares its DIP switches | `init` |
+| `rotation <value>` | The core calls `SET_ROTATION` with this value in `retro_load_game`, after the options. Any value up to 4294967295, so a test can send one that the frontend refuses | none |
 
 Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` after `retro_load_game` or `retro_reset`. The frame numbers must not go down. Events of one frame run in file order, before the core sends that frame.
 
@@ -31,8 +33,9 @@ Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` afte
 | `shutdown` | Calls `RETRO_ENVIRONMENT_SHUTDOWN` |
 | `unknown_env` | Calls environment command `0x24E54` (`RETRO_ENVIRONMENT_PRIVATE \| 0x4E54`, `UNKNOWN_ENVIRONMENT_COMMAND`) with null data. No frontend knows it, so a host can test how it answers an unknown call |
 | `get_variable <key> <offset>` | Calls `GET_VARIABLE` for a core option and writes the answer code to the save RAM byte at `offset` (see Core options) |
+| `rotation <value>` | Calls `SET_ROTATION` with the value. The frames do not change: the core sends them as the board draws them |
 
-The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB. An error names the line. A script with an error makes `retro_load_game` return false.
+The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, rotation values 0 to 4294967295, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB. An error names the line. A script with an error makes `retro_load_game` return false.
 
 The format is append-only. A new keyword or action can come in a later version. A keyword never changes its meaning or its arguments.
 
@@ -52,14 +55,26 @@ at 301 sram_write 0 42
 at 600 shutdown
 ```
 
+A board drawn on its side, as FinalBurn Neo sends DoDonPachi: the upright picture is 240x320 with an aspect of 3:4, the frames are 320x240, and the core asks for a turn of 90 degrees at load and declares its options there:
+
+```text
+neptron-testcore 1
+geometry 320 240 750
+options load
+rotation 1
+
+at 60 rotation 3                  # a turn in a frame: 270 degrees
+```
+
 ## Core options
 
-The core declares a fixed set of options with `SET_VARIABLES` in `retro_set_environment`:
+The core declares two options with `SET_VARIABLES` in `retro_set_environment`. With `options load` it declares them again in `retro_load_game`, with a third one:
 
-| Key | Declaration |
-| --- | --- |
-| `neptron_testcore_mode` | `Test mode; alpha\|beta\|gamma` |
-| `neptron_testcore_level` | `Test level; 1\|2\|3` |
+| Key | Declaration | Declared in |
+| --- | --- | --- |
+| `neptron_testcore_mode` | `Test mode; alpha\|beta\|gamma` | `retro_set_environment`, and `retro_load_game` with `options load` |
+| `neptron_testcore_level` | `Test level; 1\|2\|3` | `retro_set_environment`, and `retro_load_game` with `options load` |
+| `neptron_testcore_dip` | `Test DIP; off\|on` | `retro_load_game` with `options load` only |
 
 A `get_variable` event writes one byte of save RAM: 0 when the frontend returns false or no value, the position of the value in the list plus 1 (1 to 3), or 255 for a value that the list does not have. A test reads the byte through `retro_get_memory_data`.
 
@@ -80,7 +95,7 @@ The crate builds as a dynamic library (`cdylib`: `libneptron_testcore.so` on Lin
 | Call | What the core does |
 | --- | --- |
 | `retro_set_environment` | Calls `SET_SUPPORT_NO_GAME` (true), `GET_LOG_INTERFACE` and `SET_VARIABLES` |
-| `retro_load_game` | Reads the script, calls `SET_PIXEL_FORMAT` (not for `0rgb1555`) and `GET_CAN_DUPE`. The content is not used: `game` may be null. Returns false and logs the reason on a script error or a refused pixel format |
+| `retro_load_game` | Reads the script, calls `SET_PIXEL_FORMAT` (not for `0rgb1555`) and `GET_CAN_DUPE`, then with `options load` `SET_VARIABLES` and `GET_VARIABLE` for each option, then with `rotation` `SET_ROTATION`. The content is not used: `game` may be null. Returns false and logs the reason on a script error or a refused pixel format |
 | `retro_get_system_av_info` | The geometry and timing in force |
 | `retro_run` | Calls `input_poll`, reads the 16 joypad buttons of port 0, makes the environment calls of the frame's events, sends the frame (or `NULL` for `dupe`), then the audio |
 | `retro_reset` | Starts the script again at frame 0 and keeps the save RAM. If the geometry or timing changed since load, the next frame calls `SET_SYSTEM_AV_INFO` with the load values |

@@ -23,12 +23,12 @@ pub use audio::{frames_after, max_frames_per_run, sample};
 pub use frame::{expected_hash, hash, pixel, render};
 pub use model::{Core, PADDING_BYTE, Request, SaveRam, Step, UNKNOWN_ENVIRONMENT_COMMAND, Video};
 pub use options::{
-    CORE_OPTIONS, CoreOption, VALUE_NOT_LISTED, VALUE_NOT_SET, declaration, option_index,
-    value_code,
+    CORE_OPTIONS, CoreOption, LOAD_OPTION, VALUE_NOT_LISTED, VALUE_NOT_SET, declaration, option,
+    option_index, value_code,
 };
 
 pub use script::{
     Action, AudioMode, AvInfo, Event, Geometry, HEADER_KEYWORD, LoadError, MAX_ASPECT_MILLI,
     MAX_DIMENSION_PX, MAX_FPS_MHZ, MAX_SAMPLE_RATE_HZ, MAX_SAVE_RAM_BYTES, MIN_FPS_MHZ,
-    PixelFormat, SCRIPT_ENV, SCRIPT_VERSION, Script, ScriptError, Size, Timing,
+    OptionTiming, PixelFormat, SCRIPT_ENV, SCRIPT_VERSION, Script, ScriptError, Size, Timing,
 };

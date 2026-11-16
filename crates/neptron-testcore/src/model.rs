@@ -44,11 +44,13 @@ pub enum Request {
     /// `RETRO_ENVIRONMENT_GET_VARIABLE`. The answer code goes to the save
     /// RAM byte at `offset`.
     GetVariable {
-        /// The index of the option in `CORE_OPTIONS`.
+        /// The index of the option, as `option` numbers them.
         option: usize,
         /// The save RAM offset in bytes.
         offset: u32,
     },
+    /// `RETRO_ENVIRONMENT_SET_ROTATION` with this value.
+    Rotation(u32),
 }
 
 /// What the core sends to `video_refresh` in one frame.
@@ -315,6 +317,7 @@ impl Core {
                 Action::GetVariable { option, offset } => {
                     requests.push(Request::GetVariable { option, offset });
                 }
+                Action::Rotation(value) => requests.push(Request::Rotation(value)),
             }
             self.next_event += 1;
         }
@@ -570,6 +573,24 @@ mod tests {
                 offset: 1
             }]
         );
+    }
+
+    /// A board drawn on its side: the frames stay 320x240 whatever turn
+    /// the core asks for.
+    #[test]
+    fn rotation_becomes_a_request_and_leaves_the_frames_alone() {
+        let mut c = core(
+            "geometry 320 240 750
+at 1 rotation 1
+at 2 rotation 9
+",
+        );
+        let first = run(&mut c, 0);
+        assert!(first.requests.is_empty());
+        let s = run(&mut c, 0);
+        assert_eq!(s.requests, [Request::Rotation(1)]);
+        assert!(matches!(s.video, Video::Frame { size: QVGA, .. }));
+        assert_eq!(run(&mut c, 0).requests, [Request::Rotation(9)]);
     }
 
     #[test]

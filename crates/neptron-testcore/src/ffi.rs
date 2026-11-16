@@ -33,8 +33,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use neptron_libretro_sys::*;
 
 use crate::model::{Core, Request, Step, UNKNOWN_ENVIRONMENT_COMMAND, Video};
-use crate::options::{VALUE_NOT_LISTED, VALUE_NOT_SET, value_code};
-use crate::script::{AudioMode, AvInfo, Geometry, PixelFormat, Script, Size};
+use crate::options::{CORE_OPTIONS, VALUE_NOT_LISTED, VALUE_NOT_SET, value_code};
+use crate::script::{AudioMode, AvInfo, Geometry, OptionTiming, PixelFormat, Script, Size};
 
 /// The callbacks that the frontend gives the core.
 #[derive(Debug, Clone, Copy)]
@@ -77,9 +77,18 @@ const LIBRARY_NAME: &[u8] = b"neptron-testcore\0";
 const LIBRARY_VERSION: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
 const VALID_EXTENSIONS: &[u8] = b"ntc\0";
 const JOYPAD_BUTTONS: c_uint = 16;
-// The C form of `CORE_OPTIONS`; a test checks that both say the same.
-const OPTION_KEYS: [&CStr; 2] = [c"neptron_testcore_mode", c"neptron_testcore_level"];
-const OPTION_DECLARATIONS: [&CStr; 2] = [c"Test mode; alpha|beta|gamma", c"Test level; 1|2|3"];
+// The C form of `CORE_OPTIONS` and `LOAD_OPTION`, in the order of
+// `options::option`; a test checks that both say the same.
+const OPTION_KEYS: [&CStr; 3] = [
+    c"neptron_testcore_mode",
+    c"neptron_testcore_level",
+    c"neptron_testcore_dip",
+];
+const OPTION_DECLARATIONS: [&CStr; 3] = [
+    c"Test mode; alpha|beta|gamma",
+    c"Test level; 1|2|3",
+    c"Test DIP; off|on",
+];
 
 // Each export coerces to the function pointer type of the header only when
 // its signature matches.
@@ -140,7 +149,7 @@ pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
         ) {
             with_global(|g| g.callbacks.log = log.log);
         }
-        declare_options(&callbacks);
+        declare_options(&callbacks, CORE_OPTIONS.len());
     });
 }
 
@@ -374,6 +383,18 @@ pub extern "C" fn retro_load_game(_game: *const retro_game_info) -> bool {
             RETRO_ENVIRONMENT_GET_CAN_DUPE,
             &raw mut can_dupe,
         ) && can_dupe;
+        if script.options == OptionTiming::Load {
+            declare_options(&callbacks, OPTION_KEYS.len());
+            log_option_values(&callbacks);
+        }
+        if let Some(mut rotation) = script.rotation {
+            // The core sends its frames as drawn whatever the answer.
+            let _accepted = env(
+                &callbacks,
+                RETRO_ENVIRONMENT_SET_ROTATION,
+                &raw mut rotation,
+            );
+        }
         let core = Core::new(script, can_dupe);
         with_global(|g| g.core = Some(core)).is_some()
     })
@@ -539,23 +560,32 @@ fn send(callbacks: &Callbacks, step: &Step) {
                 });
                 code != VALUE_NOT_SET
             }
+            Request::Rotation(value) => {
+                let mut value: c_uint = value;
+                env(callbacks, RETRO_ENVIRONMENT_SET_ROTATION, &raw mut value)
+            }
         };
     }
     send_video(callbacks, step);
     send_audio(callbacks, step);
 }
 
-/// Declares the core options with `SET_VARIABLES`. libretro.h makes the
-/// frontend keep its own copy of the array; the strings are static.
-fn declare_options(callbacks: &Callbacks) {
-    let mut variables = [
-        variable(OPTION_KEYS[0], OPTION_DECLARATIONS[0]),
-        variable(OPTION_KEYS[1], OPTION_DECLARATIONS[1]),
-        retro_variable {
-            key: ptr::null(),
-            value: ptr::null(),
-        },
-    ];
+/// Declares the first `count` options of [`OPTION_KEYS`] with
+/// `SET_VARIABLES`. libretro.h makes the frontend keep its own copy of the
+/// array; the strings are static.
+fn declare_options(callbacks: &Callbacks, count: usize) {
+    let end = retro_variable {
+        key: ptr::null(),
+        value: ptr::null(),
+    };
+    let mut variables = [end; OPTION_KEYS.len() + 1];
+    for (slot, (key, declaration)) in variables
+        .iter_mut()
+        .zip(OPTION_KEYS.iter().zip(OPTION_DECLARATIONS))
+        .take(count)
+    {
+        *slot = variable(key, declaration);
+    }
     // The core works with the defaults when the frontend has no options.
     let _declared = env(
         callbacks,
@@ -573,23 +603,44 @@ fn variable(key: &'static CStr, value: &'static CStr) -> retro_variable {
 
 /// Asks for option `option` with `GET_VARIABLE` and returns its answer code.
 fn get_variable(callbacks: &Callbacks, option: usize) -> u8 {
-    let Some(key) = OPTION_KEYS.get(option) else {
-        return VALUE_NOT_SET;
-    };
+    match variable_value(callbacks, option) {
+        None => VALUE_NOT_SET,
+        Some(Ok(value)) => value_code(option, Some(&value)),
+        Some(Err(())) => VALUE_NOT_LISTED,
+    }
+}
+
+/// The value of option `option` from `GET_VARIABLE`: `None` for no value,
+/// `Err` for a value that is not UTF-8.
+fn variable_value(callbacks: &Callbacks, option: usize) -> Option<Result<String, ()>> {
+    let key = OPTION_KEYS.get(option)?;
     let mut var = retro_variable {
         key: key.as_ptr(),
         value: ptr::null(),
     };
     if !env(callbacks, RETRO_ENVIRONMENT_GET_VARIABLE, &raw mut var) || var.value.is_null() {
-        return VALUE_NOT_SET;
+        return None;
     }
     // SAFETY: the environment callback conforms to libretro.h (the contract
     // of `retro_set_environment`). On success it sets `value` to a
     // NUL-terminated string, valid until the next call into the frontend.
+    // It is copied before the next call.
     let value = unsafe { CStr::from_ptr(var.value) };
-    value
-        .to_str()
-        .map_or(VALUE_NOT_LISTED, |v| value_code(option, Some(v)))
+    Some(value.to_str().map(str::to_owned).map_err(|_| ()))
+}
+
+/// Reads every option with `GET_VARIABLE` and logs `option <key> = <value>`
+/// at info level, so a test sees what the core got at load.
+fn log_option_values(callbacks: &Callbacks) {
+    for (option, key) in OPTION_KEYS.iter().enumerate() {
+        let key = key.to_string_lossy();
+        let text = match variable_value(callbacks, option) {
+            Some(Ok(value)) => format!("option {key} = {value}"),
+            Some(Err(())) => format!("option {key} is not UTF-8"),
+            None => format!("option {key} has no value"),
+        };
+        log(callbacks, RETRO_LOG_INFO, &text);
+    }
 }
 
 fn send_video(callbacks: &Callbacks, step: &Step) {
@@ -766,8 +817,9 @@ mod tests {
 
     #[test]
     fn c_option_strings_match_the_option_table() {
-        for (i, option) in crate::options::CORE_OPTIONS.iter().enumerate() {
-            assert_eq!(OPTION_KEYS[i].to_str(), Ok(option.key));
+        for (i, key) in OPTION_KEYS.iter().enumerate() {
+            let option = crate::options::option(i).unwrap();
+            assert_eq!(key.to_str(), Ok(option.key));
             assert_eq!(
                 OPTION_DECLARATIONS[i].to_str().map(str::to_owned),
                 Ok(crate::options::declaration(option))

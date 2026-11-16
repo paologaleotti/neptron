@@ -12,8 +12,8 @@ use std::sync::{Mutex, MutexGuard};
 use libloading::Library;
 use neptron_libretro_sys::*;
 use neptron_testcore::{
-    CORE_OPTIONS, PixelFormat, SCRIPT_ENV, Size, UNKNOWN_ENVIRONMENT_COMMAND, VALUE_NOT_SET,
-    declaration, expected_hash, frames_after, hash, sample,
+    CORE_OPTIONS, LOAD_OPTION, PixelFormat, SCRIPT_ENV, Size, UNKNOWN_ENVIRONMENT_COMMAND,
+    VALUE_NOT_SET, declaration, expected_hash, frames_after, hash, sample,
 };
 
 /// What the frontend callbacks saw.
@@ -25,6 +25,7 @@ enum Seen {
     Shutdown,
     Variables(Vec<(String, String)>),
     GetVariable(String),
+    Rotation(c_uint),
     Unknown(c_uint),
     Frame { size: Size, pitch: usize, hash: u64 },
     Dupe,
@@ -93,6 +94,12 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
         RETRO_ENVIRONMENT_SHUTDOWN => {
             f.seen.push(Seen::Shutdown);
             true
+        }
+        RETRO_ENVIRONMENT_SET_ROTATION => {
+            // SAFETY: libretro.h: the data is a `const unsigned *`.
+            let value = unsafe { *data.cast::<c_uint>() };
+            f.seen.push(Seen::Rotation(value));
+            value < 4
         }
         RETRO_ENVIRONMENT_SET_VARIABLES => {
             let mut vars = Vec::new();
@@ -508,6 +515,64 @@ fn a_scripted_run_through_the_raw_api() {
     assert_eq!(seen[0], Seen::AvInfo(256, 224, 320, 240, 59.94, 44_100.0));
     assert_eq!(seen[1], frame(small, 0));
     assert_eq!(sram_byte(5), 42, "reset keeps the save RAM");
+    core.stop();
+    std::fs::remove_dir_all(dir).expect("remove the script");
+}
+
+/// A board drawn on its side that declares its options at load, as
+/// FinalBurn Neo does for a vertical game.
+#[test]
+fn options_and_a_rotation_at_load_and_in_a_frame() {
+    let dir = write_script(
+        "neptron-testcore 1\ngeometry 320 240 750\noptions load\nrotation 1\n\
+         at 1 rotation 3\nat 1 rotation 4\n",
+    );
+    let core = Core::load();
+    core.start();
+    assert!(core.load_game());
+    core.run(0);
+    core.run(0);
+    let qvga = Size {
+        width: 320,
+        height: 240,
+    };
+    let frame = |n: u64| Seen::Frame {
+        size: qvga,
+        pitch: 1280,
+        hash: expected_hash(qvga, PixelFormat::Xrgb8888, n, 0).unwrap(),
+    };
+    let timing = neptron_testcore::Timing {
+        fps_mhz: 60_000,
+        sample_rate_hz: 48_000,
+    };
+    let mut all = CORE_OPTIONS.to_vec();
+    all.push(LOAD_OPTION);
+    let expected = vec![
+        declared_options(),
+        Seen::PixelFormat(RETRO_PIXEL_FORMAT_XRGB8888),
+        Seen::Variables(
+            all.iter()
+                .map(|o| (o.key.to_owned(), declaration(o)))
+                .collect(),
+        ),
+        Seen::GetVariable("neptron_testcore_mode".to_owned()),
+        Seen::GetVariable("neptron_testcore_level".to_owned()),
+        Seen::GetVariable("neptron_testcore_dip".to_owned()),
+        Seen::Rotation(1),
+        frame(0),
+        Seen::Audio {
+            first: 0,
+            frames: frames_after(1, timing) as usize,
+        },
+        Seen::Rotation(3),
+        Seen::Rotation(4),
+        frame(1),
+        Seen::Audio {
+            first: frames_after(1, timing),
+            frames: (frames_after(2, timing) - frames_after(1, timing)) as usize,
+        },
+    ];
+    assert_eq!(frontend().seen, expected);
     core.stop();
     std::fs::remove_dir_all(dir).expect("remove the script");
 }

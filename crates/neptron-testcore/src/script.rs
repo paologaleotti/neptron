@@ -106,6 +106,17 @@ pub enum AudioMode {
     Off,
 }
 
+/// When the core declares its options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptionTiming {
+    /// In `retro_set_environment` only: the [`CORE_OPTIONS`](crate::CORE_OPTIONS).
+    Init,
+    /// Also in `retro_load_game`: the core declares them again with
+    /// [`LOAD_OPTION`](crate::LOAD_OPTION), then reads and logs the value
+    /// of each one, as FinalBurn Neo does.
+    Load,
+}
+
 /// Geometry, maximum size and timing, as `SET_SYSTEM_AV_INFO` sends them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AvInfo {
@@ -142,11 +153,13 @@ pub enum Action {
     /// Read a core option with `GET_VARIABLE` and write the answer code
     /// (`value_code`) to one byte of save RAM.
     GetVariable {
-        /// The index of the option in `CORE_OPTIONS`.
+        /// The index of the option, as `option` numbers them.
         option: usize,
         /// The save RAM offset in bytes.
         offset: u32,
     },
+    /// Ask for a turn with `SET_ROTATION`. The frames do not change.
+    Rotation(u32),
 }
 
 /// An action and the frame it happens at.
@@ -170,6 +183,10 @@ pub struct Script {
     pub audio: AudioMode,
     /// Size of the save RAM in bytes. 0 means no save RAM.
     pub save_ram_bytes: u32,
+    /// When the core declares its options.
+    pub options: OptionTiming,
+    /// The value of the `SET_ROTATION` call in `retro_load_game`, if any.
+    pub rotation: Option<u32>,
     /// The events, ordered by frame.
     pub events: Vec<Event>,
 }
@@ -425,6 +442,8 @@ struct Builder {
     timing: Option<Timing>,
     audio: Option<AudioMode>,
     save_ram_bytes: Option<u32>,
+    options: Option<OptionTiming>,
+    rotation: Option<u32>,
     max_line: usize,
     events: Vec<(usize, Event)>,
 }
@@ -488,6 +507,14 @@ impl Builder {
             "save_ram" => set_once(&mut self.save_ram_bytes, &a, |a| {
                 a.count(1)?;
                 a.number(0, "save RAM size", 0, MAX_SAVE_RAM_BYTES)
+            }),
+            "options" => set_once(&mut self.options, &a, |a| {
+                a.count(1)?;
+                a.option_timing(0)
+            }),
+            "rotation" => set_once(&mut self.rotation, &a, |a| {
+                a.count(1)?;
+                a.number(0, "rotation", 0, u32::MAX)
             }),
             _ => Err(ScriptError::UnknownKeyword {
                 line,
@@ -577,6 +604,10 @@ impl Builder {
                 a.count(0)?;
                 Action::Shutdown
             }
+            "rotation" => {
+                a.count(1)?;
+                Action::Rotation(a.number(0, "rotation", 0, u32::MAX)?)
+            }
             other => {
                 return Err(ScriptError::UnknownKeyword {
                     line,
@@ -624,18 +655,22 @@ impl Builder {
             },
             audio: self.audio.unwrap_or(AudioMode::Batch),
             save_ram_bytes,
+            options: self.options.unwrap_or(OptionTiming::Init),
+            rotation: self.rotation,
             events: self.events.into_iter().map(|(_, e)| e).collect(),
         })
     }
 }
 
-const SETUP_KEYWORDS: [&str; 6] = [
+const SETUP_KEYWORDS: [&str; 8] = [
     "pixel_format",
     "geometry",
     "max_size",
     "timing",
     "audio",
     "save_ram",
+    "options",
+    "rotation",
 ];
 
 fn set_once<T>(
@@ -752,6 +787,14 @@ impl Args<'_> {
         }
     }
 
+    fn option_timing(&self, index: usize) -> Result<OptionTiming, ScriptError> {
+        match self.token(index) {
+            "init" => Ok(OptionTiming::Init),
+            "load" => Ok(OptionTiming::Load),
+            _ => Err(self.value_error(index, "option timing")),
+        }
+    }
+
     fn audio_mode(&self, index: usize) -> Result<AudioMode, ScriptError> {
         match self.token(index) {
             "batch" => Ok(AudioMode::Batch),
@@ -779,7 +822,75 @@ mod tests {
         assert_eq!(s.av.timing, DEFAULT_TIMING);
         assert_eq!(s.audio, AudioMode::Batch);
         assert_eq!(s.save_ram_bytes, 0);
+        assert_eq!(s.options, OptionTiming::Init);
+        assert_eq!(s.rotation, None);
         assert!(s.events.is_empty());
+    }
+
+    #[test]
+    fn options_and_rotation_parse() {
+        let s = parse(
+            "options load
+rotation 1
+             at 0 rotation 2
+at 3 rotation 4294967295
+             at 4 get_variable neptron_testcore_dip 0
+save_ram 0
+",
+        );
+        assert!(matches!(s, Err(ScriptError::SetupAfterEvent { .. })));
+        let s = parse(
+            "options load
+rotation 1
+save_ram 1
+             at 0 rotation 2
+at 3 rotation 4294967295
+             at 4 get_variable neptron_testcore_dip 0
+",
+        )
+        .unwrap();
+        assert_eq!(s.options, OptionTiming::Load);
+        assert_eq!(s.rotation, Some(1));
+        let actions: Vec<_> = s.events.iter().map(|e| (e.frame, e.action)).collect();
+        assert_eq!(
+            actions,
+            [
+                (0, Action::Rotation(2)),
+                (3, Action::Rotation(u32::MAX)),
+                (
+                    4,
+                    Action::GetVariable {
+                        option: 2,
+                        offset: 0
+                    }
+                ),
+            ]
+        );
+        assert!(matches!(
+            parse("options later"),
+            Err(ScriptError::Value {
+                what: "option timing",
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse("rotation 4294967296"),
+            Err(ScriptError::OutOfRange {
+                what: "rotation",
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse("at 1 rotation"),
+            Err(ScriptError::Arguments { expected: 1, .. })
+        ));
+        assert!(matches!(
+            parse(
+                "rotation 1
+rotation 2"
+            ),
+            Err(ScriptError::Duplicate { .. })
+        ));
     }
 
     #[test]
@@ -933,10 +1044,10 @@ mod tests {
     #[test]
     fn unknown_keywords_are_errors() {
         assert_eq!(
-            parse("rotation 1"),
+            parse("rotate 1"),
             Err(ScriptError::UnknownKeyword {
                 line: 2,
-                keyword: "rotation".to_owned()
+                keyword: "rotate".to_owned()
             })
         );
         assert_eq!(
