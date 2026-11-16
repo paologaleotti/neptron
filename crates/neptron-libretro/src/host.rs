@@ -159,6 +159,32 @@ impl Host {
         }
     }
 
+    /// Keeps `values`, `(key, value)` pairs, as the initial option values,
+    /// in place of the ones held before. A declared key that lists its
+    /// value gets it at once, as [`Host::set_option`] gives it. A held value
+    /// that has not applied yet applies at a later `SET_VARIABLES` that
+    /// offers it, during `load_game` for example, before the core reads it.
+    /// A key whose held value applied once, or that `set_option` changed,
+    /// keeps its current value at a later declaration.
+    ///
+    /// At most [`MAX_OPTIONS`](crate::MAX_OPTIONS) keys are kept; the rest
+    /// is cut and logged once. A later pair for the same key wins. Call it
+    /// after [`Host::open`] and before [`Host::load_game`].
+    pub fn hold_options(&mut self, values: &[(String, String)]) {
+        if let Some(state) = self.state.as_deref_mut() {
+            state.hold_options(values);
+        }
+    }
+
+    /// The held values that never applied: a key that the core has not
+    /// declared ([`OptionError::UnknownKey`]), or a value that the list of
+    /// its key does not have ([`OptionError::UnknownValue`]). Read it after
+    /// [`Host::load_game`].
+    pub fn held_option_report(&self) -> Vec<OptionError> {
+        self.state()
+            .map_or_else(Vec::new, State::held_option_report)
+    }
+
     /// Loads content, or no content when the core supports that. Returns
     /// the geometry and timing of the game.
     pub fn load_game(&mut self, request: Option<ContentRequest<'_>>) -> Result<AvInfo, LoadError> {

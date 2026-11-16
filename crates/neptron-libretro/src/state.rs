@@ -12,7 +12,7 @@ use crate::content::{ContentOverride, overrides_of};
 use crate::descriptor::{InputDescriptor, MAX_INPUT_DESCRIPTORS, RawDescriptor};
 use crate::geometry::{AvInfo, GameGeometry, Timing};
 use crate::log::{LogLevel, LogQueue, LogRecord, LogSource};
-use crate::options::{CoreOption, OptionError, OptionStore};
+use crate::options::{CoreOption, MAX_OPTIONS, OptionError, OptionStore};
 use crate::output::{Dropped, Event, FrameFault, FrameOutput, Refusal};
 use crate::pad::{MAX_PORTS, Pad};
 use crate::video::{FramePlan, VideoBuffer, pixel_format_from_core};
@@ -72,6 +72,7 @@ pub(crate) struct State {
     logged_commands: Vec<u32>,
     in_run: bool,
     options: OptionStore,
+    held_cut_logged: bool,
     descriptors: Vec<InputDescriptor>,
     overrides: Vec<ContentOverride>,
     /// The content of the loaded game for `GET_GAME_INFO_EXT`, or null. The
@@ -98,6 +99,7 @@ impl State {
             logged_commands: Vec::with_capacity(MAX_LOGGED_COMMANDS),
             in_run: false,
             options: OptionStore::default(),
+            held_cut_logged: false,
             descriptors: Vec::new(),
             overrides: Vec::new(),
             game_info_ext: std::ptr::null(),
@@ -194,6 +196,25 @@ impl State {
 
     pub(crate) fn set_option(&mut self, key: &str, value: &str) -> Result<(), OptionError> {
         self.options.set(key, value)
+    }
+
+    /// Keeps the initial option values and applies them to the declared
+    /// keys. A cut list is logged once.
+    pub(crate) fn hold_options(&mut self, values: &[(String, String)]) {
+        if self.options.hold(values) && !self.held_cut_logged {
+            self.held_cut_logged = true;
+            self.logs.push_fmt(
+                LogLevel::Warn,
+                LogSource::Host,
+                format_args!(
+                    "more than {MAX_OPTIONS} held core option values; the host keeps the first {MAX_OPTIONS} keys"
+                ),
+            );
+        }
+    }
+
+    pub(crate) fn held_option_report(&self) -> Vec<OptionError> {
+        self.options.held_report()
     }
 
     /// `SET_VARIABLES`: replaces the declared options and logs each entry

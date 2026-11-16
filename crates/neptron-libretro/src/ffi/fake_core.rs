@@ -886,6 +886,65 @@ fn options_follow_the_version_0_api() {
     );
 }
 
+/// Declares one option and reads it back, as FinalBurn Neo does inside
+/// `retro_load_game`.
+fn declare_and_read_dip(cb: &Callbacks) {
+    let mut vars = [
+        retro_variable {
+            key: c"fake_dip".as_ptr(),
+            value: c"DIP; off|on".as_ptr(),
+        },
+        retro_variable {
+            key: std::ptr::null(),
+            value: std::ptr::null(),
+        },
+    ];
+    assert!(cb.env(RETRO_ENVIRONMENT_SET_VARIABLES, vars.as_mut_ptr()));
+    let mut var = retro_variable {
+        key: c"fake_dip".as_ptr(),
+        value: std::ptr::null(),
+    };
+    assert!(cb.env(RETRO_ENVIRONMENT_GET_VARIABLE, &raw mut var));
+    // SAFETY: the host gave a NUL-terminated value.
+    let value = unsafe { CStr::from_ptr(var.value) }.to_string_lossy();
+    fake().seen.calls.push(format!("dip {value}"));
+}
+
+#[test]
+fn held_values_reach_a_core_that_declares_its_options_at_load() {
+    script(|s| {
+        s.on_set_environment = Some(|cb| {
+            let mut yes = true;
+            assert!(cb.env(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &raw mut yes));
+        });
+        s.on_load = Some(declare_and_read_dip);
+        s.on_run = Some(|cb| {
+            let mut updated = true;
+            assert!(cb.env(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &raw mut updated));
+            fake().seen.calls.push(format!("updated {updated}"));
+        });
+    });
+    let mut host = open().unwrap();
+    assert!(host.options().is_empty());
+    let held = [
+        ("fake_dip".to_owned(), "on".to_owned()),
+        ("fake_region".to_owned(), "pal".to_owned()),
+    ];
+    host.hold_options(&held);
+    assert_eq!(host.held_option_report().len(), 2, "nothing declared yet");
+    host.load_game(None).unwrap();
+    assert!(seen().calls.contains(&"dip on".to_owned()));
+    assert_eq!(host.options()[0].value(), "on");
+    assert_eq!(
+        host.held_option_report(),
+        [crate::OptionError::UnknownKey {
+            key: "fake_region".to_owned()
+        }]
+    );
+    host.run_frame().unwrap();
+    assert_eq!(seen().calls.last().unwrap(), "updated false");
+}
+
 fn write_zip(name: &str, entries: &[crate::zip::tests::TestEntry<'_>]) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("neptron-libretro-fake-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

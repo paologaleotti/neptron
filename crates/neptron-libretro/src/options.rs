@@ -54,6 +54,10 @@ impl CoreOption {
         self.current_c().to_str().unwrap_or_default()
     }
 
+    fn index_of(&self, value: &str) -> Option<usize> {
+        self.values.iter().position(|v| v.to_str() == Ok(value))
+    }
+
     fn current_c(&self) -> &CStr {
         self.values.get(self.current).map_or(c"", CString::as_c_str)
     }
@@ -89,11 +93,24 @@ impl CoreOption {
     }
 }
 
-/// The declared options and the update flag of `GET_VARIABLE_UPDATE`.
+/// The declared options, the held values and the update flag of
+/// `GET_VARIABLE_UPDATE`.
 #[derive(Debug, Default)]
 pub(crate) struct OptionStore {
     options: Vec<CoreOption>,
+    /// The initial values of the frontend, one per key.
+    held: Vec<Held>,
     updated: bool,
+}
+
+/// One initial value of the frontend.
+#[derive(Debug)]
+struct Held {
+    key: String,
+    value: String,
+    /// The value was applied once, or `set` changed the key. The key then
+    /// keeps its current value at a later declaration.
+    applied: bool,
 }
 
 impl OptionStore {
@@ -101,7 +118,61 @@ impl OptionStore {
         &self.options
     }
 
-    /// Replaces the declared options. A key that was declared before keeps
+    /// Keeps `values` as the held values, in place of the ones before, at
+    /// most [`MAX_OPTIONS`] keys; a later pair for the same key wins. Each
+    /// declared key that lists its held value gets it at once, as `set`
+    /// gives it. Returns true when pairs were cut.
+    pub(crate) fn hold(&mut self, values: &[(String, String)]) -> bool {
+        let mut held: Vec<Held> = Vec::with_capacity(values.len().min(MAX_OPTIONS));
+        let mut cut = false;
+        for (key, value) in values {
+            if let Some(slot) = held.iter_mut().find(|h| h.key == *key) {
+                slot.value.clone_from(value);
+            } else if held.len() < MAX_OPTIONS {
+                held.push(Held {
+                    key: key.clone(),
+                    value: value.clone(),
+                    applied: false,
+                });
+            } else {
+                cut = true;
+            }
+        }
+        for entry in &mut held {
+            if let Some(option) = self.options.iter_mut().find(|o| o.key == entry.key)
+                && let Some(index) = option.index_of(&entry.value)
+            {
+                if option.current != index {
+                    option.current = index;
+                    self.updated = true;
+                }
+                entry.applied = true;
+            }
+        }
+        self.held = held;
+        cut
+    }
+
+    /// The held values that never applied: a key that the core has not
+    /// declared, or a value that the list of its key does not have.
+    pub(crate) fn held_report(&self) -> Vec<OptionError> {
+        self.held
+            .iter()
+            .filter(|h| !h.applied)
+            .map(|h| match self.find(&h.key) {
+                None => OptionError::UnknownKey { key: h.key.clone() },
+                Some(_) => OptionError::UnknownValue {
+                    key: h.key.clone(),
+                    value: h.value.clone(),
+                },
+            })
+            .collect()
+    }
+
+    /// Replaces the declared options. A held value that never applied is
+    /// applied when the new list has it, also for a key that was declared
+    /// before; that sets no update flag, because the core reads its values
+    /// after it declares them. Any other key that was declared before keeps
     /// its value when the new list still has it. Returns the entries that
     /// were skipped, with the reason.
     pub(crate) fn declare<'a>(
@@ -113,13 +184,23 @@ impl OptionStore {
         for &(key, declaration) in entries.iter().take(MAX_OPTIONS) {
             match CoreOption::parse(key, declaration) {
                 Ok(mut option) => {
-                    if let Some(old) = self.find(&option.key) {
-                        let old_value = old.current_c();
-                        if let Some(i) =
-                            option.values.iter().position(|v| v.as_c_str() == old_value)
-                        {
-                            option.current = i;
+                    let pending = self
+                        .held
+                        .iter_mut()
+                        .filter(|h| !h.applied && h.key == option.key)
+                        .find_map(|h| option.index_of(&h.value).map(|i| (h, i)));
+                    let start = match pending {
+                        Some((held, index)) => {
+                            held.applied = true;
+                            Some(index)
                         }
+                        None => self.find(&option.key).and_then(|old| {
+                            let old_value = old.current_c();
+                            option.values.iter().position(|v| v.as_c_str() == old_value)
+                        }),
+                    };
+                    if let Some(i) = start {
+                        option.current = i;
                     }
                     options.push(option);
                 }
@@ -149,9 +230,7 @@ impl OptionStore {
                 key: key.to_owned(),
             })?;
         let index = option
-            .values
-            .iter()
-            .position(|v| v.to_str() == Ok(value))
+            .index_of(value)
             .ok_or_else(|| OptionError::UnknownValue {
                 key: key.to_owned(),
                 value: value.to_owned(),
@@ -159,6 +238,9 @@ impl OptionStore {
         if option.current != index {
             option.current = index;
             self.updated = true;
+        }
+        if let Some(held) = self.held.iter_mut().find(|h| h.key == key) {
+            held.applied = true;
         }
         Ok(())
     }
@@ -256,6 +338,130 @@ mod tests {
         s.declare(&[(b"mode", b"Mode; beta|alpha"), (b"level", b"Level; 1|2")]);
         assert_eq!(s.value(b"mode"), Some(c"beta"));
         assert_eq!(s.value(b"level"), Some(c"1"), "3 is gone: the default");
+    }
+
+    fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn held_values_apply_at_once_to_declared_keys() {
+        let mut s = store();
+        assert!(!s.hold(&pairs(&[("mode", "gamma"), ("level", "9")])));
+        assert_eq!(s.value(b"mode"), Some(c"gamma"));
+        assert_eq!(s.value(b"level"), Some(c"1"), "9 is not listed");
+        assert!(
+            s.take_update(),
+            "a change at once is a change as `set` makes"
+        );
+        assert_eq!(
+            s.held_report(),
+            [OptionError::UnknownValue {
+                key: "level".to_owned(),
+                value: "9".to_owned()
+            }]
+        );
+    }
+
+    #[test]
+    fn held_values_apply_to_keys_declared_later() {
+        let mut s = OptionStore::default();
+        s.hold(&pairs(&[
+            ("dip", "on"),
+            ("mode", "beta"),
+            ("mode", "gamma"),
+            ("level", "9"),
+            ("speed", "2"),
+        ]));
+        assert!(s.options().is_empty());
+        assert_eq!(s.held_report().len(), 4, "nothing is declared yet");
+        s.declare(&[
+            (b"mode", b"Mode; alpha|beta|gamma"),
+            (b"level", b"Level; 1|2|3"),
+            (b"dip", b"DIP; off|on"),
+        ]);
+        assert_eq!(s.value(b"mode"), Some(c"gamma"), "the later pair wins");
+        assert_eq!(s.value(b"dip"), Some(c"on"));
+        assert_eq!(
+            s.value(b"level"),
+            Some(c"1"),
+            "9 is not listed: the default"
+        );
+        assert!(!s.take_update(), "a declaration sets no update flag");
+        assert_eq!(
+            s.held_report(),
+            [
+                OptionError::UnknownValue {
+                    key: "level".to_owned(),
+                    value: "9".to_owned()
+                },
+                OptionError::UnknownKey {
+                    key: "speed".to_owned()
+                },
+            ]
+        );
+    }
+
+    /// A value from the quick menu is never undone when the core declares
+    /// its options again.
+    #[test]
+    fn a_second_declaration_keeps_the_current_value_over_the_held_one() {
+        let mut s = OptionStore::default();
+        s.hold(&pairs(&[("mode", "beta")]));
+        s.declare(&[(b"mode", b"Mode; alpha|beta|gamma")]);
+        assert_eq!(s.value(b"mode"), Some(c"beta"));
+        s.set("mode", "alpha").unwrap();
+        s.declare(&[
+            (b"mode", b"Mode; alpha|beta|gamma"),
+            (b"dip", b"DIP; off|on"),
+        ]);
+        assert_eq!(s.value(b"mode"), Some(c"alpha"));
+        assert!(s.held_report().is_empty());
+    }
+
+    /// A key declared at open whose list lacks the held value, declared
+    /// again at load with a list that has it: the core reads the held
+    /// value, and nothing is reported.
+    #[test]
+    fn a_held_value_applies_when_a_later_declaration_offers_it() {
+        let mut s = OptionStore::default();
+        s.declare(&[(b"k", b"K; a|b")]);
+        s.hold(&pairs(&[("k", "c")]));
+        assert_eq!(s.value(b"k"), Some(c"a"));
+        assert_eq!(s.held_report().len(), 1);
+        s.declare(&[(b"k", b"K; a|b|c")]);
+        assert_eq!(s.value(b"k"), Some(c"c"));
+        assert!(s.held_report().is_empty());
+        assert!(!s.take_update(), "a declaration sets no update flag");
+    }
+
+    /// A key set by `set` keeps its value, also when the held value never
+    /// applied and a later list offers it.
+    #[test]
+    fn a_set_value_wins_over_a_held_value_that_never_applied() {
+        let mut s = OptionStore::default();
+        s.declare(&[(b"k", b"K; a|b")]);
+        s.hold(&pairs(&[("k", "c")]));
+        s.set("k", "b").unwrap();
+        s.declare(&[(b"k", b"K; a|b|c")]);
+        assert_eq!(s.value(b"k"), Some(c"b"));
+        assert!(s.held_report().is_empty(), "the key was set");
+    }
+
+    #[test]
+    fn held_values_beyond_the_limit_are_cut() {
+        let keys: Vec<(String, String)> = (0..MAX_OPTIONS + 3)
+            .map(|i| (format!("k{i}"), "a".to_owned()))
+            .collect();
+        let mut s = OptionStore::default();
+        assert!(s.hold(&keys));
+        assert_eq!(s.held_report().len(), MAX_OPTIONS);
+        let mut again = keys.clone();
+        again.truncate(MAX_OPTIONS);
+        again.push(("k0".to_owned(), "b".to_owned()));
+        assert!(!s.hold(&again), "a repeated key takes no room");
     }
 
     #[test]

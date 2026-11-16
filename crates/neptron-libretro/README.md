@@ -7,7 +7,7 @@ The host produces data and decides nothing for the session. It does not own the 
 ## Public API
 
 - `Host::open(core, HostConfig)`: claims the process, loads the library, checks the 25 entry points and the API version, gives the callbacks, calls `retro_init`.
-- `system_info()`, `options()`, `set_option(key, value)`, `input_descriptors()` (`SET_INPUT_DESCRIPTORS`, at most 256, for the remapping screen).
+- `system_info()`, `options()`, `set_option(key, value)`, `hold_options(values)`, `held_option_report()`, `input_descriptors()` (`SET_INPUT_DESCRIPTORS`, at most 256, for the remapping screen).
 - `load_game(Option<ContentRequest>) -> AvInfo`: a plain file, one entry of a `.zip` file, or no content.
 - `set_pad(port, Pad)`, then `run_frame() -> FrameOutput<'_>`: the video (`Frame`, `Duplicate` with the last frame, `Missing` or `Rejected`), the audio, the events (`Geometry`, `AvInfo`, `PixelFormat`, `Rotation`, `Shutdown`, `Message`, `Refused`), the log records and the drop counts.
 - `reset()`, `av_info()`, `pixel_format()`, `rotation()`, `logs()`.
@@ -21,7 +21,7 @@ The host produces data and decides nothing for the session. It does not own the 
 - **One thread.** `Host` is `!Send` and `!Sync`. The callback state is a box that the host lends to a thread-local slot for each call into the core. A callback from another thread gets its default answer.
 - **Frames are copied.** The video callback copies the frame, packed, into a buffer of the largest frame size, made at load and at an AV change. `FrameOutput` borrows the host until the next call. A 320x240 XRGB8888 copy is about 300 KiB.
 - **Log callback.** The libretro log callback is variadic. `src/log_shim.c` formats the text with `vsnprintf` and passes it to Rust. Snes9x calls its log pointer without a null check, so the host must give one.
-- **Core options.** Version 0 (`SET_VARIABLES`). FCEUmm, Snes9x and Genesis Plus GX use the libretro-common options template, which falls back to version 0 when the frontend reports version 0.
+- **Core options.** Version 0 (`SET_VARIABLES`). `hold_options` keeps the initial values of the frontend and applies each one when the core declares its key, also inside `retro_load_game`, where FinalBurn Neo declares its options (ADR 0016). A held value that never applied is applied at a later declaration that offers it. `held_option_report` names the held values that never applied. FCEUmm, Snes9x and Genesis Plus GX use the libretro-common options template, which falls back to version 0 when the frontend reports version 0.
 - **Zip content.** `miniz_oxide` for deflate and a small central-directory reader in this crate. FCEUmm and Genesis Plus GX report `need_fullpath` and lower it per extension with `SET_CONTENT_INFO_OVERRIDE`, then read the data with `GET_GAME_INFO_EXT`; the host supports both, so all three MVP cores take zip content. A core that needs a path for the zip entry gets `LoadError::ZipNeedsFullPath`.
 - **Memory of a zip load.** The reader holds the compressed entry (at most about 68 MiB: the 64 MiB content limit plus the deflate bound) and the inflated output (at most 64 MiB) at the same time, plus the central directory (at most 16 MiB). The peak is about 148 MiB in the worst case, during the load only. After the load the host keeps the output, at most 64 MiB, until the game is unloaded.
 - **Rotation.** `SET_ROTATION` with 0 to 3 is stored as a `Rotation` (`Host::rotation`); in a frame it is also an event. The frame stays as the core draws it: the renderers turn the picture (ADR 0015).

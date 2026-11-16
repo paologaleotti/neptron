@@ -52,6 +52,8 @@ impl Host {
     pub fn system_info(&self) -> &SystemInfo;
     pub fn options(&self) -> &[CoreOption];
     pub fn set_option(&mut self, key: &str, value: &str) -> Result<(), OptionError>;
+    pub fn hold_options(&mut self, values: &[(String, String)]);
+    pub fn held_option_report(&self) -> Vec<OptionError>;
     pub fn load_game(&mut self, content: Option<ContentRequest<'_>>) -> Result<AvInfo, LoadError>;
     pub fn av_info(&self) -> Option<AvInfo>;
     pub fn pixel_format(&self) -> PixelFormat;
@@ -378,7 +380,16 @@ At every moment `<name>.srm` is the old file or the new file. A crash leaves a `
 
 `SET_VARIABLES` gives an array of `{ key, "Description; default|value2|value3" }` that ends with a null key. The host reads at most `MAX_OPTIONS` (1,024) entries. An entry with no `"; "`, an empty value list or an empty value is skipped and logged. A second `SET_VARIABLES` replaces the list and keeps the current value of each key that is still declared with that value.
 
-`CoreOption` holds the key, the description, the values and the current value. The current value starts as the default (the first value). `set_option(key, value)`: an undeclared key is `OptionError::UnknownKey`, a value not in the list is `OptionError::UnknownValue`. A change sets the flag that `GET_VARIABLE_UPDATE` reads.
+`CoreOption` holds the key, the description, the values and the current value. The current value starts as the default (the first value). `set_option(key, value)`: an undeclared key is `OptionError::UnknownKey`, a value not in the list is `OptionError::UnknownValue`. A change sets the flag that `GET_VARIABLE_UPDATE` reads. The quick menu uses `set_option` after the load.
+
+### Held values (ADR 0016)
+
+Some cores declare their options only inside `retro_load_game`: FinalBurn Neo knows the DIP switches of a game only then. The core reads its values with `GET_VARIABLE` right after it declares them, inside the same call, so the session cannot call `set_option` between the two. The host holds the initial values for it:
+
+1. `hold_options(values)` keeps a copy of the `(key, value)` pairs for the life of the host, in place of the ones held before. A later pair for the same key wins. At most `MAX_OPTIONS` keys are kept; more are cut, and the cut is logged once.
+2. Each held value has an applied state. A held key that is declared already gets its held value at once, if the value is in its list, and the value is applied. This is a change as `set_option` makes it, and it sets the update flag.
+3. At each later `SET_VARIABLES`, the host reads the new list. A held value that never applied gets applied when the new list has it, also for a key that was declared before. Every other key that was declared before keeps its current value if it is still valid (the rule above). A key whose held value was applied once, or that `set_option` changed, keeps its current value: a change from the quick menu is never undone by a second declaration. A held value applied at a declaration does not set the update flag, because the core reads its values after it declares them.
+4. `held_option_report()` gives each held value that never applied: `OptionError::UnknownKey` for a key that the core has not declared, `OptionError::UnknownValue` for a value that the list of its key does not have. The session reads it after `load_game`.
 
 The settings crate keeps option values as unknown keys under `[core.<name>]` until open point OP-022 is decided. The session reads them there and calls `set_option`.
 
