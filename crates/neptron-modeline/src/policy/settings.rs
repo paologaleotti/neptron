@@ -70,6 +70,12 @@ pub struct PolicySettings {
     pub panel_scale: PanelScale,
     /// How a turned game shows on a horizontal display.
     pub vertical: VerticalMode,
+    /// Scanlines show on a flat panel (`display.scanlines = on` with a
+    /// strength above 0). The renderer draws them only at a whole vertical
+    /// scale of 2 or more, so the panel then takes the largest whole
+    /// multiple at every scale and never the fill. Only a flat panel reads
+    /// it; the video engine sets it from its scanline settings.
+    pub panel_scanlines: bool,
     /// The source is an arcade board (the systems `arcade` and `neogeo`).
     /// A board fills its monitor, so on a TV it gets the width of its
     /// aspect; and a board below every range of a CRT shows each frame
@@ -237,6 +243,7 @@ impl Default for PolicySettings {
             tv_width: TvWidth::Aspect,
             panel_scale: PanelScale::Auto,
             vertical: VerticalMode::Exact,
+            panel_scanlines: false,
             arcade: false,
         }
     }
@@ -281,6 +288,7 @@ pub(crate) struct Effective {
     pub(crate) tv_width: TvWidth,
     pub(crate) panel_scale: PanelScale,
     pub(crate) vertical: VerticalMode,
+    pub(crate) panel_scanlines: bool,
     pub(crate) arcade: bool,
 }
 
@@ -305,6 +313,7 @@ pub(crate) fn read_settings(settings: &PolicySettings, caps: &GpuCaps) -> Effect
         tv_width: settings.tv_width,
         panel_scale: settings.panel_scale,
         vertical: settings.vertical,
+        panel_scanlines: settings.panel_scanlines,
         arcade: settings.arcade,
     }
 }

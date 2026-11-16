@@ -30,7 +30,9 @@ pub(crate) fn panel_plan(
     modes: &[Modeline],
 ) -> Plan {
     let preferred = modes.first().map(|m| (m.hactive, m.vactive));
+    // Scanlines need a whole vertical scale, so they rule out the fill.
     let fill_from = match (settings.panel_scale, settings.vertical) {
+        _ if settings.panel_scanlines => None,
         (_, VerticalMode::Fit) if source.turned => Some(0),
         (PanelScale::Auto, _) => Some(PANEL_FILL_MIN_SCALE_MILLI),
         (PanelScale::Integer, _) => None,

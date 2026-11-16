@@ -341,3 +341,41 @@ fn the_wider_table_agrees_with_the_console_goldens() {
     }
     assert!(compared >= 40, "{compared} cases compared");
 }
+
+/// Every system on the 1440p and 4K panels, with the scanlines of the
+/// panel off and on. Scanlines need a whole vertical scale, so with them
+/// on the panel takes the largest whole multiple and never the fill. Each
+/// case is "<system> <panel> scanlines <off|on>", in
+/// tests/golden/policy_panel_scanlines.toml.
+#[test]
+fn panels_with_and_without_scanlines_give_their_golden_decisions() {
+    let panels: Vec<_> = arcade_table::panels()
+        .into_iter()
+        .filter(|d| ["panel_1440", "panel_2160"].contains(&d.profile.id.as_str()))
+        .collect();
+    assert_eq!(panels.len(), 2);
+    let mut actual = BTreeMap::new();
+    for (name, source) in systems() {
+        for panel in &panels {
+            for on in [false, true] {
+                let settings = PolicySettings {
+                    panel_scanlines: on,
+                    ..PolicySettings::default()
+                };
+                let key = format!(
+                    "{name} {} scanlines {}",
+                    panel.profile.id,
+                    if on { "on" } else { "off" }
+                );
+                let got = outcome_with(&source, &settings, &panel.profile, &panel.caps);
+                if on {
+                    let plan = decide(&source, &settings, &panel.profile, &panel.caps).unwrap();
+                    let (_, _, p) = plan.proposals().next().unwrap();
+                    assert!(p.placement.scale.y.is_some(), "{key}: {got}");
+                }
+                actual.insert(key, got);
+            }
+        }
+    }
+    compare("policy_panel_scanlines.toml", actual);
+}

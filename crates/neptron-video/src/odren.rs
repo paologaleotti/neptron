@@ -1,7 +1,9 @@
 use neptron_backend::DisplayError;
 use neptron_modeline::policy::{PolicySettings, Proposal, Switch, switch_for};
 use neptron_safety::{Rejection, ValidatedMode, validate};
-use neptron_types::{FlipEvent, Frame, GpuCaps, Modeline, Scene, SourceGeometry};
+use neptron_types::{
+    FlipEvent, Frame, GpuCaps, Modeline, MonitorKind, ScanlineMode, Scene, SourceGeometry,
+};
 
 use crate::cache::Cache;
 use crate::decision::{Decision, Inputs};
@@ -144,7 +146,11 @@ impl Odren {
             inputs: Inputs {
                 caps: monitor.caps_for(gpu),
                 monitor,
-                settings,
+                // The scanlines start off (`ScanlineSettings::OFF`).
+                settings: PolicySettings {
+                    panel_scanlines: false,
+                    ..settings
+                },
                 veto: None,
                 driver_refused: Vec::new(),
             },
@@ -187,7 +193,13 @@ impl Odren {
     }
 
     /// New policy settings. The next frame decides again with no debounce.
+    /// `panel_scanlines` comes from the scanline settings of the engine,
+    /// not from `settings`.
     pub fn set_settings(&mut self, settings: PolicySettings) {
+        let settings = PolicySettings {
+            panel_scanlines: self.panel() && panel_scanlines(self.scanlines),
+            ..settings
+        };
         if settings != self.inputs.settings {
             self.inputs.settings = settings;
             self.invalidate(Trigger::Settings);
@@ -206,10 +218,27 @@ impl Odren {
         self.redo = Some(Trigger::Retry);
     }
 
-    /// New scanline settings. The next scene takes them; no modeset, no
-    /// debounce and no trace record.
+    /// New scanline settings. The next scene takes them, with no modeset
+    /// and no debounce. When they turn the scanlines of a flat panel on or
+    /// off, the policy decides again: a panel with scanlines takes a whole
+    /// vertical scale.
     pub fn set_scanlines(&mut self, scanlines: ScanlineSettings) {
         self.scanlines = scanlines;
+        // Only a flat panel reads the field; elsewhere the scene alone
+        // changes, with no new decision.
+        let on = self.panel() && panel_scanlines(scanlines);
+        if on != self.inputs.settings.panel_scanlines {
+            self.inputs.settings.panel_scanlines = on;
+            self.invalidate(Trigger::Settings);
+        }
+    }
+
+    /// The monitor is a flat panel.
+    fn panel(&self) -> bool {
+        matches!(
+            self.inputs.monitor.profile().kind,
+            MonitorKind::FlatPanel { .. }
+        )
     }
 
     /// The scanline settings.
@@ -841,6 +870,12 @@ impl Odren {
             refused: decision.map(|d| d.refused.clone()).unwrap_or_default(),
         }
     }
+}
+
+/// Scanlines show on a flat panel: the mode `on` with a strength above 0.
+/// `auto` draws none on a panel (`scanlines_for`).
+fn panel_scanlines(scanlines: ScanlineSettings) -> bool {
+    scanlines.mode == ScanlineMode::On && scanlines.strength_percent > 0
 }
 
 #[cfg(test)]

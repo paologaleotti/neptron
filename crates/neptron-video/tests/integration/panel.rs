@@ -10,10 +10,12 @@
 use neptron_platform::EdidProfile;
 use neptron_testkit::{FakeDisplay, SimClock};
 use neptron_types::{
-    Filter, Frame, GpuCaps, Modeline, MonitorKind, MonitorProfile, PixelFormat, Rect,
+    Filter, Frame, GpuCaps, Modeline, MonitorKind, MonitorProfile, PixelFormat, Rect, ScanlineMode,
     SourceGeometry,
 };
-use neptron_video::{Monitor, PanelScale, PolicySettings, VideoEngine, VideoStatusText};
+use neptron_video::{
+    Monitor, PanelScale, PolicySettings, ScanlineSettings, VideoEngine, VideoStatusText,
+};
 
 use crate::harness::{SNES, SNES_PAL, frame, source};
 
@@ -317,4 +319,28 @@ fn a_large_scale_fills_the_height_with_the_shape_kept() {
             "{w}x{h}"
         );
     }
+}
+
+#[test]
+fn scanlines_on_a_panel_take_the_largest_whole_multiple() {
+    // 1080 / 224 = 4.82: the fill with no scanlines; with scanlines on,
+    // the renderer needs a whole vertical scale, so 4x, 896 lines.
+    let (_, mut engine) = engine_with(panel(vec![mode(1920, 1080, 60)]), PolicySettings::default());
+    let shown = |engine: &mut VideoEngine<FakeDisplay>| {
+        engine.begin_frame(SNES);
+        engine.present(Some(frame(&SNES)), None).unwrap();
+        engine.wait_flip().unwrap();
+        engine.current().unwrap().chosen.proposal.placement.dest
+    };
+    assert_eq!(shown(&mut engine), rect(240, 0, 1440, 1080));
+    engine.set_scanlines(ScanlineSettings {
+        mode: ScanlineMode::On,
+        strength_percent: 50,
+    });
+    assert_eq!(shown(&mut engine), rect(363, 92, 1194, 896));
+    // A later change of the policy settings keeps the scanline rule.
+    engine.set_settings(PolicySettings::default());
+    assert_eq!(shown(&mut engine), rect(363, 92, 1194, 896));
+    engine.set_scanlines(ScanlineSettings::OFF);
+    assert_eq!(shown(&mut engine), rect(240, 0, 1440, 1080));
 }

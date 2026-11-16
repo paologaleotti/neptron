@@ -327,6 +327,7 @@ mod tests {
         tv_width: TvWidth::Aspect,
         panel_scale: crate::policy::PanelScale::Auto,
         vertical: crate::policy::VerticalMode::Exact,
+        panel_scanlines: false,
         arcade: false,
     };
 
