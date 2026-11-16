@@ -18,9 +18,12 @@ pub struct GameLaunch<'a> {
     /// The save folder of the system. The session makes it when it is
     /// missing.
     pub save_dir: &'a Path,
-    /// Core option values (key, value) from the settings. A key the core
-    /// does not declare, or a value it does not list, is skipped and
-    /// counted.
+    /// Core option values (key, value): the defaults of the core data,
+    /// then the values from the settings, so a later pair for a key wins.
+    /// The host holds them and applies each one when the core declares its
+    /// key, also during the load. A key the core does not declare by the
+    /// end of the load, or a value it does not list, is counted in
+    /// `Counters::refused_options`; `Host::held_option_report` names them.
     pub core_options: &'a [(String, String)],
 }
 

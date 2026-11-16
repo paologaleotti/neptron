@@ -119,8 +119,8 @@ The session does not get a `SourceGeometry` from the host. The engine builds it 
 ### The order of calls
 
 1. `Host::open`: claims the process, loads the library, checks the symbols and the API version, sets the six callbacks, calls `retro_init`, reads `retro_get_system_info`. The core declares its options here in most cases.
-2. The session reads `options()` and calls `set_option` with the stored values.
-3. `load_game`: prepares the content, calls `retro_load_game`, reads `retro_get_system_av_info`, makes the buffers, calls `retro_set_controller_port_device(port, RETRO_DEVICE_JOYPAD)` for ports 0 and 1.
+2. The session calls `hold_options` with the default values of `data/cores` and the stored values, the stored ones last (ADR 0016). The host applies each value when its key is declared: at once for the keys that `Host::open` declared, at the `SET_VARIABLES` call for a core that declares its options later.
+3. `load_game`: prepares the content, calls `retro_load_game`, reads `retro_get_system_av_info`, makes the buffers, calls `retro_set_controller_port_device(port, RETRO_DEVICE_JOYPAD)` for ports 0 and 1. Then the session reads `held_option_report()` and counts each entry in `Counters::refused_options`.
 4. The session calls `read_save_file` and `load_save_ram`.
 5. Each frame: `set_pad` for each port, then `run_frame`. The session uses the output before the next call.
 6. On a timer and on exit: `copy_save_ram`, then `write_save_file` on a worker thread or at exit.
@@ -391,7 +391,7 @@ Some cores declare their options only inside `retro_load_game`: FinalBurn Neo kn
 3. At each later `SET_VARIABLES`, the host reads the new list. A held value that never applied gets applied when the new list has it, also for a key that was declared before. Every other key that was declared before keeps its current value if it is still valid (the rule above). A key whose held value was applied once, or that `set_option` changed, keeps its current value: a change from the quick menu is never undone by a second declaration. A held value applied at a declaration does not set the update flag, because the core reads its values after it declares them.
 4. `held_option_report()` gives each held value that never applied: `OptionError::UnknownKey` for a key that the core has not declared, `OptionError::UnknownValue` for a value that the list of its key does not have. The session reads it after `load_game`.
 
-The settings crate keeps option values as unknown keys under `[core.<name>]` until open point OP-022 is decided. The session reads them there and calls `set_option`.
+The settings crate keeps option values as unknown keys under `[core.<name>]` until open point OP-022 is decided. The session gives them to `hold_options` before the load.
 
 ## Errors
 

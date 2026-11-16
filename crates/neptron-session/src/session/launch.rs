@@ -28,8 +28,9 @@ struct SaveFile {
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// Launches a game.
     ///
-    /// 1. Makes the save folder, opens the core, sets the core options and
-    ///    loads the content.
+    /// 1. Makes the save folder, opens the core, gives it the core option
+    ///    values to hold, and loads the content. A core that declares its
+    ///    options during the load gets the values too.
     /// 2. Reads the save file and loads it into the core's save RAM.
     /// 3. Runs the core with no display until its source settles (see
     ///    [`LAUNCH_STABLE_FRAMES`](crate::LAUNCH_STABLE_FRAMES)), so the
@@ -59,16 +60,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             save_dir: game.save_dir.to_owned(),
         };
         let mut host = Host::open(game.core, config)?;
-        let refused_options = game
-            .core_options
-            .iter()
-            .filter(|(key, value)| host.set_option(key, value).is_err())
-            .count();
+        host.hold_options(game.core_options);
         let request = game.content.map(|path| ContentRequest {
             path,
             extensions: game.extensions,
         });
         let av = host.load_game(request)?;
+        let refused_options = host.held_option_report().len();
         let save = load_save_file(&mut host, game)?;
 
         let mut engine = VideoEngine::new(video.display, video.monitor, video.policy);

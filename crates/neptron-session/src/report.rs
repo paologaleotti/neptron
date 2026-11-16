@@ -69,7 +69,8 @@ pub struct Counters {
     /// Log records of the core and the host. The app reads the records of
     /// the last frame with `Session::core_logs`.
     pub log_records: u64,
-    /// Core option values from the settings that the core refused.
+    /// Held core option values that did not apply after the load: a key
+    /// the core did not declare, or a value it does not list.
     pub refused_options: u64,
     /// Run rates that the audio pipeline refused (more than twice or less
     /// than half the core's rate). The last good rate stays.
