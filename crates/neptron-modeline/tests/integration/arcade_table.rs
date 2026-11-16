@@ -374,8 +374,8 @@ pub struct Cell {
     /// The largest whole vertical scale of a proposal in the plan that
     /// keeps the game rate and that the validator accepts, as "3x 960p".
     pub best_whole: String,
-    /// "ok" when the winner follows the arcade rule of the spec, else the
-    /// first rule it breaks.
+    /// "ok" when the winner follows the arcade rule of the spec, "ok: "
+    /// and the allowed reason, else the first rule it breaks.
     pub rule: &'static str,
 }
 
@@ -404,7 +404,7 @@ pub fn cell(board: &Board, display: &Display) -> Cell {
             border_lines: 0,
             shape_error_permille: 0,
             best_whole,
-            rule: "no mode",
+            rule: no_mode_reason(profile, board),
         };
     };
     let p = winner.proposal;
@@ -449,36 +449,46 @@ pub fn cell(board: &Board, display: &Display) -> Cell {
         rule: rule(
             board,
             profile,
-            winner.considered,
-            p,
+            &plan,
+            (winner.considered, p),
             shape_error_permille,
-            best,
+            caps,
         ),
     }
 }
 
-/// The first rule of the arcade rule set that the winner breaks, or "ok".
-/// The rules, in order: a mode exists; no soft fit; the game keeps its
-/// shape; on a CRT, the game's rate or twice it when a range covers one of
-/// them; on a CRT, no smaller whole scale than the largest one that keeps
-/// the rate. A panel and a TV run at their own rate, and their whole scale
-/// is the largest that fits by construction.
+/// The verdict of the arcade rule of docs/spec/arcade.md (section 11, as
+/// the owner decided it on 2026-11-16) on a winner: "ok", "ok: " and an
+/// allowed reason, or the first rule that the winner breaks.
+///
+/// The allowed reasons: no exact mode exists on the profile; the profile
+/// declares no interlace; a range has one line rate only; the overscan
+/// crop hides edge lines (it keeps the width, so the visible lines lose
+/// their shape by the share of the hidden lines).
 fn rule(
     board: &Board,
     profile: &MonitorProfile,
-    considered: &Considered,
-    p: &Proposal,
+    plan: &Plan,
+    winner: (&Considered, &Proposal),
     shape_error_permille: i64,
-    best: Option<(u16, bool, u32)>,
+    caps: &GpuCaps,
 ) -> &'static str {
-    if considered.rung.is_fitted() {
-        return "soft fit";
+    let (considered, p) = winner;
+    let source = plan.source;
+    if considered.rung.is_fitted()
+        && let Err(broken) = fit_allowed(profile, plan, p, caps)
+    {
+        return broken;
     }
     if shape_error_permille.abs() > SHAPE_ERROR_MAX_PERMILLE {
-        return "shape";
+        let crop = i64::from(crop_lines(p)) * 2 * 1_000 / i64::from(source.height);
+        if crop == 0 || shape_error_permille.abs() > crop + SHAPE_ERROR_MAX_PERMILLE {
+            return "shape";
+        }
+        return "ok: overscan crop";
     }
     let MonitorKind::Crt { ranges } = &profile.kind else {
-        return "ok";
+        return fit_reason(profile, plan, considered);
     };
     if p.timing.changes_speed() {
         let game = u64::from(board.refresh_mhz);
@@ -487,15 +497,179 @@ fn rule(
                 .iter()
                 .any(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz)
         };
-        return if covered(game) || covered(2 * game) {
-            "rate"
+        if covered(game) || covered(2 * game) {
+            return "rate";
+        }
+    }
+    if considered.rung.is_fitted() {
+        return fit_reason(profile, plan, considered);
+    }
+    crt_order(plan, p, profile, caps)
+}
+
+/// The fit wins on a CRT or a TV only when no exact mode exists: no
+/// exact proposal of the plan validates, and the game's lines fit no
+/// window of the profile at its rate. On a panel the fit is the panel
+/// rule at a scale of 4.0 or more, or a game larger than the mode.
+fn fit_allowed(
+    profile: &MonitorProfile,
+    plan: &Plan,
+    p: &Proposal,
+    caps: &GpuCaps,
+) -> Result<(), &'static str> {
+    if let MonitorKind::FlatPanel { .. } = profile.kind {
+        let scale = panel_fill_scale_milli(plan, &p.mode);
+        return if !(1_000..4_000).contains(&scale) {
+            Ok(())
         } else {
-            "ok"
+            Err("panel scale")
         };
     }
-    match (p.placement.scale.y, best) {
-        (Some(k), Some((largest, _, _))) if k < largest => "smaller scale",
-        _ => "ok",
+    let exact = plan
+        .proposals()
+        .any(|(_, c, q)| !c.rung.is_fitted() && validate(&q.mode, profile, caps).is_ok());
+    if exact {
+        return Err("soft fit");
+    }
+    let lines = u32::from(plan.source.height);
+    match &profile.kind {
+        MonitorKind::Crt { ranges } => {
+            let rates = [plan.source.refresh_mhz, plan.source.refresh_mhz * 2];
+            let fits = ranges.iter().any(|r| {
+                rates.iter().any(|&rate| {
+                    // A rate that the range does not cover becomes the
+                    // nearest one it covers, as the policy's `Nearest`.
+                    let rate = u64::from(rate).clamp(r.v_min_mhz, r.v_max_mhz);
+                    let progressive = u32::from(r.progressive_lines_max).min(field_lines(r, rate));
+                    let interlaced =
+                        u32::from(r.interlaced_lines_max).min(2 * field_lines(r, rate));
+                    lines <= progressive || (caps.interlace && lines <= interlaced)
+                })
+            });
+            if fits { Err("soft fit") } else { Ok(()) }
+        }
+        // A game taller than the progressive mode of a TV fits into the
+        // interlaced mode, which keeps more of its lines.
+        MonitorKind::Tv { .. } if !p.mode.interlace && lines > u32::from(p.mode.vactive) => {
+            Err("tv fit")
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The allowed reason of a fitted winner, or "ok" for an exact one.
+fn fit_reason(profile: &MonitorProfile, plan: &Plan, considered: &Considered) -> &'static str {
+    if !considered.rung.is_fitted() {
+        return "ok";
+    }
+    match &profile.kind {
+        MonitorKind::FlatPanel { .. } => "ok: panel fill",
+        MonitorKind::Tv { .. } => "ok: no exact mode exists on this profile",
+        MonitorKind::Crt { ranges } => {
+            let interlace = ranges.iter().any(|r| r.interlaced_lines_max > 0);
+            let tall = ranges
+                .iter()
+                .all(|r| u32::from(plan.source.height) > u32::from(r.progressive_lines_max));
+            if !interlace && tall {
+                "ok: the profile declares no interlace"
+            } else {
+                "ok: no exact mode exists on this profile"
+            }
+        }
+    }
+}
+
+/// The active lines of one field that a range holds at `rate_mhz`, less
+/// its vertical blanking at its highest line rate.
+fn field_lines(range: &CrtRange, rate_mhz: u64) -> u32 {
+    let total = range.h_max_mhz / rate_mhz.max(1);
+    let blank_ns = u128::from(range.v_front_porch_ns)
+        + u128::from(range.v_sync_ns)
+        + u128::from(range.v_back_porch_ns);
+    let blank = (blank_ns * u128::from(range.h_max_mhz)).div_ceil(1_000_000_000_000);
+    u32::try_from(u128::from(total).saturating_sub(blank)).unwrap_or(u32::MAX)
+}
+
+/// The scale at which the game, at its shape, fills the height of a panel
+/// mode, or its width when the width comes first, in thousandths.
+fn panel_fill_scale_milli(plan: &Plan, mode: &Modeline) -> u64 {
+    let s = plan.source;
+    let aspect = if s.aspect_milli == 0 {
+        u64::from(s.width) * 1_000 / u64::from(s.height)
+    } else {
+        u64::from(s.aspect_milli)
+    };
+    let by_height = u64::from(mode.vactive) * 1_000 / u64::from(s.height);
+    let width_at_1 = aspect * u64::from(s.height) / 1_000;
+    let by_width = u64::from(mode.hactive) * 1_000 / width_at_1.max(1);
+    by_height.min(by_width)
+}
+
+/// The fill of an exact proposal in per mille of the picture lines: the
+/// padding's share, or 1,000 when the mode is not padded.
+fn fill_permille(p: &Proposal) -> u32 {
+    p.padding.map_or(1_000, |pad| pad.fill_permille())
+}
+
+/// The order of the exact modes on a CRT at the winner's rate: the
+/// smallest whole multiple that fills the screen (decision A7); a
+/// progressive mode of at least 60 % before an interlaced one; below 60 %,
+/// an interlaced 1:1 mode that fills more (decision A8).
+fn crt_order(plan: &Plan, p: &Proposal, profile: &MonitorProfile, caps: &GpuCaps) -> &'static str {
+    let rate = p.timing.target.rate_mhz;
+    let others: Vec<&Proposal> = plan
+        .proposals()
+        .filter(|(_, c, q)| {
+            !c.rung.is_fitted()
+                && q.timing.target.rate_mhz == rate
+                && validate(&q.mode, profile, caps).is_ok()
+        })
+        .map(|(_, _, q)| q)
+        .collect();
+    let fill = fill_permille(p);
+    let k = p.placement.scale.y.unwrap_or(1);
+    let full = |q: &Proposal| !q.mode.interlace && fill_permille(q) >= 750;
+    if fill < 750 && others.iter().any(|q| full(q)) {
+        return "smaller picture";
+    }
+    let smaller_full = others
+        .iter()
+        .filter(|q| full(q))
+        .any(|q| q.overscan_crop.is_none() && q.placement.scale.y.unwrap_or(1) < k);
+    if !p.mode.interlace && p.overscan_crop.is_none() && smaller_full {
+        return "larger multiple";
+    }
+    if p.mode.interlace
+        && others
+            .iter()
+            .any(|q| !q.mode.interlace && fill_permille(q) >= 600)
+    {
+        return "interlace";
+    }
+    if fill < 600
+        && others
+            .iter()
+            .any(|q| q.mode.interlace && fill_permille(q) > fill)
+    {
+        return "small picture";
+    }
+    "ok"
+}
+
+/// The allowed reason of a cell with no mode: a range of one line rate
+/// covers the game's rate, so the whole-kHz pixel clock may find no mode
+/// inside it; else no mode breaks the rule.
+fn no_mode_reason(profile: &MonitorProfile, board: &Board) -> &'static str {
+    let rate = u64::from(board.refresh_mhz);
+    match &profile.kind {
+        MonitorKind::Crt { ranges }
+            if ranges.iter().any(|r| {
+                r.h_min_mhz == r.h_max_mhz && r.v_min_mhz <= rate && rate <= r.v_max_mhz
+            }) =>
+        {
+            "ok: one line rate only"
+        }
+        _ => "no mode",
     }
 }
 

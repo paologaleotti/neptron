@@ -242,7 +242,7 @@ fn every_arcade_board_that_follows_the_rule_gives_its_golden_decision() {
     let mut actual = BTreeMap::new();
     for board in &arcade_table::BOARDS {
         for display in &displays {
-            if arcade_table::cell(board, display).rule != "ok" {
+            if !arcade_table::cell(board, display).rule.starts_with("ok") {
                 continue;
             }
             let key = format!("{} {}", board.name, display.profile.id);
