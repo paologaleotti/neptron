@@ -13,7 +13,7 @@
 # docs/spec/arcade.md (section 11, as the owner decided it on 2026-11-16)
 # are here, with the cells that carry an allowed reason: no exact mode
 # exists on the profile, the profile declares no interlace, a range has one
-# line rate only, or the overscan crop hides edge lines. The test finds
+# line rate or one field rate only, or the overscan crop hides edge lines. The test finds
 # the cells with that rule (`arcade_table::cell`), so the file must hold
 # exactly those cells. A cell that breaks the rule is work for the policy,
 # never blessed here.

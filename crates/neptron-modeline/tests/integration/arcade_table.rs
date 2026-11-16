@@ -15,6 +15,8 @@
 //! show a result that the arcade rule of the spec does not want. The cells
 //! that follow the rule are goldens in tests/golden/policy_arcade.toml.
 
+use std::collections::BTreeMap;
+
 use neptron_modeline::policy::{
     Considered, Plan, PolicySettings, Proposal, RefreshKind, Rung, choose, decide,
 };
@@ -31,12 +33,23 @@ use crate::presets::{gpu_table, open_caps, panel_1080, pc_crt_30_71, preset};
 /// board is 4:3 of the frame as drawn: FBNeo reports the upright 3:4 of a
 /// vertical board, and the session inverts it (docs/spec/arcade.md,
 /// section 11).
+///
+/// The wider table of every source class uses the same type: a console, a
+/// handheld or a computer is a board with `arcade` false, its own display
+/// aspect and its scan.
 pub struct Board {
     pub name: &'static str,
     pub width: u16,
     pub height: u16,
     pub refresh_mhz: u32,
     pub rotation: Rotation,
+    pub interlaced: bool,
+    /// The display aspect of the frame as drawn, in thousandths.
+    pub aspect_milli: u32,
+    /// The source is an arcade board (PolicySettings::arcade).
+    pub arcade: bool,
+    /// The class of the summary in the spec.
+    pub class: &'static str,
 }
 
 /// The reference boards, then the hard cases. Unless the comment names
@@ -108,8 +121,193 @@ const fn board(
         height,
         refresh_mhz,
         rotation,
+        interlaced: false,
+        aspect_milli: 1_333,
+        arcade: true,
+        class: if matches!(rotation, Rotation::R90 | Rotation::R270) {
+            "vertical arcade"
+        } else {
+            "horizontal arcade"
+        },
     }
 }
+
+/// A source that is not an arcade board.
+const fn other(
+    class: &'static str,
+    name: &'static str,
+    (width, height, interlaced): (u16, u16, bool),
+    refresh_mhz: u32,
+    aspect_milli: u32,
+) -> Board {
+    Board {
+        name,
+        width,
+        height,
+        refresh_mhz,
+        rotation: Rotation::R0,
+        interlaced,
+        aspect_milli,
+        arcade: false,
+        class,
+    }
+}
+
+/// The consoles, handhelds and computers of the wider table, and the
+/// extremes of the arcade rates. The systems of tests/golden/systems.toml
+/// keep their geometry and 4:3 (the test
+/// `the_wider_table_agrees_with_the_console_goldens` holds them to
+/// policy.toml); a handheld also comes with its own display aspect. A
+/// value marked UNVERIFIED is the common figure of the core, not checked
+/// for this table.
+pub const SOURCES: [Board; 44] = [
+    other("console", "nes_ntsc", (256, 240, false), 60_099, 1_333),
+    other("console", "snes_ntsc", (256, 224, false), 60_099, 1_333),
+    // The SNES high-resolution modes: the SNES frame timing (snes9x and
+    // bsnes give them as 512 wide, and 448 interlaced lines).
+    other(
+        "console hi-res",
+        "snes_512",
+        (512, 224, false),
+        60_099,
+        1_333,
+    ),
+    other(
+        "console hi-res",
+        "snes_512i",
+        (512, 448, true),
+        60_099,
+        1_333,
+    ),
+    other("console", "md_ntsc_h32", (256, 224, false), 59_923, 1_333),
+    other("console", "md_ntsc_h40", (320, 224, false), 59_923, 1_333),
+    // Mega Drive interlace mode 2 (Sonic 2 two players): 448 lines at the
+    // NTSC frame timing. UNVERIFIED: the rate the core reports.
+    other("console hi-res", "md_448i", (320, 448, true), 59_923, 1_333),
+    other("console", "sms_ntsc", (256, 192, false), 59_923, 1_333),
+    other("console", "pc_engine", (256, 240, false), 59_826, 1_333),
+    // PC Engine 336 and 512 wide: the same frame timing, other dot clocks.
+    other("console", "pce_336", (336, 240, false), 59_826, 1_333),
+    other(
+        "console hi-res",
+        "pce_512",
+        (512, 240, false),
+        59_826,
+        1_333,
+    ),
+    // PlayStation NTSC: 263 lines at 59.826 Hz progressive, 59.940 Hz
+    // interlaced. UNVERIFIED: the rates the core reports.
+    other("console", "psx_256", (256, 240, false), 59_826, 1_333),
+    other("console", "psx_320", (320, 240, false), 59_826, 1_333),
+    other("console", "psx_368", (368, 240, false), 59_826, 1_333),
+    other(
+        "console hi-res",
+        "psx_512",
+        (512, 240, false),
+        59_826,
+        1_333,
+    ),
+    other(
+        "console hi-res",
+        "psx_640",
+        (640, 240, false),
+        59_826,
+        1_333,
+    ),
+    other(
+        "console hi-res",
+        "psx_512i",
+        (512, 480, true),
+        59_940,
+        1_333,
+    ),
+    other(
+        "console hi-res",
+        "psx_640i",
+        (640, 480, true),
+        59_940,
+        1_333,
+    ),
+    // PlayStation PAL: 256 lines at 49.761 Hz, 512 interlaced at 50 Hz.
+    // UNVERIFIED.
+    other("PAL", "psx_pal_320", (320, 256, false), 49_761, 1_333),
+    other("PAL", "psx_pal_640i", (640, 512, true), 50_000, 1_333),
+    // Saturn NTSC. UNVERIFIED: the rates the core reports.
+    other("console", "saturn_352", (352, 224, false), 59_826, 1_333),
+    other(
+        "console hi-res",
+        "saturn_704i",
+        (704, 480, true),
+        59_940,
+        1_333,
+    ),
+    // Nintendo 64 NTSC. UNVERIFIED: the rates the core reports.
+    other("console", "n64_320", (320, 240, false), 60_000, 1_333),
+    other(
+        "console hi-res",
+        "n64_640i",
+        (640, 480, true),
+        59_940,
+        1_333,
+    ),
+    other("PAL", "nes_pal", (256, 240, false), 50_007, 1_333),
+    other("PAL", "snes_pal", (256, 239, false), 50_007, 1_333),
+    other("PAL", "md_pal_h40", (320, 240, false), 49_701, 1_333),
+    // Handhelds with their own display aspect: Game Boy 10:9, Game Boy
+    // Advance 3:2, WonderSwan 14:9 (the timings of systems.toml); Lynx
+    // 160x102 at 75 Hz (UNVERIFIED: Handy's rate), Neo Geo Pocket 160x152
+    // at 60.25 Hz (UNVERIFIED: the core's rate), Virtual Boy 384x224 at
+    // 50.27 Hz (Mednafen's rate, UNVERIFIED), square pixels.
+    other("handheld", "game_boy", (160, 144, false), 59_728, 1_111),
+    other("handheld", "gba", (240, 160, false), 59_728, 1_500),
+    other("handheld", "wonderswan", (224, 144, false), 75_472, 1_556),
+    other("handheld", "lynx", (160, 102, false), 75_000, 1_569),
+    other("handheld", "ngp", (160, 152, false), 60_253, 1_053),
+    other("handheld", "virtual_boy", (384, 224, false), 50_270, 1_714),
+    // Computers: C64 PAL with its border (VICE, 384x272, UNVERIFIED),
+    // Amiga PAL 320x256 and 640x512 interlaced (UNVERIFIED: 49.920 Hz is
+    // PUAE's progressive rate), DOS VGA 320x200 and 640x400 at 70.086 Hz
+    // (25.175 MHz, 800 x 449), MSX and Atari 2600 (TMS9918 and TIA NTSC,
+    // 59.923 Hz), ZX Spectrum.
+    other(
+        "computer",
+        "c64_pal_border",
+        (384, 272, false),
+        50_125,
+        1_333,
+    ),
+    other("computer", "amiga_pal", (320, 256, false), 49_920, 1_333),
+    other("computer", "amiga_pal_i", (640, 512, true), 50_000, 1_333),
+    other("computer", "vga_mode13h", (320, 200, false), 70_086, 1_333),
+    other("computer", "dos_640x400", (640, 400, false), 70_086, 1_333),
+    other("computer", "msx", (256, 192, false), 59_923, 1_333),
+    other("computer", "atari_2600", (160, 192, false), 59_923, 1_333),
+    other("computer", "zx_spectrum", (256, 192, false), 50_080, 1_333),
+    // 24 kHz and the rate extremes of the arcade boards: System 24 (MAME
+    // segas24.cpp, 57.524 Hz, 24.4 kHz) horizontal and vertical are in
+    // BOARDS; Sky Fox (FBNeo d_skyfox.cpp: 224x320 upright, vertical and
+    // flipped, 62.65 Hz) is the fastest board found; Little Robin
+    // (30.00 Hz, in BOARDS) the slowest.
+    Board {
+        name: "skyfox",
+        width: 320,
+        height: 224,
+        refresh_mhz: 62_650,
+        rotation: Rotation::R270,
+        interlaced: false,
+        aspect_milli: 1_333,
+        arcade: true,
+        class: "vertical arcade",
+    },
+    other("computer", "vga_640x480", (640, 480, false), 59_940, 1_333),
+    other(
+        "console hi-res",
+        "ntsc_480i",
+        (640, 480, true),
+        59_940,
+        1_333,
+    ),
+];
 
 impl Board {
     pub fn source(&self) -> SourceGeometry {
@@ -117,8 +315,8 @@ impl Board {
             width: self.width,
             height: self.height,
             refresh_mhz: self.refresh_mhz,
-            aspect_milli: 1_333,
-            interlaced: false,
+            aspect_milli: self.aspect_milli,
+            interlaced: self.interlaced,
             rotation: self.rotation,
         }
     }
@@ -389,10 +587,19 @@ pub fn settings() -> PolicySettings {
     }
 }
 
+/// The settings of `board`: [`settings`] for an arcade board, the
+/// defaults for every other source.
+pub fn settings_of(board: &Board) -> PolicySettings {
+    PolicySettings {
+        arcade: board.arcade,
+        ..PolicySettings::default()
+    }
+}
+
 /// The cell of one board on one display, with [`settings`].
 pub fn cell(board: &Board, display: &Display) -> Cell {
     let (profile, caps) = (&display.profile, &display.caps);
-    let plan = decide(&board.source(), &settings(), profile, caps)
+    let plan = decide(&board.source(), &settings_of(board), profile, caps)
         .unwrap_or_else(|e| panic!("{} on {}: {e}", board.name, profile.id));
     let best = best_whole(&plan, profile, caps);
     let best_whole = best.map_or_else(
@@ -490,6 +697,10 @@ fn rule(
     {
         return broken;
     }
+    let console_tv = !board.arcade && matches!(profile.kind, MonitorKind::Tv { .. });
+    if console_tv && shape_error_permille.abs() > SHAPE_ERROR_MAX_PERMILLE {
+        return "ok: console width rule";
+    }
     if shape_error_permille.abs() > SHAPE_ERROR_MAX_PERMILLE {
         let crop = i64::from(crop_lines(p)) * 2 * 1_000 / i64::from(source.height);
         if crop == 0 || shape_error_permille.abs() > crop + SHAPE_ERROR_MAX_PERMILLE {
@@ -515,7 +726,9 @@ fn rule(
                 .iter()
                 .any(|r| r.v_min_mhz <= rate && rate <= r.v_max_mhz)
         };
-        if covered(game) || covered(2 * game) {
+        // Double refresh below every range is for an arcade board only
+        // (decision A11); a console takes the nearest rate.
+        if covered(game) || (board.arcade && covered(2 * game)) {
             return "rate";
         }
     }
@@ -546,6 +759,9 @@ fn fit_allowed(
     if exact {
         return Err("soft fit");
     }
+    if one_field_rate(profile) {
+        return Ok(());
+    }
     let lines = u32::from(plan.source.height);
     match &profile.kind {
         MonitorKind::Crt { ranges } => {
@@ -571,7 +787,11 @@ fn fit_allowed(
         }
         // A game taller than the progressive mode of a TV fits into the
         // interlaced mode, which keeps more of its lines.
-        MonitorKind::Tv { .. } if !p.mode.interlace && lines > u32::from(p.mode.vactive) => {
+        // A console keeps the progressive fit (its TV goldens): a stated
+        // exception, an open question in the spec.
+        MonitorKind::Tv { .. }
+            if !p.mode.interlace && lines > u32::from(p.mode.vactive) && plan.source.turned =>
+        {
             Err("tv fit")
         }
         _ => Ok(()),
@@ -593,10 +813,21 @@ fn panel_rule(plan: &Plan, p: &Proposal) -> &'static str {
     }
 }
 
+/// A range of the profile has one field rate (the `ntsc` and `pal`
+/// presets): a mode must hit it to the millihertz, and the whole-kHz clock
+/// of a narrow mode moves the field rate by more than 10 mHz per step, so
+/// it may find no exact mode: a stated exception.
+fn one_field_rate(profile: &MonitorProfile) -> bool {
+    matches!(&profile.kind, MonitorKind::Crt { ranges } if ranges.iter().any(|r| r.v_min_mhz == r.v_max_mhz))
+}
+
 /// The allowed reason of a fitted winner, or "ok" for an exact one.
 fn fit_reason(profile: &MonitorProfile, plan: &Plan, considered: &Considered) -> &'static str {
     if !considered.rung.is_fitted() {
         return "ok";
+    }
+    if one_field_rate(profile) {
+        return "ok: one field rate only";
     }
     match &profile.kind {
         MonitorKind::FlatPanel { .. } => "ok: panel fill",
@@ -675,7 +906,9 @@ fn crt_order(plan: &Plan, p: &Proposal, profile: &MonitorProfile, caps: &GpuCaps
     if !p.mode.interlace && p.overscan_crop.is_none() && smaller_full {
         return "larger multiple";
     }
+    // An interlaced source shows interlaced 1:1 as its own scan.
     if p.mode.interlace
+        && !plan.source.interlaced
         && others
             .iter()
             .any(|q| !q.mode.interlace && fill_permille(q) >= 600)
@@ -697,6 +930,9 @@ fn crt_order(plan: &Plan, p: &Proposal, profile: &MonitorProfile, caps: &GpuCaps
 /// inside it; else no mode breaks the rule.
 pub fn no_mode_reason(profile: &MonitorProfile, board: &Board) -> &'static str {
     let rate = u64::from(board.refresh_mhz);
+    if one_field_rate(profile) {
+        return "ok: one field rate only";
+    }
     match &profile.kind {
         MonitorKind::Crt { ranges }
             if ranges.iter().any(|r| {
@@ -852,5 +1088,69 @@ fn arcade_table() {
         out.push_str(&board_table(board, &displays));
         out.push('\n');
     }
+    println!("{out}");
+}
+
+/// The class of a display for the summary.
+pub fn display_class(profile: &MonitorProfile) -> &'static str {
+    match &profile.kind {
+        MonitorKind::FlatPanel { .. } => "panel",
+        MonitorKind::Tv { .. } => "TV",
+        MonitorKind::Crt { ranges }
+            if profile.id.starts_with("edid_3") && ranges[0].h_max_mhz > 32_000_000 =>
+        {
+            "multi-sync EDID"
+        }
+        MonitorKind::Crt { .. } if profile.id == "edid_31" => "31 kHz",
+        MonitorKind::Crt { ranges } if ranges.len() > 1 => "multi-range preset",
+        MonitorKind::Crt { ranges } => match ranges[0].h_max_mhz {
+            h if h < 17_000_000 => "15 kHz",
+            h if h < 26_000_000 => "25 kHz",
+            h if h < 33_000_000 => "31 kHz",
+            _ => "multi-sync preset",
+        },
+    }
+}
+
+/// The verdicts of the rule by source class and display class, as
+/// Markdown: one row per pair, with the count of cells per verdict.
+pub fn summary(boards: &[&Board], displays: &[Display]) -> String {
+    let mut counts: BTreeMap<(&str, &str), BTreeMap<&str, usize>> = BTreeMap::new();
+    for board in boards {
+        for display in displays {
+            let verdict = cell(board, display).rule;
+            *counts
+                .entry((board.class, display_class(&display.profile)))
+                .or_default()
+                .entry(verdict)
+                .or_default() += 1;
+        }
+    }
+    let mut out = String::from(
+        "| Source class | Display class | Cells | Verdicts |\n| --- | --- | --- | --- |\n",
+    );
+    for ((source, display), verdicts) in &counts {
+        let total: usize = verdicts.values().sum();
+        let list: Vec<String> = verdicts.iter().map(|(v, n)| format!("{v}: {n}")).collect();
+        out.push_str(&format!(
+            "| {source} | {display} | {total} | {} |\n",
+            list.join(", ")
+        ));
+    }
+    out
+}
+
+/// The wider table: every source of [`SOURCES`] on every display, then
+/// the summary by class of every source, the boards included.
+#[test]
+fn sources_table() {
+    let displays = displays();
+    let mut out = String::new();
+    for board in &SOURCES {
+        out.push_str(&board_table(board, &displays));
+        out.push('\n');
+    }
+    let all: Vec<&Board> = BOARDS.iter().chain(SOURCES.iter()).collect();
+    out.push_str(&summary(&all, &displays));
     println!("{out}");
 }

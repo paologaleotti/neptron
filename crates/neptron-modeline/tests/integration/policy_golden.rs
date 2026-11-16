@@ -286,3 +286,58 @@ fn the_direction_of_a_turn_does_not_change_the_decision() {
         }
     }
 }
+
+/// The wider table: every source of `arcade_table::SOURCES` (consoles,
+/// handhelds, computers, the arcade rate extremes) on every display, each
+/// cell that follows the rule or carries an allowed reason, in
+/// tests/golden/policy_sources.toml.
+#[test]
+fn every_source_of_the_wider_table_gives_its_golden_decision() {
+    let displays = arcade_table::displays();
+    let mut actual = BTreeMap::new();
+    for board in &arcade_table::SOURCES {
+        for display in &displays {
+            if !arcade_table::cell(board, display).rule.starts_with("ok") {
+                continue;
+            }
+            let key = format!("{} {}", board.name, display.profile.id);
+            let got = outcome_with(
+                &board.source(),
+                &arcade_table::settings_of(board),
+                &display.profile,
+                &display.caps,
+            );
+            actual.insert(key, got);
+        }
+    }
+    compare("policy_sources.toml", actual);
+}
+
+/// A source of the wider table that is a system of systems.toml, with
+/// its geometry and 4:3, gives on every profile of policy.toml the
+/// decision that policy.toml records.
+#[test]
+fn the_wider_table_agrees_with_the_console_goldens() {
+    let recorded = expected("policy.toml");
+    let systems = systems();
+    let displays = arcade_table::displays();
+    let mut compared = 0;
+    for board in &arcade_table::SOURCES {
+        let Some((_, system)) = systems.iter().find(|(name, _)| name == board.name) else {
+            continue;
+        };
+        if board.aspect_milli != 1_333 || *system != board.source() {
+            continue;
+        }
+        for display in &displays {
+            let key = format!("{} {}", board.name, display.profile.id);
+            let Some(want) = recorded.get(&key) else {
+                continue;
+            };
+            let got = outcome(&board.source(), &display.profile, &display.caps);
+            assert_eq!(&got, want, "{key}");
+            compared += 1;
+        }
+    }
+    assert!(compared >= 40, "{compared} cases compared");
+}
