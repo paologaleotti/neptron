@@ -66,6 +66,7 @@ BR2_PACKAGE_LIBDRM=y
 BR2_PACKAGE_LIBRETRO_FCEUMM=y
 BR2_PACKAGE_LIBRETRO_SNES9X=y
 BR2_PACKAGE_LIBRETRO_GENESIS_PLUS_GX=y
+BR2_PACKAGE_LIBRETRO_FBNEO=y
 # OpenGL ES 2 on the VideoCore IV of the Pi 3 through the Gallium vc4
 # driver, and softpipe as the software renderer. Neither needs LLVM.
 BR2_PACKAGE_MESA3D=y

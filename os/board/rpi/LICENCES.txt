@@ -96,10 +96,31 @@ Libretro cores
   licence. It allows use and copies free of charge, and it does not allow
   commercial use or sale. It also contains code under the GNU Lesser
   General Public License 2.1.
+- FinalBurn Neo (`fbneo_libretro.so`): the FB Neo licence, with the MAME
+  licence. It allows use and copies free of charge. It does not allow
+  sale or any other monetary profit, and it does not allow requests for
+  donations for a project that uses its source code. Changes to its
+  source code must be public; this image has none. The library also
+  contains these parts, each under its own licence:
+  - zlib and MiniZip: the zlib licence.
+  - libretro-common: the MIT licence.
+  - uGUI: its own licence (free use, keep the copyright notice).
+  - The Source Han Sans font (a bitmap copy): the SIL Open Font
+    License 1.1.
+  - libchdr: the BSD 3-Clause licence.
+  - The LZMA decoder of the LZMA SDK: public domain.
+  - Zstandard (the decoder): the BSD 3-Clause licence or GPL 2.0, at
+    your choice.
+  - dr_flac, dr_mp3 and dr_wav of dr_libs: public domain (Unlicense)
+    or MIT No Attribution, at your choice.
+  - stb_vorbis: the MIT licence or public domain, at your choice.
+  The licence folder of the image holds the text of each one, under
+  `libretro-fbneo`.
 
 The owner of NEPTRON decided (open point OP-054) that a free, open
 source image can hold Snes9x and Genesis Plus GX, with their licence
-texts and this list, and that the image is never sold.
+texts and this list, and that the image is never sold. The owner also
+accepted the FB Neo licence: NEPTRON takes no donations.
 
 Network share
 -------------
