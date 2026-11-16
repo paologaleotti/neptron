@@ -727,3 +727,20 @@ Each check is `needs-hardware`. The setup: the Pi 3 with the development image, 
   - Do: run the window build on macOS.
   - Expect: the UI and a game show.
   - Record: the macOS version.
+
+## Video policy of the arcade rule (M08b)
+
+These checks need a CRT. The policy tests prove each mode in emulation; only a tube shows the picture.
+
+- [ ] `needs-hardware` **A turned game keeps its shape on a CRT.** Needs the rotation of M08a.
+  - Do: start a vertical game (DoDonPachi, 240x320 upright) on the 31 kHz PC CRT, and on a multi-sync tube if one is at hand.
+  - Expect: the picture stands upright, 3:4, with black bars left and right (pillarboxed): about 56 % of the screen width at full height on a multi-sync tube (2x, 427x640p), and the same shape in the bordered 1:1 mode on 31 kHz. A round object of the game looks round, not wide.
+  - Record: a photo, the mode in the status, and the width of the picture against the height of the screen.
+- [ ] `needs-hardware` **A mode moved onto a fixed line rate.** Needs a 25 kHz monitor (`arcade_25` or a 15, 25 and 31 kHz tube with its preset).
+  - Do: start the NES (60.099 Hz) and a 480x640 source on the `arcade_25` preset.
+  - Expect: the NES shows 1:1 in 384 lines at 60.000 Hz; the 480x640 source shows interlaced 1:1 in 768i at about 24.93 kHz. The monitor locks with no roll and no bend; the picture is centred.
+  - Record: the line rate and field rate in the status, and whether the tube held sync.
+- [ ] `needs-hardware` **Double refresh below every range.**
+  - Do: start a Mega Drive PAL game (49.701 Hz) on a PC CRT whose EDID starts at 50 Hz; then Little Robin (30 Hz) on a 15 kHz tube.
+  - Expect: the Mega Drive game shows at 99.40 Hz, each frame twice, at its own speed (the music has its pitch); Little Robin shows at 60 Hz, each frame twice, with the double-refresh notice.
+  - Record: the field rate in the status, the notice, and whether the motion is smooth.
