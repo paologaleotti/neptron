@@ -13,13 +13,14 @@ use std::path::{Path, PathBuf};
 use neptron_backend::{AudioSink, InputSource};
 use neptron_libretro::{
     AvInfo, ContentRequest, Event, GameGeometry, Host, HostConfig, LoadError, LogLevel, LogSource,
-    OpenError, Pad, Timing, Video, ZipError, read_save_file, save_file_path, write_save_file,
+    OpenError, OptionError, Pad, Refusal, Timing, Video, ZipError, read_save_file, save_file_path,
+    write_save_file,
 };
 use neptron_testcore::{
     PixelFormat as CoreFormat, SCRIPT_ENV, Size, expected_hash, frames_after, hash, sample,
 };
 use neptron_testkit::{FakeAudio, ScriptedInput, SimClock};
-use neptron_types::{Control, PixelFormat};
+use neptron_types::{Control, PixelFormat, Rotation};
 
 /// The built test core, next to the test binary, as the test core's own
 /// load test finds it.
@@ -327,6 +328,145 @@ fn core_options_are_declared_with_their_defaults() {
     assert_eq!(host.options()[0].description(), "Test mode");
     assert!(host.set_option("neptron_testcore_mode", "delta").is_err());
     assert!(host.set_option("neptron_testcore_speed", "1").is_err());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+    list.iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect()
+}
+
+/// The FinalBurn Neo case: the core declares its options in
+/// `retro_load_game` and reads them at once. The held values reach it.
+#[test]
+fn held_values_reach_options_declared_at_load() {
+    let dir = temp_dir("held");
+    let script = use_script(&dir, "neptron-testcore 1\noptions load\n");
+    let mut host = open(&dir);
+    host.hold_options(&pairs(&[
+        ("neptron_testcore_dip", "on"),
+        ("neptron_testcore_mode", "gamma"),
+        ("neptron_testcore_level", "9"),
+        ("neptron_testcore_speed", "2"),
+    ]));
+    assert_eq!(
+        host.options()[0].value(),
+        "gamma",
+        "a key declared at open gets its value at once"
+    );
+    load(&mut host, &script);
+    let core_logs: Vec<&str> = host
+        .logs()
+        .iter()
+        .filter(|l| l.source == LogSource::Core)
+        .map(|l| l.text.as_str())
+        .collect();
+    assert_eq!(
+        core_logs,
+        [
+            "option neptron_testcore_mode = gamma",
+            "option neptron_testcore_level = 1",
+            "option neptron_testcore_dip = on",
+        ],
+        "what the core read inside retro_load_game"
+    );
+    let keys: Vec<(&str, &str)> = host
+        .options()
+        .iter()
+        .map(|o| (o.key(), o.value()))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            ("neptron_testcore_mode", "gamma"),
+            ("neptron_testcore_level", "1"),
+            ("neptron_testcore_dip", "on"),
+        ]
+    );
+    assert_eq!(
+        host.held_option_report(),
+        [
+            OptionError::UnknownValue {
+                key: "neptron_testcore_level".to_owned(),
+                value: "9".to_owned()
+            },
+            OptionError::UnknownKey {
+                key: "neptron_testcore_speed".to_owned()
+            },
+        ]
+    );
+    drop(host);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A 240x320 board drawn on its side, as FinalBurn Neo sends DoDonPachi:
+/// 320x240 frames, the aspect of the upright picture, a turn of 90 degrees
+/// at load, then the other turns in frames.
+#[test]
+fn a_board_drawn_on_its_side_asks_for_each_turn() {
+    let dir = temp_dir("turn");
+    let script = use_script(
+        &dir,
+        "neptron-testcore 1\ngeometry 320 240 750\nrotation 1\n\
+         at 1 rotation 2\nat 2 rotation 3\nat 3 rotation 4\nat 4 rotation 0\n",
+    );
+    let mut host = open(&dir);
+    assert_eq!(host.rotation(), Rotation::R0);
+    let av = load(&mut host, &script);
+    assert_eq!(host.rotation(), Rotation::R90, "the turn of the load");
+    assert_eq!(
+        (av.geometry.base_width, av.geometry.base_height),
+        (320, 240)
+    );
+    assert_eq!(av.geometry.aspect_milli, 750);
+    assert!(av.geometry.aspect_from_core);
+    let mut seen = Vec::new();
+    for n in 0..5u64 {
+        let out = host.run_frame().unwrap();
+        let Video::Frame(f) = out.video else {
+            panic!("frame {n}: {:?}", out.video)
+        };
+        let size = Size {
+            width: u32::from(f.width),
+            height: u32::from(f.height),
+        };
+        assert_eq!((f.width, f.height), (320, 240), "the frame stays as drawn");
+        assert_eq!(
+            hash(f.data, f.pitch, size, core_format(f.format)),
+            expected_hash(size, core_format(f.format), n, 0)
+        );
+        seen.push((out.events.to_vec(), host.rotation()));
+    }
+    assert_eq!(
+        seen,
+        [
+            (vec![], Rotation::R90),
+            (vec![Event::Rotation(Rotation::R180)], Rotation::R180),
+            (vec![Event::Rotation(Rotation::R270)], Rotation::R270),
+            (
+                vec![Event::Refused(Refusal::Rotation { value: 4 })],
+                Rotation::R270
+            ),
+            (vec![Event::Rotation(Rotation::R0)], Rotation::R0),
+        ]
+    );
+    drop(host);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// With no aspect from the core, the host's aspect is the shape of the
+/// frame as drawn, whatever the turn.
+#[test]
+fn an_aspect_of_0_with_a_turn_is_the_shape_of_the_frame() {
+    let dir = temp_dir("turn-no-aspect");
+    let script = use_script(&dir, "neptron-testcore 1\ngeometry 320 240 0\nrotation 3\n");
+    let mut host = open(&dir);
+    let av = load(&mut host, &script);
+    assert_eq!(host.rotation(), Rotation::R270);
+    assert_eq!(av.geometry.aspect_milli, 1333);
+    assert!(!av.geometry.aspect_from_core);
+    drop(host);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
