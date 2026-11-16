@@ -2,13 +2,14 @@
 //! start, and changed in memory as the frame loop writes them.
 
 use neptron_settings::{
-    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
-    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH,
-    INPUT_MENU_HOLD_START_SECONDS, Layer, Layers, Level, Resolved, Schema, SetError, Storage,
-    Target, Value, resolve_key,
+    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_PANEL_SCALE,
+    DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE,
+    DISPLAY_TV, DISPLAY_TV_WIDTH, DISPLAY_VERTICAL, INPUT_MENU_HOLD_START_SECONDS, Layer, Layers,
+    Level, Resolved, Schema, SetError, Storage, Target, Value, resolve_key,
 };
 use neptron_video::{
     PolicySettings, ScanlineSettings, SettingsError, policy_settings, scanline_settings,
+    with_display_choices,
 };
 
 use crate::outbox::FileTarget;
@@ -167,11 +168,16 @@ impl Config {
     ///
     /// [`SettingsError`] when the schema and the policy disagree.
     pub fn policy(&self) -> Result<PolicySettings, SettingsError> {
-        policy_settings(
+        let settings = policy_settings(
             &self.text(DISPLAY_STYLE),
             &self.text(DISPLAY_REFRESH_POLICY),
             None,
             &self.text(DISPLAY_TV_WIDTH),
+        )?;
+        with_display_choices(
+            settings,
+            &self.text(DISPLAY_VERTICAL),
+            &self.text(DISPLAY_PANEL_SCALE),
         )
     }
 
@@ -187,11 +193,16 @@ impl Config {
                 .map(|r| r.value.to_string())
                 .unwrap_or_default()
         };
-        policy_settings(
+        let settings = policy_settings(
             &text(DISPLAY_STYLE),
             &text(DISPLAY_REFRESH_POLICY),
             None,
             &text(DISPLAY_TV_WIDTH),
+        )?;
+        with_display_choices(
+            settings,
+            &text(DISPLAY_VERTICAL),
+            &text(DISPLAY_PANEL_SCALE),
         )
     }
 

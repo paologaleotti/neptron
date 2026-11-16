@@ -155,6 +155,8 @@ pub enum AppliesTo {
     /// A CRT that is no TV. A flat panel ignores the value, and a TV standard fixes the
     /// rate.
     CrtNotTv,
+    /// A flat panel only. The menus show the row only on a flat panel.
+    FlatPanel,
 }
 
 impl AppliesTo {
@@ -166,14 +168,18 @@ impl AppliesTo {
             AppliesTo::Tv => class == DisplayClass::Tv,
             AppliesTo::NotTv => class != DisplayClass::Tv,
             AppliesTo::CrtNotTv => class == DisplayClass::Crt,
+            AppliesTo::FlatPanel => class == DisplayClass::FlatPanel,
         }
     }
 
     /// True when the menus show the row of the setting on a display of `class`: a TV
-    /// setting is hidden on every other display, and any other setting shows, disabled
-    /// where it does not apply.
+    /// setting and a flat-panel setting are hidden on every other display, and any other
+    /// setting shows, disabled where it does not apply.
     pub fn shown(self, class: DisplayClass) -> bool {
-        self != AppliesTo::Tv || class == DisplayClass::Tv
+        match self {
+            AppliesTo::Tv | AppliesTo::FlatPanel => self.applies(class),
+            _ => true,
+        }
     }
 }
 

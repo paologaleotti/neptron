@@ -32,7 +32,9 @@ pub use guard::{
 pub use monitor::Monitor;
 pub use odren::{Current, DEBOUNCE_FRAMES, Directive, MODESET_ATTEMPTS, Odren};
 pub use scene::{SceneInputs, build_scene};
-pub use settings::{ScanlineSettings, SettingsError, policy_settings, scanline_settings};
+pub use settings::{
+    ScanlineSettings, SettingsError, policy_settings, scanline_settings, with_display_choices,
+};
 pub use status::{
     PANEL_SPEED_SILENT_PPM, STATUS_COLUMN_CHARS, StatusInputs, VideoStatusText, tv_standard_name,
     write_video_status,

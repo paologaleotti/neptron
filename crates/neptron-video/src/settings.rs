@@ -1,5 +1,6 @@
 use neptron_modeline::policy::{
-    HorizontalStrategy, PictureStyle, PolicySettings, RefreshPolicy, TvWidth,
+    HorizontalStrategy, PanelScale, PictureStyle, PolicySettings, RefreshPolicy, TvWidth,
+    VerticalMode,
 };
 use neptron_types::{ScanlineMode, Scanlines};
 
@@ -22,6 +23,18 @@ pub enum SettingsError {
     /// The value of `display.tv_width` is not a TV width.
     #[error("display.tv_width {value:?} is not one of aspect, integer, fill")]
     UnknownTvWidth {
+        /// The value that was given.
+        value: String,
+    },
+    /// The value of `display.vertical` is not a vertical mode.
+    #[error("display.vertical {value:?} is not one of exact, fit")]
+    UnknownVertical {
+        /// The value that was given.
+        value: String,
+    },
+    /// The value of `display.panel_scale` is not a panel scale.
+    #[error("display.panel_scale {value:?} is not one of auto, integer")]
+    UnknownPanelScale {
         /// The value that was given.
         value: String,
     },
@@ -133,6 +146,38 @@ pub fn policy_settings(
     })
 }
 
+/// `settings` with the resolved values of `display.vertical` and
+/// `display.panel_scale`.
+///
+/// # Errors
+///
+/// [`SettingsError`] for a value that is not a choice of the schema. The
+/// schema already refuses such a value, so this happens only when the
+/// schema and the policy disagree.
+pub fn with_display_choices(
+    settings: PolicySettings,
+    vertical: &str,
+    panel_scale: &str,
+) -> Result<PolicySettings, SettingsError> {
+    let vertical = VerticalMode::ALL
+        .into_iter()
+        .find(|v| v.key() == vertical)
+        .ok_or_else(|| SettingsError::UnknownVertical {
+            value: vertical.to_owned(),
+        })?;
+    let panel_scale = PanelScale::ALL
+        .into_iter()
+        .find(|p| p.key() == panel_scale)
+        .ok_or_else(|| SettingsError::UnknownPanelScale {
+            value: panel_scale.to_owned(),
+        })?;
+    Ok(PolicySettings {
+        vertical,
+        panel_scale,
+        ..settings
+    })
+}
+
 const REFRESH_POLICIES: [RefreshPolicy; 4] = [
     RefreshPolicy::Exact,
     RefreshPolicy::ExactX2,
@@ -171,6 +216,39 @@ mod tests {
             TvWidth::Aspect,
             "the default of the schema is the default of the policy"
         );
+    }
+
+    #[test]
+    fn every_vertical_mode_and_panel_scale_of_the_schema_maps_to_the_policy() {
+        let modes: Vec<&str> = VerticalMode::ALL.iter().map(|m| m.key()).collect();
+        assert_eq!(
+            neptron_settings::VERTICAL_MODES,
+            modes,
+            "same names in the same order"
+        );
+        let scales: Vec<&str> = PanelScale::ALL.iter().map(|p| p.key()).collect();
+        assert_eq!(
+            neptron_settings::PANEL_SCALES,
+            scales,
+            "same names in the same order"
+        );
+        let base = PolicySettings::default();
+        for &vertical in neptron_settings::VERTICAL_MODES {
+            for &scale in neptron_settings::PANEL_SCALES {
+                let settings = with_display_choices(base, vertical, scale).unwrap();
+                assert_eq!(settings.vertical.key(), vertical);
+                assert_eq!(settings.panel_scale.key(), scale);
+            }
+        }
+        assert_eq!(with_display_choices(base, "exact", "auto").unwrap(), base);
+        assert!(matches!(
+            with_display_choices(base, "tate", "auto"),
+            Err(SettingsError::UnknownVertical { .. })
+        ));
+        assert!(matches!(
+            with_display_choices(base, "exact", "stretch"),
+            Err(SettingsError::UnknownPanelScale { .. })
+        ));
     }
 
     #[test]

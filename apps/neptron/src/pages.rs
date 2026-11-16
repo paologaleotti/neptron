@@ -3,9 +3,10 @@
 
 use neptron_audio::OutputDevice;
 use neptron_settings::{
-    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
-    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH,
-    DisplayClass, Entry, INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
+    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_PANEL_SCALE,
+    DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE,
+    DISPLAY_TV, DISPLAY_TV_WIDTH, DISPLAY_VERTICAL, DisplayClass, Entry,
+    INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
 };
 use neptron_types::TvStandard;
 use neptron_ui::Value as UiValue;
@@ -154,13 +155,15 @@ const ADDRESS_KEY_BASE: u32 = ACTION_KEY_BASE + 0x100;
 
 /// The rows of the display panel, written at the global level. It also
 /// holds the global settings that are not about the picture or the sound.
-/// The TV rows show only on a TV.
-pub const DISPLAY_KEYS: [&str; 9] = [
+/// The TV rows show only on a TV, the panel scale only on a flat panel.
+pub const DISPLAY_KEYS: [&str; 11] = [
     DISPLAY_OUTPUT,
     DISPLAY_MONITOR,
     DISPLAY_TV,
     DISPLAY_TV_WIDTH,
+    DISPLAY_PANEL_SCALE,
     DISPLAY_STYLE,
+    DISPLAY_VERTICAL,
     DISPLAY_REFRESH_POLICY,
     DISPLAY_SCANLINES,
     DISPLAY_SCANLINE_STRENGTH,
@@ -175,10 +178,12 @@ pub const AUDIO_KEYS: [&str; 2] = [AUDIO_VOLUME, AUDIO_OUTPUT];
 pub const QUICK_MENU_KEYS: [&str; 1] = [AUDIO_VOLUME];
 
 /// The rows of the video page of the quick menu, written at the game level.
-/// The TV width shows only on a TV.
-pub const VIDEO_KEYS: [&str; 5] = [
+/// The TV width shows only on a TV, the panel scale only on a flat panel.
+pub const VIDEO_KEYS: [&str; 7] = [
     DISPLAY_TV_WIDTH,
+    DISPLAY_PANEL_SCALE,
     DISPLAY_STYLE,
+    DISPLAY_VERTICAL,
     DISPLAY_REFRESH_POLICY,
     DISPLAY_SCANLINES,
     DISPLAY_SCANLINE_STRENGTH,
@@ -978,8 +983,8 @@ mod tests {
         assert!(page.is_for(DISPLAY_PAGE));
         assert_eq!(
             page.rows.len(),
-            DISPLAY_KEYS.len() - 2 + 1,
-            "no TV row on a CRT"
+            DISPLAY_KEYS.len() - 3 + 1,
+            "no TV row and no panel row on a CRT"
         );
         assert_eq!(page.rows[0].scopes, Scopes::NONE, "the output is read-only");
         assert!(page.rows[1].scopes.global);
@@ -1206,8 +1211,8 @@ mod tests {
         assert!(video.is_for(VIDEO_PAGE));
         assert_eq!(
             video.rows.len(),
-            VIDEO_KEYS.len() - 1,
-            "no TV width on a CRT"
+            VIDEO_KEYS.len() - 2,
+            "no TV width and no panel scale on a CRT"
         );
         assert!(video.rows.iter().all(|r| r.scopes.game));
     }
@@ -1234,6 +1239,7 @@ mod tests {
                 "TV standard",
                 "TV picture width",
                 "Picture style",
+                "Vertical games",
                 "Refresh policy",
                 "Scanlines",
                 "Scanline strength",
@@ -1243,7 +1249,7 @@ mod tests {
         );
         assert_eq!(page.rows[1].unavailable.as_deref(), Some(NOT_USED_ON_A_TV));
         assert_eq!(
-            page.rows[5].unavailable.as_deref(),
+            page.rows[6].unavailable.as_deref(),
             Some(NOT_USED_ON_A_TV),
             "the standard fixes the rate"
         );

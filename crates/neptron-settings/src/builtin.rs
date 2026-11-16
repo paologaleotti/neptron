@@ -98,7 +98,28 @@ pub const DISPLAY_TV_WIDTH: &str = "display.tv_width";
 /// shape, `integer` a whole factor of the game width, `fill` the full 4:3 width.
 pub const TV_WIDTHS: &[&str] = &["aspect", "integer", "fill"];
 
-static BUILTIN: [Entry; 11] = [
+/// The key of how a vertical game shows on a horizontal display: one of
+/// [`VERTICAL_MODES`].
+///
+/// Help text: "How a vertical game shows on a horizontal screen. Exact shows every pixel
+/// exact, with black borders, and on a 15 kHz screen or a TV with flicker. Fit fills the
+/// height, with a soft picture."
+pub const DISPLAY_VERTICAL: &str = "display.vertical";
+
+/// The choices of [`DISPLAY_VERTICAL`], in menu order.
+pub const VERTICAL_MODES: &[&str] = &["exact", "fit"];
+
+/// The key of how a flat panel scales a game: one of [`PANEL_SCALES`].
+///
+/// Help text: "How a game fills a flat panel. Auto fills the height when the picture is
+/// large, and uses whole steps when it is small. Integer always uses whole steps, with
+/// black borders."
+pub const DISPLAY_PANEL_SCALE: &str = "display.panel_scale";
+
+/// The choices of [`DISPLAY_PANEL_SCALE`], in menu order.
+pub const PANEL_SCALES: &[&str] = &["auto", "integer"];
+
+static BUILTIN: [Entry; 13] = [
     Entry {
         key: DISPLAY_OUTPUT,
         label: "Output",
@@ -236,6 +257,30 @@ static BUILTIN: [Entry; 11] = [
         safety: Safety::Validated,
         applies_to: AppliesTo::Tv,
     },
+    Entry {
+        key: DISPLAY_VERTICAL,
+        label: "Vertical games",
+        kind: Kind::Choice {
+            choices: VERTICAL_MODES,
+            default: "exact",
+        },
+        levels: Levels::ALL,
+        live: true,
+        safety: Safety::Validated,
+        applies_to: AppliesTo::Every,
+    },
+    Entry {
+        key: DISPLAY_PANEL_SCALE,
+        label: "Panel scale",
+        kind: Kind::Choice {
+            choices: PANEL_SCALES,
+            default: "auto",
+        },
+        levels: Levels::ALL,
+        live: true,
+        safety: Safety::Validated,
+        applies_to: AppliesTo::FlatPanel,
+    },
 ];
 
 impl Schema {
@@ -364,19 +409,27 @@ mod tests {
         let schema = Schema::builtin();
         for entry in schema.entries() {
             let tv_only = [DISPLAY_TV, DISPLAY_TV_WIDTH].contains(&entry.key);
+            let panel_only = entry.key == DISPLAY_PANEL_SCALE;
             for class in [DisplayClass::Crt, DisplayClass::FlatPanel] {
+                let panel = class == DisplayClass::FlatPanel;
                 assert_eq!(
                     entry.applies_to.shown(class),
-                    !tv_only,
+                    !tv_only && (!panel_only || panel),
                     "{} {class:?}",
                     entry.key
                 );
             }
-            assert!(entry.applies_to.shown(DisplayClass::Tv), "{}", entry.key);
+            assert_eq!(
+                entry.applies_to.shown(DisplayClass::Tv),
+                !panel_only,
+                "{}",
+                entry.key
+            );
             assert_eq!(
                 entry.applies_to.applies(DisplayClass::Tv),
-                ![DISPLAY_MONITOR, DISPLAY_REFRESH_POLICY].contains(&entry.key),
-                "{}: the monitor and the rate come from the TV standard",
+                ![DISPLAY_MONITOR, DISPLAY_REFRESH_POLICY, DISPLAY_PANEL_SCALE]
+                    .contains(&entry.key),
+                "{}: the monitor and the rate come from the TV standard, and a TV is no panel",
                 entry.key
             );
         }
@@ -660,10 +713,38 @@ mod tests {
     }
 
     #[test]
+    fn the_vertical_games_and_the_panel_scale_are_choices_of_every_level() {
+        let schema = Schema::builtin();
+        let vertical = schema.get(DISPLAY_VERTICAL).unwrap();
+        assert_eq!(vertical.levels, Levels::ALL);
+        assert_eq!(vertical.safety, Safety::Validated);
+        assert_eq!(vertical.applies_to, AppliesTo::Every);
+        assert!(matches!(
+            vertical.kind,
+            Kind::Choice {
+                choices: ["exact", "fit"],
+                default: "exact"
+            }
+        ));
+        let panel = schema.get(DISPLAY_PANEL_SCALE).unwrap();
+        assert_eq!(panel.levels, Levels::ALL);
+        assert_eq!(panel.applies_to, AppliesTo::FlatPanel);
+        assert!(panel.applies_to.applies(DisplayClass::FlatPanel));
+        assert!(!panel.applies_to.applies(DisplayClass::Crt));
+        assert!(!panel.applies_to.applies(DisplayClass::Tv));
+        let game = parse_layer(
+            &schema,
+            Level::Game,
+            "[display]\npanel_scale = \"integer\"\n",
+        );
+        assert!(game.issues.is_empty(), "{:?}", game.issues);
+    }
+
+    #[test]
     fn style_and_refresh_policy_apply_only_to_a_crt() {
         let schema = Schema::builtin();
         for entry in schema.entries() {
-            if entry.applies_to == AppliesTo::Tv {
+            if [AppliesTo::Tv, AppliesTo::FlatPanel].contains(&entry.applies_to) {
                 continue;
             }
             let crt_only = [DISPLAY_STYLE, DISPLAY_REFRESH_POLICY].contains(&entry.key);
