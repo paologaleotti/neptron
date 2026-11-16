@@ -455,6 +455,7 @@ The owner decided the open points of the first version of this section (A7 to A1
 | Double refresh (A11) | A board below every CRT range gets double refresh, each frame shown twice, for every style |
 | `display.vertical` (A12) | The values `exact` (default) and `fit`, on a CRT, a TV and a panel |
 | Task order (A13) | The policy change is done on the branch of M08b, before M08a |
+| Scanlines on a panel | A flat panel with scanlines (`display.scanlines = on`) takes the largest whole multiple and never the fill: the renderer draws scanlines only at a whole vertical scale |
 | Notices | Every result that is not exact tells the user through the notice of the quick menu: a soft picture because no exact mode exists (with the reason), a small picture, a speed change, double refresh. The policy returns them as data |
 | Vertical games | A vertical game on a horizontal display is the best possible case: no odd modes and no odd default scaling. TATE is the right answer later (OP-107); it is not designed here |
 
@@ -466,7 +467,7 @@ Terms: `h` is the game's lines after the turn, `r` its rate, `a` its display asp
 
 **R1. Shape, every display.** The game keeps its display aspect within one pixel. On a CRT the mode width is the width at which the game's lines have the aspect `a` on the 4:3 face: `border_width` for every rung, bordered or not, and for the fit. A turned board is pillarboxed. The game's pixel width stays a whole multiple of its width (native or dynamic super width); only the mode width changes. On a TV and a panel, the present width rules hold, except R7.
 
-**R2. Rates on a CRT.** The targets in order: the asked rate (`exact_x2`, `force_50`, `force_60`) when a range covers it; `r`; `2r` when no range covers `r` and a range covers `2r` (new, every style: the game keeps its speed); the nearest covered rate; the last resort.
+**R2. Rates on a CRT.** The targets in order: the asked rate (`exact_x2`, `force_50`, `force_60`) when a range covers it; `r`; for any source that no range covers, `2r` when a range covers it, else the covered rate nearest `2r` with each frame twice when that changes the speed less than the nearest rate once (30 Hz on `ntsc`: -0.1 % against +99.8 %); the nearest covered rate; when the exact rungs gave no mode at `r` (or the nearest covered rate), the highest lower rate at which a range holds the game's lines (`arcade_25` holds 384 lines up to 60.000 Hz), ranked before the fit only when it changes the speed no more than the fit, within `REFRESH_MATCH_MHZ`; the last resort. On a profile of one field rate (`ntsc`, `pal`) a mode that misses the rate takes the next whole multiples of the game width until one hits it to the millihertz.
 
 **R3. Ranges on a CRT.** Each range is its own window. For each rung and each range that covers the rate, the policy shapes the mode inside that range: its own minimum (for the border), its own capacity (for the multiple and the crop), its own interlaced window (for rung 3). Rung 3 is open when the game's lines do not fit the progressive capacity of every range, or when the interlaced mode fills more than every progressive exact mode that is below the fill threshold (R4).
 
@@ -494,7 +495,7 @@ So on 15 kHz a 320-line board is interlaced 1:1 (448i or 480i, 71 %); on 25 kHz 
 
 **R7. TV.** The fit of a board taller than the interlaced mode goes into the interlaced mode. An arcade board (the systems `arcade` and `neogeo`) gets the aspect width (`aspect x lines x 2.2` on 525 lines, `x 1.8333` on 625 lines, at most 704 samples), not the console width (decided, A10). The rest of the TV rules hold: lines 1:1, the crop up to 8 lines per edge, the speed alert.
 
-**R8. Panel, every game.** Let `s` be the scale at which the game, at its aspect, fills the height of the preferred mode (or its width, when the width is reached first), in thousandths. When `s` is at least `PANEL_FILL_MIN_SCALE_MILLI` (4,000), the game fills that height, centred, with its shape kept, sharp bilinear. Under 4,000 it takes the largest whole vertical multiple that fits, nearest on that axis, centred (the rule before 2026-11-16). `display.panel_scale = integer` takes the largest whole multiple at every scale. Below 60 % of the height at 1x (the 480x640 board on 720p to 1080p) the picture stays 1x with the small-picture notice; `display.vertical = fit` fills the height for a turned game. The panel never gets a mode that its own scaler stretches.
+**R8. Panel, every game.** Let `s` be the scale at which the game, at its aspect, fills the height of the preferred mode (or its width, when the width is reached first), in thousandths. When `s` is at least `PANEL_FILL_MIN_SCALE_MILLI` (4,000), the game fills that height, centred, with its shape kept, sharp bilinear. Under 4,000 it takes the largest whole vertical multiple that fits, nearest on that axis, centred (the rule before 2026-11-16). `display.panel_scale = integer` takes the largest whole multiple at every scale, and so do scanlines on a panel (`display.scanlines = on`, `PolicySettings::panel_scanlines`): the renderer draws them only at a whole vertical scale of 2 or more. A fill whose height is a whole multiple of the lines takes the whole path (nearest, status exact). The scale rounds down, so 3.9995 stays under 4. Below 60 % of the height at 1x (the 480x640 board on 720p to 1080p) the picture stays 1x with the small-picture notice; `display.vertical = fit` fills the height for a turned game. The panel never gets a mode that its own scaler stretches.
 
 **R9. Horizontal boards.** They differ from consoles in four points, and the rest of the console rules hold:
 
@@ -524,6 +525,10 @@ Every item is done on the branch of M08b (task M08c), in its own commit with its
 
 The invariant sweep (`docs/spec/video-policy-cases.md`) found four more faults, fixed the same way: a mode above the top line rate of a band range (Switchres's), a field rate one millihertz off a range of one field rate, a wide or deinterlaced game with the wrong shape or no border, and a whole-profile mode that the validator refuses where one range alone holds the game.
 
+### The overscan crop
+
+The crop hides at most 8 source lines per edge (`OVERSCAN_CROP_MAX_LINES_PER_EDGE`) and at most 8 lines of a 240-line screen per edge as a share of the lines the range holds (`OVERSCAN_CROP_SCREEN_LINES`, rounded up): 9 of 256 lines at 15 kHz, 16 of 480 at 31 kHz. A Game Boy at 2x on a 256-line 15 kHz tube would lose 16 screen lines per edge, so it shows 1x.
+
 ### After the change
 
 The table after the change, made by the same test, is Appendix A. Every cell follows the rule or carries an allowed reason:
@@ -531,9 +536,9 @@ The table after the change, made by the same test, is Appendix A. Every cell fol
 | Verdict | Before (2026-11-16, first table) | After |
 | --- | --- | --- |
 | ok | 319 | 619 |
-| ok: no exact mode exists on this profile | 0 | 19 |
+| ok: no exact mode exists on this profile | 0 | 21 |
 | ok: the profile declares no interlace | 0 | 3 |
-| ok: one field rate only (`ntsc`, `pal` presets) | 0 | 3 |
+| ok: no window at the game's rate (the exact rung at the nearest rate that holds it) | 0 | 1 |
 | ok: overscan crop | 0 | 4 |
 | shape | 113 | 0 |
 | smaller scale (rule before A7) | 94 | 0 |
@@ -550,7 +555,7 @@ The main cases:
 | Multi-sync to 54 kHz | 2x, 640p, stretched to 4:3 | 2x, 427x640p, right shape | 1x, 640p, stretched | 1x, 853x640p, right shape |
 | Multi-sync to 96 kHz | 2x, 640p, stretched | 2x, 427x640p (A7: the smallest that fills) | 1x, 640p, stretched | 1x, 853x640p |
 | Panel 1080p | 3x, 720x960, nearest, 89 % | The same (scale 3.4, under 4) | 1x, 480x640, 59 % | The same, with the small-picture notice |
-| Panel 4K | 6x, 1440x1920, nearest | Fills the height: 1620x2160, sharp (scale 6.75) | 3x, 1440x1920 | The same (scale 3.4) |
+| Panel 4K | 6x, 1440x1920, nearest | Fills the height: 1620x2160, sharp (scale 6.75); with scanlines on, 6x, nearest | 3x, 1440x1920 | The same (scale 3.4) |
 | Composite NTSC | 480i, 1:1, 67 %, +4.15 % | The same | Fit into 240p, 0.38 | Fit into 480i, 0.75 |
 
 The existing goldens that the change corrected (each commit body gives the reason):
@@ -558,10 +563,12 @@ The existing goldens that the change corrected (each commit body gives the reaso
 - W1, nine cases of `policy.toml` that recorded a stretched turned system: `donkey_kong` on `arcade_15`, `edid_npt_0071` and `pc_31_120`; `pacman` on `edid_npt_0071`; `space_invaders` on `arcade_15`, `arcade_31`, `edid_npt_0071`, `generic_15` and `pc_31_120`. The lines, rates and game rectangles stay; the mode is wider and the game centred in it.
 - R8, 25 cases of `policy.toml` on `panel_1080`: every source of 270 lines or fewer now fills the 1080 lines at its aspect with sharp bilinear, in place of the largest whole multiple with borders. No case on 720p changes.
 - Arcade goldens added on this branch moved with W3 (1 mHz), W2 (Donkey Kong on `ms2930` and `r666b`: the smallest multiple that fills) and W6 (657 samples in place of 644).
+- V3, three cases of `policy_tv.toml`: `pal_576i tv_ntsc` with each width rule, from the fit into 240p to the fit into 480i.
+- V5, ten cases: `md_pal_h40 edid_npt_0071` in `policy.toml` and the nine `edid_npt_0071 md_pal_h40` cases of `policy_gpus.toml`, from 2x at 50.000 Hz to 1x at 99.40 Hz, each frame twice.
+- The handhelds of the goldens now have the aspect their cores report (Game Boy 10:9, Game Boy Advance 3:2, WonderSwan 14:9; the shipped systems data holds no aspect): 18 cases of `policy.toml` and 18 of `policy_gpus.toml` move in width, offset or multiple to keep that shape.
 
 The exceptions that stay, each an allowed reason of the table and the sweep:
 
-- A range of one field rate (`ntsc`, `pal` presets) takes a mode only at that rate to the millihertz. The whole-kHz clock of a narrow mode (under about 300 pixels) moves the field rate by more than 10 mHz per step, so such a mode may get the fit or no mode. A wider mode (a horizontal multiple of the game width) would reach the rate; this is open point V4 of `docs/spec/video-policy-cases.md`.
 - The overscan crop keeps the width, so the 240 lines that a 256-line board shows on NTSC are 6.2 % narrow: the full width would need 751 of the 704 safe samples.
 - No exact mode exists for the 480x640 board on 15 kHz, on a 31 kHz profile with no interlace, and on a TV: the fit, with its reason in the notice.
 
@@ -1001,7 +1008,7 @@ The table of section 11 after the change, made by `cargo xtask test -p neptron-m
 | panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +0.00 % | 2 | nearest | 80.0 % | 144 | +0.0 % | - | ok |
 | panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | -0.35 % | 2 | nearest | 75.0 % | 192 | +0.0 % | - | ok |
 | panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +0.00 % | 3 | sharp | 80.0 % | 216 | +0.0 % | - | ok |
-| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -0.08 % | 5.00 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -0.08 % | 5 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
 | panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.00 % | 7.50 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
 | tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | -0.10 % | 1 | sharp | 60.0 % | 192 | +0.2 % | - | ok |
 | tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -16.53 % | 1 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
@@ -1030,7 +1037,7 @@ The table of section 11 after the change, made by `cargo xtask test -p neptron-m
 | ms2930 | interlaced 1:1 | 619x448i | 511 | 15.484 | 60.606 | exact | 1 | nearest | 64.2 % | 160 | +0.1 % | 1x 288i | ok |
 | r666b | native | 643x465p | 512 | 31.030 | 60.606 | exact | 1 | nearest | 61.9 % | 177 | +0.0 % | 1x 288p | ok |
 | pstar | native | 552x399p | 418 | 25.333 | 60.606 | exact | 1 | nearest | 72.1 % | 111 | -0.1 % | 1x 288p | ok |
-| arcade_25 | fitted | 1024x768i | 831 | 24.929 | 60.000 | unmatched -1.00 % | 2.67 | sharp | 100.0 % | 0 | +0.0 % | none | ok: no exact mode exists on this profile |
+| arcade_25 | native | 531x384p | 416 | 24.959 | 59.999 | nearest in range -1.00 % | 1 | nearest | 75.0 % | 96 | +0.0 % | none | ok: no window at the game's rate |
 | arcade_31 | native | 654x473p | 519 | 31.454 | 60.606 | exact | 1 | nearest | 60.8 % | 185 | +0.0 % | 1x 288p | ok |
 | pc_31_120 | native | 693x501p | 519 | 31.454 | 60.606 | exact | 1 | nearest | 57.4 % | 213 | +0.0 % | 1x 288p | ok |
 | pc_70_120 | 2x | 398x576p | 603 | 36.545 | 60.606 | exact | 2 | nearest | 100.0 % | 0 | +0.1 % | 3x 864p | ok |
@@ -1042,7 +1049,7 @@ The table of section 11 after the change, made by `cargo xtask test -p neptron-m
 | panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | -1.00 % | 2 | nearest | 80.0 % | 144 | +0.0 % | - | ok |
 | panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | -1.35 % | 2 | nearest | 75.0 % | 192 | +0.0 % | - | ok |
 | panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | -1.00 % | 3 | sharp | 80.0 % | 216 | +0.0 % | - | ok |
-| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -1.08 % | 5.00 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -1.08 % | 5 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
 | panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | -1.00 % | 7.50 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
 | tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | -1.10 % | 1 | sharp | 60.0 % | 192 | +0.2 % | - | ok |
 | tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -17.37 % | 1 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
@@ -1099,7 +1106,7 @@ The table of section 11 after the change, made by `cargo xtask test -p neptron-m
 | polo | interlaced 1:1 | 683x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 496i | ok |
 | k7131 | interlaced 1:1 | 683x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 496i | ok |
 | k7000 | interlaced 1:1 | 683x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 496i | ok |
-| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range +4.20 % | 0.97 | sharp | 100.0 % | 0 | +0.0 % | none | ok: one field rate only |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range +4.20 % | 0.97 | sharp | 100.0 % | 0 | +0.0 % | none | ok: no exact mode exists on this profile |
 | pal | interlaced 1:1 | 683x496i | 625 | 15.625 | 50.000 | nearest in range -13.08 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
 | arcade_15_25 | interlaced 1:1 | 683x496i | 545 | 15.675 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 496i | ok |
 | arcade_15_25_31 | native | 683x496p | 546 | 31.408 | 57.524 | exact | 1 | nearest | 100.0 % | 0 | +0.0 % | 1x 496p | ok |
@@ -1140,8 +1147,8 @@ The table of section 11 after the change, made by `cargo xtask test -p neptron-m
 | polo | fitted | 682x512i | 555 | 16.650 | 60.000 | exact | 0.80 | sharp | 100.0 % | 0 | +0.1 % | none | ok: no exact mode exists on this profile |
 | k7131 | fitted | 682x512i | 555 | 16.650 | 60.000 | exact | 0.80 | sharp | 100.0 % | 0 | +0.1 % | none | ok: no exact mode exists on this profile |
 | k7000 | fitted | 640x480i | 523 | 15.689 | 60.000 | exact | 0.75 | sharp | 100.0 % | 0 | +0.0 % | none | ok: no exact mode exists on this profile |
-| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range -0.10 % | 0.75 | sharp | 100.0 % | 0 | +0.0 % | none | ok: one field rate only |
-| pal | fitted | 768x576i | 625 | 15.625 | 50.000 | nearest in range -16.67 % | 0.90 | sharp | 100.0 % | 0 | +0.0 % | none | ok: one field rate only |
+| ntsc | fitted | 640x480i | 525 | 15.734 | 59.940 | nearest in range -0.10 % | 0.75 | sharp | 100.0 % | 0 | +0.0 % | none | ok: no exact mode exists on this profile |
+| pal | fitted | 768x576i | 625 | 15.625 | 50.000 | nearest in range -16.67 % | 0.90 | sharp | 100.0 % | 0 | +0.0 % | none | ok: no exact mode exists on this profile |
 | arcade_15_25 | interlaced 1:1 | 1024x768i | 831 | 24.929 | 60.000 | exact | 1 | nearest | 83.3 % | 128 | +0.0 % | 1x 640i | ok |
 | arcade_15_25_31 | interlaced 1:1 | 1024x768i | 831 | 24.929 | 60.000 | exact | 1 | nearest | 83.3 % | 128 | +0.0 % | 1x 640i | ok |
 | arcade_15_31 | fitted | 640x480p | 525 | 31.500 | 60.000 | exact | 0.75 | sharp | 100.0 % | 0 | +0.0 % | none | ok: no exact mode exists on this profile |
@@ -1288,8 +1295,8 @@ The table of section 11 after the change, made by `cargo xtask test -p neptron-m
 | panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +4.26 % | 3 | nearest | 100.0 % | 0 | +0.0 % | - | ok |
 | panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | +3.89 % | 3 | nearest | 93.7 % | 48 | +0.0 % | - | ok |
 | panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +4.26 % | 4.50 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
-| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +4.17 % | 6.00 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
-| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +4.26 % | 9.00 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | +4.17 % | 6 | nearest | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +4.26 % | 9 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
 | tv_ntsc | native | 720x240p | 262 | 15.734 | 60.054 | +4.35 % | 1 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
 | tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -12.98 % | 1 | sharp | 83.3 % | 48 | +0.1 % | - | ok |
 
@@ -1509,8 +1516,8 @@ The table of section 11 after the change, made by `cargo xtask test -p neptron-m
 | polo | interlaced 1:1 | 526x448i | 523 | 15.690 | 60.000 | exact x2 | 1 | nearest | 64.2 % | 160 | +0.0 % | 1x 288i | ok |
 | k7131 | interlaced 1:1 | 526x448i | 523 | 15.690 | 60.000 | exact x2 | 1 | nearest | 64.2 % | 160 | +0.0 % | 1x 288i | ok |
 | k7000 | interlaced 1:1 | 526x448i | 523 | 15.690 | 60.000 | exact x2 | 1 | nearest | 64.2 % | 160 | +0.0 % | 1x 288i | ok |
-| ntsc | interlaced 1:1 | 526x448i | 525 | 15.734 | 59.940 | nearest in range +99.80 % | 1 | nearest | 64.2 % | 160 | +0.0 % | none | ok |
-| pal | native | 338x288p | 312 | 15.600 | 50.000 | nearest in range +66.67 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
+| ntsc | interlaced 1:1 | 526x448i | 525 | 15.734 | 59.940 | nearest in range -0.10 % | 1 | nearest | 64.2 % | 160 | +0.0 % | none | ok |
+| pal | native | 338x288p | 312 | 15.600 | 50.000 | nearest in range -16.67 % | 1 | nearest | 100.0 % | 0 | +0.0 % | none | ok |
 | arcade_15_25 | native | 451x384p | 416 | 24.959 | 59.999 | exact x2 | 1 | nearest | 75.0 % | 96 | +0.0 % | 1x 288p | ok |
 | arcade_15_25_31 | native | 451x384p | 416 | 24.959 | 59.999 | exact x2 | 1 | nearest | 75.0 % | 96 | +0.0 % | 1x 288p | ok |
 | arcade_15_31 | native | 562x479p | 524 | 31.440 | 60.000 | exact x2 | 1 | nearest | 60.1 % | 191 | +0.1 % | 1x 288p | ok |
@@ -1534,7 +1541,7 @@ The table of section 11 after the change, made by `cargo xtask test -p neptron-m
 | panel_720 | panel | 1280x720p | 750 | 45.000 | 60.000 | +0.00 % | 2 | sharp | 80.0 % | 144 | +0.0 % | - | ok |
 | panel_768 | panel | 1366x768p | 798 | 47.712 | 59.790 | -0.35 % | 2 | sharp | 75.0 % | 192 | +0.0 % | - | ok |
 | panel_1080 | panel | 1920x1080p | 1125 | 67.500 | 60.000 | +0.00 % | 3 | sharp | 80.0 % | 216 | +0.0 % | - | ok |
-| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -0.08 % | 5.00 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+| panel_1440 | panel | 2560x1440p | 1481 | 88.786 | 59.951 | -0.08 % | 5 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
 | panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.00 % | 7.50 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
 | tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | -0.10 % | 1 | sharp | 60.0 % | 192 | -0.1 % | - | ok |
 | tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -16.53 % | 1 | sharp | 100.0 % | 0 | +0.0 % | - | ok |

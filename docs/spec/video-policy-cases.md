@@ -17,7 +17,7 @@ The verdicts of the rule after the change of 2026-11-16, for every source of bot
 
 | Source class | Display class | Cells | Verdicts |
 | --- | --- | --- | --- |
-| PAL | 15 kHz | 45 | ok: 43, ok: one field rate only: 1, ok: overscan crop: 1 |
+| PAL | 15 kHz | 45 | ok: 43, ok: no exact mode exists on this profile: 1, ok: overscan crop: 1 |
 | PAL | 25 kHz | 5 | ok: 5 |
 | PAL | 31 kHz | 10 | ok: 10 |
 | PAL | TV | 10 | ok: console width rule: 10 |
@@ -25,35 +25,35 @@ The verdicts of the rule after the change of 2026-11-16, for every source of bot
 | PAL | multi-sync EDID | 15 | ok: 15 |
 | PAL | multi-sync preset | 5 | ok: 5 |
 | PAL | panel | 25 | ok: 25 |
-| computer | 15 kHz | 81 | ok: 77, ok: no exact mode exists on this profile: 1, ok: one field rate only: 2, ok: overscan crop: 1 |
-| computer | 25 kHz | 9 | ok: 7, ok: no exact mode exists on this profile: 2 |
+| computer | 15 kHz | 81 | ok: 78, ok: no exact mode exists on this profile: 1, ok: overscan crop: 1, ok: the exact mode changes the speed more: 1 |
+| computer | 25 kHz | 9 | ok: 7, ok: overscan crop: 2 |
 | computer | 31 kHz | 18 | ok: 17, ok: overscan crop: 1 |
 | computer | TV | 18 | ok: 11, ok: console width rule: 7 |
-| computer | multi-range preset | 117 | ok: 114, ok: no exact mode exists on this profile: 1, ok: overscan crop: 2 |
+| computer | multi-range preset | 117 | ok: 114, ok: overscan crop: 2, ok: the exact mode changes the speed more: 1 |
 | computer | multi-sync EDID | 27 | ok: 27 |
 | computer | multi-sync preset | 9 | ok: 9 |
 | computer | panel | 45 | ok: 45 |
 | console | 15 kHz | 108 | ok: 108 |
-| console | 25 kHz | 12 | ok: 10, ok: no exact mode exists on this profile: 2 |
+| console | 25 kHz | 12 | ok: 10, ok: no window at the game's rate: 2 |
 | console | 31 kHz | 24 | ok: 24 |
 | console | TV | 24 | ok: 3, ok: console width rule: 21 |
 | console | multi-range preset | 156 | ok: 156 |
 | console | multi-sync EDID | 36 | ok: 36 |
 | console | multi-sync preset | 12 | ok: 12 |
 | console | panel | 60 | ok: 60 |
-| console hi-res | 15 kHz | 99 | ok: 98, ok: one field rate only: 1 |
-| console hi-res | 25 kHz | 11 | ok: 9, ok: no exact mode exists on this profile: 2 |
+| console hi-res | 15 kHz | 99 | ok: 99 |
+| console hi-res | 25 kHz | 11 | ok: 9, ok: no window at the game's rate: 2 |
 | console hi-res | 31 kHz | 22 | ok: 22 |
 | console hi-res | TV | 22 | ok: 2, ok: console width rule: 20 |
 | console hi-res | multi-range preset | 143 | ok: 143 |
 | console hi-res | multi-sync EDID | 33 | ok: 33 |
 | console hi-res | multi-sync preset | 11 | ok: 11 |
 | console hi-res | panel | 55 | ok: 55 |
-| handheld | 15 kHz | 54 | ok: 48, ok: one field rate only: 6 |
-| handheld | 25 kHz | 6 | ok: 3, ok: no exact mode exists on this profile: 3 |
+| handheld | 15 kHz | 54 | ok: 54 |
+| handheld | 25 kHz | 6 | ok: 3, ok: no window at the game's rate: 3 |
 | handheld | 31 kHz | 12 | ok: 12 |
 | handheld | TV | 12 | ok: 11, ok: console width rule: 1 |
-| handheld | multi-range preset | 78 | ok: 76, ok: no exact mode exists on this profile: 2 |
+| handheld | multi-range preset | 78 | ok: 76, ok: no window at the game's rate: 2 |
 | handheld | multi-sync EDID | 18 | ok: 18 |
 | handheld | multi-sync preset | 6 | ok: 6 |
 | handheld | panel | 30 | ok: 30 |
@@ -65,8 +65,8 @@ The verdicts of the rule after the change of 2026-11-16, for every source of bot
 | horizontal arcade | multi-sync EDID | 27 | ok: 27 |
 | horizontal arcade | multi-sync preset | 9 | ok: 9 |
 | horizontal arcade | panel | 45 | ok: 45 |
-| vertical arcade | 15 kHz | 90 | ok: 80, ok: no exact mode exists on this profile: 7, ok: one field rate only: 3 |
-| vertical arcade | 25 kHz | 10 | ok: 8, ok: no exact mode exists on this profile: 2 |
+| vertical arcade | 15 kHz | 90 | ok: 80, ok: no exact mode exists on this profile: 10 |
+| vertical arcade | 25 kHz | 10 | ok: 8, ok: no window at the game's rate: 2 |
 | vertical arcade | 31 kHz | 20 | ok: 18, ok: the profile declares no interlace: 2 |
 | vertical arcade | TV | 20 | ok: 17, ok: no exact mode exists on this profile: 3 |
 | vertical arcade | multi-range preset | 130 | ok: 121, ok: no exact mode exists on this profile: 8, ok: the profile declares no interlace: 1 |
@@ -78,7 +78,8 @@ The allowed reasons:
 
 - No exact mode exists on this profile: the game's lines fit no window of any range at its rate (the 480x640 board on 15 kHz, a 576i or 512i source on 525 lines).
 - The profile declares no interlace: a 31 kHz or EDID profile, for a game that needs an interlaced mode.
-- One line rate or one field rate only: the `ntsc`, `pal` and `arcade_25` presets (section 5, V4).
+- No window at the game's rate: no exact mode exists at the game's rate, and the exact rung at the nearest rate where a range holds the game changes the speed no more than the fit.
+- The exact mode changes the speed more: an exact rung exists only at a rate that changes the speed more than the fit does (section 7, V6).
 - Overscan crop: the crop hides up to 8 lines per edge and keeps the width, so the shown lines lose their shape by the share of the hidden lines.
 - Console width rule: a console on a TV keeps the console width of `display.tv_width = aspect` (a console does not fill the line).
 
@@ -103,45 +104,49 @@ What it means:
 
 ## 4. Sources above or below the display's rates
 
-- 75 Hz handhelds (WonderSwan 75.47 Hz, Lynx 75 Hz): a 15 kHz preset covers 49.5 to 65 Hz, so the game runs at 65 Hz, 13 to 14 % slow, with the speed notice (`NoticeReason::SpeedChange`). A multi-sync tube covers 75 Hz and shows it exactly. A TV runs it at 59.94 Hz (-20 %) with the speed alert. A 60 Hz panel runs it at 60 Hz (-20 %); a panel shows the speed in the status only (decided before: `PANEL_SPEED_SILENT_PPM`). Double refresh does not help: twice 75 Hz is above every range.
-- 30 Hz (Little Robin): an arcade board gets double refresh (decision A11). A console below every range keeps the nearest rate (section 5, V5).
+- 75 Hz handhelds (WonderSwan 75.47 Hz, Lynx 75 Hz): a 15 kHz preset covers 49.5 to 65 Hz, so the game runs at 65 Hz, 13 to 14 % slow, with the speed notice (`NoticeReason::SpeedChange`). A multi-sync tube covers 75 Hz and shows it exactly. A TV runs it at 59.94 Hz (-20 %) with the speed alert. A 60 Hz panel runs it at 60 Hz (-20 %), with the speed notice since the change is above 5 % (V2). Double refresh does not help: twice 75 Hz is above every range.
+- 30 Hz (Little Robin) and any source below every range: twice the rate where a range covers it, else the covered rate nearest twice it with each frame twice when that is nearer (60 Hz on 15 kHz; 59.94 Hz on `ntsc`, -0.1 %; 50 Hz on `pal`, -16.7 %). A Mega Drive PAL game (49.701 Hz) on a tube from 50 Hz shows at 99.40 Hz (V5).
 - 70 Hz DOS VGA: a 15 kHz tube runs it at 65 Hz; a 31 kHz arcade tube at 65 Hz; a PC tube shows it exactly.
 
 ## 5. The invariant sweep
 
-`crates/neptron-modeline/tests/integration/policy_sweep.rs` runs a fixed grid with no random numbers: widths 160, 320, 512 and 800; heights 100, 144, 224, 240, 288, 320, 480 and 640; both orientations (a turned 4:3 frame shows a 3:4 picture); progressive, and interlaced for 480 and 640 lines; at 30, 50, 55, 60, 70 and 80 Hz and at every edge of each range of the display, one millihertz inside and one outside; on the 36 displays, with the default settings. For each case it also runs the source one line taller and one millihertz faster. That is 82,296 decisions in about 8 s in the dev profile.
+`crates/neptron-modeline/tests/integration/policy_sweep.rs` runs a fixed grid with no random numbers: widths 160, 320, 512 and 800; heights 100, 144, 224, 240, 288, 320, 480 and 640; both orientations (a turned 4:3 frame shows a 3:4 picture); progressive, and interlaced for 480 and 640 lines; at 30, 50, 55, 60, 70 and 80 Hz and at every edge of each range of the display, one millihertz inside and one outside; on the 36 displays. With the default settings it also runs each source one line taller and one millihertz faster (82,296 decisions). Then it runs four more settings on the fixed rates with no continuity pairs (15,552 decisions each): `arcade`, `vertical = fit`, `panel_scale = integer` and scanlines on a panel. In all 144,504 decisions in about 17 s in the dev profile.
 
-| Invariant | Cases | Failures at the first run | After the fixes |
-| --- | --- | --- | --- |
-| A decision without a panic | 82,296 | 0 | 0 |
-| The winner passes the validator | 82,161 | 0 | 0 |
-| No interlaced mode on a profile that declares none | 73,089 | 0 | 0 |
-| The shape is kept (2 % and one pixel per axis; the overscan crop) | 79,569 | 0 (4:3 frames); 29,614 with square pixels before the wide-game fix | 0 |
-| The shape on a TV (the console width rule) | 2,592 | stated exception | stated exception |
-| An exact picture has a whole vertical scale | 51,772 | 0 | 0 |
-| No soft fit when an exact mode exists (the test searches the whole multiples itself) | 23,141 | 209 | 0 |
-| No mode carries an allowed reason | 135 | 586 | 0 |
-| The rate is exact where a range covers it | 31,604 | 0 | 0 |
-| Continuity: one line or one millihertz more changes the class only across a named limit | 54,864 | 227 | 0 |
+| Invariant | Cases (default settings) | Failures |
+| --- | --- | --- |
+| A decision without a panic | 82,296 | 0 |
+| The winner passes the validator | 82,278 | 0 |
+| No interlace on a profile that declares none | 73,206 | 0 |
+| The shape is kept (2 %, one pixel per axis, the overscan crop, the TV snap within 3 %) | 81,342 | 0 |
+| The shape on a TV for a 4:3 console of 224 lines per field or more (console width rule) | 936 | stated exception |
+| An exact picture has a whole vertical scale | 54,819 | 0 |
+| No soft fit when an exact mode changes the speed no more (the test searches the whole multiples itself, at the game's rate or the nearest covered one, at twice it or the nearest covered rate to twice it, and at the highest window rate of each range) | 20,211 | 0 |
+| No mode only on the range of one line rate that covers the rate, or under the display's pixel clock limit | 18 | 0 |
+| The rate is exact where a range covers it, or the exact rung at the window rate when no exact mode exists at the rate and no fit keeps the speed better | 32,933 | 0 |
+| A CRT takes the smallest whole multiple that fills (style `auto`) | 26,147 | 0 |
+| The crop stays within 8 source lines and 8 of 240 screen lines | 4,511 | 0 |
+| Scanlines on a panel imply a whole vertical scale (scanline run) | 2,160 | 0 |
+| Continuity: one line or one millihertz more changes the class only across a named limit | 54,864 | 0 |
 
-The figures of the first run counted a grid with slightly different sources while the test was written; the faults they found:
+The faults the sweep found and that are fixed, each with its test: a Switchres mode above the top line rate of a band range; a field rate off a range of one field rate; a game wider than the 4:3 face squeezed; a deinterlaced game with no border; a whole-profile mode the validator refuses that hid a range alone; a 224-line game on m3129 at 80 Hz that fell to a fit where an exact rung at 71.75 Hz changes the speed less; and with the arcade setting, a TV width snap past the 2 % shape bound (now the decided 3 % snap).
 
-1. A Switchres mode above the top line rate of a band range (16.217 kHz on `arcade_15`, limit 16.200): the validator refused every mode, so no mode. Fixed: the mode moves into the band by lines of the back porch (`onto_fixed_line_rate`).
-2. A field rate 1 to 3 mHz off a range of one field rate (`ntsc`): the clock aimed for Switchres's rate. Fixed: the clock aims inside the range and ranks a mode inside first. A narrow mode can still miss (exception, V4).
-3. A game wider than the 4:3 face (aspect 1.6 or more) filled the height and was squeezed. Fixed: such a game is bordered with the lines its shape needs, and takes no crop.
-4. An interlaced game on ranges with no interlaced window took no border. Fixed: it takes the progressive border.
-5. The whole profile gave a mode that the validator refused (a sync pulse too long on a 171-pixel mode on `pstar`), so the per-range shapes never ran. Fixed: each covering range adds its candidates whenever two or more ranges cover the rate.
+The named limits of the continuity check: the progressive and interlaced windows of each range at the rate and at twice it (their least and most lines, and whether the least fits), the crop reach, the TV modes and their crop, the panel scale of 4, a rate within `REFRESH_MATCH_MHZ` of a range edge, and the speed rule of the window rate (an exact rung there against the fit, within the match).
 
-The named limits of the continuity check: the progressive and interlaced windows of each range at the rate (their least and most lines, and whether the least fits), the crop reach of 8 lines per edge, the double rate, the TV modes and their crop, the panel scale of 4, and a rate within `REFRESH_MATCH_MHZ` of a range edge (a mode there may miss the rate by the match).
+## 6. Decided questions
 
-## 6. Open questions
+The owner decided V1 to V3 and V5 on 2026-11-16, the orchestrator V4. Each is built:
 
-Each has a recommended default. None is built: each changes existing console goldens or adds a mechanism.
+| Id | Question | Decision |
+| --- | --- | --- |
+| V1 | Handheld size on a 15 kHz CRT (Game Boy: 144 of 242 picture lines, 59.5 %) | Keep: 1x with borders and the small-picture notice |
+| V2 | A source above every range of the display | The nearest covered rate, and on a flat panel the speed notice too when the change is above 5 % (`PANEL_SPEED_NOTICE_MIN_PPM`) |
+| V3 | A game taller than the interlaced TV mode | The fit into the interlaced mode for every source: `pal_576i tv_ntsc` keeps 0.83 of its lines, not 0.42 |
+| V4 | A narrow mode on a range of one field rate (`ntsc`, `pal`) | The next whole multiples of the game width until a whole-kHz clock gives the rate to the millihertz; the validator decides |
+| V5 | A source below every range of a CRT | Double refresh for every source, only when no range covers the game's rate; a display that covers it keeps the rate once per frame |
+
+## 7. Questions that stay open
 
 | Id | Question | Present result | Recommended default |
 | --- | --- | --- | --- |
-| V1 | Handheld size on a 15 kHz CRT: is a 1x picture with borders (Game Boy: 144 of 242 picture lines, 59.5 %) right? | 1x, centred, small-picture notice | Keep: pixel exact before soft. The `fit` choice of a later per-system setting can give a bigger soft picture |
-| V2 | A source above every range of the display (75 Hz handhelds on 15 kHz, on a TV, on a 60 Hz panel) | The nearest covered rate, the speed notice on a CRT and a TV, the status on a panel | Keep, and show the speed notice on a panel too when the change is above 5 % |
-| V3 | A console taller than the interlaced TV mode (576i on NTSC) fits the progressive mode: 0.42 of its lines | `pal_576i tv_ntsc`: 644x240, sharp | Extend W5 to every source: the interlaced fit keeps 0.83. It changes the three `pal_576i tv_ntsc` goldens |
-| V4 | A narrow mode on a range of one field rate (`ntsc`, `pal`) cannot hit the rate to the millihertz with a whole-kHz clock | The fit, or no mode, for sources under about 300 pixels | Widen such a mode by a whole multiple of the game width until a whole-kHz clock gives the rate, as the dynamic super width does |
-| V5 | A console below every range of a CRT (Mega Drive PAL, 49.701 Hz, on a 50 to 160 Hz tube) | The nearest rate: 2x at 50.000 Hz, 0.6 % fast | Extend the double refresh of A11 to every source: 1x at 99.402 Hz keeps the speed. It changes one golden (`md_pal_h40 edid_npt_0071`) |
+| V6 | An exact rung at the window rate that changes the speed a little more than the fit (DOS 640x400 at 70 Hz on a 15 kHz tube: interlaced 1:1 at 64.46 Hz, -8.0 %, against the fit at 65 Hz, -7.3 %) | The fit wins: the exact rung changes the speed more | Keep the rule "exact wins when its speed error is not larger than the fit's". A limit of about 1 % would let the exact rung win here; it would be a named constant |
+| V7 | A wide handheld (WonderSwan, 14:9) on a tube whose range holds its 2x lines only squeezed (288 lines in 320, d9400 at 75.47 Hz) | 1x in 320 lines, 45 %, the small-picture notice | Keep: the 2x picture would be 5 % too narrow |
