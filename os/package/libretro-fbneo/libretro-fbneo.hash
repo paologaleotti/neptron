@@ -1,0 +1,14 @@
+# Computed locally from the GitHub archive of the pinned commit.
+sha256  f83d09981b9b900b1045899830ac895d96acb6f2e773c123219894fe62052786  libretro-fbneo-d7450cf138ef553c9ba00c86dd4fb5fb1d7646bb.tar.gz
+# Licence files.
+sha256  bb2369f1b75f42242968a78191b47ee90f85682224d3ad1ef63044e244b3e202  src/license.txt
+sha256  7bba634ed1e0c9b55561a5a64d2e59c2f076e677b287e806987fa4084d9ca551  src/dep/libs/zlib/zlib.h
+sha256  182e08dcc6c8a8638eebd0ede98d52fbac8e6d18122b927a6917334f942edccb  src/burner/unzip.h
+sha256  e54516e0a9699405c6873aad2d7d429b3e11e7b526146e0d07dd75088f409dcf  src/burner/ioapi.h
+sha256  4415cc64cc3976383a205809b8673cdad24228b93463286404444d886d63404a  src/burner/libretro/libretro-common/file/file_path.c
+sha256  54c4f0ded81fadbad61a822d567845b75646f704a1b0c625487cf9ec48395b26  src/burner/libretro/deps/ugui/LICENSE.md
+sha256  e3989a7aee74a91b8cdbdfe204a6b8d03288863ec7533a21c51f1a987ba73539  src/dep/libs/libchdr/LICENSE.txt
+sha256  06721414a6decad6d6677feb470f01f47126e154d895d85bc1e17628697715e5  src/dep/libs/lzma/LICENSE
+sha256  9b4bc8245565c98ccfc61c07749928b57e7c0f6fddb0530c4f6aa1971893d88b  src/dep/libs/zstd/zstd.h
+sha256  dd1c647e6f767f8ff4b2dfae0fed314726600a01e0cf1ef556afddd5fa96ff15  src/dep/libs/dr_libs/LICENSE.txt
+sha256  4c7cb2ff1f7011e9d67950446b7eb9ca044f2e464d76bfbb0b84dd2e23e65636  src/dep/libs/stb_vorbis/stb_vorbis.c
