@@ -8,8 +8,8 @@ The host loads a core, loads content, runs one frame and returns what that frame
 
 In scope:
 
-- Software-rendered cores: FCEUmm, Snes9x, Genesis Plus GX and `neptron-testcore`.
-- The "Must" environment calls below, and the calls that the three MVP cores need to load content and to declare options.
+- Software-rendered cores: FCEUmm, Snes9x, Genesis Plus GX, FinalBurn Neo (`docs/spec/arcade.md`) and `neptron-testcore`.
+- The "Must" environment calls below, and the calls that the MVP cores need to load content, to declare options and to ask for a turn.
 - Content from a plain file, or from one entry of a `.zip` file (stored or deflate).
 - Save RAM in memory and in a `.srm` file.
 - Core options with the version 0 API (`SET_VARIABLES`).
@@ -450,3 +450,4 @@ Each module owns its error enum, made with `thiserror`. Each variant carries the
 - Unit tests of each safe module: geometry conversion and every refusal, option parsing, the zip reader (stored, deflate, damaged archives of each kind, no entry, too large, ZIP64, encrypted, CRC), save files (round trip, backup, stale temp file, a symlink at the temp path, wrong size), pads, the log queue.
 - Unit tests in `ffi` with a fake core made of Rust `extern "C"` functions: a wrong API version, zip content for a core without `need_fullpath`, `SET_CONTENT_INFO_OVERRIDE` with `GET_GAME_INFO_EXT`, hostile frames, audio and environment data, callbacks with no host active.
 - Integration tests with `neptron-testcore` (the built `cdylib`, found next to the test binary as in the test core's own load test) and `neptron-testkit` (scripted input, fake audio, simulated clock): the frame hash of every frame equals `expected_hash`, audio counts and samples match, geometry and AV changes arrive at their frames, a duplicate frame, input read-back, save RAM through a file, core options, the unknown call logged once, a refused load with the core's log, a zip for a core that needs a path, a library that is not a core, a missing symbol and a second host.
+- The arcade cases, with the test core: held values for options that the core declares and reads in `retro_load_game`, a 240x320 board drawn on its side (320x240 frames, aspect 750) with `R90` at load and `R180`, `R270`, a refused value and `R0` in frames, and an aspect of 0 with a turn. With the fake core: input descriptors (a cut list, a null pointer), the rotation at load and in a frame, held values that reach a late declaration with no update flag. Unit tests: the zip listing (folders left out, no entry data read, each refusal).
