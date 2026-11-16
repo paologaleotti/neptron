@@ -1,6 +1,6 @@
 # neptron-platform
 
-GPU and board detection from sysfs, the capability table, and a monitor profile built from an EDID: a CRT profile from its range limits, or a flat-panel profile from its listed modes.
+GPU and board detection from sysfs, the capability table, a monitor profile built from an EDID (a CRT profile from its range limits, or a flat-panel profile from its listed modes), and the parse of the network status file of the image.
 
 ## Public API
 
@@ -14,6 +14,7 @@ GPU and board detection from sysfs, the capability table, and a monitor profile 
 - `fn panel_profile_from_edid(&[u8]) -> Result<EdidProfile, ProfileError>`: a flat-panel profile of the listed modes, the preferred mode first, whatever the input type.
 - `EdidProfile::fit_panel(&GpuCaps, max_width, max_height) -> Option<PanelFit>`: the listed modes that the GPU and the buffers can send. When the preferred mode does not fit, the largest mode of at least 50 Hz that fits comes first (`GAME_RATE_MIN_MHZ`: 2160p30 would halve the speed of a 60 Hz game, so 1080p60 wins over it), then a slower one, and `PanelFit::native_left_out` names the preferred mode for a notice.
 - The pure parsers of sysfs text: `parse_uevent`, `parse_card_name`, `parse_connector_name`, `parse_status`.
+- `fn parse_network(&str) -> Result<NetworkStatus, NetworkError>`: the text of `/run/neptron/network.toml` (see "The network file").
 
 Only `detect` does I/O. Everything else is a pure function over bytes and strings.
 
@@ -59,6 +60,19 @@ A CRT with a digital EDID builds no CRT profile (`ProfileError::NotAnalog`), so 
 
 For a 30 to 71 kHz, 50 to 160 Hz monitor the range is: porches 817, 3334 ns horizontal and 33334, 507747 ns vertical; syncs 2667 ns and 100000 ns; 169 to 1374 lines.
 
+## The network file
+
+`/run/neptron/network.toml` holds the host name and the IPv4 address of each wired port with a lease. The address script of the image writes it; the Network panel of the app shows it. `docs/spec/network-panel.md` is the spec.
+
+- The version comes first: no `version`, a version that is not an integer, or a version other than `NETWORK_FILE_VERSION` (1) is an error, and no other field is read. A later version can add fields, so this build does not guess what they mean.
+- Unknown fields are ignored, at the top and in each `[[address]]` table: the format is append-only.
+- A file over `NETWORK_FILE_MAX_BYTES` (64 KiB), with more than `ADDRESSES_MAX` (16) address tables, or with two tables for one port is an error: the file is damaged.
+- `port` starts with `eth` or `en` and has at most 15 letters, digits, `_` and `-`; `ipv4` is a dotted IPv4 address as `Ipv4Addr` parses it. A value that fails is an error with the value: the file is damaged. The reader is stricter than the script in two places: the 15-character bound of a port (the kernel's own bound), and a group of an address with a leading zero (`10.0.0.01`), which the script writes and `Ipv4Addr` refuses.
+- `host_name` is kept when it is labels of letters, digits and `-`, 1 to 63 characters each, joined by dots, at most 253 characters in all. The script keeps letters, digits, `.` and `-` with no bound, and can write an empty name. An empty or invalid name gives `host_name: None`, not an error: the addresses stay usable.
+- `NetworkStatus::addresses` keeps the order of the file and is empty when no port has an address.
+
+The parse does no I/O. The app reads the file off the frame thread.
+
 ## Unknown hardware
 
 A GPU that matches no entry gets `UNKNOWN_GPU_CAPS`: 25 MHz lowest pixel clock, no interlace, no flip per field, 165 MHz highest pixel clock, 1920 by 1200. These are constants in the code, so a data edit cannot loosen them. A wrong driver name or PCI id in the table makes a GPU unknown, which is the safe direction.
@@ -70,6 +84,7 @@ A GPU that matches no entry gets `UNKNOWN_GPU_CAPS`: 25 MHz lowest pixel clock, 
 - `tests/integration/profile.rs` and the unit tests in `src/gtf.rs` and `src/profile.rs`: the profile, with the GTF values worked out by hand.
 - `tests/integration/matrix.rs`: the shipped table, the lookup, every format rule.
 - `tests/integration/sysfs.rs`: detection on the fixture trees in `tests/fixtures/sysfs`.
+- `tests/integration/network.rs`: the network file: one port, two ports, no address, unknown fields, every version error, the size and table bounds, a duplicate port, host names with dots, an empty or invalid host name, and every refused value.
 
 ## Must never depend on
 

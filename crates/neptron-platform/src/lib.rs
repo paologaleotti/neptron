@@ -1,6 +1,7 @@
-//! GPU and board detection from sysfs, the capability table, and a monitor
-//! profile built from an EDID: a CRT profile from its range limits, or a
-//! flat-panel profile from its listed modes.
+//! GPU and board detection from sysfs, the capability table, a monitor
+//! profile built from an EDID (a CRT profile from its range limits, or a
+//! flat-panel profile from its listed modes), and the network status file
+//! of the image.
 //!
 //! The parsers and the table lookup are pure functions over bytes and
 //! strings. Only [`detect`] reads files, from a root path that tests point
@@ -13,6 +14,7 @@ mod gpu;
 mod gtf;
 mod matrix;
 mod modes;
+mod network;
 mod panel;
 mod profile;
 mod sysfs;
@@ -27,6 +29,11 @@ pub use matrix::{
     UNKNOWN_GPU_PCLOCK_MIN_HZ,
 };
 pub use modes::{CTA_MODES, DMT_MODES, ListedModes, listed_modes};
+pub use network::{
+    ADDRESSES_MAX, HOST_LABEL_MAX_CHARS, HOST_NAME_MAX_CHARS, NETWORK_FILE_MAX_BYTES,
+    NETWORK_FILE_VERSION, NetworkError, NetworkStatus, PORT_NAME_MAX_CHARS, PortAddress,
+    parse_network,
+};
 pub use panel::{
     ANALOG_CONNECTOR_KINDS, ANALOG_SUBCONNECTORS, DisplayClass, PanelFit, display_class,
     panel_profile_from_edid, profile_for_display,
