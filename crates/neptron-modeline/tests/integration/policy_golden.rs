@@ -32,6 +32,19 @@ fn expected(file: &str) -> BTreeMap<String, String> {
     parsed.case
 }
 
+/// The display aspect that the core of a handheld reports: square pixels
+/// of its screen (Gambatte 10:9, mGBA 3:2, Beetle Cygne 14:9). Every other
+/// system of the list is 4:3, the Game Gear too: its core reports 4:3 for
+/// the 160x144 window of a 4:3 Master System picture.
+fn aspect_milli(name: &str) -> u32 {
+    match name {
+        "game_boy" => 1_111,
+        "gba" => 1_500,
+        "wonderswan" => 1_556,
+        _ => 1_333,
+    }
+}
+
 fn systems() -> Vec<(String, SourceGeometry)> {
     golden()
         .system
@@ -43,7 +56,7 @@ fn systems() -> Vec<(String, SourceGeometry)> {
                     width: s.width,
                     height: s.height,
                     refresh_mhz: s.refresh_mhz,
-                    aspect_milli: 1_333,
+                    aspect_milli: aspect_milli(&s.name),
                     interlaced: s.interlaced,
                     rotation: s.rotation,
                 },
@@ -202,11 +215,9 @@ fn every_gpu_of_the_capability_table_gives_its_golden_decisions() {
     compare("policy_gpus.toml", actual);
 }
 
-/// The systems whose display aspect is not 4:3. `systems()` gives every
-/// system 4:3, and the repository holds no per-system aspect (the core
-/// gives it at run time), so the TV goldens leave them out: their width
-/// would test the wrong input. `policy_tv.rs` tests them with their real
-/// aspect.
+/// The handhelds. Their TV width comes from their own aspect, which
+/// `policy_tv.rs` tests with each rule; the TV goldens hold the systems of
+/// a 4:3 picture.
 const NOT_FOUR_THIRDS: [&str; 4] = ["game_boy", "game_gear", "gba", "wonderswan"];
 
 /// Every system on NTSC and on PAL, with each width rule, on the composite
@@ -333,7 +344,7 @@ fn the_wider_table_agrees_with_the_console_goldens() {
         let Some((_, system)) = systems.iter().find(|(name, _)| name == board.name) else {
             continue;
         };
-        if board.aspect_milli != 1_333 || *system != board.source() {
+        if *system != board.source() {
             continue;
         }
         for display in &displays {
