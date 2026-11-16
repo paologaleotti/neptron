@@ -34,7 +34,7 @@ The program writes the lines in this order. Text from the core or the host is es
 | `press <frame> <buttons> frames=<n>` | The input script: buttons held from a frame, for a number of frames |
 | `system ...` | `retro_get_system_info`: name, version, `need_fullpath`, `block_extract` |
 | `extensions` | The extensions that the core declares |
-| `log open|load|<frame> <level> <source> <text>` | A log record of the core (`Core`) or of the host (`Host`), in `Host::open`, in `load_game` or in a frame. The host writes one record for each environment call that it does not know (`unknown environment call 0x...`, level `Warn`) or refuses (level `Info`), once per call number |
+| `log open|load|<frame> <level> <source> <text>` | A log record of the core (`Core`) or of the host (`Host`), in `Host::open`, in `load_game` or in a frame. The host writes one record for each environment call that it does not know (`unknown environment call 0x...`, level `Warn`) or refuses (level `Info`), once per call number. `cargo xtask core-trace` replaces a memory address in the text (`0x` and 9 or more hex digits) with `0x<address>`, because address space layout randomisation changes it in every run. A CRC-32 or a call number has at most 8 digits and stays |
 | `option <key> = "<value>" [<values>] <description>` | A core option that the core declared, with its current value (the default) |
 | `av ...` | The geometry and timing that `load_game` returned: base and maximum size, aspect in thousandths, frame rate and sample rate in millihertz |
 | `pixel_format` | The pixel format after the load |

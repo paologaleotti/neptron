@@ -200,6 +200,39 @@ pub struct Output {
     pub other: Vec<String>,
 }
 
+/// What a memory address in a `log` line becomes.
+pub const ADDRESS_MASK: &str = "0x<address>";
+
+/// The fewest hex digits of a value that [`mask_addresses`] takes as a
+/// memory address. A CRC-32 or an environment call number has at most 8;
+/// a user-space pointer on aarch64 and x86_64 has 12.
+const MIN_ADDRESS_DIGITS: usize = 9;
+
+/// A `log` line with each memory address replaced by [`ADDRESS_MASK`].
+/// A core can log a pointer (FinalBurn Neo logs the address of its RAM),
+/// and address space layout randomisation changes it in every run. Other
+/// lines are returned as they are.
+pub fn mask_addresses(line: &str) -> String {
+    if !line.starts_with("log ") {
+        return line.to_owned();
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(at) = rest.find("0x") {
+        let (head, tail) = rest.split_at(at);
+        out.push_str(head);
+        let digits = tail[2..].bytes().take_while(u8::is_ascii_hexdigit).count();
+        if digits >= MIN_ADDRESS_DIGITS {
+            out.push_str(ADDRESS_MASK);
+        } else {
+            out.push_str(&tail[..2 + digits]);
+        }
+        rest = &tail[2 + digits..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// A frame from the dump lines.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Dump {
@@ -226,7 +259,7 @@ impl Output {
                 out.traces
                     .entry(case.to_owned())
                     .or_default()
-                    .push(text.to_owned());
+                    .push(mask_addresses(text));
                 continue;
             }
             if let Some(rest) = line.strip_prefix("FRAME ")
@@ -691,5 +724,35 @@ mod tests {
         let central = u32::from_le_bytes(zip[end + 16..end + 20].try_into().unwrap());
         assert_eq!(central, 38);
         assert_eq!(&zip[38..42], b"PK\x01\x02");
+    }
+
+    #[test]
+    fn addresses_in_log_lines_are_masked() {
+        assert_eq!(
+            mask_addresses("log load Info Core RAM set to 0xaaaab5d92710, size is 34852"),
+            "log load Info Core RAM set to 0x<address>, size is 34852"
+        );
+        assert_eq!(
+            mask_addresses("log 3 Info Core 0x55d0c0ffee00 and 0x7fffdeadbeef0000."),
+            "log 3 Info Core 0x<address> and 0x<address>."
+        );
+        for kept in [
+            "log load Warn Host unknown environment call 0x10048",
+            "log load Info Core Using ROM with known crc 0x1c43539e",
+            "log load Info Core 0x",
+            "log load Info Core 0xg",
+            "hash 29 256x240 Xrgb8888 0xaaaab5d92710",
+        ] {
+            assert_eq!(mask_addresses(kept), kept);
+        }
+    }
+
+    #[test]
+    fn parse_masks_addresses_in_the_traces() {
+        let output = Output::parse(&lines("TRACE fbneo log load Info Core at 0xaaaadab24710\n"));
+        assert_eq!(
+            output.traces["fbneo"],
+            ["log load Info Core at 0x<address>"]
+        );
     }
 }
