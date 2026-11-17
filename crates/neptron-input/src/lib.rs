@@ -27,6 +27,7 @@ mod port_table;
 mod ports;
 mod raw;
 mod roster;
+mod scan;
 mod scripted;
 #[cfg(feature = "sdl3")]
 mod sdl;

@@ -12,6 +12,7 @@ use crate::notice::{InputNotice, NoticeQueue};
 use crate::port_table::PadId;
 use crate::raw::{PadAxis, PadButton, RawInput};
 use crate::roster::{PadInfo, PadRoster, PortRule, Roster};
+use crate::scan::list_failed;
 
 /// The number of polls between two scans for new gamepads. At 60 frames a
 /// second a new gamepad is found within half a second.
@@ -115,10 +116,13 @@ impl SdlGamepads {
         let ids = match self.joysticks.joysticks() {
             Ok(ids) => ids,
             Err(e) => {
-                self.notices.push(InputNotice::Ignored {
-                    what: "the SDL3 joystick list".to_owned(),
-                    reason: e.to_string(),
-                });
+                list_failed(
+                    &mut self.mapper,
+                    "the SDL3 joystick list",
+                    e.to_string(),
+                    out,
+                    &mut self.notices,
+                );
                 return;
             }
         };
