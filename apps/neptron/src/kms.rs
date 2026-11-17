@@ -38,6 +38,11 @@ impl Clock for Monotonic {
 struct Inputs {
     pads: Option<neptron_input::SdlGamepads>,
     keyboards: neptron_input::EvdevKeyboards,
+    /// The notices of the keyboards, taken in each poll: the frontend reads
+    /// them through a shared reference, and the keyboard source needs a
+    /// unique one. Made with room for one queue, so a poll allocates
+    /// nothing.
+    keyboard_notices: std::cell::RefCell<Vec<neptron_input::InputNotice>>,
 }
 
 impl InputSource for Inputs {
@@ -46,6 +51,7 @@ impl InputSource for Inputs {
             pads.poll(out);
         }
         self.keyboards.poll(out);
+        self.keyboards.take_notices(self.keyboard_notices.get_mut());
     }
 }
 
@@ -61,6 +67,20 @@ impl neptron_input::PadRoster for Inputs {
         self.pads
             .as_ref()
             .map_or(0, neptron_input::PadRoster::roster_changes)
+    }
+
+    fn take_notices(&self, out: &mut Vec<neptron_input::InputNotice>) {
+        if let Some(pads) = &self.pads {
+            pads.take_notices(out);
+        }
+        out.append(&mut self.keyboard_notices.borrow_mut());
+    }
+
+    fn activity(&self) -> neptron_input::PadActivity {
+        self.pads
+            .as_ref()
+            .map(neptron_input::PadRoster::activity)
+            .unwrap_or_default()
     }
 }
 
@@ -245,6 +265,9 @@ pub fn run(
         input: Inputs {
             pads,
             keyboards: neptron_input::EvdevKeyboards::new(),
+            keyboard_notices: std::cell::RefCell::new(Vec::with_capacity(
+                neptron_input::MAX_NOTICES + 1,
+            )),
         },
         clock,
     };

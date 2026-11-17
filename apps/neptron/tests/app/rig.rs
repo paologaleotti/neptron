@@ -9,7 +9,9 @@ use std::sync::atomic::AtomicBool;
 use neptron::{Booted, Devices, NextRun, Outcome, Paths, Runtime, Shell};
 use neptron_audio::Resampling;
 use neptron_backend::{Clock, InputSource};
-use neptron_input::{PadInfo, PadRoster, PortRule, Roster, ScriptedPad, ScriptedPads};
+use neptron_input::{
+    JoystickCounts, PadInfo, PadRoster, PortRule, Roster, ScriptedPad, ScriptedPads,
+};
 use neptron_ipc::{Handler, UiTree};
 use neptron_session::RunRateSource;
 use neptron_testcore::SCRIPT_ENV;
@@ -41,6 +43,14 @@ impl PadRoster for RigInput {
 
     fn roster_changes(&self) -> u64 {
         self.pads.roster_changes()
+    }
+
+    fn take_notices(&self, out: &mut Vec<neptron_input::InputNotice>) {
+        self.pads.take_notices(out);
+    }
+
+    fn activity(&self) -> neptron_input::PadActivity {
+        self.pads.activity()
     }
 }
 
@@ -100,6 +110,9 @@ pub struct Rig {
     /// The pads plugged in the machine, in plug order. They stay plugged
     /// across runs.
     pub plugged: Vec<(PadInfo, ScriptedPad)>,
+    /// The joysticks with no gamepad mapping plugged in the machine, in
+    /// plug order, after the pads. They stay plugged across runs.
+    pub joysticks: Vec<(PadInfo, JoystickCounts, ScriptedPad)>,
     pub shell: Option<Box<TestShell>>,
     /// The stop flag of the runtime, as SIGTERM and SIGINT set it.
     pub stop: Arc<AtomicBool>,
@@ -264,6 +277,7 @@ impl Rig {
             input: ScriptedInput::new(clock.clone(), Vec::new()),
             pads: ScriptedPads::new(PortRule::Menus, &Roster::new()),
             plugged: Vec::new(),
+            joysticks: Vec::new(),
             clock,
             paths,
             shell: None,
@@ -303,6 +317,9 @@ impl Rig {
         for (info, pad) in &mut self.plugged {
             *pad = self.pads.plug(info.clone());
         }
+        for (info, counts, pad) in &mut self.joysticks {
+            *pad = self.pads.plug_joystick(info.clone(), *counts);
+        }
         let devices = Devices {
             display: self.display.clone(),
             audio: self.audio.clone(),
@@ -326,10 +343,28 @@ impl Rig {
         pad
     }
 
+    /// Plugs a joystick with no gamepad mapping into the machine, as
+    /// [`Rig::plug`] does.
+    pub fn plug_joystick(&mut self, info: PadInfo, counts: JoystickCounts) -> ScriptedPad {
+        let pad = self.pads.plug_joystick(info.clone(), counts);
+        self.joysticks.push((info, counts, pad));
+        pad
+    }
+
     /// Unplugs the pad of the run `pad`.
     pub fn unplug(&mut self, pad: ScriptedPad) {
         self.pads.unplug(pad);
         self.plugged.retain(|(_, p)| *p != pad);
+        self.joysticks.retain(|(_, _, p)| *p != pad);
+    }
+
+    /// Presses raw button `index` of the joystick `pad` for one frame,
+    /// then releases it for two frames, as [`Rig::tap`] does.
+    pub fn joy_tap(&mut self, pad: ScriptedPad, index: u8) {
+        self.pads.set_joy_button(pad, index, true);
+        self.frames(1);
+        self.pads.set_joy_button(pad, index, false);
+        self.frames(2);
     }
 
     /// The run.

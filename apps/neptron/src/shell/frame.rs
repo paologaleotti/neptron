@@ -6,7 +6,7 @@
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::Hotkey;
 use neptron_input::PadRoster;
-use neptron_types::{Frame, PixelFormat};
+use neptron_types::{Control, Frame, PixelFormat};
 use neptron_ui::screens::{INPUT_PAGE, NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
@@ -18,6 +18,7 @@ use crate::library::{ScanKind, Scanned, changes_text};
 use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
 use crate::notices::{VERTICAL_INTERLACED, VERTICAL_INTERLACED_TEXT};
 use crate::outbox::Job;
+use crate::pad_notes::{NoteKind, SET_UP_CONTROLLER, silent_text};
 
 impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// Runs one frame. Returns how the run ends, when it ends with this
@@ -34,7 +35,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         self.poll_library();
         self.poll_set_check();
         self.poll_network(now_ns);
-        self.poll_pads();
+        self.poll_pads(now_ns);
         match self.stage {
             Stage::List(_) => self.list_frame(now_ns),
             Stage::Game(_) => self.game_frame(now_ns),
@@ -199,12 +200,28 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// show of the last frame decides. The frame thread never waits for the
     /// reader.
     /// Builds the Input page again when a pad came, went or moved while
-    /// the page is in the snapshot, so the open panel shows it. The check
-    /// reads a counter and allocates nothing.
-    fn poll_pads(&mut self) {
-        let changes = match &self.stage {
-            Stage::List(list) => list.input.roster_changes(),
-            Stage::Game(game) => game.session.input().roster_changes(),
+    /// the page is in the snapshot, so the open panel shows it; takes the
+    /// notices of the input source; and follows the silent pad rule, which
+    /// tells only in the game list. The events of the last frame give the
+    /// presses. With no change and no notice, nothing allocates.
+    fn poll_pads(&mut self, now_ns: u64) {
+        let (changes, activity, presses, check) = match &self.stage {
+            Stage::List(list) => {
+                list.input.take_notices(&mut self.input_notices);
+                let presses = button_presses(&self.events);
+                (
+                    list.input.roster_changes(),
+                    list.input.activity(),
+                    presses,
+                    true,
+                )
+            }
+            Stage::Game(game) => {
+                let input = game.session.input();
+                input.take_notices(&mut self.input_notices);
+                let presses = button_presses(game.session.input_events());
+                (input.roster_changes(), input.activity(), presses, false)
+            }
             Stage::Ended => return,
         };
         if changes != self.pad_changes {
@@ -213,6 +230,39 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 self.load_page(INPUT_PAGE);
             }
         }
+        if !self.input_notices.is_empty() {
+            self.take_input_notices();
+        }
+        if let Some(pad) = self.pad_notes.silent(&activity, presses, now_ns, check) {
+            let roster = self.roster();
+            let name = roster.get(pad.port).map_or("", |e| e.pad.name.as_str());
+            self.notice(NoticeKind::Info, silent_text(name));
+        }
+        if self.pad_notes.take_changed() {
+            self.outbox.send(Job::PadNotes {
+                text: self.pad_notes.to_text(),
+            });
+        }
+    }
+
+    /// Logs each notice of the input source, and shows the ones a player
+    /// needs. A pad is told once its player answers its notice, so a
+    /// notice that waits in a game for the menu, when the run ends first,
+    /// shows in the next run. The notice of a pad with the generic layout
+    /// has the second button that opens the Input panel on its row.
+    fn take_input_notices(&mut self) {
+        let mut notices = std::mem::take(&mut self.input_notices);
+        for notice in &notices {
+            self.log(format!("input: {notice}"));
+            let Some(player) = self.pad_notes.player_notice(notice) else {
+                continue;
+            };
+            let choice = (player.kind == NoteKind::Generic).then_some(SET_UP_CONTROLLER);
+            let id = self.push_notice(NoticeKind::Info, player.text.clone(), choice);
+            self.pad_notes.show(id, &player);
+        }
+        notices.clear();
+        self.input_notices = notices;
     }
 
     fn poll_network(&mut self, now_ns: u64) {
@@ -313,6 +363,22 @@ const MOVED_GAME_MARGIN_ROWS: usize = 64;
 
 /// The notice of a rescan that found nothing new.
 const NO_CHANGE: &str = "No games added or removed.";
+
+/// The button presses among `events`: a value that is not 0 on a control
+/// that is not a stick axis.
+fn button_presses(events: &[neptron_types::InputEvent]) -> u32 {
+    let count = events
+        .iter()
+        .filter(|e| e.value != 0)
+        .filter(|e| {
+            !matches!(
+                e.control,
+                Control::LeftX | Control::LeftY | Control::RightX | Control::RightY
+            )
+        })
+        .count();
+    u32::try_from(count).unwrap_or(u32::MAX)
+}
 
 /// The UI canvas as the `ui` frame of a scene.
 fn canvas_frame(canvas: &CpuCanvas) -> Frame<'_> {

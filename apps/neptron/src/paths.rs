@@ -111,6 +111,13 @@ impl Paths {
         self.run.join("safe-notice-shown")
     }
 
+    /// `run/pad-notes.toml`: the pads whose notices this power cycle
+    /// showed, and the pads the silent pad rule has checked. The run folder
+    /// is a RAM folder, so a new power cycle has none.
+    pub fn pad_notes(&self) -> PathBuf {
+        self.run.join("pad-notes.toml")
+    }
+
     /// `run/next.toml`, the relaunch file.
     pub fn relaunch(&self) -> PathBuf {
         self.run.join("next.toml")

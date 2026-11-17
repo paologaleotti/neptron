@@ -162,6 +162,11 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     picture_noticed: bool,
     /// The one-time notices shown already, as the notices file holds them.
     shown_notices: crate::notices::ShownNotices,
+    /// The pad notices of this power cycle and the silent pad rule.
+    pad_notes: crate::pad_notes::PadNotes,
+    /// The notices of the input source of the frame, a buffer made at the
+    /// start.
+    input_notices: Vec<neptron_input::InputNotice>,
     next_notice: u32,
     /// The notice that asks whether to start an arcade game that cannot be
     /// checked, and that game.
@@ -286,6 +291,14 @@ impl<I: PadRoster> PadRoster for ControlInput<I> {
 
     fn roster_changes(&self) -> u64 {
         self.inner.roster_changes()
+    }
+
+    fn take_notices(&self, out: &mut Vec<neptron_input::InputNotice>) {
+        self.inner.take_notices(out);
+    }
+
+    fn activity(&self) -> neptron_input::PadActivity {
+        self.inner.activity()
     }
 }
 

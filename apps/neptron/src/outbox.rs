@@ -80,6 +80,11 @@ pub enum Job {
         /// The text of the file.
         text: String,
     },
+    /// Write the file of the pad notices of this power cycle, whole.
+    PadNotes {
+        /// The text of the file.
+        text: String,
+    },
 }
 
 /// The frame thread's side of the writer thread. Drop or
@@ -109,6 +114,8 @@ pub struct Places {
     pub share_request: PathBuf,
     /// The file of the one-time notices shown already.
     pub notices: PathBuf,
+    /// The file of the pad notices of this power cycle, in the run folder.
+    pub pad_notes: PathBuf,
 }
 
 impl Outbox {
@@ -272,6 +279,13 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, replies: &Replies) {
                         places.notices.display()
                     )
                 }),
+            Job::PadNotes { text } => crate::atomic::write(&places.pad_notes, text.as_bytes())
+                .map_err(|e| {
+                    format!(
+                        "cannot write the pad notes file {}: {e}",
+                        places.pad_notes.display()
+                    )
+                }),
             Job::Cache { index, full_scan } => write_cache(&places.cache, index).and_then(|()| {
                 if *full_scan {
                     mark_scanned(&places.scanned)
@@ -335,6 +349,7 @@ mod tests {
             scanned: dir.join("run").join("library-scanned"),
             share_request: dir.join("state").join("share-format-request"),
             notices: dir.join("config").join("notices.toml"),
+            pad_notes: dir.join("run").join("pad-notes.toml"),
         }
     }
 
@@ -349,6 +364,20 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&places.notices).expect("the file"),
             "format = 1\nshown = [\"vertical_interlaced\"]\n"
+        );
+    }
+
+    #[test]
+    fn the_pad_notes_file_is_written_whole() {
+        let places = places("pad-notes");
+        let mut outbox = Outbox::start(places.clone()).expect("start");
+        outbox.send(Job::PadNotes {
+            text: "format = 1\n".to_owned(),
+        });
+        assert!(outbox.finish().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&places.pad_notes).expect("the file"),
+            "format = 1\n"
         );
     }
 

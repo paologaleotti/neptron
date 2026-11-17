@@ -34,7 +34,7 @@ fn away(name: &str) -> Option<(String, bool)> {
 }
 
 /// Starts the game list, waits for the scan, and launches the test game.
-fn launch_from_the_list(rig: &mut Rig) -> NextRun {
+pub fn launch_from_the_list(rig: &mut Rig) -> NextRun {
     rig.until(600, "the scan", |r| {
         !r.shell().snapshot().systems.is_empty()
     });
@@ -162,7 +162,7 @@ fn in_the_menus_player_2_becomes_player_1_when_player_1_goes() {
 }
 
 /// Opens `Settings > Input` from home or the quick menu.
-fn open_input(rig: &mut Rig) {
+pub fn open_input(rig: &mut Rig) {
     rig.focus("Settings");
     rig.tap(&[Control::A]);
     assert_eq!(rig.screen(), "settings");
@@ -172,7 +172,7 @@ fn open_input(rig: &mut Rig) {
 }
 
 /// The label and the value of every row of the panel.
-fn rows(rig: &mut Rig) -> Vec<(String, String)> {
+pub fn rows(rig: &mut Rig) -> Vec<(String, String)> {
     rig.tree()
         .rows
         .into_iter()

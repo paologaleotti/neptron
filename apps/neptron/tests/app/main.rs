@@ -16,6 +16,7 @@ mod control;
 mod crawler;
 mod end_to_end;
 mod faults;
+mod generic_pads;
 mod network;
 mod output;
 mod panel;

@@ -239,7 +239,12 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         self.push_notice(kind, text, Some(choice))
     }
 
-    fn push_notice(&mut self, kind: NoticeKind, text: String, choice: Option<&str>) -> NoticeId {
+    pub(super) fn push_notice(
+        &mut self,
+        kind: NoticeKind,
+        text: String,
+        choice: Option<&str>,
+    ) -> NoticeId {
         self.log(text.clone());
         if self.snap.notices.len() == NOTICES_MAX {
             self.snap.notices.remove(0);

@@ -8,12 +8,14 @@ use neptron_settings::{
     Value,
 };
 use neptron_ui::Intent;
+use neptron_ui::screens::INPUT_PAGE;
 use neptron_ui::snapshot::NoticeKind;
 use neptron_video::{DisplayConfig, Phase};
 
 use super::{Outcome, PendingChange, Shell, Stage};
 use crate::library::{CheckStart, ScanKind, ScanStart};
 use crate::outbox::Job;
+use crate::pad_notes::NoteKind;
 use crate::pages::{self, Names};
 use crate::power::{self, PowerRequest};
 use crate::relaunch::{NextRun, PadRecord};
@@ -105,16 +107,37 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             Intent::QuitGame => self.end_game(None),
             Intent::DismissNotice(id) => {
                 self.snap.notices.retain(|n| n.id != id);
+                self.pad_notes.answered(id);
                 self.unchecked_launch.take_if(|(notice, _)| *notice == id);
             }
             Intent::AcceptNotice(id) => {
                 self.snap.notices.retain(|n| n.id != id);
+                if let Some((NoteKind::Generic, pad)) = self.pad_notes.answered(id) {
+                    self.set_up_pad(pad);
+                }
                 if let Some((_, game)) = self.unchecked_launch.take_if(|(notice, _)| *notice == id)
                 {
                     self.log("an arcade game starts with no set check".to_owned());
                     self.relaunch_into(game);
                 }
             }
+        }
+    }
+
+    /// The answer "Set up this controller" of the notice of a pad with the
+    /// generic layout: the Input panel opens with the focus on the row of
+    /// that pad, or on its first row when the pad has no port now.
+    fn set_up_pad(&mut self, (identity, path): crate::pad_notes::PadKey) {
+        let roster = self.roster();
+        let port = (0u8..).zip(roster.ports()).find_map(|(port, entry)| {
+            entry
+                .as_ref()
+                .filter(|e| e.present && e.pad.identity == identity && e.pad.path == path)
+                .map(|_| port)
+        });
+        let key = port.and_then(|port| pages::input_row_key(&roster, port));
+        if !self.screens.open_panel(INPUT_PAGE, key) {
+            self.log("the Input panel cannot open over the screen on show".to_owned());
         }
     }
 

@@ -29,6 +29,7 @@ use crate::nav::Navigator;
 use crate::network::{NetworkInfo, NetworkWatch};
 use crate::notices::ShownNotices;
 use crate::outbox::{Outbox, Places};
+use crate::pad_notes::PadNotes;
 use crate::paths::Paths;
 use crate::presets::Presets;
 use crate::record;
@@ -98,6 +99,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         found.warn_all(issues);
         let (shown_notices, issue) = ShownNotices::load(&paths.notices());
         found.warn_all(issue);
+        let (pad_notes, pad_notes_issue) = PadNotes::load(&paths.pad_notes());
         if let Some(notice) = next.as_ref().and_then(|n| n.notice.clone()) {
             found.issues.push((NoticeKind::Error, notice));
         }
@@ -276,6 +278,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             scanned: paths.library_scanned(),
             share_request: paths.share_format_request(),
             notices: paths.notices(),
+            pad_notes: paths.pad_notes(),
         })
         .map_err(BootError::Writer)?;
         let share_offer = storage.as_ref().and_then(StorageStatus::format_offer);
@@ -322,6 +325,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             menu_hotkey: false,
             picture_noticed: false,
             shown_notices,
+            pad_notes,
+            input_notices: Vec::with_capacity(INPUT_NOTICES_CAPACITY),
             next_notice: 1,
             unchecked_launch: None,
             frame,
@@ -341,6 +346,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             outcome: None,
         };
         shell.first_snapshot();
+        if let Some(issue) = pad_notes_issue {
+            shell.log(format!("input: {issue}"));
+        }
         if let Some(NetworkInfo::Unknown { reason }) = &shell.network_info {
             // The panel shows `Not known` for this run; the run goes on.
             let line = format!("network: {reason}");
@@ -424,6 +432,11 @@ impl Found {
         }
     }
 }
+
+/// The input notices one frame can take with no allocation: the queue of
+/// the gamepad source and of the keyboard source, each with its count of
+/// dropped notices.
+const INPUT_NOTICES_CAPACITY: usize = 2 * (neptron_input::MAX_NOTICES + 1);
 
 /// The profile number of the preset at `index`.
 pub(super) fn profile_id(index: usize) -> ProfileId {
