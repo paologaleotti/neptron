@@ -294,7 +294,9 @@ mod tests {
         watch.request_queued();
         assert_eq!(watch.next(), known(&[], true));
         watch.request_queued();
-        std::fs::write(f.run.join(STATUS_FILE), ONE_PORT).expect("a lease");
+        // The image replaces the file by a rename, so the reader never sees
+        // a part of it; a plain write here can race the queued read.
+        crate::atomic::write(&f.run.join(STATUS_FILE), ONE_PORT.as_bytes()).expect("a lease");
         watch.request_queued();
         assert_eq!(
             watch.next(),
