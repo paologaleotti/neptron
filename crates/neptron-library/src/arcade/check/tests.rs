@@ -26,6 +26,8 @@ fn index() -> ArcadeIndex {
     parent.roms = vec![
         rom("sp1.bin", 1024, Some(0x11)),
         rom("sp2.bin", 2048, Some(0x12)),
+        rom("sp3.bin", 512, Some(0x13)),
+        rom("sp4.bin", 512, Some(0x14)),
         rom("dead.bin", 64, None),
         rom("z1.bin", 128, Some(0xb1)),
     ];
@@ -38,8 +40,12 @@ fn index() -> ArcadeIndex {
     ];
     let mut alone = SetRecord::new("alone".to_owned(), "Alone".to_owned());
     alone.roms = vec![rom("a.bin", 16, Some(0xa1))];
-    ArcadeIndex::from_sets(IndexSource::default(), vec![bios, parent, clone, alone])
-        .expect("valid sets")
+    let source = IndexSource {
+        commit: "0123456789abcdef0123456789abcdef01234567".to_owned(),
+        dat_version: "9.9.9".to_owned(),
+        ..IndexSource::default()
+    };
+    ArcadeIndex::from_sets(source, vec![bios, parent, clone, alone]).expect("valid sets")
 }
 
 fn zip(file: &str, entries: &[(&str, u64, u32)]) -> FoundZip {
@@ -63,7 +69,12 @@ fn bios_zip() -> FoundZip {
 fn parent_zip() -> FoundZip {
     zip(
         "starpat.zip",
-        &[("sp1.bin", 1024, 0x11), ("sp2.bin", 2048, 0x12)],
+        &[
+            ("sp1.bin", 1024, 0x11),
+            ("sp2.bin", 2048, 0x12),
+            ("sp3.bin", 512, 0x13),
+            ("sp4.bin", 512, 0x14),
+        ],
     )
 }
 
@@ -155,10 +166,19 @@ fn a_clone_that_needs_its_parent_gives_message_3() {
     );
 }
 
+const WANTED: &str = " This image needs sets for Core X 9.9.9 (commit 0123456).";
+
 #[test]
-fn missing_and_wrong_size_roms_give_message_4_with_the_count() {
+fn missing_and_wrong_size_roms_give_message_4_with_their_names() {
     let found = FoundZips {
-        set: vec![zip("starpat.zip", &[("sp1.bin", 1000, 0x11)])],
+        set: vec![zip(
+            "starpat.zip",
+            &[
+                ("sp1.bin", 1000, 0x11),
+                ("sp3.bin", 512, 0x13),
+                ("x", 512, 0x14),
+            ],
+        )],
         bios: vec![bios_zip()],
         ..FoundZips::default()
     };
@@ -178,14 +198,17 @@ fn missing_and_wrong_size_roms_give_message_4_with_the_count() {
                     rom: "sp2.bin".to_owned(),
                     problem: Problem::Missing,
                 },
-            ]
+            ],
+            checked: 4,
+            wanted: "9.9.9 (commit 0123456)".to_owned(),
         }
     );
+    assert!(!verdict.wrong_set(), "2 of 4 is not more than half");
     assert_eq!(
-        verdict.message("Core X").as_deref(),
-        Some(
-            "2 files of this game are missing or differ. The set may be for another version of Core X, or a file may be damaged. The log of NEPTRON lists them."
-        )
+        verdict.message("Core X"),
+        Some(format!(
+            "2 files of this game are missing or differ: sp1.bin and sp2.bin.{WANTED} The log lists every file."
+        ))
     );
     assert_eq!(
         verdict.details(),
@@ -194,23 +217,81 @@ fn missing_and_wrong_size_roms_give_message_4_with_the_count() {
 }
 
 #[test]
+fn message_4_names_two_files_and_counts_the_rest() {
+    let problem = |rom: &str| RomProblem {
+        rom: rom.to_owned(),
+        problem: Problem::Missing,
+    };
+    let roms = |names: &[&str]| Verdict::Roms {
+        problems: names.iter().map(|n| problem(n)).collect(),
+        checked: 100,
+        wanted: String::new(),
+    };
+    assert_eq!(
+        roms(&["gg1.bin"]).message("C").as_deref(),
+        Some("1 file of this game is missing or differs: gg1.bin. The log lists every file.")
+    );
+    assert_eq!(
+        roms(&["gg1.bin", "gg2.bin", "gg3.bin", "gg4.bin"])
+            .message("C")
+            .as_deref(),
+        Some(
+            "4 files of this game are missing or differ: gg1.bin, gg2.bin and 2 more. The log lists every file."
+        )
+    );
+    let long = "a".repeat(NAMED_ROM_CHARS_MAX + 10);
+    let message = roms(&[&long]).message("C").expect("a message");
+    assert!(message.contains(&"a".repeat(NAMED_ROM_CHARS_MAX)));
+    assert!(!message.contains(&"a".repeat(NAMED_ROM_CHARS_MAX + 1)));
+}
+
+#[test]
+fn a_set_with_most_files_wrong_is_for_another_emulator() {
+    let found = FoundZips {
+        set: vec![zip("starpat.zip", &[("sp1.bin", 1024, 0x11)])],
+        bios: vec![bios_zip()],
+        ..FoundZips::default()
+    };
+    let verdict = check_set(&index(), "starpat", &found);
+    assert!(verdict.wrong_set(), "3 of 4 is more than half");
+    assert!(verdict.stops());
+    assert_eq!(
+        verdict.message("Core X"),
+        Some(format!(
+            "Most files of this game do not match. The set is for another emulator or another version.{WANTED}"
+        ))
+    );
+    assert_eq!(verdict.details().len(), 3, "the log still lists each file");
+}
+
+#[test]
+fn the_wanted_version_names_the_dat_and_the_commit() {
+    let source = |version: &str, commit: &str| IndexSource {
+        dat_version: version.to_owned(),
+        commit: commit.to_owned(),
+        ..IndexSource::default()
+    };
+    assert_eq!(
+        wanted_version(&source("1.0", "abcdef0123")),
+        "1.0 (commit abcdef0)"
+    );
+    assert_eq!(wanted_version(&source("1.0", "")), "1.0");
+    assert_eq!(wanted_version(&source("", "abc")), "commit abc");
+    assert_eq!(wanted_version(&source("", "")), "");
+}
+
+#[test]
 fn the_first_zip_with_the_crc_gives_the_rom() {
     // The first zip holds the CRC with a wrong size; a later one is right.
     // The core takes the first, so the check does too.
     let found = FoundZips {
-        set: vec![
-            zip("starpat.zip", &[("sp1.bin", 1, 0x11)]),
-            zip(
-                "starpat.zip",
-                &[("sp1.bin", 1024, 0x11), ("sp2.bin", 2048, 0x12)],
-            ),
-        ],
+        set: vec![zip("starpat.zip", &[("sp1.bin", 1, 0x11)]), parent_zip()],
         bios: vec![bios_zip()],
         ..FoundZips::default()
     };
     assert!(matches!(
         check_set(&index(), "starpat", &found),
-        Verdict::Roms { problems } if problems.len() == 1
+        Verdict::Roms { problems, .. } if problems.len() == 1
     ));
 }
 
@@ -224,7 +305,10 @@ fn a_bios_that_holds_nothing_gives_message_5() {
     let verdict = check_set(&index(), "starpat", &found);
     assert_eq!(
         verdict.message("Core X").as_deref(),
-        Some("The BIOS file zbios.zip does not match this version of Core X.")
+        Some(format!(
+            "The BIOS file zbios.zip does not match this version of Core X.{WANTED}"
+        ))
+        .as_deref()
     );
 }
 

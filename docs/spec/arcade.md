@@ -297,7 +297,7 @@ So `neogeo.zip` can be in `bios/`, in `bios/fbneo/` or next to the games, and a 
 1. The zip of the game is in the index. Otherwise: message 1.
 2. The BIOS of the set: follow `romof` from the set to the first set with the `b` flag. If one exists, a zip of that name must exist in one of the places. Otherwise: message 2.
 3. If the set is a clone and needs a ROM that no zip of the set's own name holds, a zip of the parent's name must exist. Otherwise: message 3.
-4. Each ROM of the set, except `nodump` ROMs and ROMs that are also ROMs of its BIOS set (the same CRC), must be in one of the found zips of the set, its parent or its BIOS, with the same CRC-32 and the same size. The match is by CRC and size, not by name, as FBNeo matches. This one rule covers split, non-merged and full non-merged sets. Otherwise: message 4.
+4. Each ROM of the set, except `nodump` ROMs and ROMs that are also ROMs of its BIOS set (the same CRC), must be in one of the found zips of the set, its parent or its BIOS, with the same CRC-32 and the same size. The match is by CRC and size, not by name, as FBNeo matches. This one rule covers split, non-merged and full non-merged sets. Otherwise: message 4. When more than half of those ROMs (`WRONG_SET_PERCENT`, 50) are missing or differ, the set is for another emulator or another version: message 4b.
 5. The BIOS: if no found zip of the BIOS name holds any ROM of the BIOS set, message 5. If some but not all match, the launch goes on and the diagnostics page lists the differences. FBNeo does not require a ROM that its driver marks `BRF_OPT`, and a Neo Geo BIOS set lists many BIOS variants, of which the core needs only the selected one. The DAT has no such mark, so the check cannot tell which BIOS files are needed. A stricter rule is an open point (section 19, A3). The same mark can make a game ROM optional; the check then asks for a ROM that the core would not need. That is safe (it stops, never passes wrongly), and the same open point covers it.
 6. A zip that cannot be read (damaged, ZIP64, multi-disk, too large a central directory): message 6.
 
@@ -305,15 +305,16 @@ With no index (section 6), the check gives message 7 and lets the user start the
 
 ### The messages
 
-Each message shows in a dialog in the menu, and the full list goes to the diagnostics page. `<set>` is the zip stem, `<n>` a count.
+Each message shows in a dialog in the menu, and the full list goes to the log (a diagnostics page is a later item). `<set>` is the zip stem, `<n>` a count. `<names>` gives the DAT names of the first two wrong ROMs, each cut to 24 characters, and counts the others (`gg1.bin, gg2.bin and 1 more`), so the dialog fits the 320x240 canvas. `<version>` comes from the index: the DAT version and the short commit of the core, `1.0.0.03 (commit d7450cf)`. With one file, message 4 says `1 file of this game is missing or differs`.
 
 | # | Text | Launch |
 | --- | --- | --- |
 | 1 | `<set>.zip` is not a set name of FinalBurn Neo. Check the file name. | Stopped |
 | 2 | This game needs the BIOS file `<bios>.zip`. Put it in `bios`, or in the folder of the game. | Stopped |
 | 3 | This game needs the file `<parent>.zip` in the same folder. | Stopped |
-| 4 | `<n>` files of this game are missing or differ. The set may be for another version of FinalBurn Neo, or a file may be damaged. The diagnostics page lists them. | Stopped |
-| 5 | The BIOS file `<bios>.zip` does not match this version of FinalBurn Neo. | Stopped |
+| 4 | `<n>` files of this game are missing or differ: `<names>`. This image needs sets for FinalBurn Neo `<version>`. The log lists every file. | Stopped |
+| 4b | Most files of this game do not match. The set is for another emulator or another version. This image needs sets for FinalBurn Neo `<version>`. | Stopped |
+| 5 | The BIOS file `<bios>.zip` does not match this version of FinalBurn Neo. This image needs sets for FinalBurn Neo `<version>`. | Stopped |
 | 6 | The file `<file>.zip` cannot be read: `<reason>`. | Stopped |
 | 7 | NEPTRON cannot find its list of arcade games, so it cannot check this game. | The user chooses: start or cancel |
 

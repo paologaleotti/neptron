@@ -13,7 +13,8 @@ mod check;
 mod format;
 
 pub use check::{
-    FoundZip, FoundZips, Problem, RomProblem, Verdict, Wanted, ZipEntry, check_set, wanted,
+    FoundZip, FoundZips, NAMED_ROM_CHARS_MAX, NAMED_ROMS_MAX, Problem, RomProblem, Verdict,
+    WRONG_SET_PERCENT, Wanted, ZipEntry, check_set, wanted, wanted_version,
 };
 pub use format::{decode, encode};
 

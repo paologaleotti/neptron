@@ -188,3 +188,53 @@ fn the_places_follow_the_core() {
     assert_eq!(core, Path::new("/share/bios/fbneo"));
     assert_eq!(bios, Path::new("/share/bios"));
 }
+
+/// The longest texts of messages 4 and 5 fit the notice dialog on the
+/// 320x240 canvas of the UI with no line cut: two ROM names at their
+/// longest, a large count, and the version of the real index.
+#[test]
+fn the_longest_check_messages_fit_the_dialog() {
+    use neptron_library::arcade::{NAMED_ROM_CHARS_MAX, Problem, RomProblem};
+    use neptron_ui::screens::Screens;
+    use neptron_ui::snapshot::{Notice, NoticeId, NoticeKind};
+    use neptron_ui::{Snapshot, Theme, UiFrame, WidgetKind};
+
+    let wanted = "1.0.0.03 (commit d7450cf)".to_owned();
+    let problems: Vec<RomProblem> = (0..9_999)
+        .map(|i| RomProblem {
+            rom: format!("{i:0width$}", width = NAMED_ROM_CHARS_MAX + 8),
+            problem: Problem::Missing,
+        })
+        .collect();
+    let verdicts = [
+        Verdict::Roms {
+            problems: problems.clone(),
+            checked: 99_999,
+            wanted: wanted.clone(),
+        },
+        Verdict::Roms {
+            problems,
+            checked: 10_000,
+            wanted: wanted.clone(),
+        },
+        Verdict::BiosMismatch {
+            bios: "namcoc75".to_owned(),
+            wanted,
+        },
+    ];
+    for verdict in verdicts {
+        let text = verdict.message("FinalBurn Neo").expect("a message");
+        let mut snap = Snapshot::default();
+        snap.notices
+            .push(Notice::new(NoticeId(1), text.clone(), NoticeKind::Warning));
+        let mut screens = Screens::new(Theme::default());
+        let mut frame = UiFrame::new();
+        screens.update(&snap, &[], &mut frame);
+        let row = frame
+            .tree
+            .rows()
+            .find(|r| r.widget == WidgetKind::Dialog)
+            .expect("the notice dialog");
+        assert!(!row.clipped, "cut: {text}");
+    }
+}

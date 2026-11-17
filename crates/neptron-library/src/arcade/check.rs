@@ -10,7 +10,20 @@
 
 use std::collections::HashSet;
 
-use super::{ArcadeIndex, RomRecord};
+use super::{ArcadeIndex, IndexSource, RomRecord};
+
+/// The most ROM names that message 4 gives; it counts the others. With
+/// each name cut to [`NAMED_ROM_CHARS_MAX`], the longest message keeps to
+/// the lines of a dialog on the 320x240 canvas of the UI.
+pub const NAMED_ROMS_MAX: usize = 2;
+
+/// The most characters of one ROM name in message 4.
+pub const NAMED_ROM_CHARS_MAX: usize = 24;
+
+/// A set with more than this share of its ROMs missing or different, in
+/// percent, is a set for another emulator or another version, and gets
+/// its own message.
+pub const WRONG_SET_PERCENT: usize = 50;
 
 /// One file of a zip, as its central directory gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,15 +116,25 @@ pub enum Verdict {
         /// The parent set.
         parent: String,
     },
-    /// Message 4: ROMs of the set are missing or differ.
+    /// Message 4: ROMs of the set are missing or differ. When more than
+    /// [`WRONG_SET_PERCENT`] of the ROMs that the check asks for are, the
+    /// message says that the set is for another emulator or version.
     Roms {
         /// Every ROM that is missing or differs.
         problems: Vec<RomProblem>,
+        /// The number of ROMs that the check asked for.
+        checked: usize,
+        /// The version of the sets that the index lists, see
+        /// [`wanted_version`].
+        wanted: String,
     },
     /// Message 5: no BIOS zip holds any ROM of the BIOS set.
     BiosMismatch {
         /// The BIOS set.
         bios: String,
+        /// The version of the sets that the index lists, see
+        /// [`wanted_version`].
+        wanted: String,
     },
     /// Message 6: a found zip cannot be read.
     Unreadable {
@@ -194,20 +217,40 @@ pub fn check_set(index: &ArcadeIndex, stem: &str, found: &FoundZips) -> Verdict 
             if checked > 0 && differences.len() == checked {
                 return Verdict::BiosMismatch {
                     bios: bios.name.clone(),
+                    wanted: wanted_version(&index.source),
                 };
             }
             differences
         }
         None => Vec::new(),
     };
+    let checked = needed.len();
     let missing = problems(
         needed.into_iter(),
         &[&found.set, &found.parent, &found.bios],
     );
     if !missing.is_empty() {
-        return Verdict::Roms { problems: missing };
+        return Verdict::Roms {
+            problems: missing,
+            checked,
+            wanted: wanted_version(&index.source),
+        };
     }
     Verdict::Pass { bios_differences }
+}
+
+/// The version of the sets that an index lists, for the messages: the
+/// version of its DAT and the short commit of the core, for example
+/// `1.0.0.03 (commit 0123abc)`. Either part is left out when the index
+/// has none.
+pub fn wanted_version(source: &IndexSource) -> String {
+    let commit: String = source.commit.chars().take(7).collect();
+    match (source.dat_version.is_empty(), commit.is_empty()) {
+        (false, false) => format!("{} (commit {commit})", source.dat_version),
+        (false, true) => source.dat_version.clone(),
+        (true, false) => format!("commit {commit}"),
+        (true, true) => String::new(),
+    }
 }
 
 impl Verdict {
@@ -231,13 +274,29 @@ impl Verdict {
             Self::MissingParent { parent } => {
                 format!("This game needs the file {parent}.zip in the same folder.")
             }
-            Self::Roms { problems } => format!(
-                "{} files of this game are missing or differ. The set may be for another version of {core}, or a file may be damaged. The log of NEPTRON lists them.",
-                problems.len()
-            ),
-            Self::BiosMismatch { bios } => {
-                format!("The BIOS file {bios}.zip does not match this version of {core}.")
+            Self::Roms {
+                problems, wanted, ..
+            } => {
+                let needs = needs(core, wanted);
+                if self.wrong_set() {
+                    format!(
+                        "Most files of this game do not match. The set is for another emulator or another version.{needs}"
+                    )
+                } else {
+                    let (count, verb) = match problems.len() {
+                        1 => ("1 file".to_owned(), "is missing or differs"),
+                        n => (format!("{n} files"), "are missing or differ"),
+                    };
+                    format!(
+                        "{count} of this game {verb}: {}.{needs} The log lists every file.",
+                        named(problems)
+                    )
+                }
             }
+            Self::BiosMismatch { bios, wanted } => format!(
+                "The BIOS file {bios}.zip does not match this version of {core}.{}",
+                needs(core, wanted)
+            ),
             Self::Unreadable { file, reason } => {
                 format!("The file {file} cannot be read: {reason}.")
             }
@@ -248,11 +307,22 @@ impl Verdict {
         })
     }
 
-    /// The lines of the diagnostics page: one for each ROM that is missing
-    /// or differs, in the set or in its BIOS.
+    /// True for message 4 when more than [`WRONG_SET_PERCENT`] of the ROMs
+    /// that the check asked for are missing or differ.
+    pub fn wrong_set(&self) -> bool {
+        match self {
+            Self::Roms {
+                problems, checked, ..
+            } => problems.len() * 100 > checked * WRONG_SET_PERCENT,
+            _ => false,
+        }
+    }
+
+    /// The lines of the log: one for each ROM that is missing or differs,
+    /// in the set or in its BIOS.
     pub fn details(&self) -> Vec<String> {
         let problems = match self {
-            Self::Roms { problems } => problems,
+            Self::Roms { problems, .. } => problems,
             Self::Pass { bios_differences } => bios_differences,
             _ => return Vec::new(),
         };
@@ -265,6 +335,34 @@ impl Verdict {
                 }
             })
             .collect()
+    }
+}
+
+/// The sentence that names the sets the image needs, with a leading
+/// space, or nothing when the index gives no version.
+fn needs(core: &str, wanted: &str) -> String {
+    if wanted.is_empty() {
+        String::new()
+    } else {
+        format!(" This image needs sets for {core} {wanted}.")
+    }
+}
+
+/// The names of the first [`NAMED_ROMS_MAX`] ROMs of `problems`, each cut
+/// to [`NAMED_ROM_CHARS_MAX`], and a count of the others:
+/// `a.bin`, `a.bin and b.bin`, `a.bin, b.bin and 3 more`. The names come
+/// from the index, never from the zip.
+fn named(problems: &[RomProblem]) -> String {
+    let names: Vec<String> = problems
+        .iter()
+        .take(NAMED_ROMS_MAX)
+        .map(|p| p.rom.chars().take(NAMED_ROM_CHARS_MAX).collect())
+        .collect();
+    let more = problems.len().saturating_sub(names.len());
+    match (names.as_slice(), more) {
+        ([one], 0) => one.clone(),
+        ([first, second], 0) => format!("{first} and {second}"),
+        (listed, more) => format!("{} and {more} more", listed.join(", ")),
     }
 }
 

@@ -109,6 +109,14 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: notice_choice,
     },
     SceneDef {
+        name: "screens/notice-set-files",
+        build: notice_set_files,
+    },
+    SceneDef {
+        name: "screens/notice-wrong-set",
+        build: notice_wrong_set,
+    },
+    SceneDef {
         name: "screens/quick-menu",
         build: quick_menu,
     },
@@ -1067,6 +1075,29 @@ fn notice_choice(frame: &mut UiFrame, theme: &Theme) {
     )
     .with_choice("Start");
     notice_over_list_with(frame, theme, notice);
+}
+
+/// The set check of an arcade game found a few files missing or wrong:
+/// the message names two, at the longest the app gives, and the sets the
+/// image needs.
+fn notice_set_files(frame: &mut UiFrame, theme: &Theme) {
+    notice_over_list(
+        frame,
+        theme,
+        "1234 files of this game are missing or differ: abcdefghijklmnopqrstuvwx, abcdefghijklmnopqrstuvwx and 1232 more. This image needs sets for FinalBurn Neo 1.0.0.03 (commit d7450cf). The log lists every file.",
+        NoticeKind::Warning,
+    );
+}
+
+/// The set check of an arcade game found most files wrong: a set for
+/// another emulator or version.
+fn notice_wrong_set(frame: &mut UiFrame, theme: &Theme) {
+    notice_over_list(
+        frame,
+        theme,
+        "Most files of this game do not match. The set is for another emulator or another version. This image needs sets for FinalBurn Neo 1.0.0.03 (commit d7450cf).",
+        NoticeKind::Warning,
+    );
 }
 
 /// A notice over the NES list, after a launch from it.
