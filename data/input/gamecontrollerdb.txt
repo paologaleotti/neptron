@@ -1,15 +1,18 @@
 # NEPTRON gamepad mappings, in the gamecontrollerdb format of SDL3.
 #
 # The gamepad source of the frontend reads this file when it opens. Each
-# good line goes to SDL3 and replaces the built-in mapping of the same
-# GUID. A pad with no mapping here or in SDL3 uses the generic layout.
+# good line goes to SDL3 and replaces the line of the same GUID in the
+# community database (/usr/share/sdl-gamecontrollerdb) and the built-in
+# mapping of SDL3. A pad with no mapping in any of them uses the generic
+# layout.
 #
 # One mapping a line: GUID,name,field:value,...,platform:Linux,
 # A line that starts with # is a comment. A damaged line is logged and
 # skipped; the other lines still load.
 #
 # Add an entry only with a source that can be cited, in a comment above
-# the entry. The community SDL_GameControllerDB is not copied here: its
-# entries carry no licence that NEPTRON can cite.
+# the entry. An entry here corrects a community line that is wrong for
+# every owner of the pad. The community database is not copied here: the
+# image ships it from its own package.
 #
 # No entry yet.

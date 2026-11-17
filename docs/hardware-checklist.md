@@ -493,10 +493,18 @@ Use a USB pad that SDL3 has no mapping for: a cheap "USB Joystick" or "Generic U
   - Do: plug a pad with no mapping whose axes 2 and 3 are analog triggers (many PS3-type pads report a released trigger at one end of the axis). Leave it untouched in the game list for a minute, then play a game.
   - Expect: the right stick of the generic layout reads the triggers. Record what a game sees with the triggers released: a right stick held to one side is a known limit of the generic layout, which a map of the player (M05) corrects. The menus must not scroll by themselves.
   - Record: the pad, and the value of axes 2 and 3 at rest and pressed.
-- [ ] `needs-hardware` **The mapping file on the image.**
+- [ ] `needs-hardware` **The mapping files on the image.**
   - Do: read the log of a boot (`cargo xtask os logs`).
-  - Expect: no `input:` line about `gamecontrollerdb.txt`: the file is in `/usr/share/neptron/input` and has no damaged line.
-  - Record: the lines about the mapping file, if any.
+  - Expect: no `input:` line about `gamecontrollerdb.txt`: the NEPTRON file is in `/usr/share/neptron/input`, the community database in `/usr/share/sdl-gamecontrollerdb`, and neither has a damaged line.
+  - Record: the lines about the mapping files, if any.
+- [ ] `needs-hardware` **A pad that only the community database knows.**
+  - Do: plug a pad that has a `platform:Linux` line in `/usr/share/sdl-gamecontrollerdb/gamecontrollerdb.txt` and no line in the built-in database of SDL 3.4 (compare the GUID of the `input:` line of the log with both). Use it in the game list and in a game.
+  - Expect: no notice of the generic layout. Its row on `Settings > Input` has no ` (generic layout)` suffix. Its face buttons, D-pad, Start and Select are where the standard layout puts them.
+  - Record: the pad, its GUID, and any button in the wrong place.
+- [ ] `needs-hardware` **The load time of the mapping files on the Pi 3.**
+  - Do: build two development images of the Pi, one with `BR2_PACKAGE_SDL_GAMECONTROLLERDB` off. On each, read the time from the start of the frontend to its first frame in the log of a boot.
+  - Expect: the image with the community file takes less than 50 ms more.
+  - Record: both times.
 
 ### App and launcher (T27)
 
