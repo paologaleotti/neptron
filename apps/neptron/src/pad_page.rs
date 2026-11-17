@@ -35,6 +35,10 @@ pub const NOT_IN_GAME: &str = "Not during a game";
 /// Why the actions of the page are disabled when the port has no pad.
 pub const NO_CONTROLLER: &str = "No controller";
 
+/// Why the actions of the page are disabled when the file of the layouts
+/// is damaged or newer: a new layout could not be kept.
+pub const FILE_LOCKED: &str = "File cannot be written";
+
 /// Why `Reset to default` is disabled for a pad with no map of the player.
 pub const ALREADY_DEFAULT: &str = "Already default";
 
@@ -86,13 +90,15 @@ pub fn pad_action(id: ActionId) -> Option<PadAction> {
 /// The page of the controller on a port, titled `label` (`Player 1`):
 /// the name of the pad and its kind of map, `Map buttons`, `Reset to
 /// default`, and the binding of each control of `map`. `entry` is the pad
-/// of the port, `None` for no pad. In a game the actions are disabled.
+/// of the port, `None` for no pad. In a game, and when the file of the
+/// layouts cannot be written (`writable` false), the actions are
+/// disabled.
 pub fn pad_page_rows(
     page: PageId,
     label: &str,
     entry: Option<&RosterEntry>,
     map: Option<PadMap>,
-    in_game: bool,
+    (in_game, writable): (bool, bool),
 ) -> SettingsPage {
     let port = port_of_page(page).unwrap_or_default();
     let present = entry.filter(|e| e.present);
@@ -103,10 +109,11 @@ pub fn pad_page_rows(
         MapKind::Player => "Yours",
     });
     let mut rows = vec![text(60, "Controller", &name), text(61, "Layout", kind)];
-    let reason = match (present, in_game) {
-        (None, _) => Some(NO_CONTROLLER),
-        (Some(_), true) => Some(NOT_IN_GAME),
-        (Some(_), false) => None,
+    let reason = match (present, in_game, writable) {
+        (None, _, _) => Some(NO_CONTROLLER),
+        (Some(_), true, _) => Some(NOT_IN_GAME),
+        (Some(_), false, false) => Some(FILE_LOCKED),
+        (Some(_), false, true) => None,
     };
     let map_buttons = action(
         62,
@@ -439,7 +446,7 @@ mod tests {
             "Player 1",
             Some(&entry(MapKind::Player, true)),
             Some(PadMap::Player(mine())),
-            false,
+            (false, true),
         );
         assert_eq!(page.title, "Player 1");
         let rows = rows(&page);
@@ -475,7 +482,7 @@ mod tests {
             "Player 2",
             Some(&entry(MapKind::Player, true)),
             Some(PadMap::Player(mine())),
-            true,
+            (true, true),
         );
         let reasons: Vec<_> = in_game.rows[2..4]
             .iter()
@@ -488,7 +495,7 @@ mod tests {
             "Player 2",
             Some(&entry(MapKind::Known, true)),
             Some(PadMap::Known),
-            false,
+            (false, true),
         );
         let reasons: Vec<_> = known.rows[2..4]
             .iter()
@@ -498,13 +505,29 @@ mod tests {
         assert!(rows(&known).contains(&("A".to_owned(), "East button".to_owned(), None)));
 
         for entry in [None, Some(entry(MapKind::Known, false))] {
-            let none = pad_page_rows(pad_page(2), "Player 3", entry.as_ref(), None, false);
+            let none = pad_page_rows(pad_page(2), "Player 3", entry.as_ref(), None, (false, true));
             let rows = rows(&none);
             assert_eq!(rows.len(), 4, "no binding rows with no pad");
             assert_eq!(rows[0].1, "None");
             assert_eq!(rows[2].2.as_deref(), Some(NO_CONTROLLER));
             assert_eq!(rows[3].2.as_deref(), Some(NO_CONTROLLER));
         }
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_written_disables_the_actions_with_its_reason() {
+        let page = pad_page_rows(
+            pad_page(0),
+            "Player 1",
+            Some(&entry(MapKind::Player, true)),
+            Some(PadMap::Player(mine())),
+            (false, false),
+        );
+        let reasons: Vec<_> = page.rows[2..4]
+            .iter()
+            .map(|r| r.unavailable.as_deref())
+            .collect();
+        assert_eq!(reasons, [Some(FILE_LOCKED), Some(FILE_LOCKED)]);
     }
 
     #[test]

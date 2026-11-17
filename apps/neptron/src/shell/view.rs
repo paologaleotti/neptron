@@ -179,7 +179,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             Stage::Ended => None,
         });
         let label = pages::port_label(port);
-        crate::pad_page::pad_page_rows(page, &label, entry, map, self.in_game())
+        let writable = self.pad_maps.locked().is_none();
+        crate::pad_page::pad_page_rows(page, &label, entry, map, (self.in_game(), writable))
     }
 
     /// The class of the monitor that the guard gave the engine: the one

@@ -57,10 +57,11 @@ enum Shown {
 
 impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// Starts the guided mapping of the pad `key`. It runs only in the
-    /// game list, with the pad present, and one at a time; else it starts
-    /// nothing and returns false.
+    /// game list, with the pad present, one at a time, and with a file of
+    /// layouts that can be written; else it starts nothing and returns
+    /// false.
     pub(super) fn start_mapping(&mut self, key: PadKey) -> bool {
-        if self.mapping.is_some() {
+        if self.mapping.is_some() || self.pad_maps.locked().is_some() {
             return false;
         }
         let roster = self.roster();
