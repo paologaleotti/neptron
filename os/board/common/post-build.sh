@@ -31,6 +31,9 @@
 # and Pi images install the util-linux one); the build fails when the
 # image has no /usr/bin/flock.
 #
+# check-arcade-index.sh fails the build when the FinalBurn Neo core is in
+# the image and the arcade index of the frontend is not.
+#
 # S05neptron-mounts mounts the 9p share of the QEMU checks at /mnt/host.
 # The root of the PC and Pi images is read-only EROFS, so the mount point
 # must be in the image.
@@ -38,6 +41,8 @@
 set -eu
 
 target=$1
+
+"$(dirname "$0")/check-arcade-index.sh" "$target"
 
 rm -f "$target/etc/init.d/S50mdnsd" "$target/etc/init.d/S41neptron-address"
 mkdir -p "$target/mnt/host"

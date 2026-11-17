@@ -25,6 +25,26 @@ define NEPTRON_BUILD_CMDS
 			--package neptron --features $(NEPTRON_FEATURES) --bin neptron
 endef
 
+# The arcade index of the frontend comes from the DAT in the source of the
+# FinalBurn Neo package, so a new pin of the core makes a new index in the
+# same build and the two always agree (docs/spec/arcade.md, section 6).
+# This package makes it in its own install step, because that step makes
+# /usr/share/neptron anew: a rebuild of this package alone (the rebuild
+# list of CI, `neptron-reconfigure`) writes the index again. The generator
+# is `cargo xtask arcade-index`, built for the host in this build folder,
+# which holds the vendored crates, so it runs offline.
+ifeq ($(BR2_PACKAGE_LIBRETRO_FBNEO),y)
+NEPTRON_DEPENDENCIES += libretro-fbneo
+NEPTRON_ARCADE_DAT = $(LIBRETRO_FBNEO_DIR)/dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat
+define NEPTRON_INSTALL_ARCADE_INDEX
+	cd $(@D) && $(HOST_MAKE_ENV) CARGO_HOME=$(BR_CARGO_HOME) \
+		cargo run --offline --locked --quiet --package xtask -- arcade-index \
+			--commit $(LIBRETRO_FBNEO_VERSION) \
+			"$(NEPTRON_ARCADE_DAT)" \
+			$(TARGET_DIR)/usr/share/neptron/arcade/fbneo.idx
+endef
+endif
+
 # The frontend reads the monitor presets and the skin at run time
 # (Paths::image); the binary embeds no GPL data. The other folders are
 # there for the tools and the person who reads the image.
@@ -36,6 +56,7 @@ define NEPTRON_INSTALL_TARGET_CMDS
 	for dir in monitors cores systems skins hardware; do \
 		cp -r $(@D)/data/$$dir $(TARGET_DIR)/usr/share/neptron/$$dir || exit 1; \
 	done
+	$(NEPTRON_INSTALL_ARCADE_INDEX)
 endef
 
 $(eval $(generic-package))

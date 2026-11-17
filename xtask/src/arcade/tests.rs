@@ -198,32 +198,50 @@ fn the_command_writes_the_index_file() {
 }
 
 #[test]
-fn the_core_package_installs_the_index_of_its_own_dat() {
+fn the_frontend_package_installs_the_index_of_the_core_dat() {
     let os = Path::new(env!("CARGO_MANIFEST_DIR")).join("../os");
-    let mk = fs::read_to_string(os.join("package/libretro-fbneo/libretro-fbneo.mk"))
-        .expect("the package");
-    let hook = mk
-        .split("define LIBRETRO_FBNEO_ARCADE_INDEX")
+    let mk = fs::read_to_string(os.join("package/neptron/neptron.mk")).expect("the package");
+    let step = mk
+        .split("define NEPTRON_INSTALL_ARCADE_INDEX")
         .nth(1)
         .and_then(|rest| rest.split("endef").next())
-        .expect("the hook");
+        .expect("the index step");
     for part in [
         "cargo run --offline --locked",
         "--package xtask -- arcade-index",
         "--commit $(LIBRETRO_FBNEO_VERSION)",
-        "\"$(@D)/$(LIBRETRO_FBNEO_DAT)\"",
+        "\"$(NEPTRON_ARCADE_DAT)\"",
         "$(TARGET_DIR)/usr/share/neptron/arcade/fbneo.idx",
     ] {
-        assert!(hook.contains(part), "the hook misses {part:?}");
+        assert!(step.contains(part), "the step misses {part:?}");
     }
+    assert!(mk.contains(
+        "NEPTRON_ARCADE_DAT = $(LIBRETRO_FBNEO_DIR)/dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat"
+    ));
+    assert!(mk.contains("NEPTRON_DEPENDENCIES += libretro-fbneo"));
+    let install = mk
+        .split("define NEPTRON_INSTALL_TARGET_CMDS")
+        .nth(1)
+        .and_then(|rest| rest.split("endef").next())
+        .expect("the install step");
+    let wipe = install
+        .find("rm -rf $(TARGET_DIR)/usr/share/neptron")
+        .expect("the wipe");
+    let index = install
+        .find("$(NEPTRON_INSTALL_ARCADE_INDEX)")
+        .expect("the index");
     assert!(
-        mk.contains("LIBRETRO_FBNEO_DAT = dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat")
+        wipe < index,
+        "the step that empties the folder fills it again after"
     );
-    assert!(mk.contains("LIBRETRO_FBNEO_POST_INSTALL_TARGET_HOOKS += LIBRETRO_FBNEO_ARCADE_INDEX"));
+
+    let core = fs::read_to_string(os.join("package/libretro-fbneo/libretro-fbneo.mk"))
+        .expect("the core package");
     assert!(
-        mk.contains("LIBRETRO_FBNEO_DEPENDENCIES += neptron"),
-        "the frontend's install step makes /usr/share/neptron anew, so it runs first"
+        !core.contains("arcade-index"),
+        "the core package makes no index"
     );
+    assert!(!core.contains("DEPENDENCIES += neptron"));
     for board in ["pc", "rpi"] {
         let notes = fs::read_to_string(os.join(format!("board/{board}/LICENCES.txt")))
             .expect("the licence notes");
@@ -232,4 +250,59 @@ fn the_core_package_installs_the_index_of_its_own_dat() {
             "{board}"
         );
     }
+}
+
+/// Runs the image check on a target folder with the core and the index
+/// as given.
+fn check_image(label: &str, core: bool, index: Option<&str>) -> std::process::Output {
+    let target =
+        std::env::temp_dir().join(format!("xtask-arcade-image-{label}-{}", std::process::id()));
+    // A leftover of an earlier run with the same process id.
+    let _ = fs::remove_dir_all(&target);
+    if core {
+        let so = target.join("usr/lib/libretro/fbneo_libretro.so");
+        fs::create_dir_all(so.parent().expect("a folder")).expect("folder");
+        fs::write(&so, b"").expect("core");
+    }
+    if let Some(text) = index {
+        let idx = target.join("usr/share/neptron/arcade/fbneo.idx");
+        fs::create_dir_all(idx.parent().expect("a folder")).expect("folder");
+        fs::write(&idx, text).expect("index");
+    }
+    fs::create_dir_all(&target).expect("folder");
+    let script =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../os/board/common/check-arcade-index.sh");
+    let out = std::process::Command::new("sh")
+        .arg(script)
+        .arg(&target)
+        .output()
+        .expect("sh runs");
+    // The folder is temporary; one left behind does no harm.
+    let _ = fs::remove_dir_all(&target);
+    out
+}
+
+#[test]
+fn the_image_check_fails_for_a_core_with_no_index() {
+    let missing = check_image("missing", true, None);
+    assert!(!missing.status.success());
+    assert!(
+        String::from_utf8_lossy(&missing.stderr).contains("no arcade index"),
+        "{missing:?}"
+    );
+    assert!(
+        !check_image("empty", true, Some("")).status.success(),
+        "an empty file"
+    );
+    assert!(
+        check_image("both", true, Some("neptron-arcade-index\t1\n"))
+            .status
+            .success()
+    );
+    assert!(check_image("no-core", false, None).status.success());
+    let post_build = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../os/board/common/post-build.sh"),
+    )
+    .expect("the post-build step");
+    assert!(post_build.contains("\"$(dirname \"$0\")/check-arcade-index.sh\" \"$target\""));
 }
