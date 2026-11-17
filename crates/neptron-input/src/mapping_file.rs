@@ -91,7 +91,7 @@ pub fn read_mapping_file(path: &Path, platform: &str) -> Mappings {
 
 /// The good lines of the text of a mapping file named `path`, for
 /// `platform`. Comments (`#`) and empty lines are skipped, and so is a
-/// line of another platform, as SDL does. A damaged line gives a notice
+/// line of another platform, compared without case, as SDL does. A damaged line gives a notice
 /// and loses only itself.
 pub fn parse_mappings(text: &str, path: &str, platform: &str) -> Mappings {
     let mut mappings = Mappings::default();
@@ -101,7 +101,7 @@ pub fn parse_mappings(text: &str, path: &str, platform: &str) -> Mappings {
             continue;
         }
         match check_line(line) {
-            Ok(Some(other)) if other != platform => {}
+            Ok(Some(other)) if !other.eq_ignore_ascii_case(platform) => {}
             Ok(_) if is_default(line) => mappings.notices.push(InputNotice::MappingFile {
                 path: path.to_owned(),
                 line: number,
@@ -201,6 +201,18 @@ mod tests {
         let mac = parse_mappings(&text, "map.txt", "Mac OS X");
         assert_eq!(mac.lines.len(), 2);
         assert_eq!(mac.lines[0].1, OTHER);
+    }
+
+    #[test]
+    fn the_platform_matches_without_case() {
+        let text = "03000000aaaa0000bbbb000000000000,Pad,a:b0,platform:linux,\n\
+                    03000000aaaa0000bbbb000000010000,Pad,a:b0,platform:LINUX,\n\
+                    03000000aaaa0000bbbb000000020000,Pad,a:b0,platform:Linuxes,\n\
+                    03000000aaaa0000bbbb000000030000,Pad,a:b0,platform:windows,\n";
+        let mappings = parse_mappings(text, "map.txt", "Linux");
+        let numbers: Vec<usize> = mappings.lines.iter().map(|(n, _)| *n).collect();
+        assert_eq!(numbers, [1, 2]);
+        assert_eq!(mappings.notices, []);
     }
 
     #[test]
