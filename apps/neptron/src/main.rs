@@ -139,7 +139,7 @@ fn run_booted<D, S, I, C>(
 where
     D: neptron_backend::Display,
     S: neptron_backend::AudioSink,
-    I: neptron_backend::InputSource,
+    I: neptron_backend::InputSource + neptron_input::PadRoster,
     C: neptron_backend::Clock + Clone,
 {
     let mut shell = match booted {

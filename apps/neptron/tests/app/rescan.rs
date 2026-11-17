@@ -144,6 +144,7 @@ fn a_return_to_the_list_checks_the_folders() {
     add_game(&rig, "nes/Alpha Game.nes");
     std::fs::remove_file(rig.paths.roms().join("nes/Beta Game.nes")).expect("remove");
     rig.boot(Some(NextRun {
+        pads: Vec::new(),
         game: None,
         notice: None,
     }));
@@ -156,6 +157,7 @@ fn a_return_to_the_list_checks_the_folders() {
 
     // Nothing changed: no notice.
     rig.boot(Some(NextRun {
+        pads: Vec::new(),
         game: None,
         notice: None,
     }));
@@ -243,6 +245,7 @@ fn a_return_with_no_scan_in_this_power_cycle_reads_every_folder() {
 
     // The return from the game.
     rig.boot(Some(NextRun {
+        pads: Vec::new(),
         game: None,
         notice: None,
     }));

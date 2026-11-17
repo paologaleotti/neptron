@@ -38,10 +38,11 @@ pub use relaunch::{NextRun, RELAUNCH_EXIT_CODE};
 pub use shell::{BootError, Booted, ControlInput, Devices, MENU_SOURCE, Outcome, Runtime, Shell};
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_input::PadRoster;
 
 /// Runs frames until the run ends, and serves the control protocol
 /// between them.
-pub fn run<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone>(
+pub fn run<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone>(
     shell: &mut Shell<D, S, I, C>,
     mut control: Option<&mut control::ControlPort>,
 ) -> Outcome {

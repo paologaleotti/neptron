@@ -2,6 +2,7 @@
 //! and the guard each frame, and the pages the UI asks for.
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_input::PadRoster;
 use neptron_settings::DisplayClass;
 use neptron_types::{Modeline, MonitorKind, TvStandard};
 use neptron_ui::screens::{
@@ -26,7 +27,7 @@ pub const TV_MONITOR_NAME: &str = "Composite TV";
 /// The notices the snapshot keeps. The oldest goes when a new one comes.
 const NOTICES_MAX: usize = 8;
 
-impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
+impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// Updates the parts of the snapshot that change by themselves: the
     /// time left to confirm, the session, the video status and the mode.
     pub(super) fn refresh_view(&mut self, now_ns: u64) {

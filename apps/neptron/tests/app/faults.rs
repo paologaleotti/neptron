@@ -21,6 +21,7 @@ fn a_stalled_display_ends_the_game_and_relaunches_the_list() {
             rig.frames(2);
             rig.finish();
             let next = NextRun {
+                pads: Vec::new(),
                 game: Some(neptron::relaunch::GameRef {
                     system: "nes".to_owned(),
                     path: "nes/Test Game.nes".to_owned(),

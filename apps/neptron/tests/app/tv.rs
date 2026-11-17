@@ -121,6 +121,7 @@ fn open_options(rig: &mut Rig, row: &str) {
 
 fn game() -> NextRun {
     NextRun {
+        pads: Vec::new(),
         game: Some(neptron::relaunch::GameRef {
             system: "nes".to_owned(),
             path: "nes/Test Game.nes".to_owned(),
@@ -321,6 +322,7 @@ fn a_monitor_preset_has_no_effect_on_a_tv_and_says_so() {
 
             // A relaunch is a run of the same boot: no notice again.
             rig.boot(Some(NextRun {
+                pads: Vec::new(),
                 game: None,
                 notice: None,
             }));

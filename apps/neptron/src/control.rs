@@ -15,6 +15,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_input::PadRoster;
 use neptron_ipc::{
     ClockStepArgs, Command, ControlListener, ErrorBody, ErrorCode, FrameReached, Handler,
     InputQueued, InputScriptArgs, InputSendArgs, ListenError, LogLines, LogTailArgs, Reply,
@@ -136,7 +137,7 @@ impl Drop for ControlServer {
 impl ControlPort {
     /// Answers the commands that came since the last frame, and the waits
     /// whose condition holds or whose time ended. Call it once per frame.
-    pub fn serve<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone>(
+    pub fn serve<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone>(
         &mut self,
         shell: &mut Shell<D, S, I, C>,
         now_ns: u64,
@@ -214,7 +215,7 @@ impl ControlPort {
     }
 }
 
-impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
+impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// True when the condition of a `wait` holds now.
     pub fn holds(&self, until: &WaitCondition) -> bool {
         match until {
@@ -246,7 +247,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     }
 }
 
-impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Handler for Shell<D, S, I, C> {
+impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Handler
+    for Shell<D, S, I, C>
+{
     fn server_name(&self) -> &str {
         concat!("neptron ", env!("CARGO_PKG_VERSION"))
     }

@@ -10,6 +10,7 @@ use crate::rig::{Rig, in_child, in_children, test_name};
 
 fn game() -> NextRun {
     NextRun {
+        pads: Vec::new(),
         game: Some(neptron::relaunch::GameRef {
             system: "nes".to_owned(),
             path: "nes/Test Game.nes".to_owned(),

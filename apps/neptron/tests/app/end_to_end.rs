@@ -141,6 +141,7 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             assert_eq!(
                 outcome,
                 Outcome::Relaunch(NextRun {
+                    pads: Vec::new(),
                     game: None,
                     notice: None,
                 })
@@ -159,6 +160,7 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
 
             // Run 3, the game list again.
             rig.boot(Some(NextRun {
+                pads: Vec::new(),
                 game: None,
                 notice: None,
             }));
@@ -187,6 +189,7 @@ fn a_chain_of_two_games_counts_one_boot() {
         |dir, stage| {
             let mut rig = Rig::new(dir);
             let game = NextRun {
+                pads: Vec::new(),
                 game: Some(neptron::relaunch::GameRef {
                     system: "nes".to_owned(),
                     path: "nes/Test Game.nes".to_owned(),
@@ -194,6 +197,7 @@ fn a_chain_of_two_games_counts_one_boot() {
                 notice: None,
             };
             let list = NextRun {
+                pads: Vec::new(),
                 game: None,
                 notice: None,
             };

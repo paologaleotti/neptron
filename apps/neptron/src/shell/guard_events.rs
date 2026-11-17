@@ -2,6 +2,7 @@
 //! for a confirmation, the notices, the record and the blind recovery.
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_input::PadRoster;
 use neptron_settings::{
     DISPLAY_MONITOR, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE, DISPLAY_TV, Level, Value,
 };
@@ -22,7 +23,7 @@ const CUE_HZ: u32 = 880;
 /// The amplitude of the cue: a quarter of full scale.
 const CUE_LEVEL: i16 = 8_192;
 
-impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
+impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// Calls `f` with the guard and the engine of the stage. `None` after
     /// the game ended.
     pub(super) fn with_engine<R>(

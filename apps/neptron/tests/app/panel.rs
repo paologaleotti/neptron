@@ -162,6 +162,7 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             // lines, 1080 * 1333 / 1000 = 1439.6, so 1440 wide, with sharp
             // bilinear. (1920 - 1440) / 2 = 240.
             rig.boot(Some(NextRun {
+                pads: Vec::new(),
                 game: Some(neptron::relaunch::GameRef {
                     system: "nes".to_owned(),
                     path: "nes/Test Game.nes".to_owned(),

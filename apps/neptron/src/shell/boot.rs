@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::time::SystemTime;
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_input::PadRoster;
 use neptron_input::{Hotkeys, PortStates};
 use neptron_library::Catalog;
 use neptron_session::{Devices as SessionDevices, GameLaunch, Session, SessionOptions, VideoSetup};
@@ -31,7 +32,7 @@ use crate::outbox::{Outbox, Places};
 use crate::paths::Paths;
 use crate::presets::Presets;
 use crate::record;
-use crate::relaunch::{GameRef, NextRun};
+use crate::relaunch::{GameRef, NextRun, PadRecord};
 use crate::storage::StorageStatus;
 
 /// A run that cannot start. The binary reports it and exits; the launcher
@@ -53,7 +54,7 @@ pub enum BootError {
 }
 
 /// What [`Shell::boot`] gives.
-pub enum Booted<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
+pub enum Booted<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> {
     /// The run is ready for its first frame.
     Ready(Box<Shell<D, S, I, C>>),
     /// The game did not start, and the display went with it: the run ends
@@ -66,7 +67,7 @@ struct Found {
     issues: Vec<(NoticeKind, String)>,
 }
 
-impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
+impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// Starts a run: the game list when `next` names no game, else that
     /// game. `next` is the relaunch file of the run before; `None` is a new
     /// boot. The guard record is written before the first modeset.
@@ -182,6 +183,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                     paths.arcade_index(ARCADE_CORE),
                 );
                 found.warn_all(issue);
+                // Taken before the launch takes the input: a launch that
+                // fails gives the order of the players back to the list.
+                let pads = PadRecord::list(&input.roster());
                 let launched = launch(
                     &paths,
                     &library,
@@ -200,6 +204,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                     Ok(game) => game,
                     Err(text) => {
                         return Ok(Booted::Relaunch(NextRun {
+                            pads,
                             game: None,
                             notice: Some(text),
                         }));
@@ -479,7 +484,7 @@ fn load_theme(path: &Path, found: &mut Found) -> Theme {
 /// Launches the game of a relaunch file. The text of the error goes into
 /// the notice of the game list.
 #[allow(clippy::too_many_arguments)]
-fn launch<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone>(
+fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone>(
     paths: &Paths,
     library: &Library,
     config: &Config,

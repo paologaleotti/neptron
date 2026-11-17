@@ -169,6 +169,7 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
         path: "nes/Test Game.nes".to_owned(),
     };
     rig.boot(Some(NextRun {
+        pads: Vec::new(),
         game: Some(game),
         notice: None,
     }));

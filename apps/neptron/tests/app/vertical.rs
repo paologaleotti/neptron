@@ -28,6 +28,7 @@ fn board(aspect_milli: u32, rotation: u32) -> String {
 /// The relaunch file of the game of the rig.
 fn the_game() -> Option<NextRun> {
     Some(NextRun {
+        pads: Vec::new(),
         game: Some(GameRef {
             system: "nes".to_owned(),
             path: "nes/Test Game.nes".to_owned(),

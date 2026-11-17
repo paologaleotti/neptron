@@ -14,6 +14,7 @@ use crate::rig::{Rig, in_child, test_name};
 /// The game of the test core.
 fn game() -> NextRun {
     NextRun {
+        pads: Vec::new(),
         game: Some(neptron::relaunch::GameRef {
             system: "nes".to_owned(),
             path: "nes/Test Game.nes".to_owned(),
@@ -137,6 +138,7 @@ fn a_return_to_the_list_after_an_unanswered_prompt_opens_no_prompt() {
 
     for _ in 0..3 {
         rig.boot(Some(NextRun {
+            pads: Vec::new(),
             game: None,
             notice: None,
         }));

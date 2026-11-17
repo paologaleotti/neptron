@@ -20,6 +20,7 @@ mod network;
 mod output;
 mod panel;
 mod pause;
+mod players;
 mod recovery;
 mod rescan;
 mod rig;

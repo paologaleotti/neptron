@@ -116,6 +116,7 @@ mod tests {
         assert_eq!(exit_code(&Outcome::PowerOff), Some(POWER_OFF_EXIT_CODE));
         assert_eq!(exit_code(&Outcome::Quit), None);
         let list = crate::NextRun {
+            pads: Vec::new(),
             game: None,
             notice: None,
         };

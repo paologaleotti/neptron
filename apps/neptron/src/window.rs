@@ -31,6 +31,17 @@ impl InputSource for WindowInput {
     }
 }
 
+/// The window has no gamepad: the keyboard plays as player 1.
+impl neptron_input::PadRoster for WindowInput {
+    fn roster(&self) -> neptron_input::Roster {
+        neptron_input::Roster::new()
+    }
+
+    fn roster_changes(&self) -> u64 {
+        0
+    }
+}
+
 /// Runs the frontend in a desktop window.
 pub fn run(
     options: &Options,

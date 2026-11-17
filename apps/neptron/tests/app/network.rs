@@ -237,6 +237,7 @@ fn in_a_game_the_panel_shows_the_same_rows() {
             path: "nes/Test Game.nes".to_owned(),
         };
         rig.boot(Some(NextRun {
+            pads: Vec::new(),
             game: Some(game),
             notice: None,
         }));

@@ -22,6 +22,7 @@ use std::sync::atomic::AtomicBool;
 use neptron_audio::Resampling;
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::{Hotkey, Hotkeys, PortStates};
+use neptron_input::{PadRoster, Roster};
 use neptron_session::{RunRateSource, Session};
 use neptron_settings::{Level, Value};
 use neptron_types::{InputEvent, Modeline, Rotation, SourceGeometry, TvStandard};
@@ -133,7 +134,7 @@ pub struct ControlInput<I> {
 }
 
 /// The frontend of one run.
-pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
+pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> {
     paths: Paths,
     config: Config,
     presets: Presets,
@@ -276,13 +277,32 @@ impl<I: InputSource> InputSource for ControlInput<I> {
     }
 }
 
-impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
+impl<I: PadRoster> PadRoster for ControlInput<I> {
+    fn roster(&self) -> Roster {
+        self.inner.roster()
+    }
+
+    fn roster_changes(&self) -> u64 {
+        self.inner.roster_changes()
+    }
+}
+
+impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// Runs frames until the run ends.
     pub fn run(&mut self) -> Outcome {
         loop {
             if let Some(outcome) = self.step() {
                 return outcome;
             }
+        }
+    }
+
+    /// The pad on each port of the input source now.
+    pub fn roster(&self) -> Roster {
+        match &self.stage {
+            Stage::List(list) => list.input.roster(),
+            Stage::Game(game) => game.session.input().roster(),
+            Stage::Ended => Roster::new(),
         }
     }
 
@@ -350,6 +370,16 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         match &self.stage {
             Stage::Game(game) => game.session.volume_percent(),
             _ => None,
+        }
+    }
+
+    /// The RetroPad state of each port after the last frame: what the
+    /// menus read, and in a game what the core reads. `None` after the end.
+    pub fn ports(&self) -> Option<&PortStates> {
+        match &self.stage {
+            Stage::List(list) => Some(&list.ports),
+            Stage::Game(game) => Some(game.session.ports()),
+            Stage::Ended => None,
         }
     }
 

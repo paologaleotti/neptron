@@ -1,6 +1,7 @@
 //! The intents of the UI, and the settings changes they ask for.
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_input::PadRoster;
 use neptron_session::{ExitReport, Flush};
 use neptron_settings::{
     AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, INPUT_MENU_HOLD_START_SECONDS, Level, Safety,
@@ -15,12 +16,12 @@ use crate::library::{CheckStart, ScanKind, ScanStart};
 use crate::outbox::Job;
 use crate::pages::{self, Names};
 use crate::power::{self, PowerRequest};
-use crate::relaunch::NextRun;
+use crate::relaunch::{NextRun, PadRecord};
 
 /// The button of the notice that starts an arcade game with no set check.
 pub const START_UNCHECKED: &str = "Start";
 
-impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
+impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// Carries out the intents of the last UI frame, in order.
     pub(super) fn carry_out(&mut self, now_ns: u64) {
         let mut intents = std::mem::take(&mut self.ui.intents);
@@ -177,6 +178,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
         if let Some(reference) = self.library.reference(game) {
             self.outcome = Some(Outcome::Relaunch(NextRun {
+                pads: PadRecord::list(&self.roster()),
                 game: Some(reference),
                 notice: None,
             }));
@@ -308,12 +310,17 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
 
     /// Ends the game and the run, with a relaunch to the game list.
     pub(super) fn end_game(&mut self, notice: Option<String>) {
+        let pads = PadRecord::list(&self.roster());
         let Stage::Game(game) = std::mem::replace(&mut self.stage, Stage::Ended) else {
             return;
         };
         let report = game.session.quit();
         let notice = notice.or_else(|| lost_save(&report));
-        self.outcome = Some(Outcome::Relaunch(NextRun { game: None, notice }));
+        self.outcome = Some(Outcome::Relaunch(NextRun {
+            game: None,
+            notice,
+            pads,
+        }));
     }
 
     /// The answer Keep of the confirm dialog. Every confirmation that the

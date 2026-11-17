@@ -8,7 +8,8 @@ use std::sync::atomic::AtomicBool;
 
 use neptron::{Booted, Devices, NextRun, Outcome, Paths, Runtime, Shell};
 use neptron_audio::Resampling;
-use neptron_backend::Clock;
+use neptron_backend::{Clock, InputSource};
+use neptron_input::{PadInfo, PadRoster, PortRule, Roster, ScriptedPad, ScriptedPads};
 use neptron_ipc::{Handler, UiTree};
 use neptron_session::RunRateSource;
 use neptron_testcore::SCRIPT_ENV;
@@ -17,7 +18,31 @@ use neptron_testkit::{FakeAudio, FakeDisplay, ScriptedInput, SimClock};
 use neptron_types::Control;
 
 /// A run of the frontend on the fakes.
-pub type TestShell = Shell<FakeDisplay, FakeAudio, ScriptedInput, SimClock>;
+pub type TestShell = Shell<FakeDisplay, FakeAudio, RigInput, SimClock>;
+
+/// The input of a run: the scripted pads of the run, then the script.
+#[derive(Debug, Clone)]
+pub struct RigInput {
+    pads: ScriptedPads,
+    script: ScriptedInput,
+}
+
+impl InputSource for RigInput {
+    fn poll(&mut self, out: &mut Vec<neptron_types::InputEvent>) {
+        self.pads.poll(out);
+        self.script.poll(out);
+    }
+}
+
+impl PadRoster for RigInput {
+    fn roster(&self) -> Roster {
+        self.pads.roster()
+    }
+
+    fn roster_changes(&self) -> u64 {
+        self.pads.roster_changes()
+    }
+}
 
 /// The script of the test core: a NES-like source that changes its height
 /// at core frame 300, so the engine switches the mode.
@@ -69,6 +94,12 @@ pub struct Rig {
     pub display: FakeDisplay,
     pub audio: FakeAudio,
     pub input: ScriptedInput,
+    /// The pads of the run. Each run opens them again, as the SDL3 source
+    /// of a new process does.
+    pub pads: ScriptedPads,
+    /// The pads plugged in the machine, in plug order. They stay plugged
+    /// across runs.
+    pub plugged: Vec<(PadInfo, ScriptedPad)>,
     pub shell: Option<Box<TestShell>>,
     /// The stop flag of the runtime, as SIGTERM and SIGINT set it.
     pub stop: Arc<AtomicBool>,
@@ -231,6 +262,8 @@ impl Rig {
             display: FakeDisplay::new(clock.clone(), CAPS_LOW_CLOCK),
             audio: FakeAudio::new(clock.clone(), DEVICE_RATE_HZ, SINK_CAPACITY_FRAMES),
             input: ScriptedInput::new(clock.clone(), Vec::new()),
+            pads: ScriptedPads::new(PortRule::Menus, &Roster::new()),
+            plugged: Vec::new(),
             clock,
             paths,
             shell: None,
@@ -258,16 +291,45 @@ impl Rig {
             audio_outputs: audio_outputs(),
             power: self.power,
         };
+        let rule = match next.as_ref().and_then(|n| n.game.as_ref()) {
+            Some(_) => PortRule::Game,
+            None => PortRule::Menus,
+        };
+        let earlier = next
+            .as_ref()
+            .map(|n| neptron::relaunch::PadRecord::roster(&n.pads))
+            .unwrap_or_default();
+        self.pads = ScriptedPads::new(rule, &earlier);
+        for (info, pad) in &mut self.plugged {
+            *pad = self.pads.plug(info.clone());
+        }
         let devices = Devices {
             display: self.display.clone(),
             audio: self.audio.clone(),
-            input: self.input.clone(),
+            input: RigInput {
+                pads: self.pads.clone(),
+                script: self.input.clone(),
+            },
             clock: self.clock.clone(),
         };
         match Shell::boot(self.paths.clone(), devices, runtime, next).expect("boot") {
             Booted::Ready(shell) => self.shell = Some(shell),
             Booted::Relaunch(next) => panic!("the run relaunched at boot: {next:?}"),
         }
+    }
+
+    /// Plugs a pad into the machine: the run sees it at its next frame,
+    /// and every later run finds it at its start.
+    pub fn plug(&mut self, info: PadInfo) -> ScriptedPad {
+        let pad = self.pads.plug(info.clone());
+        self.plugged.push((info, pad));
+        pad
+    }
+
+    /// Unplugs the pad of the run `pad`.
+    pub fn unplug(&mut self, pad: ScriptedPad) {
+        self.pads.unplug(pad);
+        self.plugged.retain(|(_, p)| *p != pad);
     }
 
     /// The run.

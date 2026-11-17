@@ -194,6 +194,7 @@ fn in_a_game_both_rows_are_disabled() {
                 path: "nes/Test Game.nes".to_owned(),
             };
             rig.boot(Some(NextRun {
+                pads: Vec::new(),
                 game: Some(game),
                 notice: None,
             }));
@@ -635,6 +636,7 @@ fn in_a_game_the_format_row_is_disabled() {
                 path: "nes/Test Game.nes".to_owned(),
             };
             rig.boot(Some(NextRun {
+                pads: Vec::new(),
                 game: Some(game),
                 notice: None,
             }));

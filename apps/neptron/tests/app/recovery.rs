@@ -55,6 +55,7 @@ fn the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu() {
             });
             rig.finish();
             let next = NextRun {
+                pads: Vec::new(),
                 game: Some(neptron::relaunch::GameRef {
                     system: "nes".to_owned(),
                     path: "nes/Test Game.nes".to_owned(),
@@ -228,6 +229,7 @@ fn the_safe_mode_notice_of_a_start_shows_once_per_power_cycle() {
             for next in [
                 None,
                 Some(NextRun {
+                    pads: Vec::new(),
                     game: None,
                     notice: None,
                 }),

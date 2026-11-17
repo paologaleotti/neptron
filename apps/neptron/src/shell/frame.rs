@@ -5,6 +5,7 @@
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::Hotkey;
+use neptron_input::PadRoster;
 use neptron_types::{Frame, PixelFormat};
 use neptron_ui::screens::{NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
@@ -18,7 +19,7 @@ use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
 use crate::notices::{VERTICAL_INTERLACED, VERTICAL_INTERLACED_TEXT};
 use crate::outbox::Job;
 
-impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
+impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// Runs one frame. Returns how the run ends, when it ends with this
     /// frame.
     pub fn step(&mut self) -> Option<Outcome> {

@@ -1,6 +1,7 @@
 //! What the control protocol reads from and asks of a run.
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
+use neptron_input::PadRoster;
 use neptron_ipc::Stats;
 use neptron_settings::{DISPLAY_OUTPUT, Level};
 use neptron_types::{Control, InputEvent};
@@ -9,7 +10,7 @@ use super::{Shell, Stage};
 use crate::control::value_of_json;
 use crate::relaunch::GameRef;
 
-impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
+impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// The game of the run and its core id.
     pub fn game_reference(&self) -> Option<(&GameRef, &str)> {
         match &self.stage {

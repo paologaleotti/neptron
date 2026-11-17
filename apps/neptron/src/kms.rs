@@ -49,6 +49,21 @@ impl InputSource for Inputs {
     }
 }
 
+impl neptron_input::PadRoster for Inputs {
+    fn roster(&self) -> neptron_input::Roster {
+        self.pads
+            .as_ref()
+            .map(neptron_input::PadRoster::roster)
+            .unwrap_or_default()
+    }
+
+    fn roster_changes(&self) -> u64 {
+        self.pads
+            .as_ref()
+            .map_or(0, neptron_input::PadRoster::roster_changes)
+    }
+}
+
 /// Runs the frontend on the DRM device that the launcher holds.
 pub fn run(
     options: &Options,
@@ -188,7 +203,11 @@ pub fn run(
         Some(_) => neptron_input::PortRule::Game,
         None => neptron_input::PortRule::Menus,
     };
-    let pads = match neptron_input::SdlGamepads::open(rule, &neptron_input::Roster::new()) {
+    let earlier = next
+        .as_ref()
+        .map(|n| neptron::relaunch::PadRecord::roster(&n.pads))
+        .unwrap_or_default();
+    let pads = match neptron_input::SdlGamepads::open(rule, &earlier) {
         Ok(pads) => Some(pads),
         Err(e) => {
             crate::say!("neptron: cannot open the gamepads, the run reads keyboards only: {e}");
