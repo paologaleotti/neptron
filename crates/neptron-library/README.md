@@ -120,7 +120,7 @@ rom | <name> | <size> | <crc or -> | <merge or -> | <flags>
 3. A found zip cannot be read: `Unreadable` (message 6).
 4. A clone needs a ROM that no zip of its own name holds, and no parent zip is found: `MissingParent` (message 3).
 5. No BIOS zip holds any ROM of the BIOS set: `BiosMismatch` (message 5). When some match, the set passes, and `Verdict::details` lists the others for the diagnostics. The DAT does not say which BIOS files the core needs (open point A3 of the spec).
-6. Each ROM of the set, except the ROMs with no dump and the ROMs of its BIOS set (same CRC), must be in a found zip with the same CRC and size. The first zip that holds the CRC gives the ROM, as in the core. Otherwise `Roms` (message 4), with every ROM in `details`.
+6. Each ROM of the set, except the ROMs with no dump and the ROMs of its BIOS set (same CRC), must be in a found zip with the same CRC and size. The first zip that holds the CRC gives the ROM, as in the core. Otherwise `Roms` (message 4), with every ROM in `details`. There is no diagnostics page yet, so the text of message 4 says that the log lists the ROMs, where the spec says the diagnostics page; the app writes each line of `details` to the log.
 
 `Verdict::message(core)` gives the text for the player; `Verdict::NoIndex` (message 7) is for the caller with no index, and does not stop the launch by itself.
 

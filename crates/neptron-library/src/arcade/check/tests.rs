@@ -181,10 +181,11 @@ fn missing_and_wrong_size_roms_give_message_4_with_the_count() {
             ]
         }
     );
-    assert!(
-        verdict
-            .message("Core X")
-            .is_some_and(|m| m.starts_with("2 files of this game are missing or differ."))
+    assert_eq!(
+        verdict.message("Core X").as_deref(),
+        Some(
+            "2 files of this game are missing or differ. The set may be for another version of Core X, or a file may be damaged. The log of NEPTRON lists them."
+        )
     );
     assert_eq!(
         verdict.details(),

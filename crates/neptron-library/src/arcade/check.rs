@@ -232,7 +232,7 @@ impl Verdict {
                 format!("This game needs the file {parent}.zip in the same folder.")
             }
             Self::Roms { problems } => format!(
-                "{} files of this game are missing or differ. The set may be for another version of {core}, or a file may be damaged. The diagnostics page lists them.",
+                "{} files of this game are missing or differ. The set may be for another version of {core}, or a file may be damaged. The log of NEPTRON lists them.",
                 problems.len()
             ),
             Self::BiosMismatch { bios } => {
