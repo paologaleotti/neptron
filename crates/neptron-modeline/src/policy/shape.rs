@@ -21,9 +21,10 @@ pub const BORDER_LINES: [u16; 2] = [224, 240];
 /// share of its height, not of the game's lines, so the bound is a share
 /// of the lines the range holds: 8 of 240 lines per edge, so a Game Boy at
 /// 2x (16 screen lines per edge) on a 256-line 15 kHz tube is not cropped,
-/// and a 2x game on 31 kHz (16 of 480) is. 8 lines of 240 is the classic NES crop (240 to 224 lines)
-/// that emulator cores apply by default, and a consumer CRT hides at least
-/// that much. The bound of one TV mode is 8 lines.
+/// and a 2x game on 31 kHz (16 of 480) is. 8 lines of 240 is the classic
+/// NES crop (240 to 224 lines) that emulator cores apply by default, and a
+/// consumer CRT hides at least that much. The bound of one TV mode is 8
+/// lines.
 pub const OVERSCAN_CROP_MAX_LINES_PER_EDGE: u16 = 8;
 
 /// The screen lines that [`OVERSCAN_CROP_MAX_LINES_PER_EDGE`] counts in.
