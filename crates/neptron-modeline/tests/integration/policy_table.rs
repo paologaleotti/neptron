@@ -1929,3 +1929,34 @@ fn a_narrow_mode_on_one_field_rate_takes_a_wider_whole_multiple() {
     assert_eq!((p.mode.hactive, p.mode.field_rate_mhz()), (320, 59_940));
     assert_eq!(p.placement.dest.w, 320);
 }
+
+#[test]
+fn a_fixed_width_that_misses_one_field_rate_is_not_widened() {
+    // The player chose 100 pixels. At 192 lines on ntsc no whole-kHz
+    // clock gives 59.940 Hz at that width. The widening of a narrow mode
+    // is for the native and dynamic widths only, so the fixed width
+    // stays refused and no rung takes a whole multiple of the game.
+    let profile = preset("ntsc");
+    let caps = open_caps();
+    let settings = PolicySettings {
+        horizontal: Some(HorizontalStrategy::FixedSuperWidth { width: 100 }),
+        ..PolicySettings::default()
+    };
+    let plan = decide(&source(160, 192, 59_940), &settings, &profile, &caps).unwrap();
+    assert!(
+        matches!(
+            plan.considered[0].outcome,
+            Err(Dropped::RefreshMissed { .. })
+        ),
+        "{:?}",
+        plan.considered[0]
+    );
+    for considered in &plan.considered {
+        if let Ok(p) = &considered.outcome {
+            assert!(
+                !matches!(p.horizontal, Some(HorizontalScale::Multiple(_))),
+                "{considered:?}"
+            );
+        }
+    }
+}

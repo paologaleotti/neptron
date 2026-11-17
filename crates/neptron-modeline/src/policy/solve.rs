@@ -57,11 +57,10 @@ pub(crate) fn solve(
     };
     let picked = match strategy {
         _ if shape.base_width > caps.max_width => ask.at_floor(ask.fixed(caps.max_width)?),
-        HorizontalStrategy::Native => ask.at_floor(ask.multiple(1)?),
-        HorizontalStrategy::DynamicSuperWidth => ask.dynamic()?,
+        HorizontalStrategy::Native => ask.onto_one_field_rate(ask.at_floor(ask.multiple(1)?))?,
+        HorizontalStrategy::DynamicSuperWidth => ask.onto_one_field_rate(ask.dynamic()?)?,
         HorizontalStrategy::FixedSuperWidth { width } => ask.at_floor(ask.fixed(width)?),
     };
-    let picked = ask.onto_one_field_rate(picked)?;
     Ok(picked.map(|(candidate, horizontal)| {
         proposal(
             shape,
@@ -121,7 +120,8 @@ impl Ask<'_> {
     /// has proportionally finer steps, so the next multiples are tried, up
     /// to [`DYNAMIC_STEPS_MAX`] and the widest mode of the GPU, until one
     /// gives the rate. The game stays pixel exact across (a whole
-    /// multiple); a fixed width and a mode that gives the rate stay.
+    /// multiple). Only the native and dynamic widths come here: a fixed
+    /// width is the player's choice and stays.
     fn onto_one_field_rate(&self, picked: Picked) -> Result<Picked, ModelineError> {
         let ranges = match &self.profile.kind {
             MonitorKind::Crt { ranges } => ranges.as_slice(),
