@@ -86,7 +86,7 @@ The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-m
 
 ### Home and the game list
 
-Home lists the systems with their game counts, then Favourites, Recent games and Settings. With no systems it says where the games go (`roms/nes`, `roms/snes`, `roms/megadrive` on the share partition) and keeps one Settings row only, so a new user can still fix the picture and the sound.
+Home lists the systems with their game counts, then Favourites, Recent games and Settings. With no systems it says where the games go: the `roms` folder of the share partition, with a folder for each system. It names `roms/snes` and `roms/arcade` as examples and not every folder, so the text does not grow with each system; the first boot makes every system folder on the share and keeps one Settings row only, so a new user can still fix the picture and the sound.
 
 ### Pages and the audio panel
 

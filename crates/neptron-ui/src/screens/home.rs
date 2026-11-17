@@ -17,8 +17,11 @@ use super::page::crumb;
 use super::router::{Nav, Target};
 
 /// The text of the home screen when no system has games: what a new user
-/// sees first. The folder names are those of the system definitions.
-pub(super) const NO_GAMES: &str = "No games yet.\n\nCopy your games into the roms folder of the share partition, one folder per system:\n  roms/nes   roms/snes   roms/megadrive\n\nPlain files and .zip files both work. The games show here when the scan finds them.";
+/// sees first. It names two folders as examples, a console and arcade,
+/// and not every system: the first boot makes the folder of each system,
+/// so the share lists them all, and the text does not grow with each new
+/// system. The folder names are those of the system definitions.
+pub(super) const NO_GAMES: &str = "No games yet.\n\nCopy your games into the roms folder of the share partition. It has a folder for each system, for example roms/snes for SNES games and roms/arcade for arcade sets.\n\nPlain files and .zip files both work. The games show here when the scan finds them.";
 
 /// The rows whose game count is formatted in one frame. The content area
 /// shows at most 15 rows of the smallest row height.

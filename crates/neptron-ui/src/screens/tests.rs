@@ -127,7 +127,12 @@ fn home_with_no_systems_says_where_the_games_go() {
         "the same row rule as the home with games"
     );
     let text = run.labels().join(" ");
-    for folder in ["roms/nes", "roms/snes", "roms/megadrive", ".zip"] {
+    for folder in [
+        "a folder for each system",
+        "roms/snes",
+        "roms/arcade",
+        ".zip",
+    ] {
         assert!(text.contains(folder), "{folder} is missing from {text:?}");
     }
     assert!(
