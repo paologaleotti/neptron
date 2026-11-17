@@ -45,11 +45,16 @@ pub fn encode(index: &ArcadeIndex) -> Result<String, IndexError> {
     for (field, value) in header {
         check_field("header", field, value)?;
     }
-    // Writes to a String cannot fail.
-    let _ = writeln!(out, "{MAGIC}\t{FORMAT_VERSION}");
-    let _ = writeln!(out, "core\t{}\t{}", source.core, source.commit);
-    let _ = writeln!(out, "dat\t{}\t{}", source.dat_name, source.dat_version);
-    let _ = writeln!(out, "licence\t{}", source.licence);
+    put_line(&mut out, format_args!("{MAGIC}\t{FORMAT_VERSION}"));
+    put_line(
+        &mut out,
+        format_args!("core\t{}\t{}", source.core, source.commit),
+    );
+    put_line(
+        &mut out,
+        format_args!("dat\t{}\t{}", source.dat_name, source.dat_version),
+    );
+    put_line(&mut out, format_args!("licence\t{}", source.licence));
     for set in index.sets() {
         put_set(&mut out, set)?;
     }
@@ -165,18 +170,20 @@ fn put_set(out: &mut String, set: &SetRecord) -> Result<(), IndexError> {
         Orientation::Horizontal => 'h',
         Orientation::Vertical => 'v',
     };
-    let _ = writeln!(
+    put_line(
         out,
-        "set\t{}\t{parent}\t{romof}\t{}\t{}\t{}\t{}\t{orientation}\t{}\t{}\t{}\t{}",
-        set.name,
-        set_flags(set.flags),
-        set.year,
-        set.maker,
-        set.board,
-        set.width,
-        set.height,
-        set.title,
-        set.details,
+        format_args!(
+            "set\t{}\t{parent}\t{romof}\t{}\t{}\t{}\t{}\t{orientation}\t{}\t{}\t{}\t{}",
+            set.name,
+            set_flags(set.flags),
+            set.year,
+            set.maker,
+            set.board,
+            set.width,
+            set.height,
+            set.title,
+            set.details,
+        ),
     );
     for rom in &set.roms {
         check_field(&set.name, "rom name", &rom.name)?;
@@ -190,10 +197,9 @@ fn put_set(out: &mut String, set: &SetRecord) -> Result<(), IndexError> {
             .map_or_else(|| NONE.to_owned(), |c| format!("{c:08x}"));
         let merge = rom.merge.as_deref().unwrap_or(NONE);
         let flags = if rom.crc.is_none() { "d" } else { NONE };
-        let _ = writeln!(
+        put_line(
             out,
-            "rom\t{}\t{}\t{crc}\t{merge}\t{flags}",
-            rom.name, rom.size
+            format_args!("rom\t{}\t{}\t{crc}\t{merge}\t{flags}", rom.name, rom.size),
         );
     }
     Ok(())
@@ -207,6 +213,14 @@ fn check_field(set: &str, field: &'static str, value: &str) -> Result<(), IndexE
         });
     }
     Ok(())
+}
+
+/// Appends one line of text and its line break.
+fn put_line(out: &mut String, args: std::fmt::Arguments<'_>) {
+    // The `fmt::Write` of a String never returns an error: it only grows
+    // the String, and an allocation failure aborts instead.
+    let _ = out.write_fmt(args);
+    out.push('\n');
 }
 
 /// A name field that is present must not be empty or `-`: the reader
