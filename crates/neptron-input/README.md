@@ -15,6 +15,7 @@ The tests drive layers 2 to 4 with scripted devices and scripted input, with no 
 
 - `Mapper`: `new()` (the rule of the menus), `with_rule(rule, earlier)`, `connect_gamepad(info) -> PadId`, `disconnect_gamepad(pad, out)`, `apply_gamepad(pad, raw, out)`, `device_of(pad)`, `settle(out)`, `roster()`, `roster_changes()`, and by device id `connect_keyboard()`, `disconnect(device, out)`, `apply(device, raw, out)`, `is_connected(device)`. `MapperError`.
 - The roster: `PadInfo` (identity, path, name), `PortRule` (`Menus`, `Game`), `Roster` and `RosterEntry` (the pad of each port, present or away), `RosterError`, `PLAYER_PORTS` (4), and the trait `PadRoster` (`roster()`, `roster_changes()`) that a source of pads gives the frontend.
+- `PadInfo::from_device(identity, path, name_bytes)`: a name that is not UTF-8 is read with a lossy conversion.
 - `ScriptedPads`: gamepads with no hardware for tests of the frontend (`plug`, `unplug`, `replug`, `set`, `device`), through the same mapper. `InputSource` and `PadRoster`.
 - `PortStates`: `apply(events)`, `value(port, control)`, `is_held(port, control)`.
 - `Hotkeys`: `update(ports, now_ns, out)` gives `Hotkey::QuickMenu { port }` and `Hotkey::BlindRecovery { port }`. `set_start_hold_ns(hold_ns)` and `start_hold_ns()` give the Start hold time (0 is off).
@@ -86,7 +87,7 @@ A key held before a keyboard opens gives no kernel event. So when the source ope
 - A new pad takes a held port with the same identity and path, else a held port with the same identity, else the lowest free port.
 - `Mapper::with_rule(rule, earlier)` starts with every pad of `earlier` held on its port: the roster of the run before, which the app carries in the relaunch file. After the first scan the source calls `settle`: in the menus the held ports that no pad took are freed and the pads move down; in a game they stay held.
 - A disconnect gives the release of every control that the device held, so no button stays down.
-- The identity of a gamepad is its SDL GUID (vendor, product, version): the key of everything kept per pad. Two pads of one model have the same identity. The path (the event node, `/dev/input/eventN` on Linux) tells them apart while they stay plugged, also across a relaunch. When both go away in a game and come back at new paths, they can swap ports. The source does not read the serial number, because the `sdl3` crate panics on a serial that is not UTF-8. It reads the name and the path: the name of a pad with a gamepad mapping comes from the mapping, and the path is the event node, both ASCII.
+- The identity of a gamepad is its SDL GUID (vendor, product, version): the key of everything kept per pad. Two pads of one model have the same identity. The path (the event node `/dev/input/eventN` or, with the HIDAPI drivers of SDL3, the hidraw node `/dev/hidrawN`) tells them apart while they stay plugged, also across a relaunch. When both go away in a game and come back at new paths, they can swap ports. The `sdl3` crate unwraps as UTF-8 the text of the serial number, of the gamepad name and of the path, and panics on bytes that are not UTF-8. So the source does not read the serial number. It reads the name through the joystick API, which converts it lossy: the gamepad name is the device name when the mapping has none, and a device name can be any bytes. It reads the path through the gamepad API, because every path that SDL3 makes is ASCII: an event node (its scan and its inotify watch take only `event` and digits), a hidraw node, the hex bus numbers of the libusb backend, or `DevSrvsID:N` on macOS. The other source of a path, the `SDL_JOYSTICK_DEVICE` hint, is never set.
 - At most 8 gamepads and 8 keyboards. A ninth gamepad, or a pad that finds every port in use or held, is ignored, with a notice, until it reconnects.
 - A port merges its devices: a button is down while any device holds it, an axis takes the value with the largest magnitude.
 - A backend keeps the `PadId` of each pad: it stays the same while the pad is connected, and `device_of` gives its device id now.
@@ -167,7 +168,7 @@ The `evdev` code compiles only on Linux. On a Linux host, or with a Linux target
 These need a device and are not verified:
 
 - A USB gamepad on the x86_64 image: found at boot and when plugged in later, buttons as in the gamepad map, a disconnect releases its buttons.
-- Two and four pads in a game, an unplug and a replug in a game, two pads of one model across a launch, and the event node of a pad that stays plugged across a relaunch (`docs/hardware-checklist.md`, "Input (M04)").
+- Two and four pads in a game, an unplug and a replug in a game, two pads of one model across a launch, and the event or hidraw node of a pad that stays plugged across a relaunch (`docs/hardware-checklist.md`, "Input (M04)").
 - SDL3 without libudev finds a gamepad plugged in after start (inotify on `/dev/input`).
 - A USB keyboard on the image: found, grabbed (no key reaches a console), mapped, and released when unplugged.
 - Blind recovery from a gamepad and from a keyboard with no picture.

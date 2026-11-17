@@ -147,14 +147,27 @@ impl SdlGamepads {
             Ok(pad) => pad,
             Err(e) => return ignore(self, what, e.to_string()),
         };
-        // The name comes from the mapping that `is_gamepad` found, and the
-        // path is the event node; both are ASCII, so the crate's UTF-8
-        // `unwrap` does not panic on them.
-        let info = PadInfo {
-            identity: DeviceIdentity::from_parts(&[&guid.raw().data]),
-            path: DeviceIdentity::from_parts(&[pad.path().unwrap_or_default().as_bytes()]),
-            name: pad.name().unwrap_or_default(),
-        };
+        // The name of the gamepad API is the device name when the mapping
+        // has none, which can be any bytes, and the crate unwraps it as
+        // UTF-8. The joystick API reads it with a lossy conversion. SDL
+        // counts the opens of a joystick, so this one closes on its own.
+        let name = self
+            .joysticks
+            .open(id)
+            .map(|joystick| joystick.name())
+            .unwrap_or_default();
+        // `path` unwraps its text as UTF-8 too. It is ASCII on every path
+        // SDL3 makes: on Linux `/dev/input/eventN` from the scan or inotify
+        // (only names of `event` and digits pass its filter), a hidraw node
+        // `/dev/hidrawN` with the HIDAPI drivers, the hex bus numbers of the
+        // libusb backend, and `DevSrvsID:N` on macOS. The only other source
+        // is the `SDL_JOYSTICK_DEVICE` hint, which NEPTRON never sets.
+        let path = pad.path().unwrap_or_default();
+        let info = PadInfo::from_device(
+            DeviceIdentity::from_parts(&[&guid.raw().data]),
+            DeviceIdentity::from_parts(&[path.as_bytes()]),
+            name.as_bytes(),
+        );
         let pad_id = match self.mapper.connect_gamepad(info) {
             Ok(pad_id) => pad_id,
             Err(e) => return ignore(self, what, e.to_string()),

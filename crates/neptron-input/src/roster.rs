@@ -13,13 +13,27 @@ pub struct PadInfo {
     /// model have the same identity. Everything that is kept per pad is
     /// kept by it.
     pub identity: DeviceIdentity,
-    /// Where the pad is plugged: a hash of the device path of the backend.
-    /// The kernel keeps the path while the pad stays plugged, so the path
-    /// tells two pads of one model apart in one boot. A replug can change
-    /// it.
+    /// Where the pad is plugged: a hash of the device path of the backend,
+    /// the event node or, with the HIDAPI drivers of SDL3, the hidraw
+    /// node. The kernel keeps the node while the pad stays plugged, so the
+    /// path tells two pads of one model apart in one boot. A replug can
+    /// change it.
     pub path: DeviceIdentity,
     /// The name to show, as the backend gives it.
     pub name: String,
+}
+
+impl PadInfo {
+    /// The pad of a backend from its identity, its path and the bytes of
+    /// its name. A name that is not UTF-8 is read with a lossy conversion:
+    /// a device can report any bytes, and a name must never stop a run.
+    pub fn from_device(identity: DeviceIdentity, path: DeviceIdentity, name: &[u8]) -> Self {
+        Self {
+            identity,
+            path,
+            name: String::from_utf8_lossy(name).into_owned(),
+        }
+    }
 }
 
 /// The rule of the ports for one run of the frontend.

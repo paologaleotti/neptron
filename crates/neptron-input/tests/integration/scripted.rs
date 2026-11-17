@@ -107,3 +107,27 @@ fn a_ninth_scripted_pad_waits_for_a_replug() {
     poll(&mut pads);
     assert_eq!(test.device(all[8]), Some(GAMEPAD_DEVICE_BASE + 7));
 }
+
+#[test]
+fn a_name_that_is_not_utf8_is_read_lossy_and_a_non_ascii_name_is_kept() {
+    let mut pads = ScriptedPads::new(PortRule::Menus, &Roster::new());
+    let test = pads.clone();
+    let identity = DeviceIdentity(1);
+    test.plug(PadInfo::from_device(
+        identity,
+        DeviceIdentity(1),
+        b"Pad \xff\xfe",
+    ));
+    test.plug(PadInfo::from_device(
+        identity,
+        DeviceIdentity(2),
+        "Manette \u{e9}t\u{e9}".as_bytes(),
+    ));
+    poll(&mut pads);
+    let roster = pads.roster();
+    let names: Vec<_> = roster.ports()[..2]
+        .iter()
+        .map(|e| e.as_ref().unwrap().pad.name.as_str())
+        .collect();
+    assert_eq!(names, ["Pad \u{fffd}\u{fffd}", "Manette \u{e9}t\u{e9}"]);
+}
