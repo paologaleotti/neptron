@@ -3036,8 +3036,12 @@ fn open_panel_from_the_deepest_stack_with_no_settings_page_fills_it_and_comes_ba
     run.step(&game, &[Accept]);
     assert_eq!(run.screen(), "options");
     // Home, the game list, the game, the quick menu, its video page and
-    // the options of a row: the Settings page and the panel take the two
-    // places left.
+    // the options of a row: the deepest stack with no Settings page. A
+    // page of the quick menu other than Settings opens only option lists,
+    // which open nothing, and the display panel and the grid open only
+    // from a Settings page. So the Settings page and the panel always
+    // take the two places left, and open_panel needs no rule that closes
+    // screens to make room.
     assert_eq!(run.screens.depth(), super::MAX_DEPTH - 2);
     assert!(run.screens.open_panel(super::INPUT_PAGE, None));
     run.step(&input_snapshot(in_game()), &[]);

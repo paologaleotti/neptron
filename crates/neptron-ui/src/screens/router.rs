@@ -182,10 +182,10 @@ impl Screens {
     /// - The panel on show only moves its focus.
     /// - When a Settings page is open, the screens above it close (as by
     ///   back), and the panel opens from it: never a second Settings page.
-    /// - Else, when the stack has no room for the Settings page and the
-    ///   panel, the screens above the quick menu, or above the home screen,
-    ///   close first.
-    /// - Else the Settings page and the panel open on top.
+    /// - Else the Settings page and the panel open on top. They always
+    ///   fit: with no Settings page the deepest stack is home, a game
+    ///   list, the game, the quick menu, its video page and an option
+    ///   list, six screens, and [`MAX_DEPTH`] is eight.
     ///
     /// Returns false, and opens nothing, while a game runs with no menu,
     /// for a page that is no panel, and for the display panel, which has a
@@ -217,19 +217,7 @@ impl Screens {
             return true;
         }
         let settings = self.stack.iter().any(|s| matches!(s, Screen::Settings(_)));
-        loop {
-            let top_is_root = matches!(
-                self.stack.last(),
-                Some(Screen::Home(_) | Screen::QuickMenu(_) | Screen::Game) | None
-            );
-            let done = if settings {
-                matches!(self.stack.last(), Some(Screen::Settings(_)))
-            } else {
-                self.stack.len() + 2 <= MAX_DEPTH || top_is_root
-            };
-            if done {
-                break;
-            }
+        while settings && !matches!(self.stack.last(), Some(Screen::Settings(_))) {
             let depth = self.stack.len();
             self.back(snap);
             if self.stack.len() == depth {
