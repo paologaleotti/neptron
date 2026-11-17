@@ -1,0 +1,8 @@
+config BR2_PACKAGE_SDL_GAMECONTROLLERDB
+	bool "sdl-gamecontrollerdb"
+	help
+	  SDL_GameControllerDB, the community database of gamepad
+	  mappings for SDL. The frontend loads its Linux lines after
+	  the NEPTRON mapping file. Licence: zlib.
+
+	  https://github.com/mdqinc/SDL_GameControllerDB

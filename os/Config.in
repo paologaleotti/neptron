@@ -8,4 +8,5 @@ menu "NEPTRON packages"
 	source "$BR2_EXTERNAL_NEPTRON_PATH/package/neptron-launch/Config.in"
 	source "$BR2_EXTERNAL_NEPTRON_PATH/package/neptron-vkms-probe/Config.in"
 	source "$BR2_EXTERNAL_NEPTRON_PATH/package/neptronctl/Config.in"
+	source "$BR2_EXTERNAL_NEPTRON_PATH/package/sdl-gamecontrollerdb/Config.in"
 endmenu

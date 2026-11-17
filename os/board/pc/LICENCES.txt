@@ -26,6 +26,13 @@ The monitor presets in `/usr/share/neptron/monitors` come from Switchres
 and are under the GNU General Public License 2.0 or later. The frontend
 reads them at run time and does not contain them.
 
+The gamepad mappings in `/usr/share/sdl-gamecontrollerdb` come from the
+community database SDL_GameControllerDB
+(github.com/mdqinc/SDL_GameControllerDB, commit
+a69b1ac650f4faab73596c2d561edc2c7636978e), unchanged. They are under the
+zlib licence. Its text is in `legal/licenses/sdl-gamecontrollerdb`. The
+frontend reads them at run time and does not contain them.
+
 Libretro cores
 --------------
 

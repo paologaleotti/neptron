@@ -763,6 +763,72 @@ mod tests {
         }
     }
 
+    /// Where the community gamepad database is in the image, as the
+    /// frontend reads it (`COMMUNITY_MAPPING_FILE` of `neptron-input`).
+    const GAMECONTROLLERDB_FILE: &str = "/usr/share/sdl-gamecontrollerdb/gamecontrollerdb.txt";
+
+    #[test]
+    fn every_image_ships_the_pinned_community_gamepad_database() {
+        for name in [
+            "neptron_pc_x86_64_defconfig",
+            "neptron_qemu_aarch64_defconfig",
+            "neptron_rpi_arm64_defconfig",
+        ] {
+            let text = std::fs::read_to_string(os_dir().join("configs").join(name)).unwrap();
+            let options = parse(&text);
+            assert_eq!(
+                options
+                    .get("BR2_PACKAGE_SDL_GAMECONTROLLERDB")
+                    .map(String::as_str),
+                Some("y"),
+                "{name}"
+            );
+        }
+        let menu = std::fs::read_to_string(os_dir().join("Config.in")).unwrap();
+        assert!(menu.contains("package/sdl-gamecontrollerdb/Config.in"));
+
+        let dir = os_dir().join("package/sdl-gamecontrollerdb");
+        let mk = std::fs::read_to_string(dir.join("sdl-gamecontrollerdb.mk")).unwrap();
+        let version = mk
+            .lines()
+            .find_map(|l| l.strip_prefix("SDL_GAMECONTROLLERDB_VERSION = "))
+            .unwrap();
+        assert!(
+            version.len() == 40 && version.bytes().all(|b| b.is_ascii_hexdigit()),
+            "{version} is not a commit"
+        );
+        let hashes = std::fs::read_to_string(dir.join("sdl-gamecontrollerdb.hash")).unwrap();
+        let tarball = format!("sdl-gamecontrollerdb-{version}.tar.gz");
+        assert!(
+            hashes.lines().any(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                f.len() == 3 && f[0] == "sha256" && f[1].len() == 64 && f[2] == tarball
+            }),
+            "no sha256 for {tarball}"
+        );
+        assert!(mk.contains("SDL_GAMECONTROLLERDB_LICENSE = Zlib\n"));
+        let files = licence_files(&mk, "SDL_GAMECONTROLLERDB");
+        assert_eq!(files, ["LICENSE"]);
+        assert!(hashes.lines().any(|l| l.ends_with("  LICENSE")));
+
+        assert!(mk.contains(&format!("$(TARGET_DIR){GAMECONTROLLERDB_FILE}")));
+        let input = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../crates/neptron-input/src/mapping_file.rs"),
+        )
+        .unwrap();
+        assert!(input.contains(&format!("\"{GAMECONTROLLERDB_FILE}\"")));
+        for board in ["pc", "rpi"] {
+            let notes =
+                std::fs::read_to_string(os_dir().join("board").join(board).join("LICENCES.txt"))
+                    .unwrap();
+            assert!(
+                notes.contains(version),
+                "{board}: LICENCES.txt names another pin"
+            );
+        }
+    }
+
     #[test]
     fn each_core_with_data_names_the_library_of_its_package() {
         for core in CORES_WITH_DATA {
