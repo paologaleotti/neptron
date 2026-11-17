@@ -604,7 +604,7 @@ name = "Input for four players (spec first): four ports, the order of the contro
 owns = ["crates/neptron-input", "crates/neptron-session", "crates/neptron-settings", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = []
 gate = "T2; a game with two and with four pads on hardware"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M04b"
@@ -613,7 +613,7 @@ name = "Use every USB gamepad, also when SDL3 has no mapping for it (spec first)
 owns = ["crates/neptron-input", "os/board/common", "os/package/neptron", "docs/spec", "docs/hardware-checklist.md"]
 needs = ["M04"]
 gate = "T1; the cause confirmed on the PC with the stick; a hardware check on the PC and the Pi"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "M05"
@@ -658,7 +658,7 @@ name = "Arcade, part 3: vertical games and the arcade refresh rates, as M06 deci
 owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-modeline", "crates/neptron-session", "docs/adr"]
 needs = ["M06"]
 gate = "T2; gles-compare; fields_missed stays 0 on the Pi 3 for the chosen games"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "M08d"
@@ -667,6 +667,15 @@ name = "Video policy, owner decisions of 2026-11-17: V6 the exact lines win over
 owns = ["crates/neptron-modeline", "docs/spec/video-policy-cases.md", "docs/spec/arcade.md"]
 needs = ["M08"]
 gate = "T1; the changed goldens listed with the reason; the sweep passes"
+status = "merged"
+
+[[task]]
+id = "M08e"
+wave = 13
+name = "Picture mode (spec first): one setting with more options (auto, sharp, speed, native, whole multiples, fit), speed part of the mode, a notice per choice that names its compromises, in Settings and in the quick menu. The proposal is in docs/spec/video-policy-cases.md"
+owns = ["crates/neptron-modeline", "crates/neptron-settings", "crates/neptron-video", "crates/neptron-ui", "apps/neptron", "docs/spec"]
+needs = ["M08d"]
+gate = "T2; goldens of each mode on each display class; the crawler finds the setting"
 status = "pending"
 
 [[task]]
