@@ -45,6 +45,8 @@ pub struct Mapper {
     pads: [ControlState; MAX_PORTS as usize],
     keyboards: [Slot; MAX_KEYBOARDS as usize],
     changes: u64,
+    /// The first scan has settled the ports.
+    settled: bool,
 }
 
 /// An error of [`Mapper`].
@@ -107,6 +109,40 @@ impl Mapper {
         Ok(id)
     }
 
+    /// Connects the pads that one scan of a backend found, and returns the
+    /// result of each, in the order of `pads`.
+    ///
+    /// A pad whose identity and path match a held port connects first, so
+    /// a pad of the same model at a new path cannot take the port that is
+    /// held for a pad later in the scan. The first call of a run is the
+    /// first scan: after its connects it settles the ports, then it tries
+    /// again each pad that found every port in use or held, so a pad of
+    /// this run never loses to a held port of the run before in the menus.
+    /// It allocates the results; call it at a hotplug, not every frame.
+    pub fn connect_scan(
+        &mut self,
+        pads: Vec<PadInfo>,
+        out: &mut Vec<InputEvent>,
+    ) -> Vec<Result<PadId, MapperError>> {
+        let exact: Vec<bool> = pads.iter().map(|p| self.ports.holds_exactly(p)).collect();
+        let mut results = vec![Err(MapperError::NoFreePort { max: MAX_PORTS }); pads.len()];
+        let order = (0..pads.len())
+            .filter(|i| exact[*i])
+            .chain((0..pads.len()).filter(|i| !exact[*i]));
+        for i in order {
+            results[i] = self.connect_gamepad(pads[i].clone());
+        }
+        if !self.settled {
+            self.settle(out);
+            for (result, pad) in results.iter_mut().zip(&pads) {
+                if matches!(result, Err(MapperError::NoFreePort { .. })) {
+                    *result = self.connect_gamepad(pad.clone());
+                }
+            }
+        }
+        results
+    }
+
     /// Disconnects a gamepad: appends to `out` the release of every control
     /// that it held, then applies the rule of the run to its port. In the
     /// menus `out` also gets the release of each pad that moves down.
@@ -138,8 +174,10 @@ impl Mapper {
 
     /// Ends the start of a run: once the backend has connected the pads it
     /// found, the menus free every held port that no pad took, and the
-    /// pads move down. In a game it does nothing.
+    /// pads move down. In a game it does nothing. The first
+    /// [`Mapper::connect_scan`] calls it.
     pub fn settle(&mut self, out: &mut Vec<InputEvent>) {
+        self.settled = true;
         let pads = &mut self.pads;
         self.ports.settle(&mut |moved, from| {
             if let Some(state) = pads.get_mut(pad_index(moved)) {

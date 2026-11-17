@@ -28,8 +28,9 @@ pub const SCAN_INTERVAL_POLLS: u32 = 30;
 ///
 /// A joystick that SDL has no gamepad mapping for is ignored, with a
 /// notice. A gamepad that finds every port in use is ignored until it
-/// reconnects. The ports follow the rule of the run (see [`Mapper`]); the
-/// first poll connects the pads that are there, then settles the ports.
+/// reconnects. The ports follow the rule of the run (see [`Mapper`]); each
+/// scan connects the pads it found together, and the first one settles the
+/// ports.
 ///
 /// Make the source and poll it on one thread. With the `sdl3` crate, every
 /// `sdl3::init` of the process runs on the thread of the first one.
@@ -39,7 +40,6 @@ pub struct SdlGamepads {
     ignored: Vec<JoystickId>,
     mapper: Mapper,
     polls_to_scan: u32,
-    settled: bool,
     notices: NoticeQueue,
     gamepads: GamepadSubsystem,
     joysticks: JoystickSubsystem,
@@ -83,7 +83,6 @@ impl SdlGamepads {
             ignored: Vec::new(),
             mapper: Mapper::with_rule(rule, earlier),
             polls_to_scan: 0,
-            settled: false,
             notices: NoticeQueue::default(),
             gamepads,
             joysticks,
@@ -112,7 +111,7 @@ impl SdlGamepads {
         }
     }
 
-    fn scan(&mut self) {
+    fn scan(&mut self, out: &mut Vec<InputEvent>) {
         let ids = match self.joysticks.joysticks() {
             Ok(ids) => ids,
             Err(e) => {
@@ -124,28 +123,56 @@ impl SdlGamepads {
             }
         };
         self.ignored.retain(|id| ids.contains(id));
+        let mut found = Vec::new();
         for id in ids {
             let known = self.open.iter().any(|pad| pad.joystick == id);
-            if !known && !self.ignored.contains(&id) {
-                self.add(id);
+            if !known
+                && !self.ignored.contains(&id)
+                && let Some(pad) = self.open_pad(id)
+            {
+                found.push(pad);
+            }
+        }
+        // Every scan goes to the mapper, an empty one too: the first one
+        // settles the ports.
+        let infos = found.iter().map(|f| f.info.clone()).collect();
+        let results = self.mapper.connect_scan(infos, out);
+        for (pad, result) in found.into_iter().zip(results) {
+            match result {
+                Ok(id) => {
+                    if let Some(device) = self.mapper.device_of(id) {
+                        self.notices.push(InputNotice::Connected {
+                            device,
+                            what: pad.what,
+                        });
+                    }
+                    self.open.push(OpenPad {
+                        pad: pad.pad,
+                        joystick: pad.joystick,
+                        id,
+                    });
+                }
+                Err(e) => self.ignore(pad.joystick, pad.what, e.to_string()),
             }
         }
     }
 
-    fn add(&mut self, id: JoystickId) {
+    /// Opens the joystick `id` as a gamepad and reads what the port rules
+    /// need of it, or ignores it with a notice.
+    fn open_pad(&mut self, id: JoystickId) -> Option<FoundPad> {
         let guid = self.gamepads.guid_for_id(id);
         let what = format!("SDL joystick {} with GUID {}", id.raw(), guid.string());
-        let ignore = |source: &mut Self, what: String, reason: String| {
-            source.ignored.push(id);
-            source.notices.push(InputNotice::Ignored { what, reason });
-        };
         if !self.gamepads.is_gamepad(id) {
             let reason = "SDL3 has no gamepad mapping for it".to_owned();
-            return ignore(self, what, reason);
+            self.ignore(id, what, reason);
+            return None;
         }
         let pad = match self.gamepads.open(id) {
             Ok(pad) => pad,
-            Err(e) => return ignore(self, what, e.to_string()),
+            Err(e) => {
+                self.ignore(id, what, e.to_string());
+                return None;
+            }
         };
         // The name of the gamepad API is the device name when the mapping
         // has none, which can be any bytes, and the crate unwraps it as
@@ -168,18 +195,17 @@ impl SdlGamepads {
             DeviceIdentity::from_parts(&[path.as_bytes()]),
             name.as_bytes(),
         );
-        let pad_id = match self.mapper.connect_gamepad(info) {
-            Ok(pad_id) => pad_id,
-            Err(e) => return ignore(self, what, e.to_string()),
-        };
-        self.open.push(OpenPad {
+        Some(FoundPad {
             pad,
             joystick: id,
-            id: pad_id,
-        });
-        if let Some(device) = self.mapper.device_of(pad_id) {
-            self.notices.push(InputNotice::Connected { device, what });
-        }
+            info,
+            what,
+        })
+    }
+
+    fn ignore(&mut self, id: JoystickId, what: String, reason: String) {
+        self.ignored.push(id);
+        self.notices.push(InputNotice::Ignored { what, reason });
     }
 
     fn read(&mut self, out: &mut Vec<InputEvent>) {
@@ -206,12 +232,8 @@ impl InputSource for SdlGamepads {
         self.gamepads.update();
         self.remove_disconnected(out);
         if self.polls_to_scan == 0 {
-            self.scan();
+            self.scan(out);
             self.polls_to_scan = SCAN_INTERVAL_POLLS;
-        }
-        if !self.settled {
-            self.mapper.settle(out);
-            self.settled = true;
         }
         self.polls_to_scan -= 1;
         self.read(out);
@@ -240,6 +262,14 @@ impl std::fmt::Debug for SdlGamepads {
             .field("polls_to_scan", &self.polls_to_scan)
             .finish_non_exhaustive()
     }
+}
+
+/// A gamepad that a scan opened, before the mapper gives it a port.
+struct FoundPad {
+    pad: Gamepad,
+    joystick: JoystickId,
+    info: PadInfo,
+    what: String,
 }
 
 struct OpenPad {

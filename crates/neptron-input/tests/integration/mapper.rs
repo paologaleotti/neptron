@@ -635,3 +635,65 @@ fn the_same_script_gives_the_same_events_twice() {
         assert_eq!(first, run(rule));
     }
 }
+
+#[test]
+fn a_scan_gives_each_pad_of_one_model_the_port_held_for_its_path() {
+    // The run before had model 7 at path 2 on port 0 and at path 1 on
+    // port 1. The scan finds a new pad of model 7 at path 3 first.
+    let mut earlier = Roster::new();
+    for (port, path) in [(0, 2), (1, 1)] {
+        let entry = RosterEntry {
+            pad: twin(7, path),
+            present: true,
+        };
+        earlier.set(port, Some(entry)).unwrap();
+    }
+    let mut mapper = Mapper::with_rule(PortRule::Game, &earlier);
+    let mut out = Vec::new();
+    let ids = mapper.connect_scan(vec![twin(7, 3), twin(7, 2), twin(7, 1)], &mut out);
+    let ports: Vec<_> = ids
+        .iter()
+        .map(|id| port(&mapper, *id.as_ref().unwrap()))
+        .collect();
+    assert_eq!(ports, [Some(2), Some(0), Some(1)]);
+}
+
+#[test]
+fn the_first_scan_of_the_menus_frees_held_ports_before_it_refuses_a_pad() {
+    // Eight pads of the run before are gone; eight new pads come.
+    let mut earlier = Roster::new();
+    for n in 0..MAX_PORTS {
+        let entry = RosterEntry {
+            pad: pad(100 + n),
+            present: true,
+        };
+        earlier.set(n, Some(entry)).unwrap();
+    }
+    let mut mapper = Mapper::with_rule(PortRule::Menus, &earlier);
+    let mut out = Vec::new();
+    let new: Vec<_> = (0..MAX_PORTS).map(pad).collect();
+    let ids = mapper.connect_scan(new, &mut out);
+    let ports: Vec<_> = ids
+        .iter()
+        .map(|id| port(&mapper, *id.as_ref().unwrap()))
+        .collect();
+    assert_eq!(ports, (0..MAX_PORTS).map(Some).collect::<Vec<_>>());
+    // A later scan settles nothing again: a ninth pad is refused.
+    let late = mapper.connect_scan(vec![pad(99)], &mut out);
+    assert_eq!(late, [Err(MapperError::NoFreePort { max: MAX_PORTS })]);
+}
+
+#[test]
+fn in_a_game_the_first_scan_keeps_the_held_ports() {
+    let mut earlier = Roster::new();
+    let entry = RosterEntry {
+        pad: pad(1),
+        present: true,
+    };
+    earlier.set(0, Some(entry)).unwrap();
+    let mut mapper = Mapper::with_rule(PortRule::Game, &earlier);
+    let mut out = Vec::new();
+    let ids = mapper.connect_scan(vec![pad(2)], &mut out);
+    assert_eq!(port(&mapper, ids[0].unwrap()), Some(1));
+    assert_eq!(seats(&mapper)[0], Some(("Pad 1".to_owned(), false)));
+}

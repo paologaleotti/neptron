@@ -63,6 +63,14 @@ impl PortTable {
         Ok((id, port))
     }
 
+    /// True when a port is held for a pad with the identity and the path
+    /// of `pad`.
+    pub(crate) fn holds_exactly(&self, pad: &PadInfo) -> bool {
+        self.seats.iter().any(|seat| {
+            matches!(seat, Seat::Held(old) if old.identity == pad.identity && old.path == pad.path)
+        })
+    }
+
     /// Takes `pad` off its port, and returns the port it had. In a game the
     /// port is held for it. In the menus the port is freed and the pads
     /// above move down; `moved` gets each pad that moves and its old port.

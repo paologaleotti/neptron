@@ -15,8 +15,9 @@ use crate::roster::{PadInfo, PadRoster, PortRule, Roster};
 /// Gamepads with no hardware, for tests of the frontend.
 ///
 /// A plug or an unplug takes effect at the next `poll`, as a hotplug of
-/// the SDL3 source does: first the unplugs, then the plugs, in the order
-/// of the calls. The first `poll` then settles the ports. Each `poll`
+/// the SDL3 source does: first the unplugs, then the plugs of the poll as
+/// one scan ([`Mapper::connect_scan`]), so the first `poll` settles the
+/// ports. Each `poll`
 /// feeds the mapper the whole state of each pad, so the events are those
 /// of a real pad with the same buttons down.
 ///
@@ -39,7 +40,6 @@ impl ScriptedPads {
             state: Arc::new(Mutex::new(State {
                 mapper: Mapper::with_rule(rule, earlier),
                 pads: Vec::new(),
-                settled: false,
             })),
         }
     }
@@ -103,11 +103,7 @@ impl ScriptedPads {
 impl InputSource for ScriptedPads {
     fn poll(&mut self, out: &mut Vec<InputEvent>) {
         let mut state = self.lock();
-        let State {
-            mapper,
-            pads,
-            settled,
-        } = &mut *state;
+        let State { mapper, pads } = &mut *state;
         for fake in pads.iter_mut().filter(|f| !f.plugged || f.cycle) {
             if let Link::Open(id) = fake.link {
                 // The pad is open, so the mapper has it.
@@ -116,17 +112,18 @@ impl InputSource for ScriptedPads {
             fake.link = Link::Waiting;
             fake.cycle = false;
         }
-        for fake in pads.iter_mut().filter(|f| f.plugged) {
-            if fake.link == Link::Waiting {
-                fake.link = match mapper.connect_gamepad(fake.info.clone()) {
-                    Ok(id) => Link::Open(id),
-                    Err(_) => Link::Refused,
-                };
-            }
-        }
-        if !*settled {
-            mapper.settle(out);
-            *settled = true;
+        let waiting = |f: &&mut Fake| f.plugged && f.link == Link::Waiting;
+        let infos = pads
+            .iter_mut()
+            .filter(waiting)
+            .map(|f| f.info.clone())
+            .collect();
+        let results = mapper.connect_scan(infos, out);
+        for (fake, result) in pads.iter_mut().filter(waiting).zip(results) {
+            fake.link = match result {
+                Ok(id) => Link::Open(id),
+                Err(_) => Link::Refused,
+            };
         }
         for fake in pads.iter() {
             let Link::Open(id) = fake.link else {
@@ -158,7 +155,6 @@ impl PadRoster for ScriptedPads {
 struct State {
     mapper: Mapper,
     pads: Vec<Fake>,
-    settled: bool,
 }
 
 #[derive(Debug)]
