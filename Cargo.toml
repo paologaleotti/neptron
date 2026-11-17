@@ -34,6 +34,10 @@ khronos-egl = { version = "6.0.0", default-features = false, features = ["1_5", 
 libloading = "0.9.0"
 # Raw deflate for zip content. Pure Rust, one dependency.
 miniz_oxide = "0.9.1"
+# The XML reader of `cargo xtask arcade-index`, for the ClrMamePro DAT of
+# FinalBurn Neo. xtask only, so the image has no XML code. No default
+# features: the parser needs no text positions.
+roxmltree = { version = "0.21.2", default-features = false, features = ["std"] }
 # Default features off: the FFT resampler and its dependencies are not
 # needed for a variable ratio.
 rubato = { version = "5.0.1", default-features = false }
