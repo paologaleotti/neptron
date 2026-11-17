@@ -2474,22 +2474,32 @@ fn the_input_panel_shows_the_players_and_the_start_hold() {
         .map(|r| (r.label, r.kind, r.clipped))
         .collect();
     let info = Some(crate::RowKind::Info);
+    let page = Some(crate::RowKind::Page);
     assert_eq!(
         rows,
         [
-            ("Player 1", info, false),
+            ("Player 1", page, false),
             ("Player 2", info, false),
             ("Player 3", info, false),
             ("Player 4", info, false),
-            ("Extra pad", info, false),
+            ("Extra pad", page, false),
             ("Keyboard", info, false),
             ("Hold Start for menu", Some(crate::RowKind::Value), false),
         ]
     );
-    run.step(&snap, &[Accept, Left, Right, Menu]);
-    assert_eq!(run.intents(), [], "a player row takes no change");
+    run.step(&snap, &[Down, Accept, Left, Right, Menu]);
+    assert_eq!(run.intents(), [], "an away pad takes no change");
     run.step(&snap, &[Back]);
     assert_eq!((run.screen(), run.focused()), ("settings", Some("Input")));
+    run.step(&snap, &[Accept]);
+    run.step(&snap, &[Accept]);
+    assert_eq!(
+        run.intents(),
+        [Intent::LoadSettings {
+            page: crate::snapshot::PageId(141)
+        }],
+        "the row of a present pad opens the page of the pad"
+    );
 }
 
 #[test]

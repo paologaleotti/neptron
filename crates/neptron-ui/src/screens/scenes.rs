@@ -9,7 +9,7 @@ use crate::snapshot::{
     Level, MenuItem, Notice, NoticeId, NoticeKind, PendingConfirm, ProfileEntry, ProfileId, Scopes,
     SettingKey, SettingValue, SettingsPage, Snapshot, SystemEntry, SystemId,
 };
-use crate::snapshot::{SessionInfo, VideoStatus};
+use crate::snapshot::{PageId, SessionInfo, VideoStatus};
 use crate::theme::Theme;
 
 use super::game_list::WINDOW_ROWS;
@@ -945,16 +945,30 @@ pub(super) fn input_rows(players: [&str; 4], extra: &[&str]) -> Vec<MenuItem> {
     let text = |key: u32, label: String, text: &str| {
         MenuItem::new(SettingKey(key), label, SettingValue::Text(text.to_owned()))
     };
+    // A present pad opens its page; no pad and an away pad are text.
+    let pad = |key: u32, label: String, name: &str| {
+        if name == "None" || name.ends_with("(away)") {
+            return text(key, label, name);
+        }
+        MenuItem::new(
+            SettingKey(key),
+            label,
+            SettingValue::Link {
+                page: PageId(PAD_PAGE_FIRST + key),
+                text: name.to_owned(),
+            },
+        )
+    };
     let mut rows: Vec<MenuItem> = players
         .iter()
         .zip(1..)
-        .map(|(pad, n)| text(40 + n, format!("Player {n}"), pad))
+        .map(|(name, n)| pad(40 + n, format!("Player {n}"), name))
         .collect();
     rows.extend(
         extra
             .iter()
             .zip(45..)
-            .map(|(pad, key)| text(key, "Extra pad".to_owned(), pad)),
+            .map(|(name, key)| pad(key, "Extra pad".to_owned(), name)),
     );
     rows.push(text(49, "Keyboard".to_owned(), "Player 1"));
     rows.push(setting(
@@ -986,22 +1000,27 @@ fn input_with(frame: &mut UiFrame, theme: &Theme, rows: Vec<MenuItem>) {
     screens.update(&snap, &[], frame);
 }
 
-/// Four players, player 2 away in a game, player 3 with the generic
-/// layout, and a fifth pad with the generic layout. The longest names the
-/// app keeps: 35 characters, 28 before ` (away)` and 18 before
-/// ` (generic layout)`.
+/// Four players, player 1 with a layout of the player, player 2 away in a
+/// game, player 3 with the generic layout, and a fifth pad with the
+/// generic layout. A present pad opens its page, so its row has the arrow.
+/// The longest names the app keeps: 34 characters on a row with the
+/// arrow, 35 with ` (away)` (28 before it), and 17 before
+/// ` (generic layout)` or 18 before ` (your layout)`.
 fn input(frame: &mut UiFrame, theme: &Theme) {
     let rows = input_rows(
         [
-            "Xbox 360 Controller",
+            "Arcade Stick (your layout)",
             "Nintendo Switch Pro Contr... (away)",
             "USB Joystick (generic layout)",
-            "8BitDo SN30 Pro+ Bluetooth Gamepad",
+            "8BitDo SN30 Pro+ Bluetooth Gamep...",
         ],
-        &["Generic USB Jo... (generic layout)"],
+        &["Generic USB J... (generic layout)"],
     );
     input_with(frame, theme, rows);
 }
+
+/// The first page id of the page of a controller in the fixtures.
+const PAD_PAGE_FIRST: u32 = 100;
 
 /// No pad: the four player rows stay, so the panel has one shape.
 fn input_empty(frame: &mut UiFrame, theme: &Theme) {

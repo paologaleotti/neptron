@@ -103,7 +103,7 @@ impl SettingsList {
             return RowKind::Disabled;
         }
         match item.value {
-            SettingValue::Page(_) => RowKind::Page,
+            SettingValue::Page(_) | SettingValue::Link { .. } => RowKind::Page,
             SettingValue::Choice { .. } if self.pickers => RowKind::Page,
             SettingValue::Action(_) => RowKind::Action,
             SettingValue::Text(_) => RowKind::Info,
@@ -149,7 +149,7 @@ impl SettingsList {
         if !item.is_enabled() || matches!(item.value, SettingValue::Text(_)) {
             return SettingsEvent::None;
         }
-        if let SettingValue::Page(_) = item.value {
+        if let SettingValue::Page(_) | SettingValue::Link { .. } = item.value {
             return match action {
                 UiAction::Accept => SettingsEvent::Open(self.list.cursor()),
                 _ => SettingsEvent::None,
@@ -225,6 +225,10 @@ fn draw_row(
     );
     if let (SettingValue::Text(text), None) = (&item.value, &item.unavailable) {
         draw_info(frame, row, padded, item, text, color, focused);
+        return;
+    }
+    if let (SettingValue::Link { text, .. }, None) = (&item.value, &item.unavailable) {
+        draw_link(frame, row, inner, item, text, color, focused);
         return;
     }
     if let (SettingValue::Action(_) | SettingValue::Page(_), None) =
@@ -303,6 +307,35 @@ fn draw_row(
     );
 }
 
+/// A row with a text that opens a page: the label at the left in its own
+/// width, and the text right-aligned in the rest of the row after one
+/// character of space, before the arrow column.
+fn draw_link(
+    frame: &mut UiFrame,
+    row: Rect,
+    inner: Rect,
+    item: &MenuItem,
+    text: &str,
+    color: crate::geom::Color,
+    focused: bool,
+) {
+    let label_w = font::text_width(&item.label).min(inner.w);
+    let label_box = Rect::new(inner.x, row.y, label_w, row.h);
+    let label_clipped = text::draw_in(&mut frame.scene, label_box, Align::Left, color, &item.label);
+    let gap = label_w.saturating_add(font::ADVANCE);
+    let text_box = Rect::new(add(inner.x, gap), row.y, inner.w.saturating_sub(gap), row.h);
+    let text_clipped = text::draw_in(&mut frame.scene, text_box, Align::Right, color, text);
+    push(
+        frame,
+        item,
+        RowKind::Page,
+        row,
+        Some(text),
+        focused,
+        label_clipped || text_clipped,
+    );
+}
+
 /// An information row: the label at the left in its own width, and the
 /// text right-aligned in the rest of the row after one character of space.
 /// The text takes the arrow column too: the row has no arrow.
@@ -348,7 +381,10 @@ fn push(
 ) {
     let no_source = matches!(
         item.value,
-        SettingValue::Action(_) | SettingValue::Page(_) | SettingValue::Text(_)
+        SettingValue::Action(_)
+            | SettingValue::Page(_)
+            | SettingValue::Text(_)
+            | SettingValue::Link { .. }
     );
     frame.tree.push(TreeRow {
         widget: WidgetKind::SettingsList,
@@ -408,7 +444,10 @@ fn next_value(action: UiAction, value: &SettingValue) -> Option<Value> {
         SettingValue::Choice { index, options } => {
             next_choice(*index, options, direction).map(Value::Choice)
         }
-        SettingValue::Action(_) | SettingValue::Page(_) | SettingValue::Text(_) => None,
+        SettingValue::Action(_)
+        | SettingValue::Page(_)
+        | SettingValue::Text(_)
+        | SettingValue::Link { .. } => None,
     }
 }
 
@@ -1020,6 +1059,50 @@ mod tests {
 
     fn info(key: u32, label: &str, text: &str) -> MenuItem {
         MenuItem::new(SettingKey(key), label, SettingValue::Text(text.to_owned()))
+    }
+
+    #[test]
+    fn a_link_row_shows_its_text_and_opens_its_page() {
+        let theme = Theme::default();
+        let page = crate::snapshot::PageId(7);
+        let mut items = vec![MenuItem::new(
+            SettingKey(1),
+            "Player 1",
+            SettingValue::Link {
+                page,
+                text: "USB Joystick (your layout)".to_owned(),
+            },
+        )];
+        items[0].scopes = ALL;
+        let mut l = SettingsList::new(Rect::new(16, 12, 288, 48), 12);
+        assert_eq!(l.kind(&items[0]), RowKind::Page);
+        assert_eq!(l.hint(&items), HINT_OPEN);
+        assert_eq!(
+            l.handle(UiAction::Accept, &items, Level::Global),
+            SettingsEvent::Open(0)
+        );
+        for action in [UiAction::Left, UiAction::Right, UiAction::Menu] {
+            assert_eq!(l.handle(action, &items, Level::Global), SettingsEvent::None);
+        }
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &theme, &items);
+        let rows: Vec<_> = frame
+            .tree
+            .rows()
+            .map(|r| (r.label, r.value, r.source, r.kind, r.clipped))
+            .collect();
+        assert_eq!(
+            rows,
+            [(
+                "Player 1",
+                Some("USB Joystick (your layout)"),
+                None,
+                Some(RowKind::Page),
+                false
+            )]
+        );
+        let disabled = items[0].clone().unavailable("Not now");
+        assert_eq!(l.kind(&disabled), RowKind::Disabled);
     }
 
     #[test]

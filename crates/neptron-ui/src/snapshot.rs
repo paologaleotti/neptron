@@ -253,6 +253,16 @@ pub enum SettingValue {
     /// A text that the player reads, such as an address. The row takes no
     /// change and has no source.
     Text(String),
+    /// A text that the player reads, on a row that opens a page when the
+    /// player accepts it, such as the name of a controller that opens the
+    /// page of that controller. It shows as [`SettingValue::Text`] with the
+    /// arrow of a page row.
+    Link {
+        /// The page it opens.
+        page: PageId,
+        /// The text.
+        text: String,
+    },
 }
 
 /// One option of a [`SettingValue::Choice`]: its label, what it gives, and

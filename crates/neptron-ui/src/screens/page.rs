@@ -156,7 +156,9 @@ impl Page {
             }),
             SettingsEvent::Open(i) => match rows.get(i) {
                 Some(row) => match row.value {
-                    SettingValue::Page(page) => PageEvent::Open(page, crumb(&row.label)),
+                    SettingValue::Page(page) | SettingValue::Link { page, .. } => {
+                        PageEvent::Open(page, crumb(&row.label))
+                    }
                     _ => PageEvent::Stay,
                 },
                 None => PageEvent::Stay,

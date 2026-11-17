@@ -254,7 +254,7 @@ pub fn value_text<'a, const N: usize>(
         SettingValue::Choice { index, options } => {
             options.get(*index).map_or("?", ChoiceOption::value_text)
         }
-        SettingValue::Text(text) => text,
+        SettingValue::Text(text) | SettingValue::Link { text, .. } => text,
         SettingValue::Action(_) | SettingValue::Page(_) => "",
     }
 }
