@@ -75,6 +75,8 @@ log load Warn Host unknown environment call 0x10051
 log load Info Host environment call 0x10024 refused: memory maps are not used
 log load Info Core  Player 1: Gamepad
 log load Info Core  Player 2: Gamepad
+log load Info Core  Player 3: None Connected
+log load Info Core  Player 4: None Connected
 av base=256x224 max=256x240 aspect_milli=1306 fps_mhz=60100 sample_rate_mhz=48000000
 pixel_format Xrgb8888
 options_after_load count=43
