@@ -436,6 +436,35 @@ Each check is `needs-hardware`. Use the development image first.
   - Expect: the quick menu opens.
   - Record: the encoder model.
 
+### Input (M04)
+
+Use USB pads that SDL3 knows (an Xbox pad, a PlayStation pad, an 8BitDo pad). Use a game for two players and a game for four players on a core that reads four ports, for example a four-player NES game with the Four Score option of the core on. Open `Settings > Input` to read the ports.
+
+- [ ] `needs-hardware` **Two pads in a game.**
+  - Do: plug two pads before boot. Read `Settings > Input`. Start a two-player game and play a moment with each pad.
+  - Expect: the panel shows the two pads as players 1 and 2, in the order the game uses. Each pad drives its own player.
+  - Record: the pad models and the game.
+- [ ] `needs-hardware` **Four pads in a game.**
+  - Do: plug four pads. Start a four-player game.
+  - Expect: each pad drives its player, in the order of the panel.
+  - Record: the pad models, the core, and the core option for four players.
+- [ ] `needs-hardware` **An unplug and a replug in a game.**
+  - Do: in a two-player game, unplug player 1. Plug a third pad of another model. Plug player 1 again.
+  - Expect: the third pad is not player 1 (the panel in the quick menu shows player 1 as away, then the third pad as player 3). Player 1 drives player 1 again after the replug, and no button stays down at the unplug.
+  - Record: the pad models.
+- [ ] `needs-hardware` **Two pads of one model across a launch.**
+  - Do: plug two pads of the same model. Mark which is player 1 in the panel. Start a game, check which pad drives player 1, quit, and read the panel again.
+  - Expect: the same pad is player 1 in the menus, in the game and after the quit.
+  - Record: the model, and whether the event node of each pad stayed the same (`ls -l /dev/input/by-id` over SSH on a development image).
+- [ ] `needs-hardware` **A fifth pad.**
+  - Do: plug five pads, start a four-player game, press buttons on the fifth pad, then open the quick menu with it.
+  - Expect: the fifth pad does not drive a player. Select and Start on it open the quick menu, and it drives the menu.
+  - Record: the pad models.
+- [ ] `needs-hardware` **The order after an unplug in the menus.**
+  - Do: with two pads in the game list, unplug player 1 and plug it in again.
+  - Expect: the panel shows the other pad as player 1 and the replugged pad as player 2 at once.
+  - Record: the time until the panel changes.
+
 ### App and launcher (T27)
 
 - [ ] `needs-hardware` **The KMS frontend on the image.**
