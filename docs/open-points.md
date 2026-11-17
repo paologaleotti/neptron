@@ -105,6 +105,7 @@ The state column is one line. The full entry below is the reference.
 | OP-107 | TATE: a monitor on its side, with the UI and the games turned | After the MVP; design notes in the arcade spec |
 | OP-108 | Arcade leftovers after M07 | No diagnostics page; core default for the service menu |
 | OP-109 | Video policy: questions for the owner and leftovers | Built defaults stay; the app does not set the arcade flag yet |
+| OP-110 | Input for four players: owner decisions and leftovers | Plug order; a picker in Settings > Input is task M05b; no multitap |
 
 ### Decided
 
@@ -1180,4 +1181,13 @@ The state column is one line. The full entry below is the reference.
 - Default: the built result stays until the owner decides. V6: an exact rung at a slower rate that changes the speed more than the fit (DOS 640x400 on a TV) keeps the fit. V7: WonderSwan stays at 1x where 2x would squeeze it by 5 %. V8: a game wider than the face with too few lines (Virtual Boy on `ntsc`, a 3:2 source of 224 lines on a 15 kHz CRT) goes to interlaced 1:1 at about 50 % of the height. The overscan crop is bound by 8 source lines and by 8 of 240 lines of the screen per edge. The fill rule of a flat panel applies to every source, not only to a vertical game. The app sets `PolicySettings::arcade` for no system yet, so `arcade` and `neogeo` use the console rules until M08a. The app does not show the new notice reasons yet. Shaders for flat panels would replace the hard scanlines; they are planned after the MVP. Low findings of the last review: the continuity exception of the sweep covers every plan that has a window rung; `onto_one_field_rate` does not try the GPU floor for a wider multiple before the validator; the diagnostic of `interlaced_rung` gives the source lines, not the shaped lines.
 - Where: `crates/neptron-modeline`, `crates/neptron-video`, `apps/neptron`, `docs/spec/video-policy-cases.md`, `docs/spec/arcade.md` sections 11 and 12
 - How to change: an owner decision per question, then a golden change with its reason; M08a sets the arcade flag and shows the notice reasons.
-- Decision: Owner, 2026-11-16: with scanlines on, a flat panel uses the largest whole multiple and never the fill; every picture that is not exact shows a notice.
+- Decision: Owner, 2026-11-16: with scanlines on, a flat panel uses the largest whole multiple and never the fill; every picture that is not exact shows a notice. Owner, 2026-11-17: V6 takes the exact lines (the slower exact rung wins over the fit); V7 takes 2x with the squeeze of 5 %; V8 stays interlaced 1:1; the crop bound stays scaled to the screen; the fill of a flat panel stays for every source. V6 and V7 change the policy and its goldens: task M08d.
+
+### OP-110: Input for four players: owner decisions and leftovers.
+
+- Raised by: M04 (2026-11-17)
+- Status: open
+- Default: a pad gets its port by plug order, and a replug in the menus changes the order. Every pad and every keyboard controls the menus. Pads 5 to 8 drive only the menus and the hotkeys, and a ninth pad is refused until it is plugged again. Every port is a plain joypad: no multitap and no Four Score, so a game that needs one sees two pads. Every keyboard is player 1. Two pads of one model that both come back at new paths in a game can swap ports. The service menu of FinalBurn Neo stays on the core default (OP-108). The app does not read the notices of the input backend, so no input notice reaches the log.
+- Where: `docs/spec/input-players.md`, `crates/neptron-input`, `apps/neptron`
+- How to change: task M05b for the picker; a task of its own for four-player adapters, with the device type per system in `data/systems`; M04b wires the input notices to the log.
+- Decision: Owner, 2026-11-17: a way in Settings > Input to pick the pad of each player is wanted, with a good UI (task M05b). Every pad controls the menus. More than four pads as built, for now. Four-player adapters stay open. The service menu key keeps the core default.

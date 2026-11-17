@@ -625,6 +625,15 @@ gate = "T2; scenes and goldens"
 status = "pending"
 
 [[task]]
+id = "M05b"
+wave = 12
+name = "Pick the pad of each player in Settings > Input (spec first): the owner wants a clear UI that works well; the choice holds for the run and across a relaunch"
+owns = ["crates/neptron-input", "crates/neptron-ui", "apps/neptron", "docs/spec"]
+needs = ["M04", "M05"]
+gate = "T2; scenes and goldens; a check with two and four pads on hardware"
+status = "pending"
+
+[[task]]
 id = "M06"
 wave = 12
 name = "Arcade, part 1 (discuss first, spec first): choose the cores with measurements on the Pi 3 and on the PC, their licences, the ROM sets and the BIOS files, the systems data, and how a vertical game is shown (the scene has no rotation, OP-047)"
@@ -650,6 +659,15 @@ owns = ["crates/neptron-types", "crates/neptron-gfx", "crates/neptron-modeline",
 needs = ["M06"]
 gate = "T2; gles-compare; fields_missed stays 0 on the Pi 3 for the chosen games"
 status = "in_progress"
+
+[[task]]
+id = "M08d"
+wave = 13
+name = "Video policy, owner decisions of 2026-11-17: V6 the exact lines win over the fit also when the speed changes more; V7 a handheld takes 2x with a squeeze of 5 % where 1x leaves less than half the height"
+owns = ["crates/neptron-modeline", "docs/spec/video-policy-cases.md", "docs/spec/arcade.md"]
+needs = ["M08"]
+gate = "T1; the changed goldens listed with the reason; the sweep passes"
+status = "pending"
 
 [[task]]
 id = "M09"
