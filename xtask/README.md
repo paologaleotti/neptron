@@ -26,6 +26,7 @@ Build, verification and worktree automation for the NEPTRON workspace. Run it as
 - `cargo xtask window-smoke`: builds `neptron-window` with its `sdl3` feature and runs its smoke example. No tier compiles the `sdl3` code, so this command and `cargo xtask clippy -p neptron-window --features sdl3` are the checks for it. The example opens a desktop window, shows a 240p and a super-width mode, injects a key press and checks it. It needs a display and the SDL3 library, so no tier runs it.
 - `cargo xtask monitors <monitor.cpp> [dir]`: converts the Switchres preset table in a local copy of `monitor.cpp` into one TOML file per preset in `data/monitors` (or `dir`). Each value is converted from its decimal text with integer maths. `data/monitors/README.md` names the source commit and the units.
 
+- `cargo xtask arcade-index --commit <hex> <dat> <out>`: writes the arcade index of `neptron-library` (module `arcade`, format in its README) from the ClrMamePro XML DAT of FinalBurn Neo, `dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat` in the source of the pinned core. `--commit` is the 40-hex commit of that source; the index names it, and the diagnostics show it. The command stops with an error that names the set and the field for a value the index cannot hold: a tab or a line break, an orientation other than `horizontal` or `vertical`, a driver status other than `good` or `preliminary`, a ROM with no CRC and no `nodump` status. FinalBurn Neo writes `preliminary` for each driver that does not work, so that status gives the flags `n` and `p`. Samples, disks and comments are not read. The file is written next to `out` and renamed. The image build runs the command in a hook of `os/package/libretro-fbneo`.
 - `cargo xtask bindgen`: generates the libretro bindings of `neptron-libretro-sys` from `crates/neptron-libretro-sys/vendor/libretro.h`. It writes `src/bindings.rs` (every `retro_*` type and `RETRO_*` constant, no functions) and `src/core_api_decls.rs` (the core entry points, no types), then formats both with `rustfmt`. The generated files are committed, so no build needs libclang. The command needs the `bindgen` command-line tool (on macOS: `brew install bindgen`; the committed files come from bindgen 0.73.2). `NEPTRON_BINDGEN` names another executable. The clang target is always `x86_64-unknown-linux-gnu` with `-ffreestanding`, so the output does not depend on the host. The layout checks that bindgen writes are valid for every 64-bit target with the LP64 data model.
 - `cargo xtask font`: generates the glyph table `crates/neptron-ui/src/font/spleen_6x12.rs` from the vendored BDF file `crates/neptron-ui/assets/fonts/spleen/spleen-6x12.bdf`, for printable ASCII and Latin-1. The parser reads the BDF text format by hand. A test fails when the committed table differs from the output of the generator.
 - `cargo xtask shot <scene>`: renders one scene of the `neptron-ui` registry to `target/ui/shot/<scene>.png` and a 4x enlarged copy `<scene>@4x.png`.
@@ -92,6 +93,8 @@ The OS commands have their own limits, machine-wide through lock files in the ca
 
 - `neptron-ui`: the scene registry, the CPU canvas and the golden format for `shot`, `gallery` and `golden`. The PNG files are written by a small encoder in `src/ui/png.rs` (stored deflate blocks), so no image crate is needed.
 - `signal-hook`: sets a flag on SIGTERM, SIGHUP and SIGINT, so that `qemu` stops its QEMU child before it exits. It needs `unsafe` code to install a handler, which xtask forbids in its own code. It is small: it pulls in `libc` (already in the build) and `signal-hook-registry`.
+- `neptron-library`: the encoder of the arcade index, so the index is written by the code that the frontend reads it with.
+- `roxmltree`: reads the DAT for `arcade-index`. A read-only XML tree with no dependency but `memchr`, MIT or Apache-2.0. Only xtask has XML code; the image has none.
 - `serde_json`: reads `cargo metadata` and Cargo build messages, and writes the report.
 - `thiserror`: each module owns its error enum, as the code standards ask.
 
@@ -99,7 +102,7 @@ Arguments are parsed by hand, and the slot lock uses `std::fs::File::try_lock`, 
 
 ## Must never depend on
 
-- Any NEPTRON crate except `neptron-ui` (for `shot`, `gallery` and `golden`).
+- Any NEPTRON crate except `neptron-ui` (for `shot`, `gallery` and `golden`) and `neptron-library` (for `arcade-index`, as `docs/spec/arcade.md` section 6 asks).
 - Heavy crates: every dependency must justify its compile time.
 
 ## Rules

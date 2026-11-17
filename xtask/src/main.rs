@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod arcade;
 mod bindgen;
 mod load;
 mod monitors;
@@ -36,6 +37,9 @@ commands:
   monitors <monitor.cpp> [dir]
                        convert the Switchres preset table into the TOML
                        files of data/monitors (default dir)
+  arcade-index --commit <hex> <dat> <out>
+                       write the arcade index of neptron-library from the
+                       ClrMamePro XML DAT of FinalBurn Neo at that commit
   bindgen              generate the libretro bindings of neptron-libretro-sys
                        from its vendored libretro.h (needs the bindgen tool)
   rules                check the dependency rules, the unsafe allow-list
@@ -115,6 +119,8 @@ enum Error {
     #[error("unknown command {0:?}\n{USAGE}")]
     UnknownCommand(String),
     #[error(transparent)]
+    Arcade(#[from] arcade::ArcadeError),
+    #[error(transparent)]
     Bindgen(#[from] bindgen::BindgenError),
     #[error(transparent)]
     Monitors(#[from] monitors::MonitorsError),
@@ -156,6 +162,10 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "worktree" => Ok(worktree::run(&rest)?),
         "monitors" => {
             monitors::run(&rest)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        "arcade-index" => {
+            arcade::run(&rest)?;
             Ok(ExitCode::SUCCESS)
         }
         "bindgen" => {

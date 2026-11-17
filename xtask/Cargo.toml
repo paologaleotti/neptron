@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The arcade index format, for arcade-index.
+neptron-library = { path = "../crates/neptron-library" }
 # The scene registry and the golden format, for shot, gallery and golden.
 neptron-ui = { path = "../crates/neptron-ui" }
 # Reads the JSON of cargo metadata and cargo build, and writes the verify report.
