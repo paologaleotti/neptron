@@ -607,11 +607,20 @@ gate = "T2; a game with two and with four pads on hardware"
 status = "pending"
 
 [[task]]
+id = "M04b"
+wave = 12
+name = "Use every USB gamepad, also when SDL3 has no mapping for it (spec first): a NEPTRON mapping file, a generic layout by position with a notice, and the map of a pad keyed by its identity for M05. First case: the Mad Catz PS3 FightStick TE (0738:8838)"
+owns = ["crates/neptron-input", "os/board/common", "os/package/neptron", "docs/spec", "docs/hardware-checklist.md"]
+needs = ["M04"]
+gate = "T1; the cause confirmed on the PC with the stick; a hardware check on the PC and the Pi"
+status = "pending"
+
+[[task]]
 id = "M05"
 wave = 13
 name = "Input remapping in Settings > Input (spec first): a map per controller, kept in the settings. The lowest priority of M01 to M05"
 owns = ["crates/neptron-input", "crates/neptron-settings", "crates/neptron-ui", "apps/neptron", "docs/spec"]
-needs = ["M04"]
+needs = ["M04", "M04b"]
 gate = "T2; scenes and goldens"
 status = "pending"
 
