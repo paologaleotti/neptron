@@ -3,7 +3,7 @@
 
 use neptron_input::{
     Binding, GUIDED_STEPS, GenericLayout, GuidedNote, HatDirection, MapKind, PadMap, PlayerMap,
-    RosterEntry,
+    Prompt, RosterEntry,
 };
 use neptron_types::Control;
 use neptron_ui::snapshot::{ActionId, MenuItem, PageId, SettingKey, SettingValue, SettingsPage};
@@ -197,6 +197,16 @@ pub fn prompt_text(control: Control) -> &'static str {
         Control::LeftY => "Move the left stick down",
         Control::RightX => "Move the right stick right",
         Control::RightY => "Move the right stick down",
+    }
+}
+
+/// The note of a prompt: the release hint while the pad stays held before
+/// a step, else what happened at the last input.
+pub fn prompt_note(prompt: &Prompt) -> String {
+    if prompt.release {
+        RELEASE_NOTE.to_owned()
+    } else {
+        note_text(prompt.note)
     }
 }
 
@@ -638,6 +648,29 @@ mod tests {
             review_text(&full).0,
             "16 of 20 controls are set. Skipped: Left stick X, Left stick Y, Right stick X, Right stick Y."
         );
+    }
+
+    #[test]
+    fn the_release_hint_takes_the_place_of_the_note_while_the_pad_is_held() {
+        let mut prompt = Prompt {
+            step: 5,
+            control: Control::B,
+            note: Some(GuidedNote::Taken(Control::A)),
+            remaining_ns: 15_000_000_000,
+            holding: false,
+            release: false,
+        };
+        assert_eq!(prompt_note(&prompt), "A uses it already. Try another.");
+        prompt.release = true;
+        assert_eq!(prompt_note(&prompt), RELEASE_NOTE);
+        prompt.release = false;
+        assert_eq!(
+            prompt_note(&prompt),
+            "A uses it already. Try another.",
+            "the note comes back after the release"
+        );
+        prompt.note = None;
+        assert_eq!(prompt_note(&prompt), "");
     }
 
     #[test]
