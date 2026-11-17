@@ -10,7 +10,7 @@ This spec settles task M04. It decides how a gamepad gets its port, what happens
 - The mapper of `neptron-input` has 8 gamepad slots (`MAX_PORTS` = 8). A gamepad device id holds its port (`0x100 + port`). The port state (`PortStates`) and the hotkeys follow all 8 ports. Every keyboard plays on port 0.
 - The menus take a UI action from any device (`Navigator`), and the quick menu hotkey and the blind recovery fire on any port.
 - The identity of a gamepad is a hash of its SDL GUID (vendor, product, version). Two pads of one model have the same identity. The source does not read the serial number: the `sdl3` crate panics on a serial that is not UTF-8 (OP-039).
-- SDL3 gives the path of a gamepad (`SDL_GetGamepadPath`). On Linux it is the event node, `/dev/input/eventN`. The kernel keeps the node while the device stays plugged, so the path tells two pads of one model apart for as long as they stay plugged, also across a relaunch. A replug can give a different node.
+- SDL3 gives the path of a gamepad (`SDL_GetGamepadPath`). On Linux it is the event node, `/dev/input/eventN`, or, with the HIDAPI drivers of SDL3, the hidraw node, `/dev/hidrawN`. The kernel keeps the node while the device stays plugged, so the path tells two pads of one model apart for as long as they stay plugged, also across a relaunch. A replug can give a different node.
 
 ## Words
 
@@ -35,6 +35,7 @@ Why not a fixed rule (for example by USB socket): the USB topology is not known 
 2. A pad that goes away frees its port at once. Every pad on a higher port moves down by one, in its order. So the ports in use are always 0 to n-1, and the first pad is always player 1.
 3. A pad that comes back is a new pad: it takes the end of the list.
 4. A pad that moves gets the release of every control that it held on its old port. The next poll gives its controls again on the new port. A move happens only in the menus, so a running core never sees a pad change its port.
+5. A hotkey held across a move starts again on the new port: the blind recovery hold counts its 5 s from the move. The release on the old port is the end of a short Select and Start press there, so the quick menu hotkey of that port fires; in the menus that hotkey does nothing.
 
 ### In a game (a run with a game)
 
@@ -47,7 +48,8 @@ Why not a fixed rule (for example by USB socket): the USB topology is not known 
 
 - The run that ends puts its port list in the relaunch file: for each port, the identity, the path and the name of the pad, and whether it is present.
 - The next run starts with every entry of the list as a held port. Its first scan connects the pads, which take their held ports by the rule above. A pad of one model on two ports keeps its port when its path is the same, which it is while it stays plugged.
-- A menu run then drops every held port that no pad took, and the pads move down (rule 2 of the menus). A game run keeps them held: a pad that was there in the menu and is not found at the start of the game keeps its port.
+- A scan connects the pads it found as one batch: the pads whose identity and path match a held port connect first, then the others in the order of SDL3. So a pad of the same model at a new path cannot take the port held for a pad that comes later in the same scan.
+- A menu run then drops every held port that no pad took, and the pads move down (rule 2 of the menus). A pad of the first scan that found every port in use or held then tries again, so the held ports of the run before never refuse a pad of this run. A game run keeps them held: a pad that was there in the menu and is not found at the start of the game keeps its port.
 - A run with no relaunch file (a boot) starts with no list.
 
 ### More than four pads
@@ -94,7 +96,7 @@ A screen that picks the pad for each player is a later step (see "Open questions
 - The four player rows are always there, so the panel has the same shape with no pad, and the crawler finds it on every rig.
 - `Hold Start for menu` moves from the Display panel to this panel. It is an input setting; the Display panel held it only because no input panel existed. The key, the schema entry and the levels do not change.
 - The panel reads the port list of the input source when it opens, and again when the list changes while it is on screen. A pad plugged in while the panel is open shows in the next frames.
-- The name is the name that SDL3 gives the pad (the name of its mapping). A character outside printable ASCII shows as `?`, because the font has no other glyphs. A name that does not fit is cut by the app with `...` so that the row fits: `Player 1`, one space and the text hold 44 characters, with a scroll bar. So the name has at most 35 characters, and 28 before ` (away)`. The tree row is then not clipped, and the crawler does not fail on a long name.
+- The name is the device name that SDL3 gives the pad, read through the joystick API: the gamepad API of the `sdl3` crate panics on a name that is not UTF-8, and such bytes become the replacement character. A character that the font has no glyph for (it has ASCII and the Latin-1 Supplement) shows as `?`, so `é` stays `é`. A name that does not fit is cut by the app with `...` so that the row fits: `Player 1`, one space and the text hold 44 characters, with a scroll bar. So the name has at most 35 characters, and 28 before ` (away)`. The tree row is then not clipped, and the crawler does not fail on a long name.
 - Every player row is a row of its own key, one for each port. A later task (M05, remapping per pad) can turn a player row into a `page` row that opens the page of that pad, with no change of the layout.
 
 Example, in a game, with player 2 unplugged:
@@ -111,7 +113,7 @@ Hold Start for menu         0 s          default
 ## The input source
 
 - The port rules are pure code in `neptron-input`: one table of ports (free, playing, held) and the rules above. The mapper uses it. The device backends decide nothing: they connect, disconnect and read.
-- The SDL3 source passes the pad key and the name on connect. It reads the path with `path_for_id` and the name with `name_for_id`. SDL types stay in `sdl.rs`.
+- The SDL3 source passes the pad key and the name on connect. It reads the path with `Gamepad::path` (every path that SDL3 makes is ASCII, so the UTF-8 unwrap of the crate cannot fail there) and the name with `Joystick::name`, which converts lossy. SDL types stay in `sdl.rs`.
 - A source of pads gives the frontend its port list (the "roster") and a change counter, through a trait of `neptron-input`. Sources with no pads (the window keyboard) give an empty list.
 - The source takes, when it opens, the rule of the run (menus or game) and the list of the run before.
 - A scripted pad source in `neptron-input` runs the same mapper and port table with no hardware. The tier 2 tests use it to plug, unplug and press pads.
@@ -119,7 +121,7 @@ Hold Start for menu         0 s          default
 
 ## Tests
 
-- Pure, `neptron-input`: plug order; unplug and compaction in the menus, with the release of the moved pads; unplug and hold in a game; a replug takes its held port; a pad of another model does not take a held port; five pads (the fifth on an extra port, and in the menus it moves down); nine pads (the ninth refused); two pads of one model: kept apart by the path, and the swap when both replug with a new path; the list of an earlier run restored in a menu run (missing pads dropped, the rest moved down) and in a game run (missing pads held).
+- Pure, `neptron-input`: plug order; unplug and compaction in the menus, with the release of the moved pads; unplug and hold in a game; a replug takes its held port; a pad of another model does not take a held port; five pads (the fifth on an extra port, and in the menus it moves down); nine pads (the ninth refused); two pads of one model: kept apart by the path, and the swap when both replug with a new path; the list of an earlier run restored in a menu run (missing pads dropped, the rest moved down) and in a game run (missing pads held); a scan that gives each pad of one model the port held for its path, whatever the order of SDL3; a first scan of the menus that frees held ports before it refuses a pad; the hotkeys from ports 4 to 7 and from a keyboard; a recovery hold that starts again after a move; a name that is not UTF-8 and a name that is not ASCII.
 - Libretro host: the fake core sees `RETRO_DEVICE_JOYPAD` on ports 0 to 3.
 - App: the Settings > Input rows for no pad, four pads, a held pad, extra pads and a long name; the relaunch file with and without the list.
 - Tier 2, with scripted pads: two pads in the menus, then a launch: the relaunch file holds both in order, and the game run gives each its port. In the game, player 1 unplugs, a third pad comes and gets port 2, and player 1 comes back on port 0; the core reads each press on its port. The panel shows the pads and an away pad. The crawler finds the panel.

@@ -552,3 +552,73 @@ fn the_same_hold_time_again_changes_nothing() {
     bench.hotkeys.set_start_hold_ns(HOLD_NS);
     assert_eq!(bench.update(HOLD_NS), [Hotkey::QuickMenu { port: 0 }]);
 }
+
+#[test]
+fn the_combinations_work_from_every_extra_port_and_from_a_keyboard() {
+    use neptron_input::{GAMEPAD_DEVICE_BASE, KEYBOARD_DEVICE_BASE};
+    let devices = (4..8)
+        .map(|port| (GAMEPAD_DEVICE_BASE + port, u8::try_from(port).unwrap()))
+        .chain([(KEYBOARD_DEVICE_BASE + 3, 0)]);
+    for (device, port) in devices {
+        let mut fe = Frontend::new();
+        fe.hold_combo(0, device);
+        fe.input.release(300 * MS, device, Control::Start);
+        fe.hold_combo(SECOND, device);
+        fe.run_to(SECOND + BLIND_RECOVERY_HOLD_NS);
+        assert_eq!(fe.menus(), [(300 * MS, port)], "{device:#x}");
+        assert_eq!(
+            fe.recoveries(),
+            [SECOND + BLIND_RECOVERY_HOLD_NS],
+            "{device:#x}"
+        );
+    }
+}
+
+#[test]
+fn a_pad_that_moves_in_the_menus_starts_its_recovery_hold_again() {
+    let pad = |n: u8| PadInfo {
+        identity: DeviceIdentity::from_parts(&[b"pad", &[n]]),
+        path: DeviceIdentity(u64::from(n)),
+        name: String::new(),
+    };
+    let mut mapper = Mapper::new();
+    let mut ports = PortStates::new();
+    let mut hotkeys = Hotkeys::new();
+    let mut events = Vec::new();
+    let mut fired = Vec::new();
+    let one = mapper.connect_gamepad(pad(1)).unwrap();
+    let two = mapper.connect_gamepad(pad(2)).unwrap();
+    let combo = |mapper: &mut Mapper, events: &mut Vec<InputEvent>| {
+        for button in [PadButton::Back, PadButton::Start] {
+            let input = RawInput::Button {
+                button,
+                pressed: true,
+            };
+            mapper.apply_gamepad(two, input, events).unwrap();
+        }
+    };
+    let mut frame = |events: &mut Vec<InputEvent>, now: u64, fired: &mut Vec<Hotkey>| {
+        ports.apply(events);
+        events.clear();
+        hotkeys.update(&ports, now, fired);
+    };
+    combo(&mut mapper, &mut events);
+    frame(&mut events, 0, &mut fired);
+    // Player 1 goes 3 s into the hold: player 2 moves to port 0. The
+    // release on port 1 is the end of a short press there, which opens
+    // the quick menu of port 1; in the menus that hotkey does nothing.
+    mapper.disconnect_gamepad(one, &mut events).unwrap();
+    frame(&mut events, 3 * SECOND, &mut fired);
+    assert_eq!(fired, [Hotkey::QuickMenu { port: 1 }]);
+    fired.clear();
+    combo(&mut mapper, &mut events);
+    frame(&mut events, 3 * SECOND + FRAME_NS, &mut fired);
+    frame(&mut events, BLIND_RECOVERY_HOLD_NS, &mut fired);
+    assert_eq!(fired, [], "the hold of port 1 does not carry over");
+    frame(
+        &mut events,
+        3 * SECOND + FRAME_NS + BLIND_RECOVERY_HOLD_NS,
+        &mut fired,
+    );
+    assert_eq!(fired, [Hotkey::BlindRecovery { port: 0 }]);
+}
