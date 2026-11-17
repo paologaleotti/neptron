@@ -30,6 +30,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
         self.poll_format_request();
         self.poll_library();
+        self.poll_set_check();
         self.poll_network(now_ns);
         match self.stage {
             Stage::List(_) => self.list_frame(now_ns),

@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+mod arcade;
 mod audio;
 mod boot;
 mod continued;

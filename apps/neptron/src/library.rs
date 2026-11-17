@@ -9,12 +9,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::SystemTime;
 
-use neptron_library::arcade::{self, ArcadeIndex};
+use neptron_library::arcade::{self, ArcadeIndex, Verdict};
 use neptron_library::cache::{self, CacheError, CacheLoad};
 use neptron_library::{Catalog, Changes, CoreDef, Game, Index, SystemDef, changes, refresh};
 use neptron_ui::snapshot::{GameEntry, GameId, GameSource, GameWindow, SystemEntry, SystemId};
 
 use crate::relaunch::GameRef;
+
+mod set_check;
+
+use set_check::Checking;
+pub use set_check::{CORE_BIOS_FOLDER, CheckJob, places};
 
 /// The catalog, the index and the scan that refreshes it.
 ///
@@ -29,6 +34,18 @@ pub struct Library {
     scan: Option<Running>,
     arcade_file: PathBuf,
     arcade: ArcadeState,
+    check: Option<Checking>,
+}
+
+/// What [`Library::start_check`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckStart {
+    /// A check started; [`Library::poll_check`] gives its verdict.
+    Started,
+    /// The game is not an arcade game: it starts with no check.
+    NotArcade,
+    /// A check runs already; no second one starts.
+    Running,
 }
 
 /// The core whose sets the arcade index lists.
@@ -164,6 +181,7 @@ impl Library {
             scan: None,
             arcade_file: PathBuf::new(),
             arcade: ArcadeState::Unread,
+            check: None,
         }
     }
 
@@ -249,9 +267,66 @@ impl Library {
         scanned
     }
 
-    /// The arcade index, as the last scan left it.
+    /// The arcade index, as the last scan or check left it.
     pub fn arcade(&self) -> &ArcadeState {
         &self.arcade
+    }
+
+    /// Starts the set check of `game` on the thread `neptron-set-check`,
+    /// when its core has the arcade index. `roms` is `share/roms` and
+    /// `bios` is `share/bios`. The frame thread then polls
+    /// [`Library::poll_check`] and never waits.
+    ///
+    /// # Errors
+    ///
+    /// The text of the error when the thread cannot start.
+    pub fn start_check(
+        &mut self,
+        game: GameId,
+        roms: &Path,
+        bios: &Path,
+    ) -> Result<CheckStart, String> {
+        if self.check.is_some() {
+            return Ok(CheckStart::Running);
+        }
+        let Some(found) = self.game(game).filter(|f| f.core.id == ARCADE_CORE) else {
+            return Ok(CheckStart::NotArcade);
+        };
+        let path = roms.join(found.game.path());
+        let job = CheckJob {
+            stem: found.game.stem().to_owned(),
+            game_folder: path.parent().map(Path::to_path_buf).unwrap_or_default(),
+            bios: bios.to_path_buf(),
+            arcade: self.arcade.clone(),
+            arcade_file: self.arcade_file.clone(),
+        };
+        let checking = Checking::start(game, job)
+            .map_err(|e| format!("cannot start the set check thread: {e}"))?;
+        self.check = Some(checking);
+        Ok(CheckStart::Started)
+    }
+
+    /// True while a set check runs.
+    pub fn checking(&self) -> bool {
+        self.check.is_some()
+    }
+
+    /// The game and the verdict of a finished set check, or `None` while
+    /// none has finished. It never waits: the join runs only when the
+    /// thread has ended. An index that the check read is kept.
+    pub fn poll_check(&mut self) -> Option<(GameId, Result<Verdict, String>)> {
+        if !self.check.as_ref().is_some_and(Checking::is_finished) {
+            return None;
+        }
+        let checking = self.check.take()?;
+        let game = checking.game;
+        let result = checking.join().map(|(verdict, state)| {
+            if matches!(self.arcade, ArcadeState::Unread) {
+                self.arcade = state;
+            }
+            verdict
+        });
+        Some((game, result))
     }
 
     /// The index, shared, for the cache job of the writer thread.

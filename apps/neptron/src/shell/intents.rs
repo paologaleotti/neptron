@@ -11,7 +11,10 @@ use neptron_ui::snapshot::NoticeKind;
 use neptron_video::{DisplayConfig, Phase};
 
 use super::{Outcome, PendingChange, Shell, Stage};
-use crate::library::{ScanKind, ScanStart};
+use crate::library::{CheckStart, ScanKind, ScanStart};
+
+/// The button of the notice that starts an arcade game with no set check.
+pub const START_UNCHECKED: &str = "Start";
 use crate::outbox::Job;
 use crate::pages::{self, Names};
 use crate::power::{self, PowerRequest};
@@ -99,15 +102,76 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 }
             }
             Intent::QuitGame => self.end_game(None),
-            Intent::DismissNotice(id) | Intent::AcceptNotice(id) => {
+            Intent::DismissNotice(id) => {
                 self.snap.notices.retain(|n| n.id != id);
+                self.unchecked_launch.take_if(|(notice, _)| *notice == id);
+            }
+            Intent::AcceptNotice(id) => {
+                self.snap.notices.retain(|n| n.id != id);
+                if let Some((_, game)) = self.unchecked_launch.take_if(|(notice, _)| *notice == id)
+                {
+                    self.log("an arcade game starts with no set check".to_owned());
+                    self.relaunch_into(game);
+                }
             }
         }
     }
 
-    /// Starts a game: the run ends with a relaunch into it. A launch while
-    /// a game runs is ignored.
+    /// Starts a game. An arcade game first gets its set check on its own
+    /// thread, which [`Self::poll_set_check`] takes; any other game ends
+    /// the run with a relaunch into it. A launch while a game runs or a
+    /// check runs is ignored.
     pub(super) fn launch(&mut self, game: neptron_ui::snapshot::GameId) {
+        if !matches!(self.stage, Stage::List(_)) || self.outcome.is_some() {
+            return;
+        }
+        let started = self
+            .library
+            .start_check(game, &self.paths.roms(), &self.paths.bios());
+        match started {
+            Ok(CheckStart::NotArcade) => self.relaunch_into(game),
+            Ok(CheckStart::Started) => self.log("set check of an arcade game".to_owned()),
+            Ok(CheckStart::Running) => {}
+            Err(e) => self.notice(NoticeKind::Warning, format!("The game did not start: {e}.")),
+        }
+    }
+
+    /// Takes a finished set check: the game starts, or a notice says why
+    /// not. With no arcade index, the notice asks the player whether to
+    /// start the game unchecked. The details of the check go to the log.
+    pub(super) fn poll_set_check(&mut self) {
+        let Some((game, result)) = self.library.poll_check() else {
+            return;
+        };
+        let verdict = match result {
+            Ok(verdict) => verdict,
+            Err(e) => {
+                self.notice(
+                    NoticeKind::Warning,
+                    format!("The files of the game could not be checked: {e}."),
+                );
+                return;
+            }
+        };
+        for line in verdict.details() {
+            self.log(format!("set check: {line}"));
+        }
+        let core = self
+            .library
+            .game(game)
+            .map_or_else(String::new, |f| f.core.name.clone());
+        match verdict.message(&core) {
+            None => self.relaunch_into(game),
+            Some(text) if verdict.stops() => self.notice(NoticeKind::Warning, text),
+            Some(text) => {
+                let id = self.notice_with_choice(NoticeKind::Warning, text, START_UNCHECKED);
+                self.unchecked_launch = Some((id, game));
+            }
+        }
+    }
+
+    /// Ends the run with a relaunch into `game`, from the game list.
+    fn relaunch_into(&mut self, game: neptron_ui::snapshot::GameId) {
         if !matches!(self.stage, Stage::List(_)) || self.outcome.is_some() {
             return;
         }

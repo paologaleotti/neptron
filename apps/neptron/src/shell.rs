@@ -159,6 +159,9 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
     menu_hotkey: bool,
     picture_noticed: bool,
     next_notice: u32,
+    /// The notice that asks whether to start an arcade game that cannot be
+    /// checked, and that game.
+    unchecked_launch: Option<(neptron_ui::snapshot::NoticeId, neptron_ui::snapshot::GameId)>,
     frame: Rc<Cell<u64>>,
     control_queue: Rc<RefCell<VecDeque<(u64, InputEvent)>>>,
     log: VecDeque<String>,

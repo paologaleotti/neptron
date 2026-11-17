@@ -222,13 +222,33 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
 
     /// Adds a notice for the player, and the line to the log.
     pub(super) fn notice(&mut self, kind: NoticeKind, text: String) {
+        self.push_notice(kind, text, None);
+    }
+
+    /// Adds a notice that asks the player to choose: `Cancel` or `choice`.
+    /// Returns its id, which the answer names.
+    pub(super) fn notice_with_choice(
+        &mut self,
+        kind: NoticeKind,
+        text: String,
+        choice: &str,
+    ) -> NoticeId {
+        self.push_notice(kind, text, Some(choice))
+    }
+
+    fn push_notice(&mut self, kind: NoticeKind, text: String, choice: Option<&str>) -> NoticeId {
         self.log(text.clone());
         if self.snap.notices.len() == NOTICES_MAX {
             self.snap.notices.remove(0);
         }
         let id = NoticeId(self.next_notice);
         self.next_notice = self.next_notice.wrapping_add(1);
-        self.snap.notices.push(Notice::new(id, text, kind));
+        let notice = Notice::new(id, text, kind);
+        self.snap.notices.push(match choice {
+            Some(label) => notice.with_choice(label),
+            None => notice,
+        });
+        id
     }
 }
 
