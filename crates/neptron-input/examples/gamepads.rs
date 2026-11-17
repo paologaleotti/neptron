@@ -24,7 +24,8 @@ const FRAME: Duration = Duration::from_micros(16_667);
 fn main() -> Result<(), Box<dyn Error>> {
     let mappings =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/input/gamecontrollerdb.txt");
-    let mut pads = SdlGamepads::open(PortRule::Menus, &Roster::new(), &mappings)?;
+    let community = Path::new(neptron_input::COMMUNITY_MAPPING_FILE);
+    let mut pads = SdlGamepads::open(PortRule::Menus, &Roster::new(), &[&mappings, community])?;
     let mut events: Vec<InputEvent> = Vec::with_capacity(256);
     let mut notices: Vec<InputNotice> = Vec::new();
     let start = Instant::now();

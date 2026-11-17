@@ -50,7 +50,8 @@ pub use key_map::{KEY_MAP, key_control, looks_like_keyboard, mapped_keys_down};
 pub use keyboards::{EvdevKeyboards, INPUT_DIR, KEYBOARD_SCAN_INTERVAL_POLLS};
 pub use mapper::{Mapper, MapperError};
 pub use mapping_file::{
-    MAPPING_FILE, MappingLineError, Mappings, parse_mappings, read_mapping_file,
+    COMMUNITY_MAPPING_FILE, MAPPING_FILE, MappingLineError, Mappings, parse_mappings,
+    read_mapping_file,
 };
 pub use notice::{InputNotice, MAX_NOTICES};
 pub use pad_map::{

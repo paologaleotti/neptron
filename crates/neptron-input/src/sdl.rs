@@ -13,7 +13,7 @@ use crate::device::DeviceIdentity;
 use crate::ffi;
 use crate::generic_layout::{GenericLayout, JoystickCounts};
 use crate::mapper::Mapper;
-use crate::mapping_file::read_mapping_file;
+use crate::mapping_file::{read_mapping_file, sdl_add_order};
 use crate::notice::{InputNotice, NoticeQueue};
 use crate::pad_maps::{BuiltinMaps, PadLayout, PadMap};
 use crate::port_table::PadId;
@@ -36,7 +36,7 @@ pub const SCAN_INTERVAL_POLLS: u32 = 30;
 /// where no video subsystem exists, and in a window build, where the
 /// window owns the one event pump of the process.
 ///
-/// A joystick with a gamepad mapping (from the NEPTRON mapping file or
+/// A joystick with a gamepad mapping (from a mapping file or
 /// the database of SDL3) opens as a gamepad with the standard layout. Any
 /// other joystick opens as a plain joystick with the generic layout, or
 /// is ignored, with a notice, when it is not a gamepad. A pad that finds
@@ -76,10 +76,12 @@ pub enum SdlInputError {
 
 impl SdlGamepads {
     /// Starts the SDL3 joystick and gamepad subsystems, and adds the good
-    /// lines of the NEPTRON mapping file at `mappings` to SDL3. The first
-    /// `poll` finds the pads that are already connected. The ports follow
-    /// `rule`, and start with the pads of `earlier` (the roster of the run
-    /// before) held on their ports.
+    /// lines of the mapping files at `mappings` to SDL3. The files are in
+    /// priority order: for one GUID, a line of an earlier file wins over a
+    /// line of a later file, and both win over the built-in line of SDL3.
+    /// The first `poll` finds the pads that are already connected. The
+    /// ports follow `rule`, and start with the pads of `earlier` (the
+    /// roster of the run before) held on their ports.
     ///
     /// A missing or damaged mapping file gives notices and never stops
     /// the source.
@@ -88,7 +90,11 @@ impl SdlGamepads {
     ///
     /// [`SdlInputError::Sdl`] when SDL3 cannot start or cannot start a
     /// subsystem.
-    pub fn open(rule: PortRule, earlier: &Roster, mappings: &Path) -> Result<Self, SdlInputError> {
+    pub fn open(
+        rule: PortRule,
+        earlier: &Roster,
+        mappings: &[&Path],
+    ) -> Result<Self, SdlInputError> {
         let sdl = sdl3::init().map_err(|e| sdl_error("init", &e))?;
         let joysticks = sdl.joystick().map_err(|e| sdl_error("joystick init", &e))?;
         let gamepads = sdl.gamepad().map_err(|e| sdl_error("gamepad init", &e))?;
@@ -98,7 +104,9 @@ impl SdlGamepads {
         joysticks.set_joystick_events_enabled(false);
         gamepads.set_events_processing_state(false);
         let mut notices = NoticeQueue::default();
-        add_mappings(&gamepads, mappings, &mut notices);
+        for path in sdl_add_order(mappings) {
+            add_mappings(&gamepads, path, &mut notices);
+        }
         Ok(Self {
             open: Vec::with_capacity(usize::from(crate::MAX_PORTS)),
             ignored: Vec::new(),

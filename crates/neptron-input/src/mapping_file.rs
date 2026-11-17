@@ -13,6 +13,11 @@ use crate::notice::InputNotice;
 /// The mapping file under the data folder of the image.
 pub const MAPPING_FILE: &str = "input/gamecontrollerdb.txt";
 
+/// The community database `SDL_GameControllerDB` in the image. The
+/// package `os/package/sdl-gamecontrollerdb` installs it outside the data
+/// folder, because the install step of the frontend empties that folder.
+pub const COMMUNITY_MAPPING_FILE: &str = "/usr/share/sdl-gamecontrollerdb/gamecontrollerdb.txt";
+
 /// The digits of an SDL GUID in a mapping line.
 const GUID_DIGITS: usize = 32;
 
@@ -96,6 +101,17 @@ pub fn parse_mappings(text: &str, path: &str, platform: &str) -> Mappings {
         }
     }
     mappings
+}
+
+/// The mapping files in the order of the calls to SDL. `files` is in
+/// priority order, and for one GUID SDL keeps the line of the later call,
+/// so the file that must win goes last.
+#[cfg_attr(
+    not(feature = "sdl3"),
+    allow(dead_code, reason = "used by the SDL3 source")
+)]
+pub(crate) fn sdl_add_order<'a>(files: &'a [&'a Path]) -> impl Iterator<Item = &'a Path> {
+    files.iter().rev().copied()
 }
 
 /// Checks one mapping line, and gives its platform when it names one.
@@ -203,6 +219,51 @@ mod tests {
             mappings.notices,
             [line_notice(3, "\"xinputs\" is not a GUID of 32 hex digits")]
         );
+    }
+
+    #[test]
+    fn a_file_of_the_community_database_gives_its_linux_lines_only() {
+        // The shape of SDL_GameControllerDB: a header, a comment for each
+        // platform, every line with its platform. The GUIDs are invented.
+        let text = "# Game Controller DB for SDL in 2.0.16 format\n\
+                    # Source: https://github.com/mdqinc/SDL_GameControllerDB\n\
+                    \n\
+                    # Windows\n\
+                    03000000111100002222000000000000,Pad W,a:b0,b:b1,platform:Windows,\n\
+                    xinput,XInput Controller,a:b0,b:b1,platform:Windows,\n\
+                    \n\
+                    # Mac OS X\n\
+                    03000000111100002222000000010000,Pad M,a:b1,b:b2,platform:Mac OS X,\n\
+                    \n\
+                    # Linux\n\
+                    03000000111100002222000011010000,Pad L,a:b1,b:b2,x:b0,platform:Linux,\n\
+                    05000000333300004444000000010000,Pad L2,a:b0,dpup:h0.1,platform:Linux,\n\
+                    xinput,XInput Controller,a:b0,b:b1,platform:Linux,\n\
+                    \n\
+                    # Android\n\
+                    38653964633230666463343334313533,Pad A,a:b0,platform:Android,\n\
+                    \n\
+                    # iOS\n\
+                    05000000ac0500000100000000006d01,Pad I,a:b0,platform:iOS,\n";
+        let mappings = parse_mappings(text, COMMUNITY_MAPPING_FILE, "Linux");
+        assert_eq!(mappings.notices, []);
+        let numbers: Vec<usize> = mappings.lines.iter().map(|(n, _)| *n).collect();
+        assert_eq!(numbers, [12, 13, 14]);
+        assert!(
+            mappings
+                .lines
+                .iter()
+                .all(|(_, l)| l.ends_with("platform:Linux,"))
+        );
+    }
+
+    #[test]
+    fn the_file_that_must_win_goes_to_sdl_last() {
+        let neptron = Path::new("neptron.txt");
+        let community = Path::new(COMMUNITY_MAPPING_FILE);
+        let files = [neptron, community];
+        let order: Vec<&Path> = sdl_add_order(&files).collect();
+        assert_eq!(order, [community, neptron]);
     }
 
     #[test]
