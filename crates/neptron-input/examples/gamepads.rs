@@ -14,14 +14,14 @@ use std::error::Error;
 use std::time::{Duration, Instant};
 
 use neptron_backend::InputSource;
-use neptron_input::{InputNotice, SdlGamepads, port_of};
+use neptron_input::{InputNotice, PortRule, Roster, SdlGamepads, port_of};
 use neptron_types::InputEvent;
 
 const RUN_FOR: Duration = Duration::from_secs(10);
 const FRAME: Duration = Duration::from_micros(16_667);
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut pads = SdlGamepads::open()?;
+    let mut pads = SdlGamepads::open(PortRule::Menus, &Roster::new())?;
     let mut events: Vec<InputEvent> = Vec::with_capacity(256);
     let mut notices: Vec<InputNotice> = Vec::new();
     let start = Instant::now();

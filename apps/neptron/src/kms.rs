@@ -184,7 +184,11 @@ pub fn run(
     }
     notices.extend(opened.notices);
     let audio = opened.sink;
-    let pads = match neptron_input::SdlGamepads::open() {
+    let rule = match next.as_ref().and_then(|n| n.game.as_ref()) {
+        Some(_) => neptron_input::PortRule::Game,
+        None => neptron_input::PortRule::Menus,
+    };
+    let pads = match neptron_input::SdlGamepads::open(rule, &neptron_input::Roster::new()) {
         Ok(pads) => Some(pads),
         Err(e) => {
             crate::say!("neptron: cannot open the gamepads, the run reads keyboards only: {e}");

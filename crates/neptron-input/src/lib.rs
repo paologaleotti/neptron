@@ -20,8 +20,10 @@ mod mapper;
 )]
 mod notice;
 mod pad_map;
+mod port_table;
 mod ports;
 mod raw;
+mod roster;
 #[cfg(feature = "sdl3")]
 mod sdl;
 mod state;
@@ -42,7 +44,9 @@ pub use pad_map::{
     AxisTarget, PAD_BUTTON_MAP, STICK_DEAD_ZONE, TRIGGER_THRESHOLD, axis_target, hat_values,
     pad_control, stick_value, trigger_value,
 };
+pub use port_table::PadId;
 pub use ports::PortStates;
 pub use raw::{HatState, KeyAction, KeyCode, PadAxis, PadButton, RawInput};
+pub use roster::{PLAYER_PORTS, PadInfo, PadRoster, PortRule, Roster, RosterEntry, RosterError};
 #[cfg(feature = "sdl3")]
 pub use sdl::{SCAN_INTERVAL_POLLS, SdlGamepads, SdlInputError};

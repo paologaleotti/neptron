@@ -9,7 +9,9 @@ use sdl3::{GamepadSubsystem, JoystickSubsystem};
 use crate::device::DeviceIdentity;
 use crate::mapper::Mapper;
 use crate::notice::{InputNotice, NoticeQueue};
+use crate::port_table::PadId;
 use crate::raw::{PadAxis, PadButton, RawInput};
+use crate::roster::{PadInfo, PadRoster, PortRule, Roster};
 
 /// The number of polls between two scans for new gamepads. At 60 frames a
 /// second a new gamepad is found within half a second.
@@ -26,7 +28,8 @@ pub const SCAN_INTERVAL_POLLS: u32 = 30;
 ///
 /// A joystick that SDL has no gamepad mapping for is ignored, with a
 /// notice. A gamepad that finds every port in use is ignored until it
-/// reconnects.
+/// reconnects. The ports follow the rule of the run (see [`Mapper`]); the
+/// first poll connects the pads that are there, then settles the ports.
 ///
 /// Make the source and poll it on one thread. With the `sdl3` crate, every
 /// `sdl3::init` of the process runs on the thread of the first one.
@@ -36,6 +39,7 @@ pub struct SdlGamepads {
     ignored: Vec<JoystickId>,
     mapper: Mapper,
     polls_to_scan: u32,
+    settled: bool,
     notices: NoticeQueue,
     gamepads: GamepadSubsystem,
     joysticks: JoystickSubsystem,
@@ -57,13 +61,15 @@ pub enum SdlInputError {
 
 impl SdlGamepads {
     /// Starts the SDL3 joystick and gamepad subsystems. The first `poll`
-    /// finds the gamepads that are already connected.
+    /// finds the gamepads that are already connected. The ports follow
+    /// `rule`, and start with the pads of `earlier` (the roster of the run
+    /// before) held on their ports.
     ///
     /// # Errors
     ///
     /// [`SdlInputError::Sdl`] when SDL3 cannot start or cannot start a
     /// subsystem.
-    pub fn open() -> Result<Self, SdlInputError> {
+    pub fn open(rule: PortRule, earlier: &Roster) -> Result<Self, SdlInputError> {
         let sdl = sdl3::init().map_err(|e| sdl_error("init", &e))?;
         let joysticks = sdl.joystick().map_err(|e| sdl_error("joystick init", &e))?;
         let gamepads = sdl.gamepad().map_err(|e| sdl_error("gamepad init", &e))?;
@@ -75,8 +81,9 @@ impl SdlGamepads {
         Ok(Self {
             open: Vec::with_capacity(usize::from(crate::MAX_PORTS)),
             ignored: Vec::new(),
-            mapper: Mapper::new(),
+            mapper: Mapper::with_rule(rule, earlier),
             polls_to_scan: 0,
+            settled: false,
             notices: NoticeQueue::default(),
             gamepads,
             joysticks,
@@ -96,12 +103,12 @@ impl SdlGamepads {
                 continue;
             }
             let gone = self.open.remove(i);
-            if let Err(e) = self.mapper.disconnect(gone.device, out) {
-                self.notices.push(lost_track(gone.device, &e));
+            let device = self.mapper.device_of(gone.id);
+            match (device, self.mapper.disconnect_gamepad(gone.id, out)) {
+                (Some(device), Ok(())) => self.notices.push(InputNotice::Disconnected { device }),
+                (_, Err(e)) => self.notices.push(lost_track(&e)),
+                (None, Ok(())) => {}
             }
-            self.notices.push(InputNotice::Disconnected {
-                device: gone.device,
-            });
         }
     }
 
@@ -140,17 +147,26 @@ impl SdlGamepads {
             Ok(pad) => pad,
             Err(e) => return ignore(self, what, e.to_string()),
         };
-        let identity = DeviceIdentity::from_parts(&[&guid.raw().data]);
-        let device = match self.mapper.connect_gamepad(identity) {
-            Ok(device) => device,
+        // The name comes from the mapping that `is_gamepad` found, and the
+        // path is the event node; both are ASCII, so the crate's UTF-8
+        // `unwrap` does not panic on them.
+        let info = PadInfo {
+            identity: DeviceIdentity::from_parts(&[&guid.raw().data]),
+            path: DeviceIdentity::from_parts(&[pad.path().unwrap_or_default().as_bytes()]),
+            name: pad.name().unwrap_or_default(),
+        };
+        let pad_id = match self.mapper.connect_gamepad(info) {
+            Ok(pad_id) => pad_id,
             Err(e) => return ignore(self, what, e.to_string()),
         };
         self.open.push(OpenPad {
             pad,
             joystick: id,
-            device,
+            id: pad_id,
         });
-        self.notices.push(InputNotice::Connected { device, what });
+        if let Some(device) = self.mapper.device_of(pad_id) {
+            self.notices.push(InputNotice::Connected { device, what });
+        }
     }
 
     fn read(&mut self, out: &mut Vec<InputEvent>) {
@@ -164,8 +180,8 @@ impl SdlGamepads {
                 value: pad.pad.axis(*sdl),
             });
             for input in buttons.chain(axes) {
-                if let Err(e) = self.mapper.apply(pad.device, input, out) {
-                    self.notices.push(lost_track(pad.device, &e));
+                if let Err(e) = self.mapper.apply_gamepad(pad.id, input, out) {
+                    self.notices.push(lost_track(&e));
                 }
             }
         }
@@ -180,14 +196,32 @@ impl InputSource for SdlGamepads {
             self.scan();
             self.polls_to_scan = SCAN_INTERVAL_POLLS;
         }
+        if !self.settled {
+            self.mapper.settle(out);
+            self.settled = true;
+        }
         self.polls_to_scan -= 1;
         self.read(out);
     }
 }
 
+impl PadRoster for SdlGamepads {
+    fn roster(&self) -> Roster {
+        self.mapper.roster()
+    }
+
+    fn roster_changes(&self) -> u64 {
+        self.mapper.roster_changes()
+    }
+}
+
 impl std::fmt::Debug for SdlGamepads {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let devices: Vec<u32> = self.open.iter().map(|pad| pad.device).collect();
+        let devices: Vec<Option<u32>> = self
+            .open
+            .iter()
+            .map(|pad| self.mapper.device_of(pad.id))
+            .collect();
         f.debug_struct("SdlGamepads")
             .field("devices", &devices)
             .field("polls_to_scan", &self.polls_to_scan)
@@ -198,7 +232,7 @@ impl std::fmt::Debug for SdlGamepads {
 struct OpenPad {
     pad: Gamepad,
     joystick: JoystickId,
-    device: u32,
+    id: PadId,
 }
 
 /// Each SDL3 button that has a RetroPad control, and its name in the
@@ -237,12 +271,12 @@ fn sdl_error(step: &'static str, error: &sdl3::Error) -> SdlInputError {
     }
 }
 
-/// The notice for a mapper error on a device that the source holds. The
-/// source connects each device before it reads it and disconnects it only
+/// The notice for a mapper error on a pad that the source holds. The
+/// source connects each pad before it reads it and disconnects it only
 /// when it drops it, so this shows a defect, not a device problem.
-fn lost_track(device: u32, error: &crate::MapperError) -> InputNotice {
+fn lost_track(error: &crate::MapperError) -> InputNotice {
     InputNotice::Ignored {
-        what: format!("device {device:#x}"),
+        what: "an open gamepad".to_owned(),
         reason: error.to_string(),
     }
 }

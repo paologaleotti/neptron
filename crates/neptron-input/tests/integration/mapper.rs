@@ -1,12 +1,46 @@
 use neptron_input::{
     DeviceIdentity, GAMEPAD_DEVICE_BASE, HatState, KEYBOARD_DEVICE_BASE, KeyAction, KeyCode,
-    MAX_KEYBOARDS, MAX_PORTS, Mapper, MapperError, PadAxis, PadButton, RawInput, STICK_DEAD_ZONE,
-    TRIGGER_THRESHOLD, port_of,
+    MAX_KEYBOARDS, MAX_PORTS, Mapper, MapperError, PadAxis, PadButton, PadId, PadInfo, PortRule,
+    RawInput, Roster, RosterEntry, STICK_DEAD_ZONE, TRIGGER_THRESHOLD, port_of,
 };
 use neptron_types::{Control, InputEvent};
 
-fn pad(n: u8) -> DeviceIdentity {
-    DeviceIdentity::from_parts(&[b"pad", &[n]])
+/// Pad `n`: its own model, at its own path.
+fn pad(n: u8) -> PadInfo {
+    twin(n, n)
+}
+
+/// A pad of model `model` at path `path`.
+fn twin(model: u8, path: u8) -> PadInfo {
+    PadInfo {
+        identity: DeviceIdentity::from_parts(&[b"pad", &[model]]),
+        path: DeviceIdentity::from_parts(&[b"/dev/input/event", &[path]]),
+        name: format!("Pad {model}"),
+    }
+}
+
+fn game() -> Mapper {
+    Mapper::with_rule(PortRule::Game, &Roster::new())
+}
+
+/// Connects `info` and returns its device id.
+fn connect(mapper: &mut Mapper, info: PadInfo) -> u32 {
+    let id = mapper.connect_gamepad(info).unwrap();
+    mapper.device_of(id).unwrap()
+}
+
+fn port(mapper: &Mapper, id: PadId) -> Option<u8> {
+    mapper.device_of(id).and_then(port_of)
+}
+
+/// The model and presence on each port, `None` for a free port.
+fn seats(mapper: &Mapper) -> Vec<Option<(String, bool)>> {
+    mapper
+        .roster()
+        .ports()
+        .iter()
+        .map(|e| e.as_ref().map(|e| (e.pad.name.clone(), e.present)))
+        .collect()
 }
 
 fn press(button: PadButton) -> RawInput {
@@ -45,8 +79,8 @@ fn ev(device: u32, control: Control, value: i16) -> InputEvent {
 #[test]
 fn gamepads_take_the_lowest_free_port_in_connection_order() {
     let mut mapper = Mapper::new();
-    let first = mapper.connect_gamepad(pad(1)).unwrap();
-    let second = mapper.connect_gamepad(pad(2)).unwrap();
+    let first = connect(&mut mapper, pad(1));
+    let second = connect(&mut mapper, pad(2));
     assert_eq!(first, GAMEPAD_DEVICE_BASE);
     assert_eq!(second, GAMEPAD_DEVICE_BASE + 1);
     assert_eq!(port_of(first), Some(0));
@@ -55,14 +89,15 @@ fn gamepads_take_the_lowest_free_port_in_connection_order() {
 
 #[test]
 fn a_ninth_gamepad_gets_no_port() {
-    let mut mapper = Mapper::new();
-    for n in 0..MAX_PORTS {
-        mapper.connect_gamepad(pad(n)).unwrap();
+    for mut mapper in [Mapper::new(), game()] {
+        for n in 0..MAX_PORTS {
+            mapper.connect_gamepad(pad(n)).unwrap();
+        }
+        assert_eq!(
+            mapper.connect_gamepad(pad(99)),
+            Err(MapperError::NoFreePort { max: MAX_PORTS })
+        );
     }
-    assert_eq!(
-        mapper.connect_gamepad(pad(99)),
-        Err(MapperError::NoFreePort { max: MAX_PORTS })
-    );
     assert_eq!(
         MapperError::NoFreePort { max: 8 }.to_string(),
         "every one of the 8 gamepad ports is in use"
@@ -72,7 +107,7 @@ fn a_ninth_gamepad_gets_no_port() {
 #[test]
 fn a_disconnect_releases_every_held_control_and_frees_the_port() {
     let mut mapper = Mapper::new();
-    let device = mapper.connect_gamepad(pad(1)).unwrap();
+    let device = connect(&mut mapper, pad(1));
     let mut out = Vec::new();
     mapper
         .apply(device, press(PadButton::South), &mut out)
@@ -110,42 +145,248 @@ fn a_disconnect_releases_every_held_control_and_frees_the_port() {
 }
 
 #[test]
-fn a_reconnect_gets_its_port_back() {
+fn a_pad_that_is_gone_is_not_connected_by_its_id() {
+    let mut mapper = Mapper::new();
+    let mut out = Vec::new();
+    let id = mapper.connect_gamepad(pad(1)).unwrap();
+    mapper.disconnect_gamepad(id, &mut out).unwrap();
+    assert_eq!(mapper.device_of(id), None);
+    assert_eq!(
+        mapper.disconnect_gamepad(id, &mut out),
+        Err(MapperError::PadNotConnected { pad: id })
+    );
+    assert_eq!(
+        mapper.apply_gamepad(id, press(PadButton::South), &mut out),
+        Err(MapperError::PadNotConnected { pad: id })
+    );
+    assert!(out.is_empty());
+}
+
+#[test]
+fn in_the_menus_the_pads_above_a_gone_pad_move_down() {
     let mut mapper = Mapper::new();
     let mut out = Vec::new();
     let a = mapper.connect_gamepad(pad(1)).unwrap();
     let b = mapper.connect_gamepad(pad(2)).unwrap();
-    mapper.disconnect(a, &mut out).unwrap();
-    mapper.disconnect(b, &mut out).unwrap();
-    // Reconnected in the other order: each finds its own port.
-    assert_eq!(mapper.connect_gamepad(pad(2)).unwrap(), b);
-    assert_eq!(mapper.connect_gamepad(pad(1)).unwrap(), a);
+    let c = mapper.connect_gamepad(pad(3)).unwrap();
+    mapper
+        .apply_gamepad(c, press(PadButton::Start), &mut out)
+        .unwrap();
+    out.clear();
+
+    mapper.disconnect_gamepad(a, &mut out).unwrap();
+    assert_eq!(port(&mapper, b), Some(0));
+    assert_eq!(port(&mapper, c), Some(1));
+    // C held Start on port 2: it is released there, and C starts neutral
+    // on port 1, so the next read gives the press again on its new port.
+    assert_eq!(out, [ev(GAMEPAD_DEVICE_BASE + 2, Control::Start, 0)]);
+    out.clear();
+    mapper
+        .apply_gamepad(c, press(PadButton::Start), &mut out)
+        .unwrap();
+    assert_eq!(out, [ev(GAMEPAD_DEVICE_BASE + 1, Control::Start, 1)]);
+
+    // A comes back as a new pad, at the end.
+    let a = mapper.connect_gamepad(pad(1)).unwrap();
+    assert_eq!(port(&mapper, a), Some(2));
+    assert_eq!(
+        seats(&mapper)[..4],
+        [
+            Some(("Pad 2".to_owned(), true)),
+            Some(("Pad 3".to_owned(), true)),
+            Some(("Pad 1".to_owned(), true)),
+            None
+        ]
+    );
 }
 
 #[test]
-fn a_new_gamepad_takes_the_lowest_free_port_even_if_another_had_it() {
-    let mut mapper = Mapper::new();
+fn in_a_game_a_gone_pad_keeps_its_port_and_gets_it_back() {
+    let mut mapper = game();
     let mut out = Vec::new();
     let a = mapper.connect_gamepad(pad(1)).unwrap();
-    mapper.connect_gamepad(pad(2)).unwrap();
-    mapper.disconnect(a, &mut out).unwrap();
-    // Player one swaps pads: the new pad is player one.
-    assert_eq!(mapper.connect_gamepad(pad(3)).unwrap(), a);
-    // The old pad comes back and gets the next free port.
+    let b = mapper.connect_gamepad(pad(2)).unwrap();
+    mapper
+        .apply_gamepad(a, press(PadButton::East), &mut out)
+        .unwrap();
+    out.clear();
+
+    mapper.disconnect_gamepad(a, &mut out).unwrap();
+    assert_eq!(out, [ev(GAMEPAD_DEVICE_BASE, Control::A, 0)]);
+    assert_eq!(port(&mapper, b), Some(1), "nothing moves in a game");
+    assert_eq!(seats(&mapper)[0], Some(("Pad 1".to_owned(), false)));
+
+    // A pad of another model does not take player 1.
+    let c = mapper.connect_gamepad(pad(3)).unwrap();
+    assert_eq!(port(&mapper, c), Some(2));
+    // Player 1 comes back on its port, neutral.
+    let a = mapper.connect_gamepad(pad(1)).unwrap();
+    assert_eq!(port(&mapper, a), Some(0));
+    assert_eq!(seats(&mapper)[0], Some(("Pad 1".to_owned(), true)));
+    out.clear();
+    mapper
+        .apply_gamepad(a, release(PadButton::East), &mut out)
+        .unwrap();
+    assert!(out.is_empty());
+}
+
+#[test]
+fn a_held_port_takes_the_same_model_at_a_new_path() {
+    let mut mapper = game();
+    let mut out = Vec::new();
+    let a = mapper.connect_gamepad(twin(1, 10)).unwrap();
+    mapper.disconnect_gamepad(a, &mut out).unwrap();
+    // A replug can give the pad another event node.
+    let a = mapper.connect_gamepad(twin(1, 11)).unwrap();
+    assert_eq!(port(&mapper, a), Some(0));
+}
+
+#[test]
+fn a_fifth_pad_takes_an_extra_port_and_moves_down_in_the_menus() {
+    let mut mapper = Mapper::new();
+    let mut out = Vec::new();
+    let ids: Vec<_> = (1..=5)
+        .map(|n| mapper.connect_gamepad(pad(n)).unwrap())
+        .collect();
+    assert_eq!(port(&mapper, ids[4]), Some(4));
+    mapper.disconnect_gamepad(ids[1], &mut out).unwrap();
+    assert_eq!(port(&mapper, ids[4]), Some(3));
+}
+
+#[test]
+fn in_a_game_a_fifth_pad_waits_above_the_held_ports() {
+    let mut mapper = game();
+    let mut out = Vec::new();
+    let ids: Vec<_> = (1..=4)
+        .map(|n| mapper.connect_gamepad(pad(n)).unwrap())
+        .collect();
+    mapper.disconnect_gamepad(ids[0], &mut out).unwrap();
+    let fifth = mapper.connect_gamepad(pad(5)).unwrap();
+    assert_eq!(port(&mapper, fifth), Some(4));
+}
+
+#[test]
+fn held_ports_count_as_used_for_a_ninth_pad() {
+    let mut mapper = game();
+    let mut out = Vec::new();
+    for n in 0..MAX_PORTS {
+        let id = mapper.connect_gamepad(pad(n)).unwrap();
+        mapper.disconnect_gamepad(id, &mut out).unwrap();
+    }
     assert_eq!(
-        mapper.connect_gamepad(pad(1)).unwrap(),
-        GAMEPAD_DEVICE_BASE + 2
+        mapper.connect_gamepad(pad(99)),
+        Err(MapperError::NoFreePort { max: MAX_PORTS })
     );
+    // A pad that has a held port still gets it.
+    let back = mapper.connect_gamepad(pad(3)).unwrap();
+    assert_eq!(port(&mapper, back), Some(3));
+}
+
+#[test]
+fn two_pads_of_one_model_are_kept_apart_by_their_path() {
+    let mut mapper = game();
+    let mut out = Vec::new();
+    let a = mapper.connect_gamepad(twin(7, 1)).unwrap();
+    let b = mapper.connect_gamepad(twin(7, 2)).unwrap();
+    mapper.disconnect_gamepad(a, &mut out).unwrap();
+    mapper.disconnect_gamepad(b, &mut out).unwrap();
+    // Back in the other order, at the same paths: each finds its port.
+    let b = mapper.connect_gamepad(twin(7, 2)).unwrap();
+    let a = mapper.connect_gamepad(twin(7, 1)).unwrap();
+    assert_eq!(port(&mapper, a), Some(0));
+    assert_eq!(port(&mapper, b), Some(1));
+}
+
+#[test]
+fn two_pads_of_one_model_at_new_paths_can_swap() {
+    let mut mapper = game();
+    let mut out = Vec::new();
+    let a = mapper.connect_gamepad(twin(7, 1)).unwrap();
+    let b = mapper.connect_gamepad(twin(7, 2)).unwrap();
+    mapper.disconnect_gamepad(a, &mut out).unwrap();
+    mapper.disconnect_gamepad(b, &mut out).unwrap();
+    // B comes back first at a new path: it takes the lower held port.
+    let b = mapper.connect_gamepad(twin(7, 3)).unwrap();
+    let a = mapper.connect_gamepad(twin(7, 4)).unwrap();
+    assert_eq!(port(&mapper, b), Some(0));
+    assert_eq!(port(&mapper, a), Some(1));
+}
+
+/// The roster of a run with pads 1, 2 and 3 on ports 0 to 2.
+fn earlier() -> Roster {
+    let mut roster = Roster::new();
+    for n in 1..=3 {
+        let entry = RosterEntry {
+            pad: pad(n),
+            present: true,
+        };
+        roster.set(n - 1, Some(entry)).unwrap();
+    }
+    roster
+}
+
+#[test]
+fn a_menu_run_keeps_the_order_of_the_run_before_and_drops_missing_pads() {
+    let mut mapper = Mapper::with_rule(PortRule::Menus, &earlier());
+    let mut out = Vec::new();
+    // SDL lists the pads in another order, and pad 1 is gone.
+    let new = mapper.connect_gamepad(pad(9)).unwrap();
+    let three = mapper.connect_gamepad(pad(3)).unwrap();
+    let two = mapper.connect_gamepad(pad(2)).unwrap();
+    assert_eq!(port(&mapper, three), Some(2));
+    assert_eq!(port(&mapper, two), Some(1));
+    assert_eq!(port(&mapper, new), Some(3));
+    mapper.settle(&mut out);
+    assert!(out.is_empty(), "the pads are neutral before the first read");
+    assert_eq!(port(&mapper, two), Some(0));
+    assert_eq!(port(&mapper, three), Some(1));
+    assert_eq!(port(&mapper, new), Some(2));
+}
+
+#[test]
+fn a_game_run_keeps_the_ports_of_missing_pads() {
+    let mut mapper = Mapper::with_rule(PortRule::Game, &earlier());
+    let mut out = Vec::new();
+    let three = mapper.connect_gamepad(pad(3)).unwrap();
+    mapper.settle(&mut out);
+    assert_eq!(port(&mapper, three), Some(2));
+    assert_eq!(
+        seats(&mapper)[..4],
+        [
+            Some(("Pad 1".to_owned(), false)),
+            Some(("Pad 2".to_owned(), false)),
+            Some(("Pad 3".to_owned(), true)),
+            None
+        ]
+    );
+    let one = mapper.connect_gamepad(pad(1)).unwrap();
+    assert_eq!(port(&mapper, one), Some(0));
+}
+
+#[test]
+fn the_roster_counter_changes_with_each_hotplug() {
+    let mut mapper = Mapper::new();
+    let mut out = Vec::new();
+    let start = mapper.roster_changes();
+    let a = mapper.connect_gamepad(pad(1)).unwrap();
+    let connected = mapper.roster_changes();
+    assert_ne!(connected, start);
+    mapper
+        .apply_gamepad(a, press(PadButton::South), &mut out)
+        .unwrap();
+    assert_eq!(mapper.roster_changes(), connected, "input is no change");
+    mapper.disconnect_gamepad(a, &mut out).unwrap();
+    assert_ne!(mapper.roster_changes(), connected);
 }
 
 #[test]
 fn a_reconnected_device_starts_neutral() {
     let mut mapper = Mapper::new();
     let mut out = Vec::new();
-    let a = mapper.connect_gamepad(pad(1)).unwrap();
+    let a = connect(&mut mapper, pad(1));
     mapper.apply(a, press(PadButton::Start), &mut out).unwrap();
     mapper.disconnect(a, &mut out).unwrap();
-    mapper.connect_gamepad(pad(1)).unwrap();
+    assert_eq!(connect(&mut mapper, pad(1)), a);
     out.clear();
     // Start is up after the reconnect, so a release gives no event and a
     // press gives one.
@@ -159,10 +400,10 @@ fn a_reconnected_device_starts_neutral() {
 
 #[test]
 fn two_devices_on_two_ports_keep_their_own_state() {
-    let mut mapper = Mapper::new();
+    let mut mapper = game();
     let mut out = Vec::new();
-    let one = mapper.connect_gamepad(pad(1)).unwrap();
-    let two = mapper.connect_gamepad(pad(2)).unwrap();
+    let one = connect(&mut mapper, pad(1));
+    let two = connect(&mut mapper, pad(2));
     mapper.apply(one, press(PadButton::East), &mut out).unwrap();
     mapper.apply(two, press(PadButton::East), &mut out).unwrap();
     mapper
@@ -187,7 +428,7 @@ fn two_devices_on_two_ports_keep_their_own_state() {
 fn only_a_change_gives_an_event() {
     let mut mapper = Mapper::new();
     let mut out = Vec::new();
-    let device = mapper.connect_gamepad(pad(1)).unwrap();
+    let device = connect(&mut mapper, pad(1));
     // A backend feeds the full state each frame: nothing changes here.
     for _ in 0..3 {
         mapper
@@ -231,7 +472,7 @@ fn only_a_change_gives_an_event() {
 fn a_hat_drives_the_d_pad() {
     let mut mapper = Mapper::new();
     let mut out = Vec::new();
-    let device = mapper.connect_gamepad(pad(1)).unwrap();
+    let device = connect(&mut mapper, pad(1));
     let up_right = HatState(HatState::UP | HatState::RIGHT);
     mapper
         .apply(device, RawInput::Hat(up_right), &mut out)
@@ -330,7 +571,7 @@ fn ids_outside_the_mapper_ranges_are_not_connected() {
 fn a_flood_of_events_in_one_frame_keeps_its_order_and_ends_in_the_last_state() {
     let mut mapper = Mapper::new();
     let mut out = Vec::with_capacity(4096);
-    let device = mapper.connect_gamepad(pad(1)).unwrap();
+    let device = connect(&mut mapper, pad(1));
     for i in 0..1000 {
         mapper
             .apply(device, press(PadButton::South), &mut out)
@@ -354,41 +595,43 @@ fn a_flood_of_events_in_one_frame_keeps_its_order_and_ends_in_the_last_state() {
 
 #[test]
 fn the_same_script_gives_the_same_events_twice() {
-    fn run() -> Vec<InputEvent> {
-        let mut mapper = Mapper::new();
+    fn run(rule: PortRule) -> Vec<InputEvent> {
+        let mut mapper = Mapper::with_rule(rule, &Roster::new());
         let mut out = Vec::new();
         let mut seed: u32 = 0x1234_5678;
-        let mut devices = Vec::new();
+        let mut pads = Vec::new();
         for step in 0..5000u32 {
             seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             let pick = seed >> 16;
             match pick % 10 {
-                0 if devices.len() < 4 => {
+                0 if pads.len() < 4 => {
                     let n = u8::try_from(pick % 6).unwrap();
-                    if let Ok(device) = mapper.connect_gamepad(pad(n)) {
-                        devices.push(device);
+                    if let Ok(id) = mapper.connect_gamepad(pad(n)) {
+                        pads.push(id);
                     }
                 }
-                1 if !devices.is_empty() => {
-                    let device = devices.remove(step as usize % devices.len());
-                    mapper.disconnect(device, &mut out).unwrap();
+                1 if !pads.is_empty() => {
+                    let id = pads.remove(step as usize % pads.len());
+                    mapper.disconnect_gamepad(id, &mut out).unwrap();
                 }
-                _ if !devices.is_empty() => {
-                    let device = devices[step as usize % devices.len()];
+                _ if !pads.is_empty() => {
+                    let id = pads[step as usize % pads.len()];
                     let value = i16::try_from(pick % 65_536 / 2).unwrap();
                     let input = match pick % 3 {
                         0 => press(PadButton::North),
                         1 => release(PadButton::North),
                         _ => axis(PadAxis::LeftX, value),
                     };
-                    mapper.apply(device, input, &mut out).unwrap();
+                    mapper.apply_gamepad(id, input, &mut out).unwrap();
                 }
                 _ => {}
             }
         }
         out
     }
-    let first = run();
-    assert!(first.len() > 1000);
-    assert_eq!(first, run());
+    for rule in [PortRule::Menus, PortRule::Game] {
+        let first = run(rule);
+        assert!(first.len() > 1000);
+        assert_eq!(first, run(rule));
+    }
 }

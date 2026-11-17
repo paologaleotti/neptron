@@ -1,5 +1,5 @@
 use neptron_input::{
-    DeviceIdentity, GAMEPAD_DEVICE_BASE, KeyAction, KeyCode, Mapper, PadAxis, PadButton,
+    DeviceIdentity, GAMEPAD_DEVICE_BASE, KeyAction, KeyCode, Mapper, PadAxis, PadButton, PadInfo,
     PortStates, RawInput,
 };
 use neptron_types::{Control, InputEvent};
@@ -15,13 +15,23 @@ fn ev(device: u32, control: Control, value: i16) -> InputEvent {
     }
 }
 
+/// Connects a pad of model `model` and returns its device id.
+fn connect(mapper: &mut Mapper, model: &[u8]) -> u32 {
+    let id = mapper
+        .connect_gamepad(PadInfo {
+            identity: DeviceIdentity::from_parts(&[model]),
+            path: DeviceIdentity::from_parts(&[model]),
+            name: String::new(),
+        })
+        .unwrap();
+    mapper.device_of(id).unwrap()
+}
+
 #[test]
 fn a_button_of_a_port_is_down_while_any_of_its_devices_holds_it() {
     let mut mapper = Mapper::new();
     let mut events = Vec::new();
-    let pad = mapper
-        .connect_gamepad(DeviceIdentity::from_parts(&[b"pad"]))
-        .unwrap();
+    let pad = connect(&mut mapper, b"pad");
     let keyboard = mapper.connect_keyboard().unwrap();
     let enter = RawInput::Key {
         code: KeyCode(28),
@@ -81,12 +91,8 @@ fn an_axis_tie_goes_to_the_device_that_came_first() {
 fn ports_are_independent() {
     let mut mapper = Mapper::new();
     let mut events = Vec::new();
-    let one = mapper
-        .connect_gamepad(DeviceIdentity::from_parts(&[b"one"]))
-        .unwrap();
-    let two = mapper
-        .connect_gamepad(DeviceIdentity::from_parts(&[b"two"]))
-        .unwrap();
+    let one = connect(&mut mapper, b"one");
+    let two = connect(&mut mapper, b"two");
     let tilt = RawInput::Axis {
         axis: PadAxis::LeftY,
         value: i16::MIN,

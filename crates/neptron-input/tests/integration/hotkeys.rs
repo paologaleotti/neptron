@@ -1,7 +1,7 @@
 use neptron_backend::{Clock, InputSource};
 use neptron_input::{
-    BLIND_RECOVERY_HOLD_NS, DeviceIdentity, Hotkey, Hotkeys, Mapper, PadButton, PortStates,
-    RawInput,
+    BLIND_RECOVERY_HOLD_NS, DeviceIdentity, Hotkey, Hotkeys, Mapper, PadButton, PadInfo,
+    PortStates, RawInput,
 };
 use neptron_testkit::{ScriptedInput, SimClock};
 use neptron_types::{Control, InputEvent};
@@ -433,7 +433,11 @@ fn the_recovery_still_fires_at_5_seconds_after_a_start_hold() {
 fn a_disconnect_during_the_hold_resets_it() {
     let mut mapper = Mapper::new();
     let pad = mapper
-        .connect_gamepad(DeviceIdentity::from_parts(&[b"pad"]))
+        .connect_gamepad(PadInfo {
+            identity: DeviceIdentity::from_parts(&[b"pad"]),
+            path: DeviceIdentity(0),
+            name: "Pad".to_owned(),
+        })
         .unwrap();
     let mut ports = PortStates::new();
     let mut hotkeys = Hotkeys::new();
@@ -445,20 +449,24 @@ fn a_disconnect_during_the_hold_resets_it() {
         pressed,
     };
 
-    mapper.apply(pad, start(true), &mut events).unwrap();
+    mapper.apply_gamepad(pad, start(true), &mut events).unwrap();
     ports.apply(&events);
     hotkeys.update(&ports, 0, &mut out);
 
     events.clear();
-    mapper.disconnect(pad, &mut events).unwrap();
+    mapper.disconnect_gamepad(pad, &mut events).unwrap();
     ports.apply(&events);
     hotkeys.update(&ports, SECOND, &mut out);
 
     events.clear();
     let pad = mapper
-        .connect_gamepad(DeviceIdentity::from_parts(&[b"pad"]))
+        .connect_gamepad(PadInfo {
+            identity: DeviceIdentity::from_parts(&[b"pad"]),
+            path: DeviceIdentity(0),
+            name: "Pad".to_owned(),
+        })
         .unwrap();
-    mapper.apply(pad, start(true), &mut events).unwrap();
+    mapper.apply_gamepad(pad, start(true), &mut events).unwrap();
     ports.apply(&events);
     hotkeys.update(&ports, 1500 * MS, &mut out);
     hotkeys.update(&ports, HOLD_NS, &mut out);

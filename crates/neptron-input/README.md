@@ -5,7 +5,7 @@ Input: SDL3 gamepads, evdev keyboards, RetroPad mapping and hotplug.
 ## Layers
 
 1. **Device backends** read devices and decide nothing. `SdlGamepads` (feature `sdl3`) and `EvdevKeyboards` (feature `evdev`, Linux only) turn what they read into `RawInput` values (button, axis, hat, key) for a device id.
-2. **The mapper** (`Mapper`, pure) gives each device its port and device id, turns raw input into `InputEvent`s with the mapping tables, and releases every held control on a disconnect.
+2. **The mapper** (`Mapper`, pure) gives each device its port and device id by the port rule of the run, turns raw input into `InputEvent`s with the mapping tables, and releases every held control on a disconnect or a move.
 3. **The port state** (`PortStates`, pure) merges the events of every source into the RetroPad state of each port.
 4. **The hotkeys** (`Hotkeys`, pure) read the port state and a time that the caller passes in.
 
@@ -13,13 +13,14 @@ The tests drive layers 2 to 4 with scripted devices and scripted input, with no 
 
 ## Public API
 
-- `Mapper`: `connect_gamepad(identity)`, `connect_keyboard()`, `disconnect(device, out)`, `apply(device, raw, out)`. `MapperError`.
+- `Mapper`: `new()` (the rule of the menus), `with_rule(rule, earlier)`, `connect_gamepad(info) -> PadId`, `disconnect_gamepad(pad, out)`, `apply_gamepad(pad, raw, out)`, `device_of(pad)`, `settle(out)`, `roster()`, `roster_changes()`, and by device id `connect_keyboard()`, `disconnect(device, out)`, `apply(device, raw, out)`, `is_connected(device)`. `MapperError`.
+- The roster: `PadInfo` (identity, path, name), `PortRule` (`Menus`, `Game`), `Roster` and `RosterEntry` (the pad of each port, present or away), `RosterError`, `PLAYER_PORTS` (4), and the trait `PadRoster` (`roster()`, `roster_changes()`) that a source of pads gives the frontend.
 - `PortStates`: `apply(events)`, `value(port, control)`, `is_held(port, control)`.
 - `Hotkeys`: `update(ports, now_ns, out)` gives `Hotkey::QuickMenu { port }` and `Hotkey::BlindRecovery { port }`. `set_start_hold_ns(hold_ns)` and `start_hold_ns()` give the Start hold time (0 is off).
 - `port_of(device)`, `DeviceIdentity`, the id ranges and limits.
 - The mapping tables and rules: `PAD_BUTTON_MAP`, `pad_control`, `axis_target`, `stick_value`, `trigger_value`, `hat_values`, `KEY_MAP`, `key_control`, `looks_like_keyboard`.
 - `InputNotice`: what a backend tells the frontend to log.
-- Feature `sdl3`: `SdlGamepads: InputSource`, with `open()` and `take_notices(out)`. `SdlInputError`.
+- Feature `sdl3`: `SdlGamepads: InputSource + PadRoster`, with `open(rule, earlier)` and `take_notices(out)`. `SdlInputError`.
 - Feature `evdev`, on Linux: `EvdevKeyboards: InputSource`, with `new()`, `in_dir(dir)` and `take_notices(out)`.
 
 No SDL3 or evdev type is in the public API.
@@ -70,15 +71,24 @@ A key held before a keyboard opens gives no kernel event. So when the source ope
 | `0x100` to `0x107` | SDL3 gamepads | the id minus `0x100` |
 | `0x200` to `0x207` | evdev keyboards | 0 |
 
-`port_of(device)` gives the port. Ids outside the ranges have no port and `PortStates` ignores them. The window keyboard keeps its id 0 and needs no change.
+`port_of(device)` gives the port. Ids outside the ranges have no port and `PortStates` ignores them. The window keyboard keeps its id 0 and needs no change. A gamepad id holds its port, so it changes when the pad moves down in the menus.
 
 ## Ports and hotplug
 
-- A new gamepad takes the port that a device with the same identity had last, when that port is free, and the lowest free port otherwise. So a new pad becomes player one when player one's pad is gone.
-- A disconnect frees the port at once. The mapper gives the release of every control that the device held, so no button stays down.
-- The identity of a gamepad is its SDL GUID (vendor, product, version). Two pads of one model are then the same identity: when both reconnect, they can swap ports. The source does not read the serial number, because the `sdl3` crate panics on a serial that is not UTF-8.
-- At most 8 gamepads and 8 keyboards. A ninth gamepad is ignored, with a notice, until it reconnects.
+`docs/spec/input-players.md` is the spec. In short:
+
+- A pad gets its port in plug order: the lowest free port. At the start of a run, the order in which SDL3 lists the pads.
+- Ports 0 to 3 (`PLAYER_PORTS`) are players 1 to 4: the core reads them. Ports 4 to 7 are extra ports: their pads drive the menus and the hotkeys only.
+- The rule of the run (`PortRule`) decides what a disconnect does:
+  - `Menus` (no game): the port is freed, and every pad on a higher port moves down by one. So the ports in use are always 0 to n-1. A pad that moves gets the release of every control it held, on its old device id, and starts neutral on the new one; the next read gives its controls again. A pad that comes back is a new pad, at the end.
+  - `Game`: the port is held for the pad, and nothing moves, so a running core never sees a pad change its port and never loses player 1 to another pad.
+- A new pad takes a held port with the same identity and path, else a held port with the same identity, else the lowest free port.
+- `Mapper::with_rule(rule, earlier)` starts with every pad of `earlier` held on its port: the roster of the run before, which the app carries in the relaunch file. After the first scan the source calls `settle`: in the menus the held ports that no pad took are freed and the pads move down; in a game they stay held.
+- A disconnect gives the release of every control that the device held, so no button stays down.
+- The identity of a gamepad is its SDL GUID (vendor, product, version): the key of everything kept per pad. Two pads of one model have the same identity. The path (the event node, `/dev/input/eventN` on Linux) tells them apart while they stay plugged, also across a relaunch. When both go away in a game and come back at new paths, they can swap ports. The source does not read the serial number, because the `sdl3` crate panics on a serial that is not UTF-8. It reads the name and the path: the name of a pad with a gamepad mapping comes from the mapping, and the path is the event node, both ASCII.
+- At most 8 gamepads and 8 keyboards. A ninth gamepad, or a pad that finds every port in use or held, is ignored, with a notice, until it reconnects.
 - A port merges its devices: a button is down while any device holds it, an axis takes the value with the largest magnitude.
+- A backend keeps the `PadId` of each pad: it stays the same while the pad is connected, and `device_of` gives its device id now.
 
 **What hotplug relies on.** `SdlGamepads` calls `SDL_UpdateGamepads` in each poll, which runs the device detection of SDL3. The source asks SDL3 for the joystick list every `SCAN_INTERVAL_POLLS` (30) polls and checks each open gamepad for a disconnect in every poll. With no libudev, SDL3 on Linux finds devices through inotify on `/dev/input`, or by a scan of that folder when inotify is not there. `EvdevKeyboards` scans `/dev/input` every `KEYBOARD_SCAN_INTERVAL_POLLS` (120) polls. Both rely on `mdev` making the nodes in `/dev/input` with read access for the frontend. This is unverified on the target until the image runs it.
 
@@ -156,6 +166,7 @@ The `evdev` code compiles only on Linux. On a Linux host, or with a Linux target
 These need a device and are not verified:
 
 - A USB gamepad on the x86_64 image: found at boot and when plugged in later, buttons as in the gamepad map, a disconnect releases its buttons.
+- Two and four pads in a game, an unplug and a replug in a game, two pads of one model across a launch, and the event node of a pad that stays plugged across a relaunch (`docs/hardware-checklist.md`, "Input (M04)").
 - SDL3 without libudev finds a gamepad plugged in after start (inotify on `/dev/input`).
 - A USB keyboard on the image: found, grabbed (no key reaches a console), mapped, and released when unplugged.
 - Blind recovery from a gamepad and from a keyboard with no picture.
