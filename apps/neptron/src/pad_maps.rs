@@ -96,7 +96,13 @@ impl PadMapsFile {
             Some(Value::Integer(v)) => Some(*v),
             Some(_) => None,
         };
+        let entries_ok = table.get(PAD_KEY).is_none_or(Value::is_array);
         let locked = match version {
+            // A write would replace the key, so a value that this build
+            // does not read could be lost: the file stays as it is.
+            _ if !entries_ok => Some(format!(
+                "the key {PAD_KEY} of the file of the controller layouts is not a list"
+            )),
             Some(v) if v <= PAD_MAPS_VERSION => None,
             Some(v) => Some(format!(
                 "the file of the controller layouts has version {v}, newer than {PAD_MAPS_VERSION}"
@@ -255,8 +261,9 @@ fn render_toml(table: &Table) -> Result<String, String> {
     toml::to_string(table).map_err(|e| e.to_string())
 }
 
-/// Takes the array of the maps out of `table`: empty when it is missing
-/// or is no array. [`put_entries`] puts it back.
+/// Takes the array of the maps out of `table`: empty when it is missing.
+/// A file whose key is no array is never written (see
+/// [`PadMapsFile::parse`]). [`put_entries`] puts it back.
 fn take_entries(table: &mut Table) -> Vec<Value> {
     match table.remove(PAD_KEY) {
         Some(Value::Array(entries)) => entries,
@@ -494,6 +501,23 @@ a = "b1"
         assert!(!removed.contains("identity"), "both entries go: {removed}");
         assert_eq!(parse_identity("8f3a2b1c0d4e5f6"), None);
         assert_eq!(parse_identity("+f3a2b1c0d4e5f60"), None);
+    }
+
+    #[test]
+    fn a_pad_key_that_is_not_a_list_keeps_the_file_as_it_is() {
+        for text in [
+            "pad = \"mine\"\n",
+            "[pad]\nidentity = \"8f3a2b1c0d4e5f60\"\n",
+        ] {
+            let (mut file, issues) = PadMapsFile::parse(Some(text));
+            assert_eq!(issues.len(), 1, "{issues:?}");
+            assert!(file.locked().is_some_and(|r| r.contains("not a list")));
+            assert!(matches!(
+                file.store(ID, "x", &sample()),
+                Err(PadMapsError::Locked(_))
+            ));
+            assert!(file.remove(ID).is_err());
+        }
     }
 
     #[test]
