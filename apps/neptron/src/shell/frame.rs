@@ -9,8 +9,8 @@ use neptron_types::{Frame, PixelFormat};
 use neptron_ui::screens::{NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
-use neptron_video::{Notice, RefreshKind};
 
+use super::picture::picture_text;
 use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS};
 
 use crate::library::{ScanKind, Scanned, changes_text};
@@ -224,8 +224,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         }
     }
 
-    /// A notice when the first picture of the game is filtered, cropped or
-    /// small: the policy's notice, in the words of the video status.
+    /// A notice when the first picture of the game is not exact: the
+    /// reasons of the policy (soft, small, speed, double refresh) in the
+    /// texts of the app, or the words of the video status for a fit or a
+    /// crop with no reason of its own.
     fn notice_picture(&mut self) {
         if self.picture_noticed {
             return;
@@ -237,29 +239,20 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             return;
         };
         self.picture_noticed = true;
-        let kind = current.chosen.proposal.timing.target.kind;
-        if !worth_a_notice(kind, current.chosen.notice.as_ref()) {
+        let Some(notice) = current.chosen.notice.as_ref() else {
             return;
-        }
+        };
+        let kind = current.chosen.proposal.timing.target.kind;
         let mut status = neptron_video::VideoStatusText::default();
-        if let Some(status) = game.session.video_status(&mut status) {
-            let text = format!("Picture: {}.", status.result);
+        let words = game
+            .session
+            .video_status(&mut status)
+            .map_or("", |s| s.result.as_str());
+        let text = picture_text(kind, notice, words);
+        if let Some(text) = text {
             self.notice(NoticeKind::Warning, text);
         }
     }
-}
-
-/// Whether the first picture of a game is worth a notice: fitted, cropped
-/// or small. A flat panel scales with the sharp filter by design, so its
-/// fit is no notice, as its video status shows no alert. A TV keeps the
-/// CRT rule: its fit scales the lines. The notice carries the words of the
-/// video status, so a speed change inside the bound of the panel or the
-/// TV adds no word to it.
-fn worth_a_notice(kind: RefreshKind, notice: Option<&Notice>) -> bool {
-    let panel = kind == RefreshKind::Panel;
-    notice.is_some_and(|n| {
-        (n.fitted && !panel) || n.cropped_lines > 0 || n.padded_fill_permille.is_some()
-    })
 }
 
 /// The notice after a scan: what changed, after a scan the player asked
@@ -297,37 +290,6 @@ fn canvas_frame(canvas: &CpuCanvas) -> Frame<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    fn notice(fitted: bool, cropped_lines: u16) -> Notice {
-        Notice {
-            fitted,
-            game_mhz: 60_099,
-            speed_change: false,
-            shown_mhz: 60_054,
-            strategy_replaced: None,
-            double_refresh: false,
-            style_fallback: fitted,
-            cropped_lines,
-            padded_fill_permille: None,
-            soft: None,
-            small_fill_permille: None,
-        }
-    }
-
-    #[test]
-    fn a_fit_is_worth_a_notice_on_a_crt_and_a_tv_but_not_on_a_panel() {
-        let fitted = notice(true, 0);
-        assert!(worth_a_notice(RefreshKind::Exact, Some(&fitted)));
-        assert!(worth_a_notice(RefreshKind::Tv, Some(&fitted)));
-        assert!(!worth_a_notice(RefreshKind::Panel, Some(&fitted)));
-        for kind in [RefreshKind::Tv, RefreshKind::Panel, RefreshKind::Exact] {
-            assert!(worth_a_notice(kind, Some(&notice(false, 16))), "{kind:?}");
-            assert!(!worth_a_notice(kind, Some(&notice(false, 0))), "{kind:?}");
-            assert!(!worth_a_notice(kind, None), "{kind:?}");
-        }
-    }
-
     /// A TV shows no `speed` word for a change the audio rate control
     /// absorbs: the status of the video crate and the audio crate must use
     /// one bound. The app depends on both, and neither may depend on the

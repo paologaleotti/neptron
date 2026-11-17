@@ -9,6 +9,7 @@ mod boot;
 mod frame;
 mod guard_events;
 mod intents;
+mod picture;
 mod protocol;
 mod view;
 
