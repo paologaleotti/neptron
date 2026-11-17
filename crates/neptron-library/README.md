@@ -13,6 +13,7 @@ The crate reads the folder layout of Batocera and RetroPie: `share/roms/<system>
 - `ScanWorker`: runs `scan` (`spawn`) or `refresh` (`spawn_refresh`) on a thread that it owns. `progress()` and `cancel()` use atomics and never wait. `is_finished()` tells when `join()` returns at once. Drop cancels and joins.
 - `ensure_system_folders(roms_root, catalog)`: makes the empty system folders of the first boot.
 - `Index` and `SystemGames`: the query side. The index also holds the folder stamps of the scan (`folders()`, `folder(path)`). `Game::size()` is the file size when the scan read the folder. `systems()`, `system(id)`, `count(id)`, `page(id, start, len)`. Queries do no I/O and return slices of the index, so they allocate nothing.
+- `arcade`: the arcade index of a core (`ArcadeIndex`): its sets from the DAT, with `arcade::encode`, `arcade::decode` and `arcade::read`. `ArcadeIndex::find(stem)` looks a zip stem up with no regard to ASCII case and allocates nothing; `bios_of(set)` follows `romof` to the BIOS set. `arcade::split_description` gives the title and the details of a DAT description. See "Arcade index".
 - `cache::load`, `cache::read`, `cache::write`, `cache::encode`, `cache::decode`: the index cache.
 
 The cache load and the scan both do file I/O, so neither runs on the frame thread.
@@ -85,6 +86,30 @@ Version 1 had no sizes and no folders; a file of version 1 is discarded and rebu
 Every loop and allocation of the decoder has a bound: the system count is at most the number of systems in the catalog, each game count is at most the bytes left divided by 20 (the smallest valid game), the folder count at most the bytes left divided by 18 (the smallest valid folder), each string is at most 4096 bytes and the bytes left. Each system id is looked up once. A hostile file with a valid checksum therefore decodes in time linear in its size.
 
 `MAX_CACHE_BYTES` is 16 MiB. With typical No-Intro names a game takes about 140 bytes, so the limit holds about 120,000 games, more than a complete set of every cartridge system; such a file decodes to about 30 MiB. The worst case is a crafted 16 MiB file of the smallest valid games: about 840,000 entries, less than 160 MiB for a short time at start, which fits a device with 512 MB of memory. A larger library gets no cache and is scanned at each start.
+
+## Arcade index
+
+`cargo xtask arcade-index` makes the index from the DAT of the pinned core (`docs/spec/arcade.md`, section 6), and the image holds it at `/usr/share/neptron/arcade/fbneo.idx`. The format is UTF-8 text, one record per line, fields split by one tab:
+
+```text
+neptron-arcade-index | 1
+core | <core id> | <40-hex commit>
+dat | <DAT file name> | <DAT version>
+licence | <text>
+set | <name> | <parent or -> | <romof or -> | <flags> | <year> | <maker> | <board> | <orientation> | <width> | <height> | <title> | <details>
+rom | <name> | <size> | <crc or -> | <merge or -> | <flags>
+```
+
+(` | ` stands for one tab here.)
+
+- The reader refuses another magic or a version above `FORMAT_VERSION` (1), with an error that names both.
+- `set` lines are sorted by name in byte order, each name once and with no ASCII upper case. The `rom` lines of a set follow its `set` line in DAT order.
+- Set flags, in this order, `-` for none: `b` BIOS, `v` vertical, `n` not working, `p` preliminary. `orientation` is `h` or `v`.
+- ROM flags: `-`, or `d` for a ROM with no dump, whose CRC is `-`. A CRC is 8 lower-case hex digits; a size is decimal bytes.
+- `-` means "none" in the parent, romof, CRC and merge fields, so the encoder refuses a name that is empty or `-`. It also refuses a field with a tab or a line break, and names the set and the field.
+- The format is append-only. A reader ignores fields after the ones it knows, and skips a line whose first field it does not know. A field is never removed or moved. A change that an older reader would misread raises the version.
+
+The index of FinalBurn Neo at the pin of `os/package/libretro-fbneo` has 8,531 sets (14 BIOS sets) and 168,288 ROMs: 7.4 MiB of text. `arcade::read` accepts at most `MAX_INDEX_BYTES` (32 MiB). The index in memory keeps two short strings for each ROM; the menu process reads it once, off the frame thread, and keeps it.
 
 ## Frame budget
 

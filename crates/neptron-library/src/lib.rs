@@ -4,6 +4,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod arcade;
 pub mod cache;
 mod catalog;
 mod changes;
