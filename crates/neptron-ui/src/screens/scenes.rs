@@ -5,8 +5,8 @@ use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::registry::SceneDef;
 use crate::snapshot::{
-    ChoiceOption, ConfirmId, DisplayInfo, GameEntry, GameId, GameSource, GameWindow, Level,
-    MenuItem, Notice, NoticeId, NoticeKind, PendingConfirm, ProfileEntry, ProfileId, Scopes,
+    ChoiceOption, ConfirmId, DisplayInfo, GameEntry, GameId, GameMarks, GameSource, GameWindow,
+    Level, MenuItem, Notice, NoticeId, NoticeKind, PendingConfirm, ProfileEntry, ProfileId, Scopes,
     SettingKey, SettingValue, SettingsPage, Snapshot, SystemEntry, SystemId,
 };
 use crate::snapshot::{SessionInfo, VideoStatus};
@@ -55,6 +55,14 @@ pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
         name: "screens/games-empty",
         build: games_empty,
+    },
+    SceneDef {
+        name: "screens/games-arcade",
+        build: games_arcade,
+    },
+    SceneDef {
+        name: "screens/games-versions",
+        build: games_versions,
     },
     SceneDef {
         name: "screens/display",
@@ -456,6 +464,86 @@ fn games_end(frame: &mut UiFrame, theme: &Theme) {
 
 fn games_one(frame: &mut UiFrame, theme: &Theme) {
     games_at(frame, theme, 2, 0);
+}
+
+/// The fixture arcade system, first on the home screen.
+pub(super) const ARCADE: SystemId = SystemId(9);
+/// The game of the arcade fixture with other versions.
+pub(super) const STAR_PATROL: GameId = GameId(901);
+
+/// The rows of the arcade fixture: a game with two other versions and a
+/// vertical screen, one that does not work, one with a name that is not a
+/// set, and one with two marks.
+pub(super) fn arcade_rows() -> Vec<GameEntry> {
+    let marks = |vertical, not_working, unknown_set| GameMarks {
+        vertical,
+        not_working,
+        unknown_set,
+    };
+    let game = |id, title: &str| GameEntry::new(GameId(id), ARCADE, title);
+    vec![
+        game(900, "Alpine Racer"),
+        game(STAR_PATROL.0, "Star Patrol - Mission One")
+            .with_versions(2)
+            .with_marks(marks(true, false, false)),
+        game(902, "Wreck Race").with_marks(marks(false, true, false)),
+        game(903, "mystery").with_marks(marks(false, false, true)),
+        game(904, "Zed Blaster").with_marks(marks(true, true, false)),
+    ]
+}
+
+/// The fixture systems with the arcade system first.
+pub(super) fn with_arcade() -> Snapshot {
+    let mut snap = with_systems();
+    snap.systems.insert(
+        0,
+        SystemEntry::new(ARCADE, "Arcade", arcade_rows().len() as u32),
+    );
+    snap
+}
+
+/// The arcade list, with the focus on the game with other versions.
+fn games_arcade(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = with_arcade();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[UiAction::Accept], frame);
+    let rows = arcade_rows();
+    snap.games = GameWindow::new(GameSource::System(ARCADE), 0, rows.len(), rows);
+    screens.update(&snap, &[UiAction::Down], frame);
+}
+
+/// The other versions of the arcade game, opened from the list.
+fn games_versions(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = with_arcade();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[UiAction::Accept], frame);
+    let rows = arcade_rows();
+    snap.games = GameWindow::new(GameSource::System(ARCADE), 0, rows.len(), rows);
+    screens.update(&snap, &[UiAction::Down, UiAction::Accept], frame);
+    let versions = ["World", "Japan", "USA, bootleg"]
+        .iter()
+        .enumerate()
+        .map(|(i, region)| {
+            let id = if i == 0 {
+                STAR_PATROL
+            } else {
+                GameId(910 + i as u64)
+            };
+            GameEntry::new(id, ARCADE, format!("Star Patrol - Mission One ({region})")).with_marks(
+                GameMarks {
+                    vertical: true,
+                    ..GameMarks::default()
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    snap.games = GameWindow::new(
+        GameSource::Versions(STAR_PATROL),
+        0,
+        versions.len(),
+        versions,
+    );
+    screens.update(&snap, &[UiAction::Down], frame);
 }
 
 fn games_empty(frame: &mut UiFrame, theme: &Theme) {

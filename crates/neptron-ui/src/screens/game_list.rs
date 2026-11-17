@@ -15,14 +15,14 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
-use crate::snapshot::{GameId, GameSource, Snapshot};
+use crate::snapshot::{GameEntry, GameId, GameSource, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
 use crate::tree::RowKind;
 use crate::widgets::{List, ListEvent, ListItem};
 
 use super::chrome::{self, Layout};
-use super::router::Nav;
+use super::router::{Nav, Target};
 
 /// The rows that one request asks for.
 pub const WINDOW_ROWS: usize = 128;
@@ -37,6 +37,16 @@ const TITLE_LINES: u32 = 2;
 const GAP_PX: u32 = 4;
 /// The label of a row that the snapshot does not hold yet.
 const PENDING_ROW: &str = "...";
+
+/// The detail column of a row: `*` favourite, `V` vertical screen, `!` not
+/// working, `?` not a set of the arcade index. The index is the sum of
+/// 1, 2, 4 and 8 for these marks, so the column needs no allocation.
+const BADGES: [&str; 16] = [
+    "", "*", "V", "*V", "!", "*!", "V!", "*V!", "?", "*?", "V?", "*V?", "!?", "*!?", "V!?", "*V!?",
+];
+
+/// The longest line of facts under the title, in bytes.
+const FACTS_BYTES: usize = 96;
 
 pub(super) struct GameList {
     source: GameSource,
@@ -121,11 +131,13 @@ impl GameList {
         // or none until its row loads.
         self.focused = focused(self.list.cursor());
         match event {
-            ListEvent::Activated(i) => {
-                if let Some(game) = focused(i) {
-                    out.push(Intent::Launch { game });
+            ListEvent::Activated(i) => match snap.games.get(i) {
+                Some(entry) if self.opens_versions(entry) => {
+                    return Nav::Open(Target::Games(GameSource::Versions(entry.id)));
                 }
-            }
+                Some(entry) => out.push(Intent::Launch { game: entry.id }),
+                None => {}
+            },
             ListEvent::Menu => {
                 if let Some(game) = focused(self.list.cursor()) {
                     out.push(Intent::ToggleFavourite { game });
@@ -178,10 +190,13 @@ impl GameList {
         }
         let back = match self.source {
             GameSource::System(_) => "Back: systems",
-            _ => "Back: home",
+            GameSource::Versions(_) => "Back: games",
+            GameSource::Favourites | GameSource::Recents => "Back: home",
         };
-        let accept = match total {
-            Some(1..) => "Accept: play",
+        let focused = snap.games.get(self.list.cursor());
+        let accept = match (total, focused) {
+            (Some(1..), Some(entry)) if self.opens_versions(entry) => "Accept: versions",
+            (Some(1..), _) => "Accept: play",
             _ => "",
         };
         chrome::frame(
@@ -205,7 +220,7 @@ impl GameList {
             .draw(frame, theme, total, |i| match snap.games.get(i) {
                 Some(game) => ListItem {
                     label: &game.title,
-                    detail: game.favourite.then_some("*"),
+                    detail: Some(badge(game)).filter(|b| !b.is_empty()),
                     enabled: true,
                     kind: RowKind::Action,
                 },
@@ -224,13 +239,48 @@ impl GameList {
         let Some(game) = snap.games.get(self.list.cursor()) else {
             return;
         };
-        chrome::paragraph(
-            frame,
-            theme,
-            chrome::padded(self.title, theme),
-            theme.colors.accent,
-            &game.title,
-        );
+        let facts = self.facts(game);
+        let area = chrome::padded(self.title, theme);
+        if facts.as_str().is_empty() {
+            chrome::paragraph(frame, theme, area, theme.colors.accent, &game.title);
+            return;
+        }
+        // The facts take the last line, so a long title keeps one line.
+        let row = theme.row_height_px();
+        let title_h = area.h.saturating_sub(row);
+        let title = Rect::new(area.x, area.y, area.w, title_h);
+        let line = Rect::new(area.x, chrome::offset(area.y, title_h), area.w, row);
+        chrome::paragraph(frame, theme, title, theme.colors.accent, &game.title);
+        chrome::paragraph(frame, theme, line, theme.colors.text_dim, facts.as_str());
+    }
+
+    /// The line of facts of a game under its title: its marks in words,
+    /// and its other versions. Empty for a game with none.
+    fn facts(&self, game: &GameEntry) -> StackText<FACTS_BYTES> {
+        let mut out = StackText::<FACTS_BYTES>::new();
+        let marks = game.marks;
+        let words = [
+            (marks.vertical, "Vertical"),
+            (marks.not_working, "Not working"),
+            (marks.unknown_set, "Unknown set"),
+        ];
+        for (_, word) in words.iter().filter(|(on, _)| *on) {
+            let sep = if out.as_str().is_empty() { "" } else { ", " };
+            // `StackText` never fails; it drops what does not fit.
+            let _ = write!(out, "{sep}{word}");
+        }
+        if self.opens_versions(game) {
+            let sep = if out.as_str().is_empty() { "" } else { ", " };
+            // `StackText` never fails; it drops what does not fit.
+            let _ = write!(out, "{sep}Other versions ({})", game.versions);
+        }
+        out
+    }
+
+    /// True when Accept on `game` opens its other versions: it has some,
+    /// and this list is not already its versions.
+    fn opens_versions(&self, game: &GameEntry) -> bool {
+        game.versions > 0 && !matches!(self.source, GameSource::Versions(_))
     }
 
     fn total(&self, snap: &Snapshot) -> Option<usize> {
@@ -254,6 +304,7 @@ impl GameList {
                 .map_or("Games", |s| s.name.as_str()),
             GameSource::Favourites => "Favourites",
             GameSource::Recents => "Recent games",
+            GameSource::Versions(_) => "Other versions",
         }
     }
 
@@ -266,6 +317,16 @@ impl GameList {
                 "No favourites yet.\n\nPress Menu on a game in a game list to add it here."
             }
             GameSource::Recents => "No games played yet.",
+            GameSource::Versions(_) => "This game has no other versions now.",
         }
     }
+}
+
+/// The detail column of a row, from [`BADGES`].
+fn badge(game: &GameEntry) -> &'static str {
+    let index = usize::from(game.favourite)
+        | usize::from(game.marks.vertical) << 1
+        | usize::from(game.marks.not_working) << 2
+        | usize::from(game.marks.unknown_set) << 3;
+    BADGES.get(index).copied().unwrap_or_default()
 }

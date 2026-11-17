@@ -199,10 +199,21 @@ impl SystemGames {
     /// The folded clones of the set named `stem`, in sort order: its
     /// "other versions". The match ignores ASCII case. It allocates nothing.
     pub fn versions(&self, stem: &str) -> &[Game] {
+        self.folded.get(self.versions_range(stem)).unwrap_or(&[])
+    }
+
+    /// The positions in [`SystemGames::folded`] of the folded clones of the
+    /// set named `stem`. The match ignores ASCII case. It allocates nothing.
+    pub fn versions_range(&self, stem: &str) -> std::ops::Range<usize> {
         let wanted = || stem.bytes().map(|b| b.to_ascii_lowercase());
         let start = self.folded.partition_point(|g| fold_key(g).lt(wanted()));
         let end = self.folded.partition_point(|g| fold_key(g).le(wanted()));
-        self.folded.get(start..end).unwrap_or(&[])
+        start..end
+    }
+
+    /// Every folded clone, sorted by parent set name, then in game order.
+    pub fn folded(&self) -> &[Game] {
+        &self.folded
     }
 
     /// Number of games of the list, folded clones not counted.

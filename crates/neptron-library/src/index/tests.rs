@@ -226,6 +226,10 @@ fn a_clone_folds_under_a_parent_of_the_same_list() {
     assert!(list.versions("").is_empty());
     assert_eq!(list.all().count(), 5);
     assert_eq!(list.games()[1].stem(), "b1");
+    let folded: Vec<&str> = list.folded().iter().map(Game::stem).collect();
+    assert_eq!(folded, ["b2", "b3"]);
+    assert_eq!(list.versions_range("B1"), 0..2);
+    assert!(list.versions_range("zz").is_empty());
 }
 
 #[test]

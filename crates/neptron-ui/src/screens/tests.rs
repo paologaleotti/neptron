@@ -81,6 +81,72 @@ fn snes_list() -> (Run, Snapshot) {
 }
 
 #[test]
+fn a_game_with_other_versions_opens_them_and_a_version_starts() {
+    use super::scenes::{ARCADE, STAR_PATROL, arcade_rows, with_arcade};
+    use crate::snapshot::GameEntry;
+    let mut run = Run::new();
+    let mut snap = with_arcade();
+    run.step(&snap, &[Accept]);
+    let rows = arcade_rows();
+    snap.games = GameWindow::new(GameSource::System(ARCADE), 0, rows.len(), rows);
+    run.step(&snap, &[Down]);
+    assert_eq!(run.focused(), Some("Star Patrol - Mission One"));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.screen(), "games");
+    assert!(
+        !run.intents()
+            .iter()
+            .any(|i| matches!(i, Intent::Launch { .. })),
+        "Accept opens the versions, it does not start the game"
+    );
+    let versions = GameSource::Versions(STAR_PATROL);
+    assert!(
+        run.intents()
+            .iter()
+            .any(|i| matches!(i, Intent::LoadGames { source, .. } if *source == versions))
+    );
+    let rows = vec![
+        GameEntry::new(STAR_PATROL, ARCADE, "Star Patrol (World)").with_versions(2),
+        GameEntry::new(GameId(911), ARCADE, "Star Patrol (Japan)"),
+    ];
+    snap.games = GameWindow::new(versions, 0, 2, rows);
+    run.step(&snap, &[Accept]);
+    assert_eq!(
+        run.intents(),
+        [Intent::Launch { game: STAR_PATROL }],
+        "in the versions list every row starts its game"
+    );
+    run.step(&snap, &[Down, Accept]);
+    assert_eq!(run.intents(), [Intent::Launch { game: GameId(911) }]);
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "games");
+}
+
+#[test]
+fn the_marks_show_in_the_detail_column() {
+    use super::scenes::{ARCADE, arcade_rows, with_arcade};
+    let mut run = Run::new();
+    let mut snap = with_arcade();
+    run.step(&snap, &[Accept]);
+    let rows = arcade_rows();
+    snap.games = GameWindow::new(GameSource::System(ARCADE), 0, rows.len(), rows);
+    run.step(&snap, &[]);
+    let details: Vec<Option<&str>> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.kind == Some(crate::RowKind::Action))
+        .map(|r| r.value)
+        .collect();
+    assert_eq!(
+        details,
+        [None, Some("V"), Some("!"), Some("?"), Some("V!")],
+        "{:?}",
+        run.labels()
+    );
+}
+
+#[test]
 fn home_lists_the_systems_then_favourites_recents_and_settings() {
     let mut run = Run::new();
     run.step(&with_systems(), &[]);

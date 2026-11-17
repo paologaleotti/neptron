@@ -37,6 +37,9 @@ pub enum GameSource {
     Favourites,
     /// The games played last, newest first.
     Recents,
+    /// The other versions of one arcade game: the game itself first, then
+    /// the clones that the list folds under it.
+    Versions(GameId),
 }
 
 /// A settings level. A value comes from the most specific level that has
@@ -154,6 +157,23 @@ pub struct GameEntry {
     pub title: String,
     /// True when the player marked the game as a favourite.
     pub favourite: bool,
+    /// The number of other versions folded under the game. Accept on a
+    /// game with other versions opens them ([`GameSource::Versions`]).
+    pub versions: u32,
+    /// The marks of the game.
+    pub marks: GameMarks,
+}
+
+/// The marks of a game in a list. An arcade game gets them from the arcade
+/// index of its core.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GameMarks {
+    /// The game has a vertical screen.
+    pub vertical: bool,
+    /// The core does not run the game well.
+    pub not_working: bool,
+    /// The file name is not a set name of the arcade index.
+    pub unknown_set: bool,
 }
 
 /// One row of a settings page.
@@ -458,7 +478,21 @@ impl GameEntry {
             system,
             title: title.into(),
             favourite: false,
+            versions: 0,
+            marks: GameMarks::default(),
         }
+    }
+
+    /// The same game with `versions` other versions folded under it.
+    pub fn with_versions(mut self, versions: u32) -> Self {
+        self.versions = versions;
+        self
+    }
+
+    /// The same game with marks.
+    pub fn with_marks(mut self, marks: GameMarks) -> Self {
+        self.marks = marks;
+        self
     }
 }
 

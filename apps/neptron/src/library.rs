@@ -12,7 +12,9 @@ use std::time::SystemTime;
 use neptron_library::arcade::{self, ArcadeIndex, Verdict};
 use neptron_library::cache::{self, CacheError, CacheLoad};
 use neptron_library::{Catalog, Changes, CoreDef, Game, Index, SystemDef, changes, refresh};
-use neptron_ui::snapshot::{GameEntry, GameId, GameSource, GameWindow, SystemEntry, SystemId};
+use neptron_ui::snapshot::{
+    GameEntry, GameId, GameMarks, GameSource, GameWindow, SystemEntry, SystemId,
+};
 
 use crate::relaunch::GameRef;
 
@@ -131,8 +133,20 @@ struct Prepared {
 struct GameIds {
     /// The ids of each catalog system, in the order of its games.
     by_system: Vec<Vec<GameId>>,
-    /// The catalog system and the position of each id.
-    places: HashMap<u64, (usize, usize)>,
+    /// The ids of the folded clones of each catalog system, in the order
+    /// of `SystemGames::folded`.
+    folded: Vec<Vec<GameId>>,
+    /// The catalog system and the place of each id.
+    places: HashMap<u64, (usize, Slot)>,
+}
+
+/// Where a game is in the list of its system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    /// In the list, at this position.
+    Listed(usize),
+    /// Folded under its parent, at this position of the folded clones.
+    Folded(usize),
 }
 
 /// A game of the index with its system and core.
@@ -366,9 +380,17 @@ impl Library {
     /// The rows `first..first + count` of a game list. Favourites and
     /// recent games are not kept in the MVP, so their lists are empty.
     pub fn window(&self, source: GameSource, first: usize, count: usize) -> GameWindow {
-        let GameSource::System(id) = source else {
-            return GameWindow::new(source, 0, 0, Vec::new());
-        };
+        match source {
+            GameSource::System(id) => self.system_window(id, first, count),
+            GameSource::Versions(game) => self.versions_window(game, first, count),
+            GameSource::Favourites | GameSource::Recents => {
+                GameWindow::new(source, 0, 0, Vec::new())
+            }
+        }
+    }
+
+    fn system_window(&self, id: SystemId, first: usize, count: usize) -> GameWindow {
+        let source = GameSource::System(id);
         let Some(def) = self.catalog.systems().get(id.0 as usize) else {
             return GameWindow::new(source, 0, 0, Vec::new());
         };
@@ -378,21 +400,62 @@ impl Library {
             .by_system
             .get(id.0 as usize)
             .map_or(&[][..], |ids| ids.get(first..).unwrap_or(&[]));
+        let list = self.index.system(&def.folder);
         let rows = self
             .index
             .page(&def.folder, first, count)
             .iter()
             .zip(ids)
-            .map(|(game, game_id)| GameEntry::new(*game_id, id, game.name()))
+            .map(|(game, game_id)| {
+                let versions = list.map_or(0, |l| l.versions_range(game.stem()).len());
+                entry(*game_id, id, game, game.name().to_owned())
+                    .with_versions(u32::try_from(versions).unwrap_or(u32::MAX))
+            })
             .collect();
         GameWindow::new(source, first, total, rows)
     }
 
+    /// The game `parent` first, then its folded clones. Each row names its
+    /// details, for example the region, because the versions often share
+    /// one title.
+    fn versions_window(&self, parent: GameId, first: usize, count: usize) -> GameWindow {
+        let source = GameSource::Versions(parent);
+        let Some(&(s, Slot::Listed(_))) = self.ids.places.get(&parent.0) else {
+            return GameWindow::new(source, 0, 0, Vec::new());
+        };
+        let Some((def, found)) = self.catalog.systems().get(s).zip(self.game(parent)) else {
+            return GameWindow::new(source, 0, 0, Vec::new());
+        };
+        let Some(list) = self.index.system(&def.folder) else {
+            return GameWindow::new(source, 0, 0, Vec::new());
+        };
+        let range = list.versions_range(found.game.stem());
+        let folded_ids = self.ids.folded.get(s).map_or(&[][..], Vec::as_slice);
+        let clones = list
+            .folded()
+            .get(range.clone())
+            .unwrap_or(&[])
+            .iter()
+            .zip(folded_ids.get(range).unwrap_or(&[]));
+        let system = system_id(s);
+        let all: Vec<GameEntry> = std::iter::once((found.game, &parent))
+            .chain(clones)
+            .map(|(game, id)| entry(*id, system, game, versioned_title(game)))
+            .collect();
+        let total = all.len();
+        let rows = all.into_iter().skip(first).take(count).collect();
+        GameWindow::new(source, first.min(total), total, rows)
+    }
+
     /// The game with this id.
     pub fn game(&self, id: GameId) -> Option<Found<'_>> {
-        let &(system_index, game_index) = self.ids.places.get(&id.0)?;
+        let &(system_index, slot) = self.ids.places.get(&id.0)?;
         let system = self.catalog.systems().get(system_index)?;
-        let game = self.index.system(&system.folder)?.games().get(game_index)?;
+        let list = self.index.system(&system.folder)?;
+        let game = match slot {
+            Slot::Listed(i) => list.games().get(i)?,
+            Slot::Folded(i) => list.folded().get(i)?,
+        };
         let core = self.catalog.core_for(&system.folder)?;
         Some(Found { system, core, game })
     }
@@ -404,13 +467,12 @@ impl Library {
             .systems()
             .iter()
             .position(|s| s.folder == game.system)?;
-        let games = self.index.system(&game.system)?.games();
-        let game_index = games.iter().position(|g| g.path() == game.path)?;
-        self.ids
-            .by_system
-            .get(system_index)?
-            .get(game_index)
-            .copied()
+        let list = self.index.system(&game.system)?;
+        if let Some(i) = list.games().iter().position(|g| g.path() == game.path) {
+            return self.ids.by_system.get(system_index)?.get(i).copied();
+        }
+        let i = list.folded().iter().position(|g| g.path() == game.path)?;
+        self.ids.folded.get(system_index)?.get(i).copied()
     }
 
     /// The relaunch reference of a game.
@@ -428,6 +490,26 @@ impl Library {
     pub fn resolve(&self, system: &str) -> Option<(&SystemDef, &CoreDef)> {
         let def = self.catalog.system(system)?;
         Some((def, self.catalog.core_for(system)?))
+    }
+}
+
+/// The row of `game` in a list, with `title` and its marks.
+fn entry(id: GameId, system: SystemId, game: &Game, title: String) -> GameEntry {
+    let marks = game.marks();
+    GameEntry::new(id, system, title).with_marks(GameMarks {
+        vertical: marks.vertical,
+        not_working: marks.not_working,
+        unknown_set: marks.unknown_set,
+    })
+}
+
+/// The title of a game with its details, `Star Patrol (Japan)`, or the
+/// title alone when it has none.
+fn versioned_title(game: &Game) -> String {
+    if game.details().is_empty() {
+        game.name().to_owned()
+    } else {
+        format!("{} ({})", game.name(), game.details())
     }
 }
 
@@ -504,24 +586,41 @@ impl GameIds {
     /// index.
     fn of(catalog: &Catalog, index: &Index) -> Self {
         let mut by_system = Vec::with_capacity(catalog.systems().len());
+        let mut folded = Vec::with_capacity(catalog.systems().len());
         let mut places = HashMap::with_capacity(index.total());
         for (s, def) in catalog.systems().iter().enumerate() {
-            let games = index.system(&def.folder).map_or(&[][..], |g| g.games());
-            let mut ids = Vec::with_capacity(games.len());
-            for (i, game) in games.iter().enumerate() {
+            let list = index.system(&def.folder);
+            let games = list.map_or(&[][..], |g| g.games());
+            let clones = list.map_or(&[][..], |g| g.folded());
+            let mut place = |game: &Game, slot: Slot| {
                 let id = free_id(&places, stable_id(&def.folder, game.path()));
-                places.insert(id, (s, i));
-                ids.push(GameId(id));
-            }
-            by_system.push(ids);
+                places.insert(id, (s, slot));
+                GameId(id)
+            };
+            let listed = games
+                .iter()
+                .enumerate()
+                .map(|(i, g)| place(g, Slot::Listed(i)))
+                .collect();
+            let hidden = clones
+                .iter()
+                .enumerate()
+                .map(|(i, g)| place(g, Slot::Folded(i)))
+                .collect();
+            by_system.push(listed);
+            folded.push(hidden);
         }
-        Self { by_system, places }
+        Self {
+            by_system,
+            folded,
+            places,
+        }
     }
 }
 
 /// `id`, or the next number after it that `places` does not hold. The
 /// index holds far fewer than 2^64 games, so the loop ends.
-fn free_id(places: &HashMap<u64, (usize, usize)>, mut id: u64) -> u64 {
+fn free_id(places: &HashMap<u64, (usize, Slot)>, mut id: u64) -> u64 {
     while places.contains_key(&id) {
         id = id.wrapping_add(1);
     }
@@ -682,9 +781,9 @@ mod tests {
     #[test]
     fn a_taken_id_gives_the_next_free_number() {
         let mut places = HashMap::new();
-        places.insert(7, (0, 0));
-        places.insert(8, (0, 1));
-        places.insert(u64::MAX, (0, 2));
+        places.insert(7, (0, Slot::Listed(0)));
+        places.insert(8, (0, Slot::Listed(1)));
+        places.insert(u64::MAX, (0, Slot::Listed(2)));
         assert_eq!(free_id(&places, 7), 9);
         assert_eq!(free_id(&places, 5), 5);
         assert_eq!(free_id(&places, u64::MAX), 0);
@@ -813,6 +912,70 @@ mod tests {
             "the BIOS table of the catalog still hides neogeo"
         );
         assert_eq!(arcade.games()[0].marks(), neptron_library::Marks::default());
+    }
+
+    #[test]
+    fn a_parent_lists_its_other_versions_and_each_can_start() {
+        use neptron_library::Marks;
+        let vertical = Marks {
+            vertical: true,
+            ..Marks::default()
+        };
+        let games = vec![
+            Game::new("Star Patrol".to_owned(), "arcade/starpat.zip".to_owned())
+                .with_details("World".to_owned())
+                .with_marks(vertical),
+            Game::new("Star Patrol".to_owned(), "arcade/starpatj.zip".to_owned())
+                .with_parent(Some("starpat".to_owned()))
+                .with_details("Japan".to_owned()),
+            Game::new("Star Patrol".to_owned(), "arcade/starpatu.zip".to_owned())
+                .with_parent(Some("starpat".to_owned())),
+            Game::new("Alone".to_owned(), "arcade/alone.zip".to_owned()),
+        ];
+        let lib = Library::with_index(
+            Catalog::builtin().expect("catalog"),
+            Index::from_systems(vec![SystemGames::new("arcade".to_owned(), games)]),
+        );
+        let arcade = lib
+            .catalog()
+            .systems()
+            .iter()
+            .position(|s| s.folder == "arcade")
+            .expect("arcade");
+        let list = lib.window(GameSource::System(system_id(arcade)), 0, 10);
+        assert_eq!(list.total, 2);
+        let parent = &list.rows[1];
+        assert_eq!((parent.title.as_str(), parent.versions), ("Star Patrol", 2));
+        assert!(parent.marks.vertical);
+        assert_eq!(list.rows[0].versions, 0);
+
+        let versions = lib.window(GameSource::Versions(parent.id), 0, 10);
+        let titles: Vec<&str> = versions.rows.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["Star Patrol (World)", "Star Patrol (Japan)", "Star Patrol"]
+        );
+        assert_eq!(versions.total, 3);
+        assert_eq!(versions.rows[0].id, parent.id);
+        let clone = versions.rows[1].id;
+        let found = lib.game(clone).expect("a folded clone has an id");
+        assert_eq!(found.game.path(), "arcade/starpatj.zip");
+        let reference = lib.reference(clone).expect("a reference");
+        assert_eq!(lib.find(&reference), Some(clone));
+
+        let page = lib.window(GameSource::Versions(parent.id), 2, 10);
+        assert_eq!((page.first, page.total, page.rows.len()), (2, 3, 1));
+        assert!(
+            lib.window(GameSource::Versions(clone), 0, 10)
+                .rows
+                .is_empty(),
+            "a clone has no versions list"
+        );
+        assert!(
+            lib.window(GameSource::Versions(GameId(1)), 0, 10)
+                .rows
+                .is_empty()
+        );
     }
 
     #[test]
