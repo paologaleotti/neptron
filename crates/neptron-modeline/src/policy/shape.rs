@@ -88,7 +88,7 @@ pub(crate) fn shape(
         Rung::Native | Rung::Fitted | Rung::Panel => (1, source.interlaced && !deinterlaced),
         Rung::Multiple(n) => (u16::from(n), false),
         Rung::Interlaced => {
-            interlaced_rung(source, ranges, caps, rate_mhz)?;
+            interlaced_rung(source, ranges, caps, monitor_aspect, rate_mhz)?;
             (1, true)
         }
     };
@@ -260,13 +260,26 @@ fn interlaced_rung(
     source: &OrientedSource,
     ranges: &[CrtRange],
     caps: &GpuCaps,
+    monitor_aspect: Aspect,
     rate_mhz: u32,
 ) -> Result<(), Dropped> {
     if source.interlaced {
         return Err(Dropped::SameAsNative);
     }
+    // A game wider than the face needs more mode lines than its own to
+    // keep its shape (`widen_for_shape`): those must fit too.
+    let game = u64::from(game_aspect_milli(source));
+    let face_w = u64::from(monitor_aspect.width) * 1_000;
+    let face_h = u64::from(monitor_aspect.height);
+    let shaped = (u64::from(source.height) * game * face_h).div_ceil(face_w);
+    let lines = u16::try_from(shaped.max(u64::from(source.height))).unwrap_or(u16::MAX);
+    let lines = if same_aspect(source, monitor_aspect) {
+        source.height
+    } else {
+        lines
+    };
     let progressive_max = progressive_capacity(ranges, rate_mhz);
-    if source.height <= progressive_max {
+    if lines <= progressive_max {
         return Err(Dropped::FitsProgressive {
             lines: source.height,
             progressive_max,
@@ -727,6 +740,26 @@ mod tests {
         );
         let s = shape_of(Rung::Interlaced, &source(640, 480, false), true).unwrap();
         assert_eq!((s.lines, s.interlace, s.bordered), (480, true, false));
+    }
+
+    #[test]
+    fn rung_three_counts_the_lines_a_wide_game_needs_for_its_shape() {
+        // 224 lines at 3:2 need 224 x 1500 x 3 / 4000 = 252 lines on a
+        // 4:3 face, above the 241 that 15.75 kHz holds at 60 Hz.
+        let wide = OrientedSource {
+            aspect_milli: 1_500,
+            ..source(256, 224, false)
+        };
+        let s = shape_of(Rung::Interlaced, &wide, true).unwrap();
+        assert!(s.interlace);
+        // At 4:3 the same 224 lines fit the progressive mode.
+        assert_eq!(
+            shape_of(Rung::Interlaced, &source(256, 224, false), true),
+            Err(Dropped::FitsProgressive {
+                lines: 224,
+                progressive_max: 241
+            })
+        );
     }
 
     #[test]

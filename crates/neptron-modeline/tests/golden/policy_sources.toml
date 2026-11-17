@@ -1521,7 +1521,7 @@
 "virtual_boy m3129" = "native exact 384x288p 15.583kHz 50.270Hz game 384x224+0+32 nearest"
 "virtual_boy ms2930" = "native exact 384x288p 15.684kHz 50.270Hz game 384x224+0+32 nearest"
 "virtual_boy ms929" = "native exact 384x288p 15.583kHz 50.270Hz game 384x224+0+32 nearest"
-"virtual_boy ntsc" = "fitted nearest in range 384x224p 15.704kHz 59.940Hz game 384x174+0+25 sharp"
+"virtual_boy ntsc" = "interlaced 1:1 nearest in range 597x448i 15.734kHz 59.940Hz game 384x224+106+112 nearest"
 "virtual_boy pal" = "native nearest in range 384x288p 15.600kHz 50.000Hz game 384x224+0+32 nearest"
 "virtual_boy panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 1851x1080+34+0 sharp"
 "virtual_boy panel_1440" = "panel panel rate 2560x1440p 88.786kHz 59.951Hz game 2468x1440+46+0 sharp"
