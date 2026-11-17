@@ -45,7 +45,8 @@ pub use generic_layout::{
     JoystickCounts, MIN_GENERIC_BUTTONS, NotAGamepad, dpad_axis_values,
 };
 pub use guided::{
-    GUIDED_STEPS, Guided, GuidedMapping, GuidedNote, MAP_IDLE_TIMEOUT_NS, MAP_SKIP_HOLD_NS, Prompt,
+    GUIDED_STEPS, Guided, GuidedMapping, GuidedNote, MAP_AXIS_RELEASE, MAP_IDLE_TIMEOUT_NS,
+    MAP_SKIP_HOLD_NS, MAP_TOTAL_TIMEOUT_NS, Prompt,
 };
 pub use hotkeys::{
     BLIND_RECOVERY_COMBO, BLIND_RECOVERY_HOLD_NS, Hotkey, Hotkeys, QUICK_MENU_COMBO,

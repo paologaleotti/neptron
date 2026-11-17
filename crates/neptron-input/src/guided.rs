@@ -18,6 +18,18 @@ pub const MAP_SKIP_HOLD_NS: u64 = 2_000_000_000;
 /// ends with no change, in nanoseconds.
 pub const MAP_IDLE_TIMEOUT_NS: u64 = 15_000_000_000;
 
+/// The longest time of one guided mapping, in nanoseconds. Past it the
+/// mapping ends with no change, also while the pad gives input, so the
+/// flow always ends. Twenty steps take far less.
+pub const MAP_TOTAL_TIMEOUT_NS: u64 = 300_000_000_000;
+
+/// The travel from the centre, in axis units, under which an axis that
+/// counts as a press is released: below [`MAP_AXIS_THRESHOLD`], so an
+/// axis that shakes around the threshold gives one press, not many. An
+/// axis that rests at one end is released when it is back in the quarter
+/// of its travel next to its rest.
+pub const MAP_AXIS_RELEASE: i16 = 8_192;
+
 /// The controls of the guided mapping, in order: the D-pad first, so the
 /// player can drive the menus with it soon, then accept and back, Start
 /// and Select, the other buttons, and the sticks. A stick step asks for a
@@ -57,6 +69,8 @@ pub struct GuidedMapping {
     last: Option<Presses>,
     /// The time of the last press or release, or of the start.
     last_change_ns: Option<u64>,
+    /// The time of the first raw state.
+    started_ns: Option<u64>,
     note: Option<GuidedNote>,
 }
 
@@ -156,6 +170,7 @@ impl GuidedMapping {
             phase: Phase::Neutral,
             last: None,
             last_change_ns: None,
+            started_ns: None,
             note: None,
         }
     }
@@ -163,16 +178,20 @@ impl GuidedMapping {
     /// Reads the raw state of the pad at `now_ns`, and gives what to show.
     pub fn update(&mut self, state: &RawState, now_ns: u64) -> Guided {
         let rests = *self.rests.get_or_insert_with(|| rests_of(state));
-        let presses = presses(state, &rests);
+        let started = *self.started_ns.get_or_insert(now_ns);
+        let presses = presses(state, &rests, &self.last.unwrap_or_default());
         if self.last != Some(presses) {
             self.last = Some(presses);
             self.last_change_ns = Some(now_ns);
         }
         let since = now_ns.saturating_sub(self.last_change_ns.unwrap_or(now_ns));
+        let left = MAP_IDLE_TIMEOUT_NS
+            .saturating_sub(since)
+            .min(MAP_TOTAL_TIMEOUT_NS.saturating_sub(now_ns.saturating_sub(started)));
         if matches!(
             self.phase,
             Phase::Neutral | Phase::Ready | Phase::Held { .. }
-        ) && since >= MAP_IDLE_TIMEOUT_NS
+        ) && left == 0
         {
             self.phase = Phase::TimedOut;
         }
@@ -205,7 +224,7 @@ impl GuidedMapping {
         if self.phase == Phase::Neutral && presses == Presses::default() {
             self.phase = Phase::Ready;
         }
-        self.view(since)
+        self.view(left)
     }
 
     /// The map so far.
@@ -213,7 +232,8 @@ impl GuidedMapping {
         &self.map
     }
 
-    fn view(&self, since: u64) -> Guided {
+    /// What to show, with `left` nanoseconds before the timeout.
+    fn view(&self, left: u64) -> Guided {
         match (self.phase, GUIDED_STEPS.get(self.step)) {
             (Phase::TimedOut, _) => Guided::TimedOut,
             (Phase::Done, _) | (_, None) => Guided::Done(self.map),
@@ -221,7 +241,7 @@ impl GuidedMapping {
                 step: self.step,
                 control: *control,
                 note: self.note,
-                remaining_ns: MAP_IDLE_TIMEOUT_NS.saturating_sub(since),
+                remaining_ns: left,
                 holding: matches!(phase, Phase::Held { .. }),
             }),
         }
@@ -316,7 +336,9 @@ fn rests_of(state: &RawState) -> [Rest; MAX_RAW_AXES as usize] {
     rests
 }
 
-fn presses(state: &RawState, rests: &[Rest; MAX_RAW_AXES as usize]) -> Presses {
+/// The active inputs of `state`. An axis that was active in `last` stays
+/// active until it is back past [`MAP_AXIS_RELEASE`].
+fn presses(state: &RawState, rests: &[Rest; MAX_RAW_AXES as usize], last: &Presses) -> Presses {
     let counts = state.counts();
     let mut presses = Presses::default();
     for index in 0..counts.buttons {
@@ -329,10 +351,20 @@ fn presses(state: &RawState, rests: &[Rest; MAX_RAW_AXES as usize]) -> Presses {
     }
     for (index, rest) in (0..counts.axes).zip(rests) {
         let value = state.axis(index);
+        let held = |positive| last.axes & axis_bit(index, positive) != 0;
         let (negative, positive) = match rest {
-            Rest::Centre => (value <= -MAP_AXIS_THRESHOLD, value >= MAP_AXIS_THRESHOLD),
-            Rest::Low => (false, value >= 0),
-            Rest::High => (value <= 0, false),
+            Rest::Centre => (
+                value <= -MAP_AXIS_THRESHOLD || (held(false) && value < -MAP_AXIS_RELEASE),
+                value >= MAP_AXIS_THRESHOLD || (held(true) && value > MAP_AXIS_RELEASE),
+            ),
+            Rest::Low => (
+                false,
+                value >= 0 || (held(true) && value > -MAP_AXIS_THRESHOLD),
+            ),
+            Rest::High => (
+                value <= 0 || (held(false) && value < MAP_AXIS_THRESHOLD),
+                false,
+            ),
         };
         if negative {
             presses.axes |= axis_bit(index, false);
@@ -689,6 +721,75 @@ mod tests {
             rig.prompt().note,
             Some(GuidedNote::Taken(Control::LeftX)),
             "one axis is one stick axis"
+        );
+    }
+
+    #[test]
+    fn an_axis_that_shakes_at_the_threshold_gives_one_press() {
+        let mut rig = Rig::new(&[(4, -32_768)]);
+        for value in [
+            MAP_AXIS_THRESHOLD,
+            MAP_AXIS_THRESHOLD - 100,
+            MAP_AXIS_THRESHOLD,
+        ] {
+            rig.set(RawInput::JoyAxis { index: 0, value });
+        }
+        assert!(matches!(rig.frame(0), Guided::Prompt(p) if p.step == 0 && p.holding));
+        let held = rig.prompt().remaining_ns;
+        rig.frame(1_000);
+        assert_eq!(
+            rig.prompt().remaining_ns,
+            held - 1_000 * MS,
+            "a shake above the release level is no release"
+        );
+        rig.set(RawInput::JoyAxis {
+            index: 0,
+            value: MAP_AXIS_RELEASE,
+        });
+        assert_eq!(rig.prompt().step, 1, "released at the release level");
+        // A trigger that rests low stays pressed until its low quarter.
+        rig.set(RawInput::JoyAxis { index: 4, value: 0 });
+        rig.set(RawInput::JoyAxis {
+            index: 4,
+            value: -10_000,
+        });
+        assert_eq!(rig.prompt().step, 1, "not released yet");
+        rig.set(RawInput::JoyAxis {
+            index: 4,
+            value: -MAP_AXIS_THRESHOLD,
+        });
+        assert_eq!(rig.prompt().step, 2);
+    }
+
+    #[test]
+    fn a_mapping_ends_at_its_total_time_even_with_input() {
+        let mut rig = Rig::new(&[]);
+        let start = rig.now;
+        loop {
+            rig.set(RawInput::JoyButton {
+                index: 11,
+                pressed: true,
+            });
+            let shown = rig.set(RawInput::JoyButton {
+                index: 11,
+                pressed: false,
+            });
+            if shown == Guided::TimedOut {
+                break;
+            }
+            let Guided::Prompt(prompt) = shown else {
+                panic!("{shown:?}");
+            };
+            let total_left = MAP_TOTAL_TIMEOUT_NS - (rig.now - start);
+            assert_eq!(prompt.remaining_ns, total_left.min(MAP_IDLE_TIMEOUT_NS));
+            // Button 11 is Up after its first press: each later press is
+            // refused, so the mapping gets input and stays on its step.
+            rig.frame(5_000);
+        }
+        let ran = rig.now - start;
+        assert!(
+            (MAP_TOTAL_TIMEOUT_NS..MAP_TOTAL_TIMEOUT_NS + 6_000 * MS).contains(&ran),
+            "{ran}"
         );
     }
 
