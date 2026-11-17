@@ -30,6 +30,7 @@ mod roster;
 mod scripted;
 #[cfg(feature = "sdl3")]
 mod sdl;
+mod silent;
 mod state;
 
 pub use device::{
@@ -63,3 +64,6 @@ pub use roster::{PLAYER_PORTS, PadInfo, PadRoster, PortRule, Roster, RosterEntry
 pub use scripted::{ScriptedPad, ScriptedPads};
 #[cfg(feature = "sdl3")]
 pub use sdl::{SCAN_INTERVAL_POLLS, SdlGamepads, SdlInputError};
+pub use silent::{
+    PadActivity, PadSignal, SILENT_PAD_AFTER_NS, SILENT_PAD_OTHER_PRESSES, SilentPad, SilentPads,
+};
