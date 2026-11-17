@@ -331,6 +331,13 @@ Each check is `needs-hardware`.
 - [ ] `needs-hardware` Do: in the development image, bring eth0 up on the Realtek port and read `dmesg | grep -i rtl`. Expect: no "unable to load firmware patch rtl_nic/rtl8168h-2.fw" line. Record: the dmesg lines of r8169.
 - [ ] `needs-hardware` Do: read `dmesg | grep -i dmc`. Expect: the line about the missing i915 DMC firmware is still there: the file is not in the image until the owner decides the licence question of a firmware file inside the kernel image. Record: the line.
 
+### CPU governor
+
+An image built before the `performance` governor booted with `powersave` (`intel_pstate`, `energy_performance_preference` `balance_performance`). With FinalBurn Neo and Metal Slug X (59.18 Hz) on the 59.951 Hz mode, it presented about 42 frames per second and missed about 18 fields per second. With `performance` written by hand it presented 60.2 frames per second and missed none.
+
+- [ ] `needs-hardware` Do: over SSH, `cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver`. Expect: `performance` for each CPU, in both files; the driver is `intel_pstate`. Record: the output.
+- [ ] `needs-hardware` Do: play Metal Slug X (FinalBurn Neo) for 60 s on the flat panel, and read `neptronctl stats` before and after. Expect: `fields_missed` does not change, and `audio_underruns` does not change. Record: both values before and after, and the frames presented.
+
 ## 3. PC i3-6100T with any monitor
 
 ### The PC image (T28)
