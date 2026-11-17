@@ -3021,3 +3021,30 @@ fn the_guided_mapping_shows_over_a_running_game() {
     assert!(run.screens.shows_ui());
     assert_eq!(run.screen(), "pad-mapping");
 }
+
+#[test]
+fn open_panel_from_the_deepest_stack_with_no_settings_page_fills_it_and_comes_back() {
+    let mut run = Run::new();
+    let list = with_systems();
+    run.step(&list, &[Accept]);
+    assert_eq!(run.screen(), "games");
+    let mut game = in_game();
+    run.step(&game, &[]);
+    run.step(&game, &TO_VIDEO);
+    game.settings = super::scenes::video_page();
+    run.step(&game, &[]);
+    run.step(&game, &[Accept]);
+    assert_eq!(run.screen(), "options");
+    // Home, the game list, the game, the quick menu, its video page and
+    // the options of a row: the Settings page and the panel take the two
+    // places left.
+    assert_eq!(run.screens.depth(), super::MAX_DEPTH - 2);
+    assert!(run.screens.open_panel(super::INPUT_PAGE, None));
+    run.step(&input_snapshot(in_game()), &[]);
+    assert_eq!(run.screen(), "input");
+    assert_eq!(run.screens.depth(), super::MAX_DEPTH);
+    run.step(&game, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("Input")));
+    run.step(&game, &[Back]);
+    assert_eq!(run.screen(), "options", "nothing under the panel closed");
+}
