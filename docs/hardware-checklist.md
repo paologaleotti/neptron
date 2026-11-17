@@ -744,3 +744,15 @@ These checks need a CRT. The policy tests prove each mode in emulation; only a t
   - Do: start a Mega Drive PAL game (49.701 Hz) on a PC CRT whose EDID starts at 50 Hz; then Little Robin (30 Hz) on a 15 kHz tube.
   - Expect: the Mega Drive game shows at 99.40 Hz, each frame twice, at its own speed (the music has its pitch); Little Robin shows at 60 Hz, each frame twice, with the double-refresh notice.
   - Record: the field rate in the status, the notice, and whether the motion is smooth.
+- [ ] `needs-hardware` **A tall console game is fitted into 480i on a composite TV.** Needs the composite output.
+  - Do: on the `ntsc` TV standard, start a PAL source of 576 lines (a PAL 576i game, or a PAL Amiga or PlayStation game in interlaced mode).
+  - Expect: the game shows in 720x480i at 59.940 Hz, scaled to 480 lines with sharp bilinear, at the speed of NTSC (the speed notice shows). The lines are steady, with no line pairs missing and no roll.
+  - Record: the mode and the notice in the status, and a photo of a fine horizontal detail.
+- [ ] `needs-hardware` **A handheld keeps its borders on 15 kHz.**
+  - Do: start a Game Boy game (160x144, 59.727 Hz) on a 15 kHz tube with the `generic_15` preset.
+  - Expect: the game shows 1:1 in 299x224p at 59.728 Hz, centred, with black borders on all four sides, at its own shape (10:9). The tube locks with no roll.
+  - Record: the mode in the status, a photo, and the width and height of the picture.
+- [ ] `needs-hardware` **Scanlines on a flat panel draw at a whole multiple.** Needs a 1080p panel.
+  - Do: start a SNES game on a 1080p panel with `display.panel_scale = auto`. Turn the scanlines on (strength 50 %), then off.
+  - Expect: with scanlines on, the game shows at 4x (1194x896, centred), and every dark line has the same thickness across the height. With scanlines off, the game fills the height (1440x1080).
+  - Record: a close photo of the scanlines at the top, the middle and the bottom of the picture.
