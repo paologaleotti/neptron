@@ -198,6 +198,14 @@ impl PadMapsFile {
             Some(slot) => *slot = Value::Table(entry),
             None => entries.push(Value::Table(entry)),
         }
+        // A hand edit can leave a second entry of the identity; the one
+        // just written is the map now.
+        let mut seen = false;
+        entries.retain(|e| {
+            let duplicate = seen && is_entry_of(e, identity);
+            seen |= is_entry_of(e, identity);
+            !duplicate
+        });
         put_entries(&mut table, entries);
         let text = self.commit(table)?;
         self.maps.insert(identity, *map);
@@ -266,7 +274,19 @@ fn is_entry_of(entry: &Value, identity: DeviceIdentity) -> bool {
         return false;
     };
     !SCOPE_KEYS.iter().any(|k| entry.contains_key(*k))
-        && entry.get("identity").and_then(Value::as_str) == Some(hex(identity).as_str())
+        && entry
+            .get("identity")
+            .and_then(Value::as_str)
+            .and_then(parse_identity)
+            == Some(identity)
+}
+
+/// An identity from its 16 hex digits, in either case.
+fn parse_identity(text: &str) -> Option<DeviceIdentity> {
+    if text.len() != 16 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    u64::from_str_radix(text, 16).ok().map(DeviceIdentity)
 }
 
 /// The identity and the map of one entry. A damaged binding loses only
@@ -279,8 +299,7 @@ fn read_entry(
     let identity = entry
         .get("identity")
         .and_then(Value::as_str)
-        .filter(|text| text.len() == 16)
-        .and_then(|text| u64::from_str_radix(text, 16).ok());
+        .and_then(parse_identity);
     let Some(identity) = identity else {
         issues.push(format!(
             "controller layout {n}: no identity of 16 hex digits"
@@ -301,7 +320,7 @@ fn read_entry(
             issues.push(format!("controller layout {n}, {key}: {reason}"));
         }
     }
-    Some((DeviceIdentity(identity), map))
+    Some((identity, map))
 }
 
 /// An identity as 16 hex digits: TOML has no unsigned 64-bit integer.
@@ -456,6 +475,25 @@ a = "b1"
             text.contains("a = \"b9\""),
             "the table did not change: {text}"
         );
+    }
+
+    #[test]
+    fn an_identity_written_by_hand_in_capitals_is_the_same_identity() {
+        let text = "[[pad]]\nidentity = \"8F3A2B1C0D4E5F60\"\na = \"b9\"\n\n[[pad]]\nidentity = \"8f3a2b1c0d4e5f60\"\nb = \"b7\"\n";
+        let (mut file, issues) = PadMapsFile::parse(Some(text));
+        assert!(issues.is_empty(), "{issues:?}");
+        assert!(file.maps().get(ID).is_some());
+        let written = file.store(ID, "Pad", &sample()).unwrap();
+        let table: Table = toml::from_str(&written).unwrap();
+        let entries = table.get("pad").and_then(Value::as_array).unwrap();
+        assert_eq!(entries.len(), 1, "replaced, not added: {written}");
+        let (again, _) = PadMapsFile::parse(Some(&written));
+        assert_eq!(again.maps().get(ID), Some(&sample()));
+        let (mut file, _) = PadMapsFile::parse(Some(text));
+        let removed = file.remove(ID).unwrap();
+        assert!(!removed.contains("identity"), "both entries go: {removed}");
+        assert_eq!(parse_identity("8f3a2b1c0d4e5f6"), None);
+        assert_eq!(parse_identity("+f3a2b1c0d4e5f60"), None);
     }
 
     #[test]
