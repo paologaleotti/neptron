@@ -13,7 +13,7 @@ use neptron_ui::snapshot::{
 };
 use neptron_video::{Monitor, Phase, VideoStatusText};
 
-use super::boot::{game_name, profile_id};
+use super::boot::profile_id;
 use super::{MENU_SOURCE, Shell, Stage};
 use crate::pages::{self, Names, StyleOption};
 
@@ -48,7 +48,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             match &mut self.snap.session {
                 Some(info) => info.paused = paused,
                 None => {
-                    let mut info = SessionInfo::new(GameId(0), game_name(&game.reference.path));
+                    let mut info = SessionInfo::new(GameId(0), self.library.title(&game.reference));
                     info.paused = paused;
                     self.snap.session = Some(info);
                 }

@@ -475,6 +475,22 @@ impl Library {
         self.ids.folded.get(system_index)?.get(i).copied()
     }
 
+    /// The title of the game of a relaunch file, as the list shows it: the
+    /// title of an arcade set, or the file name with no extension. A game
+    /// the index does not list yet gets its file name.
+    pub fn title(&self, game: &GameRef) -> String {
+        self.find(game).and_then(|id| self.game(id)).map_or_else(
+            || {
+                Path::new(&game.path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&game.path)
+                    .to_owned()
+            },
+            |found| found.game.name().to_owned(),
+        )
+    }
+
     /// The relaunch reference of a game.
     pub fn reference(&self, id: GameId) -> Option<GameRef> {
         let found = self.game(id)?;
@@ -975,6 +991,34 @@ mod tests {
             lib.window(GameSource::Versions(GameId(1)), 0, 10)
                 .rows
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_game_reference_gives_the_title_of_the_list() {
+        let games = vec![
+            Game::new("Star Patrol".to_owned(), "arcade/starpat.zip".to_owned()),
+            Game::new("Star Patrol".to_owned(), "arcade/starpatj.zip".to_owned())
+                .with_parent(Some("starpat".to_owned())),
+        ];
+        let lib = Library::with_index(
+            Catalog::builtin().expect("catalog"),
+            Index::from_systems(vec![SystemGames::new("arcade".to_owned(), games)]),
+        );
+        let reference = |path: &str| GameRef {
+            system: "arcade".to_owned(),
+            path: path.to_owned(),
+        };
+        assert_eq!(lib.title(&reference("arcade/starpat.zip")), "Star Patrol");
+        assert_eq!(
+            lib.title(&reference("arcade/starpatj.zip")),
+            "Star Patrol",
+            "a folded clone too"
+        );
+        assert_eq!(
+            lib.title(&reference("arcade/sub/unlisted.zip")),
+            "unlisted",
+            "a game the index does not list yet keeps its file name"
         );
     }
 
