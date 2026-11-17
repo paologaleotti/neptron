@@ -2429,11 +2429,67 @@ fn the_library_panel_is_a_page_of_the_settings_page() {
         [
             ("Display", page),
             ("Audio", page),
+            ("Input", page),
             ("Library", page),
             ("Network", page),
             ("System", page)
         ]
     );
+}
+
+#[test]
+fn the_input_panel_shows_the_players_and_the_start_hold() {
+    let mut run = Run::new();
+    let empty = with_systems();
+    run.step(&empty, &super::scenes::TO_INPUT);
+    assert_eq!(run.screen(), "input");
+    assert_eq!(
+        run.intents(),
+        [Intent::LoadSettings {
+            page: super::INPUT_PAGE
+        }]
+    );
+    let mut snap = with_systems();
+    snap.settings = crate::snapshot::SettingsPage::new(
+        super::INPUT_PAGE,
+        "Input",
+        super::scenes::input_rows(
+            [
+                "Xbox 360 Controller",
+                "Nintendo Switch Pro Controller (away)",
+                "None",
+                "None",
+            ],
+            &["8BitDo SN30 Pro+ Bluetooth Gamepad"],
+        ),
+    );
+    run.step(&snap, &[]);
+    assert_eq!(title(&run), ("Settings > Input", None));
+    assert_eq!(run.focused(), Some("Player 1"));
+    let rows: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::SettingsList)
+        .map(|r| (r.label, r.kind, r.clipped))
+        .collect();
+    let info = Some(crate::RowKind::Info);
+    assert_eq!(
+        rows,
+        [
+            ("Player 1", info, false),
+            ("Player 2", info, false),
+            ("Player 3", info, false),
+            ("Player 4", info, false),
+            ("Extra pad", info, false),
+            ("Keyboard", info, false),
+            ("Hold Start for menu", Some(crate::RowKind::Value), false),
+        ]
+    );
+    run.step(&snap, &[Accept, Left, Right, Menu]);
+    assert_eq!(run.intents(), [], "a player row takes no change");
+    run.step(&snap, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("Input")));
 }
 
 #[test]

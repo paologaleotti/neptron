@@ -78,6 +78,14 @@ pub const NETWORK_PAGE: PageId = PageId(RESERVED_ID_MIN + 9);
 /// screen on show to know whether the panel is open.
 pub const NETWORK_SCREEN: &str = "network";
 
+/// The Input panel: information rows of the app with the pad of each
+/// player, and the input settings, written at the global level.
+pub const INPUT_PAGE: PageId = PageId(RESERVED_ID_MIN + 10);
+
+/// The screen id of the Input panel in the tree. The app reads the screen
+/// on show to know whether the panel is open.
+pub const INPUT_SCREEN: &str = "input";
+
 /// One row of the Settings page: a panel and the page it opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Panel {
@@ -100,6 +108,10 @@ pub static SETTINGS_PANELS: &[Panel] = &[
     Panel {
         label: "Audio",
         page: AUDIO_PAGE,
+    },
+    Panel {
+        label: "Input",
+        page: INPUT_PAGE,
     },
     Panel {
         label: "Library",

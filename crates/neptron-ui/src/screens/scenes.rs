@@ -15,8 +15,8 @@ use crate::theme::Theme;
 use super::game_list::WINDOW_ROWS;
 use super::router::Screen;
 use super::{
-    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, QUIT_GAME,
-    RESUME, SETTINGS_PAGE, SYSTEM_PAGE, Screens, VIDEO_PAGE,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, INPUT_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE,
+    QUIT_GAME, RESUME, SETTINGS_PAGE, SYSTEM_PAGE, Screens, VIDEO_PAGE,
 };
 
 pub(super) const SCENES: &[SceneDef] = &[
@@ -185,6 +185,14 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: network_share_off,
     },
     SceneDef {
+        name: "screens/input",
+        build: input,
+    },
+    SceneDef {
+        name: "screens/input-empty",
+        build: input_empty,
+    },
+    SceneDef {
         name: "screens/system",
         build: system,
     },
@@ -247,8 +255,8 @@ pub(super) const TO_AUDIO: [UiAction; 8] = [
     UiAction::Accept,
 ];
 
-/// The path from home to the Library panel with the fixture systems.
-pub(super) const TO_LIBRARY: [UiAction; 9] = [
+/// The path from home to the Input panel with the fixture systems.
+pub(super) const TO_INPUT: [UiAction; 9] = [
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
@@ -260,14 +268,29 @@ pub(super) const TO_LIBRARY: [UiAction; 9] = [
     UiAction::Accept,
 ];
 
-/// The path from home to the Network panel with the fixture systems.
-pub(super) const TO_NETWORK: [UiAction; 10] = [
+/// The path from home to the Library panel with the fixture systems.
+pub(super) const TO_LIBRARY: [UiAction; 10] = [
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Accept,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+];
+
+/// The path from home to the Network panel with the fixture systems.
+pub(super) const TO_NETWORK: [UiAction; 11] = [
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Down,
+    UiAction::Accept,
+    UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
@@ -275,13 +298,14 @@ pub(super) const TO_NETWORK: [UiAction; 10] = [
 ];
 
 /// The path from home to the System panel with the fixture systems.
-pub(super) const TO_SYSTEM: [UiAction; 11] = [
+pub(super) const TO_SYSTEM: [UiAction; 12] = [
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Accept,
+    UiAction::Down,
     UiAction::Down,
     UiAction::Down,
     UiAction::Down,
@@ -908,6 +932,74 @@ fn system_format_confirm(frame: &mut UiFrame, theme: &Theme) {
         &[UiAction::Down, UiAction::Down, UiAction::Accept],
         frame,
     );
+}
+
+/// The rows of the Input panel as the app gives them: the text of each
+/// player row, then one row for each extra pad, the keyboard and the Start
+/// hold.
+pub(super) fn input_rows(players: [&str; 4], extra: &[&str]) -> Vec<MenuItem> {
+    let text = |key: u32, label: String, text: &str| {
+        MenuItem::new(SettingKey(key), label, SettingValue::Text(text.to_owned()))
+    };
+    let mut rows: Vec<MenuItem> = players
+        .iter()
+        .zip(1..)
+        .map(|(pad, n)| text(40 + n, format!("Player {n}"), pad))
+        .collect();
+    rows.extend(
+        extra
+            .iter()
+            .zip(45..)
+            .map(|(pad, key)| text(key, "Extra pad".to_owned(), pad)),
+    );
+    rows.push(text(49, "Keyboard".to_owned(), "Player 1"));
+    rows.push(setting(
+        SettingKey(50),
+        "Hold Start for menu",
+        SettingValue::Number {
+            value: 0,
+            min: 0,
+            max: 10,
+            step: 1,
+            unit: "s".to_owned(),
+        },
+        Level::Default,
+        Scopes {
+            global: true,
+            system: false,
+            game: false,
+        },
+    ));
+    rows
+}
+
+/// The Input panel with `rows`, the focus on the first row.
+fn input_with(frame: &mut UiFrame, theme: &Theme, rows: Vec<MenuItem>) {
+    let mut snap = with_systems();
+    snap.settings = SettingsPage::new(INPUT_PAGE, "Input", rows);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_INPUT, frame);
+    screens.update(&snap, &[], frame);
+}
+
+/// Four players, player 2 away in a game, and a fifth pad. The longest
+/// names the app keeps: 35 characters, and 28 before ` (away)`.
+fn input(frame: &mut UiFrame, theme: &Theme) {
+    let rows = input_rows(
+        [
+            "Xbox 360 Controller",
+            "Nintendo Switch Pro Contr... (away)",
+            "PS4 Controller",
+            "8BitDo SN30 Pro+ Bluetooth Gamepad",
+        ],
+        &["Generic USB Joystick"],
+    );
+    input_with(frame, theme, rows);
+}
+
+/// No pad: the four player rows stay, so the panel has one shape.
+fn input_empty(frame: &mut UiFrame, theme: &Theme) {
+    input_with(frame, theme, input_rows(["None"; 4], &[]));
 }
 
 /// The rows of the Network panel as the app gives them for `addresses`
