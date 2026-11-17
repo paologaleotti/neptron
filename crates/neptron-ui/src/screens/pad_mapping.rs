@@ -232,6 +232,7 @@ fn draw_prompt(
         "Back on a keyboard or another pad: cancel.",
     );
     let mut countdown = StackText::<LINE_BYTES>::new();
+    // `StackText` never fails; it drops what does not fit.
     let _ = write!(countdown, "No input: cancel in {seconds} s.");
     chrome::label(
         frame,
