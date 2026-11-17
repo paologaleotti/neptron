@@ -12,13 +12,13 @@ use neptron_video::{DisplayConfig, Phase};
 
 use super::{Outcome, PendingChange, Shell, Stage};
 use crate::library::{CheckStart, ScanKind, ScanStart};
-
-/// The button of the notice that starts an arcade game with no set check.
-pub const START_UNCHECKED: &str = "Start";
 use crate::outbox::Job;
 use crate::pages::{self, Names};
 use crate::power::{self, PowerRequest};
 use crate::relaunch::NextRun;
+
+/// The button of the notice that starts an arcade game with no set check.
+pub const START_UNCHECKED: &str = "Start";
 
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
     /// Carries out the intents of the last UI frame, in order.
