@@ -53,6 +53,16 @@ pub enum CheckStart {
 /// The core whose sets the arcade index lists.
 pub const ARCADE_CORE: &str = "fbneo";
 
+/// True when the games of `system` are arcade boards: the system data
+/// gives the system the core of the arcade index (`arcade` and `neogeo`).
+/// A board fills its monitor, so the video policy takes the arcade rules
+/// for it (`PolicySettings::arcade`).
+pub fn runs_arcade_boards(catalog: &Catalog, system: &str) -> bool {
+    catalog
+        .core_for(system)
+        .is_some_and(|core| core.id == ARCADE_CORE)
+}
+
 /// The arcade index of the frontend. The first scan thread of the process
 /// reads it, and the library keeps it for the life of the process: the
 /// index of the image does not change while it runs.
@@ -856,6 +866,16 @@ mod tests {
     }
 
     /// An index file of the `fbneo` core with one invented set.
+    #[test]
+    fn the_systems_of_the_arcade_core_run_arcade_boards() {
+        let catalog = Catalog::builtin().expect("catalog");
+        assert!(runs_arcade_boards(&catalog, "arcade"));
+        assert!(runs_arcade_boards(&catalog, "neogeo"));
+        for console in ["nes", "snes", "megadrive", "unknown"] {
+            assert!(!runs_arcade_boards(&catalog, console), "{console}");
+        }
+    }
+
     fn write_arcade_index(path: &Path) {
         use neptron_library::arcade::{IndexSource, SetRecord};
         let mut set = SetRecord::new("starpat".to_owned(), "Star Patrol".to_owned());

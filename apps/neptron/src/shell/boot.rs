@@ -23,7 +23,7 @@ use neptron_video::{
 use super::{ControlInput, Devices, GameStage, ListStage, Runtime, Shell, Stage};
 use crate::config::{Config, GameContext};
 use crate::display::{Detected, MonitorError};
-use crate::library::{ARCADE_CORE, Library, ScanKind};
+use crate::library::{ARCADE_CORE, Library, ScanKind, runs_arcade_boards};
 use crate::nav::Navigator;
 use crate::network::{NetworkInfo, NetworkWatch};
 use crate::outbox::{Outbox, Places};
@@ -85,10 +85,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         // that can fail for a reason other than the display, so a start
         // that fails later still counts as a boot.
         let presets = load_presets(&paths.monitors(), &mut found);
+        let catalog = Catalog::builtin()?;
         let game = next.as_ref().and_then(|n| n.game.clone());
         let context = game.as_ref().map(|g| GameContext {
             system: g.system.clone(),
             game: game_name(&g.path),
+            arcade: runs_arcade_boards(&catalog, &g.system),
         });
         let (config, issues) = Config::load(&Storage::new(paths.config()), context);
         found.warn_all(issues);
@@ -172,7 +174,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             // the game run starts on what was kept, with no prompt.
             Some(reference) => {
                 let (library, issue) = Library::load(
-                    Catalog::builtin()?,
+                    catalog.clone(),
                     &paths.library_cache(),
                     paths.arcade_index(ARCADE_CORE),
                 );
@@ -238,7 +240,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             Some(library) => library,
             None => {
                 let (mut library, issue) = Library::load(
-                    Catalog::builtin()?,
+                    catalog,
                     &paths.library_cache(),
                     paths.arcade_index(ARCADE_CORE),
                 );

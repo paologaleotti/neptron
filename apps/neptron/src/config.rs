@@ -22,6 +22,10 @@ pub struct GameContext {
     pub system: String,
     /// The game name.
     pub game: String,
+    /// The game is an arcade board
+    /// ([`runs_arcade_boards`](crate::library::runs_arcade_boards)): the
+    /// policy of the game takes the arcade rules.
+    pub arcade: bool,
 }
 
 /// The schema and the layers of the context.
@@ -161,8 +165,9 @@ impl Config {
         }
     }
 
-    /// The picture style, the refresh policy and the TV width of the
-    /// context.
+    /// The picture style, the refresh policy, the TV width, the vertical
+    /// games and the panel scale of the context, with the arcade rules for
+    /// an arcade board.
     ///
     /// # Errors
     ///
@@ -174,15 +179,20 @@ impl Config {
             None,
             &self.text(DISPLAY_TV_WIDTH),
         )?;
-        with_display_choices(
+        let settings = with_display_choices(
             settings,
             &self.text(DISPLAY_VERTICAL),
             &self.text(DISPLAY_PANEL_SCALE),
-        )
+        )?;
+        Ok(PolicySettings {
+            arcade: self.context.as_ref().is_some_and(|c| c.arcade),
+            ..settings
+        })
     }
 
     /// The picture style, the refresh policy and the TV width of the global
-    /// level, which the guard starts from.
+    /// level, which the guard starts from. It has no game, so no arcade
+    /// rules.
     ///
     /// # Errors
     ///
@@ -311,12 +321,26 @@ mod tests {
         let context = GameContext {
             system: "nes".to_owned(),
             game: "Game".to_owned(),
+            arcade: false,
         };
         let (config, issues) = Config::load(&Storage::new(&dir), Some(context));
         assert!(issues.is_empty(), "{issues:?}");
         // The folder is the test's own; a failed removal leaves a temp folder.
         let _ = std::fs::remove_dir_all(&dir);
         config
+    }
+
+    #[test]
+    fn an_arcade_board_takes_the_arcade_rules_and_the_global_level_does_not() {
+        let mut c = config("", "", "");
+        assert!(!c.policy().expect("policy").arcade, "a console game");
+        if let Some(context) = c.context.as_mut() {
+            context.arcade = true;
+        }
+        assert!(c.policy().expect("policy").arcade);
+        assert!(!c.global_policy().expect("policy").arcade);
+        let (list, _) = Config::load(&Storage::new(std::env::temp_dir().join("none")), None);
+        assert!(!list.policy().expect("policy").arcade, "the game list");
     }
 
     #[test]
