@@ -390,3 +390,60 @@ fn a_description_gives_a_title_and_details() {
         assert_eq!(split_description(description), expected, "{description:?}");
     }
 }
+
+/// Every prefix of a valid file gives an index or an error, never a panic.
+/// A cut before the `dat` line is whole is an error; a later cut can be a
+/// valid smaller index, with no set past the cut.
+#[test]
+fn every_cut_prefix_reads_or_fails_cleanly() {
+    let text = encode(&sample()).expect("encodes");
+    let full = sample();
+    for end in (0..=text.len()).filter(|&i| text.is_char_boundary(i)) {
+        match decode(&text[..end]) {
+            Ok(index) => assert!(index.sets().len() <= full.sets().len(), "{end}"),
+            Err(e) => assert!(!e.to_string().is_empty()),
+        }
+    }
+    // Up to the tab before the DAT version, the `dat` line is missing or
+    // short of a field. A cut inside a header value after that is still a
+    // valid, shorter value.
+    let dat = text.find("\ndat\t").expect("a dat line") + 1;
+    let version = dat + text[dat..].match_indices('\t').nth(1).expect("two tabs").0;
+    for end in 0..=version {
+        assert!(decode(&text[..end]).is_err(), "a cut header at {end}");
+    }
+}
+
+/// A small xorshift generator, so the random test repeats exactly.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+}
+
+/// Random bytes, alone and after a valid header, never make the reader
+/// panic. The bytes come from a small alphabet of the format's own
+/// characters, so many reach the field parsers.
+#[test]
+fn random_bytes_never_panic() {
+    const ALPHABET: &[u8] = b"\t\n-0123456789abcdefvbnpdhsetromcorelicence\xff";
+    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+    for _ in 0..3_000 {
+        let len = (rng.next() % 300) as usize;
+        let bytes: Vec<u8> = (0..len)
+            .map(|_| ALPHABET[(rng.next() % ALPHABET.len() as u64) as usize])
+            .collect();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(decode(&text).is_err(), "no magic, no index");
+        // Ok or Err are both correct here; the test is that it returns.
+        let _ = decode(&format!("{HEAD}{text}"));
+        let _ = decode(&format!(
+            "{HEAD}set\ta\t-\t-\t-\t\t\t\th\t0\t0\tA\t\n{text}"
+        ));
+    }
+}
