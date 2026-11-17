@@ -13,12 +13,16 @@ use super::game_list::GameList;
 use super::home::Home;
 use super::options::Options;
 use super::overlays::{Confirm, Notices};
-use super::page::Crumb;
+use super::page::{Crumb, crumb};
 use super::panel::PagePanel;
 use super::pattern;
 use super::quick_menu::QuickMenu;
 use super::settings::SettingsMenu;
-use super::{DISPLAY_PAGE, GRID_PAGE, SETTINGS_PAGE};
+use super::{DISPLAY_PAGE, GRID_PAGE, SETTINGS_PAGE, SETTINGS_PANELS};
+
+/// The label of the row that opens the Settings page, on the home screen
+/// and in the quick menu.
+const SETTINGS_LABEL: &str = "Settings";
 
 /// The deepest screen stack. The longest path is home, game list, game,
 /// quick menu, Settings, display panel, option list: seven screens.
@@ -37,6 +41,8 @@ pub struct Screens {
     confirm: Confirm,
     notices: Notices,
     visible: bool,
+    /// A panel that the app asked to open, and the row to focus.
+    opening: Option<(PageId, Option<SettingKey>)>,
 }
 
 /// What a screen asks the router to do after an action.
@@ -97,6 +103,7 @@ impl Screens {
             confirm: Confirm::new(),
             notices: Notices::new(),
             visible: true,
+            opening: None,
         }
     }
 
@@ -113,6 +120,9 @@ impl Screens {
     pub fn update(&mut self, snap: &Snapshot, actions: &[UiAction], out: &mut UiFrame) {
         out.clear();
         self.follow(snap);
+        if self.open_requested(snap) {
+            self.follow(snap);
+        }
         self.confirm.begin_frame();
         for &action in actions {
             let first_new = out.intents.len();
@@ -154,6 +164,96 @@ impl Screens {
     /// The number of open screens, home included.
     pub fn depth(&self) -> usize {
         self.stack.len()
+    }
+
+    /// Opens the settings panel `page` of [`SETTINGS_PANELS`] at the next
+    /// [`Screens::update`], as the player would open it from the Settings
+    /// page, with the focus on the row `focus` once its rows are in the
+    /// snapshot. A row that is not there leaves the focus on the first
+    /// row. The app calls it for an answer of the player, such as the
+    /// second button of a notice. The rule:
+    ///
+    /// - The panel on show only moves its focus.
+    /// - When a Settings page is open, the screens above it close (as by
+    ///   back), and the panel opens from it: never a second Settings page.
+    /// - Else, when the stack has no room for the Settings page and the
+    ///   panel, the screens above the quick menu, or above the home screen,
+    ///   close first.
+    /// - Else the Settings page and the panel open on top.
+    ///
+    /// Returns false, and opens nothing, while a game runs with no menu,
+    /// for a page that is no panel, and for the display panel, which has a
+    /// screen of its own.
+    pub fn open_panel(&mut self, page: PageId, focus: Option<SettingKey>) -> bool {
+        let panel = SETTINGS_PANELS.iter().any(|p| p.page == page);
+        if !panel || page == DISPLAY_PAGE || self.in_game() {
+            return false;
+        }
+        self.opening = Some((page, focus));
+        true
+    }
+
+    /// Carries out the request of [`Screens::open_panel`]. It runs in
+    /// `update`, where the snapshot lets a closed page tell the quick menu
+    /// what the app took back.
+    /// True when a request was carried out.
+    fn open_requested(&mut self, snap: &Snapshot) -> bool {
+        let Some((page, focus)) = self.opening.take() else {
+            return false;
+        };
+        if self.in_game() {
+            return false;
+        }
+        if let Some(Screen::Page(panel)) = self.stack.last_mut()
+            && panel.page_id() == page
+        {
+            panel.focus_on(focus);
+            return true;
+        }
+        let settings = self.stack.iter().any(|s| matches!(s, Screen::Settings(_)));
+        loop {
+            let top_is_root = matches!(
+                self.stack.last(),
+                Some(Screen::Home(_) | Screen::QuickMenu(_) | Screen::Game) | None
+            );
+            let done = if settings {
+                matches!(self.stack.last(), Some(Screen::Settings(_)))
+            } else {
+                self.stack.len() + 2 <= MAX_DEPTH || top_is_root
+            };
+            if done {
+                break;
+            }
+            let depth = self.stack.len();
+            self.back(snap);
+            if self.stack.len() == depth {
+                return true;
+            }
+        }
+        let Some(index) = SETTINGS_PANELS.iter().position(|p| p.page == page) else {
+            return true;
+        };
+        if !settings {
+            self.open(Target::Page {
+                page: SETTINGS_PAGE,
+                level: Level::Global,
+                label: crumb(SETTINGS_LABEL),
+            });
+        }
+        let Some(Screen::Settings(menu)) = self.stack.last_mut() else {
+            return true;
+        };
+        menu.select(index);
+        let label = SETTINGS_PANELS.get(index).map_or("", |p| p.label);
+        self.open(Target::Page {
+            page,
+            level: Level::Global,
+            label: crumb(label),
+        });
+        if let Some(Screen::Page(panel)) = self.stack.last_mut() {
+            panel.focus_on(focus);
+        }
+        true
     }
 
     fn follow(&mut self, snap: &Snapshot) {

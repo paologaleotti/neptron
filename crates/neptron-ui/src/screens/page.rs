@@ -105,6 +105,11 @@ impl Page {
         self.id
     }
 
+    /// Puts the cursor on row `index` of `len` rows, in view.
+    pub(super) fn select(&mut self, index: usize, len: usize) {
+        self.list.select(index, len);
+    }
+
     /// The rows of the page, or none while the snapshot holds a different
     /// page.
     pub(super) fn rows<'a>(&self, snap: &'a Snapshot) -> &'a [MenuItem] {

@@ -32,6 +32,11 @@ impl SettingsMenu {
         }
     }
 
+    /// Puts the cursor on the row of panel `index`.
+    pub(super) fn select(&mut self, index: usize) {
+        self.list.select(index, SETTINGS_PANELS.len());
+    }
+
     /// The part of this screen in the breadcrumb: the label of the row
     /// that opened it.
     pub(super) fn label(&self) -> &str {

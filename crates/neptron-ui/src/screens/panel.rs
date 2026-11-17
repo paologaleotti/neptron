@@ -7,7 +7,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
-use crate::snapshot::{Level, PageId, Snapshot};
+use crate::snapshot::{Level, PageId, SettingKey, Snapshot};
 use crate::theme::Theme;
 
 use super::chrome::{self, Layout};
@@ -30,6 +30,8 @@ pub(super) struct PagePanel {
     wants_video: bool,
     /// True while the layout has the video block above the rows.
     video: bool,
+    /// The row that takes the focus when the rows come.
+    focus: Option<SettingKey>,
 }
 
 impl PagePanel {
@@ -47,7 +49,22 @@ impl PagePanel {
             content: layout.content,
             wants_video: id == VIDEO_PAGE,
             video: false,
+            focus: None,
         }
+    }
+
+    /// The page of the panel.
+    pub(super) fn page_id(&self) -> PageId {
+        self.page.id()
+    }
+
+    /// Puts the focus on the row `key` once the rows of the page are in
+    /// the snapshot; `None` puts it on the first row.
+    pub(super) fn focus_on(&mut self, key: Option<SettingKey>) {
+        // The rows may not be loaded now; the next action clamps the
+        // cursor to the rows it sees.
+        self.page.select(0, usize::MAX);
+        self.focus = key;
     }
 
     /// The id of the screen in the tree.
@@ -74,6 +91,15 @@ impl PagePanel {
     /// rows, and removes it otherwise.
     pub(super) fn sync(&mut self, snap: &Snapshot, theme: &Theme) {
         self.page.follow(snap);
+        if let Some(key) = self.focus {
+            let rows = self.page.rows(snap);
+            if !rows.is_empty() {
+                self.focus = None;
+                if let Some(index) = rows.iter().position(|r| r.key == key) {
+                    self.page.select(index, rows.len());
+                }
+            }
+        }
         let video =
             self.wants_video && video::status(snap).is_some() && video::fits(self.content, theme);
         if video == self.video {

@@ -2772,3 +2772,132 @@ fn a_page_takes_no_more_actions_in_the_frame_of_a_game_change() {
         "a reverted change is not asked about"
     );
 }
+
+/// The Input panel with four players, as the app gives it.
+fn input_snapshot(mut snap: Snapshot) -> Snapshot {
+    snap.settings = SettingsPage::new(
+        super::INPUT_PAGE,
+        "Input",
+        super::scenes::input_rows(
+            ["Pad A", "Pad B", "USB Joystick (generic layout)", "None"],
+            &["Pad E"],
+        ),
+    );
+    snap
+}
+
+#[test]
+fn open_panel_shows_the_input_panel_with_the_focus_on_the_row_of_the_pad() {
+    let mut run = Run::new();
+    let empty = with_systems();
+    run.step(&empty, &[]);
+    let key = Some(crate::snapshot::SettingKey(43));
+    assert!(run.screens.open_panel(super::INPUT_PAGE, key));
+    run.step(&empty, &[]);
+    assert_eq!(run.screen(), "input");
+    assert_eq!(
+        run.intents(),
+        [Intent::LoadSettings {
+            page: super::INPUT_PAGE
+        }]
+    );
+    let snap = input_snapshot(with_systems());
+    run.step(&snap, &[]);
+    assert_eq!(title(&run), ("Settings > Input", None));
+    assert_eq!(run.focused(), Some("Player 3"));
+    run.step(&snap, &[Down]);
+    assert_eq!(run.focused(), Some("Player 4"), "the player moves on");
+    run.step(&snap, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("Input")));
+    run.step(&snap, &[Back]);
+    assert_eq!(
+        (run.screen(), run.focused()),
+        ("home", Some("Nintendo Entertainment System")),
+        "the home screen keeps its place"
+    );
+}
+
+#[test]
+fn open_panel_on_the_panel_on_show_moves_its_focus_and_a_lost_row_gives_the_first() {
+    let mut run = Run::new();
+    let snap = input_snapshot(with_systems());
+    run.step(&snap, &super::scenes::TO_INPUT);
+    run.step(&snap, &[Down, Down, Down, Down]);
+    assert_eq!(run.focused(), Some("Extra pad"));
+    let depth = run.screens.depth();
+    assert!(
+        run.screens
+            .open_panel(super::INPUT_PAGE, Some(crate::snapshot::SettingKey(42)))
+    );
+    run.step(&snap, &[]);
+    assert_eq!(run.screens.depth(), depth, "no second panel");
+    assert_eq!(run.focused(), Some("Player 2"));
+    assert!(
+        run.screens
+            .open_panel(super::INPUT_PAGE, Some(crate::snapshot::SettingKey(999)))
+    );
+    run.step(&snap, &[]);
+    assert_eq!(run.focused(), Some("Player 1"));
+}
+
+#[test]
+fn open_panel_works_over_the_quick_menu_and_never_over_a_running_game() {
+    let mut run = Run::new();
+    let game = in_game();
+    run.step(&game, &[]);
+    assert_eq!(run.screen(), "game");
+    let key = Some(crate::snapshot::SettingKey(41));
+    assert!(!run.screens.open_panel(super::INPUT_PAGE, key));
+    run.step(&game, &[Menu]);
+    assert_eq!(run.screen(), "quick-menu");
+    assert!(run.screens.open_panel(super::INPUT_PAGE, key));
+    run.step(&input_snapshot(in_game()), &[]);
+    assert_eq!(run.screen(), "input");
+    assert_eq!(run.focused(), Some("Player 1"));
+    assert!(
+        !run.screens.open_panel(super::DISPLAY_PAGE, None),
+        "the display panel has a screen of its own"
+    );
+    assert!(!run.screens.open_panel(super::VIDEO_PAGE, None), "no panel");
+}
+
+#[test]
+fn open_panel_from_an_open_settings_page_closes_the_screens_above_it_and_stacks_no_second() {
+    let mut run = Run::new();
+    let snap = with_audio();
+    run.step(&snap, &TO_AUDIO);
+    assert_eq!(run.screen(), "audio");
+    let depth = run.screens.depth();
+    let key = Some(crate::snapshot::SettingKey(43));
+    assert!(run.screens.open_panel(super::INPUT_PAGE, key));
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "input");
+    assert_eq!(run.screens.depth(), depth, "Input took the place of Audio");
+    assert_eq!(title(&run), ("Settings > Input", None));
+    run.step(&input_snapshot(with_systems()), &[]);
+    assert_eq!(run.focused(), Some("Player 3"));
+    run.step(&snap, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("Input")));
+}
+
+#[test]
+fn open_panel_from_a_page_of_the_quick_menu_keeps_the_quick_menu() {
+    let mut run = Run::new();
+    let game = in_game();
+    run.step(&game, &[]);
+    run.step(&game, &TO_VIDEO);
+    let deep = run.screen();
+    assert_ne!(deep, "quick-menu");
+    assert!(run.screens.open_panel(super::INPUT_PAGE, None));
+    run.step(&input_snapshot(in_game()), &[]);
+    assert_eq!(run.screen(), "input");
+    assert_eq!(run.focused(), Some("Player 1"));
+    run.step(&game, &[Back]);
+    assert_eq!(run.screen(), "settings");
+    run.step(&game, &[Back]);
+    assert_eq!(
+        run.screen(),
+        deep,
+        "the page the player was on is still under it"
+    );
+}
