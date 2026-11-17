@@ -6,6 +6,7 @@ use std::fmt;
 
 use neptron_types::Control;
 
+use crate::generic_layout::JoystickCounts;
 use crate::pad_map::stick_value;
 use crate::raw::HatState;
 use crate::raw_state::{MAX_RAW_AXES, MAX_RAW_BUTTONS, MAX_RAW_HATS, RawReads, RawState};
@@ -229,7 +230,17 @@ impl Binding {
 
     /// The value of the control that the binding drives, in the raw state
     /// `state`: 0 or 1 for a button control, the stick value for an axis.
+    /// An index that the state does not hold is never down.
     pub fn value(&self, state: &RawState) -> i16 {
+        let counts = state.counts();
+        let held = match *self {
+            Self::Button(index) => index < counts.buttons,
+            Self::Hat { index, .. } => index < counts.hats,
+            Self::HalfAxis { index, .. } | Self::Stick { index, .. } => index < counts.axes,
+        };
+        if !held {
+            return 0;
+        }
         match *self {
             Self::Button(index) => i16::from(state.button(index)),
             Self::Hat { index, direction } => i16::from(state.hat(index).has(direction.bit())),
@@ -346,6 +357,31 @@ impl PlayerMap {
             *slot = (*slot).max(index.saturating_add(1));
         }
         reads
+    }
+
+    /// The map with only the bindings that a joystick with `counts` has,
+    /// and the number of bindings it dropped: a button, hat or axis index
+    /// past the count of the joystick.
+    pub fn fitted(&self, counts: JoystickCounts) -> (Self, u32) {
+        let mut fitted = *self;
+        let mut dropped = 0;
+        for (slot, binding) in fitted.bindings.iter_mut().zip(self.bindings) {
+            let Some(binding) = binding else {
+                continue;
+            };
+            let (index, count) = match binding {
+                Binding::Button(index) => (index, counts.buttons),
+                Binding::Hat { index, .. } => (index, counts.hats),
+                Binding::HalfAxis { index, .. } | Binding::Stick { index, .. } => {
+                    (index, counts.axes)
+                }
+            };
+            if u32::from(index) >= count {
+                *slot = None;
+                dropped += 1;
+            }
+        }
+        (fitted, dropped)
     }
 
     /// The controls of [`MENU_CONTROLS`] that have no binding: with one of
@@ -588,6 +624,11 @@ mod tests {
         let stick = |inverted| Binding::Stick { index: 0, inverted };
         assert_eq!(stick(false).value(&state), -32_767);
         assert_eq!(stick(true).value(&state), 32_767);
+        assert_eq!(
+            half(5, true, true).value(&state),
+            0,
+            "an axis the state does not hold is not down"
+        );
     }
 
     #[test]

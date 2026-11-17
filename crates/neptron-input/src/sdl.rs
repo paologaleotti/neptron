@@ -223,6 +223,13 @@ impl SdlGamepads {
                 Ok(map) if Some(map) == old => self.open.push(pad),
                 Ok(map) => match Device::with_map(pad.device.into_pending(), map) {
                     Some(device) => {
+                        let dropped = self.maps.dropped(pad.info.identity, pad.layout);
+                        if dropped > 0 {
+                            self.notices.get_mut().push(InputNotice::LayoutTrimmed {
+                                pad: pad.info.clone(),
+                                dropped,
+                            });
+                        }
                         if let Err(e) = self.mapper.set_map(pad.id, map, out) {
                             self.notices.get_mut().push(lost_track(&e));
                         }
@@ -291,24 +298,23 @@ impl SdlGamepads {
             DeviceIdentity::from_parts(&[path.as_bytes()]),
             name.as_bytes(),
         );
+        let counts = JoystickCounts {
+            buttons: joystick.num_buttons(),
+            hats: joystick.num_hats(),
+            axes: joystick.num_axes(),
+        };
         let (device, layout) = if self.gamepads.is_gamepad(id) {
             match self.gamepads.open(id) {
                 // SDL counts the opens of a joystick: the source keeps both
                 // open, so a map of the player can read the raw indices.
-                Ok(pad) => (Pending::Gamepad(pad, joystick), PadLayout::Gamepad),
+                Ok(pad) => (Pending::Gamepad(pad, joystick), PadLayout::Gamepad(counts)),
                 Err(e) => {
                     self.ignore(id, what, e.to_string());
                     return None;
                 }
             }
         } else {
-            let counts = JoystickCounts {
-                buttons: joystick.num_buttons(),
-                hats: joystick.num_hats(),
-                axes: joystick.num_axes(),
-            };
-            let layout = PadLayout::Joystick(counts);
-            (Pending::Joystick(joystick), layout)
+            (Pending::Joystick(joystick), PadLayout::Joystick(counts))
         };
         Some(Found {
             handle: (id, device, layout, info.clone()),

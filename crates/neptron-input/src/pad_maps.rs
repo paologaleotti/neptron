@@ -37,8 +37,9 @@ pub enum MapKind {
 /// What a backend knows of a pad before it has a map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PadLayout {
-    /// SDL3 has a gamepad mapping for it.
-    Gamepad,
+    /// SDL3 has a gamepad mapping for it. The counts are those of its
+    /// joystick, which a map of the player reads.
+    Gamepad(JoystickCounts),
     /// A plain joystick, with its counts.
     Joystick(JoystickCounts),
 }
@@ -123,10 +124,31 @@ impl PlayerMaps {
     }
 }
 
+impl PlayerMaps {
+    /// The bindings of the map of `identity` that the pad with `layout`
+    /// does not have: an index past its counts. [`PadMaps::map`] drops
+    /// them.
+    pub fn dropped(&self, identity: DeviceIdentity, layout: PadLayout) -> u32 {
+        self.get(identity)
+            .map_or(0, |map| map.fitted(layout.counts()).1)
+    }
+}
+
+impl PadLayout {
+    /// The counts of the joystick of the pad.
+    pub fn counts(&self) -> JoystickCounts {
+        match *self {
+            Self::Gamepad(counts) | Self::Joystick(counts) => counts,
+        }
+    }
+}
+
 impl PadMaps for PlayerMaps {
+    /// The map of the player of `identity`, with only the bindings that
+    /// the pad has, or the built-in map.
     fn map(&self, identity: DeviceIdentity, layout: PadLayout) -> Result<PadMap, NotAGamepad> {
         match self.get(identity) {
-            Some(map) => Ok(PadMap::Player(*map)),
+            Some(map) => Ok(PadMap::Player(map.fitted(layout.counts()).0)),
             None => BuiltinMaps.map(identity, layout),
         }
     }
@@ -135,7 +157,7 @@ impl PadMaps for PlayerMaps {
 impl PadMaps for BuiltinMaps {
     fn map(&self, _identity: DeviceIdentity, layout: PadLayout) -> Result<PadMap, NotAGamepad> {
         match layout {
-            PadLayout::Gamepad => Ok(PadMap::Known),
+            PadLayout::Gamepad(_) => Ok(PadMap::Known),
             PadLayout::Joystick(counts) => GenericLayout::for_counts(counts).map(PadMap::Generic),
         }
     }
@@ -145,10 +167,19 @@ impl PadMaps for BuiltinMaps {
 mod tests {
     use super::*;
 
+    const PAD: JoystickCounts = JoystickCounts {
+        buttons: 16,
+        hats: 2,
+        axes: 6,
+    };
+
     #[test]
     fn the_builtin_maps_give_known_or_generic() {
         let id = DeviceIdentity(7);
-        assert_eq!(BuiltinMaps.map(id, PadLayout::Gamepad), Ok(PadMap::Known));
+        assert_eq!(
+            BuiltinMaps.map(id, PadLayout::Gamepad(PAD)),
+            Ok(PadMap::Known)
+        );
         let counts = JoystickCounts {
             buttons: 13,
             hats: 1,
@@ -174,7 +205,7 @@ mod tests {
         let mine = DeviceIdentity(7);
         let other = DeviceIdentity(8);
         let mut map = PlayerMap::new();
-        map.set(neptron_types::Control::A, Some(crate::Binding::Button(3)))
+        map.set(neptron_types::Control::A, Some(crate::Binding::Button(0)))
             .unwrap();
         let mut maps = PlayerMaps::new();
         maps.insert(mine, map);
@@ -183,16 +214,19 @@ mod tests {
             hats: 0,
             axes: 0,
         };
-        assert_eq!(maps.map(mine, PadLayout::Gamepad), Ok(PadMap::Player(map)));
+        assert_eq!(
+            maps.map(mine, PadLayout::Gamepad(PAD)),
+            Ok(PadMap::Player(map))
+        );
         assert_eq!(
             maps.map(mine, PadLayout::Joystick(few)),
             Ok(PadMap::Player(map)),
             "the player's map reads a pad that the generic layout refuses"
         );
-        assert_eq!(maps.map(other, PadLayout::Gamepad), Ok(PadMap::Known));
+        assert_eq!(maps.map(other, PadLayout::Gamepad(PAD)), Ok(PadMap::Known));
         assert!(maps.map(other, PadLayout::Joystick(few)).is_err());
         assert_eq!(PadMap::Player(map).kind(), MapKind::Player);
-        assert_eq!(PadMap::Player(map).raw_reads().map(|r| r.buttons), Some(4));
+        assert_eq!(PadMap::Player(map).raw_reads().map(|r| r.buttons), Some(1));
         assert_eq!(PadMap::Known.raw_reads(), None);
         let mut other_map = map;
         other_map.set(neptron_types::Control::A, None).unwrap();
@@ -201,6 +235,47 @@ mod tests {
         assert_eq!(maps.get(mine), Some(&other_map));
         assert!(maps.remove(mine));
         assert!(!maps.remove(mine));
-        assert_eq!(maps.map(mine, PadLayout::Gamepad), Ok(PadMap::Known));
+        assert_eq!(maps.map(mine, PadLayout::Gamepad(PAD)), Ok(PadMap::Known));
+    }
+
+    #[test]
+    fn a_map_drops_the_bindings_that_the_pad_does_not_have() {
+        use crate::{Binding, HatDirection};
+        use neptron_types::Control;
+        let mine = DeviceIdentity(7);
+        let mut map = PlayerMap::new();
+        map.set(Control::A, Some(Binding::Button(2))).unwrap();
+        map.set(Control::B, Some(Binding::Button(12))).unwrap();
+        let up = Binding::Hat {
+            index: 1,
+            direction: HatDirection::Up,
+        };
+        map.set(Control::Up, Some(up)).unwrap();
+        let l2 = Binding::HalfAxis {
+            index: 5,
+            positive: true,
+            full: true,
+        };
+        map.set(Control::L2, Some(l2)).unwrap();
+        let mut maps = PlayerMaps::new();
+        maps.insert(mine, map);
+        let small = PadLayout::Joystick(JoystickCounts {
+            buttons: 12,
+            hats: 1,
+            axes: 4,
+        });
+        let Ok(PadMap::Player(fitted)) = maps.map(mine, small) else {
+            panic!("a map of the player");
+        };
+        assert_eq!(fitted.get(Control::A), Some(Binding::Button(2)));
+        assert_eq!(fitted.get(Control::B), None);
+        assert_eq!(fitted.get(Control::Up), None);
+        assert_eq!(fitted.get(Control::L2), None);
+        assert_eq!(maps.dropped(mine, small), 3);
+        assert_eq!(maps.dropped(mine, PadLayout::Gamepad(PAD)), 0);
+        assert_eq!(
+            maps.map(mine, PadLayout::Gamepad(PAD)),
+            Ok(PadMap::Player(map))
+        );
     }
 }

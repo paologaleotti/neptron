@@ -6,7 +6,7 @@ use neptron_types::InputEvent;
 
 use crate::mapper::{Mapper, MapperError};
 use crate::notice::{InputNotice, NoticeQueue};
-use crate::pad_maps::{PadLayout, PadMap, PadMaps};
+use crate::pad_maps::{PadLayout, PadMap, PadMaps, PlayerMaps};
 use crate::port_table::PadId;
 use crate::roster::PadInfo;
 
@@ -41,7 +41,7 @@ pub(crate) struct Scan<T> {
 /// the ports.
 pub(crate) fn connect_found<T>(
     mapper: &mut Mapper,
-    maps: &dyn PadMaps,
+    maps: &PlayerMaps,
     found: Vec<Found<T>>,
     out: &mut Vec<InputEvent>,
     notices: &mut NoticeQueue,
@@ -50,7 +50,16 @@ pub(crate) fn connect_found<T>(
     let mut mapped = Vec::with_capacity(found.len());
     for pad in found {
         match maps.map(pad.info.identity, pad.layout) {
-            Ok(map) => mapped.push((pad, map)),
+            Ok(map) => {
+                let dropped = maps.dropped(pad.info.identity, pad.layout);
+                if dropped > 0 {
+                    notices.push(InputNotice::LayoutTrimmed {
+                        pad: pad.info.clone(),
+                        dropped,
+                    });
+                }
+                mapped.push((pad, map));
+            }
             Err(reason) => {
                 notices.push(InputNotice::NotAGamepad {
                     pad: pad.info,
@@ -126,7 +135,7 @@ mod tests {
     use super::*;
     use crate::device::DeviceIdentity;
     use crate::generic_layout::{JoystickCounts, NotAGamepad};
-    use crate::pad_maps::{BuiltinMaps, MapKind};
+    use crate::pad_maps::MapKind;
     use crate::roster::{PortRule, Roster, RosterEntry};
 
     fn info(n: u8) -> PadInfo {
@@ -196,9 +205,9 @@ mod tests {
         };
         let scan = connect_found(
             &mut mapper,
-            &BuiltinMaps,
+            &PlayerMaps::new(),
             vec![
-                found(1, PadLayout::Gamepad),
+                found(1, PadLayout::Gamepad(JoystickCounts::default())),
                 found(2, PadLayout::Joystick(counts(12, 1))),
                 found(3, PadLayout::Joystick(counts(1, 1))),
             ],
@@ -244,8 +253,16 @@ mod tests {
     fn a_ninth_pad_gives_its_notice() {
         let mut mapper = Mapper::new();
         let (mut out, mut notices) = (Vec::new(), NoticeQueue::default());
-        let pads = (1..=9).map(|n| found(n, PadLayout::Gamepad)).collect();
-        let scan = connect_found(&mut mapper, &BuiltinMaps, pads, &mut out, &mut notices);
+        let pads = (1..=9)
+            .map(|n| found(n, PadLayout::Gamepad(JoystickCounts::default())))
+            .collect();
+        let scan = connect_found(
+            &mut mapper,
+            &PlayerMaps::new(),
+            pads,
+            &mut out,
+            &mut notices,
+        );
         assert_eq!(scan.opened.len(), 8);
         assert_eq!(scan.refused, [9]);
         assert!(

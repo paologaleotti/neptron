@@ -312,3 +312,42 @@ fn a_captured_gamepad_gives_the_buttons_of_its_layout_as_raw_buttons() {
     assert!(state.button(1), "East is raw button 1");
     assert!(!state.button(0));
 }
+
+#[test]
+fn a_map_made_on_a_bigger_pad_drops_the_inputs_that_this_pad_lacks() {
+    let mut pads = ScriptedPads::new(PortRule::Menus, &Roster::new());
+    let test = pads.clone();
+    let small = test.plug_joystick(pad(8, 1), counts(12, 1, 4));
+    let made_elsewhere = map(&[
+        (Control::A, Binding::Button(0)),
+        (
+            Control::L2,
+            Binding::HalfAxis {
+                index: 5,
+                positive: true,
+                full: true,
+            },
+        ),
+        (Control::R2, Binding::Button(14)),
+    ]);
+    pads.set_player_maps(&maps_of(pad(8, 1).identity, made_elsewhere));
+    assert!(
+        poll(&mut pads).is_empty(),
+        "an axis the pad does not have is never down"
+    );
+    let Some(PadMap::Player(used)) = pads.pad_map(pad(8, 1).key()) else {
+        panic!("a map of the player");
+    };
+    assert_eq!(used.get(Control::L2), None);
+    assert_eq!(used.get(Control::R2), None);
+    assert_eq!(used.get(Control::A), Some(Binding::Button(0)));
+    let mut notices = Vec::new();
+    pads.take_notices(&mut notices);
+    let trimmed: Vec<_> = notices
+        .iter()
+        .filter(|n| matches!(n, InputNotice::LayoutTrimmed { dropped: 2, .. }))
+        .collect();
+    assert_eq!(trimmed.len(), 1, "one log line: {notices:?}");
+    test.set_joy_button(small, 0, true);
+    assert_eq!(poll(&mut pads), [(PAD0, Control::A, 1)]);
+}

@@ -19,6 +19,13 @@ use crate::roster::{Capture, PadInfo, PadKey, PadRoster, PortRule, Roster};
 use crate::scan::{Found, connect_found};
 use crate::silent::PadActivity;
 
+/// The joystick of a scripted gamepad: the buttons of `PAD_BUTTON_MAP`.
+const GAMEPAD_COUNTS: JoystickCounts = JoystickCounts {
+    buttons: PAD_BUTTON_MAP.len() as u32,
+    hats: 0,
+    axes: 0,
+};
+
 /// The raw buttons that a scripted joystick holds.
 const JOY_BUTTONS: usize = 16;
 
@@ -71,7 +78,7 @@ impl ScriptedPads {
     /// Adds a gamepad with the standard layout, plugged in at the next
     /// `poll`.
     pub fn plug(&self, info: PadInfo) -> ScriptedPad {
-        self.add(info, PadLayout::Gamepad)
+        self.add(info, PadLayout::Gamepad(GAMEPAD_COUNTS))
     }
 
     /// Adds a plain joystick with `counts` and no gamepad mapping, plugged
@@ -325,6 +332,13 @@ impl State {
             match maps.map(fake.info.identity, fake.layout) {
                 Ok(map) if map == old => {}
                 Ok(map) => {
+                    let dropped = maps.dropped(fake.info.identity, fake.layout);
+                    if dropped > 0 {
+                        notices.push(InputNotice::LayoutTrimmed {
+                            pad: fake.info.clone(),
+                            dropped,
+                        });
+                    }
                     // The pad is open, so the mapper has it.
                     let _ = mapper.set_map(id, map, out);
                     fake.link = Link::Open(id, map);
@@ -432,9 +446,7 @@ impl Fake {
     /// pad holds.
     fn counts(&self) -> RawReads {
         match self.layout {
-            PadLayout::Gamepad => {
-                RawReads::clamped(u32::try_from(PAD_BUTTON_MAP.len()).unwrap_or(0), 0, 0)
-            }
+            PadLayout::Gamepad(counts) => RawReads::clamped(counts.buttons, 0, 0),
             PadLayout::Joystick(counts) => {
                 let joy = RawReads::clamped(counts.buttons, counts.hats, counts.axes);
                 RawReads {

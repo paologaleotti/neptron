@@ -75,6 +75,14 @@ pub enum InputNotice {
         /// Why.
         reason: String,
     },
+    /// A map of the player has bindings that the pad does not have: they
+    /// are not used on it.
+    LayoutTrimmed {
+        /// The pad.
+        pad: PadInfo,
+        /// The bindings not used.
+        dropped: u32,
+    },
     /// The queue was full and dropped this many notices.
     Dropped {
         /// The number of notices dropped.
@@ -118,6 +126,11 @@ impl std::fmt::Display for InputNotice {
                     "line {line} of the mapping file {path} is not used: {reason}"
                 )
             }
+            Self::LayoutTrimmed { pad, dropped } => write!(
+                f,
+                "{:?} lacks the inputs of {dropped} bindings of its layout; they are not used",
+                pad.name
+            ),
             Self::Dropped { count } => write!(f, "{count} input notices were dropped"),
         }
     }
