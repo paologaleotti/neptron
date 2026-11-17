@@ -103,6 +103,7 @@ The state column is one line. The full entry below is the reference.
 | OP-104 | CI limits | aarch64 timing checks not in CI; two paths not proven |
 | OP-106 | Open questions of the arcade spec | Defaults in `docs/spec/arcade.md`, section 19 |
 | OP-107 | TATE: a monitor on its side, with the UI and the games turned | After the MVP; design notes in the arcade spec |
+| OP-108 | Arcade leftovers after M07b | Set name as title; core default for the service menu |
 
 ### Decided
 
@@ -1160,4 +1161,13 @@ The state column is one line. The full entry below is the reference.
 - Default: version 0.1 shows a vertical game upright on a horizontal display (rotation in the renderer, task M08a). It has no mode for a monitor that stands on its side: the menu is not turned, and a vertical game is not shown at its native lines on such a monitor.
 - Where: `docs/spec/arcade.md` (the TATE section has the design notes), ADR 0015, `docs/definition/06-flat-panels-shaders-and-vertical-games.md` (`screen_orientation`)
 - How to change: a task of the first taskboard after the MVP. It covers a setting for the screen orientation with a direction (left or right), the UI drawn turned, a vertical game at its native lines with no rotation (240p at the game's own rate on 15 kHz), a horizontal game turned or refused on such a screen, the input directions turned in the menu, and the boot picture. The setting shape is question A6 of the arcade spec (OP-106).
+- Decision:
+
+### OP-108: Arcade leftovers after the data and scan task (M07b).
+
+- Raised by: M07b and its review (2026-11-16)
+- Status: open
+- Default: an arcade set shows with its set name as the title, and nothing checks a set before launch (both wait for M07c). `data/cores/fbneo.toml` does not set `fbneo-diagnostic-input`, because the free test set does not declare that option; the service menu stays on the core default, hold Start. The session does not read `always_progressive` yet (M08a). The text of the empty library names only the `nes`, `snes` and `megadrive` folders. The diagnostics page has no line for a `mame` folder. No x86_64 trace of FinalBurn Neo and no trace of a set with a missing ROM exist. `docs/spec/arcade.md` section 4 still proposes the diagnostic input key.
+- Where: `data/cores/fbneo.toml`, `crates/neptron-library`, `crates/neptron-session`, `crates/neptron-ui/src/screens/home.rs`, `tests/traces`
+- How to change: M07c for the titles, the set check and the diagnostics line; M08a for `always_progressive`; a trace of a Neo Geo set that declares the diagnostic input before the key goes in the data file.
 - Decision:

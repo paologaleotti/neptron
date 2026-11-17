@@ -38,7 +38,7 @@ On macOS, xtask runs every command under `taskpolicy -c utility` and holds one o
 2. A task starts from current `main` when all its needs are merged.
 3. A task edits only the paths in its "Owns" column. Only the orchestrator edits the root `Cargo.toml`, `Cargo.lock`, `CLAUDE.md`, `docs/taskboard.toml` and `docs/open-points.md`. A new external dependency goes in `[workspace.dependencies]`, in a separate `build(deps)` commit with the reason, and in the task report.
 4. A needed change to a contract, a brief or earlier code goes on a separate small branch: the change, every caller fixed, and an ADR.
-5. Conventional Commits, one logical change each with its tests. Each commit builds and passes T0 and T1. No `wip` or fixup commits. Rebase, never merge. No emojis. No mention of AI, Claude or any assistant, and no `Co-Authored-By` trailer, anywhere.
+5. Conventional Commits, one logical change each with its tests. Each commit builds and passes T0 alone, and the head of the branch passes T1. No `wip` or fixup commits. Rebase, never merge. No emojis. No mention of AI, Claude or any assistant, and no `Co-Authored-By` trailer, anywhere.
 6. A "spec first" task commits its file in `docs/spec/` before any code.
 7. A task is done when its gate passes, the definition of done holds, and a fresh review approves the diff and the commits.
 8. A question without an answer becomes an open point: take a safe default, record it (question, default, where, how to change), continue.
