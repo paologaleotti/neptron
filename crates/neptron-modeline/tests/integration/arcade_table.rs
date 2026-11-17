@@ -18,7 +18,8 @@
 use std::collections::BTreeMap;
 
 use neptron_modeline::policy::{
-    Considered, Plan, PolicySettings, Proposal, RefreshKind, Rung, choose, decide,
+    Considered, EXACT_SPEED_MARGIN_PPM, Plan, PolicySettings, Proposal, RefreshKind, Rung, choose,
+    decide,
 };
 use neptron_safety::validate;
 use neptron_types::{
@@ -770,8 +771,8 @@ fn fit_allowed(
             Err("panel scale")
         };
     }
-    // An exact mode that changes the game's speed more than the fit (by
-    // the 5 mHz match) does not beat it.
+    // An exact mode that changes the game's speed more than the fit by
+    // more than the margin (and the 5 mHz match) does not beat it.
     let speed = |q: &Proposal| {
         let shown = q.timing.field_rate_mhz / u64::from(q.timing.repeat().max(1));
         shown.abs_diff(u64::from(q.timing.game_mhz))
@@ -781,7 +782,10 @@ fn fit_allowed(
         .filter(|(_, c, q)| !c.rung.is_fitted() && validate(&q.mode, profile, caps).is_ok())
         .map(|(_, _, q)| q)
         .collect();
-    if exact.iter().any(|q| speed(q) < speed(p) + 5) {
+    if exact
+        .iter()
+        .any(|q| speed(q) < speed(p) + margin_mhz(q) + 5)
+    {
         return Err("soft fit");
     }
     let lines = u32::from(plan.source.height);
@@ -839,7 +843,7 @@ fn fit_reason(profile: &MonitorProfile, plan: &Plan, considered: &Considered) ->
     }
     let exact = plan.proposals().any(|(_, c, _)| !c.rung.is_fitted());
     if exact && !matches!(profile.kind, MonitorKind::FlatPanel { .. }) {
-        return "ok: the exact mode changes the speed more";
+        return "ok: the exact mode changes the speed beyond the margin";
     }
     match &profile.kind {
         MonitorKind::FlatPanel { .. } => "ok: panel fill",
@@ -1164,10 +1168,16 @@ fn sources_table() {
     println!("{out}");
 }
 
+/// How much more an exact mode may change the game's speed than a fit,
+/// in millihertz of the game's rate of `p`.
+pub fn margin_mhz(p: &Proposal) -> u64 {
+    u64::from(p.timing.game_mhz) * EXACT_SPEED_MARGIN_PPM / 1_000_000
+}
+
 /// The winner trades the game's rate for an exact picture: no exact mode
 /// at the game's rate validates, the winner is exact at the nearest rate
 /// where a range holds the game, and no fit that validates changes the
-/// speed less.
+/// speed less by more than the margin.
 pub fn traded_for_window(
     plan: &Plan,
     p: &Proposal,
@@ -1181,7 +1191,9 @@ pub fn traded_for_window(
         shown.abs_diff(u64::from(q.timing.game_mhz))
     };
     let better_fit = plan.proposals().any(|(_, c, q)| {
-        c.rung.is_fitted() && speed(q) + 5 <= speed(p) && validate(&q.mode, profile, caps).is_ok()
+        c.rung.is_fitted()
+            && speed(q) + margin_mhz(p) + 5 <= speed(p)
+            && validate(&q.mode, profile, caps).is_ok()
     });
     // The rate the walk aims for first: the game's own, or the nearest
     // covered one. No exact mode there validates.

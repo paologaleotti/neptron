@@ -19,6 +19,7 @@ use neptron_modeline::policy::{
 use neptron_safety::validate;
 use neptron_types::{GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry, ui_dest_fill};
 
+use crate::arcade_table::margin_mhz;
 use crate::presets::{
     all_presets, edid_caps, gpu_table, open_caps, panel_1080, pc_crt_30_71, unknown_gpu,
 };
@@ -271,10 +272,12 @@ fn check_plan(plan: &Plan, profile: &MonitorProfile, caps: &GpuCaps) -> Result<(
         }
         // An exact mode at the nearest rate where a range holds a window
         // may follow the fit: it changes the game's speed more than the
-        // fit does, so it ranks after it.
+        // fit does, beyond the margin, so it ranks after it.
         let speed_traded = considered.target.kind == RefreshKind::Nearest
             && plan.proposals().any(|(_, c, p)| {
-                c.rung.is_fitted() && speed_mhz(p) + REFRESH_MATCH_MHZ <= speed_mhz(proposal)
+                c.rung.is_fitted()
+                    && speed_mhz(p) + margin_mhz(proposal) + REFRESH_MATCH_MHZ
+                        <= speed_mhz(proposal)
             });
         match (considered.rung.is_fitted(), fitted_seen) {
             (true, None) => fitted_seen = Some(index),
@@ -339,13 +342,13 @@ fn check_no_interlaced_fit<V>(
         return Ok(());
     }
     // An exact mode at the nearest rate with a window that changes the
-    // speed more than the fit ranks after the fit by the speed rule.
+    // speed more than the fit, beyond the margin, ranks after the fit.
     let progressive_exact = plan.proposals().any(|(_, c, p)| {
         !c.rung.is_fitted()
             && !p.mode.interlace
             && valid(p)
             && !(c.target.kind == RefreshKind::Nearest
-                && speed_mhz(p) >= speed_mhz(w.proposal) + REFRESH_MATCH_MHZ)
+                && speed_mhz(p) >= speed_mhz(w.proposal) + margin_mhz(p) + REFRESH_MATCH_MHZ)
     });
     if progressive_exact {
         return Err(format!(

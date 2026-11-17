@@ -10,6 +10,15 @@ use super::RefreshPolicy;
 /// same two decimals; 5 mHz or more can never.
 pub const REFRESH_MATCH_MHZ: u64 = 5;
 
+/// How much more an exact mode may change the game's speed than the best
+/// fit and still win over it, in ppm of the game's rate: 2 percentage
+/// points. A speed and pitch change of that size is small against the lines
+/// or the sharpness that a fit loses, and a game that reaches this rule
+/// already runs several percent from its own rate. Above the margin the
+/// speed counts more: a 50 Hz game in a 60 Hz panel mode (19 to 21 points)
+/// stays a fit.
+pub const EXACT_SPEED_MARGIN_PPM: u64 = 20_000;
+
 /// The rate of `force_50`, in millihertz.
 pub const FORCE_50_MHZ: u32 = 50_000;
 

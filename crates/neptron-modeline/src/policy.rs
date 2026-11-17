@@ -55,7 +55,8 @@ pub use placement::{HorizontalScale, Placement, ScaleClaim, UI_CANVAS};
 pub use plan::{Considered, Plan, Proposal, StrategyReplaced, Timing};
 pub use reason::Dropped;
 pub use refresh::{
-    FORCE_50_MHZ, FORCE_60_MHZ, REFRESH_MATCH_MHZ, RefreshKind, RefreshTarget, SkippedTarget,
+    EXACT_SPEED_MARGIN_PPM, FORCE_50_MHZ, FORCE_60_MHZ, REFRESH_MATCH_MHZ, RefreshKind,
+    RefreshTarget, SkippedTarget,
 };
 pub use settings::{
     FIXED_SUPER_WIDTHS, HorizontalStrategy, PanelScale, PictureStyle, PolicySettings,

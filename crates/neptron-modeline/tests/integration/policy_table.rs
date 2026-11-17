@@ -3,9 +3,9 @@
 //! a GPU, the rung and the mode family that win after the validator.
 
 use neptron_modeline::policy::{
-    Considered, Dropped, HorizontalScale, HorizontalStrategy, PanelScale, PictureStyle, Plan,
-    PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy, Rung, SkippedTarget,
-    Switch, VerticalMode, choose, decide, notice, style_rows, switch_for,
+    Considered, Dropped, EXACT_SPEED_MARGIN_PPM, HorizontalScale, HorizontalStrategy, PanelScale,
+    PictureStyle, Plan, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy,
+    Rung, SkippedTarget, Switch, VerticalMode, choose, decide, notice, style_rows, switch_for,
 };
 use neptron_safety::validate;
 use neptron_types::{
@@ -1959,4 +1959,53 @@ fn a_fixed_width_that_misses_one_field_rate_is_not_widened() {
             );
         }
     }
+}
+
+/// The winner of a 320x480 progressive game at `rate_mhz` on `h9110`, and
+/// how much more the best exact mode changes the speed than the best fit,
+/// in ppm of the game's rate. The tube holds 480 progressive lines only
+/// below its top rate, so every exact mode runs at a lower window rate
+/// than the fit.
+fn window_trade(rate_mhz: u32) -> (Rung, u64) {
+    let profile = preset("h9110");
+    let caps = with_interlace(open_caps());
+    let plan = decide(
+        &source(320, 480, rate_mhz),
+        &PolicySettings::default(),
+        &profile,
+        &caps,
+    )
+    .unwrap();
+    let error = |fitted: bool| {
+        plan.proposals()
+            .filter(|(_, c, p)| {
+                c.rung.is_fitted() == fitted && validate(&p.mode, &profile, &caps).is_ok()
+            })
+            .map(|(_, _, p)| p.timing.field_rate_mhz.abs_diff(u64::from(rate_mhz)))
+            .min()
+            .unwrap()
+    };
+    let extra_ppm = (error(false) - error(true)) * 1_000_000 / u64::from(rate_mhz);
+    let (considered, _) = winner(&plan, &profile, &caps);
+    (considered.rung, extra_ppm)
+}
+
+#[test]
+fn an_exact_mode_wins_over_the_fit_while_its_speed_change_is_within_the_margin() {
+    let (rung, extra_ppm) = window_trade(72_400);
+    assert!(
+        (18_000..EXACT_SPEED_MARGIN_PPM).contains(&extra_ppm),
+        "{extra_ppm} ppm"
+    );
+    assert!(!rung.is_fitted(), "{rung}");
+}
+
+#[test]
+fn the_fit_wins_when_the_exact_mode_changes_the_speed_beyond_the_margin() {
+    let (rung, extra_ppm) = window_trade(65_500);
+    assert!(
+        (EXACT_SPEED_MARGIN_PPM..22_000).contains(&extra_ppm),
+        "{extra_ppm} ppm"
+    );
+    assert_eq!(rung, Rung::Fitted);
 }

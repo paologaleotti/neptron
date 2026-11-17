@@ -12,8 +12,8 @@
 use std::collections::BTreeMap;
 
 use neptron_modeline::policy::{
-    Plan, PolicyError, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshTarget,
-    Rung, choose, decide,
+    EXACT_SPEED_MARGIN_PPM, Plan, PolicyError, PolicySettings, Proposal, REFRESH_MATCH_MHZ,
+    RefreshKind, RefreshTarget, Rung, choose, decide,
 };
 use neptron_modeline::{Settings, modelines_with};
 use neptron_safety::{Rejection, validate};
@@ -165,10 +165,10 @@ fn near_edge(profile: &MonitorProfile, rate: u32) -> bool {
     })
 }
 
-/// The winner runs at a window rate: a Nearest target that is neither the
+/// A target at a window rate: a Nearest target that is neither the
 /// nearest covered rate to the game's nor, with each frame twice, the
-/// nearest covered rate to twice it. Only there may the class follow the
-/// speed rule instead of a named limit.
+/// nearest covered rate to twice it. Only when the winner runs there may
+/// the class change across a limit of that rate.
 fn at_window(profile: &MonitorProfile, game_mhz: u32, target: RefreshTarget) -> bool {
     let MonitorKind::Crt { ranges } = &profile.kind else {
         return false;
@@ -347,13 +347,12 @@ impl Failures {
 struct Outcome {
     class: Class,
     lines: u32,
-    /// A rung at a window rate gives a mode, so the speed rule decides
-    /// between it and the fit: a change of the speed by a few millihertz
-    /// can change the class with no limit crossed. An example: ms929 at
-    /// 70 Hz, 288 lines, where interlaced 1:1 misses 65.000 Hz by the 5 mHz
-    /// match (64.995 Hz), the window mode at 64.981 Hz changes the speed
-    /// 19 mHz more than the fit at 65.000 Hz, and the fit wins; at 289
-    /// lines the interlaced mode gives 64.996 Hz and wins.
+    /// The winner runs at a window rate. The named limits of `limits` are
+    /// those of the game's rate (or the nearest covered one), and a winner
+    /// at a lower window rate meets the limits of that rate instead. An
+    /// example: generic_15 at 70 Hz, where 240 lines take the progressive
+    /// window mode at 64.285 Hz with 8 lines cropped per edge, and 241
+    /// lines need 9 and take interlaced 1:1 at that rate.
     window: bool,
 }
 
@@ -519,9 +518,10 @@ impl Sweep {
                 let fit_speed = (p.timing.field_rate_mhz / u64::from(p.timing.repeat().max(1)))
                     .abs_diff(u64::from(source.refresh_mhz));
                 let exact = exact_speed(source, shown, ranges, caps);
-                // An exact mode beats the fit when it changes the speed no
-                // more than the fit, within the 5 mHz match.
-                let beaten = exact.is_some_and(|e| e < fit_speed + REFRESH_MATCH_MHZ);
+                // An exact mode beats the fit when it changes the speed at
+                // most the margin more than the fit, within the 5 mHz match.
+                let margin = u64::from(source.refresh_mhz) * EXACT_SPEED_MARGIN_PPM / 1_000_000;
+                let beaten = exact.is_some_and(|e| e < fit_speed + margin + REFRESH_MATCH_MHZ);
                 self.check(
                     "no soft fit when an exact mode exists",
                     chosen || !beaten,
@@ -553,10 +553,7 @@ impl Sweep {
                 }
             },
             lines,
-            window: plan
-                .considered
-                .iter()
-                .any(|c| c.outcome.is_ok() && at_window(profile, source.refresh_mhz, c.target)),
+            window: at_window(profile, source.refresh_mhz, w.considered.target),
         }
     }
 

@@ -8,9 +8,9 @@ use super::settings::Effective;
 use super::shape::{Shape, blank_lines, overscan_crop, progressive_capacity, shape};
 use super::solve::solve;
 use super::{
-    Considered, Dropped, HorizontalStrategy, OrientedSource, PictureStyle, Plan, PolicyError,
-    Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshTarget, Rung, SMALL_PICTURE_MIN_PERCENT,
-    StrategyReplaced, VerticalMode,
+    Considered, Dropped, EXACT_SPEED_MARGIN_PPM, HorizontalStrategy, OrientedSource, PictureStyle,
+    Plan, PolicyError, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshTarget, Rung,
+    SMALL_PICTURE_MIN_PERCENT, StrategyReplaced, VerticalMode,
 };
 use crate::ModelineError;
 
@@ -177,10 +177,10 @@ fn window_target(base_mhz: u32, game_lines: u16, ranges: &[CrtRange]) -> Option<
     })
 }
 
-/// The exact entries at the window target win over the fit only when they
-/// change the game's speed no more than the fit does, within
-/// [`REFRESH_MATCH_MHZ`] (a whole-kHz clock moves a rate by a few
-/// millihertz): a fit at the game's own rate keeps them after it.
+/// The exact entries at the window target win over the fit while they
+/// change the game's speed at most [`EXACT_SPEED_MARGIN_PPM`] more than the
+/// fit does, within [`REFRESH_MATCH_MHZ`] (a whole-kHz clock moves a rate
+/// by a few millihertz); beyond it they rank after the fit.
 fn speed_order(entries: &mut [(Key, Considered)], window: RefreshTarget) {
     let error = |p: &Proposal| {
         let shown = p.timing.field_rate_mhz / u64::from(p.timing.repeat().max(1));
@@ -196,9 +196,10 @@ fn speed_order(entries: &mut [(Key, Considered)], window: RefreshTarget) {
         let Ok(proposal) = &considered.outcome else {
             continue;
         };
+        let margin = u64::from(proposal.timing.game_mhz) * EXACT_SPEED_MARGIN_PPM / 1_000_000;
         if considered.target == window
             && !considered.rung.is_fitted()
-            && fit.is_some_and(|fit| error(proposal) >= fit + REFRESH_MATCH_MHZ)
+            && fit.is_some_and(|fit| error(proposal) >= fit + margin + REFRESH_MATCH_MHZ)
         {
             key.0 = AFTER_FIT_BAND;
         }
