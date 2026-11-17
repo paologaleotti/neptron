@@ -85,6 +85,11 @@ pub enum Job {
         /// The text of the file.
         text: String,
     },
+    /// Write the file of the controller layouts of the player, whole.
+    PadMaps {
+        /// The text of the file.
+        text: String,
+    },
 }
 
 /// The frame thread's side of the writer thread. Drop or
@@ -116,6 +121,8 @@ pub struct Places {
     pub notices: PathBuf,
     /// The file of the pad notices of this power cycle, in the run folder.
     pub pad_notes: PathBuf,
+    /// The file of the controller layouts of the player.
+    pub pad_maps: PathBuf,
 }
 
 impl Outbox {
@@ -286,6 +293,13 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, replies: &Replies) {
                         places.pad_notes.display()
                     )
                 }),
+            Job::PadMaps { text } => crate::atomic::write(&places.pad_maps, text.as_bytes())
+                .map_err(|e| {
+                    format!(
+                        "cannot write the controller layouts {}: {e}",
+                        places.pad_maps.display()
+                    )
+                }),
             Job::Cache { index, full_scan } => write_cache(&places.cache, index).and_then(|()| {
                 if *full_scan {
                     mark_scanned(&places.scanned)
@@ -350,6 +364,7 @@ mod tests {
             share_request: dir.join("state").join("share-format-request"),
             notices: dir.join("config").join("notices.toml"),
             pad_notes: dir.join("run").join("pad-notes.toml"),
+            pad_maps: dir.join("config").join("input").join("pads.toml"),
         }
     }
 
@@ -378,6 +393,20 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&places.pad_notes).expect("the file"),
             "format = 1\n"
+        );
+    }
+
+    #[test]
+    fn the_pad_maps_file_is_written_whole_in_its_folder() {
+        let places = places("pad-maps");
+        let mut outbox = Outbox::start(places.clone()).expect("start");
+        outbox.send(Job::PadMaps {
+            text: "version = 1\n".to_owned(),
+        });
+        assert!(outbox.finish().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&places.pad_maps).expect("the file"),
+            "version = 1\n"
         );
     }
 

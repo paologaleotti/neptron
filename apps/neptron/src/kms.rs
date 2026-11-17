@@ -82,6 +82,12 @@ impl neptron_input::PadRoster for Inputs {
             .map(neptron_input::PadRoster::activity)
             .unwrap_or_default()
     }
+
+    fn set_player_maps(&mut self, maps: &neptron_input::PlayerMaps) {
+        if let Some(pads) = &mut self.pads {
+            pads.set_player_maps(maps);
+        }
+    }
 }
 
 /// Runs the frontend on the DRM device that the launcher holds.

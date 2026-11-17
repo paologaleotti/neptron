@@ -29,6 +29,7 @@ use crate::nav::Navigator;
 use crate::network::{NetworkInfo, NetworkWatch};
 use crate::notices::ShownNotices;
 use crate::outbox::{Outbox, Places};
+use crate::pad_maps::PadMapsFile;
 use crate::pad_notes::PadNotes;
 use crate::paths::Paths;
 use crate::presets::Presets;
@@ -100,6 +101,12 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         let (shown_notices, issue) = ShownNotices::load(&paths.notices());
         found.warn_all(issue);
         let (pad_notes, pad_notes_issue) = PadNotes::load(&paths.pad_notes());
+        let (pad_maps, pad_maps_issues) = PadMapsFile::load(&paths.pad_maps());
+        if let Some(reason) = pad_maps.locked() {
+            found.warn(format!(
+                "{reason}. The controller layouts are not used, and a new one is not kept."
+            ));
+        }
         if let Some(notice) = next.as_ref().and_then(|n| n.notice.clone()) {
             found.issues.push((NoticeKind::Error, notice));
         }
@@ -146,7 +153,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         });
         let frame = Rc::new(Cell::new(0));
         let queue = Rc::new(RefCell::new(VecDeque::new()));
-        let input = ControlInput::new(devices.input, queue.clone(), frame.clone());
+        let mut source = devices.input;
+        // Before the first poll, so every pad opens with its map.
+        source.set_player_maps(pad_maps.maps());
+        let input = ControlInput::new(source, queue.clone(), frame.clone());
 
         let now_ns = devices.clock.now_ns();
         let (stage, guard, mut step, library) = match &game {
@@ -279,6 +289,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             share_request: paths.share_format_request(),
             notices: paths.notices(),
             pad_notes: paths.pad_notes(),
+            pad_maps: paths.pad_maps(),
         })
         .map_err(BootError::Writer)?;
         let share_offer = storage.as_ref().and_then(StorageStatus::format_offer);
@@ -347,6 +358,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         };
         shell.first_snapshot();
         if let Some(issue) = pad_notes_issue {
+            shell.log(format!("input: {issue}"));
+        }
+        for issue in pad_maps_issues {
             shell.log(format!("input: {issue}"));
         }
         if let Some(NetworkInfo::Unknown { reason }) = &shell.network_info {

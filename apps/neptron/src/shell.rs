@@ -300,6 +300,10 @@ impl<I: PadRoster> PadRoster for ControlInput<I> {
     fn activity(&self) -> neptron_input::PadActivity {
         self.inner.activity()
     }
+
+    fn set_player_maps(&mut self, maps: &neptron_input::PlayerMaps) {
+        self.inner.set_player_maps(maps);
+    }
 }
 
 impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {

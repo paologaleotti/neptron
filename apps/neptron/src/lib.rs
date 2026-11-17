@@ -22,6 +22,7 @@ pub mod network;
 pub mod notices;
 pub mod options;
 pub mod outbox;
+pub mod pad_maps;
 pub mod pad_notes;
 pub mod pages;
 pub mod paths;

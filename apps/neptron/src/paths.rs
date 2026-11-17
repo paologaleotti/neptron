@@ -48,6 +48,12 @@ impl Paths {
         self.state.join("config")
     }
 
+    /// `state/config/input/pads.toml`, the controller layouts that the
+    /// player made.
+    pub fn pad_maps(&self) -> PathBuf {
+        self.config().join("input").join("pads.toml")
+    }
+
     /// `state/config/notices.toml`, the one-time notices shown already.
     pub fn notices(&self) -> PathBuf {
         self.config().join("notices.toml")
