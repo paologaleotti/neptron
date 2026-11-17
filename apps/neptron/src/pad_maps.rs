@@ -183,7 +183,9 @@ impl PadMapsFile {
     ) -> Result<String, PadMapsError> {
         let mut table = self.writable()?.clone();
         let mut entries = take_entries(&mut table);
-        let at = entries.iter().position(|e| is_entry_of(e, identity));
+        // The parse keeps the last entry of an identity in memory, so the
+        // write replaces that one.
+        let at = entries.iter().rposition(|e| is_entry_of(e, identity));
         let mut entry = at
             .and_then(|i| entries.get(i))
             .and_then(Value::as_table)
@@ -204,13 +206,14 @@ impl PadMapsFile {
             Some(slot) => *slot = Value::Table(entry),
             None => entries.push(Value::Table(entry)),
         }
-        // A hand edit can leave a second entry of the identity; the one
+        // A hand edit can leave another entry of the identity; the one
         // just written is the map now.
-        let mut seen = false;
+        let kept = at.unwrap_or(entries.len().saturating_sub(1));
+        let mut index = 0;
         entries.retain(|e| {
-            let duplicate = seen && is_entry_of(e, identity);
-            seen |= is_entry_of(e, identity);
-            !duplicate
+            let keep = index == kept || !is_entry_of(e, identity);
+            index += 1;
+            keep
         });
         put_entries(&mut table, entries);
         let text = self.commit(table)?;
@@ -486,14 +489,24 @@ a = "b1"
 
     #[test]
     fn an_identity_written_by_hand_in_capitals_is_the_same_identity() {
-        let text = "[[pad]]\nidentity = \"8F3A2B1C0D4E5F60\"\na = \"b9\"\n\n[[pad]]\nidentity = \"8f3a2b1c0d4e5f60\"\nb = \"b7\"\n";
+        let text = "[[pad]]\nidentity = \"8F3A2B1C0D4E5F60\"\na = \"b9\"\nfirst = 1\n\n[[pad]]\nidentity = \"8f3a2b1c0d4e5f60\"\nb = \"b7\"\nlast = 2\n";
         let (mut file, issues) = PadMapsFile::parse(Some(text));
         assert!(issues.is_empty(), "{issues:?}");
-        assert!(file.maps().get(ID).is_some());
+        assert_eq!(
+            file.maps().get(ID).and_then(|m| m.get(Control::B)),
+            Some(Binding::Button(7)),
+            "the last entry is the map in memory"
+        );
         let written = file.store(ID, "Pad", &sample()).unwrap();
         let table: Table = toml::from_str(&written).unwrap();
         let entries = table.get("pad").and_then(Value::as_array).unwrap();
         assert_eq!(entries.len(), 1, "replaced, not added: {written}");
+        let entry = entries[0].as_table().unwrap();
+        assert!(
+            entry.contains_key("last"),
+            "the entry in memory is kept: {written}"
+        );
+        assert!(!entry.contains_key("first"));
         let (again, _) = PadMapsFile::parse(Some(&written));
         assert_eq!(again.maps().get(ID), Some(&sample()));
         let (mut file, _) = PadMapsFile::parse(Some(text));
