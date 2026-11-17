@@ -374,6 +374,7 @@ impl State {
             Some((i, id)) => {
                 // The pad is open, so the mapper has it.
                 let _ = self.mapper.release(id, out);
+                self.mapper.mark_heard(id);
                 self.capturing = Some(i);
             }
             None => self.captured = Capture::Gone,

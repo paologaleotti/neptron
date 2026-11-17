@@ -297,6 +297,19 @@ fn a_captured_pad_sends_no_event_and_gives_its_raw_state() {
 }
 
 #[test]
+fn a_captured_pad_counts_as_heard_for_the_silent_pad_rule() {
+    let mut pads = ScriptedPads::new(PortRule::Menus, &Roster::new());
+    let test = pads.clone();
+    test.plug(pad(9, 1));
+    poll(&mut pads);
+    let heard = |pads: &ScriptedPads| pads.activity().ports[0].map(|p| p.heard);
+    assert_eq!(heard(&pads), Some(false));
+    pads.capture(Some(pad(9, 1).key()));
+    poll(&mut pads);
+    assert_eq!(heard(&pads), Some(true), "a pad in a mapping is in a hand");
+}
+
+#[test]
 fn a_captured_gamepad_gives_the_buttons_of_its_layout_as_raw_buttons() {
     let mut pads = ScriptedPads::new(PortRule::Menus, &Roster::new());
     let test = pads.clone();

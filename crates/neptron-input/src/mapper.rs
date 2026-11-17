@@ -268,6 +268,17 @@ impl Mapper {
         Ok(())
     }
 
+    /// Marks the connected pad `pad` as heard, for the silent pad rule: a
+    /// pad that a player maps is in a hand, also when it gives no input
+    /// to the mapper.
+    pub fn mark_heard(&mut self, pad: PadId) {
+        if self.ports.port(pad).is_some()
+            && let Some(heard) = self.heard.get_mut(pad_index(pad))
+        {
+            *heard = true;
+        }
+    }
+
     /// The map of the connected pad `pad`.
     pub fn map_of(&self, pad: PadId) -> Option<PadMap> {
         self.ports.port(pad)?;

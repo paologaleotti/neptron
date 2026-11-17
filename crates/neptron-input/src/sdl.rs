@@ -263,6 +263,7 @@ impl SdlGamepads {
                 if let Err(e) = self.mapper.release(pad.id, out) {
                     self.notices.get_mut().push(lost_track(&e));
                 }
+                self.mapper.mark_heard(pad.id);
                 self.capturing = Some(pad.id);
             }
             None => self.captured = Capture::Gone,
