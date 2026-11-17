@@ -5,7 +5,7 @@ use neptron_modeline::policy::{
     StyleRow, choose, decide, notice, style_rows,
 };
 use neptron_safety::{Rejection, ValidatedMode, validate};
-use neptron_types::{GpuCaps, Modeline, Rotation, SourceGeometry};
+use neptron_types::{GpuCaps, Modeline, SourceGeometry};
 
 use crate::Monitor;
 
@@ -43,9 +43,6 @@ pub struct Chosen {
 /// Why the engine has no mode for a source.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Unshowable {
-    /// The game is turned. The policy can swap its axes, but `Scene` has no
-    /// rotation, so the engine does not show it.
-    Rotated(Rotation),
     /// The policy gives no plan.
     Policy(PolicyError),
     /// Every proposal was refused.
@@ -93,9 +90,6 @@ impl Inputs {
 
     /// Steps 1 to 6 for `source`.
     pub(crate) fn decide(&self, source: &SourceGeometry) -> Decision {
-        if source.rotation != Rotation::R0 {
-            return Decision::unshowable(Unshowable::Rotated(source.rotation));
-        }
         let plan = match decide(source, &self.settings, self.monitor.profile(), &self.caps) {
             Ok(plan) => plan,
             Err(error) => return Decision::unshowable(Unshowable::Policy(error)),
@@ -125,9 +119,6 @@ impl Inputs {
         &self,
         source: &SourceGeometry,
     ) -> Result<Vec<StyleRow<Refusal>>, Unshowable> {
-        if source.rotation != Rotation::R0 {
-            return Err(Unshowable::Rotated(source.rotation));
-        }
         style_rows(
             source,
             &self.settings,
@@ -187,10 +178,6 @@ impl fmt::Display for Refusal {
 impl fmt::Display for Unshowable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Rotated(rotation) => write!(
-                f,
-                "the game is turned ({rotation:?}) and the renderer does not rotate"
-            ),
             Self::Policy(error) => write!(f, "no plan: {error}"),
             Self::NoWinner => f.write_str("every proposal was refused"),
             Self::CurrentRefused(refusal) => {

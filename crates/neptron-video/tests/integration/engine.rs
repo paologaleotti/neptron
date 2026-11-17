@@ -1,10 +1,7 @@
 //! The good path: launch, debounce, scale only, mute, trace.
 
 use neptron_types::{Filter, Rect, Rotation, SourceGeometry};
-use neptron_video::{
-    DEBOUNCE_FRAMES, Directive, Outcome, PictureStyle, PolicySettings, Trigger, Unshowable,
-    VideoError,
-};
+use neptron_video::{DEBOUNCE_FRAMES, Directive, Outcome, PictureStyle, PolicySettings, Trigger};
 
 use crate::harness::{
     MD_H32, MD_H40, Rig, SNES, SNES_239, fixed_width, frame, generic_15, mode_for, native_width,
@@ -252,33 +249,75 @@ fn the_trace_holds_the_reasons_of_a_modeset() {
     assert!(line.contains("shown after 2 frames"), "{line}");
 }
 
+/// DoDonPachi: a 320x240 frame on its side, upright 240x320, 3:4, at
+/// 57.55 Hz. The session gives the policy the aspect of the frame as
+/// drawn, 4:3.
+const DODONPACHI: SourceGeometry = SourceGeometry {
+    width: 320,
+    height: 240,
+    refresh_mhz: 57_550,
+    aspect_milli: 1_333,
+    interlaced: false,
+    rotation: Rotation::R90,
+};
+
+/// On a 15 kHz CRT the upright 320 lines show 1:1 in an interlaced mode,
+/// and the scene turns the frame with the rotation of the source.
 #[test]
-fn a_turned_game_is_not_shown() {
-    let turned = SourceGeometry {
-        rotation: Rotation::R90,
-        ..SNES
+fn a_turned_game_is_shown_upright() {
+    let mut rig = Rig::generic_15(native_width());
+    assert_eq!(rig.frame(DODONPACHI).directive, Directive::Modeset);
+    let current = rig.engine.current().unwrap();
+    let placement = current.chosen.proposal.placement;
+    assert!(current.read_back.interlace, "{:?}", current.read_back);
+    assert_eq!(
+        placement.crop,
+        Rect {
+            x: 0,
+            y: 0,
+            w: 320,
+            h: 240
+        }
+    );
+    assert_eq!(placement.dest.h, 320, "the 320 upright lines 1:1");
+    let shown = rig.fake.frames().last().unwrap().scene;
+    assert_eq!(shown.rotation, Rotation::R90);
+    assert_eq!(shown.dest, placement.dest);
+    assert!(
+        placement.dest.w < placement.dest.h,
+        "a 3:4 picture on the 4:3 face is narrower than its height: {:?} in {}x{}",
+        placement.dest,
+        current.read_back.hactive,
+        current.read_back.vactive
+    );
+}
+
+/// A new turn from the core is a new source: it waits for the debounce
+/// as a new size does, and then sets the mode of the turned picture.
+#[test]
+fn a_new_turn_goes_through_the_debounce() {
+    let horizontal = SourceGeometry {
+        rotation: Rotation::R0,
+        ..DODONPACHI
     };
     let mut rig = Rig::generic_15(native_width());
-    assert_eq!(rig.engine.begin_frame(turned), Directive::Kept);
-    assert_eq!(
-        rig.engine.present(Some(frame(&turned)), None),
-        Err(VideoError::NoMode)
-    );
-    assert!(rig.fake.mode_calls().is_empty());
-    assert_eq!(
-        rig.engine.trace().last().unwrap().outcome,
-        Outcome::Kept(Unshowable::Rotated(Rotation::R90))
-    );
-    rig.frame(SNES);
-    let mode = rig.current_mode();
-    for rotation in [Rotation::R90, Rotation::R180, Rotation::R270] {
-        let turned = SourceGeometry { rotation, ..SNES };
-        for _ in 0..5 {
-            assert_eq!(rig.frame(turned).directive, Directive::Kept);
-        }
+    rig.frame(horizontal);
+    for stable_frames in 1..DEBOUNCE_FRAMES {
+        assert_eq!(
+            rig.frame(DODONPACHI).directive,
+            Directive::Waiting { stable_frames }
+        );
+        let shown = rig.fake.frames().last().unwrap().scene;
+        assert_eq!(
+            shown.rotation,
+            Rotation::R0,
+            "the old source while it waits"
+        );
     }
-    assert_eq!(rig.current_mode(), mode);
-    assert_eq!(rig.modes().len(), 1);
+    assert_eq!(rig.frame(DODONPACHI).directive, Directive::Modeset);
+    assert_eq!(rig.modes().len(), 2);
+    let shown = rig.fake.frames().last().unwrap().scene;
+    assert_eq!(shown.rotation, Rotation::R90);
 }
 
 #[test]
@@ -291,13 +330,11 @@ fn the_style_rows_come_from_the_same_decision() {
     assert_eq!(auto.style, PictureStyle::Auto);
     let current = rig.engine.current().unwrap();
     assert_eq!(auto.winner, Some(current.chosen.index));
-    let turned = SourceGeometry {
-        rotation: Rotation::R270,
-        ..SNES
-    };
+    let rows = rig.engine.style_rows(&DODONPACHI).unwrap();
     assert_eq!(
-        rig.engine.style_rows(&turned).unwrap_err(),
-        Unshowable::Rotated(Rotation::R270)
+        rows.len(),
+        PictureStyle::ALL.len(),
+        "a turned game has rows too"
     );
 }
 

@@ -62,7 +62,7 @@ Each core frame gives one `Directive`:
 | `Rescale` | The winner equals the mode on screen (step 7) | One flip with the new crop, destination and filter. No debounce, no mute |
 | `Waiting` | A new source needs a new mode, and it has been the same for fewer than `DEBOUNCE_FRAMES` (3) core frames | One flip in the old mode; the frame is shown whole in the old destination |
 | `Modeset` | The new source held for 3 frames, or at launch, or after a monitor, settings or driver retry (no debounce for these) | Mute; `set_mode` with the winner's token; one flip; unmute at that flip |
-| `Kept` | The source is turned, the policy gives no plan, or every proposal is refused | The mode on screen stays; the trace says why. Before the first mode, `present` returns `NoMode` |
+| `Kept` | The policy gives no plan, or every proposal is refused | The mode on screen stays; the trace says why. Before the first mode, `present` returns `NoMode` |
 | `Blank` | The inputs refuse the mode on the display (`current_refused()`), and the decision gives no mode to set: no winner, or a source blocked after device errors | `present` calls `Display::blank`, records `Blanked` or `BlankFailed`, and returns `NoMode` |
 
 Rules:
@@ -70,7 +70,7 @@ Rules:
 - The engine sets `token.mode()` of the winner, the `ValidatedMode` that `neptron_safety::validate` returned. `proposal.mode` never reaches the display.
 - The validator is `neptron_safety::validate` with the monitor's caps, after an optional veto that can only refuse more (`set_veto`). The same check runs for the Display panel rows (`style_rows`), so the preview and the run give one answer.
 - No winner: the mode on screen stays, and the trace records `Kept` with every refusal. The engine never guesses a mode. When the inputs also refuse the mode on screen, the engine turns the output off (`Blank`).
-- A turned game (`Rotation` other than `R0`) is `Kept(Rotated)`: `Scene` has no rotation in the MVP.
+- A turned game (`Rotation` other than `R0`) is planned like any game: the policy swaps its axes and places the upright picture. The scene takes the rotation of the source that the placement was planned for (ADR 0015), so the placement and the turn always agree. A new rotation is a new source and goes through the debounce.
 - Decisions are cached by source (`CACHE_ENTRIES`, 8). A monitor, settings or veto change clears the cache. The steady state does no decision and no allocation.
 - A token reaches `set_mode` only through `VideoEngine::set_mode`, and only while the inputs that validated it are current. Each change of the monitor, the settings, the veto or the driver refusals raises a generation and drops the pending modeset; a token travels with its generation (`ModeOrder`), and `Odren::authorize` refuses an older one.
 - A modeset that a monitor, settings or retry change asks for is decided again on the next frame when its present does not run or fails, and after a device error, up to `MODESET_ATTEMPTS` (3) attempts in all.

@@ -31,16 +31,20 @@ pub struct SceneInputs<'p> {
 /// can cut overscan lines so that a whole multiple fits, and that picture
 /// stays pixel exact.
 ///
-/// Otherwise the frame is shown whole in the current destination, with
-/// sharp-bilinear when the scale is not whole. That covers a frame of
+/// The turn of the game picture is the rotation of `inputs.source`, the
+/// source that the placement was planned for, so the placement and the
+/// turn always agree.
+///
+/// Otherwise the frame is shown whole in the current destination, turned,
+/// with sharp-bilinear when the scale of the turned picture is not whole. That covers a frame of
 /// another size (a new size while the debounce waits, or while no mode
 /// fits it) and a crop that reaches outside the frame, so the renderer
 /// never reads outside the frame. The UI goes to the placement's UI
 /// destination.
 ///
 /// The scanlines come from `neptron_types::scanlines_for` with the
-/// settings, the whole vertical multiple from the crop to the destination
-/// of this scene, the screen class of the mode on the monitor, and its
+/// settings, the whole vertical multiple from the lines of the turned
+/// crop to the destination of this scene, the screen class of the mode on the monitor, and its
 /// interlace flag.
 pub fn build_scene<'a>(
     inputs: &SceneInputs<'_>,
@@ -48,17 +52,22 @@ pub fn build_scene<'a>(
     ui: Option<Frame<'a>>,
 ) -> Scene<'a> {
     let placement = inputs.placement;
+    let rotation = inputs.source.rotation;
     let (crop, filter) = match game {
         Some(frame) if !crop_holds(&placement.crop, inputs.source, &frame) => {
             let crop = whole(&frame);
-            (crop, filter_for(&crop, &placement.dest))
+            (
+                crop,
+                filter_for(turned_size(&crop, rotation), &placement.dest),
+            )
         }
         _ => (placement.crop, placement.filter),
     };
+    let (_, turned_lines) = turned_size(&crop, rotation);
     let scanlines = scanlines_for(
         inputs.scanlines.mode,
         inputs.scanlines.strength_percent,
-        whole_multiple(crop.h, placement.dest.h),
+        whole_multiple(turned_lines, placement.dest.h),
         ScreenClass::of(inputs.monitor, inputs.mode),
         inputs.mode.interlace,
     );
@@ -66,11 +75,11 @@ pub fn build_scene<'a>(
         game,
         crop,
         dest: placement.dest,
+        rotation,
         filter,
         ui,
         ui_dest: placement.ui_dest,
         scanlines,
-        rotation: Rotation::R0,
     }
 }
 
@@ -106,9 +115,17 @@ fn whole(frame: &Frame<'_>) -> Rect {
     }
 }
 
-fn filter_for(crop: &Rect, dest: &Rect) -> Filter {
+/// The columns and the lines of `crop` after the turn of `rotation`.
+fn turned_size(crop: &Rect, rotation: Rotation) -> (u32, u32) {
+    match rotation {
+        Rotation::R0 | Rotation::R180 => (crop.w, crop.h),
+        Rotation::R90 | Rotation::R270 => (crop.h, crop.w),
+    }
+}
+
+fn filter_for((columns, lines): (u32, u32), dest: &Rect) -> Filter {
     let exact = |from: u32, to: u32| from > 0 && to.is_multiple_of(from);
-    if exact(crop.w, dest.w) && exact(crop.h, dest.h) {
+    if exact(columns, dest.w) && exact(lines, dest.h) {
         Filter::Nearest
     } else {
         Filter::SharpBilinear
@@ -118,7 +135,7 @@ fn filter_for(crop: &Rect, dest: &Rect) -> Filter {
 #[cfg(test)]
 mod tests {
     use neptron_modeline::policy::ScaleClaim;
-    use neptron_types::{PixelFormat, Rotation, ScanlineKind, ScanlineMode, Scanlines};
+    use neptron_types::{PixelFormat, ScanlineKind, ScanlineMode, Scanlines};
 
     use super::*;
 
@@ -370,5 +387,79 @@ mod tests {
         assert_eq!(scene.crop, p.crop);
         assert!(scene.game.is_none());
         assert_eq!(scene.ui.map(|u| u.width), Some(320));
+    }
+
+    /// DoDonPachi: a 320x240 frame on its side, upright 240x320, at 2x in
+    /// 480x640.
+    fn turned() -> (Placement, SourceGeometry) {
+        let p = Placement {
+            crop: Rect {
+                x: 0,
+                y: 0,
+                w: 320,
+                h: 240,
+            },
+            dest: Rect {
+                x: 0,
+                y: 0,
+                w: 480,
+                h: 640,
+            },
+            scale: ScaleClaim {
+                x: Some(2),
+                y: Some(2),
+            },
+            ..placement()
+        };
+        let source = SourceGeometry {
+            width: 320,
+            height: 240,
+            rotation: Rotation::R90,
+            ..SOURCE
+        };
+        (p, source)
+    }
+
+    #[test]
+    fn the_scene_takes_the_turn_of_the_planned_source() {
+        let (p, source) = turned();
+        for rotation in [Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270] {
+            let source = SourceGeometry { rotation, ..source };
+            let scene = build(&p, &source, Some(frame(320, 240)), None);
+            assert_eq!(scene.rotation, rotation);
+            assert_eq!(scene.crop, p.crop, "the crop stays in frame pixels");
+            assert_eq!(scene.dest, p.dest);
+        }
+    }
+
+    /// 640 lines over the 320 lines of the turned picture are 2x, so the
+    /// scanlines show; the 240 lines of the frame would give 2.67.
+    #[test]
+    fn the_scanlines_count_the_lines_of_the_turned_picture() {
+        let (p, source) = turned();
+        let scene = build(&p, &source, Some(frame(320, 240)), None);
+        assert_eq!(scene.scanlines.kind, ScanlineKind::Black);
+        let flat = SourceGeometry {
+            rotation: Rotation::R180,
+            ..source
+        };
+        let scene = build(&p, &flat, Some(frame(320, 240)), None);
+        assert_eq!(scene.scanlines, Scanlines::NONE);
+    }
+
+    /// A frame of another size while the debounce waits is shown whole and
+    /// turned; its filter reads the scale of the turned picture.
+    #[test]
+    fn a_turned_frame_of_another_size_takes_the_filter_of_the_turn() {
+        let (p, source) = turned();
+        let scene = build(&p, &source, Some(frame(160, 240)), None);
+        assert_eq!(scene.rotation, Rotation::R90);
+        assert_eq!(scene.filter, Filter::Nearest, "240 to 480 and 160 to 640");
+        let scene = build(&p, &source, Some(frame(240, 160)), None);
+        assert_eq!(
+            scene.filter,
+            Filter::SharpBilinear,
+            "160 to 480 is 3x, 240 to 640 is not"
+        );
     }
 }

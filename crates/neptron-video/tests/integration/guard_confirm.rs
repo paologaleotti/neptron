@@ -1,7 +1,7 @@
 //! Scripted safety scenarios: confirm-or-revert.
 
 use neptron_testkit::{FlipFault, ModeFault};
-use neptron_types::{Modeline, Rotation, SourceGeometry};
+use neptron_types::{Modeline, SourceGeometry};
 use neptron_video::{
     CONFIRM_WINDOW_NS, ConfirmError, DisplayConfig, GuardEvent, Health, MODESET_ATTEMPTS,
     NO_PICTURE_LIMIT_NS, Outcome, PENDING_LIMIT_NS, Phase, PictureStyle, Prompt, PromptId,
@@ -483,10 +483,10 @@ fn the_old_mode_left_by_device_errors_cannot_be_confirmed() {
 fn a_change_with_no_winner_that_keeps_the_old_mode_cannot_be_confirmed() {
     let mut rig = GuardRig::confirmed_on(crt_15(), crt_15());
     let old = rig.wire();
-    // A turned game has no winner (`Kept(Rotated)`): the old mode stays,
+    // An empty source has no plan (`Kept(Policy)`): the old mode stays,
     // and the new settings still accept it.
     rig.source = SourceGeometry {
-        rotation: Rotation::R90,
+        width: 0,
         ..rig.source
     };
     let prompt = rig.propose(with_style(crt_15(), PictureStyle::X2));
@@ -494,7 +494,7 @@ fn a_change_with_no_winner_that_keeps_the_old_mode_cannot_be_confirmed() {
     rig.frame();
     assert!(matches!(
         rig.engine.trace().last().unwrap().outcome,
-        Outcome::Kept(Unshowable::Rotated(_))
+        Outcome::Kept(Unshowable::Policy(_))
     ));
     assert_eq!(rig.wire(), old);
     assert!(Health::of(&rig.engine).picture);
