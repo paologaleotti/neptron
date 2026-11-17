@@ -26,10 +26,13 @@ pub struct SourceGeometry {
     /// Frame rate of the core, in millihertz.
     pub refresh_mhz: u32,
     /// Display aspect ratio, width divided by height, in thousandths:
-    /// 1333 for 4:3.
+    /// 1333 for 4:3. It is the aspect of the frame as the core draws it,
+    /// before `rotation`: the policy swaps the axes of a source turned by
+    /// 90 or 270 degrees and inverts this aspect.
     pub aspect_milli: u32,
     /// The core draws interlaced frames.
     pub interlaced: bool,
-    /// The rotation of the picture after the rotation setting.
+    /// The turn, counter-clockwise, that the picture needs to show
+    /// upright: the turn that the core asks for with `SET_ROTATION`.
     pub rotation: Rotation,
 }

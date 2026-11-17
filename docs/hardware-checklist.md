@@ -781,3 +781,28 @@ Run each check twice: once on the Raspberry Pi 3 (composite or HDMI) and once on
   - Do: put a set in `roms/fbneo`. Then, on a development image only, move `/usr/share/neptron/arcade/fbneo.idx` away (the root is read-only: use the hot folder of the development variant, or a test image), restart the frontend, and start an arcade game.
   - Expect: the set in `roms/fbneo` shows under Arcade. With no index the list shows set names, and the launch asks "Cancel" or "Start"; "Start" runs the game unchecked.
   - Record: the list and the dialog.
+
+## Rotation of a vertical game (M08a)
+
+The renderers turn the game picture in emulation, and `gles-compare` checks the GLES renderer against the reference on softpipe. Only the real core, the real GPU and a real screen show that a vertical board stands upright, the right way up, at its speed.
+
+- [ ] `needs-hardware` **DoDonPachi stands upright on a flat panel.** PC with a 1080p panel.
+  - Do: start `ddonpach` (FinalBurn Neo asks for `R90`).
+  - Expect: the picture is upright, 3:4, 720x960 in the middle of the panel; the text of the attract mode reads from left to right, not from top to bottom; nothing is stretched. The status shows `1920x1080p ... panel`.
+  - Record: a photo, and the core's rotation in the log (`rotation r90` in a core trace, or the source in the switch trace).
+- [ ] `needs-hardware` **A flipped vertical board and a flipped horizontal board.** PC or Pi 3, with sets that FinalBurn Neo marks `BDF_ORIENTATION_FLIPPED` (for example Gunlock, `R270`).
+  - Do: start each one.
+  - Expect: each picture is upright and the right way up; text reads from left to right.
+  - Record: the set, the turn in the log, and a photo.
+- [ ] `needs-hardware` **A vertical game on a 15 kHz CRT and on composite.** A 15 kHz tube with `generic_15`, and the Pi 3 composite output on NTSC.
+  - Do: start `ddonpach` with `display.vertical = exact`; then set Vertical games to Fit in the Video page of the quick menu.
+  - Expect: exact shows 320 lines 1:1, interlaced (448i on the tube, 480i on NTSC), upright and pillarboxed, and the one-time notice of a vertical game shows on the first start only. Fit shows a progressive picture that fills the height, soft, with the notice "Soft picture: Vertical games is set to Fit.". The interlaced picture has the flicker of 480i and no line pairs out of order.
+  - Record: the mode in the status, photos of both, and whether the one-time notice came back after a restart.
+- [ ] `needs-hardware` **Scanlines on a turned game.** A 31 kHz or multi-sync PC CRT.
+  - Do: start `ddonpach` with `display.scanlines = on` on a mode with a whole vertical multiple of 2 or more (2x 640p on a multi-sync tube).
+  - Expect: the dark lines are horizontal on the screen, one in each pair of lines of the upright picture, and not vertical.
+  - Record: a close photo.
+- [ ] `needs-hardware` **The GPU cost of a turn on the Pi 3.** Pi 3, with the bench build of `cargo xtask os push`.
+  - Do: run `gles_compare` on the Pi as the GLES section of `crates/neptron-gfx/README.md` says, then a vertical game and a horizontal game of the same size on HDMI, and read the render time of each frame from the frame statistics.
+  - Expect: every turned scene of `gles_compare` passes on `vc4` (the two axis product cases above 2048 pixels excepted, as for the scenes with no turn); the render time of the turned game is the time of the horizontal one within the noise.
+  - Record: the `gles_compare` summary and both render times (ADR 0015 asks for this number).

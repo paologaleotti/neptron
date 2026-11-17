@@ -73,7 +73,9 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 
 - Key repeat (`nav.rs`): a direction repeats after 400 ms, then every 66 ms. On `PromptOpened` every repeat stops and every held key is ignored until its release (OP-048). A, B and X are accept, back and menu; Start and Select are left to the hotkeys.
 - The quick menu is never a toggle: the session ignores a second hotkey, and the app only opens it (OP-051). Resume, reset and quit go to the session.
-- A notice at the first picture of a game that is filtered, cropped or small, in the words of the video status.
+- A notice at the first picture of a game that is not exact (`shell/picture.rs`): one sentence for each reason of the policy (`Notice::reasons`: a soft picture and its cause, a small picture, a speed change, double refresh), with the texts of `docs/spec/arcade.md` section 11; a fit or a crop with no reason of its own gives the words of the video status.
+- The one-time notice of a vertical game: the first time a game turned by 90 or 270 degrees shows interlaced on a 15 kHz CRT or a TV with `display.vertical = exact`. The ids of the one-time notices shown already are in `state/config/notices.toml` (`notices.rs`, open point A4). The boot reads it with the settings; a missing or damaged file shows the notices again. The writer thread writes it whole (`Job::Notices`).
+- The arcade rules of the policy (`PolicySettings::arcade`) for a game of a system whose core is the core of the arcade index (`library::runs_arcade_boards`): `GameContext::arcade`, which `Config::policy` reads.
 - `FrameReport::ended` or any `SessionError` (`DisplayStalled` included): the game ends with `quit()`, and the run relaunches to the list, which opens the display again in a new process. This is the one rule for a display that stops.
 
 ## Flat panels
