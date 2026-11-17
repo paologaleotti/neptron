@@ -784,9 +784,6 @@ fn fit_allowed(
     if exact.iter().any(|q| speed(q) < speed(p) + 5) {
         return Err("soft fit");
     }
-    if !exact.is_empty() {
-        return Ok(());
-    }
     let lines = u32::from(plan.source.height);
     match &profile.kind {
         MonitorKind::Crt { ranges } => {
