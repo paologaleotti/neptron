@@ -5,11 +5,13 @@ use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::registry::SceneDef;
 use crate::snapshot::{
+    ActionId, MappingId, MappingStage, PadMapping, PageId, SessionInfo, VideoStatus,
+};
+use crate::snapshot::{
     ChoiceOption, ConfirmId, DisplayInfo, GameEntry, GameId, GameMarks, GameSource, GameWindow,
     Level, MenuItem, Notice, NoticeId, NoticeKind, PendingConfirm, ProfileEntry, ProfileId, Scopes,
     SettingKey, SettingValue, SettingsPage, Snapshot, SystemEntry, SystemId,
 };
-use crate::snapshot::{PageId, SessionInfo, VideoStatus};
 use crate::theme::Theme;
 
 use super::game_list::WINDOW_ROWS;
@@ -195,6 +197,26 @@ pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
         name: "screens/input-empty",
         build: input_empty,
+    },
+    SceneDef {
+        name: "screens/pad-page",
+        build: pad_page,
+    },
+    SceneDef {
+        name: "screens/pad-mapping",
+        build: pad_mapping,
+    },
+    SceneDef {
+        name: "screens/pad-mapping-note",
+        build: pad_mapping_note,
+    },
+    SceneDef {
+        name: "screens/pad-mapping-review",
+        build: pad_mapping_review,
+    },
+    SceneDef {
+        name: "screens/pad-mapping-incomplete",
+        build: pad_mapping_incomplete,
     },
     SceneDef {
         name: "screens/system",
@@ -1021,6 +1043,121 @@ fn input(frame: &mut UiFrame, theme: &Theme) {
 
 /// The first page id of the page of a controller in the fixtures.
 const PAD_PAGE_FIRST: u32 = 100;
+
+/// The page of the controller of player 1, as the app gives it.
+pub(super) fn pad_page_rows() -> Vec<MenuItem> {
+    let text = |key: u32, label: &str, text: &str| {
+        MenuItem::new(SettingKey(key), label, SettingValue::Text(text.to_owned()))
+    };
+    let action = |key: u32, label: &str| {
+        MenuItem::new(SettingKey(key), label, SettingValue::Action(ActionId(key)))
+    };
+    let mut rows = vec![
+        text(60, "Controller", "Arcade Stick"),
+        text(61, "Layout", "Yours"),
+        action(62, "Map buttons"),
+        action(63, "Reset to default").with_confirm(
+            "Reset this controller?",
+            "Your layout of this model is removed. The default layout comes back.",
+            "Resetting...",
+        ),
+    ];
+    let bindings = [
+        ("Up", "Hat 0 up"),
+        ("Down", "Hat 0 down"),
+        ("Left", "Hat 0 left"),
+        ("Right", "Hat 0 right"),
+        ("A", "Button 2"),
+        ("B", "Button 1"),
+        ("Start", "Button 9"),
+        ("Select", "Button 8"),
+        ("L2", "Axis 4 + (from its end)"),
+        ("Left stick X", "Axis 0"),
+        ("Left stick Y", "Axis 1 inverted"),
+        ("R3", "None"),
+    ];
+    rows.extend(
+        bindings
+            .iter()
+            .zip(64..)
+            .map(|((label, binding), key)| text(key, label, binding)),
+    );
+    rows
+}
+
+/// The page of a controller, opened from its row on the Input panel.
+fn pad_page(frame: &mut UiFrame, theme: &Theme) {
+    let mut snap = with_systems();
+    snap.settings = SettingsPage::new(
+        INPUT_PAGE,
+        "Input",
+        input_rows(["Arcade Stick (your layout)", "None", "None", "None"], &[]),
+    );
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_INPUT, frame);
+    screens.update(&snap, &[UiAction::Accept], frame);
+    snap.settings = SettingsPage::new(PageId(PAD_PAGE_FIRST + 41), "Player 1", pad_page_rows());
+    screens.update(&snap, &[], frame);
+    screens.update(&snap, &[UiAction::Down, UiAction::Down], frame);
+}
+
+/// The guided mapping over the page of the controller, at `stage`.
+fn pad_mapping_at(frame: &mut UiFrame, theme: &Theme, stage: MappingStage, remaining_ns: u64) {
+    let mut snap = with_systems();
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[], frame);
+    snap.pad_mapping = Some(PadMapping::new(
+        MappingId(1),
+        "Arcade Stick",
+        stage,
+        remaining_ns,
+    ));
+    screens.update(&snap, &[], frame);
+}
+
+/// The third step, with 12 s left.
+fn pad_mapping(frame: &mut UiFrame, theme: &Theme) {
+    let stage = MappingStage::Prompt {
+        prompt: "Press Left".to_owned(),
+        step: 3,
+        steps: 20,
+        note: String::new(),
+    };
+    pad_mapping_at(frame, theme, stage, 11_200_000_000);
+}
+
+/// A press that the mapping refused, at the longest note the app gives.
+fn pad_mapping_note(frame: &mut UiFrame, theme: &Theme) {
+    let stage = MappingStage::Prompt {
+        prompt: "Press L2 (left trigger)".to_owned(),
+        step: 13,
+        steps: 20,
+        note: "That is Select already. Press another one.".to_owned(),
+    };
+    pad_mapping_at(frame, theme, stage, 15_000_000_000);
+}
+
+/// The review of a map that can be kept, with the focus on Cancel.
+fn pad_mapping_review(frame: &mut UiFrame, theme: &Theme) {
+    let stage = MappingStage::Review {
+        message: "16 of 20 controls are set. Skipped: L3, R3, Right stick X, Right stick Y."
+            .to_owned(),
+        can_keep: true,
+    };
+    pad_mapping_at(frame, theme, stage, 15_000_000_000);
+}
+
+/// The review of a map that lacks what the menus need, with its warning
+/// about the quick menu.
+fn pad_mapping_incomplete(frame: &mut UiFrame, theme: &Theme) {
+    let stage = MappingStage::Review {
+        message:
+            "This layout has no Left and no B. A controller needs the four directions, A and B."
+                .to_owned(),
+        can_keep: false,
+    };
+    pad_mapping_at(frame, theme, stage, 9_000_000_000);
+}
 
 /// No pad: the four player rows stay, so the panel has one shape.
 fn input_empty(frame: &mut UiFrame, theme: &Theme) {

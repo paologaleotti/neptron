@@ -15,6 +15,7 @@ mod game_list;
 mod home;
 mod options;
 mod overlays;
+mod pad_mapping;
 mod page;
 mod panel;
 mod pattern;

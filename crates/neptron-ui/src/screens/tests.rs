@@ -2911,3 +2911,113 @@ fn open_panel_from_a_page_of_the_quick_menu_keeps_the_quick_menu() {
         "the page the player was on is still under it"
     );
 }
+
+fn mapping(id: u32, stage: crate::snapshot::MappingStage) -> crate::snapshot::PadMapping {
+    crate::snapshot::PadMapping::new(
+        crate::snapshot::MappingId(id),
+        "USB Joystick",
+        stage,
+        10_000_000_000,
+    )
+}
+
+fn prompt_stage() -> crate::snapshot::MappingStage {
+    crate::snapshot::MappingStage::Prompt {
+        prompt: "Press Up".to_owned(),
+        step: 1,
+        steps: 20,
+        note: String::new(),
+    }
+}
+
+fn review_stage(can_keep: bool) -> crate::snapshot::MappingStage {
+    crate::snapshot::MappingStage::Review {
+        message: "20 of 20 controls are set.".to_owned(),
+        can_keep,
+    }
+}
+
+#[test]
+fn the_guided_mapping_takes_every_action_and_back_cancels_it() {
+    let mut run = Run::new();
+    let mut snap = with_systems();
+    snap.notices = vec![Notice::new(NoticeId(1), "A notice", NoticeKind::Info)];
+    snap.pad_mapping = Some(mapping(1, prompt_stage()));
+    run.step(&snap, &[Up, Down, Left, Right, Accept, Menu]);
+    assert_eq!(run.screen(), "pad-mapping");
+    assert_eq!(run.intents(), [], "the prompt takes no action but back");
+    assert!(run.labels().contains(&"Press Up"), "{:?}", run.labels());
+    assert!(
+        run.labels().contains(&"No input: cancel in 10 s."),
+        "{:?}",
+        run.labels()
+    );
+    run.step(&snap, &[Back, Back]);
+    assert_eq!(
+        run.intents(),
+        [Intent::CancelPadMapping],
+        "one answer per frame"
+    );
+    snap.pad_mapping = None;
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "notice", "the notice waited under it");
+}
+
+#[test]
+fn the_review_keeps_only_after_right_then_accept() {
+    let mut run = Run::new();
+    let mut snap = with_systems();
+    snap.pad_mapping = Some(mapping(1, review_stage(true)));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.screen(), "pad-mapping/review");
+    assert_eq!(
+        run.intents(),
+        [Intent::CancelPadMapping],
+        "Cancel has the focus"
+    );
+    snap.pad_mapping = Some(mapping(2, review_stage(true)));
+    run.step(&snap, &[Right, Accept]);
+    assert_eq!(run.intents(), [Intent::KeepPadMapping]);
+    snap.pad_mapping = Some(mapping(3, review_stage(true)));
+    run.step(&snap, &[Back]);
+    assert_eq!(run.intents(), [Intent::CancelPadMapping]);
+}
+
+#[test]
+fn a_review_that_cannot_keep_offers_cancel_alone() {
+    let mut run = Run::new();
+    let mut snap = with_systems();
+    snap.pad_mapping = Some(mapping(1, review_stage(false)));
+    run.step(&snap, &[Right, Accept]);
+    assert_eq!(run.intents(), [Intent::CancelPadMapping]);
+    assert!(!run.labels().contains(&"Keep"), "{:?}", run.labels());
+}
+
+#[test]
+fn the_review_of_a_mapping_starts_on_cancel_after_its_prompt() {
+    let mut run = Run::new();
+    let mut snap = with_systems();
+    snap.pad_mapping = Some(mapping(1, review_stage(true)));
+    run.step(&snap, &[Right]);
+    snap.pad_mapping = Some(mapping(1, prompt_stage()));
+    run.step(&snap, &[]);
+    snap.pad_mapping = Some(mapping(1, review_stage(true)));
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::CancelPadMapping]);
+}
+
+#[test]
+fn the_guided_mapping_shows_over_a_running_game() {
+    let mut run = Run::new();
+    let mut snap = with_systems();
+    snap.session = Some(crate::snapshot::SessionInfo::new(
+        crate::snapshot::GameId(1),
+        "Astro Racer",
+    ));
+    run.step(&snap, &[]);
+    assert!(!run.screens.shows_ui());
+    snap.pad_mapping = Some(mapping(1, prompt_stage()));
+    run.step(&snap, &[]);
+    assert!(run.screens.shows_ui());
+    assert_eq!(run.screen(), "pad-mapping");
+}

@@ -13,6 +13,7 @@ use super::game_list::GameList;
 use super::home::Home;
 use super::options::Options;
 use super::overlays::{Confirm, Notices};
+use super::pad_mapping::PadMappingScreen;
 use super::page::{Crumb, crumb};
 use super::panel::PagePanel;
 use super::pattern;
@@ -40,6 +41,7 @@ pub struct Screens {
     stack: Vec<Screen>,
     confirm: Confirm,
     notices: Notices,
+    pad_mapping: PadMappingScreen,
     visible: bool,
     /// A panel that the app asked to open, and the row to focus.
     opening: Option<(PageId, Option<SettingKey>)>,
@@ -102,6 +104,7 @@ impl Screens {
             stack,
             confirm: Confirm::new(),
             notices: Notices::new(),
+            pad_mapping: PadMappingScreen::new(),
             visible: true,
             opening: None,
         }
@@ -112,8 +115,9 @@ impl Screens {
     /// holds the scene, the widget tree and the intents of the frame.
     ///
     /// An action goes to the topmost of: the confirm dialog of a pending
-    /// signal change, the oldest notice (not while a game runs alone), the
-    /// screen on top of the stack.
+    /// signal change, the guided mapping of a controller, the oldest
+    /// notice (not while a game runs alone), the screen on top of the
+    /// stack.
     ///
     /// The UI has no clock. A held direction repeats only when the app
     /// sends the action again.
@@ -124,6 +128,7 @@ impl Screens {
             self.follow(snap);
         }
         self.confirm.begin_frame();
+        self.pad_mapping.begin_frame();
         for &action in actions {
             let first_new = out.intents.len();
             self.handle(action, snap, &mut out.intents);
@@ -153,7 +158,8 @@ impl Screens {
         self.draw(snap, out);
     }
 
-    /// False while a game runs with no menu and no confirm dialog over it.
+    /// False while a game runs with no menu, no confirm dialog and no
+    /// guided mapping over it.
     /// The app then shows the game alone, sends the UI no actions but the
     /// menu button, and keeps the core running. True otherwise: the core is
     /// paused. Notices wait while it is false.
@@ -274,8 +280,9 @@ impl Screens {
             _ => {}
         }
         self.confirm.follow(snap.confirm.as_ref());
+        self.pad_mapping.follow(snap.pad_mapping.as_ref());
         self.notices.follow(snap);
-        self.visible = !self.in_game() || snap.confirm.is_some();
+        self.visible = !self.in_game() || snap.confirm.is_some() || snap.pad_mapping.is_some();
     }
 
     fn in_game(&self) -> bool {
@@ -285,6 +292,10 @@ impl Screens {
     fn handle(&mut self, action: UiAction, snap: &Snapshot, out: &mut Vec<Intent>) {
         if let Some(pending) = &snap.confirm {
             self.confirm.handle(action, pending, out);
+            return;
+        }
+        if let Some(mapping) = &snap.pad_mapping {
+            self.pad_mapping.handle(action, mapping, out);
             return;
         }
         if !self.in_game() && self.notices.current(snap).is_some() {
@@ -429,6 +440,10 @@ impl Screens {
             out.tree.clear();
             out.tree.set_screen("confirm");
             self.confirm.draw(pending, theme, out);
+        } else if let Some(mapping) = &snap.pad_mapping {
+            out.tree.clear();
+            out.tree.set_screen(PadMappingScreen::screen_id(mapping));
+            self.pad_mapping.draw(mapping, theme, out);
         } else if let Some(notice) = self.notices.current(snap).filter(|_| !self.in_game()) {
             out.tree.clear();
             out.tree.set_screen("notice");

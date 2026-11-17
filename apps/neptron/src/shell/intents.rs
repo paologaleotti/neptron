@@ -110,6 +110,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 self.pad_notes.answered(id);
                 self.unchecked_launch.take_if(|(notice, _)| *notice == id);
             }
+            // The app starts no guided mapping, so the UI never sends these.
+            Intent::KeepPadMapping | Intent::CancelPadMapping => {}
             Intent::AcceptNotice(id) => {
                 self.snap.notices.retain(|n| n.id != id);
                 if let Some((NoteKind::Generic, pad)) = self.pad_notes.answered(id) {

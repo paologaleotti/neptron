@@ -70,6 +70,10 @@ pub enum Intent {
     /// The player chose the second button of a notice with a choice
     /// ([`crate::snapshot::Notice::choice`]). The app removes the notice.
     AcceptNotice(NoticeId),
+    /// Keep the map of the guided mapping on show.
+    KeepPadMapping,
+    /// End the guided mapping on show with no change.
+    CancelPadMapping,
 }
 
 /// A new setting value.

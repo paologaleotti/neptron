@@ -103,6 +103,9 @@ pub struct Snapshot {
     /// What the running game asks for and what the screen shows, as text.
     /// The screens show it only while [`Snapshot::session`] holds a game.
     pub video: Option<VideoStatus>,
+    /// The guided mapping of a controller, while it runs. It shows over
+    /// every screen, under a pending confirmation.
+    pub pad_mapping: Option<PadMapping>,
 }
 
 /// A window of rows of one game list: `rows[0]` is the game at index
@@ -322,6 +325,51 @@ pub struct PendingConfirm {
     /// The confirmation. Each signal change that waits for the player gets
     /// a new id, also one that replaces another at once.
     pub id: ConfirmId,
+}
+
+/// The guided mapping of a controller, as text that the app makes. The UI
+/// draws it and decides nothing about it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PadMapping {
+    /// The mapping. Each mapping gets a new id, so a new one starts with
+    /// the focus on the first button of its review.
+    pub id: MappingId,
+    /// The name of the controller.
+    pub pad: String,
+    /// What the player does now.
+    pub stage: MappingStage,
+    /// Time left before the mapping ends with no change, in nanoseconds.
+    pub remaining_ns: u64,
+}
+
+/// The number of a guided mapping, given by the app.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct MappingId(pub u32);
+
+/// The part of a guided mapping on show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MappingStage {
+    /// One control to press.
+    Prompt {
+        /// What to do, for example `Press Up`.
+        prompt: String,
+        /// The step, from 1.
+        step: u32,
+        /// The number of steps.
+        steps: u32,
+        /// What happened at the last input, for example `That is Up
+        /// already. Press another one.`; empty for nothing.
+        note: String,
+    },
+    /// The end: keep or cancel the new map.
+    Review {
+        /// What the map has and lacks.
+        message: String,
+        /// False when the map lacks what the menus need: the review then
+        /// offers `Cancel` alone.
+        can_keep: bool,
+    },
 }
 
 /// The number of a confirmation, given by the app.
@@ -640,6 +688,24 @@ impl PendingConfirm {
             description: description.into(),
             remaining_ns,
             id,
+        }
+    }
+}
+
+impl PadMapping {
+    /// A mapping with its id, the name of its controller, its stage and
+    /// the time left.
+    pub fn new(
+        id: MappingId,
+        pad: impl Into<String>,
+        stage: MappingStage,
+        remaining_ns: u64,
+    ) -> Self {
+        Self {
+            id,
+            pad: pad.into(),
+            stage,
+            remaining_ns,
         }
     }
 }
