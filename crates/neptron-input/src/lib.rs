@@ -23,9 +23,11 @@ mod mapping_file;
 mod notice;
 mod pad_map;
 mod pad_maps;
+mod player_map;
 mod port_table;
 mod ports;
 mod raw;
+mod raw_state;
 mod roster;
 mod scan;
 mod scripted;
@@ -58,11 +60,18 @@ pub use pad_map::{
     AxisTarget, PAD_BUTTON_MAP, STICK_DEAD_ZONE, TRIGGER_THRESHOLD, axis_target, hat_values,
     pad_control, stick_value, trigger_value,
 };
-pub use pad_maps::{BuiltinMaps, MapKind, PadLayout, PadMap, PadMaps};
+pub use pad_maps::{BuiltinMaps, MapKind, PadLayout, PadMap, PadMaps, PlayerMaps};
+pub use player_map::{
+    Binding, BindingError, CONTROL_KEYS, HatDirection, MAP_AXIS_THRESHOLD, MENU_CONTROLS,
+    PlayerMap, control_key, control_of_key, is_axis,
+};
 pub use port_table::PadId;
 pub use ports::PortStates;
 pub use raw::{HatState, KeyAction, KeyCode, PadAxis, PadButton, RawInput};
-pub use roster::{PLAYER_PORTS, PadInfo, PadRoster, PortRule, Roster, RosterEntry, RosterError};
+pub use raw_state::{MAX_RAW_AXES, MAX_RAW_BUTTONS, MAX_RAW_HATS, RawReads, RawState};
+pub use roster::{
+    PLAYER_PORTS, PadInfo, PadKey, PadRoster, PortRule, Roster, RosterEntry, RosterError,
+};
 pub use scripted::{ScriptedPad, ScriptedPads};
 #[cfg(feature = "sdl3")]
 pub use sdl::{SCAN_INTERVAL_POLLS, SdlGamepads, SdlInputError};

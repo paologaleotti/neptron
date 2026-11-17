@@ -184,6 +184,9 @@ pub const AWAY_SUFFIX: &str = " (away)";
 /// What follows the name of a present pad that uses the generic layout.
 pub const GENERIC_SUFFIX: &str = " (generic layout)";
 
+/// What follows the name of a present pad with a map of the player.
+pub const YOURS_SUFFIX: &str = " (your layout)";
+
 /// The label of the row of a pad on an extra port: it drives the menus,
 /// and the core does not read it.
 pub const EXTRA_PAD_LABEL: &str = "Extra pad";
@@ -350,12 +353,14 @@ const PLAYER_ROW_FIRST: u32 = 20;
 const EXTRA_ROW_FIRST: u32 = 24;
 
 /// The text of the row of a pad: its name, with `(away)` when it went
-/// away, or `(generic layout)` for a present pad with the generic layout,
-/// cut so that the row with `label` fits.
+/// away, `(generic layout)` for a present pad with the generic layout, or
+/// `(your layout)` for a map of the player, cut so that the row with
+/// `label` fits.
 fn pad_text(entry: &RosterEntry, label: &str) -> String {
     let suffix = match (entry.present, entry.map) {
         (false, _) => AWAY_SUFFIX,
         (true, MapKind::Generic) => GENERIC_SUFFIX,
+        (true, MapKind::Player) => YOURS_SUFFIX,
         (true, MapKind::Known) => "",
     };
     let room = ROW_MAX_CHARS
@@ -1547,6 +1552,42 @@ mod tests {
         RosterEntry {
             map: MapKind::Generic,
             ..pad_entry(name, present)
+        }
+    }
+
+    #[test]
+    fn a_pad_with_a_map_of_the_player_says_so_and_still_fits() {
+        let mut roster = Roster::new();
+        let yours = |name: &str, present| RosterEntry {
+            map: MapKind::Player,
+            ..pad_entry(name, present)
+        };
+        roster
+            .set(0, Some(yours("USB Joystick", true)))
+            .expect("a port");
+        roster
+            .set(1, Some(yours("USB Joystick", false)))
+            .expect("a port");
+        roster
+            .set(
+                2,
+                Some(yours("A Very Long Gamepad Name From A Vendor", true)),
+            )
+            .expect("a port");
+        let rows = input_rows(&roster);
+        assert_eq!(
+            rows[..3],
+            pairs(&[
+                ("Player 1", "USB Joystick (your layout)"),
+                ("Player 2", "USB Joystick (away)"),
+                ("Player 3", "A Very Long Gamepa... (your layout)"),
+            ])
+        );
+        for (label, text) in &rows[..3] {
+            assert!(
+                label.chars().count() + 1 + text.chars().count() <= ROW_MAX_CHARS,
+                "{label} {text}"
+            );
         }
     }
 

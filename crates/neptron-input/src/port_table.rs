@@ -113,6 +113,21 @@ impl PortTable {
         self.compact(moved);
     }
 
+    /// Sets the kind of map that the roster shows for the connected pad
+    /// `pad`. True when it changed.
+    pub(crate) fn set_kind(&mut self, pad: PadId, kind: MapKind) -> bool {
+        let Some(port) = self.port(pad) else {
+            return false;
+        };
+        match self.seats.get_mut(port) {
+            Some(Seat::Playing(_, _, map)) if *map != kind => {
+                *map = kind;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// The port of a connected pad.
     pub(crate) fn port(&self, pad: PadId) -> Option<usize> {
         self.pad_ports.get(pad_index(pad)).copied().flatten()

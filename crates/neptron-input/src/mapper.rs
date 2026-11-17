@@ -12,6 +12,7 @@ use crate::pad_map::{
     AxisTarget, axis_target, hat_values, pad_control, stick_value, trigger_value,
 };
 use crate::pad_maps::PadMap;
+use crate::player_map::{Binding, half_axis_value, stick};
 use crate::port_table::{PadId, PortTable, pad_index};
 use crate::raw::{KeyAction, RawInput};
 use crate::roster::{PadInfo, PortRule, Roster};
@@ -38,8 +39,10 @@ use crate::state::ControlState;
 ///
 /// Each gamepad keeps its map ([`PadMap`]): the standard layout of SDL3
 /// reads [`RawInput::Button`], [`RawInput::Axis`] and [`RawInput::Hat`];
-/// the generic layout reads the raw indices of a plain joystick
-/// ([`RawInput::JoyButton`], [`RawInput::JoyHat`], [`RawInput::JoyAxis`]).
+/// the generic layout and the map of the player read the raw indices of a
+/// joystick ([`RawInput::JoyButton`], [`RawInput::JoyHat`],
+/// [`RawInput::JoyAxis`]). [`Mapper::set_map`] changes the map of a
+/// connected pad.
 ///
 /// Keyboards take the lowest free keyboard slot and all play on port 0.
 ///
@@ -242,6 +245,52 @@ impl Mapper {
         self.changes = self.changes.wrapping_add(1);
     }
 
+    /// Gives the connected pad `pad` a new map: appends to `out` the
+    /// release of every control that it holds, so the next input starts
+    /// from neutral with the new map. The roster shows the new kind.
+    ///
+    /// # Errors
+    ///
+    /// [`MapperError::PadNotConnected`] when `pad` is not connected.
+    pub fn set_map(
+        &mut self,
+        pad: PadId,
+        map: PadMap,
+        out: &mut Vec<InputEvent>,
+    ) -> Result<(), MapperError> {
+        self.release(pad, out)?;
+        if let Some(slot) = self.maps.get_mut(pad_index(pad)) {
+            *slot = map;
+        }
+        if self.ports.set_kind(pad, map.kind()) {
+            self.changes = self.changes.wrapping_add(1);
+        }
+        Ok(())
+    }
+
+    /// The map of the connected pad `pad`.
+    pub fn map_of(&self, pad: PadId) -> Option<PadMap> {
+        self.ports.port(pad)?;
+        self.maps.get(pad_index(pad)).copied()
+    }
+
+    /// Appends to `out` the release of every control that the connected
+    /// pad `pad` holds. A backend calls it before it stops feeding the
+    /// pad, for example while the guided mapping reads it.
+    ///
+    /// # Errors
+    ///
+    /// [`MapperError::PadNotConnected`] when `pad` is not connected.
+    pub fn release(&mut self, pad: PadId, out: &mut Vec<InputEvent>) -> Result<(), MapperError> {
+        let device = self
+            .device_of(pad)
+            .ok_or(MapperError::PadNotConnected { pad })?;
+        if let Some(state) = self.state_mut(pad) {
+            state.release_all(device, out);
+        }
+        Ok(())
+    }
+
     /// The device id of a connected gamepad. It holds the port, so it
     /// changes when the pad moves.
     pub fn device_of(&self, pad: PadId) -> Option<u32> {
@@ -401,8 +450,8 @@ impl Mapper {
 }
 
 /// Maps one raw input into `state` with `pad_map`, and appends an event
-/// for each control that changed. The raw indices of a plain joystick
-/// drive a control only through a generic map.
+/// for each control that changed. The raw indices of a joystick drive a
+/// control only through a generic map or a map of the player.
 fn map(
     state: &mut ControlState,
     pad_map: &PadMap,
@@ -444,38 +493,71 @@ fn map(
                 set(control, value);
             }
         }
-        RawInput::JoyButton { index, pressed } => {
-            let control = match pad_map {
-                PadMap::Generic(layout) => layout.button(index),
-                PadMap::Known => None,
-            };
-            if let Some(control) = control {
-                set(control, i16::from(pressed));
-            }
-        }
-        RawInput::JoyHat { index, hat } => {
-            if let PadMap::Generic(layout) = pad_map
-                && layout.hat_is_dpad(index)
-            {
-                for (control, value) in hat_values(hat) {
-                    set(control, value);
+        RawInput::JoyButton { index, pressed } => match pad_map {
+            PadMap::Generic(layout) => {
+                if let Some(control) = layout.button(index) {
+                    set(control, i16::from(pressed));
                 }
             }
-        }
-        RawInput::JoyAxis { index, value } => {
-            let role = match pad_map {
-                PadMap::Generic(layout) => layout.axis(index),
-                PadMap::Known => None,
-            };
-            if let Some(role) = role {
-                set(role.stick, stick_value(value));
-                if let Some(pair) = role.dpad {
-                    for (control, digital) in dpad_axis_values(pair, value) {
-                        set(control, digital);
+            PadMap::Player(player) => {
+                for (control, binding) in player.bindings() {
+                    if binding == Binding::Button(index) {
+                        set(control, i16::from(pressed));
                     }
                 }
             }
-        }
+            PadMap::Known => {}
+        },
+        RawInput::JoyHat { index, hat } => match pad_map {
+            PadMap::Generic(layout) => {
+                if layout.hat_is_dpad(index) {
+                    for (control, value) in hat_values(hat) {
+                        set(control, value);
+                    }
+                }
+            }
+            PadMap::Player(player) => {
+                for (control, binding) in player.bindings() {
+                    if let Binding::Hat {
+                        index: i,
+                        direction,
+                    } = binding
+                        && i == index
+                    {
+                        set(control, i16::from(hat.has(direction.bit())));
+                    }
+                }
+            }
+            PadMap::Known => {}
+        },
+        RawInput::JoyAxis { index, value } => match pad_map {
+            PadMap::Generic(layout) => {
+                if let Some(role) = layout.axis(index) {
+                    set(role.stick, stick_value(value));
+                    if let Some(pair) = role.dpad {
+                        for (control, digital) in dpad_axis_values(pair, value) {
+                            set(control, digital);
+                        }
+                    }
+                }
+            }
+            PadMap::Player(player) => {
+                for (control, binding) in player.bindings() {
+                    match binding {
+                        Binding::HalfAxis {
+                            index: i,
+                            positive,
+                            full,
+                        } if i == index => set(control, half_axis_value(value, positive, full)),
+                        Binding::Stick { index: i, inverted } if i == index => {
+                            set(control, stick(value, inverted));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            PadMap::Known => {}
+        },
     }
 }
 

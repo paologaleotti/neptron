@@ -2,7 +2,7 @@
 
 use crate::device::{DeviceIdentity, MAX_PORTS};
 use crate::notice::InputNotice;
-use crate::pad_maps::MapKind;
+use crate::pad_maps::{MapKind, PlayerMaps};
 use crate::silent::PadActivity;
 
 /// The ports that the core reads: ports 0 to 3, players 1 to 4. A pad on
@@ -38,6 +38,24 @@ impl PadInfo {
             name: String::from_utf8_lossy(name).into_owned(),
         }
     }
+
+    /// The key of the pad.
+    pub fn key(&self) -> PadKey {
+        PadKey {
+            identity: self.identity,
+            path: self.path,
+        }
+    }
+}
+
+/// What tells one plugged pad from every other one: its model and where
+/// it is plugged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PadKey {
+    /// The model ([`PadInfo::identity`]).
+    pub identity: DeviceIdentity,
+    /// Where it is plugged ([`PadInfo::path`]).
+    pub path: DeviceIdentity,
 }
 
 /// The rule of the ports for one run of the frontend.
@@ -92,6 +110,11 @@ pub trait PadRoster {
     fn activity(&self) -> PadActivity {
         PadActivity::default()
     }
+
+    /// Replaces the maps of the player. At the next poll each open pad
+    /// whose map changes gets the new one, with the release of every
+    /// control it holds. A source with no pad ignores it.
+    fn set_player_maps(&mut self, _maps: &PlayerMaps) {}
 }
 
 impl Roster {

@@ -6,5 +6,6 @@
 mod generic;
 mod hotkeys;
 mod mapper;
+mod player_maps;
 mod ports;
 mod scripted;

@@ -70,7 +70,7 @@ impl ControlState {
 }
 
 /// The position of `control` in [`ALL_CONTROLS`].
-fn index(control: Control) -> usize {
+pub(crate) fn index(control: Control) -> usize {
     match control {
         Control::B => 0,
         Control::Y => 1,

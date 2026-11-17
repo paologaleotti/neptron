@@ -8,6 +8,8 @@
 
 use neptron_types::Control;
 
+use crate::raw_state::RawReads;
+
 /// The control of each raw button index, in the PS3 order: Square, Cross,
 /// Circle, Triangle, L1, R1, L2, R2, Select, Start, L3, R3, PS. The PS
 /// button drives nothing, and a button past the table drives nothing.
@@ -161,6 +163,15 @@ impl GenericLayout {
     /// The axis indices that the backend reads, from 0.
     pub fn axes_read(&self) -> u8 {
         last_used(&self.axes)
+    }
+
+    /// The indices that the backend reads.
+    pub fn reads(&self) -> RawReads {
+        RawReads {
+            buttons: self.buttons_read(),
+            hats: self.hats_read(),
+            axes: self.axes_read(),
+        }
     }
 
     /// True when the layout has `control` on a button.
