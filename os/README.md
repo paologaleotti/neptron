@@ -26,7 +26,7 @@ Buildroot 2026.08.1 is a bug-fix release of 2026.08. It is not in the repository
 | `configs/neptron_qemu_aarch64_defconfig` | The QEMU test image, `virt` machine, 64-bit Arm. Runs with the hypervisor on an Apple Silicon Mac |
 | `configs/neptron_rpi_arm64_defconfig`, `configs/neptron_rpi_arm64_dev.fragment` | The Raspberry Pi image, 64-bit, for the Pi 3 B and 3 B+, and its development variant |
 | `board/rpi` | The Pi board: kernel fragments, the kernel hash in `patches/`, `config.txt`, `cmdline.txt`, `genimage.cfg`, the post-build and post-image steps, the kernel checks, `LICENCES.txt`, and the development overlay |
-| `board/pc/*.config` | Kernel fragments of the PC image, one for each concern: `video`, `console`, `input`, `sound`, `storage`, `network` |
+| `board/pc/*.config` | Kernel fragments of the PC image, one for each concern: `system` (the `performance` CPU governor), `video`, `console`, `input`, `sound`, `storage`, `network` |
 | `board/pc/busybox.config` | BusyBox fragment of the PC image: no telnet server, no web server, no cron |
 | `board/pc/grub.cfg`, `genimage.cfg`, `post-build.sh`, `post-image.sh` | The boot configuration and the USB image |
 | `board/pc/LICENCES.txt` | The licence notes of the image, on the boot partition and in `/usr/share/licenses` |
@@ -40,7 +40,7 @@ Buildroot 2026.08.1 is a bug-fix release of 2026.08. It is not in the repository
 | `patches/` | The global patch and hash directory. It holds the kernel hashes and the hashes of the 15 kHz patch set |
 | `package/` | NEPTRON packages: the frontend `neptron`, the launcher `neptron-launch`, the client `neptronctl`, the three MVP cores, and the test tools `neptron-vkms-probe` and `neptron-capture` |
 
-The kernel of the aarch64 test image is the Buildroot QEMU configuration (`board/qemu/aarch64-virt/linux.config` in the Buildroot tree) plus the five fragments in `board/qemu`. The kernel of the PC image is the `x86_64` defconfig of the kernel plus the fragments in `board/pc` and `board/qemu/host.config`.
+The kernel of the aarch64 test image is the Buildroot QEMU configuration (`board/qemu/aarch64-virt/linux.config` in the Buildroot tree) plus the five fragments in `board/qemu`. The kernel of the PC image is the `x86_64` defconfig of the kernel plus the fragments in `board/pc` and `board/qemu/host.config`. The `x86_64` defconfig makes `userspace` the default CPU governor, and `intel_pstate` and `amd-pstate` then start in `powersave`. `system.config` makes `performance` the default, and `check-kernel-config.sh` requires it. With `performance`, `intel_pstate` in active mode with HWP sets the HWP minimum to the maximum and the energy preference to 0 (`performance`); `amd-pstate` in active mode sets the energy preference to 0 and a minimum at the nominal rate; `acpi-cpufreq` and the passive modes use the `performance` governor, which asks for the top rate. A QEMU guest has no cpufreq driver, so the setting has no effect there.
 
 ## The PC image
 

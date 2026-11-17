@@ -127,6 +127,16 @@ mod tests {
     fn each_kernel_fragment_of_the_pc_image_holds_its_concern() {
         let fragments = &defconfig(Arch::X86_64)["BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES"];
         for (file, option, value) in [
+            (
+                "pc/system.config",
+                "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE",
+                "y",
+            ),
+            (
+                "pc/system.config",
+                "CONFIG_CPU_FREQ_DEFAULT_GOV_USERSPACE",
+                "n",
+            ),
             ("pc/video.config", "CONFIG_DRM_I915", "y"),
             ("pc/video.config", "CONFIG_DRM_AMDGPU", "m"),
             ("pc/video.config", "CONFIG_DRM_VKMS", "m"),
@@ -480,6 +490,10 @@ mod tests {
             pc_check.contains("POWER_ON=\"ACPI\""),
             "the PC kernel check requires ACPI for the power-off"
         );
+        assert!(
+            pc_check.contains("GOVERNOR_ON=\"CPU_FREQ_DEFAULT_GOV_PERFORMANCE\""),
+            "the PC kernel check requires the performance governor"
+        );
     }
 
     /// Writes an executable shell script.
@@ -594,7 +608,7 @@ mod tests {
 
     #[test]
     fn the_kernel_check_reads_the_configured_kernel_and_every_mode_option() {
-        let off = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\nCONFIG_SMB_SERVER=y\nCONFIG_ACPI=y\n";
+        let off = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\nCONFIG_SMB_SERVER=y\nCONFIG_ACPI=y\nCONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y\n";
         let ok = check_kernel_config("off", Some("6.18.63"), &[("6.18.63", Some(off))]);
         assert!(ok.status.success(), "{ok:?}");
         let missing = check_kernel_config("missing", Some("6.18.63"), &[("6.18.63", None)]);
@@ -650,6 +664,11 @@ mod tests {
                 "noacpi",
                 "CONFIG_SMB_SERVER=y\n# CONFIG_ACPI is not set\n",
                 "CONFIG_ACPI is not built in",
+            ),
+            (
+                "governor",
+                "CONFIG_SMB_SERVER=y\nCONFIG_ACPI=y\n# CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE is not set\nCONFIG_CPU_FREQ_DEFAULT_GOV_USERSPACE=y\n",
+                "CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE is not set",
             ),
             (
                 "kerberos",

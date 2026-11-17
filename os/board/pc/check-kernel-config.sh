@@ -2,10 +2,11 @@
 # Checks the final configuration of the PC kernel. The kernel must set no
 # mode of its own (the CRT safety model, layer 8), the SMB server of the
 # network share must be built in, with no SMB1, no RDMA transport and no
-# Kerberos, and ACPI must be built in: the power-off of a PC goes through
-# it. The fragments set these options, but another option can select
-# one again. Exits with 0 when all hold, else with 1 and one line for each
-# fault. A missing or unreadable file is a fault.
+# Kerberos, ACPI must be built in (the power-off of a PC goes through
+# it), and the default CPU governor must be performance. The fragments set
+# these options, but another option can select one again. Exits with 0
+# when all hold, else with 1 and one line for each fault. A missing or
+# unreadable file is a fault.
 #
 # Usage: check-kernel-config.sh BR2_CONFIG BUILD_DIR
 #
@@ -18,6 +19,7 @@ DRM_PANIC DRM_EFIDRM DRM_VESADRM DRM_CLIENT_LOG"
 SHARE_OFF="SMB_INSECURE_SERVER SMB_SERVER_SMBDIRECT SMB_SERVER_KERBEROS5"
 SHARE_ON="SMB_SERVER"
 POWER_ON="ACPI"
+GOVERNOR_ON="CPU_FREQ_DEFAULT_GOV_PERFORMANCE"
 
 br2_config=$1
 build_dir=$2
@@ -68,6 +70,12 @@ done
 for option in $POWER_ON; do
 	if ! has "$option" y; then
 		echo "check-kernel-config: CONFIG_$option is not built in in $config; the power-off of a PC needs it" >&2
+		status=1
+	fi
+done
+for option in $GOVERNOR_ON; do
+	if ! has "$option" y; then
+		echo "check-kernel-config: CONFIG_$option is not set in $config; a lower clock makes a heavy core miss fields" >&2
 		status=1
 	fi
 done
