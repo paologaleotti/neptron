@@ -111,6 +111,19 @@ rom | <name> | <size> | <crc or -> | <merge or -> | <flags>
 - `-` means "none" in the parent, romof, CRC and merge fields, so the encoder refuses a name that is empty or `-`. It also refuses a field with a tab or a line break, and names the set and the field.
 - The format is append-only. A reader ignores fields after the ones it knows, and skips a line whose first field it does not know. A field is never removed or moved. A change that an older reader would misread raises the version.
 
+### The set check
+
+`arcade::check_set(index, stem, found)` decides whether a set can start (`docs/spec/arcade.md`, section 10). It is pure: `arcade::wanted` gives the zip names the core opens (the set, its parent, its BIOS through `romof`), the caller lists the entries of each zip it finds (`FoundZips`, in the order the core searches the places), and the check returns a `Verdict`. The rules, in this order:
+
+1. The stem is not a set: `UnknownSet` (message 1).
+2. The set has a BIOS and no zip of that name is found: `MissingBios` (message 2).
+3. A found zip cannot be read: `Unreadable` (message 6).
+4. A clone needs a ROM that no zip of its own name holds, and no parent zip is found: `MissingParent` (message 3).
+5. No BIOS zip holds any ROM of the BIOS set: `BiosMismatch` (message 5). When some match, the set passes, and `Verdict::details` lists the others for the diagnostics. The DAT does not say which BIOS files the core needs (open point A3 of the spec).
+6. Each ROM of the set, except the ROMs with no dump and the ROMs of its BIOS set (same CRC), must be in a found zip with the same CRC and size. The first zip that holds the CRC gives the ROM, as in the core. Otherwise `Roms` (message 4), with every ROM in `details`.
+
+`Verdict::message(core)` gives the text for the player; `Verdict::NoIndex` (message 7) is for the caller with no index, and does not stop the launch by itself.
+
 The index of FinalBurn Neo at the pin of `os/package/libretro-fbneo` has 8,531 sets (14 BIOS sets) and 168,288 ROMs: 7.4 MiB of text. `arcade::read` accepts at most `MAX_INDEX_BYTES` (32 MiB). The index in memory keeps two short strings for each ROM; the menu process reads it once, off the frame thread, and keeps it.
 
 ## Frame budget

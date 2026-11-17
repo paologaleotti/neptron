@@ -9,8 +9,12 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
+mod check;
 mod format;
 
+pub use check::{
+    FoundZip, FoundZips, Problem, RomProblem, Verdict, Wanted, ZipEntry, check_set, wanted,
+};
 pub use format::{decode, encode};
 
 /// The first field of the first line of an index file.
