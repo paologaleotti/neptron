@@ -16,6 +16,10 @@ pub const MAPPING_FILE: &str = "input/gamecontrollerdb.txt";
 /// The digits of an SDL GUID in a mapping line.
 const GUID_DIGITS: usize = 32;
 
+/// The GUIDs that are not hex digits and that SDL accepts in any case:
+/// the mapping for any unknown pad, and the mapping of XInput devices.
+const SPECIAL_GUIDS: [&str; 2] = ["default", "xinput"];
+
 /// The field of a mapping line that names its platform.
 const PLATFORM_FIELD: &str = "platform";
 
@@ -32,7 +36,8 @@ pub struct Mappings {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum MappingLineError {
-    /// The first field is not a GUID of 32 hex digits.
+    /// The first field is not a GUID of 32 hex digits, nor `default` or
+    /// `xinput`.
     #[error("{guid:?} is not a GUID of {GUID_DIGITS} hex digits")]
     Guid {
         /// The first field.
@@ -97,7 +102,8 @@ pub fn parse_mappings(text: &str, path: &str, platform: &str) -> Mappings {
 fn check_line(line: &str) -> Result<Option<&str>, MappingLineError> {
     let mut fields = line.split(',');
     let guid = fields.next().unwrap_or_default().trim();
-    if guid.len() != GUID_DIGITS || !guid.bytes().all(|b| b.is_ascii_hexdigit()) {
+    let hex = guid.len() == GUID_DIGITS && guid.bytes().all(|b| b.is_ascii_hexdigit());
+    if !hex && !SPECIAL_GUIDS.iter().any(|s| s.eq_ignore_ascii_case(guid)) {
         return Err(MappingLineError::Guid {
             guid: guid.to_owned(),
         });
@@ -183,6 +189,19 @@ mod tests {
                 line_notice(7, "\"a\" is not a field:value pair"),
                 line_notice(8, "\"a:\" is not a field:value pair"),
             ]
+        );
+    }
+
+    #[test]
+    fn the_special_guids_of_sdl_are_good() {
+        let text = "xinput,XInput Controller,a:b0,platform:Linux,\n\
+                    Default,Any Pad,a:b0,platform:Linux,\n\
+                    xinputs,Pad,a:b0,platform:Linux,\n";
+        let mappings = parse_mappings(text, "map.txt", "Linux");
+        assert_eq!(mappings.lines.len(), 2);
+        assert_eq!(
+            mappings.notices,
+            [line_notice(3, "\"xinputs\" is not a GUID of 32 hex digits")]
         );
     }
 
