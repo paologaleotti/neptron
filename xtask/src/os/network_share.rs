@@ -627,11 +627,7 @@ fn post_build(dir: &TempDir, interfaces: &str, read_only: bool) -> (bool, String
     if read_only {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
     }
-    let out = Command::new("sh")
-        .arg(os_dir().join("board/common/post-build.sh"))
-        .arg(&target)
-        .output()
-        .unwrap();
+    let out = run_post_build(dir);
     assert!(!target.join("etc/init.d/S50mdnsd").exists());
     (
         out.status.success(),
@@ -797,9 +793,13 @@ const MDEV_CONF: &str = "input/ts[0-9]\t\troot:root 600\n\n# load modules\n\
 const NET_RULE: &str = "SUBSYSTEM=net;(eth|en).*\troot:root 600 */usr/libexec/neptron/net-hotplug";
 
 fn run_post_build(dir: &TempDir) -> std::process::Output {
+    // Buildroot gives its configuration to every post-build step.
+    let config = dir.path("br2.config");
+    std::fs::write(&config, "BR2_x86_64=y\n").unwrap();
     Command::new("sh")
         .arg(os_dir().join("board/common/post-build.sh"))
         .arg(dir.path("target"))
+        .env("BR2_CONFIG", &config)
         .output()
         .unwrap()
 }

@@ -33,6 +33,8 @@
 #
 # check-arcade-index.sh fails the build when the FinalBurn Neo core is in
 # the image and the arcade index of the frontend is not.
+# check-gamecontrollerdb.sh fails it when the configuration enables the
+# community gamepad database and the image has no database file.
 #
 # S05neptron-mounts mounts the 9p share of the QEMU checks at /mnt/host.
 # The root of the PC and Pi images is read-only EROFS, so the mount point
@@ -43,6 +45,7 @@ set -eu
 target=$1
 
 "$(dirname "$0")/check-arcade-index.sh" "$target"
+"$(dirname "$0")/check-gamecontrollerdb.sh" "$BR2_CONFIG" "$target"
 
 rm -f "$target/etc/init.d/S50mdnsd" "$target/etc/init.d/S41neptron-address"
 mkdir -p "$target/mnt/host"

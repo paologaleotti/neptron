@@ -829,6 +829,63 @@ mod tests {
         }
     }
 
+    /// Runs check-gamecontrollerdb.sh on a fake output: the package on or
+    /// off in the Buildroot config, and the database file (none for no
+    /// file).
+    fn check_gamecontrollerdb(name: &str, enabled: bool, db: Option<&str>) -> std::process::Output {
+        let script = os_dir().join("board/common/check-gamecontrollerdb.sh");
+        let dir = std::env::temp_dir().join(format!("xtask-gcdb-{name}-{}", std::process::id()));
+        let target = dir.join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        let br2 = dir.join("br2.config");
+        let line = if enabled {
+            "BR2_PACKAGE_SDL_GAMECONTROLLERDB=y\n"
+        } else {
+            "# BR2_PACKAGE_SDL_GAMECONTROLLERDB is not set\n"
+        };
+        std::fs::write(&br2, format!("BR2_x86_64=y\n{line}")).unwrap();
+        if let Some(text) = db {
+            let file = target.join(GAMECONTROLLERDB_FILE.trim_start_matches('/'));
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        }
+        let out = std::process::Command::new("sh")
+            .arg(&script)
+            .arg(&br2)
+            .arg(&target)
+            .output()
+            .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        out
+    }
+
+    #[test]
+    fn the_image_check_fails_for_the_gamepad_database_package_with_no_file() {
+        let line = "03000000aaaa0000bbbb000000000000,Pad,a:b0,platform:Linux,\n";
+        let missing = check_gamecontrollerdb("missing", true, None);
+        assert!(!missing.status.success());
+        assert!(
+            String::from_utf8_lossy(&missing.stderr).contains("sdl-gamecontrollerdb"),
+            "{missing:?}"
+        );
+        assert!(
+            !check_gamecontrollerdb("empty", true, Some(""))
+                .status
+                .success()
+        );
+        assert!(
+            check_gamecontrollerdb("both", true, Some(line))
+                .status
+                .success()
+        );
+        assert!(check_gamecontrollerdb("off", false, None).status.success());
+        let post_build =
+            std::fs::read_to_string(os_dir().join("board/common/post-build.sh")).unwrap();
+        assert!(post_build.contains(
+            "\"$(dirname \"$0\")/check-gamecontrollerdb.sh\" \"$BR2_CONFIG\" \"$target\""
+        ));
+    }
+
     #[test]
     fn each_core_with_data_names_the_library_of_its_package() {
         for core in CORES_WITH_DATA {
