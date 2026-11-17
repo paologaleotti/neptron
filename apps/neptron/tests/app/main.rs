@@ -25,3 +25,4 @@ mod rescan;
 mod rig;
 mod system;
 mod tv;
+mod vertical;

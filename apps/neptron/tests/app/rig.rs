@@ -82,6 +82,11 @@ pub struct Rig {
 /// variable in the running process is `unsafe`. `test` is the test's path
 /// in the binary.
 pub fn in_child(test: &str, body: impl FnOnce(&Path)) {
+    in_child_with(test, SCRIPT, body);
+}
+
+/// [`in_child`] with the test core's script `script`.
+pub fn in_child_with(test: &str, script: &str, body: impl FnOnce(&Path)) {
     if let Some(path) = std::env::var_os(SCRIPT_ENV) {
         let dir = PathBuf::from(path).parent().expect("the folder").to_owned();
         body(&dir);
@@ -96,8 +101,9 @@ pub fn in_child(test: &str, body: impl FnOnce(&Path)) {
     // A leftover of an earlier run with the same process id; absence is fine.
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("the folder");
-    let script = dir.join("script.ntc");
-    std::fs::write(&script, SCRIPT).expect("the script");
+    let script_path = dir.join("script.ntc");
+    std::fs::write(&script_path, script).expect("the script");
+    let script = script_path;
     let status = Command::new(std::env::current_exe().expect("the test binary"))
         .args([
             test,
@@ -127,6 +133,11 @@ const STAGE_ENV: &str = "NEPTRON_TEST_STAGE";
 /// chain of runs through two games needs a process for each run, as the
 /// launcher gives it.
 pub fn in_children(test: &str, stages: u32, body: impl Fn(&Path, u32)) {
+    in_children_with(test, SCRIPT, stages, body);
+}
+
+/// [`in_children`] with the test core's script `script`.
+pub fn in_children_with(test: &str, script: &str, stages: u32, body: impl Fn(&Path, u32)) {
     if let Some(stage) = std::env::var_os(STAGE_ENV) {
         let stage: u32 = stage
             .to_str()
@@ -146,8 +157,9 @@ pub fn in_children(test: &str, stages: u32, body: impl Fn(&Path, u32)) {
     // A leftover of an earlier run with the same process id; absence is fine.
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("the folder");
-    let script = dir.join("script.ntc");
-    std::fs::write(&script, SCRIPT).expect("the script");
+    let script_path = dir.join("script.ntc");
+    std::fs::write(&script_path, script).expect("the script");
+    let script = script_path;
     for stage in 0..stages {
         let status = Command::new(std::env::current_exe().expect("the test binary"))
             .args([
