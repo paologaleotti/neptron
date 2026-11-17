@@ -16,16 +16,17 @@ use crate::geometry::AvInfo;
 use crate::log::LogRecord;
 use crate::options::{CoreOption, OptionError};
 use crate::output::FrameOutput;
-use crate::pad::{InputError, Pad};
+use crate::pad::{InputError, MAX_PORTS, Pad};
 use crate::save::{SaveRamError, SaveRamLoad};
 use crate::state::State;
 
 /// Set by the first [`Host::open`] of the process and never cleared.
 static PROCESS_USED: AtomicBool = AtomicBool::new(false);
 
-/// The ports that get `RETRO_DEVICE_JOYPAD` after the load, as RetroArch
-/// does.
-const JOYPAD_PORTS: u32 = 2;
+/// The ports that get `RETRO_DEVICE_JOYPAD` after the load: every port
+/// the host answers for, as RetroArch does for each of its players. Some
+/// cores read a port only after the frontend has set its device.
+const JOYPAD_PORTS: u32 = MAX_PORTS as u32;
 
 /// The folders that the core asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]

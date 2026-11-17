@@ -354,6 +354,8 @@ fn load_and_drop_call_the_core_in_order() {
             "load_game",
             "port 0 device 1",
             "port 1 device 1",
+            "port 2 device 1",
+            "port 3 device 1",
             "unload_game",
             "deinit"
         ]
