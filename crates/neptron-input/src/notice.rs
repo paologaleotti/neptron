@@ -40,6 +40,15 @@ pub enum InputNotice {
         /// The error of the grab.
         reason: String,
     },
+    /// The NEPTRON mapping file, or one line of it, is not used.
+    MappingFile {
+        /// The path of the file.
+        path: String,
+        /// The line, from 1, or 0 for the whole file.
+        line: usize,
+        /// Why.
+        reason: String,
+    },
     /// The queue was full and dropped this many notices.
     Dropped {
         /// The number of notices dropped.

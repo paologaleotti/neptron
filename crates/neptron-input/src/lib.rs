@@ -14,6 +14,7 @@ mod key_map;
 #[cfg(all(feature = "evdev", target_os = "linux"))]
 mod keyboards;
 mod mapper;
+mod mapping_file;
 // Only the device backends fill a notice queue.
 #[cfg_attr(
     not(any(feature = "sdl3", all(feature = "evdev", target_os = "linux"))),
@@ -46,6 +47,9 @@ pub use key_map::{KEY_MAP, key_control, looks_like_keyboard, mapped_keys_down};
 #[cfg(all(feature = "evdev", target_os = "linux"))]
 pub use keyboards::{EvdevKeyboards, INPUT_DIR, KEYBOARD_SCAN_INTERVAL_POLLS};
 pub use mapper::{Mapper, MapperError};
+pub use mapping_file::{
+    MAPPING_FILE, MappingLineError, Mappings, parse_mappings, read_mapping_file,
+};
 pub use notice::{InputNotice, MAX_NOTICES};
 pub use pad_map::{
     AxisTarget, PAD_BUTTON_MAP, STICK_DEAD_ZONE, TRIGGER_THRESHOLD, axis_target, hat_values,
