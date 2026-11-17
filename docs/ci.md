@@ -14,9 +14,9 @@ Two workflow files do the work:
 
 | Event | Jobs |
 | --- | --- |
-| Pull request | `lint`, `test-linux`, `test-macos` and `images` start at once. A change to documents only (`docs/`, `*.md`, `LICENSE-*`) runs `lint` only; the test jobs end green in a few seconds. A change that does not touch the OS, the device crates or the image workflow skips the image builds (see "Path filters") |
-| Push to `main` | Every job in full, with no path filter. `main` saves the Cargo caches and the Buildroot downloads |
-| Nightly (02:23 UTC) | The same as a push to `main`, plus the check of the 15 kHz kernel patch set |
+| Pull request | `lint`, `test-linux` and `images` start at once. A change to documents only (`docs/`, `*.md`, `LICENSE-*`) runs `lint` only; the test job ends green in a few seconds. A change that does not touch the OS, the device crates or the image workflow skips the image builds (see "Path filters") |
+| Push to `main` | Every job except `test-macos` in full, with no path filter. `main` saves the Cargo caches and the Buildroot downloads |
+| Nightly (02:23 UTC) | The same as a push to `main`, plus `test-macos` and the check of the 15 kHz kernel patch set |
 | Manual (`Run workflow` on the Actions page, or `gh workflow run ci.yml --ref BRANCH`) | Every job in full. The input `images` turns the image builds off. A manual run saves the Cargo caches of its own branch |
 | Merge queue (`merge_group`) | Every job in full, if the owner turns the merge queue on |
 
@@ -30,7 +30,7 @@ A new push to a pull request cancels the older run of that pull request. Runs of
 | --- | --- | --- |
 | `lint (T0)` | `ubuntu-24.04` | `cargo xtask verify --tier 0`: fmt, the dependency rules, the `unsafe` allow-list, `cargo deny`, clippy with warnings denied |
 | `test-linux (T0 to T2)` | `ubuntu-24.04` | `cargo xtask verify --tier 2` |
-| `test-macos (T0 to T2)` | `macos-15` (Apple Silicon) | `cargo xtask verify --tier 2` |
+| `test-macos (T0 to T2)` | `macos-15` (Apple Silicon) | `cargo xtask verify --tier 2`, in the nightly run and in a manual run only |
 | `images / plan` | `ubuntu-24.04` | Reads `.github/image-targets.json` and the path filter, and gives the matrix |
 | `images / image x86_64` | `ubuntu-24.04` | The PC image without the 15 kHz patch set, then the tier 3 checks under KVM |
 | `images / image aarch64` | `ubuntu-24.04-arm` | The aarch64 QEMU test image, then the tier 3 checks that do not measure time |
@@ -55,7 +55,7 @@ The tier 2 job is the same command as on a laptop, so a green local run predicts
 
 They apply to pull requests only.
 
-- `test-linux` and `test-macos` run unless every changed file is under `docs/`, a `*.md` file or a `LICENSE-*` file.
+- `test-linux` runs unless every changed file is under `docs/`, a `*.md` file or a `LICENSE-*` file.
 - The image builds run when a pull request changes `os/`, `Dockerfile`, the OS commands of `xtask` (`xtask/src/os.rs`, `xtask/src/os/`), the image workflow or its target file, the launcher (`apps/neptron-launch`) or a device crate (`neptron-kms`, `neptron-gfx`, `neptron-input`, `neptron-audio`, `neptron-libretro`, `neptron-libretro-sys`).
 
 A change to the frontend alone does not build an image in a pull request, as the plan asks: an image build takes much longer than the other checks, and the frontend runs in tier 2 on the fakes. `main` and the nightly run build the image with it.

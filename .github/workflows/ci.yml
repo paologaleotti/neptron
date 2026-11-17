@@ -99,14 +99,14 @@ jobs:
       pull-requests: read
     strategy:
       fail-fast: false
+      # Linux is the target and runs for every event. macOS is the host of
+      # development only, and its runners queue for a long time: it runs in
+      # the nightly run and in a manual run.
       matrix:
-        include:
-          - host: linux
-            runner: ubuntu-24.04
-            jobs: "4"
-          - host: macos
-            runner: macos-15
-            jobs: "3"
+        include: >-
+          ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+          && '[{"host":"linux","runner":"ubuntu-24.04","jobs":"4"},{"host":"macos","runner":"macos-15","jobs":"3"}]'
+          || '[{"host":"linux","runner":"ubuntu-24.04","jobs":"4"}]') }}
     env:
       NEPTRON_BUILD_JOBS: ${{ matrix.jobs }}
     steps:
