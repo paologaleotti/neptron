@@ -135,8 +135,7 @@ The button always shows the panel. The UI opens it in its next frame, by this ru
 
 1. The Input panel is on show: only its focus moves.
 2. A Settings page is open: the screens above it close, as by back, and the Input panel opens from it. There is never a second Settings page.
-3. Else, when the stack has no room for the Settings page and the panel, the screens above the quick menu, or above the home screen, close first.
-4. Else the Settings page and the Input panel open on top of the screen on show: the game list, the home screen, the quick menu or one of its pages.
+3. Else the Settings page and the Input panel open on top of the screen on show: the game list, the home screen, the quick menu or one of its pages. They always fit: with no Settings page the deepest stack is six screens (home, a game list, the game, the quick menu, its video page and an option list) of the eight of `MAX_DEPTH`.
 
 Back from the panel goes to the Settings page, and back again to the screen under it. A notice shows only when the UI is on show, so a running game with no menu never gets the panel.
 

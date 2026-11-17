@@ -23,10 +23,13 @@ The map of a pad comes from the first source that has one:
 
 1. **The map of the player**, from `config/input/pads.toml`, by the identity of the pad.
 2. The NEPTRON mapping file.
-3. The built-in database of SDL3.
-4. The generic layout.
+3. The community database (`SDL_GameControllerDB`, `/usr/share/sdl-gamecontrollerdb/gamecontrollerdb.txt`, Linux lines only).
+4. The built-in database of SDL3.
+5. The generic layout.
 
-Source 1 is `PlayerMaps` in `neptron-input`. It implements `PadMaps` and falls back to `BuiltinMaps`. It gives `PadMap::Player(PlayerMap)` for any layout, a gamepad or a plain joystick.
+Source 1 is `PlayerMaps` in `neptron-input`. It implements `PadMaps` and falls back to `BuiltinMaps`. It gives `PadMap::Player(PlayerMap)` for any layout, a gamepad or a plain joystick. Sources 2 to 4 all make SDL3 report a gamepad mapping, so they give `Known`.
+
+A pad gets only the bindings that its joystick has: `PadLayout` carries the counts of buttons, hats and axes of the joystick, a gamepad too, and `PlayerMaps` drops a binding whose index is past a count (`PlayerMap::fitted`). The source logs one `InputNotice::LayoutTrimmed` with the number dropped. So a map made on a pad of the model with more inputs never holds a control down on a smaller one: an index that the device does not have is not read.
 
 ## How a pad with a map of the player is read
 
@@ -71,12 +74,12 @@ So 20 steps. The prompt names the RetroPad control and its place: `Press Up`, `P
 ### What counts
 
 - At the start the source gives the first raw state of the pad. Its axis values are the rest values. An axis at -16384 or less rests at the low end, at 16384 or more at the high end, else at the centre. So a trigger that rests at full travel counts from its rest, and it never looks pressed.
-- A **press** is a raw input that becomes active: a button down, a hat direction, an axis that moves `MAP_AXIS_THRESHOLD` from a centre rest, or past the middle from an end rest. The direction of the axis is recorded.
+- A **press** is a raw input that becomes active: a button down, a hat direction, an axis that moves `MAP_AXIS_THRESHOLD` (16384) from a centre rest, or past the middle from an end rest. The direction of the axis is recorded. An axis press ends only past `MAP_AXIS_RELEASE` (8192 from the centre), or back in the quarter of travel next to an end rest: an axis that shakes at the threshold gives one press.
 - A button step takes a button, a hat direction or a half axis. A stick step takes only an axis that rests at the centre; the side of the move gives "inverted" (left or up for a prompt of right or down).
 - When more than one input becomes active in one frame, the first one counts, in this order: buttons, hats, axes, each by index.
 - The input counts when it is released before `MAP_SKIP_HOLD_NS` (2 s). The step then records it.
 - **Skip**: an input of the pad held for `MAP_SKIP_HOLD_NS` or more skips the step. The control then has no binding. So a pad with few buttons skips what it does not have with any button. The prompt says it: `Hold a button of this controller to skip it.`, and the hint band `Hold: skip`. The prompt names no time: the skip time is a constant of the input crate, which the UI does not know.
-- **Between steps** the pad must be neutral first: no button down, no hat direction, every axis back near its rest. So one press never fills two steps, and the press of accept that started the mapping does not count.
+- **Between steps** the pad must be neutral first: no button down, no hat direction, every axis back near its rest. So one press never fills two steps, and the press of accept that started the mapping does not count. When the pad stays held for `MAP_RELEASE_HINT_NS` (1 s) there, the screen says `Release every control.`
 - **A control pressed twice**: the input is refused. The step stays, and the screen says `Up uses it already. Try another.` A swap would change a step that the player has passed without telling. A stick step and a button step do not conflict: an axis can be the stick and the D-pad.
 - A button pressed in a stick step does not count. The screen says `Move a stick, or hold a button to skip.`
 
@@ -86,6 +89,7 @@ The player can cancel with no working button on the pad:
 
 - **Back** from any other device: a keyboard, another pad, the control API. The pad of the mapping sends no UI action while the mapping runs, so every back comes from another device.
 - **The timeout**: when the pad gives no press and no release for `MAP_IDLE_TIMEOUT_NS` (15 s), the mapping ends with no change. The screen always shows the countdown: `No input: cancel in 12 s.` Each press or release of the pad starts it again. The noise of an analog axis inside its threshold is no press, so it never keeps the mapping open.
+- **The total time**: a mapping ends with no change after `MAP_TOTAL_TIMEOUT_NS` (300 s), also while the pad gives input. The countdown shows the nearer of the two times, so it shows the end of the total time near it.
 - **The pad goes away**: the mapping ends with no change and a notice.
 
 ### The end: keep or cancel
@@ -155,7 +159,9 @@ left_y = "-a1"
 - A control key holds its binding. A control with no key has no binding (it was skipped).
 - The control keys: `b`, `y`, `select`, `start`, `up`, `down`, `left`, `right`, `a`, `x`, `l`, `r`, `l2`, `r2`, `l3`, `r3`, `left_x`, `left_y`, `right_x`, `right_y`.
 - The binding texts: `b3` (button 3), `h0up`, `h0right`, `h0down`, `h0left` (hat 0), `a2+` and `a2-` (a half of axis 2 from the centre), `a4+full` and `a4-full` (axis 4 from its end), `a0` and `-a0` (a stick axis, normal or inverted). A stick text is valid only for an axis control, and the other texts only for a button control.
-- **Append-only.** A key is never renamed or removed. A new key is added, and an older build ignores it. An entry with a damaged binding loses that binding only, with a log line. An entry with no valid identity is skipped. A file that does not parse reads as no map, with a notice, and the app refuses to write it, so the file of the player is never lost.
+- **Append-only.** A key is never renamed or removed. A new key is added, and an older build ignores it. An entry with a damaged binding loses that binding only, with a log line. An entry with no valid identity is skipped. A file that does not parse, or whose `pad` key is not a list, reads as no map, with a notice, and the app refuses to write it, so the file of the player is never lost. While the file cannot be written, `Map buttons` and `Reset to default` are disabled with the reason `File cannot be written`, and `Set up this controller` opens the Input panel.
+- An identity is compared as a value: an entry written by hand in capitals is the same identity. `Keep` replaces the first entry of the identity and drops the others; `Reset to default` removes them all.
+- The text of the file is made before anything changes. When it cannot be made, the layout is not kept, nothing is written, and the player gets a notice.
 - **Room for per-game and per-system maps.** A later build adds the keys `system` and `game` to a `[[pad]]` table. This build skips an entry with either key, so it never applies a per-game map to every game.
 - A write starts from the file as the app read it at the start of the run. It replaces or removes only the `[[pad]]` table of the one identity with no `system` and no `game` key, and keeps every other table and every unknown key as they are. In the table that it replaces, it keeps the unknown keys too. So a newer key survives a write of an older build. Comments are not kept.
 
@@ -197,7 +203,7 @@ In the game list, the button `Set up this controller` of the notice of a generic
 
 ## The notices of a pad with a map of the player
 
-A pad with a map of the player gets no notice of the generic layout: its map is the choice of the player. The silent pad notice and the other notices do not change.
+A pad with a map of the player gets no notice of the generic layout: its map is the choice of the player. A pad in a guided mapping counts as heard (`Mapper::mark_heard`), so it never gets the notice of a pad that sends no input. The other notices do not change.
 
 ## The minimum of a map and the quick menu
 
@@ -225,6 +231,11 @@ Added to `docs/hardware-checklist.md`, section "Input remapping (M05)", labelled
 | The times | 2 s to skip, 15 s with no input, 15 s for the trial | `guided.rs`, app | The constants |
 | A map per game or per system | Not built; such an entry is skipped and kept | `config/input/pads.toml` | Add the keys `system` and `game` and a source per level |
 | The map is a schema key | No: a file of its own in the settings folder | `apps/neptron`, `pad_maps.rs` | None needed |
+
+## Known limits
+
+- Two pads of one model whose paths are both empty (SDL3 gives no path) have one key. The capture, the page and the button of a notice then take the first of them.
+- The UI crawler reaches the prompt of the guided mapping and leaves it with back; it does not reach the review dialog. The tier 2 tests of `remapping.rs` cover the review.
 
 ## Not built
 
