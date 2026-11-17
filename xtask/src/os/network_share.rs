@@ -1847,9 +1847,22 @@ fn the_network_script_runs_the_address_script() {
     dhcp_fakes(&dir);
     dir.logging_fakes(&["net-address"]);
     std::fs::create_dir_all(dir.path("sys/eth0")).unwrap();
+    // The client runs in the background and logs after the script returns.
+    // It writes to a FIFO after its log line, so the test can wait for it
+    // before it empties the log.
+    let started = dir.path("started-eth0");
+    mkfifo(&started);
+    dir.fake(
+        "udhcpc",
+        &format!(
+            "echo \"udhcpc $*\" >> \"$LOG\"\necho done > \"{}\"",
+            started.display()
+        ),
+    );
     let (ok, out) = dir.run(NETWORK_SCRIPT, "start");
     assert!(ok, "{out}");
     assert!(dir.log().contains("net-address start\n"), "{}", dir.log());
+    read_fifo(&started);
 
     std::fs::write(dir.path("log"), "").unwrap();
     let (ok, out) = dir.run_args(NETWORK_SCRIPT, &["port-gone", "eth0"]);
