@@ -510,6 +510,35 @@ Use a USB pad that SDL3 has no mapping for: a cheap "USB Joystick" or "Generic U
   - Expect: the image with the community file takes less than 50 ms more.
   - Record: both times.
 
+### Input remapping (M05)
+
+`docs/spec/input-remapping.md` has the flow. Use a 240-line CRT picture (the 15 kHz safe start) for every check, so the texts of the mapping screen show at their real size. Use one pad that SDL3 has no mapping for and one known pad (an Xbox or 8BitDo pad). Keep a USB keyboard plugged.
+
+- [ ] `needs-hardware` **An unknown pad mapped on the PC.**
+  - Do: on the x86_64 image, plug the unknown pad in the game list. Choose `Set up this controller` in its notice. Answer each prompt on the pad; hold a button for 2 s on a control the pad lacks. Choose `Keep` with the D-pad and A of the new map.
+  - Expect: the mapping screen names the pad and each control, and every text is whole and sharp at 240 lines. A press moves to the next step at its release; a hold skips. After `Keep` the pad drives the menus with its new map at once, and `Settings > Input` shows `<name> (your layout)`. In a game every mapped button drives its control.
+  - Record: the pad, its counts (the `input:` lines of the log), and the content of `/state/config/input/pads.toml`.
+- [ ] `needs-hardware` **An unknown pad mapped on the Pi.**
+  - Do: the same on the Raspberry Pi image, on its composite or 15 kHz output.
+  - Expect: the same result as on the PC.
+  - Record: the same as on the PC.
+- [ ] `needs-hardware` **A known pad remapped.**
+  - Do: open `Settings > Input`, the row of the known pad, `Map buttons`. Swap A and B in the answers, and keep.
+  - Expect: the page shows `Yours`, and A and B are swapped in the menus and in a game. The gamepad is read by the raw indices of its joystick: every other button stays where its answer put it. `Reset to default` brings the standard layout back at once.
+  - Record: the pad, and the binding of each control on its page before and after.
+- [ ] `needs-hardware` **A trigger that rests at full travel.**
+  - Do: map a pad whose triggers report their rest at one end of an axis. Press each trigger at its prompt.
+  - Expect: L2 and R2 read `Axis N + (from its end)` on the page, a released trigger is never down, and no prompt moves on by itself.
+  - Record: the pad and the axes of its triggers.
+- [ ] `needs-hardware` **Cancel with no working button.**
+  - Do: start `Map buttons`, then press Esc on the keyboard (back). Start it again and touch nothing for 15 s. Start it again, answer every prompt, and do not answer the review.
+  - Expect: each time the old layout comes back and nothing is written. The countdown of the prompt and of the review counts down each second.
+  - Record: what the screen showed at each end.
+- [ ] `needs-hardware` **The layout after a reboot.**
+  - Do: keep a layout, reboot the machine, and plug the pad into another USB port.
+  - Expect: the pad has its layout at once, with no notice of the generic layout. Two pads of the model both have it.
+  - Record: the pad and the ports.
+
 ### App and launcher (T27)
 
 - [ ] `needs-hardware` **The KMS frontend on the image.**

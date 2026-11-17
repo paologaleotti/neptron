@@ -358,8 +358,8 @@ pub enum MappingStage {
         step: u32,
         /// The number of steps.
         steps: u32,
-        /// What happened at the last input, for example `That is Up
-        /// already. Press another one.`; empty for nothing.
+        /// What happened at the last input, for example `Up uses it
+        /// already. Try another.`; empty for nothing.
         note: String,
     },
     /// The end: keep or cancel the new map.

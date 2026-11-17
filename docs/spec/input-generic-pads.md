@@ -16,7 +16,7 @@ This spec settles task M04b. It decides where the map of a pad comes from, how a
 
 A **map** is what turns the raw input of one pad into RetroPad controls. Its kind is **known** (the standard layout of SDL3, from a gamepad mapping) or **generic** (the layout by position below). The map of a pad comes from the first source that has one, in this order:
 
-1. **The map of the player**, from the settings, keyed by the identity of the controller (`DeviceIdentity`, the hash of the SDL GUID). Task M05 adds it. This task has the hook only.
+1. **The map of the player**, from the settings, keyed by the identity of the controller (`DeviceIdentity`, the hash of the SDL GUID). Task M05 adds it (`docs/spec/input-remapping.md`): `PlayerMaps`, the file `config/input/pads.toml`, and `PadMap::Player`, which reads raw joystick indices for a gamepad too.
 2. **The NEPTRON mapping file**, `data/input/gamecontrollerdb.txt` in the repository, `/usr/share/neptron/input/gamecontrollerdb.txt` in the image. Its lines go to SDL3 when the source opens, so they replace a built-in line for the same GUID.
 3. **The community database**, `SDL_GameControllerDB`, `/usr/share/sdl-gamecontrollerdb/gamecontrollerdb.txt` in the image (section below).
 4. **The built-in database of SDL3.**
@@ -129,7 +129,7 @@ The source gives each notice once, when it happens. The app takes them in the fr
 
 ### Set up this controller
 
-In this task the button opens `Settings > Input` with the focus on the row of that pad: the app finds the port of the pad by its identity and path in the roster, and asks the UI to open the Input panel with the focus on the row of that port (`Screens::open_panel`). When the pad has no port any more, the panel opens on its first row. M05 makes the button start the guided mapping of that pad.
+In the game list the button starts the guided mapping of that pad (M05, `docs/spec/input-remapping.md`). In a game, or when the pad has no port any more, the button opens `Settings > Input` with the focus on the row of that pad: the app finds the port of the pad by its identity and path in the roster, and asks the UI to open the Input panel with the focus on the row of that port (`Screens::open_panel`). When the pad has no port, the panel opens on its first row.
 
 The button always shows the panel. The UI opens it in its next frame, by this rule:
 
@@ -153,7 +153,7 @@ A pad that the kernel enumerates can send only neutral reports: a PS3 arcade sti
 
 ## The Input panel
 
-A player row and an extra pad row of a pad with the generic layout show ` (generic layout)` after the name: `USB Joystick (generic layout)`. A known pad shows its name alone. The row keeps the fit of 44 characters: `Player 1`, a space, and 35 characters, so the name before the suffix has at most 18. A held pad shows ` (away)` as before, with no kind.
+A player row and an extra pad row of a pad with the generic layout show ` (generic layout)` after the name: `USB Joystick (generic layout)`. A known pad shows its name alone, and a pad with a map of the player ` (your layout)`. A present pad opens the page of its controller (M05), so its row has the arrow and keeps a fit of 43 characters: `Player 1`, a space, and 34 characters, so the name before ` (generic layout)` has at most 17. A held pad shows ` (away)` as before, with no kind, and the fit of 44 characters.
 
 ## What M05 takes over
 
@@ -191,7 +191,7 @@ Added to `docs/hardware-checklist.md`, section "Input (M04b)", labelled `needs-h
 
 ## Not built
 
-- The guided mapping and the stored maps (M05). The picker of the pad of each player (M05b).
+- The picker of the pad of each player (M05b). The guided mapping and the stored maps are in M05.
 - Pressure-sensitive buttons, Bluetooth, rumble.
 - The kernel option `usbhid.jspoll=1` (an `os/` change of its own).
 - A start request or a driver for PS3-type pads.

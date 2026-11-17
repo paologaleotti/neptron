@@ -75,9 +75,9 @@ So 20 steps. The prompt names the RetroPad control and its place: `Press Up`, `P
 - A button step takes a button, a hat direction or a half axis. A stick step takes only an axis that rests at the centre; the side of the move gives "inverted" (left or up for a prompt of right or down).
 - When more than one input becomes active in one frame, the first one counts, in this order: buttons, hats, axes, each by index.
 - The input counts when it is released before `MAP_SKIP_HOLD_NS` (2 s). The step then records it.
-- **Skip**: an input of the pad held for `MAP_SKIP_HOLD_NS` or more skips the step. The control then has no binding. So a pad with few buttons skips what it does not have with any button. The prompt says it: `Hold any button for 2 s to skip.`
+- **Skip**: an input of the pad held for `MAP_SKIP_HOLD_NS` or more skips the step. The control then has no binding. So a pad with few buttons skips what it does not have with any button. The prompt says it: `Hold a button of this controller to skip it.`, and the hint band `Hold: skip`. The prompt names no time: the skip time is a constant of the input crate, which the UI does not know.
 - **Between steps** the pad must be neutral first: no button down, no hat direction, every axis back near its rest. So one press never fills two steps, and the press of accept that started the mapping does not count.
-- **A control pressed twice**: the input is refused. The step stays, and the screen says `That is Up already. Press another one.` A swap would change a step that the player has passed without telling. A stick step and a button step do not conflict: an axis can be the stick and the D-pad.
+- **A control pressed twice**: the input is refused. The step stays, and the screen says `Up uses it already. Try another.` A swap would change a step that the player has passed without telling. A stick step and a button step do not conflict: an axis can be the stick and the D-pad.
 - A button pressed in a stick step does not count. The screen says `Move a stick, or hold a button to skip.`
 
 ### Cancel
@@ -85,7 +85,7 @@ So 20 steps. The prompt names the RetroPad control and its place: `Press Up`, `P
 The player can cancel with no working button on the pad:
 
 - **Back** from any other device: a keyboard, another pad, the control API. The pad of the mapping sends no UI action while the mapping runs, so every back comes from another device.
-- **The timeout**: when the pad gives no change of its raw state for `MAP_IDLE_TIMEOUT_NS` (15 s), the mapping ends with no change. The screen always shows the countdown: `No input: cancel in 12 s`. Any change of the raw state of the pad starts it again, a skip hold too.
+- **The timeout**: when the pad gives no press and no release for `MAP_IDLE_TIMEOUT_NS` (15 s), the mapping ends with no change. The screen always shows the countdown: `No input: cancel in 12 s.` Each press or release of the pad starts it again. The noise of an analog axis inside its threshold is no press, so it never keeps the mapping open.
 - **The pad goes away**: the mapping ends with no change and a notice.
 
 ### The end: keep or cancel
@@ -93,13 +93,14 @@ The player can cancel with no working button on the pad:
 After the last step the guided mapping gives the map. The app checks it:
 
 - **The minimum**: the four directions, A (accept) and B (back). A map without one of them cannot drive the menus. The screen names what is missing and shows `Cancel` only: `This layout has no Left and no B. A controller needs the four directions, A and B.`
-- **Start and Select**: a map without both is kept with a warning: `Start and Select are not both set, so they cannot open the quick menu. Use the keyboard or another controller.`
+- **Start and Select**: a map without both can be kept, and the review says it: `Without Start and Select it cannot open the quick menu.` The keyboard or another pad opens the quick menu (the hotkeys fire on any port).
+- The review says how many controls are set, and names the skipped ones (more than 6 are counted, not named): `18 of 20 controls are set. Skipped: Right stick X, Right stick Y.`
 
 A map with the minimum goes to a trial, as a change of picture does:
 
 - The app gives the new map to the pad at once. The player tests it on the dialog.
 - The dialog has `Cancel` (the focus) and `Keep`. Only right, then accept, keeps. So the trial checks the D-pad and accept of the new map.
-- Back, accept on `Cancel`, or `MAP_REVIEW_TIMEOUT_NS` (15 s) with no answer, gives the old map back. The dialog shows the time left.
+- Back, accept on `Cancel`, or `MAP_REVIEW_TIMEOUT_NS` (15 s) with no answer, gives the old map back. The dialog shows the time left. A review that cannot keep shows `Cancel` alone and closes at the same timeout.
 - `Keep` stores the map.
 
 ### The screen
@@ -107,17 +108,19 @@ A map with the minimum goes to a trial, as a change of picture does:
 The mapping shows in a box over the screen, like the confirm dialog, at 320x240. Every text fits a line of the box, or wraps in it.
 
 ```
-+ Map buttons -------------------------------+
+Map buttons                        Step 3 of 20
++--------------------------------------------+
 | USB Joystick                               |
 |                                            |
-|              Press Up                      |
+|##############  Press Left  ################|
 |                                            |
-| Step 1 of 20  [====                     ]  |
-| That is Up already. Press another one.     |
-| Hold any button for 2 s to skip.           |
-| No input: cancel in 12 s                   |
+| [=====                                   ] |
+| Up uses it already. Try another.           |
+| Hold a button of this controller to skip it.|
+| Back on a keyboard or another pad: cancel. |
+| No input: cancel in 12 s.                  |
 +--------------------------------------------+
-  Back: cancel                Hold: skip
+Back: cancel                         Hold: skip
 ```
 
 - The UI draws what the snapshot gives (`Snapshot::pad_mapping`): the name of the pad, the prompt, the step and the number of steps, the note, the time left, and whether it is the trial. It decides nothing about the content.
@@ -161,11 +164,12 @@ left_y = "-a1"
 - The app reads the file once, at the start of each run, before the first poll of the input source, and gives the maps to the source (`PadRoster::set_player_maps`). So the maps hold in the game list and in every game.
 - `Keep` adds or replaces the map of that identity, gives the maps to the source, and queues the write. `Reset to default` removes it, gives the maps to the source, and queues the write.
 - The source gives each open pad of that identity its new map at the next poll: the mapper releases every control the pad holds, and the next poll reads it with the new map. So a change takes effect at once, in the menus, and the next game (a new run) reads the file.
+- The trait `PadRoster` of `neptron-input` carries it: `set_player_maps(maps)`, `capture(Some(key))` and `capture(None)`, `captured()` (`Capture::Waiting`, `Capture::Pad(RawState)` or `Capture::Gone`), and `pad_map(key)`, the map that the source reads a pad with, for the page. A source with no pad ignores them.
 - Two pads of one model share the map.
 
 ## The Input panel and the page of a controller
 
-- A player row and an extra pad row of a present pad open the page of that pad. The row keeps its text (`USB Joystick (generic layout)`) and gets the arrow of a row that opens a page. The UI gets a new row value for it, `SettingValue::Link { page, text }`: an information text and a page. A row with no pad, or of an away pad, stays an information row.
+- A player row and an extra pad row of a present pad open the page of that pad. The row keeps its text (`USB Joystick (generic layout)`) and gets the arrow of a row that opens a page. The UI gets a new row value for it, `SettingValue::Link { page, text }`: an information text and a page. A row with no pad, or of an away pad, stays an information row. The arrow takes the room of one character, so the text of such a row is cut to 43 characters with its label (`LINK_ROW_MAX_CHARS`).
 - The suffix of a row: none for a known pad, ` (generic layout)` for the generic layout, ` (your layout)` for a map of the player.
 - The page of a controller is a page of the app, one page id per port (`pad_page(port)`). Its title is the label of the row (`Player 1`). Its rows:
 
