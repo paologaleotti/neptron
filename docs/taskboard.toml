@@ -613,7 +613,7 @@ name = "Use every USB gamepad, also when SDL3 has no mapping for it (spec first)
 owns = ["crates/neptron-input", "os/board/common", "os/package/neptron", "docs/spec", "docs/hardware-checklist.md"]
 needs = ["M04"]
 gate = "T1; the cause confirmed on the PC with the stick; a hardware check on the PC and the Pi"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "M05"
