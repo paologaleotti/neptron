@@ -18,8 +18,8 @@ use crate::notice::{InputNotice, NoticeQueue};
 use crate::pad_maps::{PadLayout, PadMap, PadMaps, PlayerMaps};
 use crate::port_table::PadId;
 use crate::raw::{HatState, PadAxis, PadButton, RawInput};
-use crate::raw_state::RawReads;
-use crate::roster::{PadInfo, PadRoster, PortRule, Roster};
+use crate::raw_state::{RawReads, RawState};
+use crate::roster::{Capture, PadInfo, PadKey, PadRoster, PortRule, Roster};
 use crate::scan::{Found, connect_found, list_failed};
 use crate::silent::PadActivity;
 
@@ -43,7 +43,7 @@ pub const SCAN_INTERVAL_POLLS: u32 = 30;
 /// is ignored, with a notice, when it is not a gamepad. A map of the
 /// player comes first, and reads the raw indices of the joystick of the
 /// pad, a gamepad too. The source keeps the joystick of every pad open,
-/// so a gamepad can be read by raw index. A pad that finds
+/// so the guided mapping can read any pad by raw index. A pad that finds
 /// every port in use is ignored until it reconnects. The ports follow the
 /// rule of the run (see [`Mapper`]); each scan connects the pads it found
 /// together, and the first one settles the ports.
@@ -58,6 +58,11 @@ pub struct SdlGamepads {
     maps: PlayerMaps,
     /// Set by new maps: the next poll gives each open pad its map again.
     remap: bool,
+    /// A capture asked for since the last poll: a pad, or the end.
+    capture: Option<Option<PadKey>>,
+    /// The pad of the capture.
+    capturing: Option<PadId>,
+    captured: Capture,
     polls_to_scan: u32,
     // The frontend reads the notices through a shared reference
     // (`PadRoster`), while a game session owns the source.
@@ -119,6 +124,9 @@ impl SdlGamepads {
             mapper: Mapper::with_rule(rule, earlier),
             maps: PlayerMaps::new(),
             remap: false,
+            capture: None,
+            capturing: None,
+            captured: Capture::Waiting,
             polls_to_scan: 0,
             notices: RefCell::new(notices),
             gamepads,
@@ -139,6 +147,10 @@ impl SdlGamepads {
                 continue;
             }
             let gone = self.open.remove(i);
+            if self.capturing == Some(gone.id) {
+                self.capturing = None;
+                self.captured = Capture::Gone;
+            }
             let device = self.mapper.device_of(gone.id);
             let notice = match (device, self.mapper.disconnect_gamepad(gone.id, out)) {
                 (Some(device), Ok(())) => Some(InputNotice::Disconnected { device }),
@@ -232,6 +244,24 @@ impl SdlGamepads {
         }
     }
 
+    /// Starts or ends the capture of a pad for the guided mapping.
+    fn start_capture(&mut self, want: Option<PadKey>, out: &mut Vec<InputEvent>) {
+        self.capturing = None;
+        self.captured = Capture::Waiting;
+        let Some(key) = want else {
+            return;
+        };
+        match self.open.iter().find(|pad| pad.info.key() == key) {
+            Some(pad) => {
+                if let Err(e) = self.mapper.release(pad.id, out) {
+                    self.notices.get_mut().push(lost_track(&e));
+                }
+                self.capturing = Some(pad.id);
+            }
+            None => self.captured = Capture::Gone,
+        }
+    }
+
     /// Opens the joystick `id` as a gamepad when SDL3 has a mapping for
     /// it, else as a plain joystick, and reads what the port rules need of
     /// it. A joystick that cannot be opened is ignored with a notice.
@@ -312,6 +342,10 @@ impl SdlGamepads {
 
     fn read(&mut self, out: &mut Vec<InputEvent>) {
         for pad in &self.open {
+            if self.capturing == Some(pad.id) {
+                self.captured = Capture::Pad(raw_state(pad.device.joystick()));
+                continue;
+            }
             let mut apply = |input| self.mapper.apply_gamepad(pad.id, input, out);
             let result = match &pad.device {
                 Device::Gamepad(gamepad, _) => read_gamepad(gamepad, &mut apply),
@@ -335,6 +369,9 @@ impl InputSource for SdlGamepads {
         self.polls_to_scan -= 1;
         if std::mem::take(&mut self.remap) {
             self.remap(out);
+        }
+        if let Some(want) = self.capture.take() {
+            self.start_capture(want, out);
         }
         self.read(out);
     }
@@ -360,6 +397,14 @@ impl PadRoster for SdlGamepads {
     fn set_player_maps(&mut self, maps: &PlayerMaps) {
         self.maps = maps.clone();
         self.remap = true;
+    }
+
+    fn capture(&mut self, pad: Option<PadKey>) {
+        self.capture = Some(pad);
+    }
+
+    fn captured(&self) -> Capture {
+        self.captured
     }
 }
 
@@ -492,6 +537,24 @@ fn read_joystick(
         apply(RawInput::JoyAxis { index, value })?;
     }
     Ok(())
+}
+
+/// The whole raw state of a joystick, every index that SDL3 counts, cut
+/// to the limits of a raw state.
+fn raw_state(joystick: &Joystick) -> RawState {
+    let counts = RawReads::clamped(
+        joystick.num_buttons(),
+        joystick.num_hats(),
+        joystick.num_axes(),
+    );
+    let mut state = RawState::new(counts);
+    let mut apply = |input| {
+        state.apply(input);
+        Ok(())
+    };
+    // `apply` never fails.
+    let _ = read_joystick(joystick, counts, &mut apply);
+    state
 }
 
 /// Adds each good line of the mapping file at `path` to SDL3, with a

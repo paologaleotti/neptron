@@ -14,8 +14,8 @@ use crate::pad_map::PAD_BUTTON_MAP;
 use crate::pad_maps::{PadLayout, PadMap, PadMaps, PlayerMaps};
 use crate::port_table::PadId;
 use crate::raw::{HatState, PadButton, RawInput};
-use crate::raw_state::{MAX_RAW_AXES, RawReads};
-use crate::roster::{PadInfo, PadRoster, PortRule, Roster};
+use crate::raw_state::{MAX_RAW_AXES, RawReads, RawState};
+use crate::roster::{Capture, PadInfo, PadKey, PadRoster, PortRule, Roster};
 use crate::scan::{Found, connect_found};
 use crate::silent::PadActivity;
 
@@ -61,6 +61,9 @@ impl ScriptedPads {
                 notices: NoticeQueue::default(),
                 maps: PlayerMaps::new(),
                 remap: false,
+                capture: None,
+                capturing: None,
+                captured: Capture::Waiting,
             })),
         }
     }
@@ -167,6 +170,9 @@ impl InputSource for ScriptedPads {
         if std::mem::take(&mut state.remap) {
             state.remap(out);
         }
+        if let Some(want) = state.capture.take() {
+            state.start_capture(want, out);
+        }
         state.feed(out);
     }
 }
@@ -193,6 +199,14 @@ impl PadRoster for ScriptedPads {
         state.maps = maps.clone();
         state.remap = true;
     }
+
+    fn capture(&mut self, pad: Option<PadKey>) {
+        self.lock().capture = Some(pad);
+    }
+
+    fn captured(&self) -> Capture {
+        self.lock().captured
+    }
 }
 
 #[derive(Debug)]
@@ -203,6 +217,11 @@ struct State {
     maps: PlayerMaps,
     /// Set by new maps: the next poll gives each open pad its map again.
     remap: bool,
+    /// A capture asked for since the last poll: a pad, or the end.
+    capture: Option<Option<PadKey>>,
+    /// The pad of the capture, by its index in `pads`.
+    capturing: Option<usize>,
+    captured: Capture,
 }
 
 #[derive(Debug)]
@@ -231,9 +250,11 @@ impl State {
             mapper,
             pads,
             notices,
+            capturing,
+            captured,
             ..
         } = self;
-        for fake in pads.iter_mut() {
+        for (i, fake) in pads.iter_mut().enumerate() {
             if fake.plugged && !fake.cycle {
                 continue;
             }
@@ -242,6 +263,10 @@ impl State {
                 if let (Some(device), Ok(())) = (device, mapper.disconnect_gamepad(id, out)) {
                     notices.push(InputNotice::Disconnected { device });
                 }
+            }
+            if *capturing == Some(i) {
+                *capturing = None;
+                *captured = Capture::Gone;
             }
             fake.link = Link::Waiting;
             fake.cycle = false;
@@ -313,11 +338,39 @@ impl State {
         }
     }
 
+    fn start_capture(&mut self, want: Option<PadKey>, out: &mut Vec<InputEvent>) {
+        self.capturing = None;
+        self.captured = Capture::Waiting;
+        let Some(key) = want else {
+            return;
+        };
+        let found = self
+            .pads
+            .iter()
+            .enumerate()
+            .find_map(|(i, fake)| match fake.link {
+                Link::Open(id, _) if fake.info.key() == key => Some((i, id)),
+                _ => None,
+            });
+        match found {
+            Some((i, id)) => {
+                // The pad is open, so the mapper has it.
+                let _ = self.mapper.release(id, out);
+                self.capturing = Some(i);
+            }
+            None => self.captured = Capture::Gone,
+        }
+    }
+
     fn feed(&mut self, out: &mut Vec<InputEvent>) {
-        for fake in &self.pads {
+        for (i, fake) in self.pads.iter().enumerate() {
             let Link::Open(id, map) = fake.link else {
                 continue;
             };
+            if self.capturing == Some(i) {
+                self.captured = Capture::Pad(fake.raw_state());
+                continue;
+            }
             let mapper = &mut self.mapper;
             fake.feed(&map, &mut |input| {
                 // The pad is open, so the mapper has it.
@@ -368,6 +421,33 @@ impl Fake {
                 value: value.copied().unwrap_or_default(),
             });
         }
+    }
+
+    /// The raw indices that the pad has: the buttons of `PAD_BUTTON_MAP`
+    /// for a gamepad, its counts for a joystick, cut to what a scripted
+    /// pad holds.
+    fn counts(&self) -> RawReads {
+        match self.layout {
+            PadLayout::Gamepad => {
+                RawReads::clamped(u32::try_from(PAD_BUTTON_MAP.len()).unwrap_or(0), 0, 0)
+            }
+            PadLayout::Joystick(counts) => {
+                let joy = RawReads::clamped(counts.buttons, counts.hats, counts.axes);
+                RawReads {
+                    buttons: joy
+                        .buttons
+                        .min(u8::try_from(JOY_BUTTONS).unwrap_or(u8::MAX)),
+                    hats: joy.hats.min(1),
+                    axes: joy.axes,
+                }
+            }
+        }
+    }
+
+    fn raw_state(&self) -> RawState {
+        let mut state = RawState::new(self.counts());
+        self.feed_raw(self.counts(), &mut |input| state.apply(input));
+        state
     }
 }
 

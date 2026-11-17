@@ -1,9 +1,10 @@
-//! The map of the player: the mapper reads raw indices with it, and a new
-//! map takes effect at once.
+//! The map of the player: the mapper reads raw indices with it, a new map
+//! takes effect at once, and a source captures a pad for the guided
+//! mapping.
 
 use neptron_backend::InputSource;
 use neptron_input::{
-    Binding, DeviceIdentity, GAMEPAD_DEVICE_BASE, HatDirection, HatState, InputNotice,
+    Binding, Capture, DeviceIdentity, GAMEPAD_DEVICE_BASE, HatDirection, HatState, InputNotice,
     JoystickCounts, MapKind, Mapper, PadButton, PadInfo, PadMap, PadRoster, PlayerMap, PlayerMaps,
     PortRule, RawInput, Roster, ScriptedPads,
 };
@@ -241,4 +242,70 @@ fn two_pads_of_one_model_share_the_map() {
             (PAD0 + 2, Control::A, 1)
         ]
     );
+}
+
+#[test]
+fn a_captured_pad_sends_no_event_and_gives_its_raw_state() {
+    let mut pads = ScriptedPads::new(PortRule::Menus, &Roster::new());
+    let test = pads.clone();
+    let stick = test.plug_joystick(pad(5, 1), counts(12, 1, 6));
+    let other = test.plug(pad(6, 1));
+    assert_eq!(pads.captured(), Capture::Waiting);
+    test.set_joy_button(stick, 1, true);
+    assert_eq!(poll(&mut pads), [(PAD0, Control::B, 1)]);
+
+    pads.capture(Some(pad(5, 1).key()));
+    assert_eq!(pads.captured(), Capture::Waiting, "until the next poll");
+    test.set(other, PadButton::South, true);
+    assert_eq!(
+        poll(&mut pads),
+        [(PAD0, Control::B, 0), (PAD0 + 1, Control::B, 1)],
+        "the captured pad goes up; another pad still plays"
+    );
+    test.set_joy_axis(stick, 5, -32_768);
+    test.set_joy_hat(stick, HatState(HatState::LEFT));
+    assert!(poll(&mut pads).is_empty());
+    let Capture::Pad(state) = pads.captured() else {
+        panic!("{:?}", pads.captured());
+    };
+    assert_eq!(state.counts().buttons, 12);
+    assert_eq!(
+        state.counts().axes,
+        6,
+        "every axis, not only the generic ones"
+    );
+    assert!(state.button(1));
+    assert_eq!(state.hat(0), HatState(HatState::LEFT));
+    assert_eq!(state.axis(5), -32_768);
+
+    pads.capture(None);
+    let events = poll(&mut pads);
+    assert!(events.contains(&(PAD0, Control::B, 1)), "{events:?}");
+    assert_eq!(pads.captured(), Capture::Waiting);
+
+    pads.capture(Some(pad(5, 1).key()));
+    poll(&mut pads);
+    test.unplug(stick);
+    poll(&mut pads);
+    assert_eq!(pads.captured(), Capture::Gone, "the pad went away");
+    pads.capture(Some(pad(9, 9).key()));
+    poll(&mut pads);
+    assert_eq!(pads.captured(), Capture::Gone, "no such pad");
+}
+
+#[test]
+fn a_captured_gamepad_gives_the_buttons_of_its_layout_as_raw_buttons() {
+    let mut pads = ScriptedPads::new(PortRule::Menus, &Roster::new());
+    let test = pads.clone();
+    let one = test.plug(pad(7, 1));
+    poll(&mut pads);
+    pads.capture(Some(pad(7, 1).key()));
+    test.set(one, PadButton::East, true);
+    poll(&mut pads);
+    let Capture::Pad(state) = pads.captured() else {
+        panic!("no state");
+    };
+    assert_eq!(state.counts().buttons, 14);
+    assert!(state.button(1), "East is raw button 1");
+    assert!(!state.button(0));
 }

@@ -3,6 +3,7 @@
 use crate::device::{DeviceIdentity, MAX_PORTS};
 use crate::notice::InputNotice;
 use crate::pad_maps::{MapKind, PlayerMaps};
+use crate::raw_state::RawState;
 use crate::silent::PadActivity;
 
 /// The ports that the core reads: ports 0 to 3, players 1 to 4. A pad on
@@ -56,6 +57,19 @@ pub struct PadKey {
     pub identity: DeviceIdentity,
     /// Where it is plugged ([`PadInfo::path`]).
     pub path: DeviceIdentity,
+}
+
+/// What a source reads of the pad that it captures for the guided
+/// mapping ([`PadRoster::capture`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Capture {
+    /// No capture is asked for, or the source has not polled since the
+    /// request.
+    Waiting,
+    /// The whole raw state of the pad at the last poll.
+    Pad(RawState),
+    /// The pad of the capture is not connected.
+    Gone,
 }
 
 /// The rule of the ports for one run of the frontend.
@@ -115,6 +129,18 @@ pub trait PadRoster {
     /// whose map changes gets the new one, with the release of every
     /// control it holds. A source with no pad ignores it.
     fn set_player_maps(&mut self, _maps: &PlayerMaps) {}
+
+    /// Captures the pad `pad` for the guided mapping, or ends the capture
+    /// with `None`. From the next poll the source releases the controls of
+    /// that pad, sends no event for it, and gives its whole raw state
+    /// through [`PadRoster::captured`]. A source with no pad ignores it.
+    fn capture(&mut self, _pad: Option<PadKey>) {}
+
+    /// The pad of the capture. It allocates nothing. A source with no pad
+    /// gives [`Capture::Gone`].
+    fn captured(&self) -> Capture {
+        Capture::Gone
+    }
 }
 
 impl Roster {

@@ -14,6 +14,7 @@ mod device;
 #[allow(unsafe_code)]
 mod ffi;
 mod generic_layout;
+mod guided;
 mod hotkeys;
 mod key_map;
 #[cfg(all(feature = "evdev", target_os = "linux"))]
@@ -43,6 +44,9 @@ pub use generic_layout::{
     AxisRole, GENERIC_AXES, GENERIC_BUTTON_ORDER, GENERIC_DPAD_THRESHOLD, GenericLayout,
     JoystickCounts, MIN_GENERIC_BUTTONS, NotAGamepad, dpad_axis_values,
 };
+pub use guided::{
+    GUIDED_STEPS, Guided, GuidedMapping, GuidedNote, MAP_IDLE_TIMEOUT_NS, MAP_SKIP_HOLD_NS, Prompt,
+};
 pub use hotkeys::{
     BLIND_RECOVERY_COMBO, BLIND_RECOVERY_HOLD_NS, Hotkey, Hotkeys, QUICK_MENU_COMBO,
     START_HOLD_BLOCKER, START_HOLD_BUTTON,
@@ -70,7 +74,7 @@ pub use ports::PortStates;
 pub use raw::{HatState, KeyAction, KeyCode, PadAxis, PadButton, RawInput};
 pub use raw_state::{MAX_RAW_AXES, MAX_RAW_BUTTONS, MAX_RAW_HATS, RawReads, RawState};
 pub use roster::{
-    PLAYER_PORTS, PadInfo, PadKey, PadRoster, PortRule, Roster, RosterEntry, RosterError,
+    Capture, PLAYER_PORTS, PadInfo, PadKey, PadRoster, PortRule, Roster, RosterEntry, RosterError,
 };
 pub use scripted::{ScriptedPad, ScriptedPads};
 #[cfg(feature = "sdl3")]

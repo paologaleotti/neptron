@@ -88,6 +88,19 @@ impl neptron_input::PadRoster for Inputs {
             pads.set_player_maps(maps);
         }
     }
+
+    fn capture(&mut self, pad: Option<neptron_input::PadKey>) {
+        if let Some(pads) = &mut self.pads {
+            pads.capture(pad);
+        }
+    }
+
+    fn captured(&self) -> neptron_input::Capture {
+        self.pads.as_ref().map_or(
+            neptron_input::Capture::Gone,
+            neptron_input::PadRoster::captured,
+        )
+    }
 }
 
 /// Runs the frontend on the DRM device that the launcher holds.

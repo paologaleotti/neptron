@@ -304,6 +304,14 @@ impl<I: PadRoster> PadRoster for ControlInput<I> {
     fn set_player_maps(&mut self, maps: &neptron_input::PlayerMaps) {
         self.inner.set_player_maps(maps);
     }
+
+    fn capture(&mut self, pad: Option<neptron_input::PadKey>) {
+        self.inner.capture(pad);
+    }
+
+    fn captured(&self) -> neptron_input::Capture {
+        self.inner.captured()
+    }
 }
 
 impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
