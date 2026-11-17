@@ -48,6 +48,11 @@ impl Paths {
         self.state.join("config")
     }
 
+    /// `state/config/notices.toml`, the one-time notices shown already.
+    pub fn notices(&self) -> PathBuf {
+        self.config().join("notices.toml")
+    }
+
     /// `state/saves/<system>`.
     pub fn saves(&self, system: &str) -> PathBuf {
         self.state.join("saves").join(system)

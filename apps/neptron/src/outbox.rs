@@ -75,6 +75,11 @@ pub enum Job {
         /// The text of the request file.
         text: String,
     },
+    /// Write the file of the one-time notices shown already, whole.
+    Notices {
+        /// The text of the file.
+        text: String,
+    },
 }
 
 /// The frame thread's side of the writer thread. Drop or
@@ -102,6 +107,8 @@ pub struct Places {
     pub scanned: PathBuf,
     /// The format request file on the state partition.
     pub share_request: PathBuf,
+    /// The file of the one-time notices shown already.
+    pub notices: PathBuf,
 }
 
 impl Outbox {
@@ -258,6 +265,13 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, replies: &Replies) {
                 let _ = replies.requests.try_send(result);
                 continue;
             }
+            Job::Notices { text } => crate::atomic::write(&places.notices, text.as_bytes())
+                .map_err(|e| {
+                    format!(
+                        "cannot write the notices file {}: {e}",
+                        places.notices.display()
+                    )
+                }),
             Job::Cache { index, full_scan } => write_cache(&places.cache, index).and_then(|()| {
                 if *full_scan {
                     mark_scanned(&places.scanned)
@@ -320,7 +334,22 @@ mod tests {
             cache: dir.join("cache").join("library.cache"),
             scanned: dir.join("run").join("library-scanned"),
             share_request: dir.join("state").join("share-format-request"),
+            notices: dir.join("config").join("notices.toml"),
         }
+    }
+
+    #[test]
+    fn the_notices_file_is_written_whole() {
+        let places = places("notices");
+        let mut outbox = Outbox::start(places.clone()).expect("start");
+        outbox.send(Job::Notices {
+            text: "format = 1\nshown = [\"vertical_interlaced\"]\n".to_owned(),
+        });
+        assert!(outbox.finish().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&places.notices).expect("the file"),
+            "format = 1\nshown = [\"vertical_interlaced\"]\n"
+        );
     }
 
     #[test]

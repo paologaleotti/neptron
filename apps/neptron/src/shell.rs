@@ -159,6 +159,8 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> {
     now_ns: u64,
     menu_hotkey: bool,
     picture_noticed: bool,
+    /// The one-time notices shown already, as the notices file holds them.
+    shown_notices: crate::notices::ShownNotices,
     next_notice: u32,
     /// The notice that asks whether to start an arcade game that cannot be
     /// checked, and that game.

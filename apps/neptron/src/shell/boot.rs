@@ -26,6 +26,7 @@ use crate::display::{Detected, MonitorError};
 use crate::library::{ARCADE_CORE, Library, ScanKind, runs_arcade_boards};
 use crate::nav::Navigator;
 use crate::network::{NetworkInfo, NetworkWatch};
+use crate::notices::ShownNotices;
 use crate::outbox::{Outbox, Places};
 use crate::paths::Paths;
 use crate::presets::Presets;
@@ -94,6 +95,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         });
         let (config, issues) = Config::load(&Storage::new(paths.config()), context);
         found.warn_all(issues);
+        let (shown_notices, issue) = ShownNotices::load(&paths.notices());
+        found.warn_all(issue);
         if let Some(notice) = next.as_ref().and_then(|n| n.notice.clone()) {
             found.issues.push((NoticeKind::Error, notice));
         }
@@ -267,6 +270,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             cache: paths.library_cache(),
             scanned: paths.library_scanned(),
             share_request: paths.share_format_request(),
+            notices: paths.notices(),
         })
         .map_err(BootError::Writer)?;
         let share_offer = storage.as_ref().and_then(StorageStatus::format_offer);
@@ -312,6 +316,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             now_ns,
             menu_hotkey: false,
             picture_noticed: false,
+            shown_notices,
             next_notice: 1,
             unchecked_launch: None,
             frame,

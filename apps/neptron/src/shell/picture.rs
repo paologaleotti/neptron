@@ -1,7 +1,24 @@
 //! The texts of the picture notice: why the picture of a game is not
 //! exact, from the reasons that the policy returns as data.
 
-use neptron_video::{Notice, NoticeReason, RefreshKind, SoftReason};
+use neptron_types::{Modeline, MonitorKind, Rotation, ScreenClass, SourceGeometry};
+use neptron_video::{Notice, NoticeReason, RefreshKind, SoftReason, VerticalMode};
+
+/// True for the case of the one-time notice of a vertical game: a game
+/// turned by 90 or 270 degrees, in an interlaced mode on a 15 kHz CRT or
+/// a TV, with `display.vertical = exact`.
+pub(super) fn vertical_interlaced(
+    source: &SourceGeometry,
+    mode: &Modeline,
+    kind: &MonitorKind,
+    vertical: VerticalMode,
+) -> bool {
+    let turned = matches!(source.rotation, Rotation::R90 | Rotation::R270);
+    turned
+        && mode.interlace
+        && ScreenClass::of(kind, mode) == ScreenClass::Crt15khz
+        && vertical == VerticalMode::Exact
+}
 
 /// The text of the notice for the picture of `notice` on an output of
 /// `kind`, or `None` for an exact picture. Every reason gives one
@@ -86,7 +103,69 @@ fn speed_percent(game_mhz: u64, shown_mhz: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use neptron_types::{TV_525_240P, TV_525_480I, TvStandard};
+
     use super::*;
+
+    const DODONPACHI: SourceGeometry = SourceGeometry {
+        width: 320,
+        height: 240,
+        refresh_mhz: 57_550,
+        aspect_milli: 1_333,
+        interlaced: false,
+        rotation: Rotation::R90,
+    };
+
+    #[test]
+    fn the_vertical_notice_is_for_a_turned_game_interlaced_at_15_khz() {
+        let crt = MonitorKind::Crt { ranges: Vec::new() };
+        let tv = MonitorKind::Tv {
+            standard: TvStandard::Ntsc,
+        };
+        let exact = VerticalMode::Exact;
+        assert!(vertical_interlaced(&DODONPACHI, &TV_525_480I, &crt, exact));
+        assert!(vertical_interlaced(&DODONPACHI, &TV_525_480I, &tv, exact));
+        let r270 = SourceGeometry {
+            rotation: Rotation::R270,
+            ..DODONPACHI
+        };
+        assert!(vertical_interlaced(&r270, &TV_525_480I, &tv, exact));
+        for rotation in [Rotation::R0, Rotation::R180] {
+            let flat = SourceGeometry {
+                rotation,
+                ..DODONPACHI
+            };
+            assert!(
+                !vertical_interlaced(&flat, &TV_525_480I, &crt, exact),
+                "{rotation:?}"
+            );
+        }
+        assert!(
+            !vertical_interlaced(&DODONPACHI, &TV_525_240P, &crt, exact),
+            "progressive"
+        );
+        assert!(!vertical_interlaced(
+            &DODONPACHI,
+            &TV_525_480I,
+            &crt,
+            VerticalMode::Fit
+        ));
+        let panel = MonitorKind::FlatPanel { modes: Vec::new() };
+        assert!(!vertical_interlaced(
+            &DODONPACHI,
+            &TV_525_480I,
+            &panel,
+            exact
+        ));
+        let mode_31 = Modeline {
+            pclock_hz: 2 * TV_525_480I.pclock_hz,
+            ..TV_525_480I
+        };
+        assert!(
+            !vertical_interlaced(&DODONPACHI, &mode_31, &crt, exact),
+            "31 kHz"
+        );
+    }
 
     fn exact() -> Notice {
         Notice {

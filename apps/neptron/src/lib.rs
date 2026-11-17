@@ -19,6 +19,7 @@ pub mod library;
 pub mod logbook;
 pub mod nav;
 pub mod network;
+pub mod notices;
 pub mod options;
 pub mod outbox;
 pub mod pages;

@@ -10,11 +10,12 @@ use neptron_ui::screens::{NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
 
-use super::picture::picture_text;
+use super::picture::{picture_text, vertical_interlaced};
 use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS};
 
 use crate::library::{ScanKind, Scanned, changes_text};
 use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
+use crate::notices::{VERTICAL_INTERLACED, VERTICAL_INTERLACED_TEXT};
 use crate::outbox::Job;
 
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, C> {
@@ -227,7 +228,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
     /// A notice when the first picture of the game is not exact: the
     /// reasons of the policy (soft, small, speed, double refresh) in the
     /// texts of the app, or the words of the video status for a fit or a
-    /// crop with no reason of its own.
+    /// crop with no reason of its own. The first time a vertical game shows
+    /// interlaced on a 15 kHz screen, also the one-time notice that says
+    /// how to change it; the writer thread records it as shown.
     fn notice_picture(&mut self) {
         if self.picture_noticed {
             return;
@@ -249,8 +252,23 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             .video_status(&mut status)
             .map_or("", |s| s.result.as_str());
         let text = picture_text(kind, notice, words);
+        let vertical = self.config.policy().map(|p| p.vertical);
+        let first_vertical = vertical.is_ok_and(|v| {
+            vertical_interlaced(
+                &current.source,
+                &current.read_back,
+                &self.guard.active().monitor.profile().kind,
+                v,
+            )
+        });
         if let Some(text) = text {
             self.notice(NoticeKind::Warning, text);
+        }
+        if first_vertical && self.shown_notices.insert(VERTICAL_INTERLACED) {
+            self.notice(NoticeKind::Info, VERTICAL_INTERLACED_TEXT.to_owned());
+            self.outbox.send(Job::Notices {
+                text: self.shown_notices.to_text(),
+            });
         }
     }
 }
