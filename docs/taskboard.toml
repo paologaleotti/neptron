@@ -622,7 +622,7 @@ name = "Input remapping in Settings > Input (spec first): a map per controller, 
 owns = ["crates/neptron-input", "crates/neptron-settings", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = ["M04", "M04b"]
 gate = "T2; scenes and goldens"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M05b"

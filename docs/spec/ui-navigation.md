@@ -202,7 +202,7 @@ The quick menu hotkey does nothing while the menu is open, at any depth. The ses
 | `INPUT_PAGE` | `PageId(RESERVED_ID_MIN + 10)` | The Input panel: the pad of each player and `Hold Start for menu` (`docs/spec/input-players.md`) |
 | `RESUME`, `QUIT_GAME` | unchanged | The actions of the quick menu |
 
-A row opens the display panel with `SettingValue::Page(DISPLAY_PAGE)` and the grid pattern with `SettingValue::Page(GRID_PAGE)`. `MAX_DEPTH` is 8. The deepest stack is home, game list, game, quick menu, Settings, display panel, option list: 7 screens.
+A row opens the display panel with `SettingValue::Page(DISPLAY_PAGE)` and the grid pattern with `SettingValue::Page(GRID_PAGE)`. `MAX_DEPTH` is 8. The deepest stack is home, game list, the versions of a game, game, quick menu, Settings, display panel, option list: 8 screens.
 
 ## Scenes and goldens
 
