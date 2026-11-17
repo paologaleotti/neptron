@@ -105,7 +105,7 @@ Player 2                 8BitDo SN30 Pro (away)
 Player 3                                     None
 Player 4                                     None
 Keyboard                                 Player 1
-Hold Start for menu                           Off
+Hold Start for menu         0 s          default
 ```
 
 ## The input source
