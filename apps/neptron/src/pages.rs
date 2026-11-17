@@ -11,6 +11,7 @@ use neptron_settings::{
 };
 use neptron_types::TvStandard;
 use neptron_ui::Value as UiValue;
+use neptron_ui::font::has_glyph;
 use neptron_ui::screens::{
     AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, INPUT_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE,
     QUIT_GAME, RESUME, SETTINGS_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
@@ -334,7 +335,7 @@ fn fit_name(name: &str, room: usize) -> String {
     let shown: Vec<char> = name
         .chars()
         .map(|c| {
-            if c == ' ' || c.is_ascii_graphic() {
+            if has_glyph(c) && !c.is_control() {
                 c
             } else {
                 '?'
@@ -1484,7 +1485,7 @@ mod tests {
         let pads = [
             (0, pad_entry("Xbox 360 Controller", true)),
             (1, pad_entry("PS4 Controller", false)),
-            (3, pad_entry("Pad \u{e9}\u{1}", true)),
+            (3, pad_entry("Pad \u{e9}\u{1}\u{fffd}\u{263a}", true)),
             (5, pad_entry("Extra One", true)),
             (7, pad_entry("Extra Two", true)),
         ];
@@ -1497,7 +1498,7 @@ mod tests {
                 ("Player 1", "Xbox 360 Controller"),
                 ("Player 2", "PS4 Controller (away)"),
                 ("Player 3", "None"),
-                ("Player 4", "Pad ??"),
+                ("Player 4", "Pad \u{e9}???"),
                 ("Extra pad", "Extra One"),
                 ("Extra pad", "Extra Two"),
                 ("Keyboard", "Player 1"),
