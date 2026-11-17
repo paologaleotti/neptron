@@ -312,6 +312,10 @@ impl<I: PadRoster> PadRoster for ControlInput<I> {
     fn captured(&self) -> neptron_input::Capture {
         self.inner.captured()
     }
+
+    fn pad_map(&self, pad: neptron_input::PadKey) -> Option<neptron_input::PadMap> {
+        self.inner.pad_map(pad)
+    }
 }
 
 impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {

@@ -15,7 +15,7 @@ use crate::pad_maps::PadMap;
 use crate::player_map::{Binding, half_axis_value, stick};
 use crate::port_table::{PadId, PortTable, pad_index};
 use crate::raw::{KeyAction, RawInput};
-use crate::roster::{PadInfo, PortRule, Roster};
+use crate::roster::{PadInfo, PadKey, PortRule, Roster};
 use crate::silent::{PadActivity, PadSignal};
 use crate::state::ControlState;
 
@@ -272,6 +272,14 @@ impl Mapper {
     pub fn map_of(&self, pad: PadId) -> Option<PadMap> {
         self.ports.port(pad)?;
         self.maps.get(pad_index(pad)).copied()
+    }
+
+    /// The map of the connected pad with the key `key`.
+    pub fn map_by_key(&self, key: PadKey) -> Option<PadMap> {
+        (0..usize::from(MAX_PORTS)).find_map(|port| {
+            let (id, info) = self.ports.playing(port)?;
+            (info.key() == key).then(|| self.map_of(id)).flatten()
+        })
     }
 
     /// Appends to `out` the release of every control that the connected

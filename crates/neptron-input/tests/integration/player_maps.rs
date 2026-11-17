@@ -164,11 +164,14 @@ fn a_known_pad_gets_the_map_of_the_player_at_once_and_back_on_reset() {
     assert_ne!(pads.roster_changes(), changes);
     assert_eq!(pads.roster().get(0).map(|e| e.map), Some(MapKind::Player));
 
+    assert_eq!(pads.pad_map(pad(1, 1).key()), Some(PadMap::Player(swap)));
     pads.set_player_maps(&PlayerMaps::new());
     assert_eq!(
         poll(&mut pads),
         [(PAD0, Control::A, 0), (PAD0, Control::B, 1)]
     );
+    assert_eq!(pads.pad_map(pad(1, 1).key()), Some(PadMap::Known));
+    assert_eq!(pads.pad_map(pad(1, 2).key()), None, "no such pad");
     assert_eq!(pads.roster().get(0).map(|e| e.map), Some(MapKind::Known));
     assert!(poll(&mut pads).is_empty(), "the same maps change nothing");
 }

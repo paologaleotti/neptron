@@ -2,7 +2,7 @@
 
 use crate::device::{DeviceIdentity, MAX_PORTS};
 use crate::notice::InputNotice;
-use crate::pad_maps::{MapKind, PlayerMaps};
+use crate::pad_maps::{MapKind, PadMap, PlayerMaps};
 use crate::raw_state::RawState;
 use crate::silent::PadActivity;
 
@@ -140,6 +140,12 @@ pub trait PadRoster {
     /// gives [`Capture::Gone`].
     fn captured(&self) -> Capture {
         Capture::Gone
+    }
+
+    /// The map of the connected pad with the key `pad`, as the source
+    /// reads it, for the page of the pad. `None` for no such pad.
+    fn pad_map(&self, _pad: PadKey) -> Option<PadMap> {
+        None
     }
 }
 

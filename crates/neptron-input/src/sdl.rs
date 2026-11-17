@@ -406,6 +406,10 @@ impl PadRoster for SdlGamepads {
     fn captured(&self) -> Capture {
         self.captured
     }
+
+    fn pad_map(&self, pad: PadKey) -> Option<PadMap> {
+        self.mapper.map_by_key(pad)
+    }
 }
 
 impl std::fmt::Debug for SdlGamepads {

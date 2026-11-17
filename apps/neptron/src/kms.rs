@@ -101,6 +101,10 @@ impl neptron_input::PadRoster for Inputs {
             neptron_input::PadRoster::captured,
         )
     }
+
+    fn pad_map(&self, pad: neptron_input::PadKey) -> Option<neptron_input::PadMap> {
+        self.pads.as_ref().and_then(|pads| pads.pad_map(pad))
+    }
 }
 
 /// Runs the frontend on the DRM device that the launcher holds.

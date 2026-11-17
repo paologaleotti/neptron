@@ -207,6 +207,10 @@ impl PadRoster for ScriptedPads {
     fn captured(&self) -> Capture {
         self.lock().captured
     }
+
+    fn pad_map(&self, pad: PadKey) -> Option<PadMap> {
+        self.lock().mapper.map_by_key(pad)
+    }
 }
 
 #[derive(Debug)]
