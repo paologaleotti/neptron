@@ -194,6 +194,12 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         &self.ports
     }
 
+    /// The input source, for what the app reads of it beyond its events,
+    /// such as the port of each pad.
+    pub fn input(&self) -> &I {
+        &self.input
+    }
+
     /// The core's last message (`SET_MESSAGE`), while its frame count runs.
     pub fn message(&self) -> Option<&str> {
         (self.message_frames > 0).then_some(self.message.as_str())
