@@ -12,8 +12,8 @@ use std::path::Path;
 
 use neptron_backend::{Display, InputSource};
 use neptron_types::{
-    Control, Filter, Frame, InputEvent, Modeline, MonitorProfile, PixelFormat, Rect, Scanlines,
-    Scene,
+    Control, Filter, Frame, InputEvent, Modeline, MonitorProfile, PixelFormat, Rect, Rotation,
+    Scanlines, Scene,
 };
 use neptron_window::{KEYBOARD_DEVICE_ID, KeyboardPad, WindowDisplay};
 use sdl3::event::Event;
@@ -140,6 +140,7 @@ fn run_frames(
                 w: 0,
                 h: 0,
             },
+            rotation: Rotation::R0,
         };
         display.present(&scene)?;
         let flip = display.wait_flip()?;

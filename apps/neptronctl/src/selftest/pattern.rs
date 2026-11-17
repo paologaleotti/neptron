@@ -2,7 +2,7 @@
 //! a border on the outermost pixels, a centre cross, colour bars, and the
 //! mode label and rates as text.
 
-use neptron_types::{Filter, Frame, Modeline, PixelFormat, Rect, Scanlines, Scene};
+use neptron_types::{Filter, Frame, Modeline, PixelFormat, Rect, Rotation, Scanlines, Scene};
 
 /// The widest texture side that every supported GPU takes, in texels:
 /// `GL_MAX_TEXTURE_SIZE` of vc4 on the Raspberry Pi. The GPUs of the
@@ -85,6 +85,7 @@ impl Pattern {
             scanlines: Scanlines::NONE,
             ui: None,
             ui_dest: full(0, 0),
+            rotation: Rotation::R0,
         }
     }
 

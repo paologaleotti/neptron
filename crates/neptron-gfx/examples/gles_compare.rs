@@ -14,7 +14,8 @@ use std::process::ExitCode;
 use neptron_gfx::gles::{GlesError, GlesRenderer};
 use neptron_gfx::{Image, OutputBuffer, RectKind, ReferenceRenderer, RenderError};
 use neptron_types::{
-    Filter, PixelFormat, Rect, ScanlineKind, Scanlines, Scene, ui_dest_fill, ui_dest_uniform,
+    Filter, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, ui_dest_fill,
+    ui_dest_uniform,
 };
 
 #[path = "../tests/common/scenes.rs"]
@@ -901,6 +902,7 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
         scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
+        rotation: Rotation::R0,
     };
     let too_large = Scene {
         game: Some(game.frame()),
@@ -991,6 +993,7 @@ fn texture_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
         scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
+        rotation: Rotation::R0,
     };
     let mut data = vec![PADDING; 8 * 6 * 4];
     let mut out = OutputBuffer {
@@ -1024,6 +1027,7 @@ fn output_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
         scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
+        rotation: Rotation::R0,
     };
     let mut data = vec![PADDING; width as usize * 4];
     let mut out = OutputBuffer {

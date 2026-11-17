@@ -57,8 +57,8 @@ mod linux {
     use neptron_safety::{ValidatedMode, validate};
     use neptron_types::{
         CrtRange, Filter, FlipEvent, Frame, GpuCaps, Modeline, MonitorKind, MonitorProfile,
-        PixelFormat, Rect, ScanlineKind, Scanlines, Scene, TV_525_240P, TV_525_480I, TV_625_288P,
-        TV_625_576I, TvStandard,
+        PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, TV_525_240P, TV_525_480I,
+        TV_625_288P, TV_625_576I, TvStandard,
     };
 
     /// The device the shell opened on descriptor 3.
@@ -1043,6 +1043,7 @@ mod linux {
                     h: h / 2,
                 },
                 scanlines: Scanlines::NONE,
+                rotation: Rotation::R0,
             }
         }
 

@@ -3,7 +3,8 @@
 //! the GLES renderer with the reference on the same scenes.
 
 use neptron_types::{
-    Filter, Frame, PixelFormat, Rect, ScanlineKind, Scanlines, Scene, ui_dest_fill, ui_dest_uniform,
+    Filter, Frame, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene, ui_dest_fill,
+    ui_dest_uniform,
 };
 
 /// Extra bytes at the end of each source row, so that the scenes also
@@ -182,6 +183,7 @@ impl Case {
             scanlines: self.scanlines,
             ui: self.ui.as_ref().map(Source::frame),
             ui_dest: self.ui_dest,
+            rotation: Rotation::R0,
         }
     }
 }

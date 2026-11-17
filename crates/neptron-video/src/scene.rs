@@ -1,6 +1,7 @@
 use neptron_modeline::policy::Placement;
 use neptron_types::{
-    Filter, Frame, Modeline, MonitorKind, Rect, Scene, ScreenClass, SourceGeometry, scanlines_for,
+    Filter, Frame, Modeline, MonitorKind, Rect, Rotation, Scene, ScreenClass, SourceGeometry,
+    scanlines_for,
 };
 
 use crate::ScanlineSettings;
@@ -69,6 +70,7 @@ pub fn build_scene<'a>(
         ui,
         ui_dest: placement.ui_dest,
         scanlines,
+        rotation: Rotation::R0,
     }
 }
 

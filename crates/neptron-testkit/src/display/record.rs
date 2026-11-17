@@ -1,7 +1,7 @@
 //! What the fake display records, and the queries on it.
 
 use neptron_backend::DisplayError;
-use neptron_types::{Filter, FlipEvent, Modeline, PixelFormat, Rect, Scene, TvStandard};
+use neptron_types::{Filter, FlipEvent, Modeline, PixelFormat, Rect, Rotation, Scene, TvStandard};
 
 use super::FakeDisplay;
 
@@ -55,6 +55,8 @@ pub struct SceneSummary {
     pub dest: Rect,
     /// The scaling filter.
     pub filter: Filter,
+    /// The turn of the game picture.
+    pub rotation: Rotation,
     /// Width and height of the UI canvas, if any.
     pub ui: Option<(u16, u16)>,
     /// The UI destination rectangle.
@@ -108,6 +110,7 @@ impl SceneSummary {
             crop: scene.crop,
             dest: scene.dest,
             filter: scene.filter,
+            rotation: scene.rotation,
             ui: scene.ui.map(|f| (f.width, f.height)),
             ui_dest: scene.ui_dest,
         }

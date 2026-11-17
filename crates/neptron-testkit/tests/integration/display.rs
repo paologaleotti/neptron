@@ -13,7 +13,7 @@ use neptron_testkit::{
 };
 use neptron_types::{
     Filter, FlipEvent, Frame, GpuCaps, Modeline, MonitorKind, MonitorProfile, PixelFormat, Rect,
-    ScanlineKind, Scanlines, Scene, TV_525_240P, TV_625_576I, TvStandard,
+    Rotation, ScanlineKind, Scanlines, Scene, TV_525_240P, TV_625_576I, TvStandard,
 };
 
 /// One period of 240p at 60.029 Hz, in nanoseconds: 10^12 / 60 029,
@@ -75,6 +75,7 @@ fn scene(data: &[u8]) -> Scene<'_> {
             w: 0,
             h: 0,
         },
+        rotation: Rotation::R0,
     }
 }
 
@@ -102,6 +103,7 @@ fn empty() -> Scene<'static> {
             w: 0,
             h: 0,
         },
+        rotation: Rotation::R0,
     }
 }
 

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::Scanlines;
+use crate::{Rotation, Scanlines};
 
 /// The layout of one pixel in memory. Each format is one native-endian
 /// integer per pixel, as libretro defines it.
@@ -74,11 +74,31 @@ pub enum Filter {
 pub struct Scene<'a> {
     /// The game frame, or `None` for no game picture.
     pub game: Option<Frame<'a>>,
-    /// The part of the game frame to show, in game frame pixels.
+    /// The part of the game frame to show, in game frame pixels, as the
+    /// core draws the frame: before the turn of `rotation`.
     pub crop: Rect,
-    /// Where the cropped game frame goes, in pixels of the display mode.
+    /// Where the turned picture goes, in pixels of the display mode.
     pub dest: Rect,
-    /// How the game frame is scaled from `crop` to `dest`.
+    /// The turn, counter-clockwise, of the cropped game picture before it
+    /// is scaled into `dest`. The UI canvas is never turned.
+    ///
+    /// Let `crop` be `w` by `h`. The turned picture `T` is `w` by `h` for
+    /// [`Rotation::R0`] and [`Rotation::R180`], and `h` by `w` for
+    /// [`Rotation::R90`] and [`Rotation::R270`]. Pixel `(tx, ty)` of `T`
+    /// is the frame pixel `(crop.x + fx, crop.y + fy)` with:
+    ///
+    /// | Rotation | `fx` | `fy` |
+    /// | --- | --- | --- |
+    /// | `R0` | `tx` | `ty` |
+    /// | `R90` | `w - 1 - ty` | `tx` |
+    /// | `R180` | `w - 1 - tx` | `h - 1 - ty` |
+    /// | `R270` | `ty` | `h - 1 - tx` |
+    ///
+    /// Every rule of a renderer then applies to `T` in place of the crop:
+    /// the scale of each axis, the filter, the test that a source pixel is
+    /// inside the frame, and the scanlines, which follow the lines of `T`.
+    pub rotation: Rotation,
+    /// How the turned picture is scaled into `dest`.
     pub filter: Filter,
     /// The scanlines over the game picture. [`Scanlines::NONE`] leaves the
     /// picture as it is. The UI canvas is never darkened.

@@ -4,7 +4,7 @@
 use drm::control::{Device as _, connector, crtc};
 use neptron_backend::DisplayError;
 use neptron_safety::ValidatedMode;
-use neptron_types::{Filter, Modeline, Rect, Scanlines, Scene, TvStandard};
+use neptron_types::{Filter, Modeline, Rect, Rotation, Scanlines, Scene, TvStandard};
 
 use super::device::{PLANE_CRTC_ID, PLANE_FB_ID};
 use super::display::{KmsDisplay, render_error};
@@ -254,5 +254,6 @@ fn black() -> Scene<'static> {
         ui: None,
         ui_dest: none,
         scanlines: Scanlines::NONE,
+        rotation: Rotation::R0,
     }
 }

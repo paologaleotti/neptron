@@ -1,4 +1,4 @@
-use neptron_types::{Filter, Frame, PixelFormat, Rect, ScanlineKind, Scanlines, Scene};
+use neptron_types::{Filter, Frame, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene};
 
 use super::{Image, MAX_RECT_SIDE_PX, OutputBuffer, RectKind, ReferenceRenderer, RenderError};
 
@@ -32,6 +32,7 @@ fn scene<'a>(game: Option<Frame<'a>>, crop: Rect, dest: Rect, filter: Filter) ->
         scanlines: Scanlines::NONE,
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
+        rotation: Rotation::R0,
     }
 }
 

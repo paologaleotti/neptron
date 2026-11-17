@@ -6,7 +6,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use neptron_gfx::{OutputBuffer, ReferenceRenderer, RenderError};
-use neptron_types::{Filter, Frame, Modeline, PixelFormat, Rect, ScanlineKind, Scanlines, Scene};
+use neptron_types::{
+    Filter, Frame, Modeline, PixelFormat, Rect, Rotation, ScanlineKind, Scanlines, Scene,
+};
 
 use crate::{RgbImage, frame_hash};
 
@@ -142,7 +144,7 @@ enum Which {
 
 /// A scene copied into one buffer: a header with the mode size, the crop,
 /// the destination and the UI destination, the filter, the scanline kind and
-/// strength, and the size and format of each frame, then the
+/// strength, the rotation, and the size and format of each frame, then the
 /// rows of the game frame and of the UI canvas with no padding. All values
 /// are little-endian. The hash of [`Render::Scene`] is the hash of these
 /// bytes, so it is the same on every host.
@@ -154,6 +156,7 @@ struct OwnedScene {
     ui_dest: Option<Rect>,
     filter: Option<Filter>,
     scanlines: Option<Scanlines>,
+    rotation: Option<Rotation>,
     game: Option<Layout>,
     ui: Option<Layout>,
 }
@@ -190,6 +193,12 @@ impl OwnedScene {
             ScanlineKind::Black => 1,
         });
         bytes.push(scene.scanlines.strength_percent);
+        bytes.push(match scene.rotation {
+            Rotation::R0 => 0,
+            Rotation::R90 => 1,
+            Rotation::R180 => 2,
+            Rotation::R270 => 3,
+        });
         for frame in [&scene.game, &scene.ui] {
             match frame {
                 None => bytes.push(0),
@@ -212,6 +221,7 @@ impl OwnedScene {
         self.ui_dest = Some(scene.ui_dest);
         self.filter = Some(scene.filter);
         self.scanlines = Some(scene.scanlines);
+        self.rotation = Some(scene.rotation);
     }
 
     fn scene(&self) -> Scene<'_> {
@@ -243,6 +253,7 @@ impl OwnedScene {
             scanlines: self.scanlines.unwrap_or(Scanlines::NONE),
             ui: self.ui.as_ref().map(frame),
             ui_dest: self.ui_dest.unwrap_or(empty),
+            rotation: self.rotation.unwrap_or(Rotation::R0),
         }
     }
 }

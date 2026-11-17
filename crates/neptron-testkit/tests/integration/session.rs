@@ -11,7 +11,9 @@ use neptron_testkit::{
     AudioWrite, Delivered, DisplayOptions, FakeAudio, FakeDisplay, FlipFault, FrameRecord, Jitter,
     LateFlips, ModeRecord, Render, RgbImage, ScriptedInput, SimClock, Underrun, frame_hash,
 };
-use neptron_types::{Control, Filter, Frame, InputEvent, PixelFormat, Rect, Scanlines, Scene};
+use neptron_types::{
+    Control, Filter, Frame, InputEvent, PixelFormat, Rect, Rotation, Scanlines, Scene,
+};
 
 const WIDTH: u16 = 320;
 const HEIGHT: u16 = 240;
@@ -157,6 +159,7 @@ fn run(render: Render, frames: u64) -> Outcome {
                 w: 0,
                 h: 0,
             },
+            rotation: Rotation::R0,
         };
         display.present(&scene).unwrap();
         let flipped = display.wait_flip();
