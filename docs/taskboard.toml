@@ -631,7 +631,7 @@ name = "Arcade, part 2: the core packages in both images, the library scan of ar
 owns = ["os/package", "os/configs", "crates/neptron-library", "crates/neptron-libretro", "data", "xtask"]
 needs = ["M06"]
 gate = "T1; core-trace; app-check; an arcade game on the PC and on the Pi"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "M08"

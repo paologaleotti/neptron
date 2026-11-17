@@ -103,7 +103,8 @@ The state column is one line. The full entry below is the reference.
 | OP-104 | CI limits | aarch64 timing checks not in CI; two paths not proven |
 | OP-106 | Open questions of the arcade spec | Defaults in `docs/spec/arcade.md`, section 19 |
 | OP-107 | TATE: a monitor on its side, with the UI and the games turned | After the MVP; design notes in the arcade spec |
-| OP-108 | Arcade leftovers after M07b | Set name as title; core default for the service menu |
+| OP-108 | Arcade leftovers after M07 | No diagnostics page; core default for the service menu |
+| OP-109 | Video policy: questions for the owner and leftovers | Built defaults stay; the app does not set the arcade flag yet |
 
 ### Decided
 
@@ -1163,11 +1164,20 @@ The state column is one line. The full entry below is the reference.
 - How to change: a task of the first taskboard after the MVP. It covers a setting for the screen orientation with a direction (left or right), the UI drawn turned, a vertical game at its native lines with no rotation (240p at the game's own rate on 15 kHz), a horizontal game turned or refused on such a screen, the input directions turned in the menu, and the boot picture. The setting shape is question A6 of the arcade spec (OP-106).
 - Decision:
 
-### OP-108: Arcade leftovers after the data and scan task (M07b).
+### OP-108: Arcade leftovers after the library tasks (M07a, M07b, M07c).
 
-- Raised by: M07b and its review (2026-11-16)
+- Raised by: M07b, M07c and their reviews (2026-11-16, 2026-11-17)
 - Status: open
-- Default: an arcade set shows with its set name as the title, and nothing checks a set before launch (both wait for M07c). `data/cores/fbneo.toml` does not set `fbneo-diagnostic-input`, because the free test set does not declare that option; the service menu stays on the core default, hold Start. The session does not read `always_progressive` yet (M08a). The text of the empty library names only the `nes`, `snes` and `megadrive` folders. The diagnostics page has no line for a `mame` folder. No x86_64 trace of FinalBurn Neo and no trace of a set with a missing ROM exist. `docs/spec/arcade.md` section 4 still proposes the diagnostic input key.
-- Where: `data/cores/fbneo.toml`, `crates/neptron-library`, `crates/neptron-session`, `crates/neptron-ui/src/screens/home.rs`, `tests/traces`
-- How to change: M07c for the titles, the set check and the diagnostics line; M08a for `always_progressive`; a trace of a Neo Geo set that declares the diagnostic input before the key goes in the data file.
+- Default: no diagnostics page exists, so the set check writes the list of wrong files to the log, and no line names a `mame` folder, an unknown set or the state of the index. `data/cores/fbneo.toml` does not set `fbneo-diagnostic-input`, because the free test set does not declare that option; the service menu stays on the core default, hold Start. The session does not read `always_progressive` yet (M08a). A launch through the control protocol skips the set check. A local build after a new pin of the core keeps the old index until the `neptron` package is built again (CI always does); the image check proves only that the index exists. On a boot with the state folder in RAM, the warning about it comes again in each game run. No x86_64 trace of FinalBurn Neo and no trace of a set with a missing ROM exist. The test of the Back key in the versions list asserts only the screen name. The texts of messages 4, 4b and 5 of the set check are the owner's (2026-11-17) and are in `docs/spec/arcade.md` section 10.
+- Where: `apps/neptron`, `crates/neptron-ui`, `crates/neptron-library`, `crates/neptron-session`, `data/cores/fbneo.toml`, `os/package/neptron`, `tests/traces`
+- How to change: a diagnostics page as its own task; M08a for `always_progressive`; a trace of a Neo Geo set that declares the diagnostic input before the key goes in the data file; a version compare in `check-arcade-index.sh`.
 - Decision:
+
+### OP-109: Video policy: questions for the owner and leftovers of the policy task.
+
+- Raised by: the policy task of M08 and its reviews (2026-11-16, 2026-11-17)
+- Status: open
+- Default: the built result stays until the owner decides. V6: an exact rung at a slower rate that changes the speed more than the fit (DOS 640x400 on a TV) keeps the fit. V7: WonderSwan stays at 1x where 2x would squeeze it by 5 %. V8: a game wider than the face with too few lines (Virtual Boy on `ntsc`, a 3:2 source of 224 lines on a 15 kHz CRT) goes to interlaced 1:1 at about 50 % of the height. The overscan crop is bound by 8 source lines and by 8 of 240 lines of the screen per edge. The fill rule of a flat panel applies to every source, not only to a vertical game. The app sets `PolicySettings::arcade` for no system yet, so `arcade` and `neogeo` use the console rules until M08a. The app does not show the new notice reasons yet. Shaders for flat panels would replace the hard scanlines; they are planned after the MVP. Low findings of the last review: the continuity exception of the sweep covers every plan that has a window rung; `onto_one_field_rate` does not try the GPU floor for a wider multiple before the validator; the diagnostic of `interlaced_rung` gives the source lines, not the shaped lines.
+- Where: `crates/neptron-modeline`, `crates/neptron-video`, `apps/neptron`, `docs/spec/video-policy-cases.md`, `docs/spec/arcade.md` sections 11 and 12
+- How to change: an owner decision per question, then a golden change with its reason; M08a sets the arcade flag and shows the notice reasons.
+- Decision: Owner, 2026-11-16: with scanlines on, a flat panel uses the largest whole multiple and never the fill; every picture that is not exact shows a notice.
