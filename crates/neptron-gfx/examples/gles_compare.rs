@@ -928,7 +928,7 @@ fn turned_cases() -> Vec<Case> {
                 Nearest,
                 (2 * tw + 8, 2 * th + 4),
             )
-            .turned_by(rotation),
+            .turned(rotation),
         );
         cases.push(
             Case::game(
@@ -939,7 +939,7 @@ fn turned_cases() -> Vec<Case> {
                 SharpBilinear,
                 (3 * tw, 3 * th + 7),
             )
-            .turned_by(rotation),
+            .turned(rotation),
         );
         cases.push(
             Case::game(
@@ -950,7 +950,7 @@ fn turned_cases() -> Vec<Case> {
                 SharpBilinear,
                 (2 * tw + 5, 2 * th),
             )
-            .turned_by(rotation)
+            .turned(rotation)
             .with_black_lines(60),
         );
         cases.push(
@@ -962,7 +962,7 @@ fn turned_cases() -> Vec<Case> {
                 SharpBilinear,
                 (3 * tw, 2 * th + 4),
             )
-            .turned_by(rotation),
+            .turned(rotation),
         );
     }
     cases.push(
@@ -974,7 +974,7 @@ fn turned_cases() -> Vec<Case> {
             Nearest,
             (1920, 1080),
         )
-        .turned_by(Rotation::R90)
+        .turned(Rotation::R90)
         .with_ui(
             pattern(320, 240, Xrgb8888),
             ui_dest_uniform(1920, 1080, 320, 240),
@@ -989,7 +989,7 @@ fn turned_cases() -> Vec<Case> {
             Nearest,
             (640, 480),
         )
-        .turned_by(Rotation::R270)
+        .turned(Rotation::R270)
         .with_black_lines(100),
     );
     cases.push(
@@ -1001,21 +1001,10 @@ fn turned_cases() -> Vec<Case> {
             Nearest,
             (480, 640),
         )
-        .turned_by(Rotation::R90)
+        .turned(Rotation::R90)
         .with_black_lines(50),
     );
     cases
-}
-
-/// The game picture of a case turned by `rotation`.
-trait Turned {
-    fn turned_by(self, rotation: Rotation) -> Self;
-}
-
-impl Turned for Case {
-    fn turned_by(self, rotation: Rotation) -> Self {
-        Self { rotation, ..self }
-    }
 }
 
 /// An image with no pixel bytes and the given size and pitch.

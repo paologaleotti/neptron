@@ -59,6 +59,8 @@ The check against the reference is `cargo xtask gles-compare` (tier T3). It buil
 
 `tests/goldens.rs` renders the scenes of `tests/common/scenes.rs` and compares them with `tests/goldens/*.ppm` byte for byte. The format is binary PPM: the header `P6\n<width> <height>\n255\n`, then 3 bytes (R, G, B) per pixel, rows top to bottom. Most image viewers open it. The output X byte is not in the file; the test checks it separately.
 
+The `turn_*` goldens cover `R90` at 2x, with 2x scanlines and with a crop that reaches outside the frame (sharp bilinear), `R180` with a crop (RGB565), and `R270` with sharp bilinear on both axes (XRGB1555). The test pattern has red to the right and blue down, so each turn gives its own picture; the unit test `r90_shows_a_column_read_downward_as_a_line_read_left_to_right` pins the direction.
+
 The `scanlines_*` goldens cover 2x at 0, 50 and 100 %, 3x, 4x, a fractional scale, a scale of 1, a crop with a destination on an odd line, the UI over the game, and sharp bilinear, with each pixel format once. The test `scanline_strength_sheet` also writes `target/tmp/scanline-sheet/scanlines_2x_strength_0_50_100.ppm`: one 256x224 picture at 2x with black scanlines at 0, 50 and 100 %, side by side, to look at. It checks each panel with the pixel rule.
 
 When a golden does not match or is missing, the test writes the rendered image to `target/tmp/goldens-actual/<name>.ppm` and prints the difference. To accept a new image, look at it first, then copy it to `tests/goldens/`. Never copy an image to get a green run.

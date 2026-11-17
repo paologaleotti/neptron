@@ -176,6 +176,11 @@ impl Case {
         }
     }
 
+    /// This case with the game picture turned by `rotation`.
+    pub fn turned(self, rotation: Rotation) -> Self {
+        Self { rotation, ..self }
+    }
+
     /// The scene, borrowing the images of the case.
     pub fn scene(&self) -> Scene<'_> {
         Scene {
@@ -380,5 +385,59 @@ pub fn golden_cases() -> Vec<Case> {
             (32, 12),
         )
         .with_black_lines(60),
+        // An 8x6 frame on its side, turned upright: 6x8, then 2x. The
+        // pattern has red to the right and blue down, so each turn gives
+        // its own picture.
+        Case::game(
+            "turn_r90_nearest_2x",
+            pattern(8, 6, Xrgb8888),
+            rect(0, 0, 8, 6),
+            rect(4, 0, 12, 16),
+            Nearest,
+            (20, 16),
+        )
+        .turned(Rotation::R90),
+        Case::game(
+            "turn_r180_rgb565_crop",
+            pattern(8, 6, Rgb565),
+            rect(1, 1, 6, 4),
+            rect(2, 2, 12, 8),
+            Nearest,
+            (16, 12),
+        )
+        .turned(Rotation::R180),
+        // 6 lines turned are 8 columns, to 19: the columns blend.
+        Case::game(
+            "turn_r270_sharp_bilinear",
+            pattern(8, 6, Xrgb1555),
+            rect(0, 0, 8, 6),
+            rect(1, 2, 19, 21),
+            SharpBilinear,
+            (24, 24),
+        )
+        .turned(Rotation::R270),
+        // 8 columns turned are 8 lines, to 16: 2x scanlines on the lines of
+        // the turned picture.
+        Case::game(
+            "turn_r90_scanlines_2x",
+            pattern(8, 6, Xrgb8888),
+            rect(0, 0, 8, 6),
+            rect(4, 0, 12, 16),
+            Nearest,
+            (20, 16),
+        )
+        .turned(Rotation::R90)
+        .with_black_lines(100),
+        // The part of the crop left of the frame shows black at the bottom
+        // after the turn.
+        Case::game(
+            "turn_r90_crop_outside_the_frame",
+            pattern(8, 6, Xrgb8888),
+            rect(-2, -1, 10, 8),
+            rect(0, 0, 16, 20),
+            SharpBilinear,
+            (16, 20),
+        )
+        .turned(Rotation::R90),
     ]
 }

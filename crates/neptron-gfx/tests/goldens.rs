@@ -262,6 +262,31 @@ fn scanlines_sharp_bilinear() {
     golden("scanlines_sharp_bilinear");
 }
 
+#[test]
+fn turn_r90_nearest_2x() {
+    golden("turn_r90_nearest_2x");
+}
+
+#[test]
+fn turn_r180_rgb565_crop() {
+    golden("turn_r180_rgb565_crop");
+}
+
+#[test]
+fn turn_r270_sharp_bilinear() {
+    golden("turn_r270_sharp_bilinear");
+}
+
+#[test]
+fn turn_r90_scanlines_2x() {
+    golden("turn_r90_scanlines_2x");
+}
+
+#[test]
+fn turn_r90_crop_outside_the_frame() {
+    golden("turn_r90_crop_outside_the_frame");
+}
+
 /// Renders the case `name` of the scene list and compares it with its
 /// golden.
 fn golden(name: &str) {
