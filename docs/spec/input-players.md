@@ -133,7 +133,7 @@ Added to `docs/hardware-checklist.md`, section "Input (M04)": two pads and four 
 
 ## Open questions
 
-Each one has a default that this task builds.
+Each one has a default that this task builds. OP-110 records the decisions of the owner on them: plug order stays, every pad controls the menus, more than four pads stay as built, a picker for the pad of each player is task M05b, and four-player adapters stay open.
 
 | Question | Default | Where | How to change |
 | --- | --- | --- | --- |
