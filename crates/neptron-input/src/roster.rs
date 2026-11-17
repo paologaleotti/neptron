@@ -17,10 +17,11 @@ pub struct PadInfo {
     /// kept by it.
     pub identity: DeviceIdentity,
     /// Where the pad is plugged: a hash of the device path of the backend,
-    /// the event node or, with the HIDAPI drivers of SDL3, the hidraw
-    /// node. The kernel keeps the node while the pad stays plugged, so the
-    /// path tells two pads of one model apart in one boot. A replug can
-    /// change it.
+    /// the event node, the classic `jsN` node when the SDL hint for it is
+    /// set, or, with the HIDAPI drivers of SDL3, the hidraw node. A plain
+    /// joystick has its path as a gamepad does. The kernel keeps the node
+    /// while the pad stays plugged, so the path tells two pads of one
+    /// model apart in one boot. A replug can change it.
     pub path: DeviceIdentity,
     /// The name to show, as the backend gives it.
     pub name: String,

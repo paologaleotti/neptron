@@ -32,6 +32,12 @@ In code, the map is a value (`PadMap`: `Known` or `Generic(GenericLayout)`) that
 - A good line has: a GUID of 32 hex digits, a name that is not empty, and at least one `field:value` pair; every pair has a field and a value. A line with a `platform:` field for another platform (SDL3 names it, `Linux` on the image) is skipped with no problem, as SDL3 does.
 - A missing file, a file that cannot be read, a damaged line, or a line that SDL3 refuses each give one notice. A damaged line loses only itself. Input always opens. These notices go to the log only.
 
+## The path of a pad
+
+The path keeps two pads of one model apart (the port rules, the pad notices, the focus of `Set up this controller`). The source reads it with `SDL_GetJoystickPathForID`, for a plain joystick and a gamepad alike, through a small safe wrapper (`ffi.rs` of `neptron-input`): the wrapper checks the pointer for null, copies the text with a lossy conversion, and keeps no pointer. The `sdl3` crate wraps only the gamepad call of it, which panics on text that is not UTF-8.
+
+In SDL 3.4 (3.4.12 in the image), `SDL_GetGamepadPathForID` only calls `SDL_GetJoystickPathForID`, with no look-up of a gamepad mapping, so a plain joystick had its path before this change too. The joystick call removes the dependency on that detail and the UTF-8 unwrap. The Linux joystick driver gives every device its node path. A joystick for which SDL3 gives no path gets the empty path.
+
 ## The generic layout
 
 The decision is pure code (`generic_layout.rs`, next to `pad_map.rs`). Its input is the counts of buttons, hats and axes. Its output is a table: for each raw button index, hat index and axis index, the RetroPad controls it drives. The SDL3 source reads only the indices of the table and gives them to the mapper, which applies the table. SDL3 types stay in `sdl.rs`.
@@ -100,13 +106,23 @@ The source gives each notice once, when it happens. The app takes them in the fr
 | A pad sends no input (rule below) | Info | `<name> is connected but sends no input. Try another USB port or a USB hub.` | none |
 
 - `<name>` is the name of the pad, cut to 32 characters with `...`, with `?` for a character that the font does not have (as on the Input panel).
-- **Once.** A run is one process, and each run opens the pads again. So the app keeps, for this boot, the pads that it told already: the kind of notice, the identity and the path. The relaunch file carries the list to the next run (an optional field, as the port list). A pad that is plugged again at a new path is a new plug and gets its notices again.
+- **Once.** A run is one process, and each run opens the pads again. So the app keeps, for this power cycle, the pads that it told already: the kind of notice, the identity and the path. A pad is told when the player answers its notice (either button), not when the notice is queued: in a game a notice waits for the quick menu, and a run that ends first shows it again in the next run. While a notice of a pad waits, the same pad gives no second one. The writer thread writes the list to `run/pad-notes.toml` in the RAM folder when it grows, and the next run reads it at boot. A file of its own, and not a field of the relaunch file, because the list must also survive a run that ends with no relaunch file, and the frame thread writes no file. A damaged file reads as an empty list: a notice can show again, and nothing else is lost. A pad that is plugged again at a new path is a new plug and gets its notices again.
+- The second button is wider than half of the dialog. A dialog button now gets the width of its label when the labels of the row fit with their own widths; a dialog whose labels fit an equal share keeps its layout.
 - **In a game** the UI shows a notice only while the quick menu is open (the rule of every notice). The pad notices follow that rule.
 - The mapping file notices, a failed joystick list, and a defect of the source go to the log only.
 
 ### Set up this controller
 
-In this task the button opens `Settings > Input` with the focus on the row of that pad: the app finds the port of the pad by its identity and path in the roster, and asks the UI to open the Input panel with the focus on the row of that port (`Screens::open_panel`). When the pad has no port any more, the panel opens on its first row. The panel opens on top of the screen that is on show: the game list, the home screen or the quick menu. M05 makes the button start the guided mapping of that pad.
+In this task the button opens `Settings > Input` with the focus on the row of that pad: the app finds the port of the pad by its identity and path in the roster, and asks the UI to open the Input panel with the focus on the row of that port (`Screens::open_panel`). When the pad has no port any more, the panel opens on its first row. M05 makes the button start the guided mapping of that pad.
+
+The button always shows the panel. The UI opens it in its next frame, by this rule:
+
+1. The Input panel is on show: only its focus moves.
+2. A Settings page is open: the screens above it close, as by back, and the Input panel opens from it. There is never a second Settings page.
+3. Else, when the stack has no room for the Settings page and the panel, the screens above the quick menu, or above the home screen, close first.
+4. Else the Settings page and the Input panel open on top of the screen on show: the game list, the home screen, the quick menu or one of its pages.
+
+Back from the panel goes to the Settings page, and back again to the screen under it. A notice shows only when the UI is on show, so a running game with no menu never gets the panel.
 
 ### The silent pad
 
@@ -115,7 +131,7 @@ A pad that the kernel enumerates can send only neutral reports: a PS3 arcade sti
 - A pad is **heard** when it sends a value that is not neutral (a button down, a stick out of its dead zone). A heard pad never gets this notice in this plug.
 - The notice comes for a pad that has not been heard for `SILENT_PAD_AFTER_NS` (20 s) since it was connected, when the other devices have pressed at least `SILENT_PAD_OTHER_PRESSES` (8) buttons in that time. So somebody uses the machine, and this pad does not answer.
 - Only in a run of the game list. A game run never shows it, but it records a pad that is heard in the game.
-- Once per pad per plug, with the list of told pads above. A pad that was heard in an earlier run of the boot is not checked again: the list carries it as "checked".
+- Once per pad per plug, with the list of told pads above. A pad that was heard in an earlier run of the power cycle is not checked again: the list carries it as "checked".
 - The decision is pure code (`SilentPads` in `neptron-input`) with the time of the frame. The tests use the simulated clock.
 - A pad that nobody uses on a couch also gets the notice once. The text is true for it too, and it comes only once per plug.
 
@@ -129,6 +145,7 @@ A player row and an extra pad row of a pad with the generic layout show ` (gener
 - `PadMap`: M05 adds a kind for a map of the player. The mapper applies it with no change of the port rules.
 - `Set up this controller`: the button opens the Input panel now. M05 makes it start the guided mapping for the pad of the notice, from the identity and path that the app keeps with the notice.
 - The joystick indices: a generic pad gives raw indices to the mapper (`RawInput::JoyButton`, `JoyHat`, `JoyAxis`). A guided mapping records these indices.
+- The device of a plain joystick: the SDL3 source keeps a plain joystick only together with its generic table (`Device::Joystick`), and a gamepad only with the standard layout. `Device::with_map` refuses any other pair, and the pad is then ignored with a notice (a `debug_assert` in a test build). A map of the player for a plain joystick is a new `PadMap` kind that reads raw indices; the next task adds it, and adds its pair to `Device::with_map` with the table that the backend reads. The match there has no wildcard, so a new kind does not compile until it is handled.
 
 ## Tests
 
@@ -136,7 +153,8 @@ A player row and an extra pad row of a pad with the generic layout show ` (gener
 - Pure, the mapping file: a valid file; a missing file; a damaged line, with the other lines kept; a line of another platform.
 - The mapper: a generic pad gives its buttons, its hat and its axes; a generic pad gives the quick menu combination to the hotkeys; the roster says the kind.
 - The silent pad rule with the simulated clock: no notice before the time, no notice without presses of other devices, no notice for a heard pad, once per plug, none in a game run.
-- App: the notices once per pad, across a relaunch; the second button opens the Input panel on the row of the pad; the Input row with the generic suffix.
+- App: the notices once per pad, across a relaunch (the pad notes file); the second button opens the Input panel on the row of the pad; the Input row with the generic suffix; the key of the row of a port.
+- UI: `Screens::open_panel` from home and from the quick menu, never over a running game; a long dialog button gets its own width.
 - Tier 2, with scripted pads: a scripted plain joystick plugs, gives its notice, drives the menus, and opens the quick menu in a game.
 - Scenes and goldens: `screens/input` gets a pad with the generic layout; `screens/notice-generic-pad` shows the notice with its button.
 
@@ -150,7 +168,7 @@ Added to `docs/hardware-checklist.md`, section "Input (M04b)", labelled `needs-h
 | --- | --- | --- | --- |
 | Ship the community `SDL_GameControllerDB`? | No: its entries have no licence that NEPTRON can cite | `data/input` | A licence decision, then the file goes in `data/input` |
 | The button order of a pad with no mapping | The PS3 order | `generic_layout.rs` | Another table, or M05 per controller |
-| The path of a plain joystick | `SDL_GetGamepadPathForID`; when SDL3 gives none, the path is empty and two pads of one unknown model can swap ports | `sdl.rs` | A path call of the joystick API when the `sdl3` crate has one |
+| The path of a joystick with no path | The empty path: two such pads of one model can swap ports | `ffi.rs`, `sdl.rs` | None needed while SDL3 gives a path for every Linux joystick |
 | The times of the silent pad | 20 s and 8 presses | `neptron-input`, `silent.rs` | The constants |
 | A pad with fewer than 10 buttons has no Start | Keyboard or another pad for the quick menu | `generic_layout.rs` | M05 |
 

@@ -96,6 +96,7 @@ A screen that picks the pad for each player is a later step (see "Open questions
 - The four player rows are always there, so the panel has the same shape with no pad, and the crawler finds it on every rig.
 - `Hold Start for menu` moves from the Display panel to this panel. It is an input setting; the Display panel held it only because no input panel existed. The key, the schema entry and the levels do not change.
 - The panel reads the port list of the input source when it opens, and again when the list changes while it is on screen. A pad plugged in while the panel is open shows in the next frames.
+- A pad with the generic layout shows ` (generic layout)` after its name (`docs/spec/input-generic-pads.md`).
 - The name is the device name that SDL3 gives the pad, read through the joystick API: the gamepad API of the `sdl3` crate panics on a name that is not UTF-8, and such bytes become the replacement character. A character that the font has no glyph for (it has ASCII and the Latin-1 Supplement) shows as `?`, so `é` stays `é`. A name that does not fit is cut by the app with `...` so that the row fits: `Player 1`, one space and the text hold 44 characters, with a scroll bar. So the name has at most 35 characters, and 28 before ` (away)`. The tree row is then not clipped, and the crawler does not fail on a long name.
 - Every player row is a row of its own key, one for each port. A later task (M05, remapping per pad) can turn a player row into a `page` row that opens the page of that pad, with no change of the layout.
 
@@ -148,6 +149,6 @@ Each one has a default that this task builds. OP-110 records the decisions of th
 ## Not built
 
 - A UI to pick the pad of each player, to remap a pad (M05), or to name a pad.
-- Pads with no SDL3 mapping (M04b): they are ignored, as today. M04b opens them as joysticks; the port table takes them with no change, by their pad key.
+- Pads with no SDL3 mapping: M04b opens them as joysticks with a generic layout (`docs/spec/input-generic-pads.md`). The port table takes them with no change, by their pad key.
 - Light guns, mice, wheels and per-player keyboards.
 - Rumble.

@@ -161,6 +161,10 @@ A notice shows as a dialog with one button, oldest first. Accept or back sends `
 
 A game list draws the marks of a game in its detail column: `*` favourite, `V` vertical screen, `!` not working, `?` not a set of the arcade index. The panel under the list then gives them in words on its last line, with `Other versions (N)` for a game that has folded clones (`GameEntry::versions`). Accept on such a game opens the list `GameSource::Versions(id)`: the game itself first, then its other versions, each named with its details by the app; Accept there starts the version, and back returns to the list.
 
+`Screens::open_panel(page, focus)` opens a panel of the Settings page in the next `update`, with the focus on the row `focus` once the rows are in the snapshot. The panel on show only moves its focus. When a Settings page is open, the screens above it close (as by back) and the panel opens from it, so there is never a second Settings page. Else, when the stack has no room, the screens above the quick menu or the home screen close first. Else the Settings page and the panel open on top. Nothing opens over a game with no menu. The app uses it for the button `Set up this controller` of the notice of a pad with the generic layout.
+
+The buttons of a dialog share one width while the widest label fits in an equal share of the row. A longer label gets its own width when every label of the row then fits.
+
 A notice with a choice (`Notice::with_choice(label)`) asks the player to choose: it shows `Cancel` and the label, and each new notice opens with the focus on `Cancel`, so a press of accept by a player who did not read it does nothing. Accept on the label sends `AcceptNotice(id)`; back, or accept on `Cancel`, sends `DismissNotice(id)`. An arcade game that cannot be checked uses it, with the label `Start`.
 
 ### The grid pattern

@@ -465,6 +465,39 @@ Use USB pads that SDL3 knows (an Xbox pad, a PlayStation pad, an 8BitDo pad). Us
   - Expect: the panel shows the other pad as player 1 and the replugged pad as player 2 at once.
   - Record: the time until the panel changes.
 
+### Input: every USB gamepad (M04b)
+
+Use a USB pad that SDL3 has no mapping for: a cheap "USB Joystick" or "Generic USB Gamepad" with a PS3-type button order, and, when there is one, an arcade stick that reports its lever as axes. `docs/spec/input-generic-pads.md` has the layout.
+
+- [ ] `needs-hardware` **An unmapped pad on the PC.**
+  - Do: on the x86_64 image, plug the pad in the game list. Use the D-pad and every button in the menus. Start a game and press each button.
+  - Expect: the pad gets a port. The D-pad (or the lever) moves in the menus, Cross is back (B) and Circle is accept (A). In the game every button of the PS3 order drives its RetroPad control, and Select with Start opens the quick menu.
+  - Record: the pad name, its USB id (`lsusb`), its counts of buttons, hats and axes (the `input:` line of the log), and each button that is in another place.
+- [ ] `needs-hardware` **An unmapped pad on the Pi.**
+  - Do: the same on the Raspberry Pi image.
+  - Expect: the same result as on the PC.
+  - Record: the same as on the PC.
+- [ ] `needs-hardware` **The notice of the generic layout and its button.**
+  - Do: plug the unmapped pad in the game list. Choose `Set up this controller` in the notice. Then start a game, quit, and plug the pad again into another USB port.
+  - Expect: one notice with the name of the pad. The button opens `Settings > Input` with the focus on the row of the pad, which reads `<name> (generic layout)`. No notice at the launch and the quit. One notice again after the plug into another port.
+  - Record: the notice text as shown.
+- [ ] `needs-hardware` **A pad that sends no input.**
+  - Do: plug a pad that enumerates but sends only neutral reports (the PS3 arcade stick of the bench straight into the PC). Use the keyboard or another pad in the game list for more than 20 seconds.
+  - Expect: one notice: `<name> is connected but sends no input. Try another USB port or a USB hub.` No second notice for that plug, and none in a game.
+  - Record: the pad, the port, and whether the pad works behind a hub.
+- [ ] `needs-hardware` **Two pads of one unknown model across a launch.**
+  - Do: plug two pads of one model that SDL3 has no mapping for. Mark which is player 1 on `Settings > Input`. Start a game, check which pad drives player 1, quit, and read the panel again.
+  - Expect: each pad keeps its port in the menus, in the game and after the quit. Each pad gives its own notice of the generic layout once.
+  - Record: the model, and the paths of the two pads (the `input:` lines of the log, or `ls -l /dev/input/by-path` over SSH on a development image).
+- [ ] `needs-hardware` **A generic pad whose triggers rest at full travel.**
+  - Do: plug a pad with no mapping whose axes 2 and 3 are analog triggers (many PS3-type pads report a released trigger at one end of the axis). Leave it untouched in the game list for a minute, then play a game.
+  - Expect: the right stick of the generic layout reads the triggers. Record what a game sees with the triggers released: a right stick held to one side is a known limit of the generic layout, which a map of the player (M05) corrects. The menus must not scroll by themselves.
+  - Record: the pad, and the value of axes 2 and 3 at rest and pressed.
+- [ ] `needs-hardware` **The mapping file on the image.**
+  - Do: read the log of a boot (`cargo xtask os logs`).
+  - Expect: no `input:` line about `gamecontrollerdb.txt`: the file is in `/usr/share/neptron/input` and has no damaged line.
+  - Record: the lines about the mapping file, if any.
+
 ### App and launcher (T27)
 
 - [ ] `needs-hardware` **The KMS frontend on the image.**
