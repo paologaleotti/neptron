@@ -119,6 +119,8 @@ pub struct Case {
     pub filter: Filter,
     /// The scanlines over the game.
     pub scanlines: Scanlines,
+    /// The turn of the game picture.
+    pub rotation: Rotation,
     /// The UI canvas.
     pub ui: Option<Source>,
     /// The destination of the UI canvas.
@@ -146,6 +148,7 @@ impl Case {
             dest,
             filter,
             scanlines: Scanlines::NONE,
+            rotation: Rotation::R0,
             ui: None,
             ui_dest: rect(0, 0, 0, 0),
             width,
@@ -183,7 +186,7 @@ impl Case {
             scanlines: self.scanlines,
             ui: self.ui.as_ref().map(Source::frame),
             ui_dest: self.ui_dest,
-            rotation: Rotation::R0,
+            rotation: self.rotation,
         }
     }
 }

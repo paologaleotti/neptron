@@ -15,7 +15,7 @@ pub(crate) use pixel::Rgb;
 #[cfg(test)]
 pub(crate) use pixel::{from_rgb565, from_xrgb1555};
 pub(crate) use scanline::Pattern;
-pub(crate) use turn::Turn;
+pub(crate) use turn::{Turn, TurnedAxis};
 
 use neptron_types::{Frame, Scene};
 
@@ -241,7 +241,7 @@ fn fill_taps(taps: &mut Vec<Tap>, map: &AxisMap, start: u32, end: u32, dest_pos:
     taps.extend((start..end).map(|o| map.tap((i64::from(o) - i64::from(dest_pos)) as u32)));
 }
 
-fn to_frame(taps: &mut [Tap], axis: &turn::TurnedAxis) {
+fn to_frame(taps: &mut [Tap], axis: &TurnedAxis) {
     if axis.reversed {
         for tap in taps {
             *tap = axis.tap_in_frame(*tap);

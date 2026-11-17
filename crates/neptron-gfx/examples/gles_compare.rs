@@ -50,6 +50,7 @@ fn main() -> ExitCode {
     let cases: Vec<Case> = scenes::golden_cases()
         .into_iter()
         .chain(extra_cases())
+        .chain(turned_cases())
         .collect();
     for case in &cases {
         count += 1;
@@ -878,6 +879,145 @@ fn extra_cases() -> Vec<Case> {
     ]
 }
 
+/// Scenes with the game picture turned: each turn with each pixel format
+/// and filter, with scanlines, with a crop, with the UI over it, and a
+/// vertical game of 320x240 on its side, upright at 3x on a 1080p panel.
+fn turned_cases() -> Vec<Case> {
+    use Filter::{Nearest, SharpBilinear};
+    use PixelFormat::{Rgb565, Xrgb1555, Xrgb8888};
+    let pattern = Source::pattern;
+    let mut cases = Vec::new();
+    for (rotation, names) in [
+        (
+            Rotation::R90,
+            [
+                "r90_nearest_2x",
+                "r90_sharp_bilinear",
+                "r90_scanlines_2x",
+                "r90_crop",
+            ],
+        ),
+        (
+            Rotation::R180,
+            [
+                "r180_nearest_2x",
+                "r180_sharp_bilinear",
+                "r180_scanlines_2x",
+                "r180_crop",
+            ],
+        ),
+        (
+            Rotation::R270,
+            [
+                "r270_nearest_2x",
+                "r270_sharp_bilinear",
+                "r270_scanlines_2x",
+                "r270_crop",
+            ],
+        ),
+    ] {
+        let quarter = rotation != Rotation::R180;
+        // The turned picture of a 40x30 frame: 30x40 for a quarter turn.
+        let (tw, th) = if quarter { (30, 40) } else { (40, 30) };
+        cases.push(
+            Case::game(
+                names[0],
+                pattern(40, 30, Xrgb8888),
+                rect(0, 0, 40, 30),
+                rect(4, 2, 2 * tw, 2 * th),
+                Nearest,
+                (2 * tw + 8, 2 * th + 4),
+            )
+            .turned_by(rotation),
+        );
+        cases.push(
+            Case::game(
+                names[1],
+                pattern(40, 30, Rgb565),
+                rect(0, 0, 40, 30),
+                rect(3, 1, 3 * tw - 7, 3 * th + 5),
+                SharpBilinear,
+                (3 * tw, 3 * th + 7),
+            )
+            .turned_by(rotation),
+        );
+        cases.push(
+            Case::game(
+                names[2],
+                pattern(40, 30, Xrgb1555),
+                rect(0, 0, 40, 30),
+                rect(0, 0, 2 * tw + 5, 2 * th),
+                SharpBilinear,
+                (2 * tw + 5, 2 * th),
+            )
+            .turned_by(rotation)
+            .with_black_lines(60),
+        );
+        cases.push(
+            Case::game(
+                names[3],
+                pattern(40, 30, Xrgb8888),
+                rect(-3, 2, 41, 25),
+                rect(-2, 3, 3 * tw, 2 * th),
+                SharpBilinear,
+                (3 * tw, 2 * th + 4),
+            )
+            .turned_by(rotation),
+        );
+    }
+    cases.push(
+        Case::game(
+            "r90_320x240_upright_on_1080p_with_the_ui",
+            pattern(320, 240, Rgb565),
+            rect(0, 0, 320, 240),
+            rect(600, 60, 720, 960),
+            Nearest,
+            (1920, 1080),
+        )
+        .turned_by(Rotation::R90)
+        .with_ui(
+            pattern(320, 240, Xrgb8888),
+            ui_dest_uniform(1920, 1080, 320, 240),
+        ),
+    );
+    cases.push(
+        Case::game(
+            "r270_320x240_interlaced_1to1_with_scanlines",
+            pattern(320, 240, Xrgb8888),
+            rect(0, 0, 320, 240),
+            rect(200, 80, 240, 320),
+            Nearest,
+            (640, 480),
+        )
+        .turned_by(Rotation::R270)
+        .with_black_lines(100),
+    );
+    cases.push(
+        Case::game(
+            "r90_320x240_2x_with_scanlines",
+            pattern(320, 240, Xrgb1555),
+            rect(0, 0, 320, 240),
+            rect(0, 0, 480, 640),
+            Nearest,
+            (480, 640),
+        )
+        .turned_by(Rotation::R90)
+        .with_black_lines(50),
+    );
+    cases
+}
+
+/// The game picture of a case turned by `rotation`.
+trait Turned {
+    fn turned_by(self, rotation: Rotation) -> Self;
+}
+
+impl Turned for Case {
+    fn turned_by(self, rotation: Rotation) -> Self {
+        Self { rotation, ..self }
+    }
+}
+
 /// An image with no pixel bytes and the given size and pitch.
 fn empty(width: u16, height: u16, pitch: usize, format: PixelFormat) -> Source {
     Source {
@@ -933,6 +1073,33 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
             dest_len: 2048,
             limit: neptron_gfx::gles::MAX_AXIS_PRODUCT,
         });
+    // Unturned, both axis products are below the limit. Turned, the 2048
+    // lines of the crop are the columns of the picture, to 4097. The frame
+    // stays inside the texture limit of vc4.
+    let tall = Source::pattern(4, 2048, PixelFormat::Rgb565);
+    let turned_too_large = Scene {
+        game: Some(tall.frame()),
+        crop: rect(0, 0, 4, 2048),
+        dest: rect(0, 0, 4097, 6),
+        ..short_pitch
+    };
+    let unturned_ok = gles.render(&turned_too_large, &mut out).is_ok();
+    let turned = gles.render(
+        &Scene {
+            rotation: Rotation::R90,
+            ..turned_too_large
+        },
+        &mut out,
+    );
+    let turned_scale_ok = unturned_ok
+        && turned
+            == Err(GlesError::ScaleTooLarge {
+                rect: RectKind::Dest,
+                source_len: 2048,
+                dest_len: 4097,
+                limit: neptron_gfx::gles::MAX_AXIS_PRODUCT,
+            });
+    out.data.fill(PADDING);
     let strong = Scene {
         scanlines: Scanlines {
             kind: ScanlineKind::Black,
@@ -962,6 +1129,10 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
             pitch_ok,
         ),
         ("an axis product above the limit is refused", scale_ok),
+        (
+            "the axis product limit applies to the axes of the turned picture",
+            turned_scale_ok,
+        ),
         (
             "a scanline strength above 100 % is refused as the reference refuses it",
             strength_ok,

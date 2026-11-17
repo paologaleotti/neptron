@@ -1,9 +1,9 @@
-use neptron_types::{Filter, Frame, Rect};
+use neptron_types::{Filter, Frame, Rect, Rotation};
 
 use super::GlesError;
 use super::shader::Variant;
 use crate::RectKind;
-use crate::reference::{AxisMap, Pattern, visible};
+use crate::reference::{Pattern, Turn, TurnedAxis, visible};
 
 /// The largest product of the source side and the destination side on one
 /// axis. The shader computes `(2 * i + 1) * source` for destination pixel
@@ -16,13 +16,15 @@ pub const MAX_AXIS_PRODUCT: u64 = 1 << 23;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Quad {
     /// The output pixels that show a source pixel, from the top left: x, y,
-    /// width, height. Every other pixel of the destination samples outside
+    /// width, height. The x axis is the columns of the turned picture, and
+    /// the y axis its lines. Every other pixel of the destination samples outside
     /// the frame and stays black.
     pub(super) visible: [f32; 4],
     /// The destination index of the first visible column and line, then
     /// the destination width and height.
     pub(super) dest: [f32; 4],
-    /// The crop: x, y, width, height, in source pixels.
+    /// The crop on the axes of the turned picture: x, y, width, height, in
+    /// source pixels, with the start of a backward axis mirrored.
     pub(super) crop: [f32; 4],
     /// The source width and height in pixels, then 0 and 0: the renderer
     /// sets the inverse size of the texture storage, which can be larger
@@ -32,9 +34,16 @@ pub(super) struct Quad {
     /// then the prescale `p` of each axis.
     pub(super) axis: [f32; 4],
     /// The first and the last pixel of the crop inside the frame, x and y,
-    /// then x and y. The far tap of a blend clamps to them, as in the
-    /// reference.
+    /// then x and y, mirrored on a backward axis. The far tap of a blend
+    /// clamps to them, as in the reference.
     pub(super) bounds: [f32; 4],
+    /// The frame coordinate of a tap on each axis is `offset + sign * c`:
+    /// the offset and the sign of the columns, then of the lines. A
+    /// backward axis has the offset `frame_len - 1` and the sign -1.
+    pub(super) turn: [f32; 4],
+    /// 1 when the columns read the lines of the frame and the lines its
+    /// columns (`R90` and `R270`), else 0; then 0, 0 and 0.
+    pub(super) swap: [f32; 4],
     /// The program that draws it: the axes that blend.
     pub(super) variant: Variant,
     /// The scanline pattern: the period in destination lines (0 for no
@@ -43,12 +52,13 @@ pub(super) struct Quad {
     pub(super) scan: [f32; 4],
 }
 
-/// The draw that maps `crop` of `frame` to `dest` on an output of
-/// `out_width` by `out_height`, with the scanline `pattern` of the
-/// destination lines, or `None` when it shows nothing.
+/// The draw that maps `crop` of `frame`, turned by `rotation`, to `dest`
+/// on an output of `out_width` by `out_height`, with the scanline
+/// `pattern` of the destination lines, or `None` when it shows nothing.
 pub(super) fn quad(
     frame: &Frame<'_>,
     (crop, dest): (Rect, Rect),
+    rotation: Rotation,
     filter: Filter,
     pattern: Option<Pattern>,
     kind: RectKind,
@@ -62,7 +72,9 @@ pub(super) fn quad(
     if crop.w == 0 || crop.h == 0 || dest.w == 0 || dest.h == 0 {
         return Ok(None);
     }
-    for (source_len, dest_len) in [(crop.w, dest.w), (crop.h, dest.h)] {
+    let turn = Turn::of(crop, (frame.width, frame.height), rotation);
+    let (columns, lines) = (turn.columns, turn.lines);
+    for (source_len, dest_len) in [(columns.crop_len, dest.w), (lines.crop_len, dest.h)] {
         if u64::from(source_len) * u64::from(dest_len) > MAX_AXIS_PRODUCT {
             return Err(GlesError::ScaleTooLarge {
                 rect: kind,
@@ -72,34 +84,25 @@ pub(super) fn quad(
             });
         }
     }
-    let x = Axis::of(
-        crop.x,
-        crop.w,
-        dest.x,
-        dest.w,
-        frame.width,
-        filter,
-        out_width,
-    );
-    let y = Axis::of(
-        crop.y,
-        crop.h,
-        dest.y,
-        dest.h,
-        frame.height,
-        filter,
-        out_height,
-    );
+    let x = Axis::of(&columns, dest.x, dest.w, filter, out_width);
+    let y = Axis::of(&lines, dest.y, dest.h, filter, out_height);
     let (Some(x), Some(y)) = (x, y) else {
         return Ok(None);
     };
     Ok(Some(Quad {
         visible: [x.first_out, y.first_out, x.len, y.len],
         dest: [x.first_index, y.first_index, dest.w as f32, dest.h as f32],
-        crop: [x.crop_start, y.crop_start, crop.w as f32, crop.h as f32],
+        crop: [
+            x.crop_start,
+            y.crop_start,
+            columns.crop_len as f32,
+            lines.crop_len as f32,
+        ],
         frame: [f32::from(frame.width), f32::from(frame.height), 0.0, 0.0],
         axis: [x.recip, y.recip, x.prescale, y.prescale],
         bounds: [x.bounds.0, y.bounds.0, x.bounds.1, y.bounds.1],
+        turn: [x.offset, x.sign, y.offset, y.sign],
+        swap: [if turn.swap { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
         variant: Variant {
             blend_x: x.blends,
             blend_y: y.blends,
@@ -126,6 +129,8 @@ struct Axis {
     recip: f32,
     prescale: f32,
     bounds: (f32, f32),
+    offset: f32,
+    sign: f32,
     blends: bool,
 }
 
@@ -133,21 +138,13 @@ impl Axis {
     /// One axis of the draw, or `None` when no output pixel of it shows a
     /// source pixel. The caller checked that both lengths are not 0.
     fn of(
-        crop_pos: i32,
-        crop_len: u32,
+        turned: &TurnedAxis,
         dest_pos: i32,
         dest_len: u32,
-        frame_len: u16,
         filter: Filter,
         out_len: u32,
     ) -> Option<Self> {
-        let map = AxisMap {
-            crop_start: i64::from(crop_pos),
-            crop_len,
-            dest_len,
-            frame_len: u32::from(frame_len),
-            filter,
-        };
+        let map = turned.map(dest_len, filter);
         let (inside_start, inside_end) = map.inside();
         let (out_start, out_end) = visible(dest_pos, dest_len, out_len);
         let dest_pos = i64::from(dest_pos);
@@ -159,9 +156,10 @@ impl Axis {
         // A source pixel is inside the frame, so the crop starts less than
         // its length before the frame and inside 2^16 after it: every
         // value below is an integer below 2^24, exact in an f32.
-        let crop_start = i64::from(crop_pos);
+        let (crop_start, crop_len) = (turned.crop_start, turned.crop_len);
+        let frame_len = i64::from(turned.frame_len);
         let first = crop_start.max(0);
-        let last = (crop_start + i64::from(crop_len)).min(i64::from(frame_len)) - 1;
+        let last = (crop_start + i64::from(crop_len)).min(frame_len) - 1;
         Some(Self {
             first_out: start as f32,
             len: (end - start) as f32,
@@ -170,6 +168,12 @@ impl Axis {
             recip: (1.0 / (2.0 * f64::from(dest_len))) as f32,
             prescale: (dest_len / crop_len).max(1) as f32,
             bounds: (first as f32, last as f32),
+            offset: if turned.reversed {
+                (frame_len - 1) as f32
+            } else {
+                0.0
+            },
+            sign: if turned.reversed { -1.0 } else { 1.0 },
             // At a whole scale every weight of the axis is 0.
             blends: filter == Filter::SharpBilinear && !dest_len.is_multiple_of(crop_len),
         })
@@ -201,7 +205,15 @@ mod tests {
     fn game(crop: Rect, dest: Rect) -> Result<Option<Quad>, GlesError> {
         let f = frame(PixelFormat::Rgb565);
         let filter = Filter::SharpBilinear;
-        quad(&f, (crop, dest), filter, None, RectKind::Dest, OUT)
+        quad(
+            &f,
+            (crop, dest),
+            Rotation::R0,
+            filter,
+            None,
+            RectKind::Dest,
+            OUT,
+        )
     }
 
     #[test]
@@ -218,6 +230,80 @@ mod tests {
     }
 
     #[test]
+    fn an_unturned_quad_reads_the_frame_as_it_is() {
+        let q = game(rect(1, 2, 8, 6), rect(4, 3, 24, 18)).unwrap().unwrap();
+        assert_eq!(q.turn, [0.0, 1.0, 0.0, 1.0]);
+        assert_eq!(q.swap, [0.0; 4]);
+    }
+
+    fn turned(rotation: Rotation, dest: Rect) -> Quad {
+        let f = frame(PixelFormat::Rgb565);
+        let rects = (rect(1, 2, 8, 6), dest);
+        quad(
+            &f,
+            rects,
+            rotation,
+            Filter::SharpBilinear,
+            None,
+            RectKind::Dest,
+            OUT,
+        )
+        .unwrap()
+        .unwrap()
+    }
+
+    /// For `R90` the columns are the lines 2 to 7 of the 10x8 frame, and
+    /// the lines run from frame column 8 back to column 1: the mirrored
+    /// crop starts at 10 - (1 + 8) = 1.
+    #[test]
+    fn r90_swaps_the_axes_and_runs_the_lines_backward() {
+        let q = turned(Rotation::R90, rect(4, 3, 18, 24));
+        assert_eq!(q.crop, [2.0, 1.0, 6.0, 8.0]);
+        assert_eq!(q.bounds, [2.0, 1.0, 7.0, 8.0]);
+        assert_eq!(q.turn, [0.0, 1.0, 9.0, -1.0]);
+        assert_eq!(q.swap, [1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(q.axis, [1.0 / 36.0, 1.0 / 48.0, 3.0, 3.0]);
+        assert_eq!(q.frame, [10.0, 8.0, 0.0, 0.0], "the texture is not turned");
+    }
+
+    #[test]
+    fn r180_runs_both_axes_backward() {
+        let q = turned(Rotation::R180, rect(4, 3, 24, 18));
+        assert_eq!(q.crop, [1.0, 0.0, 8.0, 6.0]);
+        assert_eq!(q.turn, [9.0, -1.0, 7.0, -1.0]);
+        assert_eq!(q.swap, [0.0; 4]);
+    }
+
+    #[test]
+    fn r270_swaps_the_axes_and_runs_the_columns_backward() {
+        let q = turned(Rotation::R270, rect(4, 3, 18, 24));
+        assert_eq!(q.crop, [0.0, 1.0, 6.0, 8.0]);
+        assert_eq!(q.turn, [7.0, -1.0, 0.0, 1.0]);
+        assert_eq!(q.swap, [1.0, 0.0, 0.0, 0.0]);
+    }
+
+    /// The part of the crop outside the frame stays black on the side
+    /// where the turn puts it: for `R90` the columns left of the frame are
+    /// the last lines.
+    #[test]
+    fn a_turned_quad_covers_only_pixels_inside_the_frame() {
+        let f = frame(PixelFormat::Rgb565);
+        let rects = (rect(-2, 0, 8, 6), rect(0, 0, 6, 8));
+        let q = quad(
+            &f,
+            rects,
+            Rotation::R90,
+            Filter::Nearest,
+            None,
+            RectKind::Dest,
+            OUT,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(q.visible, [0.0, 0.0, 6.0, 6.0]);
+    }
+
+    #[test]
     fn the_scanline_pattern_goes_to_its_uniform() {
         let f = frame(PixelFormat::Xrgb8888);
         let pattern = Pattern {
@@ -229,6 +315,7 @@ mod tests {
         let q = quad(
             &f,
             rects,
+            Rotation::R0,
             Filter::Nearest,
             Some(pattern),
             RectKind::Dest,
@@ -269,6 +356,7 @@ mod tests {
             let q = quad(
                 &f,
                 (rect(0, 0, 8, 6), rect(0, 0, 8, 6)),
+                Rotation::R0,
                 Filter::Nearest,
                 None,
                 RectKind::Dest,
@@ -329,7 +417,7 @@ mod tests {
         for (filter, dest, (blend_x, blend_y)) in cases {
             let f = frame(PixelFormat::Xrgb1555);
             let rects = (rect(0, 0, 8, 6), dest);
-            let q = quad(&f, rects, filter, None, RectKind::Dest, OUT)
+            let q = quad(&f, rects, Rotation::R0, filter, None, RectKind::Dest, OUT)
                 .unwrap()
                 .unwrap();
             assert_eq!(

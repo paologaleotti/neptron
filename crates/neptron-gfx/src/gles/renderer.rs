@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use neptron_types::{Filter, Frame, Rect, Scene};
+use neptron_types::{Filter, Frame, Rect, Rotation, Scene};
 
 use super::GlesError;
 use super::changed::Shown;
@@ -12,7 +12,7 @@ use super::ffi::{
 use super::quad::{Quad, quad};
 use super::shader::{self, VARIANTS, Variant};
 use super::texels;
-use crate::reference::{Pattern, check_frame, check_output, check_rect, check_scanlines};
+use crate::reference::{Pattern, Turn, check_frame, check_output, check_rect, check_scanlines};
 use crate::{Image, OutputBuffer, RectKind};
 
 /// Draws a [`Scene`] with EGL and OpenGL ES 2, with the pixel rules of
@@ -41,6 +41,14 @@ use crate::{Image, OutputBuffer, RectKind};
 /// half can round the other way, so a channel can differ by 1. The shader
 /// needs highp floats with the 23-bit precision of an IEEE 32-bit float,
 /// and [`headless`](Self::headless) checks that the driver gives it.
+///
+/// A turn of the game picture (`scene.rotation`) costs no extra pass. The
+/// quad and its per-axis maths work on the axes of the turned picture, as
+/// the reference does: for `R90` and `R270` the columns of the quad take
+/// the lines of the crop, and an axis that runs against the frame takes
+/// the mirrored crop. The shader then maps each tap to its frame pixel
+/// with an exact integer offset and sign per axis and a swap of the two
+/// axes, before its texture read. The texture is not turned.
 ///
 /// Scanlines follow the same split. The pattern of dark lines comes from
 /// the reference code and reaches the shader as a uniform. On a nearest
@@ -288,9 +296,11 @@ impl GlesRenderer {
                 check_rect(&scene.crop, RectKind::Crop)?;
                 check_rect(&scene.dest, RectKind::Dest)?;
                 check_scanlines(&scene.scanlines)?;
-                let pattern = Pattern::of(scene.scanlines, scene.crop.h, scene.dest.h);
+                let turn = Turn::of(scene.crop, (frame.width, frame.height), scene.rotation);
+                let pattern = Pattern::of(scene.scanlines, turn.lines.crop_len, scene.dest.h);
                 let rects = (scene.crop, scene.dest);
-                draw_of(frame, rects, scene.filter, pattern, RectKind::Dest, size)?
+                let look = (scene.rotation, scene.filter);
+                draw_of(frame, rects, look, pattern, RectKind::Dest, size)?
             }
             None => None,
         };
@@ -305,7 +315,8 @@ impl GlesRenderer {
                     h: u32::from(frame.height),
                 };
                 let (rects, kind) = ((whole, scene.ui_dest), RectKind::UiDest);
-                draw_of(frame, rects, Filter::Nearest, None, kind, size)?
+                let look = (Rotation::R0, Filter::Nearest);
+                draw_of(frame, rects, look, None, kind, size)?
             }
             None => None,
         };
@@ -451,13 +462,13 @@ struct Draw<'a> {
 fn draw_of<'a>(
     frame: &Frame<'a>,
     rects: (Rect, Rect),
-    filter: Filter,
+    (rotation, filter): (Rotation, Filter),
     pattern: Option<Pattern>,
     kind: RectKind,
     size: (u32, u32),
 ) -> Result<Option<Draw<'a>>, GlesError> {
     Ok(
-        quad(frame, rects, filter, pattern, kind, size)?.map(|quad| Draw {
+        quad(frame, rects, rotation, filter, pattern, kind, size)?.map(|quad| Draw {
             frame: *frame,
             quad,
         }),
@@ -641,6 +652,8 @@ struct Uniforms {
     frame: Option<Uniform>,
     axis: Option<Uniform>,
     bounds: Option<Uniform>,
+    turn: Option<Uniform>,
+    swap: Option<Uniform>,
     scan: Option<Uniform>,
     texture: Option<Uniform>,
 }
@@ -655,6 +668,8 @@ impl Uniforms {
             frame: gl.uniform(program, "u_frame"),
             axis: gl.uniform(program, "u_axis"),
             bounds: gl.uniform(program, "u_bounds"),
+            turn: gl.uniform(program, "u_turn"),
+            swap: gl.uniform(program, "u_swap"),
             scan: gl.uniform(program, "u_scan"),
             texture: gl.uniform(program, "u_texture"),
         }
@@ -683,6 +698,8 @@ impl Uniforms {
         );
         gl.set_vec4(self.axis.as_ref(), quad.axis);
         gl.set_vec4(self.bounds.as_ref(), quad.bounds);
+        gl.set_vec4(self.turn.as_ref(), quad.turn);
+        gl.set_vec4(self.swap.as_ref(), quad.swap);
         gl.set_vec4(self.scan.as_ref(), quad.scan);
         gl.set_int(self.texture.as_ref(), 0);
     }

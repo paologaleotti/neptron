@@ -102,8 +102,14 @@ uniform vec4 u_frame;
 // 1 / (2 * dest width) and 1 / (2 * dest height), then the prescale of
 // each axis.
 uniform vec4 u_axis;
-// The first and the last pixel of the crop inside the frame: x, y, x, y.
+// The first and the last pixel of the crop inside the frame: x, y, x, y,
+// mirrored on a backward axis of the turn.
 uniform vec4 u_bounds;
+// The frame coordinate of a tap is offset + sign * coordinate: the offset
+// and the sign of the columns, then of the lines.
+uniform vec4 u_turn;
+// x is 1 when the columns read the lines of the frame (R90 and R270).
+uniform vec4 u_swap;
 // Period, first dark line, kept percent and inverse period of the
 // scanlines; period 0 for none.
 uniform vec4 u_scan;
@@ -147,9 +153,12 @@ vec3 tap(float i, float crop_start, float n, float m, float rm, float p,
     return vec3(near, clamp(far, first, last), weight * rm * 0.5);
 }
 
-// The 8-bit channels of source pixel (x, y), from 0 to 255.
-vec3 pixel(float x, float y) {
-    vec2 uv = vec2((x + 0.5) * u_frame.z, (y + 0.5) * u_frame.w);
+// The 8-bit channels of the source pixel at column c and line l of the
+// turned picture, as frame coordinates. Every term is an integer below
+// 2^16 times 0 or 1, so the swap is exact.
+vec3 pixel(float c, float l) {
+    vec2 f = mix(vec2(c, l), vec2(l, c), u_swap.x);
+    vec2 uv = vec2((f.x + 0.5) * u_frame.z, (f.y + 0.5) * u_frame.w);
     // A channel is n / 255, and no n is within float error of a half.
     return floor(texture2D(u_texture, uv).rgb * 255.0 + 0.5);
 }
@@ -171,8 +180,12 @@ void main() {
                   u_bounds.x, u_bounds.z, BLEND_X == 1);
     vec3 ty = tap(j, u_crop.y, u_crop.w, u_dest.w, u_axis.y, u_axis.w,
                   u_bounds.y, u_bounds.w, BLEND_Y == 1);
+    // A backward axis of the turn reads the mirrored frame: an integer
+    // offset less the coordinate, exact.
+    tx.xy = u_turn.x + u_turn.y * tx.xy;
+    ty.xy = u_turn.z + u_turn.w * ty.xy;
     // j is the destination line, so the pattern follows the source lines
-    // and not the output line parity.
+    // of the turned picture and not the output line parity.
     bool dark = u_scan.x > 0.5 && divmod(j, u_scan.x, u_scan.w).y >= u_scan.y;
     vec3 c = pixel(tx.x, ty.x);
 #if BLEND_X == 1 || BLEND_Y == 1
