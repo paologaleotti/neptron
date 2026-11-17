@@ -196,3 +196,40 @@ fn the_command_writes_the_index_file() {
     // The folder is temporary; one left behind does no harm.
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_core_package_installs_the_index_of_its_own_dat() {
+    let os = Path::new(env!("CARGO_MANIFEST_DIR")).join("../os");
+    let mk = fs::read_to_string(os.join("package/libretro-fbneo/libretro-fbneo.mk"))
+        .expect("the package");
+    let hook = mk
+        .split("define LIBRETRO_FBNEO_ARCADE_INDEX")
+        .nth(1)
+        .and_then(|rest| rest.split("endef").next())
+        .expect("the hook");
+    for part in [
+        "cargo run --offline --locked",
+        "--package xtask -- arcade-index",
+        "--commit $(LIBRETRO_FBNEO_VERSION)",
+        "\"$(@D)/$(LIBRETRO_FBNEO_DAT)\"",
+        "$(TARGET_DIR)/usr/share/neptron/arcade/fbneo.idx",
+    ] {
+        assert!(hook.contains(part), "the hook misses {part:?}");
+    }
+    assert!(
+        mk.contains("LIBRETRO_FBNEO_DAT = dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat")
+    );
+    assert!(mk.contains("LIBRETRO_FBNEO_POST_INSTALL_TARGET_HOOKS += LIBRETRO_FBNEO_ARCADE_INDEX"));
+    assert!(
+        mk.contains("LIBRETRO_FBNEO_DEPENDENCIES += neptron"),
+        "the frontend's install step makes /usr/share/neptron anew, so it runs first"
+    );
+    for board in ["pc", "rpi"] {
+        let notes = fs::read_to_string(os.join(format!("board/{board}/LICENCES.txt")))
+            .expect("the licence notes");
+        assert!(
+            notes.contains("/usr/share/neptron/arcade/fbneo.idx"),
+            "{board}"
+        );
+    }
+}

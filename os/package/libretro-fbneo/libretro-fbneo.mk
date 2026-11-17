@@ -67,4 +67,26 @@ define LIBRETRO_FBNEO_INSTALL_TARGET_CMDS
 		$(TARGET_DIR)/usr/lib/libretro/fbneo_libretro.so
 endef
 
+# The arcade index of the frontend comes from the DAT of this source, so a
+# new pin makes a new index in the same build and the two always agree
+# (docs/spec/arcade.md, section 6). The generator is `cargo xtask
+# arcade-index`, built for the host in the workspace copy of the neptron
+# package: that copy holds the vendored crates, so the build runs offline,
+# and its host-rustc gives cargo. The neptron package installs first,
+# because its install step makes /usr/share/neptron anew; a rebuild of
+# neptron alone therefore needs a reinstall of this package too.
+ifeq ($(BR2_PACKAGE_NEPTRON),y)
+LIBRETRO_FBNEO_DEPENDENCIES += neptron
+LIBRETRO_FBNEO_DAT = dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat
+define LIBRETRO_FBNEO_ARCADE_INDEX
+	cd $(NEPTRON_DIR) && $(HOST_MAKE_ENV) CARGO_HOME=$(BR_CARGO_HOME) \
+		CARGO_TARGET_DIR=$(@D)/xtask-target \
+		cargo run --offline --locked --quiet --package xtask -- arcade-index \
+			--commit $(LIBRETRO_FBNEO_VERSION) \
+			"$(@D)/$(LIBRETRO_FBNEO_DAT)" \
+			$(TARGET_DIR)/usr/share/neptron/arcade/fbneo.idx
+endef
+LIBRETRO_FBNEO_POST_INSTALL_TARGET_HOOKS += LIBRETRO_FBNEO_ARCADE_INDEX
+endif
+
 $(eval $(generic-package))

@@ -56,6 +56,9 @@ Libretro cores
   - stb_vorbis: the MIT licence or public domain, at your choice.
   The licence folder of the image holds the text of each one, under
   `libretro-fbneo`.
+- The list of arcade games (`/usr/share/neptron/arcade/fbneo.idx`) is
+  made from the game list (DAT) in the source of FinalBurn Neo. It is
+  under the FB Neo licence too.
 
 The owner of NEPTRON decided (open point OP-054) that a free, open
 source image can hold Snes9x and Genesis Plus GX, with their licence
