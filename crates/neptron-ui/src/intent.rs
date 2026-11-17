@@ -64,8 +64,12 @@ pub enum Intent {
     Resume,
     /// Stop the game and return to the game list.
     QuitGame,
-    /// Remove a notice from the snapshot: the player has read it.
+    /// Remove a notice from the snapshot: the player has read it, or chose
+    /// `Cancel` in a notice with a choice.
     DismissNotice(NoticeId),
+    /// The player chose the second button of a notice with a choice
+    /// ([`crate::snapshot::Notice::choice`]). The app removes the notice.
+    AcceptNotice(NoticeId),
 }
 
 /// A new setting value.

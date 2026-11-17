@@ -726,6 +726,33 @@ fn notices_show_one_at_a_time_until_dismissed() {
 }
 
 #[test]
+fn a_notice_with_a_choice_starts_on_cancel() {
+    let (mut run, mut snap) = snes_list();
+    let choice = |id| notice(id, "Start anyway?").with_choice("Start");
+    snap.notices = vec![choice(1), choice(2), choice(3)];
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "notice");
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.intents(), [Intent::DismissNotice(NoticeId(1))]);
+    run.step(&snap, &[Right, Accept]);
+    assert_eq!(run.intents(), [Intent::AcceptNotice(NoticeId(2))]);
+    // The next notice starts on Cancel again, also in the same frame.
+    run.step(&snap, &[Right, Left, Back]);
+    assert_eq!(run.intents(), [Intent::DismissNotice(NoticeId(3))]);
+    assert_eq!(run.screen(), "games");
+
+    snap.notices = vec![choice(4), choice(5)];
+    run.step(&snap, &[Right, Accept, Accept]);
+    assert_eq!(
+        run.intents(),
+        [
+            Intent::AcceptNotice(NoticeId(4)),
+            Intent::DismissNotice(NoticeId(5))
+        ]
+    );
+}
+
+#[test]
 fn notices_wait_while_a_game_runs_and_yield_to_a_confirmation() {
     let (mut run, mut snap) = snes_list();
     snap.session = Some(SessionInfo::new(GameId(0), "Astro Quest"));

@@ -99,7 +99,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
                 }
             }
             Intent::QuitGame => self.end_game(None),
-            Intent::DismissNotice(id) => self.snap.notices.retain(|n| n.id != id),
+            Intent::DismissNotice(id) | Intent::AcceptNotice(id) => {
+                self.snap.notices.retain(|n| n.id != id);
+            }
         }
     }
 

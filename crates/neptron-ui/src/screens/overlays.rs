@@ -62,7 +62,15 @@ pub(super) struct Confirm {
 pub(super) struct Notices {
     dialog: Dialog,
     dismissed: [Option<NoticeId>; DISMISSED_SLOTS],
+    /// The notice of the last frame, so a new one starts with the focus on
+    /// its first button.
+    shown: Option<NoticeId>,
 }
+
+/// The first button of a notice with a choice. It has the focus when the
+/// notice opens, so a press of accept by a player who did not read the
+/// text does nothing that cannot be undone.
+const CANCEL: usize = 0;
 
 impl Confirm {
     pub(super) fn new() -> Self {
@@ -143,17 +151,24 @@ impl Confirm {
 impl Notices {
     pub(super) fn new() -> Self {
         Self {
-            dialog: Dialog::new(0),
+            dialog: Dialog::new(CANCEL),
             dismissed: [None; DISMISSED_SLOTS],
+            shown: None,
         }
     }
 
-    /// Forgets the dismissed notices that the app has removed.
+    /// Forgets the dismissed notices that the app has removed, and puts
+    /// the focus on the first button for a notice that is new on screen.
     pub(super) fn follow(&mut self, snap: &Snapshot) {
         for slot in &mut self.dismissed {
             if slot.is_some_and(|id| !snap.notices.iter().any(|n| n.id == id)) {
                 *slot = None;
             }
+        }
+        let current = self.current(snap).map(|n| n.id);
+        if current != self.shown {
+            self.dialog = Dialog::new(CANCEL);
+            self.shown = current;
         }
     }
 
@@ -171,15 +186,33 @@ impl Notices {
     }
 
     /// Accept or back dismisses the notice; the other actions do nothing,
-    /// so a notice cannot be passed over by accident.
+    /// so a notice cannot be passed over by accident. In a notice with a
+    /// choice, left and right move the focus, accept on the second button
+    /// sends [`Intent::AcceptNotice`], and back or accept on `Cancel`
+    /// dismisses it.
     pub(super) fn handle(&mut self, action: UiAction, snap: &Snapshot, out: &mut Vec<Intent>) {
         let Some(notice) = self.current(snap) else {
             return;
         };
-        if matches!(action, UiAction::Accept | UiAction::Back) {
-            out.push(Intent::DismissNotice(notice.id));
-            self.remember(notice.id, snap);
-        }
+        let intent = if notice.choice.is_some() {
+            match self.dialog.handle(action, 2) {
+                DialogEvent::Chosen(CANCEL) | DialogEvent::Cancelled => {
+                    Intent::DismissNotice(notice.id)
+                }
+                DialogEvent::Chosen(_) => Intent::AcceptNotice(notice.id),
+                DialogEvent::None | DialogEvent::Moved => return,
+            }
+        } else if matches!(action, UiAction::Accept | UiAction::Back) {
+            Intent::DismissNotice(notice.id)
+        } else {
+            return;
+        };
+        out.push(intent);
+        self.remember(notice.id, snap);
+        // A later action of the same frame goes to the next notice, which
+        // starts with the focus on its first button too.
+        self.dialog = Dialog::new(CANCEL);
+        self.shown = self.current(snap).map(|n| n.id);
     }
 
     pub(super) fn draw(&self, notice: &Notice, theme: &Theme, frame: &mut UiFrame) {
@@ -188,14 +221,25 @@ impl Notices {
             NoticeKind::Warning => ("Warning", DialogTone::Warning),
             NoticeKind::Error => ("Error", DialogTone::Error),
         };
+        let Some(choice) = notice.choice.as_deref() else {
+            let content = DialogContent {
+                title,
+                message: &notice.text,
+                buttons: &["OK"],
+                tone,
+            };
+            draw_dialog(&self.dialog, &content, theme, frame);
+            chrome::hints(frame, theme, "Accept: OK", "");
+            return;
+        };
         let content = DialogContent {
             title,
             message: &notice.text,
-            buttons: &["OK"],
+            buttons: &["Cancel", choice],
             tone,
         };
         draw_dialog(&self.dialog, &content, theme, frame);
-        chrome::hints(frame, theme, "Accept: OK", "");
+        chrome::hints(frame, theme, "Accept: choose", "Back: cancel");
     }
 
     /// Remembers a dismissed notice. When the set is full, every id in it

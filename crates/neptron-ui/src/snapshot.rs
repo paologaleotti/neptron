@@ -348,6 +348,12 @@ pub struct Notice {
     pub text: String,
     /// How serious it is.
     pub kind: NoticeKind,
+    /// The label of a second button, for example `Start`, for a notice
+    /// that asks the player to choose. The dialog then shows `Cancel`,
+    /// which has the focus, and this button, which sends
+    /// [`crate::Intent::AcceptNotice`]. `None` for a notice that only
+    /// informs.
+    pub choice: Option<String>,
 }
 
 /// How serious a notice is.
@@ -634,7 +640,14 @@ impl Notice {
             id,
             text: text.into(),
             kind,
+            choice: None,
         }
+    }
+
+    /// The same notice with a second button labelled `label`.
+    pub fn with_choice(mut self, label: impl Into<String>) -> Self {
+        self.choice = Some(label.into());
+        self
     }
 }
 

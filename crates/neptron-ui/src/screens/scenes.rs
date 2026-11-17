@@ -97,6 +97,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: notice_warning,
     },
     SceneDef {
+        name: "screens/notice-choice",
+        build: notice_choice,
+    },
+    SceneDef {
         name: "screens/quick-menu",
         build: quick_menu,
     },
@@ -965,15 +969,31 @@ fn notice_warning(frame: &mut UiFrame, theme: &Theme) {
     );
 }
 
+/// A notice that asks the player to choose: an arcade game that cannot be
+/// checked. `Cancel` has the focus.
+fn notice_choice(frame: &mut UiFrame, theme: &Theme) {
+    let notice = Notice::new(
+        NoticeId(1),
+        "NEPTRON cannot find its list of arcade games, so it cannot check this game.",
+        NoticeKind::Warning,
+    )
+    .with_choice("Start");
+    notice_over_list_with(frame, theme, notice);
+}
+
 /// A notice over the NES list, after a launch from it.
 fn notice_over_list(frame: &mut UiFrame, theme: &Theme, text: &str, kind: NoticeKind) {
+    notice_over_list_with(frame, theme, Notice::new(NoticeId(1), text, kind));
+}
+
+fn notice_over_list_with(frame: &mut UiFrame, theme: &Theme, notice: Notice) {
     let mut snap = with_systems();
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &[UiAction::Accept], frame);
     let nes = GameSource::System(NES);
     snap.games = window(nes, 0, 312, WINDOW_ROWS);
     screens.update(&snap, &[UiAction::Down, UiAction::Accept], frame);
-    snap.notices = vec![Notice::new(NoticeId(1), text, kind)];
+    snap.notices = vec![notice];
     screens.update(&snap, &[], frame);
 }
 
