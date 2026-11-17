@@ -23,6 +23,10 @@ pub const MAP_IDLE_TIMEOUT_NS: u64 = 15_000_000_000;
 /// flow always ends. Twenty steps take far less.
 pub const MAP_TOTAL_TIMEOUT_NS: u64 = 300_000_000_000;
 
+/// How long the pad may stay pressed between two steps, in nanoseconds,
+/// before the prompt asks the player to release every control.
+pub const MAP_RELEASE_HINT_NS: u64 = 1_000_000_000;
+
 /// The travel from the centre, in axis units, under which an axis that
 /// counts as a press is released: below [`MAP_AXIS_THRESHOLD`], so an
 /// axis that shakes around the threshold gives one press, not many. An
@@ -71,6 +75,8 @@ pub struct GuidedMapping {
     last_change_ns: Option<u64>,
     /// The time of the first raw state.
     started_ns: Option<u64>,
+    /// Since when the mapping waits for a neutral pad.
+    waiting_since_ns: Option<u64>,
     note: Option<GuidedNote>,
 }
 
@@ -100,6 +106,9 @@ pub struct Prompt {
     /// True while an input is held: past [`MAP_SKIP_HOLD_NS`] the step is
     /// skipped.
     pub holding: bool,
+    /// True when the step waits for a neutral pad for
+    /// [`MAP_RELEASE_HINT_NS`] or more: an input of the pad is still held.
+    pub release: bool,
 }
 
 /// What the screen says about the last input.
@@ -171,6 +180,7 @@ impl GuidedMapping {
             last: None,
             last_change_ns: None,
             started_ns: None,
+            waiting_since_ns: None,
             note: None,
         }
     }
@@ -224,7 +234,15 @@ impl GuidedMapping {
         if self.phase == Phase::Neutral && presses == Presses::default() {
             self.phase = Phase::Ready;
         }
-        self.view(left)
+        if self.phase == Phase::Neutral {
+            self.waiting_since_ns.get_or_insert(now_ns);
+        } else {
+            self.waiting_since_ns = None;
+        }
+        let release = self
+            .waiting_since_ns
+            .is_some_and(|since| now_ns.saturating_sub(since) >= MAP_RELEASE_HINT_NS);
+        self.view(left, release)
     }
 
     /// The map so far.
@@ -233,7 +251,7 @@ impl GuidedMapping {
     }
 
     /// What to show, with `left` nanoseconds before the timeout.
-    fn view(&self, left: u64) -> Guided {
+    fn view(&self, left: u64, release: bool) -> Guided {
         match (self.phase, GUIDED_STEPS.get(self.step)) {
             (Phase::TimedOut, _) => Guided::TimedOut,
             (Phase::Done, _) | (_, None) => Guided::Done(self.map),
@@ -243,6 +261,7 @@ impl GuidedMapping {
                 note: self.note,
                 remaining_ns: left,
                 holding: matches!(phase, Phase::Held { .. }),
+                release,
             }),
         }
     }
@@ -762,6 +781,32 @@ mod tests {
     }
 
     #[test]
+    fn a_pad_held_between_steps_asks_for_a_release() {
+        let mut rig = Rig::new(&[]);
+        rig.guided = GuidedMapping::new();
+        rig.set(RawInput::JoyButton {
+            index: 2,
+            pressed: true,
+        });
+        assert!(!rig.prompt().release);
+        rig.frame(MAP_RELEASE_HINT_NS / MS - 1);
+        assert!(!rig.prompt().release, "not before the hint time");
+        rig.frame(1);
+        assert!(rig.prompt().release);
+        rig.set(RawInput::JoyButton {
+            index: 2,
+            pressed: false,
+        });
+        assert!(!rig.prompt().release, "the pad is neutral");
+        rig.set(RawInput::JoyButton {
+            index: 3,
+            pressed: true,
+        });
+        rig.frame(3_000);
+        assert!(!rig.prompt().release, "a hold to skip is no wait");
+    }
+
+    #[test]
     fn a_mapping_ends_at_its_total_time_even_with_input() {
         let mut rig = Rig::new(&[]);
         let start = rig.now;
@@ -805,6 +850,7 @@ mod tests {
                 note: None,
                 remaining_ns: MAP_IDLE_TIMEOUT_NS - 5_000 * MS,
                 holding: false,
+                release: false,
             })
         );
         rig.button(4);

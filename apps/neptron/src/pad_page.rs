@@ -41,6 +41,10 @@ pub const ALREADY_DEFAULT: &str = "Already default";
 /// The most characters of the name of a pad on the guided mapping.
 pub const MAPPING_NAME_MAX_CHARS: usize = 44;
 
+/// The note of a prompt while the pad still holds an input before the
+/// step can take one.
+pub const RELEASE_NOTE: &str = "Release every control.";
+
 /// The most skipped controls that the review names one by one.
 const SKIPPED_NAMED_MAX: usize = 6;
 
@@ -620,6 +624,7 @@ mod tests {
             let note = note_text(Some(GuidedNote::Taken(control)));
             assert!(note.chars().count() <= 46, "{note}");
         }
+        assert!(RELEASE_NOTE.len() <= 46);
         assert_eq!(note_text(None), "");
         assert_eq!(
             note_text(Some(GuidedNote::Skipped(Control::L3))),

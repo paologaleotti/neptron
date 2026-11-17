@@ -262,7 +262,11 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             (Shown::Prompt(prompt, _), _) => {
                 let steps = u32::try_from(GUIDED_STEPS.len()).unwrap_or(u32::MAX);
                 let step = u32::try_from(prompt.step + 1).unwrap_or(u32::MAX);
-                let note = pad_page::note_text(prompt.note);
+                let note = if prompt.release {
+                    pad_page::RELEASE_NOTE.to_owned()
+                } else {
+                    pad_page::note_text(prompt.note)
+                };
                 self.snap.pad_mapping = Some(PadMapping::new(
                     MappingId(run.id),
                     run.name.clone(),
