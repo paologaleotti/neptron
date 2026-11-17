@@ -22,8 +22,13 @@ pub const COMMUNITY_MAPPING_FILE: &str = "/usr/share/sdl-gamecontrollerdb/gameco
 const GUID_DIGITS: usize = 32;
 
 /// The GUIDs that are not hex digits and that SDL accepts in any case:
-/// the mapping for any unknown pad, and the mapping of XInput devices.
-const SPECIAL_GUIDS: [&str; 2] = ["default", "xinput"];
+/// the fallback mapping, and the mapping of XInput devices.
+const SPECIAL_GUIDS: [&str; 2] = [DEFAULT_GUID, "xinput"];
+
+/// The GUID of the fallback mapping of SDL. With one, SDL calls every
+/// joystick a gamepad and gives it that mapping when it has no other, so
+/// the generic layout and its notices would never apply.
+const DEFAULT_GUID: &str = "default";
 
 /// The field of a mapping line that names its platform.
 const PLATFORM_FIELD: &str = "platform";
@@ -54,6 +59,11 @@ pub enum MappingLineError {
     /// The line has no `field:value` pair after the name.
     #[error("the line maps nothing")]
     NoMapping,
+    /// The line is the fallback mapping of SDL, which NEPTRON refuses.
+    #[error(
+        "the GUID \"default\" is refused: SDL would give this layout to every joystick with no mapping, and the generic layout would never apply"
+    )]
+    DefaultGuid,
     /// A pair has no field or no value.
     #[error("{pair:?} is not a field:value pair")]
     Pair {
@@ -92,6 +102,11 @@ pub fn parse_mappings(text: &str, path: &str, platform: &str) -> Mappings {
         }
         match check_line(line) {
             Ok(Some(other)) if other != platform => {}
+            Ok(_) if is_default(line) => mappings.notices.push(InputNotice::MappingFile {
+                path: path.to_owned(),
+                line: number,
+                reason: MappingLineError::DefaultGuid.to_string(),
+            }),
             Ok(_) => mappings.lines.push((number, line.to_owned())),
             Err(e) => mappings.notices.push(InputNotice::MappingFile {
                 path: path.to_owned(),
@@ -112,6 +127,13 @@ pub fn parse_mappings(text: &str, path: &str, platform: &str) -> Mappings {
 )]
 pub(crate) fn sdl_add_order<'a>(files: &'a [&'a Path]) -> impl Iterator<Item = &'a Path> {
     files.iter().rev().copied()
+}
+
+/// Whether `line` is the fallback mapping of SDL.
+fn is_default(line: &str) -> bool {
+    line.split(',')
+        .next()
+        .is_some_and(|guid| guid.trim().eq_ignore_ascii_case(DEFAULT_GUID))
 }
 
 /// Checks one mapping line, and gives its platform when it names one.
@@ -209,15 +231,25 @@ mod tests {
     }
 
     #[test]
-    fn the_special_guids_of_sdl_are_good() {
+    fn the_xinput_guid_is_good_and_the_default_guid_is_refused() {
         let text = "xinput,XInput Controller,a:b0,platform:Linux,\n\
+                    XInput,XInput Controller,a:b0,platform:Linux,\n\
                     Default,Any Pad,a:b0,platform:Linux,\n\
+                    default,Any Pad,a:b0,platform:Windows,\n\
                     xinputs,Pad,a:b0,platform:Linux,\n";
         let mappings = parse_mappings(text, "map.txt", "Linux");
-        assert_eq!(mappings.lines.len(), 2);
+        let numbers: Vec<usize> = mappings.lines.iter().map(|(n, _)| *n).collect();
+        assert_eq!(numbers, [1, 2]);
         assert_eq!(
             mappings.notices,
-            [line_notice(3, "\"xinputs\" is not a GUID of 32 hex digits")]
+            [
+                line_notice(
+                    3,
+                    "the GUID \"default\" is refused: SDL would give this layout to every \
+                     joystick with no mapping, and the generic layout would never apply"
+                ),
+                line_notice(5, "\"xinputs\" is not a GUID of 32 hex digits"),
+            ]
         );
     }
 
