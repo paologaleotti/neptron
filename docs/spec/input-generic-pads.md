@@ -8,7 +8,8 @@ This spec settles task M04b. It decides where the map of a pad comes from, how a
 - The kernel exposes every HID gamepad and joystick (`hid-generic`) as an event node. SDL3 lists it as a joystick with a number of buttons, hats and axes, whether or not it has a gamepad mapping.
 - SDL3 reads the state of a plain joystick with the same `SDL_UpdateGamepads` call that the source makes in each poll (it updates every joystick). No event pump is needed.
 - `SDL_AddGamepadMapping` adds one line of the `gamecontrollerdb` format. A line for a GUID that SDL3 knows replaces its built-in line. `SDL_AddGamepadMappingsFromFile` adds a whole file, but it returns only a count: it cannot say which line is damaged.
-- The community `SDL_GameControllerDB` has no licence file that covers its entries. NEPTRON does not ship it (open question below).
+- In SDL 3.4 (`SDL_gamepad.c`, `SDL_PrivateAddMappingForGUID`) every mapping has a priority: the built-in lines have the lowest, a line from `SDL_AddGamepadMapping` the next. A line replaces the line of the same GUID when its priority is the same or higher. So an added line always replaces a built-in line, and of two added lines for one GUID, the later call wins.
+- The community `SDL_GameControllerDB` (github.com/mdqinc/SDL_GameControllerDB) has a `LICENSE` file with the zlib licence. NEPTRON ships it in every image (ADR 0017).
 - The Mad Catz FightStick TE (`0738:8838`) is in the built-in database of SDL3. Its fault is elsewhere: it enumerates and sends neutral reports, and works only behind a USB hub. This task adds no entry for it, and the silent pad notice covers that case.
 
 ## The sources of a map
@@ -17,10 +18,11 @@ A **map** is what turns the raw input of one pad into RetroPad controls. Its kin
 
 1. **The map of the player**, from the settings, keyed by the identity of the controller (`DeviceIdentity`, the hash of the SDL GUID). Task M05 adds it. This task has the hook only.
 2. **The NEPTRON mapping file**, `data/input/gamecontrollerdb.txt` in the repository, `/usr/share/neptron/input/gamecontrollerdb.txt` in the image. Its lines go to SDL3 when the source opens, so they replace a built-in line for the same GUID.
-3. **The built-in database of SDL3.**
-4. **The generic layout**, for a joystick with no gamepad mapping.
+3. **The community database**, `SDL_GameControllerDB`, `/usr/share/sdl-gamecontrollerdb/gamecontrollerdb.txt` in the image (section below).
+4. **The built-in database of SDL3.**
+5. **The generic layout**, for a joystick with no gamepad mapping.
 
-Sources 2 and 3 both make SDL3 report a gamepad mapping: the source opens the device as a gamepad, and the map is known. Source 4 opens it as a plain joystick, and the map is generic.
+Sources 2, 3 and 4 make SDL3 report a gamepad mapping: the source opens the device as a gamepad, and the map is known. Source 5 opens it as a plain joystick, and the map is generic.
 
 In code, the map is a value (`PadMap`: `Known` or `Generic(GenericLayout)`) that the mapper keeps for each connected pad. The source asks a map source (the trait `PadMaps`) for it, with the identity of the pad and what SDL3 knows of it (`PadLayout`: a gamepad mapping, or the counts of a joystick). The built-in map source (`BuiltinMaps`) gives `Known` for a gamepad mapping and the generic layout for a joystick. M05 puts a source in front of it that reads the settings. The roster entry of a pad says which kind of map it uses (`MapKind`).
 
@@ -29,8 +31,21 @@ In code, the map is a value (`PadMap`: `Known` or `Generic(GenericLayout)`) that
 - The file has the `gamecontrollerdb` format: one mapping a line, `GUID,name,field:value,...`. A line that starts with `#` is a comment. An empty line is skipped.
 - The file ships with a header comment and no entry. An entry is added only with a source that can be cited in a comment above it. No entry is in it now.
 - The source reads the file once, when it opens, before the first frame. A pure parser (`MappingFile::parse`) checks each line and gives the good lines and the problems, with the line number. The source gives each good line to `SDL_AddGamepadMapping`. This replaces the "add mappings from file" call of SDL3 on purpose: that call reports only a count, so a damaged line could not be named, and the parser can be tested with no SDL3.
-- A good line has: a GUID of 32 hex digits, a name that is not empty, and at least one `field:value` pair; every pair has a field and a value. A line with a `platform:` field for another platform (SDL3 names it, `Linux` on the image) is skipped with no problem, as SDL3 does.
+- A good line has: a GUID of 32 hex digits (or `default` or `xinput`, the two special GUIDs of SDL3, in any case), a name that is not empty, and at least one `field:value` pair; every pair has a field and a value. A line with a `platform:` field for another platform (SDL3 names it, `Linux` on the image) is skipped with no problem, as SDL3 does.
 - A missing file, a file that cannot be read, a damaged line, or a line that SDL3 refuses each give one notice. A damaged line loses only itself. Input always opens. These notices go to the log only.
+
+## The community database
+
+The community database `SDL_GameControllerDB` knows many more pads than the built-in database of a pinned SDL3. The owner decided on 2026-11-17 to ship it, so more pads get a known layout. ADR 0017 records the licence (zlib) and the pin.
+
+- **Where it comes from.** The Buildroot package `os/package/sdl-gamecontrollerdb` downloads the repository at a pinned commit, checks the archive and `LICENSE` against its hash file, and installs `gamecontrollerdb.txt` as `/usr/share/sdl-gamecontrollerdb/gamecontrollerdb.txt`. The three images (PC, QEMU aarch64, Pi) enable it. The repository holds no copy of the file. The file is not under `/usr/share/neptron`, because the install step of the `neptron` package empties that folder: a rebuild of the frontend package alone would lose the file. The licence text goes to the licence folder of the image through `make legal-info`, as for every package.
+- **The image check.** `os/board/common/check-gamecontrollerdb.sh`, run by the common post-build step, fails the build when the configuration enables the package and the image has no file, or an empty file.
+- **The order of the files.** `SdlGamepads::open` takes the mapping files in priority order: the NEPTRON file, then the community file. It gives the lines to SDL3 in the reverse order, the community file first. Because the later call wins for a GUID, a NEPTRON line replaces a community line, and both replace a built-in line.
+- **The platform.** The file has lines for every platform. The same parser reads it, and keeps only the lines with `platform:Linux` (the platform name that SDL3 gives on the image). At the pin there are 752 Linux lines of 2329.
+- **A pad that SDL3 knows already.** A community line for a GUID replaces the built-in line of that GUID. This is intended: the community database is newer and wider than the built-in database of a pinned SDL3, and it gets its corrections first. Example: for the Mad Catz stick `0738:8838` (GUID `03000000380700003888000010010000`) the built-in line of SDL 3.4.12 also binds the left stick press to axis 0; the community line does not.
+- **A wrong community line.** The player maps the pad again with `Set up this controller` (task M05): the map of the player comes first of all the sources. A line that is wrong for every owner of a pad goes to the NEPTRON file, with the source cited, and is reported upstream.
+- **A missing file.** An image built without the package, or a run on a host, has no community file. That is not an error: one notice goes to the log, and input opens. A damaged line is skipped with a notice, as in the NEPTRON file.
+- **The cost.** The source reads the file once, when it opens, before the first frame and off the frame loop. The pure parse of the file at the pin (606 kB, 2329 mappings, 752 for Linux) takes 10.4 ms on the development host (Apple M1 Pro, the dev profile with no optimisation, at the low priority of xtask). The image uses the release profile, which is many times faster for this loop: the estimate is 1 ms or less on the host, and 5 to 10 ms on a Raspberry Pi 3 (Cortex-A53, 1.2 GHz). The 752 calls of `SDL_AddGamepadMapping` add to that: each call searches the list of mappings of SDL3 for the GUID, some 1000 entries, which is a few milliseconds more on the Pi 3. The total is once per run, before the first frame, and accepted. A measure on the Pi is in `docs/hardware-checklist.md`. When it shows more than 50 ms, the parser checks the platform of a line before its pairs, so the lines of other platforms (two thirds of the file) cost almost nothing; a further step is a Linux-only copy of the file made by the package.
 
 ## The path of a pad
 
@@ -150,7 +165,8 @@ A player row and an extra pad row of a pad with the generic layout show ` (gener
 ## Tests
 
 - Pure, the generic layout: 13 buttons, a hat and 4 axes; 8 buttons and a hat; 12 buttons, no hat and 2 axes; too few buttons; no hat and no axis; Start and Select from 10 buttons.
-- Pure, the mapping file: a valid file; a missing file; a damaged line, with the other lines kept; a line of another platform.
+- Pure, the mapping file: a valid file; a missing file; a damaged line, with the other lines kept; a line of another platform; the special GUIDs `default` and `xinput`; a file in the shape of the community database, of which only the Linux lines stay.
+- The image: the three images enable the community package; it is pinned to a commit, with the hash of its archive and of its licence file, and installs the file at the path that the frontend reads; the image check fails with the package and no file.
 - The mapper: a generic pad gives its buttons, its hat and its axes; a generic pad gives the quick menu combination to the hotkeys; the roster says the kind.
 - The silent pad rule with the simulated clock: no notice before the time, no notice without presses of other devices, no notice for a heard pad, once per plug, none in a game run.
 - App: the notices once per pad, across a relaunch (the pad notes file); the second button opens the Input panel on the row of the pad; the Input row with the generic suffix; the key of the row of a port.
@@ -160,13 +176,13 @@ A player row and an extra pad row of a pad with the generic layout show ` (gener
 
 ## Hardware checks
 
-Added to `docs/hardware-checklist.md`, section "Input (M04b)", labelled `needs-hardware`: an unmapped pad on the PC and on the Pi gives all its buttons and the D-pad in the menus and in a game; the notice and its button; a silent pad shows its notice. No hardware result is claimed.
+Added to `docs/hardware-checklist.md`, section "Input (M04b)", labelled `needs-hardware`: an unmapped pad on the PC and on the Pi gives all its buttons and the D-pad in the menus and in a game; the notice and its button; a silent pad shows its notice; a pad that only the community database knows gets its layout with no notice of the generic layout. No hardware result is claimed.
 
 ## Open questions
 
 | Question | Default | Where | How to change |
 | --- | --- | --- | --- |
-| Ship the community `SDL_GameControllerDB`? | No: its entries have no licence that NEPTRON can cite | `data/input` | A licence decision, then the file goes in `data/input` |
+| Ship the community `SDL_GameControllerDB`? | Yes, at a pinned commit, under the zlib licence (ADR 0017) | `os/package/sdl-gamecontrollerdb` | A new pin in the package, its hash file and the ADR |
 | The button order of a pad with no mapping | The PS3 order | `generic_layout.rs` | Another table, or M05 per controller |
 | The path of a joystick with no path | The empty path: two such pads of one model can swap ports | `ffi.rs`, `sdl.rs` | None needed while SDL3 gives a path for every Linux joystick |
 | The times of the silent pad | 20 s and 8 presses | `neptron-input`, `silent.rs` | The constants |
