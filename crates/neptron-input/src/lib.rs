@@ -24,6 +24,7 @@ mod port_table;
 mod ports;
 mod raw;
 mod roster;
+mod scripted;
 #[cfg(feature = "sdl3")]
 mod sdl;
 mod state;
@@ -48,5 +49,6 @@ pub use port_table::PadId;
 pub use ports::PortStates;
 pub use raw::{HatState, KeyAction, KeyCode, PadAxis, PadButton, RawInput};
 pub use roster::{PLAYER_PORTS, PadInfo, PadRoster, PortRule, Roster, RosterEntry, RosterError};
+pub use scripted::{ScriptedPad, ScriptedPads};
 #[cfg(feature = "sdl3")]
 pub use sdl::{SCAN_INTERVAL_POLLS, SdlGamepads, SdlInputError};

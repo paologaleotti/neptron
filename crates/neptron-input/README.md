@@ -15,6 +15,7 @@ The tests drive layers 2 to 4 with scripted devices and scripted input, with no 
 
 - `Mapper`: `new()` (the rule of the menus), `with_rule(rule, earlier)`, `connect_gamepad(info) -> PadId`, `disconnect_gamepad(pad, out)`, `apply_gamepad(pad, raw, out)`, `device_of(pad)`, `settle(out)`, `roster()`, `roster_changes()`, and by device id `connect_keyboard()`, `disconnect(device, out)`, `apply(device, raw, out)`, `is_connected(device)`. `MapperError`.
 - The roster: `PadInfo` (identity, path, name), `PortRule` (`Menus`, `Game`), `Roster` and `RosterEntry` (the pad of each port, present or away), `RosterError`, `PLAYER_PORTS` (4), and the trait `PadRoster` (`roster()`, `roster_changes()`) that a source of pads gives the frontend.
+- `ScriptedPads`: gamepads with no hardware for tests of the frontend (`plug`, `unplug`, `replug`, `set`, `device`), through the same mapper. `InputSource` and `PadRoster`.
 - `PortStates`: `apply(events)`, `value(port, control)`, `is_held(port, control)`.
 - `Hotkeys`: `update(ports, now_ns, out)` gives `Hotkey::QuickMenu { port }` and `Hotkey::BlindRecovery { port }`. `set_start_hold_ns(hold_ns)` and `start_hold_ns()` give the Start hold time (0 is off).
 - `port_of(device)`, `DeviceIdentity`, the id ranges and limits.
@@ -68,7 +69,7 @@ A key held before a keyboard opens gives no kernel event. So when the source ope
 | Ids | Devices | Port |
 | --- | --- | --- |
 | 0 to 7 | Direct ids: the window keyboard (id 0), scripted input, the control API | the id |
-| `0x100` to `0x107` | SDL3 gamepads | the id minus `0x100` |
+| `0x100` to `0x107` | SDL3 gamepads and scripted pads | the id minus `0x100` |
 | `0x200` to `0x207` | evdev keyboards | 0 |
 
 `port_of(device)` gives the port. Ids outside the ranges have no port and `PortStates` ignores them. The window keyboard keeps its id 0 and needs no change. A gamepad id holds its port, so it changes when the pad moves down in the menus.

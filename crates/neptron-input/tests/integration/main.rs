@@ -6,3 +6,4 @@
 mod hotkeys;
 mod mapper;
 mod ports;
+mod scripted;
