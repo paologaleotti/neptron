@@ -1909,3 +1909,23 @@ fn a_panel_tells_a_speed_change_above_five_percent() {
     // NES, 60.099 Hz: -0.16 %, the status only.
     assert!(!speed(60_099));
 }
+
+#[test]
+fn a_narrow_mode_on_one_field_rate_takes_a_wider_whole_multiple() {
+    // The ntsc preset takes 59.940 Hz only. A 160-pixel Atari 2600 mode
+    // has no whole-kHz clock that gives it; 320 pixels (2x) do.
+    let profile = preset("ntsc");
+    let caps = open_caps();
+    let plan = decide(
+        &source(160, 192, 59_923),
+        &PolicySettings::default(),
+        &profile,
+        &caps,
+    )
+    .unwrap();
+    let (considered, p) = winner(&plan, &profile, &caps);
+    assert_eq!(considered.rung, Rung::Native);
+    assert_eq!(p.horizontal, Some(HorizontalScale::Multiple(2)));
+    assert_eq!((p.mode.hactive, p.mode.field_rate_mhz()), (320, 59_940));
+    assert_eq!(p.placement.dest.w, 320);
+}

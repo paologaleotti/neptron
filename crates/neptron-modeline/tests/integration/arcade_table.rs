@@ -787,9 +787,6 @@ fn fit_allowed(
     if !exact.is_empty() {
         return Ok(());
     }
-    if one_field_rate(profile) {
-        return Ok(());
-    }
     let lines = u32::from(plan.source.height);
     match &profile.kind {
         MonitorKind::Crt { ranges } => {
@@ -838,21 +835,10 @@ fn panel_rule(plan: &Plan, p: &Proposal) -> &'static str {
     }
 }
 
-/// A range of the profile has one field rate (the `ntsc` and `pal`
-/// presets): a mode must hit it to the millihertz, and the whole-kHz clock
-/// of a narrow mode moves the field rate by more than 10 mHz per step, so
-/// it may find no exact mode: a stated exception.
-fn one_field_rate(profile: &MonitorProfile) -> bool {
-    matches!(&profile.kind, MonitorKind::Crt { ranges } if ranges.iter().any(|r| r.v_min_mhz == r.v_max_mhz))
-}
-
 /// The allowed reason of a fitted winner, or "ok" for an exact one.
 fn fit_reason(profile: &MonitorProfile, plan: &Plan, considered: &Considered) -> &'static str {
     if !considered.rung.is_fitted() {
         return "ok";
-    }
-    if one_field_rate(profile) {
-        return "ok: one field rate only";
     }
     let exact = plan.proposals().any(|(_, c, _)| !c.rung.is_fitted());
     if exact && !matches!(profile.kind, MonitorKind::FlatPanel { .. }) {
@@ -959,9 +945,6 @@ fn crt_order(plan: &Plan, p: &Proposal, profile: &MonitorProfile, caps: &GpuCaps
 /// inside it; else no mode breaks the rule.
 pub fn no_mode_reason(profile: &MonitorProfile, board: &Board) -> &'static str {
     let rate = u64::from(board.refresh_mhz);
-    if one_field_rate(profile) {
-        return "ok: one field rate only";
-    }
     match &profile.kind {
         MonitorKind::Crt { ranges }
             if ranges.iter().any(|r| {

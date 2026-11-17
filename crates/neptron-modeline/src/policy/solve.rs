@@ -61,6 +61,7 @@ pub(crate) fn solve(
         HorizontalStrategy::DynamicSuperWidth => ask.dynamic()?,
         HorizontalStrategy::FixedSuperWidth { width } => ask.at_floor(ask.fixed(width)?),
     };
+    let picked = ask.onto_one_field_rate(picked)?;
     Ok(picked.map(|(candidate, horizontal)| {
         proposal(
             shape,
@@ -112,6 +113,51 @@ impl Ask<'_> {
             });
         }
         Ok((candidate, horizontal))
+    }
+
+    /// On a range of one field rate (`ntsc`, `pal`) a mode must give that
+    /// rate to the millihertz, and the whole-kHz clock of a narrow mode
+    /// moves it by more than 10 mHz per step. A whole multiple of the width
+    /// has proportionally finer steps, so the next multiples are tried, up
+    /// to [`DYNAMIC_STEPS_MAX`] and the widest mode of the GPU, until one
+    /// gives the rate. The game stays pixel exact across (a whole
+    /// multiple); a fixed width and a mode that gives the rate stay.
+    fn onto_one_field_rate(&self, picked: Picked) -> Result<Picked, ModelineError> {
+        let ranges = match &self.profile.kind {
+            MonitorKind::Crt { ranges } => ranges.as_slice(),
+            MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => &[],
+        };
+        // The one rate of the profile, when every range has that one rate.
+        let Some(rate) = ranges.first().map(|r| r.v_min_mhz).filter(|&rate| {
+            ranges
+                .iter()
+                .all(|r| r.v_min_mhz == rate && r.v_max_mhz == rate)
+        }) else {
+            return Ok(picked);
+        };
+        let hits = |c: &Candidate| c.modeline.field_rate_mhz() == rate;
+        let k = match &picked {
+            Ok((candidate, HorizontalScale::Multiple(k))) if !hits(candidate) => *k,
+            // The clock may also miss the rate by the match: the next
+            // multiples get the same chance.
+            Err(Dropped::RefreshMissed { .. }) => 1,
+            _ => return Ok(picked),
+        };
+        for step in 1..=DYNAMIC_STEPS_MAX {
+            let next = u32::from(k) + u32::try_from(step).unwrap_or(u32::MAX);
+            let width = u32::from(self.shape.base_width).saturating_mul(next);
+            let (Ok(multiple), true) =
+                (u16::try_from(next), width <= u32::from(self.caps.max_width))
+            else {
+                break;
+            };
+            if let Ok(found) = self.multiple(multiple)?
+                && hits(&found.0)
+            {
+                return Ok(Ok(found));
+            }
+        }
+        Ok(picked)
     }
 
     /// The smallest multiple of the base width whose pixel clock is at

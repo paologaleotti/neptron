@@ -389,9 +389,7 @@ impl Sweep {
                         .min_by_key(|&c| c.abs_diff(rate))
                         .unwrap_or(rate);
                     ranges.iter().any(|r| {
-                        (r.h_min_mhz == r.h_max_mhz || r.v_min_mhz == r.v_max_mhz)
-                            && r.v_min_mhz <= near
-                            && near <= r.v_max_mhz
+                        r.h_min_mhz == r.h_max_mhz && r.v_min_mhz <= near && near <= r.v_max_mhz
                     })
                 }
                 _ => false,
@@ -479,10 +477,6 @@ impl Sweep {
         }
         if let MonitorKind::Crt { ranges } = &profile.kind {
             if fitted {
-                // A profile of one field rate (ntsc, pal) takes a mode only
-                // at that rate to the millihertz, which the whole-kHz clock
-                // of a narrow mode may not reach: a stated exception.
-                let one_field = ranges.iter().all(|r| r.v_min_mhz == r.v_max_mhz);
                 // `display.vertical = fit` asks a turned game for the fit.
                 let chosen = plan.source.turned
                     && self.settings.vertical == neptron_modeline::policy::VerticalMode::Fit;
@@ -499,7 +493,7 @@ impl Sweep {
                 let beaten = exact.is_some_and(|e| e < fit_speed + REFRESH_MATCH_MHZ);
                 self.check(
                     "no soft fit when an exact mode exists",
-                    one_field || chosen || !beaten,
+                    chosen || !beaten,
                     || format!("{}: fit {fit_speed} mHz off, exact {exact:?}", what()),
                 );
             }
