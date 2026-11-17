@@ -196,28 +196,21 @@ impl Dialog {
             return;
         }
         let row = theme.row_height_px();
-        let widest = buttons
-            .iter()
-            .map(|b| font::text_width(b))
-            .max()
-            .unwrap_or(0);
+        let widths = ButtonWidths::of(buttons, theme);
         let gaps = (count - 1).saturating_mul(BUTTON_GAP_PX);
-        let max_w = DIALOG_WIDTH_PX
-            .saturating_sub(2 * theme.padding_px())
-            .saturating_sub(gaps)
-            / count;
-        let button_w = widest
-            .saturating_add(2 * theme.padding_px())
-            .max(BUTTON_MIN_WIDTH_PX)
-            .min(max_w);
-        let total = count.saturating_mul(button_w).saturating_add(gaps);
+        let total = buttons
+            .iter()
+            .fold(gaps, |sum, b| sum.saturating_add(widths.width(b, theme)));
         let x0 = add(area.x, (area.w.saturating_sub(total)) / 2);
         let y = i32::try_from(area.bottom() - i64::from(BORDER_PX + theme.padding_px() + row + 2))
             .unwrap_or(area.y);
         let focus = self.focus.min(buttons.len() - 1);
+        let mut x = x0;
         for (i, label) in buttons.iter().enumerate() {
-            let x = add(x0, to_u32(i).saturating_mul(button_w + BUTTON_GAP_PX));
-            let rect = Rect::new(x, y, button_w, row + 2);
+            let button_w = widths.width(label, theme);
+            let left = x;
+            x = add(x, button_w.saturating_add(BUTTON_GAP_PX));
+            let rect = Rect::new(left, y, button_w, row + 2);
             let focused = i == focus;
             let (fill, color) = if focused {
                 (theme.colors.focus, theme.colors.focus_text)
@@ -240,6 +233,60 @@ impl Dialog {
     }
 }
 
+/// How wide the buttons of a row are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ButtonWidths {
+    /// Every button has this width.
+    Equal(u32),
+    /// Each button has the width of its label ([`own_width`]).
+    Own,
+}
+
+impl ButtonWidths {
+    /// The buttons share one width, that of the widest label, while it
+    /// fits in an equal share of the row. A longer label, such as `Set up
+    /// this controller`, gets its own width when every button then fits;
+    /// else every button gets the equal share and the long label is cut.
+    fn of(buttons: &[&str], theme: &Theme) -> Self {
+        let count = to_u32(buttons.len()).max(1);
+        let gaps = (count - 1).saturating_mul(BUTTON_GAP_PX);
+        let room = DIALOG_WIDTH_PX
+            .saturating_sub(2 * theme.padding_px())
+            .saturating_sub(gaps);
+        let share = room / count;
+        let widest = buttons
+            .iter()
+            .map(|b| own_width(b, theme))
+            .max()
+            .unwrap_or(0);
+        if widest <= share {
+            return Self::Equal(widest);
+        }
+        let sum = buttons
+            .iter()
+            .fold(0u32, |sum, b| sum.saturating_add(own_width(b, theme)));
+        if sum <= room {
+            Self::Own
+        } else {
+            Self::Equal(share)
+        }
+    }
+
+    fn width(self, label: &str, theme: &Theme) -> u32 {
+        match self {
+            Self::Equal(width) => width,
+            Self::Own => own_width(label, theme),
+        }
+    }
+}
+
+/// The width of a button that holds `label` whole.
+fn own_width(label: &str, theme: &Theme) -> u32 {
+    font::text_width(label)
+        .saturating_add(2 * theme.padding_px())
+        .max(BUTTON_MIN_WIDTH_PX)
+}
+
 fn message_width(theme: &Theme) -> u32 {
     DIALOG_WIDTH_PX.saturating_sub(2 * BORDER_PX + 2 * theme.padding_px())
 }
@@ -256,6 +303,42 @@ fn max_lines(theme: &Theme) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_second_label_gets_its_own_width_when_both_fit() {
+        let theme = Theme::default();
+        let content = DialogContent {
+            buttons: &["Cancel", "Set up this controller"],
+            ..CONTENT
+        };
+        let mut frame = UiFrame::new();
+        Dialog::new(0).draw(&mut frame, &theme, &content);
+        let buttons: Vec<_> = frame
+            .tree
+            .rows()
+            .filter(|r| r.widget == WidgetKind::Button)
+            .map(|r| (r.label, r.clipped, r.rect))
+            .collect();
+        assert_eq!(buttons.len(), 2);
+        assert!(
+            buttons.iter().all(|(_, clipped, _)| !clipped),
+            "{buttons:?}"
+        );
+        assert!(buttons[1].2.w > buttons[0].2.w);
+        let area = Dialog::layout(&content, &theme);
+        assert!(buttons[0].2.x >= area.x);
+        assert!(i64::from(buttons[1].2.x) + i64::from(buttons[1].2.w) <= area.right());
+        assert_eq!(
+            ButtonWidths::of(&["Cancel", "Start"], &theme),
+            ButtonWidths::Equal(BUTTON_MIN_WIDTH_PX),
+            "short labels keep one width"
+        );
+        let long = "A label far too long for any button of a dialog";
+        assert!(matches!(
+            ButtonWidths::of(&["Cancel", long], &theme),
+            ButtonWidths::Equal(_)
+        ));
+    }
 
     #[test]
     fn many_buttons_do_not_overflow() {
