@@ -178,8 +178,8 @@ mod tests {
                 reason: "no list".to_owned()
             }]
         );
-        // The next scan is not a first scan: a held port of a game run
-        // would stay held.
+        // A failed list is the first scan of a game run too, and a game
+        // keeps the held port.
         let mut game = Mapper::with_rule(PortRule::Game, &earlier);
         list_failed(&mut game, "x", String::new(), &mut out, &mut notices);
         assert_eq!(game.roster().get(0).map(|e| e.present), Some(false));
