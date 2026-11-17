@@ -25,8 +25,9 @@ use super::{DISPLAY_PAGE, GRID_PAGE, SETTINGS_PAGE, SETTINGS_PANELS};
 /// and in the quick menu.
 const SETTINGS_LABEL: &str = "Settings";
 
-/// The deepest screen stack. The longest path is home, game list, game,
-/// quick menu, Settings, display panel, option list: seven screens.
+/// The deepest screen stack. The longest path is home, game list, the
+/// versions of a game, game, quick menu, Settings, display panel, option
+/// list: eight screens.
 pub const MAX_DEPTH: usize = 8;
 
 /// The screens and their state. The app makes one at launch, keeps it, and
@@ -45,6 +46,8 @@ pub struct Screens {
     visible: bool,
     /// A panel that the app asked to open, and the row to focus.
     opening: Option<(PageId, Option<SettingKey>)>,
+    /// A panel that the app asked to open and that could not open.
+    open_failed: Option<PageId>,
 }
 
 /// What a screen asks the router to do after an action.
@@ -107,6 +110,7 @@ impl Screens {
             pad_mapping: PadMappingScreen::new(),
             visible: true,
             opening: None,
+            open_failed: None,
         }
     }
 
@@ -182,10 +186,17 @@ impl Screens {
     /// - The panel on show only moves its focus.
     /// - When a Settings page is open, the screens above it close (as by
     ///   back), and the panel opens from it: never a second Settings page.
-    /// - Else the Settings page and the panel open on top. They always
-    ///   fit: with no Settings page the deepest stack is home, a game
-    ///   list, the game, the quick menu, its video page and an option
-    ///   list, six screens, and [`MAX_DEPTH`] is eight.
+    /// - Else, when the stack has no room for the Settings page and the
+    ///   panel, the screens above the quick menu, or above the home
+    ///   screen, close first (as by back). The deepest stack with no
+    ///   Settings page has seven screens: home, a game list, the versions
+    ///   of a game, the game, the quick menu, its video page and an option
+    ///   list.
+    /// - Then the Settings page and the panel open on top.
+    ///
+    /// When the panel cannot open in that frame (a game starts first, or
+    /// no room is made), nothing more opens, and
+    /// [`Screens::take_open_failure`] gives the page once.
     ///
     /// Returns false, and opens nothing, while a game runs with no menu,
     /// for a page that is no panel, and for the display panel, which has a
@@ -199,6 +210,12 @@ impl Screens {
         true
     }
 
+    /// The panel of the last [`Screens::open_panel`] when it could not
+    /// open, once.
+    pub fn take_open_failure(&mut self) -> Option<PageId> {
+        self.open_failed.take()
+    }
+
     /// Carries out the request of [`Screens::open_panel`]. It runs in
     /// `update`, where the snapshot lets a closed page tell the quick menu
     /// what the app took back.
@@ -207,6 +224,16 @@ impl Screens {
         let Some((page, focus)) = self.opening.take() else {
             return false;
         };
+        let opened = self.open_panel_now(snap, page, focus);
+        if !opened {
+            self.open_failed = Some(page);
+        }
+        true
+    }
+
+    /// Opens the panel `page` by the rule of [`Screens::open_panel`].
+    /// True only when the panel is on show at the end.
+    fn open_panel_now(&mut self, snap: &Snapshot, page: PageId, focus: Option<SettingKey>) -> bool {
         if self.in_game() {
             return false;
         }
@@ -216,17 +243,32 @@ impl Screens {
             panel.focus_on(focus);
             return true;
         }
+        let Some(index) = SETTINGS_PANELS.iter().position(|p| p.page == page) else {
+            return false;
+        };
         let settings = self.stack.iter().any(|s| matches!(s, Screen::Settings(_)));
-        while settings && !matches!(self.stack.last(), Some(Screen::Settings(_))) {
+        loop {
+            let done = if settings {
+                matches!(self.stack.last(), Some(Screen::Settings(_)))
+            } else {
+                self.stack.len() + 2 <= MAX_DEPTH
+            };
+            if done {
+                break;
+            }
+            let root = matches!(
+                self.stack.last(),
+                Some(Screen::Home(_) | Screen::QuickMenu(_) | Screen::Game) | None
+            );
+            if root && !settings {
+                return false;
+            }
             let depth = self.stack.len();
             self.back(snap);
             if self.stack.len() == depth {
-                return true;
+                return false;
             }
         }
-        let Some(index) = SETTINGS_PANELS.iter().position(|p| p.page == page) else {
-            return true;
-        };
         if !settings {
             self.open(Target::Page {
                 page: SETTINGS_PAGE,
@@ -235,7 +277,7 @@ impl Screens {
             });
         }
         let Some(Screen::Settings(menu)) = self.stack.last_mut() else {
-            return true;
+            return false;
         };
         menu.select(index);
         let label = SETTINGS_PANELS.get(index).map_or("", |p| p.label);
@@ -244,10 +286,13 @@ impl Screens {
             level: Level::Global,
             label: crumb(label),
         });
-        if let Some(Screen::Page(panel)) = self.stack.last_mut() {
-            panel.focus_on(focus);
+        match self.stack.last_mut() {
+            Some(Screen::Page(panel)) if panel.page_id() == page => {
+                panel.focus_on(focus);
+                true
+            }
+            _ => false,
         }
-        true
     }
 
     fn follow(&mut self, snap: &Snapshot) {

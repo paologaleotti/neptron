@@ -156,6 +156,16 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     fn update_ui(&mut self, now_ns: u64) {
         self.refresh_view(now_ns);
         self.screens.update(&self.snap, &self.actions, &mut self.ui);
+        if let Some(page) = self.screens.take_open_failure() {
+            let label = neptron_ui::screens::SETTINGS_PANELS
+                .iter()
+                .find(|p| p.page == page)
+                .map_or("The panel", |p| p.label);
+            self.notice(
+                NoticeKind::Info,
+                format!("{label} did not open here. Open it from Settings."),
+            );
+        }
         self.carry_out(now_ns);
         if self.screens.shows_ui() {
             self.canvas.paint(&self.ui.scene);

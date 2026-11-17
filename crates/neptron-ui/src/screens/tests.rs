@@ -3036,12 +3036,8 @@ fn open_panel_from_the_deepest_stack_with_no_settings_page_fills_it_and_comes_ba
     run.step(&game, &[Accept]);
     assert_eq!(run.screen(), "options");
     // Home, the game list, the game, the quick menu, its video page and
-    // the options of a row: the deepest stack with no Settings page. A
-    // page of the quick menu other than Settings opens only option lists,
-    // which open nothing, and the display panel and the grid open only
-    // from a Settings page. So the Settings page and the panel always
-    // take the two places left, and open_panel needs no rule that closes
-    // screens to make room.
+    // the options of a row: the Settings page and the panel take the two
+    // places left, and nothing closes.
     assert_eq!(run.screens.depth(), super::MAX_DEPTH - 2);
     assert!(run.screens.open_panel(super::INPUT_PAGE, None));
     run.step(&input_snapshot(in_game()), &[]);
@@ -3051,4 +3047,78 @@ fn open_panel_from_the_deepest_stack_with_no_settings_page_fills_it_and_comes_ba
     assert_eq!((run.screen(), run.focused()), ("settings", Some("Input")));
     run.step(&game, &[Back]);
     assert_eq!(run.screen(), "options", "nothing under the panel closed");
+}
+
+/// Home, the arcade list, the versions of a game, the game, the quick
+/// menu, its video page and the options of a row: the deepest stack with
+/// no Settings page, seven screens. Returns the snapshot of the game.
+fn deepest_stack_with_versions(run: &mut Run) -> Snapshot {
+    use super::scenes::{ARCADE, arcade_rows, with_arcade};
+    let mut list = with_arcade();
+    run.step(&list, &[Accept]);
+    let rows = arcade_rows();
+    list.games = GameWindow::new(GameSource::System(ARCADE), 0, rows.len(), rows);
+    run.step(&list, &[Down, Accept]);
+    assert_eq!(run.screen(), "games");
+    let mut game = in_game();
+    run.step(&game, &[]);
+    run.step(&game, &TO_VIDEO);
+    game.settings = super::scenes::video_page();
+    run.step(&game, &[]);
+    run.step(&game, &[Accept]);
+    assert_eq!(run.screen(), "options");
+    assert_eq!(run.screens.depth(), super::MAX_DEPTH - 1);
+    game
+}
+
+#[test]
+fn open_panel_from_the_deepest_stack_closes_the_screens_above_the_quick_menu() {
+    let mut run = Run::new();
+    let game = deepest_stack_with_versions(&mut run);
+    assert!(run.screens.open_panel(super::INPUT_PAGE, None));
+    run.step(&input_snapshot(in_game()), &[]);
+    assert_eq!(run.screen(), "input", "the panel is on show");
+    assert_eq!(run.screens.take_open_failure(), None);
+    assert_eq!(run.screens.depth(), super::MAX_DEPTH);
+    run.step(&game, &[Back]);
+    assert_eq!((run.screen(), run.focused()), ("settings", Some("Input")));
+    run.step(&game, &[Back]);
+    assert_ne!(run.screen(), "options", "the options closed to make room");
+}
+
+#[test]
+fn open_panel_on_a_full_stack_opens_the_panel_from_its_settings_page() {
+    let mut run = Run::new();
+    let mut game = deepest_stack_with_versions(&mut run);
+    run.step(&game, &[Back]);
+    run.step(&game, &[Back]);
+    assert_eq!(run.screen(), "quick-menu");
+    game = in_game();
+    run.step(&game, &[]);
+    assert_eq!(run.focused(), Some("Video"));
+    run.step(&game, &[Down, Accept, Accept]);
+    game.settings = with_display().settings;
+    run.step(&game, &[]);
+    assert_eq!(run.screen(), "display");
+    run.step(&game, &[Down, Down, Accept]);
+    assert_eq!(run.screen(), "options");
+    assert_eq!(run.screens.depth(), super::MAX_DEPTH, "the stack is full");
+    assert!(run.screens.open_panel(super::INPUT_PAGE, None));
+    run.step(&input_snapshot(in_game()), &[]);
+    assert_eq!(run.screen(), "input");
+    assert_eq!(run.screens.take_open_failure(), None);
+    assert_eq!(run.screens.depth(), super::MAX_DEPTH - 1);
+}
+
+#[test]
+fn a_panel_that_cannot_open_is_reported() {
+    let mut run = Run::new();
+    let list = with_systems();
+    run.step(&list, &[]);
+    assert!(run.screens.open_panel(super::INPUT_PAGE, None));
+    // A game starts before the next frame: no panel over a running game.
+    run.step(&in_game(), &[]);
+    assert_eq!(run.screen(), "game");
+    assert_eq!(run.screens.take_open_failure(), Some(super::INPUT_PAGE));
+    assert_eq!(run.screens.take_open_failure(), None, "once");
 }
