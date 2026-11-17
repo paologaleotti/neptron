@@ -133,9 +133,11 @@ pub(crate) fn shape(
 }
 
 /// A game wider than the face keeps its shape only with black lines above
-/// and below it: the mode needs `lines x game aspect / face aspect` lines
-/// at least. Such a mode is bordered, at a height a range holds at the
-/// rate, or the rung drops.
+/// and below it: the mode needs `lines x game aspect / face aspect` lines,
+/// rounded up. When no range holds that height, the tallest height a range
+/// holds that is short of it by less than one pixel of the game (`factor`
+/// lines) takes its place: the shape rule R1 allows one pixel. Such a mode
+/// is bordered, at a height a range holds at the rate, or the rung drops.
 fn widen_for_shape(
     shape: &mut Shape,
     source: &OrientedSource,
@@ -144,30 +146,51 @@ fn widen_for_shape(
     monitor_aspect: Aspect,
     rate_mhz: u32,
 ) -> Result<(), Dropped> {
-    let game = u64::from(game_aspect_milli(source));
-    let face_w = u64::from(monitor_aspect.width) * 1_000;
-    let face_h = u64::from(monitor_aspect.height);
-    let needed = (u64::from(shape.game_lines) * game * face_h).div_ceil(face_w);
-    if same_aspect(source, monitor_aspect) || needed <= u64::from(shape.lines) {
+    let (fewest, needed) = shaped_lines(shape, source, monitor_aspect);
+    if same_aspect(source, monitor_aspect) || needed <= shape.lines {
         return Ok(());
     }
-    let needed = u16::try_from(needed).unwrap_or(u16::MAX);
-    let lines = if shape.interlace {
-        let fits = ranges
-            .iter()
-            .any(|r| r.interlaced_lines_min <= needed && needed <= r.interlaced_lines_max);
-        fits.then_some(needed)
-    } else {
-        border_lines(needed, 1, ranges, rate_mhz)
-    }
-    .ok_or(Dropped::NoBorderMode {
+    let held = |lines: u16| {
+        if shape.interlace {
+            let fits = ranges
+                .iter()
+                .any(|r| r.interlaced_lines_min <= lines && lines <= r.interlaced_lines_max);
+            fits.then_some(lines)
+        } else {
+            border_lines(lines, 1, ranges, rate_mhz)
+        }
+    };
+    let short = || {
+        if fewest <= shape.lines {
+            return Some(shape.lines);
+        }
+        (fewest..needed).rev().find_map(held)
+    };
+    let lines = held(needed).or_else(short).ok_or(Dropped::NoBorderMode {
         lines: needed,
         line_min: shape.lines,
     })?;
     shape.lines = fit_height(u32::from(lines), caps)?;
     shape.base_width = border_width(source, shape.game_lines, shape.lines, monitor_aspect);
-    shape.bordered = true;
+    shape.bordered = shape.bordered || shape.lines > shape.game_lines;
     Ok(())
+}
+
+/// The mode lines in which the game lines of `shape`, of a game wider than
+/// the face, keep its shape: the fewest, short of `game_lines x game aspect
+/// / face aspect` by less than one pixel of the game (`factor` lines), and
+/// that height rounded up.
+fn shaped_lines(shape: &Shape, source: &OrientedSource, monitor_aspect: Aspect) -> (u16, u16) {
+    let game = u64::from(game_aspect_milli(source));
+    let face_w = (u64::from(monitor_aspect.width) * 1_000).max(1);
+    let face_h = u64::from(monitor_aspect.height);
+    let product = u64::from(shape.game_lines) * game * face_h;
+    let pixel = u64::from(shape.factor.max(1)) * face_w;
+    let lines = |value: u64| u16::try_from(value).unwrap_or(u16::MAX);
+    (
+        lines(product.saturating_sub(pixel) / face_w + 1).min(lines(product.div_ceil(face_w))),
+        lines(product.div_ceil(face_w)),
+    )
 }
 
 /// The source has the shape of the screen, within one thousandth of its
@@ -741,6 +764,40 @@ mod tests {
         );
         let s = shape_of(Rung::Interlaced, &source(640, 480, false), true).unwrap();
         assert_eq!((s.lines, s.interlace, s.bordered), (480, true, false));
+    }
+
+    #[test]
+    fn a_wide_game_whose_shape_needs_a_fraction_of_a_line_more_takes_the_lines_held() {
+        // 215 lines at 3:2 need 215 x 1500 x 3 / 4000 = 241.875 lines on a
+        // 4:3 face; generic_15 holds 241 at 60 Hz. 241 lines keep the shape
+        // within one line (0.4 %), so the game is not dropped.
+        let wide = OrientedSource {
+            aspect_milli: 1_500,
+            ..source(320, 215, false)
+        };
+        let s = shape_of(Rung::Native, &wide, true).unwrap();
+        assert_eq!((s.lines, s.game_lines, s.bordered), (241, 215, true));
+        // At 2x one pixel of the game is two lines: 108 lines at 1.495
+        // need 216 x 1495 x 3 / 4000 = 242.2 lines, and 241 are short by
+        // less than two.
+        let half = OrientedSource {
+            aspect_milli: 1_495,
+            ..source(320, 108, false)
+        };
+        let s = shape_of(Rung::Multiple(2), &half, true).unwrap();
+        assert_eq!((s.lines, s.game_lines), (241, 216));
+        // One pixel short or more stays a drop: 243 lines at 1x.
+        let wider = OrientedSource {
+            aspect_milli: 1_500,
+            ..source(320, 216, false)
+        };
+        assert_eq!(
+            shape_of(Rung::Native, &wider, true),
+            Err(Dropped::NoBorderMode {
+                lines: 243,
+                line_min: 216
+            })
+        );
     }
 
     #[test]
