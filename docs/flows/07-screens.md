@@ -14,7 +14,7 @@ One run of the frontend is one process. A run shows the menus, or it runs one ga
 flowchart TD
     Home["Home<br/>systems, Favourites,<br/>Recent games, Settings"]
     List["Game list"]
-    Set["Settings page<br/>Display, Audio, Library, Network, System"]
+    Set["Settings page<br/>Display, Audio, Input, Library, Network, System"]
     Sys["System panel<br/>Reboot, Shut down"]
     Ask["Confirm question<br/>focus on Cancel"]
     Power["Run ends: exit 80 or 81<br/>launcher asks init"]
@@ -147,7 +147,8 @@ The screen id is the id in the widget tree (`out.tree.set_screen`).
 | --- | --- | --- | --- |
 | Home | `home` | Title `NEPTRON`. A box with one row per system that has games (name, then `1 game` or `N games`), then `Favourites`, `Recent games`, `Settings`, each with an arrow. Hint `Accept: open`. | [home.ppm](../../crates/neptron-ui/tests/golden/screens/home.ppm) |
 | Home with no games | `home` | The text `No games yet.` and where to copy games (`roms/nes   roms/snes   roms/megadrive`, plain files and `.zip` files), then one row `Settings` at the bottom, with its arrow. The tier 3 boot golden shows this screen under a notice. | [home-empty.ppm](../../crates/neptron-ui/tests/golden/screens/home-empty.ppm) |
-| Settings page | `settings` | Title `Settings` (the breadcrumb). One row per panel of `SETTINGS_PANELS`: `Display`, `Audio`, `Library`, `Network`, `System`. Hints `Accept: open`, `Back: return`. | [settings.ppm](../../crates/neptron-ui/tests/golden/screens/settings.ppm) |
+| Settings page | `settings` | Title `Settings` (the breadcrumb). One row per panel of `SETTINGS_PANELS`: `Display`, `Audio`, `Input`, `Library`, `Network`, `System`. Hints `Accept: open`, `Back: return`. | [settings.ppm](../../crates/neptron-ui/tests/golden/screens/settings.ppm) |
+| Input panel | `input` | Title `Settings > Input`. Information rows `Player 1` to `Player 4` with the name of the pad of each port, `<name> (away)` for a pad that went away in a game, or `None`; one `Extra pad` row for each pad on ports 4 to 7; `Keyboard` with `Player 1`. Then the number row `Hold Start for menu`. The rows follow the pads while the panel is on screen. Hints of the focused row, `Back: return`. `docs/spec/input-players.md` has the rules. | [input.ppm](../../crates/neptron-ui/tests/golden/screens/input.ppm), [input-empty.ppm](../../crates/neptron-ui/tests/golden/screens/input-empty.ppm) |
 | Library panel | `library` | Title `Settings > Library`. One action row, `Rescan games` (see the transitions). | [library-scanning.ppm](../../crates/neptron-ui/tests/golden/screens/library-scanning.ppm) |
 | Network panel | `network` | Title `Settings > Network`. Information rows only (kind `Info`: no input, no hint, no arrow): `Address <port>` with its IPv4 address for each wired port (or `Address` with `None (no cable or no network)`, `Not known` or `Reading...`), `Host name`, `Share` (`On` or `Off`) and, with the share on, `Network name` (`<host_name>.local`), `Windows` (`\\<address>\share`), `macOS, Linux` (`smb://<address>/share`), `Share user` and `Share password` (`neptron`). The rows follow `/run/neptron/network.toml` while the panel is on screen. Hint `Back: return`. `docs/spec/network-panel.md` has every state. | [network.ppm](../../crates/neptron-ui/tests/golden/screens/network.ppm), [network-no-address.ppm](../../crates/neptron-ui/tests/golden/screens/network-no-address.ppm), [network-unknown.ppm](../../crates/neptron-ui/tests/golden/screens/network-unknown.ppm), [network-share-off.ppm](../../crates/neptron-ui/tests/golden/screens/network-share-off.ppm), [network-two-ports.ppm](../../crates/neptron-ui/tests/golden/screens/network-two-ports.ppm) |
 | System panel | `system` | Title `Settings > System`. Two action rows, `Reboot` and `Shut down`, with no arrow, and a third, `Format share`, only when `storage.toml` offers a format of the share partition. In a game every row is disabled with the reason `Not during a game`; in a run with no launcher that has power control, with `Needs the launcher`. Hints `Accept: choose`, `Back: return`. | [system.ppm](../../crates/neptron-ui/tests/golden/screens/system.ppm), [system-format.ppm](../../crates/neptron-ui/tests/golden/screens/system-format.ppm) |
@@ -177,7 +178,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | any menu | same | A held direction repeats | `REPEAT_DELAY_NS` = 400 ms, then `REPEAT_INTERVAL_NS` = 66 ms | nothing |
 | Home | Game list | Accept on a system row, `Favourites` or `Recent games` | none | `LoadGames` asks for rows |
 | Home, also with no games | Settings page | Accept on `Settings` | none | nothing: the UI shows the page |
-| Settings page | Display, audio, Library, Network or System panel | Accept on `Display`, `Audio`, `Library`, `Network` or `System` | none | `LoadSettings` for `DISPLAY_PAGE`, `AUDIO_PAGE`, `LIBRARY_PAGE`, `NETWORK_PAGE` or `SYSTEM_PAGE` |
+| Settings page | Display, audio, Input, Library, Network or System panel | Accept on `Display`, `Audio`, `Input`, `Library`, `Network` or `System` | none | `LoadSettings` for `DISPLAY_PAGE`, `AUDIO_PAGE`, `INPUT_PAGE`, `LIBRARY_PAGE`, `NETWORK_PAGE` or `SYSTEM_PAGE` |
 | Network panel | same | The panel comes on screen, then every second while it stays there | none | The app asks the reader thread for a read of `network.toml`; a changed status rebuilds the page. Accept, left, right and Menu do nothing. Nothing is read while the panel is closed |
 | Settings page | Home or quick menu | Back | none | nothing |
 | Game list | Home | Back | none | nothing |
@@ -192,7 +193,9 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Confirm question | (process ends) | Right, then Accept on `Reboot` or `Shut down` | `REBOOT_EXIT_CODE` = 80, `POWER_OFF_EXIT_CODE` = 81 | `Intent::Action` of the row. The box `Shutting down...` or `Restarting...` replaces the dialog, and the app presents that frame once in the mode on screen. Before the boot is good, and only when the guard does not hold the boot to be failed (`Confirmed`, `Safe(NothingConfirmed)`), the guard record gets back the failed boot of this start; in `Safe(NoValidMode)`, `Safe(FailedBoots)` and `Safe(Recovery)` the count stays (see [frontend boot](02-frontend-boot.md), "What counts as a failed boot"). The run ends as a quit: the writer thread writes the queued settings and the guard record, the threads are joined, no relaunch file is written, the display keeps the last validated mode (the launcher holds the descriptor). Exit 80 or 81. The launcher asks init for the reboot or the power-off: see [Power-on](01-power-on.md), "Shutdown" |
 | Confirm question | System panel | The row goes away or is disabled | none | The dialog closes and sends nothing |
 | Display panel | Settings page | Back | none | nothing |
-| Display panel | same | Left, Right on a number row | step 5 for `Scanline strength`, 1 for `Hold Start for menu` | `SetValue` at the global level (see the change flow) |
+| Display panel | same | Left, Right on a number row | step 5 for `Scanline strength` | `SetValue` at the global level (see the change flow) |
+| Input panel | same | Left, Right on `Hold Start for menu` | step 1 | `SetValue` at the global level (see the change flow) |
+| Input panel | same | A pad comes, goes or moves while the panel is on screen | none | The app builds the page again from the roster of the input source. Accept, left, right and Menu on a player row do nothing |
 | any settings page | same | Menu (X) on a row whose value comes from the page level | none | `ResetValue` at that level: the row inherits again |
 | Option list | page under it | Accept on an enabled option | none | `SetValue` with that option, only when it is not the option in use and the row allows the page level. Then the list closes. |
 | Option list | same | Accept on a dim option | none | nothing |
@@ -240,12 +243,18 @@ The title band shows a breadcrumb: `Settings > Audio > Audio output`, or `<game>
 | `Refresh policy` | `exact`, `exact_x2`, `force_50`, `force_60` | A change opens the confirm dialog. Disabled with `Not used on a flat panel` on a panel, and with `Not used on a TV` on a TV. |
 | `Scanlines` | `auto`, `off`, `on` | Written at once, applied live. |
 | `Scanline strength` | 0 to 100 `%`, step 5, default 75 | Written at once, applied live. |
-| `Hold Start for menu` | 0 to 10 `s`, step 1, default 0 | Written at once, applied live. 0 turns the Start hold off. |
 | `Grid pattern` | page | Opens the grid pattern. |
 
 Info box: `Output` is the connector name (`none` with no display). `Mode` is the mode the driver read back, for example `640x480p 59.94 Hz`, or on a TV the standard and the lines, `NTSC 240p 60.05 Hz`, with ` (safe mode)` after it while the guard is in safe mode. It is empty before the first read back. `Monitor` is the preset id that the guard gave the engine. A monitor of its EDID (`auto` with an EDID, or `flat`) shows the monitor name of the EDID (`DisplayInfo::monitor`), or its profile id when the EDID has no name, for example `NPT FHD 24`. `not set` shows only before the app gives a monitor.
 
 The style details on the display panel come from the source on screen: the game in a game, the menu canvas (320x240 at 60 Hz) in the menus.
+
+### Input panel rows (`INPUT_PAGE`, written at the global level)
+
+| Row | Values | What it does |
+| --- | --- | --- |
+| `Player 1` to `Player 4`, `Extra pad`, `Keyboard` | text | Information only. |
+| `Hold Start for menu` | 0 to 10 `s`, step 1, default 0 | Written at once, applied live. 0 turns the Start hold off. |
 
 ### Quick menu rows (`QUICK_MENU_PAGE`, written at the game level)
 
@@ -376,8 +385,8 @@ Against `docs/definition/08-frontend-and-ux.md`:
 3. Screens table, "Home": the definition lists "Settings". The code has `Settings`, also on the home with no games. `Favourites` and `Recent games` exist, but their lists are always empty in the MVP (`Library::window`, and `ToggleFavourite` does nothing).
 4. Screens table, "Game list": no sort, filter or search. Menu (X) on a game sends a favourite toggle that the app ignores.
 5. Screens table, "Game page": there is none. Accept on a game launches it.
-6. Screens table, "Display panel": no geometry row. One test pattern (the grid). The panel also holds `Scanlines`, `Scanline strength` and `Hold Start for menu`. `Output` is read-only.
-7. Screens table, "Settings" (full tree): the Settings page has five panels, `Display`, `Audio`, `Library`, `Network` and `System`.
+6. Screens table, "Display panel": no geometry row. One test pattern (the grid). The panel also holds `Scanlines` and `Scanline strength`; `Hold Start for menu` is on the Input panel. `Output` is read-only.
+7. Screens table, "Settings" (full tree): the Settings page has six panels, `Display`, `Audio`, `Input`, `Library`, `Network` and `System`.
 8. "Settings model", "offers reset to inherited": there is no row or option for it. The Menu button (X) on a row resets it. A pad with two buttons cannot reset.
 9. "Quick menu", combination: Select+Start is fixed (`QUICK_MENU_COMBO`), not configurable. The Start hold exists but is off by default (`input.menu_hold_start_seconds` = 0, max 10 s); the definition says the arcade default is a 2 s hold.
 10. "Quick menu", contents: the code has `Resume`, `Volume`, `Video` (`Picture style`, `Refresh policy`, `Scanlines`, `Scanline strength`), `Settings` (the global panels) and `Quit game`. No save states, interlace, position, shader, rotation, core options, controls, disc swap or reset.

@@ -154,7 +154,7 @@ A run on a desktop or a bench has no `network.toml` in its run folder. The panel
 ## The Settings page and the ids
 
 - `NETWORK_PAGE` is `PageId(RESERVED_ID_MIN + 9)`.
-- `SETTINGS_PANELS` gets `Network` between `Library` and `System`: `Display`, `Audio`, `Library`, `Network`, `System`. System stays last, as the panel that ends the run.
+- `SETTINGS_PANELS` gets `Network` between `Library` and `System`. With the Input panel of M04 the order is `Display`, `Audio`, `Input`, `Library`, `Network`, `System`. System stays last, as the panel that ends the run.
 - The screen id is `network`. The generic page screen shows the panel; no new screen code.
 - In a game the panel is listed and shows the same rows: it only shows.
 

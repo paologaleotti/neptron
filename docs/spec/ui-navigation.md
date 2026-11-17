@@ -19,7 +19,7 @@ Home with no games follows the same rule: the text that says where the games go,
 
 ## The Settings page
 
-`Settings` opens a page that lists the settings panels. The list is data: `screens::SETTINGS_PANELS`, a static table of `Panel { label, page }` in `neptron-ui`. It holds `Display` (`DISPLAY_PAGE`), `Audio` (`AUDIO_PAGE`), `Library` (`LIBRARY_PAGE`), `Network` (`NETWORK_PAGE`) and `System` (`SYSTEM_PAGE`), in that order. A new panel is one line in that table and one page id; the app then answers `LoadSettings` for that page. A panel page other than the display page shows in the generic page screen (see "Pages"), so a new panel needs no new screen code.
+`Settings` opens a page that lists the settings panels. The list is data: `screens::SETTINGS_PANELS`, a static table of `Panel { label, page }` in `neptron-ui`. It holds `Display` (`DISPLAY_PAGE`), `Audio` (`AUDIO_PAGE`), `Input` (`INPUT_PAGE`), `Library` (`LIBRARY_PAGE`), `Network` (`NETWORK_PAGE`) and `System` (`SYSTEM_PAGE`), in that order. A new panel is one line in that table and one page id; the app then answers `LoadSettings` for that page. A panel page other than the display page shows in the generic page screen (see "Pages"), so a new panel needs no new screen code.
 
 The Settings page writes nothing. Its panels write at the global level, also when the page opens from the quick menu.
 
@@ -104,7 +104,7 @@ A page that is not the display panel, the Settings page, the grid pattern or the
 
 The generic screen shows the video block above its rows for `VIDEO_PAGE` while a game runs with a video status, when the block leaves room for at least 2 rows under it.
 
-Screen ids: `audio` for `AUDIO_PAGE`, `library` for `LIBRARY_PAGE`, `network` for `NETWORK_PAGE` (`NETWORK_SCREEN`), `system` for `SYSTEM_PAGE`, `quick-menu/video` for `VIDEO_PAGE`, `page` for any other page.
+Screen ids: `audio` for `AUDIO_PAGE`, `input` for `INPUT_PAGE` (`INPUT_SCREEN`), `library` for `LIBRARY_PAGE`, `network` for `NETWORK_PAGE` (`NETWORK_SCREEN`), `system` for `SYSTEM_PAGE`, `quick-menu/video` for `VIDEO_PAGE`, `page` for any other page.
 
 ### The Library panel
 
@@ -141,6 +141,10 @@ The Warning notice of a share in a RAM folder gains one sentence when a format i
 
 Not in this panel yet: the version and a sleep timer. The network address is in the Network panel.
 
+### The Input panel
+
+`Settings > Input` shows the pad of each of the four players as information rows (`Player 1` to `Player 4`), one `Extra pad` row for each pad on ports 4 to 7, `Keyboard` (`Player 1`), and the number row `Hold Start for menu`, which the Display panel held before. A pad that went away in a game shows with `(away)`. The app builds the page again when a pad comes, goes or moves while the page is in the snapshot. `docs/spec/input-players.md` is the spec.
+
 ### The Network panel
 
 `Settings > Network` shows the local address of each wired port, the host name, the state of the network share and, with the share on, its mDNS name, the share path for Windows and for macOS and Linux, and the published account. Every row is an information row (`SettingValue::Text`, kind `Info`): it takes no input, shows no hint, and has the focus look of a row that cannot act. The panel changes nothing, and in a game it shows the same rows. The app reads `/run/neptron/network.toml` off the frame thread, while the panel is on screen, so a late lease shows with no need to leave the panel. `docs/spec/network-panel.md` is the spec: the rows and their texts for each state, the reader, and the text limits.
@@ -165,12 +169,12 @@ The first page of the quick menu (`QUICK_MENU_PAGE`, written at the game level):
 | `Resume` | action | Leaves the menu, through the keep prompt after a change |
 | `Volume` | value | The volume of the game, Left and Right step 5 |
 | `Video` | page | Opens `VIDEO_PAGE` |
-| `Settings` | page | Opens the Settings page: Display, Audio, Library, Network and System, at the global level |
+| `Settings` | page | Opens the Settings page: Display, Audio, Input, Library, Network and System, at the global level |
 | `Quit game` | action | Ends the game, through the keep prompt after a change |
 
 `VIDEO_PAGE` (written at the game level): the video block, then `TV picture width` (on a TV only), `Picture style`, `Refresh policy`, `Scanlines` and `Scanline strength`.
 
-In a game the player reaches the display rows of the game under `Video`, the volume on the first page, and the global panels under `Settings`: Display, Audio, Library, Network and System.
+In a game the player reaches the display rows of the game under `Video`, the volume on the first page, and the global panels under `Settings`: Display, Audio, Input, Library, Network and System.
 
 ### The keep prompt with sub pages
 
@@ -195,13 +199,14 @@ The quick menu hotkey does nothing while the menu is open, at any depth. The ses
 | `LIBRARY_PAGE` | `PageId(RESERVED_ID_MIN + 7)` | The Library panel: the rescan of the games folder |
 | `SYSTEM_PAGE` | `PageId(RESERVED_ID_MIN + 8)` | The System panel: reboot, shut down, and the format of the share partition when it is on offer |
 | `NETWORK_PAGE` | `PageId(RESERVED_ID_MIN + 9)` | The Network panel: the address, the host name and the share |
+| `INPUT_PAGE` | `PageId(RESERVED_ID_MIN + 10)` | The Input panel: the pad of each player and `Hold Start for menu` (`docs/spec/input-players.md`) |
 | `RESUME`, `QUIT_GAME` | unchanged | The actions of the quick menu |
 
 A row opens the display panel with `SettingValue::Page(DISPLAY_PAGE)` and the grid pattern with `SettingValue::Page(GRID_PAGE)`. `MAX_DEPTH` is 8. The deepest stack is home, game list, game, quick menu, Settings, display panel, option list: 7 screens.
 
 ## Scenes and goldens
 
-Scenes: `screens/system` (the System panel), `screens/system-shutdown-confirm` (the confirm question of `Shut down`, with the focus on `Cancel`), `screens/system-shutting-down` (the last frame after the confirm), `screens/settings` (the Settings page), `screens/breadcrumb-long` (a long game title cut by the rule, on the video page) and `screens/library-scanning` (the Library panel during a scan, with a focused disabled row). The Network panel has `screens/network`, `screens/network-two-ports`, `screens/network-no-address`, `screens/network-unknown` and `screens/network-share-off` (`docs/spec/network-panel.md`). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. `screens/home-empty` shows the `Settings` row with its arrow, as the tier 3 boot golden does. The TV scenes `screens/display-tv`, `screens/display-tv-standard` and `screens/quick-menu-video-filtered` show the Display panel on a TV, its standard list and the video page with a filtered result.
+Scenes: `screens/system` (the System panel), `screens/system-shutdown-confirm` (the confirm question of `Shut down`, with the focus on `Cancel`), `screens/system-shutting-down` (the last frame after the confirm), `screens/settings` (the Settings page), `screens/breadcrumb-long` (a long game title cut by the rule, on the video page) and `screens/library-scanning` (the Library panel during a scan, with a focused disabled row). The Network panel has `screens/network`, `screens/network-two-ports`, `screens/network-no-address`, `screens/network-unknown` and `screens/network-share-off` (`docs/spec/network-panel.md`). The Input panel has `screens/input` and `screens/input-empty` (`docs/spec/input-players.md`). Existing scenes show the other states: `screens/audio-output` an option list with a three-part breadcrumb (`Settings > Audio > Audio output`), `screens/quick-menu-video` the video page of the quick menu with the video block, `screens/home` the `Settings` row and `screens/quick-menu` the first page. `screens/home-empty` shows the `Settings` row with its arrow, as the tier 3 boot golden does. The TV scenes `screens/display-tv`, `screens/display-tv-standard` and `screens/quick-menu-video-filtered` show the Display panel on a TV, its standard list and the video page with a filtered result.
 
 ## Tests
 
