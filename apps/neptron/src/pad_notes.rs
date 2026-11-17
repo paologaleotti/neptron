@@ -211,6 +211,12 @@ impl PadNotes {
         self.shown.push((id, notice.kind, notice.pad));
     }
 
+    /// Notice `id` left the snapshot with no answer, because the list was
+    /// full: its pad is not told, and its next notice shows.
+    pub fn dropped(&mut self, id: NoticeId) {
+        self.shown.retain(|(n, _, _)| *n != id);
+    }
+
     /// The player answered notice `id` (any button): its pad is told now.
     /// Gives what it told, or `None` for a notice of no pad.
     pub fn answered(&mut self, id: NoticeId) -> Option<(NoteKind, PadKey)> {
@@ -331,6 +337,17 @@ mod tests {
         for notice in log_only {
             assert_eq!(notes.player_notice(&notice), None, "{notice}");
         }
+    }
+
+    #[test]
+    fn a_dropped_notice_lets_its_pad_be_told_again_and_is_not_told() {
+        let mut notes = PadNotes::default();
+        assert!(show(&mut notes, &generic(1), 7).is_some());
+        assert_eq!(notes.player_notice(&generic(1)), None, "it waits");
+        notes.dropped(NoticeId(7));
+        assert!(notes.player_notice(&generic(1)).is_some());
+        assert!(!notes.take_changed(), "a dropped notice is not told");
+        assert_eq!(notes.answered(NoticeId(7)), None);
     }
 
     #[test]

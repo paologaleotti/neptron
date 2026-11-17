@@ -264,7 +264,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     ) -> NoticeId {
         self.log(text.clone());
         if self.snap.notices.len() == NOTICES_MAX {
-            self.snap.notices.remove(0);
+            let dropped = self.snap.notices.remove(0);
+            self.pad_notes.dropped(dropped.id);
         }
         let id = NoticeId(self.next_notice);
         self.next_notice = self.next_notice.wrapping_add(1);

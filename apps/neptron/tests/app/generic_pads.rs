@@ -251,3 +251,45 @@ fn a_notice_of_a_game_run_that_nobody_saw_shows_in_the_next_run() {
         rig.finish();
     });
 }
+
+#[test]
+#[ignore = "tier 2"]
+fn a_pad_notice_that_a_full_list_dropped_shows_again_at_the_next_plug() {
+    let name = test_name(
+        module_path!(),
+        "a_pad_notice_that_a_full_list_dropped_shows_again_at_the_next_plug",
+    );
+    in_child(&name, |dir| {
+        let mut rig = Rig::new(dir);
+        rig.boot(None);
+        let stick = rig.plug_joystick(joystick(), FULL);
+        rig.frames(2);
+        assert_eq!(notices(&mut rig).len(), 1);
+        let knob = JoystickCounts {
+            buttons: 1,
+            hats: 0,
+            axes: 1,
+        };
+        // Eight more notices: the list holds eight, so the oldest, the one
+        // of the joystick, goes unanswered.
+        for n in 0..8u8 {
+            let info = PadInfo {
+                identity: DeviceIdentity::from_parts(&[b"knob", &[n]]),
+                path: DeviceIdentity::from_parts(&[b"/dev/input/knob", &[n]]),
+                name: format!("Knob {n}"),
+            };
+            rig.plug_joystick(info, knob);
+        }
+        rig.frames(2);
+        let shown = notices(&mut rig);
+        assert_eq!(shown.len(), 8);
+        assert!(shown.iter().all(|n| n.text != GENERIC_TEXT), "dropped");
+        rig.pads.replug(stick);
+        rig.frames(2);
+        assert!(
+            notices(&mut rig).iter().any(|n| n.text == GENERIC_TEXT),
+            "the dropped notice of the joystick shows again"
+        );
+        rig.finish();
+    });
+}
