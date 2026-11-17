@@ -756,3 +756,28 @@ These checks need a CRT. The policy tests prove each mode in emulation; only a t
   - Do: start a SNES game on a 1080p panel with `display.panel_scale = auto`. Turn the scanlines on (strength 50 %), then off.
   - Expect: with scanlines on, the game shows at 4x (1194x896, centred), and every dark line has the same thickness across the height. With scanlines off, the game fills the height (1440x1080).
   - Record: a close photo of the scanlines at the top, the middle and the bottom of the picture.
+
+## Arcade set check (M07c)
+
+Run each check twice: once on the Raspberry Pi 3 (composite or HDMI) and once on the PC. Use your own sets. Copy them to the share over the network or on the stick; never into the repository. Record which message showed for each case, and tick the box only when both machines pass.
+
+- [ ] `needs-hardware` **The real title and a missing BIOS.** Pi 3 and PC.
+  - Do: put `mslugx.zip` in `roms/neogeo`, with no `neogeo.zip` anywhere on the share. Rescan, open Neo Geo, start the game.
+  - Expect: the list shows the title of the index, not `mslugx`. The launch stops with "This game needs the BIOS file neogeo.zip...". The screen mode does not change.
+  - Record: the title in the list and the message.
+- [ ] `needs-hardware` **A complete Neo Geo set starts.** Pi 3 and PC.
+  - Do: add `neogeo.zip` to `bios/` (then try `bios/fbneo/` and `roms/neogeo/`). Rescan and start the game.
+  - Expect: `neogeo` is not in the list. The game starts and runs.
+  - Record: each place of `neogeo.zip` that worked.
+- [ ] `needs-hardware` **A vertical game starts.** Pi 3 and PC.
+  - Do: put `ddonpach.zip` in `roms/arcade` and start it.
+  - Expect: the list shows its title with `V`; the check passes and the game starts.
+  - Record: the mark and the result.
+- [ ] `needs-hardware` **Damaged and wrong sets stop with their messages.** Pi 3 and PC.
+  - Do: copy a set and cut the copy to half its size; make a copy with one ROM removed from the zip; rename a set to a name that is no set; put a set for another emulator (for example a MAME set of a different version) in `roms/arcade`. Start each one.
+  - Expect: the cut copy gives "The file ... cannot be read"; the copy with one ROM removed gives "1 file of this game is missing or differs: <name>..."; the wrong name gives "... is not a set name of FinalBurn Neo"; the set for another emulator gives "Most files of this game do not match..." when more than half of its files differ. Each dialog fits the screen with no cut line.
+  - Record: each message, and whether the text fits on composite.
+- [ ] `needs-hardware` **The alias folder and the missing index.** Pi 3 and PC.
+  - Do: put a set in `roms/fbneo`. Then, on a development image only, move `/usr/share/neptron/arcade/fbneo.idx` away (the root is read-only: use the hot folder of the development variant, or a test image), restart the frontend, and start an arcade game.
+  - Expect: the set in `roms/fbneo` shows under Arcade. With no index the list shows set names, and the launch asks "Cancel" or "Start"; "Start" runs the game unchecked.
+  - Record: the list and the dialog.
