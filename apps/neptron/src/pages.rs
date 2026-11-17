@@ -2,6 +2,7 @@
 //! value back as a schema value.
 
 use neptron_audio::OutputDevice;
+use neptron_input::{PLAYER_PORTS, Roster, RosterEntry};
 use neptron_settings::{
     AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_PANEL_SCALE,
     DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE,
@@ -11,8 +12,8 @@ use neptron_settings::{
 use neptron_types::TvStandard;
 use neptron_ui::Value as UiValue;
 use neptron_ui::screens::{
-    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, QUIT_GAME,
-    RESUME, SETTINGS_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
+    AUDIO_PAGE, DISPLAY_PAGE, GRID_PAGE, INPUT_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE,
+    QUIT_GAME, RESUME, SETTINGS_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
 };
 use neptron_ui::snapshot::{
     ActionId, ChoiceOption, Level as UiLevel, MenuItem, PageId, Scopes, SettingKey, SettingValue,
@@ -153,10 +154,9 @@ pub const SHARE_ACCOUNT: &str = "neptron";
 /// each port, after the action keys of the other rows.
 const ADDRESS_KEY_BASE: u32 = ACTION_KEY_BASE + 0x100;
 
-/// The rows of the display panel, written at the global level. It also
-/// holds the global settings that are not about the picture or the sound.
-/// The TV rows show only on a TV, the panel scale only on a flat panel.
-pub const DISPLAY_KEYS: [&str; 11] = [
+/// The rows of the display panel, written at the global level. The TV
+/// rows show only on a TV, the panel scale only on a flat panel.
+pub const DISPLAY_KEYS: [&str; 10] = [
     DISPLAY_OUTPUT,
     DISPLAY_MONITOR,
     DISPLAY_TV,
@@ -167,8 +167,27 @@ pub const DISPLAY_KEYS: [&str; 11] = [
     DISPLAY_REFRESH_POLICY,
     DISPLAY_SCANLINES,
     DISPLAY_SCANLINE_STRENGTH,
-    INPUT_MENU_HOLD_START_SECONDS,
 ];
+
+/// The settings rows of the Input panel, after the rows of the players,
+/// written at the global level.
+pub const INPUT_KEYS: [&str; 1] = [INPUT_MENU_HOLD_START_SECONDS];
+
+/// The text of a player row with no pad.
+pub const NO_PAD: &str = "None";
+
+/// What follows the name of a pad that went away in a game: its port waits
+/// for it.
+pub const AWAY_SUFFIX: &str = " (away)";
+
+/// The label of the row of a pad on an extra port: it drives the menus,
+/// and the core does not read it.
+pub const EXTRA_PAD_LABEL: &str = "Extra pad";
+
+/// The characters that a row of a settings list holds with a scroll bar:
+/// the label, one space and the text. A pad name is cut to fit, so the row
+/// is never clipped.
+const ROW_MAX_CHARS: usize = 44;
 
 /// The rows of the audio panel, written at the global level.
 pub const AUDIO_KEYS: [&str; 2] = [AUDIO_VOLUME, AUDIO_OUTPUT];
@@ -265,6 +284,68 @@ pub fn audio_page(config: &Config, names: Names<'_>) -> SettingsPage {
         .filter_map(|key| row(config, names, key, View::Global))
         .collect();
     SettingsPage::new(AUDIO_PAGE, "Audio", rows)
+}
+
+/// The rows of the Input panel: the pad of each player, each pad on an
+/// extra port, the keyboard, and the input settings.
+pub fn input_page(config: &Config, names: Names<'_>, roster: &Roster) -> SettingsPage {
+    let mut rows = Vec::new();
+    for (port, n) in (0..PLAYER_PORTS).zip(1u32..) {
+        let label = format!("Player {n}");
+        let text = roster
+            .get(port)
+            .map_or_else(|| NO_PAD.to_owned(), |entry| pad_text(entry, &label));
+        rows.push(text_row(19 + n, &label, &text));
+    }
+    let extra = roster
+        .ports()
+        .iter()
+        .skip(usize::from(PLAYER_PORTS))
+        .flatten();
+    for (entry, n) in extra.zip(24..) {
+        rows.push(text_row(
+            n,
+            EXTRA_PAD_LABEL,
+            &pad_text(entry, EXTRA_PAD_LABEL),
+        ));
+    }
+    rows.push(text_row(28, "Keyboard", "Player 1"));
+    rows.extend(
+        INPUT_KEYS
+            .iter()
+            .filter_map(|key| row(config, names, key, View::Global)),
+    );
+    SettingsPage::new(INPUT_PAGE, "Input", rows)
+}
+
+/// The text of the row of a pad: its name, with `(away)` when it went
+/// away, cut so that the row with `label` fits.
+fn pad_text(entry: &RosterEntry, label: &str) -> String {
+    let suffix = if entry.present { "" } else { AWAY_SUFFIX };
+    let room = ROW_MAX_CHARS
+        .saturating_sub(label.chars().count() + 1)
+        .saturating_sub(suffix.len());
+    format!("{}{suffix}", fit_name(&entry.pad.name, room))
+}
+
+/// `name` in at most `room` characters: a character that the font does not
+/// have shows as `?`, and a name that is too long ends with `...`.
+fn fit_name(name: &str, room: usize) -> String {
+    let shown: Vec<char> = name
+        .chars()
+        .map(|c| {
+            if c == ' ' || c.is_ascii_graphic() {
+                c
+            } else {
+                '?'
+            }
+        })
+        .collect();
+    if shown.len() <= room {
+        return shown.into_iter().collect();
+    }
+    let keep = room.saturating_sub(3);
+    shown[..keep].iter().chain(['.'; 3].iter()).collect()
 }
 
 /// The rows of the first page of the quick menu: resume, the volume of the
@@ -857,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn the_display_and_audio_pages_hold_every_global_setting() {
+    fn the_display_audio_and_input_pages_hold_every_global_setting() {
         let config = config();
         let globals: Vec<_> = config
             .schema()
@@ -866,7 +947,12 @@ mod tests {
             .filter(|e| e.levels.allows(Level::Global))
             .map(|e| e.key)
             .collect();
-        let shown: Vec<_> = DISPLAY_KEYS.iter().chain(&AUDIO_KEYS).copied().collect();
+        let shown: Vec<_> = DISPLAY_KEYS
+            .iter()
+            .chain(&AUDIO_KEYS)
+            .chain(&INPUT_KEYS)
+            .copied()
+            .collect();
         assert_eq!(shown.len(), globals.len());
         for key in globals {
             assert!(shown.contains(&key), "{key} has no row");
@@ -1243,7 +1329,6 @@ mod tests {
                 "Refresh policy",
                 "Scanlines",
                 "Scanline strength",
-                "Hold Start for menu",
                 "Grid pattern",
             ]
         );
@@ -1331,6 +1416,116 @@ mod tests {
                 other => panic!("not an information row: {other:?}"),
             })
             .collect()
+    }
+
+    fn names_for<'a>(presets: &'a Presets, detected: &'a Detected) -> Names<'a> {
+        Names {
+            presets,
+            detected,
+            styles: &[],
+            class: DisplayClass::Crt,
+            outputs: &[],
+        }
+    }
+
+    fn pad_entry(name: &str, present: bool) -> RosterEntry {
+        RosterEntry {
+            pad: neptron_input::PadInfo {
+                identity: neptron_input::DeviceIdentity(1),
+                path: neptron_input::DeviceIdentity(2),
+                name: name.to_owned(),
+            },
+            present,
+        }
+    }
+
+    /// The label and the text or value of each row of the Input panel.
+    fn input_rows(roster: &Roster) -> Vec<(String, String)> {
+        let (presets, detected) = (Presets::default(), Detected::default());
+        let page = input_page(&config(), names_for(&presets, &detected), roster);
+        assert!(page.is_for(INPUT_PAGE));
+        page.rows
+            .iter()
+            .map(|r| {
+                let text = match &r.value {
+                    SettingValue::Text(text) => text.clone(),
+                    SettingValue::Number { value, unit, .. } => format!("{value} {unit}"),
+                    other => panic!("an unexpected row: {other:?}"),
+                };
+                (r.label.clone(), text)
+            })
+            .collect()
+    }
+
+    fn pairs(rows: &[(&str, &str)]) -> Vec<(String, String)> {
+        rows.iter()
+            .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn the_input_panel_with_no_pad_has_its_four_players() {
+        assert_eq!(
+            input_rows(&Roster::new()),
+            pairs(&[
+                ("Player 1", "None"),
+                ("Player 2", "None"),
+                ("Player 3", "None"),
+                ("Player 4", "None"),
+                ("Keyboard", "Player 1"),
+                ("Hold Start for menu", "0 s"),
+            ])
+        );
+    }
+
+    #[test]
+    fn the_input_panel_shows_each_pad_an_away_pad_and_the_extra_pads() {
+        let mut roster = Roster::new();
+        let pads = [
+            (0, pad_entry("Xbox 360 Controller", true)),
+            (1, pad_entry("PS4 Controller", false)),
+            (3, pad_entry("Pad \u{e9}\u{1}", true)),
+            (5, pad_entry("Extra One", true)),
+            (7, pad_entry("Extra Two", true)),
+        ];
+        for (port, pad) in pads {
+            roster.set(port, Some(pad)).expect("a port");
+        }
+        assert_eq!(
+            input_rows(&roster),
+            pairs(&[
+                ("Player 1", "Xbox 360 Controller"),
+                ("Player 2", "PS4 Controller (away)"),
+                ("Player 3", "None"),
+                ("Player 4", "Pad ??"),
+                ("Extra pad", "Extra One"),
+                ("Extra pad", "Extra Two"),
+                ("Keyboard", "Player 1"),
+                ("Hold Start for menu", "0 s"),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_long_pad_name_is_cut_so_the_row_fits() {
+        let long = "A Very Long Gamepad Name From A Vendor Database";
+        let mut roster = Roster::new();
+        roster.set(0, Some(pad_entry(long, true))).expect("a port");
+        roster.set(1, Some(pad_entry(long, false))).expect("a port");
+        roster.set(4, Some(pad_entry(long, true))).expect("a port");
+        let rows = input_rows(&roster);
+        assert_eq!(rows[0].1, "A Very Long Gamepad Name From A ...");
+        assert_eq!(rows[1].1, "A Very Long Gamepad Name ... (away)");
+        assert_eq!(rows[4].1, "A Very Long Gamepad Name From A...");
+        for (label, text) in &rows[..5] {
+            assert!(
+                label.chars().count() + 1 + text.chars().count() <= ROW_MAX_CHARS,
+                "{label} {text}"
+            );
+        }
+        // A name that fits is kept whole.
+        assert_eq!(fit_name("Pad", 3), "Pad");
+        assert_eq!(fit_name("Pads", 3), "...");
     }
 
     #[test]

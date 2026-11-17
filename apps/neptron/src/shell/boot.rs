@@ -337,6 +337,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             network_shown: false,
             network_requests: 0,
             network_builds: 0,
+            pad_changes: 0,
             outcome: None,
         };
         shell.first_snapshot();

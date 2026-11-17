@@ -160,3 +160,123 @@ fn in_the_menus_player_2_becomes_player_1_when_player_1_goes() {
         rig.finish();
     });
 }
+
+/// Opens `Settings > Input` from home or the quick menu.
+fn open_input(rig: &mut Rig) {
+    rig.focus("Settings");
+    rig.tap(&[Control::A]);
+    assert_eq!(rig.screen(), "settings");
+    rig.focus("Input");
+    rig.tap(&[Control::A]);
+    assert_eq!(rig.screen(), "input");
+}
+
+/// The label and the value of every row of the panel.
+fn rows(rig: &mut Rig) -> Vec<(String, String)> {
+    rig.tree()
+        .rows
+        .into_iter()
+        .filter_map(|r| r.value.map(|v| (r.label, v)))
+        .collect()
+}
+
+fn pairs(rows: &[(&str, &str)]) -> Vec<(String, String)> {
+    rows.iter()
+        .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+        .collect()
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn the_input_panel_shows_five_pads_and_follows_a_hotplug() {
+    let name = test_name(
+        module_path!(),
+        "the_input_panel_shows_five_pads_and_follows_a_hotplug",
+    );
+    in_child(&name, |dir| {
+        let mut rig = Rig::new(dir);
+        let first = rig.plug(pad(1));
+        for n in 2..=5 {
+            rig.plug(pad(n));
+        }
+        rig.boot(None);
+        let first = rig.plugged.iter().position(|(_, p)| *p == first);
+        rig.frames(2);
+        rig.scanned();
+        open_input(&mut rig);
+        assert_eq!(
+            rows(&mut rig),
+            pairs(&[
+                ("Player 1", "Pad 1"),
+                ("Player 2", "Pad 2"),
+                ("Player 3", "Pad 3"),
+                ("Player 4", "Pad 4"),
+                ("Extra pad", "Pad 5"),
+                ("Keyboard", "Player 1"),
+                ("Hold Start for menu", "0 s"),
+            ])
+        );
+        // Player 1 goes while the panel is open: every pad moves down, and
+        // the fifth pad becomes player 4.
+        let one = rig.plugged[first.expect("pad 1")].1;
+        rig.unplug(one);
+        rig.frames(2);
+        assert_eq!(
+            rows(&mut rig)[..5],
+            pairs(&[
+                ("Player 1", "Pad 2"),
+                ("Player 2", "Pad 3"),
+                ("Player 3", "Pad 4"),
+                ("Player 4", "Pad 5"),
+                ("Keyboard", "Player 1"),
+            ])
+        );
+        rig.finish();
+    });
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn in_a_game_the_input_panel_shows_a_gone_player_as_away() {
+    let name = test_name(
+        module_path!(),
+        "in_a_game_the_input_panel_shows_a_gone_player_as_away",
+    );
+    in_child(&name, |dir| {
+        let mut rig = Rig::new(dir);
+        let mut earlier = Roster::new();
+        for (port, n) in [(0, 1), (1, 2)] {
+            let entry = neptron_input::RosterEntry {
+                pad: pad(n),
+                present: true,
+            };
+            earlier.set(port, Some(entry)).expect("a port");
+        }
+        rig.plug(pad(2));
+        rig.boot(Some(NextRun {
+            game: Some(neptron::relaunch::GameRef {
+                system: "nes".to_owned(),
+                path: "nes/Test Game.nes".to_owned(),
+            }),
+            notice: None,
+            pads: PadRecord::list(&earlier),
+        }));
+        rig.frames(30);
+        rig.tap(&[Control::Select, Control::Start]);
+        rig.frames(1);
+        assert_eq!(rig.screen(), "quick-menu");
+        open_input(&mut rig);
+        assert_eq!(
+            rows(&mut rig)[..2],
+            pairs(&[("Player 1", "Pad 1 (away)"), ("Player 2", "Pad 2")])
+        );
+        // Player 1 comes back while the panel is open.
+        rig.plug(pad(1));
+        rig.frames(2);
+        assert_eq!(
+            rows(&mut rig)[..2],
+            pairs(&[("Player 1", "Pad 1"), ("Player 2", "Pad 2")])
+        );
+        rig.finish();
+    });
+}

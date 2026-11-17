@@ -7,7 +7,7 @@ use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::Hotkey;
 use neptron_input::PadRoster;
 use neptron_types::{Frame, PixelFormat};
-use neptron_ui::screens::{NETWORK_PAGE, NETWORK_SCREEN};
+use neptron_ui::screens::{INPUT_PAGE, NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
 
@@ -34,6 +34,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         self.poll_library();
         self.poll_set_check();
         self.poll_network(now_ns);
+        self.poll_pads();
         match self.stage {
             Stage::List(_) => self.list_frame(now_ns),
             Stage::Game(_) => self.game_frame(now_ns),
@@ -197,6 +198,23 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// The snapshot keeps the page after the panel closes, so the screen on
     /// show of the last frame decides. The frame thread never waits for the
     /// reader.
+    /// Builds the Input page again when a pad came, went or moved while
+    /// the page is in the snapshot, so the open panel shows it. The check
+    /// reads a counter and allocates nothing.
+    fn poll_pads(&mut self) {
+        let changes = match &self.stage {
+            Stage::List(list) => list.input.roster_changes(),
+            Stage::Game(game) => game.session.input().roster_changes(),
+            Stage::Ended => return,
+        };
+        if changes != self.pad_changes {
+            self.pad_changes = changes;
+            if self.snap.settings.is_for(INPUT_PAGE) {
+                self.load_page(INPUT_PAGE);
+            }
+        }
+    }
+
     fn poll_network(&mut self, now_ns: u64) {
         let Some(watch) = &self.network else {
             return;

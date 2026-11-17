@@ -195,6 +195,8 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     network_requests: u64,
     /// The builds of the Network page since the start.
     network_builds: u64,
+    /// The roster counter of the input source at the last check.
+    pad_changes: u64,
     outcome: Option<Outcome>,
 }
 

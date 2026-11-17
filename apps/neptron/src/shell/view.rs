@@ -6,7 +6,8 @@ use neptron_input::PadRoster;
 use neptron_settings::DisplayClass;
 use neptron_types::{Modeline, MonitorKind, TvStandard};
 use neptron_ui::screens::{
-    AUDIO_PAGE, DISPLAY_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, SYSTEM_PAGE, VIDEO_PAGE,
+    AUDIO_PAGE, DISPLAY_PAGE, INPUT_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, SYSTEM_PAGE,
+    VIDEO_PAGE,
 };
 use neptron_ui::snapshot::{
     ConfirmId, GameId, Notice, NoticeId, NoticeKind, PageId, PendingConfirm, SessionInfo,
@@ -157,6 +158,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 },
             ),
             AUDIO_PAGE => pages::audio_page(&self.config, names),
+            INPUT_PAGE => pages::input_page(&self.config, names, &self.roster()),
             QUICK_MENU_PAGE => pages::quick_menu_page(&self.config, names),
             VIDEO_PAGE => pages::video_page(&self.config, names),
             other => SettingsPage::new(other, "", Vec::new()),
