@@ -140,7 +140,8 @@ impl BootCheckArgs {
 }
 
 /// The guest script: check the storage of the disk, wait until the SMB
-/// server of the network share listens, dismiss the notice of each RAM
+/// server of the network share listens, check that every CPU with a
+/// cpufreq driver runs the `performance` governor, dismiss the notice of each RAM
 /// folder, wait for the game list, then print the picture. The
 /// capture tool gets the deadline less a margin, so it reports a missing
 /// screen itself before the guest deadline kills it. When it fails, the
@@ -157,8 +158,9 @@ impl BootCheckArgs {
 pub fn guest_script(timeout_secs: u64, arch: Arch) -> String {
     let wait_secs = timeout_secs.saturating_sub(GUEST_MARGIN_SECS).max(1);
     let [state, share] = expected_storage(arch);
-    let mut steps =
-        format!("ready && storage state {state} && storage share {share} && network_share && ");
+    let mut steps = format!(
+        "ready && storage state {state} && storage share {share} && network_share && governor {CPU_SYSFS} && "
+    );
     if [state, share].contains(&"ram") {
         steps.push_str("controlled && ");
     }
@@ -200,6 +202,15 @@ network_share() {
 	until cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$2 ~ /:01BD$/ && $4 == "0A" { found = 1 } END { exit !found }' && pidof mdnsd > /dev/null; do
 		in_time "the network share does not listen on port 445, or mdnsd does not run; was the image built before the network share? rebuild it" || return 1
 		sleep 1
+	done
+}
+governor() {
+	# A QEMU guest has no cpufreq driver, and then no file matches.
+	for file in "$1"/cpu[0-9]*/cpufreq/scaling_governor; do
+		[ -r "$file" ] || continue
+		name=$(cat "$file")
+		[ "$name" = performance ] && continue
+		echo "neptron-check: $file is $name, not performance; a lower clock makes a heavy core miss fields"; return 1
 	done
 }
 dismiss() {
@@ -805,6 +816,9 @@ const SETTLE_MS: u64 = 3000;
 const CONTROL_SOCKET: &str = "/run/neptron/control.sock";
 /// The storage status that `S06neptron-storage` writes in the guest.
 const STORAGE_STATUS: &str = "/run/neptron/storage.toml";
+/// The CPU folder in sysfs; each CPU with a cpufreq driver has
+/// `cpu<N>/cpufreq/scaling_governor` under it.
+const CPU_SYSFS: &str = "/sys/devices/system/cpu";
 /// The calls of `neptronctl ui tree` the check makes, at most, until a
 /// dismissed notice is gone. The protocol answers between two frames, so
 /// this is at least as many frames: two seconds at 60 Hz.
@@ -925,12 +939,12 @@ mod tests {
     #[test]
     fn the_guest_script_states_the_storage_it_expects() {
         let x86 = guest_script(900, Arch::X86_64);
-        let checks = "ready && storage state partition && storage share partition && network_share && neptron-capture";
+        let checks = "ready && storage state partition && storage share partition && network_share && governor /sys/devices/system/cpu && neptron-capture";
         assert!(x86.contains(checks), "{x86}");
         assert!(!x86.contains("&& dismiss "), "no notice to dismiss: {x86}");
         assert!(!x86.contains("&& controlled "), "no input needed: {x86}");
         let arm = guest_script(900, Arch::Aarch64);
-        let checks = "ready && storage state ram && storage share ram && network_share && controlled && dismiss state && dismiss share && neptron-capture";
+        let checks = "ready && storage state ram && storage share ram && network_share && governor /sys/devices/system/cpu && controlled && dismiss state && dismiss share && neptron-capture";
         assert!(arm.contains(checks), "{arm}");
         assert!(arm.contains("this server does not serve"), "{arm}");
         for script in [&x86, &arm] {
@@ -989,6 +1003,69 @@ mod tests {
             );
             assert!(!ready.contains("neptronctl"), "{ready}");
         }
+    }
+
+    /// Runs the `governor` function of the guest script on a fake CPU
+    /// folder with one entry for each CPU: its governor, or none for a CPU
+    /// with no cpufreq driver.
+    fn governor(name: &str, cpus: &[Option<&str>]) -> std::process::Output {
+        let script = guest_script(900, Arch::X86_64);
+        let function = script
+            .split("\ngovernor() {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("the governor function");
+        let dir =
+            std::env::temp_dir().join(format!("xtask-governor-{name}-{}", std::process::id()));
+        for (n, governor) in cpus.iter().enumerate() {
+            let cpu = dir.join(format!("cpu{n}"));
+            std::fs::create_dir_all(&cpu).unwrap();
+            if let Some(governor) = governor {
+                std::fs::create_dir_all(cpu.join("cpufreq")).unwrap();
+                std::fs::write(
+                    cpu.join("cpufreq/scaling_governor"),
+                    format!("{governor}\n"),
+                )
+                .unwrap();
+            }
+        }
+        std::fs::create_dir_all(dir.join("cpufreq")).unwrap();
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("governor() {{{function}\n}}\ngovernor \"$1\""))
+            .arg("sh")
+            .arg(&dir)
+            .output()
+            .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        out
+    }
+
+    /// A guest with no cpufreq driver passes; a machine with one passes
+    /// only when every CPU runs the `performance` governor.
+    #[test]
+    fn the_guest_script_checks_the_governor_only_where_a_driver_exists() {
+        for (name, cpus) in [
+            ("none", &[][..]),
+            ("nodriver", &[None, None][..]),
+            (
+                "performance",
+                &[Some("performance"), Some("performance")][..],
+            ),
+        ] {
+            let out = governor(name, cpus);
+            assert!(out.status.success(), "{name}: {out:?}");
+            assert!(out.stdout.is_empty(), "{name}: {out:?}");
+        }
+        let out = governor("powersave", &[Some("performance"), Some("powersave")]);
+        assert!(!out.status.success(), "{out:?}");
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(
+            text.contains("cpu1/cpufreq/scaling_governor is powersave, not performance"),
+            "{text}"
+        );
+        let out = governor("schedutil", &[Some("schedutil")]);
+        assert!(!out.status.success(), "{out:?}");
     }
 
     #[test]
