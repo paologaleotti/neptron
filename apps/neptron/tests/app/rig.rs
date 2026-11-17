@@ -52,6 +52,22 @@ impl PadRoster for RigInput {
     fn activity(&self) -> neptron_input::PadActivity {
         self.pads.activity()
     }
+
+    fn set_player_maps(&mut self, maps: &neptron_input::PlayerMaps) {
+        self.pads.set_player_maps(maps);
+    }
+
+    fn capture(&mut self, pad: Option<neptron_input::PadKey>) {
+        self.pads.capture(pad);
+    }
+
+    fn captured(&self) -> neptron_input::Capture {
+        self.pads.captured()
+    }
+
+    fn pad_map(&self, pad: neptron_input::PadKey) -> Option<neptron_input::PadMap> {
+        self.pads.pad_map(pad)
+    }
 }
 
 /// The script of the test core: a NES-like source that changes its height

@@ -24,6 +24,7 @@ pub mod options;
 pub mod outbox;
 pub mod pad_maps;
 pub mod pad_notes;
+pub mod pad_page;
 pub mod pages;
 pub mod paths;
 pub mod power;

@@ -196,6 +196,10 @@ pub const EXTRA_PAD_LABEL: &str = "Extra pad";
 /// is never clipped.
 const ROW_MAX_CHARS: usize = 44;
 
+/// The characters of a row that opens a page, with a scroll bar: the arrow
+/// takes the room of one more.
+const LINK_ROW_MAX_CHARS: usize = 43;
+
 /// The rows of the audio panel, written at the global level.
 pub const AUDIO_KEYS: [&str; 2] = [AUDIO_VOLUME, AUDIO_OUTPUT];
 
@@ -298,23 +302,16 @@ pub fn audio_page(config: &Config, names: Names<'_>) -> SettingsPage {
 pub fn input_page(config: &Config, names: Names<'_>, roster: &Roster) -> SettingsPage {
     let mut rows = Vec::new();
     for (port, n) in (0..PLAYER_PORTS).zip(1u32..) {
-        let label = format!("Player {n}");
-        let text = roster
-            .get(port)
-            .map_or_else(|| NO_PAD.to_owned(), |entry| pad_text(entry, &label));
-        rows.push(text_row(PLAYER_ROW_FIRST + n - 1, &label, &text));
+        let label = port_label(port);
+        rows.push(match roster.get(port) {
+            Some(entry) => pad_row(PLAYER_ROW_FIRST + n - 1, port, entry, &label),
+            None => text_row(PLAYER_ROW_FIRST + n - 1, &label, NO_PAD),
+        });
     }
-    let extra = roster
-        .ports()
-        .iter()
-        .skip(usize::from(PLAYER_PORTS))
-        .flatten();
-    for (entry, n) in extra.zip(EXTRA_ROW_FIRST..) {
-        rows.push(text_row(
-            n,
-            EXTRA_PAD_LABEL,
-            &pad_text(entry, EXTRA_PAD_LABEL),
-        ));
+    let extra = (PLAYER_PORTS..neptron_input::MAX_PORTS)
+        .filter_map(|port| roster.get(port).map(|entry| (port, entry)));
+    for ((port, entry), n) in extra.zip(EXTRA_ROW_FIRST..) {
+        rows.push(pad_row(n, port, entry, EXTRA_PAD_LABEL));
     }
     rows.push(text_row(28, "Keyboard", "Player 1"));
     rows.extend(
@@ -323,6 +320,32 @@ pub fn input_page(config: &Config, names: Names<'_>, roster: &Roster) -> Setting
             .filter_map(|key| row(config, names, key, View::Global)),
     );
     SettingsPage::new(INPUT_PAGE, "Input", rows)
+}
+
+/// The label of the row of the pad on `port`, and the title of its page:
+/// `Player 1` to `Player 4`, or `Extra pad`.
+pub fn port_label(port: u8) -> String {
+    if port < PLAYER_PORTS {
+        format!("Player {}", port + 1)
+    } else {
+        EXTRA_PAD_LABEL.to_owned()
+    }
+}
+
+/// The row of the pad on `port`: a present pad opens its page, an away
+/// pad is an information row.
+fn pad_row(n: u32, port: u8, entry: &RosterEntry, label: &str) -> MenuItem {
+    if !entry.present {
+        return text_row(n, label, &pad_text(entry, label, ROW_MAX_CHARS));
+    }
+    MenuItem::new(
+        SettingKey(ACTION_KEY_BASE + n),
+        label,
+        SettingValue::Link {
+            page: crate::pad_page::pad_page(port),
+            text: pad_text(entry, label, LINK_ROW_MAX_CHARS),
+        },
+    )
 }
 
 /// The key of the row of the Input panel that shows the pad on `port` of
@@ -356,14 +379,14 @@ const EXTRA_ROW_FIRST: u32 = 24;
 /// away, `(generic layout)` for a present pad with the generic layout, or
 /// `(your layout)` for a map of the player, cut so that the row with
 /// `label` fits.
-fn pad_text(entry: &RosterEntry, label: &str) -> String {
+fn pad_text(entry: &RosterEntry, label: &str, max_chars: usize) -> String {
     let suffix = match (entry.present, entry.map) {
         (false, _) => AWAY_SUFFIX,
         (true, MapKind::Generic) => GENERIC_SUFFIX,
         (true, MapKind::Player) => YOURS_SUFFIX,
         (true, MapKind::Known) => "",
     };
-    let room = ROW_MAX_CHARS
+    let room = max_chars
         .saturating_sub(label.chars().count() + 1)
         .saturating_sub(suffix.len());
     format!("{}{suffix}", fit_name(&entry.pad.name, room))
@@ -1490,7 +1513,7 @@ mod tests {
             .iter()
             .map(|r| {
                 let text = match &r.value {
-                    SettingValue::Text(text) => text.clone(),
+                    SettingValue::Text(text) | SettingValue::Link { text, .. } => text.clone(),
                     SettingValue::Number { value, unit, .. } => format!("{value} {unit}"),
                     other => panic!("an unexpected row: {other:?}"),
                 };
@@ -1580,7 +1603,7 @@ mod tests {
             pairs(&[
                 ("Player 1", "USB Joystick (your layout)"),
                 ("Player 2", "USB Joystick (away)"),
-                ("Player 3", "A Very Long Gamepa... (your layout)"),
+                ("Player 3", "A Very Long Gamep... (your layout)"),
             ])
         );
         for (label, text) in &rows[..3] {
@@ -1622,8 +1645,8 @@ mod tests {
                 ("Player 1", "8BitDo Pad"),
                 ("Player 2", "USB Joystick (generic layout)"),
                 ("Player 3", "USB Joystick (away)"),
-                ("Player 4", "A Very Long Gam... (generic layout)"),
-                ("Extra pad", "Generic USB Jo... (generic layout)"),
+                ("Player 4", "A Very Long Ga... (generic layout)"),
+                ("Extra pad", "Generic USB J... (generic layout)"),
             ])
         );
         for (label, text) in &rows[..5] {
@@ -1660,6 +1683,42 @@ mod tests {
     }
 
     #[test]
+    fn a_present_pad_opens_the_page_of_its_port_and_an_away_pad_does_not() {
+        let mut roster = Roster::new();
+        roster
+            .set(0, Some(pad_entry("Pad A", true)))
+            .expect("a port");
+        roster
+            .set(1, Some(pad_entry("Pad B", false)))
+            .expect("a port");
+        roster
+            .set(5, Some(pad_entry("Pad F", true)))
+            .expect("a port");
+        let (presets, detected) = (Presets::default(), Detected::default());
+        let page = input_page(&config(), names_for(&presets, &detected), &roster);
+        let pages: Vec<_> = page
+            .rows
+            .iter()
+            .map(|r| match &r.value {
+                SettingValue::Link { page, .. } => Some(*page),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            pages[..5],
+            [
+                Some(crate::pad_page::pad_page(0)),
+                None,
+                None,
+                None,
+                Some(crate::pad_page::pad_page(5)),
+            ]
+        );
+        assert_eq!(port_label(5), "Extra pad");
+        assert_eq!(port_label(3), "Player 4");
+    }
+
+    #[test]
     fn a_long_pad_name_is_cut_so_the_row_fits() {
         let long = "A Very Long Gamepad Name From A Vendor Database";
         let mut roster = Roster::new();
@@ -1667,9 +1726,15 @@ mod tests {
         roster.set(1, Some(pad_entry(long, false))).expect("a port");
         roster.set(4, Some(pad_entry(long, true))).expect("a port");
         let rows = input_rows(&roster);
-        assert_eq!(rows[0].1, "A Very Long Gamepad Name From A ...");
+        assert_eq!(rows[0].1, "A Very Long Gamepad Name From A...");
         assert_eq!(rows[1].1, "A Very Long Gamepad Name ... (away)");
-        assert_eq!(rows[4].1, "A Very Long Gamepad Name From A...");
+        assert_eq!(rows[4].1, "A Very Long Gamepad Name From ...");
+        for (label, text) in [&rows[0], &rows[4]] {
+            assert!(
+                label.chars().count() + 1 + text.chars().count() <= LINK_ROW_MAX_CHARS,
+                "the arrow of a present pad takes room: {label} {text}"
+            );
+        }
         for (label, text) in &rows[..5] {
             assert!(
                 label.chars().count() + 1 + text.chars().count() <= ROW_MAX_CHARS,

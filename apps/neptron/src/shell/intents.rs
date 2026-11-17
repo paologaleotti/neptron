@@ -78,7 +78,16 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             Intent::Action(pages::FORMAT_SHARE) => self.request_share_format(),
             Intent::Action(pages::KEEP_PICTURE) => self.keep_picture(now_ns),
             Intent::Action(pages::TRY_SETTINGS) => self.try_settings(now_ns),
-            Intent::Action(_) => {}
+            Intent::Action(id) => match crate::pad_page::pad_action(id) {
+                Some(crate::pad_page::PadAction::MapButtons(port)) => {
+                    let key = self.roster().get(port).map(|e| e.pad.key());
+                    if !key.is_some_and(|key| self.start_mapping(key)) {
+                        self.log(format!("no guided mapping for port {port}"));
+                    }
+                }
+                Some(crate::pad_page::PadAction::Reset(port)) => self.reset_layout(port),
+                None => {}
+            },
             Intent::SelectProfile(id) => {
                 let profile = self.presets.profiles().get(id.0 as usize);
                 if let Some(profile) = profile.map(|p| p.id.clone()) {
@@ -110,8 +119,13 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 self.pad_notes.answered(id);
                 self.unchecked_launch.take_if(|(notice, _)| *notice == id);
             }
-            // The app starts no guided mapping, so the UI never sends these.
-            Intent::KeepPadMapping | Intent::CancelPadMapping => {}
+            Intent::KeepPadMapping => self.keep_mapping(),
+            Intent::CancelPadMapping => {
+                if self.mapping.is_some() {
+                    self.log("the guided mapping is cancelled; nothing changed".to_owned());
+                }
+                self.end_mapping();
+            }
             Intent::AcceptNotice(id) => {
                 self.snap.notices.retain(|n| n.id != id);
                 if let Some((NoteKind::Generic, pad)) = self.pad_notes.answered(id) {
@@ -127,9 +141,14 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     }
 
     /// The answer "Set up this controller" of the notice of a pad with the
-    /// generic layout: the Input panel opens with the focus on the row of
-    /// that pad, or on its first row when the pad has no port now.
+    /// generic layout: in the game list the guided mapping of that pad
+    /// starts. Else, or when it cannot start, the Input panel opens with
+    /// the focus on the row of that pad, or on its first row when the pad
+    /// has no port now.
     fn set_up_pad(&mut self, (identity, path): crate::pad_notes::PadKey) {
+        if self.start_mapping(neptron_input::PadKey { identity, path }) {
+            return;
+        }
         let roster = self.roster();
         let port = (0u8..).zip(roster.ports()).find_map(|(port, entry)| {
             entry

@@ -1,6 +1,6 @@
 //! A pad with no gamepad mapping: the generic layout, its notice and the
-//! button that opens the Input panel; and the notice of a pad that sends
-//! no input.
+//! button that starts its guided mapping; and the notice of a pad that
+//! sends no input.
 
 use neptron_backend::Clock;
 use neptron_input::{DeviceIdentity, HatState, JoystickCounts, PadInfo, SILENT_PAD_AFTER_NS};
@@ -39,10 +39,10 @@ const START: u8 = 9;
 
 #[test]
 #[ignore = "tier 2"]
-fn a_pad_with_no_mapping_plays_tells_once_and_opens_its_input_row() {
+fn a_pad_with_no_mapping_plays_tells_once_and_starts_its_mapping() {
     let name = test_name(
         module_path!(),
-        "a_pad_with_no_mapping_plays_tells_once_and_opens_its_input_row",
+        "a_pad_with_no_mapping_plays_tells_once_and_starts_its_mapping",
     );
     in_child(&name, |dir| {
         let mut rig = Rig::new(dir);
@@ -65,8 +65,20 @@ fn a_pad_with_no_mapping_plays_tells_once_and_opens_its_input_row() {
         rig.frames(2);
         rig.joy_tap(stick, CIRCLE);
         rig.frames(2);
+        assert_eq!(
+            rig.screen(),
+            "pad-mapping",
+            "in the game list the button starts the guided mapping"
+        );
+        // Back on the keyboard ends it with no change.
+        rig.tap(&[Control::B]);
+        assert_eq!(rig.screen(), "home");
+        rig.scanned();
+        rig.focus("Settings");
+        rig.tap(&[Control::A]);
+        rig.focus("Input");
+        rig.tap(&[Control::A]);
         assert_eq!(rig.screen(), "input");
-        assert_eq!(rig.focused().as_deref(), Some("Player 2"));
         assert_eq!(
             rows(&mut rig)[..2],
             [
@@ -84,6 +96,7 @@ fn a_pad_with_no_mapping_plays_tells_once_and_opens_its_input_row() {
         rig.tap(&[Control::B]);
         rig.tap(&[Control::B]);
         assert_eq!(rig.screen(), "home");
+        rig.focus("Nintendo Entertainment System");
         let next = launch_from_the_list(&mut rig);
         rig.finish();
         rig.boot(Some(next));

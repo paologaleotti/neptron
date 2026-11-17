@@ -9,6 +9,7 @@ mod boot;
 mod frame;
 mod guard_events;
 mod intents;
+mod mapping;
 mod picture;
 mod protocol;
 mod view;
@@ -164,6 +165,12 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     shown_notices: crate::notices::ShownNotices,
     /// The pad notices of this power cycle and the silent pad rule.
     pad_notes: crate::pad_notes::PadNotes,
+    /// The controller layouts of the player, as the file holds them.
+    pad_maps: crate::pad_maps::PadMapsFile,
+    /// The guided mapping that runs, in the game list.
+    mapping: Option<mapping::MappingRun>,
+    /// The id of the last guided mapping.
+    next_mapping: u32,
     /// The notices of the input source of the frame, a buffer made at the
     /// start.
     input_notices: Vec<neptron_input::InputNotice>,

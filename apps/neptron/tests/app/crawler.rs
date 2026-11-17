@@ -47,6 +47,10 @@ const NEVER_ACCEPT: [&str; 6] = [
     FORMAT_SHARE_LABEL,
 ];
 
+/// Action rows that open a dialog over the screen, which back closes:
+/// the guided mapping of a controller.
+const OPENS_A_DIALOG: [&str; 1] = [neptron::pad_page::MAP_BUTTONS_LABEL];
+
 /// The deepest path from home or the quick menu.
 const DEPTH_MAX: usize = 4;
 
@@ -150,6 +154,9 @@ fn with_a_format_offer_the_row_is_found_and_never_accepted() {
 /// Boots `rig` into the list and into a game, crawls both, and checks that
 /// every screen and every setting was reached.
 fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
+    // A pad, so the page of a controller and its guided mapping are on
+    // the path.
+    rig.plug(crate::players::pad(1));
     rig.boot(None);
     rig.frames(2);
     rig.until(600, "the scan", |r| {
@@ -194,6 +201,7 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
         "pattern/grid",
         "quick-menu",
         "quick-menu/video",
+        "pad-mapping",
     ] {
         assert!(
             found.screens.contains(screen),
@@ -278,11 +286,13 @@ fn crawl(rig: &mut Rig, found: &mut Found, depth: usize) {
             rig.tap(&[Control::A]);
             let entered = rig.screen();
             if entered != screen {
-                assert_eq!(
-                    kind,
-                    Some(RowKind::Page),
-                    "{screen}: the row {focused:?} opens {entered} but has no arrow"
-                );
+                if !OPENS_A_DIALOG.contains(&focused.as_str()) {
+                    assert_eq!(
+                        kind,
+                        Some(RowKind::Page),
+                        "{screen}: the row {focused:?} opens {entered} but has no arrow"
+                    );
+                }
                 crawl(rig, found, depth + 1);
                 rig.tap(&[Control::B]);
                 assert_eq!(

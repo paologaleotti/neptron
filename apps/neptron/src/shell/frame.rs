@@ -69,6 +69,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         if recover {
             self.recover(now_ns);
         }
+        self.poll_mapping(now_ns);
         self.nav.update(&self.events, now_ns, &mut self.actions);
         self.update_ui(now_ns);
         // A reboot or a power-off keeps its last frame on screen until the
@@ -226,8 +227,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         };
         if changes != self.pad_changes {
             self.pad_changes = changes;
-            if self.snap.settings.is_for(INPUT_PAGE) {
-                self.load_page(INPUT_PAGE);
+            let page = self.snap.settings.page;
+            let pad_page = page.and_then(crate::pad_page::port_of_page).is_some();
+            if self.snap.settings.is_for(INPUT_PAGE) || pad_page {
+                self.reload_page();
             }
         }
         if !self.input_notices.is_empty() {

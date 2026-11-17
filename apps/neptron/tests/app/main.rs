@@ -23,6 +23,7 @@ mod panel;
 mod pause;
 mod players;
 mod recovery;
+mod remapping;
 mod rescan;
 mod rig;
 mod system;

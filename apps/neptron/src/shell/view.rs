@@ -161,8 +161,25 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             INPUT_PAGE => pages::input_page(&self.config, names, &self.roster()),
             QUICK_MENU_PAGE => pages::quick_menu_page(&self.config, names),
             VIDEO_PAGE => pages::video_page(&self.config, names),
-            other => SettingsPage::new(other, "", Vec::new()),
+            other => match crate::pad_page::port_of_page(other) {
+                Some(port) => self.pad_page(other, port),
+                None => SettingsPage::new(other, "", Vec::new()),
+            },
         };
+    }
+
+    /// The page of the controller on `port`, from the roster and the map
+    /// that the source reads.
+    fn pad_page(&self, page: PageId, port: u8) -> SettingsPage {
+        let roster = self.roster();
+        let entry = roster.get(port);
+        let map = entry.and_then(|e| match &self.stage {
+            Stage::List(list) => list.input.pad_map(e.pad.key()),
+            Stage::Game(game) => game.session.input().pad_map(e.pad.key()),
+            Stage::Ended => None,
+        });
+        let label = pages::port_label(port);
+        crate::pad_page::pad_page_rows(page, &label, entry, map, self.in_game())
     }
 
     /// The class of the monitor that the guard gave the engine: the one
