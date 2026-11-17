@@ -12,8 +12,8 @@
 use std::collections::BTreeMap;
 
 use neptron_modeline::policy::{
-    Plan, PolicyError, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, choose,
-    decide,
+    Plan, PolicyError, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshTarget,
+    Rung, choose, decide,
 };
 use neptron_modeline::{Settings, modelines_with};
 use neptron_safety::{Rejection, validate};
@@ -163,6 +163,33 @@ fn near_edge(profile: &MonitorProfile, rate: u32) -> bool {
             edge.abs_diff(rate) < REFRESH_MATCH_MHZ || edge.abs_diff(2 * rate) < REFRESH_MATCH_MHZ
         })
     })
+}
+
+/// The winner runs at a window rate: a Nearest target that is neither the
+/// nearest covered rate to the game's nor, with each frame twice, the
+/// nearest covered rate to twice it. Only there may the class follow the
+/// speed rule instead of a named limit.
+fn at_window(profile: &MonitorProfile, game_mhz: u32, target: RefreshTarget) -> bool {
+    let MonitorKind::Crt { ranges } = &profile.kind else {
+        return false;
+    };
+    if target.kind != RefreshKind::Nearest {
+        return false;
+    }
+    let nearest = |rate: u64| {
+        ranges
+            .iter()
+            .map(|r| rate.clamp(r.v_min_mhz, r.v_max_mhz.max(r.v_min_mhz)))
+            .min_by_key(|&c| c.abs_diff(rate))
+            .unwrap_or(rate)
+    };
+    let game = u64::from(game_mhz);
+    let rate = u64::from(target.rate_mhz);
+    let base = match target.repeat {
+        1 => nearest(game),
+        _ => nearest(2 * game),
+    };
+    rate.abs_diff(base) >= REFRESH_MATCH_MHZ
 }
 
 /// The smallest change of the game's speed, in millihertz of its rate, of
@@ -320,9 +347,13 @@ impl Failures {
 struct Outcome {
     class: Class,
     lines: u32,
-    /// The winner is exact at the window rate, which wins over the fit by
-    /// the speed rule (within the 5 mHz match): the class may change where
-    /// the fit's own rate does.
+    /// A rung at a window rate gives a mode, so the speed rule decides
+    /// between it and the fit: a change of the speed by a few millihertz
+    /// can change the class with no limit crossed. An example: ms929 at
+    /// 70 Hz, 288 lines, where interlaced 1:1 misses 65.000 Hz by the 5 mHz
+    /// match (64.995 Hz), the window mode at 64.981 Hz changes the speed
+    /// 19 mHz more than the fit at 65.000 Hz, and the fit wins; at 289
+    /// lines the interlaced mode gives 64.996 Hz and wins.
     window: bool,
 }
 
@@ -430,7 +461,7 @@ impl Sweep {
             let bound = (8 * u32::from(crop.capacity_lines)).div_ceil(240);
             self.check(
                 "the crop stays within 8 source lines and 8 of 240 screen lines",
-                crop.lines_per_edge <= 8 && screen <= bound.max(8),
+                crop.lines_per_edge <= 8 && screen <= bound,
                 || format!("{}: {crop:?} at {k}x", what()),
             );
         }
@@ -522,7 +553,10 @@ impl Sweep {
                 }
             },
             lines,
-            window: !fitted && w.considered.target.kind == RefreshKind::Nearest,
+            window: plan
+                .considered
+                .iter()
+                .any(|c| c.outcome.is_ok() && at_window(profile, source.refresh_mhz, c.target)),
         }
     }
 
