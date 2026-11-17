@@ -188,6 +188,7 @@ impl Odren {
     pub fn set_monitor(&mut self, gpu: &GpuCaps, monitor: Monitor) {
         self.inputs.caps = monitor.caps_for(gpu);
         self.inputs.monitor = monitor;
+        self.inputs.settings.panel_scanlines = self.panel() && panel_scanlines(self.scanlines);
         self.inputs.driver_refused.clear();
         self.invalidate(Trigger::Monitor);
     }

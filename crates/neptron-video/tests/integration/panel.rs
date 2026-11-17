@@ -17,7 +17,7 @@ use neptron_video::{
     Monitor, PanelScale, PolicySettings, ScanlineSettings, VideoEngine, VideoStatusText,
 };
 
-use crate::harness::{SNES, SNES_PAL, frame, source};
+use crate::harness::{SNES, SNES_PAL, frame, generic_15, source};
 
 /// A GPU that sends 4K at 60 Hz.
 const CAPS_4K: GpuCaps = GpuCaps {
@@ -343,4 +343,29 @@ fn scanlines_on_a_panel_take_the_largest_whole_multiple() {
     assert_eq!(shown(&mut engine), rect(363, 92, 1194, 896));
     engine.set_scanlines(ScanlineSettings::OFF);
     assert_eq!(shown(&mut engine), rect(240, 0, 1440, 1080));
+}
+
+#[test]
+fn a_new_monitor_takes_the_scanline_rule_of_its_kind() {
+    let on = ScanlineSettings {
+        mode: ScanlineMode::On,
+        strength_percent: 50,
+    };
+    let shown = |engine: &mut VideoEngine<FakeDisplay>| {
+        engine.begin_frame(SNES);
+        engine.present(Some(frame(&SNES)), None).unwrap();
+        engine.wait_flip().unwrap();
+        engine.current().unwrap().chosen.proposal.placement.dest
+    };
+    // From a CRT to a panel with scanlines on: the panel takes 4x, not
+    // the fill, because the renderer draws the lines.
+    let (_, mut engine) = engine_with(generic_15(), PolicySettings::default());
+    engine.set_scanlines(on);
+    assert!(!engine.odren().settings().panel_scanlines);
+    engine.set_monitor(panel(vec![mode(1920, 1080, 60)]));
+    assert!(engine.odren().settings().panel_scanlines);
+    assert_eq!(shown(&mut engine), rect(363, 92, 1194, 896));
+    // From the panel back to a CRT: the flag goes off with the panel.
+    engine.set_monitor(generic_15());
+    assert!(!engine.odren().settings().panel_scanlines);
 }
