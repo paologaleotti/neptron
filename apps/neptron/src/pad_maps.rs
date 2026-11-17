@@ -24,7 +24,7 @@ const PAD_KEY: &str = "pad";
 const SCOPE_KEYS: [&str; 2] = ["system", "game"];
 
 /// The maps of the player and the file they came from.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct PadMapsFile {
     maps: PlayerMaps,
     /// The file as read; `None` when it cannot be written: it did not
@@ -32,6 +32,22 @@ pub struct PadMapsFile {
     table: Option<Table>,
     /// Why the file cannot be written, for the player.
     locked: Option<String>,
+    /// Makes the text of the file. A test gives one that fails.
+    render: Render,
+}
+
+/// What makes the text of the file from its table.
+type Render = fn(&Table) -> Result<String, String>;
+
+impl Default for PadMapsFile {
+    fn default() -> Self {
+        Self {
+            maps: PlayerMaps::new(),
+            table: None,
+            locked: None,
+            render: render_toml,
+        }
+    }
 }
 
 /// Why a map cannot be stored.
@@ -41,6 +57,9 @@ pub enum PadMapsError {
     /// it.
     #[error("{0}")]
     Locked(String),
+    /// The text of the file cannot be made. The file is not written.
+    #[error("the file of the controller layouts cannot be made: {0}")]
+    Render(String),
 }
 
 impl PadMapsFile {
@@ -108,6 +127,7 @@ impl PadMapsFile {
                 maps,
                 table,
                 locked,
+                ..Self::default()
             },
             issues,
         )
@@ -146,7 +166,8 @@ impl PadMapsFile {
     ///
     /// # Errors
     ///
-    /// [`PadMapsError::Locked`] when the file cannot be written. Nothing
+    /// [`PadMapsError::Locked`] when the file cannot be written, and
+    /// [`PadMapsError::Render`] when its text cannot be made. Nothing
     /// changes then.
     pub fn store(
         &mut self,
@@ -154,8 +175,8 @@ impl PadMapsFile {
         name: &str,
         map: &PlayerMap,
     ) -> Result<String, PadMapsError> {
-        let table = self.writable()?;
-        let mut entries = take_entries(table);
+        let mut table = self.writable()?.clone();
+        let mut entries = take_entries(&mut table);
         let at = entries.iter().position(|e| is_entry_of(e, identity));
         let mut entry = at
             .and_then(|i| entries.get(i))
@@ -177,9 +198,10 @@ impl PadMapsFile {
             Some(slot) => *slot = Value::Table(entry),
             None => entries.push(Value::Table(entry)),
         }
-        put_entries(table, entries);
+        put_entries(&mut table, entries);
+        let text = self.commit(table)?;
         self.maps.insert(identity, *map);
-        Ok(self.render())
+        Ok(text)
     }
 
     /// Removes the map of `identity` and returns the text of the new
@@ -187,33 +209,42 @@ impl PadMapsFile {
     ///
     /// # Errors
     ///
-    /// [`PadMapsError::Locked`] when the file cannot be written. Nothing
+    /// [`PadMapsError::Locked`] when the file cannot be written, and
+    /// [`PadMapsError::Render`] when its text cannot be made. Nothing
     /// changes then.
     pub fn remove(&mut self, identity: DeviceIdentity) -> Result<String, PadMapsError> {
-        let table = self.writable()?;
-        let mut entries = take_entries(table);
+        let mut table = self.writable()?.clone();
+        let mut entries = take_entries(&mut table);
         entries.retain(|e| !is_entry_of(e, identity));
-        put_entries(table, entries);
+        put_entries(&mut table, entries);
+        let text = self.commit(table)?;
         self.maps.remove(identity);
-        Ok(self.render())
+        Ok(text)
     }
 
-    fn writable(&mut self) -> Result<&mut Table, PadMapsError> {
+    fn writable(&self) -> Result<&Table, PadMapsError> {
         let locked = self.locked.clone();
-        self.table.as_mut().ok_or_else(|| {
+        self.table.as_ref().ok_or_else(|| {
             PadMapsError::Locked(locked.unwrap_or_else(|| {
                 "the file of the controller layouts cannot be written".to_owned()
             }))
         })
     }
 
-    fn render(&mut self) -> String {
-        let Some(table) = &mut self.table else {
-            return String::new();
-        };
+    /// Makes the text of `table` and, when it can, keeps `table` as the
+    /// file. A text that cannot be made changes nothing, so no write ever
+    /// replaces the file with an empty one.
+    fn commit(&mut self, mut table: Table) -> Result<String, PadMapsError> {
         table.insert(VERSION_KEY.to_owned(), Value::Integer(PAD_MAPS_VERSION));
-        toml::to_string(table).unwrap_or_default()
+        let text = (self.render)(&table).map_err(PadMapsError::Render)?;
+        self.table = Some(table);
+        Ok(text)
     }
+}
+
+/// The TOML text of `table`.
+fn render_toml(table: &Table) -> Result<String, String> {
+    toml::to_string(table).map_err(|e| e.to_string())
 }
 
 /// Takes the array of the maps out of `table`: empty when it is missing
@@ -400,6 +431,31 @@ a = "b1"
         assert_eq!(file.maps().iter().count(), 1);
         assert_eq!(issues.len(), 4, "{issues:?}");
         assert!(issues.iter().any(|i| i.contains("button 99")), "{issues:?}");
+    }
+
+    fn fails(_: &Table) -> Result<String, String> {
+        Err("no text".to_owned())
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_rendered_is_not_written_and_nothing_changes() {
+        let (mut file, _) = PadMapsFile::parse(Some(
+            "[[pad]]\nidentity = \"8f3a2b1c0d4e5f60\"\na = \"b9\"\n",
+        ));
+        file.render = fails;
+        let before = file.maps().clone();
+        assert!(matches!(
+            file.store(ID, "x", &sample()),
+            Err(PadMapsError::Render(_))
+        ));
+        assert!(matches!(file.remove(ID), Err(PadMapsError::Render(_))));
+        assert_eq!(file.maps(), &before, "the maps did not change");
+        file.render = render_toml;
+        let text = file.remove(DeviceIdentity(1)).unwrap();
+        assert!(
+            text.contains("a = \"b9\""),
+            "the table did not change: {text}"
+        );
     }
 
     #[test]
