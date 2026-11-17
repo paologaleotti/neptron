@@ -179,7 +179,7 @@ left_y = "-a1"
 | `Layout` | information | `Known`, `Generic` or `Yours` |
 | `Map buttons` | action | starts the guided mapping |
 | `Reset to default` | action, asks first | removes the map of the player |
-| one row per RetroPad control | information | the binding: `Hat 0 up`, `Button 2`, `Axis 4 + (full)`, `Axis 1 inverted`, `South button` for a known pad, `None` for a control with no binding |
+| one row per RetroPad control | information | the binding: `Hat 0 up`, `Button 2`, `Axis 4 + (from its end)`, `Axis 1 inverted`, `South button` for a known pad, `None` for a control with no binding |
 
 - `Reset to default` is disabled with the reason `Already default` when the pad has no map of the player. It asks first: `Reset this controller?`, `Your layout of this model is removed. The default layout comes back.`
 - When the pad of the port goes away while the page is open, the page shows `Controller` `None`, and the actions are disabled with the reason `No controller`.

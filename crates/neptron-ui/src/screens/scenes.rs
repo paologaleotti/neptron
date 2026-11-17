@@ -1132,7 +1132,7 @@ fn pad_mapping_note(frame: &mut UiFrame, theme: &Theme) {
         prompt: "Press L2 (left trigger)".to_owned(),
         step: 13,
         steps: 20,
-        note: "That is Select already. Press another one.".to_owned(),
+        note: "Select uses it already. Try another.".to_owned(),
     };
     pad_mapping_at(frame, theme, stage, 15_000_000_000);
 }
