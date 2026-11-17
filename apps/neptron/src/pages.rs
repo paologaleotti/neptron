@@ -2,7 +2,7 @@
 //! value back as a schema value.
 
 use neptron_audio::OutputDevice;
-use neptron_input::{PLAYER_PORTS, Roster, RosterEntry};
+use neptron_input::{MapKind, PLAYER_PORTS, Roster, RosterEntry};
 use neptron_settings::{
     AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_PANEL_SCALE,
     DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE,
@@ -181,6 +181,9 @@ pub const NO_PAD: &str = "None";
 /// for it.
 pub const AWAY_SUFFIX: &str = " (away)";
 
+/// What follows the name of a present pad that uses the generic layout.
+pub const GENERIC_SUFFIX: &str = " (generic layout)";
+
 /// The label of the row of a pad on an extra port: it drives the menus,
 /// and the core does not read it.
 pub const EXTRA_PAD_LABEL: &str = "Extra pad";
@@ -296,14 +299,14 @@ pub fn input_page(config: &Config, names: Names<'_>, roster: &Roster) -> Setting
         let text = roster
             .get(port)
             .map_or_else(|| NO_PAD.to_owned(), |entry| pad_text(entry, &label));
-        rows.push(text_row(19 + n, &label, &text));
+        rows.push(text_row(PLAYER_ROW_FIRST + n - 1, &label, &text));
     }
     let extra = roster
         .ports()
         .iter()
         .skip(usize::from(PLAYER_PORTS))
         .flatten();
-    for (entry, n) in extra.zip(24..) {
+    for (entry, n) in extra.zip(EXTRA_ROW_FIRST..) {
         rows.push(text_row(
             n,
             EXTRA_PAD_LABEL,
@@ -319,10 +322,42 @@ pub fn input_page(config: &Config, names: Names<'_>, roster: &Roster) -> Setting
     SettingsPage::new(INPUT_PAGE, "Input", rows)
 }
 
+/// The key of the row of the Input panel that shows the pad on `port` of
+/// `roster`, or `None` when the port has no pad.
+pub fn input_row_key(roster: &Roster, port: u8) -> Option<SettingKey> {
+    roster.get(port)?;
+    let n = if port < PLAYER_PORTS {
+        PLAYER_ROW_FIRST + u32::from(port)
+    } else {
+        let before = roster
+            .ports()
+            .iter()
+            .take(usize::from(port))
+            .skip(usize::from(PLAYER_PORTS))
+            .flatten()
+            .count();
+        EXTRA_ROW_FIRST + u32::try_from(before).ok()?
+    };
+    Some(SettingKey(ACTION_KEY_BASE + n))
+}
+
+/// The row number of the row of player 1. The rows of players 2 to 4
+/// follow.
+const PLAYER_ROW_FIRST: u32 = 20;
+
+/// The row number of the first extra pad row. The rows of the 4 extra
+/// ports follow, before the keyboard row.
+const EXTRA_ROW_FIRST: u32 = 24;
+
 /// The text of the row of a pad: its name, with `(away)` when it went
-/// away, cut so that the row with `label` fits.
+/// away, or `(generic layout)` for a present pad with the generic layout,
+/// cut so that the row with `label` fits.
 fn pad_text(entry: &RosterEntry, label: &str) -> String {
-    let suffix = if entry.present { "" } else { AWAY_SUFFIX };
+    let suffix = match (entry.present, entry.map) {
+        (false, _) => AWAY_SUFFIX,
+        (true, MapKind::Generic) => GENERIC_SUFFIX,
+        (true, MapKind::Known) => "",
+    };
     let room = ROW_MAX_CHARS
         .saturating_sub(label.chars().count() + 1)
         .saturating_sub(suffix.len());
@@ -331,7 +366,7 @@ fn pad_text(entry: &RosterEntry, label: &str) -> String {
 
 /// `name` in at most `room` characters: a character that the font does not
 /// have shows as `?`, and a name that is too long ends with `...`.
-fn fit_name(name: &str, room: usize) -> String {
+pub(crate) fn fit_name(name: &str, room: usize) -> String {
     let shown: Vec<char> = name
         .chars()
         .map(|c| {
@@ -1506,6 +1541,81 @@ mod tests {
                 ("Hold Start for menu", "0 s"),
             ])
         );
+    }
+
+    fn generic_entry(name: &str, present: bool) -> RosterEntry {
+        RosterEntry {
+            map: MapKind::Generic,
+            ..pad_entry(name, present)
+        }
+    }
+
+    #[test]
+    fn a_pad_with_the_generic_layout_says_so_and_still_fits() {
+        let mut roster = Roster::new();
+        roster
+            .set(0, Some(pad_entry("8BitDo Pad", true)))
+            .expect("a port");
+        roster
+            .set(1, Some(generic_entry("USB Joystick", true)))
+            .expect("a port");
+        roster
+            .set(2, Some(generic_entry("USB Joystick", false)))
+            .expect("a port");
+        roster
+            .set(
+                3,
+                Some(generic_entry(
+                    "A Very Long Gamepad Name From A Vendor",
+                    true,
+                )),
+            )
+            .expect("a port");
+        roster
+            .set(5, Some(generic_entry("Generic USB Joystick", true)))
+            .expect("a port");
+        let rows = input_rows(&roster);
+        assert_eq!(
+            rows[..5],
+            pairs(&[
+                ("Player 1", "8BitDo Pad"),
+                ("Player 2", "USB Joystick (generic layout)"),
+                ("Player 3", "USB Joystick (away)"),
+                ("Player 4", "A Very Long Gam... (generic layout)"),
+                ("Extra pad", "Generic USB Jo... (generic layout)"),
+            ])
+        );
+        for (label, text) in &rows[..5] {
+            assert!(
+                label.chars().count() + 1 + text.chars().count() <= ROW_MAX_CHARS,
+                "{label} {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_row_key_of_a_port_is_the_key_of_its_row_on_the_panel() {
+        let mut roster = Roster::new();
+        for port in [0, 2, 5, 7] {
+            roster
+                .set(port, Some(pad_entry("Pad", true)))
+                .expect("a port");
+        }
+        let (presets, detected) = (Presets::default(), Detected::default());
+        let page = input_page(&config(), names_for(&presets, &detected), &roster);
+        let key_of = |label: &str, nth: usize| {
+            page.rows
+                .iter()
+                .filter(|r| r.label == label)
+                .nth(nth)
+                .map(|r| r.key)
+        };
+        assert_eq!(input_row_key(&roster, 0), key_of("Player 1", 0));
+        assert_eq!(input_row_key(&roster, 2), key_of("Player 3", 0));
+        assert_eq!(input_row_key(&roster, 5), key_of("Extra pad", 0));
+        assert_eq!(input_row_key(&roster, 7), key_of("Extra pad", 1));
+        assert_eq!(input_row_key(&roster, 1), None, "no pad");
+        assert_eq!(input_row_key(&roster, 9), None, "no port");
     }
 
     #[test]
