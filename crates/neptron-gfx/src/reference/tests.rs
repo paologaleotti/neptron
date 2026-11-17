@@ -789,3 +789,5 @@ fn a_scanline_strength_above_100_is_refused() {
     let s = Scene { game: None, ..s };
     assert_eq!(render(&s, 1, 4), [BLACK; 4]);
 }
+
+mod turn;

@@ -6,6 +6,7 @@ mod error;
 mod overlay;
 mod pixel;
 mod scanline;
+mod turn;
 
 pub(crate) use axis::AxisMap;
 pub use error::{Image, MAX_RECT_SIDE_PX, RectKind, RenderError};
@@ -14,6 +15,7 @@ pub(crate) use pixel::Rgb;
 #[cfg(test)]
 pub(crate) use pixel::{from_rgb565, from_xrgb1555};
 pub(crate) use scanline::Pattern;
+pub(crate) use turn::Turn;
 
 use neptron_types::{Frame, Scene};
 
@@ -75,6 +77,15 @@ pub struct OutputBuffer<'a> {
 ///   the pixel on the right, or the pixel below.
 /// - Sharp bilinear: see below.
 ///
+/// # Turn
+///
+/// `scene.rotation` turns the cropped picture before the scale, with the
+/// pixel rule of [`Scene::rotation`](neptron_types::Scene::rotation). The
+/// rules of this section and the next ones then apply to the turned
+/// picture `T` in place of the crop: for `R90` and `R270` the columns of
+/// `dest` sample the lines of the crop, and `crop.w` and `crop.h` change
+/// places. A turn is a permutation of pixels, so it adds no rounding.
+///
 /// # Sharp bilinear
 ///
 /// This is the filter of the libretro `sharp-bilinear` shader, with a
@@ -102,8 +113,9 @@ pub struct OutputBuffer<'a> {
 ///
 /// `scene.scanlines` darkens lines of the game picture, with the rule that
 /// the doc comment of [`Scanlines`](neptron_types::Scanlines) states. In
-/// short: only at a whole vertical scale `k = dest.h / crop.h` of at least
-/// 2; destination line `j` (counted from `dest.y`) is dark when
+/// short: only at a whole vertical scale `k = dest.h / T.h` of at least
+/// 2, where `T.h` is `crop.w` for `R90` and `R270`, so the dark lines stay
+/// horizontal on the screen; destination line `j` (counted from `dest.y`) is dark when
 /// `j mod k >= k - d`, with `d` from
 /// [`ScanlineKind::dark_lines`](neptron_types::ScanlineKind::dark_lines);
 /// a channel of a dark line is the exact value times
@@ -190,27 +202,18 @@ impl ReferenceRenderer {
         if crop.w == 0 || crop.h == 0 || dest.w == 0 || dest.h == 0 {
             return;
         }
-        let x_map = AxisMap {
-            crop_start: i64::from(crop.x),
-            crop_len: crop.w,
-            dest_len: dest.w,
-            frame_len: u32::from(game.width),
-            filter: scene.filter,
-        };
-        let y_map = AxisMap {
-            crop_start: i64::from(crop.y),
-            crop_len: crop.h,
-            dest_len: dest.h,
-            frame_len: u32::from(game.height),
-            filter: scene.filter,
-        };
+        let turn = Turn::of(crop, (game.width, game.height), scene.rotation);
+        let x_map = turn.columns.map(dest.w, scene.filter);
+        let y_map = turn.lines.map(dest.h, scene.filter);
         let (x0, x1) = visible(dest.x, dest.w, out.width);
         let (y0, y1) = visible(dest.y, dest.h, out.height);
         fill_taps(&mut self.columns, &x_map, x0, x1, dest.x);
         fill_taps(&mut self.lines, &y_map, y0, y1, dest.y);
+        to_frame(&mut self.columns, &turn.columns);
+        to_frame(&mut self.lines, &turn.lines);
 
         let den = (x_map.denominator(), y_map.denominator());
-        let pattern = Pattern::of(scene.scanlines, crop.h, dest.h);
+        let pattern = Pattern::of(scene.scanlines, turn.lines.crop_len, dest.h);
         for (y, line) in (y0..y1).zip(&self.lines) {
             let j = (i64::from(y) - i64::from(dest.y)) as u32;
             let keep = pattern.map_or(FULL_PERCENT, |p| p.keep(j));
@@ -218,7 +221,8 @@ impl ReferenceRenderer {
                 continue;
             };
             for (px, column) in row.chunks_exact_mut(4).zip(&self.columns) {
-                px.copy_from_slice(&sample(game, *column, *line, den, keep).to_xrgb8888_le());
+                let rgb = sample(game, (*column, *line), turn.swap, den, keep);
+                px.copy_from_slice(&rgb.to_xrgb8888_le());
             }
         }
     }
@@ -235,6 +239,14 @@ pub(crate) fn visible(pos: i32, len: u32, out_len: u32) -> (u32, u32) {
 fn fill_taps(taps: &mut Vec<Tap>, map: &AxisMap, start: u32, end: u32, dest_pos: i32) {
     taps.clear();
     taps.extend((start..end).map(|o| map.tap((i64::from(o) - i64::from(dest_pos)) as u32)));
+}
+
+fn to_frame(taps: &mut [Tap], axis: &turn::TurnedAxis) {
+    if axis.reversed {
+        for tap in taps {
+            *tap = axis.tap_in_frame(*tap);
+        }
+    }
 }
 
 /// The bytes of output pixels `[x0, x1)` on line `y`. The output check
@@ -257,14 +269,23 @@ fn fill_black(out: &mut OutputBuffer<'_>) {
 }
 
 /// The colour at `column` and `line`, with each channel scaled by
-/// `keep_percent / 100` before its one rounding.
+/// `keep_percent / 100` before its one rounding. The taps hold frame
+/// coordinates. With `swap`, the column tap reads the lines of the frame
+/// and the line tap its columns.
 fn sample(
     frame: &Frame<'_>,
-    column: Tap,
-    line: Tap,
+    (column, line): (Tap, Tap),
+    swap: bool,
     (den_x, den_y): (u64, u64),
     keep_percent: u32,
 ) -> Rgb {
+    let read = |c: u32, l: u32| {
+        if swap {
+            pixel::read(frame, l, c)
+        } else {
+            pixel::read(frame, c, l)
+        }
+    };
     let (
         Tap::Inside {
             near: x_near,
@@ -282,7 +303,7 @@ fn sample(
     };
     let keep = u64::from(keep_percent);
     if wx == 0 && wy == 0 {
-        let c = pixel::read(frame, x_near, y_near);
+        let c = read(x_near, y_near);
         if keep_percent == FULL_PERCENT {
             return c;
         }
@@ -295,13 +316,10 @@ fn sample(
         };
     }
     let taps = [
-        (
-            pixel::read(frame, x_near, y_near),
-            (den_x - wx) * (den_y - wy),
-        ),
-        (pixel::read(frame, x_far, y_near), wx * (den_y - wy)),
-        (pixel::read(frame, x_near, y_far), (den_x - wx) * wy),
-        (pixel::read(frame, x_far, y_far), wx * wy),
+        (read(x_near, y_near), (den_x - wx) * (den_y - wy)),
+        (read(x_far, y_near), wx * (den_y - wy)),
+        (read(x_near, y_far), (den_x - wx) * wy),
+        (read(x_far, y_far), wx * wy),
     ];
     let total = den_x * den_y * u64::from(FULL_PERCENT);
     let channel = |get: fn(&Rgb) -> u8| {

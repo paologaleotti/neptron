@@ -30,7 +30,7 @@ impl ReferenceRenderer {
             };
             for (px, column) in row.chunks_exact_mut(4).zip(&self.columns) {
                 px.copy_from_slice(
-                    &sample(ui, *column, *line, (1, 1), FULL_PERCENT).to_xrgb8888_le(),
+                    &sample(ui, (*column, *line), false, (1, 1), FULL_PERCENT).to_xrgb8888_le(),
                 );
             }
         }
