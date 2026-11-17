@@ -45,15 +45,16 @@ define NEPTRON_INSTALL_ARCADE_INDEX
 endef
 endif
 
-# The frontend reads the monitor presets and the skin at run time
-# (Paths::image); the binary embeds no GPL data. The other folders are
-# there for the tools and the person who reads the image.
+# The frontend reads the monitor presets, the skin and the gamepad
+# mapping file at run time (Paths::image); the binary embeds no GPL data.
+# The other folders are there for the tools and the person who reads the
+# image.
 define NEPTRON_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/target/$(RUSTC_TARGET_NAME)/release/neptron \
 		$(TARGET_DIR)/usr/bin/neptron
 	rm -rf $(TARGET_DIR)/usr/share/neptron
 	mkdir -p $(TARGET_DIR)/usr/share/neptron
-	for dir in monitors cores systems skins hardware; do \
+	for dir in monitors cores systems skins hardware input; do \
 		cp -r $(@D)/data/$$dir $(TARGET_DIR)/usr/share/neptron/$$dir || exit 1; \
 	done
 	$(NEPTRON_INSTALL_ARCADE_INDEX)
