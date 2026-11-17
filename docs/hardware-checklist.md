@@ -501,6 +501,10 @@ Use a USB pad that SDL3 has no mapping for: a cheap "USB Joystick" or "Generic U
   - Do: plug a pad that has a `platform:Linux` line in `/usr/share/sdl-gamecontrollerdb/gamecontrollerdb.txt` and no line in the built-in database of SDL 3.4 (compare the GUID of the `input:` line of the log with both). Use it in the game list and in a game.
   - Expect: no notice of the generic layout. Its row on `Settings > Input` has no ` (generic layout)` suffix. Its face buttons, D-pad, Start and Select are where the standard layout puts them.
   - Record: the pad, its GUID, and any button in the wrong place.
+- [ ] `needs-hardware` **Pads that work today keep their layout with the community database.**
+  - Do: on an image with the community database, plug an Xbox 360 pad, then an 8BitDo pad. With each, use every button and the D-pad in the game list and in a game, and compare with an image of main before the database (or with notes of that image).
+  - Expect: each pad opens with a known layout and no notice of the generic layout. Every button and the D-pad work in the menus and in the game. The face buttons are in the same places as before: the same button accepts and the same button goes back in the menus, and each face button gives the same RetroPad button in the game.
+  - Record: each pad, its GUID (the `input:` line of the log), and any button that moved.
 - [ ] `needs-hardware` **The load time of the mapping files on the Pi 3.**
   - Do: build two development images of the Pi, one with `BR2_PACKAGE_SDL_GAMECONTROLLERDB` off. On each, read the time from the start of the frontend to its first frame in the log of a boot.
   - Expect: the image with the community file takes less than 50 ms more.
