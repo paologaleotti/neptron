@@ -109,6 +109,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: notice_choice,
     },
     SceneDef {
+        name: "screens/notice-generic-pad",
+        build: notice_generic_pad,
+    },
+    SceneDef {
         name: "screens/notice-set-files",
         build: notice_set_files,
     },
@@ -982,17 +986,19 @@ fn input_with(frame: &mut UiFrame, theme: &Theme, rows: Vec<MenuItem>) {
     screens.update(&snap, &[], frame);
 }
 
-/// Four players, player 2 away in a game, and a fifth pad. The longest
-/// names the app keeps: 35 characters, and 28 before ` (away)`.
+/// Four players, player 2 away in a game, player 3 with the generic
+/// layout, and a fifth pad with the generic layout. The longest names the
+/// app keeps: 35 characters, 28 before ` (away)` and 18 before
+/// ` (generic layout)`.
 fn input(frame: &mut UiFrame, theme: &Theme) {
     let rows = input_rows(
         [
             "Xbox 360 Controller",
             "Nintendo Switch Pro Contr... (away)",
-            "PS4 Controller",
+            "USB Joystick (generic layout)",
             "8BitDo SN30 Pro+ Bluetooth Gamepad",
         ],
-        &["Generic USB Joystick"],
+        &["Generic USB Jo... (generic layout)"],
     );
     input_with(frame, theme, rows);
 }
@@ -1166,6 +1172,18 @@ fn notice_choice(frame: &mut UiFrame, theme: &Theme) {
         NoticeKind::Warning,
     )
     .with_choice("Start");
+    notice_over_list_with(frame, theme, notice);
+}
+
+/// A pad with no gamepad mapping came: the notice of the generic layout,
+/// with the button that opens its row of the Input panel.
+fn notice_generic_pad(frame: &mut UiFrame, theme: &Theme) {
+    let notice = Notice::new(
+        NoticeId(1),
+        "USB Joystick has no known layout, so it uses a generic one. Some buttons can be in other places.",
+        NoticeKind::Info,
+    )
+    .with_choice("Set up this controller");
     notice_over_list_with(frame, theme, notice);
 }
 
