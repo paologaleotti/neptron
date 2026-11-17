@@ -134,6 +134,7 @@ pub struct Setup {
     pub core_options: Vec<(String, String)>,
     pub volume_percent: u32,
     pub keep_samples: bool,
+    pub always_progressive: bool,
 }
 
 impl Default for Setup {
@@ -151,6 +152,7 @@ impl Default for Setup {
             core_options: Vec::new(),
             volume_percent: 100,
             keep_samples: false,
+            always_progressive: false,
         }
     }
 }
@@ -186,6 +188,7 @@ pub fn launch_on<S: AudioSink>(
         system_dir: &system_dir,
         save_dir: &save_dir,
         core_options: &setup.core_options,
+        always_progressive: setup.always_progressive,
     };
     let sink = audio(&clock, &display);
     let video = VideoSetup {
@@ -235,6 +238,7 @@ impl Rig {
             system_dir: &system_dir,
             save_dir: &save_dir,
             core_options: &setup.core_options,
+            always_progressive: setup.always_progressive,
         };
         let video = VideoSetup {
             display: display.clone(),

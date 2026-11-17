@@ -500,6 +500,7 @@ fn launch<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone>(
         system_dir: &system_dir,
         save_dir: &save_dir,
         core_options: &core.options,
+        always_progressive: system.always_progressive,
     };
     let policy = config.policy().map_err(|e| e.to_string())?;
     let scanlines = config.scanlines().map_err(|e| e.to_string())?;

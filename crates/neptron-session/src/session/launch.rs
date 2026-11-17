@@ -15,7 +15,7 @@ use super::{INPUT_EVENTS_CAPACITY, Session, State};
 use crate::pads::PadMask;
 use crate::picture::Picture;
 use crate::save::{SAVE_RAM_FLUSH_INTERVAL_NS, SaveRamWriter};
-use crate::source::{LaunchSettle, source_geometry};
+use crate::source::{FrameRules, LaunchSettle, source_geometry};
 use crate::{Counters, Devices, GameLaunch, LaunchError, SessionOptions, VideoSetup};
 
 /// The save file of a game and what it held at launch.
@@ -74,6 +74,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         let mut hotkeys = Hotkeys::new();
         hotkeys.set_start_hold_ns(options.start_hold_ns);
         let geometry = av.geometry;
+        let rules = FrameRules {
+            rotation: host.rotation(),
+            always_progressive: game.always_progressive,
+        };
         let mut session = Self {
             host,
             engine,
@@ -89,11 +93,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             picture: Picture::new(geometry.max_width, geometry.max_height),
             geometry,
             timing: av.timing,
+            always_progressive: game.always_progressive,
             source: source_geometry(
                 geometry.base_width,
                 geometry.base_height,
                 &geometry,
                 &av.timing,
+                rules,
             ),
             state: State::Running,
             run_rate: options.run_rate,

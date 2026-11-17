@@ -10,7 +10,7 @@ use neptron_video::{Directive, VideoError};
 use super::{FLIPLESS_FRAMES_LIMIT, Session, State};
 use crate::pads::CORE_PORTS;
 use crate::save::SAVE_RAM_FLUSH_INTERVAL_NS;
-use crate::source::source_geometry;
+use crate::source::{FrameRules, source_geometry};
 use crate::{Counters, EndReason, FrameReport, RunRateSource, SessionError};
 
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
@@ -143,7 +143,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             .picture
             .size()
             .unwrap_or((self.geometry.base_width, self.geometry.base_height));
-        self.source = source_geometry(width, height, &self.geometry, &self.timing);
+        let rules = FrameRules {
+            rotation: self.host.rotation(),
+            always_progressive: self.always_progressive,
+        };
+        self.source = source_geometry(width, height, &self.geometry, &self.timing, rules);
         Ok(())
     }
 

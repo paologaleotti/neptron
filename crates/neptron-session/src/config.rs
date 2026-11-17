@@ -25,6 +25,10 @@ pub struct GameLaunch<'a> {
     /// end of the load, or a value it does not list, is counted in
     /// `Counters::refused_options`; `Host::held_option_report` names them.
     pub core_options: &'a [(String, String)],
+    /// Every frame of the system is progressive (the system data key
+    /// `always_progressive`): the line count of a frame does not make it
+    /// interlaced.
+    pub always_progressive: bool,
 }
 
 /// The display and the resolved video settings.

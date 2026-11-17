@@ -3,7 +3,7 @@
 //! session lets the source settle before it sets the first mode, so the
 //! first mode is the game's mode and the monitor resyncs once.
 
-use neptron_session::{LAUNCH_STABLE_FRAMES, source_geometry};
+use neptron_session::{FrameRules, LAUNCH_STABLE_FRAMES, source_geometry};
 use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
 use neptron_testkit::{FakeDisplay, SimClock};
 use neptron_types::{Frame, PixelFormat};
@@ -80,7 +80,13 @@ fn without_the_settle_the_engine_sets_two_modes() {
             pitch: usize::from(width) * 2,
             format: PixelFormat::Rgb565,
         };
-        engine.begin_frame(source_geometry(width, height, &geometry, &timing));
+        engine.begin_frame(source_geometry(
+            width,
+            height,
+            &geometry,
+            &timing,
+            FrameRules::CONSOLE,
+        ));
         engine.present(Some(frame), None).unwrap();
         engine.wait_flip().unwrap();
     }

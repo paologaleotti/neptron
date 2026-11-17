@@ -55,6 +55,8 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     picture: Picture,
     geometry: GameGeometry,
     timing: Timing,
+    /// The system data says that every frame is progressive.
+    always_progressive: bool,
     source: SourceGeometry,
     state: State,
     run_rate: RunRateSource,

@@ -28,5 +28,6 @@ pub use report::{Counters, EndReason, ExitReport, FrameReport};
 pub use save::{Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SaveStats};
 pub use session::{FLIPLESS_FRAMES_LIMIT, Session};
 pub use source::{
-    INTERLACE_MIN_LINES, LAUNCH_SETTLE_MAX_FRAMES, LAUNCH_STABLE_FRAMES, source_geometry,
+    FrameRules, INTERLACE_MIN_LINES, LAUNCH_SETTLE_MAX_FRAMES, LAUNCH_STABLE_FRAMES,
+    source_geometry,
 };

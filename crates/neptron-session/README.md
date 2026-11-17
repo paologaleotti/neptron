@@ -17,7 +17,7 @@ Game lifecycle: launch, the display-locked loop, pause, quick menu, exit and sav
 - `Devices<S, I, C>`, `SessionOptions` (`Resampling`, `RunRateSource`, the Start hold, the volume in percent), `RunRateSource::{ReadBack, Measured}`.
 - `FrameReport`, `EndReason`, `Counters`, `ExitReport`, `Flush`, `SaveStats`, `SaveError`, `LaunchError`, `SessionError`.
 - `zip_entries`, `ZipDirectoryEntry`, `ZipError`: the zip listing of the core host, re-exported for the arcade set check of the app, which reaches the host only through the session (`docs/spec/arcade.md`, section 10).
-- `source_geometry(width, height, &GameGeometry, &Timing) -> SourceGeometry`, and the constants `LAUNCH_STABLE_FRAMES`, `LAUNCH_SETTLE_MAX_FRAMES`, `INTERLACE_MIN_LINES`, `FLIPLESS_FRAMES_LIMIT`, `SAVE_RAM_FLUSH_INTERVAL_NS`, `CORE_PORTS`.
+- `source_geometry(width, height, &GameGeometry, &Timing, FrameRules) -> SourceGeometry` with `FrameRules { rotation, always_progressive }` (`FrameRules::CONSOLE` for no turn), and `GameLaunch::always_progressive`, and the constants `LAUNCH_STABLE_FRAMES`, `LAUNCH_SETTLE_MAX_FRAMES`, `INTERLACE_MIN_LINES`, `FLIPLESS_FRAMES_LIMIT`, `SAVE_RAM_FLUSH_INTERVAL_NS`, `CORE_PORTS`.
 
 ## One frame
 
@@ -51,7 +51,9 @@ The session runs the core with no display until the source has been the same for
 
 ## The source
 
-The size comes from the last frame, because some cores send a new size without telling the frontend. The rate and the aspect come from the core's AV info and geometry events. A frame of more than 288 lines (`INTERLACE_MIN_LINES`) is interlaced: the cores do not say it, and 288 is the tallest progressive console picture. Rotation is `R0` (not in the MVP).
+The size comes from the last frame, because some cores send a new size without telling the frontend. The rate and the aspect come from the core's AV info and geometry events. A frame of more than 288 lines (`INTERLACE_MIN_LINES`) is interlaced: the cores do not say it, and 288 is the tallest progressive console picture. A system whose data sets `always_progressive` (`arcade`, `neogeo`) has no interlaced frame: the launch request carries the key (`GameLaunch::always_progressive`).
+
+The rotation is the turn that the core asks for with `SET_ROTATION` (`Host::rotation`), read for each frame, so a turn in a frame is a new source that the engine debounces. The aspect is the one of the frame as the core draws it, which the policy reads before it turns the source: for `R90` and `R270` the session inverts an aspect that the core reported (`round(1_000_000 / aspect)`: FinalBurn Neo reports 750, the 3:4 of the upright picture, for a 320x240 frame on its side, and the source gets 1,333). The host's fallback aspect (`GameGeometry::aspect_from_core` false), the base width over the base height, is already the shape of the frame as drawn and stays. `R180` keeps the aspect.
 
 ## The quick menu
 
@@ -102,7 +104,7 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 - Unit tests: the source and the launch settle, the button mask, the frame copy, the save RAM writer (backup, unchanged, many flushes, failed write, failed copy), the message cut.
 - `tests/integration/session.rs`, the scripted session with the test core through the real host: one frame per flip, the input of each frame, the quick menu (pause, no toggle, UI over the frozen frame, the mask on resume), the Start hold, a 5 s recovery hold that never reaches the core, save RAM at launch, on the timer, at the menu and at exit, a core shutdown, double refresh, scanline settings and video status, core options, a timing change.
 - `tests/integration/launch.rs`: the first mode for the Genesis Plus GX geometry, and the two modesets without the settle.
-- `tests/integration/arcade.rs`: held option values for a core that declares its options at load, the rotation of a board drawn on its side in the host of the session, no save file for a core with no save RAM, and the zip listing through the session.
+- `tests/integration/arcade.rs`: held option values for a core that declares its options at load, the rotation of a board drawn on its side in the host of the session, the turned source (rotation and inverted aspect) and its scene on a 15 kHz CRT (1:1 interlaced, turned by 90 then 270 degrees after the debounce), a half turn, the fallback aspect, `always_progressive` against a console system, no save file for a core with no save RAM, and the zip listing through the session.
 - `tests/integration/faults.rs`: a slow flip, a failed present and wait, a display that stops flipping, the output turned off and on again.
 - `tests/integration/timing.rs`: timing check 6 at 50.00, 59.94 and 60.10 Hz with jitter, with late flips, and with a display rate that differs from the mode (measured run rate). 30 simulated seconds each in the tier. Two 100,000-frame runs (about 28 simulated minutes, about 67 s each in the dev profile) are ignored tests: with jitter only, and with one late flip in a thousand.
 

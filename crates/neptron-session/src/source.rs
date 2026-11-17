@@ -20,23 +20,61 @@ pub const LAUNCH_STABLE_FRAMES: u32 = 6;
 /// engine's debounce handles the later changes.
 pub const LAUNCH_SETTLE_MAX_FRAMES: u32 = 30;
 
+/// What the session knows about the frames of a game beyond the core's
+/// geometry and timing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrameRules {
+    /// The turn that the core asks for (`Host::rotation`).
+    pub rotation: Rotation,
+    /// Every frame of the system is progressive, so the line count does not
+    /// make a frame interlaced (the system data key `always_progressive`).
+    pub always_progressive: bool,
+}
+
+impl FrameRules {
+    /// No turn, and the line count decides interlace.
+    pub const CONSOLE: FrameRules = FrameRules {
+        rotation: Rotation::R0,
+        always_progressive: false,
+    };
+}
+
 /// The source of a frame of `width` x `height` from a core with `geometry`
-/// and `timing`. The aspect and the rate come from the core; the size comes
-/// from the frame, because some cores send a new size without telling the
-/// frontend. Rotation is not in the MVP.
+/// and `timing`, with the turn and the interlace rule of `rules`.
+///
+/// The rate comes from the core. The size comes from the frame, because
+/// some cores send a new size without telling the frontend. The aspect is
+/// the one of the frame as the core draws it, which the policy reads
+/// before it turns the source. A core reports the aspect of the upright
+/// picture (FinalBurn Neo: 3:4 for a 320x240 frame on its side), so for a
+/// turn of 90 or 270 degrees the session inverts an aspect that the core
+/// reported. The host's fallback, the base width over the base height, is
+/// already the shape of the frame as drawn, and stays.
 pub fn source_geometry(
     width: u16,
     height: u16,
     geometry: &GameGeometry,
     timing: &Timing,
+    rules: FrameRules,
 ) -> SourceGeometry {
     SourceGeometry {
         width,
         height,
         refresh_mhz: timing.fps_mhz,
-        aspect_milli: geometry.aspect_milli,
-        interlaced: height >= INTERLACE_MIN_LINES,
-        rotation: Rotation::R0,
+        aspect_milli: frame_aspect_milli(geometry, rules.rotation),
+        interlaced: !rules.always_progressive && height >= INTERLACE_MIN_LINES,
+        rotation: rules.rotation,
+    }
+}
+
+/// The aspect of the frame as drawn, in thousandths.
+fn frame_aspect_milli(geometry: &GameGeometry, rotation: Rotation) -> u32 {
+    let aspect = geometry.aspect_milli;
+    match rotation {
+        Rotation::R90 | Rotation::R270 if geometry.aspect_from_core && aspect > 0 => {
+            (1_000_000 + aspect / 2) / aspect
+        }
+        Rotation::R0 | Rotation::R90 | Rotation::R180 | Rotation::R270 => aspect,
     }
 }
 
@@ -82,7 +120,67 @@ mod tests {
     };
 
     fn source(width: u16, height: u16) -> SourceGeometry {
-        source_geometry(width, height, &GEOMETRY, &TIMING)
+        source_geometry(width, height, &GEOMETRY, &TIMING, FrameRules::CONSOLE)
+    }
+
+    fn turned(rotation: Rotation, aspect_milli: u32, aspect_from_core: bool) -> SourceGeometry {
+        let geometry = GameGeometry {
+            base_width: 320,
+            base_height: 240,
+            max_width: 320,
+            max_height: 240,
+            aspect_milli,
+            aspect_from_core,
+        };
+        let rules = FrameRules {
+            rotation,
+            always_progressive: false,
+        };
+        source_geometry(320, 240, &geometry, &TIMING, rules)
+    }
+
+    /// DoDonPachi: FinalBurn Neo reports 3:4 for its 320x240 frame on its
+    /// side; the frame as drawn is 4:3, and the policy turns it back.
+    #[test]
+    fn a_quarter_turn_inverts_the_aspect_that_the_core_reported() {
+        for rotation in [Rotation::R90, Rotation::R270] {
+            let s = turned(rotation, 750, true);
+            assert_eq!(s.aspect_milli, 1_333, "{rotation:?}");
+            assert_eq!(s.rotation, rotation);
+        }
+        assert_eq!(turned(Rotation::R90, 1_333, true).aspect_milli, 750);
+        assert_eq!(turned(Rotation::R90, 1_000, true).aspect_milli, 1_000);
+        assert_eq!(turned(Rotation::R90, 3, true).aspect_milli, 333_333);
+    }
+
+    #[test]
+    fn a_half_turn_or_no_turn_keeps_the_aspect() {
+        for rotation in [Rotation::R0, Rotation::R180] {
+            let s = turned(rotation, 750, true);
+            assert_eq!((s.aspect_milli, s.rotation), (750, rotation));
+        }
+    }
+
+    /// With no aspect from the core the host's fallback is the shape of the
+    /// frame as drawn, so it stays.
+    #[test]
+    fn the_fallback_aspect_of_the_host_is_not_inverted() {
+        assert_eq!(turned(Rotation::R90, 1_333, false).aspect_milli, 1_333);
+        assert_eq!(turned(Rotation::R270, 1_333, false).aspect_milli, 1_333);
+        assert_eq!(turned(Rotation::R90, 0, true).aspect_milli, 0);
+    }
+
+    #[test]
+    fn an_always_progressive_system_has_no_interlaced_frame() {
+        let rules = FrameRules {
+            rotation: Rotation::R0,
+            always_progressive: true,
+        };
+        for height in [224, 289, 384, 480, 640] {
+            let s = source_geometry(496, height, &GEOMETRY, &TIMING, rules);
+            assert!(!s.interlaced, "{height} lines");
+        }
+        assert!(source(496, 384).interlaced, "a console frame of 384 lines");
     }
 
     #[test]
