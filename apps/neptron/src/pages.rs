@@ -1437,6 +1437,7 @@ mod tests {
                 name: name.to_owned(),
             },
             present,
+            map: neptron_input::MapKind::Known,
         }
     }
 

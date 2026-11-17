@@ -6,13 +6,16 @@ use neptron_types::InputEvent;
 use crate::device::{
     MAX_KEYBOARDS, MAX_PORTS, gamepad_device, gamepad_port, keyboard_device, keyboard_slot,
 };
+use crate::generic_layout::dpad_axis_values;
 use crate::key_map::key_control;
 use crate::pad_map::{
     AxisTarget, axis_target, hat_values, pad_control, stick_value, trigger_value,
 };
+use crate::pad_maps::PadMap;
 use crate::port_table::{PadId, PortTable, pad_index};
 use crate::raw::{KeyAction, RawInput};
 use crate::roster::{PadInfo, PortRule, Roster};
+use crate::silent::{PadActivity, PadSignal};
 use crate::state::ControlState;
 
 /// Turns raw input of connected devices into RetroPad events, and gives
@@ -33,6 +36,11 @@ use crate::state::ControlState;
 /// [`PadId`] of each pad and reads its device id with
 /// [`Mapper::device_of`].
 ///
+/// Each gamepad keeps its map ([`PadMap`]): the standard layout of SDL3
+/// reads [`RawInput::Button`], [`RawInput::Axis`] and [`RawInput::Hat`];
+/// the generic layout reads the raw indices of a plain joystick
+/// ([`RawInput::JoyButton`], [`RawInput::JoyHat`], [`RawInput::JoyAxis`]).
+///
 /// Keyboards take the lowest free keyboard slot and all play on port 0.
 ///
 /// An event comes out only when a control changes value, so a backend can
@@ -43,6 +51,14 @@ pub struct Mapper {
     ports: PortTable,
     /// The state of each connected gamepad, by its [`PadId`].
     pads: [ControlState; MAX_PORTS as usize],
+    /// The map of each connected gamepad, by its [`PadId`].
+    maps: [PadMap; MAX_PORTS as usize],
+    /// True once a gamepad sent a value that is not neutral, by its
+    /// [`PadId`].
+    heard: [bool; MAX_PORTS as usize],
+    /// The plug number of each connected gamepad, by its [`PadId`].
+    plugs: [u32; MAX_PORTS as usize],
+    plug_count: u32,
     keyboards: [Slot; MAX_KEYBOARDS as usize],
     changes: u64,
     /// The first scan has settled the ports.
@@ -94,16 +110,41 @@ impl Mapper {
         }
     }
 
-    /// Connects a gamepad and returns its id. [`Mapper::device_of`] gives
-    /// its device id.
+    /// Connects a gamepad with the standard layout and returns its id.
+    /// [`Mapper::device_of`] gives its device id.
     ///
     /// # Errors
     ///
     /// [`MapperError::NoFreePort`] when every port is in use or held.
     pub fn connect_gamepad(&mut self, pad: PadInfo) -> Result<PadId, MapperError> {
-        let (id, _) = self.ports.connect(pad)?;
-        if let Some(state) = self.state_mut(id) {
+        self.connect_gamepad_with(pad, PadMap::Known)
+    }
+
+    /// Connects a gamepad that reads its input with `map`, and returns its
+    /// id.
+    ///
+    /// # Errors
+    ///
+    /// [`MapperError::NoFreePort`] when every port is in use or held.
+    pub fn connect_gamepad_with(
+        &mut self,
+        pad: PadInfo,
+        map: PadMap,
+    ) -> Result<PadId, MapperError> {
+        let (id, _) = self.ports.connect(pad, map.kind())?;
+        let index = pad_index(id);
+        if let Some(state) = self.pads.get_mut(index) {
             *state = ControlState::default();
+        }
+        self.plug_count = self.plug_count.wrapping_add(1);
+        if let Some(slot) = self.heard.get_mut(index) {
+            *slot = false;
+        }
+        if let Some(slot) = self.maps.get_mut(index) {
+            *slot = map;
+        }
+        if let Some(slot) = self.plugs.get_mut(index) {
+            *slot = self.plug_count;
         }
         self.changes = self.changes.wrapping_add(1);
         Ok(id)
@@ -124,19 +165,33 @@ impl Mapper {
         pads: Vec<PadInfo>,
         out: &mut Vec<InputEvent>,
     ) -> Vec<Result<PadId, MapperError>> {
-        let exact: Vec<bool> = pads.iter().map(|p| self.ports.holds_exactly(p)).collect();
+        let pads = pads.into_iter().map(|p| (p, PadMap::Known)).collect();
+        self.connect_scan_with(pads, out)
+    }
+
+    /// [`Mapper::connect_scan`] for pads that each come with their map.
+    pub fn connect_scan_with(
+        &mut self,
+        pads: Vec<(PadInfo, PadMap)>,
+        out: &mut Vec<InputEvent>,
+    ) -> Vec<Result<PadId, MapperError>> {
+        let exact: Vec<bool> = pads
+            .iter()
+            .map(|(p, _)| self.ports.holds_exactly(p))
+            .collect();
         let mut results = vec![Err(MapperError::NoFreePort { max: MAX_PORTS }); pads.len()];
         let order = (0..pads.len())
             .filter(|i| exact[*i])
             .chain((0..pads.len()).filter(|i| !exact[*i]));
         for i in order {
-            results[i] = self.connect_gamepad(pads[i].clone());
+            let (info, map) = &pads[i];
+            results[i] = self.connect_gamepad_with(info.clone(), *map);
         }
         if !self.settled {
             self.settle(out);
-            for (result, pad) in results.iter_mut().zip(&pads) {
+            for (result, (info, map)) in results.iter_mut().zip(&pads) {
                 if matches!(result, Err(MapperError::NoFreePort { .. })) {
-                    *result = self.connect_gamepad(pad.clone());
+                    *result = self.connect_gamepad_with(info.clone(), *map);
                 }
             }
         }
@@ -208,11 +263,41 @@ impl Mapper {
         let device = self
             .device_of(pad)
             .ok_or(MapperError::PadNotConnected { pad })?;
-        let state = self
-            .state_mut(pad)
-            .ok_or(MapperError::PadNotConnected { pad })?;
-        map(state, device, input, out);
+        let index = pad_index(pad);
+        let (Some(state), Some(pad_map), Some(heard)) = (
+            self.pads.get_mut(index),
+            self.maps.get(index),
+            self.heard.get_mut(index),
+        ) else {
+            return Err(MapperError::PadNotConnected { pad });
+        };
+        let first = out.len();
+        map(state, pad_map, device, input, out);
+        if out
+            .get(first..)
+            .is_some_and(|new| new.iter().any(|e| e.value != 0))
+        {
+            *heard = true;
+        }
         Ok(())
+    }
+
+    /// The connected pad of each port, for the silent pad rule. It
+    /// allocates nothing.
+    pub fn activity(&self) -> PadActivity {
+        let mut activity = PadActivity::default();
+        for (port, slot) in activity.ports.iter_mut().enumerate() {
+            *slot = self.ports.playing(port).map(|(id, info)| {
+                let index = pad_index(id);
+                PadSignal {
+                    plug: self.plugs.get(index).copied().unwrap_or_default(),
+                    identity: info.identity,
+                    path: info.path,
+                    heard: self.heard.get(index).copied().unwrap_or_default(),
+                }
+            });
+        }
+        activity
     }
 
     /// The pad on each port.
@@ -286,7 +371,7 @@ impl Mapper {
             .keyboard_mut(device)
             .ok_or(MapperError::NotConnected { device })?
             .state;
-        map(state, device, input, out);
+        map(state, &PadMap::Known, device, input, out);
         Ok(())
     }
 
@@ -315,9 +400,16 @@ impl Mapper {
     }
 }
 
-/// Maps one raw input into `state`, and appends an event for each control
-/// that changed.
-fn map(state: &mut ControlState, device: u32, input: RawInput, out: &mut Vec<InputEvent>) {
+/// Maps one raw input into `state` with `pad_map`, and appends an event
+/// for each control that changed. The raw indices of a plain joystick
+/// drive a control only through a generic map.
+fn map(
+    state: &mut ControlState,
+    pad_map: &PadMap,
+    device: u32,
+    input: RawInput,
+    out: &mut Vec<InputEvent>,
+) {
     let mut set = |control, value| {
         if state.set(control, value) {
             out.push(InputEvent {
@@ -350,6 +442,38 @@ fn map(state: &mut ControlState, device: u32, input: RawInput, out: &mut Vec<Inp
             };
             if let Some(control) = key_control(code) {
                 set(control, value);
+            }
+        }
+        RawInput::JoyButton { index, pressed } => {
+            let control = match pad_map {
+                PadMap::Generic(layout) => layout.button(index),
+                PadMap::Known => None,
+            };
+            if let Some(control) = control {
+                set(control, i16::from(pressed));
+            }
+        }
+        RawInput::JoyHat { index, hat } => {
+            if let PadMap::Generic(layout) = pad_map
+                && layout.hat_is_dpad(index)
+            {
+                for (control, value) in hat_values(hat) {
+                    set(control, value);
+                }
+            }
+        }
+        RawInput::JoyAxis { index, value } => {
+            let role = match pad_map {
+                PadMap::Generic(layout) => layout.axis(index),
+                PadMap::Known => None,
+            };
+            if let Some(role) = role {
+                set(role.stick, stick_value(value));
+                if let Some(pair) = role.dpad {
+                    for (control, digital) in dpad_axis_values(pair, value) {
+                        set(control, digital);
+                    }
+                }
             }
         }
     }

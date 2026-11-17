@@ -207,7 +207,8 @@ pub fn run(
         .as_ref()
         .map(|n| neptron::relaunch::PadRecord::roster(&n.pads))
         .unwrap_or_default();
-    let pads = match neptron_input::SdlGamepads::open(rule, &earlier) {
+    let mappings = paths.data.join(neptron_input::MAPPING_FILE);
+    let pads = match neptron_input::SdlGamepads::open(rule, &earlier, &mappings) {
         Ok(pads) => Some(pads),
         Err(e) => {
             crate::say!("neptron: cannot open the gamepads, the run reads keyboards only: {e}");

@@ -5,9 +5,14 @@
 //! hotkeys of the frontend. The device backends behind the `sdl3` and
 //! `evdev` features only read devices and feed the pure parts.
 
-#![forbid(unsafe_code)]
+// `unsafe` is denied in every module but `ffi`, the one call into SDL3
+// that the `sdl3` crate does not wrap.
+#![deny(unsafe_code)]
 
 mod device;
+#[cfg(feature = "sdl3")]
+#[allow(unsafe_code)]
+mod ffi;
 mod generic_layout;
 mod hotkeys;
 mod key_map;
@@ -15,11 +20,6 @@ mod key_map;
 mod keyboards;
 mod mapper;
 mod mapping_file;
-// Only the device backends fill a notice queue.
-#[cfg_attr(
-    not(any(feature = "sdl3", all(feature = "evdev", target_os = "linux"))),
-    allow(dead_code)
-)]
 mod notice;
 mod pad_map;
 mod pad_maps;

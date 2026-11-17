@@ -89,6 +89,7 @@ impl PadRecord {
                     name: record.name.clone(),
                 },
                 present: record.present,
+                map: neptron_input::MapKind::Known,
             };
             // A port out of range leaves the record out, as the doc says.
             let _ = roster.set(record.port, Some(entry));
@@ -282,6 +283,7 @@ mod tests {
                     name: format!("Pad on {port}"),
                 },
                 present,
+                map: neptron_input::MapKind::Known,
             };
             roster.set(port, Some(entry)).expect("port in range");
         }

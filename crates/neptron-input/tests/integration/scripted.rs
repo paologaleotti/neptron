@@ -75,6 +75,7 @@ fn scripted_pads_follow_the_rule_of_a_game() {
         let entry = neptron_input::RosterEntry {
             pad: pad(n),
             present: true,
+            map: neptron_input::MapKind::Known,
         };
         earlier.set(port, Some(entry)).unwrap();
     }

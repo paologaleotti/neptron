@@ -1,6 +1,9 @@
 //! The roster: which gamepad is on which port, as the frontend reads it.
 
 use crate::device::{DeviceIdentity, MAX_PORTS};
+use crate::notice::InputNotice;
+use crate::pad_maps::MapKind;
+use crate::silent::PadActivity;
 
 /// The ports that the core reads: ports 0 to 3, players 1 to 4. A pad on
 /// a higher port drives the menus and the hotkeys only.
@@ -55,6 +58,9 @@ pub struct RosterEntry {
     pub pad: PadInfo,
     /// False when the pad went away and the port waits for it.
     pub present: bool,
+    /// The kind of map the pad uses. A pad of the run before that has not
+    /// come back keeps the kind it had.
+    pub map: MapKind,
 }
 
 /// The pad on each port, from port 0. The relaunch file carries it to the
@@ -74,6 +80,17 @@ pub trait PadRoster {
     /// A number that changes each time the roster changes. It allocates
     /// nothing, so the frontend can compare it in every frame.
     fn roster_changes(&self) -> u64;
+
+    /// Moves the notices of the source since the last call to `out`. It
+    /// allocates nothing when there is none, so the frontend can call it
+    /// in every frame. A source with no notice gives none.
+    fn take_notices(&self, _out: &mut Vec<InputNotice>) {}
+
+    /// The connected pads, for the silent pad rule. It allocates nothing.
+    /// A source with no pad gives none.
+    fn activity(&self) -> PadActivity {
+        PadActivity::default()
+    }
 }
 
 impl Roster {
@@ -138,6 +155,7 @@ mod tests {
                 name: format!("Pad {n}"),
             },
             present: true,
+            map: MapKind::Known,
         }
     }
 

@@ -3,6 +3,7 @@
 
 use crate::device::MAX_PORTS;
 use crate::mapper::MapperError;
+use crate::pad_maps::MapKind;
 use crate::roster::{PadInfo, PortRule, Roster, RosterEntry};
 
 /// A connected gamepad. It stays the same while the pad stays connected,
@@ -29,7 +30,7 @@ impl PortTable {
         };
         for (seat, entry) in table.seats.iter_mut().zip(earlier.ports()) {
             if let Some(entry) = entry {
-                *seat = Seat::Held(entry.pad.clone());
+                *seat = Seat::Held(entry.pad.clone(), entry.map);
             }
         }
         table
@@ -37,11 +38,18 @@ impl PortTable {
 
     /// Gives `pad` a port: a held port with the same identity and path,
     /// else a held port with the same identity, else the lowest free port.
-    /// Returns the new id and the port.
-    pub(crate) fn connect(&mut self, pad: PadInfo) -> Result<(PadId, usize), MapperError> {
+    /// Returns the new id and the port. `map` is the kind of map that the
+    /// roster shows for it.
+    pub(crate) fn connect(
+        &mut self,
+        pad: PadInfo,
+        map: MapKind,
+    ) -> Result<(PadId, usize), MapperError> {
         let held = |exact: bool| {
             self.seats.iter().position(|seat| match seat {
-                Seat::Held(old) => old.identity == pad.identity && (!exact || old.path == pad.path),
+                Seat::Held(old, _) => {
+                    old.identity == pad.identity && (!exact || old.path == pad.path)
+                }
                 _ => false,
             })
         };
@@ -58,7 +66,7 @@ impl PortTable {
             .ok_or(MapperError::NoFreePort { max: MAX_PORTS })?;
         let id =
             PadId(u8::try_from(index).map_err(|_| MapperError::NoFreePort { max: MAX_PORTS })?);
-        self.seats[port] = Seat::Playing(id, pad);
+        self.seats[port] = Seat::Playing(id, pad, map);
         self.pad_ports[index] = Some(port);
         Ok((id, port))
     }
@@ -67,7 +75,7 @@ impl PortTable {
     /// of `pad`.
     pub(crate) fn holds_exactly(&self, pad: &PadInfo) -> bool {
         self.seats.iter().any(|seat| {
-            matches!(seat, Seat::Held(old) if old.identity == pad.identity && old.path == pad.path)
+            matches!(seat, Seat::Held(old, _) if old.identity == pad.identity && old.path == pad.path)
         })
     }
 
@@ -83,7 +91,9 @@ impl PortTable {
         self.pad_ports[pad_index(pad)] = None;
         let seat = std::mem::take(&mut self.seats[port]);
         match (self.rule, seat) {
-            (PortRule::Game, Seat::Playing(_, info)) => self.seats[port] = Seat::Held(info),
+            (PortRule::Game, Seat::Playing(_, info, map)) => {
+                self.seats[port] = Seat::Held(info, map);
+            }
             _ => self.compact(moved),
         }
         Some(port)
@@ -96,7 +106,7 @@ impl PortTable {
             return;
         }
         for seat in &mut self.seats {
-            if matches!(seat, Seat::Held(_)) {
+            if matches!(seat, Seat::Held(..)) {
                 *seat = Seat::Free;
             }
         }
@@ -111,7 +121,15 @@ impl PortTable {
     /// The pad playing on `port`.
     pub(crate) fn pad_on(&self, port: usize) -> Option<PadId> {
         match self.seats.get(port) {
-            Some(Seat::Playing(id, _)) => Some(*id),
+            Some(Seat::Playing(id, ..)) => Some(*id),
+            _ => None,
+        }
+    }
+
+    /// The pad playing on `port`, with what it connected with.
+    pub(crate) fn playing(&self, port: usize) -> Option<(PadId, &PadInfo)> {
+        match self.seats.get(port) {
+            Some(Seat::Playing(id, info, _)) => Some((*id, info)),
             _ => None,
         }
     }
@@ -122,13 +140,15 @@ impl PortTable {
         for (port, seat) in (0u8..).zip(&self.seats) {
             let entry = match seat {
                 Seat::Free => None,
-                Seat::Playing(_, pad) => Some(RosterEntry {
+                Seat::Playing(_, pad, map) => Some(RosterEntry {
                     pad: pad.clone(),
                     present: true,
+                    map: *map,
                 }),
-                Seat::Held(pad) => Some(RosterEntry {
+                Seat::Held(pad, map) => Some(RosterEntry {
                     pad: pad.clone(),
                     present: false,
+                    map: *map,
                 }),
             };
             // `port` is below PORTS, the size of a roster.
@@ -147,7 +167,7 @@ impl PortTable {
             }
             if from != to {
                 self.seats.swap(from, to);
-                if let Seat::Playing(id, _) = self.seats[to] {
+                if let Seat::Playing(id, ..) = self.seats[to] {
                     self.pad_ports[pad_index(id)] = Some(to);
                     moved(id, from);
                 }
@@ -168,7 +188,7 @@ const PORTS: usize = MAX_PORTS as usize;
 enum Seat {
     #[default]
     Free,
-    Playing(PadId, PadInfo),
+    Playing(PadId, PadInfo, MapKind),
     /// In a game: the pad went away, and the port waits for it.
-    Held(PadInfo),
+    Held(PadInfo, MapKind),
 }

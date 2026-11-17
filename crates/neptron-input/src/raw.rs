@@ -112,6 +112,28 @@ pub enum RawInput {
     },
     /// A hat switch changed.
     Hat(HatState),
+    /// A button of a plain joystick changed, by its index. Only a pad with
+    /// a generic map reads it.
+    JoyButton {
+        /// The button index, from 0.
+        index: u8,
+        /// True when it is down.
+        pressed: bool,
+    },
+    /// A hat of a plain joystick changed, by its index.
+    JoyHat {
+        /// The hat index, from 0.
+        index: u8,
+        /// The state.
+        hat: HatState,
+    },
+    /// An axis of a plain joystick changed, by its index.
+    JoyAxis {
+        /// The axis index, from 0.
+        index: u8,
+        /// The value, -32768 to 32767.
+        value: i16,
+    },
     /// A keyboard key changed.
     Key {
         /// The key.

@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 use std::error::Error;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use neptron_backend::InputSource;
@@ -21,7 +22,9 @@ const RUN_FOR: Duration = Duration::from_secs(10);
 const FRAME: Duration = Duration::from_micros(16_667);
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut pads = SdlGamepads::open(PortRule::Menus, &Roster::new())?;
+    let mappings =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/input/gamecontrollerdb.txt");
+    let mut pads = SdlGamepads::open(PortRule::Menus, &Roster::new(), &mappings)?;
     let mut events: Vec<InputEvent> = Vec::with_capacity(256);
     let mut notices: Vec<InputNotice> = Vec::new();
     let start = Instant::now();
@@ -33,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         pads.take_notices(&mut notices);
         let ms = start.elapsed().as_millis();
         for notice in notices.drain(..) {
-            println!("{ms:>6} ms  notice  {notice:?}");
+            println!("{ms:>6} ms  notice  {notice}");
         }
         for event in &events {
             let port = port_of(event.device).map_or("-".to_owned(), |p| p.to_string());

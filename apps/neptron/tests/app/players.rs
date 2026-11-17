@@ -249,6 +249,7 @@ fn in_a_game_the_input_panel_shows_a_gone_player_as_away() {
             let entry = neptron_input::RosterEntry {
                 pad: pad(n),
                 present: true,
+                map: neptron_input::MapKind::Known,
             };
             earlier.set(port, Some(entry)).expect("a port");
         }

@@ -3,6 +3,7 @@
 
 #![forbid(unsafe_code)]
 
+mod generic;
 mod hotkeys;
 mod mapper;
 mod ports;

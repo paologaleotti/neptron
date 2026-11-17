@@ -319,6 +319,7 @@ fn earlier() -> Roster {
         let entry = RosterEntry {
             pad: pad(n),
             present: true,
+            map: neptron_input::MapKind::Known,
         };
         roster.set(n - 1, Some(entry)).unwrap();
     }
@@ -645,6 +646,7 @@ fn a_scan_gives_each_pad_of_one_model_the_port_held_for_its_path() {
         let entry = RosterEntry {
             pad: twin(7, path),
             present: true,
+            map: neptron_input::MapKind::Known,
         };
         earlier.set(port, Some(entry)).unwrap();
     }
@@ -666,6 +668,7 @@ fn the_first_scan_of_the_menus_frees_held_ports_before_it_refuses_a_pad() {
         let entry = RosterEntry {
             pad: pad(100 + n),
             present: true,
+            map: neptron_input::MapKind::Known,
         };
         earlier.set(n, Some(entry)).unwrap();
     }
@@ -689,6 +692,7 @@ fn in_a_game_the_first_scan_keeps_the_held_ports() {
     let entry = RosterEntry {
         pad: pad(1),
         present: true,
+        map: neptron_input::MapKind::Known,
     };
     earlier.set(0, Some(entry)).unwrap();
     let mut mapper = Mapper::with_rule(PortRule::Game, &earlier);

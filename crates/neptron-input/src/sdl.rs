@@ -1,47 +1,61 @@
 //! SDL3 gamepads, read with no event pump and no video subsystem.
 
+use std::cell::RefCell;
+use std::path::Path;
+
 use neptron_backend::InputSource;
 use neptron_types::InputEvent;
 use sdl3::gamepad::{Axis, Button, Gamepad};
-use sdl3::joystick::JoystickId;
+use sdl3::joystick::{Joystick, JoystickId};
 use sdl3::{GamepadSubsystem, JoystickSubsystem};
 
 use crate::device::DeviceIdentity;
+use crate::ffi;
+use crate::generic_layout::{GenericLayout, JoystickCounts};
 use crate::mapper::Mapper;
+use crate::mapping_file::read_mapping_file;
 use crate::notice::{InputNotice, NoticeQueue};
+use crate::pad_maps::{BuiltinMaps, PadLayout, PadMap};
 use crate::port_table::PadId;
-use crate::raw::{PadAxis, PadButton, RawInput};
+use crate::raw::{HatState, PadAxis, PadButton, RawInput};
 use crate::roster::{PadInfo, PadRoster, PortRule, Roster};
-use crate::scan::list_failed;
+use crate::scan::{Found, connect_found, list_failed};
+use crate::silent::PadActivity;
 
 /// The number of polls between two scans for new gamepads. At 60 frames a
 /// second a new gamepad is found within half a second.
 pub const SCAN_INTERVAL_POLLS: u32 = 30;
 
-/// The gamepads that SDL3 knows, mapped to the RetroPad, with hotplug.
+/// The gamepads and joysticks that SDL3 lists, mapped to the RetroPad,
+/// with hotplug.
 ///
 /// The source turns off SDL's joystick and gamepad events and reads the
-/// state of each gamepad itself: each `poll` calls `SDL_UpdateGamepads`,
-/// which reads the devices, and then the state of every button and axis.
-/// No event pump is needed, so the source works on the device, where no
-/// video subsystem exists, and in a window build, where the window owns the
-/// one event pump of the process.
+/// state of each pad itself: each `poll` calls `SDL_UpdateGamepads`,
+/// which reads every joystick, and then the state of every button and
+/// axis. No event pump is needed, so the source works on the device,
+/// where no video subsystem exists, and in a window build, where the
+/// window owns the one event pump of the process.
 ///
-/// A joystick that SDL has no gamepad mapping for is ignored, with a
-/// notice. A gamepad that finds every port in use is ignored until it
-/// reconnects. The ports follow the rule of the run (see [`Mapper`]); each
-/// scan connects the pads it found together, and the first one settles the
-/// ports.
+/// A joystick with a gamepad mapping (from the NEPTRON mapping file or
+/// the database of SDL3) opens as a gamepad with the standard layout. Any
+/// other joystick opens as a plain joystick with the generic layout, or
+/// is ignored, with a notice, when it is not a gamepad. A pad that finds
+/// every port in use is ignored until it reconnects. The ports follow the
+/// rule of the run (see [`Mapper`]); each scan connects the pads it found
+/// together, and the first one settles the ports.
 ///
 /// Make the source and poll it on one thread. With the `sdl3` crate, every
 /// `sdl3::init` of the process runs on the thread of the first one.
 pub struct SdlGamepads {
-    // Declared first, so that the gamepads close before the subsystems.
+    // Declared first, so that the pads close before the subsystems.
     open: Vec<OpenPad>,
     ignored: Vec<JoystickId>,
     mapper: Mapper,
+    maps: BuiltinMaps,
     polls_to_scan: u32,
-    notices: NoticeQueue,
+    // The frontend reads the notices through a shared reference
+    // (`PadRoster`), while a game session owns the source.
+    notices: RefCell<NoticeQueue>,
     gamepads: GamepadSubsystem,
     joysticks: JoystickSubsystem,
 }
@@ -61,16 +75,20 @@ pub enum SdlInputError {
 }
 
 impl SdlGamepads {
-    /// Starts the SDL3 joystick and gamepad subsystems. The first `poll`
-    /// finds the gamepads that are already connected. The ports follow
+    /// Starts the SDL3 joystick and gamepad subsystems, and adds the good
+    /// lines of the NEPTRON mapping file at `mappings` to SDL3. The first
+    /// `poll` finds the pads that are already connected. The ports follow
     /// `rule`, and start with the pads of `earlier` (the roster of the run
     /// before) held on their ports.
+    ///
+    /// A missing or damaged mapping file gives notices and never stops
+    /// the source.
     ///
     /// # Errors
     ///
     /// [`SdlInputError::Sdl`] when SDL3 cannot start or cannot start a
     /// subsystem.
-    pub fn open(rule: PortRule, earlier: &Roster) -> Result<Self, SdlInputError> {
+    pub fn open(rule: PortRule, earlier: &Roster, mappings: &Path) -> Result<Self, SdlInputError> {
         let sdl = sdl3::init().map_err(|e| sdl_error("init", &e))?;
         let joysticks = sdl.joystick().map_err(|e| sdl_error("joystick init", &e))?;
         let gamepads = sdl.gamepad().map_err(|e| sdl_error("gamepad init", &e))?;
@@ -79,35 +97,41 @@ impl SdlGamepads {
         // `SDL_UpdateGamepads` reads the devices.
         joysticks.set_joystick_events_enabled(false);
         gamepads.set_events_processing_state(false);
+        let mut notices = NoticeQueue::default();
+        add_mappings(&gamepads, mappings, &mut notices);
         Ok(Self {
             open: Vec::with_capacity(usize::from(crate::MAX_PORTS)),
             ignored: Vec::new(),
             mapper: Mapper::with_rule(rule, earlier),
+            maps: BuiltinMaps,
             polls_to_scan: 0,
-            notices: NoticeQueue::default(),
+            notices: RefCell::new(notices),
             gamepads,
             joysticks,
         })
     }
 
     /// Moves the notices since the last call to `out`.
-    pub fn take_notices(&mut self, out: &mut Vec<InputNotice>) {
-        self.notices.drain_into(out);
+    pub fn take_notices(&self, out: &mut Vec<InputNotice>) {
+        self.notices.borrow_mut().drain_into(out);
     }
 
     fn remove_disconnected(&mut self, out: &mut Vec<InputEvent>) {
         let mut i = 0;
         while let Some(pad) = self.open.get(i) {
-            if pad.pad.connected() {
+            if pad.device.connected() {
                 i += 1;
                 continue;
             }
             let gone = self.open.remove(i);
             let device = self.mapper.device_of(gone.id);
-            match (device, self.mapper.disconnect_gamepad(gone.id, out)) {
-                (Some(device), Ok(())) => self.notices.push(InputNotice::Disconnected { device }),
-                (_, Err(e)) => self.notices.push(lost_track(&e)),
-                (None, Ok(())) => {}
+            let notice = match (device, self.mapper.disconnect_gamepad(gone.id, out)) {
+                (Some(device), Ok(())) => Some(InputNotice::Disconnected { device }),
+                (_, Err(e)) => Some(lost_track(&e)),
+                (None, Ok(())) => None,
+            };
+            if let Some(notice) = notice {
+                self.notices.get_mut().push(notice);
             }
         }
     }
@@ -121,7 +145,7 @@ impl SdlGamepads {
                     "the SDL3 joystick list",
                     e.to_string(),
                     out,
-                    &mut self.notices,
+                    self.notices.get_mut(),
                 );
                 return;
             }
@@ -137,95 +161,112 @@ impl SdlGamepads {
                 found.push(pad);
             }
         }
-        // Every scan goes to the mapper, an empty one too: the first one
-        // settles the ports.
-        let infos = found.iter().map(|f| f.info.clone()).collect();
-        let results = self.mapper.connect_scan(infos, out);
-        for (pad, result) in found.into_iter().zip(results) {
-            match result {
-                Ok(id) => {
-                    if let Some(device) = self.mapper.device_of(id) {
-                        self.notices.push(InputNotice::Connected {
-                            device,
-                            what: pad.what,
-                        });
-                    }
-                    self.open.push(OpenPad {
-                        pad: pad.pad,
-                        joystick: pad.joystick,
-                        id,
-                    });
-                }
-                Err(e) => self.ignore(pad.joystick, pad.what, e.to_string()),
+        let scan = connect_found(
+            &mut self.mapper,
+            &self.maps,
+            found,
+            out,
+            self.notices.get_mut(),
+        );
+        self.ignored
+            .extend(scan.refused.into_iter().map(|(joystick, _)| joystick));
+        for opened in scan.opened {
+            let (joystick, pending) = opened.handle;
+            match Device::with_map(pending, opened.map) {
+                Some(device) => self.open.push(OpenPad {
+                    device,
+                    joystick,
+                    id: opened.id,
+                }),
+                None => self.refuse_map(joystick, opened.id, out),
             }
         }
     }
 
-    /// Opens the joystick `id` as a gamepad and reads what the port rules
-    /// need of it, or ignores it with a notice.
-    fn open_pad(&mut self, id: JoystickId) -> Option<FoundPad> {
+    /// Opens the joystick `id` as a gamepad when SDL3 has a mapping for
+    /// it, else as a plain joystick, and reads what the port rules need of
+    /// it. A joystick that cannot be opened is ignored with a notice.
+    fn open_pad(&mut self, id: JoystickId) -> Option<Found<(JoystickId, Pending)>> {
         let guid = self.gamepads.guid_for_id(id);
         let what = format!("SDL joystick {} with GUID {}", id.raw(), guid.string());
-        if !self.gamepads.is_gamepad(id) {
-            let reason = "SDL3 has no gamepad mapping for it".to_owned();
-            self.ignore(id, what, reason);
-            return None;
-        }
-        let pad = match self.gamepads.open(id) {
-            Ok(pad) => pad,
+        // The name of the gamepad API is the device name when the mapping
+        // has none, which can be any bytes, and the crate unwraps it as
+        // UTF-8. The joystick API reads it with a lossy conversion.
+        let joystick = match self.joysticks.open(id) {
+            Ok(joystick) => joystick,
             Err(e) => {
                 self.ignore(id, what, e.to_string());
                 return None;
             }
         };
-        // The name of the gamepad API is the device name when the mapping
-        // has none, which can be any bytes, and the crate unwraps it as
-        // UTF-8. The joystick API reads it with a lossy conversion. SDL
-        // counts the opens of a joystick, so this one closes on its own.
-        let name = self
-            .joysticks
-            .open(id)
-            .map(|joystick| joystick.name())
-            .unwrap_or_default();
-        // `path` unwraps its text as UTF-8 too. It is ASCII on every path
-        // SDL3 makes: on Linux `/dev/input/eventN` from the scan or inotify
-        // (only names of `event` and digits pass its filter), a hidraw node
-        // `/dev/hidrawN` with the HIDAPI drivers, the hex bus numbers of the
-        // libusb backend, and `DevSrvsID:N` on macOS. The only other source
-        // is the `SDL_JOYSTICK_DEVICE` hint, which NEPTRON never sets.
-        let path = pad.path().unwrap_or_default();
+        let name = joystick.name();
+        // The gamepad call of the `sdl3` crate unwraps the path as UTF-8.
+        // The joystick call of `ffi` reads it lossy, for a plain joystick
+        // and a gamepad alike. A joystick with no path gets the empty one.
+        let path = ffi::joystick_path(id).unwrap_or_default();
         let info = PadInfo::from_device(
             DeviceIdentity::from_parts(&[&guid.raw().data]),
             DeviceIdentity::from_parts(&[path.as_bytes()]),
             name.as_bytes(),
         );
-        Some(FoundPad {
-            pad,
-            joystick: id,
+        let (device, layout) = if self.gamepads.is_gamepad(id) {
+            match self.gamepads.open(id) {
+                // SDL counts the opens of a joystick, so the joystick of
+                // the name closes on its own.
+                Ok(pad) => (Pending::Gamepad(pad), PadLayout::Gamepad),
+                Err(e) => {
+                    self.ignore(id, what, e.to_string());
+                    return None;
+                }
+            }
+        } else {
+            let counts = JoystickCounts {
+                buttons: joystick.num_buttons(),
+                hats: joystick.num_hats(),
+                axes: joystick.num_axes(),
+            };
+            let layout = PadLayout::Joystick(counts);
+            (Pending::Joystick(joystick), layout)
+        };
+        Some(Found {
+            handle: (id, device),
             info,
+            layout,
             what,
         })
     }
 
+    /// Drops a pad whose map does not read its kind of device: a map of
+    /// the standard layout for a plain joystick, or a generic map for a
+    /// gamepad. `BuiltinMaps` never gives one.
+    fn refuse_map(&mut self, joystick: JoystickId, id: PadId, out: &mut Vec<InputEvent>) {
+        debug_assert!(false, "a map that does not read its device");
+        if let Err(e) = self.mapper.disconnect_gamepad(id, out) {
+            self.notices.get_mut().push(lost_track(&e));
+        }
+        self.ignore(
+            joystick,
+            format!("SDL joystick {}", joystick.raw()),
+            "its map does not read this kind of device".to_owned(),
+        );
+    }
+
     fn ignore(&mut self, id: JoystickId, what: String, reason: String) {
         self.ignored.push(id);
-        self.notices.push(InputNotice::Ignored { what, reason });
+        self.notices
+            .get_mut()
+            .push(InputNotice::Ignored { what, reason });
     }
 
     fn read(&mut self, out: &mut Vec<InputEvent>) {
         for pad in &self.open {
-            let buttons = BUTTONS.iter().map(|(sdl, button)| RawInput::Button {
-                button: *button,
-                pressed: pad.pad.button(*sdl),
-            });
-            let axes = AXES.iter().map(|(sdl, axis)| RawInput::Axis {
-                axis: *axis,
-                value: pad.pad.axis(*sdl),
-            });
-            for input in buttons.chain(axes) {
-                if let Err(e) = self.mapper.apply_gamepad(pad.id, input, out) {
-                    self.notices.push(lost_track(&e));
-                }
+            let mut apply = |input| self.mapper.apply_gamepad(pad.id, input, out);
+            let result = match &pad.device {
+                Device::Gamepad(gamepad) => read_gamepad(gamepad, &mut apply),
+                Device::Joystick(joystick, layout) => read_joystick(joystick, layout, &mut apply),
+            };
+            if let Err(e) = result {
+                self.notices.get_mut().push(lost_track(&e));
             }
         }
     }
@@ -252,6 +293,14 @@ impl PadRoster for SdlGamepads {
     fn roster_changes(&self) -> u64 {
         self.mapper.roster_changes()
     }
+
+    fn take_notices(&self, out: &mut Vec<InputNotice>) {
+        SdlGamepads::take_notices(self, out);
+    }
+
+    fn activity(&self) -> PadActivity {
+        self.mapper.activity()
+    }
 }
 
 impl std::fmt::Debug for SdlGamepads {
@@ -268,18 +317,112 @@ impl std::fmt::Debug for SdlGamepads {
     }
 }
 
-/// A gamepad that a scan opened, before the mapper gives it a port.
-struct FoundPad {
-    pad: Gamepad,
-    joystick: JoystickId,
-    info: PadInfo,
-    what: String,
+/// The open SDL3 device of a pad that has no map yet.
+enum Pending {
+    Gamepad(Gamepad),
+    Joystick(Joystick),
+}
+
+/// The open SDL3 device of a pad, with what it reads. A plain joystick
+/// holds its generic layout, so a joystick with no table to read cannot
+/// be built.
+enum Device {
+    /// A pad with a gamepad mapping, read in the standard layout.
+    Gamepad(Gamepad),
+    /// A joystick with no mapping, read by the indices of its layout.
+    Joystick(Joystick, GenericLayout),
+}
+
+impl Device {
+    /// The device that reads `pending` with `map`, or `None` when the map
+    /// does not read that kind of device.
+    fn with_map(pending: Pending, map: PadMap) -> Option<Self> {
+        match (pending, map) {
+            (Pending::Gamepad(pad), PadMap::Known) => Some(Self::Gamepad(pad)),
+            (Pending::Joystick(joystick), PadMap::Generic(layout)) => {
+                Some(Self::Joystick(joystick, layout))
+            }
+            (Pending::Gamepad(_), PadMap::Generic(_)) | (Pending::Joystick(_), PadMap::Known) => {
+                None
+            }
+        }
+    }
+
+    fn connected(&self) -> bool {
+        match self {
+            Self::Gamepad(pad) => pad.connected(),
+            Self::Joystick(joystick, _) => joystick.connected(),
+        }
+    }
 }
 
 struct OpenPad {
-    pad: Gamepad,
+    device: Device,
     joystick: JoystickId,
     id: PadId,
+}
+
+/// Gives `apply` the state of every button and axis of a gamepad.
+fn read_gamepad(
+    pad: &Gamepad,
+    apply: &mut dyn FnMut(RawInput) -> Result<(), crate::MapperError>,
+) -> Result<(), crate::MapperError> {
+    for (sdl, button) in BUTTONS {
+        apply(RawInput::Button {
+            button,
+            pressed: pad.button(sdl),
+        })?;
+    }
+    for (sdl, axis) in AXES {
+        apply(RawInput::Axis {
+            axis,
+            value: pad.axis(sdl),
+        })?;
+    }
+    Ok(())
+}
+
+/// Gives `apply` the state of each button, hat and axis index of a
+/// joystick that its layout reads. A read that SDL3 refuses reads as
+/// neutral: the index is below the count that SDL3 gave.
+fn read_joystick(
+    joystick: &Joystick,
+    layout: &GenericLayout,
+    apply: &mut dyn FnMut(RawInput) -> Result<(), crate::MapperError>,
+) -> Result<(), crate::MapperError> {
+    for index in 0..layout.buttons_read() {
+        let pressed = joystick.button(u32::from(index)).unwrap_or(false);
+        apply(RawInput::JoyButton { index, pressed })?;
+    }
+    for index in 0..layout.hats_read() {
+        let hat = joystick
+            .hat(u32::from(index))
+            .map_or(HatState::default(), |h| HatState(h.to_raw()));
+        apply(RawInput::JoyHat { index, hat })?;
+    }
+    for index in 0..layout.axes_read() {
+        let value = joystick.axis(u32::from(index)).unwrap_or(0);
+        apply(RawInput::JoyAxis { index, value })?;
+    }
+    Ok(())
+}
+
+/// Adds each good line of the mapping file at `path` to SDL3, with a
+/// notice for the file and for each line that is not used.
+fn add_mappings(gamepads: &GamepadSubsystem, path: &Path, notices: &mut NoticeQueue) {
+    let mappings = read_mapping_file(path, sdl3::get_platform());
+    for notice in mappings.notices {
+        notices.push(notice);
+    }
+    for (line, text) in mappings.lines {
+        if let Err(e) = gamepads.add_mapping(&text) {
+            notices.push(InputNotice::MappingFile {
+                path: path.display().to_string(),
+                line,
+                reason: e.to_string(),
+            });
+        }
+    }
 }
 
 /// Each SDL3 button that has a RetroPad control, and its name in the
