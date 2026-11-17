@@ -834,10 +834,10 @@ mod tests {
     /// file).
     fn check_gamecontrollerdb(name: &str, enabled: bool, db: Option<&str>) -> std::process::Output {
         let script = os_dir().join("board/common/check-gamecontrollerdb.sh");
-        let dir = std::env::temp_dir().join(format!("xtask-gcdb-{name}-{}", std::process::id()));
-        let target = dir.join("target");
+        let dir = TempDir::create(&format!("gcdb-{name}"));
+        let target = dir.0.join("target");
         std::fs::create_dir_all(&target).unwrap();
-        let br2 = dir.join("br2.config");
+        let br2 = dir.0.join("br2.config");
         let line = if enabled {
             "BR2_PACKAGE_SDL_GAMECONTROLLERDB=y\n"
         } else {
@@ -849,14 +849,12 @@ mod tests {
             std::fs::create_dir_all(file.parent().unwrap()).unwrap();
             std::fs::write(file, text).unwrap();
         }
-        let out = std::process::Command::new("sh")
+        std::process::Command::new("sh")
             .arg(&script)
             .arg(&br2)
             .arg(&target)
             .output()
-            .unwrap();
-        std::fs::remove_dir_all(&dir).unwrap();
-        out
+            .unwrap()
     }
 
     #[test]
