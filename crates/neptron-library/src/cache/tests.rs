@@ -1,7 +1,7 @@
 use super::format::encode as encode_raw;
 use super::*;
 use crate::folders::{FolderStamp, Mtime};
-use crate::index::{Game, MAX_TEXT_BYTES, SystemGames};
+use crate::index::{Game, MAX_TEXT_BYTES, Marks, SystemGames};
 use crate::test_dir::TestDir;
 
 fn catalog() -> Catalog {
@@ -30,9 +30,31 @@ fn sample() -> Index {
         path: path.to_owned(),
         mtime,
     };
+    let vertical = Marks {
+        vertical: true,
+        not_working: true,
+        unknown_set: false,
+    };
+    let unknown = Marks {
+        unknown_set: true,
+        ..Marks::default()
+    };
+    let arcade = SystemGames::new(
+        "arcade".to_owned(),
+        vec![
+            Game::new("Star Patrol".to_owned(), "arcade/starpat.zip".to_owned())
+                .with_details("World".to_owned())
+                .with_marks(vertical),
+            Game::new("Star Patrol".to_owned(), "arcade/starpatj.zip".to_owned())
+                .with_parent(Some("starpat".to_owned()))
+                .with_details("Japan".to_owned()),
+            Game::new("oddname".to_owned(), "arcade/oddname.zip".to_owned()).with_marks(unknown),
+        ],
+    );
     Index::from_systems(vec![
         games("nes", &["Contra", "Mega Man 2", "Écran"]),
         games("megadrive", &["Sonic", "Gunstar Heroes"]),
+        arcade,
     ])
     .with_folders(vec![
         stamp(
@@ -95,7 +117,7 @@ fn round_trip_keeps_the_index() {
 fn header_has_the_documented_layout() {
     let bytes = encode(&sample());
     assert_eq!(&bytes[..8], b"NEPTRIDX");
-    assert_eq!(bytes[8..12], 2u32.to_le_bytes());
+    assert_eq!(bytes[8..12], 3u32.to_le_bytes());
     assert_eq!(
         bytes[12..20],
         ((bytes.len() - HEADER_BYTES) as u64).to_le_bytes()
@@ -131,13 +153,13 @@ fn every_single_bit_flip_is_rejected() {
 #[test]
 fn version_mismatch_is_rejected() {
     let mut bytes = encode(&sample());
-    bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&2u32.to_le_bytes());
     let err = decode(&bytes).expect_err("another version");
     assert!(matches!(
         err,
         CacheError::Version {
-            found: 3,
-            expected: 2
+            found: 2,
+            expected: 3
         }
     ));
 }
@@ -181,13 +203,55 @@ fn damaged_payload_with_a_valid_checksum_never_panics() {
             damaged[i] = value;
             // Ok or Err are both correct here; the test is that it returns.
             if let Ok(index) = decode(&with_payload(&damaged)) {
-                assert!(index.total() <= sample().total() + 1);
+                assert!(all_games(&index) <= all_games(&sample()) + 1);
             }
         }
     }
     for len in 0..payload.len() {
         assert!(decode(&with_payload(&payload[..len])).is_err(), "{len}");
     }
+}
+
+/// The games of every system, folded clones too.
+fn all_games(index: &Index) -> usize {
+    index.systems().iter().map(|s| s.all().count()).sum()
+}
+
+#[test]
+fn the_arcade_fields_and_the_folding_survive_the_cache() {
+    let index = decode(&encode(&sample())).expect("a valid cache");
+    let arcade = index.system("arcade").expect("arcade");
+    assert_eq!(arcade.len(), 2, "the clone is folded");
+    let versions = arcade.versions("starpat");
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].parent(), Some("starpat"));
+    assert_eq!(versions[0].details(), "Japan");
+    let parent = &arcade.games()[1];
+    assert_eq!(parent.path(), "arcade/starpat.zip");
+    assert!(parent.marks().vertical && parent.marks().not_working);
+    assert!(arcade.games()[0].marks().unknown_set);
+}
+
+#[test]
+fn an_unknown_mark_bit_is_rejected() {
+    let mut payload = one_game("nes", "a", "nes/a.nes");
+    let marks_at = payload.len() - 4 - 1;
+    for bit in 3..8 {
+        payload[marks_at] = 1 << bit;
+        let err = decode(&with_payload(&payload)).expect_err("an unknown bit");
+        assert!(
+            matches!(
+                err,
+                CacheError::Malformed {
+                    what: "game marks",
+                    ..
+                }
+            ),
+            "{err}"
+        );
+    }
+    payload[marks_at] = 0b111;
+    assert!(decode(&with_payload(&payload)).is_ok());
 }
 
 #[test]
@@ -295,6 +359,9 @@ fn one_game(system: &str, name: &str, path: &str) -> Vec<u8> {
     put(&mut p, name);
     put(&mut p, path);
     p.extend_from_slice(&7u64.to_le_bytes());
+    put(&mut p, "");
+    put(&mut p, "");
+    p.push(0);
     p.extend_from_slice(&0u32.to_le_bytes());
     p
 }
@@ -355,7 +422,7 @@ fn a_game_smaller_than_the_smallest_valid_game_is_refused_by_the_count() {
     p.extend_from_slice(&3u32.to_le_bytes());
     p.extend_from_slice(b"nes");
     p.extend_from_slice(&1u32.to_le_bytes());
-    p.extend_from_slice(&[0; 19]);
+    p.extend_from_slice(&[0; 28]);
     let err = decode(&with_payload(&p)).expect_err("too short");
     assert!(
         matches!(

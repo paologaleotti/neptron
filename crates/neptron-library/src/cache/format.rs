@@ -8,35 +8,44 @@
 //! | 20 | 4 | CRC-32 of the payload |
 //! | 24 | n | payload |
 //!
-//! Payload of version 2: a `u32` system count, then for each system its id
+//! Payload of version 3: a `u32` system count, then for each system its id
 //! (a string) and a `u32` game count, then for each game its name and its
-//! path (two strings) and its size (`u64`). Then a `u32` folder count, and
+//! path (two strings), its size (`u64`), its parent set (a string, empty
+//! for none), its details (a string) and its marks (one byte: bit 0
+//! vertical, bit 1 not working, bit 2 unknown set; the other bits 0). The
+//! folded clones of a system are among its games. Then a `u32` folder count, and
 //! for each folder its path (a string), a trust byte (1: the time is
 //! trusted, 0: it is not and the time fields are 0), the seconds (`i64`)
 //! and the nanoseconds (`u32`) of its time. The folders are sorted by path,
 //! each path once. A string is a `u32` byte length and UTF-8 bytes.
 //!
-//! Version 1 had no sizes and no folders. A file of version 1 is discarded
-//! and the scan writes version 2.
+//! Version 1 had no sizes and no folders; version 2 had no parent, details
+//! and marks. A file of an older version is discarded and the scan writes
+//! version 3.
 
 use super::CacheError;
 use super::crc32::crc32;
 use crate::catalog::{Catalog, SystemDef};
 use crate::folders::{FolderStamp, Mtime};
-use crate::index::{Game, Index, MAX_TEXT_BYTES, SystemGames};
+use crate::index::{Game, Index, MAX_TEXT_BYTES, Marks, SystemGames};
 
 /// The first 8 bytes of a cache file.
 pub const MAGIC: [u8; 8] = *b"NEPTRIDX";
 
 /// The format version that this crate writes and reads.
-pub const CACHE_VERSION: u32 = 2;
+pub const CACHE_VERSION: u32 = 3;
 
 /// The size of the header in bytes.
 pub const HEADER_BYTES: usize = 24;
 
 /// The bytes of the smallest valid game: two length fields, a 1-byte name,
-/// a 3-byte path such as `s/n` and the size.
-const MIN_GAME_BYTES: usize = 4 + 1 + 4 + 3 + 8;
+/// a 3-byte path such as `s/n`, the size, two empty strings and the marks.
+const MIN_GAME_BYTES: usize = 4 + 1 + 4 + 3 + 8 + 4 + 4 + 1;
+
+const MARK_VERTICAL: u8 = 1;
+const MARK_NOT_WORKING: u8 = 1 << 1;
+const MARK_UNKNOWN_SET: u8 = 1 << 2;
+const MARKS_KNOWN: u8 = MARK_VERTICAL | MARK_NOT_WORKING | MARK_UNKNOWN_SET;
 
 /// The bytes of the smallest valid folder: a length field, a 1-byte path,
 /// the trust byte and the time.
@@ -50,11 +59,14 @@ pub(super) fn encode(index: &Index) -> Vec<u8> {
     put_count(&mut payload, index.systems().len());
     for system in index.systems() {
         put_str(&mut payload, system.system());
-        put_count(&mut payload, system.len());
-        for game in system.games() {
+        put_count(&mut payload, system.all().count());
+        for game in system.all() {
             put_str(&mut payload, game.name());
             put_str(&mut payload, game.path());
             payload.extend_from_slice(&game.size().to_le_bytes());
+            put_str(&mut payload, game.parent().unwrap_or_default());
+            put_str(&mut payload, game.details());
+            payload.push(marks_byte(game.marks()));
         }
     }
     put_count(&mut payload, index.folders().len());
@@ -119,7 +131,19 @@ pub(super) fn decode(bytes: &[u8], catalog: &Catalog) -> Result<Index, CacheErro
                 return Err(r.malformed("game path"));
             }
             let size = r.u64("game size")?;
-            games.push(Game::new(name, path).with_size(size));
+            let parent = r.string("game parent")?;
+            let details = r.string("game details")?;
+            let marks = r.u8("game marks")?;
+            if marks & !MARKS_KNOWN != 0 {
+                return Err(r.malformed("game marks"));
+            }
+            games.push(
+                Game::new(name, path)
+                    .with_size(size)
+                    .with_parent((!parent.is_empty()).then_some(parent))
+                    .with_details(details)
+                    .with_marks(marks_of(marks)),
+            );
         }
         systems.push(SystemGames::new(id, games));
     }
@@ -220,6 +244,28 @@ fn field<const N: usize>(header: &[u8; HEADER_BYTES], at: usize) -> [u8; N] {
         out.copy_from_slice(src);
     }
     out
+}
+
+fn marks_byte(marks: Marks) -> u8 {
+    let mut byte = 0;
+    for (on, bit) in [
+        (marks.vertical, MARK_VERTICAL),
+        (marks.not_working, MARK_NOT_WORKING),
+        (marks.unknown_set, MARK_UNKNOWN_SET),
+    ] {
+        if on {
+            byte |= bit;
+        }
+    }
+    byte
+}
+
+fn marks_of(byte: u8) -> Marks {
+    Marks {
+        vertical: byte & MARK_VERTICAL != 0,
+        not_working: byte & MARK_NOT_WORKING != 0,
+        unknown_set: byte & MARK_UNKNOWN_SET != 0,
+    }
 }
 
 /// No index holds more than `u32::MAX` items. If one did, the saturated

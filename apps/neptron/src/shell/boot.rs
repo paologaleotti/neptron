@@ -23,7 +23,7 @@ use neptron_video::{
 use super::{ControlInput, Devices, GameStage, ListStage, Runtime, Shell, Stage};
 use crate::config::{Config, GameContext};
 use crate::display::{Detected, MonitorError};
-use crate::library::{Library, ScanKind};
+use crate::library::{ARCADE_CORE, Library, ScanKind};
 use crate::nav::Navigator;
 use crate::network::{NetworkInfo, NetworkWatch};
 use crate::outbox::{Outbox, Places};
@@ -171,7 +171,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
             // has counted this boot already, and it had the boot prompt:
             // the game run starts on what was kept, with no prompt.
             Some(reference) => {
-                let (library, issue) = Library::load(Catalog::builtin()?, &paths.library_cache());
+                let (library, issue) = Library::load(
+                    Catalog::builtin()?,
+                    &paths.library_cache(),
+                    paths.arcade_index(ARCADE_CORE),
+                );
                 found.warn_all(issue);
                 let launched = launch(
                     &paths,
@@ -233,8 +237,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock + Clone> Shell<D, S, I, 
         let library = match library {
             Some(library) => library,
             None => {
-                let (mut library, issue) =
-                    Library::load(Catalog::builtin()?, &paths.library_cache());
+                let (mut library, issue) = Library::load(
+                    Catalog::builtin()?,
+                    &paths.library_cache(),
+                    paths.arcade_index(ARCADE_CORE),
+                );
                 found.warn_all(issue);
                 // A relaunch file and the marker of a full scan mean that
                 // the cache comes from this power cycle: every change since

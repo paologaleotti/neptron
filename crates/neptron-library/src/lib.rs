@@ -18,7 +18,7 @@ mod worker;
 pub use catalog::{Catalog, CatalogError, CoreDef, DEFINITION_FORMAT, Source, SystemDef};
 pub use changes::{Changes, changes};
 pub use folders::{FolderStamp, MTIME_TRUST_WINDOW_NS, Mtime, trusted};
-pub use index::{Game, Index, MAX_TEXT_BYTES, SystemGames, compare_names};
+pub use index::{Game, Index, MAX_TEXT_BYTES, Marks, SystemGames, compare_names};
 pub use scan::{
     MAX_FOLDER_DEPTH, MAX_REPORTED_ENTRIES, ScanError, ScanOutcome, ScanProgress, ScanReport,
     Unreadable, ensure_system_folders, refresh, scan,

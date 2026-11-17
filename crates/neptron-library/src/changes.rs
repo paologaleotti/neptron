@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::index::{Game, Index};
+use crate::index::{Game, Index, SystemGames};
 
 /// The games that a scan added, removed or changed, compared with the
 /// index before it.
@@ -33,8 +33,8 @@ pub fn changes(old: &Index, new: &Index) -> Changes {
     ids.sort_unstable();
     ids.dedup();
     for id in ids {
-        let before = old.system(id).map_or(&[][..], |s| s.games());
-        let after = new.system(id).map_or(&[][..], |s| s.games());
+        let before = old.system(id).into_iter().flat_map(SystemGames::all);
+        let after = new.system(id).into_iter().flat_map(SystemGames::all);
         system_changes(before, after, &mut out);
     }
     out
@@ -47,8 +47,12 @@ impl Changes {
     }
 }
 
-fn system_changes(before: &[Game], after: &[Game], out: &mut Changes) {
-    let mut gone: HashMap<&str, u64> = before.iter().map(|g| (g.path(), g.size())).collect();
+fn system_changes<'a>(
+    before: impl Iterator<Item = &'a Game>,
+    after: impl Iterator<Item = &'a Game>,
+    out: &mut Changes,
+) {
+    let mut gone: HashMap<&str, u64> = before.map(|g| (g.path(), g.size())).collect();
     for game in after {
         match gone.remove(game.path()) {
             Some(size) if size != game.size() => bump(&mut out.changed),
@@ -68,7 +72,6 @@ fn bump(n: &mut u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::SystemGames;
 
     fn index(systems: &[(&str, &[(&str, u64)])]) -> Index {
         Index::from_systems(

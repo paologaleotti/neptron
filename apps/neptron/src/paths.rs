@@ -10,7 +10,7 @@ pub struct Paths {
     pub share: PathBuf,
     /// The state partition: `config/`, `saves/`, `video/`, `cache/`.
     pub state: PathBuf,
-    /// The read-only data of the image: `monitors/`, `skins/`.
+    /// The read-only data of the image: `monitors/`, `skins/`, `arcade/`.
     pub data: PathBuf,
     /// The libretro cores, by the library file name of `data/cores`.
     pub cores: PathBuf,
@@ -72,6 +72,12 @@ impl Paths {
     /// `data/monitors`, the monitor presets.
     pub fn monitors(&self) -> PathBuf {
         self.data.join("monitors")
+    }
+
+    /// `data/arcade/<core>.idx`, the arcade index of a core, made from the
+    /// DAT of the core in the image build.
+    pub fn arcade_index(&self, core: &str) -> PathBuf {
+        self.data.join("arcade").join(format!("{core}.idx"))
     }
 
     /// `data/skins/default/skin.toml`.

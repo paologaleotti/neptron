@@ -8,7 +8,7 @@ fn catalog() -> Catalog {
 }
 
 fn run(root: &Path) -> Result<ScanOutcome, ScanError> {
-    scan(root, &catalog(), &AtomicBool::new(false), &mut |_| {})
+    scan(root, &catalog(), &[], &AtomicBool::new(false), &mut |_| {})
 }
 
 fn names<'a>(index: &'a Index, system: &str) -> Vec<&'a str> {
@@ -160,7 +160,7 @@ fn folders_deeper_than_the_limit_are_skipped() {
 fn cancel_before_the_start_stops_the_scan() {
     let dir = layout_fixture();
     let cancel = AtomicBool::new(true);
-    let result = scan(dir.path(), &catalog(), &cancel, &mut |_| {});
+    let result = scan(dir.path(), &catalog(), &[], &cancel, &mut |_| {});
     assert!(matches!(result, Err(ScanError::Cancelled)));
 }
 
@@ -169,7 +169,7 @@ fn cancel_between_folders_stops_the_scan() {
     let dir = layout_fixture();
     let cancel = AtomicBool::new(false);
     let mut calls = 0;
-    let result = scan(dir.path(), &catalog(), &cancel, &mut |_| {
+    let result = scan(dir.path(), &catalog(), &[], &cancel, &mut |_| {
         calls += 1;
         cancel.store(true, Ordering::Relaxed);
     });
@@ -184,9 +184,15 @@ fn cancel_between_folders_stops_the_scan() {
 fn progress_grows_and_ends_at_the_totals() {
     let dir = layout_fixture();
     let mut seen = Vec::new();
-    let outcome = scan(dir.path(), &catalog(), &AtomicBool::new(false), &mut |p| {
-        seen.push(p);
-    })
+    let outcome = scan(
+        dir.path(),
+        &catalog(),
+        &[],
+        &AtomicBool::new(false),
+        &mut |p| {
+            seen.push(p);
+        },
+    )
     .expect("the scan completes");
     // The root, nes, nes/usa, SNES, megadrive, genesis.
     assert_eq!(seen.len(), 6);
@@ -379,6 +385,7 @@ fn refresh_at(
     let result = refresh(
         root,
         &catalog(),
+        &[],
         previous,
         now,
         &AtomicBool::new(false),
@@ -544,6 +551,7 @@ fn cancel_during_a_refresh_stops_it() {
     let result = refresh(
         dir.path(),
         &catalog(),
+        &[],
         &first.index,
         t(7200),
         &cancel,
@@ -680,8 +688,14 @@ fn bios_sets_of_the_core_are_not_games() {
         dir.file(file);
     }
     let catalog = arcade_catalog();
-    let outcome =
-        scan(dir.path(), &catalog, &AtomicBool::new(false), &mut |_| {}).expect("the scan");
+    let outcome = scan(
+        dir.path(),
+        &catalog,
+        &[],
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("the scan");
     let index = &outcome.index;
     assert_eq!(names(index, "arcade"), ["mslug"]);
     assert_eq!(names(index, "neogeo"), ["kof98"]);
@@ -700,8 +714,14 @@ fn a_set_that_only_starts_with_a_bios_name_is_a_game() {
     dir.file("neogeo/neogeo2.zip");
     dir.file("neogeo/neogeo.zip.zip");
     let catalog = arcade_catalog();
-    let outcome =
-        scan(dir.path(), &catalog, &AtomicBool::new(false), &mut |_| {}).expect("the scan");
+    let outcome = scan(
+        dir.path(),
+        &catalog,
+        &[],
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("the scan");
     assert_eq!(names(&outcome.index, "neogeo"), ["neogeo.zip", "neogeo2"]);
     assert_eq!(outcome.report.bios_sets, 0);
 }
@@ -712,11 +732,19 @@ fn a_refresh_keeps_bios_sets_hidden() {
     dir.file("arcade/neogeo.zip");
     dir.file("arcade/mslug.zip");
     let catalog = arcade_catalog();
-    let first = scan(dir.path(), &catalog, &AtomicBool::new(false), &mut |_| {}).expect("the scan");
+    let first = scan(
+        dir.path(),
+        &catalog,
+        &[],
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("the scan");
     dir.file("arcade/sub/neogeo.zip");
     let again = refresh(
         dir.path(),
         &catalog,
+        &[],
         &first.index,
         SystemTime::now(),
         &AtomicBool::new(false),
@@ -724,4 +752,152 @@ fn a_refresh_keeps_bios_sets_hidden() {
     )
     .expect("the refresh");
     assert_eq!(names(&again.index, "arcade"), ["mslug"]);
+}
+
+/// An arcade index of the `fbneo` core with invented sets: a BIOS, a
+/// vertical parent with two clones, a set that does not work, and a clone
+/// whose parent is missing from the folders of the tests.
+fn arcade_index() -> Arc<ArcadeIndex> {
+    use crate::arcade::{IndexSource, SetRecord};
+    let set = |name: &str, title: &str, parent: Option<&str>| {
+        let mut s = SetRecord::new(name.to_owned(), title.to_owned());
+        s.parent = parent.map(str::to_owned);
+        s.romof = parent.map(str::to_owned);
+        s
+    };
+    let mut bios = set("zbios", "Zed BIOS", None);
+    bios.flags.bios = true;
+    let mut parent = set("starpat", "Star Patrol", None);
+    parent.flags.vertical = true;
+    parent.details = "World".to_owned();
+    let mut clone = set("starpatj", "Star Patrol", Some("starpat"));
+    clone.details = "Japan".to_owned();
+    let clone2 = set("starpatu", "Star Patrol", Some("starpat"));
+    let mut broken = set("wreck", "Wreck Race", None);
+    broken.flags.not_working = true;
+    let orphan = set("lonelyj", "Lonely Pilot", Some("lonely"));
+    let untitled = set("plain", "", None);
+    let source = IndexSource {
+        core: "fbneo".to_owned(),
+        ..IndexSource::default()
+    };
+    Arc::new(
+        ArcadeIndex::from_sets(
+            source,
+            vec![bios, parent, clone, clone2, broken, orphan, untitled],
+        )
+        .expect("valid sets"),
+    )
+}
+
+#[test]
+fn an_arcade_index_gives_titles_marks_and_folding() {
+    let dir = TestDir::new("arcade-lookup");
+    for file in [
+        "arcade/StarPat.zip",
+        "arcade/starpatj.zip",
+        "arcade/sub/starpatu.zip",
+        "arcade/zbios.zip",
+        "arcade/wreck.zip",
+        "arcade/lonelyj.zip",
+        "arcade/mystery.zip",
+        "arcade/plain.zip",
+        "neogeo/starpatj.zip",
+        "other/starpat.zip",
+    ] {
+        dir.file(file);
+    }
+    let catalog = arcade_catalog();
+    let outcome = scan(
+        dir.path(),
+        &catalog,
+        &[arcade_index()],
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("the scan");
+    let index = &outcome.index;
+    assert_eq!(
+        names(index, "arcade"),
+        [
+            "Lonely Pilot",
+            "mystery",
+            "plain",
+            "Star Patrol",
+            "Wreck Race"
+        ]
+    );
+    let arcade = index.system("arcade").expect("arcade");
+    let parent = &arcade.games()[3];
+    assert_eq!(parent.path(), "arcade/StarPat.zip");
+    assert_eq!(parent.details(), "World");
+    assert!(parent.marks().vertical);
+    let versions: Vec<&str> = arcade
+        .versions(parent.stem())
+        .iter()
+        .map(Game::path)
+        .collect();
+    assert_eq!(versions, ["arcade/starpatj.zip", "arcade/sub/starpatu.zip"]);
+    assert_eq!(
+        arcade.versions("STARPAT").len(),
+        2,
+        "the match ignores case"
+    );
+    assert!(arcade.games()[1].marks().unknown_set, "not a set name");
+    assert!(arcade.games()[4].marks().not_working);
+    assert_eq!(
+        arcade.games()[0].parent(),
+        Some("lonely"),
+        "a clone whose parent zip is missing stays in the list"
+    );
+    assert_eq!(arcade.all().count(), 7);
+    assert_eq!(outcome.report.bios_sets, 1);
+
+    assert_eq!(
+        names(index, "neogeo"),
+        ["Star Patrol"],
+        "a clone alone in its system is not folded"
+    );
+    assert_eq!(
+        names(index, "other"),
+        ["starpat"],
+        "another core does not use the index"
+    );
+    assert!(
+        !index.system("other").expect("other").games()[0]
+            .marks()
+            .unknown_set
+    );
+}
+
+#[test]
+fn a_refresh_keeps_the_folded_clones() {
+    let dir = TestDir::new("arcade-refresh");
+    dir.file("arcade/starpat.zip");
+    dir.file("arcade/starpatj.zip");
+    let catalog = arcade_catalog();
+    let arcade = [arcade_index()];
+    let first = scan(
+        dir.path(),
+        &catalog,
+        &arcade,
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("the scan");
+    let later = SystemTime::now() + std::time::Duration::from_secs(3600);
+    let again = refresh(
+        dir.path(),
+        &catalog,
+        &arcade,
+        &first.index,
+        later,
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("the refresh");
+    assert_eq!(again.index.systems(), first.index.systems());
+    let list = again.index.system("arcade").expect("arcade");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list.versions("starpat").len(), 1);
 }

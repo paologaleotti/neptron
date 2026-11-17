@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::SystemTime;
 
+use crate::arcade::ArcadeIndex;
 use crate::catalog::Catalog;
 use crate::index::Index;
 use crate::scan::{ScanError, ScanOutcome, ScanProgress, refresh, scan};
@@ -33,8 +34,13 @@ struct Shared {
 
 impl ScanWorker {
     /// Starts a scan of `roms_root` on a new thread. It reads every folder.
-    pub fn spawn(roms_root: PathBuf, catalog: Catalog) -> Result<Self, ScanError> {
-        Self::start(move |cancel, report| scan(&roms_root, &catalog, cancel, report))
+    /// `arcade` holds the arcade indexes, as for [`scan`].
+    pub fn spawn(
+        roms_root: PathBuf,
+        catalog: Catalog,
+        arcade: Vec<Arc<ArcadeIndex>>,
+    ) -> Result<Self, ScanError> {
+        Self::start(move |cancel, report| scan(&roms_root, &catalog, &arcade, cancel, report))
     }
 
     /// Starts a [`refresh`] of `roms_root` against `previous` on a new
@@ -43,11 +49,14 @@ impl ScanWorker {
     pub fn spawn_refresh(
         roms_root: PathBuf,
         catalog: Catalog,
+        arcade: Vec<Arc<ArcadeIndex>>,
         previous: Index,
         now: SystemTime,
     ) -> Result<Self, ScanError> {
         Self::start(move |cancel, report| {
-            refresh(&roms_root, &catalog, &previous, now, cancel, report)
+            refresh(
+                &roms_root, &catalog, &arcade, &previous, now, cancel, report,
+            )
         })
     }
 

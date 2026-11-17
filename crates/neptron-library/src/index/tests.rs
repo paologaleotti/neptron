@@ -201,3 +201,47 @@ fn zip_is_told_by_the_extension() {
     assert!(!Game::new("zip".into(), "nes/zip".into()).is_zip());
     assert!(!Game::new("a".into(), "nes/a.zip.nes".into()).is_zip());
 }
+
+fn arcade(stem: &str, title: &str, parent: Option<&str>) -> Game {
+    Game::new(title.to_owned(), format!("arcade/{stem}.zip")).with_parent(parent.map(str::to_owned))
+}
+
+#[test]
+fn a_clone_folds_under_a_parent_of_the_same_list() {
+    let list = SystemGames::new(
+        "arcade".into(),
+        vec![
+            arcade("b2", "Bee", Some("B1")),
+            arcade("b1", "Bee", None),
+            arcade("a2", "Ant", Some("a1")),
+            arcade("c2", "Cat", Some("c1")),
+            arcade("b3", "Bee (rev)", Some("b1")),
+        ],
+    );
+    assert_eq!(names(&list), ["Ant", "Bee", "Cat"]);
+    assert_eq!(list.len(), 3);
+    let versions: Vec<&str> = list.versions("b1").iter().map(Game::stem).collect();
+    assert_eq!(versions, ["b2", "b3"]);
+    assert!(list.versions("a2").is_empty());
+    assert!(list.versions("").is_empty());
+    assert_eq!(list.all().count(), 5);
+    assert_eq!(list.games()[1].stem(), "b1");
+}
+
+#[test]
+fn a_merged_system_folds_across_its_lists() {
+    let index = Index::from_systems(vec![
+        SystemGames::new("arcade".into(), vec![arcade("b2", "Bee", Some("b1"))]),
+        SystemGames::new("arcade".into(), vec![arcade("b1", "Bee", None)]),
+    ]);
+    let list = index.system("arcade").expect("arcade");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list.versions("b1").len(), 1);
+}
+
+#[test]
+fn the_stem_has_no_folder_and_no_extension() {
+    assert_eq!(arcade("x", "X", None).stem(), "x");
+    assert_eq!(Game::new("n".into(), "snes/a/b.c.sfc".into()).stem(), "b.c");
+    assert_eq!(Game::new("n".into(), "snes/noext".into()).stem(), "noext");
+}

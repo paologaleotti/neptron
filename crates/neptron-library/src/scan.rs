@@ -7,12 +7,14 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
+use crate::arcade::ArcadeIndex;
 use crate::catalog::Catalog;
 use crate::folders::{FolderStamp, Mtime, parent, trusted};
-use crate::index::{Game, Index, MAX_TEXT_BYTES, SystemGames};
+use crate::index::{Game, Index, MAX_TEXT_BYTES, Marks, SystemGames};
 
 /// The deepest folder level under a system folder that the scan reads.
 /// The system folder is level 0.
@@ -42,8 +44,9 @@ pub struct ScanReport {
     pub more_unknown_folders: u32,
     /// Files with an extension that the system does not accept, and files directly in `share/roms/`.
     pub ignored_files: u32,
-    /// Files that name a BIOS set of the core of their system
-    /// ([`Catalog::is_bios_set`]). They are not games.
+    /// Files that name a BIOS set of the core of their system: a set with
+    /// the BIOS flag in the arcade index of the core, or, when the core has
+    /// no index, a set of [`Catalog::is_bios_set`]. They are not games.
     pub bios_sets: u32,
     /// Entries whose name starts with `.`.
     pub hidden_entries: u32,
@@ -102,7 +105,8 @@ pub enum ScanError {
 }
 
 /// Scans `roms_root` (the `share/roms/` folder) for the games of every
-/// system in `catalog`, and reads every folder.
+/// system in `catalog`, and reads every folder. `arcade` holds the arcade
+/// indexes, at most one per core (by [`crate::arcade::IndexSource::core`]).
 ///
 /// The scan checks `cancel` before each directory entry and returns
 /// [`ScanError::Cancelled`] when it is set. It calls `progress` after each
@@ -118,6 +122,11 @@ pub enum ScanError {
 ///   is the file name with no extension.
 /// - A file that names a BIOS set of the system's core is not a game. It
 ///   is counted in [`ScanReport::bios_sets`].
+/// - For a system whose core has an arcade index, the stem of a file is
+///   looked up there with no regard to ASCII case: a set gives the title,
+///   the parent, the details and the marks; a stem that is not a set keeps
+///   its name and gets the mark [`Marks::unknown_set`]. The scan never
+///   opens a zip.
 /// - Entries whose name starts with `.` are hidden and skipped. This also
 ///   skips the `._` files that macOS writes on exFAT.
 /// - Symbolic links are skipped, so a link cannot make a loop or show a
@@ -125,12 +134,14 @@ pub enum ScanError {
 pub fn scan(
     roms_root: &Path,
     catalog: &Catalog,
+    arcade: &[Arc<ArcadeIndex>],
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(ScanProgress),
 ) -> Result<ScanOutcome, ScanError> {
     refresh(
         roms_root,
         catalog,
+        arcade,
         &Index::new(),
         SystemTime::now(),
         cancel,
@@ -157,13 +168,26 @@ pub fn scan(
 pub fn refresh(
     roms_root: &Path,
     catalog: &Catalog,
+    arcade: &[Arc<ArcadeIndex>],
     previous: &Index,
     now: SystemTime,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(ScanProgress),
 ) -> Result<ScanOutcome, ScanError> {
+    let arcade = catalog
+        .systems()
+        .iter()
+        .map(|system| {
+            let core = catalog.core_for(&system.folder)?;
+            arcade
+                .iter()
+                .find(|index| index.source.core == core.id)
+                .map(Arc::as_ref)
+        })
+        .collect();
     let mut scanner = Scanner {
         catalog,
+        arcade,
         cancel,
         progress,
         report: ScanReport::default(),
@@ -209,6 +233,8 @@ struct Folder {
 
 struct Scanner<'a> {
     catalog: &'a Catalog,
+    /// The arcade index of the core of each catalog system, if any.
+    arcade: Vec<Option<&'a ArcadeIndex>>,
     cancel: &'a AtomicBool,
     progress: &'a mut dyn FnMut(ScanProgress),
     report: ScanReport,
@@ -422,15 +448,10 @@ impl Scanner<'_> {
             bump(&mut self.report.ignored_files);
             return;
         };
-        let bios = self
-            .catalog
-            .systems()
-            .get(system)
-            .is_some_and(|s| self.catalog.is_bios_set(&s.folder, stem));
-        if bios {
+        let Some(game) = self.game_of(system, stem, relative) else {
             bump(&mut self.report.bios_sets);
             return;
-        }
+        };
         // The entry type came from the directory; the size needs a `stat`,
         // which does not follow a link.
         let size = match entry.metadata() {
@@ -442,9 +463,49 @@ impl Scanner<'_> {
             }
         };
         if let Some(list) = self.games.get_mut(system) {
-            list.push(Game::new(stem.to_owned(), relative).with_size(size));
+            list.push(game.with_size(size));
             bump(&mut self.counts.games);
         }
+    }
+
+    /// The game of a file with an accepted extension, or `None` for a BIOS
+    /// set. With an arcade index the index decides; without one, the BIOS
+    /// table of the catalog.
+    fn game_of(&self, system: usize, stem: &str, relative: String) -> Option<Game> {
+        let Some(index) = self.arcade.get(system).copied().flatten() else {
+            let bios = self
+                .catalog
+                .systems()
+                .get(system)
+                .is_some_and(|s| self.catalog.is_bios_set(&s.folder, stem));
+            return (!bios).then(|| Game::new(stem.to_owned(), relative));
+        };
+        let Some(set) = index.find(stem) else {
+            let marks = Marks {
+                unknown_set: true,
+                ..Marks::default()
+            };
+            return Some(Game::new(stem.to_owned(), relative).with_marks(marks));
+        };
+        if set.flags.bios {
+            return None;
+        }
+        let title = if set.title.is_empty() {
+            stem
+        } else {
+            &set.title
+        };
+        let marks = Marks {
+            vertical: set.flags.vertical,
+            not_working: set.flags.not_working,
+            unknown_set: false,
+        };
+        Some(
+            Game::new(title.to_owned(), relative)
+                .with_parent(set.parent.clone())
+                .with_details(set.details.clone())
+                .with_marks(marks),
+        )
     }
 
     /// The UTF-8 name and the type of an entry that the scan reads further,
@@ -523,7 +584,7 @@ impl<'a> Known<'a> {
             if catalog.system(system.system()).is_none() {
                 continue;
             }
-            for game in system.games() {
+            for game in system.all() {
                 games.entry(parent(game.path())).or_default().push(game);
             }
         }

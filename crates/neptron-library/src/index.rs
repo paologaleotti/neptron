@@ -1,7 +1,7 @@
 //! The game index in memory and its queries. Queries do no I/O and no allocation.
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::folders::FolderStamp;
 
@@ -17,13 +17,35 @@ pub struct Game {
     name: String,
     path: String,
     size: u64,
+    parent: Option<String>,
+    details: String,
+    marks: Marks,
+}
+
+/// The marks of a game in the list. An arcade game gets them from the
+/// arcade index; other games have none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Marks {
+    /// The game has a vertical screen.
+    pub vertical: bool,
+    /// The core does not run the game well.
+    pub not_working: bool,
+    /// The zip stem is not a set name of the arcade index.
+    pub unknown_set: bool,
 }
 
 /// The games of one system, in sort order.
+///
+/// A clone whose parent set is in the same list is folded: it is not in
+/// [`SystemGames::games`] but under its parent, in
+/// [`SystemGames::versions`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemGames {
     system: String,
     games: Vec<Game>,
+    /// The folded clones, sorted by parent set name (ASCII lower case),
+    /// then in game order.
+    folded: Vec<Game>,
 }
 
 /// Every game that a scan found, by system, and the stamps of the folders
@@ -57,7 +79,51 @@ impl Game {
             name,
             path,
             size: 0,
+            parent: None,
+            details: String::new(),
+            marks: Marks::default(),
         }
+    }
+
+    /// The same game as a clone of the set `parent`.
+    pub fn with_parent(mut self, parent: Option<String>) -> Self {
+        self.parent = parent;
+        self
+    }
+
+    /// The same game with a details line, for example the region.
+    pub fn with_details(mut self, details: String) -> Self {
+        self.details = details;
+        self
+    }
+
+    /// The same game with marks.
+    pub fn with_marks(mut self, marks: Marks) -> Self {
+        self.marks = marks;
+        self
+    }
+
+    /// The parent set of an arcade clone.
+    pub fn parent(&self) -> Option<&str> {
+        self.parent.as_deref()
+    }
+
+    /// The details line: for an arcade game, the last bracket group of its
+    /// description. Empty when there is none.
+    pub fn details(&self) -> &str {
+        &self.details
+    }
+
+    /// The marks in the list.
+    pub fn marks(&self) -> Marks {
+        self.marks
+    }
+
+    /// The file name with no extension and no folder: the set name of an
+    /// arcade game.
+    pub fn stem(&self) -> &str {
+        let file = self.path.rsplit('/').next().unwrap_or(&self.path);
+        file.rsplit_once('.').map_or(file, |(stem, _)| stem)
     }
 
     /// The same game with a file size in bytes.
@@ -72,7 +138,8 @@ impl Game {
         self.size
     }
 
-    /// Display name: the file name with no extension.
+    /// Display name: the title of an arcade set, or the file name with no
+    /// extension.
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -93,10 +160,25 @@ impl Game {
 }
 
 impl SystemGames {
-    /// Makes the game list of one system. The games are sorted here.
-    pub fn new(system: String, mut games: Vec<Game>) -> Self {
+    /// Makes the game list of one system. The games are sorted and the
+    /// clones whose parent is in the list are folded here.
+    pub fn new(system: String, games: Vec<Game>) -> Self {
+        let stems: HashSet<String> = games
+            .iter()
+            .map(|g| g.stem().to_ascii_lowercase())
+            .collect();
+        let (mut folded, mut games): (Vec<Game>, Vec<Game>) = games.into_iter().partition(|g| {
+            g.parent
+                .as_deref()
+                .is_some_and(|p| stems.contains(&p.to_ascii_lowercase()))
+        });
         games.sort_by(order);
-        Self { system, games }
+        folded.sort_by(|a, b| fold_key(a).cmp(fold_key(b)).then_with(|| order(a, b)));
+        Self {
+            system,
+            games,
+            folded,
+        }
     }
 
     /// The system id.
@@ -104,12 +186,26 @@ impl SystemGames {
         &self.system
     }
 
-    /// Every game, in sort order.
+    /// Every game of the list, in sort order. Folded clones are not in it.
     pub fn games(&self) -> &[Game] {
         &self.games
     }
 
-    /// Number of games.
+    /// Every game: those of the list, then the folded clones.
+    pub fn all(&self) -> impl Iterator<Item = &Game> {
+        self.games.iter().chain(&self.folded)
+    }
+
+    /// The folded clones of the set named `stem`, in sort order: its
+    /// "other versions". The match ignores ASCII case. It allocates nothing.
+    pub fn versions(&self, stem: &str) -> &[Game] {
+        let wanted = || stem.bytes().map(|b| b.to_ascii_lowercase());
+        let start = self.folded.partition_point(|g| fold_key(g).lt(wanted()));
+        let end = self.folded.partition_point(|g| fold_key(g).le(wanted()));
+        self.folded.get(start..end).unwrap_or(&[])
+    }
+
+    /// Number of games of the list, folded clones not counted.
     pub fn len(&self) -> usize {
         self.games.len()
     }
@@ -143,11 +239,15 @@ impl Index {
         let mut position: HashMap<String, usize> = HashMap::new();
         let mut merged: Vec<SystemGames> = Vec::new();
         let mut repeated = Vec::new();
-        for list in systems.into_iter().filter(|s| !s.is_empty()) {
+        for list in systems
+            .into_iter()
+            .filter(|s| !s.games.is_empty() || !s.folded.is_empty())
+        {
             match position.get(&list.system) {
                 Some(&i) => {
                     if let Some(m) = merged.get_mut(i) {
                         m.games.extend(list.games);
+                        m.games.extend(list.folded);
                         repeated.push(i);
                     }
                 }
@@ -161,7 +261,11 @@ impl Index {
         repeated.dedup();
         for i in repeated {
             if let Some(m) = merged.get_mut(i) {
-                m.games.sort_by(order);
+                let games = std::mem::take(&mut m.games)
+                    .into_iter()
+                    .chain(std::mem::take(&mut m.folded))
+                    .collect();
+                *m = SystemGames::new(std::mem::take(&mut m.system), games);
             }
         }
         Self {
@@ -221,6 +325,16 @@ impl Index {
 
 fn order(a: &Game, b: &Game) -> Ordering {
     compare_names(&a.name, &b.name).then_with(|| a.path.cmp(&b.path))
+}
+
+/// The parent set name of a folded clone, in ASCII lower case. Every
+/// folded game has a parent.
+fn fold_key(game: &Game) -> impl Iterator<Item = u8> + '_ {
+    game.parent
+        .as_deref()
+        .unwrap_or_default()
+        .bytes()
+        .map(|b| b.to_ascii_lowercase())
 }
 
 fn fold_case(s: &str) -> impl Iterator<Item = char> + '_ {

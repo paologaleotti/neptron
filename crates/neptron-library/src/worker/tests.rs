@@ -16,7 +16,8 @@ fn fixture() -> TestDir {
 #[test]
 fn worker_returns_the_scan_result() {
     let dir = fixture();
-    let worker = ScanWorker::spawn(dir.path().to_path_buf(), catalog()).expect("the thread starts");
+    let worker = ScanWorker::spawn(dir.path().to_path_buf(), catalog(), Vec::new())
+        .expect("the thread starts");
     let outcome = worker.join().expect("the scan completes");
     assert_eq!(outcome.index.total(), 4);
 }
@@ -24,7 +25,8 @@ fn worker_returns_the_scan_result() {
 #[test]
 fn progress_reaches_the_final_counts() {
     let dir = fixture();
-    let worker = ScanWorker::spawn(dir.path().to_path_buf(), catalog()).expect("the thread starts");
+    let worker = ScanWorker::spawn(dir.path().to_path_buf(), catalog(), Vec::new())
+        .expect("the thread starts");
     let done = ScanProgress {
         folders: 4,
         games: 4,
@@ -40,21 +42,24 @@ fn progress_reaches_the_final_counts() {
 #[test]
 fn worker_reports_a_missing_root() {
     let dir = TestDir::new("worker-missing");
-    let worker = ScanWorker::spawn(dir.path().join("roms"), catalog()).expect("the thread starts");
+    let worker = ScanWorker::spawn(dir.path().join("roms"), catalog(), Vec::new())
+        .expect("the thread starts");
     assert!(matches!(worker.join(), Err(ScanError::Root { .. })));
 }
 
 #[test]
 fn drop_cancels_and_joins() {
     let dir = fixture();
-    let worker = ScanWorker::spawn(dir.path().to_path_buf(), catalog()).expect("the thread starts");
+    let worker = ScanWorker::spawn(dir.path().to_path_buf(), catalog(), Vec::new())
+        .expect("the thread starts");
     drop(worker);
 }
 
 #[test]
 fn cancelled_worker_ends() {
     let dir = fixture();
-    let worker = ScanWorker::spawn(dir.path().to_path_buf(), catalog()).expect("the thread starts");
+    let worker = ScanWorker::spawn(dir.path().to_path_buf(), catalog(), Vec::new())
+        .expect("the thread starts");
     worker.cancel();
     // The scan can end before it sees the flag; either result is correct.
     match worker.join() {
@@ -66,7 +71,7 @@ fn cancelled_worker_ends() {
 #[test]
 fn a_refresh_worker_gives_the_same_games() {
     let dir = fixture();
-    let first = ScanWorker::spawn(dir.path().to_path_buf(), catalog())
+    let first = ScanWorker::spawn(dir.path().to_path_buf(), catalog(), Vec::new())
         .expect("the thread starts")
         .join()
         .expect("the scan completes");
@@ -75,6 +80,7 @@ fn a_refresh_worker_gives_the_same_games() {
     let worker = ScanWorker::spawn_refresh(
         dir.path().to_path_buf(),
         catalog(),
+        Vec::new(),
         first.index.clone(),
         later,
     )
@@ -90,6 +96,7 @@ fn drop_of_a_refresh_worker_cancels_and_joins() {
     let worker = ScanWorker::spawn_refresh(
         dir.path().to_path_buf(),
         catalog(),
+        Vec::new(),
         Index::new(),
         SystemTime::now(),
     )

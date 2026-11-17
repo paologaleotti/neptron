@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::SystemTime;
 
+use neptron_library::arcade::{self, ArcadeIndex};
 use neptron_library::cache::{self, CacheError, CacheLoad};
 use neptron_library::{Catalog, Changes, CoreDef, Game, Index, SystemDef, changes, refresh};
 use neptron_ui::snapshot::{GameEntry, GameId, GameSource, GameWindow, SystemEntry, SystemId};
@@ -26,6 +27,25 @@ pub struct Library {
     index: Arc<Index>,
     ids: GameIds,
     scan: Option<Running>,
+    arcade_file: PathBuf,
+    arcade: ArcadeState,
+}
+
+/// The core whose sets the arcade index lists.
+pub const ARCADE_CORE: &str = "fbneo";
+
+/// The arcade index of the frontend. The first scan thread of the process
+/// reads it, and the library keeps it for the life of the process: the
+/// index of the image does not change while it runs.
+#[derive(Debug, Clone)]
+pub enum ArcadeState {
+    /// No scan has read it yet.
+    Unread,
+    /// The index.
+    Ready(Arc<ArcadeIndex>),
+    /// The file is missing or cannot be read: why, as text. The arcade
+    /// folders then list each zip by its file name, with no mark.
+    Failed(String),
 }
 
 /// Why a scan runs.
@@ -84,6 +104,7 @@ struct Prepared {
     index: Arc<Index>,
     ids: GameIds,
     changes: Changes,
+    arcade: ArcadeState,
 }
 
 /// The game ids of the index. An id comes from the system and the path of
@@ -113,8 +134,12 @@ impl Library {
     /// cache, or one of an older format, gives an empty index; a damaged
     /// one gives an empty index and the reason. The scan then fills it.
     /// The cache load reads a file, so it runs at start, before the frame
-    /// loop.
-    pub fn load(catalog: Catalog, cache_path: &Path) -> (Self, Option<String>) {
+    /// loop. `arcade_file` is the arcade index, which the first scan reads.
+    pub fn load(
+        catalog: Catalog,
+        cache_path: &Path,
+        arcade_file: PathBuf,
+    ) -> (Self, Option<String>) {
         let (index, issue) = match cache::load(cache_path, &catalog) {
             CacheLoad::Loaded(index) => (index, None),
             CacheLoad::Missing => (Index::new(), None),
@@ -125,7 +150,9 @@ impl Library {
             }
             CacheLoad::Discarded(e) => (Index::new(), Some(format!("library cache: {e}"))),
         };
-        (Self::with_index(catalog, index), issue)
+        let mut library = Self::with_index(catalog, index);
+        library.arcade_file = arcade_file;
+        (library, issue)
     }
 
     fn with_index(catalog: Catalog, index: Index) -> Self {
@@ -135,6 +162,8 @@ impl Library {
             index: Arc::new(index),
             ids,
             scan: None,
+            arcade_file: PathBuf::new(),
+            arcade: ArcadeState::Unread,
         }
     }
 
@@ -159,9 +188,13 @@ impl Library {
         let previous = Arc::clone(&self.index);
         let cancel = Arc::new(AtomicBool::new(false));
         let theirs = Arc::clone(&cancel);
+        let arcade = (self.arcade.clone(), self.arcade_file.clone());
         let thread = thread::Builder::new()
             .name("neptron-scan".into())
-            .spawn(move || prepare(&roms, &catalog, &previous, kind, now, &theirs))
+            .spawn(move || {
+                let arcade = arcade.0.or_read(&arcade.1);
+                prepare(&roms, &catalog, arcade, &previous, kind, now, &theirs)
+            })
             .map_err(|e| format!("cannot start the scan thread: {e}"))?;
         self.scan = Some(Running {
             kind,
@@ -212,7 +245,13 @@ impl Library {
         };
         self.index = prepared.index;
         self.ids = prepared.ids;
+        self.arcade = prepared.arcade;
         scanned
+    }
+
+    /// The arcade index, as the last scan left it.
+    pub fn arcade(&self) -> &ArcadeState {
+        &self.arcade
     }
 
     /// The index, shared, for the cache job of the writer thread.
@@ -338,6 +377,7 @@ impl Drop for Running {
 fn prepare(
     roms: &Path,
     catalog: &Catalog,
+    arcade: ArcadeState,
     previous: &Index,
     kind: ScanKind,
     now: SystemTime,
@@ -348,13 +388,38 @@ fn prepare(
         ScanKind::Check => previous,
         ScanKind::Boot | ScanKind::Rescan => &none,
     };
-    let outcome =
-        refresh(roms, catalog, base, now, cancel, &mut |_| {}).map_err(|e| e.to_string())?;
+    let indexes = arcade.indexes();
+    let outcome = refresh(roms, catalog, &indexes, base, now, cancel, &mut |_| {})
+        .map_err(|e| e.to_string())?;
     Ok(Prepared {
         changes: changes(previous, &outcome.index),
         ids: GameIds::of(catalog, &outcome.index),
         index: Arc::new(outcome.index),
+        arcade,
     })
+}
+
+impl ArcadeState {
+    /// The state after a read of `file` when the index is unread; any
+    /// other state as it is. The read takes a few hundred milliseconds, so
+    /// only a thread that may block calls this.
+    pub fn or_read(self, file: &Path) -> Self {
+        match self {
+            Self::Unread => match arcade::read(file) {
+                Ok(index) => Self::Ready(Arc::new(index)),
+                Err(e) => Self::Failed(e.to_string()),
+            },
+            other => other,
+        }
+    }
+
+    /// The indexes for the scan: the index when it is ready, else none.
+    pub fn indexes(&self) -> Vec<Arc<ArcadeIndex>> {
+        match self {
+            Self::Ready(index) => vec![Arc::clone(index)],
+            Self::Unread | Self::Failed(_) => Vec::new(),
+        }
+    }
 }
 
 impl GameIds {
@@ -600,6 +665,81 @@ mod tests {
         assert!(lib.poll().is_none());
     }
 
+    /// An index file of the `fbneo` core with one invented set.
+    fn write_arcade_index(path: &Path) {
+        use neptron_library::arcade::{IndexSource, SetRecord};
+        let mut set = SetRecord::new("starpat".to_owned(), "Star Patrol".to_owned());
+        set.flags.vertical = true;
+        let source = IndexSource {
+            core: ARCADE_CORE.to_owned(),
+            ..IndexSource::default()
+        };
+        let index = ArcadeIndex::from_sets(source, vec![set]).expect("valid");
+        std::fs::write(path, arcade::encode(&index).expect("encodes")).expect("index file");
+    }
+
+    #[test]
+    fn the_first_scan_reads_the_arcade_index_and_keeps_it() {
+        let roms = Roms::new(
+            "arcade",
+            &["roms/arcade/starpat.zip", "roms/arcade/odd.zip"],
+        );
+        let file = roms.0.join("fbneo.idx");
+        write_arcade_index(&file);
+        let (mut lib, _) = Library::load(
+            Catalog::builtin().expect("catalog"),
+            &roms.0.join("library.cache"),
+            file.clone(),
+        );
+        assert!(matches!(lib.arcade(), ArcadeState::Unread));
+        let now = SystemTime::now();
+        lib.start_scan(roms.0.join("roms"), ScanKind::Boot, now)
+            .expect("the thread starts");
+        wait(&mut lib).expect("the scan");
+        assert!(matches!(lib.arcade(), ArcadeState::Ready(_)));
+        let arcade = lib.index().system("arcade").expect("arcade");
+        let names: Vec<&str> = arcade.games().iter().map(Game::name).collect();
+        assert_eq!(names, ["odd", "Star Patrol"]);
+        assert!(arcade.games()[0].marks().unknown_set);
+
+        std::fs::remove_file(&file).expect("remove the index");
+        lib.start_scan(roms.0.join("roms"), ScanKind::Rescan, now)
+            .expect("the thread starts");
+        wait(&mut lib).expect("the scan");
+        assert!(
+            matches!(lib.arcade(), ArcadeState::Ready(_)),
+            "the index is read once"
+        );
+    }
+
+    #[test]
+    fn a_missing_arcade_index_lists_each_zip_by_its_name() {
+        let roms = Roms::new(
+            "no-arcade",
+            &["roms/arcade/starpat.zip", "roms/arcade/neogeo.zip"],
+        );
+        let (mut lib, _) = Library::load(
+            Catalog::builtin().expect("catalog"),
+            &roms.0.join("library.cache"),
+            roms.0.join("missing.idx"),
+        );
+        lib.start_scan(roms.0.join("roms"), ScanKind::Boot, SystemTime::now())
+            .expect("the thread starts");
+        wait(&mut lib).expect("the scan");
+        match lib.arcade() {
+            ArcadeState::Failed(why) => assert!(why.contains("missing.idx"), "{why}"),
+            other => panic!("expected a failed read, got {other:?}"),
+        }
+        let arcade = lib.index().system("arcade").expect("arcade");
+        let names: Vec<&str> = arcade.games().iter().map(Game::name).collect();
+        assert_eq!(
+            names,
+            ["starpat"],
+            "the BIOS table of the catalog still hides neogeo"
+        );
+        assert_eq!(arcade.games()[0].marks(), neptron_library::Marks::default());
+    }
+
     #[test]
     fn a_failed_scan_keeps_the_index() {
         let roms = Roms::new("missing", &[]);
@@ -629,14 +769,15 @@ mod tests {
         let mut bytes = cache::encode(&library().index);
         bytes[8..12].copy_from_slice(&(cache::CACHE_VERSION - 1).to_le_bytes());
         std::fs::write(&path, &bytes).expect("old cache");
-        let (lib, issue) = Library::load(Catalog::builtin().expect("catalog"), &path);
+        let (lib, issue) =
+            Library::load(Catalog::builtin().expect("catalog"), &path, PathBuf::new());
         assert_eq!(issue, None);
         assert_eq!(lib.index().total(), 0);
         assert!(!path.exists(), "the old file is gone");
 
         bytes[8..12].copy_from_slice(&(cache::CACHE_VERSION + 1).to_le_bytes());
         std::fs::write(&path, &bytes).expect("newer cache");
-        let (_, issue) = Library::load(Catalog::builtin().expect("catalog"), &path);
+        let (_, issue) = Library::load(Catalog::builtin().expect("catalog"), &path, PathBuf::new());
         assert!(
             issue.is_some_and(|i| i.contains("version")),
             "a newer file warns"
@@ -670,6 +811,7 @@ mod tests {
                 changes: changes(&lib.index, &next),
                 ids: GameIds::of(&catalog, &next),
                 index: Arc::new(next),
+                arcade: ArcadeState::Unread,
             };
             let t = std::time::Instant::now();
             let scanned = lib.replace(prepared, ScanKind::Rescan);
