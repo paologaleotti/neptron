@@ -51,7 +51,13 @@ The session runs the core with no display until the source has been the same for
 
 ## A game that does not start
 
-The session keeps the error-level log lines of the core from the load and the settle frames, at most `START_ERRORS_MAX` (8): `Session::start_errors`. A `retro_load_game` that returns false gives `LaunchError::Refused`, and a `SHUTDOWN` during the load or the settle gives `LaunchError::CoreStopped`; both carry those lines, and no mode was set. A `SHUTDOWN` in the loop before a flip with a picture of the core completed, or after an error line of the launch, ends the session with `EndReason::FailedStart` in place of `CoreShutdown`. FinalBurn Neo loads a set whose driver does not start, logs why, shows its own error screen and sends `SHUTDOWN` at a button press (`docs/spec/arcade.md`, section 10.1).
+The session keeps the error-level log lines of the core from the load and the settle frames, at most `START_ERRORS_MAX` (8): `Session::start_errors`. It reads them from `Host::error_logs`, which keeps them also when a noisy call fills the log queue; `Session::start_dropped_logs` counts the records of the launch that the queue dropped. Only error lines of the core count: info, warn, debug and host lines are left out (`start.rs`, `collect_errors`).
+
+A `retro_load_game` that returns false gives `LaunchError::Refused`, and a `SHUTDOWN` during the load or the settle gives `LaunchError::CoreStopped`; both carry those lines, and no mode was set.
+
+A `SHUTDOWN` in the loop ends the session with the reason of `end_reason` (`start.rs`, pure): `EndReason::FailedStart` when no loop frame ran the core with a picture yet, or when the core logged an error line or sent a message at the launch and the stop comes within `START_WINDOW_NS` (10 s of the session clock) of the end of the launch; else `EndReason::CoreShutdown`. A picture that a refused mode hides, or the output off, still counts: the game has started. FinalBurn Neo loads a set whose driver does not start, logs why, shows its own error screen and sends `SHUTDOWN` at a button press (`docs/spec/arcade.md`, section 10.1).
+
+For the notice of a stop, `Session::last_message` gives the last `SET_MESSAGE` text and `Session::last_error` the last error line of the core in the frames. The copy of that line goes into a buffer made at launch, so the frame loop does not allocate.
 
 ## The source
 
@@ -90,7 +96,7 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 3. Each frame: build the UI snapshot from `paused()`, `video_status`, `message()`, `host().options()`, then let the UI update with the navigation of `input_events()`, draw the canvas, and call `run_frame(Some(canvas))` (or `None` when nothing is drawn).
 4. `FrameReport::menu_opened`: show the quick menu. The UI intent "resume" calls `resume()`, "reset" calls `reset()`, "quit" calls `quit()`. A second quick menu hotkey while it is open is ignored by the session.
 5. `FrameReport::blind_recovery`, `FrameReport::blanked`, `video().current_refused()`: pass to the safety layer (T26). While `blanked`, pace the loop with the clock.
-6. `FrameReport::ended`, `SessionError`: call `quit()` and re-execute for the game list. For `EndReason::FailedStart`, the game list shows a notice with `start_errors()` or `last_message()`.
+6. `FrameReport::ended`, `SessionError`: call `quit()` and re-execute for the game list. For `EndReason::FailedStart`, the game list shows a notice with `start_errors()` or `last_message()`; for `CoreShutdown`, a notice with `last_message()` or `last_error()`.
 7. Make the save folder writable. The session makes it when it is missing.
 
 ## Must never depend on
@@ -108,7 +114,7 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 - Unit tests: the source and the launch settle, the button mask, the frame copy, the save RAM writer (backup, unchanged, many flushes, failed write, failed copy), the message cut.
 - `tests/integration/session.rs`, the scripted session with the test core through the real host: one frame per flip, the input of each frame, the quick menu (pause, no toggle, UI over the frozen frame, the mask on resume), the Start hold, a 5 s recovery hold that never reaches the core, save RAM at launch, on the timer, at the menu and at exit, a core shutdown, double refresh, scanline settings and video status, core options, a timing change.
 - `tests/integration/launch.rs`: the first mode for the Genesis Plus GX geometry, and the two modesets without the settle.
-- `tests/integration/start.rs`: a refused load with the error line of the core, a `SHUTDOWN` in the load and in a settle frame (no mode, no sound), a `SHUTDOWN` in the first loop frame, and a `SHUTDOWN` long after an error line of the load.
+- `tests/integration/start.rs`: a refused load with the error line of the core, a `SHUTDOWN` in the load and in a settle frame (no mode, no sound), a `SHUTDOWN` in the first loop frame, a `SHUTDOWN` within the start window after an error line or a message, one after the window, info and warn lines that do not count, error lines of the settle frames up to the cap, a noisy load that keeps its error line and counts what it lost, and a long run in a refused mode.
 - `tests/integration/arcade.rs`: held option values for a core that declares its options at load, the rotation of a board drawn on its side in the host of the session, the turned source (rotation and inverted aspect) and its scene on a 15 kHz CRT (1:1 interlaced, turned by 90 then 270 degrees after the debounce), a half turn, the fallback aspect, `always_progressive` against a console system, no save file for a core with no save RAM, and the zip listing through the session.
 - `tests/integration/faults.rs`: a slow flip, a failed present and wait, a display that stops flipping, the output turned off and on again.
 - `tests/integration/timing.rs`: timing check 6 at 50.00, 59.94 and 60.10 Hz with jitter, with late flips, and with a display rate that differs from the mode (measured run rate). 30 simulated seconds each in the tier. Two 100,000-frame runs (about 28 simulated minutes, about 67 s each in the dev profile) are ignored tests: with jitter only, and with one late flip in a thousand.

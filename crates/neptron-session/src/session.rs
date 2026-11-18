@@ -27,10 +27,6 @@ use crate::{Counters, ExitReport, Flush, RunRateSource, SaveStats};
 /// (`FrameReport::blanked`) does not count.
 pub const FLIPLESS_FRAMES_LIMIT: u32 = 10;
 
-/// The most error-level core log lines that a session keeps from its
-/// launch. FinalBurn Neo logs three when its driver does not start.
-pub const START_ERRORS_MAX: usize = 8;
-
 /// The events of one poll that the session keeps room for. A poll with more
 /// grows the buffer once.
 const INPUT_EVENTS_CAPACITY: usize = 256;
@@ -73,10 +69,17 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     message: String,
     message_frames: u32,
     /// The error-level core log lines of the launch, made with room for
-    /// [`START_ERRORS_MAX`] at launch.
+    /// [`START_ERRORS_MAX`](crate::START_ERRORS_MAX) at launch.
     start_errors: Vec<String>,
-    /// A flip with a picture of the core has completed.
-    game_shown: bool,
+    /// The log records that the full queue of the host dropped during the
+    /// launch.
+    start_dropped_logs: usize,
+    /// What the session knows about the start, for [`crate::end_reason`].
+    start: crate::StartFacts,
+    /// The last error line of the core in a frame, a settle frame of the
+    /// launch or a loop frame, in a buffer made at launch with room for the
+    /// longest record.
+    last_error: String,
     flipless: u32,
     /// The vertical blank count of the last flip; `None` before the first
     /// flip of a mode.
@@ -211,9 +214,24 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
 
     /// The error-level log lines of the core during the launch (the load
     /// and the frames before the first mode), at most
-    /// [`START_ERRORS_MAX`]: the words of a core that cannot run the game.
+    /// [`START_ERRORS_MAX`](crate::START_ERRORS_MAX): the words of a core
+    /// that cannot run the game.
     pub fn start_errors(&self) -> &[String] {
         &self.start_errors
+    }
+
+    /// The log records of the launch that the host dropped because its
+    /// queue was full. The host keeps the first error lines of each call
+    /// apart, so [`Session::start_errors`] can still hold them.
+    pub fn start_dropped_logs(&self) -> usize {
+        self.start_dropped_logs
+    }
+
+    /// The last error line of the core in a frame: a settle frame of the
+    /// launch or a loop frame. `None` when the core logged none in a frame;
+    /// the lines of the load are in [`Session::start_errors`].
+    pub fn last_error(&self) -> Option<&str> {
+        (!self.last_error.is_empty()).then_some(self.last_error.as_str())
     }
 
     /// The core's last message (`SET_MESSAGE`), also after its frame count

@@ -7,16 +7,17 @@ use neptron_audio::{AudioPipeline, CoreTiming, FlipRateMeter};
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::{Hotkeys, PortStates};
 use neptron_libretro::{
-    ContentRequest, Host, HostConfig, LoadError, LogLevel, LogRecord, LogSource, MESSAGE_MAX_BYTES,
+    ContentRequest, Host, HostConfig, LOG_TEXT_MAX_BYTES, LoadError, MESSAGE_MAX_BYTES,
     read_save_file, save_file_path,
 };
 use neptron_video::VideoEngine;
 
-use super::{INPUT_EVENTS_CAPACITY, START_ERRORS_MAX, Session, State};
+use super::{INPUT_EVENTS_CAPACITY, Session, State};
 use crate::pads::PadMask;
 use crate::picture::Picture;
 use crate::save::{SAVE_RAM_FLUSH_INTERVAL_NS, SaveRamWriter};
 use crate::source::{FrameRules, LaunchSettle, source_geometry};
+use crate::start::{START_ERRORS_MAX, StartFacts, collect_errors};
 use crate::{Counters, Devices, GameLaunch, LaunchError, SessionOptions, VideoSetup};
 
 /// The save file of a game and what it held at launch.
@@ -68,7 +69,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         });
         let loaded = host.load_game(request);
         let mut start_errors = Vec::with_capacity(START_ERRORS_MAX);
-        push_errors(&mut start_errors, host.logs());
+        collect_errors(&mut start_errors, host.error_logs());
+        let start_dropped_logs = host.dropped_logs();
         let av = match loaded {
             Ok(av) => av,
             Err(LoadError::Refused) => {
@@ -122,7 +124,13 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             message: String::with_capacity(MESSAGE_MAX_BYTES),
             message_frames: 0,
             start_errors,
-            game_shown: false,
+            start_dropped_logs,
+            start: StartFacts {
+                picture: false,
+                said_at_launch: false,
+                started_ns: 0,
+            },
+            last_error: String::with_capacity(LOG_TEXT_MAX_BYTES),
             flipless: 0,
             last_flip: None,
             counters: Counters {
@@ -131,6 +139,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             },
         };
         session.settle()?;
+        session.start.said_at_launch =
+            !session.start_errors.is_empty() || !session.message.is_empty();
+        session.start.started_ns = session.clock.now_ns();
 
         let timing = CoreTiming {
             sample_rate_mhz: u64::from(session.timing.sample_rate_mhz),
@@ -164,7 +175,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         loop {
             self.run_core(false).map_err(LaunchError::Run)?;
             self.counters.settle_frames += 1;
-            push_errors(&mut self.start_errors, self.host.logs());
+            collect_errors(&mut self.start_errors, self.host.error_logs());
+            self.start_dropped_logs += self.host.dropped_logs();
             if self.state == State::Ended {
                 return Err(LaunchError::CoreStopped {
                     core_errors: std::mem::take(&mut self.start_errors),
@@ -174,20 +186,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 return Ok(());
             }
         }
-    }
-}
-
-/// Adds the error-level lines of the core in `logs` to `out`, up to
-/// [`START_ERRORS_MAX`] lines in all.
-fn push_errors(out: &mut Vec<String>, logs: &[LogRecord]) {
-    let errors = logs
-        .iter()
-        .filter(|r| r.level == LogLevel::Error && r.source == LogSource::Core);
-    for record in errors {
-        if out.len() >= START_ERRORS_MAX {
-            return;
-        }
-        out.push(record.text.clone());
     }
 }
 

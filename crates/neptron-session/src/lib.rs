@@ -17,6 +17,7 @@ mod report;
 mod save;
 mod session;
 mod source;
+mod start;
 
 pub use config::{Devices, GameLaunch, RunRateSource, SessionOptions, VideoSetup};
 pub use error::{LaunchError, SessionError};
@@ -26,8 +27,9 @@ pub use neptron_libretro::{ZipDirectoryEntry, ZipError, zip_entries};
 pub use pads::CORE_PORTS;
 pub use report::{Counters, EndReason, ExitReport, FrameReport};
 pub use save::{Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SaveStats};
-pub use session::{FLIPLESS_FRAMES_LIMIT, START_ERRORS_MAX, Session};
+pub use session::{FLIPLESS_FRAMES_LIMIT, Session};
 pub use source::{
     FrameRules, INTERLACE_MIN_LINES, LAUNCH_SETTLE_MAX_FRAMES, LAUNCH_STABLE_FRAMES,
     source_geometry,
 };
+pub use start::{START_ERRORS_MAX, START_WINDOW_NS, StartFacts, end_reason};

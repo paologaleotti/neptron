@@ -3,7 +3,7 @@
 use neptron_audio::{AudioPipeline, CoreTiming, Resampling};
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::Hotkey;
-use neptron_libretro::{Event, RunError, Timing, Video};
+use neptron_libretro::{Event, LogSource, RunError, Timing, Video};
 use neptron_types::Frame;
 use neptron_video::{Directive, VideoError};
 
@@ -11,7 +11,7 @@ use super::{FLIPLESS_FRAMES_LIMIT, Session, State};
 use crate::pads::CORE_PORTS;
 use crate::save::SAVE_RAM_FLUSH_INTERVAL_NS;
 use crate::source::{FrameRules, source_geometry};
-use crate::{Counters, EndReason, FrameReport, RunRateSource, SessionError};
+use crate::{Counters, FrameReport, RunRateSource, SessionError};
 
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// Runs one frame of the loop, with `ui` drawn over the game (the
@@ -73,12 +73,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             self.counters.core_frames += 1;
             report.ran_core = true;
             if self.state == State::Ended {
-                report.ended = Some(if self.game_shown && self.start_errors.is_empty() {
-                    EndReason::CoreShutdown
-                } else {
-                    EndReason::FailedStart
-                });
+                report.ended = Some(crate::end_reason(self.start, now_ns));
             }
+            // After the stop check: the picture of this frame counts for a
+            // later stop only. A refused mode hides it, and it still counts.
+            self.start.picture |= self.picture.frame().is_some();
         }
         self.counters.loop_frames += 1;
 
@@ -152,6 +151,18 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             always_progressive: self.always_progressive,
         };
         self.source = source_geometry(width, height, &self.geometry, &self.timing, rules);
+        let last_error = self
+            .host
+            .error_logs()
+            .iter()
+            .rev()
+            .find(|r| r.source == LogSource::Core);
+        if let Some(record) = last_error {
+            // The record holds at most `LOG_TEXT_MAX_BYTES`, the capacity
+            // made at launch, so the copy does not allocate.
+            self.last_error.clear();
+            self.last_error.push_str(&record.text);
+        }
         Ok(())
     }
 
@@ -206,7 +217,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             } else {
                 self.picture.frame()
             };
-            let shows_game = game.is_some();
             let presented = self.engine.present(game, ui);
             // The present only queues the GPU's work. The audio runs while
             // the GPU draws, off the path from the flip event to the GPU
@@ -237,7 +247,6 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 Ok(flip) => {
                     self.meter.push(flip.time_ns);
                     self.count_missed_fields(flip.sequence, report.ran_core);
-                    self.game_shown |= shows_game;
                     report.flips += 1;
                     self.counters.flips += 1;
                 }
