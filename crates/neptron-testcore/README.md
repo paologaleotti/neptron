@@ -6,7 +6,7 @@ A libretro core that follows a script, for tests. It reads its script from the f
 
 A script is a UTF-8 text file. A byte sequence that is not UTF-8 is an error, reported with its line. Each line holds one keyword and its arguments, separated by spaces. A `#` starts a comment to the end of the line. Blank lines do not count. Every number is an unsigned decimal integer, ASCII digits only (no sign, no separators): frequencies in millihertz or hertz, sizes in pixels, aspect ratios in thousandths.
 
-The first line is the header `neptron-testcore 1`. The number is the script version.
+The first line is the header `neptron-testcore <version>`, with version 1 or 2. Version 2 adds the setup lines `load` and `load_error`; a version 1 script that has one of them is an error.
 
 The setup lines come next. Each one is optional and can appear once.
 
@@ -20,6 +20,8 @@ The setup lines come next. Each one is optional and can appear once.
 | `save_ram <bytes>` | Size of the save RAM. 0 means none | `0` |
 | `options <init\|load>` | When the core declares its options. `load`: it also declares them in `retro_load_game`, with `neptron_testcore_dip` added, then reads each one with `GET_VARIABLE` and logs `option <key> = <value>` at info level, as FinalBurn Neo declares its DIP switches | `init` |
 | `rotation <value>` | The core calls `SET_ROTATION` with this value in `retro_load_game`, after the options. Any value up to 4294967295, so a test can send one that the frontend refuses | none |
+| `load_error <text>` | Version 2. `retro_load_game` logs the text (the rest of the line) at error level, after the rotation, as a core logs why a game cannot run | none |
+| `load <ok\|refuse\|shutdown>` | Version 2. What `retro_load_game` does last: return true; return false, as a core that refuses the content; or call `RETRO_ENVIRONMENT_SHUTDOWN` and return true, as a core that shows its own error screen | `ok` |
 
 Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` after `retro_load_game` or `retro_reset`. The frame numbers must not go down. Events of one frame run in file order, before the core sends that frame.
 
@@ -95,7 +97,7 @@ The crate builds as a dynamic library (`cdylib`: `libneptron_testcore.so` on Lin
 | Call | What the core does |
 | --- | --- |
 | `retro_set_environment` | Calls `SET_SUPPORT_NO_GAME` (true), `GET_LOG_INTERFACE` and `SET_VARIABLES` |
-| `retro_load_game` | Reads the script, calls `SET_PIXEL_FORMAT` (not for `0rgb1555`) and `GET_CAN_DUPE`, then with `options load` `SET_VARIABLES` and `GET_VARIABLE` for each option, then with `rotation` `SET_ROTATION`. The content is not used: `game` may be null. Returns false and logs the reason on a script error or a refused pixel format |
+| `retro_load_game` | Reads the script, calls `SET_PIXEL_FORMAT` (not for `0rgb1555`) and `GET_CAN_DUPE`, then with `options load` `SET_VARIABLES` and `GET_VARIABLE` for each option, then with `rotation` `SET_ROTATION`, then logs the `load_error` text and acts on `load`. The content is not used: `game` may be null. Returns false and logs the reason on a script error or a refused pixel format, and returns false for `load refuse` |
 | `retro_get_system_av_info` | The geometry and timing in force |
 | `retro_run` | Calls `input_poll`, reads the 16 joypad buttons of port 0, makes the environment calls of the frame's events, sends the frame (or `NULL` for `dupe`), then the audio |
 | `retro_reset` | Starts the script again at frame 0 and keeps the save RAM. If the geometry or timing changed since load, the next frame calls `SET_SYSTEM_AV_INFO` with the load values |
@@ -111,7 +113,7 @@ Panics: no panic crosses the C boundary. Each entry point runs in `catch_unwind`
 ## Tests
 
 - Unit tests of the parser, the generators, the core model and the FFI helpers.
-- `tests/load.rs` opens the built library with `libloading`, checks that all 25 entry points are exported, and runs a script through the raw API with frontend callbacks: frame hashes, the order of the environment calls, audio counts and pattern, save RAM, reset, and the two load failures. The test plays the frontend, so it uses `unsafe` to call the core and to read the data the core passes. Each test needs its own process, which `cargo nextest` gives.
+- `tests/load.rs` opens the built library with `libloading`, checks that all 25 entry points are exported, and runs a script through the raw API with frontend callbacks: frame hashes, the order of the environment calls, audio counts and pattern, save RAM, reset, the two load failures, and the `load refuse` and `load shutdown` lines. The test plays the frontend, so it uses `unsafe` to call the core and to read the data the core passes. Each test needs its own process, which `cargo nextest` gives.
 
 ## Dependencies
 

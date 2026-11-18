@@ -34,7 +34,9 @@ use neptron_libretro_sys::*;
 
 use crate::model::{Core, Request, Step, UNKNOWN_ENVIRONMENT_COMMAND, Video};
 use crate::options::{CORE_OPTIONS, VALUE_NOT_LISTED, VALUE_NOT_SET, value_code};
-use crate::script::{AudioMode, AvInfo, Geometry, OptionTiming, PixelFormat, Script, Size};
+use crate::script::{
+    AudioMode, AvInfo, Geometry, LoadOutcome, OptionTiming, PixelFormat, Script, Size,
+};
 
 /// The callbacks that the frontend gives the core.
 #[derive(Debug, Clone, Copy)]
@@ -345,7 +347,9 @@ pub extern "C" fn retro_cheat_set(_index: c_uint, _enabled: bool, _code: *const 
 /// Loads the script that `NEPTRON_TESTCORE_SCRIPT` names and sets the pixel
 /// format. The content is not used, so `game` may be null and is not read.
 /// Returns false and logs the reason when the script has an error or the
-/// frontend refuses the pixel format.
+/// frontend refuses the pixel format. The setup lines `load_error` and
+/// `load` of the script add a log line at error level, a refusal or a
+/// `SHUTDOWN` request.
 #[unsafe(no_mangle)]
 pub extern "C" fn retro_load_game(_game: *const retro_game_info) -> bool {
     guarded(false, || {
@@ -394,6 +398,18 @@ pub extern "C" fn retro_load_game(_game: *const retro_game_info) -> bool {
                 RETRO_ENVIRONMENT_SET_ROTATION,
                 &raw mut rotation,
             );
+        }
+        if let Some(text) = &script.load_error {
+            log(&callbacks, RETRO_LOG_ERROR, text);
+        }
+        match script.load {
+            LoadOutcome::Ok => {}
+            LoadOutcome::Refuse => return false,
+            LoadOutcome::Shutdown => {
+                // The core loads anyway, as a core that shows its own error
+                // screen after the request does.
+                let _asked = env::<c_void>(&callbacks, RETRO_ENVIRONMENT_SHUTDOWN, ptr::null_mut());
+            }
         }
         let core = Core::new(script, can_dupe);
         with_global(|g| g.core = Some(core)).is_some()

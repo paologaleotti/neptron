@@ -605,3 +605,40 @@ fn a_refused_pixel_format_fails_the_load() {
     core.stop();
     std::fs::remove_dir_all(dir).expect("remove the script");
 }
+
+#[test]
+fn a_script_can_refuse_the_load() {
+    let dir = write_script("neptron-testcore 2\nload_error HDD: game.chd not found\nload refuse\n");
+    let core = Core::load();
+    core.start();
+    assert!(!core.load_game());
+    core.run(0);
+    assert_eq!(
+        frontend().seen,
+        [
+            declared_options(),
+            Seen::PixelFormat(RETRO_PIXEL_FORMAT_XRGB8888)
+        ],
+        "no game, no output"
+    );
+    core.stop();
+    std::fs::remove_dir_all(dir).expect("remove the script");
+}
+
+#[test]
+fn a_script_can_ask_for_a_shutdown_in_the_load() {
+    let dir = write_script("neptron-testcore 2\nload shutdown\n");
+    let core = Core::load();
+    core.start();
+    assert!(core.load_game(), "the core loads after its request");
+    assert_eq!(
+        frontend().seen,
+        [
+            declared_options(),
+            Seen::PixelFormat(RETRO_PIXEL_FORMAT_XRGB8888),
+            Seen::Shutdown
+        ]
+    );
+    core.stop();
+    std::fs::remove_dir_all(dir).expect("remove the script");
+}

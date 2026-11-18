@@ -14,8 +14,11 @@ use crate::options::option_index;
 pub const SCRIPT_ENV: &str = "NEPTRON_TESTCORE_SCRIPT";
 /// The keyword of the first line: `neptron-testcore <version>`.
 pub const HEADER_KEYWORD: &str = "neptron-testcore";
-/// The newest script version that the parser reads.
-pub const SCRIPT_VERSION: u32 = 1;
+/// The newest script version that the parser reads. Version 2 adds the
+/// setup lines `load` and `load_error`.
+pub const SCRIPT_VERSION: u32 = 2;
+/// The first script version with the setup lines `load` and `load_error`.
+pub const LOAD_LINES_VERSION: u32 = 2;
 /// Largest frame width or height, in pixels.
 pub const MAX_DIMENSION_PX: u32 = 4096;
 /// Smallest frame rate, in millihertz. It bounds the audio of one frame, and
@@ -117,6 +120,18 @@ pub enum OptionTiming {
     Load,
 }
 
+/// What `retro_load_game` does after it has read the script.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LoadOutcome {
+    /// It loads and returns true.
+    #[default]
+    Ok,
+    /// It returns false, as a core that refuses the content.
+    Refuse,
+    /// It calls `RETRO_ENVIRONMENT_SHUTDOWN`, then returns true.
+    Shutdown,
+}
+
 /// Geometry, maximum size and timing, as `SET_SYSTEM_AV_INFO` sends them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AvInfo {
@@ -187,6 +202,10 @@ pub struct Script {
     pub options: OptionTiming,
     /// The value of the `SET_ROTATION` call in `retro_load_game`, if any.
     pub rotation: Option<u32>,
+    /// What `retro_load_game` does at its end.
+    pub load: LoadOutcome,
+    /// A line that `retro_load_game` logs at error level, if any.
+    pub load_error: Option<String>,
     /// The events, ordered by frame.
     pub events: Vec<Event>,
 }
@@ -348,8 +367,11 @@ impl Script {
             .map(|(i, l)| (i + 1, strip_comment(l)))
             .filter(|(_, l)| !l.is_empty());
         let (line, header) = lines.next().ok_or(ScriptError::Empty)?;
-        parse_header(line, header)?;
-        let mut builder = Builder::default();
+        let version = parse_header(line, header)?;
+        let mut builder = Builder {
+            version,
+            ..Builder::default()
+        };
         for (line, text) in lines {
             builder.line(line, text)?;
         }
@@ -412,7 +434,7 @@ fn strip_comment(line: &str) -> &str {
     line.split('#').next().unwrap_or_default().trim()
 }
 
-fn parse_header(line: usize, text: &str) -> Result<(), ScriptError> {
+fn parse_header(line: usize, text: &str) -> Result<u32, ScriptError> {
     let header_error = || ScriptError::Header {
         line,
         found: text.to_owned(),
@@ -430,12 +452,13 @@ fn parse_header(line: usize, text: &str) -> Result<(), ScriptError> {
     if version == 0 || version > SCRIPT_VERSION {
         return Err(ScriptError::Version { line, version });
     }
-    Ok(())
+    Ok(version)
 }
 
 /// The setup values seen so far. `None` means not given.
 #[derive(Default)]
 struct Builder {
+    version: u32,
     pixel_format: Option<PixelFormat>,
     geometry: Option<Geometry>,
     max: Option<Size>,
@@ -444,6 +467,8 @@ struct Builder {
     save_ram_bytes: Option<u32>,
     options: Option<OptionTiming>,
     rotation: Option<u32>,
+    load: Option<LoadOutcome>,
+    load_error: Option<String>,
     max_line: usize,
     events: Vec<(usize, Event)>,
 }
@@ -480,6 +505,12 @@ impl Builder {
             keyword,
             args: &args,
         };
+        if LOAD_KEYWORDS.contains(&keyword) && self.version < LOAD_LINES_VERSION {
+            return Err(ScriptError::UnknownKeyword {
+                line,
+                keyword: keyword.to_owned(),
+            });
+        }
         match keyword {
             "pixel_format" => set_once(&mut self.pixel_format, &a, |a| {
                 a.count(1)?;
@@ -515,6 +546,16 @@ impl Builder {
             "rotation" => set_once(&mut self.rotation, &a, |a| {
                 a.count(1)?;
                 a.number(0, "rotation", 0, u32::MAX)
+            }),
+            "load" => set_once(&mut self.load, &a, |a| {
+                a.count(1)?;
+                a.load_outcome(0)
+            }),
+            "load_error" => set_once(&mut self.load_error, &a, |a| {
+                if a.args.is_empty() {
+                    return Err(a.value_error(0, "log text"));
+                }
+                Ok(a.args.join(" "))
             }),
             _ => Err(ScriptError::UnknownKeyword {
                 line,
@@ -657,12 +698,14 @@ impl Builder {
             save_ram_bytes,
             options: self.options.unwrap_or(OptionTiming::Init),
             rotation: self.rotation,
+            load: self.load.unwrap_or_default(),
+            load_error: self.load_error,
             events: self.events.into_iter().map(|(_, e)| e).collect(),
         })
     }
 }
 
-const SETUP_KEYWORDS: [&str; 8] = [
+const SETUP_KEYWORDS: [&str; 10] = [
     "pixel_format",
     "geometry",
     "max_size",
@@ -671,7 +714,12 @@ const SETUP_KEYWORDS: [&str; 8] = [
     "save_ram",
     "options",
     "rotation",
+    "load",
+    "load_error",
 ];
+
+/// The setup keywords that a script of version 1 does not have.
+const LOAD_KEYWORDS: [&str; 2] = ["load", "load_error"];
 
 fn set_once<T>(
     slot: &mut Option<T>,
@@ -795,6 +843,15 @@ impl Args<'_> {
         }
     }
 
+    fn load_outcome(&self, index: usize) -> Result<LoadOutcome, ScriptError> {
+        match self.token(index) {
+            "ok" => Ok(LoadOutcome::Ok),
+            "refuse" => Ok(LoadOutcome::Refuse),
+            "shutdown" => Ok(LoadOutcome::Shutdown),
+            _ => Err(self.value_error(index, "load outcome")),
+        }
+    }
+
     fn audio_mode(&self, index: usize) -> Result<AudioMode, ScriptError> {
         match self.token(index) {
             "batch" => Ok(AudioMode::Batch),
@@ -824,7 +881,65 @@ mod tests {
         assert_eq!(s.save_ram_bytes, 0);
         assert_eq!(s.options, OptionTiming::Init);
         assert_eq!(s.rotation, None);
+        assert_eq!(s.load, LoadOutcome::Ok);
+        assert_eq!(s.load_error, None);
         assert!(s.events.is_empty());
+    }
+
+    #[test]
+    fn version_2_has_the_load_lines() {
+        let s = Script::parse(
+            "neptron-testcore 2\nload refuse\nload_error HDD: game.chd not found  # why\n",
+        )
+        .unwrap();
+        assert_eq!(s.load, LoadOutcome::Refuse);
+        assert_eq!(s.load_error.as_deref(), Some("HDD: game.chd not found"));
+        let s = Script::parse("neptron-testcore 2\nload shutdown\n").unwrap();
+        assert_eq!(s.load, LoadOutcome::Shutdown);
+        assert_eq!(s.load_error, None);
+        let s = Script::parse("neptron-testcore 2\nload ok\n").unwrap();
+        assert_eq!(s.load, LoadOutcome::Ok);
+    }
+
+    #[test]
+    fn the_load_lines_are_checked() {
+        for (body, keyword) in [("load refuse", "load"), ("load_error x", "load_error")] {
+            assert_eq!(
+                parse(body),
+                Err(ScriptError::UnknownKeyword {
+                    line: 2,
+                    keyword: keyword.to_owned()
+                }),
+                "a version 1 script has no {keyword} line"
+            );
+        }
+        let v2 = |body: &str| Script::parse(&format!("neptron-testcore 2\n{body}"));
+        assert!(matches!(
+            v2("load maybe"),
+            Err(ScriptError::Value {
+                what: "load outcome",
+                ..
+            })
+        ));
+        assert!(matches!(
+            v2("load"),
+            Err(ScriptError::Arguments { expected: 1, .. })
+        ));
+        assert!(matches!(
+            v2("load_error"),
+            Err(ScriptError::Value {
+                what: "log text",
+                ..
+            })
+        ));
+        assert!(matches!(
+            v2("load ok\nload refuse"),
+            Err(ScriptError::Duplicate { line: 3, .. })
+        ));
+        assert!(matches!(
+            v2("at 1 dupe\nload refuse"),
+            Err(ScriptError::SetupAfterEvent { line: 3, .. })
+        ));
     }
 
     #[test]
@@ -989,10 +1104,10 @@ rotation 2"
             Err(ScriptError::Header { .. })
         ));
         assert_eq!(
-            Script::parse("neptron-testcore 2"),
+            Script::parse("neptron-testcore 3"),
             Err(ScriptError::Version {
                 line: 1,
-                version: 2
+                version: 3
             })
         );
         assert!(matches!(

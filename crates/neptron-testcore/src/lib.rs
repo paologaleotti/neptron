@@ -28,7 +28,8 @@ pub use options::{
 };
 
 pub use script::{
-    Action, AudioMode, AvInfo, Event, Geometry, HEADER_KEYWORD, LoadError, MAX_ASPECT_MILLI,
-    MAX_DIMENSION_PX, MAX_FPS_MHZ, MAX_SAMPLE_RATE_HZ, MAX_SAVE_RAM_BYTES, MIN_FPS_MHZ,
-    OptionTiming, PixelFormat, SCRIPT_ENV, SCRIPT_VERSION, Script, ScriptError, Size, Timing,
+    Action, AudioMode, AvInfo, Event, Geometry, HEADER_KEYWORD, LOAD_LINES_VERSION, LoadError,
+    LoadOutcome, MAX_ASPECT_MILLI, MAX_DIMENSION_PX, MAX_FPS_MHZ, MAX_SAMPLE_RATE_HZ,
+    MAX_SAVE_RAM_BYTES, MIN_FPS_MHZ, OptionTiming, PixelFormat, SCRIPT_ENV, SCRIPT_VERSION, Script,
+    ScriptError, Size, Timing,
 };
