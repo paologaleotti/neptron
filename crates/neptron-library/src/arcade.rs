@@ -13,8 +13,9 @@ mod check;
 mod format;
 
 pub use check::{
-    FoundZip, FoundZips, NAMED_ROM_CHARS_MAX, NAMED_ROMS_MAX, Problem, RomProblem, Verdict,
-    WRONG_SET_PERCENT, Wanted, ZipEntry, check_set, wanted, wanted_version,
+    DISK_EXTENSIONS, DiskPath, FoundZip, FoundZips, NAMED_ROM_CHARS_MAX, NAMED_ROMS_MAX, Problem,
+    RomProblem, Verdict, WRONG_SET_PERCENT, Wanted, ZipEntry, check_set, disk_paths, wanted,
+    wanted_version,
 };
 pub use format::{decode, encode};
 
@@ -88,6 +89,9 @@ pub struct SetRecord {
     pub details: String,
     /// The ROMs, in DAT order.
     pub roms: Vec<RomRecord>,
+    /// The hard disk images (CHD), in DAT order. The core opens them
+    /// itself; the set check asks only that a file is present.
+    pub disks: Vec<DiskRecord>,
 }
 
 /// The flags of a set.
@@ -124,6 +128,17 @@ pub struct RomRecord {
     pub crc: Option<u32>,
     /// The name of the same ROM in the parent or the BIOS set, if any.
     pub merge: Option<String>,
+}
+
+/// One hard disk image of a set (a `disk` element of the DAT).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiskRecord {
+    /// The name of the image, with no extension: the core looks for
+    /// `<name>.chd`.
+    pub name: String,
+    /// The SHA-1 of the image, 40 lower-case hex digits, when the DAT
+    /// gives it.
+    pub sha1: Option<String>,
 }
 
 /// An index that cannot be read, made or written.
@@ -196,6 +211,18 @@ pub enum IndexError {
         set: String,
         /// The field.
         field: &'static str,
+    },
+    /// The SHA-1 of a disk is not 40 lower-case hex digits.
+    #[error(
+        "the disk `{disk}` of the set `{set}` has the SHA-1 `{value}`, not 40 lower-case hex digits"
+    )]
+    DiskSha1 {
+        /// The set.
+        set: String,
+        /// The disk.
+        disk: String,
+        /// The SHA-1 as given.
+        value: String,
     },
     /// A set name is empty or is not ASCII lower case.
     #[error("the set name `{set}` is empty or not ASCII lower case")]
@@ -276,7 +303,7 @@ impl ArcadeIndex {
 
 impl SetRecord {
     /// A set with this name and title and no other data: no parent, no
-    /// flags, no ROMs, a horizontal screen of 0 by 0.
+    /// flags, no ROMs, no disks, a horizontal screen of 0 by 0.
     pub fn new(name: String, title: String) -> Self {
         Self {
             name,
@@ -292,6 +319,7 @@ impl SetRecord {
             title,
             details: String::new(),
             roms: Vec::new(),
+            disks: Vec::new(),
         }
     }
 }

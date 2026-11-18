@@ -96,6 +96,7 @@ fn a_complete_split_set_passes() {
         set: vec![zip("starpatj.zip", &[("spj2.bin", 2048, 0x22)])],
         parent: vec![parent_zip()],
         bios: vec![bios_zip()],
+        ..FoundZips::default()
     };
     assert_eq!(
         check_set(&index(), "starpatj", &found),
@@ -387,4 +388,111 @@ fn a_set_with_no_bios_checks_its_own_zip_only() {
         check_set(&index(), "alone", &empty),
         Verdict::Roms { .. }
     ));
+}
+
+/// Killer Instinct of the FinalBurn Neo DAT and one of its clones: both
+/// use the disk image `kinst`. The set and disk names come from the public
+/// DAT; the ROM values are invented.
+fn kinst_index() -> ArcadeIndex {
+    let disk = || crate::arcade::DiskRecord {
+        name: "kinst".to_owned(),
+        sha1: None,
+    };
+    let mut kinst = SetRecord::new("kinst".to_owned(), "Killer Instinct".to_owned());
+    kinst.roms = vec![rom("k1.bin", 16, Some(0x51))];
+    kinst.disks = vec![disk()];
+    let mut clone = SetRecord::new("kinst13".to_owned(), "Killer Instinct".to_owned());
+    clone.parent = Some("kinst".to_owned());
+    clone.romof = Some("kinst".to_owned());
+    clone.roms = vec![rom("k13.bin", 16, Some(0x52))];
+    clone.disks = vec![disk()];
+    let mut sets = index().sets().to_vec();
+    sets.extend([kinst, clone]);
+    ArcadeIndex::from_sets(IndexSource::default(), sets).expect("valid sets")
+}
+
+fn kinst_zips(disks: &[&str]) -> FoundZips {
+    FoundZips {
+        set: vec![zip("kinst.zip", &[("k1.bin", 16, 0x51)])],
+        disks: disks.iter().map(|d| (*d).to_owned()).collect(),
+        ..FoundZips::default()
+    }
+}
+
+#[test]
+fn the_disk_paths_follow_the_order_of_the_core() {
+    let index = kinst_index();
+    let paths: Vec<String> = disk_paths(&index, "kinst")
+        .into_iter()
+        .map(|p| {
+            assert_eq!(p.disk, "kinst");
+            p.path
+        })
+        .collect();
+    assert_eq!(paths, ["kinst/kinst.chd", "kinst/kinst.img"]);
+    let paths: Vec<String> = disk_paths(&index, "KINST13")
+        .into_iter()
+        .map(|p| p.path)
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "kinst13/kinst.chd",
+            "kinst/kinst.chd",
+            "kinst13/kinst.img",
+            "kinst/kinst.img"
+        ],
+        "the set folder, then the parent folder, for each extension"
+    );
+    assert!(disk_paths(&index, "starpat").is_empty(), "no disk");
+    assert!(disk_paths(&index, "mystery").is_empty(), "no set");
+}
+
+#[test]
+fn a_present_disk_image_lets_the_set_start() {
+    let verdict = check_set(&kinst_index(), "kinst", &kinst_zips(&["kinst"]));
+    assert!(matches!(verdict, Verdict::Pass { .. }), "{verdict:?}");
+    assert!(!verdict.stops());
+}
+
+#[test]
+fn a_missing_disk_image_gives_message_8() {
+    let verdict = check_set(&kinst_index(), "kinst", &kinst_zips(&[]));
+    assert_eq!(
+        verdict,
+        Verdict::MissingDisk {
+            disk: "kinst".to_owned(),
+            folder: "kinst".to_owned(),
+            set: "kinst".to_owned(),
+        }
+    );
+    assert!(verdict.stops());
+    assert_eq!(
+        verdict.message("FinalBurn Neo").as_deref(),
+        Some(
+            "This game needs the hard disk image kinst.chd. Put it in the folder kinst, next to kinst.zip."
+        )
+    );
+    assert!(verdict.details().is_empty());
+}
+
+#[test]
+fn a_clone_is_told_the_folder_of_its_parent() {
+    let found = FoundZips {
+        set: vec![zip("kinst13.zip", &[("k13.bin", 16, 0x52)])],
+        ..FoundZips::default()
+    };
+    let verdict = check_set(&kinst_index(), "kinst13", &found);
+    assert_eq!(
+        verdict.message("FinalBurn Neo").as_deref(),
+        Some(
+            "This game needs the hard disk image kinst.chd. Put it in the folder kinst, next to kinst13.zip."
+        )
+    );
+}
+
+#[test]
+fn the_files_come_before_the_disk() {
+    let verdict = check_set(&kinst_index(), "kinst", &FoundZips::default());
+    assert!(matches!(verdict, Verdict::Roms { .. }), "{verdict:?}");
 }

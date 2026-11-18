@@ -100,6 +100,7 @@ dat | <DAT file name> | <DAT version>
 licence | <text>
 set | <name> | <parent or -> | <romof or -> | <flags> | <year> | <maker> | <board> | <orientation> | <width> | <height> | <title> | <details>
 rom | <name> | <size> | <crc or -> | <merge or -> | <flags>
+disk | <name> | <sha1 or ->
 ```
 
 (` | ` stands for one tab here.)
@@ -108,6 +109,7 @@ rom | <name> | <size> | <crc or -> | <merge or -> | <flags>
 - `set` lines are sorted by name in byte order, each name once and with no ASCII upper case. The `rom` lines of a set follow its `set` line in DAT order.
 - Set flags, in this order, `-` for none: `b` BIOS, `v` vertical, `n` not working, `p` preliminary. `orientation` is `h` or `v`.
 - ROM flags: `-`, or `d` for a ROM with no dump, whose CRC is `-`. A CRC is 8 lower-case hex digits; a size is decimal bytes.
+- A `disk` line is a hard disk image (CHD) of the set (`SetRecord::disks`), after its `rom` lines. The SHA-1 is 40 lower-case hex digits or `-`; the encoder refuses another value (`IndexError::DiskSha1`). The line is a new kind of line, so the version stays 1: an older reader skips it.
 - `-` means "none" in the parent, romof, CRC and merge fields, so the encoder refuses a name that is empty or `-`. It also refuses a field with a tab or a line break, and names the set and the field.
 - The format is append-only. A reader ignores fields after the ones it knows, and skips a line whose first field it does not know. A field is never removed or moved. A change that an older reader would misread raises the version.
 
@@ -121,6 +123,7 @@ rom | <name> | <size> | <crc or -> | <merge or -> | <flags>
 4. A clone needs a ROM that no zip of its own name holds, and no parent zip is found: `MissingParent` (message 3).
 5. No BIOS zip holds any ROM of the BIOS set: `BiosMismatch` (message 5). When some match, the set passes, and `Verdict::details` lists the others for the diagnostics. The DAT does not say which BIOS files the core needs (open point A3 of the spec).
 6. Each ROM of the set, except the ROMs with no dump and the ROMs of its BIOS set (same CRC), must be in a found zip with the same CRC and size. The first zip that holds the CRC gives the ROM, as in the core. Otherwise `Roms` (message 4), with every ROM in `details`. There is no diagnostics page yet, so the text of message 4 says that the log lists the ROMs, where the spec says the diagnostics page; the app writes each line of `details` to the log.
+7. A disk image of the set has no file at a path of `arcade::disk_paths` (the caller lists the present ones in `FoundZips::disks`): `MissingDisk` (message 8), which names the folder of the parent for a clone, else of the set. `disk_paths` gives the order of FinalBurn Neo: for `.chd` then `.img` (`DISK_EXTENSIONS`), the folder of the set, then of its parent, next to the game zip. The check needs only that a file is there; the core reads it.
 
 `Verdict::message(core)` gives the text for the player. Message 4 names the first `NAMED_ROMS_MAX` (2) wrong ROMs by their DAT names, each cut to `NAMED_ROM_CHARS_MAX` (24) characters, and counts the rest, so the longest text fits a dialog on the 320x240 canvas. When more than `WRONG_SET_PERCENT` (50 %) of the checked ROMs are wrong, `Verdict::wrong_set` is true and the text says that the set is for another emulator or another version. Messages 4 and 5 name the sets the image needs, `arcade::wanted_version`: the DAT version and the short commit of the index. `Verdict::NoIndex` (message 7) is for the caller with no index, and does not stop the launch by itself.
 

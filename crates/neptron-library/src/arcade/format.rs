@@ -8,18 +8,20 @@
 //! licence | <text>
 //! set | <name> | <parent or -> | <romof or -> | <flags> | <year> | <maker> | <board> | <orientation> | <width> | <height> | <title> | <details>
 //! rom | <name> | <size> | <crc or -> | <merge or -> | <flags>
+//! disk | <name> | <sha1 or ->
 //! ```
 //!
 //! Set flags, in this order, `-` for none: `b` BIOS, `v` vertical, `n` not
 //! working, `p` preliminary. ROM flags: `-`, or `d` for a ROM with no dump.
+//! The `disk` lines of a set follow its `rom` lines.
 //! The format is append-only: a reader ignores fields after the ones it
 //! knows, and skips a line whose first field it does not know.
 
 use std::fmt::Write as _;
 
 use super::{
-    ArcadeIndex, FORMAT_VERSION, IndexError, IndexSource, MAGIC, Orientation, RomRecord, SetFlags,
-    SetRecord,
+    ArcadeIndex, DiskRecord, FORMAT_VERSION, IndexError, IndexSource, MAGIC, Orientation,
+    RomRecord, SetFlags, SetRecord,
 };
 
 /// The field that stands for "none".
@@ -117,6 +119,13 @@ pub fn decode(text: &str) -> Result<ArcadeIndex, IndexError> {
                     .roms
                     .push(rom);
             }
+            "disk" => {
+                let disk = read_disk(&mut f)?;
+                sets.last_mut()
+                    .ok_or_else(|| f.bad("disk before any set"))?
+                    .disks
+                    .push(disk);
+            }
             _ => {}
         }
     }
@@ -201,6 +210,22 @@ fn put_set(out: &mut String, set: &SetRecord) -> Result<(), IndexError> {
             out,
             format_args!("rom\t{}\t{}\t{crc}\t{merge}\t{flags}", rom.name, rom.size),
         );
+    }
+    for disk in &set.disks {
+        check_field(&set.name, "disk name", &disk.name)?;
+        check_name(&set.name, "disk name", Some(&disk.name))?;
+        let sha1 = match &disk.sha1 {
+            Some(sha1) if is_sha1(sha1) => sha1.as_str(),
+            Some(other) => {
+                return Err(IndexError::DiskSha1 {
+                    set: set.name.clone(),
+                    disk: disk.name.clone(),
+                    value: other.clone(),
+                });
+            }
+            None => NONE,
+        };
+        put_line(out, format_args!("disk\t{}\t{sha1}", disk.name));
     }
     Ok(())
 }
@@ -287,6 +312,7 @@ fn read_set(f: &mut Fields<'_>) -> Result<SetRecord, IndexError> {
         title,
         details,
         roms: Vec::new(),
+        disks: Vec::new(),
     })
 }
 
@@ -351,12 +377,33 @@ fn read_rom(f: &mut Fields<'_>) -> Result<RomRecord, IndexError> {
     })
 }
 
+fn read_disk(f: &mut Fields<'_>) -> Result<DiskRecord, IndexError> {
+    let name = f.text("disk name")?.to_owned();
+    if name.is_empty() || name == NONE {
+        return Err(f.bad("disk name"));
+    }
+    let sha1 = match f.text("disk sha1")? {
+        NONE => None,
+        hex if is_sha1(hex) => Some(hex.to_owned()),
+        _ => return Err(f.bad("disk sha1")),
+    };
+    Ok(DiskRecord { name, sha1 })
+}
+
+/// Forty lower-case hex digits.
+fn is_sha1(text: &str) -> bool {
+    text.len() == 40 && is_lower_hex(text)
+}
+
+/// Lower-case hex digits only.
+fn is_lower_hex(text: &str) -> bool {
+    text.bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 /// Eight lower-case hex digits.
 fn is_crc(text: &str) -> bool {
-    text.len() == 8
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    text.len() == 8 && is_lower_hex(text)
 }
 
 /// The fields of one line after its first.

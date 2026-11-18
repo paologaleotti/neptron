@@ -447,3 +447,81 @@ fn random_bytes_never_panic() {
         ));
     }
 }
+
+fn disk(name: &str, sha1: Option<&str>) -> DiskRecord {
+    DiskRecord {
+        name: name.to_owned(),
+        sha1: sha1.map(str::to_owned),
+    }
+}
+
+#[test]
+fn the_disks_of_a_set_cross_the_text_form() {
+    let sha1 = "81d833236e994528d1482979261401b198d1ca53";
+    let mut set = SetRecord::new("kinst".to_owned(), "Killer Instinct".to_owned());
+    set.roms = vec![rom("k.u98", 16, Some(0x51))];
+    set.disks = vec![disk("kinst", Some(sha1)), disk("extra", None)];
+    let index = ArcadeIndex::from_sets(source(), vec![set]).expect("valid sets");
+    let text = encode(&index).expect("encodes");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[5], "rom\tk.u98\t16\t00000051\t-\t-");
+    assert_eq!(lines[6], format!("disk\tkinst\t{sha1}"));
+    assert_eq!(lines[7], "disk\textra\t-");
+    assert_eq!(decode(&text).expect("decodes"), index);
+}
+
+#[test]
+fn a_bad_disk_line_is_refused_with_its_number() {
+    let set = "set\ta\t-\t-\t-\t\t\t\th\t0\t0\tA\t";
+    for (body, what) in [
+        ("disk\td\t-\n".to_owned(), "disk before any set"),
+        (format!("{set}\ndisk\t-\t-\n"), "disk name"),
+        (format!("{set}\ndisk\t\t-\n"), "disk name"),
+        (format!("{set}\ndisk\td\tABC\n"), "disk sha1"),
+        (format!("{set}\ndisk\td\n"), "disk sha1"),
+    ] {
+        let text = format!("{HEAD}{body}");
+        let Err(IndexError::Line { what: found, .. }) = decode(&text) else {
+            panic!("{body:?} is refused");
+        };
+        assert_eq!(found, what, "{body:?}");
+    }
+}
+
+#[test]
+fn the_encoder_refuses_a_bad_disk() {
+    let one = |bad: DiskRecord| {
+        let mut set = SetRecord::new("a".to_owned(), "A".to_owned());
+        set.disks = vec![bad];
+        ArcadeIndex::from_sets(source(), vec![set]).expect("valid sets")
+    };
+    assert!(matches!(
+        encode(&one(disk("-", None))),
+        Err(IndexError::Reserved {
+            field: "disk name",
+            ..
+        })
+    ));
+    let Err(IndexError::DiskSha1 {
+        set,
+        disk: name,
+        value,
+    }) = encode(&one(disk("d", Some("ABC"))))
+    else {
+        panic!("a bad SHA-1 is refused");
+    };
+    assert_eq!(
+        (set.as_str(), name.as_str(), value.as_str()),
+        ("a", "d", "ABC")
+    );
+    let mut set = SetRecord::new("a".to_owned(), "A".to_owned());
+    set.disks = vec![disk("d\tx", None)];
+    let index = ArcadeIndex::from_sets(source(), vec![set]).expect("valid sets");
+    assert!(matches!(
+        encode(&index),
+        Err(IndexError::Separator {
+            field: "disk name",
+            ..
+        })
+    ));
+}

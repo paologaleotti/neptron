@@ -1,7 +1,7 @@
 //! The check of an arcade set before launch, on the thread
 //! `neptron-set-check` that the library owns. The thread lists the zips of
-//! the set, its parent and its BIOS; `neptron_library::arcade::check_set`
-//! decides.
+//! the set, its parent and its BIOS, and looks for the files of its disk
+//! images; `neptron_library::arcade::check_set` decides.
 
 use std::fs::File;
 use std::io;
@@ -113,8 +113,22 @@ fn run(job: CheckJob, cancel: &AtomicBool) -> Option<(Verdict, ArcadeState)> {
             }
         }
     }
+    found.disks = present_disks(&arcade::disk_paths(index, &job.stem), &job.game_folder);
     let verdict = arcade::check_set(index, &job.stem, &found);
     Some((verdict, state))
+}
+
+/// The names of the disk images with a file at one of `paths`, relative
+/// to the folder of the game zip. It checks only that a file is there:
+/// an image takes hundreds of megabytes, and the core reads it.
+fn present_disks(paths: &[arcade::DiskPath], game_folder: &Path) -> Vec<String> {
+    let mut present: Vec<String> = Vec::new();
+    for path in paths {
+        if !present.contains(&path.disk) && game_folder.join(&path.path).is_file() {
+            present.push(path.disk.clone());
+        }
+    }
+    present
 }
 
 /// The folders the core searches, in its order: the folder of the game,

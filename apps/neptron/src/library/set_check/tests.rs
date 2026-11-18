@@ -1,7 +1,8 @@
-//! Every set, ROM, size and CRC here is invented for the tests. The zips
+//! Every ROM, size and CRC here is invented for the tests, and every set
+//! name except Killer Instinct's of the public DAT. The zips
 //! hold a central directory only: the check reads nothing else.
 
-use neptron_library::arcade::{ArcadeIndex, IndexSource, RomRecord, SetRecord};
+use neptron_library::arcade::{ArcadeIndex, DiskRecord, IndexSource, RomRecord, SetRecord};
 
 use super::*;
 
@@ -88,13 +89,89 @@ fn ready() -> ArcadeState {
     clone.parent = Some("starpat".to_owned());
     clone.romof = Some("starpat".to_owned());
     clone.roms = vec![rom("sp1.bin", 1024, 0x11), rom("spj.bin", 64, 0x22)];
-    let index = ArcadeIndex::from_sets(IndexSource::default(), vec![bios, parent, clone])
-        .expect("valid sets");
+    // Killer Instinct and a clone, with the set and disk names of the
+    // public DAT and invented ROM values.
+    let disk = || DiskRecord {
+        name: "kinst".to_owned(),
+        sha1: None,
+    };
+    let mut kinst = SetRecord::new("kinst".to_owned(), "Killer Instinct".to_owned());
+    kinst.roms = vec![rom("k1.bin", 16, 0x51)];
+    kinst.disks = vec![disk()];
+    let mut kinst13 = SetRecord::new("kinst13".to_owned(), "Killer Instinct".to_owned());
+    kinst13.parent = Some("kinst".to_owned());
+    kinst13.romof = Some("kinst".to_owned());
+    kinst13.roms = vec![rom("k13.bin", 16, 0x52)];
+    kinst13.disks = vec![disk()];
+    let index = ArcadeIndex::from_sets(
+        IndexSource::default(),
+        vec![bios, parent, clone, kinst, kinst13],
+    )
+    .expect("valid sets");
     ArcadeState::Ready(Arc::new(index))
 }
 
 fn verdict(job: CheckJob) -> Verdict {
     run(job, &AtomicBool::new(false)).expect("not cancelled").0
+}
+
+impl Share {
+    /// A file of dummy bytes at `path` under `roms/arcade`, as a disk image
+    /// that the check only sees.
+    fn file(&self, path: &str) {
+        let path = self.0.join("roms/arcade").join(path);
+        std::fs::create_dir_all(path.parent().expect("a folder")).expect("folder");
+        std::fs::write(path, b"not a disk image").expect("file");
+    }
+}
+
+fn is_missing_disk(verdict: &Verdict) -> bool {
+    matches!(verdict, Verdict::MissingDisk { .. })
+}
+
+#[test]
+fn a_disk_image_counts_where_the_core_looks_for_it() {
+    for (stem, file) in [
+        ("kinst", "kinst/kinst.chd"),
+        ("kinst", "kinst/kinst.img"),
+        ("kinst13", "kinst13/kinst.chd"),
+        ("kinst13", "kinst/kinst.chd"),
+        ("kinst13", "kinst/kinst.img"),
+    ] {
+        let share = Share::new(&format!("disk-{}", file.replace('/', "-")));
+        share.zip("roms/arcade/kinst.zip", &[("k1.bin", 16, 0x51)]);
+        share.zip("roms/arcade/kinst13.zip", &[("k13.bin", 16, 0x52)]);
+        share.file(file);
+        let found = verdict(share.job(stem, ready()));
+        assert!(
+            matches!(found, Verdict::Pass { .. }),
+            "{stem} {file}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn a_disk_image_elsewhere_is_missing() {
+    for file in [
+        "kinst.chd",
+        "kinst/kinst.bin",
+        "kinst/kinst.chd.zip",
+        "kinst13/kinst.chd",
+        "other/kinst.chd",
+    ] {
+        let share = Share::new(&format!("nodisk-{}", file.replace('/', "-")));
+        share.zip("roms/arcade/kinst.zip", &[("k1.bin", 16, 0x51)]);
+        share.file(file);
+        let found = verdict(share.job("kinst", ready()));
+        assert!(is_missing_disk(&found), "{file}: {found:?}");
+    }
+    let share = Share::new("nodisk-folder");
+    share.zip("roms/arcade/kinst.zip", &[("k1.bin", 16, 0x51)]);
+    std::fs::create_dir_all(share.0.join("roms/arcade/kinst/kinst.chd")).expect("folder");
+    assert!(
+        is_missing_disk(&verdict(share.job("kinst", ready()))),
+        "a folder is not a file"
+    );
 }
 
 #[test]
