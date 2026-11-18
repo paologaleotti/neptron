@@ -141,8 +141,9 @@ impl BootCheckArgs {
 
 /// The guest script: check the storage of the disk, wait until the SMB
 /// server of the network share listens, check that every CPU with a
-/// cpufreq driver runs the `performance` governor, dismiss the notice of each RAM
-/// folder, wait for the game list, then print the picture. The
+/// cpufreq driver runs the `performance` governor, on x86-64 check that
+/// the kernel enumerates USB with the old scheme first, dismiss the notice
+/// of each RAM folder, wait for the game list, then print the picture. The
 /// capture tool gets the deadline less a margin, so it reports a missing
 /// screen itself before the guest deadline kills it. When it fails, the
 /// script asks the frontend what it shows, for the console log.
@@ -161,6 +162,9 @@ pub fn guest_script(timeout_secs: u64, arch: Arch) -> String {
     let mut steps = format!(
         "ready && storage state {state} && storage share {share} && network_share && governor {CPU_SYSFS} && "
     );
+    if arch == Arch::X86_64 {
+        steps.push_str(&format!("usb_scheme {USB_OLD_SCHEME_FIRST} && "));
+    }
     if [state, share].contains(&"ram") {
         steps.push_str("controlled && ");
     }
@@ -212,6 +216,11 @@ governor() {
 		[ "$name" = performance ] && continue
 		echo "neptron-check: $file is $name, not performance; a lower clock makes a heavy core miss fields"; return 1
 	done
+}
+usb_scheme() {
+	value=$(cat "$1" 2>/dev/null)
+	[ "$value" = Y ] && return 0
+	echo "neptron-check: $1 is '${value:-missing}', not Y; without usbcore.old_scheme_first=1 on the kernel command line, some controllers give no input"; return 1
 }
 dismiss() {
 	neptronctl wait screen NOTICE --within-ms "$(left_ms)" > /dev/null || return 1
@@ -819,6 +828,11 @@ const STORAGE_STATUS: &str = "/run/neptron/storage.toml";
 /// The CPU folder in sysfs; each CPU with a cpufreq driver has
 /// `cpu<N>/cpufreq/scaling_governor` under it.
 const CPU_SYSFS: &str = "/sys/devices/system/cpu";
+/// The value that `usbcore.old_scheme_first=1` on the kernel command line
+/// gives. Only the x86-64 check reads it: that guest boots the command line
+/// of the image through GRUB, and the aarch64 guest gets the command line of
+/// QEMU.
+const USB_OLD_SCHEME_FIRST: &str = "/sys/module/usbcore/parameters/old_scheme_first";
 /// The calls of `neptronctl ui tree` the check makes, at most, until a
 /// dismissed notice is gone. The protocol answers between two frames, so
 /// this is at least as many frames: two seconds at 60 Hz.
@@ -939,7 +953,7 @@ mod tests {
     #[test]
     fn the_guest_script_states_the_storage_it_expects() {
         let x86 = guest_script(900, Arch::X86_64);
-        let checks = "ready && storage state partition && storage share partition && network_share && governor /sys/devices/system/cpu && neptron-capture";
+        let checks = "ready && storage state partition && storage share partition && network_share && governor /sys/devices/system/cpu && usb_scheme /sys/module/usbcore/parameters/old_scheme_first && neptron-capture";
         assert!(x86.contains(checks), "{x86}");
         assert!(!x86.contains("&& dismiss "), "no notice to dismiss: {x86}");
         assert!(!x86.contains("&& controlled "), "no input needed: {x86}");
@@ -947,6 +961,7 @@ mod tests {
         let checks = "ready && storage state ram && storage share ram && network_share && governor /sys/devices/system/cpu && controlled && dismiss state && dismiss share && neptron-capture";
         assert!(arm.contains(checks), "{arm}");
         assert!(arm.contains("this server does not serve"), "{arm}");
+        assert!(!arm.contains("&& usb_scheme "), "{arm}");
         for script in [&x86, &arm] {
             assert!(script.contains("/run/neptron/storage.toml"), "{script}");
             assert!(
@@ -1066,6 +1081,56 @@ mod tests {
         );
         let out = governor("schedutil", &[Some("schedutil")]);
         assert!(!out.status.success(), "{out:?}");
+    }
+
+    /// Runs the `usb_scheme` function of the guest script on a fake
+    /// parameter file with `value`, or on a missing file for `None`.
+    fn usb_scheme(name: &str, value: Option<&str>) -> std::process::Output {
+        let script = guest_script(900, Arch::X86_64);
+        let function = script
+            .split("\nusb_scheme() {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("the usb_scheme function");
+        let dir =
+            std::env::temp_dir().join(format!("xtask-usb-scheme-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("old_scheme_first");
+        if let Some(value) = value {
+            std::fs::write(&file, format!("{value}\n")).unwrap();
+        }
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("usb_scheme() {{{function}\n}}\nusb_scheme \"$1\""))
+            .arg("sh")
+            .arg(&file)
+            .output()
+            .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        out
+    }
+
+    /// The x86-64 guest passes only when the USB core enumerates with the
+    /// old scheme first; a missing parameter file fails too, because the PC
+    /// kernel has USB built in.
+    #[test]
+    fn the_guest_script_checks_the_usb_enumeration_scheme() {
+        let out = usb_scheme("on", Some("Y"));
+        assert!(out.status.success(), "{out:?}");
+        assert!(out.stdout.is_empty(), "{out:?}");
+        for (name, value, shown) in [("off", Some("N"), "'N'"), ("missing", None, "'missing'")] {
+            let out = usb_scheme(name, value);
+            assert!(!out.status.success(), "{name}: {out:?}");
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            assert!(
+                text.contains(&format!("old_scheme_first is {shown}, not Y")),
+                "{name}: {text}"
+            );
+            assert!(
+                text.contains("usbcore.old_scheme_first=1"),
+                "{name}: {text}"
+            );
+        }
     }
 
     #[test]
