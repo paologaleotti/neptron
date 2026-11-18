@@ -510,6 +510,36 @@ Use a USB pad that SDL3 has no mapping for: a cheap "USB Joystick" or "Generic U
   - Expect: the image with the community file takes less than 50 ms more.
   - Record: both times.
 
+### USB enumeration scheme
+
+Every image has `usbcore.old_scheme_first=1` on the kernel command line. With the default scheme, the Mad Catz PS3 FightStick TE (0738:8838) enumerates but sends only its neutral report until it loses power. Over SSH, `cat /sys/module/usbcore/parameters/old_scheme_first` shows `Y`.
+
+Results recorded:
+
+- 2026-11-18: on the PC, with the parameter set at run time, the stick gives input after a replug (the owner's report).
+- 2026-11-18: on the PC, with the parameter set at run time, XInput pads work (the owner's report).
+
+- [ ] `needs-hardware` **The stick at power-on on the PC.**
+  - Do: plug the stick 0738:8838 into the PC, then power on. Use it in the game list and in a game.
+  - Expect: the stick gives input after the boot, with no replug.
+  - Record: the USB port, and the `input:` line of the log.
+- [ ] `needs-hardware` **The stick replugged on the PC.**
+  - Do: after the boot, unplug the stick and plug it in again, first into a port of the PC, then through a USB hub.
+  - Expect: the stick gives input after each plug.
+  - Record: the port, the hub model, and `dmesg | grep -i usb` for each plug.
+- [ ] `needs-hardware` **The other USB devices of the bench on the PC.**
+  - Do: plug in each USB device of the bench (keyboard, pads, the USB stick of the image, a hub), then read `dmesg`.
+  - Expect: each device enumerates and works. No "device not accepting address" line in the kernel log.
+  - Record: the devices, and any USB error line of `dmesg`.
+- [ ] `needs-hardware` **The stick on the Raspberry Pi 3.**
+  - Do: on the Pi image, plug the stick in before power-on, then replug it after the boot.
+  - Expect: the stick gives input in both cases.
+  - Record: the Pi model, and `cat /sys/module/usbcore/parameters/old_scheme_first`.
+- [ ] `needs-hardware` **Every other controller of the owner.**
+  - Do: on the PC and on the Pi, plug in each other controller of the owner, before power-on and after the boot.
+  - Expect: each controller enumerates and gives input.
+  - Record: each controller, its USB id (`lsusb`), and any controller that fails.
+
 ### Input remapping (M05)
 
 `docs/spec/input-remapping.md` has the flow. Use a 240-line CRT picture (the 15 kHz safe start) for every check, so the texts of the mapping screen show at their real size. Use one pad that SDL3 has no mapping for and one known pad (an Xbox or 8BitDo pad). Keep a USB keyboard plugged.
