@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use neptron_library::arcade::{
-    self, ArcadeIndex, IndexError, IndexSource, Orientation, RomRecord, SetRecord,
+    self, ArcadeIndex, DiskRecord, IndexError, IndexSource, Orientation, RomRecord, SetRecord,
 };
 
 /// The core whose DAT the command reads.
@@ -206,7 +206,36 @@ fn set_of_game(game: roxmltree::Node<'_, '_>) -> Result<SetRecord, ArcadeError> 
         .filter(|n| n.has_tag_name("rom"))
         .map(|rom| rom_of(name, rom))
         .collect::<Result<_, _>>()?;
+    set.disks = game
+        .children()
+        .filter(|n| n.has_tag_name("disk"))
+        .map(|disk| disk_of(name, disk))
+        .collect::<Result<_, _>>()?;
     Ok(set)
+}
+
+/// A `disk` element: a hard disk image of the set. The SHA-1 is kept in
+/// lower case, as the index holds it.
+fn disk_of(set: &str, disk: roxmltree::Node<'_, '_>) -> Result<DiskRecord, ArcadeError> {
+    let bad = |field: &'static str, value: Option<&str>| ArcadeError::Value {
+        set: set.to_owned(),
+        field,
+        value: value.unwrap_or_default().to_owned(),
+    };
+    let name = disk
+        .attribute("name")
+        .ok_or_else(|| bad("disk name", None))?;
+    let sha1 = match disk.attribute("sha1") {
+        None => None,
+        Some(hex) if hex.len() == 40 && hex.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            Some(hex.to_ascii_lowercase())
+        }
+        other => return Err(bad("disk sha1", other)),
+    };
+    Ok(DiskRecord {
+        name: name.to_owned(),
+        sha1,
+    })
 }
 
 fn rom_of(set: &str, rom: roxmltree::Node<'_, '_>) -> Result<RomRecord, ArcadeError> {

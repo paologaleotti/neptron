@@ -39,6 +39,15 @@ const DAT: &str = r#"<?xml version="1.0"?>
 		<manufacturer>Nobody Ltd.</manufacturer>
 		<rom name="z1.bin" size="128" crc="000000aa"/>
 	</game>
+	<game name="diskgame" sourcefile="invented/d_disk.cpp">
+		<description>Disk Game</description>
+		<year>1994</year>
+		<manufacturer>Nobody Ltd.</manufacturer>
+		<rom name="d1.bin" size="16" crc="00000051"/>
+		<disk name="diskgame" sha1="0123456789ABCDEF0123456789abcdef01234567" />
+		<disk name="nosha" />
+		<driver status="good"/>
+	</game>
 </datafile>
 "#;
 
@@ -51,7 +60,7 @@ fn a_dat_gives_every_field_of_the_index() {
     assert_eq!(index.source.dat_version, "9.9.9");
     assert_eq!(index.source.licence, LICENCE);
     let names: Vec<&str> = index.sets().iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["starpat", "starpatj", "zbios"]);
+    assert_eq!(names, ["diskgame", "starpat", "starpatj", "zbios"]);
 
     let clone = index.find("starpatj").expect("clone");
     assert_eq!(clone.title, "Star Patrol & Friends");
@@ -71,6 +80,23 @@ fn a_dat_gives_every_field_of_the_index() {
     assert_eq!(parent.roms.len(), 2, "samples are not ROMs");
     assert_eq!(parent.roms[1].crc, None);
     assert_eq!(parent.roms[1].size, 2048);
+
+    assert!(parent.disks.is_empty());
+
+    let disks = &index.find("diskgame").expect("disk game").disks;
+    assert_eq!(
+        disks,
+        &[
+            DiskRecord {
+                name: "diskgame".to_owned(),
+                sha1: Some("0123456789abcdef0123456789abcdef01234567".to_owned()),
+            },
+            DiskRecord {
+                name: "nosha".to_owned(),
+                sha1: None,
+            },
+        ]
+    );
 
     let bios = index.find("zbios").expect("bios");
     assert!(bios.flags.bios);
@@ -103,6 +129,11 @@ fn a_value_the_index_cannot_take_names_the_set() {
             "rom status",
         ),
         (DAT.replace("isbios=\"yes\"", "isbios=\"maybe\""), "isbios"),
+        (DAT.replace("sha1=\"0123", "sha1=\"x123"), "disk sha1"),
+        (
+            DAT.replace("<disk name=\"nosha\" />", "<disk />"),
+            "disk name",
+        ),
     ];
     for (text, field) in cases {
         match index_of_dat(&text, "Test.dat", COMMIT) {
@@ -187,7 +218,7 @@ fn the_command_writes_the_index_file() {
     let (dat_arg, out_arg) = (dat.to_string_lossy(), out.to_string_lossy());
     run(&["--commit", COMMIT, &dat_arg, &out_arg]).expect("runs");
     let index = arcade::read(&out).expect("reads");
-    assert_eq!(index.sets().len(), 3);
+    assert_eq!(index.sets().len(), 4);
     assert_eq!(index.source.dat_name, "Test.dat");
     assert!(!dir.join("share/arcade/fbneo.idx.tmp").exists());
     let missing = dir.join("none.dat");
