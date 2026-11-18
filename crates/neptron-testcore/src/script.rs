@@ -15,10 +15,13 @@ pub const SCRIPT_ENV: &str = "NEPTRON_TESTCORE_SCRIPT";
 /// The keyword of the first line: `neptron-testcore <version>`.
 pub const HEADER_KEYWORD: &str = "neptron-testcore";
 /// The newest script version that the parser reads. Version 2 adds the
-/// setup lines `load` and `load_error`.
-pub const SCRIPT_VERSION: u32 = 2;
+/// setup lines `load` and `load_error`, version 3 the actions `log` and
+/// `message`.
+pub const SCRIPT_VERSION: u32 = 3;
 /// The first script version with the setup lines `load` and `load_error`.
 pub const LOAD_LINES_VERSION: u32 = 2;
+/// The first script version with the actions `log` and `message`.
+pub const TEXT_ACTIONS_VERSION: u32 = 3;
 /// Largest frame width or height, in pixels.
 pub const MAX_DIMENSION_PX: u32 = 4096;
 /// Smallest frame rate, in millihertz. It bounds the audio of one frame, and
@@ -132,6 +135,19 @@ pub enum LoadOutcome {
     Shutdown,
 }
 
+/// The level of a `log` action, as libretro numbers them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevel {
+    /// `RETRO_LOG_DEBUG`
+    Debug,
+    /// `RETRO_LOG_INFO`
+    Info,
+    /// `RETRO_LOG_WARN`
+    Warn,
+    /// `RETRO_LOG_ERROR`
+    Error,
+}
+
 /// Geometry, maximum size and timing, as `SET_SYSTEM_AV_INFO` sends them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AvInfo {
@@ -175,6 +191,20 @@ pub enum Action {
     },
     /// Ask for a turn with `SET_ROTATION`. The frames do not change.
     Rotation(u32),
+    /// Write a line to the log interface.
+    Log {
+        /// The level.
+        level: LogLevel,
+        /// The index of the text in [`Script::texts`].
+        text: usize,
+    },
+    /// Show a message with `SET_MESSAGE`.
+    Message {
+        /// The frames the frontend shows it.
+        frames: u32,
+        /// The index of the text in [`Script::texts`].
+        text: usize,
+    },
 }
 
 /// An action and the frame it happens at.
@@ -206,6 +236,8 @@ pub struct Script {
     pub load: LoadOutcome,
     /// A line that `retro_load_game` logs at error level, if any.
     pub load_error: Option<String>,
+    /// The texts of the `log` and `message` actions.
+    pub texts: Vec<String>,
     /// The events, ordered by frame.
     pub events: Vec<Event>,
 }
@@ -469,6 +501,7 @@ struct Builder {
     rotation: Option<u32>,
     load: Option<LoadOutcome>,
     load_error: Option<String>,
+    texts: Vec<String>,
     max_line: usize,
     events: Vec<(usize, Event)>,
 }
@@ -649,6 +682,22 @@ impl Builder {
                 a.count(1)?;
                 Action::Rotation(a.number(0, "rotation", 0, u32::MAX)?)
             }
+            "log" | "message" if self.version < TEXT_ACTIONS_VERSION => {
+                return Err(ScriptError::UnknownKeyword {
+                    line,
+                    keyword: (*keyword).to_owned(),
+                });
+            }
+            "log" => {
+                let level = a.log_level(0)?;
+                let text = self.text(&a, 1)?;
+                Action::Log { level, text }
+            }
+            "message" => {
+                let frames = a.number(0, "message frames", 0, u32::MAX)?;
+                let text = self.text(&a, 1)?;
+                Action::Message { frames, text }
+            }
             other => {
                 return Err(ScriptError::UnknownKeyword {
                     line,
@@ -658,6 +707,17 @@ impl Builder {
         };
         self.events.push((line, Event { frame, action }));
         Ok(())
+    }
+
+    /// Keeps the rest of the line from argument `from` as a text and gives
+    /// its index.
+    fn text(&mut self, a: &Args<'_>, from: usize) -> Result<usize, ScriptError> {
+        let words = a.args.get(from..).unwrap_or_default();
+        if words.is_empty() {
+            return Err(a.value_error(from, "text"));
+        }
+        self.texts.push(words.join(" "));
+        Ok(self.texts.len() - 1)
     }
 
     fn finish(self) -> Result<Script, ScriptError> {
@@ -700,6 +760,7 @@ impl Builder {
             rotation: self.rotation,
             load: self.load.unwrap_or_default(),
             load_error: self.load_error,
+            texts: self.texts,
             events: self.events.into_iter().map(|(_, e)| e).collect(),
         })
     }
@@ -843,6 +904,16 @@ impl Args<'_> {
         }
     }
 
+    fn log_level(&self, index: usize) -> Result<LogLevel, ScriptError> {
+        match self.token(index) {
+            "debug" => Ok(LogLevel::Debug),
+            "info" => Ok(LogLevel::Info),
+            "warn" => Ok(LogLevel::Warn),
+            "error" => Ok(LogLevel::Error),
+            _ => Err(self.value_error(index, "log level")),
+        }
+    }
+
     fn load_outcome(&self, index: usize) -> Result<LoadOutcome, ScriptError> {
         match self.token(index) {
             "ok" => Ok(LoadOutcome::Ok),
@@ -899,6 +970,71 @@ mod tests {
         assert_eq!(s.load_error, None);
         let s = Script::parse("neptron-testcore 2\nload ok\n").unwrap();
         assert_eq!(s.load, LoadOutcome::Ok);
+    }
+
+    #[test]
+    fn version_3_has_the_log_and_message_actions() {
+        let s = Script::parse(
+            "neptron-testcore 3\nat 2 log error Failed  initializing driver.\nat 2 log info hello\nat 9 message 600 HDD: game.chd not found\n",
+        )
+        .unwrap();
+        assert_eq!(
+            s.texts,
+            [
+                "Failed initializing driver.",
+                "hello",
+                "HDD: game.chd not found"
+            ]
+        );
+        assert_eq!(
+            s.events[0].action,
+            Action::Log {
+                level: LogLevel::Error,
+                text: 0
+            }
+        );
+        assert_eq!(
+            s.events[2],
+            Event {
+                frame: 9,
+                action: Action::Message {
+                    frames: 600,
+                    text: 2
+                }
+            }
+        );
+        for body in ["at 1 log error x", "at 1 message 60 x"] {
+            assert!(
+                matches!(
+                    Script::parse(&format!("neptron-testcore 2\n{body}")),
+                    Err(ScriptError::UnknownKeyword { line: 2, .. })
+                ),
+                "a version 2 script has no {body}"
+            );
+        }
+        let v3 = |body: &str| Script::parse(&format!("neptron-testcore 3\n{body}"));
+        assert!(matches!(
+            v3("at 1 log loud x"),
+            Err(ScriptError::Value {
+                what: "log level",
+                ..
+            })
+        ));
+        assert!(matches!(
+            v3("at 1 log error"),
+            Err(ScriptError::Value { what: "text", .. })
+        ));
+        assert!(matches!(
+            v3("at 1 message 60"),
+            Err(ScriptError::Value { what: "text", .. })
+        ));
+        assert!(matches!(
+            v3("at 1 message many x"),
+            Err(ScriptError::Value {
+                what: "message frames",
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -1104,10 +1240,10 @@ rotation 2"
             Err(ScriptError::Header { .. })
         ));
         assert_eq!(
-            Script::parse("neptron-testcore 3"),
+            Script::parse("neptron-testcore 4"),
             Err(ScriptError::Version {
                 line: 1,
-                version: 3
+                version: 4
             })
         );
         assert!(matches!(

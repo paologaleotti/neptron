@@ -35,7 +35,7 @@ use neptron_libretro_sys::*;
 use crate::model::{Core, Request, Step, UNKNOWN_ENVIRONMENT_COMMAND, Video};
 use crate::options::{CORE_OPTIONS, VALUE_NOT_LISTED, VALUE_NOT_SET, value_code};
 use crate::script::{
-    AudioMode, AvInfo, Geometry, LoadOutcome, OptionTiming, PixelFormat, Script, Size,
+    AudioMode, AvInfo, Geometry, LoadOutcome, LogLevel, OptionTiming, PixelFormat, Script, Size,
 };
 
 /// The callbacks that the frontend gives the core.
@@ -579,6 +579,29 @@ fn send(callbacks: &Callbacks, step: &Step) {
             Request::Rotation(value) => {
                 let mut value: c_uint = value;
                 env(callbacks, RETRO_ENVIRONMENT_SET_ROTATION, &raw mut value)
+            }
+            Request::Log { level, text } => {
+                let level = match level {
+                    LogLevel::Debug => RETRO_LOG_DEBUG,
+                    LogLevel::Info => RETRO_LOG_INFO,
+                    LogLevel::Warn => RETRO_LOG_WARN,
+                    LogLevel::Error => RETRO_LOG_ERROR,
+                };
+                log(
+                    callbacks,
+                    level,
+                    step.texts.get(text).map_or("", String::as_str),
+                );
+                true
+            }
+            Request::Message { frames, text } => {
+                let text = step.texts.get(text).map_or("", String::as_str);
+                let text = CString::new(text.replace('\0', " ")).unwrap_or_default();
+                let mut value = retro_message {
+                    msg: text.as_ptr(),
+                    frames,
+                };
+                env(callbacks, RETRO_ENVIRONMENT_SET_MESSAGE, &raw mut value)
             }
         };
     }

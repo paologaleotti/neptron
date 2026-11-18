@@ -13,7 +13,7 @@ use std::mem;
 
 use crate::audio::{frames_after, max_frames_per_run, sample};
 use crate::frame::render;
-use crate::script::{Action, AudioMode, AvInfo, Geometry, PixelFormat, Script, Size};
+use crate::script::{Action, AudioMode, AvInfo, Geometry, LogLevel, PixelFormat, Script, Size};
 
 /// The byte that fills the frame buffer at load. The bytes of a row beyond
 /// the frame width keep it until a wider frame covers them.
@@ -51,6 +51,22 @@ pub enum Request {
     },
     /// `RETRO_ENVIRONMENT_SET_ROTATION` with this value.
     Rotation(u32),
+    /// A line of the log interface, with the text at index `text` of
+    /// [`Step::texts`].
+    Log {
+        /// The level.
+        level: LogLevel,
+        /// The index of the text.
+        text: usize,
+    },
+    /// `RETRO_ENVIRONMENT_SET_MESSAGE`, with the text at index `text` of
+    /// [`Step::texts`].
+    Message {
+        /// The frames the frontend shows it.
+        frames: u32,
+        /// The index of the text.
+        text: usize,
+    },
 }
 
 /// What the core sends to `video_refresh` in one frame.
@@ -85,6 +101,9 @@ pub struct Step {
     pub buttons: u16,
     /// Environment calls, in order.
     pub requests: Vec<Request>,
+    /// The texts of the log and message requests: a copy of the script
+    /// texts of this frame, so the frontend calls need no lock.
+    pub texts: Vec<String>,
     /// The video call.
     pub video: Video,
     /// The frame buffer.
@@ -237,7 +256,8 @@ impl Core {
         if mem::take(&mut self.announce_av) {
             requests.push(Request::AvInfo(self.av));
         }
-        let dupe = self.run_events(&mut requests);
+        let mut texts = Vec::new();
+        let dupe = self.run_events(&mut requests, &mut texts);
         let mut frame_buffer = mem::take(&mut self.frame_buffer);
         let video = self.video(&mut frame_buffer, buttons, dupe);
         let mut audio_buffer = mem::take(&mut self.audio_buffer);
@@ -246,6 +266,7 @@ impl Core {
             frame: self.frame,
             buttons,
             requests,
+            texts,
             video,
             frame_buffer,
             audio_mode: self.script.audio,
@@ -286,7 +307,7 @@ impl Core {
     }
 
     /// Applies the events of this frame. Returns true when one is `dupe`.
-    fn run_events(&mut self, requests: &mut Vec<Request>) -> bool {
+    fn run_events(&mut self, requests: &mut Vec<Request>, texts: &mut Vec<String>) -> bool {
         let mut dupe = false;
         while let Some(event) = self.script.events.get(self.next_event)
             && event.frame == self.frame
@@ -318,6 +339,20 @@ impl Core {
                     requests.push(Request::GetVariable { option, offset });
                 }
                 Action::Rotation(value) => requests.push(Request::Rotation(value)),
+                Action::Log { level, text } => {
+                    texts.push(self.script.texts.get(text).cloned().unwrap_or_default());
+                    requests.push(Request::Log {
+                        level,
+                        text: texts.len() - 1,
+                    });
+                }
+                Action::Message { frames, text } => {
+                    texts.push(self.script.texts.get(text).cloned().unwrap_or_default());
+                    requests.push(Request::Message {
+                        frames,
+                        text: texts.len() - 1,
+                    });
+                }
             }
             self.next_event += 1;
         }
@@ -388,12 +423,38 @@ mod tests {
         )
     }
 
+    #[test]
+    fn log_and_message_events_carry_their_texts() {
+        let mut core = Core::new(
+            Script::parse("neptron-testcore 3\nat 1 log warn slow\nat 1 message 30 hello\n")
+                .unwrap(),
+            true,
+        );
+        assert!(run(&mut core, 0).requests.is_empty());
+        let step = run(&mut core, 0);
+        assert_eq!(
+            step.requests,
+            [
+                Request::Log {
+                    level: LogLevel::Warn,
+                    text: 0
+                },
+                Request::Message {
+                    frames: 30,
+                    text: 1
+                }
+            ]
+        );
+        assert_eq!(step.texts, ["slow", "hello"]);
+    }
+
     fn run(core: &mut Core, buttons: u16) -> Step {
         let step = core.step(buttons);
         let copy = Step {
             frame: step.frame,
             buttons: step.buttons,
             requests: step.requests.clone(),
+            texts: step.texts.clone(),
             video: step.video,
             frame_buffer: step.frame_buffer.clone(),
             audio_mode: step.audio_mode,

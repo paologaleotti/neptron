@@ -6,7 +6,7 @@ A libretro core that follows a script, for tests. It reads its script from the f
 
 A script is a UTF-8 text file. A byte sequence that is not UTF-8 is an error, reported with its line. Each line holds one keyword and its arguments, separated by spaces. A `#` starts a comment to the end of the line. Blank lines do not count. Every number is an unsigned decimal integer, ASCII digits only (no sign, no separators): frequencies in millihertz or hertz, sizes in pixels, aspect ratios in thousandths.
 
-The first line is the header `neptron-testcore <version>`, with version 1 or 2. Version 2 adds the setup lines `load` and `load_error`; a version 1 script that has one of them is an error.
+The first line is the header `neptron-testcore <version>`, with version 1, 2 or 3. Version 2 adds the setup lines `load` and `load_error`, and version 3 the actions `log` and `message`; a script of an older version that has one of them is an error.
 
 The setup lines come next. Each one is optional and can appear once.
 
@@ -36,6 +36,8 @@ Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` afte
 | `unknown_env` | Calls environment command `0x24E54` (`RETRO_ENVIRONMENT_PRIVATE \| 0x4E54`, `UNKNOWN_ENVIRONMENT_COMMAND`) with null data. No frontend knows it, so a host can test how it answers an unknown call |
 | `get_variable <key> <offset>` | Calls `GET_VARIABLE` for a core option and writes the answer code to the save RAM byte at `offset` (see Core options) |
 | `rotation <value>` | Calls `SET_ROTATION` with the value. The frames do not change: the core sends them as the board draws them |
+| `log <debug\|info\|warn\|error> <text>` | Version 3. Writes the text (the rest of the line) to the log interface at that level |
+| `message <frames> <text>` | Version 3. Calls `SET_MESSAGE` with the text (the rest of the line) for that many frames |
 
 The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, rotation values 0 to 4294967295, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB. An error names the line. A script with an error makes `retro_load_game` return false.
 
@@ -104,7 +106,7 @@ The crate builds as a dynamic library (`cdylib`: `libneptron_testcore.so` on Lin
 | `retro_get_memory_data`, `retro_get_memory_size` | The save RAM for `RETRO_MEMORY_SAVE_RAM`, zeros at load |
 | `retro_serialize_size` | 0: no save states |
 
-The frame buffer has the largest maximum size of the script, and the pitch is its full row, so the pitch is larger than the width in most frames. `dupe` sends the previous frame again when the frontend does not allow duplicate frames. The core allocates no buffer after load.
+The frame buffer has the largest maximum size of the script, and the pitch is its full row, so the pitch is larger than the width in most frames. `dupe` sends the previous frame again when the frontend does not allow duplicate frames. The core allocates no frame or audio buffer after load. A frame with a `log` or `message` action copies its text, so the calls into the frontend take no lock.
 
 Global state: libretro has no instance handle, so the state is one static behind a mutex. The frontend calls the core from one thread, as libretro.h says. The core holds no lock while it calls into the frontend, so a callback can call back into the core. A call from a second thread while the lock is taken does nothing. One process holds one test core.
 
