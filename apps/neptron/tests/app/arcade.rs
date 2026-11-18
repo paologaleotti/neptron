@@ -1,11 +1,13 @@
 //! The arcade games of the list: the titles of the arcade index, and the
-//! set check before a launch with its messages. Every set, ROM, size and
-//! CRC here is invented; the zips hold a central directory and no data.
+//! set check before a launch with its messages. Every ROM, size and CRC
+//! here is invented, and every set name except `kinst`, which is Killer
+//! Instinct of the FinalBurn Neo DAT; the zips hold a central directory
+//! and no data.
 
 use std::path::{Path, PathBuf};
 
 use neptron::{NextRun, Outcome};
-use neptron_library::arcade::{self, ArcadeIndex, IndexSource, RomRecord, SetRecord};
+use neptron_library::arcade::{self, ArcadeIndex, DiskRecord, IndexSource, RomRecord, SetRecord};
 use neptron_types::Control;
 
 use crate::rig::Rig;
@@ -73,11 +75,18 @@ fn with_index(rig: &mut Rig, root: &Path) {
     game.romof = Some("zbios".to_owned());
     game.flags.vertical = true;
     game.roms = vec![rom("sp1.bin", 1024, 0x11)];
+    // The set and disk names of Killer Instinct come from the public DAT.
+    let mut kinst = SetRecord::new("kinst".to_owned(), "Killer Instinct".to_owned());
+    kinst.roms = vec![rom("k1.bin", 16, 0x51)];
+    kinst.disks = vec![DiskRecord {
+        name: "kinst".to_owned(),
+        sha1: None,
+    }];
     let source = IndexSource {
         core: "fbneo".to_owned(),
         ..IndexSource::default()
     };
-    let index = ArcadeIndex::from_sets(source, vec![bios, game]).expect("valid sets");
+    let index = ArcadeIndex::from_sets(source, vec![bios, game, kinst]).expect("valid sets");
     std::fs::write(
         data.join("arcade/fbneo.idx"),
         arcade::encode(&index).expect("encodes"),
@@ -193,6 +202,45 @@ fn the_set_check_stops_a_game_whose_bios_is_missing_and_starts_a_complete_one() 
         panic!("a complete set starts: {outcome:?} {:?}", notices(&mut rig));
     };
     assert_eq!(game.path, "arcade/starpat.zip");
+    rig.release(&[Control::A]);
+    rig.finish();
+}
+
+/// Killer Instinct with its ROMs and no disk image: the set check stops it
+/// with message 8. With a file at `kinst/kinst.chd` (dummy bytes: the
+/// check looks only for the file) the game launches.
+#[test]
+#[ignore = "tier 2"]
+fn a_set_starts_only_with_its_disk_image() {
+    let root = fresh("arcade-disk");
+    let mut rig = Rig::new(&root);
+    with_index(&mut rig, &root);
+    let arcade = rig.paths.roms().join("arcade");
+    write_zip(&arcade.join("kinst.zip"), &[("k1.bin", 16, 0x51)]);
+    arcade_list(&mut rig);
+    rig.focus("Killer Instinct");
+    rig.tap(&[Control::A]);
+    assert_eq!(until_notice_or_end(&mut rig), None, "no relaunch");
+    assert_eq!(
+        notices(&mut rig),
+        [
+            "This game needs the hard disk image kinst.chd. Put it in the folder kinst, next to kinst.zip."
+        ]
+    );
+    rig.tap(&[Control::A]);
+    assert_eq!(rig.screen(), "games");
+
+    std::fs::create_dir_all(arcade.join("kinst")).expect("folder");
+    std::fs::write(arcade.join("kinst/kinst.chd"), b"not a disk image").expect("disk");
+    rig.hold(&[Control::A]);
+    let outcome = until_notice_or_end(&mut rig);
+    let Some(Outcome::Relaunch(NextRun {
+        game: Some(game), ..
+    })) = outcome
+    else {
+        panic!("the set starts: {outcome:?} {:?}", notices(&mut rig));
+    };
+    assert_eq!(game.path, "arcade/kinst.zip");
     rig.release(&[Control::A]);
     rig.finish();
 }
