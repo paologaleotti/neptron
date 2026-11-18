@@ -135,6 +135,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: notice_game_refused,
     },
     SceneDef {
+        name: "screens/notice-game-ended",
+        build: notice_game_ended,
+    },
+    SceneDef {
         name: "screens/quick-menu",
         build: quick_menu,
     },
@@ -1407,6 +1411,17 @@ fn notice_game_refused(frame: &mut UiFrame, theme: &Theme) {
         frame,
         theme,
         "Astro Racer did not start: the core refused the game file. The core says: \"abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abc...\". Check that the file is complete and is for this system.",
+        NoticeKind::Error,
+    );
+}
+
+/// The core ended a game that ran (S3), with the longest words of a core
+/// that the notice keeps.
+fn notice_game_ended(frame: &mut UiFrame, theme: &Theme) {
+    notice_over_list(
+        frame,
+        theme,
+        "Astro Racer stopped: the core ended the game. The core says: \"abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abc...\".",
         NoticeKind::Error,
     );
 }
