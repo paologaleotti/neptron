@@ -377,7 +377,7 @@ The notice texts (`<name>` is the file name of the game with no extension). `<co
 
 With no core text, the sentence "The core says" is left out. The owner approved S1, S2 and S3 on 2026-11-18. Every other launch error keeps its text, `<name> did not start: <error>.`
 
-The game list shows one notice. After S2 there was no play to save, so S2 comes before the notice of a lost save. After a game that ran, a lost save is worth more to the player, so it comes before S3, and the log keeps the stop (`pick_notice` in `apps/neptron/src/shell/intents.rs`).
+The game list shows one notice, and the notice that loses always goes to the log. After S2 there was no play to save, so S2 comes before the notice of a lost save. After a game that ran, a lost save is worth more to the player, so it comes before S3 and before a session error ("The game stopped: ...", for example a stalled display after an hour of play). `pick_notice` in `apps/neptron/src/shell/intents.rs` decides, in pure code.
 
 The log gets one line for the failure or the stop with the same text, one line for each error-level core log line of the launch (at most 8), and a line with the count of log records of the launch that the host lost, when it lost some. The session collects the error lines during the launch only, and keeps the last error line of the frames in a buffer made at launch, so the frame loop does not allocate for them.
 

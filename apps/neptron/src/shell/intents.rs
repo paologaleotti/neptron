@@ -360,10 +360,13 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             return;
         };
         let report = game.session.quit();
-        let notice = pick_notice(notice, lost_save(&report));
+        let picked = pick_notice(notice, lost_save(&report));
+        if let Some(text) = picked.logged {
+            self.log(format!("a notice the game list does not show: {text}"));
+        }
         self.outcome = Some(Outcome::Relaunch(NextRun {
             game: None,
-            notice,
+            notice: picked.shown,
             pads,
         }));
     }
@@ -584,21 +587,47 @@ pub(super) enum EndNotice {
     /// The player quit: no notice of its own.
     None,
     /// A notice that comes before a lost save: the game did not start
-    /// (S2), so it has no play to save, or the session failed.
+    /// (S2), so it had no play to save.
     First(String),
-    /// A notice that a lost save hides: the core ended a game that ran
-    /// (S3). The lost save is worth more to the player; the log keeps the
-    /// stop.
+    /// A notice that comes after a lost save: the core ended a game that
+    /// ran (S3), or the session failed (a stalled display, for example
+    /// after an hour of play). The lost save is worth more to the player.
     AfterSave(String),
 }
 
-/// The one notice of the game list after a game: the end notice or the
-/// notice of a lost save, in the order of [`EndNotice`].
-pub(super) fn pick_notice(end: EndNotice, lost_save: Option<String>) -> Option<String> {
+/// The notices after a game: the one the game list shows, and the one
+/// that lost, which goes to the log only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Picked {
+    /// The notice of the game list.
+    pub(super) shown: Option<String>,
+    /// The notice that lost to it, for the log.
+    pub(super) logged: Option<String>,
+}
+
+/// The one notice of the game list after a game, the end notice or the
+/// notice of a lost save in the order of [`EndNotice`], and the other one
+/// for the log, so no notice is lost in silence.
+pub(super) fn pick_notice(end: EndNotice, lost_save: Option<String>) -> Picked {
     match end {
-        EndNotice::None => lost_save,
-        EndNotice::First(text) => Some(text),
-        EndNotice::AfterSave(text) => lost_save.or(Some(text)),
+        EndNotice::None => Picked {
+            shown: lost_save,
+            logged: None,
+        },
+        EndNotice::First(text) => Picked {
+            shown: Some(text),
+            logged: lost_save,
+        },
+        EndNotice::AfterSave(text) => match lost_save {
+            Some(lost) => Picked {
+                shown: Some(lost),
+                logged: Some(text),
+            },
+            None => Picked {
+                shown: Some(text),
+                logged: None,
+            },
+        },
     }
 }
 
@@ -645,23 +674,62 @@ mod tests {
         assert_eq!(lost_save(&report(Flush::NoSaveRam, None)), None);
     }
 
+    fn picked(shown: Option<&str>, logged: Option<&str>) -> Picked {
+        Picked {
+            shown: shown.map(str::to_owned),
+            logged: logged.map(str::to_owned),
+        }
+    }
+
+    const LOST: &str = "The game was not saved: disk full.";
+
     #[test]
-    fn a_failed_start_comes_before_a_lost_save_and_a_lost_save_before_a_stop() {
-        let lost = || Some("The game was not saved: disk full.".to_owned());
+    fn a_failed_start_is_shown_and_a_lost_save_goes_to_the_log() {
         assert_eq!(
-            pick_notice(EndNotice::First("S2".to_owned()), lost()),
-            Some("S2".to_owned())
+            pick_notice(EndNotice::First("S2".to_owned()), Some(LOST.to_owned())),
+            picked(Some("S2"), Some(LOST))
         );
         assert_eq!(
-            pick_notice(EndNotice::AfterSave("S3".to_owned()), lost()),
-            lost()
+            pick_notice(EndNotice::First("S2".to_owned()), None),
+            picked(Some("S2"), None)
+        );
+    }
+
+    #[test]
+    fn a_lost_save_is_shown_before_a_stop_and_the_stop_goes_to_the_log() {
+        assert_eq!(
+            pick_notice(EndNotice::AfterSave("S3".to_owned()), Some(LOST.to_owned())),
+            picked(Some(LOST), Some("S3"))
         );
         assert_eq!(
             pick_notice(EndNotice::AfterSave("S3".to_owned()), None),
-            Some("S3".to_owned())
+            picked(Some("S3"), None)
         );
-        assert_eq!(pick_notice(EndNotice::None, lost()), lost());
-        assert_eq!(pick_notice(EndNotice::None, None), None);
+    }
+
+    #[test]
+    fn a_lost_save_is_shown_before_a_session_error_after_play() {
+        let stalled = "The game stopped: no flip completed for 10 frames.";
+        assert_eq!(
+            pick_notice(
+                EndNotice::AfterSave(stalled.to_owned()),
+                Some(LOST.to_owned())
+            ),
+            picked(Some(LOST), Some(stalled))
+        );
+        assert_eq!(
+            pick_notice(EndNotice::AfterSave(stalled.to_owned()), None),
+            picked(Some(stalled), None)
+        );
+    }
+
+    #[test]
+    fn a_quit_shows_only_a_lost_save() {
+        assert_eq!(
+            pick_notice(EndNotice::None, Some(LOST.to_owned())),
+            picked(Some(LOST), None)
+        );
+        assert_eq!(pick_notice(EndNotice::None, None), picked(None, None));
     }
 
     #[test]

@@ -150,7 +150,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             // a failed core and an ended session: the game ends, and the
             // run relaunches to the game list, which opens the display
             // again in a new process.
-            Err(e) => self.end_game(EndNotice::First(format!("The game stopped: {e}."))),
+            Err(e) => self.end_game(EndNotice::AfterSave(format!("The game stopped: {e}."))),
         }
     }
 
