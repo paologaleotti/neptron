@@ -106,7 +106,8 @@ The state column is one line. The full entry below is the reference.
 | OP-108 | Arcade leftovers after M07 | No diagnostics page; core default for the service menu |
 | OP-109 | Video policy: questions for the owner and leftovers | Built defaults stay; the app does not set the arcade flag yet |
 | OP-110 | Input for four players: owner decisions and leftovers | Plug order; a picker in Settings > Input is task M05b; no multitap |
-| OP-111 | PC findings of 2026-11-17 | Governor fixed; a PS3 arcade stick is silent on a direct port; cold build with the 15 kHz patch fails |
+| OP-111 | PC findings of 2026-11-17 | Governor fixed; the PS3 arcade stick works with the old USB enumeration scheme; cold build with the 15 kHz patch fails |
+| OP-112 | A setting to turn off the old USB enumeration scheme | The images boot with `usbcore.old_scheme_first=1`; no setting yet |
 
 ### Decided
 
@@ -1197,7 +1198,16 @@ The state column is one line. The full entry below is the reference.
 
 - Raised by: the bench session on the i3-6100T (2026-11-17)
 - Status: open
-- Default: the PC image booted with the `powersave` governor and FinalBurn Neo missed fields (42 frames per second against 60.2); the kernel fragment `os/board/pc/system.config` now sets `performance`, and the result on the PC is a line of the hardware checklist. A Mad Catz FightStick Tournament Edition for PS3 (`0738:8838`) enumerates on a direct port of the PC and sends only neutral reports; it works on a Mac behind a USB hub. The PS3 start request (feature report, reply `21 26 01 07`), the two Sony requests and an LED output report do not change that. The test with the same hub on the PC is open: if it works, the cause is the USB controller and no code is needed; if not, the next step is a capture of what macOS sends. A cold build of the PC image with the 15 kHz patch set stops at "No hash found for 01_linux_15khz.patch" in the kernel headers step; CI does not see it, because it builds without that patch set. The base key of the CI image cache does not hash `os/board/pc/*.config`. The image builds SDL3 without HIDAPI and without libudev.
+- Default: the PC image booted with the `powersave` governor and FinalBurn Neo missed fields (42 frames per second against 60.2); the kernel fragment `os/board/pc/system.config` now sets `performance`, and the result on the PC is a line of the hardware checklist. A Mad Catz FightStick Tournament Edition for PS3 (`0738:8838`) enumerates on a direct port of the PC and sends only neutral reports; it works on a Mac behind a USB hub. The PS3 start request (feature report, reply `21 26 01 07`), the two Sony requests and an LED output report do not change that. The cause is the default enumeration scheme of Linux: its first read of 64 bytes at address 0 leaves the firmware of the stick in a state with no button data until the stick loses power. With `usbcore.old_scheme_first=1` the stick gives input in each trial that starts with a physical replug (owner trials on the PC, 2026-11-18); the images now boot with that parameter, see OP-112. A test that enumerates a device again without a cut of its power does not show this. A cold build of the PC image with the 15 kHz patch set stops at "No hash found for 01_linux_15khz.patch" in the kernel headers step; CI does not see it, because it builds without that patch set. The base key of the CI image cache does not hash `os/board/pc/*.config`. The image builds SDL3 without HIDAPI and without libudev.
 - Where: `os/board/pc`, `os/patches/linux`, `.github/workflows/images.yml`, `crates/neptron-input`
-- How to change: M12 for the patch hash; a small CI branch for the base key; the stick after the hub test.
+- How to change: M12 for the patch hash; a small CI branch for the base key.
 - Decision: Owner, 2026-11-17: NEPTRON's own driver code for third-party PS3 pads is allowed if a host-side cause is found.
+
+### OP-112: A setting to turn off the old USB enumeration scheme.
+
+- Raised by: the fix of the Mad Catz PS3 FightStick (`0738:8838`) on the PC (2026-11-18)
+- Status: open
+- Default: every player image boots with `usbcore.old_scheme_first=1`, and there is no setting. `use_both_schemes` keeps its default, so a device that refuses the old scheme enumerates with the other scheme after a short delay. The owner saw XInput pads work with the parameter on. A controller that enumerates with the old scheme and then works badly has no remedy in the UI.
+- Where: `os/board/pc/grub.cfg`, `os/board/rpi/cmdline.txt`; a setting belongs in Settings > Input, global layer only, with a backend that writes `Y` or `N` to `/sys/module/usbcore/parameters/old_scheme_first` at the start of the session and at a change.
+- How to change: add the setting (schema entry, backend write with a test against a temporary directory). The value applies to a controller that is plugged in after the write. The setting cannot cover a controller that is plugged in at power-on without a write to the boot partition.
+- Decision: Owner, 2026-11-18: ship the parameter now and keep the setting as an open point.
