@@ -52,7 +52,7 @@ flowchart TD
     Grid -->|"Accept or Back"| Disp
     Disp -->|"Back"| Set
     Aud -->|"Back"| Set
-    Game -->|"Select+Start, or Start hold"| QM
+    Game -->|"Select+Start held 0.5 s, or Start hold"| QM
     QM -->|"Resume or Back,<br/>no change noted"| Game
     QM -->|"Resume, Back or Quit game<br/>with changes noted"| Keep
     Keep -->|"a button"| Game
@@ -65,7 +65,7 @@ From the quick menu the player also reaches the video page, the Settings page wi
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Rows : Select and Start, or Start hold
+    [*] --> Rows : Select and Start held 0.5 s, or Start hold
     Rows --> VideoPage : Accept on Video
     VideoPage --> OptionList : Accept on a choice row
     OptionList --> VideoPage : Accept or Back
@@ -201,7 +201,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Option list | same | Accept on a dim option | none | nothing |
 | Option list | page under it | Back | none | nothing |
 | Grid pattern | page under it | Accept or Back | none | nothing. Other buttons do nothing, so the pad can be touched while the monitor is adjusted. |
-| Game | Quick menu | Select and Start down together on one port | `QUICK_MENU_COMBO` = Select, Start | The session pauses the core, mutes the audio and flushes save RAM. The app sends `Menu` to the UI the next frame. |
+| Game | Quick menu | Select and Start held together on one port for 0.5 s | `QUICK_MENU_COMBO` = Select, Start; `QUICK_MENU_HOLD_NS` = 0.5 s | The session pauses the core, mutes the audio and flushes save RAM. The app sends `Menu` to the UI the next frame. |
 | Game | Quick menu | Start held alone on one port | `input.menu_hold_start_seconds`, default 0 (off), max `MENU_HOLD_START_MAX_SECONDS` = 10 s | as above |
 | Quick menu | Video page | Accept on `Video` | none | `LoadSettings` for `VIDEO_PAGE` |
 | Quick menu | Settings page | Accept on `Settings` | none | nothing: the UI shows the page |
@@ -388,7 +388,7 @@ Against `docs/definition/08-frontend-and-ux.md`:
 6. Screens table, "Display panel": no geometry row. One test pattern (the grid). The panel also holds `Scanlines` and `Scanline strength`; `Hold Start for menu` is on the Input panel. `Output` is read-only.
 7. Screens table, "Settings" (full tree): the Settings page has six panels, `Display`, `Audio`, `Input`, `Library`, `Network` and `System`.
 8. "Settings model", "offers reset to inherited": there is no row or option for it. The Menu button (X) on a row resets it. A pad with two buttons cannot reset.
-9. "Quick menu", combination: Select+Start is fixed (`QUICK_MENU_COMBO`), not configurable. The Start hold exists but is off by default (`input.menu_hold_start_seconds` = 0, max 10 s); the definition says the arcade default is a 2 s hold.
+9. "Quick menu", combination: Select+Start held for 0.5 s is fixed (`QUICK_MENU_COMBO`, `QUICK_MENU_HOLD_NS`), not configurable. The Start hold exists but is off by default (`input.menu_hold_start_seconds` = 0, max 10 s); the definition says the arcade default is a 2 s hold.
 10. "Quick menu", contents: the code has `Resume`, `Volume`, `Video` (`Picture style`, `Refresh policy`, `Scanlines`, `Scanline strength`), `Settings` (the global panels) and `Quit game`. No save states, interlace, position, shader, rotation, core options, controls, disc swap or reset.
 11. "Quick menu", "Changes apply immediately": a picture style or refresh policy change applies at once but opens the confirm dialog, and goes back after 10 s with no Keep.
 12. "Quick menu", keep prompt: the buttons are `This game`, `System`, `All games`, with the focus on `This game`. Back in the prompt returns to the quick menu. The prompt appears only when a game-level change was made in this visit.

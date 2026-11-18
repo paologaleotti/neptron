@@ -107,8 +107,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
 
     /// Closes the quick menu. The core runs again from the next frame. The
     /// buttons held now reach the core only after their release, so the
-    /// button that chose "resume" does not reach the game, and Select and
-    /// Start held now open no menu at their release. A source that the
+    /// button that chose "resume" does not reach the game, and a hold of
+    /// Select and Start in progress now opens no menu; a new hold starts
+    /// after a release of one of them. A source that the
     /// engine blocked after a device error of its modeset is tried again.
     pub fn resume(&mut self) {
         if self.state != State::Paused {

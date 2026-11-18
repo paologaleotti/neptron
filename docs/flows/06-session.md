@@ -35,7 +35,7 @@ The session has three states (`State` in `session.rs`). The engine adds one more
 ```mermaid
 stateDiagram-v2
     [*] --> Running: launch succeeds
-    Running --> Paused: Select and Start, or Start hold
+    Running --> Paused: Select and Start held 0.5 s, or Start hold
     Paused --> Paused: quick menu hotkey again, ignored
     Paused --> Running: resume
     Running --> Ended: core asks to stop
@@ -70,7 +70,7 @@ flowchart TD
 
 ### Hotkeys of one port
 
-Select and Start together (`QUICK_MENU_COMBO`) fire the quick menu at their release, when the press lasted less than `BLIND_RECOVERY_HOLD_NS`. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So a recovery hold never opens the quick menu. `Session::resume` cancels a press held across the close (`Hotkeys::cancel_quick_menu`), so its release does not open the menu again. From the frame Select and Start are both down until both are up again, the core sees neither (`PadMask`), so the game does not act on the combination during the hold. The Start hold is a second way to the quick menu, with its own state per port:
+Select and Start held together (`QUICK_MENU_COMBO`) for `QUICK_MENU_HOLD_NS` (0.5 s) fire the quick menu, once per hold, at the hold time. A shorter overlap fires nothing. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So in a game a recovery hold opens the quick menu first. `Session::resume` cancels a hold in progress (`Hotkeys::cancel_quick_menu`), so a combination held across the close does not open the menu again. From the frame Select and Start are both down until both are up again, the core sees neither (`PadMask`), so the game does not act on the combination during the hold. The Start hold is a second way to the quick menu, with its own state per port:
 
 ```mermaid
 stateDiagram-v2
@@ -133,13 +133,13 @@ flowchart TD
 | (none) | settle | `Session::launch` after the save file is loaded | | Core frames run, no present, audio of these frames is dropped, core reads no input. |
 | settle | `Running` | The source (size, rate, aspect, interlace) is equal for N frames in a row, or the frame count reaches the maximum | `LAUNCH_STABLE_FRAMES` = 6 frames, `LAUNCH_SETTLE_MAX_FRAMES` = 30 frames | Audio pipeline starts at the core rate. Writer thread starts. Flush timer set to now + 30 s. The first `run_frame` sets the first mode with no debounce. |
 | settle | `Ended` | The core sends `Shutdown` during settle | | Launch still succeeds, with the session ended. The first `run_frame` returns `SessionError::Ended`, and the app ends the game with notice "The game stopped: the session has ended." |
-| `Running` | `Paused` | Select and Start both down on one port (fires once per press), or Start alone held for the hold time | `QUICK_MENU_COMBO` = Select + Start; `input.menu_hold_start_seconds` = 0 (off) to `MENU_HOLD_START_MAX_SECONDS` = 10 s, default 0 | Audio mutes. Save RAM flush. `FrameReport::menu_opened`; the app opens the quick menu on the next frame. |
+| `Running` | `Paused` | Select and Start both held on one port for 0.5 s (fires once per hold), or Start alone held for the hold time | `QUICK_MENU_COMBO` = Select + Start; `QUICK_MENU_HOLD_NS` = 0.5 s; `input.menu_hold_start_seconds` = 0 (off) to `MENU_HOLD_START_MAX_SECONDS` = 10 s, default 0 | Audio mutes. Save RAM flush. `FrameReport::menu_opened`; the app opens the quick menu on the next frame. |
 | `Paused` | `Paused` | Quick menu hotkey again | | Nothing: the menu is never a toggle. |
-| `Paused` | `Running` | UI intent Resume: "Resume" row, or Back (after the keep prompt, when the visit changed a setting) | | Every button held now is held back until its release. If the engine has a blocked source (`source_blocked()`), `engine.retry()`. A Select and Start press held now opens no menu at its release. Core runs from the next frame. |
+| `Paused` | `Running` | UI intent Resume: "Resume" row, or Back (after the keep prompt, when the visit changed a setting) | | Every button held now is held back until its release. If the engine has a blocked source (`source_blocked()`), `engine.retry()`. A Select and Start hold in progress now opens no menu. Core runs from the next frame. |
 | `Running` | `Ended` | Core event `Shutdown` (`RETRO_ENVIRONMENT_SHUTDOWN`) | | `FrameReport::ended = CoreShutdown`. The app ends the game. |
 | `Running` | `Ended` | `host.run_frame` returns an error | | `SessionError::Core`. The app ends the game with a notice. |
 | any | `Ended` | N loop frames in a row with no completed flip and the output on | `FLIPLESS_FRAMES_LIMIT` = 10 frames; KMS wait `FLIP_WAIT_LIMIT_MS` = 500 ms, so at most about 5 s | `SessionError::DisplayStalled`. The app ends the game with a notice. |
-| any | any | Select and Start held on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | `FrameReport::blind_recovery`. The app calls `guard.recover`: the safe default goes to the engine. The session state does not change: a recovery hold opens no quick menu. The app plays the tone through the session (`Session::write_cue`): the pipeline mixes it into the next core frames, through the mute, with the queue at its target; a frame with no core run writes its next slice with silence up to the target level (`idle_frame`). |
+| any | any | Select and Start held on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | `FrameReport::blind_recovery`. The app calls `guard.recover`: the safe default goes to the engine. The session state does not change by the recovery. In a game the same hold opened the quick menu at 0.5 s. The app plays the tone through the session (`Session::write_cue`): the pipeline mixes it into the next core frames, through the mute, with the queue at its target; a frame with no core run writes its next slice with silence up to the target level (`idle_frame`). |
 | `Running` | `Running` | Clock reaches the flush time | `SAVE_RAM_FLUSH_INTERVAL_NS` = 30 s | Save RAM copy goes to the writer when it changed. Timer restarts. |
 | `Ended` | (process) | `quit()` | | Last flush, writer joined, `ExitReport`. Relaunch file to the game list, exit code `RELAUNCH_EXIT_CODE` = 75. A reboot or a power-off from `Settings > System` is not possible in a game: both rows are disabled with `Not during a game`, so the player quits the game, and this flush, first. |
 
@@ -177,7 +177,7 @@ flowchart TD
 | Core call fails in the loop | Notice "The game stopped: the core failed: ...", then the game list. | Automatic. Save RAM is flushed at quit. |
 | Core crashes (signal) | The frontend process dies with the core. The launcher restarts it after its backoff (see [Power-on](01-power-on.md)). No relaunch file is left, so the start is a new boot with the game list. Save RAM is at most 30 s old. | Automatic. |
 | Power cut during play | On the next boot the save file is the last one written: at most `SAVE_RAM_FLUSH_INTERVAL_NS` = 30 s old, or the state at the last quick menu open. A cut during a write leaves the old file or the new one, plus `.bak`. | Nothing to do. |
-| Wrong picture or black screen during play | Hold Select and Start for 5 s. The safe default goes on the wire and the tone plays. The game goes on, with no quick menu. The notice "Safe mode: the picture was reset. Keep a display setting to leave it." shows when the quick menu opens. | Keep a display setting to leave safe mode. |
+| Wrong picture or black screen during play | Hold Select and Start for 5 s. The quick menu opens at 0.5 s and pauses the game. At 5 s the safe default goes on the wire and the tone plays. The notice "Safe mode: the picture was reset. Keep a display setting to leave it." shows over the quick menu. | Keep a display setting to leave safe mode. |
 | Inputs refuse every mode | Output off, game frozen, no sound. | Blind recovery, or a guard revert, sets a mode again. |
 | A modeset failed on the device | The engine keeps the old mode and blocks that source. | Open and close the quick menu: `resume()` calls `retry()`. |
 

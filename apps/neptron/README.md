@@ -14,7 +14,7 @@ cargo run -p neptron --features window -- --backend window \
 ```
 
 - Put games in `share/roms/nes`, `share/roms/snes` or `share/roms/megadrive`, and the cores (`fceumm_libretro.dylib` named `fceumm_libretro.so`, and so on, as `data/cores` names them) in the cores folder.
-- Keys: arrows, X accepts (RetroPad A), Z goes back (B), S is the menu button (X), Right Shift and Return together open the quick menu, and held for 5 s they are the blind recovery.
+- Keys: arrows, X accepts (RetroPad A), Z goes back (B), S is the menu button (X), Right Shift and Return held together for 0.5 s open the quick menu, and held for 5 s they are also the blind recovery.
 - A launch, and the end of a game, end the process with exit code 75: one process holds one core. Run it under the launcher to get the next run at once: `cargo run -p neptron-launch -- --no-device -- target/debug/neptron --backend window ...`.
 
 `cargo xtask clippy -p neptron --features window` checks the window build. The `kms` build compiles only on Linux.
@@ -139,7 +139,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 - Tier 2, ignored in tier 1 and run by `cargo xtask verify --tier 2`, on the fakes of `neptron-testkit` with the built test core:
   - `panel.rs`: a fake 1080p HDMI panel (EDID in `tests/fixtures/edid`): the boot picks the panel profile in its native mode, the menu at 4x, a game at 4x with black borders, and a change to a CRT preset that reverts with no answer.
   - `end_to_end.rs`: a new boot confirms its settings, the game list, a launch, the mode switch of the core, the quick menu (not a toggle), a display change that reverts with no answer, the same change kept and written to the game's file, the quit with the keep prompt, the save RAM at the quit, and the list again with one boot counted.
-  - `recovery.rs`: the 5 s hold of Select and Start from `neptron-input` to `Guard::recover`, in the list and in a game, with the record in safe mode and the tone.
+  - `recovery.rs`: the 5 s hold of Select and Start from `neptron-input` to `Guard::recover`, in the list and in a game (where the hold opens the quick menu at 0.5 s first), with the record in safe mode and the tone.
   - `faults.rs`: a display that stops flipping ends the game and relaunches the list with the reason.
   - `start.rs`: a game that does not start or that the core stops: the core refuses the file, stops during the load, stops in the first frame, logs an error at the load and stops soon after, or ends a game that ran, with a message and with none. Each ends in the list with its notice and log lines, the list in the same mode and with the same audio as before the launch, and a failed launch sets no mode.
   - `audio.rs`: the audio panel writes the volume and the output to `global.toml`; the quick menu volume reaches the game at once, and the next run of the game starts at it.

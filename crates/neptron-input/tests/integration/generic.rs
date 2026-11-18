@@ -4,7 +4,8 @@ use neptron_backend::InputSource;
 use neptron_input::{
     BLIND_RECOVERY_COMBO, DeviceIdentity, GAMEPAD_DEVICE_BASE, GenericLayout, HatState, Hotkey,
     Hotkeys, InputNotice, JoystickCounts, MapKind, Mapper, PadInfo, PadMap, PadRoster, PortRule,
-    PortStates, QUICK_MENU_COMBO, RawInput, Roster, STICK_DEAD_ZONE, ScriptedPads,
+    PortStates, QUICK_MENU_COMBO, QUICK_MENU_HOLD_NS, RawInput, Roster, STICK_DEAD_ZONE,
+    ScriptedPads,
 };
 use neptron_types::{Control, InputEvent};
 
@@ -211,11 +212,22 @@ fn a_generic_pad_reaches_the_hotkeys_and_opens_the_quick_menu() {
         hotkeys.update(&ports, now_ns, fired);
     };
     frame(0, &mut fired);
+    // A short overlap opens nothing, also at its release.
     test.set_joy_button(stick, 8, true);
     test.set_joy_button(stick, 9, true);
     frame(10_000_000, &mut fired);
+    frame(10_000_000 + QUICK_MENU_HOLD_NS - 1, &mut fired);
     test.set_joy_button(stick, 9, false);
-    frame(20_000_000, &mut fired);
+    frame(20_000_000 + QUICK_MENU_HOLD_NS, &mut fired);
+    assert_eq!(fired, []);
+    // A hold opens it at the hold time, once.
+    let t0 = 1_000_000_000;
+    test.set_joy_button(stick, 9, true);
+    frame(t0, &mut fired);
+    frame(t0 + QUICK_MENU_HOLD_NS - 1, &mut fired);
+    assert_eq!(fired, []);
+    frame(t0 + QUICK_MENU_HOLD_NS, &mut fired);
+    frame(t0 + 2 * QUICK_MENU_HOLD_NS, &mut fired);
     assert_eq!(fired, [Hotkey::QuickMenu { port: 0 }]);
 }
 

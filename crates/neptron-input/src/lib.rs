@@ -50,7 +50,7 @@ pub use guided::{
 };
 pub use hotkeys::{
     BLIND_RECOVERY_COMBO, BLIND_RECOVERY_HOLD_NS, Hotkey, Hotkeys, QUICK_MENU_COMBO,
-    START_HOLD_BLOCKER, START_HOLD_BUTTON,
+    QUICK_MENU_HOLD_NS, START_HOLD_BLOCKER, START_HOLD_BUTTON,
 };
 pub use key_map::{KEY_MAP, key_control, looks_like_keyboard, mapped_keys_down};
 #[cfg(all(feature = "evdev", target_os = "linux"))]

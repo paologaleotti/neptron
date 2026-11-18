@@ -51,7 +51,7 @@ fn the_menu_hotkey_under_a_confirm_dialog_opens_the_quick_menu_after_it() {
             assert_eq!(rig.screen(), "confirm");
             assert!(!rig.shell().paused());
 
-            rig.tap(&[Control::Select, Control::Start]);
+            rig.open_menu();
             rig.frames(2);
             assert!(rig.shell().paused());
             assert_eq!(rig.screen(), "confirm", "the dialog stays on top");

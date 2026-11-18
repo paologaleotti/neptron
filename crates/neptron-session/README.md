@@ -22,7 +22,7 @@ Game lifecycle: launch, the display-locked loop, pause, quick menu, exit and sav
 ## One frame
 
 ```text
-poll input once -> ports -> hotkeys      (Select+Start or the Start hold opens the quick menu)
+poll input once -> ports -> hotkeys      (Select+Start held 0.5 s or the Start hold opens the quick menu)
 set_pad for each port, run_frame          (not while the quick menu is open)
 engine.begin_frame(source)
 mute the audio if the engine, the menu or a refused mode asks for it
@@ -67,7 +67,7 @@ The rotation is the turn that the core asks for with `SET_ROTATION` (`Host::rota
 
 ## The quick menu
 
-- Select+Start (and the Start hold, `input.menu_hold_start_seconds`) opens it. The hotkey pauses the core. A second quick menu hotkey while it is open does nothing: the menu is never a toggle (OP-051). The app closes it with `resume()`.
+- Select+Start held together for 0.5 s (`QUICK_MENU_HOLD_NS`), and the Start hold (`input.menu_hold_start_seconds`), open it. The hotkey pauses the core. A second quick menu hotkey while it is open does nothing: the menu is never a toggle (OP-051). The app closes it with `resume()`.
 - On `resume()`, every button held at that moment reaches the core only after its release. The button that chose "resume" does not reach the game, and after a Start hold the game sees Start go up and no new press (OP-051).
 - Select and Start down together on a port are the quick menu and the blind recovery hold, never game input. From the frame both are down until both are up again, the core sees neither, so a game does not pause itself or take a reset combination during the 5 s recovery hold.
 - `FrameReport::blind_recovery` reports the 5 s hold of the combination, also while the menu is open. The safety layer acts on it.

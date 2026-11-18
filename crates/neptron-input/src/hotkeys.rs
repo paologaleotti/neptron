@@ -6,9 +6,16 @@ use neptron_types::Control;
 use crate::device::MAX_PORTS;
 use crate::ports::PortStates;
 
-/// The buttons that open the quick menu when they go up after a press of
-/// all of them on one port, held for less than [`BLIND_RECOVERY_HOLD_NS`].
+/// The buttons that, held together on one port for
+/// [`QUICK_MENU_HOLD_NS`], open the quick menu.
 pub const QUICK_MENU_COMBO: [Control; 2] = [Control::Select, Control::Start];
+
+/// How long the quick menu combination must stay held, in nanoseconds.
+///
+/// On an arcade stick Select is the coin and Start is start: a coin and a
+/// Start pressed in a quick sequence overlap for a moment, and that
+/// overlap must not open the menu.
+pub const QUICK_MENU_HOLD_NS: u64 = 500_000_000;
 
 /// The buttons that, held together on one port for
 /// [`BLIND_RECOVERY_HOLD_NS`], restore the safe display mode.
@@ -45,13 +52,11 @@ pub enum Hotkey {
 /// the port state took the events of the frame, also when no event came,
 /// so that a hold can complete.
 ///
-/// A combination fires once each time it goes down. The blind recovery
-/// fires when it has stayed down for [`BLIND_RECOVERY_HOLD_NS`]. The quick
-/// menu fires when the combination goes up again (one of its buttons is
-/// released) after less than [`BLIND_RECOVERY_HOLD_NS`]: the two share
-/// their buttons, and a hold long enough to be a recovery must not also
-/// open the menu, which would pause a game under the recovered picture. A
-/// release starts the hold time again.
+/// A combination fires once each time it goes down, when it has stayed
+/// down for its hold time: the quick menu at [`QUICK_MENU_HOLD_NS`], the
+/// blind recovery at [`BLIND_RECOVERY_HOLD_NS`]. The two share their
+/// buttons, so a recovery hold opens the quick menu first. A release of
+/// one of the buttons starts the hold time again.
 ///
 /// The Start hold is off until [`Hotkeys::set_start_hold_ns`] gives it a
 /// time. Then Start held alone on a port for that time also opens the quick
@@ -59,7 +64,7 @@ pub enum Hotkey {
 /// and Select has not gone down since. Other buttons do not matter.
 #[derive(Debug, Clone, Default)]
 pub struct Hotkeys {
-    quick_menu: ReleaseCombo,
+    quick_menu: ComboTimer,
     blind_recovery: ComboTimer,
     start_hold: StartHold,
 }
@@ -89,10 +94,11 @@ impl Hotkeys {
         }
     }
 
-    /// Ends every Select and Start press in progress for the quick menu: its
-    /// release opens no menu. The app calls it when the menu closes, so the
-    /// combination held across the close does not open the menu again at
-    /// its release. The blind recovery hold goes on.
+    /// Ends every quick menu hold in progress: it opens no menu, and the
+    /// next one starts when the combination is down again after a release.
+    /// The app calls it when the menu closes, so a combination held across
+    /// the close does not open the menu again. The blind recovery hold goes
+    /// on.
     pub fn cancel_quick_menu(&mut self) {
         self.quick_menu.cancel();
     }
@@ -109,13 +115,11 @@ impl Hotkeys {
     /// give a quick menu in the same hold of Start.
     pub fn update(&mut self, ports: &PortStates, now_ns: u64, out: &mut Vec<Hotkey>) {
         for port in 0..MAX_PORTS {
-            if self.quick_menu.fires_on_release(
-                ports,
-                port,
-                &QUICK_MENU_COMBO,
-                BLIND_RECOVERY_HOLD_NS,
-                now_ns,
-            ) {
+            let start_hold_fired = self.start_hold.fired(port);
+            let combo =
+                self.quick_menu
+                    .fires(ports, port, &QUICK_MENU_COMBO, QUICK_MENU_HOLD_NS, now_ns);
+            if combo && !start_hold_fired {
                 out.push(Hotkey::QuickMenu { port });
             }
             if self.start_hold.fires(ports, port, now_ns) {
@@ -167,46 +171,13 @@ impl ComboTimer {
         self.fired[i] = true;
         true
     }
-}
 
-/// The press of a combination that fires at its release.
-#[derive(Debug, Clone, Copy, Default)]
-struct ReleaseCombo {
-    /// When the combination went down on the port, while it stays down and
-    /// can still fire.
-    since_ns: [Option<u64>; MAX_PORTS as usize],
-    /// True while the combination is down on the port.
-    down: [bool; MAX_PORTS as usize],
-}
-
-impl ReleaseCombo {
-    /// True when `combo` on `port` goes up at `now_ns` after a hold
-    /// shorter than `limit_ns`.
-    fn fires_on_release(
-        &mut self,
-        ports: &PortStates,
-        port: u8,
-        combo: &[Control],
-        limit_ns: u64,
-        now_ns: u64,
-    ) -> bool {
-        let i = usize::from(port);
-        if combo.iter().all(|control| ports.is_held(port, *control)) {
-            if !self.down[i] {
-                self.since_ns[i] = Some(now_ns);
-            }
-            self.down[i] = true;
-            return false;
-        }
-        self.down[i] = false;
-        self.since_ns[i]
-            .take()
-            .is_some_and(|since| now_ns.saturating_sub(since) < limit_ns)
-    }
-
-    /// The presses in progress fire nothing at their release.
+    /// The holds in progress fire no more. A port where the combination
+    /// was not down at the last check keeps its next hold.
     fn cancel(&mut self) {
-        self.since_ns = [None; MAX_PORTS as usize];
+        for (fired, since) in self.fired.iter_mut().zip(&self.since_ns) {
+            *fired |= since.is_some();
+        }
     }
 }
 
@@ -227,12 +198,20 @@ enum HoldState {
     /// Start is down alone since the given time. The time runs also while
     /// the hold is off.
     Timing(u64),
-    /// This press of Start can give no quick menu any more: the hold fired,
-    /// Select went down, or the hold time changed.
+    /// This press of Start can give no quick menu any more: Select went
+    /// down, or the hold time changed.
     Done,
+    /// The hold fired on this press of Start.
+    Fired,
 }
 
 impl StartHold {
+    /// True when the Start hold fired on the press of Start in progress on
+    /// `port`.
+    fn fired(&self, port: u8) -> bool {
+        self.state[usize::from(port)] == HoldState::Fired
+    }
+
     /// True when Start on `port` completes a hold alone at `now_ns`.
     fn fires(&mut self, ports: &PortStates, port: u8, now_ns: u64) -> bool {
         let state = &mut self.state[usize::from(port)];
@@ -241,11 +220,13 @@ impl StartHold {
             return false;
         }
         if ports.is_held(port, START_HOLD_BLOCKER) {
-            *state = HoldState::Done;
+            if *state != HoldState::Fired {
+                *state = HoldState::Done;
+            }
             return false;
         }
         let since = match *state {
-            HoldState::Done => return false,
+            HoldState::Done | HoldState::Fired => return false,
             HoldState::Idle => {
                 *state = HoldState::Timing(now_ns);
                 now_ns
@@ -255,7 +236,7 @@ impl StartHold {
         if self.hold_ns == 0 || now_ns.saturating_sub(since) < self.hold_ns {
             return false;
         }
-        *state = HoldState::Done;
+        *state = HoldState::Fired;
         true
     }
 }

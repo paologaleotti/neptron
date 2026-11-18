@@ -320,6 +320,24 @@ impl Rig {
             self.input.release(now, 0, *control);
         }
     }
+
+    /// Holds Select and Start on port 0 until the frame that opens the
+    /// quick menu, then releases them for the next frame. Returns the frames
+    /// of the hold, the frame that opened the menu included.
+    pub fn open_menu(&mut self) -> u64 {
+        self.press(&[Control::Select, Control::Start]);
+        let mut frames = 0;
+        loop {
+            let report = self.session.run_frame(None).expect("frame");
+            frames += 1;
+            if report.menu_opened {
+                break;
+            }
+            assert!(frames < 120, "the hold did not open the quick menu");
+        }
+        self.release(&[Control::Select, Control::Start]);
+        frames
+    }
 }
 
 /// The hash of the session's last game frame, as the test core hashes it.

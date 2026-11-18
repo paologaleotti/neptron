@@ -3,7 +3,9 @@
 //! sends no input.
 
 use neptron_backend::Clock;
-use neptron_input::{DeviceIdentity, HatState, JoystickCounts, PadInfo, SILENT_PAD_AFTER_NS};
+use neptron_input::{
+    DeviceIdentity, HatState, JoystickCounts, PadInfo, QUICK_MENU_HOLD_NS, SILENT_PAD_AFTER_NS,
+};
 use neptron_types::Control;
 use neptron_ui::snapshot::Notice;
 
@@ -113,6 +115,11 @@ fn a_pad_with_no_mapping_plays_tells_once_and_starts_its_mapping() {
         rig.pads.set_joy_button(stick, SELECT, true);
         rig.pads.set_joy_button(stick, START, true);
         rig.frames(1);
+        rig.pads.set_joy_button(stick, START, false);
+        rig.frames(3);
+        assert_eq!(rig.screen(), "game", "a short overlap opens nothing");
+        rig.pads.set_joy_button(stick, START, true);
+        rig.hold_for(QUICK_MENU_HOLD_NS);
         rig.pads.set_joy_button(stick, START, false);
         rig.pads.set_joy_button(stick, SELECT, false);
         rig.frames(3);

@@ -2,7 +2,7 @@
 //! `neptron-input` to `Guard::recover`, with the record written.
 
 use neptron::NextRun;
-use neptron_input::BLIND_RECOVERY_HOLD_NS;
+use neptron_input::{BLIND_RECOVERY_HOLD_NS, QUICK_MENU_HOLD_NS};
 use neptron_types::Control;
 use neptron_video::{Phase, SafeReason};
 
@@ -40,11 +40,11 @@ fn the_hold_in_the_game_list_restores_the_safe_default() {
 
 #[test]
 #[ignore = "tier 2"]
-fn the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu() {
+fn the_hold_in_a_game_restores_the_safe_default_with_a_tone_under_the_quick_menu() {
     in_child(
         &test_name(
             module_path!(),
-            "the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu",
+            "the_hold_in_a_game_restores_the_safe_default_with_a_tone_under_the_quick_menu",
         ),
         |dir| {
             let mut rig = Rig::new(dir);
@@ -65,6 +65,13 @@ fn the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu() {
             rig.boot(Some(next));
             rig.frames(30);
             rig.hold(&[Control::Select, Control::Start]);
+            rig.hold_for(QUICK_MENU_HOLD_NS);
+            assert!(rig.shell().paused(), "the hold opens the quick menu first");
+            assert_ne!(
+                rig.shell().guard().phase(),
+                Phase::Safe(SafeReason::Recovery),
+                "no recovery yet"
+            );
             rig.until(HOLD_FRAMES, "the recovery", |r| {
                 r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
             });
@@ -74,12 +81,8 @@ fn the_hold_in_a_game_restores_the_safe_default_with_a_tone_and_no_menu() {
             // The tone is 200 ms at the 48 kHz of the fake sink.
             assert_eq!(stats.cue_frames, 9_600, "the whole tone");
             assert_eq!(stats.overrun_frames, 0);
-            assert!(!rig.shell().paused(), "the hold opens no quick menu");
-            assert_eq!(rig.screen(), "game");
-
-            // The notice waits for the quick menu.
-            rig.tap(&[Control::Select, Control::Start]);
-            rig.frames(2);
+            assert!(rig.shell().paused(), "the game stays paused");
+            // The quick menu is open, so the notice shows at once.
             assert_eq!(rig.screen(), "notice", "the notice of the safe mode");
             rig.finish();
             assert!(

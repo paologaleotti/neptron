@@ -7,7 +7,7 @@ use neptron_safety::Rejection;
 use neptron_session::{FLIPLESS_FRAMES_LIMIT, SessionError};
 use neptron_testkit::preset::CAPS_LOW_CLOCK;
 use neptron_testkit::{DEFAULT_FLIP_TIMEOUT_NS, FlipFault};
-use neptron_types::{Control, GpuCaps, Modeline};
+use neptron_types::{GpuCaps, Modeline};
 use neptron_video::{DEBOUNCE_FRAMES, Directive, VideoError};
 
 use crate::harness::{Rig, Setup};
@@ -226,9 +226,7 @@ fn a_late_flip_under_the_quick_menu_is_not_counted() {
         |dir| {
             let mut rig = Rig::launch(dir, Setup::default());
             rig.run(10);
-            rig.press(&[Control::Select, Control::Start]);
-            rig.run(1);
-            rig.release(&[Control::Select, Control::Start]);
+            rig.open_menu();
             rig.run(1);
             assert!(rig.session.paused());
             let index = rig.display.next_present_index();

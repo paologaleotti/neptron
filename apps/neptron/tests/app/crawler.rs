@@ -181,7 +181,7 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
         notice: None,
     }));
     rig.frames(30);
-    rig.tap(&[Control::Select, Control::Start]);
+    rig.open_menu();
     rig.frames(1);
     assert_eq!(rig.screen(), "quick-menu");
     crawl(&mut rig, &mut found, 0);

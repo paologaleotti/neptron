@@ -114,7 +114,7 @@ fn the_order_of_the_pads_goes_into_the_game_and_a_gone_pad_keeps_its_port() {
         rig.frames(1);
 
         // Quit: the list run gets the order of the game.
-        rig.tap(&[Control::Select, Control::Start]);
+        rig.open_menu();
         rig.frames(1);
         assert_eq!(rig.screen(), "quick-menu");
         rig.focus("Quit game");
@@ -263,7 +263,7 @@ fn in_a_game_the_input_panel_shows_a_gone_player_as_away() {
             pads: PadRecord::list(&earlier),
         }));
         rig.frames(30);
-        rig.tap(&[Control::Select, Control::Start]);
+        rig.open_menu();
         rig.frames(1);
         assert_eq!(rig.screen(), "quick-menu");
         open_input(&mut rig);

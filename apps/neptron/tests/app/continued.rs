@@ -95,7 +95,7 @@ fn a_game_on_a_crt_with_nothing_kept_starts_in_the_safe_default_quietly() {
         ),
         |dir| {
             let mut rig = game_after_an_unkept_prompt(dir, false);
-            rig.tap(&[Control::Select, Control::Start]);
+            rig.open_menu();
             rig.frames(2);
             assert_eq!(rig.screen(), "quick-menu");
             rig.finish();

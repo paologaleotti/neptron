@@ -1,7 +1,7 @@
 use neptron_backend::{Clock, InputSource};
 use neptron_input::{
-    BLIND_RECOVERY_HOLD_NS, DeviceIdentity, Hotkey, Hotkeys, Mapper, PadButton, PadInfo,
-    PortStates, RawInput,
+    BLIND_RECOVERY_HOLD_NS, DeviceIdentity, GAMEPAD_DEVICE_BASE, Hotkey, Hotkeys, KEY_MAP,
+    KEYBOARD_DEVICE_BASE, Mapper, PadButton, PadInfo, PortStates, QUICK_MENU_HOLD_NS, RawInput,
 };
 use neptron_testkit::{ScriptedInput, SimClock};
 use neptron_types::{Control, InputEvent};
@@ -83,20 +83,141 @@ impl Frontend {
     }
 }
 
-#[test]
-fn select_and_start_open_the_quick_menu_once_per_press_at_the_release() {
-    let mut fe = Frontend::new();
-    fe.hold_combo(100 * MS, 0);
-    fe.input.release(400 * MS, 0, Control::Start);
-    fe.input.press(600 * MS, 0, Control::Start);
-    fe.input.release(900 * MS, 0, Control::Select);
-    fe.run_to(1000 * MS);
-    assert_eq!(fe.menus(), [(400 * MS, 0), (900 * MS, 0)]);
-    assert!(fe.recoveries().is_empty());
+/// The control of the keyboard key with the RetroArch name `name`.
+fn key(name: &str) -> Control {
+    KEY_MAP
+        .iter()
+        .find(|(_, key, _)| *key == name)
+        .map(|(_, _, control)| *control)
+        .expect("a mapped key")
+}
+
+/// A pad on port 0, a pad on extra port 5, and the keyboard pair Right
+/// Shift and Enter on port 0, with the port of each.
+fn sources() -> [(u32, [Control; 2], u8); 3] {
+    [
+        (0, [Control::Select, Control::Start], 0),
+        (
+            GAMEPAD_DEVICE_BASE + 5,
+            [Control::Select, Control::Start],
+            5,
+        ),
+        (KEYBOARD_DEVICE_BASE + 1, [key("rshift"), key("enter")], 0),
+    ]
 }
 
 #[test]
-fn a_cancelled_press_opens_no_menu_and_the_recovery_hold_goes_on() {
+fn the_keyboard_pair_is_select_and_start() {
+    assert_eq!(key("rshift"), Control::Select);
+    assert_eq!(key("enter"), Control::Start);
+}
+
+#[test]
+fn a_coin_and_a_start_that_overlap_for_less_than_the_hold_open_nothing() {
+    for (device, [select, start], _) in sources() {
+        let mut fe = Frontend::new();
+        // The coin, then Start while the coin is still down.
+        fe.input.press(100 * MS, device, select);
+        fe.input.press(200 * MS, device, start);
+        fe.input.release(300 * MS, device, select);
+        fe.input.release(400 * MS, device, start);
+        // Start first, then the coin, with the longest overlap that is
+        // still short.
+        let overlap = QUICK_MENU_HOLD_NS - FRAME_NS;
+        fe.input.press(SECOND, device, start);
+        fe.input.press(SECOND + 50 * MS, device, select);
+        fe.input.release(SECOND + 50 * MS + overlap, device, start);
+        fe.input.release(2 * SECOND, device, select);
+        fe.run_to(4 * SECOND);
+        assert_eq!(fe.fired, [], "{device:#x}");
+    }
+}
+
+#[test]
+fn a_hold_of_exactly_the_hold_time_fires_once_at_the_threshold() {
+    let mut bench = Bench::new(0);
+    let t0 = 7 * MS;
+    bench.set(0, Control::Select, true);
+    assert_eq!(bench.update(0), []);
+    bench.set(0, Control::Start, true);
+    assert_eq!(bench.update(t0), []);
+    assert_eq!(bench.update(t0 + QUICK_MENU_HOLD_NS - 1), []);
+    assert_eq!(
+        bench.update(t0 + QUICK_MENU_HOLD_NS),
+        [Hotkey::QuickMenu { port: 0 }]
+    );
+    assert_eq!(bench.update(t0 + QUICK_MENU_HOLD_NS + 1), []);
+    bench.set(0, Control::Start, false);
+    assert_eq!(bench.update(t0 + SECOND), [], "nothing at the release");
+}
+
+#[test]
+fn every_source_opens_the_quick_menu_at_the_hold_time_and_not_at_the_release() {
+    for (device, [select, start], port) in sources() {
+        let mut fe = Frontend::new();
+        fe.input.press(100 * MS, device, select);
+        fe.input.press(100 * MS, device, start);
+        fe.input.release(2 * SECOND, device, start);
+        fe.input.release(2 * SECOND, device, select);
+        fe.run_to(100 * MS + QUICK_MENU_HOLD_NS - FRAME_NS);
+        assert_eq!(fe.fired, [], "{device:#x}");
+        fe.run_to(100 * MS + QUICK_MENU_HOLD_NS);
+        assert_eq!(
+            fe.fired,
+            [(100 * MS + QUICK_MENU_HOLD_NS, Hotkey::QuickMenu { port })],
+            "{device:#x}"
+        );
+        fe.run_to(4 * SECOND);
+        assert_eq!(fe.fired.len(), 1, "{device:#x}");
+    }
+}
+
+#[test]
+fn a_longer_hold_does_not_fire_twice() {
+    let mut fe = Frontend::new();
+    fe.hold_combo(0, 0);
+    fe.run_to(BLIND_RECOVERY_HOLD_NS - FRAME_NS);
+    assert_eq!(
+        fe.fired,
+        [(QUICK_MENU_HOLD_NS, Hotkey::QuickMenu { port: 0 })]
+    );
+}
+
+#[test]
+fn a_break_in_the_hold_restarts_the_time() {
+    let mut fe = Frontend::new();
+    fe.hold_combo(0, 0);
+    fe.input.release(400 * MS, 0, Control::Start);
+    fe.input.press(450 * MS, 0, Control::Start);
+    fe.run_to(450 * MS + QUICK_MENU_HOLD_NS - FRAME_NS);
+    assert_eq!(fe.menus(), []);
+    fe.run_to(450 * MS + QUICK_MENU_HOLD_NS);
+    assert_eq!(fe.menus(), [(450 * MS + QUICK_MENU_HOLD_NS, 0)]);
+}
+
+#[test]
+fn a_release_of_one_button_and_a_new_press_give_a_new_hold() {
+    let mut fe = Frontend::new();
+    fe.hold_combo(0, 0);
+    fe.input.release(SECOND, 0, Control::Select);
+    fe.input.press(1200 * MS, 0, Control::Select);
+    fe.input.release(3 * SECOND, 0, Control::Start);
+    fe.input.release(3 * SECOND, 0, Control::Select);
+    fe.hold_combo(4 * SECOND, 0);
+    fe.run_to(5 * SECOND);
+    assert_eq!(
+        fe.menus(),
+        [
+            (QUICK_MENU_HOLD_NS, 0),
+            (1200 * MS + QUICK_MENU_HOLD_NS, 0),
+            (4 * SECOND + QUICK_MENU_HOLD_NS, 0),
+        ]
+    );
+    assert_eq!(fe.recoveries(), []);
+}
+
+#[test]
+fn a_cancelled_hold_opens_no_menu_and_the_recovery_hold_goes_on() {
     let mut bench = Bench::new(0);
     bench.set(0, Control::Select, true);
     bench.set(0, Control::Start, true);
@@ -111,15 +232,28 @@ fn a_cancelled_press_opens_no_menu_and_the_recovery_hold_goes_on() {
     assert_eq!(bench.update(BLIND_RECOVERY_HOLD_NS + 1), []);
     bench.set(0, Control::Start, true);
     assert_eq!(bench.update(7 * SECOND), []);
-    bench.set(0, Control::Start, false);
     assert_eq!(
-        bench.update(7 * SECOND + 1),
+        bench.update(7 * SECOND + QUICK_MENU_HOLD_NS),
         [Hotkey::QuickMenu { port: 0 }]
     );
 }
 
 #[test]
-fn a_recovery_hold_never_opens_the_quick_menu() {
+fn a_cancel_keeps_the_next_hold_of_a_port_that_was_up() {
+    let mut bench = Bench::new(0);
+    assert_eq!(bench.update(0), []);
+    bench.hotkeys.cancel_quick_menu();
+    bench.set(0, Control::Select, true);
+    bench.set(0, Control::Start, true);
+    assert_eq!(bench.update(SECOND), []);
+    assert_eq!(
+        bench.update(SECOND + QUICK_MENU_HOLD_NS),
+        [Hotkey::QuickMenu { port: 0 }]
+    );
+}
+
+#[test]
+fn a_recovery_hold_opens_the_quick_menu_first_and_the_recovery_at_5_seconds() {
     let mut fe = Frontend::new();
     fe.hold_combo(0, 0);
     fe.input
@@ -128,7 +262,13 @@ fn a_recovery_hold_never_opens_the_quick_menu() {
     fe.input
         .release(6 * SECOND + 2 * BLIND_RECOVERY_HOLD_NS, 0, Control::Start);
     fe.run_to(4 * BLIND_RECOVERY_HOLD_NS);
-    assert_eq!(fe.menus(), [(BLIND_RECOVERY_HOLD_NS - 10 * MS, 0)]);
+    assert_eq!(
+        fe.menus(),
+        [
+            (QUICK_MENU_HOLD_NS, 0),
+            (6 * SECOND + QUICK_MENU_HOLD_NS, 0)
+        ]
+    );
     assert_eq!(fe.recoveries(), [6 * SECOND + BLIND_RECOVERY_HOLD_NS]);
 }
 
@@ -150,7 +290,10 @@ fn a_hold_of_5_seconds_is_a_recovery_and_fires_once() {
     assert_eq!(fe.recoveries(), [BLIND_RECOVERY_HOLD_NS]);
     assert_eq!(
         fe.fired,
-        [(BLIND_RECOVERY_HOLD_NS, Hotkey::BlindRecovery { port: 0 })]
+        [
+            (QUICK_MENU_HOLD_NS, Hotkey::QuickMenu { port: 0 }),
+            (BLIND_RECOVERY_HOLD_NS, Hotkey::BlindRecovery { port: 0 })
+        ]
     );
 }
 
@@ -187,6 +330,8 @@ fn every_port_and_every_device_of_a_port_counts() {
     assert_eq!(
         fe.fired,
         [
+            (QUICK_MENU_HOLD_NS, Hotkey::QuickMenu { port: 0 }),
+            (QUICK_MENU_HOLD_NS, Hotkey::QuickMenu { port: 3 }),
             (BLIND_RECOVERY_HOLD_NS, Hotkey::BlindRecovery { port: 0 }),
             (BLIND_RECOVERY_HOLD_NS, Hotkey::BlindRecovery { port: 3 }),
         ]
@@ -363,7 +508,7 @@ fn other_buttons_do_not_stop_the_start_hold() {
 }
 
 #[test]
-fn select_and_start_give_the_recovery_and_no_quick_menu_with_the_hold_on() {
+fn select_and_start_give_one_quick_menu_and_the_recovery_with_the_hold_on() {
     for hold_ns in [0, 1, HOLD_NS, 10 * SECOND] {
         let mut fe = Frontend::new();
         fe.hotkeys.set_start_hold_ns(hold_ns);
@@ -373,10 +518,13 @@ fn select_and_start_give_the_recovery_and_no_quick_menu_with_the_hold_on() {
         fe.run_to(100 * MS + 4 * BLIND_RECOVERY_HOLD_NS);
         assert_eq!(
             fe.fired,
-            [(
-                100 * MS + BLIND_RECOVERY_HOLD_NS,
-                Hotkey::BlindRecovery { port: 0 }
-            ),],
+            [
+                (100 * MS + QUICK_MENU_HOLD_NS, Hotkey::QuickMenu { port: 0 }),
+                (
+                    100 * MS + BLIND_RECOVERY_HOLD_NS,
+                    Hotkey::BlindRecovery { port: 0 }
+                ),
+            ],
             "hold {hold_ns}"
         );
     }
@@ -388,15 +536,34 @@ fn select_after_start_stops_the_hold_until_start_is_released() {
     fe.hotkeys.set_start_hold_ns(HOLD_NS);
     fe.input.press(0, 0, Control::Start);
     fe.input.press(SECOND, 0, Control::Select);
-    // Select goes up, Start stays down: no second quick menu.
-    fe.input.release(1500 * MS, 0, Control::Select);
+    // Select goes up before the combination fires, Start stays down: no
+    // quick menu from either.
+    fe.input.release(1400 * MS, 0, Control::Select);
     fe.run_to(10 * SECOND);
-    assert_eq!(fe.menus(), [(1500 * MS, 0)]);
+    assert_eq!(fe.menus(), []);
     assert!(fe.recoveries().is_empty());
     fe.input.release(10 * SECOND, 0, Control::Start);
     fe.input.press(11 * SECOND, 0, Control::Start);
     fe.run_to(11 * SECOND + HOLD_NS);
-    assert_eq!(fe.menus(), [(1500 * MS, 0), (11 * SECOND + HOLD_NS, 0)]);
+    assert_eq!(fe.menus(), [(11 * SECOND + HOLD_NS, 0)]);
+}
+
+#[test]
+fn select_after_a_start_hold_that_fired_gives_no_second_quick_menu() {
+    let mut fe = Frontend::new();
+    fe.hotkeys.set_start_hold_ns(HOLD_NS);
+    fe.input.press(0, 0, Control::Start);
+    fe.input.press(3 * SECOND, 0, Control::Select);
+    fe.input.release(4 * SECOND, 0, Control::Select);
+    fe.input.press(4100 * MS, 0, Control::Select);
+    fe.input.release(5 * SECOND, 0, Control::Start);
+    fe.input.press(6 * SECOND, 0, Control::Start);
+    fe.run_to(6 * SECOND + QUICK_MENU_HOLD_NS);
+    assert_eq!(
+        fe.menus(),
+        [(HOLD_NS, 0), (6 * SECOND + QUICK_MENU_HOLD_NS, 0)],
+        "a new press of Start gives a new hold"
+    );
 }
 
 #[test]
@@ -407,7 +574,7 @@ fn select_held_first_stops_the_hold_until_start_is_released() {
     fe.input.press(100 * MS, 0, Control::Start);
     fe.input.release(200 * MS, 0, Control::Select);
     fe.run_to(10 * SECOND);
-    assert_eq!(fe.menus(), [(200 * MS, 0)]);
+    assert_eq!(fe.menus(), []);
 }
 
 #[test]
@@ -565,7 +732,11 @@ fn the_combinations_work_from_every_extra_port_and_from_a_keyboard() {
         fe.input.release(300 * MS, device, Control::Start);
         fe.hold_combo(SECOND, device);
         fe.run_to(SECOND + BLIND_RECOVERY_HOLD_NS);
-        assert_eq!(fe.menus(), [(300 * MS, port)], "{device:#x}");
+        assert_eq!(
+            fe.menus(),
+            [(SECOND + QUICK_MENU_HOLD_NS, port)],
+            "{device:#x}"
+        );
         assert_eq!(
             fe.recoveries(),
             [SECOND + BLIND_RECOVERY_HOLD_NS],
@@ -604,17 +775,22 @@ fn a_pad_that_moves_in_the_menus_starts_its_recovery_hold_again() {
     };
     combo(&mut mapper, &mut events);
     frame(&mut events, 0, &mut fired);
-    // Player 1 goes 3 s into the hold: player 2 moves to port 0. The
-    // release on port 1 is the end of a short press there, which opens
-    // the quick menu of port 1; in the menus that hotkey does nothing.
-    mapper.disconnect_gamepad(one, &mut events).unwrap();
-    frame(&mut events, 3 * SECOND, &mut fired);
+    frame(&mut events, QUICK_MENU_HOLD_NS, &mut fired);
     assert_eq!(fired, [Hotkey::QuickMenu { port: 1 }]);
     fired.clear();
+    // Player 1 goes 3 s into the hold: player 2 moves to port 0. The
+    // release on port 1 ends the holds there and fires nothing.
+    mapper.disconnect_gamepad(one, &mut events).unwrap();
+    frame(&mut events, 3 * SECOND, &mut fired);
+    assert_eq!(fired, []);
     combo(&mut mapper, &mut events);
-    frame(&mut events, 3 * SECOND + FRAME_NS, &mut fired);
+    let moved = 3 * SECOND + FRAME_NS;
+    frame(&mut events, moved, &mut fired);
+    frame(&mut events, moved + QUICK_MENU_HOLD_NS - 1, &mut fired);
+    assert_eq!(fired, [], "the holds of port 1 do not carry over");
     frame(&mut events, BLIND_RECOVERY_HOLD_NS, &mut fired);
-    assert_eq!(fired, [], "the hold of port 1 does not carry over");
+    assert_eq!(fired, [Hotkey::QuickMenu { port: 0 }]);
+    fired.clear();
     frame(
         &mut events,
         3 * SECOND + FRAME_NS + BLIND_RECOVERY_HOLD_NS,

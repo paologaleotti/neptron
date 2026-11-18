@@ -199,7 +199,7 @@ fn in_a_game_both_rows_are_disabled() {
                 notice: None,
             }));
             rig.frames(30);
-            rig.tap(&[Control::Select, Control::Start]);
+            rig.open_menu();
             rig.frames(1);
             assert_eq!(rig.screen(), "quick-menu");
             open_system(&mut rig);
@@ -641,7 +641,7 @@ fn in_a_game_the_format_row_is_disabled() {
                 notice: None,
             }));
             rig.frames(30);
-            rig.tap(&[Control::Select, Control::Start]);
+            rig.open_menu();
             rig.frames(1);
             // The notices of the start show over the quick menu; in a game
             // the UI reads a press two frames after it.

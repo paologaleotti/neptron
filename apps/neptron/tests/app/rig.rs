@@ -10,7 +10,8 @@ use neptron::{Booted, Devices, NextRun, Outcome, Paths, Runtime, Shell};
 use neptron_audio::Resampling;
 use neptron_backend::{Clock, InputSource};
 use neptron_input::{
-    JoystickCounts, PadInfo, PadRoster, PortRule, Roster, ScriptedPad, ScriptedPads,
+    JoystickCounts, PadInfo, PadRoster, PortRule, QUICK_MENU_HOLD_NS, Roster, ScriptedPad,
+    ScriptedPads,
 };
 use neptron_ipc::{Handler, UiTree};
 use neptron_session::RunRateSource;
@@ -445,6 +446,27 @@ impl Rig {
         self.hold(controls);
         self.frames(1);
         self.release(controls);
+        self.frames(2);
+    }
+
+    /// Runs frames until `hold_ns` of the frame clock have passed since
+    /// now, and then the frame at or after that time: the frame in which a
+    /// hold that started now completes.
+    pub fn hold_for(&mut self, hold_ns: u64) {
+        let end = self.clock.now_ns() + hold_ns;
+        while self.clock.now_ns() < end {
+            self.frames(1);
+        }
+        self.frames(1);
+    }
+
+    /// Holds Select and Start on port 0 for the quick menu hold, then
+    /// releases them for two frames, as [`Rig::tap`] does.
+    pub fn open_menu(&mut self) {
+        let combo = [Control::Select, Control::Start];
+        self.hold(&combo);
+        self.hold_for(QUICK_MENU_HOLD_NS);
+        self.release(&combo);
         self.frames(2);
     }
 

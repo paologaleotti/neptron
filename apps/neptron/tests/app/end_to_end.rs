@@ -79,11 +79,11 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             assert!(rig.display.mode_switches().len() >= 2);
 
             // The quick menu, never a toggle.
-            rig.tap(&[Control::Select, Control::Start]);
+            rig.open_menu();
             rig.frames(1);
             assert_eq!(rig.screen(), "quick-menu");
             assert!(rig.shell().paused());
-            rig.tap(&[Control::Select, Control::Start]);
+            rig.open_menu();
             assert_eq!(
                 rig.screen(),
                 "quick-menu",

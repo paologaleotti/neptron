@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use neptron_backend::{AudioSink, Clock};
+use neptron_input::QUICK_MENU_HOLD_NS;
 use neptron_session::{EndReason, Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SessionError};
 use neptron_testkit::{DisplayOptions, FakeAudio, FakeDisplay, Render};
 use neptron_types::{Control, Frame, PixelFormat};
@@ -102,16 +103,24 @@ fn the_quick_menu_pauses_the_core_and_is_never_a_toggle() {
             let mut rig = Rig::launch(dir, Setup::default());
             rig.run(10);
             rig.press(&[Control::Select, Control::Start]);
-            let report = rig.session.run_frame(None).unwrap();
-            assert!(!report.menu_opened, "the menu opens at the release");
-            assert!(report.ran_core);
+            let start = rig.clock.now_ns();
+            loop {
+                let now = rig.clock.now_ns();
+                let report = rig.session.run_frame(Some(canvas())).unwrap();
+                if now - start < QUICK_MENU_HOLD_NS {
+                    assert!(!report.menu_opened, "{} ns into the hold", now - start);
+                    assert!(report.ran_core);
+                    assert_frame(&rig.session, rig.core_frame(), 0);
+                    continue;
+                }
+                assert!(report.menu_opened, "the menu opens at the hold time");
+                assert!(!report.ran_core);
+                assert_eq!(report.flips, 1);
+                break;
+            }
             let frozen = rig.core_frame();
-            rig.release(&[Control::Select, Control::Start]);
-            let report = rig.session.run_frame(Some(canvas())).unwrap();
-            assert!(report.menu_opened);
-            assert!(!report.ran_core);
-            assert_eq!(report.flips, 1);
             assert!(rig.session.paused());
+            rig.release(&[Control::Select, Control::Start]);
             let audio_frames = rig.session.audio_stats().unwrap().frames;
 
             for _ in 0..60 {
@@ -132,8 +141,10 @@ fn the_quick_menu_pauses_the_core_and_is_never_a_toggle() {
 
             // The combination again opens nothing and closes nothing.
             rig.press(&[Control::Select, Control::Start]);
-            let report = rig.session.run_frame(Some(canvas())).unwrap();
-            assert!(!report.menu_opened);
+            for _ in 0..60 {
+                let report = rig.session.run_frame(Some(canvas())).unwrap();
+                assert!(!report.menu_opened);
+            }
             rig.release(&[Control::Select, Control::Start]);
             let report = rig.session.run_frame(Some(canvas())).unwrap();
             assert!(!report.menu_opened);
@@ -148,20 +159,21 @@ fn the_quick_menu_pauses_the_core_and_is_never_a_toggle() {
             rig.session.run_frame(Some(canvas())).unwrap();
             rig.session.resume();
             assert!(!rig.session.paused());
-            let report = rig.session.run_frame(None).unwrap();
-            assert!(report.ran_core);
-            assert!(!report.menu_opened);
-            assert_frame(&rig.session, frozen + 1, 0);
+            for frame in 1..=60 {
+                let report = rig.session.run_frame(None).unwrap();
+                assert!(report.ran_core);
+                assert!(
+                    !report.menu_opened,
+                    "a combination held across the resume does not open it again"
+                );
+                assert_frame(&rig.session, frozen + frame, 0);
+            }
             rig.release(&[Control::Select, Control::Start, Control::A]);
-            let report = rig.session.run_frame(None).unwrap();
-            assert!(
-                !report.menu_opened,
-                "a combination held across the resume does not open it again"
-            );
-            assert_frame(&rig.session, frozen + 2, 0);
+            rig.run(1);
+            assert_frame(&rig.session, frozen + 61, 0);
             rig.press(&[Control::A]);
             rig.run(1);
-            assert_frame(&rig.session, frozen + 3, A);
+            assert_frame(&rig.session, frozen + 62, A);
             assert!(rig.audio.overruns().is_empty());
         }
     );
@@ -211,10 +223,8 @@ fn the_blind_recovery_is_reported_also_under_the_menu() {
         |dir| {
             let mut rig = Rig::launch(dir, Setup::default());
             rig.run(5);
-            rig.press(&[Control::Select, Control::Start]);
+            rig.open_menu();
             rig.run(1);
-            rig.release(&[Control::Select, Control::Start]);
-            assert!(rig.session.run_frame(None).unwrap().menu_opened);
             rig.press(&[Control::Select, Control::Start]);
             let mut recovery = None;
             for frame in 0..400 {
@@ -351,10 +361,7 @@ fn the_save_ram_is_flushed_on_the_timer_when_it_changed() {
             assert_eq!(rig.session.save_stats().unwrap().sent, 0, "not due yet");
             rig.run(1);
             assert_eq!(rig.session.save_stats().unwrap().sent, 1);
-            rig.press(&[Control::Select, Control::Start]);
-            rig.run(1);
-            rig.release(&[Control::Select, Control::Start]);
-            assert!(rig.session.run_frame(None).unwrap().menu_opened);
+            rig.open_menu();
             let stats = rig.session.save_stats().unwrap();
             assert_eq!((stats.sent, stats.unchanged), (1, 1), "unchanged: no write");
             let exit = rig.session.quit();
@@ -373,10 +380,7 @@ fn opening_the_menu_flushes_the_save_ram() {
             write_old_save(dir);
             let mut rig = Rig::launch(dir, Setup::default());
             rig.run(30);
-            rig.press(&[Control::Select, Control::Start]);
-            rig.run(1);
-            rig.release(&[Control::Select, Control::Start]);
-            assert!(rig.session.run_frame(None).unwrap().menu_opened);
+            rig.open_menu();
             assert_eq!(rig.session.save_stats().unwrap().sent, 1);
         }
     );
@@ -571,9 +575,7 @@ fn closing_the_menu_retries_a_blocked_source_whatever_the_last_record() {
                 "a later record hides the failure"
             );
             let calls = rig.display.mode_calls().len();
-            rig.press(&[Control::Select, Control::Start]);
-            rig.run(1);
-            rig.release(&[Control::Select, Control::Start]);
+            rig.open_menu();
             rig.run(1);
             assert!(rig.session.paused());
             rig.session.resume();
@@ -588,30 +590,49 @@ fn closing_the_menu_retries_a_blocked_source_whatever_the_last_record() {
 }
 
 #[test]
-fn a_recovery_hold_never_reaches_the_core() {
-    with_script!("a_recovery_hold_never_reaches_the_core", SCRIPT, |dir| {
-        let mut rig = Rig::launch(dir, Setup::default());
-        rig.run(5);
-        rig.press(&[Control::Select, Control::Start]);
-        let mut recovered = false;
-        for _ in 0..330 {
-            let report = rig.session.run_frame(None).unwrap();
-            assert!(report.ran_core);
+fn a_recovery_hold_opens_the_menu_first_and_never_reaches_the_core() {
+    with_script!(
+        "a_recovery_hold_opens_the_menu_first_and_never_reaches_the_core",
+        SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(5);
+            rig.press(&[Control::Select, Control::Start]);
+            let (mut opened, mut recovered) = (None, None);
+            for frame in 0..330 {
+                let report = rig.session.run_frame(None).unwrap();
+                if report.menu_opened {
+                    assert!(opened.is_none(), "one quick menu per hold");
+                    opened = Some(frame);
+                } else if opened.is_none() {
+                    assert!(report.ran_core);
+                    assert_frame(&rig.session, rig.core_frame(), 0);
+                }
+                if report.blind_recovery.is_some() {
+                    recovered = Some(frame);
+                }
+            }
+            let opened = opened.expect("the hold opened the quick menu");
+            let recovered = recovered.expect("the 5 s hold fired the recovery");
+            assert!((30..=32).contains(&opened), "after 0.5 s: frame {opened}");
+            assert!(
+                (299..=302).contains(&recovered),
+                "after 5 s: frame {recovered}"
+            );
+            assert!(rig.session.paused());
+            rig.session.resume();
+            // Both stay up for the core until each one is released.
+            rig.release(&[Control::Select]);
+            rig.run(1);
             assert_frame(&rig.session, rig.core_frame(), 0);
-            recovered |= report.blind_recovery.is_some();
+            rig.release(&[Control::Start]);
+            rig.run(1);
+            assert_frame(&rig.session, rig.core_frame(), 0);
+            rig.press(&[Control::Start]);
+            rig.run(1);
+            assert_frame(&rig.session, rig.core_frame(), START);
         }
-        assert!(recovered, "the 5 s hold fired the recovery");
-        // Both stay held back until both are up: Start alone is no press.
-        rig.release(&[Control::Select]);
-        rig.run(1);
-        assert_frame(&rig.session, rig.core_frame(), 0);
-        rig.release(&[Control::Start]);
-        rig.run(1);
-        assert!(!rig.session.paused(), "the hold opens no menu");
-        rig.press(&[Control::Start]);
-        rig.run(1);
-        assert_frame(&rig.session, rig.core_frame(), START);
-    });
+    );
 }
 
 /// The 200 ms recovery tone at the 48 kHz of the fake sink.
@@ -624,9 +645,7 @@ fn the_tone_plays_whole_under_the_quick_menu() {
     with_script!("the_tone_plays_whole_under_the_quick_menu", SCRIPT, |dir| {
         let mut rig = Rig::launch(dir, Setup::default());
         rig.run(5);
-        rig.press(&[Control::Select, Control::Start]);
-        rig.run(1);
-        rig.release(&[Control::Select, Control::Start]);
+        rig.open_menu();
         rig.run(1);
         assert!(rig.session.paused());
         rig.press(&[Control::Select, Control::Start]);

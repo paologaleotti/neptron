@@ -95,7 +95,7 @@ The defaults of the RetroArch keyboard driver for player one, by physical key (L
 
 `neptron-window` has the same defaults by SDL scancode. The shared fixture `tests/fixtures/retroarch-keyboard.txt` lists the pairs by RetroArch key name, and a test holds `KEY_MAP` to it. No test checks the window table against the fixture (see open points).
 
-The frontend actions of a keyboard come from the hotkeys: Right Shift and Enter together open the quick menu.
+The frontend actions of a keyboard come from the hotkeys: Right Shift and Enter held together for 0.5 s open the quick menu.
 
 A key held before a keyboard opens gives no kernel event. So when the source opens a keyboard, it reads the key state and sends a press for each mapped key that is down (`mapped_keys_down`). A combination held from power-on, or held while a keyboard opens again after a read error, reaches the hotkeys.
 
@@ -144,14 +144,17 @@ The same code runs on the device, where no video subsystem and no pump exist, an
 
 | Hotkey | Combination on one port | Fires |
 | --- | --- | --- |
-| Quick menu | Select + Start (`QUICK_MENU_COMBO`) | when the combination goes up again (one of its buttons is released), after less than `BLIND_RECOVERY_HOLD_NS` |
+| Quick menu | Select + Start (`QUICK_MENU_COMBO`) | when it has stayed down for `QUICK_MENU_HOLD_NS` (0.5 s) |
 | Blind recovery | Select + Start (`BLIND_RECOVERY_COMBO`) | when it has stayed down for `BLIND_RECOVERY_HOLD_NS` (5 s) |
 | Quick menu | Start alone (`START_HOLD_BUTTON`), off by default | when it has stayed down alone for the time of `set_start_hold_ns` |
 
-- Each fires once per hold. A release starts the hold time again.
+- Each fires once per hold, at the first `update` at or after its hold time, not at the release. A release of one of the buttons ends the hold, and the next time both are down a new hold starts.
+- A shorter hold of Select and Start fires nothing. On an arcade stick Select is the coin, and a coin and a Start pressed in a quick sequence overlap for a moment.
 - The hold counts from the first `update` that sees the combination, so call `update` every frame, also with no event.
-- A recovery hold never opens the quick menu: the menu fires at the release, and only after a shorter press. The frontend acts on the recovery even when the menu is open.
-- `cancel_quick_menu()` ends every press of Select and Start in progress: its release opens no menu. The session calls it when the menu closes, so the combination held across the close does not open the menu again. The recovery hold goes on.
+- The two combinations share their buttons, so a recovery hold opens the quick menu at 0.5 s and fires the recovery at 5 s. The frontend acts on the recovery also when the menu is open.
+- `cancel_quick_menu()` ends every quick menu hold in progress: it fires no menu. The session calls it when the menu closes, so a combination held across the close does not open the menu again. The recovery hold goes on.
+- Every source gives the same port state, so the rule is the same for every pad on every port, a generic pad with Select and Start, and the keyboard pair Right Shift and Enter.
+- The quick menu hold is a constant. A setting can come later, as for the Start hold.
 - The recogniser reads the port state only. It needs no picture and no UI, and the control API and scripted input can trigger it.
 
 ### The Start hold
@@ -163,12 +166,13 @@ The rule for "Start alone", on each port:
 - The hold starts at the first `update` that sees Start down and Select (`START_HOLD_BLOCKER`) up.
 - It fires one `Hotkey::QuickMenu` when it has lasted the hold time: at exactly the hold time, not one nanosecond before.
 - A release of Start ends the hold. The next press starts a new one.
-- Select down on the same port ends the hold, and no new hold starts until Start is released. So Select and Start give only their own quick menu, at their release, also when Select goes up again while Start stays down. A Start hold that fired and a recovery hold that follows on the same press of Start are both possible: Start alone fires first, then Select joins and the combination behaves as always.
+- Select down on the same port ends the hold, and no new hold starts until Start is released. So Select and Start give only their own quick menu, after their 0.5 s hold, also when Select goes up again while Start stays down.
+- A Start hold that fired is the quick menu of that press of Start: Select that joins later gives no second quick menu until Start is released. The recovery hold that follows on the same press of Start still fires at 5 s.
 - Other buttons on the port, and every button on other ports, do not matter.
 - A disconnect releases Start, so it ends the hold.
 - A new hold time ends every hold in progress. The same time again changes nothing. A time set before the first `update` applies to a Start held from power-on.
 
-The Select and Start combination and the blind recovery do not change, with the Start hold on or off.
+The blind recovery does not change, with the Start hold on or off.
 
 What the app (T27) must do:
 

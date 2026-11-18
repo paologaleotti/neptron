@@ -91,7 +91,7 @@ fn the_quick_menu_volume_reaches_the_game_at_once() {
                     rig.boot(Some(game()));
                     rig.frames(30);
                     assert_eq!(rig.shell().game_volume_percent(), Some(80));
-                    rig.tap(&[Control::Select, Control::Start]);
+                    rig.open_menu();
                     rig.frames(1);
                     assert_eq!(rig.screen(), "quick-menu");
                     rig.focus("Volume");

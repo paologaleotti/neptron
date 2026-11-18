@@ -242,7 +242,7 @@ fn in_a_game_the_panel_shows_the_same_rows() {
             notice: None,
         }));
         rig.frames(30);
-        rig.tap(&[Control::Select, Control::Start]);
+        rig.open_menu();
         rig.frames(1);
         assert_eq!(rig.screen(), "quick-menu");
         open_network(&mut rig);
