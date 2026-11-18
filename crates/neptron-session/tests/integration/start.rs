@@ -46,7 +46,7 @@ fn a_refused_load_gives_the_error_lines_of_the_core() {
         &script,
         |dir| {
             let failed = failed(dir);
-            let LaunchError::Refused { core_errors } = &failed.error else {
+            let LaunchError::Refused { core_errors, .. } = &failed.error else {
                 panic!("a refusal: {:?}", failed.error);
             };
             assert_eq!(core_errors, &[CORE_ERROR]);
@@ -63,7 +63,7 @@ fn a_shutdown_in_the_load_stops_the_launch() {
         "neptron-testcore 2\nload shutdown\n",
         |dir| {
             let failed = failed(dir);
-            let LaunchError::CoreStopped { core_errors } = &failed.error else {
+            let LaunchError::CoreStopped { core_errors, .. } = &failed.error else {
                 panic!("a stop: {:?}", failed.error);
             };
             assert!(core_errors.is_empty(), "{core_errors:?}");
@@ -81,7 +81,7 @@ fn a_shutdown_while_the_source_settles_stops_the_launch() {
         &script,
         |dir| {
             let failed = failed(dir);
-            let LaunchError::CoreStopped { core_errors } = &failed.error else {
+            let LaunchError::CoreStopped { core_errors, .. } = &failed.error else {
                 panic!("a stop: {:?}", failed.error);
             };
             assert_eq!(core_errors, &[CORE_ERROR]);
@@ -257,6 +257,31 @@ fn a_refused_mode_does_not_make_a_long_run_a_failed_start() {
             }
             assert!(refused_frames > 500, "{refused_frames} refused frames");
             assert_eq!(reason, Some(EndReason::CoreShutdown));
+        }
+    );
+}
+
+#[test]
+fn a_noisy_stop_in_the_settle_counts_the_lines_it_lost() {
+    let mut script = "neptron-testcore 3\n".to_owned();
+    for i in 0..neptron_libretro::LOG_CAPACITY + 5 {
+        script.push_str(&format!("at 0 log debug noise {i}\n"));
+    }
+    script.push_str(&format!("at 0 log error {CORE_ERROR}\nat 0 shutdown\n"));
+    with_script!(
+        "a_noisy_stop_in_the_settle_counts_the_lines_it_lost",
+        &script,
+        |dir| {
+            let failed = failed(dir);
+            let LaunchError::CoreStopped {
+                core_errors,
+                dropped_logs,
+            } = &failed.error
+            else {
+                panic!("a stop: {:?}", failed.error);
+            };
+            assert_eq!(core_errors, &[CORE_ERROR]);
+            assert!(*dropped_logs >= 6, "{dropped_logs}");
         }
     );
 }

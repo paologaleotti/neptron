@@ -13,11 +13,13 @@ pub const CORE_TEXT_CHARS_MAX: usize = 60;
 /// The notice of a launch of `name` that failed with `error`.
 pub fn launch_notice(name: &str, error: &LaunchError) -> String {
     match error {
-        LaunchError::Refused { core_errors } => format!(
+        LaunchError::Refused { core_errors, .. } => format!(
             "{name} did not start: the core refused the game file.{} Check that the file is complete and is for this system.",
             says(first(core_errors, None))
         ),
-        LaunchError::CoreStopped { core_errors } => stopped_notice(name, first(core_errors, None)),
+        LaunchError::CoreStopped { core_errors, .. } => {
+            stopped_notice(name, first(core_errors, None))
+        }
         other => format!("{name} did not start: {other}."),
     }
 }
@@ -51,14 +53,37 @@ pub fn first<'a>(core_errors: &'a [String], message: Option<&'a str>) -> Option<
 }
 
 /// The log lines of a launch that failed with `error`: one for each error
-/// line of the core.
+/// line of the core, and one for the lines the log of the host lost.
 pub fn launch_log(error: &LaunchError) -> Vec<String> {
     match error {
-        LaunchError::Refused { core_errors } | LaunchError::CoreStopped { core_errors } => {
-            core_log(core_errors)
+        LaunchError::Refused {
+            core_errors,
+            dropped_logs,
+        }
+        | LaunchError::CoreStopped {
+            core_errors,
+            dropped_logs,
+        } => {
+            let mut lines = core_log(core_errors);
+            lines.extend(lost_lines(*dropped_logs));
+            lines
         }
         _ => Vec::new(),
     }
+}
+
+/// The log line for `dropped` records of the launch that the log of the
+/// host lost, or none. The host keeps the first error lines of each call
+/// apart, and the session keeps the first
+/// [`START_ERRORS_MAX`](neptron_session::START_ERRORS_MAX) of the launch,
+/// so the line says that much and no more.
+pub fn lost_lines(dropped: usize) -> Option<String> {
+    (dropped > 0).then(|| {
+        format!(
+            "the core log lost {dropped} lines at the launch; the first {} error lines of the launch are kept",
+            neptron_session::START_ERRORS_MAX
+        )
+    })
 }
 
 /// One log line for each error line of the core during the launch.
@@ -113,6 +138,7 @@ mod tests {
     fn a_refusal_quotes_the_core_and_says_what_to_check() {
         let error = LaunchError::Refused {
             core_errors: vec![KINST.to_owned(), "second".to_owned()],
+            dropped_logs: 0,
         };
         assert_eq!(
             launch_notice("kinst", &error),
@@ -131,12 +157,29 @@ mod tests {
     fn a_stop_at_the_start_with_no_words_of_the_core() {
         let error = LaunchError::CoreStopped {
             core_errors: Vec::new(),
+            dropped_logs: 0,
         };
         assert_eq!(
             launch_notice("Test Game", &error),
             "Test Game did not start: the core stopped it at the start. Check that the game has all its files."
         );
         assert!(launch_log(&error).is_empty());
+    }
+
+    #[test]
+    fn the_log_says_how_many_lines_the_launch_lost() {
+        let error = LaunchError::CoreStopped {
+            core_errors: vec![KINST.to_owned()],
+            dropped_logs: 12,
+        };
+        assert_eq!(
+            launch_log(&error),
+            [
+                "the core logged at the launch: HDD: kinst.chd not found",
+                "the core log lost 12 lines at the launch; the first 8 error lines of the launch are kept"
+            ]
+        );
+        assert_eq!(lost_lines(0), None);
     }
 
     #[test]

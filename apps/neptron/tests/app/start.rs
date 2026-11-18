@@ -211,3 +211,40 @@ fn a_silent_core_that_ends_a_game_still_gives_a_notice() {
         &[],
     );
 }
+
+/// A noisy launch whose log queue overflows: the error line still reaches
+/// the notice and the log, and the log says that lines were lost.
+#[test]
+#[ignore = "tier 2"]
+fn a_noisy_launch_keeps_its_error_line_and_says_what_it_lost() {
+    let mut script = "neptron-testcore 3\n".to_owned();
+    for i in 0..80 {
+        script.push_str(&format!("at 0 log debug noise {i}\n"));
+    }
+    script.push_str("at 0 log error HDD: kinst.chd not found\nat 60 shutdown\n");
+    let test = "a_noisy_launch_keeps_its_error_line_and_says_what_it_lost";
+    in_child_with(&test_name(module_path!(), test), &script, |dir| {
+        let mut rig = Rig::new(dir);
+        rig.boot(Some(game()));
+        let Outcome::Relaunch(next) = rig.until_end(600) else {
+            panic!("the game run relaunches");
+        };
+        let log = rig.shell().log_lines(16);
+        assert!(
+            log.iter().any(|l| l.starts_with("the core log lost ")
+                && l.ends_with("the first 8 error lines of the launch are kept")),
+            "{log:?}"
+        );
+        assert!(
+            log.contains(&"the core logged at the launch: HDD: kinst.chd not found".to_owned()),
+            "{log:?}"
+        );
+        assert_eq!(
+            next.notice.as_deref(),
+            Some(
+                "Test Game did not start: the core stopped it at the start. The core says: \"HDD: kinst.chd not found\". Check that the game has all its files."
+            )
+        );
+        rig.finish();
+    });
+}

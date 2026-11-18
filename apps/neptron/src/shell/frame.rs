@@ -171,7 +171,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 // frame in which it stops.
                 let said = session.last_message().or(session.last_error());
                 let text = start_failure::stopped_notice(&name, start_failure::first(errors, said));
-                (EndNotice::First(text), start_failure::core_log(errors))
+                let mut lines = start_failure::core_log(errors);
+                lines.extend(start_failure::lost_lines(session.start_dropped_logs()));
+                (EndNotice::First(text), lines)
             }
             EndReason::CoreShutdown => {
                 let said = session.last_message().or(session.last_error());

@@ -76,6 +76,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             Err(LoadError::Refused) => {
                 return Err(LaunchError::Refused {
                     core_errors: start_errors,
+                    dropped_logs: start_dropped_logs,
                 });
             }
             Err(e) => return Err(LaunchError::Load(e)),
@@ -180,6 +181,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             if self.state == State::Ended {
                 return Err(LaunchError::CoreStopped {
                     core_errors: std::mem::take(&mut self.start_errors),
+                    dropped_logs: self.start_dropped_logs,
                 });
             }
             if settle.push(self.source) {

@@ -31,6 +31,10 @@ pub enum LaunchError {
         /// The error-level log lines of the core during the load, at most
         /// [`START_ERRORS_MAX`](crate::START_ERRORS_MAX).
         core_errors: Vec<String>,
+        /// The log records of the load that the full queue of the host
+        /// dropped. The host keeps the first error lines of the call
+        /// apart, so `core_errors` can still hold them.
+        dropped_logs: usize,
     },
     /// The core asked to stop (`SHUTDOWN`) during the load, or in a frame
     /// before its source settled: the game never showed.
@@ -39,6 +43,9 @@ pub enum LaunchError {
         /// The error-level log lines of the core during the load and those
         /// frames, at most [`START_ERRORS_MAX`](crate::START_ERRORS_MAX).
         core_errors: Vec<String>,
+        /// The log records of the load and those frames that the full
+        /// queue of the host dropped.
+        dropped_logs: usize,
     },
     /// The save file exists but cannot be read. The session does not start,
     /// so it cannot write over a save file it did not load.
