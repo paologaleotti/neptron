@@ -304,6 +304,15 @@ impl Rig {
 
     /// Starts a run with the relaunch file `next`.
     pub fn boot(&mut self, next: Option<NextRun>) {
+        if let Some((next, log)) = self.try_boot(next) {
+            panic!("the run relaunched at boot: {next:?} {log:?}");
+        }
+    }
+
+    /// Starts a run with the relaunch file `next`, and gives the relaunch
+    /// and the log lines of a run that ends at its boot, as a game run
+    /// whose game does not start.
+    pub fn try_boot(&mut self, next: Option<NextRun>) -> Option<(NextRun, Vec<String>)> {
         let clock = self.clock.clone();
         let runtime = Runtime {
             run_rate: RunRateSource::ReadBack,
@@ -346,8 +355,11 @@ impl Rig {
             clock: self.clock.clone(),
         };
         match Shell::boot(self.paths.clone(), devices, runtime, next).expect("boot") {
-            Booted::Ready(shell) => self.shell = Some(shell),
-            Booted::Relaunch(next) => panic!("the run relaunched at boot: {next:?}"),
+            Booted::Ready(shell) => {
+                self.shell = Some(shell);
+                None
+            }
+            Booted::Relaunch { next, log } => Some((next, log)),
         }
     }
 

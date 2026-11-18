@@ -32,6 +32,7 @@ pub mod presets;
 pub mod record;
 pub mod relaunch;
 pub mod shell;
+pub mod start_failure;
 pub mod stop;
 pub mod storage;
 pub mod tv;

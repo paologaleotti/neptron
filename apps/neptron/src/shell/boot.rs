@@ -35,6 +35,7 @@ use crate::paths::Paths;
 use crate::presets::Presets;
 use crate::record;
 use crate::relaunch::{GameRef, NextRun, PadRecord};
+use crate::start_failure;
 use crate::storage::StorageStatus;
 
 /// A run that cannot start. The binary reports it and exits; the launcher
@@ -61,7 +62,13 @@ pub enum Booted<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock +
     Ready(Box<Shell<D, S, I, C>>),
     /// The game did not start, and the display went with it: the run ends
     /// with a relaunch to the game list, which shows why.
-    Relaunch(NextRun),
+    Relaunch {
+        /// The relaunch to the game list, with the notice.
+        next: NextRun,
+        /// The lines for the log: the notice, and the error lines of the
+        /// core.
+        log: Vec<String>,
+    },
 }
 
 /// What the start found, for the notices of the first frame.
@@ -214,12 +221,16 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 );
                 let mut game = match launched {
                     Ok(game) => game,
-                    Err(text) => {
-                        return Ok(Booted::Relaunch(NextRun {
-                            pads,
-                            game: None,
-                            notice: Some(text),
-                        }));
+                    Err((text, mut log)) => {
+                        log.insert(0, text.clone());
+                        return Ok(Booted::Relaunch {
+                            next: NextRun {
+                                pads,
+                                game: None,
+                                notice: Some(text),
+                            },
+                            log,
+                        });
                     }
                 };
                 let (guard, step) = Guard::continue_boot(
@@ -512,8 +523,11 @@ fn load_theme(path: &Path, found: &mut Found) -> Theme {
     })
 }
 
-/// Launches the game of a relaunch file. The text of the error goes into
-/// the notice of the game list.
+/// A launch that failed: the notice of the game list, and the log lines.
+type Failure = (String, Vec<String>);
+
+/// Launches the game of a relaunch file. The error is the notice of the
+/// game list and the log lines of the failure.
 #[allow(clippy::too_many_arguments)]
 fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone>(
     paths: &Paths,
@@ -524,13 +538,14 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
     runtime: &Runtime,
     devices: SessionDevices<S, ControlInput<I>, C>,
     display: D,
-) -> Result<GameStage<D, S, I, C>, String> {
+) -> Result<GameStage<D, S, I, C>, Failure> {
     let name = game_name(&reference.path);
     let (system, core) = library.resolve(&reference.system).ok_or_else(|| {
-        format!(
+        let text = format!(
             "{name} did not start: the system {} is unknown.",
             reference.system
-        )
+        );
+        (text, Vec::new())
     })?;
     let core_path = paths.core(&core.library);
     let content = paths.game(&reference.path);
@@ -545,8 +560,10 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
         core_options: &core.options,
         always_progressive: system.always_progressive,
     };
-    let policy = config.policy().map_err(|e| e.to_string())?;
-    let scanlines = config.scanlines().map_err(|e| e.to_string())?;
+    let policy = config.policy().map_err(|e| (e.to_string(), Vec::new()))?;
+    let scanlines = config
+        .scanlines()
+        .map_err(|e| (e.to_string(), Vec::new()))?;
     let video = VideoSetup {
         display,
         monitor: wanted.monitor.clone(),
@@ -559,8 +576,12 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
         start_hold_ns: config.start_hold_ns(),
         volume_percent: config.volume_percent(),
     };
-    let session = Session::launch(&game, video, devices, options)
-        .map_err(|e| format!("{name} did not start: {e}."))?;
+    let session = Session::launch(&game, video, devices, options).map_err(|e| {
+        (
+            start_failure::launch_notice(&name, &e),
+            start_failure::launch_log(&e),
+        )
+    })?;
     Ok(GameStage {
         session,
         reference: reference.clone(),

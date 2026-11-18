@@ -6,6 +6,7 @@
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::Hotkey;
 use neptron_input::PadRoster;
+use neptron_session::EndReason;
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_ui::screens::{INPUT_PAGE, NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
@@ -19,6 +20,7 @@ use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
 use crate::notices::{VERTICAL_INTERLACED, VERTICAL_INTERLACED_TEXT};
 use crate::outbox::Job;
 use crate::pad_notes::{NoteKind, SET_UP_CONTROLLER, silent_text};
+use crate::start_failure;
 
 impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
     /// Runs one frame. Returns how the run ends, when it ends with this
@@ -137,8 +139,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     self.recover(now_ns);
                 }
                 self.notice_picture();
-                if report.ended.is_some() {
-                    self.end_game(None);
+                if let Some(reason) = report.ended {
+                    self.end_by_core(reason);
                 } else if report.blanked {
                     (self.runtime.pace)(now_ns.saturating_add(UNPACED_FRAME_NS));
                 }
@@ -148,6 +150,41 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             // run relaunches to the game list, which opens the display
             // again in a new process.
             Err(e) => self.end_game(Some(format!("The game stopped: {e}."))),
+        }
+    }
+
+    /// Ends the game that the core asked to stop. A game that did not
+    /// start gets a notice with the words of the core, and the log gets
+    /// its error lines.
+    fn end_by_core(&mut self, reason: EndReason) {
+        let Stage::Game(game) = &self.stage else {
+            return;
+        };
+        let notice = match reason {
+            EndReason::CoreShutdown => None,
+            EndReason::FailedStart => {
+                let name = super::boot::game_name(&game.reference.path);
+                let session = &game.session;
+                let errors = session.start_errors();
+                let text = start_failure::stopped_notice(
+                    &name,
+                    start_failure::first(errors, session.last_message()),
+                );
+                Some((text, start_failure::core_log(errors)))
+            }
+        };
+        match notice {
+            None => {
+                self.log("the core asked to stop; the game ends".to_owned());
+                self.end_game(None);
+            }
+            Some((text, lines)) => {
+                for line in lines {
+                    self.log(line);
+                }
+                self.log(text.clone());
+                self.end_game(Some(text));
+            }
         }
     }
 

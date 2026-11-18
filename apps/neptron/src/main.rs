@@ -144,7 +144,12 @@ where
 {
     let mut shell = match booted {
         Ok(Booted::Ready(shell)) => shell,
-        Ok(Booted::Relaunch(next)) => return relaunch(&options.paths, &next),
+        Ok(Booted::Relaunch { next, log }) => {
+            for line in log {
+                say!("neptron: {line}");
+            }
+            return relaunch(&options.paths, &next);
+        }
         Err(e) => {
             say!("neptron: the frontend cannot start: {e}");
             return ExitCode::FAILURE;

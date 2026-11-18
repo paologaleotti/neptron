@@ -26,6 +26,7 @@ mod recovery;
 mod remapping;
 mod rescan;
 mod rig;
+mod start;
 mod system;
 mod tv;
 mod vertical;
