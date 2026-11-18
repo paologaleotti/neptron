@@ -73,7 +73,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             self.counters.core_frames += 1;
             report.ran_core = true;
             if self.state == State::Ended {
-                report.ended = Some(EndReason::CoreShutdown);
+                report.ended = Some(if self.game_shown && self.start_errors.is_empty() {
+                    EndReason::CoreShutdown
+                } else {
+                    EndReason::FailedStart
+                });
             }
         }
         self.counters.loop_frames += 1;
@@ -202,6 +206,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             } else {
                 self.picture.frame()
             };
+            let shows_game = game.is_some();
             let presented = self.engine.present(game, ui);
             // The present only queues the GPU's work. The audio runs while
             // the GPU draws, off the path from the flip event to the GPU
@@ -232,6 +237,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 Ok(flip) => {
                     self.meter.push(flip.time_ns);
                     self.count_missed_fields(flip.sequence, report.ran_core);
+                    self.game_shown |= shows_game;
                     report.flips += 1;
                     self.counters.flips += 1;
                 }

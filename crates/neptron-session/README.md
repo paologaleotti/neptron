@@ -49,6 +49,10 @@ Genesis Plus GX reports 256x192 at load and sends 320x224 from frame 4 (`tests/t
 
 The session runs the core with no display until the source has been the same for `LAUNCH_STABLE_FRAMES` (6) frames, at most `LAUNCH_SETTLE_MAX_FRAMES` (30). The audio of these frames is dropped and the core reads no input. The first `run_frame` then sets the game's mode, once (`launch::the_first_mode_is_the_mode_of_the_settled_source`). The cost is at most 100 ms more before the first picture, 10 frames for Genesis Plus GX. The data has no default geometry per system, so the session cannot start from one.
 
+## A game that does not start
+
+The session keeps the error-level log lines of the core from the load and the settle frames, at most `START_ERRORS_MAX` (8): `Session::start_errors`. A `retro_load_game` that returns false gives `LaunchError::Refused`, and a `SHUTDOWN` during the load or the settle gives `LaunchError::CoreStopped`; both carry those lines, and no mode was set. A `SHUTDOWN` in the loop before a flip with a picture of the core completed, or after an error line of the launch, ends the session with `EndReason::FailedStart` in place of `CoreShutdown`. FinalBurn Neo loads a set whose driver does not start, logs why, shows its own error screen and sends `SHUTDOWN` at a button press (`docs/spec/arcade.md`, section 10.1).
+
 ## The source
 
 The size comes from the last frame, because some cores send a new size without telling the frontend. The rate and the aspect come from the core's AV info and geometry events. A frame of more than 288 lines (`INTERLACE_MIN_LINES`) is interlaced: the cores do not say it, and 288 is the tallest progressive console picture. A system whose data sets `always_progressive` (`arcade`, `neogeo`) has no interlaced frame: the launch request carries the key (`GameLaunch::always_progressive`).
@@ -82,11 +86,11 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 ## What the app (T27) must do
 
 1. Resolve the settings: `policy_settings` and `scanline_settings` of `neptron-video`, `input.menu_hold_start_seconds` times 10^9, the core option values. Pick `RunRateSource::ReadBack` for KMS and `Measured` for the window.
-2. `Session::launch`. On `LaunchError`, go back to the game list with a notice.
+2. `Session::launch`. On `LaunchError`, go back to the game list with a notice. For `Refused` and `CoreStopped`, the notice quotes the core.
 3. Each frame: build the UI snapshot from `paused()`, `video_status`, `message()`, `host().options()`, then let the UI update with the navigation of `input_events()`, draw the canvas, and call `run_frame(Some(canvas))` (or `None` when nothing is drawn).
 4. `FrameReport::menu_opened`: show the quick menu. The UI intent "resume" calls `resume()`, "reset" calls `reset()`, "quit" calls `quit()`. A second quick menu hotkey while it is open is ignored by the session.
 5. `FrameReport::blind_recovery`, `FrameReport::blanked`, `video().current_refused()`: pass to the safety layer (T26). While `blanked`, pace the loop with the clock.
-6. `FrameReport::ended`, `SessionError`: call `quit()` and re-execute for the game list.
+6. `FrameReport::ended`, `SessionError`: call `quit()` and re-execute for the game list. For `EndReason::FailedStart`, the game list shows a notice with `start_errors()` or `last_message()`.
 7. Make the save folder writable. The session makes it when it is missing.
 
 ## Must never depend on
@@ -104,6 +108,7 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 - Unit tests: the source and the launch settle, the button mask, the frame copy, the save RAM writer (backup, unchanged, many flushes, failed write, failed copy), the message cut.
 - `tests/integration/session.rs`, the scripted session with the test core through the real host: one frame per flip, the input of each frame, the quick menu (pause, no toggle, UI over the frozen frame, the mask on resume), the Start hold, a 5 s recovery hold that never reaches the core, save RAM at launch, on the timer, at the menu and at exit, a core shutdown, double refresh, scanline settings and video status, core options, a timing change.
 - `tests/integration/launch.rs`: the first mode for the Genesis Plus GX geometry, and the two modesets without the settle.
+- `tests/integration/start.rs`: a refused load with the error line of the core, a `SHUTDOWN` in the load and in a settle frame (no mode, no sound), a `SHUTDOWN` in the first loop frame, and a `SHUTDOWN` long after an error line of the load.
 - `tests/integration/arcade.rs`: held option values for a core that declares its options at load, the rotation of a board drawn on its side in the host of the session, the turned source (rotation and inverted aspect) and its scene on a 15 kHz CRT (1:1 interlaced, turned by 90 then 270 degrees after the debounce), a half turn, the fallback aspect, `always_progressive` against a console system, no save file for a core with no save RAM, and the zip listing through the session.
 - `tests/integration/faults.rs`: a slow flip, a failed present and wait, a display that stops flipping, the output turned off and on again.
 - `tests/integration/timing.rs`: timing check 6 at 50.00, 59.94 and 60.10 Hz with jitter, with late flips, and with a display rate that differs from the mode (measured run rate). 30 simulated seconds each in the tier. Two 100,000-frame runs (about 28 simulated minutes, about 67 s each in the dev profile) are ignored tests: with jitter only, and with one late flip in a thousand.

@@ -21,9 +21,25 @@ pub enum LaunchError {
     /// The core could not be opened.
     #[error("cannot open the core: {0}")]
     Open(#[from] OpenError),
-    /// The core could not load the content.
+    /// The core could not load the content. A refusal of the core itself
+    /// is [`LaunchError::Refused`].
     #[error("the core cannot load the content: {0}")]
     Load(#[from] LoadError),
+    /// `retro_load_game` returned false.
+    #[error("the core refused the game file")]
+    Refused {
+        /// The error-level log lines of the core during the load, at most
+        /// [`START_ERRORS_MAX`](crate::START_ERRORS_MAX).
+        core_errors: Vec<String>,
+    },
+    /// The core asked to stop (`SHUTDOWN`) during the load, or in a frame
+    /// before its source settled: the game never showed.
+    #[error("the core asked to stop before the game started")]
+    CoreStopped {
+        /// The error-level log lines of the core during the load and those
+        /// frames, at most [`START_ERRORS_MAX`](crate::START_ERRORS_MAX).
+        core_errors: Vec<String>,
+    },
     /// The save file exists but cannot be read. The session does not start,
     /// so it cannot write over a save file it did not load.
     #[error("cannot read the save file: {0}")]

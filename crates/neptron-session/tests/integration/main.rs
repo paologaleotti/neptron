@@ -9,5 +9,6 @@ mod faults;
 mod harness;
 mod launch;
 mod session;
+mod start;
 mod timing;
 mod volume;

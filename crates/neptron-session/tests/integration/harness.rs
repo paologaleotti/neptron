@@ -11,7 +11,9 @@ use std::process::Command;
 
 use neptron_audio::Resampling;
 use neptron_backend::{AudioSink, Clock};
-use neptron_session::{Devices, GameLaunch, RunRateSource, Session, SessionOptions, VideoSetup};
+use neptron_session::{
+    Devices, GameLaunch, LaunchError, RunRateSource, Session, SessionOptions, VideoSetup,
+};
 use neptron_testcore::{PixelFormat as CoreFormat, SCRIPT_ENV, Size, expected_hash, hash};
 use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
 use neptron_testkit::{
@@ -211,9 +213,25 @@ pub fn launch_on<S: AudioSink>(
     (session, clock)
 }
 
+/// A launch that failed, and clones of its fakes.
+pub struct Failed {
+    pub error: LaunchError,
+    pub display: FakeDisplay,
+    pub audio: FakeAudio,
+}
+
 impl Rig {
     /// Launches the test core with the script in `dir`.
     pub fn launch(dir: &Path, setup: Setup) -> Self {
+        match Self::start(dir, setup) {
+            Ok(rig) => rig,
+            Err(failed) => panic!("launch: {:?}", failed.error),
+        }
+    }
+
+    /// Launches the test core with the script in `dir`, and gives the
+    /// error of a launch that fails.
+    pub fn start(dir: &Path, setup: Setup) -> Result<Self, Box<Failed>> {
         let clock = SimClock::starting_at(START_NS);
         let display = FakeDisplay::with_options(clock.clone(), setup.caps, setup.display);
         let audio = FakeAudio::with_options(
@@ -257,13 +275,19 @@ impl Rig {
             start_hold_ns: setup.start_hold_ns,
             volume_percent: setup.volume_percent,
         };
-        let session = Session::launch(&game, video, devices, options).expect("launch");
-        Self {
-            clock,
-            display,
-            audio,
-            input,
-            session,
+        match Session::launch(&game, video, devices, options) {
+            Ok(session) => Ok(Self {
+                clock,
+                display,
+                audio,
+                input,
+                session,
+            }),
+            Err(error) => Err(Box::new(Failed {
+                error,
+                display,
+                audio,
+            })),
         }
     }
 

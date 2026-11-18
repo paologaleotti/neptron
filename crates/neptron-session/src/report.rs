@@ -35,6 +35,12 @@ pub struct FrameReport {
 pub enum EndReason {
     /// The core asked to stop (`RETRO_ENVIRONMENT_SHUTDOWN`).
     CoreShutdown,
+    /// The core asked to stop before a picture of the game reached the
+    /// screen, or after it logged an error during the launch: the game did
+    /// not start. FinalBurn Neo does this at its own error screen.
+    /// [`Session::start_errors`](crate::Session::start_errors) holds the
+    /// words of the core.
+    FailedStart,
 }
 
 /// The counters of a session.

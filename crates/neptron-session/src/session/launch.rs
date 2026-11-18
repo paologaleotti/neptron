@@ -7,11 +7,12 @@ use neptron_audio::{AudioPipeline, CoreTiming, FlipRateMeter};
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::{Hotkeys, PortStates};
 use neptron_libretro::{
-    ContentRequest, Host, HostConfig, MESSAGE_MAX_BYTES, read_save_file, save_file_path,
+    ContentRequest, Host, HostConfig, LoadError, LogLevel, LogRecord, LogSource, MESSAGE_MAX_BYTES,
+    read_save_file, save_file_path,
 };
 use neptron_video::VideoEngine;
 
-use super::{INPUT_EVENTS_CAPACITY, Session, State};
+use super::{INPUT_EVENTS_CAPACITY, START_ERRORS_MAX, Session, State};
 use crate::pads::PadMask;
 use crate::picture::Picture;
 use crate::save::{SAVE_RAM_FLUSH_INTERVAL_NS, SaveRamWriter};
@@ -65,7 +66,18 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             path,
             extensions: game.extensions,
         });
-        let av = host.load_game(request)?;
+        let loaded = host.load_game(request);
+        let mut start_errors = Vec::with_capacity(START_ERRORS_MAX);
+        push_errors(&mut start_errors, host.logs());
+        let av = match loaded {
+            Ok(av) => av,
+            Err(LoadError::Refused) => {
+                return Err(LaunchError::Refused {
+                    core_errors: start_errors,
+                });
+            }
+            Err(e) => return Err(LaunchError::Load(e)),
+        };
         let refused_options = host.held_option_report().len();
         let save = load_save_file(&mut host, game)?;
 
@@ -109,6 +121,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             next_flush_ns: 0,
             message: String::with_capacity(MESSAGE_MAX_BYTES),
             message_frames: 0,
+            start_errors,
+            game_shown: false,
             flipless: 0,
             last_flip: None,
             counters: Counters {
@@ -143,16 +157,37 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         Ok(session)
     }
 
-    /// Runs core frames until the source settles or the core stops.
+    /// Runs core frames until the source settles. A core that asks to
+    /// stop in these frames, or during the load, stops the launch.
     fn settle(&mut self) -> Result<(), LaunchError> {
         let mut settle = LaunchSettle::default();
         loop {
             self.run_core(false).map_err(LaunchError::Run)?;
             self.counters.settle_frames += 1;
-            if self.state == State::Ended || settle.push(self.source) {
+            push_errors(&mut self.start_errors, self.host.logs());
+            if self.state == State::Ended {
+                return Err(LaunchError::CoreStopped {
+                    core_errors: std::mem::take(&mut self.start_errors),
+                });
+            }
+            if settle.push(self.source) {
                 return Ok(());
             }
         }
+    }
+}
+
+/// Adds the error-level lines of the core in `logs` to `out`, up to
+/// [`START_ERRORS_MAX`] lines in all.
+fn push_errors(out: &mut Vec<String>, logs: &[LogRecord]) {
+    let errors = logs
+        .iter()
+        .filter(|r| r.level == LogLevel::Error && r.source == LogSource::Core);
+    for record in errors {
+        if out.len() >= START_ERRORS_MAX {
+            return;
+        }
+        out.push(record.text.clone());
     }
 }
 

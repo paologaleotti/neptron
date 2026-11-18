@@ -27,6 +27,10 @@ use crate::{Counters, ExitReport, Flush, RunRateSource, SaveStats};
 /// (`FrameReport::blanked`) does not count.
 pub const FLIPLESS_FRAMES_LIMIT: u32 = 10;
 
+/// The most error-level core log lines that a session keeps from its
+/// launch. FinalBurn Neo logs three when its driver does not start.
+pub const START_ERRORS_MAX: usize = 8;
+
 /// The events of one poll that the session keeps room for. A poll with more
 /// grows the buffer once.
 const INPUT_EVENTS_CAPACITY: usize = 256;
@@ -68,6 +72,11 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     next_flush_ns: u64,
     message: String,
     message_frames: u32,
+    /// The error-level core log lines of the launch, made with room for
+    /// [`START_ERRORS_MAX`] at launch.
+    start_errors: Vec<String>,
+    /// A flip with a picture of the core has completed.
+    game_shown: bool,
     flipless: u32,
     /// The vertical blank count of the last flip; `None` before the first
     /// flip of a mode.
@@ -198,6 +207,19 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// such as the port of each pad.
     pub fn input(&self) -> &I {
         &self.input
+    }
+
+    /// The error-level log lines of the core during the launch (the load
+    /// and the frames before the first mode), at most
+    /// [`START_ERRORS_MAX`]: the words of a core that cannot run the game.
+    pub fn start_errors(&self) -> &[String] {
+        &self.start_errors
+    }
+
+    /// The core's last message (`SET_MESSAGE`), also after its frame count
+    /// ran out. `None` when the core sent none.
+    pub fn last_message(&self) -> Option<&str> {
+        (!self.message.is_empty()).then_some(self.message.as_str())
     }
 
     /// The core's last message (`SET_MESSAGE`), while its frame count runs.
