@@ -123,6 +123,18 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: notice_wrong_set,
     },
     SceneDef {
+        name: "screens/notice-set-disk",
+        build: notice_set_disk,
+    },
+    SceneDef {
+        name: "screens/notice-game-stopped",
+        build: notice_game_stopped,
+    },
+    SceneDef {
+        name: "screens/notice-game-refused",
+        build: notice_game_refused,
+    },
+    SceneDef {
         name: "screens/quick-menu",
         build: quick_menu,
     },
@@ -1363,6 +1375,39 @@ fn notice_wrong_set(frame: &mut UiFrame, theme: &Theme) {
         theme,
         "Most files of this game do not match. The set is for another emulator or another version. This image needs sets for FinalBurn Neo 1.0.0.03 (commit d7450cf).",
         NoticeKind::Warning,
+    );
+}
+
+/// The set check of an arcade game found no file of its disk image:
+/// message 8, for a clone of Killer Instinct, the longest form.
+fn notice_set_disk(frame: &mut UiFrame, theme: &Theme) {
+    notice_over_list(
+        frame,
+        theme,
+        "This game needs the hard disk image kinst.chd. Put it in the folder kinst, next to kinst15ai.zip.",
+        NoticeKind::Warning,
+    );
+}
+
+/// The core stopped a game at its start, after an error line at the load,
+/// as FinalBurn Neo does for Killer Instinct with no disk image.
+fn notice_game_stopped(frame: &mut UiFrame, theme: &Theme) {
+    notice_over_list(
+        frame,
+        theme,
+        "kinst did not start: the core stopped it at the start. The core says: \"HDD: kinst.chd not found\". Check that the game has all its files.",
+        NoticeKind::Error,
+    );
+}
+
+/// The core refused the game file, with the longest words of the core
+/// that the notice keeps (60 characters with the cut mark).
+fn notice_game_refused(frame: &mut UiFrame, theme: &Theme) {
+    notice_over_list(
+        frame,
+        theme,
+        "Astro Racer did not start: the core refused the game file. The core says: \"abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abc...\". Check that the file is complete and is for this system.",
+        NoticeKind::Error,
     );
 }
 
