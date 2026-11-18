@@ -108,6 +108,7 @@ The state column is one line. The full entry below is the reference.
 | OP-110 | Input for four players: owner decisions and leftovers | Plug order; a picker in Settings > Input is task M05b; no multitap |
 | OP-111 | PC findings of 2026-11-17 | Governor fixed; the PS3 arcade stick works with the old USB enumeration scheme; cold build with the 15 kHz patch fails |
 | OP-112 | A setting to turn off the old USB enumeration scheme | The images boot with `usbcore.old_scheme_first=1`; no setting yet |
+| OP-113 | Leftovers of the start failure and quick menu work of 2026-11-18 | `os push --data` carries no arcade index and no controller database; no game with a disk image is tested |
 
 ### Decided
 
@@ -1211,3 +1212,12 @@ The state column is one line. The full entry below is the reference.
 - Where: `os/board/pc/grub.cfg`, `os/board/rpi/cmdline.txt`; a setting belongs in Settings > Input, global layer only, with a backend that writes `Y` or `N` to `/sys/module/usbcore/parameters/old_scheme_first` at the start of the session and at a change.
 - How to change: add the setting (schema entry, backend write with a test against a temporary directory). The value applies to a controller that is plugged in after the write. The setting cannot cover a controller that is plugged in at power-on without a write to the boot partition.
 - Decision: Owner, 2026-11-18: ship the parameter now and keep the setting as an open point.
+
+### OP-113: Leftovers of the start failure and quick menu work of 2026-11-18.
+
+- Raised by: the test of Killer Instinct in a QEMU guest and the reviews of the two tasks (2026-11-18)
+- Status: open
+- Default: `cargo xtask os push --data` replaces the data folder of the hot folder with `monitors`, `cores`, `systems`, `skins` and `hardware` only. The arcade index exists only in an image build and `input/` is not in the list, so an app pushed with `--data` runs with no arcade index (no set check, file names in the list) and with no controller database. A push without `--data` keeps the data of the image. The notice of a game that did not start is written to the log two times, by the game run and by the menu run. A set with a disk image passes the set check when the file is present; NEPTRON does not read it, and no game with a disk image is a tested board family: in the guest, FinalBurn Neo ran Killer Instinct for 5 minutes on a file of zero bytes with no stop. In a game, a blind recovery hold opens the quick menu at 0.5 s and the recovery fires at 5 s under it; the owner was told. The hold time of the quick menu is a constant.
+- Where: `xtask/src/os` (`DATA_DIRS`), `apps/neptron/src/start_failure.rs`, `crates/neptron-library`, `crates/neptron-input/src/hotkeys.rs`
+- How to change: M11 for the data push (build the index in the push, add `input/`); a SHA-1 check of a disk image as a diagnostics job; a setting for the hold time if the owner wants one.
+- Decision: Owner, 2026-11-18: the texts of message 8 and of the notices S1, S2 and S3 are approved; the quick menu opens after a hold of 0.5 seconds.
