@@ -337,7 +337,7 @@ Each message shows in a dialog in the menu, and the full list goes to the log (a
 | 7 | NEPTRON cannot find its list of arcade games, so it cannot check this game. | The user chooses: start or cancel |
 | 8 | This game needs the hard disk image `<disk>.chd`. Put it in the folder `<folder>`, next to `<set>.zip`. | Stopped |
 
-Message 8 waits for the approval of the owner. `<disk>` is the name of the first disk image of the set with no file, and `<folder>` the folder of the parent for a clone, else of the set ("Where it looks for disk images").
+The owner approved the text of message 8 on 2026-11-18. `<disk>` is the name of the first disk image of the set with no file, and `<folder>` the folder of the parent for a clone, else of the set ("Where it looks for disk images").
 
 The diagnostics page names the pinned FBNeo commit and the DAT version, so a user can get the right DAT for ClrMamePro.
 
@@ -345,36 +345,43 @@ The diagnostics page names the pinned FBNeo commit and the DAT version, so a use
 
 When a ROM is missing, FBNeo's `retro_load_game` returns `true`, sets a 60 Hz geometry, draws its own error screen and sends `SHUTDOWN` at a button press. It logs `ROM at index %d with name %s and CRC 0x%08x is required` at error level (that log line is in `open_archive`, read for this spec). Without the check, a CRT would change its mode to show that screen. The host cannot tell this from a good load. (The `true` return and the error screen are the research reading of `libretro.cpp`; the trace of a missing-ROM case in M07b confirms them.)
 
-**trace** The same happens when the driver init fails for another reason. A core trace of `kinst.zip` with no disk image (2026-11-18, FBNeo `d7450cf`, aarch64 guest) shows: the ROMs all match; the load logs `HDD: kinst.chd not found` and `[FBNeo] Failed initializing driver.` at error level; `retro_load_game` returns `true` with a 640x480 geometry at 60 Hz; the core sends the three error lines with `SET_MESSAGE`; every frame is the same white error screen; and each frame with a button of port 0 held sends `SHUTDOWN` (the "press any button to exit" code at the error screen in `retro_run`). The core does not end the process. A session that takes that `SHUTDOWN` as a normal end sends the run back to the game list with no notice and no log line, so the player sees the error screen for a moment and then the list. A launch button still held when the game run starts ends the game at its first frames.
+**trace** The same happens when the driver init fails for another reason. A core trace of `kinst.zip` with no disk image (2026-11-18, FBNeo `d7450cf`, aarch64 guest) shows: the ROMs all match; the load logs three lines at error level, `HDD: kinst.chd not found`, `[FBNeo] Failed initializing driver.` and `[FBNeo] This is unexpected, you should probably report it.`, the last of its 57 lines; `retro_load_game` returns `true` with a 640x480 geometry at 60 Hz; the core sends the same three lines with `SET_MESSAGE`; every frame is the same white error screen; and each frame with a button of port 0 held sends `SHUTDOWN` (the "press any button to exit" code at the error screen in `retro_run`). The core does not end the process. A session that takes that `SHUTDOWN` as a normal end sends the run back to the game list with no notice and no log line, so the player sees the error screen for a moment and then the list. A launch button still held when the game run starts ends the game at its first frames.
 
 ### What the check does not prove
 
 A set that passes can still fail in the core: a ROM the DAT marks as needed that the core loads in another way, a BIOS choice of a core option. The core's own screen then shows, after a mode change. The session ends the game at `SHUTDOWN`, and section 10.1 gives the notice.
 
-### 10.1 A game that fails at its start
+### 10.1 A game that fails at its start, or that the core stops
 
-This rule holds for every core, not only for arcade. NEPTRON never ends because a game does not start. The game run ends with a relaunch to the game list, as for any end of a game, and the list shows a notice of kind Error that says what failed. The run before has not changed the display mode for a failure in the load: the first mode comes with the first frame of the session.
+This rule holds for every core, not only for arcade. NEPTRON never ends because a game does not start, and a stop by the core never returns to the game list in silence. The game run ends with a relaunch to the game list, as for any end of a game, and the list shows a notice of kind Error that says what happened. The run before has not changed the display mode for a failure in the load: the first mode comes with the first frame of the session.
 
 | Case | How the session sees it | Notice |
 | --- | --- | --- |
 | `retro_load_game` returns false | `LaunchError::Refused`, with the error-level core log lines of the load | S1 |
 | The core sends `SHUTDOWN` during the load, or in a frame before the source settles | `LaunchError::CoreStopped`, with the error-level core log lines of the load and of those frames | S2 |
-| The core sends `SHUTDOWN` before a game picture reached the screen (no completed flip with a core picture) | `EndReason::FailedStart` in the frame report | S2 |
-| The core sends `SHUTDOWN` at any time after it logged a line at error level during the launch (load and settle frames) | `EndReason::FailedStart` in the frame report | S2 |
-| The core sends `SHUTDOWN` in a game that started with no error | `EndReason::CoreShutdown` | None, as before |
+| The core sends `SHUTDOWN` before a loop frame ran it with a picture | `EndReason::FailedStart` in the frame report | S2 |
+| The core sends `SHUTDOWN` within `START_WINDOW_NS` (10 s of the session clock) after the end of the launch, when it logged an error line or sent a message at the launch | `EndReason::FailedStart` in the frame report | S2 |
+| Any other `SHUTDOWN`: a game that ran | `EndReason::CoreShutdown` | S3 |
 
-The notice texts (`<name>` is the file name of the game with no extension; `<core text>` is the first error-level core log line of the launch, or else the last `SET_MESSAGE` text, cut to 60 characters):
+`end_reason` in `crates/neptron-session/src/start.rs` holds this rule, in pure code. The window: a core that cannot run a game shows its own error screen and stops at the first button press (FinalBurn Neo does). A player who sees that screen presses a button within a few seconds, and 10 s leaves room for a slow reader. A game that runs is seldom stopped by its core so soon, and a stop after the window gives S3, so a wrong label never hides the stop. A picture that a refused mode hides, or the output off, still counts as a picture: the game has started.
+
+Only error-level lines of the core count; info, warn, debug and host lines do not. The host keeps the first 16 error-level records of each call apart from its log queue (`Host::error_logs`, `docs/spec/libretro-host.md`), so a noisy load that fills the queue keeps its error lines. FinalBurn Neo logs 57 lines for Killer Instinct, the three error lines last.
+
+The notice texts (`<name>` is the file name of the game with no extension). `<core text>` is, for S1, the first error-level core log line of the load that is not blank; for S2, that line of the launch, or else the last `SET_MESSAGE` text, or else the last error line of the core in a frame (a core that loads in silence can log its reason in the frame in which it stops); for S3, the last `SET_MESSAGE` text, or else the last error line of the core in the frames. Each control character of the core text, line breaks and tabs included, and each Unicode line or paragraph separator (U+2028, U+2029) becomes a space; the ends are trimmed; the text is cut to 60 characters, on a character, with `...`.
 
 | # | Text |
 | --- | --- |
 | S1 | `<name>` did not start: the core refused the game file. The core says: "`<core text>`". Check that the file is complete and is for this system. |
 | S2 | `<name>` did not start: the core stopped it at the start. The core says: "`<core text>`". Check that the game has all its files. |
+| S3 | `<name>` stopped: the core ended the game. The core says: "`<core text>`". |
 
-With no core text, the sentence "The core says" is left out. S1 and S2 wait for the approval of the owner. Every other launch error keeps its text, `<name> did not start: <error>.`
+With no core text, the sentence "The core says" is left out. The owner approved S1, S2 and S3 on 2026-11-18. Every other launch error keeps its text, `<name> did not start: <error>.`
 
-The log gets one line for the failure with the same text, and one line for each error-level core log line of the launch (at most 8). The session collects them during the launch only, so the frame loop does not allocate for them.
+The game list shows one notice. After S2 there was no play to save, so S2 comes before the notice of a lost save. After a game that ran, a lost save is worth more to the player, so it comes before S3, and the log keeps the stop (`pick_notice` in `apps/neptron/src/shell/intents.rs`).
 
-The arcade case Killer Instinct with no disk image (`kinst.zip` alone) reaches none of these rows on an image with the new index: message 8 stops it before the launch. With an index of an older image, it reaches the fourth row. With a file at `kinst/kinst.chd` that the core cannot use, it reaches the fourth row too.
+The log gets one line for the failure or the stop with the same text, one line for each error-level core log line of the launch (at most 8), and a line with the count of log records of the launch that the host lost, when it lost some. The session collects the error lines during the launch only, and keeps the last error line of the frames in a buffer made at launch, so the frame loop does not allocate for them.
+
+The arcade case Killer Instinct with no disk image (`kinst.zip` alone) reaches none of these rows on an image with the new index: message 8 stops it before the launch. With an index of an older image, it reaches the fourth row (three error lines and three messages at the launch, and a stop at the first button press). With a file at `kinst/kinst.chd` that the core cannot use, it reaches the fourth row too.
 
 ## 11. Vertical games
 
