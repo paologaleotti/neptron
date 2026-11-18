@@ -35,7 +35,9 @@ pub use geometry::{
     MAX_SAMPLE_RATE_MHZ, MIN_FPS_MHZ, MIN_SAMPLE_RATE_MHZ, Timing,
 };
 pub use host::{Host, HostConfig, SystemInfo};
-pub use log::{LOG_CAPACITY, LOG_TEXT_MAX_BYTES, LogLevel, LogRecord, LogSource};
+pub use log::{
+    ERROR_LOG_CAPACITY, LOG_CAPACITY, LOG_TEXT_MAX_BYTES, LogLevel, LogRecord, LogSource,
+};
 pub use options::{CoreOption, MAX_OPTIONS, OptionError};
 pub use output::{Dropped, Event, FrameFault, FrameOutput, Refusal, Video};
 pub use pad::{InputError, MAX_PORTS, Pad};

@@ -326,6 +326,19 @@ impl Host {
         self.state().map_or(&[], State::logs)
     }
 
+    /// The error-level records of the last call into the core, the first
+    /// [`ERROR_LOG_CAPACITY`](crate::ERROR_LOG_CAPACITY) of them. They are
+    /// kept also when [`Host::logs`] was full and dropped them.
+    pub fn error_logs(&self) -> &[LogRecord] {
+        self.state().map_or(&[], State::error_logs)
+    }
+
+    /// The records of the last call that [`Host::logs`] dropped because it
+    /// was full.
+    pub fn dropped_logs(&self) -> usize {
+        self.state().map_or(0, State::dropped_logs)
+    }
+
     fn prepare(&self, request: &ContentRequest<'_>) -> Result<LoadedContent, LoadError> {
         let rules = ContentRules {
             need_fullpath: self.system_info.need_fullpath,

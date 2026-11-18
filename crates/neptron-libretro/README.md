@@ -10,7 +10,7 @@ The host produces data and decides nothing for the session. It does not own the 
 - `system_info()`, `options()`, `set_option(key, value)`, `hold_options(values)`, `held_option_report()`, `input_descriptors()` (`SET_INPUT_DESCRIPTORS`, at most 256, for the remapping screen).
 - `load_game(Option<ContentRequest>) -> AvInfo`: a plain file, one entry of a `.zip` file, or no content.
 - `set_pad(port, Pad)`, then `run_frame() -> FrameOutput<'_>`: the video (`Frame`, `Duplicate` with the last frame, `Missing` or `Rejected`), the audio, the events (`Geometry`, `AvInfo`, `PixelFormat`, `Rotation`, `Shutdown`, `Message`, `Refused`), the log records and the drop counts.
-- `reset()`, `av_info()`, `pixel_format()`, `rotation()`, `logs()`.
+- `reset()`, `av_info()`, `pixel_format()`, `rotation()`, `logs()`, `error_logs()` (the first `ERROR_LOG_CAPACITY` error-level records of the last call, kept also when the queue of `logs()` was full), `dropped_logs()`.
 - `copy_save_ram(&mut Vec<u8>)`, `load_save_ram(&[u8])`.
 - File functions for the session to call off the frame thread: `save_file_path`, `read_save_file`, `write_save_file` (temp file, fsync, rename, one `.bak`).
 - `read_zip_entry`, `GameGeometry::from_core`, `Timing::from_core`: the checks, usable on their own (for example to replay core traces).

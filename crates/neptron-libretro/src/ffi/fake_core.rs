@@ -437,6 +437,40 @@ fn a_refused_load_keeps_the_host_open_with_the_core_log() {
 }
 
 #[test]
+fn the_error_line_of_a_noisy_load_survives_the_full_queue() {
+    script(|s| {
+        s.load_result = false;
+        s.need_fullpath = true;
+        s.on_load = Some(|cb| {
+            let mut log = retro_log_callback { log: None };
+            assert!(cb.env(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &raw mut log));
+            let log = log.log.unwrap();
+            for _ in 0..crate::LOG_CAPACITY + 10 {
+                // SAFETY: the host's log function, with a format that takes
+                // no argument.
+                unsafe { log(RETRO_LOG_DEBUG, c"noise\n".as_ptr()) };
+            }
+            // SAFETY: as above.
+            unsafe { log(RETRO_LOG_ERROR, c"HDD: game.chd not found\n".as_ptr()) };
+        });
+    });
+    let mut host = open().unwrap();
+    let exts = ["nes".to_owned()];
+    let request = ContentRequest {
+        path: Path::new("/no/such/rom.nes"),
+        extensions: &exts,
+    };
+    assert!(matches!(
+        host.load_game(Some(request)),
+        Err(LoadError::Refused)
+    ));
+    assert_eq!(host.logs().len(), crate::LOG_CAPACITY);
+    assert!(host.dropped_logs() >= 11, "{}", host.dropped_logs());
+    let errors: Vec<_> = host.error_logs().iter().map(|l| l.text.clone()).collect();
+    assert_eq!(errors, ["HDD: game.chd not found"]);
+}
+
+#[test]
 fn invalid_av_info_unloads_the_game() {
     script(|s| {
         s.av.timing.fps = f64::NAN;

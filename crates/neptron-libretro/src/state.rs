@@ -190,6 +190,14 @@ impl State {
         self.logs.records()
     }
 
+    pub(crate) fn error_logs(&self) -> &[LogRecord] {
+        self.logs.errors()
+    }
+
+    pub(crate) fn dropped_logs(&self) -> usize {
+        self.logs.dropped()
+    }
+
     pub(crate) fn options(&self) -> &[CoreOption] {
         self.options.options()
     }

@@ -325,7 +325,7 @@ It formats the message with `vsnprintf` into a stack buffer of 1,024 bytes (long
 
 Why not answer `false`: Snes9x calls its log pointer without a null check on some paths (an unknown controller port, a failed multi-cart load), so `false` can crash it. FCEUmm and Genesis Plus GX use their own logger when the call fails, and lose nothing. A core log is also the best way to see why a ROM does not load. The shim is 30 lines of C with no state except the function pointer, and `cc` is already the build tool of the Switchres crate.
 
-`LogRecord { level, source, text }`: the source is the core or the host. The log queue holds 64 records of at most 1,024 bytes each, made once at `Host::open`. A record beyond that is counted in `Dropped::log_records`. `run_frame` clears the queue at its start; `FrameOutput::logs` and `Host::logs` show the records of the last call. The host writes no log itself: the session forwards the records to its own log.
+`LogRecord { level, source, text }`: the source is the core or the host. The log queue holds 64 records of at most 1,024 bytes each, made once at `Host::open`. A record beyond that is counted in `Dropped::log_records`. `run_frame` clears the queue at its start; `FrameOutput::logs` and `Host::logs` show the records of the last call. The error-level records also go to a store of their own, `ERROR_LOG_CAPACITY` (16) records made at `Host::open`, which keeps the first ones of a call: `Host::error_logs`. A noisy load fills the queue before its last lines (FinalBurn Neo logs 57 lines for one set), and the error lines at its end say why it failed. `Host::dropped_logs` gives the records of the last call that the full queue dropped. The host writes no log itself: the session forwards the records to its own log.
 
 ## Content
 

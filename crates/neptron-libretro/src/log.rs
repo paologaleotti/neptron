@@ -1,10 +1,16 @@
 //! Log records of the core and of the host, in a queue that is made once
-//! and never allocates after that.
+//! and never allocates after that. The error-level records also go to a
+//! small store of their own, so a noisy call that fills the queue does not
+//! lose the lines that say why it failed.
 
 use std::fmt::{self, Write as _};
 
 /// The most log records kept between two calls.
 pub const LOG_CAPACITY: usize = 64;
+/// The most error-level records kept between two calls, in their own
+/// store. The store keeps the first ones: the first error of a failed load
+/// names its cause, and the later ones follow from it.
+pub const ERROR_LOG_CAPACITY: usize = 16;
 /// The longest text of one record, in bytes. The C shim cuts at the same
 /// length.
 pub const LOG_TEXT_MAX_BYTES: usize = 1024;
@@ -55,9 +61,17 @@ impl LogLevel {
     }
 }
 
-/// The queue. Each record keeps its text buffer for the life of the queue.
+/// The queue of every record, and the store of the error-level ones.
 #[derive(Debug)]
 pub(crate) struct LogQueue {
+    all: Slots,
+    errors: Slots,
+}
+
+/// Records made once, each with its text buffer for the life of the queue.
+/// A record past the capacity is counted and dropped.
+#[derive(Debug)]
+struct Slots {
     records: Vec<LogRecord>,
     len: usize,
     dropped: usize,
@@ -65,7 +79,61 @@ pub(crate) struct LogQueue {
 
 impl LogQueue {
     pub(crate) fn new() -> Self {
-        let records = (0..LOG_CAPACITY)
+        Self {
+            all: Slots::new(LOG_CAPACITY),
+            errors: Slots::new(ERROR_LOG_CAPACITY),
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.all.clear();
+        self.errors.clear();
+    }
+
+    pub(crate) fn records(&self) -> &[LogRecord] {
+        self.all.records()
+    }
+
+    pub(crate) fn dropped(&self) -> usize {
+        self.all.dropped
+    }
+
+    /// The error-level records, also those the full queue dropped.
+    pub(crate) fn errors(&self) -> &[LogRecord] {
+        self.errors.records()
+    }
+
+    /// Adds a record with text from a core: bytes that are not UTF-8
+    /// become U+FFFD, and a trailing newline is removed.
+    pub(crate) fn push_bytes(&mut self, level: LogLevel, source: LogSource, text: &[u8]) {
+        if let Some(record) = self.all.next(level, source) {
+            fill_bytes(&mut record.text, text);
+        }
+        if level == LogLevel::Error
+            && let Some(record) = self.errors.next(level, source)
+        {
+            fill_bytes(&mut record.text, text);
+        }
+    }
+
+    /// Adds a record with formatted text, with no allocation.
+    pub(crate) fn push_fmt(&mut self, level: LogLevel, source: LogSource, args: fmt::Arguments) {
+        if let Some(record) = self.all.next(level, source) {
+            // A full buffer cuts the text; that is the intended limit.
+            let _ = Bounded(&mut record.text).write_fmt(args);
+        }
+        if level == LogLevel::Error
+            && let Some(record) = self.errors.next(level, source)
+        {
+            // As above.
+            let _ = Bounded(&mut record.text).write_fmt(args);
+        }
+    }
+}
+
+impl Slots {
+    fn new(capacity: usize) -> Self {
+        let records = (0..capacity)
             .map(|_| LogRecord {
                 level: LogLevel::Info,
                 source: LogSource::Host,
@@ -79,44 +147,13 @@ impl LogQueue {
         }
     }
 
-    pub(crate) fn clear(&mut self) {
+    fn clear(&mut self) {
         self.len = 0;
         self.dropped = 0;
     }
 
-    pub(crate) fn records(&self) -> &[LogRecord] {
+    fn records(&self) -> &[LogRecord] {
         self.records.get(..self.len).unwrap_or_default()
-    }
-
-    pub(crate) fn dropped(&self) -> usize {
-        self.dropped
-    }
-
-    /// Adds a record with text from a core: bytes that are not UTF-8
-    /// become U+FFFD, and a trailing newline is removed.
-    pub(crate) fn push_bytes(&mut self, level: LogLevel, source: LogSource, text: &[u8]) {
-        let Some(record) = self.next(level, source) else {
-            return;
-        };
-        let mut out = Bounded(&mut record.text);
-        for chunk in text.utf8_chunks() {
-            if out.write_str(chunk.valid()).is_err() {
-                break;
-            }
-            if !chunk.invalid().is_empty() && out.write_char('\u{FFFD}').is_err() {
-                break;
-            }
-        }
-        let trimmed = record.text.trim_end_matches(['\n', '\r']).len();
-        record.text.truncate(trimmed);
-    }
-
-    /// Adds a record with formatted text, with no allocation.
-    pub(crate) fn push_fmt(&mut self, level: LogLevel, source: LogSource, args: fmt::Arguments) {
-        if let Some(record) = self.next(level, source) {
-            // A full buffer cuts the text; that is the intended limit.
-            let _ = Bounded(&mut record.text).write_fmt(args);
-        }
     }
 
     fn next(&mut self, level: LogLevel, source: LogSource) -> Option<&mut LogRecord> {
@@ -130,6 +167,22 @@ impl LogQueue {
         record.text.clear();
         Some(record)
     }
+}
+
+/// Writes the text of a core into `out`: bytes that are not UTF-8 become
+/// U+FFFD, and a trailing newline is removed.
+fn fill_bytes(out: &mut String, text: &[u8]) {
+    let mut bounded = Bounded(out);
+    for chunk in text.utf8_chunks() {
+        if bounded.write_str(chunk.valid()).is_err() {
+            break;
+        }
+        if !chunk.invalid().is_empty() && bounded.write_char('\u{FFFD}').is_err() {
+            break;
+        }
+    }
+    let trimmed = out.trim_end_matches(['\n', '\r']).len();
+    out.truncate(trimmed);
 }
 
 /// Writes into a string up to [`LOG_TEXT_MAX_BYTES`] and fails after that,
@@ -213,6 +266,52 @@ mod tests {
         assert_eq!(q.dropped(), 3);
         q.clear();
         assert_eq!(q.dropped(), 0);
+    }
+
+    #[test]
+    fn an_error_after_a_full_queue_survives_in_its_store() {
+        let mut q = LogQueue::new();
+        for _ in 0..LOG_CAPACITY {
+            q.push_bytes(LogLevel::Debug, LogSource::Core, b"noise");
+        }
+        q.push_bytes(
+            LogLevel::Error,
+            LogSource::Core,
+            b"HDD: game.chd not found\n",
+        );
+        q.push_fmt(LogLevel::Error, LogSource::Host, format_args!("host {}", 7));
+        q.push_bytes(LogLevel::Warn, LogSource::Core, b"not an error");
+        assert_eq!(q.records().len(), LOG_CAPACITY);
+        assert_eq!(q.dropped(), 3);
+        let errors: Vec<(LogSource, &str)> = q
+            .errors()
+            .iter()
+            .map(|r| (r.source, r.text.as_str()))
+            .collect();
+        assert_eq!(
+            errors,
+            [
+                (LogSource::Core, "HDD: game.chd not found"),
+                (LogSource::Host, "host 7")
+            ]
+        );
+        q.clear();
+        assert!(q.errors().is_empty());
+    }
+
+    #[test]
+    fn the_error_store_keeps_the_first_errors_and_never_grows() {
+        let mut q = LogQueue::new();
+        for i in 0..ERROR_LOG_CAPACITY + 5 {
+            q.push_fmt(LogLevel::Error, LogSource::Core, format_args!("error {i}"));
+        }
+        assert_eq!(q.errors().len(), ERROR_LOG_CAPACITY);
+        assert_eq!(q.errors()[0].text, "error 0");
+        let long = "é".repeat(LOG_TEXT_MAX_BYTES);
+        q.clear();
+        q.push_bytes(LogLevel::Error, LogSource::Core, long.as_bytes());
+        assert_eq!(q.errors()[0].text.len(), LOG_TEXT_MAX_BYTES);
+        assert_eq!(q.errors()[0].text.capacity(), LOG_TEXT_MAX_BYTES);
     }
 
     #[test]
