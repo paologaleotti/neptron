@@ -407,6 +407,36 @@ mod tests {
         }
     }
 
+    /// Some controllers, such as the Mad Catz PS3 FightStick TE
+    /// (0738:8838), give no input after the default USB enumeration. The
+    /// USB drivers are built in and enumerate before user space, so only
+    /// the kernel command line selects the old scheme for a controller that
+    /// is plugged in at power-on.
+    #[test]
+    fn every_image_kernel_enumerates_usb_with_the_old_scheme_first() {
+        let grub = std::fs::read_to_string(os_dir().join("board/pc/grub.cfg")).unwrap();
+        let linux: Vec<&str> = grub
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.starts_with("linux "))
+            .collect();
+        assert!(!linux.is_empty(), "{grub}");
+        let rpi = std::fs::read_to_string(os_dir().join("board/rpi/cmdline.txt")).unwrap();
+        for line in linux.into_iter().chain(rpi.lines()) {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            assert!(
+                words.contains(&"usbcore.old_scheme_first=1"),
+                "no usbcore.old_scheme_first=1: {line}"
+            );
+            assert!(
+                !words
+                    .iter()
+                    .any(|w| w.starts_with("usbcore.use_both_schemes")),
+                "a device that refuses the old scheme needs the other one: {line}"
+            );
+        }
+    }
+
     /// The entries of an inittab that are not comments or blank lines.
     fn inittab_entries(rel: &str) -> Vec<String> {
         std::fs::read_to_string(os_dir().join(rel))

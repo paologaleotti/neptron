@@ -633,7 +633,7 @@ fn config_txt_holds_the_keys_of_the_spec_each_with_its_reason() {
     assert_eq!(
         cmdline,
         "root=PARTUUID=@SIGNATURE@-02 rootfstype=erofs ro rootwait quiet \
-         console=serial0,115200 panic=10\n"
+         console=serial0,115200 panic=10 usbcore.old_scheme_first=1\n"
     );
     assert!(!cmdline.contains("video="), "the kernel sets no mode");
     let post_image = read("board/rpi/post-image.sh");
@@ -663,14 +663,14 @@ fn only_the_release_kernel_command_line_is_quiet() {
     assert_eq!(
         String::from_utf8(release.stdout).unwrap(),
         "root=PARTUUID=4e505052-02 rootfstype=erofs ro rootwait quiet \
-         console=serial0,115200 panic=10\n"
+         console=serial0,115200 panic=10 usbcore.old_scheme_first=1\n"
     );
     let dev = cmdline("4e505044", "dev");
     assert!(dev.status.success(), "{dev:?}");
     assert_eq!(
         String::from_utf8(dev.stdout).unwrap(),
         "root=PARTUUID=4e505044-02 rootfstype=erofs ro rootwait \
-         console=serial0,115200 panic=10\n"
+         console=serial0,115200 panic=10 usbcore.old_scheme_first=1\n"
     );
     let bad = cmdline("4e505052", "debug");
     assert!(!bad.status.success());
