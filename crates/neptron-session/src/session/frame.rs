@@ -70,6 +70,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 let _ = self.host.set_pad(port, pad);
             }
             self.run_core(true).map_err(|e| self.fail(e))?;
+            self.mask.core_ran();
             self.counters.core_frames += 1;
             report.ran_core = true;
             if self.state == State::Ended {
@@ -187,9 +188,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
 
     /// Opens the quick menu: the core stops, the audio fades out, and the
     /// save RAM goes to the writer, in case the player turns the machine
-    /// off from the menu.
+    /// off from the menu. A press of the combination that the core did
+    /// not get was for the menu, so it never reaches the game.
     fn pause(&mut self) {
         self.state = State::Paused;
+        self.mask.drop_combo_presses();
         if let Some(audio) = &mut self.audio {
             audio.mute();
         }

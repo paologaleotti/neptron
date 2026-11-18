@@ -6,7 +6,9 @@ use std::rc::Rc;
 
 use neptron_backend::{AudioSink, Clock};
 use neptron_input::QUICK_MENU_HOLD_NS;
-use neptron_session::{EndReason, Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SessionError};
+use neptron_session::{
+    EndReason, Flush, LATE_PRESS_MAX_FRAMES, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SessionError,
+};
 use neptron_testkit::{DisplayOptions, FakeAudio, FakeDisplay, Render};
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_video::{
@@ -175,6 +177,112 @@ fn the_quick_menu_pauses_the_core_and_is_never_a_toggle() {
             rig.run(1);
             assert_frame(&rig.session, frozen + 62, A);
             assert!(rig.audio.overruns().is_empty());
+        }
+    );
+}
+
+/// The RetroPad bit of Select, as the test core reads it.
+const SELECT: u16 = 1 << 2;
+
+#[test]
+fn a_coin_and_a_start_that_overlap_reach_the_game_and_open_no_menu() {
+    with_script!(
+        "a_coin_and_a_start_that_overlap_reach_the_game_and_open_no_menu",
+        SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(5);
+            let mut seen = Vec::new();
+            let mut frame = |rig: &mut Rig, n: u64| {
+                for _ in 0..n {
+                    let report = rig.session.run_frame(None).unwrap();
+                    assert!(!report.menu_opened);
+                    let frame = rig.session.last_frame().expect("a game frame");
+                    let buttons = [0, SELECT, START, SELECT | START]
+                        .into_iter()
+                        .find(|b| frame_hash(&frame) == expected(&frame, rig.core_frame(), *b))
+                        .expect("a frame with Select or Start or none");
+                    seen.push(buttons);
+                }
+            };
+            rig.press(&[Control::Select]);
+            frame(&mut rig, 3);
+            rig.press(&[Control::Start]);
+            frame(&mut rig, 6);
+            rig.release(&[Control::Select]);
+            frame(&mut rig, 3);
+            rig.release(&[Control::Start]);
+            frame(&mut rig, 30);
+            assert!(!rig.session.paused(), "the overlap opens no menu");
+            let expected_seen: Vec<u16> = [SELECT; 9]
+                .into_iter()
+                .chain([START; 3])
+                .chain([0; 30])
+                .collect();
+            assert_eq!(seen, expected_seen, "one coin, then one start");
+        }
+    );
+}
+
+#[test]
+fn the_quick_menu_leaves_no_press_of_the_combination_in_the_game() {
+    with_script!(
+        "the_quick_menu_leaves_no_press_of_the_combination_in_the_game",
+        SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(5);
+            rig.press(&[Control::Select]);
+            rig.run(1);
+            assert_frame(&rig.session, rig.core_frame(), SELECT);
+            let frames = rig.open_menu();
+            assert!((31..=33).contains(&frames), "{frames} frames for 0.5 s");
+            assert_frame(&rig.session, rig.core_frame(), SELECT);
+            rig.run(5);
+            rig.session.resume();
+            for _ in 0..30 {
+                rig.run(1);
+                assert_frame(&rig.session, rig.core_frame(), 0);
+            }
+            assert!(!rig.session.paused());
+        }
+    );
+}
+
+#[test]
+fn a_combination_after_a_start_hold_replays_its_press_for_the_longest_late_press() {
+    with_script!(
+        "a_combination_after_a_start_hold_replays_its_press_for_the_longest_late_press",
+        SCRIPT,
+        |dir| {
+            let setup = Setup {
+                start_hold_ns: 2_000_000_000,
+                ..Setup::default()
+            };
+            let mut rig = Rig::launch(dir, setup);
+            rig.run(5);
+            rig.press(&[Control::Start]);
+            let mut frames = 0;
+            while !rig.session.run_frame(None).unwrap().menu_opened {
+                frames += 1;
+                assert!(frames < 200, "the Start hold never fired");
+            }
+            rig.session.resume();
+            // Start stays down: Select makes a combination that opens no
+            // menu, and the core sees neither button.
+            rig.press(&[Control::Select]);
+            for _ in 0..200 {
+                let report = rig.session.run_frame(None).unwrap();
+                assert!(!report.menu_opened);
+                assert_frame(&rig.session, rig.core_frame(), 0);
+            }
+            rig.release(&[Control::Select]);
+            for _ in 0..LATE_PRESS_MAX_FRAMES {
+                rig.run(1);
+                assert_frame(&rig.session, rig.core_frame(), SELECT);
+            }
+            rig.run(1);
+            assert_frame(&rig.session, rig.core_frame(), 0);
         }
     );
 }

@@ -70,7 +70,7 @@ flowchart TD
 
 ### Hotkeys of one port
 
-Select and Start held together (`QUICK_MENU_COMBO`) for `QUICK_MENU_HOLD_NS` (0.5 s) fire the quick menu, once per hold, at the hold time. A shorter overlap fires nothing. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So in a game a recovery hold opens the quick menu first. `Session::resume` cancels a hold in progress (`Hotkeys::cancel_quick_menu`), so a combination held across the close does not open the menu again. From the frame Select and Start are both down until both are up again, the core sees neither (`PadMask`), so the game does not act on the combination during the hold. The Start hold is a second way to the quick menu, with its own state per port:
+Select and Start held together (`QUICK_MENU_COMBO`) for `QUICK_MENU_HOLD_NS` (0.5 s) fire the quick menu, once per hold, at the hold time. A shorter overlap fires nothing. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So in a game a recovery hold opens the quick menu first. `Session::resume` cancels a hold in progress (`Hotkeys::cancel_quick_menu`), so a combination held across the close does not open the menu again. While Select and Start are both down, the core does not see the button that completed the combination (`PadMask`), so the game does not see both down during a hold. When the combination ends before the menu opens, that press reaches the core late, for 3 to 30 core frames when it is up already (`LATE_PRESS_MIN_FRAMES`, `LATE_PRESS_MAX_FRAMES`), so a coin and a start that overlap both reach the game. A short tap of Select and Start now reaches the game, as on the original hardware, so a game's own Select and Start combination (for example a soft reset with other buttons) works with a tap; only a hold of 0.5 s opens the menu. When the menu opens, the press is dropped. The Start hold is a second way to the quick menu, with its own state per port:
 
 ```mermaid
 stateDiagram-v2
@@ -188,7 +188,7 @@ flowchart TD
 - [session/frame.rs](../../crates/neptron-session/src/session/frame.rs): `run_frame`, `run_core`, `read_input`, `pause`, `must_mute`, `show`, `flips_per_frame`, `update_run_rate`, `flush_save_ram`, `check_stall`, `retime`.
 - [source.rs](../../crates/neptron-session/src/source.rs): `source_geometry`, `LaunchSettle::push`, `LAUNCH_STABLE_FRAMES`, `LAUNCH_SETTLE_MAX_FRAMES`, `INTERLACE_MIN_LINES`.
 - [save.rs](../../crates/neptron-session/src/save.rs): `SaveRamWriter::start`, `flush`, `finish`, `copy_and_send`, `take`, `write_loop`, `SAVE_RAM_FLUSH_INTERVAL_NS`, `Flush`.
-- [pads.rs](../../crates/neptron-session/src/pads.rs): `PadMask::hold_back_pressed`, `release`, `pad`.
+- [pads.rs](../../crates/neptron-session/src/pads.rs): `PadMask::hold_back_pressed`, `release`, `core_ran`, `pad`.
 - [report.rs](../../crates/neptron-session/src/report.rs) and [error.rs](../../crates/neptron-session/src/error.rs): `FrameReport`, `EndReason`, `Counters`, `ExitReport`, `LaunchError`, `SessionError`.
 - [hotkeys.rs](../../crates/neptron-input/src/hotkeys.rs): `Hotkeys::update`, `ComboTimer::fires`, `StartHold::fires`, `QUICK_MENU_COMBO`, `BLIND_RECOVERY_COMBO`, `BLIND_RECOVERY_HOLD_NS`.
 - [save.rs of the host](../../crates/neptron-libretro/src/save.rs): `save_file_path`, `read_save_file`, `write_save_file`.
