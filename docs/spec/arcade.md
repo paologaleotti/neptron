@@ -14,6 +14,7 @@ The owner decided the main points on 2026-11-16. The research for this spec read
 - One arcade core: FBNeo, the full build, on both images (PC x86_64 and Raspberry Pi aarch64). ADR 0014 records the core and its licence.
 - Two system folders, `arcade` and `neogeo`. Both run FBNeo.
 - ROM sets as `.zip` files only.
+- A hard disk image that a set needs (CHD, or a raw dump) is passed through: the core opens it itself from the folder of the set (section 10). NEPTRON checks only that the file is present. No board with a disk image is a tested board family (Killer Instinct is the only one in the pinned DAT).
 - A game list from an index that NEPTRON makes from the DAT of the pinned FBNeo commit: titles, BIOS sets hidden, clones folded under their parent, a mark for vertical games.
 - A check of the set and its BIOS before launch, with NEPTRON's own messages.
 - Vertical games turned upright by NEPTRON's renderer (ADR 0015).
@@ -26,7 +27,7 @@ The owner decided the main points on 2026-11-16. The research for this spec read
 - MAME 2003-Plus as the second core, in a `mame` folder. Then a core setting per game. Then the choice of core by checksum.
 - TATE: the screen on its side, with the UI turned (section 15).
 - Save states, `hiscore.dat`, samples.
-- `.7z`, CHD, Neo Geo CD.
+- `.7z`, Neo Geo CD, CD images (CHD) of consoles. A check of the content of a disk image (its SHA-1).
 - The Modern and 6-Panel layouts, light guns, trackballs, keyboard encoders.
 - Filters by orientation and by player count. The DAT has no player count.
 - A "keep game speed" choice for a display that cannot show the game's rate.
@@ -138,6 +139,7 @@ For each set of the DAT of the pinned FBNeo commit (`FinalBurn Neo (ClrMame Pro 
 | width, height | `video/@width`, `video/@height` | Diagnostics |
 | status | `driver/@status` | A "not working" mark |
 | ROMs | each `rom`: `name`, `size`, `crc`, `merge`, `status` | The set check |
+| Disks | each `disk`: `name`, `sha1` | The set check: the file of each disk image must be present (message 8) |
 
 Example, with an invented description: "Star Patrol - Mission One (XYZ-0001 ~ XYZ-0002)" gives the title "Star Patrol - Mission One" and the details "XYZ-0001 ~ XYZ-0002". A description with no bracket group has no details.
 
@@ -155,6 +157,7 @@ licence	FBNeo licence, see /usr/share/licenses/libretro-fbneo/license.txt
 set	<name>	<parent or ->	<romof or ->	<flags>	<year>	<maker>	<board>	<orientation>	<width>	<height>	<title>	<details>
 rom	<name>	<size>	<crc>	<merge or ->	<flags>
 rom	...
+disk	<name>	<sha1 or ->
 set	...
 ```
 
@@ -164,6 +167,7 @@ set	...
 - `orientation` is `h` or `v`. `width` and `height` are as the DAT gives them.
 - ROM flags: `-`, or `d` for `status="nodump"`. A `nodump` ROM has no CRC (`-`) and the check skips it.
 - `crc` is 8 lower-case hex digits. `size` is decimal bytes.
+- A `disk` line names a hard disk image (CHD) of the set, from a `disk` element of the DAT. The `disk` lines of a set follow its `rom` lines, in DAT order. `sha1` is 40 lower-case hex digits, or `-` when the DAT gives none. The pinned DAT has 10 such sets, all of the Killer Instinct board (`midway/d_kinst.cpp`). The `disk` line is a new kind of line, so the version stays 1: an older reader skips it and checks the set as before.
 - A field never holds a tab or a line break. The generator stops with an error that names the set and the field if the DAT has one.
 - The format is append-only: a new field goes at the end of its line, and a reader ignores fields after the ones it knows. A new kind of line gets a new first field, and a reader skips a line whose first field it does not know. A field is never removed or moved. A change that an older reader would misread raises the version.
 
@@ -300,6 +304,20 @@ So `neogeo.zip` can be in `bios/`, in `bios/fbneo/` or next to the games, and a 
 4. Each ROM of the set, except `nodump` ROMs and ROMs that are also ROMs of its BIOS set (the same CRC), must be in one of the found zips of the set, its parent or its BIOS, with the same CRC-32 and the same size. The match is by CRC and size, not by name, as FBNeo matches. This one rule covers split, non-merged and full non-merged sets. Otherwise: message 4. When more than half of those ROMs (`WRONG_SET_PERCENT`, 50) are missing or differ, the set is for another emulator or another version: message 4b.
 5. The BIOS: if no found zip of the BIOS name holds any ROM of the BIOS set, message 5. If some but not all match, the launch goes on and the diagnostics page lists the differences. FBNeo does not require a ROM that its driver marks `BRF_OPT`, and a Neo Geo BIOS set lists many BIOS variants, of which the core needs only the selected one. The DAT has no such mark, so the check cannot tell which BIOS files are needed. A stricter rule is an open point (section 19, A3). The same mark can make a game ROM optional; the check then asks for a ROM that the core would not need. That is safe (it stops, never passes wrongly), and the same open point covers it.
 6. A zip that cannot be read (damaged, ZIP64, multi-disk, too large a central directory): message 6.
+7. Each disk image of the set (`disk` line) has a file where the core looks for it. Otherwise: message 8. Without the file, FBNeo's driver init fails and the core shows its own error screen (section 10, "Why the check is needed"). The check comes after the zips, because the player fixes the zips first and the image is a large file to copy.
+
+### Where it looks for disk images
+
+FBNeo opens a disk image in `BurnHDDOpen` (`src/burn/burn_hdd.cpp`, read for this rule at the pin `d7450cf`). The libretro port sets its HDD folder `szAppHDDPath` to the folder of the game zip (`g_rom_dir`, in `retro_load_game_common`). For the disk name of the driver (the `disk` name of the DAT, with no extension), it tries in this order, and opens the first file that exists:
+
+1. `<game folder>/<set>/<disk>.chd`
+2. `<game folder>/<parent>/<disk>.chd`, for a clone
+3. `<game folder>/<set>/<disk>.img`
+4. `<game folder>/<parent>/<disk>.img`, for a clone
+
+The core knows a CHD by its signature, so the extension does not decide the format. The check (`arcade::disk_paths` gives the paths, the check thread looks for each one) does the same, with the same case rule as for the zips. It looks only for a file: it does not read it and does not check its SHA-1, because an image takes hundreds of megabytes and the launch path must stay fast. A file that the core cannot use gives the S2 notice of section 10.1 after the launch, with the words of the core (`HDD: can't use <path>`).
+
+Message 8 names one folder: the folder of the parent for a clone, else the folder of the set. The clones of Killer Instinct use the disk of the parent (`kinst`), and a MAME CHD set keeps that disk in the folder of the parent, so this is the folder that users have.
 
 With no index (section 6), the check gives message 7 and lets the user start the game.
 
@@ -317,6 +335,9 @@ Each message shows in a dialog in the menu, and the full list goes to the log (a
 | 5 | The BIOS file `<bios>.zip` does not match this version of FinalBurn Neo. This image needs sets for FinalBurn Neo `<version>`. | Stopped |
 | 6 | The file `<file>.zip` cannot be read: `<reason>`. | Stopped |
 | 7 | NEPTRON cannot find its list of arcade games, so it cannot check this game. | The user chooses: start or cancel |
+| 8 | This game needs the hard disk image `<disk>.chd`. Put it in the folder `<folder>`, next to `<set>.zip`. | Stopped |
+
+Message 8 waits for the approval of the owner. `<disk>` is the name of the first disk image of the set with no file, and `<folder>` the folder of the parent for a clone, else of the set ("Where it looks for disk images").
 
 The diagnostics page names the pinned FBNeo commit and the DAT version, so a user can get the right DAT for ClrMamePro.
 
@@ -324,9 +345,36 @@ The diagnostics page names the pinned FBNeo commit and the DAT version, so a use
 
 When a ROM is missing, FBNeo's `retro_load_game` returns `true`, sets a 60 Hz geometry, draws its own error screen and sends `SHUTDOWN` at a button press. It logs `ROM at index %d with name %s and CRC 0x%08x is required` at error level (that log line is in `open_archive`, read for this spec). Without the check, a CRT would change its mode to show that screen. The host cannot tell this from a good load. (The `true` return and the error screen are the research reading of `libretro.cpp`; the trace of a missing-ROM case in M07b confirms them.)
 
+**trace** The same happens when the driver init fails for another reason. A core trace of `kinst.zip` with no disk image (2026-11-18, FBNeo `d7450cf`, aarch64 guest) shows: the ROMs all match; the load logs `HDD: kinst.chd not found` and `[FBNeo] Failed initializing driver.` at error level; `retro_load_game` returns `true` with a 640x480 geometry at 60 Hz; the core sends the three error lines with `SET_MESSAGE`; every frame is the same white error screen; and each frame with a button of port 0 held sends `SHUTDOWN` (the "press any button to exit" code at the error screen in `retro_run`). The core does not end the process. A session that takes that `SHUTDOWN` as a normal end sends the run back to the game list with no notice and no log line, so the player sees the error screen for a moment and then the list. A launch button still held when the game run starts ends the game at its first frames.
+
 ### What the check does not prove
 
-A set that passes can still fail in the core: a ROM the DAT marks as needed that the core loads in another way, a BIOS choice of a core option. The core's own screen then shows, after a mode change. The session already ends a game at `SHUTDOWN`.
+A set that passes can still fail in the core: a ROM the DAT marks as needed that the core loads in another way, a BIOS choice of a core option. The core's own screen then shows, after a mode change. The session ends the game at `SHUTDOWN`, and section 10.1 gives the notice.
+
+### 10.1 A game that fails at its start
+
+This rule holds for every core, not only for arcade. NEPTRON never ends because a game does not start. The game run ends with a relaunch to the game list, as for any end of a game, and the list shows a notice of kind Error that says what failed. The run before has not changed the display mode for a failure in the load: the first mode comes with the first frame of the session.
+
+| Case | How the session sees it | Notice |
+| --- | --- | --- |
+| `retro_load_game` returns false | `LaunchError::Refused`, with the error-level core log lines of the load | S1 |
+| The core sends `SHUTDOWN` during the load, or in a frame before the source settles | `LaunchError::CoreStopped`, with the error-level core log lines of the load and of those frames | S2 |
+| The core sends `SHUTDOWN` before a game picture reached the screen (no completed flip with a core picture) | `EndReason::FailedStart` in the frame report | S2 |
+| The core sends `SHUTDOWN` at any time after it logged a line at error level during the launch (load and settle frames) | `EndReason::FailedStart` in the frame report | S2 |
+| The core sends `SHUTDOWN` in a game that started with no error | `EndReason::CoreShutdown` | None, as before |
+
+The notice texts (`<name>` is the file name of the game with no extension; `<core text>` is the first error-level core log line of the launch, or else the last `SET_MESSAGE` text, cut to 60 characters):
+
+| # | Text |
+| --- | --- |
+| S1 | `<name>` did not start: the core refused the game file. The core says: "`<core text>`". Check that the file is complete and is for this system. |
+| S2 | `<name>` did not start: the core stopped it at the start. The core says: "`<core text>`". Check that the game has all its files. |
+
+With no core text, the sentence "The core says" is left out. S1 and S2 wait for the approval of the owner. Every other launch error keeps its text, `<name> did not start: <error>.`
+
+The log gets one line for the failure with the same text, and one line for each error-level core log line of the launch (at most 8). The session collects them during the launch only, so the frame loop does not allocate for them.
+
+The arcade case Killer Instinct with no disk image (`kinst.zip` alone) reaches none of these rows on an image with the new index: message 8 stops it before the launch. With an index of an older image, it reaches the fourth row. With a file at `kinst/kinst.chd` that the core cannot use, it reaches the fourth row too.
 
 ## 11. Vertical games
 
@@ -781,7 +829,7 @@ The results go into `docs/hardware-checklist.md` through M13. No hardware result
 | Pi 3 speed with no Cyclone on aarch64. Cave and CPS-2 are most at risk | The separate measurement decides the Pi 3 list. A failing family is "may be slow" |
 | FBNeo changes its sets between commits ("might change from time to time") | One pinned commit. The index and the diagnostics name it |
 | The donation clause of the FBNeo licence | ADR 0014: the project takes no donations; a later plan removes FBNeo first |
-| FBNeo's own error screen when a set passes the check and still fails | The check before launch; the session ends the game at `SHUTDOWN` |
+| FBNeo's own error screen when a set passes the check and still fails | The check before launch; the session ends the game at `SHUTDOWN`, and the game list says why (section 10.1) |
 | 480i on Intel and on the Pi `vc4` not proven (OP-103 point 5) | The bench session checks it. `display.vertical = fit` is the way out |
 | A turned game shows stretched on a multi-sync tube and on every fit (section 11, finding 1) | W1 of M08c, before M08a |
 | A display profile with a range of one line rate gets no mode for some boards (section 11, finding 3) | W3 of M08c. The validator refuses the mode, so nothing unsafe reaches the display |
