@@ -113,7 +113,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     game.session.resume();
                 }
             }
-            Intent::QuitGame => self.end_game(None),
+            Intent::QuitGame => self.end_game(EndNotice::None),
             Intent::DismissNotice(id) => {
                 self.snap.notices.retain(|n| n.id != id);
                 self.pad_notes.answered(id);
@@ -352,14 +352,15 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         }
     }
 
-    /// Ends the game and the run, with a relaunch to the game list.
-    pub(super) fn end_game(&mut self, notice: Option<String>) {
+    /// Ends the game and the run, with a relaunch to the game list and the
+    /// notice that [`pick_notice`] takes.
+    pub(super) fn end_game(&mut self, notice: EndNotice) {
         let pads = PadRecord::list(&self.roster());
         let Stage::Game(game) = std::mem::replace(&mut self.stage, Stage::Ended) else {
             return;
         };
         let report = game.session.quit();
-        let notice = notice.or_else(|| lost_save(&report));
+        let notice = pick_notice(notice, lost_save(&report));
         self.outcome = Some(Outcome::Relaunch(NextRun {
             game: None,
             notice,
@@ -576,6 +577,31 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     }
 }
 
+/// The notice of the end of a game, before the notice of a lost save is
+/// weighed against it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum EndNotice {
+    /// The player quit: no notice of its own.
+    None,
+    /// A notice that comes before a lost save: the game did not start
+    /// (S2), so it has no play to save, or the session failed.
+    First(String),
+    /// A notice that a lost save hides: the core ended a game that ran
+    /// (S3). The lost save is worth more to the player; the log keeps the
+    /// stop.
+    AfterSave(String),
+}
+
+/// The one notice of the game list after a game: the end notice or the
+/// notice of a lost save, in the order of [`EndNotice`].
+pub(super) fn pick_notice(end: EndNotice, lost_save: Option<String>) -> Option<String> {
+    match end {
+        EndNotice::None => lost_save,
+        EndNotice::First(text) => Some(text),
+        EndNotice::AfterSave(text) => lost_save.or(Some(text)),
+    }
+}
+
 /// The notice of a save RAM that the save file does not hold at the end of
 /// the game. Only the last flush decides: a failed write in the game that a
 /// later write repaired lost nothing.
@@ -617,6 +643,25 @@ mod tests {
         assert_eq!(lost_save(&report(Flush::Written, copy_error())), None);
         assert_eq!(lost_save(&report(Flush::Unchanged, copy_error())), None);
         assert_eq!(lost_save(&report(Flush::NoSaveRam, None)), None);
+    }
+
+    #[test]
+    fn a_failed_start_comes_before_a_lost_save_and_a_lost_save_before_a_stop() {
+        let lost = || Some("The game was not saved: disk full.".to_owned());
+        assert_eq!(
+            pick_notice(EndNotice::First("S2".to_owned()), lost()),
+            Some("S2".to_owned())
+        );
+        assert_eq!(
+            pick_notice(EndNotice::AfterSave("S3".to_owned()), lost()),
+            lost()
+        );
+        assert_eq!(
+            pick_notice(EndNotice::AfterSave("S3".to_owned()), None),
+            Some("S3".to_owned())
+        );
+        assert_eq!(pick_notice(EndNotice::None, lost()), lost());
+        assert_eq!(pick_notice(EndNotice::None, None), None);
     }
 
     #[test]

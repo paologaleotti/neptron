@@ -1,7 +1,8 @@
-//! The notice and the log lines of a game that does not start: the core
-//! refuses the game file, or it asks to stop before the game shows or
-//! after an error at the launch. The game list shows the notice after the
-//! relaunch, so the player always learns what failed.
+//! The notice and the log lines of a game that the core does not start or
+//! stops: the core refuses the game file, asks to stop before the game
+//! shows or soon after an error at the launch (S1, S2), or ends a game
+//! that ran (S3). The game list shows the notice after the relaunch, so a
+//! core stop never returns to the list in silence.
 
 use neptron_session::LaunchError;
 
@@ -30,15 +31,23 @@ pub fn stopped_notice(name: &str, core_text: Option<&str>) -> String {
     )
 }
 
+/// The notice of a game `name` that ran and that the core ended (S3),
+/// with `core_text` the words of the core, if any.
+pub fn ended_notice(name: &str, core_text: Option<&str>) -> String {
+    format!(
+        "{name} stopped: the core ended the game.{}",
+        says(core_text)
+    )
+}
+
 /// The words of the core for a notice: its first error line of the
-/// launch, or else its last message.
+/// launch that is not blank, or else its message.
 pub fn first<'a>(core_errors: &'a [String], message: Option<&'a str>) -> Option<&'a str> {
     core_errors
-        .first()
+        .iter()
         .map(String::as_str)
-        .or(message)
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
+        .chain(message)
+        .find(|t| !clean(t).is_empty())
 }
 
 /// The log lines of a launch that failed with `error`: one for each error
@@ -60,17 +69,36 @@ pub fn core_log(core_errors: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// The sentence with the words of the core, with a leading space, cut to
-/// [`CORE_TEXT_CHARS_MAX`] characters. Nothing when the core said nothing.
+/// The text of a core for a notice: each control character, line breaks
+/// and tabs included, and the Unicode line and paragraph separators
+/// become a space, and the ends are trimmed. A core text is not trusted to
+/// keep to one line of the dialog.
+fn clean(text: &str) -> String {
+    let spaced: String = text
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    spaced.trim().to_owned()
+}
+
+/// The sentence with the words of the core, with a leading space, cleaned
+/// and cut to [`CORE_TEXT_CHARS_MAX`] characters. Nothing when the core
+/// said nothing.
 fn says(core_text: Option<&str>) -> String {
-    let Some(text) = core_text else {
+    let Some(text) = core_text.map(clean).filter(|t| !t.is_empty()) else {
         return String::new();
     };
     let cut = if text.chars().count() > CORE_TEXT_CHARS_MAX {
         let head: String = text.chars().take(CORE_TEXT_CHARS_MAX - 3).collect();
         format!("{}...", head.trim_end())
     } else {
-        text.to_owned()
+        text
     };
     format!(" The core says: \"{cut}\".")
 }
@@ -125,9 +153,57 @@ mod tests {
     fn the_error_line_comes_before_the_message() {
         let errors = [KINST.to_owned()];
         assert_eq!(first(&errors, Some("a message")), Some(KINST));
-        assert_eq!(first(&[], Some(" a message ")), Some("a message"));
+        assert_eq!(first(&[], Some(" a message ")), Some(" a message "));
+        assert!(stopped_notice("g", Some(" a message ")).contains("\"a message\""));
         assert_eq!(first(&[], Some("  ")), None);
         assert_eq!(first(&[], None), None);
+    }
+
+    #[test]
+    fn a_core_that_ends_a_game_gets_its_own_notice() {
+        assert_eq!(
+            ended_notice("Test Game", Some("Game over")),
+            "Test Game stopped: the core ended the game. The core says: \"Game over\"."
+        );
+        assert_eq!(
+            ended_notice("Test Game", None),
+            "Test Game stopped: the core ended the game."
+        );
+        assert_eq!(
+            ended_notice("Test Game", Some(" \n ")),
+            "Test Game stopped: the core ended the game."
+        );
+    }
+
+    #[test]
+    fn a_blank_error_line_falls_back_to_the_next_line_or_the_message() {
+        let errors = ["  ".to_owned(), "\n".to_owned(), KINST.to_owned()];
+        assert_eq!(first(&errors, Some("message")), Some(KINST));
+        let blank = ["  ".to_owned()];
+        assert_eq!(first(&blank, Some("message")), Some("message"));
+        assert_eq!(first(&blank, Some("\t")), None);
+    }
+
+    #[test]
+    fn control_characters_of_the_core_become_spaces() {
+        let text = stopped_notice("g", Some("line one\nline two\r\tend\u{7}"));
+        assert!(text.contains("\"line one line two  end\""), "{text}");
+        assert!(!text.contains(['\n', '\r', '\t', '\u{7}']), "{text}");
+        let text = ended_notice("g", Some("one\u{2028}two\u{2029}three"));
+        assert!(text.contains("\"one two three\""), "{text}");
+    }
+
+    #[test]
+    fn a_multi_byte_text_is_cut_on_a_character() {
+        let long = "é".repeat(CORE_TEXT_CHARS_MAX + 5);
+        let text = stopped_notice("g", Some(&long));
+        let quoted = format!("\"{}...\"", "é".repeat(CORE_TEXT_CHARS_MAX - 3));
+        assert!(text.contains(&quoted), "{text}");
+        let wide = "漢".repeat(CORE_TEXT_CHARS_MAX + 1);
+        assert!(
+            ended_notice("g", Some(&wide))
+                .contains(&format!("{}...", "漢".repeat(CORE_TEXT_CHARS_MAX - 3)))
+        );
     }
 
     #[test]

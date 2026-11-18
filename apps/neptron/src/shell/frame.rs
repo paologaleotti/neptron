@@ -12,6 +12,7 @@ use neptron_ui::screens::{INPUT_PAGE, NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
 
+use super::intents::EndNotice;
 use super::picture::{picture_text, vertical_interlaced};
 use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS};
 
@@ -149,43 +150,42 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             // a failed core and an ended session: the game ends, and the
             // run relaunches to the game list, which opens the display
             // again in a new process.
-            Err(e) => self.end_game(Some(format!("The game stopped: {e}."))),
+            Err(e) => self.end_game(EndNotice::First(format!("The game stopped: {e}."))),
         }
     }
 
-    /// Ends the game that the core asked to stop. A game that did not
-    /// start gets a notice with the words of the core, and the log gets
-    /// its error lines.
+    /// Ends the game that the core asked to stop, always with a notice
+    /// and the words of the core: S2 for a game that did not start, with
+    /// the error lines of the launch in the log, and S3 for a game that
+    /// ran.
     fn end_by_core(&mut self, reason: EndReason) {
         let Stage::Game(game) = &self.stage else {
             return;
         };
-        let notice = match reason {
-            EndReason::CoreShutdown => None,
+        let name = super::boot::game_name(&game.reference.path);
+        let session = &game.session;
+        let (notice, lines) = match reason {
             EndReason::FailedStart => {
-                let name = super::boot::game_name(&game.reference.path);
-                let session = &game.session;
                 let errors = session.start_errors();
-                let text = start_failure::stopped_notice(
-                    &name,
-                    start_failure::first(errors, session.last_message()),
-                );
-                Some((text, start_failure::core_log(errors)))
+                // A core that loads in silence can log its reason in the
+                // frame in which it stops.
+                let said = session.last_message().or(session.last_error());
+                let text = start_failure::stopped_notice(&name, start_failure::first(errors, said));
+                (EndNotice::First(text), start_failure::core_log(errors))
+            }
+            EndReason::CoreShutdown => {
+                let said = session.last_message().or(session.last_error());
+                let text = start_failure::ended_notice(&name, said);
+                (EndNotice::AfterSave(text), Vec::new())
             }
         };
-        match notice {
-            None => {
-                self.log("the core asked to stop; the game ends".to_owned());
-                self.end_game(None);
-            }
-            Some((text, lines)) => {
-                for line in lines {
-                    self.log(line);
-                }
-                self.log(text.clone());
-                self.end_game(Some(text));
-            }
+        for line in lines {
+            self.log(line);
         }
+        if let EndNotice::First(text) | EndNotice::AfterSave(text) = &notice {
+            self.log(text.clone());
+        }
+        self.end_game(notice);
     }
 
     /// Updates the snapshot, runs the UI on the actions of the frame,

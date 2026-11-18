@@ -1,9 +1,10 @@
-//! A game that does not start: the core refuses the file, stops during
-//! the load, stops in the first frame, or logs an error
-//! at the load and stops later at its own error screen, as FinalBurn Neo
-//! does for Killer Instinct with no disk image. Each case ends in the game
-//! list with a notice that says why, with the display mode and the audio
-//! of the list as before, and the frontend never ends.
+//! A game that the core does not start or stops: the core refuses the
+//! file, stops during the load, stops in the first frame, logs an error at
+//! the load and stops soon after at its own error screen (as FinalBurn Neo
+//! does for Killer Instinct with no disk image), or ends a game that ran.
+//! Each case ends in the game list with a notice that says why, with the
+//! display mode and the audio of the list as before, and the frontend
+//! never ends.
 
 use neptron::relaunch::GameRef;
 use neptron::{NextRun, Outcome};
@@ -109,7 +110,7 @@ fn game_stops(script: &str, test: &str, notice: &'static str, core_lines: &'stat
         let mut rig = Rig::new(dir);
         let before = first_list(&mut rig);
         rig.boot(Some(game()));
-        let Outcome::Relaunch(next) = rig.until_end(600) else {
+        let Outcome::Relaunch(next) = rig.until_end(1_200) else {
             panic!("the game run relaunches");
         };
         let log = rig.shell().log_lines(16);
@@ -167,5 +168,46 @@ fn an_error_screen_of_the_core_returns_to_the_list_with_a_notice() {
         "an_error_screen_of_the_core_returns_to_the_list_with_a_notice",
         "Test Game did not start: the core stopped it at the start. The core says: \"HDD: kinst.chd not found\". Check that the game has all its files.",
         &["HDD: kinst.chd not found"],
+    );
+}
+
+/// A core that loads in silence, logs an error line in the first loop
+/// frame and stops in that frame: S2 quotes that line.
+#[test]
+#[ignore = "tier 2"]
+fn an_error_line_in_the_frame_of_the_stop_reaches_the_notice() {
+    let frame = neptron_session::LAUNCH_STABLE_FRAMES;
+    game_stops(
+        &format!(
+            "neptron-testcore 3\nat {frame} log error Driver init failed\nat {frame} shutdown\n"
+        ),
+        "an_error_line_in_the_frame_of_the_stop_reaches_the_notice",
+        "Test Game did not start: the core stopped it at the start. The core says: \"Driver init failed\". Check that the game has all its files.",
+        &[],
+    );
+}
+
+/// A core that ends a game that ran, with a silent launch: the list shows
+/// S3 with the last message of the core.
+#[test]
+#[ignore = "tier 2"]
+fn a_core_that_ends_a_game_returns_to_the_list_with_a_notice() {
+    game_stops(
+        "neptron-testcore 3\nat 880 message 60 Game over\nat 900 shutdown\n",
+        "a_core_that_ends_a_game_returns_to_the_list_with_a_notice",
+        "Test Game stopped: the core ended the game. The core says: \"Game over\".",
+        &[],
+    );
+}
+
+/// The same with no word of the core: S3 with no quote.
+#[test]
+#[ignore = "tier 2"]
+fn a_silent_core_that_ends_a_game_still_gives_a_notice() {
+    game_stops(
+        "neptron-testcore 1\nat 900 shutdown\n",
+        "a_silent_core_that_ends_a_game_still_gives_a_notice",
+        "Test Game stopped: the core ended the game.",
+        &[],
     );
 }
