@@ -184,7 +184,7 @@ A change that the app took back (the guard reverted it) must not be asked about.
 
 ### The hotkey
 
-The quick menu hotkey does nothing while the menu is open, at any depth. The session ignores it while the core is paused, so the UI gets no `Menu` action from it. The end-to-end test checks it. The menu closes only through Resume or Back on its first page, and Quit game. The Menu button (X) on a settings row resets the value at the level of the page, on every page.
+The quick menu hotkey (Select and Start held together for 0.5 s, or the Start hold) does nothing while the menu is open, at any depth. The session ignores it while the core is paused, so the UI gets no `Menu` action from it. The end-to-end test checks it. The menu closes only through Resume or Back on its first page, and Quit game. The Menu button (X) on a settings row resets the value at the level of the page, on every page.
 
 ## Ids
 

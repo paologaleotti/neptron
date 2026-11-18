@@ -743,10 +743,40 @@ Speed change of the game (field rate divided by the reported rate, less 1). Ever
 - FBNeo maps the arcade inputs to the RetroPad. Select is the coin, Start is start.
 - For `RETRO_DEVICE_JOYPAD` FBNeo uses its "Classic" layout (the Neo Geo CD pad): Neo Geo A to D on the face buttons; L and R are the 5th and 6th buttons of a six-button game. NEPTRON passes `RETRO_DEVICE_JOYPAD` on ports 0 and 1 today. Nothing in the input path changes in the MVP.
 - DIP switches are core options. Each game declares its own (section 8.1).
-- `fbneo-diagnostic-input` opens the service menu. Its default is "Hold Start" (`retro_common.cpp`, read for this spec). NEPTRON's setting `input.menu_hold_start_seconds` opens the quick menu with a Start hold, for an arcade panel with no Select. Its default is 0 (off), so the two only clash when the user turns it on, but then one hold does two things. `data/cores/fbneo.toml` sets the option to "Start + L + R", one of the values in the core's option table. A combination with Select is not used, because Select is the coin and Select with Start opens the quick menu.
-- Watch item: Select and Start held together open the quick menu at their release. A player who holds the coin and presses Start opens it. Most players press them one after the other. The bench session checks it with a stick.
+- `fbneo-diagnostic-input` opens the service menu. Its default is "Hold Start" (`retro_common.cpp`, read for this spec). NEPTRON's setting `input.menu_hold_start_seconds` opens the quick menu with a Start hold, for an arcade panel with no Select. Its default is 0 (off), so the two only clash when the user turns it on, but then one hold does two things. `data/cores/fbneo.toml` sets the option to "Start + L + R", one of the values in the core's option table. A combination with Select is not used, because Select is the coin and a hold of Select with Start opens the quick menu.
+- Select is the coin, so a player presses Select and Start in a quick sequence, and the two can overlap for a moment. Such an overlap opens no quick menu, and the game gets the coin and the start. Only a hold of both for 0.5 s opens the quick menu (section 13.1).
 - M04 (four players) calls `retro_set_controller_port_device` on ports 2 and 3 too. Several arcade boards have four players.
 - M05 (remapping) shows the descriptors of section 8.3 and adds the layout per system or per game (Classic, Modern, 6-Panel) as the libretro device subclass.
+
+### 13.1 The quick menu hold
+
+The owner's decision (2026-11-18): the quick menu opens only when Select and Start stay held together for 0.5 s. Before it, the two opened the quick menu at their release, with no time condition. A player who inserted a coin and pressed Start in a quick sequence overlapped the two for a moment and opened the menu by accident.
+
+The rule, on each port (`Hotkeys` in `neptron-input`):
+
+- The hold starts at the first `Hotkeys::update` that sees Select and Start down together on the port. The time is the `now_ns` of `update`: the frame clock, in nanoseconds.
+- The quick menu fires once, when the hold has lasted `QUICK_MENU_HOLD_NS` (500 000 000 ns): at the first `update` at or after that time, not one nanosecond before, and not at the release.
+- A release of Select or Start ends the hold. A shorter hold opens nothing.
+- A hold fires once. While both buttons stay down, it does not fire again. A new hold starts when both are down again: the player releases one button and presses it again, or releases both and presses both. This is the rule of the blind recovery hold too.
+- `Hotkeys::cancel_quick_menu` (the session calls it at resume): the hold in progress gives no quick menu. The next hold, after a release, can.
+- The Start hold (`input.menu_hold_start_seconds`, off by default) does not change. On one port, one press of Start gives one quick menu at most: when the Start hold fired, Select that joins later on the same press of Start gives no second one. Select down first stops the Start hold, as before.
+- Every source follows the rule, because it reads only the port state: any pad on any port, a generic pad with Select (button 8) and Start (button 9), and the keyboard pair Right Shift (Select) and Enter (Start).
+- The time is a constant. A setting can come later, in the same way as `input.menu_hold_start_seconds`.
+
+The blind recovery does not change: `BLIND_RECOVERY_COMBO` is the same two buttons, held for `BLIND_RECOVERY_HOLD_NS` (5 s), and it fires once per hold, also while the quick menu is open. A hold has no way to know at 0.5 s that it goes on to 5 s. So a 5 s hold in a game now opens the quick menu at 0.5 s, and the recovery fires at 5 s under the open menu. The game is paused under the safe picture, and the notice of the safe mode shows at once over the menu. Before, a recovery hold opened no menu and the game went on. In the game list and the other menus the quick menu hotkey does nothing, so there the hold gives the recovery only, as before.
+
+What the game gets (`PadMask` in `neptron-session`), on each port of the core:
+
+- A button of the combination down alone reaches the core as usual. Select pressed first is a coin.
+- When the combination goes down, the button that completes it is held back from the core: both buttons, when they go down in the same poll. The button that was down already stays down for the core. So the core does not see both buttons down while the combination is down.
+- When the combination ends before the quick menu opens, the held-back button reaches the core. If it is still down, the core sees it down until its release. If it is up, the core sees it down for as many core frames as it was held back, and then up. So a coin and a quick Start give the game one coin and one start. The start is late by the time of the overlap, less than 0.5 s. A late press can show with the other button still held: that is what the player pressed.
+- A late press lasts at least `LATE_PRESS_MIN_FRAMES` (3) core frames. Some arcade games read a coin only when it stays down for 2 frames or more, so a late press of one frame can be lost. 3 frames are 50 ms at 60 Hz.
+- A late press lasts at most `LATE_PRESS_MAX_FRAMES` (30) core frames, about the 0.5 s of the hold at 60 Hz. A combination that cannot open the menu (Select joins a press of Start whose Start hold fired) can be held back for seconds, and a replay of seconds would be a press that the player did not make. A press held back for longer replays for 30 frames.
+- Only frames in which the core runs count, for the time held back and for the late press. So a late press does not run out while the core is paused or the output is off.
+- A short tap of Select and Start now reaches the game, as on the original hardware, so a game's own Select and Start combination (for example a soft reset with other buttons) works with a tap; only a hold of 0.5 s opens the menu.
+- When the quick menu opens, the held-back press is dropped: it was for the menu. When the menu closes, every button still down stays up for the core until its release, as before. So the menu leaves no stuck press and no phantom press in the game.
+
+What the game got before: from the poll in which both were down until both were up, the core saw neither. A coin then Start with an overlap gave the coin, lost the start, and opened the quick menu at the release.
 
 ## 14. Save files
 
@@ -842,7 +872,7 @@ The results go into `docs/hardware-checklist.md` through M13. No hardware result
 | A display profile with a range of one line rate gets no mode for some boards (section 11, finding 3) | W3 of M08c. The validator refuses the mode, so nothing unsafe reaches the display |
 | Build time and image size: the full FBNeo build is large (a 21.4 MB zip on the libretro buildbot) | M07b measures both. The subset builds are the later size option |
 | The core's NVRAM writes are not atomic | Recorded. A patch to the core is a later item |
-| Select and Start held together open the quick menu | Bench check with a stick |
+| A coin and a Start that overlap open the quick menu | Only a hold of 0.5 s opens it (section 13.1). Bench check with a stick |
 | PAL composite runs every board 9 to 16 % slow | Open point A5 |
 | The aspect of a turned source: the core's value is the upright shape | The session inverts a reported aspect, never the host's fallback (section 11); test core cases and the bench check |
 

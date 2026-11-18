@@ -35,7 +35,7 @@ Why not a fixed rule (for example by USB socket): the USB topology is not known 
 2. A pad that goes away frees its port at once. Every pad on a higher port moves down by one, in its order. So the ports in use are always 0 to n-1, and the first pad is always player 1.
 3. A pad that comes back is a new pad: it takes the end of the list.
 4. A pad that moves gets the release of every control that it held on its old port. The next poll gives its controls again on the new port. A move happens only in the menus, so a running core never sees a pad change its port.
-5. A hotkey held across a move starts again on the new port: the blind recovery hold counts its 5 s from the move. The release on the old port is the end of a short Select and Start press there, so the quick menu hotkey of that port fires; in the menus that hotkey does nothing.
+5. A hotkey held across a move starts again on the new port: the blind recovery hold counts its 5 s and the quick menu hold its 0.5 s from the move. The release on the old port ends the holds there, and fires nothing.
 
 ### In a game (a run with a game)
 

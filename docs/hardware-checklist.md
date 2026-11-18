@@ -597,9 +597,9 @@ Results recorded:
 Each check is `needs-hardware`.
 
 - [ ] Do: on a PC with a DVI-I output, boot once with a flat panel on DVI-D pins and once with a CRT through a DVI-I to VGA adapter, with `display.output` = `auto`. Expect: the log line of the open names the DVI-I connector, a panel is chosen as a digital output and the CRT as an analog one, and a CRT profile prefers the DVI-I connector only for the CRT. Record: the `subconnector` value and the first 32 bytes of the EDID (`/sys/class/drm/card0-DVI-I-1/edid`) for both.
-- [ ] Do: in a game, hold Select and Start for 5 s. Expect: a short 880 Hz tone, the game goes on in the safe picture with no quick menu, and the game did not pause itself or reset during the hold. Opening the quick menu shows "Safe mode: the picture was reset. ...". Record: whether the tone sounds whole and whether the game sound is late after it.
+- [ ] Do: in a game, hold Select and Start for 5 s. Expect: the quick menu opens after 0.5 s, then at 5 s a short 880 Hz tone and the safe picture, with the game paused under the menu and the notice "Safe mode: the picture was reset. ..." over it. The game did not pause itself or reset during the hold. Record: whether the tone sounds whole and whether the game sound is late after the resume.
 - [ ] Do: boot once with the state partition damaged (for example `dd if=/dev/zero` over its first MiB on a copy of the stick) and once on a stick with no free space after the state partition. Expect: `/run/neptron/storage.toml` names the RAM folder and its reason, the log has `neptron: storage: ...`, and a Warning notice shows until OK. Record: the file and the notice text.
-- [ ] Do: in a game, tap Select and Start, then hold them for 2 s and let go. Expect: the quick menu opens at the release both times, and the game sees neither button while both are down; it can see Select for the one frame before Start goes down, when Select is pressed first. Record: how late the menu feels after the release.
+- [ ] Do: in a game, tap Select and Start together, then hold them for 2 s and let go. Expect: the tap opens nothing; the hold opens the quick menu 0.5 s after both are down, before the release. The tap opens no menu, and the game gets both presses, late by at most the tap. With the hold, the game gets no press from the button that completed the combination, and no press of either when the menu closes. Record: how late the menu feels after 0.5 s.
 
 ### Library rescan (C14)
 
@@ -896,6 +896,15 @@ These checks need a CRT. The policy tests prove each mode in emulation; only a t
   - Do: start a SNES game on a 1080p panel with `display.panel_scale = auto`. Turn the scanlines on (strength 50 %), then off.
   - Expect: with scanlines on, the game shows at 4x (1194x896, centred), and every dark line has the same thickness across the height. With scanlines off, the game fills the height (1440x1080).
   - Record: a close photo of the scanlines at the top, the middle and the bottom of the picture.
+
+## The quick menu hold on an arcade stick
+
+The hotkey tests prove the 0.5 s hold and what the game gets in emulation, with a simulated clock. Only a real stick and a real arcade game show how a player presses the coin and Start.
+
+- [ ] `needs-hardware` **Quick coin then Start presses do not open the quick menu; a hold of both for 0.5 s opens it.** An arcade stick with Select as the coin, FinalBurn Neo.
+  - Do: start an arcade game. Press the coin (Select), then Start, in a quick sequence, ten times, also with the two overlapping for a moment. Then hold both for half a second.
+  - Expect: the quick sequences never open the quick menu, and each gives the game one credit and one start. The hold of both for half a second opens the quick menu, before the release. When the menu closes, the game gets no extra credit and no extra start.
+  - Record: the stick, the game, the credits counted, and whether any quick sequence opened the menu.
 
 ## Arcade set check (M07c)
 

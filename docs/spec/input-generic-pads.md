@@ -93,10 +93,10 @@ A joystick with fewer than 2 buttons, or with no hat and no axis, is not a gamep
 
 ### Start and Select
 
-A pad with 10 buttons or more has Select (8) and Start (9). So the quick menu combination and `BLIND_RECOVERY_COMBO` work on it, as on a known pad. A pad with fewer buttons has no Select and no Start. Its player can:
+A pad with 10 buttons or more has Select (8) and Start (9). So the quick menu combination and `BLIND_RECOVERY_COMBO` work on it, as on a known pad: Select and Start held together for 0.5 s (`QUICK_MENU_HOLD_NS`) open the quick menu, and a shorter overlap opens nothing (`docs/spec/arcade.md`, section 13.1). A pad with fewer buttons has no Select and no Start. Its player can:
 
 - drive the menus with it: the D-pad, A (accept) and B (back) need 3 buttons at most;
-- open the quick menu with a keyboard (Right Shift and Enter) or with another pad: the hotkeys fire on any port;
+- open the quick menu with a keyboard (Right Shift and Enter held together for 0.5 s) or with another pad: the hotkeys fire on any port;
 - in M05, choose its buttons with "Set up this controller".
 
 The tests show what holds: a pad with 8 buttons drives the menus and has no Start or Select.
@@ -170,11 +170,11 @@ A player row and an extra pad row of a pad with the generic layout show ` (gener
 - Pure, the generic layout: 13 buttons, a hat and 4 axes; 8 buttons and a hat; 12 buttons, no hat and 2 axes; too few buttons; no hat and no axis; Start and Select from 10 buttons.
 - Pure, the mapping file: a valid file; a missing file; a damaged line, with the other lines kept; a line of another platform; the special GUIDs `default` and `xinput`; a file in the shape of the community database, of which only the Linux lines stay.
 - The image: the three images enable the community package; it is pinned to a commit, with the hash of its archive and of its licence file, and installs the file at the path that the frontend reads; the image check fails with the package and no file.
-- The mapper: a generic pad gives its buttons, its hat and its axes; a generic pad gives the quick menu combination to the hotkeys; the roster says the kind.
+- The mapper: a generic pad gives its buttons, its hat and its axes; a generic pad gives the quick menu combination to the hotkeys, which fires after a hold of 0.5 s and not after a shorter one; the roster says the kind.
 - The silent pad rule with the simulated clock: no notice before the time, no notice without presses of other devices, no notice for a heard pad, once per plug, none in a game run.
 - App: the notices once per pad, across a relaunch (the pad notes file); the second button opens the Input panel on the row of the pad; the Input row with the generic suffix; the key of the row of a port.
 - UI: `Screens::open_panel` from home and from the quick menu, never over a running game; a long dialog button gets its own width.
-- Tier 2, with scripted pads: a scripted plain joystick plugs, gives its notice, drives the menus, and opens the quick menu in a game.
+- Tier 2, with scripted pads: a scripted plain joystick plugs, gives its notice, drives the menus, and opens the quick menu in a game with a hold of Select and Start for 0.5 s.
 - Scenes and goldens: `screens/input` gets a pad with the generic layout; `screens/notice-generic-pad` shows the notice with its button.
 
 ## Hardware checks
