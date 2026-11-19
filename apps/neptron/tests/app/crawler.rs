@@ -89,10 +89,8 @@ fn on_a_flat_panel_the_rows_it_ignores_are_disabled() {
         sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
         rig.output = "HDMI-A-1".to_owned();
         let found = crawl_all(rig, DisplayClass::FlatPanel);
-        let expected: BTreeSet<String> = ["Picture style", "Refresh policy"]
-            .map(str::to_owned)
-            .into();
-        assert_eq!(found.disabled, expected);
+        let expected: BTreeSet<String> = ["Refresh policy"].map(str::to_owned).into();
+        assert_eq!(found.disabled, expected, "the picture mode applies");
     });
 }
 
@@ -218,7 +216,7 @@ fn crawl_all(mut rig: Rig, class: DisplayClass) -> Found {
     for entry in Schema::builtin().entries() {
         assert_eq!(
             found.labels.contains(entry.label),
-            entry.applies_to.shown(class),
+            entry.shown(class),
             "the setting {} ({}) is on a screen only where it shows",
             entry.key,
             entry.label

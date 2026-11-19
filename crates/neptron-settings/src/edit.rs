@@ -396,6 +396,7 @@ fceumm_palette = \"raw\"
             live: true,
             safety: Safety::None,
             applies_to: AppliesTo::Every,
+            expert: false,
         };
         let schema = Schema::from_entries(vec![entry]).unwrap();
         let change = [Change::Set {
@@ -667,6 +668,7 @@ fceumm_palette = \"raw\"
             live: true,
             safety: Safety::None,
             applies_to: AppliesTo::Every,
+            expert: false,
         };
         let schema = Schema::from_entries(vec![
             entry("a.flag", Kind::Bool { default: false }),

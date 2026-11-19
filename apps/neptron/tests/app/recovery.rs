@@ -120,7 +120,7 @@ fn a_picture_style_in_safe_mode_opens_the_dialog() {
             rig.tap(&[Control::A]);
             rig.focus("Display");
             rig.tap(&[Control::A]);
-            rig.focus("Picture style");
+            rig.focus("Picture mode");
             rig.tap(&[Control::A]);
             rig.focus("native");
             rig.tap(&[Control::A]);

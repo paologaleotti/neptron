@@ -14,9 +14,10 @@ pub const SCHEMA_VERSION: i64 = 1;
 /// No setting can use it: every setting key has two or more segments.
 pub const VERSION_KEY: &str = "schema_version";
 
-/// The picture style choices, in menu order. "Native, double refresh" is the style `native`
-/// with the refresh policy `exact_x2`.
-pub const PICTURE_STYLES: &[&str] = &["auto", "native", "2x", "3x", "4x"];
+/// The picture mode choices, in menu order. The list is append-only, so `sharp`, `speed` and
+/// `fit` come after `4x`. "Native, double refresh" is the mode `native` with the refresh
+/// policy `exact_x2`.
+pub const PICTURE_STYLES: &[&str] = &["auto", "native", "2x", "3x", "4x", "sharp", "speed", "fit"];
 
 /// The refresh policy choices, in menu order.
 pub const REFRESH_POLICIES: &[&str] = &["exact", "exact_x2", "force_50", "force_60"];
@@ -41,9 +42,10 @@ pub const NAME_MAX_LEN: usize = 32;
 pub const DISPLAY_OUTPUT: &str = "display.output";
 /// The key of the monitor profile: `auto` or a profile id such as `generic_15`.
 pub const DISPLAY_MONITOR: &str = "display.monitor";
-/// The key of the picture style.
+/// The key of the picture mode: one of [`PICTURE_STYLES`]. It keeps the name of the picture
+/// style that it was before the modes `sharp`, `speed` and `fit`.
 pub const DISPLAY_STYLE: &str = "display.style";
-/// The key of the refresh policy.
+/// The key of the refresh policy: the rate target that every picture mode works with.
 pub const DISPLAY_REFRESH_POLICY: &str = "display.refresh_policy";
 /// The key of the Start hold that opens the quick menu, in whole seconds.
 ///
@@ -99,7 +101,7 @@ pub const DISPLAY_TV_WIDTH: &str = "display.tv_width";
 pub const TV_WIDTHS: &[&str] = &["aspect", "integer", "fill"];
 
 /// The key of how a vertical game shows on a horizontal display: one of
-/// [`VERTICAL_MODES`].
+/// [`VERTICAL_MODES`]. An expert key: the picture modes `fit` and `sharp` are the menu choices.
 ///
 /// Help text: "How a vertical game shows on a horizontal screen. Exact shows every pixel
 /// exact, with black borders, and on a 15 kHz screen or a TV with flicker. Fit fills the
@@ -109,7 +111,8 @@ pub const DISPLAY_VERTICAL: &str = "display.vertical";
 /// The choices of [`DISPLAY_VERTICAL`], in menu order.
 pub const VERTICAL_MODES: &[&str] = &["exact", "fit"];
 
-/// The key of how a flat panel scales a game: one of [`PANEL_SCALES`].
+/// The key of how a flat panel scales a game: one of [`PANEL_SCALES`]. An expert key: the
+/// picture modes `sharp` and `fit` are the menu choices.
 ///
 /// Help text: "How a game fills a flat panel. Auto fills the height when the picture is
 /// large, and uses whole steps when it is small. Integer always uses whole steps, with
@@ -131,6 +134,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::ConfirmOrRevert,
         applies_to: AppliesTo::Every,
+        expert: false,
     },
     Entry {
         key: DISPLAY_MONITOR,
@@ -143,10 +147,11 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::ConfirmOrRevert,
         applies_to: AppliesTo::NotTv,
+        expert: false,
     },
     Entry {
         key: DISPLAY_STYLE,
-        label: "Picture style",
+        label: "Picture mode",
         kind: Kind::Choice {
             choices: PICTURE_STYLES,
             default: "auto",
@@ -154,7 +159,8 @@ static BUILTIN: [Entry; 13] = [
         levels: Levels::ALL,
         live: true,
         safety: Safety::Validated,
-        applies_to: AppliesTo::Crt,
+        applies_to: AppliesTo::Every,
+        expert: false,
     },
     Entry {
         key: DISPLAY_REFRESH_POLICY,
@@ -167,6 +173,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::Validated,
         applies_to: AppliesTo::CrtNotTv,
+        expert: false,
     },
     Entry {
         key: INPUT_MENU_HOLD_START_SECONDS,
@@ -180,6 +187,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::None,
         applies_to: AppliesTo::Every,
+        expert: false,
     },
     Entry {
         key: DISPLAY_SCANLINES,
@@ -192,6 +200,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::None,
         applies_to: AppliesTo::Every,
+        expert: false,
     },
     Entry {
         key: DISPLAY_SCANLINE_STRENGTH,
@@ -205,6 +214,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::None,
         applies_to: AppliesTo::Every,
+        expert: false,
     },
     Entry {
         key: AUDIO_VOLUME,
@@ -218,6 +228,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::None,
         applies_to: AppliesTo::Every,
+        expert: false,
     },
     Entry {
         key: AUDIO_OUTPUT,
@@ -230,6 +241,7 @@ static BUILTIN: [Entry; 13] = [
         live: false,
         safety: Safety::None,
         applies_to: AppliesTo::Every,
+        expert: false,
     },
     // The standard is the monitor of a TV, so it is global as the monitor is: the guard
     // keeps the monitor of the boot for every game, and a per-game standard would revert.
@@ -244,6 +256,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::ConfirmOrRevert,
         applies_to: AppliesTo::Tv,
+        expert: false,
     },
     Entry {
         key: DISPLAY_TV_WIDTH,
@@ -256,6 +269,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::Validated,
         applies_to: AppliesTo::Tv,
+        expert: false,
     },
     Entry {
         key: DISPLAY_VERTICAL,
@@ -268,6 +282,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::Validated,
         applies_to: AppliesTo::Every,
+        expert: true,
     },
     Entry {
         key: DISPLAY_PANEL_SCALE,
@@ -280,6 +295,7 @@ static BUILTIN: [Entry; 13] = [
         live: true,
         safety: Safety::Validated,
         applies_to: AppliesTo::FlatPanel,
+        expert: true,
     },
 ];
 
@@ -409,6 +425,7 @@ mod tests {
         let schema = Schema::builtin();
         for entry in schema.entries() {
             let tv_only = [DISPLAY_TV, DISPLAY_TV_WIDTH].contains(&entry.key);
+            // The row of an expert key never shows; this test reads where a row would show.
             let panel_only = entry.key == DISPLAY_PANEL_SCALE;
             for class in [DisplayClass::Crt, DisplayClass::FlatPanel] {
                 let panel = class == DisplayClass::FlatPanel;
@@ -741,13 +758,13 @@ mod tests {
     }
 
     #[test]
-    fn style_and_refresh_policy_apply_only_to_a_crt() {
+    fn only_the_refresh_policy_applies_to_a_crt_alone() {
         let schema = Schema::builtin();
         for entry in schema.entries() {
             if [AppliesTo::Tv, AppliesTo::FlatPanel].contains(&entry.applies_to) {
                 continue;
             }
-            let crt_only = [DISPLAY_STYLE, DISPLAY_REFRESH_POLICY].contains(&entry.key);
+            let crt_only = entry.key == DISPLAY_REFRESH_POLICY;
             assert!(entry.applies_to.applies(DisplayClass::Crt), "{}", entry.key);
             assert_eq!(
                 entry.applies_to.applies(DisplayClass::FlatPanel),
@@ -755,6 +772,64 @@ mod tests {
                 "{}",
                 entry.key
             );
+        }
+    }
+
+    #[test]
+    fn the_picture_mode_applies_to_every_display_and_appends_its_new_modes() {
+        let schema = Schema::builtin();
+        let mode = schema.get(DISPLAY_STYLE).unwrap();
+        assert_eq!(mode.label, "Picture mode");
+        assert_eq!(mode.applies_to, AppliesTo::Every);
+        assert_eq!(mode.levels, Levels::ALL);
+        assert!(!mode.expert);
+        for class in [DisplayClass::Crt, DisplayClass::Tv, DisplayClass::FlatPanel] {
+            assert!(mode.shown(class), "{class:?}");
+        }
+        assert_eq!(&PICTURE_STYLES[..5], ["auto", "native", "2x", "3x", "4x"]);
+        assert_eq!(&PICTURE_STYLES[5..], ["sharp", "speed", "fit"]);
+        for level in Level::ORDER {
+            for value in PICTURE_STYLES {
+                let src = format!("[display]\nstyle = \"{value}\"\n");
+                let parsed = parse_layer(&schema, level, &src);
+                assert_eq!(parsed.issues, [], "{src}");
+                assert_eq!(
+                    parsed.layer.get(DISPLAY_STYLE),
+                    Some(&Value::Text((*value).into()))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_keys_the_picture_mode_covers_are_expert_keys_that_keep_their_values() {
+        let schema = Schema::builtin();
+        for entry in schema.entries() {
+            let expert = [DISPLAY_VERTICAL, DISPLAY_PANEL_SCALE].contains(&entry.key);
+            assert_eq!(entry.expert, expert, "{}", entry.key);
+            for class in [DisplayClass::Crt, DisplayClass::Tv, DisplayClass::FlatPanel] {
+                if expert {
+                    assert!(!entry.shown(class), "{} {class:?}", entry.key);
+                } else {
+                    assert_eq!(entry.shown(class), entry.applies_to.shown(class));
+                }
+            }
+        }
+        // A file of the picture style era: every value keeps its meaning.
+        let old = "schema_version = 1\n\n[display]\nstyle = \"2x\"\nrefresh_policy = \"force_60\"\n\
+                   vertical = \"fit\"\npanel_scale = \"integer\"\n";
+        let parsed = parse_layer(&schema, Level::Game, old);
+        assert_eq!(parsed.issues, []);
+        let layers = Layers::try_new(None, None, Some(&parsed.layer)).unwrap();
+        for (key, value) in [
+            (DISPLAY_STYLE, "2x"),
+            (DISPLAY_REFRESH_POLICY, "force_60"),
+            (DISPLAY_VERTICAL, "fit"),
+            (DISPLAY_PANEL_SCALE, "integer"),
+        ] {
+            let resolved = resolve_key(&schema, &layers, key).unwrap();
+            assert_eq!(resolved.value, Value::Text(value.into()), "{key}");
+            assert_eq!(resolved.source, Source::Game, "{key}");
         }
     }
 

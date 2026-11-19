@@ -150,7 +150,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             }
         };
         let settings = config.global_policy().unwrap_or_else(|e| {
-            found.warn(format!("{e}; the safe picture style applies"));
+            found.warn(format!("{e}; the safe picture mode applies"));
             safe.settings
         });
         let wanted = DisplayConfig { monitor, settings };

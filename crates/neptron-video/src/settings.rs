@@ -8,8 +8,8 @@ use neptron_types::{ScanlineMode, Scanlines};
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum SettingsError {
-    /// The value of `display.style` is not a picture style.
-    #[error("display.style {value:?} is not one of auto, native, 2x, 3x, 4x")]
+    /// The value of `display.style` is not a picture mode.
+    #[error("display.style {value:?} is not one of auto, native, 2x, 3x, 4x, sharp, speed, fit")]
     UnknownStyle {
         /// The value that was given.
         value: String,

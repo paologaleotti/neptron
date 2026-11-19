@@ -426,6 +426,17 @@ pub struct Entry {
     pub safety: Safety,
     /// The displays on which the setting has an effect.
     pub applies_to: AppliesTo,
+    /// True for an expert key: the menus never show its row, and only a
+    /// settings file sets it. The value still has its effect.
+    pub expert: bool,
+}
+
+impl Entry {
+    /// True when the menus show the row of the setting on a display of
+    /// `class`: never for an expert key, else as [`AppliesTo::shown`].
+    pub fn shown(&self, class: DisplayClass) -> bool {
+        !self.expert && self.applies_to.shown(class)
+    }
 }
 
 /// Why a list of entries is not a valid schema.
@@ -614,6 +625,7 @@ mod tests {
             live: true,
             safety: Safety::None,
             applies_to: AppliesTo::Every,
+            expert: false,
         }
     }
 

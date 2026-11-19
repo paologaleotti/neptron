@@ -268,6 +268,7 @@ mod tests {
             live: true,
             safety: Safety::None,
             applies_to: AppliesTo::Every,
+            expert: false,
         };
         Schema::from_entries(vec![
             entry("a.flag", Kind::Bool { default: false }),

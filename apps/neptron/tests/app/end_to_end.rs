@@ -100,7 +100,7 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
                 .settings
                 .rows
                 .iter()
-                .find(|r| r.label == "Picture style")
+                .find(|r| r.label == "Picture mode")
                 .map(|r| r.value.clone());
             let Some(SettingValue::Choice { options, .. }) = style else {
                 panic!("the style row: {style:?}");
@@ -118,7 +118,7 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
 
             // A picture style on a confirmed monitor applies with no
             // dialog: the validator alone decides the modes of a style.
-            rig.focus("Picture style");
+            rig.focus("Picture mode");
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "options");
             rig.focus("native");

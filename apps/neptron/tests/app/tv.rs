@@ -313,7 +313,7 @@ fn a_monitor_preset_has_no_effect_on_a_tv_and_says_so() {
                 refresh.and_then(|r| r.unavailable.as_deref()),
                 Some(NOT_USED_ON_A_TV)
             );
-            for label in ["TV standard", "TV picture width", "Picture style"] {
+            for label in ["TV standard", "TV picture width", "Picture mode"] {
                 let row = rows.iter().find(|r| r.label == label).expect(label);
                 assert!(row.is_enabled(), "{label}");
             }
