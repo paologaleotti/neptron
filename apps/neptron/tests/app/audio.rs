@@ -178,3 +178,31 @@ fn the_stats_count_the_fields_with_no_new_frame() {
         },
     );
 }
+
+/// The `input_to_frame_ns` stat is the delay from the poll of an input
+/// to the flip of the frame that ran the core with it: none before an
+/// input, one flip interval for a game that fits in its field.
+#[test]
+#[ignore = "tier 2"]
+fn the_stats_give_the_delay_from_an_input_to_its_flip() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "the_stats_give_the_delay_from_an_input_to_its_flip",
+        ),
+        |dir| {
+            let mut rig = crate::pause::in_game(dir);
+            rig.frames(30);
+            assert_eq!(rig.shell().stats_now().input_to_frame_ns, 0);
+            rig.tap(&[Control::A]);
+            let flips = rig.display.flips();
+            let interval = flips[flips.len() - 1].time_ns - flips[flips.len() - 2].time_ns;
+            let delay = rig.shell().stats_now().input_to_frame_ns;
+            assert!(
+                delay.abs_diff(interval) <= 1,
+                "{delay} ns for {interval} ns"
+            );
+            rig.finish();
+        },
+    );
+}

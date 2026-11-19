@@ -46,6 +46,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             stats.frames_repeated = counters.repeated_pictures;
             stats.frames_dropped = counters.flipless_frames;
             stats.fields_missed = Some(counters.missed_fields);
+            stats.input_to_frame_ns = counters.input_to_flip_ns;
             if let Some(sink) = game.session.audio_sink() {
                 stats.audio_queued_frames = sink.queued_frames() as u64;
             }
