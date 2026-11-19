@@ -5,17 +5,15 @@
 # describes the design, the measured times and the limits.
 #
 # Licence rules that this workflow enforces:
-# - OP-070: the licence of the 15 kHz kernel patch set is not clear, so no
-#   image, kernel or Buildroot output with those patches may be distributed.
-#   Workflow artifacts and caches of a public repository can be read by
-#   others, so no build here that uploads or caches anything applies a
-#   kernel patch: the PC image builds with --no-kernel-15khz, and the
+# - ADR 0018 (OP-070 closed): the 15 kHz kernel patch set is GPL-2.0-only.
+#   The PC image applies it, at the commit that the PC defconfig pins. The
 #   aarch64 and Pi defconfigs name no kernel patch (the Pi build fails when
-#   one is set). The step "Check that the output holds no 15 kHz kernel
-#   patch" proves it on each output before any upload, cache or base. The
-#   last step of the nightly PC job builds the patched kernel only to prove
-#   that the patches still apply and build; it uploads nothing and saves
-#   no cache.
+#   one is set). The step "Check the kernel patches of the output" proves,
+#   on each output before any upload, cache or base, that the kernel
+#   applied exactly the patches that the defconfig and fragments of the
+#   target name. A kernel binary is GPL-2.0: the sources artifact (kernel
+#   archive, patches and series) goes with every uploaded image, with the
+#   same retention.
 # - OP-054: the images hold Snes9x and Genesis Plus GX (non-commercial
 #   licences). An uploaded image carries the licence manifest and the
 #   licence texts, and the GPL sources go in an artifact beside it. There is
@@ -353,29 +351,44 @@ jobs:
           echo "Image build: $(( $(date +%s) - start )) s (base: ${{ steps.base.outputs.state }})" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # OP-070. Every later step that uploads or caches the output, the image
-      # or the base runs only after this step passed. The kernel of the
-      # output must have applied no patch file of the 15 kHz set, and the
-      # configuration must name no kernel patch. A build that failed can
-      # leave no list of applied patches, so a missing list passes; the base
-      # of such a build still gets the configuration check.
-      - name: Check that the output holds no 15 kHz kernel patch
-        id: no15khz
+      # ADR 0018. Every later step that uploads or caches the output, the
+      # image or the base runs only after this step passed. The configuration
+      # of the output must name the kernel patches that the defconfig and the
+      # fragments of the target name (the last line wins, as in a merge), or
+      # none. A kernel that applied a 15 kHz patch when the target names none
+      # fails. A build that failed can leave no list of applied patches, so
+      # a missing list passes; the base of such a build still gets the
+      # configuration check.
+      - name: Check the kernel patches of the output
+        id: patches
         if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        env:
+          DEFCONFIG: ${{ matrix.defconfig }}
+          FRAGMENTS: ${{ join(matrix.fragments, ' ') }}
         run: |
-          sudo grep -x 'BR2_LINUX_KERNEL_PATCH=""' "$OUT_DIR/.config" || {
-            echo "The configuration names a kernel patch:"
-            sudo grep '^BR2_LINUX_KERNEL_PATCH=' "$OUT_DIR/.config" || true
+          files="os/configs/$DEFCONFIG"
+          for f in $FRAGMENTS; do files="$files os/configs/$f"; done
+          # shellcheck disable=SC2086
+          want=$(cat $files | grep '^BR2_LINUX_KERNEL_PATCH=' | tail -n 1)
+          want=${want:-BR2_LINUX_KERNEL_PATCH=\"\"}
+          got=$(sudo grep '^BR2_LINUX_KERNEL_PATCH=' "$OUT_DIR/.config" || true)
+          if [ "$got" != "$want" ]; then
+            echo "The output names other kernel patches than the target:"
+            echo "want: $want"
+            echo "got:  $got"
             exit 1
-          }
-          for list in "$OUT_DIR"/build/linux-*/.applied_patches_list; do
-            [ -e "$list" ] || continue
-            if sudo grep -i '15khz' "$list"; then
-              echo "The kernel in $list has the 15 kHz patch set"
-              exit 1
-            fi
-          done
-          echo "No 15 kHz kernel patch in the output." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$want" = 'BR2_LINUX_KERNEL_PATCH=""' ]; then
+            for list in "$OUT_DIR"/build/linux-*/.applied_patches_list; do
+              [ -e "$list" ] || continue
+              if sudo grep -i '15khz' "$list"; then
+                echo "The kernel in $list has a 15 kHz patch the target does not name"
+                exit 1
+              fi
+            done
+          fi
+          echo "Kernel patches as the target names them: ${want#BR2_LINUX_KERNEL_PATCH=}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Show the output sizes
         if: ${{ !cancelled() }}
@@ -480,11 +493,12 @@ jobs:
           cp "$LICENCES" "$dist/LICENCES.txt"
           cat > "$dist/README.txt" <<EOF
           NEPTRON $ARTIFACT, commit $GITHUB_SHA, CI run $GITHUB_RUN_ID.
-          Its kernel has no 15 kHz kernel patch (OP-070).
+          LICENCES.txt names the kernel and its patches with their licences.
           The image holds Snes9x and Genesis Plus GX, which allow non-commercial
           use only: never sell this image. legal/ holds the licence manifest and
-          the licence texts. The sources of the GPL and LGPL packages are in the
-          artifact $ARTIFACT-sources of the same run.
+          the licence texts. The sources of the GPL and LGPL packages, the
+          kernel with its patches among them, are in the artifact
+          $ARTIFACT-sources of the same run. Give them out with the image.
           EOF
           (cd "$dist" && sha256sum $FILES > SHA256SUMS && cat SHA256SUMS)
           du -sh "$dist" "$WORK/dist/sources"
@@ -520,7 +534,7 @@ jobs:
         if: >-
           ${{ !cancelled() && steps.base.outputs.state != 'complete' && steps.base.outputs.state != 'older'
           && (steps.build.outcome == 'success' || steps.build.outcome == 'failure')
-          && steps.no15khz.outcome == 'success' }}
+          && steps.patches.outcome == 'success' }}
         env:
           COMPLETE: ${{ steps.build.outcome == 'success' }}
           BASE: ${{ steps.keys.outputs.base }}
@@ -564,26 +578,8 @@ jobs:
       - name: Save the Buildroot downloads
         if: >-
           ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.dl.outputs.cache-hit != 'true'
-          && steps.no15khz.outcome == 'success' }}
+          && steps.patches.outcome == 'success' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.WORK }}/neptron-br-dl
           key: ${{ steps.keys.outputs.dl }}
-
-      # OP-070: the release kernel applies the 15 kHz patch set, whose
-      # licence is not clear. The nightly run checks that the pinned patches
-      # still apply, that the kernel builds and that the image boots. This
-      # build stays on the runner: no step after this one may upload or cache
-      # anything. It comes after the base is packed, so the base never holds
-      # the patched kernel.
-      - name: Check the 15 kHz kernel patch set (nothing is uploaded)
-        if: >-
-          ${{ success() && matrix.name == 'x86_64'
-          && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
-        run: |
-          patched="$HOME/.cache/neptron/buildroot/images/x86_64"
-          mkdir -p "$patched"
-          sudo chown 1000:1000 "$patched"
-          cargo xtask os build --arch x86_64 --output x86_64 --jobs "$(nproc)" -- linux-dirclean
-          NEPTRON_OS_IMAGES="$patched" cargo xtask os boot-check --arch x86_64 --firmware bios
-          sudo rm -rf "$patched" target/os/boot-check

@@ -16,7 +16,7 @@ Two workflow files do the work:
 | --- | --- |
 | Pull request | `lint`, `test-linux` and `images` start at once. A change to documents only (`docs/`, `*.md`, `LICENSE-*`) runs `lint` only; the test job ends green in a few seconds. A change that does not touch the OS, the device crates or the image workflow skips the image builds (see "Path filters") |
 | Push to `main` | Every job except `test-macos` in full, with no path filter. `main` saves the Cargo caches and the Buildroot downloads |
-| Nightly (02:23 UTC) | The same as a push to `main`, plus `test-macos` and the check of the 15 kHz kernel patch set |
+| Nightly (02:23 UTC) | The same as a push to `main`, plus `test-macos` |
 | Manual (`Run workflow` on the Actions page, or `gh workflow run ci.yml --ref BRANCH`) | Every job in full. The input `images` turns the image builds off. A manual run saves the Cargo caches of its own branch |
 | Merge queue (`merge_group`) | Every job in full, if the owner turns the merge queue on |
 
@@ -32,7 +32,7 @@ A new push to a pull request cancels the older run of that pull request. Runs of
 | `test-linux (T0 to T2)` | `ubuntu-24.04` | `cargo xtask verify --tier 2` |
 | `test-macos (T0 to T2)` | `macos-15` (Apple Silicon) | `cargo xtask verify --tier 2`, in the nightly run and in a manual run only |
 | `images / plan` | `ubuntu-24.04` | Reads `.github/image-targets.json` and the path filter, and gives the matrix |
-| `images / image x86_64` | `ubuntu-24.04` | The PC image without the 15 kHz patch set, then the tier 3 checks under KVM |
+| `images / image x86_64` | `ubuntu-24.04` | The PC image with the 15 kHz patch set, then the tier 3 checks under KVM |
 | `images / image aarch64` | `ubuntu-24.04-arm` | The aarch64 QEMU test image, then the tier 3 checks that do not measure time |
 | `images / image rpi-arm64` | `ubuntu-24.04-arm` | The Raspberry Pi image (release variant), then the check of its SD card layout |
 | `ci-ok` | `ubuntu-24.04` | The summary |
@@ -164,11 +164,11 @@ Why not a container image on GHCR: it would also work, and container storage on 
 
 ## Licence rules in CI
 
-- **OP-070, the 15 kHz kernel patch set.** Its licence is not clear, so no image, kernel or Buildroot output with those patches may be distributed. The artifacts and the caches of a public repository can be read by others, so they count as distribution. How each job obeys the rule:
-  - `image x86_64`: the build uses `--no-kernel-15khz` (its entry in `.github/image-targets.json`), in its own images directory `x86_64-no15khz`. The base is built without the patches too. The nightly run then builds the patched kernel in the same job, after every upload, after the base is packed and after the downloads are saved, boots it once with BIOS, deletes its images and reports, and uploads nothing of it. No step may come after that one.
+- **The 15 kHz kernel patch set (ADR 0018).** The set is GPL-2.0-only at the pinned commit, so the PC image applies it and CI uploads that image with its sources. How each job handles kernel patches:
+  - `image x86_64`: the build applies the nine patches that `os/configs/neptron_pc_x86_64_defconfig` names (its entry in `.github/image-targets.json` has no `--no-kernel-15khz`). The tier 3 checks run on that patched kernel.
   - `image aarch64`: its defconfig names no kernel patch, and its global patch directory holds only hash files. It uploads no image.
   - `image rpi-arm64`: its defconfig names no kernel patch, and `board/rpi/check-kernel-patches.sh` fails the build when `BR2_LINUX_KERNEL_PATCH` is set, when the global patch directory is not `board/rpi/patches`, or when that directory holds a file other than the two hash files.
-  - Every image job: the step "Check that the output holds no 15 kHz kernel patch" reads the final `.config` of the output (`BR2_LINUX_KERNEL_PATCH=""`) and the list of patches that the kernel applied (`build/linux-*/.applied_patches_list`). The image upload, the sources upload, the base and the downloads cache run only after it passed.
+  - Every image job: the step "Check the kernel patches of the output" compares `BR2_LINUX_KERNEL_PATCH` in the final `.config` of the output with the value that the defconfig and the fragments of the target name. For a target that names no patch it also fails on a 15 kHz entry in the list of patches that the kernel applied (`build/linux-*/.applied_patches_list`). The image upload, the sources upload, the base and the downloads cache run only after it passed.
   - `lint`, `test-linux`, `test-macos`: they build no kernel.
 - **OP-054, non-commercial cores.** The PC image holds Snes9x and Genesis Plus GX. The owner accepts that for a free, non-commercial product. The image artifact carries the licence manifest (`legal/manifest.csv`, the licence texts), `LICENCES.txt` and a `README.txt` that says that the image must never be sold. The sources of the GPL and LGPL packages (`make legal-info`) are a second artifact of the same run, with the same retention. There is no GitHub Release: artifacts with a short retention are enough for now.
 - **OP-053, test ROMs.** The SNES and Mega Drive ROMs are not in the repository, and CI never downloads a ROM. `core-trace --allow-missing-roms` reports their cases as skipped; the NES cases must pass, and a ROM with a wrong hash still fails the run.
@@ -177,8 +177,8 @@ Why not a container image on GHCR: it would also work, and container storage on 
 
 | Artifact | From | Retention | Contents |
 | --- | --- | --- | --- |
-| `neptron-pc-x86_64-no15khz` | `image x86_64`, on success | 7 days | `neptron-x86_64.img`, `SHA256SUMS`, `legal/`, `LICENCES.txt`, `README.txt` |
-| `neptron-pc-x86_64-no15khz-sources` | `image x86_64`, on success | 7 days | The source archives of `make legal-info` |
+| `neptron-pc-x86_64` | `image x86_64`, on success | 7 days | `neptron-x86_64.img`, `SHA256SUMS`, `legal/`, `LICENCES.txt`, `README.txt` |
+| `neptron-pc-x86_64-sources` | `image x86_64`, on success | 7 days | The source archives of `make legal-info`, with the kernel and its patches; they go out with the image (the written offer in `LICENCES.txt`) |
 | `neptron-rpi-arm64` | `image rpi-arm64`, on success | 7 days | `neptron-rpi-arm64.img`, `SHA256SUMS`, `legal/`, `LICENCES.txt`, `README.txt` |
 | `neptron-rpi-arm64-sources` | `image rpi-arm64`, on success | 7 days | The source archives of `make legal-info` |
 | `t3-<target>` | Each QEMU image job | 14 days | The boot check report, the captured picture (PPM and PNG), the expected and diff pictures on a failure, the QEMU console logs, the core traces |
@@ -199,7 +199,7 @@ Get them on the run page (Summary, Artifacts) or with `gh run download RUN_ID --
 2. Add an entry to `.github/image-targets.json`: `name`, `runner`, `arch`, `defconfig`, `fragments`, `base_paths` (the paths whose files go into the key of the base, beside the Dockerfile, the defconfig and the fragments), `build_args` (the arguments of `cargo xtask os build`), `images_dir` (the directory under `~/.cache/neptron/buildroot/images`), `image_files`, `licences` (the licence notes that go into the image artifact), `artifact`, `upload_image`, `rebuild` (the local packages that the defconfig selects), `checks` (from `boot`, `boot-bios`, `boot-uefi`, `app`, `kms`, `gles`, `selftest`, `core`, `share`, `pi-layout`) and `build_minutes` (the time limit of the build step; the job stops at 355 minutes).
 3. Set `"enabled": true`.
 
-A target whose image could hold the 15 kHz patch set gets `--no-kernel-15khz` in `build_args`. The check step of OP-070 runs for every target, so a target without it fails before any upload.
+A target names its kernel patches through its defconfig and its fragments. The patch check step runs for every target, so an output whose patches differ from what the target names fails before any upload.
 
 ### The Raspberry Pi image
 
@@ -217,7 +217,7 @@ These are the settings that only the owner can change. Nothing in CI needs a sec
 
 ## Open questions and limits
 
-- **Artifact storage.** GitHub's billing pages say that standard runners are free in a public repository. They do not say that artifact storage is free. The bases are 5 to 9 GB each and stay 30 days. If GitHub bills them or refuses an upload for the storage quota, move the base to a container image on GHCR (`packages: write` on `main`; the owner decides the package visibility; it must stay without the 15 kHz patches).
+- **Artifact storage.** GitHub's billing pages say that standard runners are free in a public repository. They do not say that artifact storage is free. The bases are 5 to 9 GB each and stay 30 days. If GitHub bills them or refuses an upload for the storage quota, move the base to a container image on GHCR (`packages: write` on `main`; the owner decides the package visibility; its sources must go out beside it).
 - **Cold builds.** A change to a defconfig, a fragment, a path of `base_paths` or the Dockerfile makes a new key. The pull request of that change builds cold (or on an older base of its own branch or of `main`), uploads the base, and the first `main` run after the merge takes that base. A `main` run builds cold only when no branch built the key: about 4 hours for the PC image.
 - **Not proven yet.** The resume from a partial base is implemented but not yet proven in a run: no build has run out of time since it exists. The Buildroot downloads cache is saved only by `main`, and `main` has not run this workflow yet, so every image job until then gets its downloads from the base or from the network.
 - **aarch64 without KVM.** The owner decided: `kms-check`, `os selftest-check` and `core-trace` run in CI on x86\_64 under KVM only. For aarch64 they run on a developer machine with a hypervisor. A self-hosted arm64 runner with KVM would bring them back into CI: add them to the `checks` of the `aarch64` entry.
