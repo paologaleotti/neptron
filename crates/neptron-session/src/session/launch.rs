@@ -13,6 +13,7 @@ use neptron_libretro::{
 use neptron_video::VideoEngine;
 
 use super::{INPUT_EVENTS_CAPACITY, Session, State};
+use crate::pacing::{FlipClock, Pacing};
 use crate::pads::PadMask;
 use crate::picture::Picture;
 use crate::save::{SAVE_RAM_FLUSH_INTERVAL_NS, SaveRamWriter};
@@ -134,7 +135,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             last_error: String::with_capacity(LOG_TEXT_MAX_BYTES),
             flipless: 0,
             last_flip: None,
+            last_flip_session_ns: None,
             latency_from: None,
+            flip_clock: FlipClock::default(),
+            pacing: Pacing::new(),
+            deferred: false,
+            queued_ran_core: false,
+            queued_paced: false,
+            cycle_start_ns: 0,
             counters: Counters {
                 refused_options: refused_options as u64,
                 ..Counters::default()
@@ -163,6 +171,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 .map_err(LaunchError::Writer)?;
             session.writer = Some(writer);
         }
+        session.cycle_start_ns = session.clock.now_ns();
         session.next_flush_ns = session
             .clock
             .now_ns()

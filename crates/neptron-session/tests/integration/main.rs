@@ -9,6 +9,7 @@ mod faults;
 mod harness;
 mod launch;
 mod pacing;
+mod pacing_edges;
 mod session;
 mod start;
 mod timing;

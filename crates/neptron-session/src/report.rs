@@ -9,9 +9,22 @@ pub struct FrameReport {
     pub ran_core: bool,
     /// What the engine decided for the frame.
     pub directive: Directive,
-    /// Flips of this frame that completed: 1, or 2 for double refresh. 0
-    /// when the display failed; `display_error` says why.
+    /// Flips that completed in this call: 1, or 2 for double refresh. In
+    /// late pacing the first of them is the flip of the frame before,
+    /// which this frame waited for after its core ran, and the last flip
+    /// of this frame stays queued (`deferred`). 0 when the display
+    /// failed; `display_error` says why.
     pub flips: u8,
+    /// Flips of `flips` that the engine drained in a present after a
+    /// failed wait. They count as presented, and not as progress of the
+    /// display for [`FLIPLESS_FRAMES_LIMIT`](crate::FLIPLESS_FRAMES_LIMIT).
+    pub drained_flips: u8,
+    /// The last flip of this frame is queued, and the loop did not wait
+    /// for it: the core is in late pacing. The next frame waits for it
+    /// after its core ran.
+    pub deferred: bool,
+    /// The loop changed its pacing in this frame.
+    pub pacing: Option<PacingChange>,
     /// The outcome of a modeset in this frame.
     pub modeset: Option<Outcome>,
     /// The first display error of this frame.
@@ -28,6 +41,18 @@ pub struct FrameReport {
     /// muted, and no flip paces the loop, so the caller must. An input
     /// change (the safety layer's revert) or `retry` sets a mode again.
     pub blanked: bool,
+}
+
+/// A change of the pacing of the loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacingChange {
+    /// From wait pacing to late pacing: a core frame did not fit in its
+    /// flip interval, or flips landed late in a row.
+    Late,
+    /// From late pacing back to wait pacing: the hold passed with frames
+    /// that fit, or a frame with no core, a modeset, a display error or
+    /// the end of the session.
+    Wait,
 }
 
 /// Why a session ended.
@@ -53,7 +78,8 @@ pub struct Counters {
     pub core_frames: u64,
     /// Loop frames: core frames plus frames under the quick menu.
     pub loop_frames: u64,
-    /// Flips that completed.
+    /// Flips that completed: the flips the loop waited for, and the flips
+    /// that a later frame or the engine waited for first.
     pub flips: u64,
     /// Loop frames with no completed flip, the output on.
     pub flipless_frames: u64,
@@ -66,11 +92,20 @@ pub struct Counters {
     pub missed_fields: u64,
     /// Loop frames with the output off.
     pub blanked_frames: u64,
+    /// Core frames whose last flip the loop did not wait for, because the
+    /// core is in late pacing: the next core frame ran while this one
+    /// waited for its vertical blank.
+    pub late_frames: u64,
     /// The last delay, in nanoseconds of the session clock, from an input
-    /// poll that returned at least one event to the end of the wait for
-    /// the first flip of the frame that ran the core with it. 0 before the
-    /// first such flip.
+    /// poll that returned at least one event to the first flip of the
+    /// frame that ran the core with it. The time of the flip event is
+    /// moved to the session clock with the lowest offset between the two
+    /// clocks that a wait showed. 0 before the first such flip.
     pub input_to_flip_ns: u64,
+    /// Flips of a paced core frame that landed after the blank they aimed
+    /// at although the work of the frame fit in the interval: the GPU or
+    /// the display made them late.
+    pub late_flips: u64,
     /// Frames the host refused (`Video::Rejected`).
     pub frame_faults: u64,
     /// Frames with no new picture (`Video::Duplicate` or `Video::Missing`).

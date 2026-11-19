@@ -50,7 +50,8 @@ fn a_slow_flip_costs_two_frames_and_the_session_goes_on() {
             let counters = *rig.session.counters();
             assert_eq!(counters.flipless_frames, 2);
             assert_eq!(counters.core_frames, 82, "the core ran in every frame");
-            assert_eq!(counters.flips, 80);
+            assert_eq!(counters.flips, 81, "the slow flip completed too");
+            assert_eq!(counters.late_frames, 0, "the wait of the drain is no work");
             assert!(rig.audio.overruns().is_empty());
         }
     );
@@ -85,7 +86,12 @@ fn a_failed_present_or_wait_costs_one_frame() {
         ));
         rig.run(10);
         assert_eq!(rig.session.counters().flipless_frames, 2);
-        assert_eq!(rig.session.counters().flips, 30);
+        assert_eq!(
+            rig.session.counters().flips,
+            31,
+            "the flip of the failed wait completed at the next present"
+        );
+        assert_eq!(rig.session.counters().late_frames, 0);
     });
 }
 

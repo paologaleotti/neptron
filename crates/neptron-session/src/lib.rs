@@ -11,6 +11,7 @@
 
 mod config;
 mod error;
+mod pacing;
 mod pads;
 mod picture;
 mod report;
@@ -24,8 +25,12 @@ pub use error::{LaunchError, SessionError};
 /// The zip listing of the core host, for the arcade set check of the app,
 /// which reaches the host only through the session.
 pub use neptron_libretro::{ZipDirectoryEntry, ZipError, zip_entries};
+pub use pacing::{
+    HOLD_DECAY_FRAMES, LATE_FLIPS_TO_ENTER, LATE_HOLD_FRAMES, LATE_HOLD_MAX_FRAMES,
+    TRY_MARGIN_PERMILLE,
+};
 pub use pads::{CORE_PORTS, LATE_PRESS_MAX_FRAMES, LATE_PRESS_MIN_FRAMES};
-pub use report::{Counters, EndReason, ExitReport, FrameReport};
+pub use report::{Counters, EndReason, ExitReport, FrameReport, PacingChange};
 pub use save::{Flush, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SaveStats};
 pub use session::{FLIPLESS_FRAMES_LIMIT, Session};
 pub use source::{

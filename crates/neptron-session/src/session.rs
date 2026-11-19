@@ -7,9 +7,10 @@ use neptron_audio::{AudioPipeline, AudioStats, FlipRateMeter, Resampling};
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::{Hotkey, Hotkeys, PortStates};
 use neptron_libretro::{GameGeometry, Host, LogRecord, RunError, Timing};
-use neptron_types::{Frame, InputEvent, SourceGeometry};
+use neptron_types::{FlipEvent, Frame, InputEvent, SourceGeometry};
 use neptron_video::{VideoEngine, VideoStatusText};
 
+use crate::pacing::{FlipClock, Pacing};
 use crate::pads::PadMask;
 use crate::picture::Picture;
 use crate::save::SaveRamWriter;
@@ -83,10 +84,28 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     flipless: u32,
     /// The vertical blank count of the last flip; `None` before the first
     /// flip of a mode.
-    last_flip: Option<u64>,
+    last_flip: Option<FlipEvent>,
+    /// The time of the last flip on the session clock.
+    last_flip_session_ns: Option<u64>,
     /// The time of the input poll of the frame whose flip is queued, when
     /// that poll returned an event and the core ran with it.
     latency_from: Option<u64>,
+    /// The time of the flip events on the session clock.
+    flip_clock: FlipClock,
+    /// Whether the loop waits for each flip, and the measured rate of a
+    /// late core.
+    pacing: Pacing,
+    /// The last flip of the frame before is queued, and no wait returned
+    /// it yet: the frame before was in late pacing.
+    deferred: bool,
+    /// The core ran in the frame of the queued flip.
+    queued_ran_core: bool,
+    /// The frame of the queued flip was paced: a core frame of a running
+    /// game in a mode set before it, whose work is known.
+    queued_paced: bool,
+    /// The end of the frame before, on the session clock: the start of the
+    /// work of this frame.
+    cycle_start_ns: u64,
     counters: Counters,
 }
 

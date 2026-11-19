@@ -4,14 +4,15 @@ use neptron_audio::{AudioPipeline, CoreTiming, Resampling};
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::Hotkey;
 use neptron_libretro::{Event, LogSource, RunError, Timing, Video};
-use neptron_types::Frame;
+use neptron_types::{FlipEvent, Frame};
 use neptron_video::{Directive, VideoError};
 
 use super::{FLIPLESS_FRAMES_LIMIT, Session, State};
+use crate::pacing;
 use crate::pads::CORE_PORTS;
 use crate::save::SAVE_RAM_FLUSH_INTERVAL_NS;
 use crate::source::{FrameRules, source_geometry};
-use crate::{Counters, FrameReport, RunRateSource, SessionError};
+use crate::{Counters, FrameReport, PacingChange, RunRateSource, SessionError};
 
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// Runs one frame of the loop, with `ui` drawn over the game (the
@@ -24,7 +25,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// 2. Runs one core frame, unless the menu is open or the engine has
     ///    turned the output off (`blanked`).
     /// 3. Gives the engine the source, then presents the frame and waits for
-    ///    its flip: once, or twice for double refresh. The audio is muted
+    ///    its flip: once, or twice for double refresh. In late pacing it
+    ///    first waits for the flip that the frame before left queued, and
+    ///    leaves its own last flip queued. The audio is muted
     ///    while the engine asks for it, while the menu is open and while the
     ///    inputs refuse the mode on screen.
     /// 4. Ends the core frame of the audio pipeline between the first
@@ -58,6 +61,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             blind_recovery: None,
             ended: None,
             blanked: false,
+            drained_flips: 0,
+            deferred: false,
+            pacing: None,
         };
         self.read_input(now_ns, &mut report);
 
@@ -91,7 +97,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             audio.mute();
         }
         let poll_ns = (report.ran_core && !self.events.is_empty()).then_some(now_ns);
+        let was_late = self.pacing.late();
         self.show(ui, poll_ns, &mut report);
+        self.cycle_start_ns = self.clock.now_ns();
+        report.pacing = match (was_late, self.pacing.late()) {
+            (false, true) => Some(PacingChange::Late),
+            (true, false) => Some(PacingChange::Wait),
+            _ => None,
+        };
         report.blanked = self.engine.blanked();
         let mute = self.must_mute();
         if let Some(audio) = self.audio.as_mut().filter(|_| !mute) {
@@ -212,8 +225,42 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// display error ends the frame: the engine keeps a timed-out flip
     /// queued and drains it at the next present. `poll_ns` is the time of
     /// the input poll when it returned an event and the core ran with it.
+    ///
+    /// In late pacing the frame first waits for the flip that the frame
+    /// before left queued, and leaves its own last flip queued.
+    ///
+    /// The work of the frame counts from the flip that it follows, on the
+    /// session clock, so the time from that flip to the return of its wait
+    /// counts too: in wait pacing from the flip of the frame before, in
+    /// late pacing the core time plus the time from the later of that flip
+    /// and the start of the wait.
     fn show(&mut self, ui: Option<Frame<'_>>, poll_ns: Option<u64>, report: &mut FrameReport) {
-        let mut audio_due = true;
+        let mut work_ns = 0;
+        let mut mark_ns = self.flip_mark_ns();
+        if self.deferred {
+            self.deferred = false;
+            let wait_start_ns = self.clock.now_ns();
+            work_ns = wait_start_ns.saturating_sub(self.cycle_start_ns);
+            match self.engine.wait_flip() {
+                Ok(flip) => self.flip_done(flip, report),
+                Err(error) => {
+                    // The flip stays queued in the engine, which drains it
+                    // at the next present. This frame shows nothing, and
+                    // still ends its audio, as after a failed present.
+                    self.end_audio_frame(report.ran_core);
+                    report.display_error = Some(error);
+                    self.pacing.reset();
+                    return;
+                }
+            }
+            mark_ns = self
+                .last_flip_session_ns
+                .unwrap_or(wait_start_ns)
+                .max(wait_start_ns);
+        }
+        let mut presents: u8 = 0;
+        let mut defer = false;
+        let mut drained = false;
         loop {
             // The inputs refuse the mode on screen: no game picture is shown
             // on it as if it were confirmed.
@@ -223,21 +270,20 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 self.picture.frame()
             };
             let presented = self.engine.present(game, ui);
+            presents = presents.saturating_add(1);
             // The present only queues the GPU's work. The audio runs while
             // the GPU draws, off the path from the flip event to the GPU
             // submit, and still at the same point of every frame. It runs
             // after a failed present too, so no frame loses its audio.
-            let first = audio_due;
-            if audio_due {
+            if presents == 1 {
                 self.end_audio_frame(report.ran_core);
-                audio_due = false;
             }
             match presented {
                 Ok(presented) => {
                     if let Some(flip) = presented.drained_flip {
-                        self.meter.push(flip.time_ns);
-                        self.count_missed_fields(flip.sequence, report.ran_core);
-                        self.note_latency();
+                        drained = true;
+                        report.drained_flips = report.drained_flips.saturating_add(1);
+                        self.flip_done(flip, report);
                     }
                     if presented.modeset.is_some() {
                         self.meter.reset();
@@ -247,37 +293,106 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 }
                 Err(error) => {
                     report.display_error = Some(error);
+                    self.pacing.reset();
                     return;
                 }
             }
-            if first {
+            self.queued_ran_core = report.ran_core;
+            if presents == 1 {
                 self.latency_from = poll_ns;
+                work_ns += self.clock.now_ns().saturating_sub(mark_ns);
+                self.queued_paced = false;
+                defer = if drained {
+                    // The present waited for the flip of a failed wait, so
+                    // the work of this frame is not known.
+                    self.pacing.reset();
+                    false
+                } else {
+                    self.pace(work_ns, report)
+                };
+            }
+            let last = presents >= self.flips_per_frame();
+            if last && defer {
+                self.deferred = true;
+                report.deferred = true;
+                self.counters.late_frames += 1;
+                return;
             }
             match self.engine.wait_flip() {
-                Ok(flip) => {
-                    self.meter.push(flip.time_ns);
-                    self.count_missed_fields(flip.sequence, report.ran_core);
-                    self.note_latency();
-                    report.flips += 1;
-                    self.counters.flips += 1;
-                }
+                Ok(flip) => self.flip_done(flip, report),
                 Err(error) => {
                     report.display_error = Some(error);
+                    self.pacing.reset();
                     return;
                 }
             }
-            if report.flips >= self.flips_per_frame() {
+            if last {
                 return;
             }
         }
     }
 
-    /// Records the delay from the input poll of the frame whose flip just
-    /// completed. The session clock is the one of the poll; the flip event
-    /// can come from another clock.
-    fn note_latency(&mut self) {
+    /// Decides whether the loop leaves the last flip of this frame queued,
+    /// from the frame's `work_ns`. Only a core frame of a running game, in
+    /// a mode set before this frame, can: any other frame goes back to
+    /// wait pacing.
+    fn pace(&mut self, work_ns: u64, report: &FrameReport) -> bool {
+        match self.interval_ns() {
+            Some(interval_ns)
+                if report.ran_core && report.modeset.is_none() && self.state == State::Running =>
+            {
+                self.queued_paced = true;
+                self.pacing.on_present(work_ns, interval_ns)
+            }
+            _ => {
+                self.pacing.reset();
+                false
+            }
+        }
+    }
+
+    /// The flip interval of the mode on screen, in nanoseconds.
+    fn interval_ns(&self) -> Option<u64> {
+        let current = self.engine.current()?;
+        pacing::interval_ns(current.read_back.field_rate_mhz(), self.fields_per_flip())
+    }
+
+    /// The start of the work of a frame in wait pacing: the last flip on
+    /// the session clock, when it came within one interval before the end
+    /// of the frame before; else that end.
+    fn flip_mark_ns(&self) -> u64 {
+        let start_ns = self.cycle_start_ns;
+        match (self.last_flip_session_ns, self.interval_ns()) {
+            (Some(flip_ns), Some(interval_ns))
+                if flip_ns <= start_ns && start_ns - flip_ns <= interval_ns =>
+            {
+                flip_ns
+            }
+            _ => start_ns,
+        }
+    }
+
+    /// Takes a completed flip: the flip rate, the missed fields of the
+    /// frame that queued it, the pacing of that frame, the counts and the
+    /// input delay.
+    fn flip_done(&mut self, flip: FlipEvent, report: &mut FrameReport) {
+        self.meter.push(flip.time_ns);
+        let missed = self.count_missed_fields(&flip, self.queued_ran_core);
+        if self.queued_paced && self.pacing.on_flip(missed.is_some_and(|m| m > 0)) {
+            self.counters.late_flips += 1;
+        }
+        self.note_latency(&flip);
+        report.flips = report.flips.saturating_add(1);
+        self.counters.flips += 1;
+    }
+
+    /// Records the delay from the input poll of the frame whose `flip` just
+    /// completed, with the flip time moved to the session clock.
+    fn note_latency(&mut self, flip: &FlipEvent) {
+        let flip_ns = self.flip_clock.flip_time(self.clock.now_ns(), flip.time_ns);
+        self.last_flip_session_ns = Some(flip_ns);
         if let Some(from) = self.latency_from.take() {
-            self.counters.input_to_flip_ns = self.clock.now_ns().saturating_sub(from);
+            self.counters.input_to_flip_ns = flip_ns.saturating_sub(from);
         }
     }
 
@@ -293,17 +408,30 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         }
     }
 
-    /// Counts the fields between the flip with vertical blank count
-    /// `sequence` and the flip before, beyond the blanks one flip takes,
-    /// when `ran_core`. A flip of a frame with no core (the quick menu)
-    /// still marks the place the next gap counts from.
-    fn count_missed_fields(&mut self, sequence: u64, ran_core: bool) {
-        if let Some(last) = self.last_flip.filter(|_| ran_core) {
-            let gap = sequence.saturating_sub(last);
-            let missed = gap.saturating_sub(self.fields_per_flip());
+    /// Counts the fields between `flip` and the flip before, beyond the
+    /// blanks one flip takes, when `ran_core`. A flip of a frame with no
+    /// core (the quick menu) still marks the place the next gap counts
+    /// from. Returns the missed fields, `None` when there is no gap to
+    /// count.
+    fn count_missed_fields(&mut self, flip: &FlipEvent, ran_core: bool) -> Option<u64> {
+        let field_ns = self
+            .engine
+            .current()
+            .and_then(|c| pacing::interval_ns(c.read_back.field_rate_mhz(), 1))
+            .unwrap_or(1);
+        let missed = self.last_flip.filter(|_| ran_core).map(|last| {
+            let gap = pacing::flip_gap(
+                (last.sequence, flip.sequence),
+                (last.time_ns, flip.time_ns),
+                field_ns,
+            );
+            gap.saturating_sub(self.fields_per_flip())
+        });
+        if let Some(missed) = missed {
             self.counters.missed_fields = self.counters.missed_fields.saturating_add(missed);
         }
-        self.last_flip = Some(sequence);
+        self.last_flip = Some(*flip);
+        missed
     }
 
     /// Vertical blanks between two flips that come on time: 2 for an
@@ -361,7 +489,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             self.flipless = 0;
             return Ok(());
         }
-        if report.flips > 0 {
+        if report.flips > report.drained_flips || report.deferred {
             self.flipless = 0;
             return Ok(());
         }

@@ -8,9 +8,10 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use neptron_audio::Resampling;
-use neptron_backend::{AudioSink, Clock};
+use neptron_backend::{AudioSink, Clock, InputSource};
 use neptron_session::{
     Devices, GameLaunch, LaunchError, RunRateSource, Session, SessionOptions, VideoSetup,
 };
@@ -19,11 +20,76 @@ use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
 use neptron_testkit::{
     AudioOptions, DisplayOptions, FakeAudio, FakeDisplay, ScriptedInput, SimClock,
 };
-use neptron_types::{Control, Frame, GpuCaps, PixelFormat};
+use neptron_types::{Control, Frame, GpuCaps, InputEvent, PixelFormat};
 use neptron_video::{Monitor, PolicySettings, ScanlineSettings};
 
 /// The session type of the tests.
-pub type TestSession = Session<FakeDisplay, FakeAudio, ScriptedInput, SimClock>;
+pub type TestSession = Session<FakeDisplay, FakeAudio, CostlyInput, SimClock>;
+
+/// The time that the work of each frame takes on the simulated clock: a
+/// base and a seeded jitter, both 0 by default. Clones share one plan.
+///
+/// The test core is a separate library that cannot see the simulated
+/// clock, so [`CostlyInput`] moves the clock in the input poll, the first
+/// step of each frame: the core, the scene and the present then come that
+/// much later, as after a core that takes that long.
+#[derive(Debug, Clone, Default)]
+pub struct FrameCost {
+    plan: Arc<Mutex<CostPlan>>,
+}
+
+#[derive(Debug, Default)]
+struct CostPlan {
+    base_ns: u64,
+    jitter_ns: u64,
+    seed: u64,
+    frames: u64,
+}
+
+impl FrameCost {
+    /// Each frame from now on takes `base_ns`, plus or minus up to
+    /// `jitter_ns`, drawn from `seed` and the frame number.
+    pub fn set(&self, base_ns: u64, jitter_ns: u64, seed: u64) {
+        let mut plan = self.plan.lock().expect("cost plan");
+        plan.base_ns = base_ns;
+        plan.jitter_ns = jitter_ns.min(base_ns);
+        plan.seed = seed;
+    }
+
+    fn next_ns(&self) -> u64 {
+        let mut plan = self.plan.lock().expect("cost plan");
+        plan.frames += 1;
+        if plan.jitter_ns == 0 {
+            return plan.base_ns;
+        }
+        let span = 2 * plan.jitter_ns + 1;
+        let draw = split_mix(plan.seed, plan.frames) % span;
+        plan.base_ns - plan.jitter_ns + draw
+    }
+}
+
+/// The `index`-th value of SplitMix64 from `seed`.
+fn split_mix(seed: u64, index: u64) -> u64 {
+    let mut z = seed.wrapping_add(index.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// The scripted input with a [`FrameCost`]: each poll moves the clock by
+/// the cost of the frame, after it took the events.
+pub struct CostlyInput {
+    input: ScriptedInput,
+    clock: SimClock,
+    cost: FrameCost,
+}
+
+impl InputSource for CostlyInput {
+    fn poll(&mut self, out: &mut Vec<InputEvent>) {
+        self.input.poll(out);
+        self.clock.advance(self.cost.next_ns());
+    }
+}
 
 /// The device rate of the fake audio.
 pub const DEVICE_RATE_HZ: u32 = 48_000;
@@ -165,6 +231,7 @@ pub struct Rig {
     pub display: FakeDisplay,
     pub audio: FakeAudio,
     pub input: ScriptedInput,
+    pub cost: FrameCost,
     pub session: TestSession,
 }
 
@@ -244,6 +311,7 @@ impl Rig {
             },
         );
         let input = ScriptedInput::new(clock.clone(), Vec::new());
+        let cost = FrameCost::default();
         let save_dir = dir.join("saves");
         let content = dir.join("game.ntc");
         let extensions = ["ntc".to_owned()];
@@ -266,7 +334,11 @@ impl Rig {
         };
         let devices = Devices {
             audio: audio.clone(),
-            input: input.clone(),
+            input: CostlyInput {
+                input: input.clone(),
+                clock: clock.clone(),
+                cost: cost.clone(),
+            },
             clock: clock.clone(),
         };
         let options = SessionOptions {
@@ -281,6 +353,7 @@ impl Rig {
                 display,
                 audio,
                 input,
+                cost,
                 session,
             }),
             Err(error) => Err(Box::new(Failed {
@@ -296,6 +369,11 @@ impl Rig {
         for _ in 0..n {
             self.session.run_frame(None).expect("frame");
         }
+    }
+
+    /// The time of the simulated clock now.
+    pub fn clock_ns(&self) -> u64 {
+        self.clock.now_ns()
     }
 
     /// The test core's frame number of the last core frame: settle frames
