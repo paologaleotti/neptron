@@ -251,6 +251,18 @@ fn reason_holds(
     let rung = won.map(|w| w.rung);
     let factor = settings.style.factor();
     let own_rung = walk_ladder(settings.style).first().copied();
+    // A proposal of the asked rung, whole, at the rate of the winner, that
+    // the validator accepts.
+    let whole_at_winner = || {
+        won.is_some_and(|w| {
+            plan.proposals().any(|(_, c, p)| {
+                Some(c.rung) == own_rung
+                    && c.target.kind == w.target.kind
+                    && p.overscan_crop.is_none()
+                    && valid(&p.mode)
+            })
+        })
+    };
     let holds = match declined.reason {
         // The plan of the asked candidate has no proposal that validates;
         // the winner, if any, is the one of the fallback.
@@ -285,16 +297,25 @@ fn reason_holds(
             }
             MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => false,
         },
-        // The asked rung is not the winner, and either it is not reachable
-        // whole at the rate the winner runs (no proposal of it at that
-        // target validates with no crop), or each such proposal ranks after
-        // the winner in the plan: `ranked_after` counts those.
+        // The asked rung is not reachable whole at the rate the winner
+        // runs: no proposal of it at that target validates with no crop.
         DeclineReason::NotShownHere { asked, shown } => {
             !matches!(screen.profile.kind, MonitorKind::FlatPanel { .. })
                 && asked == settings.style
                 && factor.is_some()
                 && rung == Some(shown)
                 && own_rung != Some(shown)
+                && !whole_at_winner()
+        }
+        // The asked rung is reachable whole at the rate the winner runs,
+        // and the winner, a smaller step, ranks first.
+        DeclineReason::SmallerFillsMore { asked, shown } => {
+            !matches!(screen.profile.kind, MonitorKind::FlatPanel { .. })
+                && asked == settings.style
+                && factor.is_some()
+                && rung == Some(shown)
+                && own_rung != Some(shown)
+                && whole_at_winner()
         }
         DeclineReason::TooLargeForScreen { asked, shown } => match &screen.profile.kind {
             MonitorKind::FlatPanel { modes } => {
@@ -345,6 +366,7 @@ fn reason_name(reason: DeclineReason) -> &'static str {
         DeclineReason::RateNotCovered { .. } => "rate not covered",
         DeclineReason::RateNotHeld { .. } => "rate not held",
         DeclineReason::NotShownHere { .. } => "not shown here",
+        DeclineReason::SmallerFillsMore { .. } => "smaller fills more",
         DeclineReason::TooLargeForScreen { .. } => "too large for screen",
         DeclineReason::NoExactMode => "no exact mode",
         DeclineReason::OneRateOnTv => "one rate on TV",
@@ -452,6 +474,7 @@ fn is_rate_reason(reason: DeclineReason) -> bool {
         | DeclineReason::RateNotHeld { .. } => true,
         DeclineReason::NoPicture
         | DeclineReason::NotShownHere { .. }
+        | DeclineReason::SmallerFillsMore { .. }
         | DeclineReason::TooLargeForScreen { .. }
         | DeclineReason::NoExactMode
         | DeclineReason::OneRateOnTv
@@ -1524,4 +1547,35 @@ fn auto_with_no_picture_takes_the_fill_picture() {
     )
     .unwrap();
     assert_eq!((none.winner, none.fallback), (None, None));
+}
+
+/// A whole multiple that validates but ranks after a smaller step of a
+/// lower line rate range: the Lynx in 3x at 50 Hz on `d9200` shows a padded
+/// 2x; the reason is `SmallerFillsMore`, not `NotShownHere`. The order of
+/// the plan does not change.
+#[test]
+fn a_whole_multiple_that_ranks_after_a_smaller_step_says_so() {
+    let profile = preset("d9200");
+    let caps = open_caps();
+    let lynx = SourceGeometry {
+        aspect_milli: 1_569,
+        ..source(160, 102, 75_000)
+    };
+    let settings = PolicySettings {
+        style: PictureStyle::X3,
+        refresh: RefreshPolicy::Force50,
+        ..PolicySettings::default()
+    };
+    let answer = offer(&lynx, &settings, AUTO_75, &profile, &caps, |m| {
+        validate(m, &profile, &caps).map(drop)
+    })
+    .unwrap();
+    let declined = answer.expect_err("declined");
+    assert_eq!(
+        declined.reason,
+        DeclineReason::SmallerFillsMore {
+            asked: PictureStyle::X3,
+            shown: Rung::Multiple(2),
+        }
+    );
 }

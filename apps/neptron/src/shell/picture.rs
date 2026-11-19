@@ -106,6 +106,7 @@ pub(super) fn declined_text(policy: PolicySettings, reason: DeclineReason, shown
             format!("Refresh rate {}", pages::refresh_label(asked))
         }
         DeclineReason::NotShownHere { asked, .. }
+        | DeclineReason::SmallerFillsMore { asked, .. }
         | DeclineReason::TooLargeForScreen { asked, .. } => {
             format!("Picture mode {}", pages::mode_label(asked))
         }

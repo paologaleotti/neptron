@@ -20,7 +20,7 @@ use neptron_ui::snapshot::{
     SettingsPage,
 };
 use neptron_video::{
-    DeclineReason, Phase, PictureChoices, PictureStyle, RefreshPolicy, RowAnswer, RowChoice,
+    DeclineReason, Phase, PictureChoices, PictureStyle, RefreshPolicy, RowAnswer, RowChoice, Rung,
     SafeReason,
 };
 
@@ -375,9 +375,22 @@ pub fn decline_text(reason: DeclineReason) -> String {
         DeclineReason::NotShownHere { .. } => {
             "Not possible with this screen and video output".to_owned()
         }
+        DeclineReason::SmallerFillsMore { shown, .. } => {
+            format!("{} fills more of this screen", rung_label(shown))
+        }
         DeclineReason::TooLargeForScreen { .. } => "Too large for this screen".to_owned(),
         DeclineReason::NoExactMode => "No exact mode on this screen".to_owned(),
         DeclineReason::SpeedNotHeld => "This screen cannot hold the game's speed".to_owned(),
+    }
+}
+
+/// The name of a rung in a reason: the mode that shows it.
+fn rung_label(rung: Rung) -> String {
+    match rung {
+        Rung::Native => "Native".to_owned(),
+        Rung::Multiple(k) => format!("{k}x"),
+        Rung::Interlaced => "The interlaced picture".to_owned(),
+        Rung::Fitted | Rung::Panel => "A smaller picture".to_owned(),
     }
 }
 

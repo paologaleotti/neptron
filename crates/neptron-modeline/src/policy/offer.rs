@@ -65,11 +65,22 @@ pub enum DeclineReason {
         asked: RefreshPolicy,
     },
     /// `native` or a multiple on a CRT or a TV: the display (the monitor
-    /// with its video output) cannot show that rung, and the winner is
-    /// another one. The policy does not tell the limit of the monitor from
+    /// with its video output) cannot show that rung whole at the rate of
+    /// the winner, and the winner is another one. The policy does not tell the limit of the monitor from
     /// the limit of the output: that would need a second decision with
     /// other limits.
     NotShownHere {
+        /// The picture mode that was asked.
+        asked: PictureStyle,
+        /// The rung that the display shows in its place.
+        shown: Rung,
+    },
+    /// `native` or a multiple on a CRT or a TV: the asked rung is reachable
+    /// whole at the rate of the winner, but a smaller step ranks first and
+    /// fills more of the screen (a padded 2x of a lower line rate range
+    /// before a padded 3x). The order of the plan is the policy of `auto`'s
+    /// walk and does not change.
+    SmallerFillsMore {
         /// The picture mode that was asked.
         asked: PictureStyle,
         /// The rung that the display shows in its place.
@@ -482,6 +493,7 @@ fn judge<E>(
         },
         Judge::RefreshOption => refresh().or_else(mode),
     };
+    let reason = reason.map(|reason| ranked_after(reason, &plan, considered, &mut validate));
     let multiple = proposal.placement.vertical_multiple(source.rotation);
     let outcome = scanline_outcome(scanlines, multiple, &profile.kind, &proposal.mode);
     if let Some(reason) = reason {
@@ -498,6 +510,34 @@ fn judge<E>(
         scanlines: outcome,
         plan,
     }))
+}
+
+/// `reason`, or [`DeclineReason::SmallerFillsMore`] where it is
+/// `NotShownHere` and the asked rung is reachable whole at the target of
+/// the winner: a proposal of it there, with no crop, passes `validate`, but
+/// ranks after the winner, a smaller step that fills more of the screen.
+/// The order of the plan does not change; only the reason is true.
+fn ranked_after<E>(
+    reason: DeclineReason,
+    plan: &Plan,
+    won: &Considered,
+    mut validate: impl FnMut(&Modeline) -> Result<(), E>,
+) -> DeclineReason {
+    let DeclineReason::NotShownHere { asked, shown } = reason else {
+        return reason;
+    };
+    let own = super::walk_ladder(asked).first().copied();
+    let reachable = plan.proposals().any(|(_, c, p)| {
+        Some(c.rung) == own
+            && c.target.kind == won.target.kind
+            && p.overscan_crop.is_none()
+            && validate(&p.mode).is_ok()
+    });
+    if reachable {
+        DeclineReason::SmallerFillsMore { asked, shown }
+    } else {
+        reason
+    }
 }
 
 /// Why the display does not give the refresh choice `asked`, whose plan
