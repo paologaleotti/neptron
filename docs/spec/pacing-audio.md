@@ -268,6 +268,33 @@ The session tests give each frame a cost on the simulated clock: the scripted in
 | A failed wait for the flip of the frame before | The frame ends its audio; one flipless frame; the game goes on |
 | Quick menu, modeset, a change of monitor and its revert, the output off and on, interlaced, double refresh, a lost flip, the end of the session | The rules of the safety table; at 2.5 intervals the mute ends while the output is off |
 
+### Measured results
+
+From the session tests on the simulated clock and the fake display (no GPU time unless the row says so): 600 frames with each cost after 30 frames with none, a 60.002 Hz mode. Hardware can differ: see `docs/hardware-checklist.md`.
+
+| Case | Presented rate | Missed fields | Input poll to flip | Underruns | `f_run` at the end |
+| --- | --- | --- | --- | --- | --- |
+| `x` 0.5, 0.9, 0.95, 0.99 | 100% | 0 | 1 interval | 0 | 60 002 mHz |
+| `x` 1.02 | 98.13% | 12 | 1.50 to 2.00 intervals | 0 | 58 825 mHz |
+| `x` 1.04 | 96.17% | 24 | 2.00 intervals | 0 | 57 694 mHz |
+| `x` 1.3 | 76.96% | 180 | 1.50 to 2.00 intervals | 1, at the entry | 46 155 mHz |
+| `x` 2.0 | 50.00% | 599 | 2.00 intervals | 3, at the entry | 30 001 mHz |
+| `x` 2.5 | 40.00% | 899 | 2.50 to 3.00 intervals | 1 counted, at the entry; then muted | not changed (muted) |
+| `x` 1.0, jitter of 5% | 99.83% | | | 0 | |
+| `x` 0.5 and 1.5 in turn | 100.00% | | | 0 | |
+| 0.97 and 1.05 in turn, 3600 frames | | | | 0 | 59 398 mHz, the real rate 59 398 |
+| 1.0 with 3.5 every 4 frames, 3600 frames | | | | 3, in the first 3 s | 36 924 mHz, the real rate 36 924 |
+| 0.5 with 3 every 10 frames, 3600 frames | | | | 2, in the first 3 s | 51 800 mHz, the real rate 51 800 |
+| 0.5 with 4 every 10 frames, 3600 frames | | | | 3 in the first 3 s, then 12 of about 1 ms | 48 323 mHz, the real rate 48 162 |
+| The scenes of Killer Instinct, 58 s | | | | 1 at each entry into a heavy scene, 2 in all | the queue at most 2902 frames (60 ms) in the per-second samples, the level back in its band within 3 s of each change; no overrun |
+| `x` 0.95, GPU 0.1 interval, 1200 frames | 100% after the entry | 3 | | 1 | |
+| The same, vertical blank count 0 | 100% | | | | |
+| A long frame of 3 intervals every 180 frames | | | | | 7 changes of pacing, then none |
+| One frame of 2.5 fields of a fast core | | | | 1 | the mode's rate; queue at 1753 of 3072 frames after 240 frames |
+| One frame of 300 ms of a fast core | | | | 1 | the mode's rate; queue at 1539 of 3072 frames |
+
+Double refresh with a core at 1.3 fields keeps one core frame per two fields with a flip on every field: the game rate. An interlaced mode with one flip per frame and a core at 1.3 frames presents 76.9% of the frames; the fake display cannot show the field order (see the safety table).
+
 ## Resampler
 
 `rubato` 5.0.1, `Async` resampler, fixed input, stereo, `f32` samples.
