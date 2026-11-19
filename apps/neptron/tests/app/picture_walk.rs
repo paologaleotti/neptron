@@ -165,6 +165,11 @@ fn game_file(rig: &Rig) -> String {
     std::fs::read_to_string(rig.paths.config().join("games/nes/Test Game.toml")).unwrap_or_default()
 }
 
+/// The global settings file, as it is on disk now.
+fn global_file(rig: &Rig) -> String {
+    std::fs::read_to_string(rig.paths.config().join("global.toml")).unwrap_or_default()
+}
+
 /// The line of `key` with `value` in a settings file.
 fn line(key: &str, value: &str) -> String {
     format!("{} = \"{value}\"", key.trim_start_matches("display."))
@@ -330,6 +335,124 @@ fn walk(mut rig: Rig, key_of_row: &[(&str, &str)]) -> Walked {
     walked
 }
 
+/// The options of the picture rows on Settings > Display, judged for every
+/// game: plain, not for every game (selectable, with the reason in the help
+/// line), and greyed.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Judged {
+    plain: Vec<String>,
+    not_for_every_game: Vec<String>,
+    greyed: Vec<String>,
+    disabled_rows: Vec<String>,
+}
+
+/// Opens Settings > Display from the game list.
+fn to_settings_display(rig: &mut Rig) {
+    for _ in 0..8 {
+        if rig.screen() == "display" {
+            return;
+        }
+        match rig.screen().as_str() {
+            "options" | "notice" | "confirm" => rig.tap(&[Control::B]),
+            _ => break,
+        }
+    }
+    rig.focus("Settings");
+    rig.tap(&[Control::A]);
+    rig.focus("Display");
+    rig.tap(&[Control::A]);
+    assert_eq!(rig.screen(), "display");
+}
+
+/// The Settings > Display rows of the picture on the display of `rig`, in
+/// the game list: each option judged for the reference games. A greyed
+/// option changes nothing; the first option that is not for every game and
+/// the first plain option other than Auto set the global level, in memory
+/// and on disk, after the Keep of the prompt.
+fn settings_walk(mut rig: Rig) -> Judged {
+    rig.boot(None);
+    rig.until(600, "the scan", |r| {
+        !r.shell().snapshot().systems.is_empty()
+    });
+    let mut judged = Judged::default();
+    for (label, key) in ROWS {
+        to_settings_display(&mut rig);
+        let enabled = rig
+            .shell()
+            .snapshot()
+            .settings
+            .rows
+            .iter()
+            .find(|r| r.label == label)
+            .is_some_and(|r| r.is_enabled());
+        if !enabled {
+            judged.disabled_rows.push(label.to_owned());
+            continue;
+        }
+        let shown = options(&mut rig, label);
+        for o in &shown {
+            let name = format!("{label}: {}", o.label);
+            if !o.enabled {
+                judged.greyed.push(name);
+            } else if o.help.starts_with(pages::NOT_FOR_EVERY_GAME) {
+                judged.not_for_every_game.push(name);
+            } else {
+                judged.plain.push(name);
+            }
+        }
+        let greyed = shown.iter().find(|o| !o.enabled);
+        let partial = shown
+            .iter()
+            .find(|o| o.enabled && o.help.starts_with(pages::NOT_FOR_EVERY_GAME));
+        let plain = shown.iter().skip(1).find(|o| {
+            o.enabled
+                && !o.help.starts_with(pages::NOT_FOR_EVERY_GAME)
+                && !o.help.starts_with("Also sets")
+        });
+        if let Some(o) = greyed {
+            let file_before = global_file(&rig);
+            let before = rig.shell().config().text(key);
+            rig.focus(label);
+            rig.tap(&[Control::A]);
+            rig.focus(&o.label);
+            rig.tap(&[Control::A]);
+            rig.frames(30);
+            assert_eq!(rig.screen(), "options", "{label} {}: greyed", o.label);
+            assert_eq!(rig.shell().config().text(key), before);
+            assert_eq!(global_file(&rig), file_before);
+            rig.tap(&[Control::B]);
+        }
+        for o in [partial, plain].into_iter().flatten() {
+            to_settings_display(&mut rig);
+            rig.focus(label);
+            rig.tap(&[Control::A]);
+            rig.focus(&o.label);
+            rig.tap(&[Control::A]);
+            rig.frames(10);
+            if rig.screen() == "confirm" {
+                rig.focus("Keep");
+                rig.tap(&[Control::A]);
+                rig.frames(10);
+            }
+            let value = value_of(key, &o.label);
+            assert_eq!(
+                rig.shell()
+                    .config()
+                    .get(neptron_settings::Level::Global, key),
+                Some(&neptron_settings::Value::Text(value.to_owned())),
+                "{label} {}",
+                o.label
+            );
+            let wanted = line(key, value);
+            rig.until(600, "the write of the global settings", |r| {
+                global_file(r).contains(&wanted)
+            });
+        }
+    }
+    rig.finish();
+    judged
+}
+
 const ROWS: [(&str, &str); 2] = [
     ("Picture mode", "display.style"),
     ("Refresh rate", "display.refresh_policy"),
@@ -399,6 +522,134 @@ fn every_option_on_a_pi_composite_tv_is_safe_or_greyed() {
         println!("{walked:?}");
         assert_eq!(walked, expected_tv());
     });
+}
+
+/// Settings > Display on each rig: the rows of the picture judged for every
+/// game.
+macro_rules! settings_walks {
+    ($($test:ident: $rig:expr, $expected:expr;)*) => {
+        $(
+            #[test]
+            #[ignore = "tier 2"]
+            fn $test() {
+                let name = test_name(module_path!(), stringify!($test));
+                in_child(&name, |dir| {
+                    let judged = settings_walk($rig(dir));
+                    println!("{judged:?}");
+                    assert_eq!(judged, $expected);
+                });
+            }
+        )*
+    };
+}
+
+fn pi_dpi_rig(dir: &std::path::Path) -> Rig {
+    let mut rig = Rig::new(dir);
+    rig.display =
+        FakeDisplay::with_options(rig.clock.clone(), pi_dpi_caps(), DisplayOptions::default());
+    rig
+}
+
+fn panel_rig(dir: &std::path::Path) -> Rig {
+    let mut rig = Rig::new(dir);
+    sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
+    rig.output = "HDMI-A-1".to_owned();
+    rig
+}
+
+settings_walks! {
+    settings_display_on_a_15_khz_crt_judges_every_game: Rig::new, expected_settings_15_khz();
+    settings_display_on_a_pi_dpi_crt_judges_every_game: pi_dpi_rig, expected_settings_pi_dpi();
+    settings_display_on_a_flat_panel_judges_every_game: panel_rig, expected_settings_panel();
+    settings_display_on_a_pi_composite_tv_judges_every_game: crate::tv::composite_rig, expected_settings_tv();
+}
+
+/// A 15 kHz monitor shows no multiple and no double rate for any reference
+/// game, and every other option for each of them.
+fn expected_settings_15_khz() -> Judged {
+    Judged {
+        plain: names(&[
+            "Picture mode: Auto",
+            "Picture mode: Sharp lines",
+            "Picture mode: Game speed",
+            "Picture mode: Fill",
+            "Picture mode: Native",
+            "Refresh rate: Auto",
+            "Refresh rate: 50 Hz",
+            "Refresh rate: 60 Hz",
+        ]),
+        not_for_every_game: Vec::new(),
+        greyed: names(&[
+            "Picture mode: 2x",
+            "Picture mode: 3x",
+            "Picture mode: 4x",
+            "Refresh rate: Double rate",
+        ]),
+        disabled_rows: Vec::new(),
+    }
+}
+
+/// The DPI output of a Pi sends no interlace: the interlaced reference game
+/// has no exact or native picture there, and no forced rate.
+fn expected_settings_pi_dpi() -> Judged {
+    Judged {
+        plain: names(&[
+            "Picture mode: Auto",
+            "Picture mode: Game speed",
+            "Picture mode: Fill",
+            "Refresh rate: Auto",
+        ]),
+        not_for_every_game: names(&[
+            "Picture mode: Sharp lines",
+            "Picture mode: Native",
+            "Refresh rate: 50 Hz",
+            "Refresh rate: 60 Hz",
+        ]),
+        greyed: names(&[
+            "Picture mode: 2x",
+            "Picture mode: 3x",
+            "Picture mode: 4x",
+            "Refresh rate: Double rate",
+        ]),
+        disabled_rows: Vec::new(),
+    }
+}
+
+/// A 1080p panel shows 3x and 4x only for the small games.
+fn expected_settings_panel() -> Judged {
+    Judged {
+        plain: names(&[
+            "Picture mode: Auto",
+            "Picture mode: Sharp lines",
+            "Picture mode: Game speed",
+            "Picture mode: Fill",
+            "Picture mode: Native",
+            "Picture mode: 2x",
+        ]),
+        not_for_every_game: names(&["Picture mode: 3x", "Picture mode: 4x"]),
+        greyed: Vec::new(),
+        disabled_rows: names(&["Refresh rate"]),
+    }
+}
+
+/// A TV has one rate and one line count for every game.
+fn expected_settings_tv() -> Judged {
+    Judged {
+        plain: names(&[
+            "Picture mode: Auto",
+            "Picture mode: Sharp lines",
+            "Picture mode: Fill",
+            "Picture mode: Native",
+        ]),
+        not_for_every_game: Vec::new(),
+        greyed: names(&[
+            "Picture mode: Game speed",
+            "Picture mode: 2x",
+            "Picture mode: 3x",
+            "Picture mode: 4x",
+        ]),
+        disabled_rows: names(&["Refresh rate"]),
+    }
 }
 
 /// The control protocol sets one key: a picture mode that the display gives

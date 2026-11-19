@@ -322,6 +322,51 @@ fn a_new_turn_goes_through_the_debounce() {
     assert_eq!(shown.rotation, Rotation::R90);
 }
 
+/// The answers for every game judge each option for each source with the
+/// same decision: on a 15 kHz tube 2x is greyed for every reference game,
+/// Auto is plain, and a source with no plan is left out.
+#[test]
+fn the_picture_choices_for_every_game_judge_each_source() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(SNES);
+    let settings = native_width();
+    let scanlines = neptron_video::ScanlineSettings {
+        mode: neptron_types::ScanlineMode::Auto,
+        strength_percent: 75,
+    };
+    let choices = rig
+        .engine
+        .picture_choices_for_every_game(&neptron_video::REFERENCE_SOURCES, &settings, scanlines)
+        .unwrap();
+    let answer = |style| {
+        &choices
+            .modes
+            .iter()
+            .find(|(s, _)| *s == style)
+            .unwrap()
+            .1
+            .answer
+    };
+    assert!(matches!(
+        answer(PictureStyle::Auto),
+        neptron_video::RowAnswer::Plain(_)
+    ));
+    assert!(matches!(
+        answer(PictureStyle::X2),
+        neptron_video::RowAnswer::Declined(_)
+    ));
+    let empty = neptron_types::SourceGeometry {
+        width: 0,
+        height: 0,
+        ..SNES
+    };
+    assert!(
+        rig.engine
+            .picture_choices_for_every_game(&[empty], &settings, scanlines)
+            .is_none()
+    );
+}
+
 #[test]
 fn the_picture_choices_come_from_the_same_decision() {
     let mut rig = Rig::generic_15(native_width());

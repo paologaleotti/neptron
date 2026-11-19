@@ -254,6 +254,27 @@ impl<D: Display> VideoEngine<D> {
         self.odren.picture_choices_with(source, settings, scanlines)
     }
 
+    /// [`Self::picture_choices_with`] for each of `sources`, as one answer
+    /// by `neptron_modeline::policy::for_every_game`: the menu of a level
+    /// that every game reads. A source with no plan is left out. `None`
+    /// when no source has a plan.
+    pub fn picture_choices_for_every_game(
+        &self,
+        sources: &[SourceGeometry],
+        settings: &PolicySettings,
+        scanlines: ScanlineSettings,
+    ) -> Option<PictureChoices> {
+        let per_source: Vec<PictureChoices> = sources
+            .iter()
+            .filter_map(|source| {
+                self.odren
+                    .picture_choices_with(source, settings, scanlines)
+                    .ok()
+            })
+            .collect();
+        neptron_modeline::policy::for_every_game(&per_source)
+    }
+
     /// The answer of `neptron_modeline::policy::offer` for the settings of
     /// the run: whether the display gives the stored picture mode and
     /// refresh choice.

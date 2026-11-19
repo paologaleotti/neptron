@@ -4,7 +4,7 @@
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::PadRoster;
 use neptron_settings::{DisplayClass, Level};
-use neptron_types::{Modeline, MonitorKind, TvStandard};
+use neptron_types::{Modeline, MonitorKind, SourceGeometry, TvStandard};
 use neptron_ui::screens::{
     AUDIO_PAGE, DISPLAY_PAGE, INPUT_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, SYSTEM_PAGE,
     VIDEO_PAGE,
@@ -13,11 +13,11 @@ use neptron_ui::snapshot::{
     ConfirmId, GameId, Notice, NoticeId, NoticeKind, PageId, PendingConfirm, SessionInfo,
     SettingsPage, VideoStatus,
 };
-use neptron_video::{Monitor, Phase, PictureChoices, VideoStatusText};
+use neptron_video::{Monitor, Phase, PictureChoices, REFERENCE_SOURCES, VideoStatusText};
 
 use super::boot::profile_id;
-use super::{MENU_SOURCE, Shell, Stage};
-use crate::pages::{self, Names};
+use super::{Shell, Stage};
+use crate::pages::{self, Names, Scope};
 
 /// What the confirm dialog says.
 const CONFIRM_TEXT: &str = "Keep the new picture?\nNo answer brings the old one back.";
@@ -141,6 +141,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             presets: &self.presets,
             detected: &self.detected,
             choices: choices.as_ref(),
+            scope: Scope::of_level(level),
             class: self.display_class(),
             outputs: &self.runtime.audio_outputs,
         };
@@ -204,26 +205,28 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     }
 
     /// The answers of the policy for the options of the picture mode and
-    /// refresh rows of a page that writes `level`, for the source on screen
-    /// (the game in a game, the menu source in the list), from the same
-    /// policy, caps and validator as the run. The global level is judged
-    /// with its own values and scanlines, every other level with the values
-    /// of the run. `None` with no engine.
+    /// refresh rows of a page that writes `level`, from the same policy,
+    /// caps and validator as the run. The game level, and the system level
+    /// in a game, are judged for the running game with the values of the
+    /// run. The global level, and every level in the game list, are judged
+    /// for every game with the global values: the running game, if any,
+    /// then the reference sources (`REFERENCE_SOURCES`). `None` with no
+    /// engine.
     pub(super) fn picture_choices(&self, level: Level) -> Option<PictureChoices> {
-        let (engine, source) = match &self.stage {
-            Stage::List(list) => (&list.engine, MENU_SOURCE),
-            Stage::Game(game) => (game.session.video(), game.session.source()),
+        let (engine, game) = match &self.stage {
+            Stage::List(list) => (&list.engine, None),
+            Stage::Game(game) => (game.session.video(), Some(game.session.source())),
             Stage::Ended => return None,
         };
-        match level {
-            Level::Global => {
+        match (level, game) {
+            (Level::System | Level::Game, Some(source)) => engine.picture_choices(&source).ok(),
+            (Level::Global, _) | (Level::System | Level::Game, None) => {
                 let settings = self.config.global_policy().ok()?;
                 let scanlines = self.config.global_scanlines().ok()?;
-                engine
-                    .picture_choices_with(&source, &settings, scanlines)
-                    .ok()
+                let sources: Vec<SourceGeometry> =
+                    game.into_iter().chain(REFERENCE_SOURCES).collect();
+                engine.picture_choices_for_every_game(&sources, &settings, scanlines)
             }
-            Level::System | Level::Game => engine.picture_choices(&source).ok(),
         }
     }
 

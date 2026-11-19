@@ -57,6 +57,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     presets: &self.presets,
                     detected: &self.detected,
                     choices: None,
+                    scope: pages::Scope::of_level(Level::Game),
                     class: self.display_class(),
                     outputs: &self.runtime.audio_outputs,
                 };

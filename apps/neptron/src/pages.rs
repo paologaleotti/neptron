@@ -236,6 +236,8 @@ pub struct Names<'a> {
     /// engine, with the values of the level the page writes. `None` when
     /// the run has no engine: the options are then greyed.
     pub choices: Option<&'a PictureChoices>,
+    /// Whom the page writes for: every game, or the game of the run.
+    pub scope: Scope,
     /// The class of the display that the run drives. A row whose setting
     /// does not apply to it is disabled.
     pub class: DisplayClass,
@@ -304,15 +306,25 @@ pub fn refresh_label(refresh: RefreshPolicy) -> &'static str {
     }
 }
 
-/// The help line of a refresh choice.
-pub fn refresh_help(refresh: RefreshPolicy) -> &'static str {
-    match refresh {
-        RefreshPolicy::Exact => "The game's own rate, or the nearest rate the monitor takes.",
-        RefreshPolicy::ExactX2 => {
+/// The help line of a refresh choice on a page that writes for `scope`.
+pub fn refresh_help(refresh: RefreshPolicy, scope: Scope) -> &'static str {
+    match (refresh, scope) {
+        (RefreshPolicy::Exact, _) => "The game's own rate, or the nearest rate the monitor takes.",
+        (RefreshPolicy::ExactX2, _) => {
             "Each frame shows twice, at twice the game's rate. The game speed does not change."
         }
-        RefreshPolicy::Force50 => "Every game at 50 Hz. A game made for 60 Hz runs slower.",
-        RefreshPolicy::Force60 => "Every game at 60 Hz. A game made for 50 Hz runs faster.",
+        (RefreshPolicy::Force50, Scope::EveryGame) => {
+            "Every game at 50 Hz. A game made for 60 Hz runs slower."
+        }
+        (RefreshPolicy::Force50, Scope::ThisGame) => {
+            "This game at 50 Hz. If it is made for 60 Hz, it runs slower."
+        }
+        (RefreshPolicy::Force60, Scope::EveryGame) => {
+            "Every game at 60 Hz. A game made for 50 Hz runs faster."
+        }
+        (RefreshPolicy::Force60, Scope::ThisGame) => {
+            "This game at 60 Hz. If it is made for 50 Hz, it runs faster."
+        }
     }
 }
 
@@ -372,6 +384,28 @@ pub fn decline_text(reason: DeclineReason) -> String {
 /// The reason of an option of the picture mode or refresh rows when the
 /// run has no engine to ask.
 pub const NO_DECISION: &str = "No picture decision now";
+
+/// Whom a page writes for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Every game: Settings > Display, which writes the global level. Its
+    /// options are judged for the reference sources
+    /// (`neptron_modeline::policy::REFERENCE_SOURCES`).
+    EveryGame,
+    /// The game of the run: the Video page of the quick menu, which writes
+    /// the game level. Its options are judged for that game.
+    ThisGame,
+}
+
+impl Scope {
+    /// The scope of a page that writes `level`.
+    pub fn of_level(level: Level) -> Self {
+        match level {
+            Level::Global => Self::EveryGame,
+            Level::System | Level::Game => Self::ThisGame,
+        }
+    }
+}
 
 /// What a set of the picture mode or the refresh choice does, by the rule
 /// that builds its option in the menu (`picture_choices`).
@@ -439,6 +473,17 @@ pub fn gate(key: &str, value: &str, choices: Option<&PictureChoices>) -> Gate {
 /// The help line of an option that also sets the row of `other` to Auto.
 pub fn reset_help(other: &str) -> String {
     format!("Also sets {} to Auto.", row_label(other))
+}
+
+/// The words of an option that some game does not take.
+pub const NOT_FOR_EVERY_GAME: &str = "Not for every game";
+
+/// The help line of an option that some game does not take, for `reason`.
+pub fn not_for_every_game_help(reason: DeclineReason) -> String {
+    format!(
+        "{NOT_FOR_EVERY_GAME}: {}.",
+        lower_first(&decline_text(reason))
+    )
 }
 
 /// `text` with its first letter in lower case, for a reason after a colon.
@@ -1016,8 +1061,8 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
         DISPLAY_REFRESH_POLICY => {
             match RefreshPolicy::ALL.into_iter().find(|r| r.key() == choice) {
                 Some(refresh) => {
-                    let option =
-                        ChoiceOption::new(refresh_label(refresh)).with_help(refresh_help(refresh));
+                    let option = ChoiceOption::new(refresh_label(refresh))
+                        .with_help(refresh_help(refresh, names.scope));
                     let answer = names.choices.and_then(|c| {
                         c.refresh
                             .iter()
@@ -1042,8 +1087,9 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
 
 /// An option of the picture mode or refresh rows from the answer of the
 /// policy: the line rate and field rate of the mode that a pick shows; a
-/// help line that says when a pick also sets the row of `other` to Auto;
-/// greyed with the reason when the policy declines it. With no answer the option is greyed: only an offered
+/// help line that says when a pick also sets the row of `other` to Auto,
+/// or when some game does not take it; greyed with the reason when the
+/// policy declines it. With no answer the option is greyed: only an offered
 /// option can be chosen.
 fn offered_option(option: ChoiceOption, choice: Option<&RowChoice>, other: &str) -> ChoiceOption {
     let Some(choice) = choice else {
@@ -1061,10 +1107,15 @@ fn offered_option(option: ChoiceOption, choice: Option<&RowChoice>, other: &str)
         Some(m) => option.with_detail(rates(m.line_rate_mhz(), m.field_rate_mhz())),
         None => option,
     };
-    match &choice.answer {
-        RowAnswer::Declined(declined) => option.unavailable(decline_text(declined.reason)),
-        RowAnswer::Plain(_) => option,
-        RowAnswer::ResetsOther { .. } => option.with_help(reset_help(other)),
+    let partial = choice.not_for_every_game.map(not_for_every_game_help);
+    match (&choice.answer, partial) {
+        (RowAnswer::Declined(declined), _) => option.unavailable(decline_text(declined.reason)),
+        (RowAnswer::Plain(_), None) => option,
+        (RowAnswer::Plain(_), Some(partial)) => option.with_help(partial),
+        (RowAnswer::ResetsOther { .. }, None) => option.with_help(reset_help(other)),
+        (RowAnswer::ResetsOther { .. }, Some(_)) => {
+            option.with_help(format!("{} {NOT_FOR_EVERY_GAME}.", reset_help(other)))
+        }
     }
 }
 
@@ -1305,6 +1356,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             outputs: &outputs,
             class: DisplayClass::Crt,
         };
@@ -1373,6 +1425,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             outputs: &[],
             class: DisplayClass::Crt,
         };
@@ -1394,6 +1447,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1421,6 +1475,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1532,17 +1587,93 @@ mod tests {
                             &open_caps(),
                         )
                         .expect("a plan");
-                        let names = Names {
-                            presets: &presets,
-                            detected: &detected,
-                            choices: Some(&choices),
-                            class,
-                            outputs: &[],
-                        };
-                        let case = format!("{} {source:?} {style} {refresh}", profile.id);
-                        for page in [display_page(&config, names), video_page(&config, names)] {
-                            agree(&config, names, &page, &choices, &case);
+                        for scope in [Scope::ThisGame, Scope::EveryGame] {
+                            let names = Names {
+                                presets: &presets,
+                                detected: &detected,
+                                choices: Some(&choices),
+                                scope,
+                                class,
+                                outputs: &[],
+                            };
+                            let case =
+                                format!("{} {source:?} {style} {refresh} {scope:?}", profile.id);
+                            for page in [display_page(&config, names), video_page(&config, names)] {
+                                agree(&config, names, &page, &choices, &case);
+                            }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /// For every game: an option that some reference source declines is
+    /// selectable with "Not for every game: {reason}." in its help line,
+    /// and an option that every reference source declines is greyed.
+    #[test]
+    fn settings_display_judges_its_options_for_every_reference_game() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let scanlines = neptron_video::ScanlineSettings {
+            mode: ScanlineMode::Auto,
+            strength_percent: 75,
+        };
+        for (class, profile) in agreement_displays() {
+            for (style, refresh) in [
+                (PictureStyle::Auto, RefreshPolicy::Exact),
+                (PictureStyle::X2, RefreshPolicy::Force50),
+                (PictureStyle::Speed, RefreshPolicy::ExactX2),
+            ] {
+                let settings = neptron_video::PolicySettings {
+                    style,
+                    refresh,
+                    ..neptron_video::PolicySettings::default()
+                };
+                let per_source: Vec<PictureChoices> = neptron_video::REFERENCE_SOURCES
+                    .iter()
+                    .map(|source| {
+                        neptron_video::picture_choices_on(
+                            source,
+                            &settings,
+                            scanlines,
+                            &profile,
+                            &open_caps(),
+                        )
+                        .expect("a plan")
+                    })
+                    .collect();
+                let choices = neptron_video::for_every_game(&per_source).expect("sources");
+                let names = Names {
+                    presets: &presets,
+                    detected: &detected,
+                    choices: Some(&choices),
+                    scope: Scope::EveryGame,
+                    class,
+                    outputs: &[],
+                };
+                let case = format!("{} {style} {refresh}", profile.id);
+                agree(
+                    &config,
+                    names,
+                    &display_page(&config, names),
+                    &choices,
+                    &case,
+                );
+                for (i, (_, choice)) in choices.modes.iter().enumerate() {
+                    let declined_by = per_source
+                        .iter()
+                        .filter(|c| matches!(c.modes[i].1.answer, RowAnswer::Declined(_)))
+                        .count();
+                    let all = declined_by == per_source.len();
+                    assert_eq!(
+                        matches!(choice.answer, RowAnswer::Declined(_)),
+                        all,
+                        "{case}: mode {i}"
+                    );
+                    if declined_by > 0 && !all {
+                        assert!(choice.not_for_every_game.is_some(), "{case}: mode {i}");
                     }
                 }
             }
@@ -1557,16 +1688,25 @@ mod tests {
         choices: &PictureChoices,
         case: &str,
     ) {
-        let expected = |choice: &RowChoice, other: &'static str, help: &str| match &choice.answer {
-            RowAnswer::Plain(_) => (true, help.to_owned(), Gate::Set),
-            RowAnswer::ResetsOther { .. } => {
-                (true, reset_help(other), Gate::SetWithReset { other })
+        let expected = |choice: &RowChoice, other: &'static str, help: &str| {
+            let partial = choice.not_for_every_game.map(not_for_every_game_help);
+            match (&choice.answer, partial) {
+                (RowAnswer::Plain(_), None) => (true, help.to_owned(), Gate::Set),
+                (RowAnswer::Plain(_), Some(partial)) => (true, partial, Gate::Set),
+                (RowAnswer::ResetsOther { .. }, partial) => (
+                    true,
+                    match partial {
+                        None => reset_help(other),
+                        Some(_) => format!("{} {NOT_FOR_EVERY_GAME}.", reset_help(other)),
+                    },
+                    Gate::SetWithReset { other },
+                ),
+                (RowAnswer::Declined(d), _) => (
+                    false,
+                    help.to_owned(),
+                    Gate::Refused(decline_text(d.reason)),
+                ),
             }
-            RowAnswer::Declined(d) => (
-                false,
-                help.to_owned(),
-                Gate::Refused(decline_text(d.reason)),
-            ),
         };
         let expected_modes: Vec<_> = PICTURE_MODE_MENU_ORDER
             .iter()
@@ -1580,7 +1720,7 @@ mod tests {
             .refresh
             .iter()
             .map(|(r, c)| {
-                let (ok, help, gate) = expected(c, DISPLAY_STYLE, refresh_help(*r));
+                let (ok, help, gate) = expected(c, DISPLAY_STYLE, refresh_help(*r, names.scope));
                 (r.key().to_owned(), ok, help, gate)
             })
             .collect();
@@ -1630,6 +1770,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1663,6 +1804,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::FlatPanel,
             outputs: &[],
         };
@@ -1699,7 +1841,9 @@ mod tests {
             assert!(mode_help(style).len() <= 88, "{style}");
         }
         for refresh in RefreshPolicy::ALL {
-            assert!(refresh_help(refresh).len() <= 88, "{refresh}");
+            for scope in [Scope::EveryGame, Scope::ThisGame] {
+                assert!(refresh_help(refresh, scope).len() <= 88, "{refresh}");
+            }
         }
         for mode in ScanlineMode::ALL {
             for class in [DisplayClass::Crt, DisplayClass::Tv, DisplayClass::FlatPanel] {
@@ -1738,6 +1882,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1767,6 +1912,7 @@ mod tests {
                 presets: &presets,
                 detected: &detected,
                 choices: None,
+                scope: Scope::ThisGame,
                 class,
                 outputs: &[],
             };
@@ -1787,6 +1933,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::FlatPanel,
             outputs: &[],
         };
@@ -1813,6 +1960,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1841,6 +1989,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1881,6 +2030,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::Tv,
             outputs: &[],
         };
@@ -1991,6 +2141,7 @@ mod tests {
             presets,
             detected,
             choices: None,
+            scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
         }

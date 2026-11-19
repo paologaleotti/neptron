@@ -1,6 +1,6 @@
 use neptron_types::{
-    GpuCaps, Modeline, MonitorKind, MonitorProfile, ScanlineKind, ScanlineMode, ScreenClass,
-    SourceGeometry, scanlines_for,
+    GpuCaps, Modeline, MonitorKind, MonitorProfile, Rotation, ScanlineKind, ScanlineMode,
+    ScreenClass, SourceGeometry, scanlines_for,
 };
 
 use super::choose::mode_refusal;
@@ -178,7 +178,7 @@ impl RowAnswer {
 }
 
 /// An option of a row, with what is not given for every game when the
-/// answer covers more than one source.
+/// answer covers more than one source ([`for_every_game`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowChoice {
     /// The answer.
@@ -197,6 +197,29 @@ pub struct PictureChoices {
     /// Each refresh choice, in the order of [`RefreshPolicy::ALL`].
     pub refresh: Vec<(RefreshPolicy, RowChoice)>,
 }
+
+/// The sources that Settings > Display judges its options for: that page
+/// writes the global level, which every game reads, and the policy has no
+/// list of every game. Each entry is a real system shape that the others
+/// do not cover:
+///
+/// - Game Boy, 160x144 at 59.728 Hz, aspect 10:9: a small frame, which
+///   needs the largest multiples.
+/// - SNES, 256x224 at 60.099 Hz: the common 60 Hz console frame.
+/// - PlayStation, 320x240 at 59.826 Hz: a full 240-line frame at 60 Hz.
+/// - NES PAL, 256x240 at 50.007 Hz: a 50 Hz console.
+/// - Amiga PAL, 320x256 at 49.920 Hz: a tall 50 Hz frame, more lines than
+///   a 60 Hz mode holds at 15 kHz.
+/// - PlayStation 480i, 640x480 interlaced at 59.940 Hz: an interlaced
+///   source.
+pub const REFERENCE_SOURCES: [SourceGeometry; 6] = [
+    reference(160, 144, 59_728, 1_111, false),
+    reference(256, 224, 60_099, 1_333, false),
+    reference(320, 240, 59_826, 1_333, false),
+    reference(256, 240, 50_007, 1_333, false),
+    reference(320, 256, 49_920, 1_333, false),
+    reference(640, 480, 59_940, 1_333, true),
+];
 
 /// Scanlines show on a flat panel: the mode `on` with a strength above 0.
 /// `auto` draws none on a panel. The policy then keeps a whole vertical
@@ -320,6 +343,86 @@ pub fn picture_choices<E>(
     Ok(PictureChoices { modes, refresh })
 }
 
+/// The answers of [`picture_choices`] for several sources, as one answer
+/// for a page that writes for every game: an option declined for every
+/// source is greyed with the reason of the first; else it is selectable,
+/// plain where some source gives the pair with the stored value of the
+/// other row, else with the reset of the other row, and with the reason of
+/// the first source that the stored pair does not give
+/// ([`RowChoice::not_for_every_game`]). The detail of the option is the
+/// answer of the first source that gives it. `None` for no source.
+pub fn for_every_game(per_source: &[PictureChoices]) -> Option<PictureChoices> {
+    let first = per_source.first()?;
+    let modes = (0..first.modes.len())
+        .map(|i| {
+            let answers: Vec<&RowAnswer> = per_source
+                .iter()
+                .filter_map(|c| c.modes.get(i))
+                .map(|(_, r)| &r.answer)
+                .collect();
+            (
+                first.modes[i].0,
+                combine(&first.modes[i].1.answer, &answers),
+            )
+        })
+        .collect();
+    let refresh = (0..first.refresh.len())
+        .map(|i| {
+            let answers: Vec<&RowAnswer> = per_source
+                .iter()
+                .filter_map(|c| c.refresh.get(i))
+                .map(|(_, r)| &r.answer)
+                .collect();
+            (
+                first.refresh[i].0,
+                combine(&first.refresh[i].1.answer, &answers),
+            )
+        })
+        .collect();
+    Some(PictureChoices { modes, refresh })
+}
+
+/// One answer for the answers of an option on several sources, of which
+/// `first` is the first.
+fn combine(first: &RowAnswer, answers: &[&RowAnswer]) -> RowChoice {
+    let plain = answers.iter().find_map(|a| match a {
+        RowAnswer::Plain(offered) => Some(offered),
+        RowAnswer::ResetsOther { .. } | RowAnswer::Declined(_) => None,
+    });
+    let reset = answers.iter().find_map(|a| match a {
+        RowAnswer::ResetsOther {
+            offered,
+            stored_pair,
+        } => Some((offered, *stored_pair)),
+        RowAnswer::Plain(_) | RowAnswer::Declined(_) => None,
+    });
+    let declined = answers.iter().find_map(|a| match a {
+        RowAnswer::Declined(declined) => Some(declined),
+        RowAnswer::Plain(_) | RowAnswer::ResetsOther { .. } => None,
+    });
+    match (plain, reset) {
+        (Some(offered), _) => RowChoice {
+            answer: RowAnswer::Plain(offered.clone()),
+            not_for_every_game: answers.iter().find_map(|a| match a {
+                RowAnswer::Plain(_) => None,
+                RowAnswer::ResetsOther { stored_pair, .. } => Some(*stored_pair),
+                RowAnswer::Declined(declined) => Some(declined.reason),
+            }),
+        },
+        (None, Some((offered, stored_pair))) => RowChoice {
+            answer: RowAnswer::ResetsOther {
+                offered: offered.clone(),
+                stored_pair,
+            },
+            not_for_every_game: declined.map(|d| d.reason),
+        },
+        (None, None) => RowChoice {
+            answer: first.clone(),
+            not_for_every_game: None,
+        },
+    }
+}
+
 /// The inputs of a decision that every candidate shares.
 struct Display<'a> {
     source: &'a SourceGeometry,
@@ -441,5 +544,24 @@ fn scanline_outcome(
         ScanlineOutcome::Interlaced
     } else {
         ScanlineOutcome::NoWholeMultiple
+    }
+}
+
+/// A progressive or interlaced source with no turn, for
+/// [`REFERENCE_SOURCES`].
+const fn reference(
+    width: u16,
+    height: u16,
+    refresh_mhz: u32,
+    aspect_milli: u32,
+    interlaced: bool,
+) -> SourceGeometry {
+    SourceGeometry {
+        width,
+        height,
+        refresh_mhz,
+        aspect_milli,
+        interlaced,
+        rotation: Rotation::R0,
     }
 }
