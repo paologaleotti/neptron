@@ -2,7 +2,7 @@ use std::fmt;
 
 use neptron_modeline::policy::{
     Dropped, Notice, Offer, PictureChoices, Plan, PolicyError, PolicySettings, Proposal,
-    RefreshTarget, Refused, Rung, choose, decide, notice, offer, picture_choices,
+    RefreshTarget, Refused, Rung, decide_shown, offer, picture_choices,
 };
 use neptron_safety::{Rejection, ValidatedMode, validate};
 use neptron_types::{GpuCaps, Modeline, SourceGeometry};
@@ -88,28 +88,35 @@ impl Inputs {
         Ok(token)
     }
 
-    /// Steps 1 to 6 for `source`.
+    /// Steps 1 to 6 for `source`, with the fallback of a picture mode that
+    /// has no picture (`neptron_modeline::policy::decide_shown`).
     pub(crate) fn decide(&self, source: &SourceGeometry) -> Decision {
-        let plan = match decide(source, &self.settings, self.monitor.profile(), &self.caps) {
-            Ok(plan) => plan,
+        let shown = match decide_shown(
+            source,
+            &self.settings,
+            self.monitor.profile(),
+            &self.caps,
+            |mode| self.check(mode),
+        ) {
+            Ok(shown) => shown,
             Err(error) => return Decision::unshowable(Unshowable::Policy(error)),
         };
-        let (winner, refused) = {
-            let choice = choose(&plan, |mode| self.check(mode));
-            let winner = choice.winner.map(|w| Chosen {
-                index: w.index,
-                rung: w.considered.rung,
-                target: w.considered.target,
-                proposal: *w.proposal,
-                notice: notice(&plan, w.considered),
-                token: w.token,
-            });
-            (winner, choice.refused)
-        };
+        let notice = shown.notice();
+        let winner = shown.winner.and_then(|(index, token)| {
+            let considered = shown.plan.considered.get(index)?;
+            Some(Chosen {
+                index,
+                rung: considered.rung,
+                target: considered.target,
+                proposal: *considered.outcome.as_ref().ok()?,
+                notice,
+                token,
+            })
+        });
         Decision {
-            plan: Ok(plan),
+            plan: Ok(shown.plan),
             winner,
-            refused,
+            refused: shown.refused,
         }
     }
 

@@ -361,7 +361,7 @@ pub fn scanline_help(mode: ScanlineMode, class: DisplayClass) -> &'static str {
 /// The reason in the menus why the policy does not offer a candidate.
 pub fn decline_text(reason: DeclineReason) -> String {
     match reason {
-        DeclineReason::NoPicture => "No picture on this screen".to_owned(),
+        DeclineReason::NoPicture => "No picture with this choice".to_owned(),
         DeclineReason::RateFixedByTv { .. } | DeclineReason::OneRateOnTv => {
             "A TV has one rate".to_owned()
         }

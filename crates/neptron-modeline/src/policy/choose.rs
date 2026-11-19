@@ -92,6 +92,9 @@ pub struct Notice {
     /// A flat panel shows a whole multiple, with borders, where the picture
     /// mode would fill the height, for this reason.
     pub whole_steps: Option<WholeReason>,
+    /// No other picture mode has a picture for this game on this display,
+    /// so the picture is the one of `fit` ([`super::decide_shown`]).
+    pub fill_fallback: bool,
 }
 
 /// Why a picture is soft (the winner is a fit).
@@ -121,6 +124,9 @@ pub enum SoftReason {
 /// [`Notice::reasons`]. The app holds the texts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NoticeReason {
+    /// No other picture mode has a picture here: the picture is the one of
+    /// Fill.
+    FillFallback,
     /// The picture is soft, for this reason.
     Soft(SoftReason),
     /// The picture is small: the game fills this share of the screen
@@ -147,7 +153,8 @@ pub enum NoticeReason {
 }
 
 impl Notice {
-    /// The reasons that the quick menu shows, in this order: soft, small,
+    /// The reasons that the quick menu shows, in this order: the Fill
+    /// picture of the fallback, soft, small,
     /// speed, double refresh, whole steps. No allocation: the notice is read on the
     /// frame thread.
     pub fn reasons(&self) -> impl Iterator<Item = NoticeReason> {
@@ -156,6 +163,7 @@ impl Notice {
             shown_mhz: self.shown_mhz,
         });
         [
+            self.fill_fallback.then_some(NoticeReason::FillFallback),
             self.soft.map(NoticeReason::Soft),
             self.small_fill_permille
                 .map(|fill_permille| NoticeReason::SmallPicture { fill_permille }),
@@ -274,6 +282,7 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         soft,
         small_fill_permille,
         whole_steps,
+        fill_fallback: false,
     })
 }
 

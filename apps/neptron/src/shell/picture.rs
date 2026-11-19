@@ -48,6 +48,9 @@ pub(super) fn picture_text(kind: RefreshKind, notice: &Notice, status: &str) -> 
 /// The sentence of one reason.
 fn reason_text(reason: NoticeReason) -> String {
     match reason {
+        NoticeReason::FillFallback => {
+            "Fill picture: no other picture mode has a picture for this game here.".to_owned()
+        }
         NoticeReason::Soft(SoftReason::TooTall { lines }) => {
             format!("Soft picture: this screen cannot show the game's {lines} lines.")
         }
@@ -249,6 +252,7 @@ mod tests {
             soft: None,
             small_fill_permille: None,
             whole_steps: None,
+            fill_fallback: false,
         }
     }
 

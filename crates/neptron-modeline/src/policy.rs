@@ -80,7 +80,7 @@ pub use tv::{
     TV_WHOLE_FACTOR_TOLERANCE_PERCENT,
 };
 
-use neptron_types::{GpuCaps, MonitorKind, MonitorProfile, SourceGeometry};
+use neptron_types::{GpuCaps, Modeline, MonitorKind, MonitorProfile, SourceGeometry};
 
 use crate::ModelineError;
 
@@ -136,6 +136,108 @@ pub fn decide(
         }),
         MonitorKind::FlatPanel { modes } => Ok(panel::panel_plan(&source, &settings, modes)),
     }
+}
+
+/// The plan that the engine shows for `settings`, with its winner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shown<V, E> {
+    /// The plan of the picture mode whose winner shows.
+    pub plan: Plan,
+    /// The index of the winner in [`Plan::considered`] and what the
+    /// validator returned for it, or `None` when no plan has one.
+    pub winner: Option<(usize, V)>,
+    /// The proposals of `plan` that the validator refused, in walk order.
+    pub refused: Vec<Refused<E>>,
+    /// The picture mode of `plan` when it is not the mode of the settings:
+    /// the mode of the settings has no picture here.
+    pub fallback: Option<PictureStyle>,
+}
+
+impl<V, E> Shown<V, E> {
+    /// The notice of the winner (step 8). The picture of the fallback to
+    /// `fit` says so in place of the soft reason of the Fill mode, which
+    /// the player did not choose.
+    pub fn notice(&self) -> Option<Notice> {
+        let (index, _) = self.winner.as_ref()?;
+        let considered = self.plan.considered.get(*index)?;
+        let notice = notice(&self.plan, considered);
+        if self.fallback != Some(PictureStyle::Fit) {
+            return notice;
+        }
+        let proposal = considered.outcome.as_ref().ok()?;
+        let base = notice.unwrap_or(Notice {
+            fitted: considered.rung == Rung::Fitted,
+            game_mhz: proposal.timing.game_mhz,
+            speed_change: false,
+            shown_mhz: proposal.timing.shown_mhz(),
+            strategy_replaced: None,
+            double_refresh: false,
+            style_fallback: false,
+            cropped_lines: 0,
+            padded_fill_permille: None,
+            soft: None,
+            small_fill_permille: None,
+            whole_steps: None,
+            fill_fallback: false,
+        });
+        Some(Notice {
+            fill_fallback: true,
+            soft: base.soft.filter(|s| *s != SoftReason::FillMode),
+            ..base
+        })
+    }
+}
+
+/// Steps 5 and 6 with the one fallback of a picture mode that has no
+/// picture (owner, 2026-11-19: when no mode finds a picture, Fill is the
+/// default). The plan of the mode of `settings` comes first; where the
+/// validator accepts none of its proposals, the plan of `auto`, then the
+/// plan of `fit`, with the same refresh choice and keys. A mode that has a
+/// picture never changes. Where no plan has a winner, the plan of the mode
+/// of `settings`, with no winner: the engine keeps the mode on screen.
+///
+/// # Errors
+///
+/// [`PolicyError`] when the source or the profile gives no plan for the
+/// mode of `settings`. A fallback plan that has no plan is skipped.
+pub fn decide_shown<V, E>(
+    source: &SourceGeometry,
+    settings: &PolicySettings,
+    profile: &MonitorProfile,
+    caps: &GpuCaps,
+    mut validate: impl FnMut(&Modeline) -> Result<V, E>,
+) -> Result<Shown<V, E>, PolicyError> {
+    let asked = settings.style;
+    let first = decide(source, settings, profile, caps)?;
+    let shown = |plan: Plan, validate: &mut dyn FnMut(&Modeline) -> Result<V, E>, fallback| {
+        let choice = choose(&plan, validate);
+        let winner = choice.winner.map(|w| (w.index, w.token));
+        let refused = choice.refused;
+        Shown {
+            plan,
+            winner,
+            refused,
+            fallback,
+        }
+    };
+    let own = shown(first, &mut validate, None);
+    if own.winner.is_some() {
+        return Ok(own);
+    }
+    for style in [PictureStyle::Auto, PictureStyle::Fit] {
+        if style == asked {
+            continue;
+        }
+        let other = PolicySettings { style, ..*settings };
+        let Ok(plan) = decide(source, &other, profile, caps) else {
+            continue;
+        };
+        let tried = shown(plan, &mut validate, Some(style));
+        if tried.winner.is_some() {
+            return Ok(tried);
+        }
+    }
+    Ok(own)
 }
 
 impl From<ModelineError> for PolicyError {

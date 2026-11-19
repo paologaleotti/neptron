@@ -18,8 +18,8 @@ use std::path::Path;
 
 use neptron_modeline::policy::{
     DeclineReason, Declined, Offer, Offered, PictureChoices, PictureStyle, Plan, PolicyError,
-    PolicySettings, RefreshKind, RefreshPolicy, RowAnswer, Rung, ScanlineChoice, choose, offer,
-    picture_choices, walk_ladder,
+    PolicySettings, RefreshKind, RefreshPolicy, RowAnswer, Rung, ScanlineChoice, choose, decide,
+    offer, panel_scanlines, picture_choices, walk_ladder,
 };
 use neptron_safety::validate;
 use neptron_types::{
@@ -236,20 +236,34 @@ fn promise_holds(
 }
 
 /// The test's own reading of why a declined candidate is declined, from
-/// the profile, the caps, the plan and the validator.
+/// the profile, the caps, the plan, the winner the answer names and the
+/// validator.
 fn reason_holds(
     declined: &Declined,
     settings: &PolicySettings,
     screen: &Screen,
+    source: &SourceGeometry,
+    scan: ScanlineChoice,
 ) -> Result<(), String> {
     let plan = &declined.plan;
     let valid = |m: &Modeline| validate(m, &screen.profile, &screen.caps).is_ok();
-    let first = choose(plan, |m| validate(m, &screen.profile, &screen.caps)).winner;
-    let rung = first.as_ref().map(|w| w.considered.rung);
+    let won = declined.winner.map(|w| &plan.considered[w]);
+    let rung = won.map(|w| w.rung);
     let factor = settings.style.factor();
     let own_rung = walk_ladder(settings.style).first().copied();
     let holds = match declined.reason {
-        DeclineReason::NoPicture => first.is_none(),
+        // The plan of the asked candidate has no proposal that validates;
+        // the winner, if any, is the one of the fallback.
+        DeclineReason::NoPicture => {
+            let asked = PolicySettings {
+                panel_scanlines: panel_scanlines(&screen.profile.kind, scan),
+                ..*settings
+            };
+            let own = decide(source, &asked, &screen.profile, &screen.caps)
+                .map_err(|e| format!("no plan: {e}"))?;
+            !own.proposals().any(|(_, _, p)| valid(&p.mode))
+                && (declined.winner.is_none() || plan.style != settings.style)
+        }
         DeclineReason::RateFixedByTv { .. } | DeclineReason::RateOfPanel { .. } => false,
         DeclineReason::RateNotCovered { asked, rate_mhz } => match &screen.profile.kind {
             MonitorKind::Crt { ranges } => {
@@ -266,9 +280,7 @@ fn reason_holds(
                         && !plan.proposals().any(|(_, c, p)| {
                             c.target.kind == kind && !c.rung.is_fitted() && valid(&p.mode)
                         })
-                        && first
-                            .as_ref()
-                            .is_some_and(|w| w.considered.target.kind != kind)
+                        && won.is_some_and(|w| w.target.kind != kind)
                 })
             }
             MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => false,
@@ -317,29 +329,12 @@ fn reason_holds(
         DeclineReason::SpeedNotHeld => {
             settings.style == PictureStyle::Speed
                 && !matches!(screen.profile.kind, MonitorKind::Tv { .. })
-                && first.as_ref().is_some_and(|w| speed_changes(plan, w.index))
+                && declined.winner.is_some_and(|w| speed_changes(plan, w))
         }
     };
     holds
         .then_some(())
         .ok_or_else(|| format!("the reason {:?} does not hold", declined.reason))
-}
-
-/// The asked rung of a `NotShownHere` refusal is reachable whole at the
-/// rate of the winner, but ranks after it: the plan puts the smaller rung
-/// of a lower line rate range first.
-fn ranked_after(declined: &Declined, settings: &PolicySettings, screen: &Screen) -> bool {
-    let plan = &declined.plan;
-    let own_rung = walk_ladder(settings.style).first().copied();
-    let Some(won) = declined.winner.map(|w| &plan.considered[w]) else {
-        return false;
-    };
-    plan.proposals().any(|(_, c, p)| {
-        Some(c.rung) == own_rung
-            && c.target.kind == won.target.kind
-            && p.overscan_crop.is_none()
-            && validate(&p.mode, &screen.profile, &screen.caps).is_ok()
-    })
 }
 
 fn reason_name(reason: DeclineReason) -> &'static str {
@@ -357,11 +352,16 @@ fn reason_name(reason: DeclineReason) -> &'static str {
     }
 }
 
-/// The checks of one stored candidate, and the name of its result.
+/// The checks of one stored candidate, and the name of its result. With
+/// `deep`, the winner of an offered candidate is also the first proposal
+/// of its plan that validates.
 fn check(
     answer: &Offer,
     settings: &PolicySettings,
     screen: &Screen,
+    source: &SourceGeometry,
+    scan: ScanlineChoice,
+    deep: bool,
 ) -> Result<&'static str, String> {
     match answer {
         Ok(offered) => {
@@ -371,19 +371,29 @@ fn check(
             if !inside(&screen.profile, &mode) {
                 return Err(format!("offered {mode:?} lies outside the profile"));
             }
-            let w = choose(&offered.plan, |m| {
-                validate(m, &screen.profile, &screen.caps)
-            })
-            .winner
-            .ok_or("offered with no winner")?;
-            if w.index != offered.winner {
-                return Err("the offered winner is not the engine's winner".to_owned());
+            if deep {
+                let w = choose(&offered.plan, |m| {
+                    validate(m, &screen.profile, &screen.caps)
+                })
+                .winner
+                .ok_or("offered with no winner")?;
+                if w.index != offered.winner {
+                    return Err("the offered winner is not the engine's winner".to_owned());
+                }
             }
             promise_holds(offered, settings, screen)?;
-            Ok("offered")
+            let fallback = offered.notice.is_some_and(|n| n.fill_fallback);
+            if fallback != (offered.plan.style != settings.style) {
+                return Err("the fill fallback and its notice disagree".to_owned());
+            }
+            Ok(if fallback {
+                "offered, the fill picture"
+            } else {
+                "offered"
+            })
         }
         Err(declined) => {
-            reason_holds(declined, settings, screen)?;
+            reason_holds(declined, settings, screen, source, scan)?;
             if let Some(index) = declined.winner {
                 let mode = mode_of(&declined.plan, index);
                 validate(&mode, &screen.profile, &screen.caps)
@@ -392,12 +402,11 @@ fn check(
                     return Err("the shown mode of a refusal lies outside".to_owned());
                 }
             }
-            if matches!(declined.reason, DeclineReason::NotShownHere { .. })
-                && ranked_after(declined, settings, screen)
-            {
-                return Ok("not shown here, ranked after");
-            }
-            Ok(reason_name(declined.reason))
+            Ok(match (declined.reason, declined.winner) {
+                (DeclineReason::NoPicture, None) => "no picture",
+                (DeclineReason::NoPicture, Some(_)) => "no picture, the fallback picture",
+                (reason, _) => reason_name(reason),
+            })
         }
     }
 }
@@ -575,11 +584,16 @@ fn choices_hold(
     Ok(())
 }
 
-/// The result of a run: the counts by result and the cells with no
-/// picture.
+/// A cell of a run: the profile, the source with its rate in millihertz,
+/// and the picture mode.
+type Cell = (String, &'static str, u32, &'static str);
+
+/// The result of a run: the counts by result, the cells with no picture at
+/// all, and the cells where `auto` takes the Fill picture.
 struct Run {
     counts: BTreeMap<&'static str, usize>,
-    no_picture: BTreeSet<(String, &'static str, &'static str)>,
+    no_picture: BTreeSet<Cell>,
+    fill_fallback: BTreeSet<Cell>,
 }
 
 /// Which screens of a run a test takes: the screens whose index is
@@ -590,30 +604,65 @@ struct Part {
     parts: usize,
 }
 
+/// How much a run checks beyond every candidate and the rows of every
+/// stored pair.
+#[derive(Clone, Copy)]
+struct Depth {
+    /// Every scanline setting that a plan reads, on a CRT and a TV too.
+    every_scanline: bool,
+    /// The winner of each offered candidate is also the first proposal of
+    /// its plan that validates, and `picture_choices` is compared with the
+    /// rows of the rule. The runs of the GPU groups leave it to the run
+    /// with an open GPU, which covers the same code with other limits.
+    deep: bool,
+    /// A profile that the solver refuses counts, and is no failure.
+    tolerate_solver: bool,
+}
+
+const FULL: Depth = Depth {
+    every_scanline: true,
+    deep: true,
+    tolerate_solver: false,
+};
+
 /// Every candidate on `screens` for `sources`, and the rows of every stored
-/// pair by the pair rule. `picture_choices` is compared with the rule for
-/// one stored pair of each screen and source, a different one from one
-/// source to the next, so each stored pair is compared on each screen.
+/// pair by the pair rule, for each scanline setting of a panel (where the
+/// scanlines change the plan) and for `auto` elsewhere. With `deep`,
+/// `picture_choices` is compared with the rule for one stored pair of each
+/// screen, source and scanline setting, a different one from one source to
+/// the next, so each stored pair is compared on each screen.
 fn run(
     sources: &[(&'static str, SourceGeometry)],
     screens: &[Screen],
-    every_scanline: bool,
-    tolerate_solver: bool,
+    depth: Depth,
     seed: Option<u64>,
 ) -> Run {
     let mut counts = BTreeMap::new();
     let mut no_picture = BTreeSet::new();
+    let mut fill_fallback = BTreeSet::new();
     let mut failures = Vec::new();
     for (screen_index, screen) in screens.iter().enumerate() {
         let panel = matches!(screen.profile.kind, MonitorKind::FlatPanel { .. });
-        let scanlines: &[ScanlineChoice] = match (panel, every_scanline) {
+        let scanlines: &[ScanlineChoice] = match (panel, depth.every_scanline) {
             (true, _) => &PANEL_SCANLINES,
             (false, true) => &CRT_SCANLINES,
             (false, false) => &CRT_SCANLINES[..1],
         };
+        // The scanline settings whose rows the run checks: every one that
+        // changes the plan.
+        let row_scans = if panel { scanlines.len() } else { 1 };
         let validator = |m: &Modeline| validate(m, &screen.profile, &screen.caps).map(drop);
         for (source_index, (name, source)) in sources.iter().enumerate() {
-            let mut pairs = HashMap::new();
+            let mut pairs: Vec<HashMap<(PictureStyle, RefreshPolicy), Pair>> =
+                vec![HashMap::new(); row_scans];
+            let cell = |style: PictureStyle| {
+                (
+                    screen.profile.id.clone(),
+                    *name,
+                    source.refresh_mhz,
+                    style.key(),
+                )
+            };
             for style in PictureStyle::ALL {
                 for refresh in RefreshPolicy::ALL {
                     let settings = PolicySettings {
@@ -632,26 +681,27 @@ fn run(
                         );
                         let result = match answer {
                             Ok(answer) => {
-                                if i == 0 {
+                                if let Some(map) = pairs.get_mut(i) {
                                     let pair = match &answer {
                                         Ok(offered) => Ok(offered.winner),
                                         Err(declined) => Err(declined.reason),
                                     };
-                                    pairs.insert((style, refresh), pair);
+                                    map.insert((style, refresh), pair);
                                 }
-                                check(&answer, &settings, screen)
+                                check(&answer, &settings, screen, source, scan, depth.deep)
                             }
-                            Err(PolicyError::Solver(_)) if tolerate_solver => Ok("solver refuses"),
+                            Err(PolicyError::Solver(_)) if depth.tolerate_solver => {
+                                Ok("solver refuses")
+                            }
                             Err(e) => Err(format!("no plan: {e}")),
                         };
                         match result {
                             Ok(result) => {
                                 if result == "no picture" {
-                                    no_picture.insert((
-                                        screen.profile.id.clone(),
-                                        *name,
-                                        style.key(),
-                                    ));
+                                    no_picture.insert(cell(style));
+                                }
+                                if result == "offered, the fill picture" {
+                                    fill_fallback.insert(cell(style));
                                 }
                                 *counts.entry(result).or_insert(0) += 1;
                             }
@@ -663,53 +713,56 @@ fn run(
                     }
                 }
             }
-            let auto_has_picture = pairs
-                .get(&(PictureStyle::Auto, RefreshPolicy::Exact))
-                .is_some_and(Result::is_ok);
-            let sample = (screen_index * 7 + source_index) % 32;
-            for (k, (style, refresh)) in PictureStyle::ALL
-                .into_iter()
-                .flat_map(|s| RefreshPolicy::ALL.into_iter().map(move |r| (s, r)))
-                .enumerate()
-            {
-                let Some((modes, rates)) =
-                    rows_by_rule(&pairs, style, refresh, &screen.profile.kind)
-                else {
-                    continue;
-                };
-                *counts.entry("stored pairs with rows").or_insert(0) += 1;
-                let case = format!(
-                    "seed {seed:?} {} {name} rows of {style} {refresh}",
-                    screen.profile.id
-                );
-                if let Err(e) = rows_hold(&modes, &rates, auto_has_picture) {
-                    failures.push(format!("{case}: {e}"));
-                }
-                if k != sample {
-                    continue;
-                }
-                let settings = PolicySettings {
-                    style,
-                    refresh,
-                    ..PolicySettings::default()
-                };
-                match picture_choices(
-                    source,
-                    &settings,
-                    AUTO_75,
-                    &screen.profile,
-                    &screen.caps,
-                    validator,
-                ) {
-                    Ok(choices) => {
-                        *counts.entry("rows compared").or_insert(0) += 1;
-                        if let Err(e) =
-                            choices_hold(&choices, &modes, &rates, &pairs, (style, refresh))
-                        {
-                            failures.push(format!("{case}: {e}"));
-                        }
+            for (i, pairs) in pairs.iter().enumerate() {
+                let scan = scanlines[i];
+                let auto_has_picture = pairs
+                    .get(&(PictureStyle::Auto, RefreshPolicy::Exact))
+                    .is_some_and(Result::is_ok);
+                let sample = (screen_index * 7 + source_index + i * 3) % 32;
+                for (k, (style, refresh)) in PictureStyle::ALL
+                    .into_iter()
+                    .flat_map(|s| RefreshPolicy::ALL.into_iter().map(move |r| (s, r)))
+                    .enumerate()
+                {
+                    let Some((modes, rates)) =
+                        rows_by_rule(pairs, style, refresh, &screen.profile.kind)
+                    else {
+                        continue;
+                    };
+                    *counts.entry("stored pairs with rows").or_insert(0) += 1;
+                    let case = format!(
+                        "seed {seed:?} {} {name} rows of {style} {refresh} {scan:?}",
+                        screen.profile.id
+                    );
+                    if let Err(e) = rows_hold(&modes, &rates, auto_has_picture) {
+                        failures.push(format!("{case}: {e}"));
                     }
-                    Err(e) => failures.push(format!("{case}: no plan: {e}")),
+                    if k != sample || !depth.deep {
+                        continue;
+                    }
+                    let settings = PolicySettings {
+                        style,
+                        refresh,
+                        ..PolicySettings::default()
+                    };
+                    match picture_choices(
+                        source,
+                        &settings,
+                        scan,
+                        &screen.profile,
+                        &screen.caps,
+                        validator,
+                    ) {
+                        Ok(choices) => {
+                            *counts.entry("rows compared").or_insert(0) += 1;
+                            if let Err(e) =
+                                choices_hold(&choices, &modes, &rates, pairs, (style, refresh))
+                            {
+                                failures.push(format!("{case}: {e}"));
+                            }
+                        }
+                        Err(e) => failures.push(format!("{case}: no plan: {e}")),
+                    }
                 }
             }
         }
@@ -720,7 +773,11 @@ fn run(
         failures.len(),
         failures[..failures.len().min(40)].join("\n")
     );
-    Run { counts, no_picture }
+    Run {
+        counts,
+        no_picture,
+        fill_fallback,
+    }
 }
 
 fn report(test: &str, run: &Run) {
@@ -746,11 +803,21 @@ fn presets_run(gpu: &str, part: Part, every_scanline: bool) {
         caps_of(gpu)
     };
     let screens = part_of(presets_on(caps), part);
-    let run = run(&sources(), &screens, every_scanline, false, None);
+    let depth = Depth {
+        every_scanline,
+        deep: gpu == "open",
+        tolerate_solver: false,
+    };
+    let run = run(&sources(), &screens, depth, None);
     report(gpu, &run);
     // Every preset shows a picture for every candidate with every GPU of
-    // the matrix.
+    // the matrix, and `auto` never needs the Fill picture there.
     assert!(run.no_picture.is_empty(), "{gpu}: {:?}", run.no_picture);
+    assert!(
+        run.fill_fallback.is_empty(),
+        "{gpu}: {:?}",
+        run.fill_fallback
+    );
 }
 
 /// The CRT presets with an open GPU, every scanline setting that a plan
@@ -784,12 +851,14 @@ fn offer_on_the_edid_tubes() {
             caps: d.caps,
         })
         .collect();
-    let run = run(&sources(), &screens, true, false, None);
+    let run = run(&sources(), &screens, FULL, None);
     report("EDID tubes", &run);
-    // The native ladder of a 640x240 source has no mode on a 31 kHz tube
-    // of one line rate: the engine keeps the mode on screen.
-    let expected: BTreeSet<_> = [("edid_31".to_owned(), "psx_640", "native")].into();
-    assert_eq!(run.no_picture, expected);
+    println!(
+        "no picture {:?}, fill {:?}",
+        run.no_picture, run.fill_fallback
+    );
+    assert_eq!(run.no_picture, BTreeSet::new());
+    assert_eq!(run.fill_fallback, BTreeSet::new());
 }
 
 #[test]
@@ -801,9 +870,10 @@ fn offer_on_the_panels() {
             caps: d.caps,
         })
         .collect();
-    let run = run(&sources(), &screens, true, false, None);
+    let run = run(&sources(), &screens, FULL, None);
     report("panels", &run);
     assert!(run.no_picture.is_empty(), "{:?}", run.no_picture);
+    assert!(run.fill_fallback.is_empty(), "{:?}", run.fill_fallback);
 }
 
 #[test]
@@ -815,9 +885,10 @@ fn offer_on_the_tv_standards_of_the_composite_output() {
             caps: composite(),
         })
         .collect();
-    let run = run(&sources(), &screens, true, false, None);
+    let run = run(&sources(), &screens, FULL, None);
     report("TV standards", &run);
     assert!(run.no_picture.is_empty(), "{:?}", run.no_picture);
+    assert!(run.fill_fallback.is_empty(), "{:?}", run.fill_fallback);
 }
 
 /// The GPU entries of the matrix that drive a CRT, by their limits: the
@@ -904,14 +975,19 @@ impl Lcg {
 
 const SEED: u64 = 0x005E_ED0F_0FFE;
 
-/// The cells with no picture of the generated run: (profile, source,
-/// picture mode).
-const GENERATED_NO_PICTURE: [(&str, &str, &str); 4] = [
-    ("pc_70_120~moved", "edge", "auto"),
-    ("pc_70_120~moved", "edge", "native"),
-    ("pc_70_120~moved", "edge", "sharp"),
-    ("pc_70_120~moved", "edge", "speed"),
-];
+/// The cells of the generated run with no picture at all.
+fn generated_no_picture() -> Vec<Cell> {
+    Vec::new()
+}
+
+/// The cells of the generated run where `auto` takes the Fill picture: a
+/// source at 130.001 Hz, one millihertz above the top of a range of
+/// `pc_70_120`, on its ranges moved by the seed. Before the fallback it had
+/// no picture under `auto`, `native`, `sharp` and `speed`; those three now
+/// show the picture of `auto`, which is the Fill picture.
+fn generated_fill_fallback() -> Vec<Cell> {
+    vec![("pc_70_120~moved".to_owned(), "edge", 130_001, "auto")]
+}
 
 /// The CRT presets with their line rate limits moved by up to 1 % and
 /// their field rate limits by up to 3 %, generated sources, and sources at
@@ -1017,16 +1093,32 @@ fn generated_run(part: Part) {
         ));
     }
     let screens = part_of(screens, part);
-    let run = run(&sources, &screens, false, true, Some(SEED));
-    // A source at a field rate edge of `pc_70_120`, with the ranges moved
-    // by the seed, has no mode in the moved ranges for these modes: the
-    // engine keeps the mode on screen.
-    let expected: BTreeSet<(String, &str, &str)> = GENERATED_NO_PICTURE
-        .iter()
-        .filter(|(profile, ..)| screens.iter().any(|s| s.profile.id == *profile))
-        .map(|(profile, source, style)| ((*profile).to_owned(), *source, *style))
-        .collect();
-    assert_eq!(run.no_picture, expected, "seed {SEED}");
+    let depth = Depth {
+        every_scanline: false,
+        deep: true,
+        tolerate_solver: true,
+    };
+    let run = run(&sources, &screens, depth, Some(SEED));
+    println!(
+        "no picture {:?}, fill {:?}",
+        run.no_picture, run.fill_fallback
+    );
+    let named = |list: &[Cell]| -> BTreeSet<Cell> {
+        list.iter()
+            .filter(|(profile, ..)| screens.iter().any(|s| s.profile.id == *profile))
+            .cloned()
+            .collect()
+    };
+    assert_eq!(
+        run.no_picture,
+        named(&generated_no_picture()),
+        "seed {SEED}"
+    );
+    assert_eq!(
+        run.fill_fallback,
+        named(&generated_fill_fallback()),
+        "seed {SEED}"
+    );
     report("generated", &run);
     let total: usize = run.counts.values().sum();
     assert!(
@@ -1341,4 +1433,95 @@ fn the_spec_table_of_offered_combinations_is_the_output_of_the_function() {
         table.trim_start_matches('\n').to_owned() + "\n",
         "the spec table drifted; print it again and copy it"
     );
+}
+
+/// Where the plan of `auto` has no picture, the decision takes the picture
+/// of `fit`, with the notice of the fallback in place of the soft reason of
+/// the Fill mode; a stored mode with no picture shows the picture of
+/// `auto`, which is then the Fill picture, and is declined with
+/// `NoPicture`. A validator that accepts only the modes that the plan of
+/// `fit` has and the plan of `auto` lacks makes the case.
+#[test]
+fn auto_with_no_picture_takes_the_fill_picture() {
+    let profile = preset("arcade_25");
+    let caps = open_caps();
+    let ddonpach = SourceGeometry {
+        rotation: neptron_types::Rotation::R90,
+        ..source(320, 240, 57_550)
+    };
+    let plan_of = |style| {
+        let settings = PolicySettings {
+            style,
+            ..PolicySettings::default()
+        };
+        decide(&ddonpach, &settings, &profile, &caps).unwrap()
+    };
+    let auto_modes: Vec<Modeline> = plan_of(PictureStyle::Auto)
+        .proposals()
+        .map(|(_, _, p)| p.mode)
+        .collect();
+    let only_fit: Vec<Modeline> = plan_of(PictureStyle::Fit)
+        .proposals()
+        .map(|(_, _, p)| p.mode)
+        .filter(|m| !auto_modes.contains(m))
+        .collect();
+    assert!(!only_fit.is_empty(), "the plan of fit has modes of its own");
+    let validate = |m: &Modeline| {
+        if only_fit.contains(m) {
+            Ok(())
+        } else {
+            Err(())
+        }
+    };
+    let shown = neptron_modeline::policy::decide_shown(
+        &ddonpach,
+        &PolicySettings::default(),
+        &profile,
+        &caps,
+        validate,
+    )
+    .unwrap();
+    assert_eq!(shown.fallback, Some(PictureStyle::Fit));
+    let notice = shown.notice().expect("a notice");
+    assert!(notice.fill_fallback);
+    assert_ne!(
+        notice.soft,
+        Some(neptron_modeline::policy::SoftReason::FillMode)
+    );
+    let auto = offer(
+        &ddonpach,
+        &PolicySettings::default(),
+        AUTO_75,
+        &profile,
+        &caps,
+        validate,
+    )
+    .unwrap();
+    assert!(auto.is_ok_and(|o| o.notice.is_some_and(|n| n.fill_fallback)));
+    let sharp = offer(
+        &ddonpach,
+        &PolicySettings {
+            style: PictureStyle::Sharp,
+            ..PolicySettings::default()
+        },
+        AUTO_75,
+        &profile,
+        &caps,
+        validate,
+    )
+    .unwrap();
+    let declined = sharp.expect_err("declined");
+    assert_eq!(declined.reason, DeclineReason::NoPicture);
+    assert_eq!(declined.plan.style, PictureStyle::Fit);
+    assert!(declined.winner.is_some(), "the Fill picture shows");
+    // Where Fill has no picture either, nothing changes: no winner.
+    let none = neptron_modeline::policy::decide_shown(
+        &ddonpach,
+        &PolicySettings::default(),
+        &profile,
+        &caps,
+        |_: &Modeline| Err::<(), ()>(()),
+    )
+    .unwrap();
+    assert_eq!((none.winner, none.fallback), (None, None));
 }

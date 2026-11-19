@@ -372,13 +372,28 @@ fn a_failed_restore_is_an_error_and_the_engine_decides_again() {
     assert_eq!(rig.fake.active_mode(), None);
     assert_eq!(rig.fake.blank_calls().len(), 1);
     assert_eq!(rig.engine.trace().last().unwrap().outcome, Outcome::Blanked);
-    // The driver refused the only mode of this source, so the engine has
-    // none, says so, and guesses nothing.
-    assert_eq!(rig.try_frame(MD_H32), Err(VideoError::NoMode));
-    let record = rig.engine.trace().last().unwrap();
-    assert_eq!(record.trigger, Trigger::Retry);
-    assert!(matches!(record.outcome, Outcome::Kept(_)));
-    rig.frame(MD_H40);
+    // The driver refused the only mode of `auto` for this source, so the
+    // engine takes the picture of Fill, the default where `auto` has none
+    // (`decide_shown`), and says so in the notice. It never sets the
+    // refused mode again.
+    let step = rig.try_frame(MD_H32).expect("the Fill picture");
+    assert_eq!(step.directive, Directive::Modeset);
+    let current = rig.engine.current().expect("a mode");
+    assert!(
+        current
+            .chosen
+            .notice
+            .as_ref()
+            .is_some_and(|n| n.fill_fallback),
+        "{:?}",
+        current.chosen.notice
+    );
+    assert_ne!(rig.fake.active_mode(), Some(wrong));
+    // A mode is on screen now, so the next source change waits for the
+    // debounce.
+    for _ in 0..=neptron_video::DEBOUNCE_FRAMES {
+        rig.frame(MD_H40);
+    }
     assert_eq!(rig.current_mode(), good);
     assert_eq!(rig.fake.active_mode(), Some(good));
     assert!(!rig.engine.current_refused());

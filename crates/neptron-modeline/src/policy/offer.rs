@@ -6,7 +6,7 @@ use neptron_types::{
 use super::choose::mode_refusal;
 use super::{
     Considered, Notice, PictureStyle, Plan, PolicyError, PolicySettings, RefreshKind,
-    RefreshPolicy, Rung, choose, decide, notice,
+    RefreshPolicy, Rung, decide_shown,
 };
 
 /// The scanline settings of a candidate: the resolved values of
@@ -32,7 +32,9 @@ impl ScanlineChoice {
 /// The menus grey the option and the app maps each reason to its text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeclineReason {
-    /// Nothing validates: the display shows no picture for the candidate.
+    /// The plan of the candidate has no picture: nothing validates. A
+    /// stored candidate shows the picture of `auto`, or else of `fit`
+    /// ([`super::decide_shown`]), when one has a picture.
     NoPicture,
     /// A TV standard fixes the field rate: only `exact` applies.
     RateFixedByTv {
@@ -448,8 +450,11 @@ fn judge<E>(
         panel_scanlines: panel_scanlines(&profile.kind, scanlines),
         ..*settings
     };
-    let plan = decide(source, &settings, profile, caps)?;
-    let winner = choose(&plan, &mut validate).winner.map(|w| w.index);
+    let shown = decide_shown(source, &settings, profile, caps, &mut validate)?;
+    let notice = shown.notice();
+    let fallback = shown.fallback;
+    let plan = shown.plan;
+    let winner = shown.winner.map(|(index, ())| index);
     let Some((index, considered, proposal)) = winner.and_then(|index| {
         let considered = plan.considered.get(index)?;
         let proposal = *considered.outcome.as_ref().ok()?;
@@ -463,7 +468,13 @@ fn judge<E>(
         }));
     };
     let refresh = || refresh_refusal(&plan, &profile.kind, settings.refresh, considered);
-    let mode = || mode_refusal(&plan, settings.style, considered);
+    let mode = || match fallback {
+        // A picture of another mode: the mode of the settings has none.
+        // Auto has none of its own, and takes the Fill picture.
+        Some(_) if settings.style != PictureStyle::Auto => Some(DeclineReason::NoPicture),
+        Some(_) => None,
+        None => mode_refusal(&plan, settings.style, considered),
+    };
     let reason = match which {
         Judge::Candidate => match profile.kind {
             MonitorKind::Crt { .. } => refresh().or_else(mode),
@@ -481,7 +492,6 @@ fn judge<E>(
             scanlines: Some(outcome),
         }));
     }
-    let notice = notice(&plan, considered);
     Ok(Ok(Offered {
         winner: index,
         notice,
