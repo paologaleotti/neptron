@@ -7,13 +7,13 @@ sha256  8780e78a1a737e127f25a65f6d95269bffd36158dc261114de7859b490bfc5aa  LICENS
 sha256  8e378ab93586eb55135d3bc119cce787f7324f48394777d00c34fa3d0be3303f  LICENSES/exceptions/Linux-syscall-note
 
 # The 15 kHz patch set, folder linux-6.18 of D0023R/linux_kernel_15khz at
-# commit 8c96dd9f0b343a6d1ef3c61041783ee106957886 (2026-11-07, "Updated for
-# kernel 6.18.62"). All nine apply to 6.18.63 with no offset and no fuzz.
+# commit d85a343379f7f54155f69ef56dc544b666635894 (2026-11-15, "Updated for
+# kernel 6.18.63"). All nine apply to 6.18.63 with no offset and no fuzz.
 # The PC image applies them.
 #
-# LICENCE QUESTION: the LICENSE file of that repository says GPL-3.0, and
-# the kernel is GPL-2.0 only. The owner has asked the author to clarify. No
-# image built with these patches may be distributed until that is resolved.
+# LICENCE: GPL-2.0-only, stated in LICENSE and README.md of that repository
+# at that commit (ADR 0018). The files are the same as at the older pin,
+# whose tree had a GPL-3.0 LICENSE.
 sha256  be375404c851afe3c11f5cb84bb0afde857caf034a97f28635512f1ba0e8a8fe  01_linux_15khz.patch
 sha256  533060d4c332f48fba91bf9d8b57347ea6c738b45b1e4a3725c2af6b641f9504  02_linux_15khz_interlaced_mode_fix.patch
 sha256  ed78e234c7c7377c14d5b87bbccad70effefb2d467c9bc4a53417eca98be92de  03_linux_15khz_dcn1_dcn2_dcn3_interlaced_mode_fix.patch

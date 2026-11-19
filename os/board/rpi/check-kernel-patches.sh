@@ -1,8 +1,8 @@
 #!/bin/sh
-# Checks that the Raspberry Pi kernel gets no kernel patch. The 15 kHz
-# patch set of the PC image has an open licence question, and the Pi needs
-# nothing from it. A patch can reach the kernel in two ways, and both are
-# faults:
+# Checks that the Raspberry Pi kernel gets no kernel patch. The Pi needs
+# none: the 15 kHz patch set of the PC image changes the DRM core and PC
+# graphics drivers, and NEPTRON sets the modes of the Pi through atomic
+# KMS. A patch can reach the kernel in two ways, and both are faults:
 #
 # - BR2_LINUX_KERNEL_PATCH is not empty (the PC defconfig sets it);
 # - BR2_GLOBAL_PATCH_DIR is not exactly the patch directory of this board

@@ -557,7 +557,20 @@ mod tests {
             std::fs::read_to_string(os.join("configs").join(Arch::X86_64.defconfig())).unwrap();
         let hashes = std::fs::read_to_string(os.join("patches/linux/linux.hash")).unwrap();
         for text in [&defconfig, &hashes] {
-            assert!(text.contains("LICENCE QUESTION"), "the reminder is missing");
+            assert!(
+                text.contains("LICENCE: GPL-2.0-only") && text.contains("ADR 0018"),
+                "the licence of the pinned set is not recorded"
+            );
+            assert!(!text.contains("8c96dd9f"), "the GPL-3.0 commit is pinned");
+        }
+        let notes = std::fs::read_to_string(os.join("board/pc/LICENCES.txt")).unwrap();
+        for fact in [
+            "github.com/D0023R/linux_kernel_15khz",
+            "Commit: d85a343379f7f54155f69ef56dc544b666635894.",
+            "Licence: GNU General Public License 2.0 only",
+            "sources/linux-6.18.63",
+        ] {
+            assert!(notes.contains(fact), "LICENCES.txt misses {fact:?}");
         }
         let line = defconfig
             .lines()
@@ -570,7 +583,7 @@ mod tests {
             assert!(
                 url.starts_with(
                     "https://raw.githubusercontent.com/D0023R/linux_kernel_15khz/\
-                     8c96dd9f0b343a6d1ef3c61041783ee106957886/linux-6.18/"
+                     d85a343379f7f54155f69ef56dc544b666635894/linux-6.18/"
                 ),
                 "{url}"
             );
@@ -582,6 +595,65 @@ mod tests {
                 "no hash for {file}"
             );
         }
+    }
+
+    /// `LICENCES.txt` goes into every PC variant, so it must be true for an
+    /// image with the 15 kHz set and for one built without it, and it must
+    /// carry the written offer of GPL-2.0 section 3(b).
+    #[test]
+    fn the_pc_licence_notes_hold_for_both_kernel_variants_and_offer_the_source() {
+        let os = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../os");
+        let notes = std::fs::read_to_string(os.join("board/pc/LICENCES.txt")).unwrap();
+        let flat = notes.split_whitespace().collect::<Vec<_>>().join(" ");
+        for fact in [
+            "The PC image is built in two variants, and this file goes into both",
+            "The image with the 15 kHz patch set (the default build) applies the nine patches",
+            "--no-kernel-15khz` applies no kernel patch",
+            "(none in the image without the set)",
+            "For at least three years from the last date on which the NEPTRON project gives out this image",
+            "gives any third party, on request, a complete machine-readable copy",
+            "a medium customarily used for software interchange; the usual case is a download",
+            "the GNU General Public License for a GPL package, and the GNU Lesser General Public License for an LGPL package",
+            "Name the image file and its SHA-256, and the NEPTRON commit that built it if you know it.",
+            "also for an image that reached you without its source",
+            "The file `grub.cfg` on the boot partition",
+            "GNU General Public License or the GNU Lesser General Public License",
+            "the Linux kernel with the patches that this image applies",
+            "no more than the cost of the physical act of the source distribution",
+            "https://github.com/paologaleotti/neptron/issues",
+        ] {
+            assert!(flat.contains(fact), "LICENCES.txt misses {fact:?}");
+        }
+        for gone in [
+            "ask the person who gave you the image",
+            "from the date of this image",
+            "when possible",
+        ] {
+            assert!(!flat.contains(gone), "LICENCES.txt still says {gone:?}");
+        }
+        // The PARTUUIDs that tell the variants apart are those post-image.sh
+        // writes for each variant.
+        let post_image = std::fs::read_to_string(os.join("board/pc/post-image.sh")).unwrap();
+        let signature = |case: &str| {
+            post_image
+                .lines()
+                .find_map(|l| l.trim().strip_prefix(&format!("{case}) signature=")))
+                .unwrap()
+                .trim_end_matches(" ;;")
+                .to_owned()
+        };
+        let with_set = format!(
+            "PARTUUID {}-02 or {}-02 in an image with the set",
+            signature("no-yes"),
+            signature("yes-yes")
+        );
+        let without = format!(
+            "{}-02 or {}-02 in an image without it",
+            signature("no-no"),
+            signature("yes-no")
+        );
+        assert!(flat.contains(&with_set), "{with_set}");
+        assert!(flat.contains(&without), "{without}");
     }
 
     /// With `BR2_KERNEL_HEADERS_AS_KERNEL`, the `linux-headers` package of

@@ -458,8 +458,8 @@ fn check_kernel_patches(name: &str, br2: &str, extra: &[&str]) -> Output {
     )
 }
 
-/// The Pi kernel takes no patch, so the 15 kHz patch set of the PC (open
-/// licence question, OP-070) can never reach it.
+/// The Pi kernel takes no patch, so the 15 kHz patch set of the PC, which
+/// changes PC GPU drivers, can never reach it.
 #[test]
 fn no_kernel_patch_reaches_the_pi_kernel() {
     let pi = defconfig();
@@ -906,7 +906,7 @@ fn the_licence_notes_correct_the_firmware_label_and_say_what_may_be_shared() {
         assert!(notes.contains(line), "LICENCES.txt misses {line:?}");
     }
     assert!(
-        !notes.contains("OPEN LICENCE QUESTION"),
+        !notes.contains("linux_kernel_15khz"),
         "the Pi image holds no 15 kHz patch"
     );
     let post_image = read("board/rpi/post-image.sh");
@@ -914,6 +914,42 @@ fn the_licence_notes_correct_the_firmware_label_and_say_what_may_be_shared() {
     assert!(post_image.contains("\"$part/legal/LICENCE.broadcom\""));
     let post_build = read("board/rpi/post-build.sh");
     assert!(post_build.contains("\"$target/usr/share/licenses/LICENCES.txt\""));
+}
+
+/// The Pi image carries the same written offer of GPL-2.0 section 3(b) as
+/// the PC image, so one rule holds for every image that is given out.
+#[test]
+fn the_licence_notes_offer_the_source_for_three_years() {
+    let flat = read("board/rpi/LICENCES.txt")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for fact in [
+        "For at least three years from the last date on which the NEPTRON project gives out this image",
+        "a medium customarily used for software interchange; the usual case is a download",
+        "the GNU General Public License for a GPL package, and the GNU Lesser General Public License for an LGPL package",
+        "also for an image that reached you without its source",
+        "gives any third party, on request, a complete machine-readable copy",
+        "GNU General Public License or the GNU Lesser General Public License",
+        "This includes the Linux kernel of this image.",
+        "no more than the cost of the physical act of the source distribution",
+        "https://github.com/paologaleotti/neptron/issues",
+        "Name the image file and its SHA-256, and the NEPTRON commit that built it if you know it.",
+        "The kernel of this image applies no patch.",
+        "the written offer does not cover them",
+    ] {
+        assert!(flat.contains(fact), "LICENCES.txt misses {fact:?}");
+    }
+    let pc = read("board/pc/LICENCES.txt")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let contact = "To ask for the source, open an issue in the public repository of the \
+                   project: https://github.com/paologaleotti/neptron/issues.";
+    assert!(
+        flat.contains(contact) && pc.contains(contact),
+        "one contact for both images"
+    );
 }
 
 #[test]

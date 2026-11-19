@@ -100,14 +100,35 @@ holds no firmware.
 The kernel and the 15 kHz patch set
 -----------------------------------
 
-The kernel is Linux 6.18 (GNU General Public License 2.0 only) with the
-15 kHz patch set of D0023R (github.com/D0023R/linux_kernel_15khz).
+The kernel is Linux 6.18.63, under the GNU General Public License 2.0
+only. The PC image is built in two variants, and this file goes into
+both:
 
-OPEN LICENCE QUESTION: the LICENSE file of the patch repository says GNU
-General Public License 3.0, and the kernel is GPL-2.0 only. The owner of
-NEPTRON has asked the author to clarify. Until that is resolved, no image
-built with these patches may be distributed. Build without them with
-`cargo xtask os build --arch x86_64 --no-kernel-15khz`.
+- The image with the 15 kHz patch set (the default build) applies the
+  nine patches below to the kernel.
+- The image built with `cargo xtask os build --arch x86_64
+  --no-kernel-15khz` applies no kernel patch.
+
+The file `grub.cfg` on the boot partition tells them apart: the root is
+PARTUUID 4e505452-02 or 4e505444-02 in an image with the set, and
+4e50544e-02 or 4e505445-02 in an image without it.
+
+The 15 kHz patch set of D0023R:
+
+- Source: github.com/D0023R/linux_kernel_15khz, folder `linux-6.18`.
+- Commit: d85a343379f7f54155f69ef56dc544b666635894.
+- Patches, applied in this order: 01_linux_15khz.patch,
+  02_linux_15khz_interlaced_mode_fix.patch,
+  03_linux_15khz_dcn1_dcn2_dcn3_interlaced_mode_fix.patch,
+  04_linux_15khz_dce_interlaced_mode_fix.patch,
+  05_linux_15khz_amdgpu_pll_fix.patch,
+  06_linux_switchres_kms_drm_modesetting.patch,
+  07_linux_15khz_fix_ddc.patch, 08_linux_15khz_interlace_force_even.patch,
+  09_linux_15khz_i915_gen9_interlace.patch.
+- Licence: GNU General Public License 2.0 only, the licence of the
+  kernel. The LICENSE file and the README of the patch repository state
+  it at that commit. The two files that patch 01 adds also carry the
+  MIT-style notice of the DRM files of the kernel.
 
 Source code
 -----------
@@ -115,6 +136,32 @@ Source code
 The image contains software under the GNU General Public License and
 the GNU Lesser General Public License. The source code of each of these
 packages, at the version and with the patches that the image uses, is
-part of the `make legal-info` output that is published with each image.
+the `make legal-info` output of the build of the image. The kernel
+source is in its folder `sources/linux-6.18.63`: the kernel archive, the
+patches that this image applies (none in the image without the set) and
+the file `series` with their order. The project gives out that source
+together with the image, from the same place. The written offer below
+applies in every case, also for an image that reached you without its
+source.
+
+Written offer
+-------------
+
+For at least three years from the last date on which the NEPTRON project
+gives out this image, the project gives any third party, on request, a
+complete machine-readable copy of the corresponding source code of each
+package of this image that is under the GNU General Public License or
+the GNU Lesser General Public License. This includes the Linux kernel
+with the patches that this image applies. The source comes on a medium
+customarily used for software interchange; the usual case is a download.
+Each package comes under the terms of its own licence: the GNU General
+Public License for a GPL package, and the GNU Lesser General Public
+License for an LGPL package. The charge is no more than the cost of the
+physical act of the source distribution.
+
+To ask for the source, open an issue in the public repository of the
+project: https://github.com/paologaleotti/neptron/issues. Name the image
+file and its SHA-256, and the NEPTRON commit that built it if you know
+it.
 
 The image contains no game and no BIOS file.
