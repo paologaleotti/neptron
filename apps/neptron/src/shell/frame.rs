@@ -376,7 +376,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             .video_status(&mut status)
             .map_or("", |s| s.result.as_str());
         let text = picture_text(kind, notice, words);
-        let vertical = self.config.policy().map(|p| p.vertical);
+        let vertical = self.config.policy().map(|p| p.read_vertical());
         let first_vertical = vertical.is_ok_and(|v| {
             vertical_interlaced(
                 &current.source,

@@ -52,7 +52,7 @@ fn reason_text(reason: NoticeReason) -> String {
             "Soft picture: no sharp mode at this game's rate.".to_owned()
         }
         NoticeReason::Soft(SoftReason::Chosen) => {
-            "Soft picture: Vertical games is set to Fit.".to_owned()
+            "Soft picture: a settings file sets vertical games to Fit.".to_owned()
         }
         NoticeReason::Soft(SoftReason::FillMode) => {
             "Soft picture: Picture mode is set to Fill.".to_owned()
@@ -210,7 +210,7 @@ mod tests {
             ),
             (
                 SoftReason::Chosen,
-                "Soft picture: Vertical games is set to Fit.",
+                "Soft picture: a settings file sets vertical games to Fit.",
             ),
             (
                 SoftReason::FillMode,
@@ -283,7 +283,9 @@ mod tests {
         };
         let text = picture_text(RefreshKind::Tv, &notice, "").unwrap();
         assert!(
-            text.starts_with("Soft picture: Vertical games is set to Fit. The game runs at"),
+            text.starts_with(
+                "Soft picture: a settings file sets vertical games to Fit. The game runs at"
+            ),
             "{text}"
         );
     }

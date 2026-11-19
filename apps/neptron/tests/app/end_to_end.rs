@@ -121,7 +121,7 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             rig.focus("Picture mode");
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "options");
-            rig.focus("native");
+            rig.focus("Native");
             rig.tap(&[Control::A]);
             assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
             assert_eq!(rig.screen(), "quick-menu/video", "{:?}", rig.tree());

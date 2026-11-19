@@ -239,6 +239,61 @@ pub struct Names<'a> {
     pub outputs: &'a [OutputDevice],
 }
 
+/// The label and the help line of each picture mode, by its value in the
+/// schema. The help names what the mode gives up.
+pub const PICTURE_MODES: [(&str, &str, &str); 8] = [
+    (
+        "auto",
+        "Auto",
+        "Exact lines first, at the game's speed. A notice names each compromise.",
+    ),
+    (
+        "native",
+        "Native",
+        "The game's own lines, one time each. The picture can be small, with borders.",
+    ),
+    (
+        "2x",
+        "2x",
+        "Each line two times. If the screen cannot show it, a smaller step.",
+    ),
+    (
+        "3x",
+        "3x",
+        "Each line three times. If the screen cannot show it, a smaller step.",
+    ),
+    (
+        "4x",
+        "4x",
+        "Each line four times. If the screen cannot show it, a smaller step.",
+    ),
+    (
+        "sharp",
+        "Sharp lines",
+        "Exact lines always. The speed can change, and the picture can flicker or be small.",
+    ),
+    (
+        "speed",
+        "Game speed",
+        "The game's own speed first. The picture can be soft.",
+    ),
+    (
+        "fit",
+        "Fill",
+        "Fills the screen height with no flicker. The picture is soft.",
+    ),
+];
+
+/// The reason that a picture mode on its own rung is greyed: `native` or a
+/// multiple that the monitor cannot show.
+pub const NEEDS_ANOTHER_MONITOR: &str = "Needs another monitor";
+
+/// The reason that `speed` is greyed on a TV.
+pub const TV_HAS_ONE_RATE: &str = "A TV has one rate";
+
+/// The reason that `sharp` is greyed where only a fit validates.
+pub const NO_EXACT_MODE: &str = "No exact mode on this screen";
+
 /// What one picture style gives, for its option in the menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StyleOption {
@@ -813,9 +868,13 @@ fn tv_option(choice: &str, detected: &Detected) -> ChoiceOption {
     }
 }
 
-/// The option of a picture style, with what it gives on the monitor now.
+/// The option of a picture mode: its label and its help line, with what it
+/// gives on the monitor now.
 fn style_option(choice: &str, styles: &[StyleOption]) -> ChoiceOption {
-    let option = ChoiceOption::new(choice);
+    let option = match PICTURE_MODES.iter().find(|(key, _, _)| *key == choice) {
+        Some((_, label, help)) => ChoiceOption::new(*label).with_help(*help),
+        None => ChoiceOption::new(choice),
+    };
     match styles.iter().find(|s| s.key == choice) {
         Some(style) => {
             let option = option.with_detail(style.detail.clone());
@@ -1211,6 +1270,57 @@ mod tests {
         assert!(options[0].is_enabled());
         assert!(!options[2].is_enabled(), "2x");
         assert_eq!(options[1].detail, "", "a style with no row has no detail");
+    }
+
+    #[test]
+    fn every_picture_mode_has_a_label_and_a_help_line_in_the_order_of_the_schema() {
+        let keys: Vec<_> = PICTURE_MODES.iter().map(|(key, _, _)| *key).collect();
+        assert_eq!(keys, neptron_settings::PICTURE_STYLES);
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            styles: &[],
+            class: DisplayClass::FlatPanel,
+            outputs: &[],
+        };
+        for page in [display_page(&config, names), video_page(&config, names)] {
+            let mode = page
+                .rows
+                .iter()
+                .find(|r| r.label == "Picture mode")
+                .expect("the picture mode row on a panel");
+            assert!(mode.is_enabled());
+            let SettingValue::Choice { options, index } = &mode.value else {
+                panic!("a choice");
+            };
+            assert_eq!(*index, 0, "auto");
+            let labels: Vec<_> = options.iter().map(|o| o.label.as_str()).collect();
+            assert_eq!(
+                labels,
+                [
+                    "Auto",
+                    "Native",
+                    "2x",
+                    "3x",
+                    "4x",
+                    "Sharp lines",
+                    "Game speed",
+                    "Fill"
+                ]
+            );
+            for option in options {
+                assert!(!option.help.is_empty(), "{}", option.label);
+                assert!(option.help.len() <= 88, "two lines: {}", option.help);
+            }
+        }
+        let entry = config.schema().get(DISPLAY_STYLE).expect("style");
+        assert_eq!(
+            value_of(entry, UiValue::Choice(7), names, &config),
+            Some(Value::Text("fit".to_owned()))
+        );
     }
 
     #[test]

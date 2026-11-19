@@ -13,7 +13,7 @@ use neptron_ui::snapshot::{
     ConfirmId, GameId, Notice, NoticeId, NoticeKind, PageId, PendingConfirm, SessionInfo,
     SettingsPage, VideoStatus,
 };
-use neptron_video::{Monitor, Phase, VideoStatusText};
+use neptron_video::{Monitor, Phase, PictureStyle, VideoStatusText};
 
 use super::boot::profile_id;
 use super::{MENU_SOURCE, Shell, Stage};
@@ -228,7 +228,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 StyleOption {
                     key: row.style.key(),
                     detail,
-                    unavailable: (!row.available).then(|| "Needs another monitor".to_owned()),
+                    unavailable: (!row.available).then(|| unavailable_reason(row.style).to_owned()),
                 }
             })
             .collect()
@@ -315,6 +315,16 @@ fn copy_status(status: Option<&VideoStatusText>, video: &mut Option<VideoStatus>
     shown.alert = status.alert;
 }
 
+/// Why a picture mode is greyed: the rows of `style_rows` say only that it
+/// is not on its own rung.
+fn unavailable_reason(style: PictureStyle) -> &'static str {
+    match style {
+        PictureStyle::Speed => pages::TV_HAS_ONE_RATE,
+        PictureStyle::Sharp => pages::NO_EXACT_MODE,
+        _ => pages::NEEDS_ANOTHER_MONITOR,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use neptron_types::{TV_525_240P, TV_525_480I, TV_625_288P};
@@ -336,5 +346,25 @@ mod tests {
             mode_line(&TV_625_288P, Some(TvStandard::Pal)),
             "PAL 288p 50.08 Hz"
         );
+    }
+
+    #[test]
+    fn each_greyed_picture_mode_says_why() {
+        assert_eq!(
+            unavailable_reason(PictureStyle::Speed),
+            pages::TV_HAS_ONE_RATE
+        );
+        assert_eq!(
+            unavailable_reason(PictureStyle::Sharp),
+            pages::NO_EXACT_MODE
+        );
+        for style in [
+            PictureStyle::Native,
+            PictureStyle::X2,
+            PictureStyle::X3,
+            PictureStyle::X4,
+        ] {
+            assert_eq!(unavailable_reason(style), pages::NEEDS_ANOTHER_MONITOR);
+        }
     }
 }

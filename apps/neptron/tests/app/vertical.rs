@@ -10,9 +10,11 @@
 use neptron::NextRun;
 use neptron::notices::VERTICAL_INTERLACED_TEXT;
 use neptron::relaunch::GameRef;
+use neptron_settings::Source;
 use neptron_testcore::{PixelFormat, pixel};
 use neptron_testkit::RgbImage;
-use neptron_types::{Filter, Rect, Rotation};
+use neptron_types::{Control, Filter, MonitorKind, Rect, Rotation};
+use neptron_video::{Phase, SoftReason};
 
 use crate::panel::{PANEL_1080P, sysfs_with_panel};
 use crate::rig::{Rig, in_child_with, in_children_with, test_name};
@@ -174,6 +176,129 @@ fn a_board_turned_by_180_degrees_shows_the_right_way_up_on_a_panel() {
     });
 }
 
+/// Opens the quick menu of the running game, dismisses any notice, opens
+/// the Video page and picks `mode` in the options of Picture mode. The
+/// quick menu writes the game level.
+fn pick_picture_mode(rig: &mut Rig, mode: &str) {
+    rig.open_menu();
+    rig.frames(1);
+    for _ in 0..8 {
+        if rig.screen() != "notice" {
+            break;
+        }
+        rig.tap(&[Control::A]);
+    }
+    assert_eq!(rig.screen(), "quick-menu");
+    rig.focus("Video");
+    rig.tap(&[Control::A]);
+    assert_eq!(rig.screen(), "quick-menu/video");
+    rig.focus("Picture mode");
+    rig.tap(&[Control::A]);
+    assert_eq!(rig.screen(), "options");
+    rig.focus(mode);
+    rig.tap(&[Control::A]);
+    assert_eq!(rig.screen(), "quick-menu/video", "{:?}", rig.tree());
+    rig.frames(30);
+}
+
+/// Every mode the display took lies inside a range of the CRT profile of
+/// the run: its line rate and its field rate.
+fn every_mode_in_the_profile(rig: &mut Rig) {
+    let profile = rig.shell().guard().active().monitor.profile().clone();
+    let MonitorKind::Crt { ranges } = &profile.kind else {
+        panic!("a CRT profile: {profile:?}");
+    };
+    for switch in rig.display.mode_switches() {
+        let m = switch.active;
+        let (line, field) = (m.line_rate_mhz(), m.field_rate_mhz());
+        let inside = ranges.iter().any(|r| {
+            (r.h_min_mhz..=r.h_max_mhz).contains(&line)
+                && (r.v_min_mhz..=r.v_max_mhz).contains(&field)
+        });
+        assert!(inside, "{m:?} is outside {}", profile.id);
+    }
+}
+
+/// The picture mode Fill, chosen in the Video page of the quick menu while
+/// the vertical board runs on 15 kHz: the mode changes from interlaced 1:1
+/// to a progressive fit inside the monitor profile, the guard stays
+/// confirmed (the validator alone decides), the game level holds the
+/// value, and the notice names the mode.
+#[test]
+#[ignore = "tier 2"]
+fn on_15_khz_fill_from_the_quick_menu_changes_the_mode_to_a_progressive_fit() {
+    let test = test_name(
+        module_path!(),
+        "on_15_khz_fill_from_the_quick_menu_changes_the_mode_to_a_progressive_fit",
+    );
+    in_child_with(&test, &board(750, 1), |dir| {
+        let mut rig = on_15_khz(dir, None);
+        let before = rig.display.active_mode().expect("a mode");
+        assert!(before.interlace, "{before:?}");
+        let switches = rig.display.mode_switches().len();
+        pick_picture_mode(&mut rig, "Fill");
+        assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+        assert_eq!(rig.shell().config().text("display.style"), "fit");
+        let source = rig
+            .shell()
+            .config()
+            .resolved("display.style")
+            .map(|r| r.source);
+        assert_eq!(source, Some(Source::Game), "the quick menu writes the game");
+        assert_eq!(rig.shell().guard().active().settings.style.key(), "fit");
+        let after = rig.display.active_mode().expect("a mode");
+        assert!(!after.interlace, "{after:?}");
+        assert!(after.line_rate_mhz() < 17_000_000, "15 kHz: {after:?}");
+        assert!(rig.display.mode_switches().len() > switches, "a modeset");
+        let scene = rig.display.frames().last().expect("a frame").scene;
+        assert_eq!(scene.rotation, Rotation::R90);
+        assert_eq!(scene.filter, Filter::SharpBilinear);
+        assert!(scene.dest.h < 320, "fitted: {:?}", scene.dest);
+        // The quick menu shows the picture notice once per game; the
+        // reason of this picture is the picture mode.
+        let soft = rig
+            .shell()
+            .engine()
+            .expect("engine")
+            .current()
+            .and_then(|c| c.chosen.notice)
+            .and_then(|n| n.soft);
+        assert_eq!(soft, Some(SoftReason::FillMode));
+        every_mode_in_the_profile(&mut rig);
+        rig.finish();
+    });
+}
+
+/// The picture mode 2x, chosen in the quick menu while the vertical board
+/// runs on a 1080p panel: the upright 320 lines show at twice their size,
+/// 640 lines, in place of the fill of three times.
+#[test]
+#[ignore = "tier 2"]
+fn on_a_panel_2x_from_the_quick_menu_shows_the_board_at_twice_its_size() {
+    let test = test_name(
+        module_path!(),
+        "on_a_panel_2x_from_the_quick_menu_shows_the_board_at_twice_its_size",
+    );
+    in_child_with(&test, &board(750, 1), |dir| {
+        let mut rig = Rig::new(dir);
+        sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
+        rig.output = "HDMI-A-1".to_owned();
+        rig.boot(the_game());
+        assert!(rig.shell().in_game());
+        rig.frames(30);
+        let scene = rig.display.frames().last().expect("a frame").scene;
+        assert_eq!(scene.dest, rect(600, 60, 720, 960), "auto: 3x");
+        pick_picture_mode(&mut rig, "2x");
+        assert_eq!(rig.shell().config().text("display.style"), "2x");
+        let scene = rig.display.frames().last().expect("a frame").scene;
+        assert_eq!(scene.dest, rect(720, 220, 480, 640));
+        assert_eq!(scene.filter, Filter::Nearest);
+        let mode = rig.display.active_mode().expect("a mode");
+        assert_eq!((mode.hactive, mode.vactive), (1920, 1080));
+        rig.finish();
+    });
+}
+
 /// The notices of the snapshot.
 fn notices(rig: &mut Rig) -> Vec<String> {
     rig.shell()
@@ -262,7 +387,7 @@ fn on_15_khz_vertical_fit_gives_a_progressive_soft_picture_with_a_notice() {
         assert!(
             shown
                 .iter()
-                .any(|n| n == "Soft picture: Vertical games is set to Fit."),
+                .any(|n| n == "Soft picture: a settings file sets vertical games to Fit."),
             "{shown:?}"
         );
         rig.finish();

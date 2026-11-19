@@ -122,7 +122,7 @@ fn a_picture_style_in_safe_mode_opens_the_dialog() {
             rig.tap(&[Control::A]);
             rig.focus("Picture mode");
             rig.tap(&[Control::A]);
-            rig.focus("native");
+            rig.focus("Native");
             rig.tap(&[Control::A]);
             assert!(matches!(rig.shell().guard().phase(), Phase::Pending(_)));
             assert_eq!(rig.screen(), "confirm");
