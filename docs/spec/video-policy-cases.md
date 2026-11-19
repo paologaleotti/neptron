@@ -155,31 +155,286 @@ The owner decided V1 to V3 and V5 on 2026-11-16, and V6 and V7 on 2026-11-17 (th
 
 Known case, not open: Mortal Kombat (54.70 Hz) on a panel with a 720p 60 Hz mode and a 1080p 50 Hz mode (`panel_1080`). The panel rule takes the 1080p fill at 50 Hz, -8.6 %; the whole multiple at 720p 60 Hz would be +9.7 %. Neither is close to the board's rate. The default does not change.
 
-## 8. Picture mode (planned, not built)
+## 8. Picture mode
 
-The owner wants more control for the player beside good defaults: one setting, "Picture mode", with a flat list of named modes. The speed is part of the mode, not a second setting. This is a proposal. Nothing of it is built.
+The player gets two rows for the picture of a game: "Picture mode", one setting with a flat list of named modes, and "Refresh rate", the rate target that every mode works with. Each option names its compromises, so the player knows the trade before the choice. `auto` is the default and is the built policy of sections 1 to 7, unchanged: every golden of those sections passes as it was.
 
-**Key and storage.** The key stays `display.style`, because settings on disk are append-only. Its label becomes "Picture mode". The new values are appended to its list; `auto`, `native`, `2x`, `3x` and `4x` keep their meaning. Levels: global, system and game (`Levels::ALL`), as today.
+### 8.1 Keys, values and labels
 
-**The modes.** Each row has a one-line meaning. The help line under the list names the compromises of the selected row.
+`display.style` keeps its key, because the settings formats on disk are append-only. Its label is "Picture mode". The values `sharp`, `speed` and `fit` are appended to the end of its list; `auto`, `native`, `2x`, `3x` and `4x` keep their names and their meaning on a CRT and on a TV. The menus show the modes in their own order, Auto, Sharp lines, Game speed, Fill, Native, 2x, 3x, 4x (`PICTURE_MODE_MENU_ORDER`); a menu option maps to its value through that list (`menu_choices`).
 
-| Value (label) | Meaning | 15 kHz CRT | 31 kHz CRT | TV | Flat panel | Compromises it can cause |
+| Value | Label | Help line |
+| --- | --- | --- |
+| `auto` (default) | Auto | Exact lines first, at the game's speed. A notice names each compromise. |
+| `sharp` | Sharp lines | Exact lines over the game's speed. The picture can flicker or be small. |
+| `speed` | Game speed | The game's own speed first. The picture can be soft. |
+| `fit` | Fill | The largest picture with no flicker where the screen allows it. The picture can be soft. |
+| `native` | Native | Each game line on one screen line. The picture can be small, with borders. |
+| `2x` | 2x | Each game line on two screen lines. |
+| `3x` | 3x | Each game line on three screen lines. |
+| `4x` | 4x | Each game line on four screen lines. |
+
+`display.refresh_policy` keeps its key and its values. Its label is "Refresh rate". It is no expert key: its row stays in Settings > Display and in the Video page of the quick menu, next to Picture mode, with the levels of every picture setting.
+
+| Value | Label | Help line |
+| --- | --- | --- |
+| `exact` (default) | Auto | The game's own rate, or the nearest rate the monitor takes. |
+| `exact_x2` | Double rate | Each frame shows twice, at twice the game's rate. The game speed does not change. |
+| `force_50` | 50 Hz | Settings > Display: "Games run at 50 Hz. A game made for 60 Hz runs slower." The quick menu: "This game at 50 Hz. If it is made for 60 Hz, it runs slower." |
+| `force_60` | 60 Hz | Settings > Display: "Games run at 60 Hz. A game made for 50 Hz runs faster." The quick menu: "This game at 60 Hz. If it is made for 50 Hz, it runs faster." |
+
+`exact_x2` has a real use: a 240p game on a 31 kHz monitor that takes 120 Hz shows its own 240 lines at 120 Hz, each frame twice, in place of 480 lines at 60 Hz. It is the "Native, double refresh" of the Definition (`native` with `exact_x2`).
+
+Both keys: levels game, system and global (`Levels::ALL`); safety `Validated`; live. `display.style` applies to every display; `display.refresh_policy` applies to a CRT (a TV standard fixes the rate, and a flat panel runs at the rates of its modes), so its row is disabled on a TV and on a panel with that reason.
+
+### 8.2 Lines shown twice and frames shown twice
+
+Two different things can be "twice", and the texts never mix them up. Lines twice: each game line is drawn on two screen lines, so a 240-line game fills a 480-line screen. This is how a 31 kHz VGA monitor shows a 240p game by default: 480p, every pixel exact, at the game's own speed, with scanlines. Frames twice: each game frame is shown for two screen refreshes, at twice the game's rate, for example 120 Hz for a 60 Hz game. The speed does not change. Only the refresh choice Double rate asks for it, and the policy takes it on its own only where `main` already does: for `native` where the game's lines do not fit at its rate, and for a game below every rate of the monitor (a 30 Hz board). No help line says "twice" without saying lines or frames.
+
+### 8.3 The display classes
+
+The policy knows three kinds of display (`MonitorKind`): a CRT with ranges, a TV with the fixed modes of its standard, and a flat panel with its listed modes. The rules of a CRT are the same for every CRT class of the tables above (15 kHz, 25 kHz, 31 kHz, multi-range and multi-sync presets, EDID tubes); the ranges of the profile and the limits of the video output (`GpuCaps`) give the different results.
+
+The Raspberry Pi 3 is a first target. Its outputs, with the limits of `data/hardware/matrix.toml` that the policy reads: HDMI to a flat panel (the panel path, with the modes the panel lists); composite to a TV (`pi_vc4_composite`: the 13.5 MHz clock of the encoder, interlace, 720 samples); GPIO DPI to a CRT (`pi_vc4_dpi`: no interlace, 165 MHz). A Pi on DPI has no interlaced mode, so a rung that needs one fails for the output, not the monitor, and the menu greys it with "Not possible with this screen and video output" (8.7).
+
+### 8.4 Each mode on each display
+
+"The auto ladder" is the ladder of `auto`: native, 2x, 3x, 4x, interlaced 1:1, then the fit. "The V6 margin" is `EXACT_SPEED_MARGIN_PPM`.
+
+**`auto`.** The built policy, unchanged on every display wherever it has a picture. Where the plan of `auto` has no proposal that the validator accepts, the decision takes the picture of `fit` for the same inputs (owner, 2026-11-19: "if no auto can find a decent mode, fill is always the default"; `decide_shown`, the one place of this rule), with the notice "Fill picture: no other picture mode has a picture for this game here." in place of the soft reason of the Fill mode. Where `fit` has no picture either, nothing changes: the engine keeps the mode on screen. This changes `auto` only where it had no picture: every golden, `policy_vertical_fit.toml` and every exhaustive run pass unchanged, and the cells that change are named in the tests (8.7). A stored mode with no picture of its own (Sharp lines, Native, Game speed, a multiple, Fill) shows the picture of `auto`, and so the Fill picture where `auto` has none, and is declined with `NoPicture`.
+
+**`native`, `2x`, `3x`, `4x` on a CRT and on a TV.** Unchanged: the ladders of `walk_ladder`. Where the winner is not the first rung of the mode, the option is declined (8.7): `NotShownHere` where the rung is not reachable whole at the rate of the winner, `SmallerFillsMore` where it is reachable but a smaller step of a lower line rate range ranks first; a stored value falls through the ladder as before, with the notice of 8.9.
+
+**`native`, `2x`, `3x`, `4x` on a flat panel.** The game is centred at that whole factor of its lines, at its display aspect, with the filter of `panel_filter` (nearest at a whole scale and from 1 to below 2, sharp bilinear below 1). When the factor does not fit the mode, the option is declined with `TooLargeForScreen` (8.7: greyed for the game of the quick menu, "Not all games" on Settings > Display when some games fit); a stored value gives the largest smaller factor that fits, or the fit for a game larger than the panel.
+
+**`sharp` on a CRT.** The auto ladder, with one difference: every exact mode ranks before the fit, at any speed change. Example: 640x500 at 60 Hz on `generic_15` has no exact mode at 60 Hz; interlaced 1:1 holds the lines only at a slower window rate, more than 2 points slower than the fit. `auto` and `speed` take the fit at 60 Hz, `sharp` the interlaced 1:1 mode. DOS 640x400 at 70 Hz is within the margin, so `auto` and `sharp` both take interlaced 1:1 at 64.29 Hz. `display.vertical` reads as `exact` (`PolicySettings::read_vertical`, the one place of this rule). Where only a fit validates, the option is greyed.
+
+**`sharp` on a TV.** The TV walk of `auto` with `display.vertical` read as `exact`.
+
+**`sharp` on a flat panel.** The largest whole multiple that fits, at every scale, with black borders (`display.panel_scale` read as `integer`, `PolicySettings::read_panel_scale`).
+
+**`speed` on a CRT.** The auto ladder. An exact mode at a slower window rate wins over the fit only when it changes the speed no more than the fit (a margin of 0, within `REFRESH_MATCH_MHZ`). Example: DOS 640x400 at 70 Hz on `generic_15` is the fit at 65 Hz (-7.26 %), not 1:1 at 64.29 Hz (-8.28 %). `speed` takes no frame shown twice that `auto` does not take (8.2). Where the winner still changes the speed by more than the alert threshold (section 9, 0.5 %), Game speed does not give what it names (`SpeedNotHeld`, "This screen cannot hold the game's speed"): the menus judge it by the rules of 8.7, and a stored `speed` gives that winner with the notice.
+
+**`speed` on a TV.** A TV standard has one field rate, so the option is greyed: "A TV has one rate". A stored value gives the result of `auto`.
+
+**`speed` on a flat panel.** A mode that holds the game comes before a mode that must shrink it, as in `auto`. Where no listed mode keeps the speed within 0.5 % (a 50 Hz game on a panel with only 60 Hz modes), Game speed is declined with `SpeedNotHeld`, as on a CRT. Then the listed mode whose rate is nearest the game's rate, in steps of 0.1 % (1,000 ppm). Then the order of `auto`. Example: a 50 Hz game on a panel that lists 1080p at 60 Hz (preferred) and 720p at 50 Hz takes 720p at 50 Hz, where `auto` takes 1080p at 60 Hz.
+
+**`fit` on a CRT.** These rules hold for the mode `fit` only; `auto` with the expert key `display.vertical = fit` decides exactly as before the picture modes (the golden `policy_vertical_fit.toml`, checked against the `crt.rs` of `main`). For a progressive game: every interlaced 1:1 mode and every exact picture below `SMALL_PICTURE_MIN_PERCENT` (60 %) of the picture lines drop (`Dropped::VerticalFit`). The fitted rung then takes the most progressive lines that a range holds at the game's rate; where the game's rate holds none, the fit at the window rate where a range holds progressive lines comes before the last resort. So a progressive game never gets an interlaced mode under `fit` where the monitor holds progressive lines at the game's rate or at the rate the policy takes (`md_pal_h40` on `arcade_25` is a 400-line progressive fit, not 800i). An exact progressive picture of 60 % or more stays: it keeps every pixel, and the fit would be at most a little larger and soft. An interlaced game keeps its interlaced mode: its lines need it. A monitor with no progressive lines at either rate gives the interlaced fit of `auto`; no cell of the goldens has this case. The last resort, where the solver picks the rate and the scan itself, can also be interlaced: the generated run finds it on moved ranges only.
+
+**`fit` on a TV.** A progressive game that `auto` puts in 480i or 576i 1:1 gets the fit into 240p or 288p. A game whose lines fit the progressive mode keeps them 1:1. An interlaced game keeps the interlaced mode.
+
+**`fit` on a flat panel.** The fill at every scale, the shape kept. Below the scale of 4 (`PANEL_FILL_MIN_SCALE_MILLI`) the fill is soft, and the notice names it: "Soft picture: Picture mode is set to Fill." The same holds for `display.vertical = fit` on a panel, with its own sentence. No `auto` result with the default keys changes.
+
+### 8.5 The refresh choice with each mode
+
+The refresh choice is the rate target that every mode works with, as on `main`. On a CRT, an exact mode at the asked rate (`exact_x2`, `force_50`, `force_60`) ranks before every exact mode at another rate, for every mode: the asked rate is the player's choice, so it wins over the speed rule of `speed` and over the margin of `sharp`. An option of the refresh row is offered when the winner runs at the asked rate, a soft fit at that rate too: the option gives the rate it names, and the notice names the soft picture (640x500 at 60.000 Hz on `generic_15` with `force_60` is the fit at 60 Hz). It is declined when no range covers the asked rate (`RateNotCovered`), or when a range covers it but the winner runs at another rate (`RateNotHeld`): no mode at the asked rate validates, or a mode at another rate, an exact picture or a fit, ranks before every mode at the asked one. On a TV and on a flat panel the display does not read the refresh choice: the row is disabled, and a stored choice other than Auto greys nothing and gives no notice. A pick of a picture mode changes the refresh choice only by the pair rule of 8.7, and the tag of the option says so. A pick of a refresh choice that also sets the picture mode to Auto keeps the expert keys of that level (`display.vertical`, `display.panel_scale`): the pair that the menu judged had them, so the write runs the very pair that was judged.
+
+### 8.6 Scanlines with each mode
+
+The scanline rule is the one of `neptron_types::scanlines_for`, unchanged: `auto` draws them on a CRT above the 15 kHz class (`CRT_15KHZ_CLASS_MAX_LINE_RATE_MHZ`, so a 25 kHz or 31 kHz mode) where each game line is on two or more screen lines; `on` draws them on every screen where each game line is on two or more screen lines; no scanline is drawn on an interlaced mode or at a strength of 0. On a flat panel `on` keeps a whole vertical multiple (`panel_scanlines`, the one place of this rule), so a fill becomes whole steps. `offer` reads the rule back for the winner (`ScanlineOutcome`), and the notice says why scanlines that are on do not show.
+
+| Display | Scanlines | Auto, Sharp lines, Game speed | Fill | Native | 2x, 3x, 4x |
+| --- | --- | --- | --- | --- | --- |
+| 15 kHz CRT | Auto | None: the tube makes its own | None | None | Greyed |
+| 15 kHz CRT | On | None at 1x, with the notice | None on a fit, with the notice | None, with the notice | Greyed |
+| 31 kHz CRT | Auto | Drawn at 2x: 240p shows as 480p with scanlines | Drawn where the result is 2x | None at 1x | Drawn |
+| 31 kHz CRT | On | As Auto | As Auto | None at 1x, with the notice | Drawn |
+| TV | Auto | None: the TV makes its own | None | None | Greyed |
+| TV | On | None (1x or interlaced), with the notice | None, with the notice | None, with the notice | Greyed |
+| Flat panel | Auto | None | None | None | None |
+| Flat panel | On | Whole steps in place of the fill, drawn, with the notice of whole steps | Whole steps, drawn, with that notice | None at 1x, with the notice | Drawn |
+| Every display | Off | None | None | None | None |
+
+The help line of the scanline row names what Auto does on the connected display (8.9).
+
+### 8.7 The one decision: `offer`
+
+One pure function in `crates/neptron-modeline/src/policy/offer.rs` decides what the display gives: `offer(source, settings, scanlines, profile, caps, validate) -> Result<Offer, PolicyError>`. A candidate is the picture mode and the refresh choice of `settings` with the scanline settings (`ScanlineChoice`). It runs the same `decide` and `choose` as the engine, with the engine's validator, and returns `Offer = Result<Offered, Declined>`:
+
+- `Offered`: the plan, the winner the validator accepted, its notice, and what the scanlines give (`ScanlineOutcome`).
+- `Declined`: the reason (`DeclineReason`), the plan, and the winner the display shows in its place (for a stored candidate), or none.
+
+`picture_choices` judges each option of the two rows as the pair that a pick stores and the engine then runs: the option with the stored value of the other row. The answer is one type, `RowAnswer`, with three cases:
+
+- `Plain`: `offer` gives that pair. The option is selectable; a pick sets this row only.
+- `ResetsOther`: `offer` declines that pair, and gives the pair with the other row at Auto. The option is selectable; a pick sets this row and the other row to Auto, at the same level, in the same write (`Config::set_clearing`), and a revert restores both. The row shows the tag "Sets rate Auto" (or "Sets mode Auto") in place of the rates; the help line keeps the option's own text, and the notice after the pick says it in full: "Refresh rate is set to Auto too." ("..., for all games." or "..., for all games of this system." at those levels).
+- `Declined`: `offer` declines the pair with the other row at Auto too. The option is greyed with the reason of that pair, which is a reason of the row itself.
+
+On a TV and a flat panel the pair is the mode alone, because the display does not read the refresh choice; a refresh choice other than Auto is declined there with the rate of the TV or of the panel. Auto of a row is offered with the other row at Auto wherever the display shows a picture, so it is never greyed there. `offer` judges a stored pair: the refresh reasons where the display reads the refresh choice (a CRT), then the mode reasons. The engine asks both with its own validator and veto. The menus build every option of the two rows from the answers and from nothing else; with no answer (no engine) every option is greyed. The way from an offered candidate to the screen stays: the decision, the validator, `ValidatedMode`.
+
+**Which values judge a write.** A write at a level is judged with the values resolved from the defaults up to that level (`Config::policy_up_to`, `Config::scanlines_up_to`): the game level of the quick menu with the values of the run, for the running game; the system level in a game with no game layer, for the running game; the global level, and every level in the game list, with the global values, for every game: the running game, if any, then the reference sources. The control protocol takes the same rule at each level, with and without a running game.
+
+**Settings > Display for every game.** `REFERENCE_SOURCES` in `offer.rs` is a named list of real shapes, each with the reason it is there: the Game Boy, the SNES, the PlayStation at 240 lines, the NES PAL, the Amiga PAL at 256 lines, a 480i source, the Neo Geo at 59.180 Hz, Mortal Kombat at 54.700 Hz, DoDonPachi turned, and a 480-line progressive source. `for_every_game` makes one answer of the answers of the sources (`RowChoice`): an option declined for every source is greyed with the reason of the first; an option that some sources do not get is selectable, with the tag "Not all games" in its row, and `RowChoice::not_for_every_game` says why (`SomeGames`): a reason of its own row, or `NeedOtherAtAuto`, where some games get it only with the other row at Auto; a reason of the other row never shows on a row. The notice after the pick of such an option says it in full: "Some games need 99.840 Hz, which this monitor does not take." for a rate of one game, "Not all games: {reason}." for another reason, "Some games need Refresh rate at Auto for it." for the other row. A rate that one game needs never shows as the reason of a greyed option for every game: Double rate that no game gets reads "This monitor does not take twice the rate of any game". The page shows no rate detail for every game: no rate holds for all, and the status block shows the mode on screen. The quick menu shows the mode of the running game in the detail.
+
+**The keep prompt.** The keep prompt of the quick menu moves the whole change of the visit to the level it names. A pick that also set the other row to Auto at the game level moves with that reset: the write at the level sets both keys there, where the level gives the pick at all, judged with the values of that level, and the notice names the reset at that level. The game level then loses both keys in one write, so no key of the pair stays behind alone. A move that the gate of the level refuses removes nothing at the game level: the notice says "Not kept for all games of this system: {reason}. The choice stays for this game." (or "for all games").
+
+**The cost of the answers.** One decision takes about 0.15 ms on the development machine (dev profile) and an estimated 2 to 3 ms on a Raspberry Pi 3. A page of Settings > Display judges about 100 decisions (eleven sources), the quick menu up to 24. The engine keeps the answers of the last requests, keyed by the request (the sources, the settings and the scanlines of the level) and by the generation of its inputs (the monitor profile, the caps, the veto and the driver refusals); a change of any of those makes new work, and a page that loads again with the same inputs costs nothing. A new request starts its work, and the frame makes at most `PICTURE_DECISIONS_PER_FRAME` (2) decisions of it, inside the 8 ms that the frame thread gives to work of its own on a Pi 3; the page shows its options as "…" and greyed until the answers are there, then loads again. The gate of a set takes the answers of the loaded page; a set at a level that no page shows (a keep, the protocol) makes them at once.
+
+The app sets a picture mode or a refresh choice only by this rule (`pages::gate`), for an input from the menus and from the control protocol alike. A greyed value changes nothing on disk or on the engine, and a short notice gives the reason: "Not changed: {reason}." The protocol sets one key: a value that is only given with the other row at Auto is refused with a reason that says so ("display.style = speed is only possible with display.refresh_policy = exact: set it first"), and the protocol never resets another key itself.
+
+`DeclineReason`, in the order the function checks them:
+
+| Reason | When | Text in the menu |
+| --- | --- | --- |
+| `NoPicture` | The plan of the candidate has no proposal that validates. A stored candidate shows the picture of `auto`, or of `fit`, where one has a picture | No picture with this choice |
+| `RateFixedByTv` | A refresh choice other than `exact` on a TV | A TV has one rate |
+| `RateOfPanel` | A refresh choice other than `exact` on a flat panel | A flat panel uses its own rates |
+| `RateNotCovered` | No range of the CRT covers the asked rate | This monitor does not take {rate} Hz |
+| `RateNotHeld` | A range covers it, but the winner runs at another rate: no mode at the asked rate validates, or a mode at another rate (an exact picture or a fit) ranks first | No exact picture at this rate |
+| `NotShownHere` | `native` or a multiple on a CRT or a TV: the winner is another rung, and the display (the monitor with its video output) cannot show the asked rung whole at the rate of the winner: no proposal of it there validates with no crop. The policy does not tell the limit of the monitor from the limit of the output: that would need a second decision with other limits | Not possible with this screen and video output |
+| `SmallerFillsMore` | `native` or a multiple on a CRT or a TV: the asked rung is reachable whole at the rate of the winner, but a smaller step of a lower line rate range ranks first and fills more of the screen (the Lynx in 3x at 50 Hz on `d9200` shows a padded 2x). `offer` sets it where the validator's answer is known; the order of the plan does not change | {2x, Native, ...} fills more of this screen |
+| `TooLargeForScreen` | `native` or a multiple on a flat panel: the factor does not fit | Too large for this screen |
+| `NoExactMode` | `sharp`: only a fit validates | No exact mode on this screen |
+| `OneRateOnTv` | `speed` on a TV | A TV has one rate |
+| `SpeedNotHeld` | `speed`: the winner still changes the speed by more than 0.5 % | This screen cannot hold the game's speed |
+
+For a stored pair the refresh reasons come first, because the refresh choice holds for every mode. The rule of the mode reasons is one function (`mode_refusal`), which the notice reads too (`style_fallback`).
+
+A stored candidate that the display declines (the settings came from another display, or a file edited by hand) is never applied as stored: the engine shows the winner of its plan, which the validator accepted, inside the profile; where its plan has no picture (`NoPicture`), the picture of `auto`, or of `fit` (8.4). The notice names what was asked, why, and what shows, and why scanlines that are on do not show (8.9). Where no plan has a picture, the engine keeps the mode on screen; the runs below name every cell where that happens (none on the presets, the EDID tubes, the panels and the TV standards) and every cell where `auto` takes the Fill picture (one generated cell: a source one millihertz above a range of `pc_70_120`, with the ranges moved by the seed), each with the rate of its source.
+
+`crates/neptron-modeline/tests/integration/policy_offer.rs` runs every candidate (every picture mode, refresh choice and the scanline settings a plan reads) on every preset of `data/monitors` with an open GPU and with each GPU entry of `data/hardware/matrix.toml` that drives a CRT, the EDID tubes and panels of the arcade table, and every TV standard on the composite output (`pi_vc4_composite`), for every source of the arcade table. An offered candidate keeps the promise of its option (sharp is no fit, a multiple is that multiple, native is 1:1, Fill is not interlaced where progressive lines exist, Game speed holds the speed, a forced rate runs at that rate) and shows a validated mode inside the profile; a declined one has a reason that the test finds true by itself, from the profile, the caps, the plan and the validator, and the mode it shows in its place validates and lies inside the profile. For every stored pair of every screen and source, and on a panel for every scanline setting, the test builds the rows by the pair rule from the answers of `offer` and holds: Auto of each row is selectable where (Auto, Auto) has a picture, and no option is greyed with a reason of the other row. In the runs with an open GPU and in the other runs but the GPU groups (which repeat the same code with other limits), it compares `picture_choices` with those rows for one stored pair of each screen, source and scanline setting, a different one from source to source, and each selectable option with a direct call of `offer` for the very pair that a pick stores. The cells with no picture, and the cells where `auto` takes the Fill picture, are asserted against named lists in every run, each with the rate of its source. A last run moves the rate limits of every CRT preset, takes sources at each field rate edge, one millihertz inside and outside, and generated sources; a failure prints the seed and the case. The GPU entries with the same limits give the same decisions, so one run covers each group of them, and a test holds the groups against the matrix. The runs are split into parts of the preset and screen lists, so that each test takes less than about 20 s on a loaded machine.
+
+The table below is the output of `offer` for the SNES (256x224 at 60.099 Hz) with scanlines Auto, for each stored pair: a row per picture mode and a column per refresh choice, the mode shown, or the reason. On a TV and a panel a stored refresh choice declines nothing. The test `the_spec_table_of_offered_combinations_is_the_output_of_the_function` compares it with the function, so it cannot drift.
+
+<!-- offer-table:begin -->
+**15 kHz CRT (`generic_15`)**
+
+| Mode | `exact` | `exact_x2` | `force_50` | `force_60` |
+| --- | --- | --- | --- | --- |
+| `auto` | 256x224p 60.09 Hz | no: rate not covered | 256x224p 50.00 Hz | 256x224p 59.99 Hz |
+| `native` | 256x224p 60.09 Hz | no: rate not covered | 256x224p 50.00 Hz | 256x224p 59.99 Hz |
+| `2x` | no: not shown here | no: rate not covered | no: not shown here | no: not shown here |
+| `3x` | no: not shown here | no: rate not covered | no: not shown here | no: not shown here |
+| `4x` | no: not shown here | no: rate not covered | no: not shown here | no: not shown here |
+| `sharp` | 256x224p 60.09 Hz | no: rate not covered | 256x224p 50.00 Hz | 256x224p 59.99 Hz |
+| `speed` | 256x224p 60.09 Hz | no: rate not covered | no: speed not held | 256x224p 59.99 Hz |
+| `fit` | 256x224p 60.09 Hz | no: rate not covered | 256x224p 50.00 Hz | 256x224p 59.99 Hz |
+
+**31 kHz CRT (`arcade_31`)**
+
+| Mode | `exact` | `exact_x2` | `force_50` | `force_60` |
+| --- | --- | --- | --- | --- |
+| `auto` | 256x448p 60.09 Hz | no: rate not covered | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+| `native` | 546x478p 60.09 Hz | no: rate not covered | 585x512p 50.00 Hz | 548x479p 60.00 Hz |
+| `2x` | 256x448p 60.09 Hz | no: rate not covered | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+| `3x` | no: not shown here | no: rate not covered | no: not shown here | no: not shown here |
+| `4x` | no: not shown here | no: rate not covered | no: not shown here | no: not shown here |
+| `sharp` | 256x448p 60.09 Hz | no: rate not covered | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+| `speed` | 256x448p 60.09 Hz | no: rate not covered | no: speed not held | 256x448p 60.00 Hz |
+| `fit` | 256x448p 60.09 Hz | no: rate not covered | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+
+**31 kHz PC CRT up to 120 Hz (`pc_31_120`)**
+
+| Mode | `exact` | `exact_x2` | `force_50` | `force_60` |
+| --- | --- | --- | --- | --- |
+| `auto` | 256x448p 60.09 Hz | 256x224p 120.19 Hz | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+| `native` | 256x224p 120.19 Hz | 256x224p 120.19 Hz | 585x512p 50.00 Hz | 578x506p 60.00 Hz |
+| `2x` | 256x448p 60.09 Hz | no: rate not held | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+| `3x` | no: not shown here | no: rate not held | no: not shown here | no: not shown here |
+| `4x` | no: not shown here | no: rate not held | no: not shown here | no: not shown here |
+| `sharp` | 256x448p 60.09 Hz | 256x224p 120.19 Hz | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+| `speed` | 256x448p 60.09 Hz | 256x224p 120.19 Hz | no: speed not held | 256x448p 60.00 Hz |
+| `fit` | 256x448p 60.09 Hz | 256x224p 120.19 Hz | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+
+**TV (`tv_ntsc`)**
+
+| Mode | `exact` | `exact_x2` | `force_50` | `force_60` |
+| --- | --- | --- | --- | --- |
+| `auto` | 720x240p 60.05 Hz | 720x240p 60.05 Hz | 720x240p 60.05 Hz | 720x240p 60.05 Hz |
+| `native` | 720x240p 60.05 Hz | 720x240p 60.05 Hz | 720x240p 60.05 Hz | 720x240p 60.05 Hz |
+| `2x` | no: not shown here | no: not shown here | no: not shown here | no: not shown here |
+| `3x` | no: not shown here | no: not shown here | no: not shown here | no: not shown here |
+| `4x` | no: not shown here | no: not shown here | no: not shown here | no: not shown here |
+| `sharp` | 720x240p 60.05 Hz | 720x240p 60.05 Hz | 720x240p 60.05 Hz | 720x240p 60.05 Hz |
+| `speed` | no: one rate on TV | no: one rate on TV | no: one rate on TV | no: one rate on TV |
+| `fit` | 720x240p 60.05 Hz | 720x240p 60.05 Hz | 720x240p 60.05 Hz | 720x240p 60.05 Hz |
+
+**Flat panel (`panel_1080`)**
+
+| Mode | `exact` | `exact_x2` | `force_50` | `force_60` |
+| --- | --- | --- | --- | --- |
+| `auto` | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz |
+| `native` | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz |
+| `2x` | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz |
+| `3x` | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz |
+| `4x` | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz |
+| `sharp` | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz |
+| `speed` | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz |
+| `fit` | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz | 1920x1080p 60.00 Hz |
+
+<!-- offer-table:end -->
+
+### 8.8 Old keys and old files
+
+| Key | What changes |
+| --- | --- |
+| `display.style` | Label "Picture mode". Three values appended. It now applies to a flat panel: `native`, `2x`, `3x` and `4x` give that factor there (before, the panel ignored them) |
+| `display.refresh_policy` | Label "Refresh rate". Its row and its values stay; a pick of a picture mode sets it to Auto only by the pair rule of 8.7, and says so |
+| `display.vertical` | An expert key (`Entry::expert`): it stays in the schema and in the files, and the menus do not show it. It keeps its meaning under `auto`, `native`, `2x`, `3x`, `4x` and `speed`. `sharp` reads it as `exact`; `fit` gives its rule to every progressive game |
+| `display.panel_scale` | An expert key. It keeps its meaning under `auto` and `speed`. `sharp` reads it as `integer`; `fit` fills; `native`, `2x`, `3x`, `4x` name their own factor |
+
+When the player sets the picture mode at a level (the Settings panel writes the global level; the quick menu writes the game level, and its keep prompt may move the change to the system or the global level), the expert keys that the mode covers (`PICTURE_MODE_COVERS`: `display.vertical` and `display.panel_scale`) are removed at that same level, in the same write. So the mode the player picks is what the player gets. A value that still acts from another level, or from a file edited by hand, keeps its effect, and the notice names it whenever it changes the picture: "the setting display.vertical is set to fit", "the setting display.panel_scale is set to integer". A schema test holds the expert keys equal to `PICTURE_MODE_COVERS`, so no expert key is a dead entry.
+
+An old settings file keeps its meaning on a CRT and on a TV: it can hold only the old values, and they give the old results. On a flat panel, a value `native`, `2x`, `3x` or `4x` now gives that factor. Known limit: one settings folder serves every display, and with `display.output = auto` a machine can drive a CRT one day and a panel the next, so a mode set for a game on one display acts on the other. A mode per display class is a later choice for the owner.
+
+### 8.9 Notices
+
+Each picture keeps the notice of the quick menu, one sentence per compromise (`Notice::reasons`). The notice shows at the first picture of a game, and again after a change of the picture mode or the refresh choice in a running game: the app waits until the engine has the picture of the new settings on screen (`VideoEngine::settled`), however long the modeset takes, and shows the notice when that picture differs, when it is not exact or changes the speed.
+
+| Reason | Text |
+| --- | --- |
+| `FillFallback` | "Fill picture: no other picture mode has a picture for this game here." It takes the place of `Soft(FillMode)`: the player did not choose Fill |
+| `Soft(FillMode)` | "Soft picture: Picture mode is set to Fill." |
+| `Soft(Chosen)` | "Soft picture: the setting display.vertical is set to fit." |
+| `WholeSteps(Scanlines)` | "Whole steps, with borders: scanlines are on, and they need whole steps on a flat panel." |
+| `WholeSteps(PanelScaleKey)` | "Whole steps, with borders: the setting display.panel_scale is set to integer." |
+| A stored candidate that `offer` declines | "{Picture mode X / Refresh rate X / Picture mode X with Refresh rate Y}: {reason, first letter in lower case}. Shown: {the mode of the status line}." The pair names both rows for `NoPicture`, and for a reason of the picture mode while the refresh rate is not Auto: the rate can be the cause, and it can come from another level. Game speed with a forced rate says "the refresh rate changes the game's speed", not that the screen cannot hold it |
+| A value of the picture mode or refresh row that the display does not give, set from the menus or the control protocol | "Not changed: {reason, first letter in lower case}." |
+| A pick that also sets the other row to Auto (8.7) | "Refresh rate is set to Auto too." / "Picture mode is set to Auto too.", with ", for all games of this system" or ", for all games" at those levels |
+| A pick on Settings > Display that some games do not get (8.7) | "Some games need {rate} Hz, which this monitor does not take." / "Not all games: {reason}." / "Some games need {Refresh rate / Picture mode} at Auto for it." |
+| A keep that the gate of its level refuses (8.7) | "Not kept for {all games of this system / all games}: {reason}. The choice stays for this game." |
+| Scanlines on, none drawn | "No scanlines: they need each game line on two or more screen lines." / "No scanlines: they are not drawn on an interlaced picture." / "No scanlines: the scanline strength is 0." |
+
+The help lines of the scanline row, by display class:
+
+| Value | CRT | TV | Flat panel |
+| --- | --- | --- | --- |
+| Auto | Drawn above 15 kHz when each game line is on two or more screen lines, with no interlace. | None on a TV. | None on a flat panel. Choose On to draw them. |
+| On | Dark lines where each game line is on two or more screen lines, with no interlace. | The same as on a CRT | Dark lines at a whole multiple of 2 or more. The picture then uses whole steps. |
+| Off | No scanlines. | No scanlines. | No scanlines. |
+
+The one-time notice of a vertical game names the place of the choice:
+
+> This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fill, in Settings > Display or in Video in the quick menu, shows it as a soft picture with no flicker. A screen turned on its side (TATE) comes in a later version.
+
+### 8.10 The cases
+
+`crates/neptron-modeline/tests/golden/policy_modes.toml` holds the winner of each mode for nine sources (the NES, the SNES, the Mega Drive in PAL and in 448i, the Game Boy, the WonderSwan, DoDonPachi on its side, DOS 640x400 at 70 Hz and Mortal Kombat at 54.70 Hz) on one display of each class: `generic_15`, `arcade_25`, `arcade_31`, `d9800`, `edid_30_70`, `tv_ntsc`, `tv_pal` and `panel_1080`. The test `every_picture_mode_on_each_display_class_gives_its_golden_decision` checks it, and checks every `auto` cell against `policy_sources.toml`. The cases that show the differences:
+
+| Source | Display | `auto` | `sharp` | `speed` | `fit` | `native` / `2x` on the panel |
 | --- | --- | --- | --- | --- | --- | --- |
-| `auto` (Auto) | The decided rule: exact lines first, the game's speed within the margin of V6 | As decided | As decided | As decided | As decided | Each, with its notice |
-| `sharp` (Sharp lines) | Every line exact, the smallest whole multiple that fills. Another rate or interlace when needed. Never soft | Interlaced 1:1 for a tall game | 2x line doubling; 1:1 in about 500 lines | 480i or 576i 1:1 | The largest whole multiple | Small picture, interlace, speed change, crop |
-| `speed` (Game speed) | The game's own rate first, or each frame twice. Exact lines at that rate, else the fit at that rate | The fit at the game's rate where exact lines need another rate | The same | Not available: one field rate | The listed mode nearest the game's rate (1080p 50 Hz for a 50 Hz game) | Soft scale, frames shown twice |
-| `native` (Native) | The game's own lines once, with borders | 1x | 1x in about 480 lines | 1x | 1x | Small picture, interlace |
-| `2x`, `3x`, `4x` | That whole multiple | 2x of a short game only | 2x | Not available | That multiple | Crop, small picture |
-| `fit` (Fill) | Fill the height with the shape kept, progressive where possible, soft | The 240p or 288p fit | The fit into about 500 lines | The fit into 240p or 288p | The fill, sharp bilinear | Soft scale |
+| DOS 640x400, 70 Hz | `generic_15` | Interlaced 1:1, 64.29 Hz | The same | The fit, 221p at 65 Hz | The same as `speed` | |
+| DOS 640x400, 70 Hz | `tv_ntsc` | 480i 1:1 | The same | The same | The fit into 240p | |
+| Mega Drive PAL | `arcade_25` | 1:1 in 400p, 49.70 Hz | The same | The same | The fit into 400p | |
+| SNES | `arcade_25` | 1:1 in 384p at 60.00 Hz | The same | The same | The fit into 384p at 60.00 Hz | |
+| DoDonPachi, turned | `generic_15` | Interlaced 1:1, 448i | The same | The same | 252p fit, soft | |
+| DoDonPachi, turned | `panel_1080` | 3x, 960 lines | The same | The same | Fill, 1080 lines, soft, with the notice | 1x, 320 lines; 2x, 640 lines |
+| Game Boy | `generic_15` | 1x, 144 of 224 lines | The same | The same | The fit into 242p, soft | |
+| Game Boy | `panel_1080` | Fill, 7.5 | 7x, 1008 lines | The same as `auto` | The same as `auto` | 1x, 144 lines; 2x, 288 lines |
+| Mega Drive PAL | `panel_1080` | 1080p at 50 Hz, fill | 1080p at 50 Hz, 4x | The same as `auto` | The same as `auto` | 1x; 2x; at 50 Hz |
+| Mega Drive 448i | `tv_ntsc` | 480i, 448 lines 1:1 | The same | The same | The same: an interlaced game keeps it | |
 
-**The list on a 240-line screen.** A UI row is 12 to 24 pixels (`ROW_HEIGHT_MIN_PX` to `ROW_HEIGHT_MAX_PX`). At 24 pixels a screen holds 10 rows: a title, 7 modes and a help line of 2 rows. At 16 pixels all 8 values fit.
+### 8.11 Decisions and questions for the owner
 
-**Which modes show.** A mode that the display class can never give is hidden: `3x` and `4x` on a 15 kHz CRT and on a TV, `speed` on a TV of one field rate. So the list stays short and the same for every game on that screen. A mode that this game cannot get on this screen shows greyed, with the reason in the help line. The Display panel has the data already (`style_rows`: `available` and the dropped reason).
+Decided by the owner on 2026-11-19: the menu order of 8.1; the notice after a change of mode in a running game (8.9); old files on a panel (8.8); the refresh choice stays in the menus (8.1, 8.5); `speed` takes no frames shown twice of its own (8.2, 8.4); the scanlines are named in the help line and in the notice (8.6, 8.9); the Pi 3 is a first target (8.3, 8.7).
 
-**Notices.** Every mode keeps the notice of the quick menu, one sentence per compromise (`Notice::reasons`). One reason is new: interlace, for a progressive game shown interlaced.
+| Id | Question | Default as built |
+| --- | --- | --- |
+| P1 | The texts of 8.1, 8.7 and 8.9. | As written, waiting for approval |
+| P2 | V7 named the picture mode as the place for a squeeze of a wide handheld. | No mode squeezes |
+| P3 | A notice reason for a progressive game shown interlaced. | Not built: the one-time notice of a vertical game covers the main case |
+| P4 | A mode per display class, for one settings folder that serves a CRT and a panel. | One mode for every display |
+| P5 | Options that the display gives for no reference game (2x, 3x and 4x on 15 kHz and on a TV, Game speed on a TV) are greyed, not hidden. | Greyed with the reason |
+| P6 | A whole multiple that ranks after a padded smaller multiple of a lower line rate range (the Lynx in 3x at 50 Hz on `d9200`). The order of the rungs is the policy of `main` for these modes and does not change. | Declined with its own reason, `SmallerFillsMore` ("2x fills more of this screen") |
+| P7 | The reference sources of Settings > Display (8.7). | The ten shapes of `REFERENCE_SOURCES` |
 
-**Old values.** `display.vertical` and `display.panel_scale` stay in the schema, hidden from the menus. They keep their meaning at the level that holds them, below `display.style` of the same level: `display.vertical = fit` reads as `fit` for a turned game, and `display.panel_scale = integer` reads as `sharp` on a panel. When the player sets the picture mode at a level, the editor writes `display.style` only. `display.refresh_policy` stays as an expert key, hidden from the menu: `speed` covers `exact_x2`, and a file that holds `force_50` or `force_60` keeps them.
-
-**Where the player changes it.** Settings > Display > Picture mode writes the global level. The Video page of the quick menu, in a game, writes the game level; its keep prompt moves the change to the system or the global level, as the picture style does today.
-
-**Why the speed is part of the mode.** One list answers one question: what does the player give up. Each row names its compromise. Two settings would give combinations that mean nothing on some displays (a speed switch on a TV), and the player would have to read both to know the result.

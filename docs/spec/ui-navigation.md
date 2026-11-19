@@ -70,7 +70,7 @@ The title band of every page below home and of every quick menu page shows where
 - In a game: the title of the game, then the label of each row that opened a page.
 - An option list adds the label of its row.
 
-Examples: `Settings`, `Settings > Display`, `Settings > Audio > Audio output`, `Astro Racer`, `Astro Racer > Video`, `Astro Racer > Video > Picture style`, `Astro Racer > Settings > Display`. The game list keeps its title (the system name and the count). Home keeps `NEPTRON`.
+Examples: `Settings`, `Settings > Display`, `Settings > Audio > Audio output`, `Astro Racer`, `Astro Racer > Video`, `Astro Racer > Video > Picture mode`, `Astro Racer > Settings > Display`. The game list keeps its title (the system name and the count). Home keeps `NEPTRON`.
 
 The separator is ` > `: space, `>`, space. The font has `>`.
 
@@ -172,7 +172,7 @@ The first page of the quick menu (`QUICK_MENU_PAGE`, written at the game level):
 | `Settings` | page | Opens the Settings page: Display, Audio, Input, Library, Network and System, at the global level |
 | `Quit game` | action | Ends the game, through the keep prompt after a change |
 
-`VIDEO_PAGE` (written at the game level): the video block, then `TV picture width` (on a TV only), `Picture style`, `Refresh policy`, `Scanlines` and `Scanline strength`.
+`VIDEO_PAGE` (written at the game level): the video block, then `TV picture width` (on a TV only), `Picture mode`, `Refresh rate`, `Scanlines` and `Scanline strength`. The vertical games and the panel scale are expert keys of the settings files, and the menus do not show them. The options of Picture mode and Refresh rate come from one decision of the policy (`offer`), which greys an option the display does not give (`docs/spec/video-policy-cases.md`, section 8).
 
 In a game the player reaches the display rows of the game under `Video`, the volume on the first page, and the global panels under `Settings`: Display, Audio, Input, Library, Network and System.
 

@@ -637,13 +637,16 @@ The policy returns the reason for every result that is not exact as data: `Notic
 | `Soft(NoExactMode::TooTall { lines, capacity })` | The game's lines do not fit any mode of the profile at its rate | "Soft picture: this screen cannot show the game's {lines} lines (at most {capacity})." |
 | `Soft(NoExactMode::NoInterlace { lines })` | The game needs an interlaced mode, and the profile declares none | "Soft picture: the game needs {lines} lines, and this monitor profile has no interlaced mode." |
 | `Soft(NoExactMode::NoRate)` | No exact mode at any rate the profile covers | "Soft picture: no sharp mode at this game's rate." |
-| `Soft(NoExactMode::Chosen)` | `display.vertical = fit` | "Soft picture: Vertical games is set to Fit." |
+| `Soft(NoExactMode::Chosen)` | `display.vertical = fit` | "Soft picture: the setting display.vertical is set to fit." |
+| `Soft(NoExactMode::FillMode)` | The picture mode `fit` | "Soft picture: Picture mode is set to Fill." |
 | `Soft(NoExactMode::PanelFill { scale_milli })` | A panel fills the height at 4.0 or more | No notice: this is the panel rule |
 | `SmallPicture { fill_permille }` | Below 60 % of the screen height | "Small picture: the game uses {fill} % of the screen height, to stay sharp." |
 | `SpeedChange { game_mhz, shown_mhz }` | The game runs at another rate | "The game runs at {shown} Hz, not {game} Hz: {percent} % speed." |
 | `DoubleRefresh` | Each frame shows twice | "Each frame shows twice at {shown} Hz. The game speed does not change." |
 
 ### The setting `display.panel_scale`
+
+Since the picture mode (`docs/spec/video-policy-cases.md`, section 8), this key is an expert key: the menus do not show it, and a settings file keeps it. `sharp` and `fit` set the scale of a panel themselves.
 
 | Key | `display.panel_scale` |
 | --- | --- |
@@ -655,6 +658,8 @@ The policy returns the reason for every result that is not exact as data: `Notic
 | Help text | "How a game fills a flat panel. Auto fills the height when the picture is large, and uses whole steps when it is small. Integer always uses whole steps, with black borders." |
 
 ### The setting `display.vertical`
+
+Since the picture mode (`docs/spec/video-policy-cases.md`, section 8), this key is an expert key: the menus do not show it, and a settings file keeps it. The picture mode `fit` gives its `fit` for every progressive source, and `sharp` reads it as `exact`. The rows below are the rules of the key as a file sets it.
 
 | Key | `display.vertical` |
 | --- | --- |
@@ -676,7 +681,7 @@ The policy returns the reason for every result that is not exact as data: `Notic
 
 The first time a vertical game gets the interlaced rung on a 15 kHz CRT or a TV with `display.vertical = exact`, the frontend shows this notice once:
 
-> This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Settings > Display > Vertical games, or Video in the quick menu, can show it as a soft picture with no flicker. A screen turned on its side (TATE) comes in a later version.
+> This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fill, in Settings > Display or in Video in the quick menu, shows it as a soft picture with no flicker. A screen turned on its side (TATE) comes in a later version.
 
 The frontend keeps the notices already shown in `state/config/notices.toml`. The writer thread of `apps/neptron/src/outbox.rs`, which does every file write of the frame loop, writes it as temp file, fsync, rename; the frame thread only sends the job. The menu process reads the file at boot with the settings. A deleted file shows the notice again and loses nothing. (A store for one-time notices does not exist yet; open point A4.)
 
