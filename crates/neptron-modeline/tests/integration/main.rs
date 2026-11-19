@@ -7,6 +7,7 @@
 mod arcade_table;
 mod golden;
 mod policy_golden;
+mod policy_modes;
 mod policy_property;
 mod policy_sweep;
 mod policy_table;

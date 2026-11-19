@@ -2,10 +2,12 @@ use std::fmt;
 
 use neptron_types::GpuCaps;
 
+use super::OrientedSource;
 use crate::Settings;
 
-/// The picture style: the rung of the pixel-perfect ladder that a game
-/// starts at. In the settings files: `auto`, `native`, `2x`, `3x`, `4x`.
+/// The picture mode: the rung of the pixel-perfect ladder that a game
+/// starts at, or the trade that the player picks. In the settings files:
+/// `auto`, `native`, `2x`, `3x`, `4x`, `sharp`, `speed`, `fit`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PictureStyle {
     /// Every rung in order: native on a 15 kHz monitor, line doubled on a
@@ -19,6 +21,21 @@ pub enum PictureStyle {
     X3,
     /// Four times the game's line count.
     X4,
+    /// Every line exact: the walk of auto, with every exact mode before the
+    /// fit at any speed change. `display.vertical` reads as exact, and a
+    /// flat panel takes the largest whole multiple at every scale.
+    Sharp,
+    /// The game's own speed first: the walk of auto, where an exact mode at
+    /// a slower window rate wins over the fit only when it changes the
+    /// speed no more than the fit. It takes no doubled rate of its own. A
+    /// flat panel takes the mode nearest the game's rate first, after the
+    /// modes that must shrink the game.
+    Speed,
+    /// The picture fills the height with no flicker: for a progressive
+    /// source, every interlaced 1:1 mode and every small exact picture
+    /// drop, as `display.vertical = fit` does for a turned game. A flat
+    /// panel fills at every scale.
+    Fit,
 }
 
 /// The refresh policy. In the settings files: `exact`, `exact_x2`,
@@ -127,8 +144,17 @@ pub enum VerticalMode {
 pub const FIXED_SUPER_WIDTHS: [u16; 3] = [3_840, 2_560, 1_920];
 
 impl PictureStyle {
-    /// Every style, in the order of the Display panel.
-    pub const ALL: [Self; 5] = [Self::Auto, Self::Native, Self::X2, Self::X3, Self::X4];
+    /// Every style, in the order of the settings schema and of the menus.
+    pub const ALL: [Self; 8] = [
+        Self::Auto,
+        Self::Native,
+        Self::X2,
+        Self::X3,
+        Self::X4,
+        Self::Sharp,
+        Self::Speed,
+        Self::Fit,
+    ];
 
     /// The value in the settings files.
     pub fn key(self) -> &'static str {
@@ -138,6 +164,21 @@ impl PictureStyle {
             Self::X2 => "2x",
             Self::X3 => "3x",
             Self::X4 => "4x",
+            Self::Sharp => "sharp",
+            Self::Speed => "speed",
+            Self::Fit => "fit",
+        }
+    }
+
+    /// The whole factor that the style asks for: 1 for `native`, 2 to 4
+    /// for a multiple, `None` for the other styles.
+    pub fn factor(self) -> Option<u16> {
+        match self {
+            Self::Native => Some(1),
+            Self::X2 => Some(2),
+            Self::X3 => Some(3),
+            Self::X4 => Some(4),
+            Self::Auto | Self::Sharp | Self::Speed | Self::Fit => None,
         }
     }
 }
@@ -228,6 +269,39 @@ impl HorizontalStrategy {
     }
 }
 
+impl PolicySettings {
+    /// The vertical mode the policy reads: the `sharp` mode reads the
+    /// expert key `display.vertical` as exact, every other mode as it is.
+    /// The app reads the same value for the notice of a vertical game.
+    pub fn read_vertical(&self) -> VerticalMode {
+        match self.style {
+            PictureStyle::Sharp => VerticalMode::Exact,
+            PictureStyle::Auto
+            | PictureStyle::Native
+            | PictureStyle::X2
+            | PictureStyle::X3
+            | PictureStyle::X4
+            | PictureStyle::Speed
+            | PictureStyle::Fit => self.vertical,
+        }
+    }
+
+    /// The panel scale the policy reads: the `sharp` mode reads the expert
+    /// key `display.panel_scale` as integer, every other mode as it is.
+    pub fn read_panel_scale(&self) -> PanelScale {
+        match self.style {
+            PictureStyle::Sharp => PanelScale::Integer,
+            PictureStyle::Auto
+            | PictureStyle::Native
+            | PictureStyle::X2
+            | PictureStyle::X3
+            | PictureStyle::X4
+            | PictureStyle::Speed
+            | PictureStyle::Fit => self.panel_scale,
+        }
+    }
+}
+
 impl Default for PolicySettings {
     /// The defaults of the settings schema: `auto` and `exact`, the GPU's
     /// horizontal strategy, the default generator settings, `aspect` for a
@@ -291,9 +365,23 @@ pub(crate) struct Effective {
     pub(crate) arcade: bool,
 }
 
+impl Effective {
+    /// The fit is asked for `source`: `display.vertical = fit` for a turned
+    /// game, or the `fit` style for a progressive game. An interlaced game
+    /// keeps its interlaced mode under the `fit` style, because its lines
+    /// need it.
+    pub(crate) fn asks_fit(&self, source: &OrientedSource) -> bool {
+        let vertical = source.turned && self.vertical == VerticalMode::Fit;
+        let style = self.style == PictureStyle::Fit && !source.interlaced;
+        vertical || style
+    }
+}
+
 /// Step 2: read the effective settings. No strategy gives the GPU default.
 /// A fixed width of 0 or wider than the GPU becomes the fixed width of the
-/// GPU, because the output cannot send it.
+/// GPU, because the output cannot send it. The `sharp` style reads
+/// `display.vertical` as exact and `display.panel_scale` as integer: the
+/// picture mode wins over the expert keys that it covers.
 pub(crate) fn read_settings(settings: &PolicySettings, caps: &GpuCaps) -> Effective {
     let horizontal = match settings.horizontal {
         None => HorizontalStrategy::default_for(caps),
@@ -310,8 +398,8 @@ pub(crate) fn read_settings(settings: &PolicySettings, caps: &GpuCaps) -> Effect
         horizontal,
         solver: settings.solver,
         tv_width: settings.tv_width,
-        panel_scale: settings.panel_scale,
-        vertical: settings.vertical,
+        panel_scale: settings.read_panel_scale(),
+        vertical: settings.read_vertical(),
         panel_scanlines: settings.panel_scanlines,
         arcade: settings.arcade,
     }
@@ -398,9 +486,75 @@ mod tests {
     }
 
     #[test]
+    fn sharp_reads_the_expert_keys_as_exact_and_integer() {
+        let intel = caps(25_000_000, 1_920);
+        let asked = PolicySettings {
+            vertical: VerticalMode::Fit,
+            panel_scale: PanelScale::Auto,
+            ..PolicySettings::default()
+        };
+        for style in PictureStyle::ALL {
+            let effective = read_settings(&PolicySettings { style, ..asked }, &intel);
+            if style == PictureStyle::Sharp {
+                assert_eq!(effective.vertical, VerticalMode::Exact);
+                assert_eq!(effective.panel_scale, PanelScale::Integer);
+            } else {
+                assert_eq!(effective.vertical, VerticalMode::Fit, "{style}");
+                assert_eq!(effective.panel_scale, PanelScale::Auto, "{style}");
+            }
+        }
+    }
+
+    #[test]
+    fn fit_asks_the_fit_for_a_progressive_game_and_vertical_fit_for_a_turned_one() {
+        let source = |turned, interlaced| OrientedSource {
+            width: 320,
+            height: 240,
+            refresh_mhz: 60_000,
+            interlaced,
+            aspect_milli: 1_333,
+            frame_width: 320,
+            frame_height: 240,
+            turned,
+        };
+        let gpu = caps(0, 2_048);
+        let with = |style, vertical| {
+            read_settings(
+                &PolicySettings {
+                    style,
+                    vertical,
+                    ..PolicySettings::default()
+                },
+                &gpu,
+            )
+        };
+        let fit = with(PictureStyle::Fit, VerticalMode::Exact);
+        assert!(fit.asks_fit(&source(false, false)));
+        assert!(fit.asks_fit(&source(true, false)));
+        assert!(!fit.asks_fit(&source(false, true)), "interlaced keeps 1:1");
+        let auto = with(PictureStyle::Auto, VerticalMode::Fit);
+        assert!(auto.asks_fit(&source(true, false)));
+        assert!(!auto.asks_fit(&source(false, false)));
+        let sharp = with(PictureStyle::Sharp, VerticalMode::Fit);
+        assert!(!sharp.asks_fit(&source(true, false)));
+    }
+
+    #[test]
+    fn only_native_and_the_multiples_name_a_factor() {
+        let factors = PictureStyle::ALL.map(PictureStyle::factor);
+        assert_eq!(
+            factors,
+            [None, Some(1), Some(2), Some(3), Some(4), None, None, None]
+        );
+    }
+
+    #[test]
     fn the_keys_are_the_values_of_the_settings_schema() {
         let styles: Vec<&str> = PictureStyle::ALL.iter().map(|s| s.key()).collect();
-        assert_eq!(styles, ["auto", "native", "2x", "3x", "4x"]);
+        assert_eq!(
+            styles,
+            ["auto", "native", "2x", "3x", "4x", "sharp", "speed", "fit"]
+        );
         let policies = [
             RefreshPolicy::Exact,
             RefreshPolicy::ExactX2,

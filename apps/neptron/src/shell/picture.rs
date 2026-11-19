@@ -54,6 +54,9 @@ fn reason_text(reason: NoticeReason) -> String {
         NoticeReason::Soft(SoftReason::Chosen) => {
             "Soft picture: Vertical games is set to Fit.".to_owned()
         }
+        NoticeReason::Soft(SoftReason::FillMode) => {
+            "Soft picture: Picture mode is set to Fill.".to_owned()
+        }
         NoticeReason::SmallPicture { fill_permille } => format!(
             "Small picture: the game uses {} % of the screen height, to stay sharp.",
             (u32::from(fill_permille) + 5) / 10
@@ -208,6 +211,10 @@ mod tests {
             (
                 SoftReason::Chosen,
                 "Soft picture: Vertical games is set to Fit.",
+            ),
+            (
+                SoftReason::FillMode,
+                "Soft picture: Picture mode is set to Fill.",
             ),
         ];
         for (soft, text) in cases {

@@ -56,7 +56,9 @@ const X4: &[Rung] = &[
 
 /// Step 3: the rungs a style walks, in order.
 ///
-/// Auto walks every rung. An explicit style starts at its own rung and
+/// Auto walks every rung, and so do `sharp`, `speed` and `fit`: they
+/// change the order of the plan or drop candidates, not the rungs
+/// (`crt_plan`). An explicit style starts at its own rung and
 /// falls through the rungs below it. For a multiple, "below" reads as: the
 /// smaller multiples first, because they still give an exact scale, then
 /// rungs 3 and 4; the native rung is above every multiple and is never
@@ -66,7 +68,7 @@ const X4: &[Rung] = &[
 /// the whole reading.
 pub fn walk_ladder(style: PictureStyle) -> &'static [Rung] {
     match style {
-        PictureStyle::Auto => AUTO,
+        PictureStyle::Auto | PictureStyle::Sharp | PictureStyle::Speed | PictureStyle::Fit => AUTO,
         PictureStyle::Native => NATIVE,
         PictureStyle::X2 => X2,
         PictureStyle::X3 => X3,

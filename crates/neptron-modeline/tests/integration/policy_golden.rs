@@ -7,7 +7,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use neptron_modeline::policy::{PolicySettings, RefreshKind, TvWidth, choose, decide};
+use neptron_modeline::policy::{
+    PictureStyle, PolicySettings, RefreshKind, TvWidth, choose, decide,
+};
 use neptron_safety::validate;
 use neptron_types::{Filter, GpuCaps, MonitorProfile, Rotation, SourceGeometry, TvStandard};
 use serde::Deserialize;
@@ -396,4 +398,119 @@ fn panels_with_and_without_scanlines_give_their_golden_decisions() {
         }
     }
     compare("policy_panel_scanlines.toml", actual);
+}
+
+/// The sources of the picture mode goldens: consoles, a PAL console, an
+/// interlaced source, two handhelds, a turned board, a DOS mode above a
+/// 15 kHz tube's rates and a board at an odd rate.
+const MODE_SOURCES: [&str; 9] = [
+    "nes_ntsc",
+    "snes_ntsc",
+    "md_pal_h40",
+    "md_448i",
+    "game_boy",
+    "wonderswan",
+    "ddonpach",
+    "dos_640x400",
+    "mk",
+];
+
+/// One display of each class: 15 kHz, 25 kHz, 31 kHz, multi-range,
+/// multi-sync EDID, two TVs and a flat panel with a 50 Hz mode.
+const MODE_DISPLAYS: [&str; 8] = [
+    "generic_15",
+    "arcade_25",
+    "arcade_31",
+    "d9800",
+    "edid_30_70",
+    "tv_ntsc",
+    "tv_pal",
+    "panel_1080",
+];
+
+/// Every picture mode on one display of each class, for the sources of
+/// [`MODE_SOURCES`]. Each case is "<source> <display> <mode>", in
+/// tests/golden/policy_modes.toml. `auto` gives the decision of the wider
+/// table for the same cell.
+#[test]
+fn every_picture_mode_on_each_display_class_gives_its_golden_decision() {
+    let displays: Vec<_> = arcade_table::displays()
+        .into_iter()
+        .filter(|d| MODE_DISPLAYS.contains(&d.profile.id.as_str()))
+        .collect();
+    assert_eq!(displays.len(), MODE_DISPLAYS.len());
+    let boards: Vec<_> = arcade_table::BOARDS
+        .iter()
+        .chain(arcade_table::SOURCES.iter())
+        .filter(|b| MODE_SOURCES.contains(&b.name))
+        .collect();
+    assert_eq!(boards.len(), MODE_SOURCES.len());
+    let recorded = expected("policy_sources.toml");
+    let mut actual = BTreeMap::new();
+    for board in &boards {
+        for display in &displays {
+            for style in PictureStyle::ALL {
+                let settings = PolicySettings {
+                    style,
+                    ..arcade_table::settings_of(board)
+                };
+                let key = format!("{} {} {style}", board.name, display.profile.id);
+                let got = outcome_with(&board.source(), &settings, &display.profile, &display.caps);
+                if style == PictureStyle::Auto
+                    && let Some(want) =
+                        recorded.get(&format!("{} {}", board.name, display.profile.id))
+                {
+                    assert_eq!(&got, want, "{key}: auto is the built policy");
+                }
+                actual.insert(key, got);
+            }
+        }
+    }
+    compare("policy_modes.toml", actual);
+}
+
+/// `auto` with the expert key `display.vertical = fit`, for every turned
+/// board of the arcade table on one CRT of each class, gives the decisions
+/// of tests/golden/policy_vertical_fit.toml, recorded before the picture
+/// modes: the picture mode `fit` changes the fit only for itself. Each
+/// case is "<board> <display>".
+#[test]
+fn auto_with_vertical_fit_decides_as_before_the_picture_modes() {
+    use neptron_modeline::policy::VerticalMode;
+    let names = [
+        "generic_15",
+        "arcade_15_25_31",
+        "arcade_25",
+        "arcade_31",
+        "d9800",
+        "pc_31_120",
+        "edid_30_70",
+        "edid_31",
+        "ntsc",
+        "pal",
+    ];
+    let displays: Vec<_> = arcade_table::displays()
+        .into_iter()
+        .filter(|d| names.contains(&d.profile.id.as_str()))
+        .collect();
+    assert_eq!(displays.len(), names.len());
+    let mut actual = BTreeMap::new();
+    for board in arcade_table::BOARDS
+        .iter()
+        .chain(arcade_table::SOURCES.iter())
+    {
+        if !matches!(board.rotation, Rotation::R90 | Rotation::R270) {
+            continue;
+        }
+        let settings = PolicySettings {
+            vertical: VerticalMode::Fit,
+            ..arcade_table::settings_of(board)
+        };
+        for display in &displays {
+            let key = format!("{} {}", board.name, display.profile.id);
+            let got = outcome_with(&board.source(), &settings, &display.profile, &display.caps);
+            actual.insert(key, got);
+        }
+    }
+    compare("policy_vertical_fit.toml", actual);
 }

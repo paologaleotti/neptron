@@ -251,6 +251,18 @@ fn check_clock(p: &Proposal) -> Result<(), String> {
     Ok(())
 }
 
+/// The margin of the window rule for `style`, in millihertz: none for
+/// `speed`, whose exact window mode follows any fit that keeps the speed
+/// better; no trade at all for `sharp`, whose exact modes come first at
+/// any speed; the margin of V6 for every other style.
+fn style_margin_mhz(style: PictureStyle, p: &Proposal) -> u64 {
+    match style {
+        PictureStyle::Speed => 0,
+        PictureStyle::Sharp => u64::MAX / 4,
+        _ => margin_mhz(p),
+    }
+}
+
 /// How far the game's speed moves, in millihertz of its rate.
 fn speed_mhz(p: &Proposal) -> u64 {
     let shown = p.timing.field_rate_mhz / u64::from(p.timing.repeat().max(1));
@@ -276,7 +288,7 @@ fn check_plan(plan: &Plan, profile: &MonitorProfile, caps: &GpuCaps) -> Result<(
         let speed_traded = considered.target.kind == RefreshKind::Nearest
             && plan.proposals().any(|(_, c, p)| {
                 c.rung.is_fitted()
-                    && speed_mhz(p) + margin_mhz(proposal) + REFRESH_MATCH_MHZ
+                    && speed_mhz(p) + style_margin_mhz(plan.style, proposal) + REFRESH_MATCH_MHZ
                         <= speed_mhz(proposal)
             });
         match (considered.rung.is_fitted(), fitted_seen) {
@@ -348,7 +360,8 @@ fn check_no_interlaced_fit<V>(
             && !p.mode.interlace
             && valid(p)
             && !(c.target.kind == RefreshKind::Nearest
-                && speed_mhz(p) >= speed_mhz(w.proposal) + margin_mhz(p) + REFRESH_MATCH_MHZ)
+                && speed_mhz(p)
+                    >= speed_mhz(w.proposal) + style_margin_mhz(plan.style, p) + REFRESH_MATCH_MHZ)
     });
     if progressive_exact {
         return Err(format!(

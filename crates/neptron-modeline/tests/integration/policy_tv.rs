@@ -652,6 +652,10 @@ fn a_multiple_style_has_no_mode_and_its_row_is_greyed_out() {
             (PictureStyle::X2, false),
             (PictureStyle::X3, false),
             (PictureStyle::X4, false),
+            (PictureStyle::Sharp, true),
+            // A TV standard has one field rate: nothing to trade for speed.
+            (PictureStyle::Speed, false),
+            (PictureStyle::Fit, true),
         ]
     );
 }

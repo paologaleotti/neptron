@@ -1,5 +1,7 @@
 use neptron_types::{GpuCaps, Modeline, MonitorProfile, SourceGeometry};
 
+use super::panel::PANEL_FILL_MIN_SCALE_MILLI;
+use super::placement::scale_milli;
 use super::{
     Considered, Dropped, PictureStyle, Plan, PolicyError, PolicySettings, Proposal, RefreshKind,
     Rung, SMALL_PICTURE_MIN_PERCENT, StrategyReplaced, Timing, decide,
@@ -108,6 +110,8 @@ pub enum SoftReason {
     NoRate,
     /// `display.vertical = fit` asks a turned game to fill the screen.
     Chosen,
+    /// The picture mode `fit` asks the game to fill the screen.
+    FillMode,
 }
 
 /// One thing that the quick menu tells the player about the picture, from
@@ -246,7 +250,11 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
     let padded_fill_permille = proposal
         .padding
         .map(|pad| u16::try_from(pad.fill_permille()).unwrap_or(u16::MAX));
-    let soft = fitted.then(|| soft_reason(plan, considered));
+    let soft = if fitted {
+        Some(soft_reason(plan, considered))
+    } else {
+        panel_fill_reason(plan, considered, proposal)
+    };
     let small_fill_permille = small_fill(proposal);
     let any = fitted
         || refresh_differs
@@ -255,7 +263,8 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         || style_fallback
         || cropped_lines > 0
         || padded_fill_permille.is_some()
-        || small_fill_permille.is_some();
+        || small_fill_permille.is_some()
+        || soft.is_some();
     any.then(|| Notice {
         fitted,
         game_mhz: timing.game_mhz,
@@ -268,6 +277,27 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         padded_fill_permille,
         soft,
         small_fill_permille,
+    })
+}
+
+/// The soft reason of a flat-panel fill below `PANEL_FILL_MIN_SCALE_MILLI`:
+/// only the picture mode `fit` or `display.vertical = fit` asks for it, and
+/// sharp bilinear blends edges wider than a quarter of a game pixel there.
+/// `None` for every other placement.
+fn panel_fill_reason(
+    plan: &Plan,
+    considered: &Considered,
+    proposal: &Proposal,
+) -> Option<SoftReason> {
+    let soft_fill = considered.rung == Rung::Panel
+        && proposal.placement.scale.y.is_none()
+        && scale_milli(&plan.source, &proposal.mode) < PANEL_FILL_MIN_SCALE_MILLI;
+    soft_fill.then(|| {
+        if plan.style == PictureStyle::Fit {
+            SoftReason::FillMode
+        } else {
+            SoftReason::Chosen
+        }
     })
 }
 
@@ -293,7 +323,11 @@ fn soft_reason(plan: &Plan, winner: &Considered) -> SoftReason {
             .filter_map(|c| c.outcome.as_ref().err())
     };
     if dropped().any(|d| matches!(d, Dropped::VerticalFit { .. })) {
-        return SoftReason::Chosen;
+        return if plan.style == PictureStyle::Fit {
+            SoftReason::FillMode
+        } else {
+            SoftReason::Chosen
+        };
     }
     if winner.target.kind == RefreshKind::Unmatched {
         return SoftReason::NoRate;
@@ -360,18 +394,19 @@ pub fn style_rows<E>(
         .collect()
 }
 
-/// `rung` is the style's own rung: the first rung of its walk, or any rung
-/// for Auto. A flat panel has one rung.
+/// `rung` is the style's own rung. Auto and `fit` have no rung of their
+/// own: every rung is theirs. `sharp` owns every exact rung. `speed` owns
+/// every rung off a TV, and none on a TV, whose standard fixes the rate.
+/// `native` and a multiple own the first rung of their walk, on a flat
+/// panel too. Any other style on a flat panel owns the panel rung.
 fn on_own_rung(plan: &Plan, style: PictureStyle, rung: Rung) -> bool {
-    if style == PictureStyle::Auto {
-        return true;
+    let on = |kind| plan.considered.iter().any(|c| c.target.kind == kind);
+    match style {
+        PictureStyle::Auto | PictureStyle::Fit => true,
+        PictureStyle::Sharp => !rung.is_fitted(),
+        PictureStyle::Speed => !on(RefreshKind::Tv),
+        PictureStyle::Native | PictureStyle::X2 | PictureStyle::X3 | PictureStyle::X4 => {
+            super::walk_ladder(style).first() == Some(&rung)
+        }
     }
-    let panel = plan
-        .considered
-        .iter()
-        .any(|c| c.target.kind == RefreshKind::Panel);
-    if panel {
-        return rung == Rung::Panel;
-    }
-    super::walk_ladder(style).first() == Some(&rung)
 }

@@ -15,8 +15,7 @@ use super::settings::Effective;
 use super::{
     Considered, Dropped, FORCE_50_MHZ, FORCE_60_MHZ, OVERSCAN_CROP_MAX_LINES_PER_EDGE,
     OrientedSource, OverscanCrop, Placement, Plan, Proposal, RefreshKind, RefreshPolicy,
-    RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, TvWidth, UI_CANVAS, VerticalMode,
-    walk_ladder,
+    RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, TvWidth, UI_CANVAS, walk_ladder,
 };
 
 /// The largest difference between the game's rate and the field rate of a
@@ -75,7 +74,7 @@ pub(crate) fn tv_plan(
         considered.push(tv.dropped(Rung::Interlaced, INTERLACED, Dropped::SameAsNative));
     } else {
         considered.extend(tv.progressive_native());
-        let fit = source.turned && settings.vertical == VerticalMode::Fit;
+        let fit = settings.asks_fit(source);
         considered.push(if fit {
             // The fit fills the progressive mode with no flicker.
             tv.dropped(
@@ -90,7 +89,7 @@ pub(crate) fn tv_plan(
             tv.interlaced(Rung::Interlaced, caps)
         });
     }
-    let fit = source.turned && settings.vertical == VerticalMode::Fit;
+    let fit = settings.asks_fit(source);
     if caps.interlace && tv.taller_than_progressive() && !fit {
         // A game taller than the progressive mode and its crop keeps
         // twice the lines in the interlaced mode, so its fit goes there.

@@ -1379,6 +1379,9 @@ fn the_display_panel_rows_come_from_the_same_plan_and_validator() {
             (PictureStyle::X2, true, Some(Rung::Multiple(2))),
             (PictureStyle::X3, true, Some(Rung::Multiple(3))),
             (PictureStyle::X4, true, Some(Rung::Multiple(4))),
+            (PictureStyle::Sharp, true, Some(Rung::Multiple(2))),
+            (PictureStyle::Speed, true, Some(Rung::Multiple(2))),
+            (PictureStyle::Fit, true, Some(Rung::Multiple(2))),
         ]
     );
     let native = &rows[1];

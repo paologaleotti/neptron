@@ -10,7 +10,7 @@ use super::solve::solve;
 use super::{
     Considered, Dropped, EXACT_SPEED_MARGIN_PPM, HorizontalStrategy, OrientedSource, PictureStyle,
     Plan, PolicyError, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshTarget, Rung,
-    SMALL_PICTURE_MIN_PERCENT, StrategyReplaced, VerticalMode,
+    SMALL_PICTURE_MIN_PERCENT, StrategyReplaced,
 };
 use crate::ModelineError;
 
@@ -103,6 +103,26 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
                 entries.push(entry(style, (tier, place, sub), rung, target, outcome));
             }
         }
+        // The fit of the `fit` mode: the window rate holds progressive
+        // lines where the game's rate holds none (384 lines up to
+        // 60.000 Hz on `arcade_25`), so the fit there has no flicker. It
+        // ranks before the last resort, which Switchres may interlace.
+        // `display.vertical = fit` under another mode adds no fitted rung
+        // at the window rate.
+        if crt.settings.style == PictureStyle::Fit && crt.settings.asks_fit(&crt.source) {
+            for (sub, outcome) in candidate(Rung::Fitted, target, true, crt)?
+                .into_iter()
+                .enumerate()
+            {
+                entries.push(entry(
+                    style,
+                    (walk.len(), 0, sub),
+                    Rung::Fitted,
+                    target,
+                    outcome,
+                ));
+            }
+        }
     }
     let last_resort = RefreshTarget {
         kind: RefreshKind::Unmatched,
@@ -114,15 +134,15 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
     {
         entries.push(entry(
             style,
-            (walk.len(), 0, sub),
+            (walk.len(), 1, sub),
             Rung::Fitted,
             last_resort,
             outcome,
         ));
     }
 
-    if let Some(target) = window {
-        speed_order(&mut entries, target);
+    if let (Some(target), Some(margin_ppm)) = (window, speed_margin_ppm(style)) {
+        speed_order(&mut entries, target, margin_ppm);
     }
     entries.sort_by_key(|(key, _)| *key);
     Ok(Plan {
@@ -177,11 +197,28 @@ fn window_target(base_mhz: u32, game_lines: u16, ranges: &[CrtRange]) -> Option<
     })
 }
 
+/// How much more an exact mode at the window rate may change the game's
+/// speed than the fit and still win, in ppm, for `style`: none for
+/// `speed` (the speed wins), [`EXACT_SPEED_MARGIN_PPM`] for the other
+/// styles. `None` for `sharp`: every exact mode wins at any speed.
+fn speed_margin_ppm(style: PictureStyle) -> Option<u64> {
+    match style {
+        PictureStyle::Sharp => None,
+        PictureStyle::Speed => Some(0),
+        PictureStyle::Auto
+        | PictureStyle::Native
+        | PictureStyle::X2
+        | PictureStyle::X3
+        | PictureStyle::X4
+        | PictureStyle::Fit => Some(EXACT_SPEED_MARGIN_PPM),
+    }
+}
+
 /// The exact entries at the window target win over the fit while they
-/// change the game's speed at most [`EXACT_SPEED_MARGIN_PPM`] more than the
-/// fit does, within [`REFRESH_MATCH_MHZ`] (a whole-kHz clock moves a rate
-/// by a few millihertz); beyond it they rank after the fit.
-fn speed_order(entries: &mut [(Key, Considered)], window: RefreshTarget) {
+/// change the game's speed at most `margin_ppm` more than the fit does,
+/// within [`REFRESH_MATCH_MHZ`] (a whole-kHz clock moves a rate by a few
+/// millihertz); beyond it they rank after the fit.
+fn speed_order(entries: &mut [(Key, Considered)], window: RefreshTarget, margin_ppm: u64) {
     let error = |p: &Proposal| {
         let shown = p.timing.field_rate_mhz / u64::from(p.timing.repeat().max(1));
         shown.abs_diff(u64::from(p.timing.game_mhz))
@@ -196,7 +233,7 @@ fn speed_order(entries: &mut [(Key, Considered)], window: RefreshTarget) {
         let Ok(proposal) = &considered.outcome else {
             continue;
         };
-        let margin = u64::from(proposal.timing.game_mhz) * EXACT_SPEED_MARGIN_PPM / 1_000_000;
+        let margin = u64::from(proposal.timing.game_mhz) * margin_ppm / 1_000_000;
         if considered.target == window
             && !considered.rung.is_fitted()
             && fit.is_some_and(|fit| error(proposal) >= fit + margin + REFRESH_MATCH_MHZ)
@@ -206,12 +243,13 @@ fn speed_order(entries: &mut [(Key, Considered)], window: RefreshTarget) {
     }
 }
 
-/// `display.vertical = fit` for a turned game: an interlaced 1:1 mode and
+/// `display.vertical = fit` for a turned game, or the `fit` style for a
+/// progressive game ([`Effective::asks_fit`]): an interlaced 1:1 mode and
 /// an exact picture below [`SMALL_PICTURE_MIN_PERCENT`] of the picture
 /// lines drop, so the fit fills the screen with no flicker. An exact
 /// picture that fills more stays: the fit would not be larger.
 fn vertical_fit(crt: &Crt<'_>, rung: Rung, outcome: Outcome) -> Outcome {
-    let asked = crt.source.turned && crt.settings.vertical == VerticalMode::Fit;
+    let asked = crt.settings.asks_fit(&crt.source);
     let Ok(proposal) = outcome else {
         return outcome;
     };
@@ -344,13 +382,26 @@ fn candidate(
     Ok(outcomes)
 }
 
-/// The fitted rung of a turned game with `display.vertical = fit`: the
+/// The fitted rung when the fit is asked ([`Effective::asks_fit`]): the
 /// most progressive lines a range holds at the rate, so the fit has no
 /// flicker. Every other shape stays.
 fn fit_progressive(shape: Shape, target: RefreshTarget, crt: &Crt<'_>) -> Shape {
-    let asked = crt.source.turned && crt.settings.vertical == VerticalMode::Fit;
+    let asked = crt.settings.asks_fit(&crt.source);
     let capacity = progressive_capacity(crt.ranges, target.rate_mhz);
-    if !asked || !shape.rung.is_fitted() || capacity == 0 || capacity >= shape.lines {
+    // The `fit` mode fills the progressive lines, also above the game's
+    // own; `display.vertical = fit` under another mode only lowers a fit
+    // that is taller than them.
+    let keeps = match crt.settings.style {
+        PictureStyle::Fit => capacity == shape.lines,
+        PictureStyle::Auto
+        | PictureStyle::Native
+        | PictureStyle::X2
+        | PictureStyle::X3
+        | PictureStyle::X4
+        | PictureStyle::Sharp
+        | PictureStyle::Speed => capacity >= shape.lines,
+    };
+    if !asked || !shape.rung.is_fitted() || capacity == 0 || keeps {
         return shape;
     }
     Shape {
