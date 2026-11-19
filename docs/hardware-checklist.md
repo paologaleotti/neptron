@@ -338,6 +338,31 @@ An image built before the `performance` governor booted with `powersave` (`intel
 - [ ] `needs-hardware` Do: over SSH, `cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver`. Expect: `performance` for each CPU, in both files; the driver is `intel_pstate`. Record: the output.
 - [ ] `needs-hardware` Do: play Metal Slug X (FinalBurn Neo) for 60 s on the flat panel, and read `neptronctl stats` before and after. Expect: `fields_missed` does not change, and `audio_underruns` does not change. Record: both values before and after, and the frames presented.
 
+### Late pacing of a slow core
+
+The session leaves the flip of a late core frame queued and runs the next core frame at once (`docs/spec/pacing-audio.md`, "A core slower than the field"). Before this change, Killer Instinct (FinalBurn Neo) on this PC at 2.7 GHz presented 29.8 frames and missed 30.1 fields per second, with about 13 audio underruns per second; at 3.2 GHz 38.2 frames, 21.7 missed fields and 9.2 underruns per second. Read `neptronctl stats` twice, 60 s apart, for each check, and compute the rates per second. Run the pushed client: `cargo xtask os ssh --host A.B.C.D -- neptronctl stats`, or `/state/hot/bin/neptronctl stats` over a plain `ssh`. A plain `ssh root@A.B.C.D neptronctl stats` runs no login shell, gets the image's own `neptronctl`, and can speak an older protocol with no `late_frames` and `late_flips`.
+
+Results recorded:
+
+- 2026-11-19, at commit `c02ae52e` (the orchestrator, on the owner's PC, Killer Instinct in its attract mode, 40 s averages): 48.1 frames presented per second at 3.2 GHz with 0.45 underruns per second, and 49.8 at 2.7 GHz with 0.75 underruns per second, against 38.2 and 29.8 before; no dropped frame; light scenes at 58 to 60 per second, heavy scenes at 39.6 to 42 per second with 18 to 21 missed fields (the core needs about 1.5 intervals there); about 3 pacing changes in 30 s. `audio_queued_frames` read 2000 to 5200 frames in late pacing and after it, and the underruns came in bursts at the entry into a heavy scene; the queue correction of the next commits addresses both. `late_frames` and `late_flips` were missing from the reply because the client was the image's own `neptronctl`.
+
+- [ ] `needs-hardware` **Killer Instinct at the `performance` governor.**
+  - Do: play Killer Instinct for 60 s on the flat panel (59.951 Hz mode), with the CPU at its full clock (3.2 GHz).
+  - Expect: in light scenes `frames_presented` grows by 58 to 60 per second; in heavy scenes by `59.95 / x` (about 40 at 1.5 intervals), and never by about 30. `frames_presented` plus `fields_missed` per second is the field rate, 59.95. `frames_dropped` does not change. `audio_underruns` grows by at most 1 at each change into a heavy scene, never in bursts, and the sound has no crackle. `audio_queued_frames`, read each second, stays under about 3000 frames (62 ms) and is back near its usual 1100 to 2700 within 3 s of each change of scene. When the speed is below 98% for 2 s, the session reports it (`Session::slow_speed_percent`).
+  - Record: the four counters and `late_frames` and `late_flips` before and after, the CPU clock (`grep MHz /proc/cpuinfo`), the `late pacing` and `wait pacing` lines of the log, and what the sound is like.
+- [ ] `needs-hardware` **Killer Instinct at 2.7 GHz.**
+  - Do: limit the CPU to 2.7 GHz (`echo 2700000 > /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq`), play 60 s, then write the old value back.
+  - Expect: `frames_presented` grows by about `59.95 / x` per second, where `x` is the CPU time of a frame over a field (about 1.04 measured before: about 57.6 per second), not 29.8. The sound plays slower and a little lower with the game, with no crackle; `audio_underruns` grows by at most 1.
+  - Record: the counters before and after, and what the sound is like.
+- [ ] `needs-hardware` **A light game keeps its latency and smoothness.**
+  - Do: play Metal Slug X for 60 s, and read `neptronctl stats` before and after; tap a button and read `input_to_frame_ns`.
+  - Expect: 59.95 frames per second, `fields_missed`, `audio_underruns` and `late_frames` do not change, and `input_to_frame_ns` is one field, about 16.7 ms. Scrolling is smooth, as before this change.
+  - Record: the counters and three values of `input_to_frame_ns`.
+- [ ] `needs-hardware` **A GPU that makes the flips late.**
+  - Do: play Killer Instinct at the clock where its CPU time is just under one field (raise `scaling_max_freq` step by step from 2.7 GHz), for 60 s each, and read `neptronctl stats` before and after.
+  - Expect: at no clock does `frames_presented` grow by about 30 per second. Where the CPU time fits but the flips are late, `late_flips` grows by about 3 when the game starts and then stays, `late_frames` grows with the frames, and the log has one `late pacing` line and no `wait pacing` line after it.
+  - Record: for each clock, the counters and the log lines of the pacing.
+
 ## 3. PC i3-6100T with any monitor
 
 ### The PC image (T28)
@@ -731,6 +756,11 @@ These need a 15 kHz display (a SCART TV or an arcade monitor) on a PC output. Th
   - Expect: each mode is stable.
   - Record: the TV model and the result.
 
+- [ ] `needs-hardware` **The field order of a 480i mode in late pacing.** The fake display cannot show a swapped field, so only this check proves the field order in late pacing.
+  - Do: on a 15 kHz CRT, show a 480i mode with a game that has fine horizontal lines (a test pattern or a menu with thin text). Make the core slow on purpose: limit the CPU clock with `scaling_max_freq` until `late_frames` grows in `neptronctl stats`. Watch for 60 s, then read the stats again.
+  - Expect: no swapped fields: no line pairs out of order, no picture that jumps up and down by one line, no comb on thin lines that was not there at full clock. `frames_presented` falls in proportion to the overrun and not to half, and the sound plays with no crackle.
+  - Record: the counters, the mode, the clock, and a close photo of the thin lines at full clock and in late pacing.
+
 ## 5. Raspberry Pi 3 on HDMI (P04)
 
 Each check is `needs-hardware`. The image is `images/rpi-arm64-dev/neptron-rpi-arm64.img` (development variant, built with `--dev-key`) unless the check says release. The setup: a Pi 3 B+ or 3 B, a 2.5 A power supply, an HDMI flat panel, a USB gamepad, Ethernet with DHCP, and a 3.3 V USB serial adapter on GPIO 14 (TX), 15 (RX) and ground at 115200 baud. QEMU does not boot this image.
@@ -856,6 +886,11 @@ Each check is `needs-hardware`. The setup: the Pi 3 with the development image, 
   - Do: a release build, and the CPU share of `AudioPipeline::end_frame` with Sinc.
   - Expect: 3 to 4 % of one core.
   - Record: the share. Use Polynomial if it is over budget.
+
+- [ ] `needs-hardware` **A heavy core on the Pi 3 in late pacing.**
+  - Do: play a game whose core cannot keep 60 frames per second on the Pi 3 (for example a CPS2 or Neo Geo game on FinalBurn Neo) for 60 s, and read `neptronctl stats` before and after.
+  - Expect: `frames_presented` per second is the field rate over the overrun, not half of it; `frames_presented` plus `fields_missed` per second is the field rate; `frames_dropped` does not change; `audio_underruns` grows by at most 1; the sound slows with the game and does not crackle. A game below half speed plays no sound. The loop uses no code for vc4.
+  - Record: the counters, the game, and what the sound is like.
 
 ### The share partition on an SD card (C18)
 
