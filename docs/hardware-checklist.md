@@ -82,7 +82,7 @@ Do these before the CRT gets a mode that nobody checked on it.
   - Do: during the self-test, read `/sys/kernel/debug/dri/0/i915_display_info` from a second console.
   - Expect: the clock of the CRTC is near the requested clock.
   - Record: the clock i915 reports, `implied_pclock_hz` and `request.pclock_hz` for each mode.
-- [ ] `needs-hardware` **480p and the 2x picture style are stable.** (MVP exit)
+- [ ] `needs-hardware` **480p and the 2x picture mode are stable.** (MVP exit)
   - Do: watch the `480p` mode of the self-test. The `2x` family gives the same mode on this bench.
   - Expect: a stable picture for the full 10 s.
   - Record: stable or not.
@@ -326,7 +326,7 @@ Each check is `needs-hardware`.
 
 - [ ] `needs-hardware` Do: boot with the Dell U2724D on DP-1 in standby, `display.output` at `auto`. Expect: the log shows no "cannot open the display" line; it shows "a display answered after N ms" or nothing, and the first picture comes in one start of the frontend. Record: N, and the time from power-on to the first frame.
 - [ ] `needs-hardware` Do: boot with no monitor connected, wait 2 minutes, then connect the DisplayPort monitor. Expect: each start logs "no connected display after 15000 ms"; the launcher line "the frontend found no display; it starts again every 1000 ms", with the hint about an analog connector with no EDID, comes at the first start and then at most once a minute; the wait between starts stays 1 s; the picture comes about 1.5 s after the connection (the next look of the wait, then the start); `/state/video/guard.toml` counts no failed boot. Record: the time from the connection to the first picture.
-- [ ] `needs-hardware` Do: on the flat panel, open the quick menu in a game and the display panel. Expect: "Picture style" and "Refresh policy" are grey with "Not used on a flat panel", and accept does nothing on them; the scanline rows still change the picture. Record: a photo of the quick menu.
+- [ ] `needs-hardware` Do: on the flat panel, open the quick menu in a game and the display panel. Expect: "Refresh rate" is grey with "Not used on a flat panel", and accept does nothing on it; "Picture mode" opens its options; the scanline rows still change the picture. Record: a photo of the quick menu.
 - [ ] `needs-hardware` Do: boot twice, then `ls /state/cache/mesa` and read the log of the frontend. Expect: the folder holds the Mesa cache files, and no line says that Mesa cannot create its shader cache. Record: `du -sh /state/cache/mesa`, and whether the second start is faster than the first.
 - [ ] `needs-hardware` Do: in the development image, bring eth0 up on the Realtek port and read `dmesg | grep -i rtl`. Expect: no "unable to load firmware patch rtl_nic/rtl8168h-2.fw" line. Record: the dmesg lines of r8169.
 - [ ] `needs-hardware` Do: read `dmesg | grep -i dmc`. Expect: the line about the missing i915 DMC firmware is still there: the file is not in the image until the owner decides the licence question of a firmware file inside the kernel image. Record: the line.
@@ -992,8 +992,8 @@ The renderers turn the game picture in emulation, and `gles-compare` checks the 
   - Expect: each picture is upright and the right way up; text reads from left to right.
   - Record: the set, the turn in the log, and a photo.
 - [ ] `needs-hardware` **A vertical game on a 15 kHz CRT and on composite.** A 15 kHz tube with `generic_15`, and the Pi 3 composite output on NTSC.
-  - Do: start `ddonpach` with `display.vertical = exact`; then set Vertical games to Fit in the Video page of the quick menu.
-  - Expect: exact shows 320 lines 1:1, interlaced (448i on the tube, 480i on NTSC), upright and pillarboxed, and the one-time notice of a vertical game shows on the first start only. Fit shows a progressive picture that fills the height, soft, with the notice "Soft picture: Vertical games is set to Fit.". The interlaced picture has the flicker of 480i and no line pairs out of order.
+  - Do: start `ddonpach` with the picture mode Auto; then set Picture mode to Fill in the Video page of the quick menu.
+  - Expect: Auto shows 320 lines 1:1, interlaced (448i on the tube, 480i on NTSC), upright and pillarboxed, and the one-time notice of a vertical game shows on the first start only. Fill shows a progressive picture that fills the height, soft, and right after the change the notice says "Soft picture: Picture mode is set to Fill.". The interlaced picture has the flicker of 480i and no line pairs out of order.
   - Record: the mode in the status, photos of both, and whether the one-time notice came back after a restart.
 - [ ] `needs-hardware` **Scanlines on a turned game.** A 31 kHz or multi-sync PC CRT.
   - Do: start `ddonpach` with `display.scanlines = on` on a mode with a whole vertical multiple of 2 or more (2x 640p on a multi-sync tube).
@@ -1007,3 +1007,48 @@ The renderers turn the game picture in emulation, and `gles-compare` checks the 
   - Do: put `kinst.zip` with no disk image in `roms/arcade` and start it. Then put the disk image at `roms/arcade/kinst/kinst.chd` and start it again. Then, on an image or a `cargo xtask os push` with the frontend of this change but the arcade index of an older image, remove the disk image, start it again and hold the launch button.
   - Expect: with the new index and no disk image, message 8 ("This game needs the hard disk image kinst.chd. Put it in the folder kinst, next to kinst.zip.") shows in the game list and no game run starts. With the disk image, the game starts and plays; this is the first run of a board with a disk image, and it is not a tested board family. With the old index, the core error screen shows for a moment, then the game list with the notice "kinst did not start: the core stopped it at the start. The core says: "HDD: kinst.chd not found". Check that the game has all its files.", and the log has that line and the error lines of the core. Wait more than 10 s on the error screen before a press: the notice is then "kinst stopped: the core ended the game. The core says: ..." with the last message of the core. No case returns to the list with no notice. In both cases the frontend never stops and the list mode is the mode before the launch.
   - Record: photos of both notices, whether the game runs with the disk image, and the log lines.
+
+## Picture mode (M08e)
+
+The policy tests, the goldens of `crates/neptron-modeline/tests/golden/policy_modes.toml` and the exhaustive run of `offer` prove the decision of each picture mode and refresh choice in emulation, and tier 2 tests change them in a running game. Only a real screen shows the picture, the sync and the speed. Change the options in the Video page of the quick menu while the game runs, and read the mode in the status of the Video page after each change. A greyed option cannot be chosen: check that its help line gives the reason.
+
+- [ ] `needs-hardware` **Each picture mode on a 15 kHz CRT.** A 15 kHz tube with `generic_15`.
+  - Do: start a SNES game, DoDonPachi (`ddonpach`, vertical) and a DOS game in 640x400 at 70 Hz. For each, choose every option of Picture mode that is not greyed.
+  - Expect: 2x, 3x and 4x are greyed for all three ("Not possible with this screen and video output"); Native is greyed for DoDonPachi and the DOS game; Game speed is greyed for the DOS game ("This screen cannot hold the game's speed"). The SNES game shows 1:1 in 224 lines at 60.10 Hz in Auto, Sharp lines, Game speed, Fill and Native. DoDonPachi shows interlaced 1:1 (448i) in Auto, Sharp lines and Game speed, and a progressive soft picture of 252 lines in Fill, with the notice "Soft picture: Picture mode is set to Fill.". The DOS game shows interlaced 1:1 at 64.29 Hz in Auto and Sharp lines, and a progressive soft picture of 221 lines at 65 Hz in Fill. The tube holds sync at each change, with no roll and no bend, and no confirm dialog opens. In Settings > Display, 2x, 3x, 4x and Double rate are greyed for every game, and every other option is plain.
+  - Record: the mode in the status after each change, a photo of each different picture, and whether the tube lost sync at any change.
+- [ ] `needs-hardware` **Each picture mode on a 31 kHz CRT, with scanlines.** A 31 kHz tube with `arcade_31`.
+  - Do: start a SNES game and a Game Boy game with Scanlines on Auto. For each, choose every option of Picture mode that is not greyed. Then set Scanlines to On and choose Native.
+  - Expect: the SNES game shows 2x (448 lines) at 60.10 Hz with scanlines in Auto, Sharp lines, Game speed and Fill, and 1:1 in a bordered mode of about 478 lines with no scanlines in Native; 3x and 4x are greyed. The Game Boy game shows 3x (432 lines) in Auto, Sharp lines, Game speed and Fill, 2x in 2x, and 1:1 with borders in Native. Every picture is sharp, with no flicker. With Scanlines On, Native shows the notice "No scanlines: they need each game line on two or more screen lines.".
+  - Record: the mode in the status after each change, and a close photo of the 2x picture with its scanlines.
+- [ ] `needs-hardware` **The refresh rate on a CRT that takes 50 Hz and 120 Hz.** A PC CRT with `pc_31_120`.
+  - Do: start a SNES game. Choose each option of Refresh rate that is not greyed: Auto, Double rate, 50 Hz, 60 Hz.
+  - Expect: Auto shows 2x at 60.10 Hz; Double rate shows the game's own 224 lines at 120.19 Hz, each frame twice, at the game's speed; 50 Hz runs the game slower, with the speed notice; 60 Hz runs it at 60 Hz. An option the monitor does not take is greyed with "This monitor does not take N Hz" (in the row "Not available" when the reason is long, and the full reason in the help line). In Settings > Display, Double rate is selectable with the tag "Not all games", and the notice after its pick says "Some games need 99.840 Hz, which this monitor does not take.".
+  - Record: the mode and the result in the status after each change.
+- [ ] `needs-hardware` **Each picture mode on a flat panel.** A 1080p panel that lists a 50 Hz mode.
+  - Do: start a SNES game, a Mega Drive PAL game and DoDonPachi. For each, choose every option of Picture mode that is not greyed. Then set Scanlines to On with the SNES game in Auto.
+  - Expect: the SNES game fills the height (1440x1080) in Auto, Game speed and Fill, shows 4x (1194x896) in 4x and Sharp lines, 3x (896x672) in 3x, 2x (597x448) in 2x and 1:1 (299x224) in Native, centred, with no stretch. The Mega Drive PAL game runs at 50 Hz in every mode, at its own speed. DoDonPachi shows 3x (720x960) in Auto, 3x and Sharp lines, the fill (810x1080) with the notice "Soft picture: Picture mode is set to Fill." in Fill, 2x (480x640) in 2x and 1:1 (240x320) in Native; 4x is greyed ("Too large for this screen"). In Settings > Display, Game speed, 3x and 4x show the tag "Not all games", and the notice after a pick says why. Refresh rate is disabled ("Not used on a flat panel"). With Scanlines On, the SNES game shows 4x (1194x896) with scanlines and the notice "Whole steps, with borders: scanlines are on, and they need whole steps on a flat panel.".
+  - Record: the mode and the size in the status after each change, and a close photo of the Sharp lines and the Fill pictures.
+- [ ] `needs-hardware` **A picture mode that also sets the refresh rate.** A 15 kHz tube with `generic_15`.
+  - Do: start a SNES game, set Refresh rate to 50 Hz in the Video page of the quick menu, then open Picture mode.
+  - Expect: Game speed is selectable with the tag "Sets rate Auto" in its row, and its help line keeps its own text. A pick shows the game at 60.10 Hz at its own speed, the notice "Refresh rate is set to Auto too." shows, and the Refresh rate row reads Auto. Then Resume and keep the change for the System: the notice says "Refresh rate is set to Auto too, for all games of this system.", and another game of the system starts in Game speed at its own rate. The tube holds sync.
+  - Record: the mode in the status before and after the pick, and the mode of the second game.
+- [ ] `needs-hardware` **The notice after a slow mode change.** A 15 kHz tube with `generic_15`, a game whose Fill picture needs a modeset (DoDonPachi).
+  - Do: set Picture mode to Fill in the quick menu and watch the screen until the new picture shows.
+  - Expect: the notice "Soft picture: Picture mode is set to Fill." shows once the new picture is on screen, also when the tube takes long to lock: the app waits for the picture, not for a count of frames.
+  - Record: the time from the pick to the picture, and when the notice shows.
+- [ ] `needs-hardware` **Settings > Display while its answers are made.** A Raspberry Pi 3 on DPI to a 15 kHz tube.
+  - Do: open Settings > Display, then Picture mode, at once and again after a scanline change.
+  - Expect: the options show "…" for a moment, then their tags and reasons; the menu and the sound never stutter while they are made.
+  - Record: how long the "…" shows.
+- [ ] `needs-hardware` **The speed alert.** A 15 kHz tube with `generic_15`, and a TV.
+  - Do: start a NES game (60.099 Hz) on `ntsc`-rate modes (a TV, or the `ntsc` preset) and a WonderSwan game (75.47 Hz) on the 15 kHz tube.
+  - Expect: the NES game at 59.94 Hz (0.26 % off) shows no `[!]` and no speed sentence in the notice; on a CRT the status still shows `speed (60.099 to 59.940 Hz)`. The WonderSwan game at 65 Hz (-13.9 %) shows `[!] speed (75.472 to 65.000 Hz)` and the speed sentence.
+  - Record: the status line of each, and whether the sound of the NES game is right.
+- [ ] `needs-hardware` **Picture mode, refresh rate and scanlines on the Pi 3 with a flat panel.** Pi 3 B or B+ on HDMI to a 1080p panel.
+  - Do: start a SNES game and DoDonPachi. Choose every option of Picture mode that is not greyed; set Scanlines to On, then Off.
+  - Expect: the same pictures as on the PC with a panel (the check above). Refresh rate is disabled ("Not used on a flat panel"). No option that is not greyed leaves the screen black; each change shows the picture at once.
+  - Record: the mode and the size in the status after each change, and the render time of the frame statistics for the Fill picture.
+- [ ] `needs-hardware` **Picture mode, refresh rate and scanlines on the Pi 3 with a TV.** Pi 3 composite output on NTSC, then on PAL.
+  - Do: open the options of Picture mode in Settings > Display. Start a SNES game and DoDonPachi, and choose every option of Picture mode that is not greyed. Set Scanlines to On.
+  - Expect: Game speed, 2x, 3x and 4x are greyed; the help line of Game speed says "Not available. A TV has one rate.". Refresh rate is disabled ("Not used on a TV"). DoDonPachi shows interlaced 1:1 in Auto and Sharp lines, and a progressive soft picture in 240p (288p on PAL) in Fill, with no flicker. With Scanlines On, the notice says why no scanline shows. The SNES game on NTSC (60.054 Hz, 0.07 % off) shows no `[!]`.
+  - Record: a photo of the options and of each picture, and the status lines.
