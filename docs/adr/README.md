@@ -33,3 +33,4 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0015](0015-rotation-in-scene.md) | The scene carries the rotation of the game picture | accepted | M06, M08a |
 | [0016](0016-initial-core-option-values.md) | The host holds initial core option values and applies them when the core declares its options | accepted | M06, M07a |
 | [0017](0017-community-gamepad-database.md) | The images ship the community gamepad database under the zlib licence | accepted | controller-db |
+| [0018](0018-15khz-kernel-patches-gpl-2-0-only.md) | The PC images carry the 15 kHz kernel patch set under GPL-2.0-only | accepted | M12 |
