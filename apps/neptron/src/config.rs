@@ -117,8 +117,24 @@ impl Config {
     /// `key` resolved at the global level only: the value every game
     /// inherits.
     pub fn resolved_global(&self, key: &str) -> Option<Resolved<'_>> {
-        let layers = Layers::try_new(Some(&self.global), None, None).unwrap_or_default();
-        resolve_key(&self.schema, &layers, key)
+        self.resolved_up_to(Level::Global, key)
+    }
+
+    /// `key` resolved from the defaults up to `level`: the value that a
+    /// write at `level` acts with, with no layer above it. The system level
+    /// needs a game context; without one it is the global level.
+    pub fn resolved_up_to(&self, level: Level, key: &str) -> Option<Resolved<'_>> {
+        let layers = match (level, &self.context) {
+            (Level::Game, Some(_)) => return self.resolved(key),
+            (Level::System, Some(_)) => {
+                Layers::try_new(Some(&self.global), Some(&self.system), None)
+            }
+            (Level::Global, _) | (Level::System | Level::Game, None) => {
+                Layers::try_new(Some(&self.global), None, None)
+            }
+        };
+        // Each layer was made for its own level.
+        resolve_key(&self.schema, &layers.unwrap_or_default(), key)
     }
 
     /// The value of `key` at `level`, if that layer sets it.
@@ -147,8 +163,8 @@ impl Config {
     }
 
     /// Sets (`Some`) or removes (`None`) `key` at `level` in memory, and
-    /// sets `reset` (a key with its value, the other picture row at Auto)
-    /// at the same level. A picture mode that is set also removes, at the
+    /// sets or removes `reset` (a key with its value: the other picture
+    /// row) at the same level. A picture mode that is set also removes, at the
     /// same level, the expert keys that it covers (`PICTURE_MODE_COVERS`),
     /// so the mode the player picks is what the player gets. The other
     /// keys change only after the set of `key` succeeds, so a failed set
@@ -163,7 +179,7 @@ impl Config {
         level: Level,
         key: &str,
         value: Option<Value>,
-        reset: Option<(&'static str, Value)>,
+        reset: Option<(&'static str, Option<Value>)>,
     ) -> Result<Vec<SideChange>, SetError> {
         let picture_mode = key == DISPLAY_STYLE && value.is_some();
         let old = self.get(level, key).cloned();
@@ -176,16 +192,23 @@ impl Config {
             }
         }
         let mut changes = Vec::new();
-        if let Some((other, auto)) = reset {
+        if let Some((other, new)) = reset {
             let before = self.get(level, other).cloned();
-            if let Err(e) = self.set(level, other, auto.clone()) {
-                self.restore(level, key, old);
-                return Err(e);
+            match new.clone() {
+                Some(value) => {
+                    if let Err(e) = self.set(level, other, value) {
+                        self.restore(level, key, old);
+                        return Err(e);
+                    }
+                }
+                None => {
+                    self.unset(level, other);
+                }
             }
             changes.push(SideChange {
                 key: other,
                 old: before,
-                new: Some(auto),
+                new,
             });
         }
         if picture_mode {
@@ -257,7 +280,7 @@ impl Config {
         })
     }
 
-    /// The picture style, the refresh policy and the TV width of the global
+    /// The picture mode, the refresh choice and the TV width of the global
     /// level, which the guard starts from. It has no game, so no arcade
     /// rules.
     ///
@@ -265,8 +288,20 @@ impl Config {
     ///
     /// [`SettingsError`] when the schema and the policy disagree.
     pub fn global_policy(&self) -> Result<PolicySettings, SettingsError> {
+        self.policy_up_to(Level::Global)
+    }
+
+    /// The policy settings resolved from the defaults up to `level`
+    /// ([`Self::resolved_up_to`]): the values that a write at `level` acts
+    /// with. The system and game levels of an arcade board keep its arcade
+    /// rules.
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError`] when the schema and the policy disagree.
+    pub fn policy_up_to(&self, level: Level) -> Result<PolicySettings, SettingsError> {
         let text = |key| {
-            self.resolved_global(key)
+            self.resolved_up_to(level, key)
                 .map(|r| r.value.to_string())
                 .unwrap_or_default()
         };
@@ -276,11 +311,13 @@ impl Config {
             None,
             &text(DISPLAY_TV_WIDTH),
         )?;
-        with_display_choices(
+        let settings = with_display_choices(
             settings,
             &text(DISPLAY_VERTICAL),
             &text(DISPLAY_PANEL_SCALE),
-        )
+        )?;
+        let arcade = level != Level::Global && self.context.as_ref().is_some_and(|c| c.arcade);
+        Ok(PolicySettings { arcade, ..settings })
     }
 
     /// The scanline settings of the global level, which the Settings panel
@@ -290,12 +327,21 @@ impl Config {
     ///
     /// [`SettingsError`] when the schema and the policy disagree.
     pub fn global_scanlines(&self) -> Result<ScanlineSettings, SettingsError> {
+        self.scanlines_up_to(Level::Global)
+    }
+
+    /// The scanline settings resolved from the defaults up to `level`.
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError`] when the schema and the policy disagree.
+    pub fn scanlines_up_to(&self, level: Level) -> Result<ScanlineSettings, SettingsError> {
         let mode = self
-            .resolved_global(DISPLAY_SCANLINES)
+            .resolved_up_to(level, DISPLAY_SCANLINES)
             .map(|r| r.value.to_string())
             .unwrap_or_default();
         let strength = match self
-            .resolved_global(DISPLAY_SCANLINE_STRENGTH)
+            .resolved_up_to(level, DISPLAY_SCANLINE_STRENGTH)
             .map(|r| r.value)
         {
             Some(Value::Int(v)) => v,
@@ -452,7 +498,12 @@ mod tests {
             Value::Text("force_50".to_owned()),
         )
         .unwrap();
-        let auto = || Some((DISPLAY_REFRESH_POLICY, Value::Text("exact".to_owned())));
+        let auto = || {
+            Some((
+                DISPLAY_REFRESH_POLICY,
+                Some(Value::Text("exact".to_owned())),
+            ))
+        };
         // A refused value changes neither key.
         assert!(
             c.set_clearing(Level::Global, DISPLAY_STYLE, Some(Value::Int(3)), auto())
@@ -468,7 +519,10 @@ mod tests {
                 Level::Global,
                 DISPLAY_STYLE,
                 Some(Value::Text("speed".to_owned())),
-                Some((DISPLAY_REFRESH_POLICY, Value::Text("never".to_owned()))),
+                Some((
+                    DISPLAY_REFRESH_POLICY,
+                    Some(Value::Text("never".to_owned()))
+                )),
             )
             .is_err()
         );
@@ -492,6 +546,33 @@ mod tests {
         assert_eq!(
             c.get(Level::Global, DISPLAY_STYLE),
             Some(&Value::Text("speed".to_owned()))
+        );
+    }
+
+    /// A refresh choice that also sets the picture mode to Auto keeps the
+    /// expert keys of that level: the pair that the menu judged had them,
+    /// so the write runs the very pair that was judged.
+    #[test]
+    fn a_reset_of_the_picture_mode_keeps_the_expert_keys_of_the_level() {
+        let mut c = Config::load(&Storage::new("/nonexistent/config"), None).0;
+        c.set(
+            Level::Global,
+            DISPLAY_VERTICAL,
+            Value::Text("fit".to_owned()),
+        )
+        .unwrap();
+        let changes = c
+            .set_clearing(
+                Level::Global,
+                DISPLAY_REFRESH_POLICY,
+                Some(Value::Text("force_50".to_owned())),
+                Some((DISPLAY_STYLE, Some(Value::Text("auto".to_owned())))),
+            )
+            .unwrap();
+        assert_eq!(changes.len(), 1, "{changes:?}");
+        assert_eq!(
+            c.get(Level::Global, DISPLAY_VERTICAL),
+            Some(&Value::Text("fit".to_owned()))
         );
     }
 

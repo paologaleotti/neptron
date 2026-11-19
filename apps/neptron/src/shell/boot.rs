@@ -346,6 +346,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             now_ns,
             menu_hotkey: false,
             picture_notice: super::PictureNotice::Launch,
+            game_resets: Vec::new(),
+            refused_keeps: Vec::new(),
             shown_notices,
             pad_notes,
             pad_maps,

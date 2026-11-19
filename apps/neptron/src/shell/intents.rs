@@ -30,6 +30,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         for intent in intents.drain(..) {
             self.intent(intent, now_ns);
         }
+        // A refused move belongs to the keep of this batch only.
+        self.refused_keeps.clear();
         self.ui.intents = intents;
     }
 
@@ -64,27 +66,13 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 let found = pages::entry(&self.config, key)
                     .and_then(|e| Some((e.key, pages::value_of(e, value, names, &self.config)?)));
                 if let (Some((key, value)), Some(level)) = (found, pages::settings_level(level)) {
-                    match self.gate(key, level, &value) {
-                        Gate::Set { note } => {
-                            self.change_setting(key, level, Some(value), now_ns);
-                            if let Some(note) = note {
-                                self.notice(NoticeKind::Info, note);
-                            }
-                        }
-                        Gate::SetWithReset { other, note } => {
-                            self.change_setting_with(key, level, Some(value), Some(other), now_ns);
-                            if let Some(note) = note {
-                                self.notice(NoticeKind::Info, note);
-                            }
-                        }
-                        Gate::Refused(reason) => self.refuse_value(key, &value, &reason),
-                    }
+                    self.set_value(key, level, value, now_ns);
                 }
             }
             Intent::ResetValue { key, level } => {
                 let key = pages::entry(&self.config, key).map(|e| e.key);
                 if let (Some(key), Some(level)) = (key, pages::settings_level(level)) {
-                    self.change_setting(key, level, None, now_ns);
+                    self.reset_value(key, level, now_ns);
                 }
             }
             Intent::Action(pages::RESCAN_GAMES) => self.rescan_games(),
@@ -463,15 +451,91 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         self.change_setting_with(key, level, value, None, now_ns);
     }
 
+    /// A set from the menus or the keep prompt, by the gate of `level`. A
+    /// keep that moves a game-level pick to another level and that the gate
+    /// refuses leaves the pick at the game level.
+    fn set_value(&mut self, key: &'static str, level: Level, value: Value, now_ns: u64) {
+        // A keep moves the whole change of the visit: a pick that also set
+        // the other row to Auto at the game level moves with that reset,
+        // where the level gives the pick at all.
+        let moves_reset =
+            self.is_keep(key, level, &value) && self.game_resets.iter().any(|(k, _)| *k == key);
+        let gate = match self.gate(key, level, &value) {
+            Gate::Set { note } if moves_reset => match pages::other_row(key) {
+                Some((other, _)) => Gate::SetWithReset { other, note },
+                None => Gate::Set { note },
+            },
+            gate => gate,
+        };
+        match gate {
+            Gate::Set { note } => {
+                self.change_setting(key, level, Some(value), now_ns);
+                if let Some(note) = note {
+                    self.notice(NoticeKind::Info, note);
+                }
+            }
+            Gate::SetWithReset { other, note } => {
+                let auto = pages::other_row(key).map(|(_, auto)| Value::Text(auto.to_owned()));
+                self.change_setting_with(key, level, Some(value), Some((other, auto)), now_ns);
+                if let Some(note) = note {
+                    self.notice(NoticeKind::Info, note);
+                }
+            }
+            Gate::Refused(reason) if self.is_keep(key, level, &value) => {
+                self.refused_keeps.push(key);
+                self.log(format!(
+                    "{key} = {value}: not kept at {}: {reason}",
+                    level.name()
+                ));
+                self.notice(
+                    NoticeKind::Info,
+                    format!(
+                        "Not kept {}: {}. The choice stays for this game.",
+                        pages::level_phrase(level),
+                        pages::lower_first(&reason)
+                    ),
+                );
+            }
+            Gate::Refused(reason) => self.refuse_value(key, &value, &reason),
+        }
+    }
+
+    /// A set at `level` of the value that the game level holds: the keep
+    /// prompt moves it there.
+    fn is_keep(&self, key: &str, level: Level, value: &Value) -> bool {
+        level != Level::Game && self.config.get(Level::Game, key) == Some(value)
+    }
+
+    /// A reset from the menus or the keep prompt. A key whose move the gate
+    /// refused in this batch keeps its game-level value. A pick of this
+    /// run that also set the other picture row at the game level loses both
+    /// keys there, in one write: no key of the pair stays behind alone.
+    fn reset_value(&mut self, key: &'static str, level: Level, now_ns: u64) {
+        if level == Level::Game && self.refused_keeps.contains(&key) {
+            return;
+        }
+        let pair = (level == Level::Game)
+            .then(|| {
+                self.game_resets
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, o)| *o)
+            })
+            .flatten();
+        self.game_resets.retain(|(k, _)| *k != key);
+        self.change_setting_with(key, level, None, pair.map(|other| (other, None)), now_ns);
+    }
+
     /// [`Self::change_setting`], and with `reset` the other picture row
-    /// (a key) set to Auto at the same level, in the same write and the
-    /// same revert, with a notice that names it.
+    /// (a key, with its new value or `None` to remove it) at the same
+    /// level, in the same write and the same revert. A set of the other row
+    /// to Auto gets a notice that names it.
     pub(super) fn change_setting_with(
         &mut self,
         key: &'static str,
         level: Level,
         value: Option<Value>,
-        reset: Option<&'static str>,
+        reset: Option<(&'static str, Option<Value>)>,
         now_ns: u64,
     ) {
         let Some(entry) = self.config.schema().get(key).copied() else {
@@ -481,10 +545,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             return;
         }
         let old = self.config.get(level, key).cloned();
-        let reset = reset.and_then(|other| {
-            let (other, auto) = pages::other_row(key).filter(|(o, _)| *o == other)?;
-            Some((other, Value::Text(auto.to_owned())))
-        });
+        let reset =
+            reset.filter(|(other, _)| pages::other_row(key).is_some_and(|(o, _)| o == *other));
         let side = match self
             .config
             .set_clearing(level, key, value.clone(), reset.clone())
@@ -499,10 +561,23 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             }
         };
         self.note_picture_change(key);
-        if let Some((other, _)) = reset {
+        if level == Level::Game && value.is_some() {
+            self.game_resets.retain(|(k, _)| *k != key);
+            if let Some((other, Some(_))) = &reset {
+                self.game_resets.push((key, other));
+            }
+        }
+        if let Some((other, Some(_))) = &reset {
             self.notice(
                 NoticeKind::Info,
-                format!("{} is set to Auto too.", pages::row_label(other)),
+                match level {
+                    Level::Game => format!("{} is set to Auto too.", pages::row_label(other)),
+                    Level::System | Level::Global => format!(
+                        "{} is set to Auto too, {}.",
+                        pages::row_label(other),
+                        pages::level_phrase(level)
+                    ),
+                },
             );
         }
         match entry.safety {

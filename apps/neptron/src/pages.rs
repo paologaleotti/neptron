@@ -418,6 +418,16 @@ pub fn some_games_text(some: SomeGames, other: &str) -> String {
     }
 }
 
+/// The words for the games that a write at `level` acts for, in a notice:
+/// "for all games of this system", "for all games".
+pub fn level_phrase(level: Level) -> &'static str {
+    match level {
+        Level::Global => "for all games",
+        Level::System => "for all games of this system",
+        Level::Game => "for this game",
+    }
+}
+
 /// The tag in the row of an option that some games do not get.
 pub const NOT_ALL_GAMES: &str = "Not all games";
 

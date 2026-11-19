@@ -161,6 +161,13 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     now_ns: u64,
     menu_hotkey: bool,
     picture_notice: PictureNotice,
+    /// The picks of this run at the game level that also set the other
+    /// picture row to Auto: (the key picked, the other key). A keep that
+    /// moves the pick to another level moves both keys.
+    game_resets: Vec<(&'static str, &'static str)>,
+    /// The keys whose move to another level the gate of that level refused
+    /// in this batch of intents: their value stays at the game level.
+    refused_keeps: Vec<&'static str>,
     /// The one-time notices shown already, as the notices file holds them.
     shown_notices: crate::notices::ShownNotices,
     /// The pad notices of this power cycle and the silent pad rule.

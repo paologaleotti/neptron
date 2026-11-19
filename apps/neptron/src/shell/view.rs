@@ -205,13 +205,14 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     }
 
     /// The answers of the policy for the options of the picture mode and
-    /// refresh rows of a page that writes `level`, from the same policy,
-    /// caps and validator as the run. The game level, and the system level
-    /// in a game, are judged for the running game with the values of the
-    /// run. The global level, and every level in the game list, are judged
-    /// for every game with the global values: the running game, if any,
-    /// then the reference sources (`REFERENCE_SOURCES`). `None` with no
-    /// engine.
+    /// refresh rows of a page or a set that writes `level`, from the same
+    /// policy, caps and validator as the run, with the values resolved from
+    /// the defaults up to that level. The game level is judged for the
+    /// running game with the values of the run; the system level in a game
+    /// for the running game with the values up to the system level; the
+    /// global level, and every level in the game list, for every game (the
+    /// running game, if any, then the reference sources,
+    /// `REFERENCE_SOURCES`) with the global values. `None` with no engine.
     pub(super) fn picture_choices(&self, level: Level) -> Option<PictureChoices> {
         let (engine, game) = match &self.stage {
             Stage::List(list) => (&list.engine, None),
@@ -219,10 +220,17 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             Stage::Ended => return None,
         };
         match (level, game) {
-            (Level::System | Level::Game, Some(source)) => engine.picture_choices(&source).ok(),
+            (Level::Game, Some(source)) => engine.picture_choices(&source).ok(),
+            (Level::System, Some(source)) => {
+                let settings = self.config.policy_up_to(Level::System).ok()?;
+                let scanlines = self.config.scanlines_up_to(Level::System).ok()?;
+                engine
+                    .picture_choices_with(&source, &settings, scanlines)
+                    .ok()
+            }
             (Level::Global, _) | (Level::System | Level::Game, None) => {
-                let settings = self.config.global_policy().ok()?;
-                let scanlines = self.config.global_scanlines().ok()?;
+                let settings = self.config.policy_up_to(Level::Global).ok()?;
+                let scanlines = self.config.scanlines_up_to(Level::Global).ok()?;
                 let sources: Vec<SourceGeometry> =
                     game.into_iter().chain(REFERENCE_SOURCES).collect();
                 engine.picture_choices_for_every_game(&sources, &settings, scanlines)
