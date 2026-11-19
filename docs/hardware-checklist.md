@@ -366,6 +366,19 @@ Each check is `needs-hardware`. Use the development image first.
   - Expect: each game plays with sound, and the quick menu quits to the game list.
   - Record: the game of each core.
 
+### The 15 kHz patch set at its GPL-2.0-only pin (M12)
+
+The pin moved to commit `d85a343379f7f54155f69ef56dc544b666635894` of `D0023R/linux_kernel_15khz` (ADR 0018). The nine patch files are the same as at the old pin. The build and QEMU checks of a pin change are in `os/README.md`, section "The 15 kHz kernel patch set". These checks need the PC and an image built with the new pin.
+
+- [ ] `needs-hardware` **The stick boots on the PC with UEFI and with BIOS.**
+  - Do: write the image to a stick and boot the PC with UEFI, then with legacy BIOS (CSM).
+  - Expect: the frontend starts each time. `cat /proc/version` shows 6.18.63, and `LICENCES.txt` on the boot partition names commit `d85a3433...`.
+  - Record: the boot time and the SHA-256 of the image.
+- [ ] `needs-hardware` **A 15 kHz mode on the real CRT with the patched kernel.** The PC with a 15 kHz display (section 4).
+  - Do: `neptronctl selftest video --profile generic_15 --connector <name> --i-have-checked-the-monitor generic_15` on the image with the set, then the same on an image built with `--no-kernel-15khz`.
+  - Expect: with the set, the driver accepts 240p and 288p with their low pixel clocks, the read back equals the request, and the tube syncs.
+  - Record: both self-test reports, and which modes only the patched kernel accepts.
+
 ### Audio settings (C12)
 
 - [ ] `needs-hardware` **The mixer is set at boot.**
