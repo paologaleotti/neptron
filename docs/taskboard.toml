@@ -631,7 +631,7 @@ name = "Pick the pad of each player in Settings > Input (spec first): the owner 
 owns = ["crates/neptron-input", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = ["M04", "M05"]
 gate = "T2; scenes and goldens; a check with two and four pads on hardware"
-status = "pending"
+status = "dropped"
 
 [[task]]
 id = "M06"
@@ -730,6 +730,15 @@ name = "Release 0.1: clean builds of the release images, the version, the releas
 owns = ["os", ".github", "docs", "README.md"]
 needs = ["M12", "M13"]
 gate = "ci-ok green on the release commit; the release images boot on both machines"
+status = "pending"
+
+[[task]]
+id = "M16"
+wave = 14
+name = "Frame pacing (spec first): a core that is a little too slow for the field loses that little, not half its frames; the sound follows a slow game with no crackle; a notice says when a game runs below its speed. Measured on the bench PC with Killer Instinct"
+owns = ["crates/neptron-session", "crates/neptron-testkit", "crates/neptron-ipc", "apps/neptron", "docs/spec"]
+needs = []
+gate = "T2 with the simulated clock; a measurement on the bench PC; the field order of an interlaced mode on a CRT is a line of the hardware checklist"
 status = "pending"
 
 [[task]]

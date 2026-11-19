@@ -108,6 +108,7 @@ The state column is one line. The full entry below is the reference.
 | OP-111 | PC findings of 2026-11-17 | Governor fixed; the PS3 arcade stick works with the old USB enumeration scheme; cold build with the 15 kHz patch fails |
 | OP-112 | A setting to turn off the old USB enumeration scheme | The images boot with `usbcore.old_scheme_first=1`; no setting yet |
 | OP-113 | Leftovers of the start failure and quick menu work of 2026-11-18 | `os push --data` carries no arcade index and no controller database; no game with a disk image is tested |
+| OP-114 | Decisions and findings of 2026-11-19 | M05b dropped; M12's gate met in CI; Killer Instinct is slow on the bench PC; the Pi has no HDMI entry in the hardware matrix |
 
 ### Decided
 
@@ -902,7 +903,7 @@ The state column is one line. The full entry below is the reference.
 
 - Raised by: the orchestrator, from the owner's photos of the first hardware session (2026-11-13)
 - Status: closed by C11
-- Default: on a flat panel the quick menu shows "Picture style" and "Refresh policy" as active rows. The panel path uses neither. A change to them has no effect and the menu does not say so.
+- Default: (state before task M08e) on a flat panel the quick menu showed "Picture style" and "Refresh policy" as active rows that had no effect. M08e makes the picture mode act on a flat panel and disables the refresh rate row there with a reason.
 - Where: `crates/neptron-ui` (the quick menu), the settings schema (a condition on the display class)
 - How to change: show these rows as disabled on a panel, with one line that gives the reason; or hide them. The schema needs a "applies to" field so the crawler can check it.
 - Decision: each setting says on which display class it has an effect; a row that a flat panel ignores is disabled with the reason "Not used on a flat panel". The scanline rows stay active, because scanlines work on a panel.
@@ -1166,7 +1167,7 @@ The state column is one line. The full entry below is the reference.
 - Default: version 0.1 shows a vertical game upright on a horizontal display (rotation in the renderer, task M08a). It has no mode for a monitor that stands on its side: the menu is not turned, and a vertical game is not shown at its native lines on such a monitor.
 - Where: `docs/spec/arcade.md` (the TATE section has the design notes), ADR 0015, `docs/definition/06-flat-panels-shaders-and-vertical-games.md` (`screen_orientation`)
 - How to change: a task of the first taskboard after the MVP. It covers a setting for the screen orientation with a direction (left or right), the UI drawn turned, a vertical game at its native lines with no rotation (240p at the game's own rate on 15 kHz), a horizontal game turned or refused on such a screen, the input directions turned in the menu, and the boot picture. The setting shape is question A6 of the arcade spec (OP-106).
-- Decision:
+- Decision: Owner, 2026-11-19: TATE is the first task after version 0.1. One system setting gives the screen orientation: 0 (YOKO), 90, 180 or 270 degrees, and the UI follows it. In Auto a vertical game runs at its own lines, full screen; a horizontal game shows upright and small, with a notice. Each game has an orientation override (Auto, 0, 90, 180, 270) in its display settings.
 
 ### OP-108: Arcade leftovers after the library tasks (M07a, M07b, M07c).
 
@@ -1221,3 +1222,12 @@ The state column is one line. The full entry below is the reference.
 - Where: `xtask/src/os` (`DATA_DIRS`), `apps/neptron/src/start_failure.rs`, `crates/neptron-library`, `crates/neptron-input/src/hotkeys.rs`
 - How to change: M11 for the data push (build the index in the push, add `input/`); a SHA-1 check of a disk image as a diagnostics job; a setting for the hold time if the owner wants one.
 - Decision: Owner, 2026-11-18: the texts of message 8 and of the notices S1, S2 and S3 are approved; the quick menu opens after a hold of 0.5 seconds.
+
+### OP-114: Decisions and findings of 2026-11-19.
+
+- Raised by: the owner and the bench session on the i3-6100T (2026-11-19)
+- Status: open
+- Default: (1) M05b, the picker of the pad of each player, is dropped: the plug order stays. (2) The kms-check of the M12 gate did not run on the development Mac, because the local release image of 2026-11-13 is older than the test tooling and its guest does not mount the test folder. The first CI run with the 15 kHz patch set (commit `62029d3e`) built the PC image from an empty output and passed the patch check, the boot with BIOS and with UEFI, kms-check, the GLES comparison, the video self-test, the core trace and the share check; it uploaded the image and its sources. So the gate of M12 is met and the cold build fault of OP-111 is proven fixed. (3) Killer Instinct (FinalBurn Neo, a MIPS interpreter with no recompiler at the pinned commit) needs about 1.0 to 1.5 field periods for one frame on the i3-6100T at 3.2 GHz. Before task M16 the game ran at 30 to 38 frames per second with 9 to 13 audio underruns per second; the first build of M16 gave 48 to 50 frames per second on average, 40 in the heavy scenes, with under 1 underrun per second. The bench image of that day was older than the governor fix, so the PC ran at 2.7 GHz until the governor was set by hand. (4) `data/hardware/matrix.toml` has no entry for the HDMI output of the Raspberry Pi; the flat panel path checks the panel's own mode list, so the effect is small. (5) A setting file can still name `display.vertical` and `display.panel_scale`; the menus no longer show them after M08e.
+- Where: `docs/taskboard.toml`, `.github/workflows/images.yml`, `crates/neptron-session`, `data/hardware/matrix.toml`
+- How to change: a new release image for the local tier 3 commands; M16 for the pacing; an entry for the Pi HDMI output when its limits are measured on the bench.
+- Decision: Owner, 2026-11-19: the notice texts of M16 are approved ("This game runs at {p}% speed. This machine is too slow for it." and "Sound off: the game runs at less than half speed."); when Auto finds no picture for a game, the Fill picture is the default (built in M08e).
