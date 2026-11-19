@@ -168,14 +168,14 @@ fn settings_list(frame: &mut UiFrame, theme: &Theme) {
     let items = [
         setting(
             1,
-            "Refresh",
-            choice(1, &["Native", "Force 60 Hz", "Force 50 Hz"]),
+            "Refresh rate",
+            choice(1, &["Auto", "60 Hz", "50 Hz"]),
             Level::System,
         ),
         setting(2, "Interlace", SettingValue::Toggle(false), Level::Default),
         setting(
             3,
-            "Picture style",
+            "Picture mode",
             choice(0, &["Native", "2x", "3x"]),
             Level::Global,
         ),

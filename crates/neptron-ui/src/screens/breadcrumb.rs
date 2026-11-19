@@ -162,8 +162,8 @@ mod tests {
             ("Super Mario Bros. 3 (USA) (... > Video".to_owned(), true)
         );
         assert_eq!(
-            fitted(&[title, "Video", "Picture style"], PAGE_ROOM),
-            ("... > Video > Picture style".to_owned(), true),
+            fitted(&[title, "Video", "Picture mode"], PAGE_ROOM),
+            ("... > Video > Picture mode".to_owned(), true),
             "the last two parts fit, so no part is cut"
         );
         assert_eq!(
@@ -187,8 +187,8 @@ mod tests {
     #[test]
     fn with_no_room_for_the_second_last_part_only_the_last_part_stays() {
         assert_eq!(
-            fitted(&["Settings", "Display", "Picture style"], 20),
-            ("... > Picture style".to_owned(), true)
+            fitted(&["Settings", "Display", "Picture mode"], 20),
+            ("... > Picture mode".to_owned(), true)
         );
         assert_eq!(
             fitted(&["Settings", "Display", "A far too long last part"], 20),
@@ -217,11 +217,11 @@ mod tests {
             };
             assert_eq!(first.len(), BREADCRUMB_BYTES - before);
             let mut out = Breadcrumb::new();
-            write_joined(&mut out, &[&first, "Video", "Picture style"]);
+            write_joined(&mut out, &[&first, "Video", "Picture mode"]);
             let text = out.as_str();
             assert!(text.ends_with(ELLIPSIS), "{before}: {text:?}");
             assert!(text.len() <= BREADCRUMB_BYTES, "{before}");
-            let whole = format!("{first} > Video > Picture style");
+            let whole = format!("{first} > Video > Picture mode");
             assert!(
                 whole.starts_with(text.trim_end_matches(ELLIPSIS)),
                 "{before}"

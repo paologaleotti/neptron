@@ -19,10 +19,11 @@ mod pad_mapping;
 mod page;
 mod panel;
 mod pattern;
+pub mod picture_scenes;
 mod quick_menu;
 mod router;
 mod scenes;
-pub use scenes::{PICTURE_MODE_TEXTS, REFRESH_RATE_TEXTS, picture_texts};
+pub use picture_scenes::{PICTURE_MODE_TEXTS, REFRESH_RATE_TEXTS, picture_texts};
 mod settings;
 mod video;
 
@@ -39,8 +40,8 @@ use crate::snapshot::{ActionId, PageId};
 /// numbers below it for its own pages and actions.
 pub const RESERVED_ID_MIN: u32 = 0xFFFF_0000;
 
-/// The page of the display panel: output, monitor profile, picture style,
-/// refresh policy, and a row that opens [`GRID_PAGE`].
+/// The page of the display panel: output, monitor profile, picture mode,
+/// refresh rate, and a row that opens [`GRID_PAGE`].
 pub const DISPLAY_PAGE: PageId = PageId(RESERVED_ID_MIN + 1);
 /// The page of the quick menu: the rows a player can change during a game,
 /// written at the game level, with rows for [`RESUME`] and [`QUIT_GAME`].

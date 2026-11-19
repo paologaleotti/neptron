@@ -493,17 +493,19 @@ fn a_picture_style_applies_only_from_its_option_list() {
         .filter(|r| r.widget == crate::WidgetKind::List)
         .map(|r| (r.label, r.value))
         .collect();
-    let rate = Some("31.41 kHz  59.72 Hz");
+    // Settings > Display writes for every game: no rate detail, the tag
+    // of an option that some games do not get.
+    let tag = Some("Not all games");
     assert_eq!(
         rows,
         [
-            ("Auto", rate),
-            ("Sharp lines", rate),
-            ("Game speed", rate),
-            ("Fill", rate),
-            ("Native", Some("31.41 kHz  119.45 Hz")),
-            ("2x", rate),
-            ("3x", rate),
+            ("Auto", None),
+            ("Sharp lines", None),
+            ("Game speed", None),
+            ("Fill", None),
+            ("Native", None),
+            ("2x", tag),
+            ("3x", tag),
             ("4x", Some("Not available")),
         ]
     );

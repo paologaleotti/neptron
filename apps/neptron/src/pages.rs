@@ -1864,6 +1864,159 @@ mod tests {
         }
     }
 
+    /// The rows of Settings > Display for the scenes of `neptron-ui`: a
+    /// display, its profile and its GPU.
+    fn scene_displays() -> Vec<(&'static str, DisplayClass, neptron_types::MonitorProfile)> {
+        let mut displays: Vec<_> = agreement_displays()
+            .into_iter()
+            .map(|(class, profile)| ("", class, profile))
+            .collect();
+        displays[0].0 = "crt15";
+        displays[1].0 = "crt31_arcade";
+        displays[2].0 = "tv";
+        displays[3].0 = "panel";
+        displays.push((
+            "crt31",
+            DisplayClass::Crt,
+            neptron_testkit::preset::monitor_preset("pc_31_120").expect("pc_31_120"),
+        ));
+        displays
+    }
+
+    /// The options of the picture rows of a page, built by the app.
+    fn page_options(
+        class: DisplayClass,
+        choices: &PictureChoices,
+        scope: Scope,
+    ) -> (Vec<ChoiceOption>, Vec<ChoiceOption>) {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            choices: Some(choices),
+            judging: false,
+            scope,
+            class,
+            outputs: &[],
+        };
+        let page = display_page(&config, names);
+        let options = |label: &str| {
+            let row = page.rows.iter().find(|r| r.label == label).expect(label);
+            let SettingValue::Choice { options, .. } = &row.value else {
+                panic!("a choice");
+            };
+            options.clone()
+        };
+        (options("Picture mode"), options("Refresh rate"))
+    }
+
+    /// The answers for every reference game with the default settings.
+    fn every_game(profile: &neptron_types::MonitorProfile) -> PictureChoices {
+        let scanlines = neptron_video::ScanlineSettings {
+            mode: ScanlineMode::Auto,
+            strength_percent: 75,
+        };
+        let per_source: Vec<PictureChoices> = neptron_video::REFERENCE_SOURCES
+            .iter()
+            .map(|source| {
+                neptron_video::picture_choices_on(
+                    source,
+                    &neptron_video::PolicySettings::default(),
+                    scanlines,
+                    profile,
+                    &open_caps(),
+                )
+                .expect("a plan")
+            })
+            .collect();
+        neptron_video::for_every_game(&per_source).expect("sources")
+    }
+
+    /// The answers of the quick menu for one game on `generic_15`.
+    fn this_game(
+        width: u16,
+        height: u16,
+        refresh_mhz: u32,
+        refresh: RefreshPolicy,
+    ) -> PictureChoices {
+        let profile = neptron_testkit::preset::monitor_preset("generic_15").expect("generic_15");
+        neptron_video::picture_choices_on(
+            &neptron_types::SourceGeometry {
+                width,
+                height,
+                refresh_mhz,
+                aspect_milli: 1_333,
+                interlaced: false,
+                rotation: neptron_types::Rotation::R0,
+            },
+            &neptron_video::PolicySettings {
+                refresh,
+                ..neptron_video::PolicySettings::default()
+            },
+            neptron_video::ScanlineSettings {
+                mode: ScanlineMode::Auto,
+                strength_percent: 75,
+            },
+            &profile,
+            &open_caps(),
+        )
+        .expect("a plan")
+    }
+
+    /// The scenes of the picture rows in `neptron-ui` show the options
+    /// that the app builds: Settings > Display on each scene display, for
+    /// every reference game with the default settings, and the quick menu
+    /// for a DOS game and for the SNES with a stored 50 Hz.
+    #[test]
+    fn the_scenes_of_the_picture_rows_show_what_the_app_builds() {
+        use neptron_ui::screens::picture_scenes::{self as scenes, SceneDisplay};
+        for (name, class, profile) in scene_displays() {
+            let display = match name {
+                "crt15" => SceneDisplay::Crt15,
+                "crt31" => SceneDisplay::Crt31,
+                "panel" => SceneDisplay::Panel,
+                "tv" => SceneDisplay::Tv,
+                _ => continue,
+            };
+            let (modes, rates) = page_options(class, &every_game(&profile), Scope::EveryGame);
+            assert_eq!(modes, scenes::settings_modes(display), "{name}");
+            assert_eq!(rates, scenes::settings_rates(display), "{name}");
+        }
+        let (dos, _) = page_options(
+            DisplayClass::Crt,
+            &this_game(640, 400, 70_086, RefreshPolicy::Exact),
+            Scope::ThisGame,
+        );
+        assert_eq!(dos, scenes::quick_dos_modes());
+        let (snes, _) = page_options(
+            DisplayClass::Crt,
+            &this_game(256, 224, 60_099, RefreshPolicy::Force50),
+            Scope::ThisGame,
+        );
+        assert_eq!(snes, scenes::quick_reset_modes());
+        let modes: Vec<_> = PICTURE_MODE_MENU_ORDER
+            .iter()
+            .map(|m| (mode_label(*m), mode_help(*m)))
+            .collect();
+        assert_eq!(modes, scenes::PICTURE_MODE_TEXTS);
+        let rates: Vec<_> = RefreshPolicy::ALL
+            .iter()
+            .map(|r| (refresh_label(*r), refresh_help(*r, Scope::EveryGame)))
+            .collect();
+        assert_eq!(rates, scenes::REFRESH_RATE_TEXTS);
+        assert_eq!(
+            scanline_help(ScanlineMode::Auto, DisplayClass::Crt),
+            scenes::SCANLINES_AUTO_CRT_HELP
+        );
+        assert_eq!(NOT_USED_ON_A_TV, scenes::picture_texts::NOT_USED_ON_A_TV);
+        assert_eq!(
+            NOT_USED_ON_A_PANEL,
+            scenes::picture_texts::NOT_USED_ON_A_PANEL
+        );
+    }
+
     /// With no answer of the policy (no engine), no option of the picture
     /// mode or refresh rows can be chosen.
     #[test]

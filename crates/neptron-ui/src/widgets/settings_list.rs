@@ -625,9 +625,11 @@ mod tests {
             index,
             options: vec![
                 ChoiceOption::new("Auto"),
-                ChoiceOption::new("Native").unavailable("Needs a 15 kHz monitor"),
+                ChoiceOption::new("Native")
+                    .unavailable("Not possible with this screen and video output"),
                 ChoiceOption::new("2x"),
-                ChoiceOption::new("3x").unavailable("Needs a 45 kHz monitor"),
+                ChoiceOption::new("3x")
+                    .unavailable("Not possible with this screen and video output"),
             ],
         };
         items[2].value = style(0);
@@ -652,7 +654,8 @@ mod tests {
             index: 0,
             options: vec![
                 ChoiceOption::new("Auto"),
-                ChoiceOption::new("Native").unavailable("Needs a 15 kHz monitor"),
+                ChoiceOption::new("Native")
+                    .unavailable("Not possible with this screen and video output"),
             ],
         };
         assert_eq!(

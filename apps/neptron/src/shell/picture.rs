@@ -196,6 +196,44 @@ mod tests {
 
     use super::*;
 
+    /// The longest notice of one picture, as the frame joins its
+    /// sentences, is the text of the scene `notice-picture-long` of
+    /// `neptron-ui`: a stored Game speed with a 50 Hz refresh rate that the
+    /// display declines (the rate is named, not the screen), the speed
+    /// change and the scanlines.
+    #[test]
+    fn the_longest_picture_notice_is_the_scene_of_it() {
+        let policy = PolicySettings {
+            style: neptron_video::PictureStyle::Speed,
+            refresh: RefreshPolicy::Force50,
+            ..PolicySettings::default()
+        };
+        let texts = [
+            declined_text(
+                policy,
+                DeclineReason::SpeedNotHeld,
+                "256x224p 15.65 kHz 50.000 Hz",
+            ),
+            reason_text(NoticeReason::SpeedChange {
+                game_mhz: 60_099,
+                shown_mhz: 50_000,
+            }),
+            scanline_text(
+                ScanlineSettings {
+                    mode: ScanlineMode::On,
+                    strength_percent: 75,
+                },
+                ScanlineOutcome::NoWholeMultiple,
+            )
+            .unwrap_or_default()
+            .to_owned(),
+        ];
+        assert_eq!(
+            texts.join(" "),
+            neptron_ui::screens::picture_texts::LONGEST_PICTURE_NOTICE
+        );
+    }
+
     const DODONPACHI: SourceGeometry = SourceGeometry {
         width: 320,
         height: 240,
