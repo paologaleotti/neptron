@@ -3,9 +3,9 @@
 //! section 8, gives it, checked on every source of the table.
 
 use neptron_modeline::policy::{
-    PictureStyle, Plan, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung,
-    SMALL_PICTURE_MIN_PERCENT, SoftReason, VerticalMode, Winner, choose, decide, notice,
-    style_rows,
+    DeclineReason, PictureStyle, Plan, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind,
+    Rung, SMALL_PICTURE_MIN_PERCENT, SoftReason, VerticalMode, Winner, choose, decide, notice,
+    picture_choices,
 };
 use neptron_safety::validate;
 use neptron_types::{MonitorKind, Rotation, SourceGeometry};
@@ -499,21 +499,26 @@ fn the_mode_rows_grey_speed_on_a_tv_and_sharp_where_only_a_fit_exists() {
         .find(|d| d.profile.id == "tv_ntsc")
         .unwrap();
     let snes = source(256, 224, 60_099);
-    let rows = style_rows(
+    let rows = picture_choices(
         &snes,
         &PolicySettings::default(),
+        neptron_modeline::policy::ScanlineChoice {
+            mode: neptron_types::ScanlineMode::Auto,
+            strength_percent: 75,
+        },
         &tv.profile,
         &tv.caps,
         |m| validate(m, &tv.profile, &tv.caps).map(|_| ()),
     )
-    .unwrap();
-    let styles: Vec<_> = rows.iter().map(|r| r.style).collect();
+    .unwrap()
+    .modes;
+    let styles: Vec<_> = rows.iter().map(|(style, _)| *style).collect();
     assert_eq!(styles, PictureStyle::ALL);
     let speed = rows
         .iter()
-        .find(|r| r.style == PictureStyle::Speed)
+        .find(|(style, _)| *style == PictureStyle::Speed)
         .unwrap();
-    assert!(!speed.available);
+    assert!(matches!(speed.1, Err(ref d) if d.reason == DeclineReason::OneRateOnTv));
     // 480 upright lines on a 31 kHz tube with no interlace: only the fit.
     let arcade_31 = Display {
         profile: preset("arcade_31"),
@@ -523,15 +528,20 @@ fn the_mode_rows_grey_speed_on_a_tv_and_sharp_where_only_a_fit_exists() {
         rotation: Rotation::R90,
         ..source(640, 480, 60_000)
     };
-    let rows = style_rows(
+    let rows = picture_choices(
         &tall,
         &PolicySettings::default(),
+        neptron_modeline::policy::ScanlineChoice {
+            mode: neptron_types::ScanlineMode::Auto,
+            strength_percent: 75,
+        },
         &arcade_31.profile,
         &arcade_31.caps,
         |m| validate(m, &arcade_31.profile, &arcade_31.caps).map(|_| ()),
     )
-    .unwrap();
-    let available = |style| rows.iter().find(|r| r.style == style).unwrap().available;
+    .unwrap()
+    .modes;
+    let available = |style| rows.iter().find(|(s, _)| *s == style).unwrap().1.is_ok();
     assert!(available(PictureStyle::Auto));
     assert!(!available(PictureStyle::Sharp));
     assert!(available(PictureStyle::Speed));

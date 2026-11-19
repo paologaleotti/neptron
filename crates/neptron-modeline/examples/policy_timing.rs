@@ -13,7 +13,7 @@ use std::hint::black_box;
 use std::path::Path;
 use std::time::Instant;
 
-use neptron_modeline::policy::{PolicySettings, choose, decide, style_rows};
+use neptron_modeline::policy::{PolicySettings, ScanlineChoice, choose, decide, picture_choices};
 use neptron_safety::validate;
 use neptron_types::{CrtRange, GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry};
 
@@ -112,10 +112,18 @@ fn main() {
 
     let start = Instant::now();
     for _ in 0..RUNS {
-        let rows = style_rows(&snes, &PolicySettings::default(), &edid, &edid_caps, |m| {
-            validate(m, &edid, &edid_caps).map(|_| ())
-        });
-        black_box(rows.expect("rows").len());
+        let choices = picture_choices(
+            &snes,
+            &PolicySettings::default(),
+            ScanlineChoice::OFF,
+            &edid,
+            &edid_caps,
+            |m| validate(m, &edid, &edid_caps).map(|_| ()),
+        );
+        black_box(choices.expect("choices").modes.len());
     }
-    println!("the five Display panel rows: {:?}", start.elapsed() / RUNS);
+    println!(
+        "the twelve options of the picture mode and refresh rows: {:?}",
+        start.elapsed() / RUNS
+    );
 }

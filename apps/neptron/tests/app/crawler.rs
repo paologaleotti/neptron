@@ -89,7 +89,7 @@ fn on_a_flat_panel_the_rows_it_ignores_are_disabled() {
         sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
         rig.output = "HDMI-A-1".to_owned();
         let found = crawl_all(rig, DisplayClass::FlatPanel);
-        let expected: BTreeSet<String> = ["Refresh policy"].map(str::to_owned).into();
+        let expected: BTreeSet<String> = ["Refresh rate"].map(str::to_owned).into();
         assert_eq!(found.disabled, expected, "the picture mode applies");
     });
 }
@@ -103,7 +103,7 @@ fn on_a_tv_the_tv_rows_show_and_the_monitor_and_refresh_rows_are_disabled() {
     );
     in_child(&name, |dir| {
         let found = crawl_all(crate::tv::composite_rig(dir), DisplayClass::Tv);
-        let expected: BTreeSet<String> = ["Monitor profile", "Refresh policy"]
+        let expected: BTreeSet<String> = ["Monitor profile", "Refresh rate"]
             .map(str::to_owned)
             .into();
         assert_eq!(found.disabled, expected);

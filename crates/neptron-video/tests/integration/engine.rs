@@ -1,7 +1,9 @@
 //! The good path: launch, debounce, scale only, mute, trace.
 
 use neptron_types::{Filter, Rect, Rotation, SourceGeometry};
-use neptron_video::{DEBOUNCE_FRAMES, Directive, Outcome, PictureStyle, PolicySettings, Trigger};
+use neptron_video::{
+    DEBOUNCE_FRAMES, Directive, Outcome, PictureStyle, PolicySettings, RefreshPolicy, Trigger,
+};
 
 use crate::harness::{
     MD_H32, MD_H40, Rig, SNES, SNES_239, fixed_width, frame, generic_15, mode_for, native_width,
@@ -321,20 +323,23 @@ fn a_new_turn_goes_through_the_debounce() {
 }
 
 #[test]
-fn the_style_rows_come_from_the_same_decision() {
+fn the_picture_choices_come_from_the_same_decision() {
     let mut rig = Rig::generic_15(native_width());
     rig.frame(SNES);
-    let rows = rig.engine.style_rows(&SNES).unwrap();
-    assert_eq!(rows.len(), PictureStyle::ALL.len());
-    let auto = &rows[0];
-    assert_eq!(auto.style, PictureStyle::Auto);
+    let choices = rig.engine.picture_choices(&SNES).unwrap();
+    assert_eq!(choices.modes.len(), PictureStyle::ALL.len());
+    assert_eq!(choices.refresh.len(), RefreshPolicy::ALL.len());
+    let (style, auto) = &choices.modes[0];
+    assert_eq!(*style, PictureStyle::Auto);
     let current = rig.engine.current().unwrap();
-    assert_eq!(auto.winner, Some(current.chosen.index));
-    let rows = rig.engine.style_rows(&DODONPACHI).unwrap();
+    assert_eq!(auto.as_ref().map(|o| o.winner), Ok(current.chosen.index));
+    let offer = rig.engine.offer(&SNES).unwrap();
+    assert_eq!(offer.as_ref().map(|o| o.winner), Ok(current.chosen.index));
+    let choices = rig.engine.picture_choices(&DODONPACHI).unwrap();
     assert_eq!(
-        rows.len(),
+        choices.modes.len(),
         PictureStyle::ALL.len(),
-        "a turned game has rows too"
+        "a turned game has options too"
     );
 }
 

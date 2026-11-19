@@ -1,8 +1,14 @@
 //! The texts of the picture notice: why the picture of a game is not
 //! exact, from the reasons that the policy returns as data.
 
+use neptron_types::ScanlineMode;
 use neptron_types::{Modeline, MonitorKind, Rotation, ScreenClass, SourceGeometry};
-use neptron_video::{Notice, NoticeReason, RefreshKind, SoftReason, VerticalMode};
+use neptron_video::{
+    DeclineReason, Notice, NoticeReason, PolicySettings, RefreshKind, ScanlineOutcome,
+    ScanlineSettings, SoftReason, VerticalMode, WholeReason,
+};
+
+use crate::pages;
 
 /// True for the case of the one-time notice of a vertical game: a game
 /// turned by 90 or 270 degrees, in an interlaced mode on a 15 kHz CRT or
@@ -52,7 +58,7 @@ fn reason_text(reason: NoticeReason) -> String {
             "Soft picture: no sharp mode at this game's rate.".to_owned()
         }
         NoticeReason::Soft(SoftReason::Chosen) => {
-            "Soft picture: a settings file sets vertical games to Fit.".to_owned()
+            "Soft picture: the setting display.vertical is set to fit.".to_owned()
         }
         NoticeReason::Soft(SoftReason::FillMode) => {
             "Soft picture: Picture mode is set to Fill.".to_owned()
@@ -74,6 +80,61 @@ fn reason_text(reason: NoticeReason) -> String {
             "Each frame shows twice at {} Hz. The game speed does not change.",
             hz(field_mhz)
         ),
+        NoticeReason::WholeSteps(WholeReason::Scanlines) => {
+            "Whole steps, with borders: scanlines are on, and they need whole steps on a flat panel."
+                .to_owned()
+        }
+        NoticeReason::WholeSteps(WholeReason::PanelScaleKey) => {
+            "Whole steps, with borders: the setting display.panel_scale is set to integer."
+                .to_owned()
+        }
+    }
+}
+
+/// The sentence for a stored picture mode or refresh choice that the
+/// display does not give: what was asked, why not, and the mode `shown`
+/// in its place, as the status line names it.
+pub(super) fn declined_text(policy: PolicySettings, reason: DeclineReason, shown: &str) -> String {
+    let asked = match reason {
+        DeclineReason::RateFixedByTv { asked }
+        | DeclineReason::RateOfPanel { asked }
+        | DeclineReason::RateNotCovered { asked, .. }
+        | DeclineReason::RateNotHeld { asked } => {
+            format!("Refresh rate {}", pages::refresh_label(asked))
+        }
+        DeclineReason::NeedsAnotherMonitor { asked, .. }
+        | DeclineReason::TooLargeForScreen { asked, .. }
+        | DeclineReason::OutputCannotSend { asked, .. } => {
+            format!("Picture mode {}", pages::mode_label(asked))
+        }
+        DeclineReason::NoPicture | DeclineReason::NoExactMode | DeclineReason::OneRateOnTv => {
+            format!("Picture mode {}", pages::mode_label(policy.style))
+        }
+    };
+    format!(
+        "{asked} is not possible on this screen: {}. Shown: {shown}.",
+        pages::decline_text(reason)
+    )
+}
+
+/// The sentence for scanlines that are on but not drawn on this picture,
+/// or `None`: the settings ask for none, or the renderer draws them.
+pub(super) fn scanline_text(
+    scanlines: ScanlineSettings,
+    outcome: ScanlineOutcome,
+) -> Option<&'static str> {
+    if scanlines.mode != ScanlineMode::On {
+        return None;
+    }
+    match outcome {
+        ScanlineOutcome::Drawn | ScanlineOutcome::NotAsked => None,
+        ScanlineOutcome::NoStrength => Some("No scanlines: the scanline strength is 0."),
+        ScanlineOutcome::Interlaced => {
+            Some("No scanlines: they are not drawn on an interlaced picture.")
+        }
+        ScanlineOutcome::NoWholeMultiple => {
+            Some("No scanlines: they need each game line on two or more screen lines.")
+        }
     }
 }
 
@@ -183,6 +244,7 @@ mod tests {
             padded_fill_permille: None,
             soft: None,
             small_fill_permille: None,
+            whole_steps: None,
         }
     }
 
@@ -210,7 +272,7 @@ mod tests {
             ),
             (
                 SoftReason::Chosen,
-                "Soft picture: a settings file sets vertical games to Fit.",
+                "Soft picture: the setting display.vertical is set to fit.",
             ),
             (
                 SoftReason::FillMode,
@@ -284,7 +346,7 @@ mod tests {
         let text = picture_text(RefreshKind::Tv, &notice, "").unwrap();
         assert!(
             text.starts_with(
-                "Soft picture: a settings file sets vertical games to Fit. The game runs at"
+                "Soft picture: the setting display.vertical is set to fit. The game runs at"
             ),
             "{text}"
         );

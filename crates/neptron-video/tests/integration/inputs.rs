@@ -76,10 +76,20 @@ fn a_style_change_takes_the_style_of_the_new_settings() {
     };
     rig.engine.set_settings(x3);
     rig.frame(SNES);
-    let rows = rig.engine.style_rows(&SNES).unwrap();
-    let x3_row = rows.iter().find(|r| r.style == PictureStyle::X3).unwrap();
+    let choices = rig.engine.picture_choices(&SNES).unwrap();
+    let (_, x3) = choices
+        .modes
+        .iter()
+        .find(|(style, _)| *style == PictureStyle::X3)
+        .unwrap();
     let current = rig.engine.current().unwrap();
-    assert_eq!(x3_row.winner, Some(current.chosen.index));
+    // 3x is not on its rung here, so the option is declined; the winner it
+    // shows in its place is the engine's.
+    let winner = match x3 {
+        Ok(offered) => Some(offered.winner),
+        Err(declined) => declined.winner,
+    };
+    assert_eq!(winner, Some(current.chosen.index));
 }
 
 #[test]

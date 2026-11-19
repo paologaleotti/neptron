@@ -1,4 +1,4 @@
-use neptron_types::{Filter, Modeline, Rect, ui_dest_fill, ui_dest_uniform};
+use neptron_types::{Filter, Modeline, Rect, Rotation, ui_dest_fill, ui_dest_uniform};
 
 use super::OrientedSource;
 use super::shape::{game_aspect_milli, same_aspect};
@@ -25,6 +25,27 @@ pub struct Placement {
     pub ui_dest: Rect,
     /// The whole scale factors that hold exactly on each axis.
     pub scale: ScaleClaim,
+}
+
+/// `to / from` when it is a whole number, the rule that the renderer's
+/// scanlines read for the vertical scale of a scene.
+pub fn whole_multiple(from: u32, to: u32) -> Option<u16> {
+    (from > 0 && to.is_multiple_of(from))
+        .then(|| u16::try_from(to / from).ok())
+        .flatten()
+}
+
+impl Placement {
+    /// The whole vertical multiple of the scene: the lines of the crop on
+    /// the screen (its columns for a game turned by `rotation`) into the
+    /// height of `dest`, by [`whole_multiple`].
+    pub fn vertical_multiple(&self, rotation: Rotation) -> Option<u16> {
+        let lines = match rotation {
+            Rotation::R0 | Rotation::R180 => self.crop.h,
+            Rotation::R90 | Rotation::R270 => self.crop.w,
+        };
+        whole_multiple(lines, self.dest.h)
+    }
 }
 
 /// The whole scale factor of each axis from the source on the screen
@@ -221,7 +242,7 @@ pub(crate) fn scale_milli(source: &OrientedSource, mode: &Modeline) -> u32 {
 }
 
 /// The height at which the game fills the mode on one axis.
-fn fitted_height(source: &OrientedSource, mode: &Modeline) -> u32 {
+pub(crate) fn fitted_height(source: &OrientedSource, mode: &Modeline) -> u32 {
     let at_full_height = aspect_width(source, u32::from(mode.vactive));
     if at_full_height <= u32::from(mode.hactive) {
         return u32::from(mode.vactive);

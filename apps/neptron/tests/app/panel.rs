@@ -116,7 +116,7 @@ fn a_1080p_panel_shows_the_menu_and_a_game_at_a_whole_scale() {
             // options. The panel ignores the refresh policy, so its row is
             // disabled with the reason.
             let rows = rig.shell().snapshot().settings.rows.clone();
-            let refresh = rows.iter().find(|r| r.label == "Refresh policy");
+            let refresh = rows.iter().find(|r| r.label == "Refresh rate");
             assert_eq!(
                 refresh.and_then(|r| r.unavailable.as_deref()),
                 Some(NOT_USED_ON_A_PANEL)

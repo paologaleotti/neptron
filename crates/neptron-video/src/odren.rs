@@ -1,9 +1,7 @@
 use neptron_backend::DisplayError;
-use neptron_modeline::policy::{PolicySettings, Proposal, Switch, switch_for};
+use neptron_modeline::policy::{PolicySettings, Proposal, Switch, panel_scanlines, switch_for};
 use neptron_safety::{Rejection, ValidatedMode, validate};
-use neptron_types::{
-    FlipEvent, Frame, GpuCaps, Modeline, MonitorKind, ScanlineMode, Scene, SourceGeometry,
-};
+use neptron_types::{FlipEvent, Frame, GpuCaps, Modeline, Scene, SourceGeometry};
 
 use crate::cache::Cache;
 use crate::decision::{Decision, Inputs};
@@ -188,7 +186,8 @@ impl Odren {
     pub fn set_monitor(&mut self, gpu: &GpuCaps, monitor: Monitor) {
         self.inputs.caps = monitor.caps_for(gpu);
         self.inputs.monitor = monitor;
-        self.inputs.settings.panel_scanlines = self.panel() && panel_scanlines(self.scanlines);
+        self.inputs.settings.panel_scanlines =
+            panel_scanlines(&self.inputs.monitor.profile().kind, self.scanlines);
         self.inputs.driver_refused.clear();
         self.invalidate(Trigger::Monitor);
     }
@@ -198,7 +197,7 @@ impl Odren {
     /// not from `settings`.
     pub fn set_settings(&mut self, settings: PolicySettings) {
         let settings = PolicySettings {
-            panel_scanlines: self.panel() && panel_scanlines(self.scanlines),
+            panel_scanlines: panel_scanlines(&self.inputs.monitor.profile().kind, self.scanlines),
             ..settings
         };
         if settings != self.inputs.settings {
@@ -227,19 +226,11 @@ impl Odren {
         self.scanlines = scanlines;
         // Only a flat panel reads the field; elsewhere the scene alone
         // changes, with no new decision.
-        let on = self.panel() && panel_scanlines(scanlines);
+        let on = panel_scanlines(&self.inputs.monitor.profile().kind, scanlines);
         if on != self.inputs.settings.panel_scanlines {
             self.inputs.settings.panel_scanlines = on;
             self.invalidate(Trigger::Settings);
         }
-    }
-
-    /// The monitor is a flat panel.
-    fn panel(&self) -> bool {
-        matches!(
-            self.inputs.monitor.profile().kind,
-            MonitorKind::FlatPanel { .. }
-        )
     }
 
     /// The scanline settings.
@@ -742,13 +733,23 @@ impl Odren {
         self.last_flip_ns = Some(event.time_ns);
     }
 
-    /// The picture style rows of the Display panel, from the same policy,
-    /// caps and validator.
-    pub fn style_rows(
+    /// The answers of `neptron_modeline::policy::offer` for the options of
+    /// the picture mode and the refresh rows, with the scanlines of the
+    /// engine, from the same policy, caps and validator.
+    pub fn picture_choices(
         &self,
         source: &SourceGeometry,
-    ) -> Result<Vec<neptron_modeline::policy::StyleRow<crate::Refusal>>, crate::Unshowable> {
-        self.inputs.style_rows(source)
+    ) -> Result<neptron_modeline::policy::PictureChoices, crate::Unshowable> {
+        self.inputs.picture_choices(source, self.scanlines)
+    }
+
+    /// The answer of `neptron_modeline::policy::offer` for the settings
+    /// and the scanlines of the engine.
+    pub fn offer(
+        &self,
+        source: &SourceGeometry,
+    ) -> Result<neptron_modeline::policy::Offer, crate::Unshowable> {
+        self.inputs.offer(source, self.scanlines)
     }
 
     /// A modeset of a monitor, settings or retry change that did not reach
@@ -871,12 +872,6 @@ impl Odren {
             refused: decision.map(|d| d.refused.clone()).unwrap_or_default(),
         }
     }
-}
-
-/// Scanlines show on a flat panel: the mode `on` with a strength above 0.
-/// `auto` draws none on a panel (`scanlines_for`).
-fn panel_scanlines(scanlines: ScanlineSettings) -> bool {
-    scanlines.mode == ScanlineMode::On && scanlines.strength_percent > 0
 }
 
 #[cfg(test)]

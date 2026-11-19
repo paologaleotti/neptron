@@ -1,4 +1,4 @@
-use neptron_modeline::policy::Placement;
+use neptron_modeline::policy::{Placement, whole_multiple};
 use neptron_types::{
     Filter, Frame, Modeline, MonitorKind, Rect, Rotation, Scene, ScreenClass, SourceGeometry,
     scanlines_for,
@@ -81,14 +81,6 @@ pub fn build_scene<'a>(
         ui_dest: placement.ui_dest,
         scanlines,
     }
-}
-
-/// `to / from` when it is a whole number, as the renderer's scanline rule
-/// reads the scale.
-fn whole_multiple(from: u32, to: u32) -> Option<u16> {
-    (from > 0 && to.is_multiple_of(from))
-        .then(|| u16::try_from(to / from).ok())
-        .flatten()
 }
 
 /// The frame has the size of the placement's source, and the crop lies

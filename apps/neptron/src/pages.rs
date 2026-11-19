@@ -8,7 +8,7 @@ use neptron_settings::{
     DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH,
     DisplayClass, Entry, INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
 };
-use neptron_types::TvStandard;
+use neptron_types::{ScanlineMode, TvStandard};
 use neptron_ui::Value as UiValue;
 use neptron_ui::font::has_glyph;
 use neptron_ui::screens::{
@@ -19,7 +19,9 @@ use neptron_ui::snapshot::{
     ActionId, ChoiceOption, Level as UiLevel, MenuItem, PageId, Scopes, SettingKey, SettingValue,
     SettingsPage,
 };
-use neptron_video::{Phase, SafeReason};
+use neptron_video::{
+    DeclineReason, Offer, Phase, PictureChoices, PictureStyle, RefreshPolicy, SafeReason,
+};
 
 use crate::config::Config;
 use crate::display::{AUTO, Detected, FLAT};
@@ -228,9 +230,10 @@ pub struct Names<'a> {
     pub presets: &'a Presets,
     /// The detected outputs.
     pub detected: &'a Detected,
-    /// What each picture style gives on the monitor now, from the engine's
-    /// `style_rows`. A style with no entry shows as a plain option.
-    pub styles: &'a [StyleOption],
+    /// The answers of the policy (`offer`) for the options of the picture
+    /// mode and refresh rows on the display now, from the engine. `None`
+    /// when the run has no engine: the options are then greyed.
+    pub choices: Option<&'a PictureChoices>,
     /// The class of the display that the run drives. A row whose setting
     /// does not apply to it is disabled.
     pub class: DisplayClass,
@@ -239,72 +242,132 @@ pub struct Names<'a> {
     pub outputs: &'a [OutputDevice],
 }
 
-/// The label and the help line of each picture mode, by its value in the
-/// schema. The help names what the mode gives up.
-pub const PICTURE_MODES: [(&str, &str, &str); 8] = [
-    (
-        "auto",
-        "Auto",
-        "Exact lines first, at the game's speed. A notice names each compromise.",
-    ),
-    (
-        "native",
-        "Native",
-        "The game's own lines, one time each. The picture can be small, with borders.",
-    ),
-    (
-        "2x",
-        "2x",
-        "Each line two times. If the screen cannot show it, a smaller step.",
-    ),
-    (
-        "3x",
-        "3x",
-        "Each line three times. If the screen cannot show it, a smaller step.",
-    ),
-    (
-        "4x",
-        "4x",
-        "Each line four times. If the screen cannot show it, a smaller step.",
-    ),
-    (
-        "sharp",
-        "Sharp lines",
-        "Exact lines always. The speed can change, and the picture can flicker or be small.",
-    ),
-    (
-        "speed",
-        "Game speed",
-        "The game's own speed first. The picture can be soft.",
-    ),
-    (
-        "fit",
-        "Fill",
-        "Fills the screen height with no flicker. The picture is soft.",
-    ),
+/// The order of the picture modes in the menus. The schema list is
+/// append-only, so the menus keep an order of their own: the trades first,
+/// then the fixed scales.
+pub const PICTURE_MODE_MENU_ORDER: [PictureStyle; 8] = [
+    PictureStyle::Auto,
+    PictureStyle::Sharp,
+    PictureStyle::Speed,
+    PictureStyle::Fit,
+    PictureStyle::Native,
+    PictureStyle::X2,
+    PictureStyle::X3,
+    PictureStyle::X4,
 ];
 
-/// The reason that a picture mode on its own rung is greyed: `native` or a
-/// multiple that the monitor cannot show.
-pub const NEEDS_ANOTHER_MONITOR: &str = "Needs another monitor";
-
-/// The reason that `speed` is greyed on a TV.
-pub const TV_HAS_ONE_RATE: &str = "A TV has one rate";
-
-/// The reason that `sharp` is greyed where only a fit validates.
-pub const NO_EXACT_MODE: &str = "No exact mode on this screen";
-
-/// What one picture style gives, for its option in the menu.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StyleOption {
-    /// The style, as the schema names it.
-    pub key: &'static str,
-    /// The line rate and the field rate of its mode, for example
-    /// `15.73 kHz  59.94 Hz`; empty when nothing wins.
-    pub detail: String,
-    /// Why the player cannot choose it, `None` when the player can.
-    pub unavailable: Option<String>,
+/// The label of a picture mode in the menus.
+pub fn mode_label(style: PictureStyle) -> &'static str {
+    match style {
+        PictureStyle::Auto => "Auto",
+        PictureStyle::Native => "Native",
+        PictureStyle::X2 => "2x",
+        PictureStyle::X3 => "3x",
+        PictureStyle::X4 => "4x",
+        PictureStyle::Sharp => "Sharp lines",
+        PictureStyle::Speed => "Game speed",
+        PictureStyle::Fit => "Fill",
+    }
 }
+
+/// The help line of a picture mode: what it gives up.
+pub fn mode_help(style: PictureStyle) -> &'static str {
+    match style {
+        PictureStyle::Auto => {
+            "Exact lines first, at the game's speed. A notice names each compromise."
+        }
+        PictureStyle::Native => {
+            "Each game line on one screen line. The picture can be small, with borders."
+        }
+        PictureStyle::X2 => "Each game line on two screen lines.",
+        PictureStyle::X3 => "Each game line on three screen lines.",
+        PictureStyle::X4 => "Each game line on four screen lines.",
+        PictureStyle::Sharp => {
+            "Exact lines over the game's speed. The picture can flicker or be small."
+        }
+        PictureStyle::Speed => "The game's own speed first. The picture can be soft.",
+        PictureStyle::Fit => {
+            "The largest picture with no flicker where the screen allows it. The picture can be soft."
+        }
+    }
+}
+
+/// The label of a refresh choice in the menus.
+pub fn refresh_label(refresh: RefreshPolicy) -> &'static str {
+    match refresh {
+        RefreshPolicy::Exact => "Auto",
+        RefreshPolicy::ExactX2 => "Double rate",
+        RefreshPolicy::Force50 => "50 Hz",
+        RefreshPolicy::Force60 => "60 Hz",
+    }
+}
+
+/// The help line of a refresh choice.
+pub fn refresh_help(refresh: RefreshPolicy) -> &'static str {
+    match refresh {
+        RefreshPolicy::Exact => "The game's own rate, or the nearest rate the monitor takes.",
+        RefreshPolicy::ExactX2 => {
+            "Each frame shows twice, at twice the game's rate. The game speed does not change."
+        }
+        RefreshPolicy::Force50 => "Every game at 50 Hz. A game made for 60 Hz runs slower.",
+        RefreshPolicy::Force60 => "Every game at 60 Hz. A game made for 50 Hz runs faster.",
+    }
+}
+
+/// The label of a scanline mode in the menus.
+pub fn scanline_label(mode: ScanlineMode) -> &'static str {
+    match mode {
+        ScanlineMode::Auto => "Auto",
+        ScanlineMode::Off => "Off",
+        ScanlineMode::On => "On",
+    }
+}
+
+/// The help line of a scanline mode on a display of `class`: what the
+/// renderer's rule (`neptron_types::scanlines_for`) does there.
+pub fn scanline_help(mode: ScanlineMode, class: DisplayClass) -> &'static str {
+    match (mode, class) {
+        (ScanlineMode::Auto, DisplayClass::Crt) => {
+            "Above 15 kHz, where each game line is on two or more screen lines, with no interlace."
+        }
+        (ScanlineMode::Auto, DisplayClass::Tv) => "None: a TV draws its own scanlines.",
+        (ScanlineMode::Auto, DisplayClass::FlatPanel) => {
+            "None on a flat panel. Choose On to draw them."
+        }
+        (ScanlineMode::On, DisplayClass::Crt | DisplayClass::Tv) => {
+            "Dark lines where each game line is on two or more screen lines, with no interlace."
+        }
+        (ScanlineMode::On, DisplayClass::FlatPanel) => {
+            "Dark lines at a whole multiple of 2 or more. The picture then uses whole steps."
+        }
+        (ScanlineMode::Off, _) => "No scanlines.",
+    }
+}
+
+/// The reason in the menus why the policy does not offer a candidate.
+pub fn decline_text(reason: DeclineReason) -> String {
+    match reason {
+        DeclineReason::NoPicture => "No picture on this screen".to_owned(),
+        DeclineReason::RateFixedByTv { .. } | DeclineReason::OneRateOnTv => {
+            "A TV has one rate".to_owned()
+        }
+        DeclineReason::RateOfPanel { .. } => "A flat panel uses its own rates".to_owned(),
+        DeclineReason::RateNotCovered { rate_mhz, .. } => format!(
+            "This monitor does not take {}.{:02} Hz",
+            rate_mhz / 1_000,
+            rate_mhz % 1_000 / 10
+        ),
+        DeclineReason::RateNotHeld { .. } => "No exact picture at this rate".to_owned(),
+        DeclineReason::NeedsAnotherMonitor { .. } => "Needs another monitor".to_owned(),
+        DeclineReason::TooLargeForScreen { .. } => "Too large for this screen".to_owned(),
+        DeclineReason::OutputCannotSend { .. } => "This video output cannot send it".to_owned(),
+        DeclineReason::NoExactMode => "No exact mode on this screen".to_owned(),
+    }
+}
+
+/// The reason of an option of the picture mode or refresh rows when the
+/// run has no engine to ask.
+pub const NO_DECISION: &str = "No picture decision now";
 
 /// Which level a page reads and writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -634,9 +697,9 @@ pub fn value_of(entry: &Entry, value: UiValue, names: Names<'_>, config: &Config
     match (entry.kind, value) {
         (Kind::Bool { .. }, UiValue::Toggle(v)) => Some(Value::Bool(v)),
         (Kind::Int { .. }, UiValue::Number(n)) => Some(Value::Int(n)),
-        (Kind::Choice { choices, .. }, UiValue::Choice(i)) => {
-            choices.get(i).map(|c| Value::Text((*c).to_owned()))
-        }
+        (Kind::Choice { choices, .. }, UiValue::Choice(i)) => menu_choices(entry.key, choices)
+            .get(i)
+            .map(|c| Value::Text((*c).to_owned())),
         (Kind::Name { .. } | Kind::Text { .. }, UiValue::Choice(i)) => {
             names_of(entry.key, names, config)
                 .get(i)
@@ -665,6 +728,20 @@ pub fn settings_level(level: UiLevel) -> Option<Level> {
         UiLevel::System => Some(Level::System),
         UiLevel::Game => Some(Level::Game),
     }
+}
+
+/// The choices of `key` in the order of the menus: the picture modes in
+/// [`PICTURE_MODE_MENU_ORDER`], every other key in the order of the
+/// schema. A menu option maps to the value at its place in this list.
+pub fn menu_choices(key: &str, choices: &'static [&'static str]) -> Vec<&'static str> {
+    if key != DISPLAY_STYLE {
+        return choices.to_vec();
+    }
+    PICTURE_MODE_MENU_ORDER
+        .iter()
+        .map(|style| style.key())
+        .filter(|k| choices.contains(k))
+        .collect()
 }
 
 fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuItem> {
@@ -697,16 +774,19 @@ fn row(config: &Config, names: Names<'_>, key: &str, view: View) -> Option<MenuI
             },
             unit: unit(key).to_owned(),
         },
-        Kind::Choice { choices, .. } => SettingValue::Choice {
-            index: choices
-                .iter()
-                .position(|c| resolved.value == Value::Text((*c).to_owned()))
-                .unwrap_or(0),
-            options: choices
-                .iter()
-                .map(|c| choice_option(key, c, names))
-                .collect(),
-        },
+        Kind::Choice { choices, .. } => {
+            let ordered = menu_choices(key, choices);
+            SettingValue::Choice {
+                index: ordered
+                    .iter()
+                    .position(|c| resolved.value == Value::Text((*c).to_owned()))
+                    .unwrap_or(0),
+                options: ordered
+                    .iter()
+                    .map(|c| choice_option(key, c, names))
+                    .collect(),
+            }
+        }
         Kind::Name { .. } | Kind::Text { .. } => {
             let options = names_of(key, names, config);
             SettingValue::Choice {
@@ -837,14 +917,83 @@ fn short_label(label: &str) -> Option<&str> {
     (!head.is_empty()).then_some(head)
 }
 
-/// The option of choice `choice`: for a picture style, with what it gives
-/// on the monitor now; for a TV standard, its name and rate.
+/// The option of choice `choice`: a picture mode or a refresh choice with
+/// what the policy gives for it on the display now, a scanline mode with
+/// its rule there, a TV standard with its name and rate.
 fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
     match key {
-        DISPLAY_STYLE => style_option(choice, names.styles),
+        DISPLAY_STYLE => match PictureStyle::ALL.into_iter().find(|s| s.key() == choice) {
+            Some(style) => {
+                let option = ChoiceOption::new(mode_label(style)).with_help(mode_help(style));
+                let answer = names
+                    .choices
+                    .and_then(|c| c.modes.iter().find(|(s, _)| *s == style).map(|(_, a)| a));
+                offered_option(option, answer)
+            }
+            None => ChoiceOption::new(choice),
+        },
+        DISPLAY_REFRESH_POLICY => {
+            match RefreshPolicy::ALL.into_iter().find(|r| r.key() == choice) {
+                Some(refresh) => {
+                    let option =
+                        ChoiceOption::new(refresh_label(refresh)).with_help(refresh_help(refresh));
+                    let answer = names.choices.and_then(|c| {
+                        c.refresh
+                            .iter()
+                            .find(|(r, _)| *r == refresh)
+                            .map(|(_, a)| a)
+                    });
+                    offered_option(option, answer)
+                }
+                None => ChoiceOption::new(choice),
+            }
+        }
+        DISPLAY_SCANLINES => match ScanlineMode::from_key(choice) {
+            Some(mode) => {
+                ChoiceOption::new(scanline_label(mode)).with_help(scanline_help(mode, names.class))
+            }
+            None => ChoiceOption::new(choice),
+        },
         DISPLAY_TV => tv_option(choice, names.detected),
         _ => ChoiceOption::new(choice),
     }
+}
+
+/// An option of the picture mode or refresh rows from the answer of the
+/// policy: the line rate and field rate of the mode it shows, and greyed
+/// with the reason when the policy does not offer it. With no answer the
+/// option is greyed: only an offered option can be chosen.
+fn offered_option(option: ChoiceOption, answer: Option<&Offer>) -> ChoiceOption {
+    let Some(answer) = answer else {
+        return option.unavailable(NO_DECISION);
+    };
+    let (plan, winner) = match answer {
+        Ok(offered) => (&offered.plan, Some(offered.winner)),
+        Err(declined) => (&declined.plan, declined.winner),
+    };
+    let mode = winner
+        .and_then(|i| plan.considered.get(i))
+        .and_then(|c| c.outcome.as_ref().ok())
+        .map(|p| p.mode);
+    let option = match mode {
+        Some(m) => option.with_detail(rates(m.line_rate_mhz(), m.field_rate_mhz())),
+        None => option,
+    };
+    match answer {
+        Ok(_) => option,
+        Err(declined) => option.unavailable(decline_text(declined.reason)),
+    }
+}
+
+/// `15.73 kHz  59.94 Hz` from a line rate and a field rate in millihertz.
+fn rates(line_mhz: u64, field_mhz: u64) -> String {
+    format!(
+        "{}.{:02} kHz  {}.{:02} Hz",
+        line_mhz / 1_000_000,
+        line_mhz % 1_000_000 / 10_000,
+        field_mhz / 1_000,
+        field_mhz % 1_000 / 10
+    )
 }
 
 /// The option of a TV standard: its name with its rate, and `auto` with
@@ -865,25 +1014,6 @@ fn tv_option(choice: &str, detected: &Detected) -> ChoiceOption {
         option.unavailable(NOT_OFFERED)
     } else {
         option
-    }
-}
-
-/// The option of a picture mode: its label and its help line, with what it
-/// gives on the monitor now.
-fn style_option(choice: &str, styles: &[StyleOption]) -> ChoiceOption {
-    let option = match PICTURE_MODES.iter().find(|(key, _, _)| *key == choice) {
-        Some((_, label, help)) => ChoiceOption::new(*label).with_help(*help),
-        None => ChoiceOption::new(choice),
-    };
-    match styles.iter().find(|s| s.key == choice) {
-        Some(style) => {
-            let option = option.with_detail(style.detail.clone());
-            match &style.unavailable {
-                Some(reason) => option.unavailable(reason.clone()),
-                None => option,
-            }
-        }
-        None => option,
     }
 }
 
@@ -1091,7 +1221,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             outputs: &outputs,
             class: DisplayClass::Crt,
         };
@@ -1159,7 +1289,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             outputs: &[],
             class: DisplayClass::Crt,
         };
@@ -1180,7 +1310,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1207,13 +1337,13 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             class: DisplayClass::Crt,
             outputs: &[],
         };
         let style = config.schema().get(DISPLAY_STYLE).expect("style");
         assert_eq!(
-            value_of(style, UiValue::Choice(2), names, &config),
+            value_of(style, UiValue::Choice(5), names, &config),
             Some(Value::Text("2x".to_owned()))
         );
         assert_eq!(value_of(style, UiValue::Choice(99), names, &config), None);
@@ -1233,56 +1363,189 @@ mod tests {
         );
     }
 
+    /// The displays of the agreement test: a 15 kHz CRT, a 31 kHz CRT, a
+    /// TV and a 1080p panel, with a GPU that sends interlace.
+    fn agreement_displays() -> Vec<(DisplayClass, neptron_types::MonitorProfile)> {
+        let preset = |id| neptron_testkit::preset::monitor_preset(id).expect(id);
+        let p1080 = neptron_types::Modeline {
+            pclock_hz: 148_500_000,
+            hactive: 1920,
+            hsync_start: 2008,
+            hsync_end: 2052,
+            htotal: 2200,
+            vactive: 1080,
+            vsync_start: 1084,
+            vsync_end: 1089,
+            vtotal: 1125,
+            interlace: false,
+            doublescan: false,
+            hsync_positive: true,
+            vsync_positive: true,
+        };
+        vec![
+            (DisplayClass::Crt, preset("generic_15")),
+            (DisplayClass::Crt, preset("arcade_31")),
+            (DisplayClass::Tv, TvStandard::Ntsc.profile()),
+            (
+                DisplayClass::FlatPanel,
+                neptron_types::MonitorProfile {
+                    id: "panel".to_owned(),
+                    kind: neptron_types::MonitorKind::FlatPanel { modes: vec![p1080] },
+                },
+            ),
+        ]
+    }
+
+    fn open_caps() -> neptron_types::GpuCaps {
+        neptron_types::GpuCaps {
+            pclock_min_hz: 0,
+            pclock_max_hz: u32::MAX,
+            interlace: true,
+            flip_per_field: false,
+            max_width: u16::MAX,
+            max_height: u16::MAX,
+        }
+    }
+
+    /// The selectable options of the picture mode and refresh rows of both
+    /// menus are the offered answers of the policy, for each display class
+    /// and each stored picture mode and refresh choice: the rows come from
+    /// the answers and from nothing else.
     #[test]
-    fn picture_styles_show_their_rates_and_grey_out_what_the_monitor_cannot_show() {
+    fn the_selectable_options_are_the_offered_answers_of_the_policy() {
         let config = config();
         let presets = Presets::default();
         let detected = Detected::default();
-        let styles = [
-            StyleOption {
-                key: "auto",
-                detail: "15.73 kHz  59.94 Hz".to_owned(),
-                unavailable: None,
-            },
-            StyleOption {
-                key: "2x",
-                detail: String::new(),
-                unavailable: Some("Needs another monitor".to_owned()),
-            },
-        ];
+        let snes = neptron_types::SourceGeometry {
+            width: 256,
+            height: 224,
+            refresh_mhz: 60_099,
+            aspect_milli: 1_333,
+            interlaced: false,
+            rotation: neptron_types::Rotation::R0,
+        };
+        let scanlines = neptron_video::ScanlineSettings {
+            mode: ScanlineMode::Auto,
+            strength_percent: 75,
+        };
+        for (class, profile) in agreement_displays() {
+            for style in PictureStyle::ALL {
+                for refresh in RefreshPolicy::ALL {
+                    let settings = neptron_video::PolicySettings {
+                        style,
+                        refresh,
+                        ..neptron_video::PolicySettings::default()
+                    };
+                    let choices = neptron_video::picture_choices_on(
+                        &snes,
+                        &settings,
+                        scanlines,
+                        &profile,
+                        &open_caps(),
+                    )
+                    .expect("a plan");
+                    let names = Names {
+                        presets: &presets,
+                        detected: &detected,
+                        choices: Some(&choices),
+                        class,
+                        outputs: &[],
+                    };
+                    for page in [display_page(&config, names), video_page(&config, names)] {
+                        for (key, offered) in [
+                            (
+                                DISPLAY_STYLE,
+                                PICTURE_MODE_MENU_ORDER
+                                    .iter()
+                                    .map(|m| {
+                                        let a =
+                                            &choices.modes.iter().find(|(s, _)| s == m).unwrap().1;
+                                        (m.key(), a.is_ok())
+                                    })
+                                    .collect::<Vec<_>>(),
+                            ),
+                            (
+                                DISPLAY_REFRESH_POLICY,
+                                choices
+                                    .refresh
+                                    .iter()
+                                    .map(|(r, a)| (r.key(), a.is_ok()))
+                                    .collect(),
+                            ),
+                        ] {
+                            let entry = config.schema().get(key).expect(key);
+                            let row = page
+                                .rows
+                                .iter()
+                                .find(|r| r.label == entry.label)
+                                .expect(key);
+                            let SettingValue::Choice { options, .. } = &row.value else {
+                                panic!("a choice");
+                            };
+                            let shown: Vec<_> = options
+                                .iter()
+                                .enumerate()
+                                .map(|(i, o)| {
+                                    let value = value_of(entry, UiValue::Choice(i), names, &config);
+                                    (value.map(|v| v.to_string()).unwrap(), o.is_enabled())
+                                })
+                                .collect();
+                            let offered: Vec<_> = offered
+                                .into_iter()
+                                .map(|(k, ok)| (k.to_owned(), ok))
+                                .collect();
+                            assert_eq!(shown, offered, "{key} on {} {style} {refresh}", profile.id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// With no answer of the policy (no engine), no option of the picture
+    /// mode or refresh rows can be chosen.
+    #[test]
+    fn with_no_answer_no_picture_option_can_be_chosen() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &styles,
+            choices: None,
             class: DisplayClass::Crt,
             outputs: &[],
         };
-        let page = video_page(&config, names);
-        let style = page
-            .rows
-            .iter()
-            .find(|r| r.label == "Picture mode")
-            .expect("the style row");
-        let SettingValue::Choice { options, .. } = &style.value else {
-            panic!("a choice");
-        };
-        assert_eq!(options[0].detail, "15.73 kHz  59.94 Hz");
-        assert!(options[0].is_enabled());
-        assert!(!options[2].is_enabled(), "2x");
-        assert_eq!(options[1].detail, "", "a style with no row has no detail");
+        let page = display_page(&config, names);
+        for label in ["Picture mode", "Refresh rate"] {
+            let row = page.rows.iter().find(|r| r.label == label).expect(label);
+            let SettingValue::Choice { options, .. } = &row.value else {
+                panic!("a choice");
+            };
+            assert!(options.iter().all(|o| !o.is_enabled()), "{label}");
+            assert!(
+                options
+                    .iter()
+                    .all(|o| o.unavailable.as_deref() == Some(NO_DECISION))
+            );
+        }
     }
 
     #[test]
-    fn every_picture_mode_has_a_label_and_a_help_line_in_the_order_of_the_schema() {
-        let keys: Vec<_> = PICTURE_MODES.iter().map(|(key, _, _)| *key).collect();
-        assert_eq!(keys, neptron_settings::PICTURE_STYLES);
+    fn every_picture_mode_has_a_label_and_a_help_line_in_the_menu_order() {
+        let order: Vec<_> = PICTURE_MODE_MENU_ORDER.iter().map(|m| m.key()).collect();
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        let mut schema = neptron_settings::PICTURE_STYLES.to_vec();
+        schema.sort_unstable();
+        assert_eq!(sorted, schema, "the menu order holds every value once");
         let config = config();
         let presets = Presets::default();
         let detected = Detected::default();
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             class: DisplayClass::FlatPanel,
             outputs: &[],
         };
@@ -1292,7 +1555,6 @@ mod tests {
                 .iter()
                 .find(|r| r.label == "Picture mode")
                 .expect("the picture mode row on a panel");
-            assert!(mode.is_enabled());
             let SettingValue::Choice { options, index } = &mode.value else {
                 panic!("a choice");
             };
@@ -1302,13 +1564,13 @@ mod tests {
                 labels,
                 [
                     "Auto",
+                    "Sharp lines",
+                    "Game speed",
+                    "Fill",
                     "Native",
                     "2x",
                     "3x",
-                    "4x",
-                    "Sharp lines",
-                    "Game speed",
-                    "Fill"
+                    "4x"
                 ]
             );
             for option in options {
@@ -1316,10 +1578,26 @@ mod tests {
                 assert!(option.help.len() <= 88, "two lines: {}", option.help);
             }
         }
+        for style in PictureStyle::ALL {
+            assert!(mode_help(style).len() <= 88, "{style}");
+        }
+        for refresh in RefreshPolicy::ALL {
+            assert!(refresh_help(refresh).len() <= 88, "{refresh}");
+        }
+        for mode in ScanlineMode::ALL {
+            for class in [DisplayClass::Crt, DisplayClass::Tv, DisplayClass::FlatPanel] {
+                assert!(scanline_help(mode, class).len() <= 88, "{mode:?} {class:?}");
+            }
+        }
         let entry = config.schema().get(DISPLAY_STYLE).expect("style");
         assert_eq!(
-            value_of(entry, UiValue::Choice(7), names, &config),
-            Some(Value::Text("fit".to_owned()))
+            value_of(entry, UiValue::Choice(3), names, &config),
+            Some(Value::Text("fit".to_owned())),
+            "the fourth option of the menu is Fill"
+        );
+        assert_eq!(
+            value_of(entry, UiValue::Choice(5), names, &config),
+            Some(Value::Text("2x".to_owned()))
         );
     }
 
@@ -1342,7 +1620,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1371,7 +1649,7 @@ mod tests {
             let names = Names {
                 presets: &presets,
                 detected: &detected,
-                styles: &[],
+                choices: None,
                 class,
                 outputs: &[],
             };
@@ -1391,7 +1669,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             class: DisplayClass::FlatPanel,
             outputs: &[],
         };
@@ -1404,7 +1682,7 @@ mod tests {
             .collect();
         assert_eq!(
             disabled,
-            ["Refresh policy"],
+            ["Refresh rate"],
             "the picture mode applies to a panel, the refresh policy does not"
         );
     }
@@ -1417,7 +1695,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1445,7 +1723,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             class: DisplayClass::Crt,
             outputs: &[],
         };
@@ -1485,7 +1763,7 @@ mod tests {
         let names = Names {
             presets: &presets,
             detected: &detected,
-            styles: &[],
+            choices: None,
             class: DisplayClass::Tv,
             outputs: &[],
         };
@@ -1499,7 +1777,7 @@ mod tests {
                 "TV standard",
                 "TV picture width",
                 "Picture mode",
-                "Refresh policy",
+                "Refresh rate",
                 "Scanlines",
                 "Scanline strength",
                 "Grid pattern",
@@ -1595,7 +1873,7 @@ mod tests {
         Names {
             presets,
             detected,
-            styles: &[],
+            choices: None,
             class: DisplayClass::Crt,
             outputs: &[],
         }

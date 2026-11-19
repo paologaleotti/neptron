@@ -1,10 +1,10 @@
-use neptron_types::{GpuCaps, Modeline, MonitorProfile, SourceGeometry};
+use neptron_types::Modeline;
 
 use super::panel::PANEL_FILL_MIN_SCALE_MILLI;
-use super::placement::scale_milli;
+use super::placement::{fitted_height, scale_milli};
 use super::{
-    Considered, Dropped, PictureStyle, Plan, PolicyError, PolicySettings, Proposal, RefreshKind,
-    Rung, SMALL_PICTURE_MIN_PERCENT, StrategyReplaced, Timing, decide,
+    Considered, DeclineReason, Dropped, PictureStyle, Plan, Proposal, RefreshKind, Rung,
+    SMALL_PICTURE_MIN_PERCENT, StrategyReplaced, Timing, WholeReason,
 };
 
 /// The result of step 6: the first proposal that the validator accepts,
@@ -89,6 +89,9 @@ pub struct Notice {
     /// height: this share, in per mille. A CRT counts the picture lines of
     /// the range; a panel and a TV count the active lines of the mode.
     pub small_fill_permille: Option<u16>,
+    /// A flat panel shows a whole multiple, with borders, where the picture
+    /// mode would fill the height, for this reason.
+    pub whole_steps: Option<WholeReason>,
 }
 
 /// Why a picture is soft (the winner is a fit).
@@ -138,11 +141,14 @@ pub enum NoticeReason {
         /// The field rate, in millihertz.
         field_mhz: u64,
     },
+    /// A flat panel shows a whole multiple, with borders, where the
+    /// picture mode would fill the height.
+    WholeSteps(WholeReason),
 }
 
 impl Notice {
     /// The reasons that the quick menu shows, in this order: soft, small,
-    /// speed, double refresh. No allocation: the notice is read on the
+    /// speed, double refresh, whole steps. No allocation: the notice is read on the
     /// frame thread.
     pub fn reasons(&self) -> impl Iterator<Item = NoticeReason> {
         let speed = self.speed_change.then_some(NoticeReason::SpeedChange {
@@ -157,26 +163,11 @@ impl Notice {
             self.double_refresh.then_some(NoticeReason::DoubleRefresh {
                 field_mhz: self.shown_mhz * 2,
             }),
+            self.whole_steps.map(NoticeReason::WholeSteps),
         ]
         .into_iter()
         .flatten()
     }
-}
-
-/// One row of the picture style list of the Display panel.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StyleRow<E> {
-    /// The style.
-    pub style: PictureStyle,
-    /// The plan for the style, from the same [`decide`] the engine calls.
-    pub plan: Plan,
-    /// Index of the winner in the plan, or `None` when nothing validates.
-    pub winner: Option<usize>,
-    /// The proposals the validator refused.
-    pub refused: Vec<Refused<E>>,
-    /// The winner is on the style's own rung: the row is not greyed out.
-    /// Auto is available whenever something wins.
-    pub available: bool,
 }
 
 /// Step 6: walk the proposals in order and ask the validator about each.
@@ -245,7 +236,7 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
             || speed_ppm(timing) > PANEL_SPEED_NOTICE_MIN_PPM);
     let strategy_replaced = proposal.strategy_replaced;
     let double_refresh = timing.target.kind == RefreshKind::NativeDouble;
-    let style_fallback = !on_own_rung(plan, plan.style, considered.rung);
+    let style_fallback = mode_refusal(plan, plan.style, considered.rung).is_some();
     let cropped_lines = proposal.overscan_crop.map_or(0, |crop| crop.lines());
     let padded_fill_permille = proposal
         .padding
@@ -256,6 +247,7 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         panel_fill_reason(plan, considered, proposal)
     };
     let small_fill_permille = small_fill(proposal);
+    let whole_steps = held_whole(plan, considered, proposal);
     let any = fitted
         || refresh_differs
         || strategy_replaced.is_some()
@@ -264,7 +256,8 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         || cropped_lines > 0
         || padded_fill_permille.is_some()
         || small_fill_permille.is_some()
-        || soft.is_some();
+        || soft.is_some()
+        || whole_steps.is_some();
     any.then(|| Notice {
         fitted,
         game_mhz: timing.game_mhz,
@@ -277,6 +270,7 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         padded_fill_permille,
         soft,
         small_fill_permille,
+        whole_steps,
     })
 }
 
@@ -300,6 +294,21 @@ fn panel_fill_reason(
         }
     })
 }
+
+/// The reason of a whole multiple that a flat panel keeps where the
+/// picture mode would fill: the winner is that multiple, and the fill of
+/// the mode would differ from it.
+fn held_whole(plan: &Plan, considered: &Considered, proposal: &Proposal) -> Option<WholeReason> {
+    let held = plan.held_whole?;
+    let scale = scale_milli(&plan.source, &proposal.mode);
+    let fills = scale >= held.fill_from_milli.max(SCALE_ONE_MILLI);
+    let differs = proposal.placement.dest.h != fitted_height(&plan.source, &proposal.mode);
+    (considered.rung == Rung::Panel && proposal.placement.scale.y.is_some() && fills && differs)
+        .then_some(held.by)
+}
+
+/// One, in thousandths.
+const SCALE_ONE_MILLI: u32 = 1_000;
 
 /// The speed change of a flat panel, in ppm of the game's rate, from
 /// which the notice shows it: 5 %. A smaller change shows in the status
@@ -363,50 +372,32 @@ fn small_fill(proposal: &Proposal) -> Option<u16> {
     (fill * 100 < SMALL_PICTURE_MIN_PERCENT * 1_000).then(|| u16::try_from(fill).unwrap_or(0))
 }
 
-/// The picture style rows of the Display panel: for each style, the plan
-/// and the winner of the same [`decide`] and [`choose`] that the engine
-/// runs. A style whose winner is not on its own rung is greyed out; the
-/// first candidate on its own rung holds the reason (a dropped reason, a
-/// padding, or a validator refusal in `refused`).
-pub fn style_rows<E>(
-    source: &SourceGeometry,
-    settings: &PolicySettings,
-    profile: &MonitorProfile,
-    caps: &GpuCaps,
-    mut validate: impl FnMut(&Modeline) -> Result<(), E>,
-) -> Result<Vec<StyleRow<E>>, PolicyError> {
-    PictureStyle::ALL
-        .into_iter()
-        .map(|style| {
-            let settings = PolicySettings { style, ..*settings };
-            let plan = decide(source, &settings, profile, caps)?;
-            let choice = choose(&plan, &mut validate);
-            let winner = choice.winner.as_ref().map(|w| (w.index, w.considered.rung));
-            let available = winner.is_some_and(|(_, rung)| on_own_rung(&plan, style, rung));
-            Ok(StyleRow {
-                style,
-                winner: winner.map(|(index, _)| index),
-                refused: choice.refused,
-                available,
-                plan,
-            })
-        })
-        .collect()
-}
-
-/// `rung` is the style's own rung. Auto and `fit` have no rung of their
-/// own: every rung is theirs. `sharp` owns every exact rung. `speed` owns
-/// every rung off a TV, and none on a TV, whose standard fixes the rate.
-/// `native` and a multiple own the first rung of their walk, on a flat
-/// panel too. Any other style on a flat panel owns the panel rung.
-fn on_own_rung(plan: &Plan, style: PictureStyle, rung: Rung) -> bool {
+/// Why the winner on `rung` is not the picture mode `style` asks for, or
+/// `None` when it is. Auto and `fit` take every rung. `sharp` takes every
+/// exact rung. `speed` takes every rung off a TV, and none on a TV, whose
+/// standard fixes the rate. `native` and a multiple take the first rung of
+/// their walk, on a flat panel too. The menus ([`super::offer`]) and the
+/// notice (`style_fallback`) read this one rule.
+pub(crate) fn mode_refusal(plan: &Plan, style: PictureStyle, rung: Rung) -> Option<DeclineReason> {
     let on = |kind| plan.considered.iter().any(|c| c.target.kind == kind);
     match style {
-        PictureStyle::Auto | PictureStyle::Fit => true,
-        PictureStyle::Sharp => !rung.is_fitted(),
-        PictureStyle::Speed => !on(RefreshKind::Tv),
+        PictureStyle::Auto | PictureStyle::Fit => None,
+        PictureStyle::Sharp => rung.is_fitted().then_some(DeclineReason::NoExactMode),
+        PictureStyle::Speed => on(RefreshKind::Tv).then_some(DeclineReason::OneRateOnTv),
         PictureStyle::Native | PictureStyle::X2 | PictureStyle::X3 | PictureStyle::X4 => {
-            super::walk_ladder(style).first() == Some(&rung)
+            if super::walk_ladder(style).first() == Some(&rung) {
+                None
+            } else if on(RefreshKind::Panel) {
+                Some(DeclineReason::TooLargeForScreen {
+                    asked: style,
+                    shown: rung,
+                })
+            } else {
+                Some(DeclineReason::NeedsAnotherMonitor {
+                    asked: style,
+                    shown: rung,
+                })
+            }
         }
     }
 }

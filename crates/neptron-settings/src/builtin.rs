@@ -119,6 +119,11 @@ pub const VERTICAL_MODES: &[&str] = &["exact", "fit"];
 /// black borders."
 pub const DISPLAY_PANEL_SCALE: &str = "display.panel_scale";
 
+/// The expert keys that the picture mode covers: setting [`DISPLAY_STYLE`] at a level removes
+/// them at that level, so the mode the player picks is what the player gets. A value at another
+/// level, or set again in a file, keeps its effect. These are the expert keys of the schema.
+pub const PICTURE_MODE_COVERS: [&str; 2] = [DISPLAY_VERTICAL, DISPLAY_PANEL_SCALE];
+
 /// The choices of [`DISPLAY_PANEL_SCALE`], in menu order.
 pub const PANEL_SCALES: &[&str] = &["auto", "integer"];
 
@@ -164,7 +169,7 @@ static BUILTIN: [Entry; 13] = [
     },
     Entry {
         key: DISPLAY_REFRESH_POLICY,
-        label: "Refresh policy",
+        label: "Refresh rate",
         kind: Kind::Choice {
             choices: REFRESH_POLICIES,
             default: "exact",
@@ -805,7 +810,7 @@ mod tests {
     fn the_keys_the_picture_mode_covers_are_expert_keys_that_keep_their_values() {
         let schema = Schema::builtin();
         for entry in schema.entries() {
-            let expert = [DISPLAY_VERTICAL, DISPLAY_PANEL_SCALE].contains(&entry.key);
+            let expert = PICTURE_MODE_COVERS.contains(&entry.key);
             assert_eq!(entry.expert, expert, "{}", entry.key);
             for class in [DisplayClass::Crt, DisplayClass::Tv, DisplayClass::FlatPanel] {
                 if expert {

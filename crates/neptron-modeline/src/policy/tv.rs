@@ -103,6 +103,7 @@ pub(crate) fn tv_plan(
         horizontal: None,
         skipped: skipped(settings.refresh, source.refresh_mhz),
         considered,
+        held_whole: None,
     }
 }
 

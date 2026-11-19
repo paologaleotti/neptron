@@ -178,8 +178,9 @@ fn a_board_turned_by_180_degrees_shows_the_right_way_up_on_a_panel() {
 
 /// Opens the quick menu of the running game, dismisses any notice, opens
 /// the Video page and picks `mode` in the options of Picture mode. The
-/// quick menu writes the game level.
-fn pick_picture_mode(rig: &mut Rig, mode: &str) {
+/// quick menu writes the game level. Returns the texts of the notices that
+/// the new picture shows, which the menu shows at once; they are dismissed.
+fn pick_picture_mode(rig: &mut Rig, mode: &str) -> Vec<String> {
     rig.open_menu();
     rig.frames(1);
     for _ in 0..8 {
@@ -197,8 +198,16 @@ fn pick_picture_mode(rig: &mut Rig, mode: &str) {
     assert_eq!(rig.screen(), "options");
     rig.focus(mode);
     rig.tap(&[Control::A]);
-    assert_eq!(rig.screen(), "quick-menu/video", "{:?}", rig.tree());
     rig.frames(30);
+    let shown = notices(rig);
+    for _ in 0..8 {
+        if rig.screen() != "notice" {
+            break;
+        }
+        rig.tap(&[Control::A]);
+    }
+    assert_eq!(rig.screen(), "quick-menu/video", "{:?}", rig.tree());
+    shown
 }
 
 /// Every mode the display took lies inside a range of the CRT profile of
@@ -236,7 +245,13 @@ fn on_15_khz_fill_from_the_quick_menu_changes_the_mode_to_a_progressive_fit() {
         let before = rig.display.active_mode().expect("a mode");
         assert!(before.interlace, "{before:?}");
         let switches = rig.display.mode_switches().len();
-        pick_picture_mode(&mut rig, "Fill");
+        let shown = pick_picture_mode(&mut rig, "Fill");
+        assert!(
+            shown
+                .iter()
+                .any(|n| n == "Soft picture: Picture mode is set to Fill."),
+            "the notice of the new picture, right after the change: {shown:?}"
+        );
         assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
         assert_eq!(rig.shell().config().text("display.style"), "fit");
         let source = rig
@@ -254,8 +269,7 @@ fn on_15_khz_fill_from_the_quick_menu_changes_the_mode_to_a_progressive_fit() {
         assert_eq!(scene.rotation, Rotation::R90);
         assert_eq!(scene.filter, Filter::SharpBilinear);
         assert!(scene.dest.h < 320, "fitted: {:?}", scene.dest);
-        // The quick menu shows the picture notice once per game; the
-        // reason of this picture is the picture mode.
+        // The reason of this picture is the picture mode.
         let soft = rig
             .shell()
             .engine()
@@ -288,7 +302,11 @@ fn on_a_panel_2x_from_the_quick_menu_shows_the_board_at_twice_its_size() {
         rig.frames(30);
         let scene = rig.display.frames().last().expect("a frame").scene;
         assert_eq!(scene.dest, rect(600, 60, 720, 960), "auto: 3x");
-        pick_picture_mode(&mut rig, "2x");
+        let shown = pick_picture_mode(&mut rig, "2x");
+        assert!(
+            shown.iter().any(|n| n.starts_with("Small picture:")),
+            "{shown:?}"
+        );
         assert_eq!(rig.shell().config().text("display.style"), "2x");
         let scene = rig.display.frames().last().expect("a frame").scene;
         assert_eq!(scene.dest, rect(720, 220, 480, 640));
@@ -387,7 +405,7 @@ fn on_15_khz_vertical_fit_gives_a_progressive_soft_picture_with_a_notice() {
         assert!(
             shown
                 .iter()
-                .any(|n| n == "Soft picture: a settings file sets vertical games to Fit."),
+                .any(|n| n == "Soft picture: the setting display.vertical is set to fit."),
             "{shown:?}"
         );
         rig.finish();

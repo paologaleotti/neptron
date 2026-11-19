@@ -4,15 +4,15 @@ use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::PadRoster;
 use neptron_session::{ExitReport, Flush};
 use neptron_settings::{
-    AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, INPUT_MENU_HOLD_START_SECONDS, Level, Safety,
-    Value,
+    AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE,
+    INPUT_MENU_HOLD_START_SECONDS, Level, PICTURE_MODE_COVERS, Safety, Value,
 };
 use neptron_ui::Intent;
 use neptron_ui::screens::INPUT_PAGE;
 use neptron_ui::snapshot::NoticeKind;
 use neptron_video::{DisplayConfig, Phase};
 
-use super::{Outcome, PendingChange, Shell, Stage};
+use super::{Outcome, PendingChange, PictureNotice, Shell, Stage, proposal_hash};
 use crate::library::{CheckStart, ScanKind, ScanStart};
 use crate::outbox::Job;
 use crate::pad_notes::NoteKind;
@@ -56,14 +56,18 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 let names = Names {
                     presets: &self.presets,
                     detected: &self.detected,
-                    styles: &[],
+                    choices: None,
                     class: self.display_class(),
                     outputs: &self.runtime.audio_outputs,
                 };
                 let found = pages::entry(&self.config, key)
                     .and_then(|e| Some((e.key, pages::value_of(e, value, names, &self.config)?)));
                 if let (Some((key, value)), Some(level)) = (found, pages::settings_level(level)) {
-                    self.change_setting(key, level, Some(value), now_ns);
+                    if self.offered(key, &value) {
+                        self.change_setting(key, level, Some(value), now_ns);
+                    } else {
+                        self.log(format!("{key} = {value}: not offered on this display"));
+                    }
                 }
             }
             Intent::ResetValue { key, level } => {
@@ -451,6 +455,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         if key == DISPLAY_OUTPUT || self.config.file(level).is_none() {
             return;
         }
+        self.note_picture_change(key);
+        let cleared = self.clear_covered_keys(key, level, value.as_ref());
         let old = self.config.get(level, key).cloned();
         let applied = match value.clone() {
             Some(v) => self.config.set(level, key, v).map(|_| ()),
@@ -472,7 +478,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 self.apply_live(key);
             }
             Safety::Validated if self.guard.phase() == Phase::Confirmed => {
-                self.write_setting(level, key, value);
+                let mut changes = vec![(key, value)];
+                changes.extend(cleared.into_iter().map(|(k, _)| (k, None)));
+                self.write_settings(level, changes);
                 self.follow(now_ns);
             }
             Safety::Validated | Safety::ConfirmOrRevert => {
@@ -482,10 +490,76 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     old,
                     new: value,
                 });
+                for (key, old) in cleared {
+                    self.pending.push(PendingChange {
+                        level,
+                        key,
+                        old: Some(old),
+                        new: None,
+                    });
+                }
                 self.propose(now_ns);
             }
         }
         self.reload_page();
+    }
+
+    /// A value of the picture mode or the refresh row is set only when the
+    /// policy offers it on the display now (`offer`, the same answer that
+    /// greys the option): no input, from the menus or the control
+    /// protocol, sets a greyed option. Every other setting passes.
+    fn offered(&self, key: &str, value: &Value) -> bool {
+        if key != DISPLAY_STYLE && key != DISPLAY_REFRESH_POLICY {
+            return true;
+        }
+        let Some(choices) = self.picture_choices() else {
+            return false;
+        };
+        let text = value.to_string();
+        let mode = choices.modes.iter().find(|(s, _)| s.key() == text);
+        let refresh = choices.refresh.iter().find(|(r, _)| r.key() == text);
+        match key {
+            DISPLAY_STYLE => mode.is_some_and(|(_, answer)| answer.is_ok()),
+            _ => refresh.is_some_and(|(_, answer)| answer.is_ok()),
+        }
+    }
+
+    /// A change of the picture mode or the refresh choice in a game: the
+    /// picture notice shows again for the first new picture.
+    fn note_picture_change(&mut self, key: &str) {
+        if key != DISPLAY_STYLE && key != DISPLAY_REFRESH_POLICY {
+            return;
+        }
+        if let Stage::Game(game) = &self.stage
+            && let Some(current) = game.session.video().current()
+        {
+            self.picture_notice =
+                PictureNotice::AfterChange(proposal_hash(&current.chosen.proposal));
+        }
+    }
+
+    /// A picture mode set at `level` removes the expert keys that the mode
+    /// covers (`PICTURE_MODE_COVERS`) at that same level, in memory, so the
+    /// mode the player picks is what the player gets. Returns each removed
+    /// key with its old value, for the same write or for a revert. A reset
+    /// of the mode removes nothing.
+    fn clear_covered_keys(
+        &mut self,
+        key: &str,
+        level: Level,
+        value: Option<&Value>,
+    ) -> Vec<(&'static str, Value)> {
+        if key != DISPLAY_STYLE || value.is_none() {
+            return Vec::new();
+        }
+        let mut cleared = Vec::new();
+        for covered in PICTURE_MODE_COVERS {
+            if let Some(old) = self.config.get(level, covered).cloned() {
+                self.config.unset(level, covered);
+                cleared.push((covered, old));
+            }
+        }
+        cleared
     }
 
     /// Gives the display configuration of the settings in memory to the

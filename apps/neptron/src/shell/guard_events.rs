@@ -175,11 +175,17 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 
     /// Sends one setting to its file.
     pub(super) fn write_setting(&mut self, level: Level, key: &'static str, value: Option<Value>) {
+        self.write_settings(level, vec![(key, value)]);
+    }
+
+    /// Writes `changes` to the file of `level` in one write.
+    pub(super) fn write_settings(
+        &mut self,
+        level: Level,
+        changes: Vec<(&'static str, Option<Value>)>,
+    ) {
         if let Some(target) = self.config.file(level) {
-            self.outbox.send(Job::Settings {
-                target,
-                changes: vec![(key, value)],
-            });
+            self.outbox.send(Job::Settings { target, changes });
         }
     }
 

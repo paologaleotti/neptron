@@ -152,6 +152,7 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
         horizontal: Some(crt.settings.horizontal),
         skipped,
         considered: entries.into_iter().map(|(_, c)| c).collect(),
+        held_whole: None,
     })
 }
 

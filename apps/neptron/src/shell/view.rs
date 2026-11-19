@@ -13,11 +13,11 @@ use neptron_ui::snapshot::{
     ConfirmId, GameId, Notice, NoticeId, NoticeKind, PageId, PendingConfirm, SessionInfo,
     SettingsPage, VideoStatus,
 };
-use neptron_video::{Monitor, Phase, PictureStyle, VideoStatusText};
+use neptron_video::{Monitor, Phase, PictureChoices, VideoStatusText};
 
 use super::boot::profile_id;
 use super::{MENU_SOURCE, Shell, Stage};
-use crate::pages::{self, Names, StyleOption};
+use crate::pages::{self, Names};
 
 /// What the confirm dialog says.
 const CONFIRM_TEXT: &str = "Keep the new picture?\nNo answer brings the old one back.";
@@ -126,11 +126,11 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 
     /// Puts the rows of `page` in the snapshot.
     pub(super) fn load_page(&mut self, page: PageId) {
-        let styles = self.style_options();
+        let choices = self.picture_choices();
         let names = Names {
             presets: &self.presets,
             detected: &self.detected,
-            styles: &styles,
+            choices: choices.as_ref(),
             class: self.display_class(),
             outputs: &self.runtime.audio_outputs,
         };
@@ -193,45 +193,17 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         }
     }
 
-    /// What each picture style gives for the source on screen, from the
-    /// same policy, caps and validator as the run (`style_rows`): the game
-    /// in a game, the menu source in the list.
-    fn style_options(&self) -> Vec<StyleOption> {
+    /// The answers of the policy for the options of the picture mode and
+    /// refresh rows, for the source on screen, from the same policy, caps,
+    /// validator and scanlines as the run: the game in a game, the menu
+    /// source in the list. `None` with no engine.
+    pub(super) fn picture_choices(&self) -> Option<PictureChoices> {
         let (engine, source) = match &self.stage {
             Stage::List(list) => (&list.engine, MENU_SOURCE),
             Stage::Game(game) => (game.session.video(), game.session.source()),
-            Stage::Ended => return Vec::new(),
+            Stage::Ended => return None,
         };
-        let Ok(rows) = engine.style_rows(&source) else {
-            return Vec::new();
-        };
-        rows.iter()
-            .map(|row| {
-                let mode = row
-                    .winner
-                    .and_then(|i| row.plan.considered.get(i))
-                    .and_then(|c| c.outcome.as_ref().ok())
-                    .map(|p| p.mode);
-                let detail = mode
-                    .map(|m| {
-                        let line = m.line_rate_mhz();
-                        let field = m.field_rate_mhz();
-                        format!(
-                            "{}.{:02} kHz  {}.{:02} Hz",
-                            line / 1_000_000,
-                            line % 1_000_000 / 10_000,
-                            field / 1_000,
-                            field % 1_000 / 10
-                        )
-                    })
-                    .unwrap_or_default();
-                StyleOption {
-                    key: row.style.key(),
-                    detail,
-                    unavailable: (!row.available).then(|| unavailable_reason(row.style).to_owned()),
-                }
-            })
-            .collect()
+        engine.picture_choices(&source).ok()
     }
 
     /// Builds the loaded page again after a change of the settings.
@@ -315,16 +287,6 @@ fn copy_status(status: Option<&VideoStatusText>, video: &mut Option<VideoStatus>
     shown.alert = status.alert;
 }
 
-/// Why a picture mode is greyed: the rows of `style_rows` say only that it
-/// is not on its own rung.
-fn unavailable_reason(style: PictureStyle) -> &'static str {
-    match style {
-        PictureStyle::Speed => pages::TV_HAS_ONE_RATE,
-        PictureStyle::Sharp => pages::NO_EXACT_MODE,
-        _ => pages::NEEDS_ANOTHER_MONITOR,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use neptron_types::{TV_525_240P, TV_525_480I, TV_625_288P};
@@ -346,25 +308,5 @@ mod tests {
             mode_line(&TV_625_288P, Some(TvStandard::Pal)),
             "PAL 288p 50.08 Hz"
         );
-    }
-
-    #[test]
-    fn each_greyed_picture_mode_says_why() {
-        assert_eq!(
-            unavailable_reason(PictureStyle::Speed),
-            pages::TV_HAS_ONE_RATE
-        );
-        assert_eq!(
-            unavailable_reason(PictureStyle::Sharp),
-            pages::NO_EXACT_MODE
-        );
-        for style in [
-            PictureStyle::Native,
-            PictureStyle::X2,
-            PictureStyle::X3,
-            PictureStyle::X4,
-        ] {
-            assert_eq!(unavailable_reason(style), pages::NEEDS_ANOTHER_MONITOR);
-        }
     }
 }

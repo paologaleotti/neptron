@@ -13,8 +13,8 @@ use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
 
 use super::intents::EndNotice;
-use super::picture::{picture_text, vertical_interlaced};
-use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS};
+use super::picture::{declined_text, picture_text, scanline_text, vertical_interlaced};
+use super::{MENU_SOURCE, Outcome, PictureNotice, Shell, Stage, UNPACED_FRAME_NS, proposal_hash};
 
 use crate::library::{ScanKind, Scanned, changes_text};
 use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
@@ -349,35 +349,61 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         }
     }
 
-    /// A notice when the first picture of the game is not exact: the
-    /// reasons of the policy (soft, small, speed, double refresh) in the
-    /// texts of the app, or the words of the video status for a fit or a
-    /// crop with no reason of its own. The first time a vertical game shows
-    /// interlaced on a 15 kHz screen, also the one-time notice that says
-    /// how to change it; the writer thread records it as shown.
+    /// A notice when the first picture of the game, or the first new
+    /// picture after a change of the picture mode or the refresh choice,
+    /// is not exact: the reasons of the policy in the texts of the app, or
+    /// the words of the video status for a fit or a crop with no reason of
+    /// its own. Also, from the same `offer` as the menus: a stored mode or
+    /// refresh choice that this display does not give, with what shows in
+    /// its place, and scanlines that are on but not drawn, with why. The
+    /// first time a vertical game shows interlaced on a 15 kHz screen, also
+    /// the one-time notice that says how to change it; the writer thread
+    /// records it as shown.
     fn notice_picture(&mut self) {
-        if self.picture_noticed {
-            return;
-        }
         let Stage::Game(game) = &self.stage else {
             return;
         };
         let Some(current) = game.session.video().current() else {
             return;
         };
-        self.picture_noticed = true;
-        let Some(notice) = current.chosen.notice.as_ref() else {
-            return;
-        };
+        match self.picture_notice {
+            PictureNotice::Shown => return,
+            PictureNotice::AfterChange(before)
+                if before == proposal_hash(&current.chosen.proposal) =>
+            {
+                return;
+            }
+            PictureNotice::Launch | PictureNotice::AfterChange(_) => {}
+        }
+        self.picture_notice = PictureNotice::Shown;
         let kind = current.chosen.proposal.timing.target.kind;
         let mut status = neptron_video::VideoStatusText::default();
-        let words = game
+        let (words, shown) = game
             .session
             .video_status(&mut status)
-            .map_or("", |s| s.result.as_str());
-        let text = picture_text(kind, notice, words);
-        let vertical = self.config.policy().map(|p| p.read_vertical());
-        let first_vertical = vertical.is_ok_and(|v| {
+            .map_or(("", ""), |s| (s.result.as_str(), s.mode.trim_end()));
+        let mut texts: Vec<String> = Vec::new();
+        let answer = game.session.video().offer(&game.session.source()).ok();
+        let policy = self.config.policy().ok();
+        if let (Some(Err(declined)), Some(policy)) = (&answer, policy) {
+            texts.push(declined_text(policy, declined.reason, shown));
+        }
+        if let Some(text) = current
+            .chosen
+            .notice
+            .as_ref()
+            .and_then(|notice| picture_text(kind, notice, words))
+        {
+            texts.push(text);
+        }
+        let scanlines = self.config.scanlines().ok();
+        if let (Some(Ok(offered)), Some(scanlines)) = (&answer, scanlines)
+            && let Some(text) = scanline_text(scanlines, offered.scanlines)
+        {
+            texts.push(text.to_owned());
+        }
+        let vertical = policy.map(|p| p.read_vertical());
+        let first_vertical = vertical.is_some_and(|v| {
             vertical_interlaced(
                 &current.source,
                 &current.read_back,
@@ -385,8 +411,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 v,
             )
         });
-        if let Some(text) = text {
-            self.notice(NoticeKind::Warning, text);
+        if !texts.is_empty() {
+            self.notice(NoticeKind::Warning, texts.join(" "));
         }
         if first_vertical && self.shown_notices.insert(VERTICAL_INTERLACED) {
             self.notice(NoticeKind::Info, VERTICAL_INTERLACED_TEXT.to_owned());

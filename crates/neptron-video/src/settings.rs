@@ -2,6 +2,13 @@ use neptron_modeline::policy::{
     HorizontalStrategy, PanelScale, PictureStyle, PolicySettings, RefreshPolicy, TvWidth,
     VerticalMode,
 };
+
+/// The scanline settings the engine applies to each scene: the resolved
+/// values of `display.scanlines` and `display.scanline_strength`. A change
+/// needs no modeset, only a new scene, except on a flat panel, where
+/// scanlines keep a whole vertical multiple. The policy reads the same
+/// value ([`neptron_modeline::policy::offer`]).
+pub use neptron_modeline::policy::ScanlineChoice as ScanlineSettings;
 use neptron_types::{ScanlineMode, Scanlines};
 
 /// A settings value that the policy does not know.
@@ -52,26 +59,6 @@ pub enum SettingsError {
         /// The largest value, in percent.
         max: u8,
     },
-}
-
-/// The scanline settings the engine applies to each scene: the resolved
-/// values of `display.scanlines` and `display.scanline_strength`. A change
-/// needs no modeset, only a new scene.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ScanlineSettings {
-    /// The scanline mode.
-    pub mode: ScanlineMode,
-    /// How much a dark line loses, in whole percent.
-    pub strength_percent: u8,
-}
-
-impl ScanlineSettings {
-    /// No scanlines: what the engine draws until the session passes the
-    /// settings.
-    pub const OFF: Self = Self {
-        mode: ScanlineMode::Off,
-        strength_percent: 0,
-    };
 }
 
 /// The scanline settings for the resolved values of `display.scanlines` and
@@ -125,7 +112,7 @@ pub fn policy_settings(
         .ok_or_else(|| SettingsError::UnknownStyle {
             value: style.to_owned(),
         })?;
-    let refresh = REFRESH_POLICIES
+    let refresh = RefreshPolicy::ALL
         .into_iter()
         .find(|r| r.key() == refresh_policy)
         .ok_or_else(|| SettingsError::UnknownRefreshPolicy {
@@ -177,13 +164,6 @@ pub fn with_display_choices(
         ..settings
     })
 }
-
-const REFRESH_POLICIES: [RefreshPolicy; 4] = [
-    RefreshPolicy::Exact,
-    RefreshPolicy::ExactX2,
-    RefreshPolicy::Force50,
-    RefreshPolicy::Force60,
-];
 
 #[cfg(test)]
 mod tests {

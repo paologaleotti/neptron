@@ -308,7 +308,7 @@ fn a_monitor_preset_has_no_effect_on_a_tv_and_says_so() {
                 monitor.and_then(|r| r.unavailable.as_deref()),
                 Some(NOT_USED_ON_A_TV)
             );
-            let refresh = rows.iter().find(|r| r.label == "Refresh policy");
+            let refresh = rows.iter().find(|r| r.label == "Refresh rate");
             assert_eq!(
                 refresh.and_then(|r| r.unavailable.as_deref()),
                 Some(NOT_USED_ON_A_TV)

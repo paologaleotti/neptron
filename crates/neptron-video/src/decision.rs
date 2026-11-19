@@ -1,13 +1,13 @@
 use std::fmt;
 
 use neptron_modeline::policy::{
-    Dropped, Notice, Plan, PolicyError, PolicySettings, Proposal, RefreshTarget, Refused, Rung,
-    StyleRow, choose, decide, notice, style_rows,
+    Dropped, Notice, Offer, PictureChoices, Plan, PolicyError, PolicySettings, Proposal,
+    RefreshTarget, Refused, Rung, choose, decide, notice, offer, picture_choices,
 };
 use neptron_safety::{Rejection, ValidatedMode, validate};
 use neptron_types::{GpuCaps, Modeline, SourceGeometry};
 
-use crate::Monitor;
+use crate::{Monitor, ScanlineSettings};
 
 /// An extra check that runs before `neptron_safety::validate`. It can only
 /// refuse more: a mode it accepts must still pass the validator.
@@ -113,21 +113,62 @@ impl Inputs {
         }
     }
 
-    /// The picture style rows of the Display panel for `source`, from the
-    /// same policy, caps and validator that the engine uses.
-    pub(crate) fn style_rows(
+    /// The answers of [`offer`] for the options of the picture mode and the
+    /// refresh rows, for `source` with `scanlines`, from the same policy,
+    /// caps and validator that the engine uses.
+    pub(crate) fn picture_choices(
         &self,
         source: &SourceGeometry,
-    ) -> Result<Vec<StyleRow<Refusal>>, Unshowable> {
-        style_rows(
+        scanlines: ScanlineSettings,
+    ) -> Result<PictureChoices, Unshowable> {
+        picture_choices(
             source,
             &self.settings,
+            scanlines,
             self.monitor.profile(),
             &self.caps,
             |mode| self.check(mode).map(drop),
         )
         .map_err(Unshowable::Policy)
     }
+
+    /// The answer of [`offer`] for the settings of the engine: whether the
+    /// display gives the stored picture mode and refresh choice.
+    pub(crate) fn offer(
+        &self,
+        source: &SourceGeometry,
+        scanlines: ScanlineSettings,
+    ) -> Result<Offer, Unshowable> {
+        offer(
+            source,
+            &self.settings,
+            scanlines,
+            self.monitor.profile(),
+            &self.caps,
+            |mode| self.check(mode).map(drop),
+        )
+        .map_err(Unshowable::Policy)
+    }
+}
+
+/// The answers of `neptron_modeline::policy::picture_choices` for a
+/// display with the validator alone, with no veto and no driver refusal:
+/// the menu rows a display gives before an engine runs on it. The engine
+/// asks [`crate::VideoEngine::picture_choices`], which adds its veto.
+///
+/// # Errors
+///
+/// [`PolicyError`] when the source or the profile gives no plan.
+pub fn picture_choices_on(
+    source: &SourceGeometry,
+    settings: &PolicySettings,
+    scanlines: ScanlineSettings,
+    profile: &neptron_types::MonitorProfile,
+    caps: &GpuCaps,
+) -> Result<PictureChoices, PolicyError> {
+    picture_choices(source, settings, scanlines, profile, caps, |mode| {
+        validate(mode, profile, caps).map(drop)
+    })
 }
 
 impl Decision {

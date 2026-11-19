@@ -7,7 +7,7 @@
 use neptron_modeline::policy::{
     Dropped, PictureStyle, Plan, PolicySettings, RefreshKind, RefreshPolicy, Rung, SkippedTarget,
     TV_SAFE_WIDTH_SAMPLES, TV_SPEED_SILENT_PPM, TvWidth, VerticalMode, choose, decide, notice,
-    style_rows,
+    picture_choices,
 };
 use neptron_safety::validate;
 use neptron_types::{
@@ -639,11 +639,20 @@ fn a_multiple_style_has_no_mode_and_its_row_is_greyed_out() {
     assert_eq!(w.rung, Rung::Native);
     let profile = TvStandard::Ntsc.profile();
     let caps = pi_composite();
-    let rows = style_rows(&source, &settings, &profile, &caps, |m| {
-        validate(m, &profile, &caps).map(|_| ())
-    })
-    .unwrap();
-    let available: Vec<_> = rows.iter().map(|r| (r.style, r.available)).collect();
+    let rows = picture_choices(
+        &source,
+        &settings,
+        neptron_modeline::policy::ScanlineChoice {
+            mode: neptron_types::ScanlineMode::Auto,
+            strength_percent: 75,
+        },
+        &profile,
+        &caps,
+        |m| validate(m, &profile, &caps).map(|_| ()),
+    )
+    .unwrap()
+    .modes;
+    let available: Vec<_> = rows.iter().map(|(style, a)| (*style, a.is_ok())).collect();
     assert_eq!(
         available,
         [

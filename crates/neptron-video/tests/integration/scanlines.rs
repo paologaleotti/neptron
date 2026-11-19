@@ -165,9 +165,14 @@ fn the_preview_of_a_style_row_takes_the_same_scanlines() {
     let mut rig = Rig::new(pc_31_120(), native_width());
     rig.engine.set_scanlines(set(ScanlineMode::Auto, 75));
     rig.frame(SNES);
-    let rows = rig.engine.style_rows(&SNES).unwrap();
-    let row = rows.iter().find(|r| r.style == PictureStyle::X2).unwrap();
-    let proposal = row.plan.considered[row.winner.unwrap()].outcome.unwrap();
+    let choices = rig.engine.picture_choices(&SNES).unwrap();
+    let (_, x2_answer) = choices
+        .modes
+        .iter()
+        .find(|(style, _)| *style == PictureStyle::X2)
+        .unwrap();
+    let offered = x2_answer.as_ref().unwrap();
+    let proposal = offered.plan.considered[offered.winner].outcome.unwrap();
     let preview = rig
         .engine
         .preview_scene(&proposal, &SNES, Some(frame(&SNES)), None);

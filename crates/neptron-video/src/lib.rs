@@ -22,7 +22,7 @@ mod status;
 mod trace;
 
 pub use cache::CACHE_ENTRIES;
-pub use decision::{Chosen, Refusal, Unshowable, Veto};
+pub use decision::{Chosen, Refusal, Unshowable, Veto, picture_choices_on};
 pub use engine::{Presented, VideoEngine, VideoError};
 pub use guard::{
     CONFIRM_WINDOW_NS, ConfirmError, DisplayConfig, GOOD_BOOT_PICTURE_NS, Guard, GuardEvent,
@@ -46,7 +46,8 @@ pub use trace::{
 /// The policy types that the engine's callers name. Only this crate may
 /// depend on `neptron-modeline`.
 pub use neptron_modeline::policy::{
-    Dropped, HorizontalStrategy, Notice, NoticeReason, PanelScale, PictureStyle, Placement,
-    PolicyError, PolicySettings, Proposal, RefreshKind, RefreshPolicy, RefreshTarget, Refused,
-    Rung, SoftReason, StyleRow, TV_SPEED_SILENT_PPM, Timing, TvWidth, VerticalMode,
+    DeclineReason, Declined, Dropped, HorizontalStrategy, Notice, NoticeReason, Offer, Offered,
+    PanelScale, PictureChoices, PictureStyle, Placement, PolicyError, PolicySettings, Proposal,
+    RefreshKind, RefreshPolicy, RefreshTarget, Refused, Rung, ScanlineOutcome, SoftReason,
+    TV_SPEED_SILENT_PPM, Timing, TvWidth, VerticalMode, WholeReason,
 };

@@ -29,6 +29,7 @@ mod choose;
 mod clock;
 mod crt;
 mod ladder;
+mod offer;
 mod padding;
 mod panel;
 mod placement;
@@ -45,14 +46,18 @@ mod units;
 use std::fmt;
 
 pub use choose::{
-    Choice, Notice, NoticeReason, PANEL_SPEED_NOTICE_MIN_PPM, Refused, SoftReason, StyleRow,
-    Switch, Winner, choose, notice, style_rows, switch_for,
+    Choice, Notice, NoticeReason, PANEL_SPEED_NOTICE_MIN_PPM, Refused, SoftReason, Switch, Winner,
+    choose, notice, switch_for,
 };
 pub use ladder::{Rung, walk_ladder};
+pub use offer::{
+    DeclineReason, Declined, Offer, Offered, PictureChoices, ScanlineChoice, ScanlineOutcome,
+    offer, panel_scanlines, picture_choices,
+};
 pub use padding::{PADDED_FILL_MIN_PERCENT, Padding, SMALL_PICTURE_MIN_PERCENT};
 pub use panel::PANEL_FILL_MIN_SCALE_MILLI;
-pub use placement::{HorizontalScale, Placement, ScaleClaim, UI_CANVAS};
-pub use plan::{Considered, Plan, Proposal, StrategyReplaced, Timing};
+pub use placement::{HorizontalScale, Placement, ScaleClaim, UI_CANVAS, whole_multiple};
+pub use plan::{Considered, HeldWhole, Plan, Proposal, StrategyReplaced, Timing, WholeReason};
 pub use reason::Dropped;
 pub use refresh::{
     EXACT_SPEED_MARGIN_PPM, FORCE_50_MHZ, FORCE_60_MHZ, REFRESH_MATCH_MHZ, RefreshKind,

@@ -3,8 +3,8 @@ use neptron_types::Modeline;
 use super::placement::{panel_placement, scale_milli};
 use super::settings::Effective;
 use super::{
-    Considered, OrientedSource, PanelScale, PictureStyle, Plan, Proposal, RefreshKind,
-    RefreshTarget, Rung, Timing,
+    Considered, HeldWhole, OrientedSource, PanelScale, PictureStyle, Plan, Proposal, RefreshKind,
+    RefreshTarget, Rung, Timing, WholeReason,
 };
 
 /// One, in thousandths.
@@ -36,6 +36,31 @@ const SPEED_STEP_PPM: u64 = 1_000;
 /// [`SPEED_STEP_PPM`], so only a mode that must shrink the game comes
 /// after a farther rate. A mode near twice the game's rate shows each
 /// frame twice.
+/// What keeps a whole multiple where the picture mode would fill: the
+/// scanlines, or the expert key `display.panel_scale = integer` under a
+/// mode that does not name the scale itself (`sharp` and the factors do).
+fn held_whole(
+    source: &OrientedSource,
+    settings: &Effective,
+    fill_from: Option<u32>,
+) -> Option<HeldWhole> {
+    let named = settings.style == PictureStyle::Sharp || settings.style.factor().is_some();
+    if fill_from.is_some() || named {
+        return None;
+    }
+    let asked = settings.asks_fit(source) || settings.style == PictureStyle::Fit;
+    let fill_from_milli = if asked { 0 } else { PANEL_FILL_MIN_SCALE_MILLI };
+    let by = if settings.panel_scanlines {
+        WholeReason::Scanlines
+    } else {
+        WholeReason::PanelScaleKey
+    };
+    Some(HeldWhole {
+        by,
+        fill_from_milli,
+    })
+}
+
 pub(crate) fn panel_plan(
     source: &OrientedSource,
     settings: &Effective,
@@ -51,6 +76,7 @@ pub(crate) fn panel_plan(
         PanelScale::Auto => Some(PANEL_FILL_MIN_SCALE_MILLI),
         PanelScale::Integer => None,
     };
+    let held_whole = held_whole(source, settings, fill_from);
     let game = u64::from(source.refresh_mhz);
     let mut entries: Vec<_> = modes
         .iter()
@@ -127,5 +153,6 @@ pub(crate) fn panel_plan(
         horizontal: None,
         skipped: Vec::new(),
         considered: entries.into_iter().map(|(_, c)| c).collect(),
+        held_whole,
     }
 }

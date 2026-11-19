@@ -160,7 +160,7 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     shown_safe: bool,
     now_ns: u64,
     menu_hotkey: bool,
-    picture_noticed: bool,
+    picture_notice: PictureNotice,
     /// The one-time notices shown already, as the notices file holds them.
     shown_notices: crate::notices::ShownNotices,
     /// The pad notices of this power cycle and the silent pad rule.
@@ -251,6 +251,28 @@ struct GameStage<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     session: Session<D, S, ControlInput<I>, C>,
     reference: GameRef,
     core: String,
+}
+
+/// When the picture notice of a game shows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PictureNotice {
+    /// At the first picture of the game.
+    Launch,
+    /// At the first picture after a change of the picture mode or the
+    /// refresh choice in the game whose proposal differs from the one with
+    /// this hash (`proposal_hash`).
+    AfterChange(u64),
+    /// Shown; nothing waits.
+    Shown,
+}
+
+/// The hash of a proposal, to tell a new picture from the one before a
+/// change.
+fn proposal_hash(proposal: &neptron_video::Proposal) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    proposal.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// A display setting that is in memory and on screen, and waits for the

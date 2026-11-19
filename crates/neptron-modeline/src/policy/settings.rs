@@ -184,6 +184,9 @@ impl PictureStyle {
 }
 
 impl RefreshPolicy {
+    /// Every refresh choice, in the order of the settings schema.
+    pub const ALL: [Self; 4] = [Self::Exact, Self::ExactX2, Self::Force50, Self::Force60];
+
     /// The value in the settings files.
     pub fn key(self) -> &'static str {
         match self {

@@ -1,11 +1,11 @@
 use neptron_backend::{Display, DisplayError};
-use neptron_modeline::policy::{PolicySettings, Proposal, StyleRow};
+use neptron_modeline::policy::{Offer, PictureChoices, PolicySettings, Proposal};
 use neptron_types::{FlipEvent, Frame, Modeline, Scene, SourceGeometry};
 
 use crate::odren::{AfterModeSet, ModeOrder};
 use crate::{
-    Current, Directive, Monitor, Odren, Outcome, Refusal, ScanlineSettings, SwitchTrace,
-    Unshowable, Veto, VideoStatusText,
+    Current, Directive, Monitor, Odren, Outcome, ScanlineSettings, SwitchTrace, Unshowable, Veto,
+    VideoStatusText,
 };
 
 /// An error of the engine. The trace has the details of every failed
@@ -228,18 +228,26 @@ impl<D: Display> VideoEngine<D> {
         &self.display
     }
 
-    /// The picture style rows of the Display panel for `source`, from the
-    /// same policy, caps and validator as the run.
+    /// The answers of `neptron_modeline::policy::offer` for the options of
+    /// the picture mode and the refresh rows, from the same policy, caps,
+    /// validator and scanlines as the run.
     ///
     /// # Errors
     ///
-    /// [`Unshowable`] when the source is turned or the policy gives no
-    /// plan.
-    pub fn style_rows(
-        &self,
-        source: &SourceGeometry,
-    ) -> Result<Vec<StyleRow<Refusal>>, Unshowable> {
-        self.odren.style_rows(source)
+    /// [`Unshowable`] when the policy gives no plan.
+    pub fn picture_choices(&self, source: &SourceGeometry) -> Result<PictureChoices, Unshowable> {
+        self.odren.picture_choices(source)
+    }
+
+    /// The answer of `neptron_modeline::policy::offer` for the settings of
+    /// the run: whether the display gives the stored picture mode and
+    /// refresh choice.
+    ///
+    /// # Errors
+    ///
+    /// [`Unshowable`] when the policy gives no plan.
+    pub fn offer(&self, source: &SourceGeometry) -> Result<Offer, Unshowable> {
+        self.odren.offer(source)
     }
 
     /// The display refuses `set_mode` and `present` while a flip is

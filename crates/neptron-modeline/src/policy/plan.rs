@@ -29,6 +29,29 @@ pub struct Plan {
     /// Every candidate, in preference order. A dropped candidate keeps its
     /// place, and the engine skips it.
     pub considered: Vec<Considered>,
+    /// On a flat panel, what keeps the game at a whole multiple where the
+    /// picture mode would fill the height. `None` on a CRT and on a TV.
+    pub held_whole: Option<HeldWhole>,
+}
+
+/// A flat panel keeps the game at a whole multiple where the picture mode
+/// would fill the height. The notice names why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct HeldWhole {
+    /// What keeps the whole multiple.
+    pub by: WholeReason,
+    /// The scale, in thousandths, from which the picture mode would fill.
+    pub fill_from_milli: u32,
+}
+
+/// Why a flat panel keeps a whole multiple in place of the fill.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WholeReason {
+    /// `display.scanlines = on`: the renderer draws scanlines only at a
+    /// whole vertical scale of 2 or more.
+    Scanlines,
+    /// The expert key `display.panel_scale = integer`.
+    PanelScaleKey,
 }
 
 /// One candidate of a plan: a rung at a refresh target, and what came of

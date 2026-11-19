@@ -345,7 +345,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             shown_safe: false,
             now_ns,
             menu_hotkey: false,
-            picture_noticed: false,
+            picture_notice: super::PictureNotice::Launch,
             shown_notices,
             pad_notes,
             pad_maps,

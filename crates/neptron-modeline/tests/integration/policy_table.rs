@@ -5,7 +5,7 @@
 use neptron_modeline::policy::{
     Considered, Dropped, EXACT_SPEED_MARGIN_PPM, HorizontalScale, HorizontalStrategy, PanelScale,
     PictureStyle, Plan, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy,
-    Rung, SkippedTarget, Switch, VerticalMode, choose, decide, notice, style_rows, switch_for,
+    Rung, SkippedTarget, Switch, VerticalMode, choose, decide, notice, picture_choices, switch_for,
 };
 use neptron_safety::validate;
 use neptron_types::{
@@ -1356,18 +1356,30 @@ fn the_ui_fills_a_crt_mode_and_scales_uniformly_on_a_panel() {
 fn the_display_panel_rows_come_from_the_same_plan_and_validator() {
     let profile = pc_crt_30_71();
     let caps = edid_caps(intel_gen9());
-    let rows = style_rows(&snes(), &PolicySettings::default(), &profile, &caps, |m| {
-        validate(m, &profile, &caps).map(|_| ())
-    })
-    .unwrap();
+    let rows = picture_choices(
+        &snes(),
+        &PolicySettings::default(),
+        neptron_modeline::policy::ScanlineChoice {
+            mode: neptron_types::ScanlineMode::Auto,
+            strength_percent: 75,
+        },
+        &profile,
+        &caps,
+        |m| validate(m, &profile, &caps).map(|_| ()),
+    )
+    .unwrap()
+    .modes;
+    fn row(answer: &neptron_modeline::policy::Offer) -> (bool, &Plan, Option<usize>) {
+        match answer {
+            Ok(o) => (true, &o.plan, Some(o.winner)),
+            Err(d) => (false, &d.plan, d.winner),
+        }
+    }
     let summary: Vec<(PictureStyle, bool, Option<Rung>)> = rows
         .iter()
-        .map(|r| {
-            (
-                r.style,
-                r.available,
-                r.winner.map(|i| r.plan.considered[i].rung),
-            )
+        .map(|(style, answer)| {
+            let (available, plan, winner) = row(answer);
+            (*style, available, winner.map(|i| plan.considered[i].rung))
         })
         .collect();
     assert_eq!(
@@ -1384,22 +1396,22 @@ fn the_display_panel_rows_come_from_the_same_plan_and_validator() {
             (PictureStyle::Fit, true, Some(Rung::Multiple(2))),
         ]
     );
-    let native = &rows[1];
-    let target = native.plan.considered[native.winner.unwrap()].target;
+    let (_, native_plan, native_winner) = row(&rows[1].1);
+    let target = native_plan.considered[native_winner.unwrap()].target;
     assert_eq!(
         (target.kind, target.rate_mhz),
         (RefreshKind::NativeDouble, 2 * SNES.2)
     );
     // Each row is the engine's own decision for that style.
-    for r in &rows {
+    for (style, answer) in &rows {
         let plan = decide(
             &snes(),
-            &settings(r.style, RefreshPolicy::Exact),
+            &settings(*style, RefreshPolicy::Exact),
             &profile,
             &caps,
         )
         .unwrap();
-        assert_eq!(plan, r.plan);
+        assert_eq!(&plan, row(answer).1);
     }
 }
 
