@@ -289,6 +289,10 @@ pub struct ChoiceOption {
     /// for example `HDMI/DP 1` for `HDMI/DP 1 (HDA Intel PCH)`. `None`
     /// shows the label. The option list always shows the label.
     pub short: Option<String>,
+    /// What the option gives up, for the help line under the option list,
+    /// for example the compromises of a picture mode. Empty shows the
+    /// detail there.
+    pub help: String,
 }
 
 /// One monitor profile.
@@ -607,7 +611,15 @@ impl ChoiceOption {
             detail: String::new(),
             unavailable: None,
             short: None,
+            help: String::new(),
         }
+    }
+
+    /// The same option with a help text: the help line of the option list
+    /// shows it in place of the detail.
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = help.into();
+        self
     }
 
     /// The same option with `short` in the value column of its row.

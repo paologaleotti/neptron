@@ -75,6 +75,18 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: display_style,
     },
     SceneDef {
+        name: "screens/picture-mode",
+        build: picture_mode_crt,
+    },
+    SceneDef {
+        name: "screens/picture-mode-panel",
+        build: picture_mode_panel,
+    },
+    SceneDef {
+        name: "screens/picture-mode-tv",
+        build: picture_mode_tv,
+    },
+    SceneDef {
         name: "screens/display-safe-mode",
         build: display_safe_mode,
     },
@@ -658,6 +670,90 @@ pub(super) fn styles() -> Vec<ChoiceOption> {
         ChoiceOption::new("3x").unavailable("Needs a 45 kHz monitor"),
         ChoiceOption::new("4x").unavailable("Needs a 60 kHz monitor"),
     ]
+}
+
+/// The display classes of the picture mode scenes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Class {
+    Crt15,
+    Panel,
+    Tv,
+}
+
+/// The picture modes of the app for a 224-line game at 60.10 Hz, in the
+/// order of the schema, with the help line of each: on a 15 kHz tube, on a
+/// 1080p panel, and on NTSC.
+fn picture_modes(class: Class) -> Vec<ChoiceOption> {
+    let rate = match class {
+        Class::Crt15 => "15.63 kHz  60.10 Hz",
+        Class::Panel => "67.50 kHz  60.00 Hz",
+        Class::Tv => "15.73 kHz  60.05 Hz",
+    };
+    let multiple = |label: &str, help: &str| match class {
+        Class::Panel => ChoiceOption::new(label).with_detail(rate).with_help(help),
+        Class::Crt15 | Class::Tv => ChoiceOption::new(label)
+            .unavailable("Needs another monitor")
+            .with_help(help),
+    };
+    let speed = ChoiceOption::new("Game speed")
+        .with_detail(rate)
+        .with_help("The game's own speed first. The picture can be soft.");
+    vec![
+        ChoiceOption::new("Auto")
+            .with_detail(rate)
+            .with_help("Exact lines first, at the game's speed. A notice names each compromise."),
+        ChoiceOption::new("Native")
+            .with_detail(rate)
+            .with_help("The game's own lines, one time each. The picture can be small, with borders."),
+        multiple("2x", "Each line two times. If the screen cannot show it, a smaller step."),
+        multiple("3x", "Each line three times. If the screen cannot show it, a smaller step."),
+        multiple("4x", "Each line four times. If the screen cannot show it, a smaller step."),
+        ChoiceOption::new("Sharp lines").with_detail(rate).with_help(
+            "Exact lines always. The speed can change, and the picture can flicker or be small.",
+        ),
+        match class {
+            Class::Tv => speed.unavailable("A TV has one rate"),
+            Class::Crt15 | Class::Panel => speed,
+        },
+        ChoiceOption::new("Fill")
+            .with_detail(rate)
+            .with_help("Fills the screen height with no flicker. The picture is soft."),
+    ]
+}
+
+/// The options of the picture mode on a display of `class`, with the
+/// cursor `down` options below `Auto`.
+fn picture_mode(frame: &mut UiFrame, theme: &Theme, class: Class, down: usize) {
+    let mut snap = with_display();
+    for row in &mut snap.settings.rows {
+        if row.key == STYLE {
+            row.label = "Picture mode".to_owned();
+            row.value = choice(0, picture_modes(class));
+        }
+    }
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &TO_DISPLAY, frame);
+    screens.update(
+        &snap,
+        &[UiAction::Down, UiAction::Down, UiAction::Accept],
+        frame,
+    );
+    screens.update(&snap, &vec![UiAction::Down; down], frame);
+}
+
+/// Sharp lines on a 15 kHz tube, with its help line.
+fn picture_mode_crt(frame: &mut UiFrame, theme: &Theme) {
+    picture_mode(frame, theme, Class::Crt15, 5);
+}
+
+/// Fill on a flat panel, where the multiples apply.
+fn picture_mode_panel(frame: &mut UiFrame, theme: &Theme) {
+    picture_mode(frame, theme, Class::Panel, 7);
+}
+
+/// Game speed on a TV: greyed, with its reason.
+fn picture_mode_tv(frame: &mut UiFrame, theme: &Theme) {
+    picture_mode(frame, theme, Class::Tv, 6);
 }
 
 /// The rows of a settings page with the display settings, written at the

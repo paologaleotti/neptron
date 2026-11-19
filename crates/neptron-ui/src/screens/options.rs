@@ -1,5 +1,6 @@
 //! The options of one choice row, each with its detail, before one
 //! applies. An option the player cannot choose is dim, with its reason.
+//! The help line shows the help of the focused option, or its detail.
 
 use core::fmt::Write;
 
@@ -166,8 +167,11 @@ impl Options {
                 let _ = write!(text, "Not available. {reason}");
                 chrome::paragraph(frame, theme, help, theme.colors.text, text.as_str());
             }
-            None => {
+            None if option.help.is_empty() => {
                 chrome::paragraph(frame, theme, help, theme.colors.accent, &option.detail);
+            }
+            None => {
+                chrome::paragraph(frame, theme, help, theme.colors.accent, &option.help);
             }
         }
     }

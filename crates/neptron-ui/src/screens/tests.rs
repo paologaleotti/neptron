@@ -5,8 +5,8 @@ use crate::frame::UiFrame;
 use crate::input::UiAction::{self, Accept, Back, Down, Left, Menu, Right, Up};
 use crate::intent::{Intent, Value};
 use crate::snapshot::{
-    ConfirmId, DisplayInfo, GameId, GameSource, GameWindow, Level, Notice, NoticeId, NoticeKind,
-    PendingConfirm, SessionInfo, SettingValue, SettingsPage, Snapshot, VideoStatus,
+    ChoiceOption, ConfirmId, DisplayInfo, GameId, GameSource, GameWindow, Level, Notice, NoticeId,
+    NoticeKind, PendingConfirm, SessionInfo, SettingValue, SettingsPage, Snapshot, VideoStatus,
 };
 use crate::theme::Theme;
 
@@ -522,6 +522,41 @@ fn a_picture_style_applies_only_from_its_option_list() {
         }]
     );
     assert_eq!(run.screen(), "display");
+}
+
+#[test]
+fn the_help_line_shows_the_help_of_the_focused_option_or_its_detail() {
+    let mut run = Run::new();
+    let mut snap = with_display();
+    for row in &mut snap.settings.rows {
+        if let SettingValue::Choice { options, .. } = &mut row.value
+            && row.key == STYLE
+        {
+            options[0] = ChoiceOption::new("Auto")
+                .with_detail("31.5 kHz  59.94 Hz")
+                .with_help("Exact lines first.");
+        }
+    }
+    run.step(&snap, &TO_DISPLAY);
+    run.step(&snap, &[Down, Down, Accept]);
+    assert_eq!(run.focused(), Some("Auto"));
+    let labels = run.labels();
+    assert!(labels.contains(&"Exact lines first."), "{labels:?}");
+    let auto = run
+        .frame
+        .tree
+        .rows()
+        .find(|r| r.widget == crate::WidgetKind::List && r.label == "Auto")
+        .map(|r| r.value);
+    assert_eq!(
+        auto,
+        Some(Some("31.5 kHz  59.94 Hz")),
+        "the row keeps the detail"
+    );
+    // 2x has no help: the help line shows its detail.
+    run.step(&snap, &[Down, Down]);
+    assert_eq!(run.focused(), Some("2x"));
+    assert!(!run.labels().contains(&"Exact lines first."));
 }
 
 #[test]
