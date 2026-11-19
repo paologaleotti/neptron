@@ -4,8 +4,8 @@
 use neptron_types::ScanlineMode;
 use neptron_types::{Modeline, MonitorKind, Rotation, ScreenClass, SourceGeometry};
 use neptron_video::{
-    DeclineReason, Notice, NoticeReason, PolicySettings, RefreshKind, ScanlineOutcome,
-    ScanlineSettings, SoftReason, VerticalMode, WholeReason,
+    DeclineReason, Notice, NoticeReason, PolicySettings, RefreshKind, RefreshPolicy,
+    ScanlineOutcome, ScanlineSettings, SoftReason, VerticalMode, WholeReason,
 };
 
 use crate::pages;
@@ -96,8 +96,18 @@ fn reason_text(reason: NoticeReason) -> String {
 
 /// The sentence for a stored picture mode or refresh choice that the
 /// display does not give: what was asked, why not, and the mode `shown`
-/// in its place, as the status line names it.
+/// in its place, as the status line names it. A reason of the picture mode
+/// with a refresh rate other than Auto names both rows: the rate can be the
+/// cause, and it can come from another level.
 pub(super) fn declined_text(policy: PolicySettings, reason: DeclineReason, shown: &str) -> String {
+    let mode = pages::mode_label(policy.style);
+    let pair = || {
+        format!(
+            "Picture mode {mode} with Refresh rate {}",
+            pages::refresh_label(policy.refresh)
+        )
+    };
+    let with_rate = policy.refresh != RefreshPolicy::Exact;
     let asked = match reason {
         DeclineReason::RateFixedByTv { asked }
         | DeclineReason::RateOfPanel { asked }
@@ -105,24 +115,31 @@ pub(super) fn declined_text(policy: PolicySettings, reason: DeclineReason, shown
         | DeclineReason::RateNotHeld { asked } => {
             format!("Refresh rate {}", pages::refresh_label(asked))
         }
-        DeclineReason::NotShownHere { asked, .. }
-        | DeclineReason::SmallerFillsMore { asked, .. }
-        | DeclineReason::TooLargeForScreen { asked, .. } => {
-            format!("Picture mode {}", pages::mode_label(asked))
+        DeclineReason::NoPicture => pair(),
+        DeclineReason::NotShownHere { .. }
+        | DeclineReason::SmallerFillsMore { .. }
+        | DeclineReason::TooLargeForScreen { .. }
+        | DeclineReason::NoExactMode
+        | DeclineReason::OneRateOnTv
+        | DeclineReason::SpeedNotHeld
+            if with_rate =>
+        {
+            pair()
         }
-        DeclineReason::NoPicture => format!(
-            "Picture mode {} with Refresh rate {}",
-            pages::mode_label(policy.style),
-            pages::refresh_label(policy.refresh)
-        ),
-        DeclineReason::NoExactMode | DeclineReason::OneRateOnTv | DeclineReason::SpeedNotHeld => {
-            format!("Picture mode {}", pages::mode_label(policy.style))
-        }
+        DeclineReason::NotShownHere { .. }
+        | DeclineReason::SmallerFillsMore { .. }
+        | DeclineReason::TooLargeForScreen { .. }
+        | DeclineReason::NoExactMode
+        | DeclineReason::OneRateOnTv
+        | DeclineReason::SpeedNotHeld => format!("Picture mode {mode}"),
     };
-    format!(
-        "{asked}: {}. Shown: {shown}.",
-        pages::lower_first(&pages::decline_text(reason))
-    )
+    let why = match reason {
+        DeclineReason::SpeedNotHeld if with_rate => {
+            "the refresh rate changes the game's speed".to_owned()
+        }
+        _ => pages::lower_first(&pages::decline_text(reason, pages::Scope::ThisGame)),
+    };
+    format!("{asked}: {why}. Shown: {shown}.")
 }
 
 /// The sentence for scanlines that are on but not drawn on this picture,

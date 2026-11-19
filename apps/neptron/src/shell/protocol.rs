@@ -159,8 +159,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         // sets one key: a value that needs the other row at Auto is refused
         // too, and says so.
         match self.gate(entry.key, level, &value) {
-            Gate::Set => {}
-            Gate::SetWithReset { other } => {
+            Gate::Set { .. } => {}
+            Gate::SetWithReset { other, .. } => {
                 return Err(format!(
                     "{key} = {value} is only possible with {other} = {}: set it first",
                     pages::other_row(entry.key).map_or("auto", |(_, auto)| auto)

@@ -65,9 +65,17 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     .and_then(|e| Some((e.key, pages::value_of(e, value, names, &self.config)?)));
                 if let (Some((key, value)), Some(level)) = (found, pages::settings_level(level)) {
                     match self.gate(key, level, &value) {
-                        Gate::Set => self.change_setting(key, level, Some(value), now_ns),
-                        Gate::SetWithReset { other } => {
+                        Gate::Set { note } => {
+                            self.change_setting(key, level, Some(value), now_ns);
+                            if let Some(note) = note {
+                                self.notice(NoticeKind::Info, note);
+                            }
+                        }
+                        Gate::SetWithReset { other, note } => {
                             self.change_setting_with(key, level, Some(value), Some(other), now_ns);
+                            if let Some(note) = note {
+                                self.notice(NoticeKind::Info, note);
+                            }
                         }
                         Gate::Refused(reason) => self.refuse_value(key, &value, &reason),
                     }
@@ -533,10 +541,15 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// refuses.
     pub(super) fn gate(&self, key: &str, level: Level, value: &Value) -> Gate {
         if pages::other_row(key).is_none() {
-            return Gate::Set;
+            return Gate::Set { note: None };
         }
         let choices = self.picture_choices(level);
-        pages::gate(key, &value.to_string(), choices.as_ref())
+        pages::gate(
+            key,
+            &value.to_string(),
+            choices.as_ref(),
+            self.scope_of(level),
+        )
     }
 
     /// A short notice for a value that the display does not give, and the

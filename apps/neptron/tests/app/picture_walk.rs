@@ -98,6 +98,7 @@ struct Shown {
     label: String,
     enabled: bool,
     help: String,
+    detail: String,
 }
 
 /// The options of the row `label` of the snapshot.
@@ -119,6 +120,7 @@ fn options(rig: &mut Rig, label: &str) -> Vec<Shown> {
             label: o.label.clone(),
             enabled: row_enabled && o.is_enabled(),
             help: o.help.clone(),
+            detail: o.detail.clone(),
         })
         .collect()
 }
@@ -181,7 +183,11 @@ fn other_row(key: &str) -> (&'static str, &'static str) {
 }
 
 /// Walks every option of the rows of the Video page on the display of
-/// `rig`, each judged as the menu shows it at the moment of the pick. A
+/// `rig`, each judged as the menu shows it at the moment of the pick. The
+/// rows are walked in order, so the options of the Refresh rate row are
+/// judged with the Picture mode that the walk picked last (Native where the
+/// display gives it), and each pick of a refresh choice is judged with the
+/// one before it. A
 /// chosen option sets the setting at the game level with no prompt (and
 /// the other row to Auto when its help line says so), in memory and on
 /// disk; the display takes a mode inside the profile, a picture shows; a
@@ -259,7 +265,7 @@ fn walk(mut rig: Rig, key_of_row: &[(&str, &str)]) -> Walked {
                 walked.greyed.push(format!("{label}: {option}"));
                 continue;
             }
-            let resets = shown.help.starts_with("Also sets");
+            let resets = shown.detail == pages::reset_tag(other);
             rig.tap(&[Control::A]);
             rig.frames(30);
             assert_eq!(
@@ -342,6 +348,8 @@ fn walk(mut rig: Rig, key_of_row: &[(&str, &str)]) -> Walked {
 struct Judged {
     plain: Vec<String>,
     not_for_every_game: Vec<String>,
+    /// Selectable, and a pick also sets the other row to Auto.
+    resets: Vec<String>,
     greyed: Vec<String>,
     disabled_rows: Vec<String>,
 }
@@ -394,8 +402,10 @@ fn settings_walk(mut rig: Rig) -> Judged {
             let name = format!("{label}: {}", o.label);
             if !o.enabled {
                 judged.greyed.push(name);
-            } else if o.help.starts_with(pages::NOT_FOR_EVERY_GAME) {
+            } else if o.detail == pages::NOT_ALL_GAMES {
                 judged.not_for_every_game.push(name);
+            } else if o.detail.starts_with("Sets ") {
+                judged.resets.push(name);
             } else {
                 judged.plain.push(name);
             }
@@ -403,11 +413,9 @@ fn settings_walk(mut rig: Rig) -> Judged {
         let greyed = shown.iter().find(|o| !o.enabled);
         let partial = shown
             .iter()
-            .find(|o| o.enabled && o.help.starts_with(pages::NOT_FOR_EVERY_GAME));
+            .find(|o| o.enabled && o.detail == pages::NOT_ALL_GAMES);
         let plain = shown.iter().skip(1).find(|o| {
-            o.enabled
-                && !o.help.starts_with(pages::NOT_FOR_EVERY_GAME)
-                && !o.help.starts_with("Also sets")
+            o.enabled && o.detail != pages::NOT_ALL_GAMES && !o.detail.starts_with("Sets ")
         });
         if let Some(o) = greyed {
             let file_before = global_file(&rig);
@@ -565,7 +573,7 @@ settings_walks! {
 }
 
 /// A 15 kHz monitor shows no multiple and no double rate for any reference
-/// game, and every other option for each of them.
+/// game, and Native for every game but the 480-line one.
 fn expected_settings_15_khz() -> Judged {
     Judged {
         plain: names(&[
@@ -573,12 +581,12 @@ fn expected_settings_15_khz() -> Judged {
             "Picture mode: Sharp lines",
             "Picture mode: Game speed",
             "Picture mode: Fill",
-            "Picture mode: Native",
             "Refresh rate: Auto",
             "Refresh rate: 50 Hz",
             "Refresh rate: 60 Hz",
         ]),
-        not_for_every_game: Vec::new(),
+        not_for_every_game: names(&["Picture mode: Native"]),
+        resets: Vec::new(),
         greyed: names(&[
             "Picture mode: 2x",
             "Picture mode: 3x",
@@ -605,6 +613,7 @@ fn expected_settings_pi_dpi() -> Judged {
             "Refresh rate: 50 Hz",
             "Refresh rate: 60 Hz",
         ]),
+        resets: Vec::new(),
         greyed: names(&[
             "Picture mode: 2x",
             "Picture mode: 3x",
@@ -615,33 +624,39 @@ fn expected_settings_pi_dpi() -> Judged {
     }
 }
 
-/// A 1080p panel shows 3x and 4x only for the small games.
+/// A 1080p panel at 60 Hz shows 3x and 4x only for the small games, and
+/// holds the speed only of the games near 60 Hz.
 fn expected_settings_panel() -> Judged {
     Judged {
         plain: names(&[
             "Picture mode: Auto",
             "Picture mode: Sharp lines",
-            "Picture mode: Game speed",
             "Picture mode: Fill",
             "Picture mode: Native",
             "Picture mode: 2x",
         ]),
-        not_for_every_game: names(&["Picture mode: 3x", "Picture mode: 4x"]),
+        not_for_every_game: names(&[
+            "Picture mode: Game speed",
+            "Picture mode: 3x",
+            "Picture mode: 4x",
+        ]),
+        resets: Vec::new(),
         greyed: Vec::new(),
         disabled_rows: names(&["Refresh rate"]),
     }
 }
 
-/// A TV has one rate and one line count for every game.
+/// A TV has one rate and one line count for every game; Native does not
+/// hold the 480-line progressive game.
 fn expected_settings_tv() -> Judged {
     Judged {
         plain: names(&[
             "Picture mode: Auto",
             "Picture mode: Sharp lines",
             "Picture mode: Fill",
-            "Picture mode: Native",
         ]),
-        not_for_every_game: Vec::new(),
+        not_for_every_game: names(&["Picture mode: Native"]),
+        resets: Vec::new(),
         greyed: names(&[
             "Picture mode: Game speed",
             "Picture mode: 2x",
@@ -695,7 +710,11 @@ fn a_value_that_needs_the_other_row_at_auto_is_refused_by_the_protocol() {
             .find(|o| o.label == "Game speed")
             .expect("speed");
         assert!(speed.enabled);
-        assert_eq!(speed.help, "Also sets Refresh rate to Auto.");
+        assert_eq!(speed.detail, pages::reset_tag("display.refresh_policy"));
+        assert_eq!(
+            speed.help,
+            pages::mode_help(neptron_video::PictureStyle::Speed)
+        );
         rig.focus("Picture mode");
         rig.tap(&[Control::A]);
         rig.focus("Game speed");

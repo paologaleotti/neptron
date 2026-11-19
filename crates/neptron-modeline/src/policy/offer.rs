@@ -190,16 +190,30 @@ impl RowAnswer {
     }
 }
 
-/// An option of a row, with what is not given for every game when the
+/// What a selectable option judged for several sources does not give to
+/// every one of them ([`for_every_game`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SomeGames {
+    /// Some sources decline the option for this reason, a reason of its
+    /// own row: the reason of the first such source.
+    Declined(DeclineReason),
+    /// Some sources give the option only with the other row at Auto: for
+    /// them the pair that the pick stores is declined, and the engine shows
+    /// the safe picture of 8.7.
+    NeedOtherAtAuto,
+}
+
+/// An option of a row, with what it does not give to every game when the
 /// answer covers more than one source ([`for_every_game`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowChoice {
     /// The answer.
     pub answer: RowAnswer,
-    /// For a selectable option judged for more than one source: the reason
-    /// of the first source whose pair the pick stores is declined. `None`
-    /// when every source gives it, or for one source.
-    pub not_for_every_game: Option<DeclineReason>,
+    /// For a selectable option judged for more than one source: what some
+    /// of the sources do not get. A reason of this row comes before the
+    /// need of the other row at Auto. `None` when every source gets it,
+    /// and for one source.
+    pub not_for_every_game: Option<SomeGames>,
 }
 
 /// The answers for the options of the two menu rows.
@@ -213,8 +227,9 @@ pub struct PictureChoices {
 
 /// The sources that Settings > Display judges its options for: that page
 /// writes the global level, which every game reads, and the policy has no
-/// list of every game. Each entry is a real system shape that the others
-/// do not cover:
+/// list of every game. Each entry is a real shape that the others do not
+/// cover; the geometry and the rate are those of the arcade table of the
+/// policy tests (`docs/spec/arcade.md` for the boards):
 ///
 /// - Game Boy, 160x144 at 59.728 Hz, aspect 10:9: a small frame, which
 ///   needs the largest multiples.
@@ -225,13 +240,25 @@ pub struct PictureChoices {
 ///   a 60 Hz mode holds at 15 kHz.
 /// - PlayStation 480i, 640x480 interlaced at 59.940 Hz: an interlaced
 ///   source.
-pub const REFERENCE_SOURCES: [SourceGeometry; 6] = [
-    reference(160, 144, 59_728, 1_111, false),
-    reference(256, 224, 60_099, 1_333, false),
-    reference(320, 240, 59_826, 1_333, false),
-    reference(256, 240, 50_007, 1_333, false),
-    reference(320, 256, 49_920, 1_333, false),
-    reference(640, 480, 59_940, 1_333, true),
+/// - Neo Geo, 304x224 at 59.180 Hz: a board rate more than 0.5 % off 60 Hz,
+///   which a panel at 60 Hz cannot hold at its speed.
+/// - Mortal Kombat, 400x256 at 54.700 Hz: a board rate far from 50 and
+///   60 Hz.
+/// - DoDonPachi, 320x240 turned at 57.550 Hz: a vertical board, the only
+///   case where `display.vertical` and the fit of a turned game act.
+/// - DOS VGA, 640x480 progressive at 59.940 Hz: a 480-line progressive
+///   frame.
+pub const REFERENCE_SOURCES: [SourceGeometry; 10] = [
+    reference(160, 144, 59_728, 1_111, false, Rotation::R0),
+    reference(256, 224, 60_099, 1_333, false, Rotation::R0),
+    reference(320, 240, 59_826, 1_333, false, Rotation::R0),
+    reference(256, 240, 50_007, 1_333, false, Rotation::R0),
+    reference(320, 256, 49_920, 1_333, false, Rotation::R0),
+    reference(640, 480, 59_940, 1_333, true, Rotation::R0),
+    reference(304, 224, 59_180, 1_333, false, Rotation::R0),
+    reference(400, 256, 54_700, 1_333, false, Rotation::R0),
+    reference(320, 240, 57_550, 1_333, false, Rotation::R90),
+    reference(640, 480, 59_940, 1_333, false, Rotation::R0),
 ];
 
 /// Scanlines show on a flat panel: the mode `on` with a strength above 0.
@@ -409,25 +436,21 @@ fn combine(first: &RowAnswer, answers: &[&RowAnswer]) -> RowChoice {
         } => Some((offered, *stored_pair)),
         RowAnswer::Plain(_) | RowAnswer::Declined(_) => None,
     });
-    let declined = answers.iter().find_map(|a| match a {
-        RowAnswer::Declined(declined) => Some(declined),
+    let own_reason = answers.iter().find_map(|a| match a {
+        RowAnswer::Declined(declined) => Some(SomeGames::Declined(declined.reason)),
         RowAnswer::Plain(_) | RowAnswer::ResetsOther { .. } => None,
     });
     match (plain, reset) {
-        (Some(offered), _) => RowChoice {
+        (Some(offered), reset) => RowChoice {
             answer: RowAnswer::Plain(offered.clone()),
-            not_for_every_game: answers.iter().find_map(|a| match a {
-                RowAnswer::Plain(_) => None,
-                RowAnswer::ResetsOther { stored_pair, .. } => Some(*stored_pair),
-                RowAnswer::Declined(declined) => Some(declined.reason),
-            }),
+            not_for_every_game: own_reason.or_else(|| reset.map(|_| SomeGames::NeedOtherAtAuto)),
         },
         (None, Some((offered, stored_pair))) => RowChoice {
             answer: RowAnswer::ResetsOther {
                 offered: offered.clone(),
                 stored_pair,
             },
-            not_for_every_game: declined.map(|d| d.reason),
+            not_for_every_game: own_reason,
         },
         (None, None) => RowChoice {
             answer: first.clone(),
@@ -597,14 +620,14 @@ fn scanline_outcome(
     }
 }
 
-/// A progressive or interlaced source with no turn, for
-/// [`REFERENCE_SOURCES`].
+/// A source of [`REFERENCE_SOURCES`].
 const fn reference(
     width: u16,
     height: u16,
     refresh_mhz: u32,
     aspect_milli: u32,
     interlaced: bool,
+    rotation: Rotation,
 ) -> SourceGeometry {
     SourceGeometry {
         width,
@@ -612,6 +635,6 @@ const fn reference(
         refresh_mhz,
         aspect_milli,
         interlaced,
-        rotation: Rotation::R0,
+        rotation,
     }
 }

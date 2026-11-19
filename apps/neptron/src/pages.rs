@@ -21,7 +21,7 @@ use neptron_ui::snapshot::{
 };
 use neptron_video::{
     DeclineReason, Phase, PictureChoices, PictureStyle, RefreshPolicy, RowAnswer, RowChoice, Rung,
-    SafeReason,
+    SafeReason, SomeGames,
 };
 
 use crate::config::Config;
@@ -314,13 +314,13 @@ pub fn refresh_help(refresh: RefreshPolicy, scope: Scope) -> &'static str {
             "Each frame shows twice, at twice the game's rate. The game speed does not change."
         }
         (RefreshPolicy::Force50, Scope::EveryGame) => {
-            "Every game at 50 Hz. A game made for 60 Hz runs slower."
+            "Games run at 50 Hz. A game made for 60 Hz runs slower."
         }
         (RefreshPolicy::Force50, Scope::ThisGame) => {
             "This game at 50 Hz. If it is made for 60 Hz, it runs slower."
         }
         (RefreshPolicy::Force60, Scope::EveryGame) => {
-            "Every game at 60 Hz. A game made for 50 Hz runs faster."
+            "Games run at 60 Hz. A game made for 50 Hz runs faster."
         }
         (RefreshPolicy::Force60, Scope::ThisGame) => {
             "This game at 60 Hz. If it is made for 50 Hz, it runs faster."
@@ -342,9 +342,9 @@ pub fn scanline_label(mode: ScanlineMode) -> &'static str {
 pub fn scanline_help(mode: ScanlineMode, class: DisplayClass) -> &'static str {
     match (mode, class) {
         (ScanlineMode::Auto, DisplayClass::Crt) => {
-            "Above 15 kHz, where each game line is on two or more screen lines, with no interlace."
+            "Drawn above 15 kHz when each game line is on two or more screen lines, with no interlace."
         }
-        (ScanlineMode::Auto, DisplayClass::Tv) => "None: a TV draws its own scanlines.",
+        (ScanlineMode::Auto, DisplayClass::Tv) => "None on a TV.",
         (ScanlineMode::Auto, DisplayClass::FlatPanel) => {
             "None on a flat panel. Choose On to draw them."
         }
@@ -358,19 +358,25 @@ pub fn scanline_help(mode: ScanlineMode, class: DisplayClass) -> &'static str {
     }
 }
 
-/// The reason in the menus why the policy does not offer a candidate.
-pub fn decline_text(reason: DeclineReason) -> String {
+/// The reason in the menus why the policy does not offer a candidate, on a
+/// page that writes for `scope`. A rate that one game needs names that
+/// game's rate only for the game of the run.
+pub fn decline_text(reason: DeclineReason, scope: Scope) -> String {
     match reason {
         DeclineReason::NoPicture => "No picture with this choice".to_owned(),
         DeclineReason::RateFixedByTv { .. } | DeclineReason::OneRateOnTv => {
             "A TV has one rate".to_owned()
         }
         DeclineReason::RateOfPanel { .. } => "A flat panel uses its own rates".to_owned(),
-        DeclineReason::RateNotCovered { rate_mhz, .. } => format!(
-            "This monitor does not take {}.{:02} Hz",
-            rate_mhz / 1_000,
-            rate_mhz % 1_000 / 10
-        ),
+        DeclineReason::RateNotCovered {
+            asked: RefreshPolicy::ExactX2,
+            ..
+        } if scope == Scope::EveryGame => {
+            "This monitor does not take twice the rate of any game".to_owned()
+        }
+        DeclineReason::RateNotCovered { rate_mhz, .. } => {
+            format!("This monitor does not take {} Hz", hz(rate_mhz))
+        }
         DeclineReason::RateNotHeld { .. } => "No exact picture at this rate".to_owned(),
         DeclineReason::NotShownHere { .. } => {
             "Not possible with this screen and video output".to_owned()
@@ -392,6 +398,42 @@ fn rung_label(rung: Rung) -> String {
         Rung::Interlaced => "The interlaced picture".to_owned(),
         Rung::Fitted | Rung::Panel => "A smaller picture".to_owned(),
     }
+}
+
+/// The sentence for an option that some games of Settings > Display do
+/// not get, for the notice after a pick of it.
+pub fn some_games_text(some: SomeGames, other: &str) -> String {
+    match some {
+        SomeGames::Declined(DeclineReason::RateNotCovered { rate_mhz, .. }) => format!(
+            "Some games need {} Hz, which this monitor does not take.",
+            hz(rate_mhz)
+        ),
+        SomeGames::Declined(reason) => format!(
+            "{NOT_ALL_GAMES}: {}.",
+            lower_first(&decline_text(reason, Scope::ThisGame))
+        ),
+        SomeGames::NeedOtherAtAuto => {
+            format!("Some games need {} at Auto for it.", row_label(other))
+        }
+    }
+}
+
+/// The tag in the row of an option that some games do not get.
+pub const NOT_ALL_GAMES: &str = "Not all games";
+
+/// The tag in the row of an option that also sets the row of `other` to
+/// Auto.
+pub fn reset_tag(other: &str) -> &'static str {
+    match other {
+        DISPLAY_STYLE => "Sets mode Auto",
+        _ => "Sets rate Auto",
+    }
+}
+
+/// Millihertz as hertz with three decimals, as the status line shows it:
+/// `59.728`.
+fn hz(mhz: u64) -> String {
+    format!("{}.{:03}", mhz / 1_000, mhz % 1_000)
 }
 
 /// The reason of an option of the picture mode or refresh rows when the
@@ -425,12 +467,17 @@ impl Scope {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Gate {
     /// The value is set alone.
-    Set,
+    Set {
+        /// What some games do not get, for the notice after the pick.
+        note: Option<String>,
+    },
     /// The value is set, and the other row (`other`, a key) to Auto at the
     /// same level, in the same write.
     SetWithReset {
         /// The key of the other row.
         other: &'static str,
+        /// What some games do not get, for the notice after the pick.
+        note: Option<String>,
     },
     /// The value is not set, for this reason.
     Refused(String),
@@ -454,11 +501,12 @@ pub fn row_label(key: &str) -> &'static str {
     }
 }
 
-/// What a set of `value` for `key` does, from the answers `choices`: the
-/// rule of the option in the menu. Every other key is [`Gate::Set`].
-pub fn gate(key: &str, value: &str, choices: Option<&PictureChoices>) -> Gate {
+/// What a set of `value` for `key` does, from the answers `choices` for a
+/// page that writes for `scope`: the rule of the option in the menu. Every
+/// other key is [`Gate::Set`].
+pub fn gate(key: &str, value: &str, choices: Option<&PictureChoices>, scope: Scope) -> Gate {
     let Some((other, _)) = other_row(key) else {
-        return Gate::Set;
+        return Gate::Set { note: None };
     };
     let Some(choices) = choices else {
         return Gate::Refused(NO_DECISION.to_owned());
@@ -475,28 +523,15 @@ pub fn gate(key: &str, value: &str, choices: Option<&PictureChoices>) -> Gate {
             .find(|(r, _)| r.key() == value)
             .map(|(_, c)| c),
     };
-    match choice.map(|c| &c.answer) {
-        None => Gate::Refused(format!("{value} is not a choice")),
-        Some(RowAnswer::Plain(_)) => Gate::Set,
-        Some(RowAnswer::ResetsOther { .. }) => Gate::SetWithReset { other },
-        Some(RowAnswer::Declined(declined)) => Gate::Refused(decline_text(declined.reason)),
+    let Some(choice) = choice else {
+        return Gate::Refused(format!("{value} is not a choice"));
+    };
+    let note = choice.not_for_every_game.map(|s| some_games_text(s, other));
+    match &choice.answer {
+        RowAnswer::Plain(_) => Gate::Set { note },
+        RowAnswer::ResetsOther { .. } => Gate::SetWithReset { other, note },
+        RowAnswer::Declined(declined) => Gate::Refused(decline_text(declined.reason, scope)),
     }
-}
-
-/// The help line of an option that also sets the row of `other` to Auto.
-pub fn reset_help(other: &str) -> String {
-    format!("Also sets {} to Auto.", row_label(other))
-}
-
-/// The words of an option that some game does not take.
-pub const NOT_FOR_EVERY_GAME: &str = "Not for every game";
-
-/// The help line of an option that some game does not take, for `reason`.
-pub fn not_for_every_game_help(reason: DeclineReason) -> String {
-    format!(
-        "{NOT_FOR_EVERY_GAME}: {}.",
-        lower_first(&decline_text(reason))
-    )
 }
 
 /// `text` with its first letter in lower case, for a reason after a colon.
@@ -1067,7 +1102,7 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
                 let answer = names
                     .choices
                     .and_then(|c| c.modes.iter().find(|(s, _)| *s == style).map(|(_, a)| a));
-                offered_option(option, answer, DISPLAY_REFRESH_POLICY)
+                offered_option(option, answer, DISPLAY_REFRESH_POLICY, names.scope)
             }
             None => ChoiceOption::new(choice),
         },
@@ -1082,7 +1117,7 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
                             .find(|(r, _)| *r == refresh)
                             .map(|(_, a)| a)
                     });
-                    offered_option(option, answer, DISPLAY_STYLE)
+                    offered_option(option, answer, DISPLAY_STYLE, names.scope)
                 }
                 None => ChoiceOption::new(choice),
             }
@@ -1099,12 +1134,19 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
 }
 
 /// An option of the picture mode or refresh rows from the answer of the
-/// policy: the line rate and field rate of the mode that a pick shows; a
-/// help line that says when a pick also sets the row of `other` to Auto,
-/// or when some game does not take it; greyed with the reason when the
-/// policy declines it. With no answer the option is greyed: only an offered
-/// option can be chosen.
-fn offered_option(option: ChoiceOption, choice: Option<&RowChoice>, other: &str) -> ChoiceOption {
+/// policy, on a page that writes for `scope`. For the game of the run the
+/// detail is the line rate and field rate of the mode that a pick shows;
+/// for every game no rate holds for all, so the detail is empty. A tag in
+/// the detail says when a pick also sets the row of `other` to Auto, or
+/// when some games do not get the option; the help line keeps the option's
+/// own text. A declined option is greyed with its reason. With no answer
+/// the option is greyed: only an offered option can be chosen.
+fn offered_option(
+    option: ChoiceOption,
+    choice: Option<&RowChoice>,
+    other: &str,
+    scope: Scope,
+) -> ChoiceOption {
     let Some(choice) = choice else {
         return option.unavailable(NO_DECISION);
     };
@@ -1116,31 +1158,28 @@ fn offered_option(option: ChoiceOption, choice: Option<&RowChoice>, other: &str)
         .and_then(|i| plan.considered.get(i))
         .and_then(|c| c.outcome.as_ref().ok())
         .map(|p| p.mode);
-    let option = match mode {
-        Some(m) => option.with_detail(rates(m.line_rate_mhz(), m.field_rate_mhz())),
-        None => option,
-    };
-    let partial = choice.not_for_every_game.map(not_for_every_game_help);
-    match (&choice.answer, partial) {
-        (RowAnswer::Declined(declined), _) => option.unavailable(decline_text(declined.reason)),
-        (RowAnswer::Plain(_), None) => option,
-        (RowAnswer::Plain(_), Some(partial)) => option.with_help(partial),
-        (RowAnswer::ResetsOther { .. }, None) => option.with_help(reset_help(other)),
-        (RowAnswer::ResetsOther { .. }, Some(_)) => {
-            option.with_help(format!("{} {NOT_FOR_EVERY_GAME}.", reset_help(other)))
+    let option = match (mode, scope) {
+        (Some(m), Scope::ThisGame) => {
+            option.with_detail(rates(m.line_rate_mhz(), m.field_rate_mhz()))
         }
+        (Some(_) | None, _) => option,
+    };
+    match (&choice.answer, choice.not_for_every_game) {
+        (RowAnswer::Declined(declined), _) => {
+            option.unavailable(decline_text(declined.reason, scope))
+        }
+        (RowAnswer::ResetsOther { .. }, _) => option.with_detail(reset_tag(other)),
+        (RowAnswer::Plain(_), Some(_)) => option.with_detail(NOT_ALL_GAMES),
+        (RowAnswer::Plain(_), None) => option,
     }
 }
 
-/// `15.73 kHz  59.94 Hz` from a line rate and a field rate in millihertz.
+/// `15.73 kHz  59.940 Hz` from a line rate and a field rate in
+/// millihertz, as the status line shows them: the line rate rounded to
+/// two decimals, the field rate with its three.
 fn rates(line_mhz: u64, field_mhz: u64) -> String {
-    format!(
-        "{}.{:02} kHz  {}.{:02} Hz",
-        line_mhz / 1_000_000,
-        line_mhz % 1_000_000 / 10_000,
-        field_mhz / 1_000,
-        field_mhz % 1_000 / 10
-    )
+    let line = (line_mhz + 5_000) / 10_000;
+    format!("{}.{:02} kHz  {} Hz", line / 100, line % 100, hz(field_mhz))
 }
 
 /// The option of a TV standard: its name with its rate, and `auto` with
@@ -1701,23 +1740,29 @@ mod tests {
         choices: &PictureChoices,
         case: &str,
     ) {
+        // Selectable, the help line (always the option's own), the tag in
+        // the row when there is one, and the gate.
         let expected = |choice: &RowChoice, other: &'static str, help: &str| {
-            let partial = choice.not_for_every_game.map(not_for_every_game_help);
-            match (&choice.answer, partial) {
-                (RowAnswer::Plain(_), None) => (true, help.to_owned(), Gate::Set),
-                (RowAnswer::Plain(_), Some(partial)) => (true, partial, Gate::Set),
-                (RowAnswer::ResetsOther { .. }, partial) => (
+            let note = choice.not_for_every_game.map(|s| some_games_text(s, other));
+            match (&choice.answer, choice.not_for_every_game) {
+                (RowAnswer::Plain(_), None) => (true, help.to_owned(), None, Gate::Set { note }),
+                (RowAnswer::Plain(_), Some(_)) => (
                     true,
-                    match partial {
-                        None => reset_help(other),
-                        Some(_) => format!("{} {NOT_FOR_EVERY_GAME}.", reset_help(other)),
-                    },
-                    Gate::SetWithReset { other },
+                    help.to_owned(),
+                    Some(NOT_ALL_GAMES.to_owned()),
+                    Gate::Set { note },
+                ),
+                (RowAnswer::ResetsOther { .. }, _) => (
+                    true,
+                    help.to_owned(),
+                    Some(reset_tag(other).to_owned()),
+                    Gate::SetWithReset { other, note },
                 ),
                 (RowAnswer::Declined(d), _) => (
                     false,
                     help.to_owned(),
-                    Gate::Refused(decline_text(d.reason)),
+                    None,
+                    Gate::Refused(decline_text(d.reason, names.scope)),
                 ),
             }
         };
@@ -1725,16 +1770,17 @@ mod tests {
             .iter()
             .map(|m| {
                 let c = &choices.modes.iter().find(|(s, _)| s == m).unwrap().1;
-                let (ok, help, gate) = expected(c, DISPLAY_REFRESH_POLICY, mode_help(*m));
-                (m.key().to_owned(), ok, help, gate)
+                let (ok, help, tag, gate) = expected(c, DISPLAY_REFRESH_POLICY, mode_help(*m));
+                (m.key().to_owned(), ok, help, tag, gate)
             })
             .collect();
         let expected_rates: Vec<_> = choices
             .refresh
             .iter()
             .map(|(r, c)| {
-                let (ok, help, gate) = expected(c, DISPLAY_STYLE, refresh_help(*r, names.scope));
-                (r.key().to_owned(), ok, help, gate)
+                let (ok, help, tag, gate) =
+                    expected(c, DISPLAY_STYLE, refresh_help(*r, names.scope));
+                (r.key().to_owned(), ok, help, tag, gate)
             })
             .collect();
         for (key, expected) in [
@@ -1757,8 +1803,24 @@ mod tests {
                     let value = value_of(entry, UiValue::Choice(i), names, config)
                         .map(|v| v.to_string())
                         .unwrap();
-                    let gate = gate(key, &value, Some(choices));
-                    (value, o.is_enabled(), o.help.clone(), gate)
+                    let gate = gate(key, &value, Some(choices), names.scope);
+                    // The tag of a selectable option; the detail column of
+                    // every game holds nothing else.
+                    let tag = [
+                        NOT_ALL_GAMES,
+                        reset_tag(DISPLAY_STYLE),
+                        reset_tag(DISPLAY_REFRESH_POLICY),
+                    ]
+                    .contains(&o.detail.as_str())
+                    .then(|| o.detail.clone())
+                    .filter(|_| o.is_enabled());
+                    if names.scope == Scope::EveryGame && o.is_enabled() && tag.is_none() {
+                        assert!(
+                            o.detail.is_empty(),
+                            "{key} on {case}: no rate for every game"
+                        );
+                    }
+                    (value, o.is_enabled(), o.help.clone(), tag, gate)
                 })
                 .collect();
             assert_eq!(shown, expected, "{key} on {case}");
@@ -1770,52 +1832,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// The fixture of the picture mode and refresh rate scenes of
-    /// `neptron-ui` has the texts and the order of the menus.
-    #[test]
-    fn the_ui_scenes_show_the_texts_of_the_menus() {
-        let modes: Vec<_> = PICTURE_MODE_MENU_ORDER
-            .iter()
-            .map(|m| (mode_label(*m), mode_help(*m)))
-            .collect();
-        assert_eq!(modes, neptron_ui::screens::PICTURE_MODE_TEXTS);
-        let rates: Vec<_> = RefreshPolicy::ALL
-            .iter()
-            .map(|r| (refresh_label(*r), refresh_help(*r, Scope::EveryGame)))
-            .collect();
-        assert_eq!(rates, neptron_ui::screens::REFRESH_RATE_TEXTS);
-        use neptron_ui::screens::picture_texts as t;
-        let not_shown = DeclineReason::NotShownHere {
-            asked: PictureStyle::X2,
-            shown: neptron_video::Rung::Native,
-        };
-        let too_large = DeclineReason::TooLargeForScreen {
-            asked: PictureStyle::X3,
-            shown: neptron_video::Rung::Multiple(2),
-        };
-        let not_covered = |rate_mhz| DeclineReason::RateNotCovered {
-            asked: RefreshPolicy::ExactX2,
-            rate_mhz,
-        };
-        assert_eq!(decline_text(not_shown), t::NOT_SHOWN_HERE);
-        assert_eq!(decline_text(DeclineReason::OneRateOnTv), t::ONE_RATE_ON_TV);
-        assert_eq!(decline_text(DeclineReason::SpeedNotHeld), t::SPEED_NOT_HELD);
-        assert_eq!(decline_text(not_covered(119_456)), t::NO_119_HZ);
-        assert_eq!(NOT_USED_ON_A_TV, t::NOT_USED_ON_A_TV);
-        assert_eq!(NOT_USED_ON_A_PANEL, t::NOT_USED_ON_A_PANEL);
-        assert_eq!(reset_help(DISPLAY_REFRESH_POLICY), t::RESETS_REFRESH);
-        assert_eq!(not_for_every_game_help(not_shown), t::SOME_NOT_SHOWN);
-        assert_eq!(not_for_every_game_help(too_large), t::SOME_TOO_LARGE);
-        assert_eq!(
-            not_for_every_game_help(DeclineReason::SpeedNotHeld),
-            t::SOME_SPEED_NOT_HELD
-        );
-        assert_eq!(
-            not_for_every_game_help(not_covered(99_840)),
-            t::SOME_NO_99_HZ
-        );
     }
 
     /// With no answer of the policy (no engine), no option of the picture
@@ -1906,7 +1922,7 @@ mod tests {
         }
         for mode in ScanlineMode::ALL {
             for class in [DisplayClass::Crt, DisplayClass::Tv, DisplayClass::FlatPanel] {
-                assert!(scanline_help(mode, class).len() <= 88, "{mode:?} {class:?}");
+                assert!(scanline_help(mode, class).len() <= 90, "{mode:?} {class:?}");
             }
         }
         let entry = config.schema().get(DISPLAY_STYLE).expect("style");

@@ -141,7 +141,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             presets: &self.presets,
             detected: &self.detected,
             choices: choices.as_ref(),
-            scope: Scope::of_level(level),
+            scope: self.scope_of(level),
             class: self.display_class(),
             outputs: &self.runtime.audio_outputs,
         };
@@ -227,6 +227,15 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     game.into_iter().chain(REFERENCE_SOURCES).collect();
                 engine.picture_choices_for_every_game(&sources, &settings, scanlines)
             }
+        }
+    }
+
+    /// Whom a page or a set at `level` acts for: the game of the run at
+    /// the game and system levels in a game, every game otherwise.
+    pub(super) fn scope_of(&self, level: Level) -> Scope {
+        match (level, &self.stage) {
+            (Level::Game | Level::System, Stage::Game(_)) => Scope::ThisGame,
+            (Level::Global, _) | (_, Stage::List(_) | Stage::Ended) => Scope::EveryGame,
         }
     }
 

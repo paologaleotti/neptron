@@ -52,7 +52,7 @@ pub use choose::{
 pub use ladder::{Rung, walk_ladder};
 pub use offer::{
     DeclineReason, Declined, Offer, Offered, PictureChoices, REFERENCE_SOURCES, RowAnswer,
-    RowChoice, ScanlineChoice, ScanlineOutcome, for_every_game, offer, panel_scanlines,
+    RowChoice, ScanlineChoice, ScanlineOutcome, SomeGames, for_every_game, offer, panel_scanlines,
     picture_choices,
 };
 pub use padding::{PADDED_FILL_MIN_PERCENT, Padding, SMALL_PICTURE_MIN_PERCENT};
