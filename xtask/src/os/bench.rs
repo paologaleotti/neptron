@@ -285,14 +285,7 @@ pub fn run(subcommand: &str, args: &[&str]) -> Result<ExitCode, OsError> {
     let known_hosts = cache.root.join(KNOWN_HOSTS);
     host::require_tool("ssh", "install OpenSSH")?;
     match bench {
-        Bench::Ssh { target, command } => {
-            let remote = command
-                .iter()
-                .map(|w| super::qemu::shell_quote(w))
-                .collect::<Vec<_>>()
-                .join(" ");
-            remote_run(&target, &known_hosts, &remote)
-        }
+        Bench::Ssh { target, command } => remote_run(&target, &known_hosts, &ssh_command(&command)),
         Bench::Logs { target, follow } => remote_run(&target, &known_hosts, &logs_script(follow)),
         Bench::Push {
             target,
@@ -422,6 +415,26 @@ fn send_data(target: &Target, known_hosts: &Path, data: &Path) -> Result<(), OsE
 fn remote_step(target: &Target, known_hosts: &Path, remote: &str) -> Result<(), OsError> {
     super::run_step(Command::new("ssh").args(ssh_args(target, known_hosts, remote)))
 }
+
+/// The shell line of `os ssh` for the words of `command`, quoted. A
+/// command of SSH runs in a shell that is not a login shell, which does not
+/// read `/etc/profile.d/neptron-hot.sh`; the line puts the hot folder first
+/// on the PATH itself, under the same rule, so `neptronctl` is the pushed
+/// one, as the frontend is.
+fn ssh_command(command: &[String]) -> String {
+    let words = command
+        .iter()
+        .map(|w| super::qemu::shell_quote(w))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("{HOT_PATH}; {words}")
+}
+
+/// The rule of `/etc/profile.d/neptron-hot.sh` of the development
+/// variant: the hot binaries come first on the PATH unless the hot folder
+/// is disabled.
+const HOT_PATH: &str =
+    "if [ -d /state/hot/bin ] && [ ! -e /state/hot/DISABLED ]; then PATH=/state/hot/bin:$PATH; fi";
 
 fn remote_run(target: &Target, known_hosts: &Path, remote: &str) -> Result<ExitCode, OsError> {
     let mut cmd = Command::new("ssh");
@@ -553,6 +566,21 @@ mod tests {
             panic!("not ssh");
         };
         assert_eq!(command, ["ls", "-l", "/state"]);
+    }
+
+    /// `os ssh -- neptronctl stats` runs the pushed `neptronctl`, not the
+    /// one of the image, as a login shell would.
+    #[test]
+    fn ssh_puts_the_hot_binaries_first_on_the_path() {
+        let line = ssh_command(&["neptronctl".to_owned(), "stats".to_owned()]);
+        assert_eq!(
+            line,
+            "if [ -d /state/hot/bin ] && [ ! -e /state/hot/DISABLED ]; then \
+             PATH=/state/hot/bin:$PATH; fi; neptronctl stats"
+        );
+        let profile = include_str!("../../../os/board/pc/dev-overlay/etc/profile.d/neptron-hot.sh");
+        assert!(profile.contains("if [ -d /state/hot/bin ] && [ ! -e /state/hot/DISABLED ]; then"));
+        assert!(profile.contains("PATH=/state/hot/bin:$PATH"));
     }
 
     #[test]
