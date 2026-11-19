@@ -231,7 +231,9 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
     let fitted = considered.rung == Rung::Fitted;
     // A panel runs every game at its own rate and the status shows the
     // speed; the notice speaks only for a large change.
+    let shown = timing.field_rate_mhz / u64::from(timing.repeat().max(1));
     let refresh_differs = timing.changes_speed()
+        && speed_alert(u64::from(timing.game_mhz), shown)
         && (timing.target.kind != RefreshKind::Panel
             || speed_ppm(timing) > PANEL_SPEED_NOTICE_MIN_PPM);
     let strategy_replaced = proposal.strategy_replaced;
@@ -309,6 +311,21 @@ fn held_whole(plan: &Plan, considered: &Considered, proposal: &Proposal) -> Opti
 
 /// One, in thousandths.
 const SCALE_ONE_MILLI: u32 = 1_000;
+
+/// The smallest speed change that sets the alert, in ppm of the shown
+/// rate: 0.5 %, on every display class. It is the bound of the audio rate
+/// control (`neptron_audio::MAX_RATE_DEVIATION_PPM`): below it the change
+/// of pitch and speed cannot be heard or seen in play.
+pub const SPEED_ALERT_MIN_PPM: u32 = 5_000;
+
+/// The speed of a game at `game_mhz` shown at `shown_mhz` (the field rate
+/// per game frame) changes by more than [`SPEED_ALERT_MIN_PPM`] of the
+/// shown rate: the status line sets its alert, and the notice names the
+/// speed. The one rule of the alert for every display class.
+pub fn speed_alert(game_mhz: u64, shown_mhz: u64) -> bool {
+    u128::from(shown_mhz.abs_diff(game_mhz)) * 1_000_000
+        > u128::from(shown_mhz) * u128::from(SPEED_ALERT_MIN_PPM)
+}
 
 /// The speed change of a flat panel, in ppm of the game's rate, from
 /// which the notice shows it: 5 %. A smaller change shows in the status

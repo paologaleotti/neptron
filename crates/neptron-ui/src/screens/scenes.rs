@@ -1675,23 +1675,24 @@ pub(super) fn filtered_status() -> VideoStatus {
 }
 
 /// The longest status of the fixtures: a mode line that fills its column
-/// and a result that needs two lines.
+/// and a result that needs two lines. The speed changes by 4.15 %, above
+/// the alert threshold.
 pub(super) fn long_status() -> VideoStatus {
     VideoStatus::new(
-        "256x240             60.099 Hz",
+        "256x240             57.550 Hz",
         "1920x238p 15.73 kHz 59.940 Hz  native",
-        "[!] cropped 2 lines, speed (60.099 to 59.940 Hz)",
+        "[!] cropped 2 lines, speed (57.550 to 59.940 Hz)",
     )
     .with_alert(true)
 }
 
-/// A game slowed to the rate of a 31 kHz mode that the fixture monitor
-/// `pc_31_120` shows.
+/// A board sped up to the rate of a 31 kHz mode that the fixture monitor
+/// `pc_31_120` shows: 4.15 %, above the alert threshold.
 pub(super) fn slowed_status() -> VideoStatus {
     VideoStatus::new(
-        "320x240             60.099 Hz",
+        "320x240             57.550 Hz",
         "640x480p  31.47 kHz 59.940 Hz  2x",
-        "[!] speed (60.099 to 59.940 Hz)",
+        "[!] speed (57.550 to 59.940 Hz)",
     )
     .with_alert(true)
 }

@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use neptron_modeline::policy::{
-    Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, TV_SPEED_SILENT_PPM,
+    Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, TV_SPEED_SILENT_PPM, speed_alert,
 };
 use neptron_types::{Filter, Modeline, SourceGeometry, TvStandard};
 
@@ -83,7 +83,7 @@ pub const STATUS_COLUMN_CHARS: usize = 10;
 /// a little off them (60.099 Hz on 60 Hz) is the panel's normal way and
 /// no alert. A larger change, such as a 50 Hz game on a panel with no
 /// 50 Hz mode, makes the game run fast, and the player must know.
-pub const PANEL_SPEED_SILENT_PPM: u32 = 5_000;
+pub const PANEL_SPEED_SILENT_PPM: u32 = neptron_modeline::policy::SPEED_ALERT_MIN_PPM;
 
 /// The start of an alert result. It marks the alert also on a screen or a
 /// skin where its colour is hard to tell apart.
@@ -195,7 +195,9 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
         None => off_mhz >= REFRESH_MATCH_MHZ,
     };
     let exact = !fitted && !sharp && cropped == 0 && small.is_none() && !speed_changed;
-    let alert = fitted || speed_changed;
+    // A CRT shows the two rates from REFRESH_MATCH_MHZ, but the alert
+    // follows the one threshold of every display class.
+    let alert = fitted || (speed_changed && speed_alert(game_mhz, shown_mhz));
     if alert {
         out.push_str(ALERT_MARK);
     }
@@ -415,14 +417,15 @@ mod tests {
             ("cropped", cropped, rung, "cropped 16 lines", false),
             ("small", small, rung, "small picture 47%", false),
             ("filtered", base, Rung::Fitted, "[!] filtered", true),
-            ("speed", fast, rung, "", true),
+            // 59.940 Hz shown at 60.099 Hz is 0.26 %, below the alert.
+            ("speed", fast, rung, "", false),
         ];
         for (name, proposal, rung, words, alert) in table {
             let (text, flag) = result(&proposal, rung, &mode);
             if name == "speed" {
                 let shown = mode.field_rate_mhz();
                 let expected = format!(
-                    "[!] speed (59.940 to {}.{:03} Hz)",
+                    "speed (59.940 to {}.{:03} Hz)",
                     shown / 1_000,
                     shown % 1_000
                 );
@@ -446,12 +449,12 @@ mod tests {
         assert_eq!(
             text,
             format!(
-                "[!] cropped 2 lines, speed (60.099 to {}.{:03} Hz)",
+                "cropped 2 lines, speed (60.099 to {}.{:03} Hz)",
                 shown / 1_000,
                 shown % 1_000
             )
         );
-        assert!(alert);
+        assert!(!alert, "0.26 % is below the alert, and a crop sets none");
         let mut p = same_speed(double(base));
         p.padding = Some(padding(224, 300));
         assert_eq!(
@@ -471,7 +474,20 @@ mod tests {
         p.timing.game_mhz = u32::try_from(shown - (REFRESH_MATCH_MHZ - 1)).unwrap();
         assert_eq!(result(&p, rung, &base.mode).0, "exact");
         p.timing.game_mhz = u32::try_from(shown - REFRESH_MATCH_MHZ).unwrap();
-        assert!(result(&p, rung, &base.mode).0.starts_with("[!] speed ("));
+        assert_eq!(
+            result(&p, rung, &base.mode),
+            (
+                format!(
+                    "speed ({}.{:03} to {}.{:03} Hz)",
+                    (shown - REFRESH_MATCH_MHZ) / 1_000,
+                    (shown - REFRESH_MATCH_MHZ) % 1_000,
+                    shown / 1_000,
+                    shown % 1_000
+                ),
+                false
+            ),
+            "the two rates show, with no alert"
+        );
         p.timing.target.kind = RefreshKind::Panel;
         assert_eq!(
             result(&p, Rung::Panel, &base.mode),
@@ -580,10 +596,44 @@ mod tests {
         assert!(result(&at, rung, &p.mode).0.starts_with("[!] speed ("));
         at.timing.target.kind = RefreshKind::Exact;
         at.timing.game_mhz = u32::try_from(shown - REFRESH_MATCH_MHZ).unwrap();
+        let (text, alert) = result(&at, rung, &p.mode);
         assert!(
-            result(&at, rung, &p.mode).0.starts_with("[!] speed ("),
-            "a CRT keeps the match bound"
+            text.starts_with("speed (") && !alert,
+            "a CRT shows the rates from the match bound, with no alert: {text}"
         );
+    }
+
+    /// The alert of a speed change starts above `SPEED_ALERT_MIN_PPM` of
+    /// the shown rate on every display class: just below, at and just
+    /// above the threshold.
+    #[test]
+    fn the_speed_alert_has_one_threshold_on_every_display_class() {
+        use neptron_modeline::policy::SPEED_ALERT_MIN_PPM;
+        assert_eq!(PANEL_SPEED_SILENT_PPM, SPEED_ALERT_MIN_PPM);
+        assert_eq!(TV_SPEED_SILENT_PPM, SPEED_ALERT_MIN_PPM);
+        let (base, rung) = winner();
+        let shown = base.mode.field_rate_mhz();
+        let bound = shown * u64::from(SPEED_ALERT_MIN_PPM) / 1_000_000;
+        for kind in [RefreshKind::Exact, RefreshKind::Panel, RefreshKind::Tv] {
+            let mut p = same_speed(base);
+            p.timing.target.kind = kind;
+            p.placement.filter = Filter::Nearest;
+            let rung = if kind == RefreshKind::Panel {
+                Rung::Panel
+            } else {
+                rung
+            };
+            for (game_mhz, alert) in [
+                (shown - bound + 1, false),
+                (shown - bound, false),
+                (shown - bound - 2, true),
+            ] {
+                p.timing.game_mhz = u32::try_from(game_mhz).unwrap();
+                let (text, flag) = result(&p, rung, &base.mode);
+                assert_eq!(flag, alert, "{kind:?} at {game_mhz}: {text}");
+                assert_eq!(text.starts_with("[!] speed ("), alert, "{kind:?}: {text}");
+            }
+        }
     }
 
     #[test]

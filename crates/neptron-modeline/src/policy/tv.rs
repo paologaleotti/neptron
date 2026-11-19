@@ -30,7 +30,7 @@ use super::{
 /// ([`Timing::changes_speed`]): the standard fixes the rate, so the
 /// user cannot choose another, and a difference this small is not worth
 /// an alert.
-pub const TV_SPEED_SILENT_PPM: u32 = 5_000;
+pub const TV_SPEED_SILENT_PPM: u32 = super::SPEED_ALERT_MIN_PPM;
 
 /// The plan on a TV profile: the modes of the standard's fixed table, no
 /// Switchres.

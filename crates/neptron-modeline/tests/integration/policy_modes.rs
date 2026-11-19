@@ -3,9 +3,9 @@
 //! section 8, gives it, checked on every source of the table.
 
 use neptron_modeline::policy::{
-    DeclineReason, PictureStyle, Plan, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind,
-    Rung, SMALL_PICTURE_MIN_PERCENT, SoftReason, VerticalMode, Winner, choose, decide, notice,
-    picture_choices,
+    DeclineReason, NoticeReason, PictureStyle, Plan, PolicySettings, Proposal, REFRESH_MATCH_MHZ,
+    RefreshKind, Rung, SMALL_PICTURE_MIN_PERCENT, SoftReason, VerticalMode, Winner, choose, decide,
+    notice, picture_choices,
 };
 use neptron_safety::validate;
 use neptron_types::{MonitorKind, Rotation, SourceGeometry};
@@ -546,4 +546,45 @@ fn the_mode_rows_grey_speed_on_a_tv_and_sharp_where_only_a_fit_exists() {
     assert!(!available(PictureStyle::Sharp));
     assert!(available(PictureStyle::Speed));
     assert!(available(PictureStyle::Fit));
+}
+
+/// The speed sentence of the notice follows the one alert threshold
+/// (`SPEED_ALERT_MIN_PPM`, 0.5 % of the shown rate) on a CRT too: the NES
+/// at 59.94 Hz (0.26 %) has none, the WonderSwan at 65 Hz (-13.9 %) has
+/// it, and `sharp` has it where its exact rung is slower than the fit.
+#[test]
+fn the_speed_notice_starts_above_the_alert_threshold() {
+    use neptron_modeline::policy::{SPEED_ALERT_MIN_PPM, speed_alert};
+    assert_eq!(SPEED_ALERT_MIN_PPM, 5_000);
+    assert!(!speed_alert(60_099, 59_940));
+    assert!(!speed_alert(60_000 - 300, 60_000), "at the threshold");
+    assert!(speed_alert(60_000 - 302, 60_000));
+    let speed_in = |source: SourceGeometry, style, profile: &str| {
+        let display = Display {
+            profile: preset(profile),
+            caps: open_caps(),
+        };
+        let plan = decide_with(&source, style, PolicySettings::default(), &display);
+        let w = won(&plan, &display).expect("a winner");
+        notice(&plan, w.considered).is_some_and(|n| {
+            n.reasons()
+                .any(|r| matches!(r, NoticeReason::SpeedChange { .. }))
+        })
+    };
+    assert!(!speed_in(
+        source(256, 240, 60_099),
+        PictureStyle::Auto,
+        "ntsc"
+    ));
+    let swan = SourceGeometry {
+        aspect_milli: 1_556,
+        ..source(224, 144, 75_472)
+    };
+    assert!(speed_in(swan, PictureStyle::Auto, "generic_15"));
+    assert!(speed_in(swan, PictureStyle::Speed, "generic_15"));
+    assert!(speed_in(
+        source(640, 500, 60_000),
+        PictureStyle::Sharp,
+        "generic_15"
+    ));
 }
