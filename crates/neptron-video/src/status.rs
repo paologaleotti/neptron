@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use neptron_modeline::policy::{
-    Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, TV_SPEED_SILENT_PPM, speed_alert,
+    Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, TV_SPEED_SILENT_PPM, speed_alert, speed_beyond,
 };
 use neptron_types::{Filter, Modeline, SourceGeometry, TvStandard};
 
@@ -189,10 +189,9 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
     let small = proposal.padding.map(|pad| pad.fill_permille());
     let game_mhz = u64::from(timing.game_mhz);
     let shown_mhz = inputs.mode.field_rate_mhz() / repeat;
-    let off_mhz = shown_mhz.abs_diff(game_mhz);
     let speed_changed = match silent_ppm(timing.target.kind) {
-        Some(ppm) => u128::from(off_mhz) * 1_000_000 > u128::from(shown_mhz) * u128::from(ppm),
-        None => off_mhz >= REFRESH_MATCH_MHZ,
+        Some(ppm) => speed_beyond(game_mhz, shown_mhz, ppm),
+        None => shown_mhz.abs_diff(game_mhz) >= REFRESH_MATCH_MHZ,
     };
     let exact = !fitted && !sharp && cropped == 0 && small.is_none() && !speed_changed;
     // A CRT shows the two rates from REFRESH_MATCH_MHZ, but the alert

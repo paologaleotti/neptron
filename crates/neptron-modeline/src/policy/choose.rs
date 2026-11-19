@@ -4,7 +4,7 @@ use super::panel::PANEL_FILL_MIN_SCALE_MILLI;
 use super::placement::{fitted_height, scale_milli};
 use super::{
     Considered, DeclineReason, Dropped, PictureStyle, Plan, Proposal, RefreshKind, Rung,
-    SMALL_PICTURE_MIN_PERCENT, StrategyReplaced, Timing, WholeReason,
+    SMALL_PICTURE_MIN_PERCENT, StrategyReplaced, WholeReason, speed_beyond,
 };
 
 /// The result of step 6: the first proposal that the validator accepts,
@@ -214,28 +214,29 @@ pub fn switch_for(current: Option<&Modeline>, winner: &Modeline) -> Switch {
 }
 
 /// Step 8 for a candidate of `plan`, the winner: a notice when the winner
-/// is the fitted rung, when the game runs at a rate other than its own,
-/// when the dynamic super width replaced the horizontal strategy of the
-/// settings, when the `native` style took double refresh on its own, when
-/// the winner is not on the style's own rung, when an overscan crop
-/// hides source lines, or when the winner is padded. Double refresh that the
-/// refresh policy asks for shows each frame twice at the game's own rate,
-/// so it needs no notice. A flat panel needs none for its rate: the game
-/// and its audio run at the panel's flip rate over `repeat`. A TV shows
-/// one only beyond
-/// `TV_SPEED_SILENT_PPM`, the threshold of the alert
-/// ([`super::Timing::changes_speed`]).
+/// is the fitted rung, when the game's speed changes by more than
+/// [`SPEED_ALERT_MIN_PPM`] (on a flat panel by more than
+/// [`PANEL_SPEED_NOTICE_MIN_PPM`] too), when the dynamic super width
+/// replaced the horizontal strategy of the settings, when the `native`
+/// style took double refresh on its own, when the winner is not what the
+/// picture mode asks for ([`mode_refusal`]), when an overscan crop hides
+/// source lines, when the winner is padded or small, when a flat panel
+/// fills below the scale of 4 because the fit is asked, or when a flat
+/// panel keeps whole steps where the mode would fill. Double refresh that
+/// the refresh policy asks for shows each frame twice at the game's own
+/// rate, so it needs no notice.
 pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
     let proposal = considered.outcome.as_ref().ok()?;
     let timing = &proposal.timing;
     let fitted = considered.rung == Rung::Fitted;
     // A panel runs every game at its own rate and the status shows the
     // speed; the notice speaks only for a large change.
-    let shown = timing.field_rate_mhz / u64::from(timing.repeat().max(1));
+    let game = u64::from(timing.game_mhz);
+    let shown = timing.shown_mhz();
     let refresh_differs = timing.changes_speed()
-        && speed_alert(u64::from(timing.game_mhz), shown)
+        && speed_alert(game, shown)
         && (timing.target.kind != RefreshKind::Panel
-            || speed_ppm(timing) > PANEL_SPEED_NOTICE_MIN_PPM);
+            || speed_beyond(game, shown, PANEL_SPEED_NOTICE_MIN_PPM));
     let strategy_replaced = proposal.strategy_replaced;
     let double_refresh = timing.target.kind == RefreshKind::NativeDouble;
     let style_fallback = mode_refusal(plan, plan.style, considered.rung).is_some();
@@ -323,21 +324,15 @@ pub const SPEED_ALERT_MIN_PPM: u32 = 5_000;
 /// shown rate: the status line sets its alert, and the notice names the
 /// speed. The one rule of the alert for every display class.
 pub fn speed_alert(game_mhz: u64, shown_mhz: u64) -> bool {
-    u128::from(shown_mhz.abs_diff(game_mhz)) * 1_000_000
-        > u128::from(shown_mhz) * u128::from(SPEED_ALERT_MIN_PPM)
+    speed_beyond(game_mhz, shown_mhz, SPEED_ALERT_MIN_PPM)
 }
 
-/// The speed change of a flat panel, in ppm of the game's rate, from
-/// which the notice shows it: 5 %. A smaller change shows in the status
-/// only.
-pub const PANEL_SPEED_NOTICE_MIN_PPM: u64 = 50_000;
-
-/// How far the game's speed moves, in ppm of its rate.
-fn speed_ppm(timing: &Timing) -> u64 {
-    let shown = timing.field_rate_mhz / u64::from(timing.repeat().max(1));
-    let game = u64::from(timing.game_mhz).max(1);
-    shown.abs_diff(game) * 1_000_000 / game
-}
+/// The speed change of a flat panel, in ppm of the shown rate, from which
+/// the notice names it: 5 % (V2, owner, 2026-11-16). A panel runs every
+/// game at its own rate, so a change of a few percent is its normal way:
+/// the status line shows it with the alert above [`SPEED_ALERT_MIN_PPM`],
+/// and the notice sentence waits for 5 %.
+pub const PANEL_SPEED_NOTICE_MIN_PPM: u32 = 50_000;
 
 /// Why the fitted winner of `plan` is soft, from the reasons of the exact
 /// candidates before it.

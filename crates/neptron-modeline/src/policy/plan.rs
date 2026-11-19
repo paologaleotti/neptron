@@ -131,7 +131,22 @@ impl Plan {
     }
 }
 
+/// The speed of a game at `game_mhz` shown at `shown_mhz` (the field rate
+/// per game frame) changes by more than `ppm` of the shown rate. The one
+/// comparison of a speed change: the alert, the speed word of a panel and
+/// a TV, and the speed sentence of a panel's notice all read it, with the
+/// shown rate as the one denominator.
+pub fn speed_beyond(game_mhz: u64, shown_mhz: u64, ppm: u32) -> bool {
+    u128::from(shown_mhz.abs_diff(game_mhz)) * 1_000_000 > u128::from(shown_mhz) * u128::from(ppm)
+}
+
 impl Timing {
+    /// The field rate per game frame, in millihertz: the rate the game runs
+    /// at.
+    pub fn shown_mhz(&self) -> u64 {
+        self.field_rate_mhz / u64::from(self.repeat().max(1))
+    }
+
     /// Fields per game frame: 2 for double refresh, else 1. The engine
     /// runs the core one frame per this many flips.
     pub fn repeat(&self) -> u8 {
@@ -150,8 +165,11 @@ impl Timing {
         let shown = u64::from(self.game_mhz) * u64::from(self.repeat());
         let off = self.field_rate_mhz.abs_diff(shown);
         if self.target.kind == RefreshKind::Tv {
-            u128::from(off) * 1_000_000
-                > u128::from(self.field_rate_mhz) * u128::from(TV_SPEED_SILENT_PPM)
+            speed_beyond(
+                u64::from(self.game_mhz),
+                self.shown_mhz(),
+                TV_SPEED_SILENT_PPM,
+            )
         } else {
             off >= REFRESH_MATCH_MHZ
         }
