@@ -438,3 +438,16 @@ Decided by the owner on 2026-11-19: the menu order of 8.1; the notice after a ch
 | P6 | A whole multiple that ranks after a padded smaller multiple of a lower line rate range (the Lynx in 3x at 50 Hz on `d9200`). The order of the rungs is the policy of `main` for these modes and does not change. | Declined with its own reason, `SmallerFillsMore` ("2x fills more of this screen") |
 | P7 | The reference sources of Settings > Display (8.7). | The ten shapes of `REFERENCE_SOURCES` |
 
+## 9. The speed alert
+
+The status line of the Video page marks an alert with `[!]` and its colour, and the picture notice names a speed change in a sentence. Before this rule a CRT set the alert from `REFRESH_MATCH_MHZ` (5 mHz): a NES at 59.940 Hz in place of 60.099 Hz (0.26 %) showed `[!] speed (60.099 to 59.940 Hz)`, where a panel and a TV stayed silent below 5000 ppm.
+
+The rule (owner, 2026-11-19): one threshold for the alert on every display class, `SPEED_ALERT_MIN_PPM` (5000 ppm of the shown rate, 0.5 %), in `crates/neptron-modeline`. It is the bound of the audio rate control (`neptron_audio::MAX_RATE_DEVIATION_PPM`): below it the change of pitch and speed cannot be heard or seen in play. `TV_SPEED_SILENT_PPM` and `PANEL_SPEED_SILENT_PPM` are this constant. One pure function decides (`speed_alert`), and the status line and the notice both read it. Every speed comparison (the alert, the speed word of a TV and a panel, the speed sentence of a panel's notice) is one function, `speed_beyond`, with the shown rate (the field rate per game frame) as the one denominator. The speed sentence of a panel's notice keeps its own bound, `PANEL_SPEED_NOTICE_MIN_PPM` (5 %, V2): a panel runs every game at its own rate, so the status line alerts from 0.5 % and the sentence waits for 5 %. That bound compared the change with the game's rate before; it now compares it with the shown rate, like every other bound. Only a change near 5 % sees a difference: 5 % of the game's rate is 4.76 % of the shown rate when the panel runs faster.
+
+| Speed difference | CRT | TV | Flat panel |
+| --- | --- | --- | --- |
+| Below `REFRESH_MATCH_MHZ` | `exact` | `exact` | `exact` |
+| From `REFRESH_MATCH_MHZ` up to 5000 ppm | `speed (X to Y Hz)`, no `[!]`, no speed sentence | `exact`, silent | `exact`, silent |
+| Above 5000 ppm | `[!] speed (X to Y Hz)` and the speed sentence | The same | `[!] speed (X to Y Hz)`; the sentence from 5 % (V2) |
+
+On a CRT the two rates still show below the threshold: they are true information for a CRT player. Another alert reason on the same line (`filtered`) still sets the mark. With the picture modes: `sharp` can change the speed by more than the threshold (an exact rung at a slow window rate), and then it alerts; `speed` takes the smallest change the display gives, so it alerts only where even that change is above the threshold (a 75 Hz handheld on a 15 kHz tube). The margin of V6 (`EXACT_SPEED_MARGIN_PPM`, 20,000 ppm) orders the candidates; it does not change the alert.

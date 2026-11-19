@@ -211,9 +211,9 @@ ADR 0012 records the design. A TV is a **monitor kind**, not an output kind. `Ou
   3. **Interlaced 1:1.** An interlaced game, or a game with more lines than rung 2 holds, up to 480 or 576 lines: the interlaced mode, centred.
   4. **Fitted.** The last resort, as on every profile: the game scaled into the progressive mode, with the notice `fitted`.
 - **Refresh.** The only target is the mode's own rate. `exact_x2`, `force_50` and `force_60` are skipped with the reason "the TV standard fixes the rate" (`Plan::skipped`), as for a target no range covers.
-- **Picture style.** `auto` and `native` both walk the rungs above. `2x`, `3x` and `4x` have no mode on a TV: the Display panel greys them out with the reason.
+- **Picture mode.** `auto` and `native` both walk the rungs above. `2x`, `3x` and `4x` have no mode on a TV, and a TV has one rate for `speed`: the menus grey them with the reason ("Not possible with this screen and video output", "A TV has one rate"; `docs/spec/video-policy-cases.md`, section 8.7).
 - **Width.** See "Sharpness". The field `PolicySettings::tv_width` (`aspect`, `integer`, `fill`) feeds it.
-- **Speed notice.** On a TV profile the notice `game_mhz` and `shown_mhz` appears only when the game rate and the field rate differ by more than `TV_SPEED_SILENT_PPM` (5000 ppm), equal to the bound of the audio rate control. Below it the game is called exact. This is the flat-panel rule (`PANEL_SPEED_SILENT_PPM`), for the same reason: the user cannot choose another rate. The bound is only the threshold of the alert: the game and its sound always run at the field rate (see "The audio rate").
+- **Speed notice.** On a TV profile the notice `game_mhz` and `shown_mhz` appears only when the game rate and the field rate differ by more than `TV_SPEED_SILENT_PPM` (5000 ppm), equal to the bound of the audio rate control. Since the one alert threshold of every display class (`SPEED_ALERT_MIN_PPM`, `docs/spec/video-policy-cases.md`, section 9), `TV_SPEED_SILENT_PPM` is that constant. Below it the game is called exact. This is the flat-panel rule (`PANEL_SPEED_SILENT_PPM`), for the same reason: the user cannot choose another rate. The bound is only the threshold of the alert: the game and its sound always run at the field rate (see "The audio rate").
 
 **`neptron-video`**
 
@@ -380,7 +380,7 @@ The master clocks are VERIFIED for the NES ([nesdev](https://www.nesdev.org/wiki
 | --- | --- | --- | --- |
 | `display.tv` | `auto` (NTSC) | The ten standards | The owner's decision. Changeable from the Display panel under confirm-or-revert |
 | `display.tv_width` | `aspect` | `aspect`, `integer`, `fill` | The console's own shape, sharp at whole factors |
-| Picture style | `auto` | `auto`, `native` (the others greyed) | 240p or 288p for every progressive game |
+| Picture mode | `auto` | `auto`, `sharp`, `fit`, `native` (`speed`, `2x`, `3x`, `4x` greyed) | 240p or 288p for every progressive game |
 | Pre-filter | none in the first image | later: `off`, `soft` | Composite blur is already there; the filter only helps rainbow |
 
 ## 5. The image
