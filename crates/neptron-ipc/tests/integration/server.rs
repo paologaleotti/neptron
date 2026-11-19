@@ -44,7 +44,7 @@ fn hello_names_the_protocol_and_the_server() {
     let Reply::Hello(hello) = reply else {
         panic!("{reply:?}")
     };
-    assert_eq!(hello.protocol, 2);
+    assert_eq!(hello.protocol, 3);
     assert_eq!(hello.server, "empty");
 }
 
@@ -215,13 +215,13 @@ fn a_write_failure_ends_the_connection_with_an_error() {
 #[test]
 fn a_hello_of_a_newer_client_learns_the_versions_the_server_speaks() {
     let responses = serve(
-        br#"{"v":3,"id":1,"cmd":"hello"}"#,
+        br#"{"v":4,"id":1,"cmd":"hello"}"#,
         &mut FixedHandler::default(),
     );
-    assert_eq!(responses[0].version, 2);
+    assert_eq!(responses[0].version, 3);
     let error = responses[0].outcome.as_ref().unwrap_err();
     assert_eq!(error.code, ErrorCode::UnsupportedVersion);
-    assert_eq!((error.min_version, error.max_version), (Some(1), Some(2)));
+    assert_eq!((error.min_version, error.max_version), (Some(1), Some(3)));
 }
 
 #[test]
@@ -245,8 +245,9 @@ fn stats_at(version: u32) -> Response {
     serve(&input, &mut FixedHandler::default()).remove(0)
 }
 
-/// `fields_missed` came with version 2: a request of version 1 gets the
-/// stats reply with no such key, as that version defines it.
+/// `fields_missed` came with version 2, `late_frames` and `late_flips`
+/// with version 3: a request of an older version gets the stats reply
+/// with no such key, as that version defines it.
 #[test]
 fn a_field_of_a_later_version_is_not_sent_to_an_older_request() {
     let v1 = stats_at(1);
@@ -255,11 +256,18 @@ fn a_field_of_a_later_version_is_not_sent_to_an_older_request() {
         panic!("{v1:?}");
     };
     assert_eq!(stats.fields_missed, None);
+    assert_eq!((stats.late_frames, stats.late_flips), (None, None));
     let v2 = stats_at(2);
     let Ok(Reply::Stats(stats)) = v2.outcome else {
         panic!("{v2:?}");
     };
     assert_eq!(stats.fields_missed, Some(3));
+    assert_eq!((stats.late_frames, stats.late_flips), (None, None));
+    let v3 = stats_at(3);
+    let Ok(Reply::Stats(stats)) = v3.outcome else {
+        panic!("{v3:?}");
+    };
+    assert_eq!((stats.late_frames, stats.late_flips), (Some(5), Some(2)));
 }
 
 /// A stats reply of a version 1 server, with no `fields_missed` key, still

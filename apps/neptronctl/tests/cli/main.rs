@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use neptron_ipc::{
     ClockStepArgs, ControlListener, ErrorBody, FrameReached, Handler, InputScriptArgs, Screenshot,
-    ScreenshotArgs, ScriptQueued, serve_stream,
+    ScreenshotArgs, ScriptQueued, Stats, serve_stream,
 };
 use serde_json::Value;
 
@@ -34,6 +34,20 @@ impl Handler for Fixture {
             width: 1,
             height: 1,
             png: vec![0x89, b'P', b'N', b'G', 0, 1, 2],
+        })
+    }
+
+    fn stats(&mut self) -> Result<Stats, ErrorBody> {
+        Ok(Stats {
+            frames_presented: 6776,
+            frames_dropped: 0,
+            frames_repeated: 1,
+            audio_underruns: 59,
+            audio_queued_frames: 1303,
+            input_to_frame_ns: 42_198_864,
+            fields_missed: Some(1068),
+            late_frames: Some(2100),
+            late_flips: Some(3),
         })
     }
 
@@ -106,6 +120,19 @@ fn a_reply_prints_its_data_as_one_json_line() {
     assert!(out.stderr.is_empty());
 }
 
+/// The stats of this version print every field of the newest protocol,
+/// the late pacing counters too.
+#[test]
+fn stats_print_the_late_pacing_counters() {
+    let dir = TempDir::new();
+    let out = run_with_server(&dir, &["stats"]);
+    assert_eq!(out.status.code(), Some(0), "{:?}", out);
+    let stats = json(&out.stdout);
+    assert_eq!(stats["late_frames"], 2100, "{stats}");
+    assert_eq!(stats["late_flips"], 3, "{stats}");
+    assert_eq!(stats["fields_missed"], 1068, "{stats}");
+}
+
 #[test]
 fn hello_names_the_server() {
     let dir = TempDir::new();
@@ -113,7 +140,7 @@ fn hello_names_the_server() {
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(
         json(&out.stdout),
-        serde_json::json!({"protocol": 2, "server": "cli fixture"})
+        serde_json::json!({"protocol": 3, "server": "cli fixture"})
     );
 }
 
@@ -169,7 +196,7 @@ fn an_input_script_is_read_from_a_local_file() {
 #[test]
 fn a_server_error_exits_with_one_and_prints_the_code() {
     let dir = TempDir::new();
-    let out = run_with_server(&dir, &["stats"]);
+    let out = run_with_server(&dir, &["video", "state"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(out.stdout.is_empty());
     assert_eq!(json(&out.stderr)["error"]["code"], "unavailable");

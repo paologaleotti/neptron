@@ -104,6 +104,8 @@ impl Handler for FixedHandler {
             audio_queued_frames: 0,
             input_to_frame_ns: 0,
             fields_missed: Some(3),
+            late_frames: Some(5),
+            late_flips: Some(2),
         })
     }
 

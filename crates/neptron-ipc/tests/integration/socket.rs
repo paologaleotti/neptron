@@ -122,7 +122,7 @@ fn a_malformed_line_on_the_socket_gets_an_error_line() {
     let mut line = String::new();
     BufReader::new(&stream).read_line(&mut line).unwrap();
     assert!(
-        line.starts_with(r#"{"v":2,"id":null,"error":{"code":"malformed""#),
+        line.starts_with(r#"{"v":3,"id":null,"error":{"code":"malformed""#),
         "{line}"
     );
     drop(stream);
@@ -352,7 +352,7 @@ fn a_client_falls_back_to_the_version_of_an_older_server() {
     assert_eq!(client.version(), 1);
     client.call(Command::Stats).unwrap();
     drop(client);
-    assert_eq!(server.join().unwrap(), [2, 1, 1]);
+    assert_eq!(server.join().unwrap(), [u64::from(PROTOCOL_VERSION), 1, 1]);
 }
 
 /// A server that names no version the client speaks gives the error back,
@@ -370,5 +370,5 @@ fn a_client_does_not_fall_back_below_its_oldest_version() {
     );
     assert_eq!(client.version(), PROTOCOL_VERSION);
     drop(client);
-    assert_eq!(server.join().unwrap(), [2]);
+    assert_eq!(server.join().unwrap(), [u64::from(PROTOCOL_VERSION)]);
 }

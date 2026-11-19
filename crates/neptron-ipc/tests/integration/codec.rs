@@ -21,9 +21,9 @@ fn an_unsupported_version_error_line_carries_the_range() {
     assert_eq!(
         String::from_utf8(line).unwrap(),
         concat!(
-            r#"{"v":2,"id":3,"error":{"code":"unsupported_version","#,
-            r#""message":"version 7 is not served; this server speaks 1 to 2","#,
-            r#""min_version":1,"max_version":2}}"#,
+            r#"{"v":3,"id":3,"error":{"code":"unsupported_version","#,
+            r#""message":"version 7 is not served; this server speaks 1 to 3","#,
+            r#""min_version":1,"max_version":3}}"#,
             "\n"
         )
     );
@@ -63,8 +63,8 @@ fn refusal(line: &str) -> Refusal {
 }
 
 #[test]
-fn the_protocol_version_is_two() {
-    assert_eq!(PROTOCOL_VERSION, 2);
+fn the_protocol_version_is_three() {
+    assert_eq!(PROTOCOL_VERSION, 3);
     assert_eq!(MIN_PROTOCOL_VERSION, 1);
 }
 

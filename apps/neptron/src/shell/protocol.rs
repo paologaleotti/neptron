@@ -39,6 +39,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             audio_queued_frames: 0,
             input_to_frame_ns: 0,
             fields_missed: Some(0),
+            late_frames: None,
+            late_flips: None,
         };
         if let Stage::Game(game) = &self.stage {
             let counters = game.session.counters();

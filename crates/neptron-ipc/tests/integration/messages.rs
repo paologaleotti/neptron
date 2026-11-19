@@ -243,11 +243,13 @@ pub fn replies() -> Vec<(Reply, String)> {
                 audio_queued_frames: 1600,
                 input_to_frame_ns: 16_683_333,
                 fields_missed: Some(4),
+                late_frames: Some(30),
+                late_flips: Some(2),
             }),
             concat!(
                 r#"{"reply":"stats","data":{"frames_presented":1000,"frames_dropped":1,"#,
                 r#""frames_repeated":2,"audio_underruns":0,"audio_queued_frames":1600,"#,
-                r#""input_to_frame_ns":16683333,"fields_missed":4}}"#
+                r#""input_to_frame_ns":16683333,"fields_missed":4,"late_frames":30,"late_flips":2}}"#
             )
             .into(),
         ),

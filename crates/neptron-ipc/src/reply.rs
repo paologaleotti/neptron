@@ -183,10 +183,26 @@ pub struct Stats {
     /// [`FIELDS_MISSED_VERSION`]; `None` in a reply to an older request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fields_missed: Option<u64>,
+    /// Core frames whose flip the loop did not wait for, because the core
+    /// or the GPU did not fit in one flip interval (late pacing). Added in
+    /// protocol version [`LATE_PACING_VERSION`]; `None` in a reply to an
+    /// older request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub late_frames: Option<u64>,
+    /// Flips that landed after the blank they aimed at although the work
+    /// of their frame fit in the interval: the GPU or the display made
+    /// them late. Added in protocol version [`LATE_PACING_VERSION`];
+    /// `None` in a reply to an older request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub late_flips: Option<u64>,
 }
 
 /// The protocol version that added [`Stats::fields_missed`].
 pub const FIELDS_MISSED_VERSION: u32 = 2;
+
+/// The protocol version that added [`Stats::late_frames`] and
+/// [`Stats::late_flips`].
+pub const LATE_PACING_VERSION: u32 = 3;
 
 /// The data of [`Reply::SettingsGet`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -224,6 +240,13 @@ impl Reply {
         match self {
             Self::Stats(stats) if version < FIELDS_MISSED_VERSION => Self::Stats(Stats {
                 fields_missed: None,
+                late_frames: None,
+                late_flips: None,
+                ..stats
+            }),
+            Self::Stats(stats) if version < LATE_PACING_VERSION => Self::Stats(Stats {
+                late_frames: None,
+                late_flips: None,
                 ..stats
             }),
             other => other,

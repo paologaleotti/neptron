@@ -41,7 +41,7 @@ One JSON object per line, in UTF-8, ended by `\n`. A `\r` before the `\n` is rem
 | `session_launch` | `core`, `rom` | `state`, `core`, `rom`, `frame` |
 | `session_state` | none | `state`, `core`, `rom`, `frame` |
 | `video_state` | none | `mode`, `line_rate_mhz`, `field_rate_mhz`, `profile`, `verdicts`, `switch_count` |
-| `stats` | none | `frames_presented`, `frames_dropped`, `frames_repeated`, `audio_underruns`, `audio_queued_frames`, `input_to_frame_ns`; from version 2 also `fields_missed` |
+| `stats` | none | `frames_presented`, `frames_dropped`, `frames_repeated`, `audio_underruns`, `audio_queued_frames`, `input_to_frame_ns` (the last delay from the input poll that saw a change to the flip of the frame that shows it); from version 2 also `fields_missed`; from version 3 also `late_frames` and `late_flips` |
 | `settings_get` | `key`, optional `level` | `key`, `value`, `source` |
 | `settings_set` | `key`, `level`, `value` | `key`, `level` |
 | `log_tail` | `lines` | `lines` |
@@ -85,6 +85,7 @@ The versions so far:
 | --- | --- |
 | 1 | Everything above except what a later version adds |
 | 2 | `fields_missed` in the `stats` reply: the fields in which no new frame reached the display while the core ran (`FIELDS_MISSED_VERSION`). `Reply::for_version` removes it from a reply to a version 1 request, and `handle_line` applies it to every reply |
+| 3 | `late_frames` and `late_flips` in the `stats` reply: the core frames whose flip the loop did not wait for (late pacing), and the flips that landed after their blank although the work of their frame fit (`LATE_PACING_VERSION`). `Reply::for_version` removes them from a reply to a version 1 or 2 request |
 
 Version discovery: a client sends `hello` at its own version. A server that speaks it answers with `protocol`, its newest version. A server that does not answers `unsupported_version` with `min_version` and `max_version`, and the client then picks a version in that range. `Client::call` does this for any command: on `unsupported_version` it sends the command again once, at the newest version of the server when that is older than its own and not older than `MIN_PROTOCOL_VERSION`, and keeps that version for the next calls (`Client::version`). A request of the older version gets only the fields of that version, so `neptronctl` of this version reads `stats` of a version 1 server with no `fields_missed`.
 
