@@ -712,7 +712,7 @@ name = "The 15 kHz kernel patches for a release (OP-070): the author set GPL-2.0
 owns = ["os/patches", "os/board/pc", "docs"]
 needs = []
 gate = "A licence statement that allows the release image; kms-check"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M13"
