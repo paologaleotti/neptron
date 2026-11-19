@@ -51,6 +51,11 @@ pub const SPEED_CLEAR_FAST_PERMILLE: u64 = 1_050;
 /// scene of Killer Instinct (33%) costs 14 ms and glides over 83 ms.
 pub const RUN_RATE_SLEW_PERMILLE_PER_S: u64 = 4_000;
 
+/// The speed, in permille of the run rate of the mode, below which
+/// [`Session::slow_speed_percent`](crate::Session::slow_speed_percent)
+/// reports it.
+pub const SLOW_NOTICE_PERMILLE: u64 = 980;
+
 /// The level of the audio queue, in permille of its target, inside which
 /// the session leaves the run rate to the rate control alone: 16 ms either
 /// way at 48 kHz. A core with a long frame every few frames swings the
@@ -202,6 +207,11 @@ impl Speed {
         }
         let slow = self.clear_slow >= SPEED_CLEAR_SLOW_FRAMES || self.slow_on_average(interval_ns);
         slow.then(|| self.len as u64 * NS_MHZ / self.sum_ns)
+    }
+
+    /// The window holds every cycle it can.
+    pub(crate) fn full(&self) -> bool {
+        self.len == self.cycles.len()
     }
 
     fn slow_on_average(&self, interval_ns: u64) -> bool {
@@ -390,12 +400,14 @@ mod tests {
     fn the_window_follows_a_change_of_rate() {
         let mut speed = speed([20_000_000; 200]);
         assert_eq!(speed.rate_mhz(FIELD_NS), Some(50_000));
+        assert!(speed.full());
         for _ in 0..SPEED_WINDOW_FRAMES {
             speed.push(25_000_000, FIELD_NS);
         }
         assert_eq!(speed.rate_mhz(FIELD_NS), Some(40_000));
         speed.clear();
         assert_eq!(speed.rate_mhz(FIELD_NS), None);
+        assert!(!speed.full());
     }
 
     #[test]

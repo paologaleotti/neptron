@@ -11,6 +11,7 @@ mod launch;
 mod pacing;
 mod pacing_edges;
 mod session;
+mod slow_notice;
 mod speed;
 mod start;
 mod timing;

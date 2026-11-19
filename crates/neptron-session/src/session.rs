@@ -14,7 +14,7 @@ use crate::pacing::{FlipClock, Pacing};
 use crate::pads::PadMask;
 use crate::picture::Picture;
 use crate::save::SaveRamWriter;
-use crate::speed::Speed;
+use crate::speed::{SLOW_NOTICE_PERMILLE, Speed};
 use crate::{Counters, ExitReport, Flush, RunRateSource, SaveStats};
 
 /// Loop frames in a row with no completed flip before
@@ -328,6 +328,24 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// The run rate that audio rate control uses, in millihertz.
     pub fn run_rate_mhz(&self) -> Option<u64> {
         self.audio.as_ref().map(AudioPipeline::run_rate_mhz)
+    }
+
+    /// The speed of the game, in percent of the run rate of the mode on
+    /// screen, while the core cannot keep up: the loop is in late pacing,
+    /// the measure holds a full window of
+    /// [`SPEED_WINDOW_FRAMES`](crate::SPEED_WINDOW_FRAMES) frames, and the
+    /// speed is below [`SLOW_NOTICE_PERMILLE`](crate::SLOW_NOTICE_PERMILLE).
+    /// `None` otherwise, so a single late frame gives nothing.
+    pub fn slow_speed_percent(&self) -> Option<u32> {
+        if !self.speed.full() {
+            return None;
+        }
+        let measured = self.measured_rate_mhz()?;
+        let mode = self.mode_run_rate_mhz().filter(|&rate| rate > 0)?;
+        if measured * 1_000 >= mode * SLOW_NOTICE_PERMILLE {
+            return None;
+        }
+        u32::try_from(measured * 100 / mode).ok()
     }
 
     /// The game runs too slowly for its sound: below half the core's frame
