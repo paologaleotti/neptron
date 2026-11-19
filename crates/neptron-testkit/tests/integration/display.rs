@@ -156,6 +156,55 @@ fn flips_come_at_the_field_rate_of_the_mode() {
     assert_eq!(display.active_mode(), Some(MODE_240P));
 }
 
+/// A flip lands on the first blank after the GPU has drawn the frame: a
+/// present just before a blank with a GPU time past it lands one blank
+/// later, and the clock does not move at the present.
+#[test]
+fn a_flip_waits_for_the_gpu_time() {
+    let clock = SimClock::starting_at(1_000);
+    let options = DisplayOptions {
+        gpu_ns: 2_000_000,
+        ..DisplayOptions::default()
+    };
+    let mut display = timing_only(&clock, options);
+    display.set_mode(&mode(MODE_240P)).unwrap();
+    assert_eq!(
+        frame(&mut display).unwrap().sequence,
+        1,
+        "the GPU is done in time"
+    );
+    clock.advance_to(1_000 + blank_240p(2) - 1_000_000).unwrap();
+    let before = clock.now_ns();
+    display.present(&empty()).unwrap();
+    assert_eq!(clock.now_ns(), before);
+    let flip = display.wait_flip().unwrap();
+    assert_eq!(flip.sequence, 3, "the GPU ends after blank 2");
+    assert_eq!(flip.time_ns, 1_000 + blank_240p(3));
+}
+
+/// A driver that does not count blanks: every flip event carries 0, and
+/// the times still follow the blanks.
+#[test]
+fn a_frozen_vblank_count_gives_0_in_every_flip() {
+    let clock = SimClock::starting_at(1_000);
+    let options = DisplayOptions {
+        frozen_vblank_count: true,
+        ..DisplayOptions::default()
+    };
+    let mut display = timing_only(&clock, options);
+    display.set_mode(&mode(MODE_240P)).unwrap();
+    for k in 1..=3 {
+        let flip = frame(&mut display).unwrap();
+        assert_eq!(
+            flip,
+            FlipEvent {
+                time_ns: 1_000 + blank_240p(k),
+                sequence: 0
+            }
+        );
+    }
+}
+
 /// 480i flips on caps with and without one flip per field.
 fn interlaced_flips(flip_per_field: bool) -> (FakeDisplay, Vec<FlipEvent>) {
     let clock = SimClock::new();

@@ -36,15 +36,17 @@ pub const DEFAULT_FLIP_TIMEOUT_NS: u64 = 100_000_000;
 /// counts every blank since the display started, across modes.
 ///
 /// A `present` queues one flip for the first blank after the time of the
-/// call where a flip can land. That is every blank, except for an
-/// interlaced mode on [`GpuCaps`] without `flip_per_field`: there the
-/// driver completes one flip per frame, so a flip lands only on the blank
-/// that starts a frame, every second field. The sequence numbers still
-/// count fields. [`DisplayOptions::refresh_mhz`] overrides this, and every
-/// blank of the programmed rate takes a flip. `wait_flip` moves the clock forward to that blank (it never moves
-/// it back) and returns its time and sequence number. A frame that the
-/// caller presents after its target blank has passed lands on a later
-/// blank, and the sequence gap shows it.
+/// call, plus [`DisplayOptions::gpu_ns`], where a flip can land. That is
+/// every blank, except for an interlaced mode on [`GpuCaps`] without
+/// `flip_per_field`: there the driver completes one flip per frame, so a
+/// flip lands only on the blank that starts a frame, every second field.
+/// The sequence numbers still count fields.
+/// [`DisplayOptions::refresh_mhz`] overrides this, and every blank of the
+/// programmed rate takes a flip. `wait_flip` moves the clock forward to
+/// that blank (it never moves it back) and returns its time and sequence
+/// number, or 0 with [`DisplayOptions::frozen_vblank_count`]. A frame
+/// that the caller presents after its target blank has passed lands on a
+/// later blank, and the sequence gap shows it.
 ///
 /// # Contract
 ///
@@ -119,6 +121,16 @@ pub struct DisplayOptions {
     /// How long `wait_flip` waits for a flip before it times out, in
     /// nanoseconds.
     pub flip_timeout_ns: u64,
+    /// How long the GPU draws a presented scene, in nanoseconds: a flip
+    /// lands only on a blank after the present plus this time, as a KMS
+    /// flip waits for the fence of the frame. The clock does not move, so
+    /// the caller is free while the GPU draws. 0, the default, is a GPU
+    /// that is done at the present.
+    pub gpu_ns: u64,
+    /// The flip events carry a vertical blank count of 0, as from a
+    /// driver that does not count blanks. The records keep the event as
+    /// returned. False, the default, counts every blank.
+    pub frozen_vblank_count: bool,
     /// The `TV mode` property of the connector, as
     /// `KmsDisplay::tv_standards` of `neptron-kms` reports it: `None`, the
     /// default, is a connector with no such property, as HDMI or vkms;
@@ -225,6 +237,8 @@ impl Default for DisplayOptions {
             refresh_mhz: None,
             modeset_ns: 0,
             flip_timeout_ns: DEFAULT_FLIP_TIMEOUT_NS,
+            gpu_ns: 0,
+            frozen_vblank_count: false,
             tv_standards: None,
         }
     }
@@ -539,7 +553,7 @@ impl State {
         let step = active.flip_interval;
         let target_k = active
             .grid
-            .first_after(present_ns, self.next_k)
+            .first_after(present_ns.saturating_add(self.options.gpu_ns), self.next_k)
             .next_multiple_of(step);
         let target_sequence = active.grid.sequence(target_k);
         let late = match fault {
@@ -614,7 +628,11 @@ impl State {
                 self.screen.flip();
                 Ok(FlipEvent {
                     time_ns,
-                    sequence: active.grid.sequence(land_k),
+                    sequence: if self.options.frozen_vblank_count {
+                        0
+                    } else {
+                        active.grid.sequence(land_k)
+                    },
                 })
             }
         };

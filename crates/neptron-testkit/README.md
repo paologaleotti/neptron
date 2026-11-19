@@ -37,6 +37,8 @@ Code that passes on the fake display must also work on the KMS backend. The KMS 
 - `present` or `set_mode` while a flip is pending returns `DisplayError::Device`, as a nonblocking atomic commit returns `EBUSY`. The engine must call `wait_flip` first.
 - `wait_flip` with no flip queued returns `DisplayError::Device`. It does not block.
 - `blank` with a flip pending returns `DisplayError::Device` as busy. After a blank, `present` and `wait_flip` return `NoMode` and the next `set_mode` is a real modeset. The KMS backend never takes its same-mode shortcut after a blank.
+- `DisplayOptions::gpu_ns` is the time the GPU draws a presented scene: the flip lands only on a blank after the present plus that time, as a KMS flip waits for the fence of the frame. The clock does not move at the present.
+- `DisplayOptions::frozen_vblank_count` makes every flip event carry a vertical blank count of 0, as from a driver that does not count blanks.
 - `wait_flip` is bounded. On a timeout or another wait error it returns `DisplayError::Device` and the flip stays queued: a later `wait_flip` returns its event, and until then `present` and `set_mode` are busy. `FlipFault::Lost` never lands, `FlipFault::Slow { timeouts }` lands after `timeouts` timed-out waits, and `FlipFault::WaitFails` fails one wait at once. A timed-out wait moves the simulated clock by `DisplayOptions::flip_timeout_ns`.
 - A failed `set_mode` keeps the old mode active.
 - `set_mode` refuses a mode whose pixel clock is not a whole number of kHz with `DisplayError::ModeRefused`, after the busy check, and never rounds it. The kernel's mode record holds the clock in kHz, and the KMS backend refuses such a mode in `ModeRecord::from_validated`. Both use `Modeline::pclock_is_whole_khz`.
