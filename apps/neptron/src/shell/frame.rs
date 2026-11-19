@@ -6,7 +6,7 @@
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::Hotkey;
 use neptron_input::PadRoster;
-use neptron_session::EndReason;
+use neptron_session::{EndReason, PacingChange};
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_ui::screens::{INPUT_PAGE, NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
@@ -135,6 +135,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         }
         match report {
             Ok(report) => {
+                if let Some(change) = report.pacing {
+                    self.log(pacing_line(change).to_owned());
+                }
                 self.menu_hotkey |= report.menu_opened;
                 if report.blind_recovery.is_some() {
                     self.recover(now_ns);
@@ -440,6 +443,18 @@ fn canvas_frame(canvas: &CpuCanvas) -> Frame<'_> {
         height: UI_HEIGHT as u16,
         pitch: canvas.pitch(),
         format: PixelFormat::Xrgb8888,
+    }
+}
+
+/// The log line of a change of the pacing of the frame loop.
+fn pacing_line(change: PacingChange) -> &'static str {
+    match change {
+        PacingChange::Late => {
+            "late pacing: a frame of the game did not fit in its flip interval, and the next frame starts at once"
+        }
+        PacingChange::Wait => {
+            "wait pacing: the frames of the game fit in their flip interval again"
+        }
     }
 }
 

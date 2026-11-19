@@ -206,3 +206,29 @@ fn the_stats_give_the_delay_from_an_input_to_its_flip() {
         },
     );
 }
+
+/// A 300 ms stall of the frame loop is a late frame: the loop goes to
+/// late pacing, which the stats count and the log says, and back to wait
+/// pacing after the hold, which the log says too.
+#[test]
+#[ignore = "tier 2"]
+fn the_stats_and_the_log_show_the_late_pacing() {
+    in_child(
+        &test_name(module_path!(), "the_stats_and_the_log_show_the_late_pacing"),
+        |dir| {
+            let mut rig = crate::pause::in_game(dir);
+            rig.frames(30);
+            let stats = rig.shell().stats_now();
+            assert_eq!((stats.late_frames, stats.late_flips), (Some(0), Some(0)));
+            rig.clock.advance(300_000_000);
+            rig.frames(2);
+            assert!(rig.shell().stats_now().late_frames > Some(0));
+            rig.frames(60);
+            let lines = rig.shell().log_lines(20);
+            let late = lines.iter().position(|l| l.starts_with("late pacing:"));
+            let wait = lines.iter().position(|l| l.starts_with("wait pacing:"));
+            assert!(late.is_some() && wait > late, "{lines:?}");
+            rig.finish();
+        },
+    );
+}
