@@ -66,6 +66,11 @@ pub struct Counters {
     pub missed_fields: u64,
     /// Loop frames with the output off.
     pub blanked_frames: u64,
+    /// The last delay, in nanoseconds of the session clock, from an input
+    /// poll that returned at least one event to the end of the wait for
+    /// the first flip of the frame that ran the core with it. 0 before the
+    /// first such flip.
+    pub input_to_flip_ns: u64,
     /// Frames the host refused (`Video::Rejected`).
     pub frame_faults: u64,
     /// Frames with no new picture (`Video::Duplicate` or `Video::Missing`).

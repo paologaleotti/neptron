@@ -134,6 +134,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             last_error: String::with_capacity(LOG_TEXT_MAX_BYTES),
             flipless: 0,
             last_flip: None,
+            latency_from: None,
             counters: Counters {
                 refused_options: refused_options as u64,
                 ..Counters::default()

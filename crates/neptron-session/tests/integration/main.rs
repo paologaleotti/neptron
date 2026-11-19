@@ -8,6 +8,7 @@ mod arcade;
 mod faults;
 mod harness;
 mod launch;
+mod pacing;
 mod session;
 mod start;
 mod timing;

@@ -90,7 +90,8 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         if let Some(audio) = self.audio.as_mut().filter(|_| mute) {
             audio.mute();
         }
-        self.show(ui, &mut report);
+        let poll_ns = (report.ran_core && !self.events.is_empty()).then_some(now_ns);
+        self.show(ui, poll_ns, &mut report);
         report.blanked = self.engine.blanked();
         let mute = self.must_mute();
         if let Some(audio) = self.audio.as_mut().filter(|_| !mute) {
@@ -209,8 +210,9 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// Presents the picture and waits for the flip, once per flip of a core
     /// frame, and ends the audio of the frame after the first present. A
     /// display error ends the frame: the engine keeps a timed-out flip
-    /// queued and drains it at the next present.
-    fn show(&mut self, ui: Option<Frame<'_>>, report: &mut FrameReport) {
+    /// queued and drains it at the next present. `poll_ns` is the time of
+    /// the input poll when it returned an event and the core ran with it.
+    fn show(&mut self, ui: Option<Frame<'_>>, poll_ns: Option<u64>, report: &mut FrameReport) {
         let mut audio_due = true;
         loop {
             // The inputs refuse the mode on screen: no game picture is shown
@@ -225,6 +227,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             // the GPU draws, off the path from the flip event to the GPU
             // submit, and still at the same point of every frame. It runs
             // after a failed present too, so no frame loses its audio.
+            let first = audio_due;
             if audio_due {
                 self.end_audio_frame(report.ran_core);
                 audio_due = false;
@@ -234,6 +237,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                     if let Some(flip) = presented.drained_flip {
                         self.meter.push(flip.time_ns);
                         self.count_missed_fields(flip.sequence, report.ran_core);
+                        self.note_latency();
                     }
                     if presented.modeset.is_some() {
                         self.meter.reset();
@@ -246,10 +250,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                     return;
                 }
             }
+            if first {
+                self.latency_from = poll_ns;
+            }
             match self.engine.wait_flip() {
                 Ok(flip) => {
                     self.meter.push(flip.time_ns);
                     self.count_missed_fields(flip.sequence, report.ran_core);
+                    self.note_latency();
                     report.flips += 1;
                     self.counters.flips += 1;
                 }
@@ -261,6 +269,15 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             if report.flips >= self.flips_per_frame() {
                 return;
             }
+        }
+    }
+
+    /// Records the delay from the input poll of the frame whose flip just
+    /// completed. The session clock is the one of the poll; the flip event
+    /// can come from another clock.
+    fn note_latency(&mut self) {
+        if let Some(from) = self.latency_from.take() {
+            self.counters.input_to_flip_ns = self.clock.now_ns().saturating_sub(from);
         }
     }
 

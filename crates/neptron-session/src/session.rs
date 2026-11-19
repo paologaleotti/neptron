@@ -84,6 +84,9 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     /// The vertical blank count of the last flip; `None` before the first
     /// flip of a mode.
     last_flip: Option<u64>,
+    /// The time of the input poll of the frame whose flip is queued, when
+    /// that poll returned an event and the core ran with it.
+    latency_from: Option<u64>,
     counters: Counters,
 }
 
