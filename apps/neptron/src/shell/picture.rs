@@ -102,18 +102,22 @@ pub(super) fn declined_text(policy: PolicySettings, reason: DeclineReason, shown
         | DeclineReason::RateNotHeld { asked } => {
             format!("Refresh rate {}", pages::refresh_label(asked))
         }
-        DeclineReason::NeedsAnotherMonitor { asked, .. }
-        | DeclineReason::TooLargeForScreen { asked, .. }
-        | DeclineReason::OutputCannotSend { asked, .. } => {
+        DeclineReason::NotShownHere { asked, .. }
+        | DeclineReason::TooLargeForScreen { asked, .. } => {
             format!("Picture mode {}", pages::mode_label(asked))
         }
-        DeclineReason::NoPicture | DeclineReason::NoExactMode | DeclineReason::OneRateOnTv => {
+        DeclineReason::NoPicture => format!(
+            "Picture mode {} with Refresh rate {}",
+            pages::mode_label(policy.style),
+            pages::refresh_label(policy.refresh)
+        ),
+        DeclineReason::NoExactMode | DeclineReason::OneRateOnTv | DeclineReason::SpeedNotHeld => {
             format!("Picture mode {}", pages::mode_label(policy.style))
         }
     };
     format!(
-        "{asked} is not possible on this screen: {}. Shown: {shown}.",
-        pages::decline_text(reason)
+        "{asked}: {}. Shown: {shown}.",
+        pages::lower_first(&pages::decline_text(reason))
     )
 }
 

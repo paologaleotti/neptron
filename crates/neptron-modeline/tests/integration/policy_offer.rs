@@ -1,19 +1,25 @@
-//! The one decision of what the menus offer (`offer`): every picture
-//! mode, every refresh choice and every scanline setting, on every display
-//! of the repository's monitor set and the source table, and on generated
-//! sources and ranges. An offered candidate shows a validated mode inside
-//! the profile; a refused candidate has a reason that the test finds again
-//! by itself; a refused candidate that the display can still show (a
-//! stored one) shows a validated mode inside the profile. The spec table
-//! of section 8 is the output of the same function.
+//! The one decision of what the display offers (`offer`) and the menu
+//! rows built from it (`picture_choices`): every picture mode, refresh
+//! choice and scanline setting, on every preset of data/monitors with
+//! every GPU entry of data/hardware/matrix.toml, the EDID tubes, the panels
+//! and every TV standard, for every source of the arcade table, and on
+//! generated ranges and sources with their edge values.
+//!
+//! An offered candidate keeps the promise of its option, recomputed here
+//! from the plan, the profile, the caps and the validator, and shows a
+//! validated mode inside the profile. A declined candidate has a reason
+//! that the test finds true by itself, and the mode it shows in its place
+//! validates and lies inside the profile. On each menu row that is enabled,
+//! Auto is selectable for every stored pair. The spec table of section 8.7
+//! is the output of the same function.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use neptron_modeline::policy::{
-    DeclineReason, Declined, Dropped, Offer, Offered, PictureStyle, Plan, PolicyError,
-    PolicySettings, RefreshKind, RefreshPolicy, Rung, ScanlineChoice, ScanlineOutcome, choose,
-    offer, picture_choices, walk_ladder,
+    DeclineReason, Declined, Offer, Offered, PictureChoices, PictureStyle, Plan, PolicyError,
+    PolicySettings, RefreshKind, RefreshPolicy, RowAnswer, Rung, ScanlineChoice, choose, offer,
+    picture_choices, walk_ladder,
 };
 use neptron_safety::validate;
 use neptron_types::{
@@ -24,69 +30,23 @@ use neptron_types::{
 use crate::arcade_table::{self, Board};
 use crate::presets::{all_presets, gpu_table, open_caps, panel_1080, preset, source};
 
-/// A display of the exhaustive run: its profile and its GPU.
+/// A display of the run: its profile and its GPU.
 struct Screen {
     profile: MonitorProfile,
     caps: GpuCaps,
 }
 
-/// Every preset of data/monitors on an open GPU and on the GPIO DPI output
-/// of the Raspberry Pi 3 (`pi_vc4_dpi`: no interlace, 165 MHz), the EDID
-/// tubes and panels of the arcade table, and every TV standard on the
-/// composite encoder of the Pi (`pi_vc4_composite`). A Pi drives a flat
-/// panel over HDMI through the panel path, whose modes come from the
-/// panel's own list.
-fn screens() -> Vec<Screen> {
-    let pi_dpi = gpu_table()
-        .into_iter()
-        .find(|(id, _)| id == "pi_vc4_dpi")
-        .map(|(_, caps)| caps)
-        .expect("pi_vc4_dpi is in data/hardware/matrix.toml");
-    let mut all: Vec<Screen> = all_presets()
-        .into_iter()
-        .flat_map(|profile| {
-            [
-                Screen {
-                    profile: profile.clone(),
-                    caps: open_caps(),
-                },
-                Screen {
-                    profile,
-                    caps: pi_dpi,
-                },
-            ]
-        })
-        .collect();
-    for d in arcade_table::edid_tubes()
-        .into_iter()
-        .chain(arcade_table::panels())
-    {
-        all.push(Screen {
-            profile: d.profile,
-            caps: d.caps,
-        });
-    }
-    let composite = gpu_table()
-        .into_iter()
-        .find(|(id, _)| id == "pi_vc4_composite")
-        .map(|(_, caps)| caps)
-        .expect("pi_vc4_composite is in data/hardware/matrix.toml");
-    for standard in TvStandard::ALL {
-        all.push(Screen {
-            profile: standard.profile(),
-            caps: composite,
-        });
-    }
-    all
-}
+const AUTO_75: ScanlineChoice = ScanlineChoice {
+    mode: ScanlineMode::Auto,
+    strength_percent: 75,
+};
 
-/// The scanline settings of the run: each mode at the default strength,
-/// and `on` with no strength.
-const SCANLINES: [ScanlineChoice; 4] = [
-    ScanlineChoice {
-        mode: ScanlineMode::Auto,
-        strength_percent: 75,
-    },
+/// The scanline settings of a flat panel, whose plan they change: each
+/// mode, and `on` with no strength. A CRT and a TV draw the same plan for
+/// every setting, so they run `auto` and `on`, which cover the read-back
+/// of the scanline rule.
+const PANEL_SCANLINES: [ScanlineChoice; 4] = [
+    AUTO_75,
     ScanlineChoice {
         mode: ScanlineMode::On,
         strength_percent: 75,
@@ -100,6 +60,41 @@ const SCANLINES: [ScanlineChoice; 4] = [
         strength_percent: 0,
     },
 ];
+
+const CRT_SCANLINES: [ScanlineChoice; 2] = [
+    AUTO_75,
+    ScanlineChoice {
+        mode: ScanlineMode::On,
+        strength_percent: 75,
+    },
+];
+
+fn sources() -> Vec<(&'static str, SourceGeometry)> {
+    arcade_table::BOARDS
+        .iter()
+        .chain(arcade_table::SOURCES.iter())
+        .map(|b: &Board| (b.name, b.source()))
+        .collect()
+}
+
+fn caps_of(id: &str) -> GpuCaps {
+    gpu_table()
+        .into_iter()
+        .find(|(gpu, _)| gpu == id)
+        .map(|(_, caps)| caps)
+        .unwrap_or_else(|| panic!("{id} is in data/hardware/matrix.toml"))
+}
+
+fn composite() -> GpuCaps {
+    caps_of("pi_vc4_composite")
+}
+
+fn presets_on(caps: GpuCaps) -> Vec<Screen> {
+    all_presets()
+        .into_iter()
+        .map(|profile| Screen { profile, caps })
+        .collect()
+}
 
 /// The shown mode lies inside the profile: a range of a CRT holds its
 /// field rate, and its line rate up to one field rate below the least line
@@ -144,10 +139,105 @@ fn covers(ranges: &[CrtRange], rate_mhz: u64) -> bool {
         .any(|r| r.v_min_mhz <= rate_mhz && rate_mhz <= r.v_max_mhz)
 }
 
-/// The test's own reading of why `refusal` holds, from the plan and the
-/// validator, with no call into the refusal rules of the policy.
-fn refusal_holds(
-    refusal: DeclineReason,
+/// The most progressive lines a range of `profile` holds at `rate_mhz`.
+fn progressive_capacity(profile: &MonitorProfile, rate_mhz: u64) -> u32 {
+    let MonitorKind::Crt { ranges } = &profile.kind else {
+        return 0;
+    };
+    ranges
+        .iter()
+        .filter(|r| {
+            r.progressive_lines_min > 0 && r.v_min_mhz <= rate_mhz && rate_mhz <= r.v_max_mhz
+        })
+        .map(|r| {
+            let most =
+                arcade_table::field_lines(r, rate_mhz).min(u32::from(r.progressive_lines_max));
+            (u32::from(r.progressive_lines_min), most)
+        })
+        .filter(|&(fewest, most)| fewest <= most)
+        .map(|(_, most)| most)
+        .max()
+        .unwrap_or(0)
+}
+
+/// The lines of the game on the screen: the crop of the frame, turned.
+fn lines_of(plan: &Plan, index: usize) -> u32 {
+    let p = plan.considered[index].outcome.as_ref().expect("a proposal");
+    if plan.source.turned {
+        p.placement.crop.w
+    } else {
+        p.placement.crop.h
+    }
+}
+
+/// The speed of the winner changes by more than 0.5 % of the shown rate.
+fn speed_changes(plan: &Plan, index: usize) -> bool {
+    let p = plan.considered[index].outcome.as_ref().expect("a proposal");
+    let shown = p.timing.field_rate_mhz / u64::from(p.timing.repeat().max(1));
+    let game = u64::from(p.timing.game_mhz);
+    u128::from(shown.abs_diff(game)) * 1_000 > u128::from(shown) * 5
+}
+
+/// The promise of an offered option, recomputed from the plan.
+fn promise_holds(
+    offered: &Offered,
+    settings: &PolicySettings,
+    screen: &Screen,
+) -> Result<(), String> {
+    let plan = &offered.plan;
+    let w = offered.winner;
+    let considered = &plan.considered[w];
+    let mode = mode_of(plan, w);
+    let lines = lines_of(plan, w);
+    let dest_h = considered
+        .outcome
+        .as_ref()
+        .map(|p| p.placement.dest.h)
+        .unwrap_or(0);
+    let tv = matches!(screen.profile.kind, MonitorKind::Tv { .. });
+    let fault = match settings.style {
+        PictureStyle::Auto => None,
+        PictureStyle::Sharp => considered.rung.is_fitted().then_some("sharp is a fit"),
+        PictureStyle::Native => {
+            (considered.rung != Rung::Native || dest_h != lines).then_some("native is not 1:1")
+        }
+        PictureStyle::X2 | PictureStyle::X3 | PictureStyle::X4 => {
+            let k = u32::from(settings.style.factor().unwrap_or(0));
+            (dest_h != k * lines).then_some("the multiple is not that multiple")
+        }
+        PictureStyle::Speed => (tv || speed_changes(plan, w)).then_some("speed is not held"),
+        PictureStyle::Fit => {
+            let capacity =
+                progressive_capacity(&screen.profile, u64::from(plan.source.refresh_mhz))
+                    .max(progressive_capacity(&screen.profile, mode.field_rate_mhz()));
+            // The last resort lets the solver pick the rate and the scan.
+            let last_resort = considered.target.kind == RefreshKind::Unmatched;
+            (!plan.source.interlaced && mode.interlace && !last_resort && (capacity > 0 || tv))
+                .then_some("fill is interlaced where progressive lines exist")
+        }
+    };
+    if let Some(fault) = fault {
+        return Err(format!("offered, {fault}: {considered}"));
+    }
+    if let (Some((rate, kind)), MonitorKind::Crt { .. }) = (
+        asked_rate(settings.refresh, plan.source.refresh_mhz),
+        &screen.profile.kind,
+    ) {
+        let p = considered.outcome.as_ref().expect("a proposal");
+        let shown = p.timing.field_rate_mhz;
+        if considered.target.kind != kind || shown.abs_diff(rate) > 50 {
+            return Err(format!(
+                "offered {} away from {rate} mHz: {considered}",
+                settings.refresh
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The test's own reading of why a declined candidate is declined, from
+/// the profile, the caps, the plan and the validator.
+fn reason_holds(
     declined: &Declined,
     settings: &PolicySettings,
     screen: &Screen,
@@ -156,33 +246,15 @@ fn refusal_holds(
     let valid = |m: &Modeline| validate(m, &screen.profile, &screen.caps).is_ok();
     let first = choose(plan, |m| validate(m, &screen.profile, &screen.caps)).winner;
     let rung = first.as_ref().map(|w| w.considered.rung);
-    let tv = matches!(screen.profile.kind, MonitorKind::Tv { .. });
-    let panel = matches!(screen.profile.kind, MonitorKind::FlatPanel { .. });
     let factor = settings.style.factor();
-    let gpu_only = |asked: PictureStyle| {
-        let mut own = plan
-            .considered
-            .iter()
-            .filter(|c| walk_ladder(asked).first() == Some(&c.rung))
-            .peekable();
-        own.peek().is_some()
-            && own.all(|c| match &c.outcome {
-                Err(Dropped::NoInterlace) => !screen.caps.interlace,
-                Err(Dropped::TallerThanGpu { .. } | Dropped::PixelClockFloor { .. }) => true,
-                Ok(_) | Err(_) => false,
-            })
-    };
-    let holds = match refusal {
+    let own_rung = walk_ladder(settings.style).first().copied();
+    let holds = match declined.reason {
         DeclineReason::NoPicture => first.is_none(),
-        DeclineReason::RateFixedByTv { asked } => {
-            tv && asked == settings.refresh && asked != RefreshPolicy::Exact
-        }
-        DeclineReason::RateOfPanel { asked } => {
-            panel && asked == settings.refresh && asked != RefreshPolicy::Exact
-        }
+        DeclineReason::RateFixedByTv { .. } | DeclineReason::RateOfPanel { .. } => false,
         DeclineReason::RateNotCovered { asked, rate_mhz } => match &screen.profile.kind {
             MonitorKind::Crt { ranges } => {
-                asked_rate(asked, plan.source.refresh_mhz).map(|(r, _)| r) == Some(rate_mhz)
+                asked == settings.refresh
+                    && asked_rate(asked, plan.source.refresh_mhz).map(|(r, _)| r) == Some(rate_mhz)
                     && !covers(ranges, rate_mhz)
             }
             MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => false,
@@ -191,6 +263,9 @@ fn refusal_holds(
             MonitorKind::Crt { ranges } => {
                 asked_rate(asked, plan.source.refresh_mhz).is_some_and(|(rate, kind)| {
                     covers(ranges, rate)
+                        && !plan.proposals().any(|(_, c, p)| {
+                            c.target.kind == kind && !c.rung.is_fitted() && valid(&p.mode)
+                        })
                         && first
                             .as_ref()
                             .is_some_and(|w| w.considered.target.kind != kind)
@@ -198,93 +273,73 @@ fn refusal_holds(
             }
             MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => false,
         },
-        DeclineReason::NeedsAnotherMonitor { asked, shown } => {
-            !panel
+        // The asked rung is not the winner, and either it is not reachable
+        // whole at the rate the winner runs (no proposal of it at that
+        // target validates with no crop), or each such proposal ranks after
+        // the winner in the plan: `ranked_after` counts those.
+        DeclineReason::NotShownHere { asked, shown } => {
+            !matches!(screen.profile.kind, MonitorKind::FlatPanel { .. })
                 && asked == settings.style
                 && factor.is_some()
                 && rung == Some(shown)
-                && walk_ladder(asked).first() != Some(&shown)
-                && !gpu_only(asked)
+                && own_rung != Some(shown)
         }
-        DeclineReason::TooLargeForScreen { asked, shown } => {
-            panel
-                && asked == settings.style
-                && rung == Some(shown)
-                && match (factor, shown) {
-                    (Some(k), Rung::Native) => k > 1,
-                    (Some(k), Rung::Multiple(n)) => u16::from(n) < k,
-                    (Some(_), Rung::Fitted) => true,
-                    (Some(_), Rung::Interlaced | Rung::Panel) | (None, _) => false,
-                }
-        }
-        DeclineReason::OutputCannotSend { asked, shown } => {
-            !panel
-                && asked == settings.style
-                && rung == Some(shown)
-                && walk_ladder(asked).first() != Some(&shown)
-                && gpu_only(asked)
-        }
+        DeclineReason::TooLargeForScreen { asked, shown } => match &screen.profile.kind {
+            MonitorKind::FlatPanel { modes } => {
+                let k = u32::from(factor.unwrap_or(0));
+                let lines = u32::from(plan.source.height);
+                let width = |h: u32| {
+                    if plan.source.aspect_milli == 0 {
+                        h * u32::from(plan.source.width) / lines.max(1)
+                    } else {
+                        h * plan.source.aspect_milli / 1_000
+                    }
+                };
+                asked == settings.style
+                    && rung == Some(shown)
+                    && modes.iter().all(|m| {
+                        k * lines > u32::from(m.vactive) || width(k * lines) > u32::from(m.hactive)
+                    })
+            }
+            MonitorKind::Crt { .. } | MonitorKind::Tv { .. } => false,
+        },
         DeclineReason::NoExactMode => {
             settings.style == PictureStyle::Sharp
                 && !plan
                     .proposals()
                     .any(|(_, c, p)| !c.rung.is_fitted() && valid(&p.mode))
         }
-        DeclineReason::OneRateOnTv => tv && settings.style == PictureStyle::Speed,
+        DeclineReason::OneRateOnTv => {
+            matches!(screen.profile.kind, MonitorKind::Tv { .. })
+                && settings.style == PictureStyle::Speed
+        }
+        // The speed of the winner is beyond the alert threshold.
+        DeclineReason::SpeedNotHeld => {
+            settings.style == PictureStyle::Speed
+                && !matches!(screen.profile.kind, MonitorKind::Tv { .. })
+                && first.as_ref().is_some_and(|w| speed_changes(plan, w.index))
+        }
     };
     holds
         .then_some(())
-        .ok_or_else(|| format!("the reason {refusal:?} does not hold"))
+        .ok_or_else(|| format!("the reason {:?} does not hold", declined.reason))
 }
 
-/// The checks of one candidate, and the name of its result for the counts.
-fn check(
-    answer: &Offer,
-    settings: &PolicySettings,
-    screen: &Screen,
-) -> Result<&'static str, String> {
-    match answer {
-        Ok(Offered {
-            plan,
-            winner,
-            scanlines,
-            ..
-        }) => {
-            let mode = mode_of(plan, *winner);
-            validate(&mode, &screen.profile, &screen.caps)
-                .map_err(|e| format!("offered, the validator refuses: {e:?}"))?;
-            if !inside(&screen.profile, &mode) {
-                return Err(format!("offered {mode:?} lies outside the profile"));
-            }
-            let w = choose(plan, |m| validate(m, &screen.profile, &screen.caps))
-                .winner
-                .ok_or("offered with no winner")?;
-            if w.index != *winner {
-                return Err("the offered winner is not the engine's winner".to_owned());
-            }
-            if let Some((_, kind)) = asked_rate(settings.refresh, plan.source.refresh_mhz)
-                && w.considered.target.kind != kind
-            {
-                return Err(format!("offered {:?} away from it", settings.refresh));
-            }
-            if *scanlines == ScanlineOutcome::Drawn && mode.interlace {
-                return Err("scanlines drawn on an interlaced mode".to_owned());
-            }
-            Ok("offered")
-        }
-        Err(declined) => {
-            refusal_holds(declined.reason, declined, settings, screen)?;
-            if let Some(index) = declined.winner {
-                let mode = mode_of(&declined.plan, index);
-                validate(&mode, &screen.profile, &screen.caps)
-                    .map_err(|e| format!("the shown mode of a refusal fails: {e:?}"))?;
-                if !inside(&screen.profile, &mode) {
-                    return Err("the shown mode of a refusal lies outside".to_owned());
-                }
-            }
-            Ok(reason_name(declined.reason))
-        }
-    }
+/// The asked rung of a `NotShownHere` refusal is reachable whole at the
+/// rate of the winner, but ranks after it: the plan puts the smaller rung
+/// of a lower line rate range first.
+fn ranked_after(declined: &Declined, settings: &PolicySettings, screen: &Screen) -> bool {
+    let plan = &declined.plan;
+    let own_rung = walk_ladder(settings.style).first().copied();
+    let Some(won) = declined.winner.map(|w| &plan.considered[w]) else {
+        return false;
+    };
+    plan.proposals().any(|(_, c, p)| {
+        Some(c.rung) == own_rung
+            && c.target.kind == won.target.kind
+            && p.overscan_crop.is_none()
+            && validate(&p.mode, &screen.profile, &screen.caps).is_ok()
+    })
 }
 
 fn reason_name(reason: DeclineReason) -> &'static str {
@@ -294,106 +349,540 @@ fn reason_name(reason: DeclineReason) -> &'static str {
         DeclineReason::RateOfPanel { .. } => "rate of panel",
         DeclineReason::RateNotCovered { .. } => "rate not covered",
         DeclineReason::RateNotHeld { .. } => "rate not held",
-        DeclineReason::NeedsAnotherMonitor { .. } => "needs another monitor",
+        DeclineReason::NotShownHere { .. } => "not shown here",
         DeclineReason::TooLargeForScreen { .. } => "too large for screen",
-        DeclineReason::OutputCannotSend { .. } => "output cannot send",
         DeclineReason::NoExactMode => "no exact mode",
         DeclineReason::OneRateOnTv => "one rate on TV",
+        DeclineReason::SpeedNotHeld => "speed not held",
     }
 }
 
-/// Every candidate on every source and display; the counts by result.
+/// The checks of one stored candidate, and the name of its result.
+fn check(
+    answer: &Offer,
+    settings: &PolicySettings,
+    screen: &Screen,
+) -> Result<&'static str, String> {
+    match answer {
+        Ok(offered) => {
+            let mode = mode_of(&offered.plan, offered.winner);
+            validate(&mode, &screen.profile, &screen.caps)
+                .map_err(|e| format!("offered, the validator refuses: {e:?}"))?;
+            if !inside(&screen.profile, &mode) {
+                return Err(format!("offered {mode:?} lies outside the profile"));
+            }
+            let w = choose(&offered.plan, |m| {
+                validate(m, &screen.profile, &screen.caps)
+            })
+            .winner
+            .ok_or("offered with no winner")?;
+            if w.index != offered.winner {
+                return Err("the offered winner is not the engine's winner".to_owned());
+            }
+            promise_holds(offered, settings, screen)?;
+            Ok("offered")
+        }
+        Err(declined) => {
+            reason_holds(declined, settings, screen)?;
+            if let Some(index) = declined.winner {
+                let mode = mode_of(&declined.plan, index);
+                validate(&mode, &screen.profile, &screen.caps)
+                    .map_err(|e| format!("the shown mode of a refusal fails: {e:?}"))?;
+                if !inside(&screen.profile, &mode) {
+                    return Err("the shown mode of a refusal lies outside".to_owned());
+                }
+            }
+            if matches!(declined.reason, DeclineReason::NotShownHere { .. })
+                && ranked_after(declined, settings, screen)
+            {
+                return Ok("not shown here, ranked after");
+            }
+            Ok(reason_name(declined.reason))
+        }
+    }
+}
+
+/// The answer of one pair, as the run keeps it: the index of the winner
+/// of an offered pair, or the reason of a declined one.
+type Pair = Result<usize, DeclineReason>;
+
+/// What an option of a row gives by the pair rule: plain, with the reset
+/// of the other row (and the reason of the stored pair), or declined (with
+/// the reason of the pair with the other row at Auto).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Row {
+    Plain,
+    Reset(DeclineReason),
+    Declined(DeclineReason),
+}
+
+fn row_of(answer: &RowAnswer) -> Row {
+    match answer {
+        RowAnswer::Plain(_) => Row::Plain,
+        RowAnswer::ResetsOther { stored_pair, .. } => Row::Reset(*stored_pair),
+        RowAnswer::Declined(declined) => Row::Declined(declined.reason),
+    }
+}
+
+/// The pair rule, from the answers of the pairs: the pair with the stored
+/// value of the other row, else the pair with the other row at Auto.
+fn rule(stored: Pair, at_auto: Option<Pair>) -> Row {
+    match (stored, at_auto) {
+        (Ok(_), _) => Row::Plain,
+        (Err(reason), None) => Row::Declined(reason),
+        (Err(reason), Some(Ok(_))) => Row::Reset(reason),
+        (Err(_), Some(Err(reason))) => Row::Declined(reason),
+    }
+}
+
+fn is_rate_reason(reason: DeclineReason) -> bool {
+    match reason {
+        DeclineReason::RateFixedByTv { .. }
+        | DeclineReason::RateOfPanel { .. }
+        | DeclineReason::RateNotCovered { .. }
+        | DeclineReason::RateNotHeld { .. } => true,
+        DeclineReason::NoPicture
+        | DeclineReason::NotShownHere { .. }
+        | DeclineReason::TooLargeForScreen { .. }
+        | DeclineReason::NoExactMode
+        | DeclineReason::OneRateOnTv
+        | DeclineReason::SpeedNotHeld => false,
+    }
+}
+
+/// The rows by the pair rule for the stored pair `(style, refresh)`, from
+/// `pairs`, the answers of every pair of the source. A TV and a flat panel
+/// give no refresh choice but `exact`.
+fn rows_by_rule(
+    pairs: &HashMap<(PictureStyle, RefreshPolicy), Pair>,
+    style: PictureStyle,
+    refresh: RefreshPolicy,
+    kind: &MonitorKind,
+) -> Option<(Vec<Row>, Vec<Row>)> {
+    let pair = |s, r| pairs.get(&(s, r)).copied();
+    let refresh_pair = |s, r: RefreshPolicy| match (kind, r) {
+        (MonitorKind::Crt { .. }, _) | (_, RefreshPolicy::Exact) => pair(s, r),
+        (MonitorKind::Tv { .. }, asked) => Some(Err(DeclineReason::RateFixedByTv { asked })),
+        (MonitorKind::FlatPanel { .. }, asked) => Some(Err(DeclineReason::RateOfPanel { asked })),
+    };
+    let modes = PictureStyle::ALL
+        .into_iter()
+        .map(|x| {
+            let stored = pair(x, refresh)?;
+            let at_auto = match refresh {
+                RefreshPolicy::Exact => None,
+                _ => Some(pair(x, RefreshPolicy::Exact)?),
+            };
+            Some(rule(stored, at_auto))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let rates = RefreshPolicy::ALL
+        .into_iter()
+        .map(|x| {
+            let stored = refresh_pair(style, x)?;
+            let at_auto = match style {
+                PictureStyle::Auto => None,
+                _ => Some(refresh_pair(PictureStyle::Auto, x)?),
+            };
+            Some(rule(stored, at_auto))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((modes, rates))
+}
+
+/// The invariants of the rows of one stored pair: Auto of each row is
+/// selectable where (Auto, Auto) has a picture, and no option is greyed
+/// with a reason of the other row.
+fn rows_hold(modes: &[Row], rates: &[Row], auto_has_picture: bool) -> Result<(), String> {
+    let auto_mode = modes.first().copied();
+    let auto_rate = rates.first().copied();
+    if auto_has_picture
+        && (matches!(auto_mode, Some(Row::Declined(_)))
+            || matches!(auto_rate, Some(Row::Declined(_))))
+    {
+        return Err(format!("Auto is greyed: {auto_mode:?} {auto_rate:?}"));
+    }
+    for row in modes {
+        if let Row::Declined(reason) = row
+            && is_rate_reason(*reason)
+        {
+            return Err(format!("a rate reason on the picture mode row: {reason:?}"));
+        }
+    }
+    for row in rates {
+        if let Row::Declined(reason) = row
+            && !is_rate_reason(*reason)
+            && *reason != DeclineReason::NoPicture
+        {
+            return Err(format!("a mode reason on the refresh row: {reason:?}"));
+        }
+    }
+    Ok(())
+}
+
+/// The rows of `picture_choices` for one stored pair are the rows of the
+/// rule, and each selectable option runs the very pair that `offer` gives
+/// for it (the same winner).
+fn choices_hold(
+    choices: &PictureChoices,
+    modes: &[Row],
+    rates: &[Row],
+    pairs: &HashMap<(PictureStyle, RefreshPolicy), Pair>,
+    stored: (PictureStyle, RefreshPolicy),
+) -> Result<(), String> {
+    let got_modes: Vec<Row> = choices
+        .modes
+        .iter()
+        .map(|(_, c)| row_of(&c.answer))
+        .collect();
+    let got_rates: Vec<Row> = choices
+        .refresh
+        .iter()
+        .map(|(_, c)| row_of(&c.answer))
+        .collect();
+    if got_modes != modes || got_rates != rates {
+        return Err(format!(
+            "the rows are not the rule: {got_modes:?} {got_rates:?}, rule {modes:?} {rates:?}"
+        ));
+    }
+    // Each pick with the pair it stores, and the pair it stores when it
+    // also sets the other row to Auto.
+    let picks = choices
+        .modes
+        .iter()
+        .map(|(s, c)| (c, (*s, stored.1), (*s, RefreshPolicy::Exact)))
+        .chain(
+            choices
+                .refresh
+                .iter()
+                .map(|(r, c)| (c, (stored.0, *r), (PictureStyle::Auto, *r))),
+        );
+    for (choice, (style, refresh), with_reset) in picks {
+        let run_pair = match &choice.answer {
+            RowAnswer::Plain(offered) => Some((offered, (style, refresh))),
+            RowAnswer::ResetsOther { offered, .. } => Some((offered, with_reset)),
+            RowAnswer::Declined(_) => None,
+        };
+        if let Some((offered, pair)) = run_pair
+            && pairs.get(&pair).copied() != Some(Ok(offered.winner))
+        {
+            return Err(format!(
+                "a pick of {style} {refresh} runs {pair:?}, which offer gives as {:?}",
+                pairs.get(&pair)
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The result of a run: the counts by result and the cells with no
+/// picture.
+struct Run {
+    counts: BTreeMap<&'static str, usize>,
+    no_picture: BTreeSet<(String, &'static str, &'static str)>,
+}
+
+/// Which screens of a run a test takes: the screens whose index is
+/// `part` modulo `parts`. The parts of a run cover every screen once.
+#[derive(Clone, Copy)]
+struct Part {
+    part: usize,
+    parts: usize,
+}
+
+/// Every candidate on `screens` for `sources`, and the rows of every stored
+/// pair by the pair rule. `picture_choices` is compared with the rule for
+/// one stored pair of each screen and source, a different one from one
+/// source to the next, so each stored pair is compared on each screen.
 fn run(
-    sources: &[SourceGeometry],
+    sources: &[(&'static str, SourceGeometry)],
     screens: &[Screen],
+    every_scanline: bool,
     tolerate_solver: bool,
-) -> BTreeMap<&'static str, usize> {
+    seed: Option<u64>,
+) -> Run {
     let mut counts = BTreeMap::new();
+    let mut no_picture = BTreeSet::new();
     let mut failures = Vec::new();
-    let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
-    for screen in screens {
-        for source in sources {
+    for (screen_index, screen) in screens.iter().enumerate() {
+        let panel = matches!(screen.profile.kind, MonitorKind::FlatPanel { .. });
+        let scanlines: &[ScanlineChoice] = match (panel, every_scanline) {
+            (true, _) => &PANEL_SCANLINES,
+            (false, true) => &CRT_SCANLINES,
+            (false, false) => &CRT_SCANLINES[..1],
+        };
+        let validator = |m: &Modeline| validate(m, &screen.profile, &screen.caps).map(drop);
+        for (source_index, (name, source)) in sources.iter().enumerate() {
+            let mut pairs = HashMap::new();
             for style in PictureStyle::ALL {
                 for refresh in RefreshPolicy::ALL {
-                    for scanlines in SCANLINES {
-                        let settings = PolicySettings {
-                            style,
-                            refresh,
-                            ..PolicySettings::default()
-                        };
+                    let settings = PolicySettings {
+                        style,
+                        refresh,
+                        ..PolicySettings::default()
+                    };
+                    for (i, &scan) in scanlines.iter().enumerate() {
                         let answer = offer(
                             source,
                             &settings,
-                            scanlines,
+                            scan,
                             &screen.profile,
                             &screen.caps,
-                            |m| validate(m, &screen.profile, &screen.caps).map(drop),
+                            validator,
                         );
                         let result = match answer {
-                            Ok(answer) => check(&answer, &settings, screen),
+                            Ok(answer) => {
+                                if i == 0 {
+                                    let pair = match &answer {
+                                        Ok(offered) => Ok(offered.winner),
+                                        Err(declined) => Err(declined.reason),
+                                    };
+                                    pairs.insert((style, refresh), pair);
+                                }
+                                check(&answer, &settings, screen)
+                            }
                             Err(PolicyError::Solver(_)) if tolerate_solver => Ok("solver refuses"),
                             Err(e) => Err(format!("no plan: {e}")),
                         };
                         match result {
-                            Ok(name) => {
-                                if name == "no picture" {
-                                    println!(
-                                        "no picture: {} {source:?} {style} {refresh}",
-                                        screen.profile.id
-                                    );
+                            Ok(result) => {
+                                if result == "no picture" {
+                                    no_picture.insert((
+                                        screen.profile.id.clone(),
+                                        *name,
+                                        style.key(),
+                                    ));
                                 }
-                                *counts.entry(name).or_insert(0) += 1;
+                                *counts.entry(result).or_insert(0) += 1;
                             }
-                            Err(e) => {
-                                let kind = e.split(['{', ':']).next().unwrap_or("").to_owned();
-                                *kinds.entry(kind).or_insert(0) += 1;
-                                failures.push(format!(
-                                    "{} {source:?} {style} {refresh} {scanlines:?}: {e}",
-                                    screen.profile.id
-                                ));
-                            }
+                            Err(e) => failures.push(format!(
+                                "seed {seed:?} {} {name} {source:?} {style} {refresh} {scan:?}: {e}",
+                                screen.profile.id
+                            )),
                         }
                     }
+                }
+            }
+            let auto_has_picture = pairs
+                .get(&(PictureStyle::Auto, RefreshPolicy::Exact))
+                .is_some_and(Result::is_ok);
+            let sample = (screen_index * 7 + source_index) % 32;
+            for (k, (style, refresh)) in PictureStyle::ALL
+                .into_iter()
+                .flat_map(|s| RefreshPolicy::ALL.into_iter().map(move |r| (s, r)))
+                .enumerate()
+            {
+                let Some((modes, rates)) =
+                    rows_by_rule(&pairs, style, refresh, &screen.profile.kind)
+                else {
+                    continue;
+                };
+                *counts.entry("stored pairs with rows").or_insert(0) += 1;
+                let case = format!(
+                    "seed {seed:?} {} {name} rows of {style} {refresh}",
+                    screen.profile.id
+                );
+                if let Err(e) = rows_hold(&modes, &rates, auto_has_picture) {
+                    failures.push(format!("{case}: {e}"));
+                }
+                if k != sample {
+                    continue;
+                }
+                let settings = PolicySettings {
+                    style,
+                    refresh,
+                    ..PolicySettings::default()
+                };
+                match picture_choices(
+                    source,
+                    &settings,
+                    AUTO_75,
+                    &screen.profile,
+                    &screen.caps,
+                    validator,
+                ) {
+                    Ok(choices) => {
+                        *counts.entry("rows compared").or_insert(0) += 1;
+                        if let Err(e) =
+                            choices_hold(&choices, &modes, &rates, &pairs, (style, refresh))
+                        {
+                            failures.push(format!("{case}: {e}"));
+                        }
+                    }
+                    Err(e) => failures.push(format!("{case}: no plan: {e}")),
                 }
             }
         }
     }
     assert!(
         failures.is_empty(),
-        "{} failures, by kind {kinds:?}:\n{}",
+        "{} failures:\n{}",
         failures.len(),
         failures[..failures.len().min(40)].join("\n")
     );
-    counts
+    Run { counts, no_picture }
+}
+
+fn report(test: &str, run: &Run) {
+    let total: usize = run.counts.values().sum();
+    println!("{test}: {total} counts: {:?}", run.counts);
+}
+
+/// The screens of `part`.
+fn part_of(screens: Vec<Screen>, part: Part) -> Vec<Screen> {
+    screens
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| i % part.parts == part.part)
+        .map(|(_, s)| s)
+        .collect()
+}
+
+/// The presets of `part` with `gpu`, every candidate.
+fn presets_run(gpu: &str, part: Part, every_scanline: bool) {
+    let caps = if gpu == "open" {
+        open_caps()
+    } else {
+        caps_of(gpu)
+    };
+    let screens = part_of(presets_on(caps), part);
+    let run = run(&sources(), &screens, every_scanline, false, None);
+    report(gpu, &run);
+    // Every preset shows a picture for every candidate with every GPU of
+    // the matrix.
+    assert!(run.no_picture.is_empty(), "{gpu}: {:?}", run.no_picture);
+}
+
+/// The CRT presets with an open GPU, every scanline setting that a plan
+/// reads, in six parts that run side by side.
+macro_rules! open_presets {
+    ($($test:ident: $part:literal,)*) => {
+        $(
+            #[test]
+            fn $test() {
+                presets_run("open", Part { part: $part, parts: 6 }, true);
+            }
+        )*
+    };
+}
+
+open_presets! {
+    offer_on_the_presets_with_an_open_gpu_part_1: 0,
+    offer_on_the_presets_with_an_open_gpu_part_2: 1,
+    offer_on_the_presets_with_an_open_gpu_part_3: 2,
+    offer_on_the_presets_with_an_open_gpu_part_4: 3,
+    offer_on_the_presets_with_an_open_gpu_part_5: 4,
+    offer_on_the_presets_with_an_open_gpu_part_6: 5,
 }
 
 #[test]
-fn every_candidate_on_every_display_is_offered_safely_or_refused_for_a_true_reason() {
-    let sources: Vec<SourceGeometry> = arcade_table::BOARDS
-        .iter()
-        .chain(arcade_table::SOURCES.iter())
-        .map(Board::source)
+fn offer_on_the_edid_tubes() {
+    let screens: Vec<Screen> = arcade_table::edid_tubes()
+        .into_iter()
+        .map(|d| Screen {
+            profile: d.profile,
+            caps: d.caps,
+        })
         .collect();
-    let screens = screens();
-    let counts = run(&sources, &screens, false);
-    let total: usize = counts.values().sum();
-    assert_eq!(
-        total,
-        sources.len()
-            * screens.len()
-            * PictureStyle::ALL.len()
-            * RefreshPolicy::ALL.len()
-            * SCANLINES.len()
-    );
-    assert!(counts["offered"] > total / 4, "{counts:?}");
-    // A candidate with no picture is declined, and the engine keeps the
-    // mode on screen; the run lists each one.
-    println!("no picture: {:?}", counts.get("no picture"));
-    println!(
-        "offer: {} displays, {} sources, {total} candidates: {counts:?}",
-        screens.len(),
-        sources.len()
-    );
+    let run = run(&sources(), &screens, true, false, None);
+    report("EDID tubes", &run);
+    // The native ladder of a 640x240 source has no mode on a 31 kHz tube
+    // of one line rate: the engine keeps the mode on screen.
+    let expected: BTreeSet<_> = [("edid_31".to_owned(), "psx_640", "native")].into();
+    assert_eq!(run.no_picture, expected);
+}
+
+#[test]
+fn offer_on_the_panels() {
+    let screens: Vec<Screen> = arcade_table::panels()
+        .into_iter()
+        .map(|d| Screen {
+            profile: d.profile,
+            caps: d.caps,
+        })
+        .collect();
+    let run = run(&sources(), &screens, true, false, None);
+    report("panels", &run);
+    assert!(run.no_picture.is_empty(), "{:?}", run.no_picture);
+}
+
+#[test]
+fn offer_on_the_tv_standards_of_the_composite_output() {
+    let screens: Vec<Screen> = TvStandard::ALL
+        .into_iter()
+        .map(|standard| Screen {
+            profile: standard.profile(),
+            caps: composite(),
+        })
+        .collect();
+    let run = run(&sources(), &screens, true, false, None);
+    report("TV standards", &run);
+    assert!(run.no_picture.is_empty(), "{:?}", run.no_picture);
+}
+
+/// The GPU entries of the matrix that drive a CRT, by their limits: the
+/// entries with the same limits give the same decisions, so one run covers
+/// them all (`every_gpu_of_the_matrix_has_its_run` holds the groups). Each
+/// run has three parts, which run side by side. `pi_vc4_composite` drives
+/// only a TV: the TV test takes it.
+const GPU_GROUPS: [(&str, &[&str]); 3] = [
+    (
+        "intel_gen9",
+        &[
+            "intel_gen9",
+            "intel_i915",
+            "intel_xe",
+            "amd_amdgpu",
+            "amd_radeon",
+            "nvidia_nouveau",
+            "unknown",
+        ],
+    ),
+    ("pi_vc4_dpi", &["pi_vc4_dpi"]),
+    ("pi5_rp1_dpi", &["pi5_rp1_dpi"]),
+];
+
+macro_rules! every_gpu_group {
+    ($($test:ident: $gpu:literal, $part:literal;)*) => {
+        $(
+            #[test]
+            fn $test() {
+                presets_run($gpu, Part { part: $part, parts: 3 }, false);
+            }
+        )*
+    };
+}
+
+every_gpu_group! {
+    gpus_with_a_25_mhz_floor_part_1: "intel_gen9", 0;
+    gpus_with_a_25_mhz_floor_part_2: "intel_gen9", 1;
+    gpus_with_a_25_mhz_floor_part_3: "intel_gen9", 2;
+    pi_vc4_dpi_part_1: "pi_vc4_dpi", 0;
+    pi_vc4_dpi_part_2: "pi_vc4_dpi", 1;
+    pi_vc4_dpi_part_3: "pi_vc4_dpi", 2;
+    pi5_rp1_dpi_part_1: "pi5_rp1_dpi", 0;
+    pi5_rp1_dpi_part_2: "pi5_rp1_dpi", 1;
+    pi5_rp1_dpi_part_3: "pi5_rp1_dpi", 2;
+}
+
+/// Every GPU entry of the matrix is in one group, and has the limits of
+/// the entry that the group runs; `pi_vc4_composite` is the TV run.
+#[test]
+fn every_gpu_of_the_matrix_has_its_run() {
+    let mut covered: Vec<&str> = GPU_GROUPS
+        .iter()
+        .flat_map(|(_, ids)| ids.iter().copied())
+        .chain(["pi_vc4_composite"])
+        .collect();
+    covered.sort_unstable();
+    let mut all: Vec<String> = gpu_table().into_iter().map(|(id, _)| id).collect();
+    all.sort_unstable();
+    assert_eq!(covered, all);
+    for (run, ids) in GPU_GROUPS {
+        for id in ids {
+            assert_eq!(caps_of(id), caps_of(run), "{id} has the limits of {run}");
+        }
+    }
 }
 
 /// A small generator with a fixed seed: the same values on every run.
@@ -413,61 +902,350 @@ impl Lcg {
     }
 }
 
+const SEED: u64 = 0x005E_ED0F_0FFE;
+
+/// The cells with no picture of the generated run: (profile, source,
+/// picture mode).
+const GENERATED_NO_PICTURE: [(&str, &str, &str); 4] = [
+    ("pc_70_120~moved", "edge", "auto"),
+    ("pc_70_120~moved", "edge", "native"),
+    ("pc_70_120~moved", "edge", "sharp"),
+    ("pc_70_120~moved", "edge", "speed"),
+];
+
 /// The CRT presets with their line rate limits moved by up to 1 % and
-/// their field rate limits by up to 3 %, and generated sources: the same
-/// invariants hold. A profile that the solver refuses gives an error, never
-/// a panic; such errors stay below a quarter of the candidates.
+/// their field rate limits by up to 3 %, generated sources, and sources at
+/// each field rate edge of each range, one millihertz inside and outside:
+/// the same invariants hold. A profile that the solver refuses gives an
+/// error, never a panic; such errors stay below a quarter of the cases. A
+/// failure prints the seed and the case. The run has six parts, which
+/// run side by side.
 #[test]
-fn generated_sources_and_ranges_keep_every_invariant() {
-    let mut rng = Lcg(0x005E_ED0F_0FFE);
+fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_1() {
+    generated_run(Part { part: 0, parts: 6 });
+}
+
+#[test]
+fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_2() {
+    generated_run(Part { part: 1, parts: 6 });
+}
+
+#[test]
+fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_3() {
+    generated_run(Part { part: 2, parts: 6 });
+}
+
+#[test]
+fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_4() {
+    generated_run(Part { part: 3, parts: 6 });
+}
+
+#[test]
+fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_5() {
+    generated_run(Part { part: 4, parts: 6 });
+}
+
+#[test]
+fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_6() {
+    generated_run(Part { part: 5, parts: 6 });
+}
+
+fn generated_run(part: Part) {
+    let mut rng = Lcg(SEED);
     let mut screens = Vec::new();
+    let mut sources: Vec<(&'static str, SourceGeometry)> = Vec::new();
     for profile in all_presets() {
         let MonitorKind::Crt { ranges } = &profile.kind else {
             continue;
         };
-        for n in 0..2 {
-            let ranges: Vec<CrtRange> = ranges
-                .iter()
-                .map(|r| {
-                    let h_min = r.h_min_mhz * rng.within(990, 1_010) / 1_000;
-                    let h_max = (r.h_max_mhz * rng.within(990, 1_010) / 1_000).max(h_min);
-                    let v_min = r.v_min_mhz * rng.within(97, 103) / 100;
-                    let v_max = (r.v_max_mhz * rng.within(97, 103) / 100).max(v_min);
-                    CrtRange {
-                        h_min_mhz: h_min,
-                        h_max_mhz: h_max,
-                        v_min_mhz: v_min,
-                        v_max_mhz: v_max,
-                        ..*r
-                    }
-                })
-                .collect();
-            screens.push(Screen {
-                profile: MonitorProfile {
-                    id: format!("{}~{n}", profile.id),
-                    kind: MonitorKind::Crt { ranges },
-                },
-                caps: open_caps(),
-            });
+        for range in ranges {
+            for rate in [
+                range.v_min_mhz.saturating_sub(1),
+                range.v_min_mhz,
+                range.v_min_mhz + 1,
+                range.v_max_mhz.saturating_sub(1),
+                range.v_max_mhz,
+                range.v_max_mhz + 1,
+            ] {
+                sources.push((
+                    "edge",
+                    source(320, 240, u32::try_from(rate).unwrap_or(u32::MAX)),
+                ));
+            }
+        }
+        let moved: Vec<CrtRange> = ranges
+            .iter()
+            .map(|r| {
+                let h_min = r.h_min_mhz * rng.within(990, 1_010) / 1_000;
+                let h_max = (r.h_max_mhz * rng.within(990, 1_010) / 1_000).max(h_min);
+                let v_min = r.v_min_mhz * rng.within(97, 103) / 100;
+                let v_max = (r.v_max_mhz * rng.within(97, 103) / 100).max(v_min);
+                CrtRange {
+                    h_min_mhz: h_min,
+                    h_max_mhz: h_max,
+                    v_min_mhz: v_min,
+                    v_max_mhz: v_max,
+                    ..*r
+                }
+            })
+            .collect();
+        screens.push(Screen {
+            profile: MonitorProfile {
+                id: format!("{}~moved", profile.id),
+                kind: MonitorKind::Crt { ranges: moved },
+            },
+            caps: open_caps(),
+        });
+        screens.push(Screen {
+            profile,
+            caps: open_caps(),
+        });
+    }
+    sources.sort_by_key(|(_, s)| (s.refresh_mhz, s.height));
+    sources.dedup_by_key(|(_, s)| s.refresh_mhz);
+    for _ in 0..24 {
+        sources.push((
+            "generated",
+            SourceGeometry {
+                interlaced: rng.within(0, 5) == 0,
+                ..source(
+                    u16::try_from(rng.within(160, 720)).unwrap_or(320),
+                    u16::try_from(rng.within(144, 600)).unwrap_or(240),
+                    u32::try_from(rng.within(25_000, 125_000)).unwrap_or(60_000),
+                )
+            },
+        ));
+    }
+    let screens = part_of(screens, part);
+    let run = run(&sources, &screens, false, true, Some(SEED));
+    // A source at a field rate edge of `pc_70_120`, with the ranges moved
+    // by the seed, has no mode in the moved ranges for these modes: the
+    // engine keeps the mode on screen.
+    let expected: BTreeSet<(String, &str, &str)> = GENERATED_NO_PICTURE
+        .iter()
+        .filter(|(profile, ..)| screens.iter().any(|s| s.profile.id == *profile))
+        .map(|(profile, source, style)| ((*profile).to_owned(), *source, *style))
+        .collect();
+    assert_eq!(run.no_picture, expected, "seed {SEED}");
+    report("generated", &run);
+    let total: usize = run.counts.values().sum();
+    assert!(
+        run.counts.get("solver refuses").copied().unwrap_or(0) * 4 < total,
+        "seed {SEED}: {:?}",
+        run.counts
+    );
+}
+
+/// 640x500 at 60.000 Hz on `generic_15` with `force_60`: the winner is a
+/// soft fit at 60 Hz. The option is offered: it gives the rate it names,
+/// and the notice names the soft picture.
+#[test]
+fn a_forced_rate_with_a_soft_fit_is_offered_with_its_notice() {
+    let profile = preset("generic_15");
+    let caps = open_caps();
+    let settings = PolicySettings {
+        refresh: RefreshPolicy::Force60,
+        ..PolicySettings::default()
+    };
+    let answer = offer(
+        &source(640, 500, 60_000),
+        &settings,
+        AUTO_75,
+        &profile,
+        &caps,
+        |m| validate(m, &profile, &caps).map(drop),
+    )
+    .unwrap();
+    let offered = answer.expect("offered");
+    let considered = &offered.plan.considered[offered.winner];
+    assert!(considered.rung.is_fitted());
+    assert_eq!(considered.target.kind, RefreshKind::Forced60);
+    assert!(offered.notice.is_some_and(|n| n.soft.is_some()));
+}
+
+/// On a TV and a flat panel a stored refresh choice other than Auto greys
+/// nothing: the display does not read it.
+#[test]
+fn a_stored_refresh_choice_greys_nothing_where_the_display_does_not_read_it() {
+    for (profile, caps) in [
+        (TvStandard::Ntsc.profile(), composite()),
+        (panel_1080(), open_caps()),
+    ] {
+        for refresh in RefreshPolicy::ALL {
+            let settings = PolicySettings {
+                refresh,
+                ..PolicySettings::default()
+            };
+            let choices = picture_choices(
+                &source(256, 224, 60_099),
+                &settings,
+                AUTO_75,
+                &profile,
+                &caps,
+                |m| validate(m, &profile, &caps).map(drop),
+            )
+            .unwrap();
+            for style in [PictureStyle::Auto, PictureStyle::Sharp, PictureStyle::Fit] {
+                let choice = &choices.modes.iter().find(|(s, _)| *s == style).unwrap().1;
+                assert!(
+                    matches!(choice.answer, RowAnswer::Plain(_)),
+                    "{} {refresh} {style}",
+                    profile.id
+                );
+            }
+            let stored = offer(
+                &source(256, 224, 60_099),
+                &settings,
+                AUTO_75,
+                &profile,
+                &caps,
+                |m| validate(m, &profile, &caps).map(drop),
+            )
+            .unwrap();
+            assert!(stored.is_ok(), "{} {refresh}: no stored notice", profile.id);
         }
     }
-    let sources: Vec<SourceGeometry> = (0..12)
-        .map(|_| SourceGeometry {
-            interlaced: rng.within(0, 5) == 0,
-            ..source(
-                rng.within(160, 720) as u16,
-                rng.within(144, 600) as u16,
-                rng.within(45_000, 80_000) as u32,
-            )
-        })
-        .collect();
-    let counts = run(&sources, &screens, true);
-    println!("generated: {counts:?}");
-    let total: usize = counts.values().sum();
-    assert!(
-        counts.get("solver refuses").copied().unwrap_or(0) * 4 < total,
-        "{counts:?}"
+}
+
+/// The options of the picture mode row and of the refresh row, by the pair
+/// rule.
+type Rows = (Vec<(PictureStyle, Row)>, Vec<(RefreshPolicy, Row)>);
+
+/// The rows of one stored pair on `profile` with an open GPU.
+fn rows_for(
+    source: SourceGeometry,
+    style: PictureStyle,
+    refresh: RefreshPolicy,
+    profile: &MonitorProfile,
+) -> Rows {
+    let settings = PolicySettings {
+        style,
+        refresh,
+        ..PolicySettings::default()
+    };
+    let caps = open_caps();
+    let choices = picture_choices(&source, &settings, AUTO_75, profile, &caps, |m| {
+        validate(m, profile, &caps).map(drop)
+    })
+    .unwrap();
+    (
+        choices
+            .modes
+            .iter()
+            .map(|(s, c)| (*s, row_of(&c.answer)))
+            .collect(),
+        choices
+            .refresh
+            .iter()
+            .map(|(r, c)| (*r, row_of(&c.answer)))
+            .collect(),
+    )
+}
+
+fn row<K: PartialEq + Copy>(rows: &[(K, Row)], key: K) -> Row {
+    rows.iter().find(|(k, _)| *k == key).unwrap().1
+}
+
+/// On a CRT, a stored pair that the display does not give, `2x` with
+/// `exact_x2` on `generic_15` for the SNES: an option whose pair with the
+/// stored value of the other row is declined, and whose pair with the other
+/// row at Auto is offered, resets the other row; an option declined with
+/// the other row at Auto too is greyed with a reason of its own row.
+#[test]
+fn a_stored_pair_that_the_display_declines_resets_or_greys_by_the_pair_rule() {
+    let generic = preset("generic_15");
+    let (modes, rates) = rows_for(
+        source(256, 224, 60_099),
+        PictureStyle::X2,
+        RefreshPolicy::ExactX2,
+        &generic,
     );
+    assert!(matches!(row(&modes, PictureStyle::Auto), Row::Reset(_)));
+    assert!(matches!(
+        row(&modes, PictureStyle::X2),
+        Row::Declined(DeclineReason::NotShownHere { .. })
+    ));
+    assert!(matches!(row(&rates, RefreshPolicy::Exact), Row::Reset(_)));
+    assert!(matches!(
+        row(&rates, RefreshPolicy::ExactX2),
+        Row::Declined(DeclineReason::RateNotCovered { .. })
+    ));
+}
+
+/// The SNES on `generic_15` with a stored `force_50`: Game speed does not
+/// hold the speed at 50 Hz, but it does at the game's rate, so it is not
+/// greyed: a pick also sets the refresh rate to Auto.
+#[test]
+fn game_speed_with_a_stored_forced_rate_resets_the_rate() {
+    let (modes, _) = rows_for(
+        source(256, 224, 60_099),
+        PictureStyle::Auto,
+        RefreshPolicy::Force50,
+        &preset("generic_15"),
+    );
+    assert_eq!(
+        row(&modes, PictureStyle::Speed),
+        Row::Reset(DeclineReason::SpeedNotHeld)
+    );
+}
+
+/// A 160x144 source at 50 Hz on `generic_15` with a stored (`2x`,
+/// `force_60`): Game speed is plain only where the pair (`speed`,
+/// `force_60`), which a pick stores, is offered.
+#[test]
+fn an_option_is_plain_only_where_the_pair_a_pick_stores_is_offered() {
+    let profile = preset("generic_15");
+    let caps = open_caps();
+    let game = SourceGeometry {
+        aspect_milli: 1_111,
+        ..source(160, 144, 50_000)
+    };
+    let (modes, _) = rows_for(game, PictureStyle::X2, RefreshPolicy::Force60, &profile);
+    let stored = offer(
+        &game,
+        &PolicySettings {
+            style: PictureStyle::Speed,
+            refresh: RefreshPolicy::Force60,
+            ..PolicySettings::default()
+        },
+        AUTO_75,
+        &profile,
+        &caps,
+        |m| validate(m, &profile, &caps).map(drop),
+    )
+    .unwrap();
+    assert!(stored.is_err(), "the pair (speed, force_60) is declined");
+    assert_ne!(row(&modes, PictureStyle::Speed), Row::Plain);
+}
+
+/// Game speed is declined where its winner still changes the speed by
+/// more than 0.5 %: DOS 640x400 at 70 Hz on `generic_15`, a 50 Hz game on a
+/// panel with only a 60 Hz mode. It is offered where it holds the speed.
+#[test]
+fn game_speed_is_declined_where_it_cannot_hold_the_speed() {
+    let speed = PolicySettings {
+        style: PictureStyle::Speed,
+        ..PolicySettings::default()
+    };
+    let generic = preset("generic_15");
+    let answer = |source: SourceGeometry, profile: &MonitorProfile| {
+        offer(&source, &speed, AUTO_75, profile, &open_caps(), |m| {
+            validate(m, profile, &open_caps()).map(drop)
+        })
+        .unwrap()
+        .map(drop)
+        .map_err(|declined| declined.reason)
+    };
+    let dos = answer(source(640, 400, 70_086), &generic);
+    assert_eq!(dos, Err(DeclineReason::SpeedNotHeld));
+    let panel_60 = arcade_table::panels()
+        .into_iter()
+        .find(|d| d.profile.id == "panel_720")
+        .unwrap()
+        .profile;
+    let pal = answer(source(320, 240, 50_000), &panel_60);
+    assert_eq!(pal, Err(DeclineReason::SpeedNotHeld));
+    assert!(answer(source(256, 224, 60_099), &generic).is_ok());
 }
 
 /// The table of section 8 of docs/spec/video-policy-cases.md is the
@@ -493,7 +1271,7 @@ fn the_spec_table_of_offered_combinations_is_the_output_of_the_function() {
         ("Flat panel (`panel_1080`)", panel_1080(), open_caps()),
     ];
     let snes = source(256, 224, 60_099);
-    let scanlines = SCANLINES[0];
+    let scanlines = AUTO_75;
     let mut table = String::new();
     for (title, profile, caps) in &displays {
         table.push_str(&format!("\n**{title}**\n\n| Mode |"));
@@ -563,12 +1341,4 @@ fn the_spec_table_of_offered_combinations_is_the_output_of_the_function() {
         table.trim_start_matches('\n').to_owned() + "\n",
         "the spec table drifted; print it again and copy it"
     );
-}
-
-fn composite() -> GpuCaps {
-    gpu_table()
-        .into_iter()
-        .find(|(id, _)| id == "pi_vc4_composite")
-        .map(|(_, caps)| caps)
-        .unwrap()
 }

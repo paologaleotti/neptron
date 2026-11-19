@@ -1369,8 +1369,8 @@ fn the_display_panel_rows_come_from_the_same_plan_and_validator() {
     )
     .unwrap()
     .modes;
-    fn row(answer: &neptron_modeline::policy::Offer) -> (bool, &Plan, Option<usize>) {
-        match answer {
+    fn row(answer: &neptron_modeline::policy::RowChoice) -> (bool, &Plan, Option<usize>) {
+        match answer.answer.offer() {
             Ok(o) => (true, &o.plan, Some(o.winner)),
             Err(d) => (false, &d.plan, d.winner),
         }

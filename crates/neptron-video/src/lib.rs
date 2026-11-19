@@ -48,6 +48,6 @@ pub use trace::{
 pub use neptron_modeline::policy::{
     DeclineReason, Declined, Dropped, HorizontalStrategy, Notice, NoticeReason, Offer, Offered,
     PanelScale, PictureChoices, PictureStyle, Placement, PolicyError, PolicySettings, Proposal,
-    RefreshKind, RefreshPolicy, RefreshTarget, Refused, Rung, ScanlineOutcome, SoftReason,
-    TV_SPEED_SILENT_PPM, Timing, TvWidth, VerticalMode, WholeReason,
+    RefreshKind, RefreshPolicy, RefreshTarget, Refused, RowAnswer, RowChoice, Rung,
+    ScanlineOutcome, SoftReason, TV_SPEED_SILENT_PPM, Timing, TvWidth, VerticalMode, WholeReason,
 };

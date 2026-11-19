@@ -14,7 +14,7 @@ use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
 
 use super::intents::EndNotice;
 use super::picture::{declined_text, picture_text, scanline_text, vertical_interlaced};
-use super::{MENU_SOURCE, Outcome, PictureNotice, Shell, Stage, UNPACED_FRAME_NS, proposal_hash};
+use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS, proposal_hash};
 
 use crate::library::{ScanKind, Scanned, changes_text};
 use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
@@ -366,16 +366,13 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         let Some(current) = game.session.video().current() else {
             return;
         };
-        match self.picture_notice {
-            PictureNotice::Shown => return,
-            PictureNotice::AfterChange(before)
-                if before == proposal_hash(&current.chosen.proposal) =>
-            {
-                return;
-            }
-            PictureNotice::Launch | PictureNotice::AfterChange(_) => {}
+        let (next, show) = self
+            .picture_notice
+            .step(proposal_hash(&current.chosen.proposal));
+        self.picture_notice = next;
+        if !show {
+            return;
         }
-        self.picture_notice = PictureNotice::Shown;
         let kind = current.chosen.proposal.timing.target.kind;
         let mut status = neptron_video::VideoStatusText::default();
         let (words, shown) = game
@@ -397,8 +394,13 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             texts.push(text);
         }
         let scanlines = self.config.scanlines().ok();
-        if let (Some(Ok(offered)), Some(scanlines)) = (&answer, scanlines)
-            && let Some(text) = scanline_text(scanlines, offered.scanlines)
+        let outcome = match &answer {
+            Some(Ok(offered)) => Some(offered.scanlines),
+            Some(Err(declined)) => declined.scanlines,
+            None => None,
+        };
+        if let (Some(outcome), Some(scanlines)) = (outcome, scanlines)
+            && let Some(text) = scanline_text(scanlines, outcome)
         {
             texts.push(text.to_owned());
         }

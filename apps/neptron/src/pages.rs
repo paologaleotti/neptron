@@ -20,7 +20,8 @@ use neptron_ui::snapshot::{
     SettingsPage,
 };
 use neptron_video::{
-    DeclineReason, Offer, Phase, PictureChoices, PictureStyle, RefreshPolicy, SafeReason,
+    DeclineReason, Phase, PictureChoices, PictureStyle, RefreshPolicy, RowAnswer, RowChoice,
+    SafeReason,
 };
 
 use crate::config::Config;
@@ -230,9 +231,10 @@ pub struct Names<'a> {
     pub presets: &'a Presets,
     /// The detected outputs.
     pub detected: &'a Detected,
-    /// The answers of the policy (`offer`) for the options of the picture
-    /// mode and refresh rows on the display now, from the engine. `None`
-    /// when the run has no engine: the options are then greyed.
+    /// The answers of the policy (`picture_choices`) for the options of
+    /// the picture mode and refresh rows on the display now, from the
+    /// engine, with the values of the level the page writes. `None` when
+    /// the run has no engine: the options are then greyed.
     pub choices: Option<&'a PictureChoices>,
     /// The class of the display that the run drives. A row whose setting
     /// does not apply to it is disabled.
@@ -358,16 +360,95 @@ pub fn decline_text(reason: DeclineReason) -> String {
             rate_mhz % 1_000 / 10
         ),
         DeclineReason::RateNotHeld { .. } => "No exact picture at this rate".to_owned(),
-        DeclineReason::NeedsAnotherMonitor { .. } => "Needs another monitor".to_owned(),
+        DeclineReason::NotShownHere { .. } => {
+            "Not possible with this screen and video output".to_owned()
+        }
         DeclineReason::TooLargeForScreen { .. } => "Too large for this screen".to_owned(),
-        DeclineReason::OutputCannotSend { .. } => "This video output cannot send it".to_owned(),
         DeclineReason::NoExactMode => "No exact mode on this screen".to_owned(),
+        DeclineReason::SpeedNotHeld => "This screen cannot hold the game's speed".to_owned(),
     }
 }
 
 /// The reason of an option of the picture mode or refresh rows when the
 /// run has no engine to ask.
 pub const NO_DECISION: &str = "No picture decision now";
+
+/// What a set of the picture mode or the refresh choice does, by the rule
+/// that builds its option in the menu (`picture_choices`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Gate {
+    /// The value is set alone.
+    Set,
+    /// The value is set, and the other row (`other`, a key) to Auto at the
+    /// same level, in the same write.
+    SetWithReset {
+        /// The key of the other row.
+        other: &'static str,
+    },
+    /// The value is not set, for this reason.
+    Refused(String),
+}
+
+/// The key and the Auto value of the row that is not `key`, for the
+/// picture mode and the refresh choice.
+pub fn other_row(key: &str) -> Option<(&'static str, &'static str)> {
+    match key {
+        DISPLAY_STYLE => Some((DISPLAY_REFRESH_POLICY, RefreshPolicy::Exact.key())),
+        DISPLAY_REFRESH_POLICY => Some((DISPLAY_STYLE, PictureStyle::Auto.key())),
+        _ => None,
+    }
+}
+
+/// The label of the row of `key` in the menus.
+pub fn row_label(key: &str) -> &'static str {
+    match key {
+        DISPLAY_STYLE => "Picture mode",
+        _ => "Refresh rate",
+    }
+}
+
+/// What a set of `value` for `key` does, from the answers `choices`: the
+/// rule of the option in the menu. Every other key is [`Gate::Set`].
+pub fn gate(key: &str, value: &str, choices: Option<&PictureChoices>) -> Gate {
+    let Some((other, _)) = other_row(key) else {
+        return Gate::Set;
+    };
+    let Some(choices) = choices else {
+        return Gate::Refused(NO_DECISION.to_owned());
+    };
+    let choice = match key {
+        DISPLAY_STYLE => choices
+            .modes
+            .iter()
+            .find(|(s, _)| s.key() == value)
+            .map(|(_, c)| c),
+        _ => choices
+            .refresh
+            .iter()
+            .find(|(r, _)| r.key() == value)
+            .map(|(_, c)| c),
+    };
+    match choice.map(|c| &c.answer) {
+        None => Gate::Refused(format!("{value} is not a choice")),
+        Some(RowAnswer::Plain(_)) => Gate::Set,
+        Some(RowAnswer::ResetsOther { .. }) => Gate::SetWithReset { other },
+        Some(RowAnswer::Declined(declined)) => Gate::Refused(decline_text(declined.reason)),
+    }
+}
+
+/// The help line of an option that also sets the row of `other` to Auto.
+pub fn reset_help(other: &str) -> String {
+    format!("Also sets {} to Auto.", row_label(other))
+}
+
+/// `text` with its first letter in lower case, for a reason after a colon.
+pub fn lower_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
 
 /// Which level a page reads and writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -928,7 +1009,7 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
                 let answer = names
                     .choices
                     .and_then(|c| c.modes.iter().find(|(s, _)| *s == style).map(|(_, a)| a));
-                offered_option(option, answer)
+                offered_option(option, answer, DISPLAY_REFRESH_POLICY)
             }
             None => ChoiceOption::new(choice),
         },
@@ -943,7 +1024,7 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
                             .find(|(r, _)| *r == refresh)
                             .map(|(_, a)| a)
                     });
-                    offered_option(option, answer)
+                    offered_option(option, answer, DISPLAY_STYLE)
                 }
                 None => ChoiceOption::new(choice),
             }
@@ -960,14 +1041,15 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
 }
 
 /// An option of the picture mode or refresh rows from the answer of the
-/// policy: the line rate and field rate of the mode it shows, and greyed
-/// with the reason when the policy does not offer it. With no answer the
-/// option is greyed: only an offered option can be chosen.
-fn offered_option(option: ChoiceOption, answer: Option<&Offer>) -> ChoiceOption {
-    let Some(answer) = answer else {
+/// policy: the line rate and field rate of the mode that a pick shows; a
+/// help line that says when a pick also sets the row of `other` to Auto;
+/// greyed with the reason when the policy declines it. With no answer the option is greyed: only an offered
+/// option can be chosen.
+fn offered_option(option: ChoiceOption, choice: Option<&RowChoice>, other: &str) -> ChoiceOption {
+    let Some(choice) = choice else {
         return option.unavailable(NO_DECISION);
     };
-    let (plan, winner) = match answer {
+    let (plan, winner) = match choice.answer.offer() {
         Ok(offered) => (&offered.plan, Some(offered.winner)),
         Err(declined) => (&declined.plan, declined.winner),
     };
@@ -979,9 +1061,10 @@ fn offered_option(option: ChoiceOption, answer: Option<&Offer>) -> ChoiceOption 
         Some(m) => option.with_detail(rates(m.line_rate_mhz(), m.field_rate_mhz())),
         None => option,
     };
-    match answer {
-        Ok(_) => option,
-        Err(declined) => option.unavailable(decline_text(declined.reason)),
+    match &choice.answer {
+        RowAnswer::Declined(declined) => option.unavailable(decline_text(declined.reason)),
+        RowAnswer::Plain(_) => option,
+        RowAnswer::ResetsOther { .. } => option.with_help(reset_help(other)),
     }
 }
 
@@ -1407,97 +1490,131 @@ mod tests {
         }
     }
 
-    /// The selectable options of the picture mode and refresh rows of both
-    /// menus are the offered answers of the policy, for each display class
-    /// and each stored picture mode and refresh choice: the rows come from
-    /// the answers and from nothing else.
+    /// The options of the picture mode and refresh rows of both menus are
+    /// the answers of the policy, for each display class and each stored
+    /// picture mode and refresh choice: a plain option sets its row, an
+    /// option with a reset says so in its help line and sets the other row
+    /// too, a declined option is greyed with its reason; the gate of the
+    /// menus and the protocol (`gate`) gives the same answer. The rows come
+    /// from the answers and from nothing else.
     #[test]
-    fn the_selectable_options_are_the_offered_answers_of_the_policy() {
+    fn the_options_and_the_gate_are_the_answers_of_the_policy() {
         let config = config();
         let presets = Presets::default();
         let detected = Detected::default();
-        let snes = neptron_types::SourceGeometry {
-            width: 256,
-            height: 224,
-            refresh_mhz: 60_099,
-            aspect_milli: 1_333,
-            interlaced: false,
-            rotation: neptron_types::Rotation::R0,
-        };
         let scanlines = neptron_video::ScanlineSettings {
             mode: ScanlineMode::Auto,
             strength_percent: 75,
         };
+        let sources = [(256, 224, 60_099), (640, 400, 70_086), (320, 240, 50_000)];
         for (class, profile) in agreement_displays() {
-            for style in PictureStyle::ALL {
-                for refresh in RefreshPolicy::ALL {
-                    let settings = neptron_video::PolicySettings {
-                        style,
-                        refresh,
-                        ..neptron_video::PolicySettings::default()
-                    };
-                    let choices = neptron_video::picture_choices_on(
-                        &snes,
-                        &settings,
-                        scanlines,
-                        &profile,
-                        &open_caps(),
-                    )
-                    .expect("a plan");
-                    let names = Names {
-                        presets: &presets,
-                        detected: &detected,
-                        choices: Some(&choices),
-                        class,
-                        outputs: &[],
-                    };
-                    for page in [display_page(&config, names), video_page(&config, names)] {
-                        for (key, offered) in [
-                            (
-                                DISPLAY_STYLE,
-                                PICTURE_MODE_MENU_ORDER
-                                    .iter()
-                                    .map(|m| {
-                                        let a =
-                                            &choices.modes.iter().find(|(s, _)| s == m).unwrap().1;
-                                        (m.key(), a.is_ok())
-                                    })
-                                    .collect::<Vec<_>>(),
-                            ),
-                            (
-                                DISPLAY_REFRESH_POLICY,
-                                choices
-                                    .refresh
-                                    .iter()
-                                    .map(|(r, a)| (r.key(), a.is_ok()))
-                                    .collect(),
-                            ),
-                        ] {
-                            let entry = config.schema().get(key).expect(key);
-                            let row = page
-                                .rows
-                                .iter()
-                                .find(|r| r.label == entry.label)
-                                .expect(key);
-                            let SettingValue::Choice { options, .. } = &row.value else {
-                                panic!("a choice");
-                            };
-                            let shown: Vec<_> = options
-                                .iter()
-                                .enumerate()
-                                .map(|(i, o)| {
-                                    let value = value_of(entry, UiValue::Choice(i), names, &config);
-                                    (value.map(|v| v.to_string()).unwrap(), o.is_enabled())
-                                })
-                                .collect();
-                            let offered: Vec<_> = offered
-                                .into_iter()
-                                .map(|(k, ok)| (k.to_owned(), ok))
-                                .collect();
-                            assert_eq!(shown, offered, "{key} on {} {style} {refresh}", profile.id);
+            for (width, height, refresh_mhz) in sources {
+                let source = neptron_types::SourceGeometry {
+                    width,
+                    height,
+                    refresh_mhz,
+                    aspect_milli: 1_333,
+                    interlaced: false,
+                    rotation: neptron_types::Rotation::R0,
+                };
+                for style in PictureStyle::ALL {
+                    for refresh in RefreshPolicy::ALL {
+                        let settings = neptron_video::PolicySettings {
+                            style,
+                            refresh,
+                            ..neptron_video::PolicySettings::default()
+                        };
+                        let choices = neptron_video::picture_choices_on(
+                            &source,
+                            &settings,
+                            scanlines,
+                            &profile,
+                            &open_caps(),
+                        )
+                        .expect("a plan");
+                        let names = Names {
+                            presets: &presets,
+                            detected: &detected,
+                            choices: Some(&choices),
+                            class,
+                            outputs: &[],
+                        };
+                        let case = format!("{} {source:?} {style} {refresh}", profile.id);
+                        for page in [display_page(&config, names), video_page(&config, names)] {
+                            agree(&config, names, &page, &choices, &case);
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// The rows of `page` agree with `choices`, and so does the gate.
+    fn agree(
+        config: &Config,
+        names: Names<'_>,
+        page: &SettingsPage,
+        choices: &PictureChoices,
+        case: &str,
+    ) {
+        let expected = |choice: &RowChoice, other: &'static str, help: &str| match &choice.answer {
+            RowAnswer::Plain(_) => (true, help.to_owned(), Gate::Set),
+            RowAnswer::ResetsOther { .. } => {
+                (true, reset_help(other), Gate::SetWithReset { other })
+            }
+            RowAnswer::Declined(d) => (
+                false,
+                help.to_owned(),
+                Gate::Refused(decline_text(d.reason)),
+            ),
+        };
+        let expected_modes: Vec<_> = PICTURE_MODE_MENU_ORDER
+            .iter()
+            .map(|m| {
+                let c = &choices.modes.iter().find(|(s, _)| s == m).unwrap().1;
+                let (ok, help, gate) = expected(c, DISPLAY_REFRESH_POLICY, mode_help(*m));
+                (m.key().to_owned(), ok, help, gate)
+            })
+            .collect();
+        let expected_rates: Vec<_> = choices
+            .refresh
+            .iter()
+            .map(|(r, c)| {
+                let (ok, help, gate) = expected(c, DISPLAY_STYLE, refresh_help(*r));
+                (r.key().to_owned(), ok, help, gate)
+            })
+            .collect();
+        for (key, expected) in [
+            (DISPLAY_STYLE, expected_modes),
+            (DISPLAY_REFRESH_POLICY, expected_rates),
+        ] {
+            let entry = config.schema().get(key).expect(key);
+            let row = page
+                .rows
+                .iter()
+                .find(|r| r.label == entry.label)
+                .expect(key);
+            let SettingValue::Choice { options, .. } = &row.value else {
+                panic!("a choice");
+            };
+            let shown: Vec<_> = options
+                .iter()
+                .enumerate()
+                .map(|(i, o)| {
+                    let value = value_of(entry, UiValue::Choice(i), names, config)
+                        .map(|v| v.to_string())
+                        .unwrap();
+                    let gate = gate(key, &value, Some(choices));
+                    (value, o.is_enabled(), o.help.clone(), gate)
+                })
+                .collect();
+            assert_eq!(shown, expected, "{key} on {case}");
+            if row.is_enabled() {
+                let auto = shown.iter().find(|(v, ..)| v == "auto" || v == "exact");
+                assert!(
+                    auto.is_some_and(|(_, ok, ..)| *ok),
+                    "{key} on {case}: Auto is selectable on an enabled row"
+                );
             }
         }
     }

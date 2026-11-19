@@ -5,7 +5,7 @@ use neptron_settings::{
     AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_PANEL_SCALE,
     DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE,
     DISPLAY_TV, DISPLAY_TV_WIDTH, DISPLAY_VERTICAL, INPUT_MENU_HOLD_START_SECONDS, Layer, Layers,
-    Level, Resolved, Schema, SetError, Storage, Target, Value, resolve_key,
+    Level, PICTURE_MODE_COVERS, Resolved, Schema, SetError, Storage, Target, Value, resolve_key,
 };
 use neptron_video::{
     PolicySettings, ScanlineSettings, SettingsError, policy_settings, scanline_settings,
@@ -26,6 +26,19 @@ pub struct GameContext {
     /// ([`runs_arcade_boards`](crate::library::runs_arcade_boards)): the
     /// policy of the game takes the arcade rules.
     pub arcade: bool,
+}
+
+/// A key that a set changed besides the key it names, at the same level:
+/// the other picture row set to Auto, or an expert key that the picture
+/// mode covers, removed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SideChange {
+    /// The key.
+    pub key: &'static str,
+    /// The value before, `None` when unset.
+    pub old: Option<Value>,
+    /// The value now, `None` when removed.
+    pub new: Option<Value>,
 }
 
 /// The schema and the layers of the context.
@@ -133,6 +146,60 @@ impl Config {
         }
     }
 
+    /// Sets (`Some`) or removes (`None`) `key` at `level` in memory, and
+    /// sets `reset` (a key with its value, the other picture row at Auto)
+    /// at the same level. A picture mode that is set also removes, at the
+    /// same level, the expert keys that it covers (`PICTURE_MODE_COVERS`),
+    /// so the mode the player picks is what the player gets. The other
+    /// keys change only after the set of `key` succeeds, so a failed set
+    /// changes nothing. Returns every other key that changed, with its old
+    /// and new value, for the same write or for a revert.
+    ///
+    /// # Errors
+    ///
+    /// [`SetError`] when the layer refuses a value. Nothing changed.
+    pub fn set_clearing(
+        &mut self,
+        level: Level,
+        key: &str,
+        value: Option<Value>,
+        reset: Option<(&'static str, Value)>,
+    ) -> Result<Vec<SideChange>, SetError> {
+        let picture_mode = key == DISPLAY_STYLE && value.is_some();
+        let old = self.get(level, key).cloned();
+        match value {
+            Some(v) => {
+                self.set(level, key, v)?;
+            }
+            None => {
+                self.unset(level, key);
+            }
+        }
+        let mut changes = Vec::new();
+        if let Some((other, auto)) = reset {
+            let before = self.get(level, other).cloned();
+            if let Err(e) = self.set(level, other, auto.clone()) {
+                self.restore(level, key, old);
+                return Err(e);
+            }
+            changes.push(SideChange {
+                key: other,
+                old: before,
+                new: Some(auto),
+            });
+        }
+        if picture_mode {
+            changes.extend(PICTURE_MODE_COVERS.into_iter().filter_map(|covered| {
+                Some(SideChange {
+                    key: covered,
+                    old: Some(self.unset(level, covered)?),
+                    new: None,
+                })
+            }));
+        }
+        Ok(changes)
+    }
+
     /// Removes `key` at `level` in memory and returns the old value.
     pub fn unset(&mut self, level: Level, key: &str) -> Option<Value> {
         self.layer_mut(level).remove(key)
@@ -214,6 +281,27 @@ impl Config {
             &text(DISPLAY_VERTICAL),
             &text(DISPLAY_PANEL_SCALE),
         )
+    }
+
+    /// The scanline settings of the global level, which the Settings panel
+    /// writes.
+    ///
+    /// # Errors
+    ///
+    /// [`SettingsError`] when the schema and the policy disagree.
+    pub fn global_scanlines(&self) -> Result<ScanlineSettings, SettingsError> {
+        let mode = self
+            .resolved_global(DISPLAY_SCANLINES)
+            .map(|r| r.value.to_string())
+            .unwrap_or_default();
+        let strength = match self
+            .resolved_global(DISPLAY_SCANLINE_STRENGTH)
+            .map(|r| r.value)
+        {
+            Some(Value::Int(v)) => v,
+            _ => 0,
+        };
+        scanline_settings(&mode, strength)
     }
 
     /// The scanline settings of the context.
@@ -306,6 +394,106 @@ mod tests {
     use neptron_settings::Source;
 
     use super::*;
+
+    #[test]
+    fn a_picture_mode_set_removes_the_covered_keys_only_when_the_set_succeeds() {
+        let mut c = Config::load(&Storage::new("/nonexistent/config"), None).0;
+        c.set(
+            Level::Global,
+            DISPLAY_VERTICAL,
+            Value::Text("fit".to_owned()),
+        )
+        .unwrap();
+        c.set(
+            Level::Global,
+            DISPLAY_PANEL_SCALE,
+            Value::Text("integer".to_owned()),
+        )
+        .unwrap();
+        // A value the layer refuses changes nothing: the expert keys stay.
+        assert!(
+            c.set_clearing(Level::Global, DISPLAY_STYLE, Some(Value::Int(3)), None)
+                .is_err()
+        );
+        assert!(c.get(Level::Global, DISPLAY_VERTICAL).is_some());
+        assert!(c.get(Level::Global, DISPLAY_PANEL_SCALE).is_some());
+        let cleared = c
+            .set_clearing(
+                Level::Global,
+                DISPLAY_STYLE,
+                Some(Value::Text("sharp".to_owned())),
+                None,
+            )
+            .unwrap();
+        assert_eq!(cleared.len(), 2);
+        assert_eq!(c.get(Level::Global, DISPLAY_VERTICAL), None);
+        assert_eq!(c.get(Level::Global, DISPLAY_PANEL_SCALE), None);
+        // A reset of the mode removes nothing.
+        c.set(
+            Level::Global,
+            DISPLAY_VERTICAL,
+            Value::Text("fit".to_owned()),
+        )
+        .unwrap();
+        assert!(
+            c.set_clearing(Level::Global, DISPLAY_STYLE, None, None)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(c.get(Level::Global, DISPLAY_VERTICAL).is_some());
+    }
+
+    #[test]
+    fn a_set_with_a_reset_sets_the_other_row_only_when_both_sets_succeed() {
+        let mut c = Config::load(&Storage::new("/nonexistent/config"), None).0;
+        c.set(
+            Level::Global,
+            DISPLAY_REFRESH_POLICY,
+            Value::Text("force_50".to_owned()),
+        )
+        .unwrap();
+        let auto = || Some((DISPLAY_REFRESH_POLICY, Value::Text("exact".to_owned())));
+        // A refused value changes neither key.
+        assert!(
+            c.set_clearing(Level::Global, DISPLAY_STYLE, Some(Value::Int(3)), auto())
+                .is_err()
+        );
+        assert_eq!(
+            c.get(Level::Global, DISPLAY_REFRESH_POLICY),
+            Some(&Value::Text("force_50".to_owned()))
+        );
+        // A refused reset puts the first key back.
+        assert!(
+            c.set_clearing(
+                Level::Global,
+                DISPLAY_STYLE,
+                Some(Value::Text("speed".to_owned())),
+                Some((DISPLAY_REFRESH_POLICY, Value::Text("never".to_owned()))),
+            )
+            .is_err()
+        );
+        assert_eq!(c.get(Level::Global, DISPLAY_STYLE), None);
+        let changes = c
+            .set_clearing(
+                Level::Global,
+                DISPLAY_STYLE,
+                Some(Value::Text("speed".to_owned())),
+                auto(),
+            )
+            .unwrap();
+        assert_eq!(
+            changes,
+            vec![SideChange {
+                key: DISPLAY_REFRESH_POLICY,
+                old: Some(Value::Text("force_50".to_owned())),
+                new: Some(Value::Text("exact".to_owned())),
+            }]
+        );
+        assert_eq!(
+            c.get(Level::Global, DISPLAY_STYLE),
+            Some(&Value::Text("speed".to_owned()))
+        );
+    }
 
     fn config(global: &str, system: &str, game: &str) -> Config {
         let dir = std::env::temp_dir().join(format!(

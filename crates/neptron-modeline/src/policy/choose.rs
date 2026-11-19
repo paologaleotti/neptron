@@ -239,7 +239,7 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
             || speed_beyond(game, shown, PANEL_SPEED_NOTICE_MIN_PPM));
     let strategy_replaced = proposal.strategy_replaced;
     let double_refresh = timing.target.kind == RefreshKind::NativeDouble;
-    let style_fallback = mode_refusal(plan, plan.style, considered.rung).is_some();
+    let style_fallback = mode_refusal(plan, plan.style, considered).is_some();
     let cropped_lines = proposal.overscan_crop.map_or(0, |crop| crop.lines());
     let padded_fill_permille = proposal
         .padding
@@ -384,18 +384,29 @@ fn small_fill(proposal: &Proposal) -> Option<u16> {
     (fill * 100 < SMALL_PICTURE_MIN_PERCENT * 1_000).then(|| u16::try_from(fill).unwrap_or(0))
 }
 
-/// Why the winner on `rung` is not the picture mode `style` asks for, or
-/// `None` when it is. Auto and `fit` take every rung. `sharp` takes every
-/// exact rung. `speed` takes every rung off a TV, and none on a TV, whose
-/// standard fixes the rate. `native` and a multiple take the first rung of
-/// their walk, on a flat panel too. The menus ([`super::offer`]) and the
-/// notice (`style_fallback`) read this one rule.
-pub(crate) fn mode_refusal(plan: &Plan, style: PictureStyle, rung: Rung) -> Option<DeclineReason> {
+/// Why the winner `considered` is not what the picture mode `style` asks
+/// for, or `None` when it is. Auto and `fit` take every winner. `sharp`
+/// takes every exact rung. `speed` takes a winner that keeps the game's
+/// speed within [`SPEED_ALERT_MIN_PPM`], off a TV; a TV standard fixes the
+/// rate. `native` and a multiple take the first rung of their walk, on a
+/// flat panel too. The menus ([`super::offer`]) and the notice
+/// (`style_fallback`) read this one rule.
+pub(crate) fn mode_refusal(
+    plan: &Plan,
+    style: PictureStyle,
+    considered: &Considered,
+) -> Option<DeclineReason> {
+    let rung = considered.rung;
     let on = |kind| plan.considered.iter().any(|c| c.target.kind == kind);
     match style {
         PictureStyle::Auto | PictureStyle::Fit => None,
         PictureStyle::Sharp => rung.is_fitted().then_some(DeclineReason::NoExactMode),
-        PictureStyle::Speed => on(RefreshKind::Tv).then_some(DeclineReason::OneRateOnTv),
+        PictureStyle::Speed if on(RefreshKind::Tv) => Some(DeclineReason::OneRateOnTv),
+        PictureStyle::Speed => {
+            let timing = considered.outcome.as_ref().ok()?.timing;
+            speed_alert(u64::from(timing.game_mhz), timing.shown_mhz())
+                .then_some(DeclineReason::SpeedNotHeld)
+        }
         PictureStyle::Native | PictureStyle::X2 | PictureStyle::X3 | PictureStyle::X4 => {
             if super::walk_ladder(style).first() == Some(&rung) {
                 None
@@ -405,7 +416,7 @@ pub(crate) fn mode_refusal(plan: &Plan, style: PictureStyle, rung: Rung) -> Opti
                     shown: rung,
                 })
             } else {
-                Some(DeclineReason::NeedsAnotherMonitor {
+                Some(DeclineReason::NotShownHere {
                     asked: style,
                     shown: rung,
                 })

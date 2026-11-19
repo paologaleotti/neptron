@@ -11,7 +11,7 @@ use neptron_video::{
     DisplayConfig, Guard, GuardEvent, GuardRecord, GuardStep, RevertReason, SafeReason, VideoEngine,
 };
 
-use super::{Shell, Stage};
+use super::{PendingChange, Shell, Stage};
 use crate::display::{tv_setting, tv_standard};
 use crate::outbox::Job;
 use crate::record;
@@ -65,9 +65,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             }
             GuardEvent::Confirmed => {
                 let changes = std::mem::take(&mut self.pending);
-                for change in &changes {
-                    self.write_setting(change.level, change.key, change.new.clone());
-                }
+                self.write_pending(changes);
                 self.snap.confirm = None;
             }
             GuardEvent::Reverted {
@@ -178,6 +176,14 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         self.write_settings(level, vec![(key, value)]);
     }
 
+    /// Writes the waiting changes: one write per level, so a picture mode
+    /// and the expert keys it removes reach their file together.
+    pub(super) fn write_pending(&mut self, changes: Vec<PendingChange>) {
+        for (level, changes) in by_level(changes) {
+            self.write_settings(level, changes);
+        }
+    }
+
     /// Writes `changes` to the file of `level` in one write.
     pub(super) fn write_settings(
         &mut self,
@@ -245,5 +251,61 @@ pub(super) fn safe_text(reason: SafeReason) -> &'static str {
         }
         SafeReason::NoValidMode => "Safe mode: the display settings gave no picture.",
         SafeReason::NothingConfirmed => "Safe mode: no display setting was kept.",
+    }
+}
+
+/// The changes of one settings file: each key with its new value, `None`
+/// to remove it.
+type FileChanges = Vec<(&'static str, Option<Value>)>;
+
+/// The changes of `pending` for each level, in the order of their first
+/// change, each in its own order.
+fn by_level(pending: Vec<PendingChange>) -> Vec<(Level, FileChanges)> {
+    let mut levels: Vec<(Level, FileChanges)> = Vec::new();
+    for change in pending {
+        match levels.iter_mut().find(|(level, _)| *level == change.level) {
+            Some((_, changes)) => changes.push((change.key, change.new)),
+            None => levels.push((change.level, vec![(change.key, change.new)])),
+        }
+    }
+    levels
+}
+
+#[cfg(test)]
+mod tests {
+    use neptron_settings::{DISPLAY_PANEL_SCALE, DISPLAY_VERTICAL};
+
+    use super::*;
+
+    /// A picture mode and the expert keys it removes, waiting under a
+    /// prompt, reach each file in one write.
+    #[test]
+    fn the_waiting_changes_make_one_write_per_level() {
+        let change = |level, key, new| PendingChange {
+            level,
+            key,
+            old: None,
+            new,
+        };
+        let pending = vec![
+            change(
+                Level::Game,
+                DISPLAY_STYLE,
+                Some(Value::Text("sharp".into())),
+            ),
+            change(
+                Level::Global,
+                DISPLAY_MONITOR,
+                Some(Value::Text("pal".into())),
+            ),
+            change(Level::Game, DISPLAY_VERTICAL, None),
+            change(Level::Game, DISPLAY_PANEL_SCALE, None),
+        ];
+        let grouped = by_level(pending);
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped[0].0, Level::Game);
+        let keys: Vec<_> = grouped[0].1.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, [DISPLAY_STYLE, DISPLAY_VERTICAL, DISPLAY_PANEL_SCALE]);
+        assert_eq!(grouped[1].0, Level::Global);
     }
 }

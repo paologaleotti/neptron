@@ -332,7 +332,10 @@ fn the_picture_choices_come_from_the_same_decision() {
     let (style, auto) = &choices.modes[0];
     assert_eq!(*style, PictureStyle::Auto);
     let current = rig.engine.current().unwrap();
-    assert_eq!(auto.as_ref().map(|o| o.winner), Ok(current.chosen.index));
+    assert_eq!(
+        auto.answer.offer().map(|o| o.winner).ok(),
+        Some(current.chosen.index)
+    );
     let offer = rig.engine.offer(&SNES).unwrap();
     assert_eq!(offer.as_ref().map(|o| o.winner), Ok(current.chosen.index));
     let choices = rig.engine.picture_choices(&DODONPACHI).unwrap();

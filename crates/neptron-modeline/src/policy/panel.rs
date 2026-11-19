@@ -24,18 +24,6 @@ pub const PANEL_FILL_MIN_SCALE_MILLI: u32 = 4_000;
 /// size.
 const SPEED_STEP_PPM: u64 = 1_000;
 
-/// The plan on a flat panel: each listed mode, the game scaled into it by
-/// the largest whole vertical factor that fits, or by the factor of the
-/// style.
-///
-/// The first listed mode is the panel's preferred mode. The order is: modes
-/// that scale the game by a whole factor before those that fit it with a
-/// fraction; then modes of the preferred size; then the mode whose rate per
-/// game frame is nearest the game's; then the order of the list. The
-/// `speed` style puts the rate right after the fit, in steps of
-/// [`SPEED_STEP_PPM`], so only a mode that must shrink the game comes
-/// after a farther rate. A mode near twice the game's rate shows each
-/// frame twice.
 /// What keeps a whole multiple where the picture mode would fill: the
 /// scanlines, or the expert key `display.panel_scale = integer` under a
 /// mode that does not name the scale itself (`sharp` and the factors do).
@@ -61,6 +49,18 @@ fn held_whole(
     })
 }
 
+/// The plan on a flat panel: each listed mode, the game scaled into it by
+/// the largest whole vertical factor that fits, or by the factor of the
+/// style.
+///
+/// The first listed mode is the panel's preferred mode. The order is: modes
+/// that scale the game by a whole factor before those that fit it with a
+/// fraction; then modes of the preferred size; then the mode whose rate per
+/// game frame is nearest the game's; then the order of the list. The
+/// `speed` style puts the rate right after the fit, in steps of
+/// [`SPEED_STEP_PPM`], so only a mode that must shrink the game comes
+/// after a farther rate. A mode near twice the game's rate shows each
+/// frame twice.
 pub(crate) fn panel_plan(
     source: &OrientedSource,
     settings: &Effective,
@@ -110,7 +110,13 @@ pub(crate) fn panel_plan(
                 / (game * u64::from(repeat)).max(1);
             let speed_step = match settings.style {
                 PictureStyle::Speed => off_ppm / SPEED_STEP_PPM,
-                _ => 0,
+                PictureStyle::Auto
+                | PictureStyle::Native
+                | PictureStyle::X2
+                | PictureStyle::X3
+                | PictureStyle::X4
+                | PictureStyle::Sharp
+                | PictureStyle::Fit => 0,
             };
             let key = (
                 rung.is_fitted(),

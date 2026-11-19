@@ -239,6 +239,21 @@ impl<D: Display> VideoEngine<D> {
         self.odren.picture_choices(source)
     }
 
+    /// [`Self::picture_choices`] for other settings and scanlines than the
+    /// run's: the menu of the global level in a game.
+    ///
+    /// # Errors
+    ///
+    /// [`Unshowable`] when the policy gives no plan.
+    pub fn picture_choices_with(
+        &self,
+        source: &SourceGeometry,
+        settings: &PolicySettings,
+        scanlines: ScanlineSettings,
+    ) -> Result<PictureChoices, Unshowable> {
+        self.odren.picture_choices_with(source, settings, scanlines)
+    }
+
     /// The answer of `neptron_modeline::policy::offer` for the settings of
     /// the run: whether the display gives the stored picture mode and
     /// refresh choice.

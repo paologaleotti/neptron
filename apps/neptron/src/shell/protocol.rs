@@ -8,6 +8,7 @@ use neptron_types::{Control, InputEvent};
 
 use super::{Shell, Stage};
 use crate::control::value_of_json;
+use crate::pages::{self, Gate};
 use crate::relaunch::GameRef;
 
 impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Shell<D, S, I, C> {
@@ -126,7 +127,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     }
 
     /// Sets a setting from the protocol. A display setting goes through the
-    /// guard, as a menu choice does.
+    /// guard, as a menu choice does, and a picture mode or refresh choice
+    /// passes the rule that greys it in the menu of that level.
     ///
     /// # Errors
     ///
@@ -151,6 +153,25 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         entry.kind.check(&value).map_err(|e| e.to_string())?;
         if !entry.levels.allows(level) {
             return Err(format!("{key} cannot be set at the {} level", level.name()));
+        }
+        // The rule of the menu of that level: a picture mode or refresh
+        // choice that the display does not give is refused. The protocol
+        // sets one key: a value that needs the other row at Auto is refused
+        // too, and says so.
+        match self.gate(entry.key, level, &value) {
+            Gate::Set => {}
+            Gate::SetWithReset { other } => {
+                return Err(format!(
+                    "{key} = {value} is only possible with {other} = {}: set it first",
+                    pages::other_row(entry.key).map_or("auto", |(_, auto)| auto)
+                ));
+            }
+            Gate::Refused(reason) => {
+                return Err(format!(
+                    "{key} = {value} is refused: {}",
+                    pages::lower_first(&reason)
+                ));
+            }
         }
         // The time of the last frame: every guard call gets a frame time.
         let now_ns = self.now_ns;

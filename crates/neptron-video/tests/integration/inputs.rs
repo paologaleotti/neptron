@@ -85,7 +85,7 @@ fn a_style_change_takes_the_style_of_the_new_settings() {
     let current = rig.engine.current().unwrap();
     // 3x is not on its rung here, so the option is declined; the winner it
     // shows in its place is the engine's.
-    let winner = match x3 {
+    let winner = match x3.answer.offer() {
         Ok(offered) => Some(offered.winner),
         Err(declined) => declined.winner,
     };

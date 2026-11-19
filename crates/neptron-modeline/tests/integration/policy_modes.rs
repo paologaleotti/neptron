@@ -518,7 +518,7 @@ fn the_mode_rows_grey_speed_on_a_tv_and_sharp_where_only_a_fit_exists() {
         .iter()
         .find(|(style, _)| *style == PictureStyle::Speed)
         .unwrap();
-    assert!(matches!(speed.1, Err(ref d) if d.reason == DeclineReason::OneRateOnTv));
+    assert!(matches!(speed.1.answer.offer(), Err(d) if d.reason == DeclineReason::OneRateOnTv));
     // 480 upright lines on a 31 kHz tube with no interlace: only the fit.
     let arcade_31 = Display {
         profile: preset("arcade_31"),
@@ -541,7 +541,15 @@ fn the_mode_rows_grey_speed_on_a_tv_and_sharp_where_only_a_fit_exists() {
     )
     .unwrap()
     .modes;
-    let available = |style| rows.iter().find(|(s, _)| *s == style).unwrap().1.is_ok();
+    let available = |style| {
+        rows.iter()
+            .find(|(s, _)| *s == style)
+            .unwrap()
+            .1
+            .answer
+            .offer()
+            .is_ok()
+    };
     assert!(available(PictureStyle::Auto));
     assert!(!available(PictureStyle::Sharp));
     assert!(available(PictureStyle::Speed));

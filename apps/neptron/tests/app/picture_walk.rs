@@ -9,11 +9,12 @@
 //! changes nothing, whatever the input.
 
 use neptron::NextRun;
+use neptron::pages;
 use neptron::relaunch::GameRef;
 use neptron_testkit::{DisplayOptions, FakeDisplay};
 use neptron_types::{Control, GpuCaps, Modeline, MonitorKind, MonitorProfile};
 use neptron_ui::snapshot::SettingValue;
-use neptron_video::Phase;
+use neptron_video::{Phase, PictureStyle, RefreshPolicy};
 
 use crate::panel::{PANEL_1080P, sysfs_with_panel};
 use crate::rig::{Rig, in_child, in_children, test_name};
@@ -91,8 +92,16 @@ fn to_video_page(rig: &mut Rig) {
     assert_eq!(rig.screen(), "quick-menu/video");
 }
 
-/// The options of the row `label` of the snapshot: label and enabled.
-fn options(rig: &mut Rig, label: &str) -> Vec<(String, bool)> {
+/// An option of a row of the snapshot.
+#[derive(Debug, Clone)]
+struct Shown {
+    label: String,
+    enabled: bool,
+    help: String,
+}
+
+/// The options of the row `label` of the snapshot.
+fn options(rig: &mut Rig, label: &str) -> Vec<Shown> {
     let row = rig
         .shell()
         .snapshot()
@@ -106,62 +115,147 @@ fn options(rig: &mut Rig, label: &str) -> Vec<(String, bool)> {
     };
     options
         .iter()
-        .map(|o| (o.label.clone(), row_enabled && o.is_enabled()))
+        .map(|o| Shown {
+            label: o.label.clone(),
+            enabled: row_enabled && o.is_enabled(),
+            help: o.help.clone(),
+        })
         .collect()
 }
 
+/// The value in the settings of the option `label` of the row of `key`.
+fn value_of(key: &str, label: &str) -> &'static str {
+    match key {
+        "display.style" => PictureStyle::ALL
+            .into_iter()
+            .find(|s| pages::mode_label(*s) == label)
+            .map(PictureStyle::key),
+        _ => RefreshPolicy::ALL
+            .into_iter()
+            .find(|r| pages::refresh_label(*r) == label)
+            .map(RefreshPolicy::key),
+    }
+    .unwrap_or_else(|| panic!("{key} has the option {label}"))
+}
+
+/// What a walk found: the options it chose (with " (resets)" when the
+/// pick also set the other row to Auto), the greyed options of enabled
+/// rows (activated with every input), and the disabled rows.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Walked {
+    chosen: Vec<String>,
+    greyed: Vec<String>,
+    disabled_rows: Vec<String>,
+}
+
+/// The notice texts that a picture can show start with one of these.
+const PICTURE_NOTICE_STARTS: [&str; 8] = [
+    "Soft picture:",
+    "Small picture:",
+    "The game runs at",
+    "Each frame shows",
+    "Whole steps",
+    "No scanlines:",
+    "Picture:",
+    "Picture mode",
+];
+
+/// The settings file of the game, as it is on disk now.
+fn game_file(rig: &Rig) -> String {
+    std::fs::read_to_string(rig.paths.config().join("games/nes/Test Game.toml")).unwrap_or_default()
+}
+
+/// The line of `key` with `value` in a settings file.
+fn line(key: &str, value: &str) -> String {
+    format!("{} = \"{value}\"", key.trim_start_matches("display."))
+}
+
+/// The other picture row of `key`, with its Auto value.
+fn other_row(key: &str) -> (&'static str, &'static str) {
+    pages::other_row(key).expect("a picture row")
+}
+
 /// Walks every option of the rows of the Video page on the display of
-/// `rig`, and returns how many options it chose and how many were greyed.
-fn walk(mut rig: Rig, key_of_row: &[(&str, &str)]) -> (usize, usize) {
+/// `rig`, each judged as the menu shows it at the moment of the pick. A
+/// chosen option sets the setting at the game level with no prompt (and
+/// the other row to Auto when its help line says so), in memory and on
+/// disk; the display takes a mode inside the profile, a picture shows; a
+/// new picture that is not exact shows its notice, and a picture that does
+/// not change shows none. A greyed option, activated with Accept, Left and
+/// Right, changes nothing in memory, on disk or on the engine.
+fn walk(mut rig: Rig, key_of_row: &[(&str, &str)]) -> Walked {
     rig.boot(the_game());
     assert!(rig.shell().in_game());
     rig.frames(30);
     let profile = rig.shell().guard().active().monitor.profile().clone();
-    let (mut chosen, mut greyed) = (0, 0);
+    let mut walked = Walked::default();
     for &(label, key) in key_of_row {
         to_video_page(&mut rig);
-        let all = options(&mut rig, label);
-        for (option, enabled) in all {
-            to_video_page(&mut rig);
-            let before = rig.shell().config().text(key);
-            let notices = rig.shell().snapshot().notices.len();
-            let proposal = rig
-                .shell()
-                .engine()
-                .and_then(|e| e.current())
-                .map(|c| c.chosen.proposal);
+        let row_enabled = rig
+            .shell()
+            .snapshot()
+            .settings
+            .rows
+            .iter()
+            .find(|r| r.label == label)
+            .is_some_and(|r| r.is_enabled());
+        if !row_enabled {
             rig.focus(label);
-            let row_enabled = rig
-                .shell()
-                .snapshot()
-                .settings
-                .rows
-                .iter()
-                .find(|r| r.label == label)
-                .is_some_and(|r| r.is_enabled());
             rig.tap(&[Control::A]);
-            if !row_enabled {
-                assert_eq!(
-                    rig.screen(),
-                    "quick-menu/video",
-                    "a disabled row opens nothing"
-                );
-                greyed += 1;
-                continue;
-            }
+            assert_eq!(
+                rig.screen(),
+                "quick-menu/video",
+                "a disabled row opens nothing"
+            );
+            walked.disabled_rows.push(label.to_owned());
+            continue;
+        }
+        let count = options(&mut rig, label).len();
+        for index in 0..count {
+            to_video_page(&mut rig);
+            let shown = options(&mut rig, label)[index].clone();
+            let option = shown.label.clone();
+            let (other, other_auto) = other_row(key);
+            let before = rig.shell().config().text(key);
+            let other_before = rig.shell().config().text(other);
+            let file_before = game_file(&rig);
+            let notices = rig.shell().snapshot().notices.len();
+            let current = |rig: &mut Rig| {
+                rig.shell()
+                    .engine()
+                    .and_then(|e| e.current())
+                    .map(|c| (c.chosen.proposal, c.chosen.notice.is_some()))
+            };
+            let proposal = current(&mut rig).map(|(p, _)| p);
+            let mode_before = rig.display.active_mode();
+            rig.focus(label);
+            rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "options");
             rig.focus(&option);
-            rig.tap(&[Control::A]);
-            if !enabled {
-                // Accept, Left and Right on a greyed option change nothing.
-                rig.tap(&[Control::Left]);
-                rig.tap(&[Control::Right]);
-                assert_eq!(rig.screen(), "options", "{label} {option}: greyed");
+            if !shown.enabled {
+                // Left and Right move the cursor by a page, so each input
+                // starts on the greyed option again.
+                for input in [Control::A, Control::Left, Control::Right, Control::A] {
+                    rig.focus(&option);
+                    rig.tap(&[input]);
+                    rig.frames(2);
+                    assert_eq!(rig.screen(), "options", "{label} {option}: greyed");
+                }
+                rig.frames(30);
                 assert_eq!(rig.shell().config().text(key), before, "{label} {option}");
+                assert_eq!(game_file(&rig), file_before, "{label} {option}: on disk");
+                assert_eq!(
+                    current(&mut rig).map(|(p, _)| p),
+                    proposal,
+                    "{label} {option}"
+                );
+                assert_eq!(rig.display.active_mode(), mode_before, "{label} {option}");
                 rig.tap(&[Control::B]);
-                greyed += 1;
+                walked.greyed.push(format!("{label}: {option}"));
                 continue;
             }
+            let resets = shown.help.starts_with("Also sets");
+            rig.tap(&[Control::A]);
             rig.frames(30);
             assert_eq!(
                 rig.shell().guard().phase(),
@@ -178,31 +272,72 @@ fn walk(mut rig: Rig, key_of_row: &[(&str, &str)]) -> (usize, usize) {
             }
             let frame = rig.display.frames().last().expect("a frame").scene;
             assert!(frame.game.is_some(), "{label} {option}: a picture");
-            let current = rig
-                .shell()
-                .engine()
-                .and_then(|e| e.current())
-                .map(|c| (c.chosen.proposal, c.chosen.notice.is_some()));
-            if let (Some((now, noticed)), Some(before)) = (current, proposal)
-                && now != before
-                && noticed
-            {
-                assert!(
-                    rig.shell().snapshot().notices.len() > notices,
-                    "{label} {option}: the notice of the new picture"
-                );
+            // The stored values, in memory and on disk.
+            let value = value_of(key, &option);
+            assert_eq!(rig.shell().config().text(key), value, "{label} {option}");
+            let other_now = rig.shell().config().text(other);
+            if resets {
+                assert_eq!(other_now, other_auto, "{label} {option}: the reset");
+            } else {
+                assert_eq!(other_now, other_before, "{label} {option}: no reset");
             }
-            chosen += 1;
+            // The writer thread saves the file after the frame.
+            let mut lines = Vec::new();
+            if before != value {
+                lines.push(line(key, value));
+            }
+            if resets {
+                lines.push(line(other, other_auto));
+            }
+            rig.until(600, "the write of the game settings", |r| {
+                let file = game_file(r);
+                lines.iter().all(|l| file.contains(l.as_str()))
+            });
+            let new: Vec<String> = rig
+                .shell()
+                .snapshot()
+                .notices
+                .iter()
+                .skip(notices)
+                .map(|n| n.text.clone())
+                .collect();
+            let picture_notice = new.iter().any(|t| {
+                PICTURE_NOTICE_STARTS
+                    .iter()
+                    .any(|start| t.starts_with(start))
+            });
+            match (current(&mut rig), proposal) {
+                (Some((now, noticed)), Some(before)) if now != before && noticed => assert!(
+                    picture_notice,
+                    "{label} {option}: the notice of the new picture: {new:?}"
+                ),
+                (Some((now, _)), Some(before)) if now == before => assert!(
+                    !picture_notice,
+                    "{label} {option}: no notice for the same picture: {new:?}"
+                ),
+                _ => {}
+            }
+            if resets {
+                let named = format!("{} is set to Auto too.", pages::row_label(other));
+                assert!(new.contains(&named), "{label} {option}: {new:?}");
+                walked.chosen.push(format!("{label}: {option} (resets)"));
+            } else {
+                walked.chosen.push(format!("{label}: {option}"));
+            }
         }
     }
     rig.finish();
-    (chosen, greyed)
+    walked
 }
 
 const ROWS: [(&str, &str); 2] = [
     ("Picture mode", "display.style"),
     ("Refresh rate", "display.refresh_policy"),
 ];
+
+fn names(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| (*s).to_owned()).collect()
+}
 
 #[test]
 #[ignore = "tier 2"]
@@ -212,8 +347,9 @@ fn every_option_on_a_15_khz_crt_is_safe_or_greyed() {
         "every_option_on_a_15_khz_crt_is_safe_or_greyed",
     );
     in_child(&name, |dir| {
-        let (chosen, greyed) = walk(Rig::new(dir), &ROWS);
-        assert!(chosen >= 5 && greyed >= 3, "{chosen} {greyed}");
+        let walked = walk(Rig::new(dir), &ROWS);
+        println!("{walked:?}");
+        assert_eq!(walked, expected_15_khz());
     });
 }
 
@@ -228,8 +364,9 @@ fn every_option_on_a_pi_dpi_crt_is_safe_or_greyed() {
         let mut rig = Rig::new(dir);
         rig.display =
             FakeDisplay::with_options(rig.clock.clone(), pi_dpi_caps(), DisplayOptions::default());
-        let (chosen, greyed) = walk(rig, &ROWS);
-        assert!(chosen >= 1 && greyed >= 3, "{chosen} {greyed}");
+        let walked = walk(rig, &ROWS);
+        println!("{walked:?}");
+        assert_eq!(walked, expected_pi_dpi());
     });
 }
 
@@ -244,11 +381,9 @@ fn every_option_on_a_flat_panel_is_safe_or_greyed() {
         let mut rig = Rig::new(dir);
         sysfs_with_panel(&rig.paths.sysfs, PANEL_1080P);
         rig.output = "HDMI-A-1".to_owned();
-        let (chosen, greyed) = walk(rig, &ROWS);
-        assert!(
-            chosen >= 8,
-            "every picture mode fits a 1080p panel: {chosen} {greyed}"
-        );
+        let walked = walk(rig, &ROWS);
+        println!("{walked:?}");
+        assert_eq!(walked, expected_panel());
     });
 }
 
@@ -260,9 +395,134 @@ fn every_option_on_a_pi_composite_tv_is_safe_or_greyed() {
         "every_option_on_a_pi_composite_tv_is_safe_or_greyed",
     );
     in_child(&name, |dir| {
-        let (chosen, greyed) = walk(crate::tv::composite_rig(dir), &ROWS);
-        assert!(chosen >= 4 && greyed >= 4, "{chosen} {greyed}");
+        let walked = walk(crate::tv::composite_rig(dir), &ROWS);
+        println!("{walked:?}");
+        assert_eq!(walked, expected_tv());
     });
+}
+
+/// The control protocol sets one key: a picture mode that the display gives
+/// only with the refresh rate at Auto is refused, says so, and changes
+/// nothing; the quick menu sets both rows in one write.
+#[test]
+#[ignore = "tier 2"]
+fn a_value_that_needs_the_other_row_at_auto_is_refused_by_the_protocol() {
+    let name = test_name(
+        module_path!(),
+        "a_value_that_needs_the_other_row_at_auto_is_refused_by_the_protocol",
+    );
+    in_child(&name, |dir| {
+        let mut rig = Rig::new(dir);
+        let games = rig.paths.config().join("games").join("nes");
+        std::fs::create_dir_all(&games).expect("the folder");
+        std::fs::write(
+            games.join("Test Game.toml"),
+            "schema_version = 1\n\n[display]\nrefresh_policy = \"force_50\"\n",
+        )
+        .expect("the game settings");
+        rig.boot(the_game());
+        rig.frames(30);
+        let file_before = game_file(&rig);
+        let refused = rig.shell().set_from_protocol(
+            "display.style",
+            neptron_settings::Level::Game,
+            &serde_json::Value::String("speed".to_owned()),
+        );
+        let message = refused.expect_err("refused");
+        assert!(
+            message.contains("only possible with display.refresh_policy = exact"),
+            "{message}"
+        );
+        rig.frames(30);
+        assert_eq!(rig.shell().config().text("display.style"), "auto");
+        assert_eq!(game_file(&rig), file_before);
+        // The quick menu offers it with the reset, and a pick writes both.
+        to_video_page(&mut rig);
+        let shown = options(&mut rig, "Picture mode");
+        let speed = shown
+            .iter()
+            .find(|o| o.label == "Game speed")
+            .expect("speed");
+        assert!(speed.enabled);
+        assert_eq!(speed.help, "Also sets Refresh rate to Auto.");
+        rig.focus("Picture mode");
+        rig.tap(&[Control::A]);
+        rig.focus("Game speed");
+        rig.tap(&[Control::A]);
+        rig.frames(30);
+        assert_eq!(rig.shell().config().text("display.style"), "speed");
+        assert_eq!(rig.shell().config().text("display.refresh_policy"), "exact");
+        rig.until(600, "the write", |r| {
+            let file = game_file(r);
+            file.contains("style = \"speed\"") && file.contains("refresh_policy = \"exact\"")
+        });
+        rig.finish();
+    });
+}
+
+/// A 15 kHz monitor shows one game line on one screen line, at one rate.
+fn expected_15_khz() -> Walked {
+    Walked {
+        chosen: names(&[
+            "Picture mode: Auto",
+            "Picture mode: Sharp lines",
+            "Picture mode: Game speed",
+            "Picture mode: Fill",
+            "Picture mode: Native",
+            "Refresh rate: Auto",
+            "Refresh rate: 50 Hz",
+            "Refresh rate: 60 Hz",
+        ]),
+        greyed: names(&[
+            "Picture mode: 2x",
+            "Picture mode: 3x",
+            "Picture mode: 4x",
+            "Refresh rate: Double rate",
+        ]),
+        disabled_rows: Vec::new(),
+    }
+}
+
+/// The DPI output of a Pi drives the same 15 kHz monitor: the same choices.
+fn expected_pi_dpi() -> Walked {
+    expected_15_khz()
+}
+
+/// A panel draws every picture mode. It keeps its own rates.
+fn expected_panel() -> Walked {
+    Walked {
+        chosen: names(&[
+            "Picture mode: Auto",
+            "Picture mode: Sharp lines",
+            "Picture mode: Game speed",
+            "Picture mode: Fill",
+            "Picture mode: Native",
+            "Picture mode: 2x",
+            "Picture mode: 3x",
+            "Picture mode: 4x",
+        ]),
+        greyed: Vec::new(),
+        disabled_rows: names(&["Refresh rate"]),
+    }
+}
+
+/// A TV has one rate and one line count.
+fn expected_tv() -> Walked {
+    Walked {
+        chosen: names(&[
+            "Picture mode: Auto",
+            "Picture mode: Sharp lines",
+            "Picture mode: Fill",
+            "Picture mode: Native",
+        ]),
+        greyed: names(&[
+            "Picture mode: Game speed",
+            "Picture mode: 2x",
+            "Picture mode: 3x",
+            "Picture mode: 4x",
+        ]),
+        disabled_rows: names(&["Refresh rate"]),
+    }
 }
 
 /// A stored picture mode that the display does not give (here 4x on a
@@ -290,8 +550,11 @@ fn a_stored_mode_the_display_does_not_give_shows_a_safe_picture_and_says_so() {
             let mut rig = Rig::new(&root);
             let path = rig.paths.config().join(file);
             std::fs::create_dir_all(path.parent().expect("a parent")).expect("the folder");
-            std::fs::write(&path, "schema_version = 1\n\n[display]\nstyle = \"4x\"\n")
-                .expect("the settings");
+            std::fs::write(
+                &path,
+                "schema_version = 1\n\n[display]\nstyle = \"4x\"\nscanlines = \"on\"\n",
+            )
+            .expect("the settings");
             rig.boot(the_game());
             assert!(rig.shell().in_game());
             rig.frames(30);
@@ -309,9 +572,15 @@ fn a_stored_mode_the_display_does_not_give_shows_a_safe_picture_and_says_so() {
                 .collect();
             assert!(
                 shown.iter().any(|t| t.starts_with(
-                    "Picture mode 4x is not possible on this screen: Needs another monitor. Shown: "
+                    "Picture mode 4x: not possible with this screen and video output. Shown: "
                 )),
                 "{file}: {shown:?}"
+            );
+            assert!(
+                shown.iter().any(|t| t.contains(
+                    "No scanlines: they need each game line on two or more screen lines."
+                )),
+                "{file}: the scanlines of the picture shown: {shown:?}"
             );
             rig.finish();
         }
@@ -367,5 +636,50 @@ fn a_picture_mode_set_at_a_level_removes_the_expert_keys_of_that_level() {
         assert!(file.contains("style = \"sharp\""), "{file}");
         assert!(!file.contains("vertical"), "{file}");
         assert!(!file.contains("panel_scale"), "{file}");
+    });
+}
+
+/// The control protocol obeys the rule of the menus: in a game, a picture
+/// mode or a refresh choice that the display does not give is refused
+/// with its reason, and the file on disk and the engine stay as they were.
+#[test]
+#[ignore = "tier 2"]
+fn the_protocol_refuses_a_value_the_display_does_not_give() {
+    let name = test_name(
+        module_path!(),
+        "the_protocol_refuses_a_value_the_display_does_not_give",
+    );
+    in_children(&name, 2, |dir, stage| {
+        let mut rig = if stage == 0 {
+            Rig::new(dir)
+        } else {
+            crate::tv::composite_rig(dir)
+        };
+        rig.boot(the_game());
+        assert!(rig.shell().in_game());
+        rig.frames(30);
+        let (key, value, reason) = if stage == 0 {
+            (
+                "display.style",
+                "4x",
+                "not possible with this screen and video output",
+            )
+        } else {
+            ("display.refresh_policy", "force_50", "a TV has one rate")
+        };
+        let file_before = game_file(&rig);
+        let mode_before = rig.display.active_mode();
+        let refused = rig.shell().set_from_protocol(
+            key,
+            neptron_settings::Level::Game,
+            &serde_json::Value::String(value.to_owned()),
+        );
+        let message = refused.expect_err("refused");
+        assert!(message.contains(reason), "{message}");
+        rig.frames(30);
+        assert_ne!(rig.shell().config().text(key), value);
+        assert_eq!(game_file(&rig), file_before);
+        assert_eq!(rig.display.active_mode(), mode_before);
+        rig.finish();
     });
 }

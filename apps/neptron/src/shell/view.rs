@@ -3,7 +3,7 @@
 
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::PadRoster;
-use neptron_settings::DisplayClass;
+use neptron_settings::{DisplayClass, Level};
 use neptron_types::{Modeline, MonitorKind, TvStandard};
 use neptron_ui::screens::{
     AUDIO_PAGE, DISPLAY_PAGE, INPUT_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, SYSTEM_PAGE,
@@ -126,7 +126,17 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 
     /// Puts the rows of `page` in the snapshot.
     pub(super) fn load_page(&mut self, page: PageId) {
-        let choices = self.picture_choices();
+        // Settings > Display writes the global level, the Video page of the
+        // quick menu the game level: each judges with the values of its
+        // level.
+        let level = match page {
+            VIDEO_PAGE => Level::Game,
+            _ => Level::Global,
+        };
+        let choices = match page {
+            DISPLAY_PAGE | VIDEO_PAGE => self.picture_choices(level),
+            _ => None,
+        };
         let names = Names {
             presets: &self.presets,
             detected: &self.detected,
@@ -194,16 +204,27 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     }
 
     /// The answers of the policy for the options of the picture mode and
-    /// refresh rows, for the source on screen, from the same policy, caps,
-    /// validator and scanlines as the run: the game in a game, the menu
-    /// source in the list. `None` with no engine.
-    pub(super) fn picture_choices(&self) -> Option<PictureChoices> {
+    /// refresh rows of a page that writes `level`, for the source on screen
+    /// (the game in a game, the menu source in the list), from the same
+    /// policy, caps and validator as the run. The global level is judged
+    /// with its own values and scanlines, every other level with the values
+    /// of the run. `None` with no engine.
+    pub(super) fn picture_choices(&self, level: Level) -> Option<PictureChoices> {
         let (engine, source) = match &self.stage {
             Stage::List(list) => (&list.engine, MENU_SOURCE),
             Stage::Game(game) => (game.session.video(), game.session.source()),
             Stage::Ended => return None,
         };
-        engine.picture_choices(&source).ok()
+        match level {
+            Level::Global => {
+                let settings = self.config.global_policy().ok()?;
+                let scanlines = self.config.global_scanlines().ok()?;
+                engine
+                    .picture_choices_with(&source, &settings, scanlines)
+                    .ok()
+            }
+            Level::System | Level::Game => engine.picture_choices(&source).ok(),
+        }
     }
 
     /// Builds the loaded page again after a change of the settings.

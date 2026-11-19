@@ -652,7 +652,10 @@ fn a_multiple_style_has_no_mode_and_its_row_is_greyed_out() {
     )
     .unwrap()
     .modes;
-    let available: Vec<_> = rows.iter().map(|(style, a)| (*style, a.is_ok())).collect();
+    let available: Vec<_> = rows
+        .iter()
+        .map(|(style, a)| (*style, a.answer.offer().is_ok()))
+        .collect();
     assert_eq!(
         available,
         [

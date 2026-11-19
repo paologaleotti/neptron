@@ -260,10 +260,51 @@ enum PictureNotice {
     Launch,
     /// At the first picture after a change of the picture mode or the
     /// refresh choice in the game whose proposal differs from the one with
-    /// this hash (`proposal_hash`).
-    AfterChange(u64),
+    /// the hash `before` (`proposal_hash`), within `frames` more frames.
+    AfterChange {
+        /// The hash of the proposal before the change.
+        before: u64,
+        /// The frames left to wait for a new picture.
+        frames: u32,
+    },
     /// Shown; nothing waits.
     Shown,
+}
+
+/// The frames that a change of the picture mode or the refresh choice
+/// waits for a new picture before the notice stops waiting: a modeset waits
+/// `DEBOUNCE_FRAMES` frames for a steady source, and a change that gives
+/// the same picture must not leave a notice waiting for a later, unrelated
+/// one.
+const PICTURE_CHANGE_WAIT_FRAMES: u32 = 4 * neptron_video::DEBOUNCE_FRAMES;
+
+impl PictureNotice {
+    /// The state after `change` (a change of the picture mode or refresh
+    /// choice) with the current proposal `current`.
+    fn after_change(current: u64) -> Self {
+        Self::AfterChange {
+            before: current,
+            frames: PICTURE_CHANGE_WAIT_FRAMES,
+        }
+    }
+
+    /// One frame with the proposal `current` on screen: the next state,
+    /// and whether the notice shows now.
+    fn step(self, current: u64) -> (Self, bool) {
+        match self {
+            Self::Shown => (Self::Shown, false),
+            Self::Launch => (Self::Shown, true),
+            Self::AfterChange { before, .. } if before != current => (Self::Shown, true),
+            Self::AfterChange { frames: 0, .. } => (Self::Shown, false),
+            Self::AfterChange { before, frames } => (
+                Self::AfterChange {
+                    before,
+                    frames: frames - 1,
+                },
+                false,
+            ),
+        }
+    }
 }
 
 /// The hash of a proposal, to tell a new picture from the one before a
@@ -495,5 +536,34 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             self.log.pop_front();
         }
         self.log.push_back(line);
+    }
+}
+
+#[cfg(test)]
+mod picture_notice_tests {
+    use super::*;
+
+    /// After a change that gives the same picture, the notice stops
+    /// waiting, so a later picture of another cause does not show it.
+    #[test]
+    fn a_change_with_the_same_picture_stops_waiting() {
+        let mut state = PictureNotice::after_change(7);
+        for _ in 0..PICTURE_CHANGE_WAIT_FRAMES {
+            let (next, show) = state.step(7);
+            assert!(!show);
+            state = next;
+        }
+        let (next, show) = state.step(7);
+        assert!(!show);
+        assert_eq!(next, PictureNotice::Shown);
+        assert_eq!(next.step(8), (PictureNotice::Shown, false));
+    }
+
+    #[test]
+    fn a_new_picture_after_a_change_shows_the_notice_once() {
+        let (next, show) = PictureNotice::after_change(7).step(8);
+        assert!(show);
+        assert_eq!(next.step(9), (PictureNotice::Shown, false));
+        assert_eq!(PictureNotice::Launch.step(1), (PictureNotice::Shown, true));
     }
 }

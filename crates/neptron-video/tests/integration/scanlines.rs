@@ -171,7 +171,7 @@ fn the_preview_of_a_style_row_takes_the_same_scanlines() {
         .iter()
         .find(|(style, _)| *style == PictureStyle::X2)
         .unwrap();
-    let offered = x2_answer.as_ref().unwrap();
+    let offered = x2_answer.answer.offer().unwrap();
     let proposal = offered.plan.considered[offered.winner].outcome.unwrap();
     let preview = rig
         .engine

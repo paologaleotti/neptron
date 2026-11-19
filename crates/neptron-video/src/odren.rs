@@ -740,7 +740,21 @@ impl Odren {
         &self,
         source: &SourceGeometry,
     ) -> Result<neptron_modeline::policy::PictureChoices, crate::Unshowable> {
-        self.inputs.picture_choices(source, self.scanlines)
+        self.inputs
+            .picture_choices(source, &self.inputs.settings, self.scanlines)
+    }
+
+    /// The answers of `neptron_modeline::policy::picture_choices` for other
+    /// settings and scanlines than the engine's, from the same policy, caps
+    /// and validator: the menu of a level whose values the engine does not
+    /// run, such as the global level of Settings > Display in a game.
+    pub fn picture_choices_with(
+        &self,
+        source: &SourceGeometry,
+        settings: &PolicySettings,
+        scanlines: ScanlineSettings,
+    ) -> Result<neptron_modeline::policy::PictureChoices, crate::Unshowable> {
+        self.inputs.picture_choices(source, settings, scanlines)
     }
 
     /// The answer of `neptron_modeline::policy::offer` for the settings

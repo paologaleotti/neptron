@@ -5,8 +5,8 @@ use neptron_types::{
 
 use super::choose::mode_refusal;
 use super::{
-    Considered, Dropped, Notice, PictureStyle, Plan, PolicyError, PolicySettings, RefreshKind,
-    RefreshPolicy, Rung, choose, decide, notice, walk_ladder,
+    Considered, Notice, PictureStyle, Plan, PolicyError, PolicySettings, RefreshKind,
+    RefreshPolicy, Rung, choose, decide, notice,
 };
 
 /// The scanline settings of a candidate: the resolved values of
@@ -52,14 +52,22 @@ pub enum DeclineReason {
         /// The asked field rate, in millihertz.
         rate_mhz: u64,
     },
-    /// A range covers the asked rate, but no exact mode at it validates.
+    /// A range covers the asked rate, but the winner runs at another rate:
+    /// no mode at the asked rate validates, or a mode at another rate (an
+    /// exact picture or a fit) ranks before every mode at the asked one.
+    /// Where the winner runs at the asked rate, also as a soft fit, the
+    /// option is offered: it gives the rate it names, and the notice names
+    /// the soft picture.
     RateNotHeld {
         /// The refresh choice that was asked.
         asked: RefreshPolicy,
     },
-    /// `native` or a multiple on a CRT or a TV: the display cannot show
-    /// that rung, and the winner is another one.
-    NeedsAnotherMonitor {
+    /// `native` or a multiple on a CRT or a TV: the display (the monitor
+    /// with its video output) cannot show that rung, and the winner is
+    /// another one. The policy does not tell the limit of the monitor from
+    /// the limit of the output: that would need a second decision with
+    /// other limits.
+    NotShownHere {
         /// The picture mode that was asked.
         asked: PictureStyle,
         /// The rung that the display shows in its place.
@@ -73,19 +81,14 @@ pub enum DeclineReason {
         /// The rung that the panel shows in its place.
         shown: Rung,
     },
-    /// `native` or a multiple: the rung of the mode fails for a limit of
-    /// the video output (the GPU), not of the monitor: no interlace on the
-    /// output, more lines than it sends, or a pixel clock below its floor.
-    OutputCannotSend {
-        /// The picture mode that was asked.
-        asked: PictureStyle,
-        /// The rung that the display shows in its place.
-        shown: Rung,
-    },
     /// `sharp`: no exact mode validates, the winner is the fit.
     NoExactMode,
     /// `speed` on a TV: its one field rate leaves no speed to choose.
     OneRateOnTv,
+    /// `speed`: the winner still changes the game's speed by more than
+    /// [`super::SPEED_ALERT_MIN_PPM`], so the mode does not give what it
+    /// names.
+    SpeedNotHeld,
 }
 
 /// What the scanline settings give on the winner of a candidate. The
@@ -132,20 +135,67 @@ pub struct Declined {
     /// Index of the winner the display shows in its place, or `None` when
     /// nothing validates.
     pub winner: Option<usize>,
+    /// What the scanline settings give on that winner, or `None` with no
+    /// winner.
+    pub scanlines: Option<ScanlineOutcome>,
 }
 
 /// The answer for one candidate.
 pub type Offer = Result<Offered, Declined>;
 
-/// The answers for the options of the two menu rows: each picture mode
-/// with the refresh choice of the settings, and each refresh choice with
-/// the picture mode of the settings.
+/// The answer for one option of the picture mode row or the refresh row.
+/// A pick stores the option at a level; the engine then runs the pair of
+/// that option and the stored value of the other row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RowAnswer {
+    /// The pair of the option and the stored value of the other row is
+    /// offered: a pick sets this row only.
+    Plain(Offered),
+    /// The pair with the stored value of the other row is declined, and
+    /// the pair with the other row at Auto is offered: a pick sets this row
+    /// and the other row to Auto, at the same level, in the same write.
+    ResetsOther {
+        /// The answer for the pair with the other row at Auto.
+        offered: Offered,
+        /// Why the pair with the stored value of the other row is
+        /// declined.
+        stored_pair: DeclineReason,
+    },
+    /// The pair with the other row at Auto is declined too: the option is
+    /// greyed with this reason, which is a reason of this row alone.
+    Declined(Declined),
+}
+
+impl RowAnswer {
+    /// The answer of the pair that a pick runs: the offered pair, or the
+    /// declined pair with the other row at Auto.
+    pub fn offer(&self) -> Result<&Offered, &Declined> {
+        match self {
+            Self::Plain(offered) | Self::ResetsOther { offered, .. } => Ok(offered),
+            Self::Declined(declined) => Err(declined),
+        }
+    }
+}
+
+/// An option of a row, with what is not given for every game when the
+/// answer covers more than one source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowChoice {
+    /// The answer.
+    pub answer: RowAnswer,
+    /// For a selectable option judged for more than one source: the reason
+    /// of the first source whose pair the pick stores is declined. `None`
+    /// when every source gives it, or for one source.
+    pub not_for_every_game: Option<DeclineReason>,
+}
+
+/// The answers for the options of the two menu rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PictureChoices {
     /// Each picture mode, in the order of [`PictureStyle::ALL`].
-    pub modes: Vec<(PictureStyle, Offer)>,
+    pub modes: Vec<(PictureStyle, RowChoice)>,
     /// Each refresh choice, in the order of [`RefreshPolicy::ALL`].
-    pub refresh: Vec<(RefreshPolicy, Offer)>,
+    pub refresh: Vec<(RefreshPolicy, RowChoice)>,
 }
 
 /// Scanlines show on a flat panel: the mode `on` with a strength above 0.
@@ -157,14 +207,26 @@ pub fn panel_scanlines(kind: &MonitorKind, scanlines: ScanlineChoice) -> bool {
         && scanlines.strength_percent > 0
 }
 
+/// Which reasons a decision of [`judge`] checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Judge {
+    /// A stored candidate, or an option of the picture mode row: the
+    /// refresh reasons where the display reads the refresh choice (a CRT),
+    /// then the mode reasons.
+    Candidate,
+    /// An option of the refresh row: the refresh reasons on every display,
+    /// then the mode reasons. A TV and a flat panel do not read the
+    /// refresh choice, so they give none but `exact`.
+    RefreshOption,
+}
+
 /// The one decision of a candidate (the picture mode and the refresh
 /// choice of `settings`, with `scanlines`) on the connected display: the
 /// same [`decide`] and [`choose`] as the engine, then the refusal rules.
-/// The menus build every option from it, and the app names a stored
-/// candidate that it refuses.
+/// The app names a stored candidate that it declines. A TV and a flat
+/// panel do not read the refresh choice, so it declines nothing there.
 ///
-/// `validate` is the validator of the engine. The refresh choice is
-/// checked first, because it holds for every picture mode.
+/// `validate` is the validator of the engine.
 ///
 /// # Errors
 ///
@@ -175,51 +237,26 @@ pub fn offer<E>(
     scanlines: ScanlineChoice,
     profile: &MonitorProfile,
     caps: &GpuCaps,
-    mut validate: impl FnMut(&Modeline) -> Result<(), E>,
+    validate: impl FnMut(&Modeline) -> Result<(), E>,
 ) -> Result<Offer, PolicyError> {
-    let settings = PolicySettings {
-        panel_scanlines: panel_scanlines(&profile.kind, scanlines),
-        ..*settings
-    };
-    let plan = decide(source, &settings, profile, caps)?;
-    let winner = choose(&plan, &mut validate)
-        .winner
-        .map(|w| (w.index, w.considered.rung, w.considered.target.kind));
-    let Some((index, rung, kind, proposal)) = winner.and_then(|(index, rung, kind)| {
-        let proposal = plan.considered.get(index)?.outcome.as_ref().ok().copied()?;
-        Some((index, rung, kind, proposal))
-    }) else {
-        return Ok(Err(Declined {
-            reason: DeclineReason::NoPicture,
-            plan,
-            winner: None,
-        }));
-    };
-    let reason = refresh_refusal(&plan, &profile.kind, settings.refresh, kind).or_else(|| {
-        mode_refusal(&plan, settings.style, rung).map(|reason| output_limit(&plan, caps, reason))
-    });
-    if let Some(reason) = reason {
-        return Ok(Err(Declined {
-            reason,
-            plan,
-            winner: Some(index),
-        }));
-    }
-    let multiple = proposal.placement.vertical_multiple(source.rotation);
-    let scanlines = scanline_outcome(scanlines, multiple, &profile.kind, &proposal.mode);
-    let notice = plan
-        .considered
-        .get(index)
-        .and_then(|considered| notice(&plan, considered));
-    Ok(Ok(Offered {
-        winner: index,
-        notice,
+    let display = Display {
+        source,
         scanlines,
-        plan,
-    }))
+        profile,
+        caps,
+    };
+    judge(&display, settings, Judge::Candidate, validate)
 }
 
-/// [`offer`] for each option of the two menu rows.
+/// [`offer`] for each option of the two menu rows. An option is judged
+/// as the pair that a pick stores and the engine runs: the option with the
+/// stored value of the other row ([`RowAnswer::Plain`]); where that pair is
+/// declined, the option with the other row at Auto
+/// ([`RowAnswer::ResetsOther`]); where that pair is declined too, the
+/// option is greyed with the reason of that pair, a reason of the row
+/// itself ([`RowAnswer::Declined`]). Auto of a row is offered with the
+/// other row at Auto wherever the display shows a picture, so it is never
+/// greyed there.
 ///
 /// # Errors
 ///
@@ -232,36 +269,133 @@ pub fn picture_choices<E>(
     caps: &GpuCaps,
     mut validate: impl FnMut(&Modeline) -> Result<(), E>,
 ) -> Result<PictureChoices, PolicyError> {
-    let mut one = |settings: PolicySettings| {
-        offer(source, &settings, scanlines, profile, caps, &mut validate)
+    let display = Display {
+        source,
+        scanlines,
+        profile,
+        caps,
+    };
+    let mut row = |pair: PolicySettings, at_auto: PolicySettings, which: Judge| {
+        let answer = match judge(&display, &pair, which, &mut validate)? {
+            Ok(offered) => RowAnswer::Plain(offered),
+            Err(stored) if pair == at_auto => RowAnswer::Declined(stored),
+            Err(stored) => match judge(&display, &at_auto, which, &mut validate)? {
+                Ok(offered) => RowAnswer::ResetsOther {
+                    offered,
+                    stored_pair: stored.reason,
+                },
+                Err(declined) => RowAnswer::Declined(declined),
+            },
+        };
+        Ok::<_, PolicyError>(RowChoice {
+            answer,
+            not_for_every_game: None,
+        })
     };
     let modes = PictureStyle::ALL
         .into_iter()
-        .map(|style| Ok((style, one(PolicySettings { style, ..*settings })?)))
+        .map(|style| {
+            let pair = PolicySettings { style, ..*settings };
+            let at_auto = PolicySettings {
+                refresh: RefreshPolicy::Exact,
+                ..pair
+            };
+            Ok((style, row(pair, at_auto, Judge::Candidate)?))
+        })
         .collect::<Result<_, PolicyError>>()?;
     let refresh = RefreshPolicy::ALL
         .into_iter()
         .map(|refresh| {
-            Ok((
+            let pair = PolicySettings {
                 refresh,
-                one(PolicySettings {
-                    refresh,
-                    ..*settings
-                })?,
-            ))
+                ..*settings
+            };
+            let at_auto = PolicySettings {
+                style: PictureStyle::Auto,
+                ..pair
+            };
+            Ok((refresh, row(pair, at_auto, Judge::RefreshOption)?))
         })
         .collect::<Result<_, PolicyError>>()?;
     Ok(PictureChoices { modes, refresh })
 }
 
+/// The inputs of a decision that every candidate shares.
+struct Display<'a> {
+    source: &'a SourceGeometry,
+    scanlines: ScanlineChoice,
+    profile: &'a MonitorProfile,
+    caps: &'a GpuCaps,
+}
+
+/// The decision of one candidate, with the reasons of `which`.
+fn judge<E>(
+    display: &Display<'_>,
+    settings: &PolicySettings,
+    which: Judge,
+    mut validate: impl FnMut(&Modeline) -> Result<(), E>,
+) -> Result<Offer, PolicyError> {
+    let Display {
+        source,
+        scanlines,
+        profile,
+        caps,
+    } = *display;
+    let settings = PolicySettings {
+        panel_scanlines: panel_scanlines(&profile.kind, scanlines),
+        ..*settings
+    };
+    let plan = decide(source, &settings, profile, caps)?;
+    let winner = choose(&plan, &mut validate).winner.map(|w| w.index);
+    let Some((index, considered, proposal)) = winner.and_then(|index| {
+        let considered = plan.considered.get(index)?;
+        let proposal = *considered.outcome.as_ref().ok()?;
+        Some((index, considered, proposal))
+    }) else {
+        return Ok(Err(Declined {
+            reason: DeclineReason::NoPicture,
+            plan,
+            winner: None,
+            scanlines: None,
+        }));
+    };
+    let refresh = || refresh_refusal(&plan, &profile.kind, settings.refresh, considered);
+    let mode = || mode_refusal(&plan, settings.style, considered);
+    let reason = match which {
+        Judge::Candidate => match profile.kind {
+            MonitorKind::Crt { .. } => refresh().or_else(mode),
+            MonitorKind::Tv { .. } | MonitorKind::FlatPanel { .. } => mode(),
+        },
+        Judge::RefreshOption => refresh().or_else(mode),
+    };
+    let multiple = proposal.placement.vertical_multiple(source.rotation);
+    let outcome = scanline_outcome(scanlines, multiple, &profile.kind, &proposal.mode);
+    if let Some(reason) = reason {
+        return Ok(Err(Declined {
+            reason,
+            plan,
+            winner: Some(index),
+            scanlines: Some(outcome),
+        }));
+    }
+    let notice = notice(&plan, considered);
+    Ok(Ok(Offered {
+        winner: index,
+        notice,
+        scanlines: outcome,
+        plan,
+    }))
+}
+
 /// Why the display does not give the refresh choice `asked`, whose plan
-/// has a winner at a target of `kind`. `exact` is always given: it is the
-/// game's rate, or the nearest the display reaches.
+/// has the winner `won`. `exact` is always given: it is the game's rate,
+/// or the nearest the display reaches. A winner at the asked target is
+/// given, a soft fit too: the option gives the rate it names.
 fn refresh_refusal(
     plan: &Plan,
     kind: &MonitorKind,
     asked: RefreshPolicy,
-    won: RefreshKind,
+    won: &Considered,
 ) -> Option<DeclineReason> {
     let wanted = match asked {
         RefreshPolicy::Exact => return None,
@@ -272,7 +406,7 @@ fn refresh_refusal(
     match kind {
         MonitorKind::Tv { .. } => Some(DeclineReason::RateFixedByTv { asked }),
         MonitorKind::FlatPanel { .. } => Some(DeclineReason::RateOfPanel { asked }),
-        MonitorKind::Crt { .. } if won == wanted => None,
+        MonitorKind::Crt { .. } if won.target.kind == wanted => None,
         MonitorKind::Crt { .. } => Some(match plan.skipped.iter().find(|s| s.kind == wanted) {
             Some(skipped) => DeclineReason::RateNotCovered {
                 asked,
@@ -280,31 +414,6 @@ fn refresh_refusal(
             },
             None => DeclineReason::RateNotHeld { asked },
         }),
-    }
-}
-
-/// `NeedsAnotherMonitor` becomes `OutputCannotSend` when every candidate
-/// on the first rung of the asked mode dropped for a limit of the GPU:
-/// another monitor would not help there.
-fn output_limit(plan: &Plan, caps: &GpuCaps, reason: DeclineReason) -> DeclineReason {
-    let DeclineReason::NeedsAnotherMonitor { asked, shown } = reason else {
-        return reason;
-    };
-    let first = walk_ladder(asked).first().copied();
-    let mut own = plan
-        .considered
-        .iter()
-        .filter(|c| Some(c.rung) == first)
-        .peekable();
-    let gpu = |c: &Considered| match &c.outcome {
-        Err(Dropped::NoInterlace) => !caps.interlace,
-        Err(Dropped::TallerThanGpu { .. } | Dropped::PixelClockFloor { .. }) => true,
-        Ok(_) | Err(_) => false,
-    };
-    if own.peek().is_some() && own.all(gpu) {
-        DeclineReason::OutputCannotSend { asked, shown }
-    } else {
-        reason
     }
 }
 

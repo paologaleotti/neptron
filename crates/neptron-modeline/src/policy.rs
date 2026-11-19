@@ -51,8 +51,8 @@ pub use choose::{
 };
 pub use ladder::{Rung, walk_ladder};
 pub use offer::{
-    DeclineReason, Declined, Offer, Offered, PictureChoices, ScanlineChoice, ScanlineOutcome,
-    offer, panel_scanlines, picture_choices,
+    DeclineReason, Declined, Offer, Offered, PictureChoices, RowAnswer, RowChoice, ScanlineChoice,
+    ScanlineOutcome, offer, panel_scanlines, picture_choices,
 };
 pub use padding::{PADDED_FILL_MIN_PERCENT, Padding, SMALL_PICTURE_MIN_PERCENT};
 pub use panel::PANEL_FILL_MIN_SCALE_MILLI;
@@ -110,7 +110,7 @@ pub enum PolicyError {
 /// target, then a last resort; on a flat panel, each listed mode; on a TV,
 /// the modes of the standard's table in the order of the TV rungs. The
 /// engine walks the proposals with the validator ([`choose`]); the Display
-/// panel calls the same function for each style ([`style_rows`]).
+/// menus call the same function for each option ([`picture_choices`]).
 pub fn decide(
     source: &SourceGeometry,
     settings: &PolicySettings,
