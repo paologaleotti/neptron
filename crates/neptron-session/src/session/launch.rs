@@ -18,6 +18,7 @@ use crate::pads::PadMask;
 use crate::picture::Picture;
 use crate::save::{SAVE_RAM_FLUSH_INTERVAL_NS, SaveRamWriter};
 use crate::source::{FrameRules, LaunchSettle, source_geometry};
+use crate::speed::Speed;
 use crate::start::{START_ERRORS_MAX, StartFacts, collect_errors};
 use crate::{Counters, Devices, GameLaunch, LaunchError, SessionOptions, VideoSetup};
 
@@ -143,6 +144,11 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             queued_ran_core: false,
             queued_paced: false,
             cycle_start_ns: 0,
+            cycle_ns: 0,
+            speed: Speed::new(),
+            run_rate_slewing: false,
+            queue_level: 0,
+            too_slow_for_sound: false,
             counters: Counters {
                 refused_options: refused_options as u64,
                 ..Counters::default()

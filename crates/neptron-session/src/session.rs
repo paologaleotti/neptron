@@ -14,6 +14,7 @@ use crate::pacing::{FlipClock, Pacing};
 use crate::pads::PadMask;
 use crate::picture::Picture;
 use crate::save::SaveRamWriter;
+use crate::speed::Speed;
 use crate::{Counters, ExitReport, Flush, RunRateSource, SaveStats};
 
 /// Loop frames in a row with no completed flip before
@@ -106,6 +107,23 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     /// The end of the frame before, on the session clock: the start of the
     /// work of this frame.
     cycle_start_ns: u64,
+    /// The time from the end of the frame before to the end of the last
+    /// frame.
+    cycle_ns: u64,
+    /// The cycles of the late frames, for the speed of a slow core.
+    speed: Speed,
+    /// The audio run rate moves to its target by bounded steps: a measure
+    /// was used, and the run rate is not back at the mode's rate yet.
+    run_rate_slewing: bool,
+    /// The level of the audio queue before each write, smoothed over
+    /// [`QUEUE_SMOOTH_FRAMES`](crate::QUEUE_SMOOTH_FRAMES) frames.
+    queue_level: u64,
+    /// The measured rate of the late core went below
+    /// [`SOUND_MUTE_PERMILLE`](crate::SOUND_MUTE_PERMILLE) of the core's
+    /// rate and not yet back above
+    /// [`SOUND_RESUME_PERMILLE`](crate::SOUND_RESUME_PERMILLE): the audio
+    /// is muted.
+    too_slow_for_sound: bool,
     counters: Counters,
 }
 
@@ -310,6 +328,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
     /// The run rate that audio rate control uses, in millihertz.
     pub fn run_rate_mhz(&self) -> Option<u64> {
         self.audio.as_ref().map(AudioPipeline::run_rate_mhz)
+    }
+
+    /// The game runs too slowly for its sound: below half the core's frame
+    /// rate, the range of the audio pipeline, and not yet back above
+    /// [`SOUND_RESUME_PERMILLE`](crate::SOUND_RESUME_PERMILLE) of it. The
+    /// audio is muted.
+    pub fn sound_too_slow(&self) -> bool {
+        self.too_slow_for_sound
     }
 
     /// The counters of the save RAM writer. `None` when the game has no

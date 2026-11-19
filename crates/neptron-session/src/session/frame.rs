@@ -12,6 +12,7 @@ use crate::pacing;
 use crate::pads::CORE_PORTS;
 use crate::save::SAVE_RAM_FLUSH_INTERVAL_NS;
 use crate::source::{FrameRules, source_geometry};
+use crate::speed::{self, SOUND_MUTE_PERMILLE, SOUND_RESUME_PERMILLE};
 use crate::{Counters, FrameReport, PacingChange, RunRateSource, SessionError};
 
 impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
@@ -75,7 +76,10 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 // `port` is below the host's port count.
                 let _ = self.host.set_pad(port, pad);
             }
-            self.run_core(true).map_err(|e| self.fail(e))?;
+            // A core too slow for sound feeds no audio: its frames are
+            // idle frames of the pipeline, as under the quick menu.
+            self.run_core(!self.too_slow_for_sound)
+                .map_err(|e| self.fail(e))?;
             self.mask.core_ran();
             self.counters.core_frames += 1;
             report.ran_core = true;
@@ -99,7 +103,14 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         let poll_ns = (report.ran_core && !self.events.is_empty()).then_some(now_ns);
         let was_late = self.pacing.late();
         self.show(ui, poll_ns, &mut report);
-        self.cycle_start_ns = self.clock.now_ns();
+        let end_ns = self.clock.now_ns();
+        self.cycle_ns = end_ns.saturating_sub(self.cycle_start_ns);
+        match self.interval_ns() {
+            Some(interval_ns) if report.deferred => self.speed.push(self.cycle_ns, interval_ns),
+            _ if !self.pacing.late() => self.speed.clear(),
+            _ => {}
+        }
+        self.cycle_start_ns = end_ns;
         report.pacing = match (was_late, self.pacing.late()) {
             (false, true) => Some(PacingChange::Late),
             (true, false) => Some(PacingChange::Wait),
@@ -218,6 +229,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             || self.engine.muted()
             || self.engine.current_refused()
             || self.engine.blanked()
+            || self.too_slow_for_sound
     }
 
     /// Presents the picture and waits for the flip, once per flip of a core
@@ -247,7 +259,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                     // The flip stays queued in the engine, which drains it
                     // at the next present. This frame shows nothing, and
                     // still ends its audio, as after a failed present.
-                    self.end_audio_frame(report.ran_core);
+                    self.end_audio_frame(report.ran_core && !self.too_slow_for_sound);
                     report.display_error = Some(error);
                     self.pacing.reset();
                     return;
@@ -276,7 +288,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             // submit, and still at the same point of every frame. It runs
             // after a failed present too, so no frame loses its audio.
             if presents == 1 {
-                self.end_audio_frame(report.ran_core);
+                self.end_audio_frame(report.ran_core && !self.too_slow_for_sound);
             }
             match presented {
                 Ok(presented) => {
@@ -452,18 +464,66 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             .map_or(1, |c| c.chosen.proposal.timing.repeat().max(1))
     }
 
+    /// Gives the audio the run rate: the run rate of the mode, or the
+    /// measured rate of a slow core when it is lower, trimmed to bring a
+    /// queue outside its band back to its target. Once a measure or a trim
+    /// was used, the run rate moves to its target by a bounded step per
+    /// frame, until it is back at the mode's rate. A measured rate below the range
+    /// of the pipeline mutes the audio instead, until it is back above a
+    /// higher bound.
     fn update_run_rate(&mut self) {
-        let flips = u64::from(self.flips_per_frame());
-        let flip_rate = match self.run_rate {
-            RunRateSource::ReadBack => self.engine.current().map(|c| c.read_back.field_rate_mhz()),
-            RunRateSource::Measured => self.meter.rate_mhz(),
-        };
-        let Some(run_rate) = flip_rate.map(|r| r / flips) else {
+        let Some(mode_rate) = self.mode_run_rate_mhz() else {
+            self.too_slow_for_sound = false;
             return;
         };
-        let Some(audio) = &mut self.audio else {
+        let measured = self.measured_rate_mhz().filter(|&rate| rate < mode_rate);
+        let core_rate = u64::from(self.timing.fps_mhz);
+        let bound = if self.too_slow_for_sound {
+            SOUND_RESUME_PERMILLE
+        } else {
+            SOUND_MUTE_PERMILLE
+        };
+        self.too_slow_for_sound = measured
+            .is_some_and(|rate| rate.saturating_mul(1_000) < core_rate.saturating_mul(bound));
+        let Some(audio) = self.audio.as_mut().filter(|_| !self.too_slow_for_sound) else {
             return;
         };
+        let level = audio.stats().level_frames as u64;
+        self.queue_level = speed::smooth_level(self.queue_level, level);
+        // The queue corrects the rate only while a measure is in use or
+        // its effects settle: a game at full speed keeps the audio that the
+        // rate control alone gives it.
+        let in_play = measured.is_some() || self.run_rate_slewing;
+        let target = if in_play {
+            speed::run_rate_target(
+                mode_rate,
+                measured,
+                speed::QueueLevel {
+                    last: level,
+                    smoothed: self.queue_level,
+                    target: audio.control().target_frames() as u64,
+                },
+            )
+        } else {
+            mode_rate
+        };
+        let corrected = measured.is_some() || target != mode_rate;
+        self.run_rate_slewing |= corrected;
+        // The smoothed level lags: the correction ends only when the last
+        // level is inside the band too.
+        let settled =
+            !corrected && speed::queue_in_band(level, audio.control().target_frames() as u64);
+        // The pipeline refuses a run rate below half the core's rate: the
+        // trim of a core at about half speed stays above it.
+        let target = target.max(core_rate.div_ceil(2));
+        let run_rate = if self.run_rate_slewing {
+            speed::slew(audio.run_rate_mhz(), target, mode_rate, self.cycle_ns)
+        } else {
+            target
+        };
+        if settled && run_rate == target {
+            self.run_rate_slewing = false;
+        }
         if run_rate == audio.run_rate_mhz() || self.refused_run_rate == Some(run_rate) {
             return;
         }
@@ -474,6 +534,23 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
                 self.counters.refused_run_rates += 1;
             }
         }
+    }
+
+    /// The measured rate of a slow late core, in millihertz.
+    pub(super) fn measured_rate_mhz(&self) -> Option<u64> {
+        self.speed.rate_mhz(self.interval_ns()?)
+    }
+
+    /// The run rate of the mode on screen, in millihertz: the read-back
+    /// field rate, or the measured flip rate, over the flips per core
+    /// frame.
+    pub(super) fn mode_run_rate_mhz(&self) -> Option<u64> {
+        let flips = u64::from(self.flips_per_frame());
+        let flip_rate = match self.run_rate {
+            RunRateSource::ReadBack => self.engine.current().map(|c| c.read_back.field_rate_mhz()),
+            RunRateSource::Measured => self.meter.rate_mhz(),
+        };
+        flip_rate.map(|r| r / flips)
     }
 
     fn flush_save_ram(&mut self) {
