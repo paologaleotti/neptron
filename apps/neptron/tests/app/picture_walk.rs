@@ -74,6 +74,7 @@ fn to_video_page(rig: &mut Rig) {
         rig.tap(&[Control::B]);
     }
     if rig.screen() == "quick-menu/video" {
+        rig.wait_for_picture_answers();
         return;
     }
     if rig.screen() != "quick-menu" {
@@ -90,6 +91,7 @@ fn to_video_page(rig: &mut Rig) {
     rig.focus("Video");
     rig.tap(&[Control::A]);
     assert_eq!(rig.screen(), "quick-menu/video");
+    rig.wait_for_picture_answers();
 }
 
 /// An option of a row of the snapshot.
@@ -358,6 +360,7 @@ struct Judged {
 fn to_settings_display(rig: &mut Rig) {
     for _ in 0..8 {
         if rig.screen() == "display" {
+            rig.wait_for_picture_answers();
             return;
         }
         match rig.screen().as_str() {
@@ -370,6 +373,7 @@ fn to_settings_display(rig: &mut Rig) {
     rig.focus("Display");
     rig.tap(&[Control::A]);
     assert_eq!(rig.screen(), "display");
+    rig.wait_for_picture_answers();
 }
 
 /// The Settings > Display rows of the picture on the display of `rig`, in

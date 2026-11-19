@@ -420,6 +420,24 @@ impl Rig {
         panic!("the run did not end in {max} frames");
     }
 
+    /// Runs frames until the page holds the answers of its picture rows:
+    /// the frame makes them a few decisions at a time.
+    pub fn wait_for_picture_answers(&mut self) {
+        self.until(600, "the picture answers", |r| {
+            r.shell()
+                .snapshot()
+                .settings
+                .rows
+                .iter()
+                .all(|row| match &row.value {
+                    neptron_ui::snapshot::SettingValue::Choice { options, .. } => options
+                        .iter()
+                        .all(|o| o.unavailable.as_deref() != Some(neptron::pages::JUDGING)),
+                    _ => true,
+                })
+        });
+    }
+
     /// Runs frames until `done` holds, at most `max`.
     pub fn until(&mut self, max: u32, what: &str, done: impl Fn(&mut Self) -> bool) {
         for _ in 0..max {

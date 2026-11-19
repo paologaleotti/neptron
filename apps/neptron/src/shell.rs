@@ -314,6 +314,14 @@ impl PictureNotice {
     }
 }
 
+/// The decisions of the picture answers that one frame makes for a page
+/// that waits for them. One decision takes about 0.15 ms on the
+/// development machine and an estimated 2 to 3 ms on a Raspberry Pi 3
+/// (about 15 times slower); two stay inside the 8 ms that the frame thread
+/// gives to work of its own. A cold page of Settings > Display (eleven
+/// sources, about 100 decisions) then takes about 50 frames.
+pub(crate) const PICTURE_DECISIONS_PER_FRAME: usize = 2;
+
 /// The hash of a proposal, to tell a new picture from the one before a
 /// change.
 fn proposal_hash(proposal: &neptron_video::Proposal) -> u64 {

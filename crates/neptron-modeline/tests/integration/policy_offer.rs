@@ -1579,3 +1579,34 @@ fn a_whole_multiple_that_ranks_after_a_smaller_step_says_so() {
         }
     );
 }
+
+/// The answers made a few decisions at a time are the answers made at
+/// once, for one source and for every reference source: a frame can spread
+/// the work and get the same page.
+#[test]
+fn the_answers_made_step_by_step_are_the_answers_made_at_once() {
+    use neptron_modeline::policy::{ChoicesWork, REFERENCE_SOURCES, for_every_game};
+    for id in ["generic_15", "pc_31_120"] {
+        let profile = preset(id);
+        let caps = open_caps();
+        let validator = |m: &Modeline| validate(m, &profile, &caps).map(drop);
+        let settings = PolicySettings {
+            refresh: RefreshPolicy::Force50,
+            ..PolicySettings::default()
+        };
+        let at_once: Vec<_> = REFERENCE_SOURCES
+            .iter()
+            .map(|s| picture_choices(s, &settings, AUTO_75, &profile, &caps, validator).unwrap())
+            .collect();
+        let mut work = ChoicesWork::new(&REFERENCE_SOURCES, settings, AUTO_75);
+        let mut steps = 0;
+        while !work.step(&profile, &caps, validator, 2) {
+            steps += 1;
+        }
+        assert!(steps > 10, "{id}: the work took {steps} steps");
+        assert_eq!(work.finish().ok(), for_every_game(&at_once), "{id}");
+        let mut one = ChoicesWork::new(&REFERENCE_SOURCES[..1], settings, AUTO_75);
+        while !one.step(&profile, &caps, validator, 1) {}
+        assert_eq!(one.finish().ok().as_ref(), at_once.first(), "{id}");
+    }
+}

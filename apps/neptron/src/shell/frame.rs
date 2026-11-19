@@ -8,13 +8,16 @@ use neptron_input::Hotkey;
 use neptron_input::PadRoster;
 use neptron_session::{EndReason, PacingChange};
 use neptron_types::{Control, Frame, PixelFormat};
-use neptron_ui::screens::{INPUT_PAGE, NETWORK_PAGE, NETWORK_SCREEN};
+use neptron_ui::screens::{DISPLAY_PAGE, INPUT_PAGE, NETWORK_PAGE, NETWORK_SCREEN, VIDEO_PAGE};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
 
 use super::intents::EndNotice;
 use super::picture::{declined_text, picture_text, scanline_text, vertical_interlaced};
-use super::{MENU_SOURCE, Outcome, Shell, Stage, UNPACED_FRAME_NS, proposal_hash};
+use super::{
+    MENU_SOURCE, Outcome, PICTURE_DECISIONS_PER_FRAME, Shell, Stage, UNPACED_FRAME_NS,
+    proposal_hash,
+};
 
 use crate::library::{ScanKind, Scanned, changes_text};
 use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
@@ -39,6 +42,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         self.poll_set_check();
         self.poll_network(now_ns);
         self.poll_pads(now_ns);
+        self.step_picture_answers();
         match self.stage {
             Stage::List(_) => self.list_frame(now_ns),
             Stage::Game(_) => self.game_frame(now_ns),
@@ -53,6 +57,22 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             return Some(Outcome::Quit);
         }
         self.outcome.take()
+    }
+
+    /// Makes a few decisions of the picture answers that a page waits for,
+    /// and loads the page again when they are there. The frame thread
+    /// spends at most `PICTURE_DECISIONS_PER_FRAME` decisions on them.
+    fn step_picture_answers(&mut self) {
+        let waits = matches!(self.snap.settings.page, Some(DISPLAY_PAGE | VIDEO_PAGE));
+        if !waits {
+            return;
+        }
+        let ready = self
+            .engine_ref()
+            .is_some_and(|engine| engine.step_answers(PICTURE_DECISIONS_PER_FRAME));
+        if ready {
+            self.reload_page();
+        }
     }
 
     fn list_frame(&mut self, now_ns: u64) {

@@ -120,26 +120,6 @@ impl Inputs {
         }
     }
 
-    /// The answers of [`offer`] for the options of the picture mode and the
-    /// refresh rows, for `source` with `settings` and `scanlines`, from the
-    /// same policy, caps and validator that the engine uses.
-    pub(crate) fn picture_choices(
-        &self,
-        source: &SourceGeometry,
-        settings: &PolicySettings,
-        scanlines: ScanlineSettings,
-    ) -> Result<PictureChoices, Unshowable> {
-        picture_choices(
-            source,
-            settings,
-            scanlines,
-            self.monitor.profile(),
-            &self.caps,
-            |mode| self.check(mode).map(drop),
-        )
-        .map_err(Unshowable::Policy)
-    }
-
     /// The answer of [`offer`] for the settings of the engine: whether the
     /// display gives the stored picture mode and refresh choice.
     pub(crate) fn offer(

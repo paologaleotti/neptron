@@ -1,5 +1,7 @@
 use neptron_backend::{Display, DisplayError};
 use neptron_modeline::policy::{Offer, PictureChoices, PolicySettings, Proposal};
+
+use crate::answers::AnswerRequest;
 use neptron_types::{FlipEvent, Frame, Modeline, Scene, SourceGeometry};
 
 use crate::odren::{AfterModeSet, ModeOrder};
@@ -240,7 +242,7 @@ impl<D: Display> VideoEngine<D> {
     }
 
     /// [`Self::picture_choices`] for other settings and scanlines than the
-    /// run's: the menu of the global level in a game.
+    /// run's: the menu of a level whose values the engine does not run.
     ///
     /// # Errors
     ///
@@ -251,28 +253,62 @@ impl<D: Display> VideoEngine<D> {
         settings: &PolicySettings,
         scanlines: ScanlineSettings,
     ) -> Result<PictureChoices, Unshowable> {
-        self.odren.picture_choices_with(source, settings, scanlines)
+        self.odren.answers_now(&AnswerRequest {
+            sources: vec![*source],
+            settings: *settings,
+            scanlines,
+        })
     }
 
-    /// [`Self::picture_choices_with`] for each of `sources`, as one answer
-    /// by `neptron_modeline::policy::for_every_game`: the menu of a level
-    /// that every game reads. A source with no plan is left out. `None`
-    /// when no source has a plan.
+    /// The answers for every game of `sources`, as one answer by
+    /// `neptron_modeline::policy::for_every_game`: the menu of a level that
+    /// every game reads. A source with no plan is left out. `None` when no
+    /// source has a plan.
     pub fn picture_choices_for_every_game(
         &self,
         sources: &[SourceGeometry],
         settings: &PolicySettings,
         scanlines: ScanlineSettings,
     ) -> Option<PictureChoices> {
-        let per_source: Vec<PictureChoices> = sources
-            .iter()
-            .filter_map(|source| {
-                self.odren
-                    .picture_choices_with(source, settings, scanlines)
-                    .ok()
+        self.odren
+            .answers_now(&AnswerRequest {
+                sources: sources.to_vec(),
+                settings: *settings,
+                scanlines,
             })
-            .collect();
-        neptron_modeline::policy::for_every_game(&per_source)
+            .ok()
+    }
+
+    /// The request of the answers for `source` with the settings and the
+    /// scanlines of the run.
+    pub fn request_for(&self, source: &SourceGeometry) -> AnswerRequest {
+        self.odren.request_for(source)
+    }
+
+    /// The answers of `request` from the cache of the engine, or `None`
+    /// while they are in work ([`Self::step_answers`]).
+    pub fn answers(&self, request: &AnswerRequest) -> Option<Result<PictureChoices, Unshowable>> {
+        self.odren.answers(request)
+    }
+
+    /// Makes at most `budget` decisions of the answers in work. Returns
+    /// whether a request got its answers.
+    pub fn step_answers(&self, budget: usize) -> bool {
+        self.odren.step_answers(budget)
+    }
+
+    /// Whether answers are in work.
+    pub fn answers_in_work(&self) -> bool {
+        self.odren.answers_in_work()
+    }
+
+    /// The answers of `request`, with its work finished at once.
+    ///
+    /// # Errors
+    ///
+    /// [`Unshowable`] when the policy gives no plan.
+    pub fn answers_now(&self, request: &AnswerRequest) -> Result<PictureChoices, Unshowable> {
+        self.odren.answers_now(request)
     }
 
     /// The answer of `neptron_modeline::policy::offer` for the settings of

@@ -332,55 +332,214 @@ pub fn picture_choices<E>(
     caps: &GpuCaps,
     mut validate: impl FnMut(&Modeline) -> Result<(), E>,
 ) -> Result<PictureChoices, PolicyError> {
-    let display = Display {
-        source,
-        scanlines,
-        profile,
-        caps,
-    };
-    let mut row = |pair: PolicySettings, at_auto: PolicySettings, which: Judge| {
-        let answer = match judge(&display, &pair, which, &mut validate)? {
-            Ok(offered) => RowAnswer::Plain(offered),
-            Err(stored) if pair == at_auto => RowAnswer::Declined(stored),
-            Err(stored) => match judge(&display, &at_auto, which, &mut validate)? {
-                Ok(offered) => RowAnswer::ResetsOther {
-                    offered,
-                    stored_pair: stored.reason,
-                },
-                Err(declined) => RowAnswer::Declined(declined),
-            },
+    let mut work = ChoicesWork::new(&[*source], *settings, scanlines);
+    while !work.step(profile, caps, &mut validate, usize::MAX) {}
+    work.finish()
+}
+
+/// The answers of [`picture_choices`] for one source, or for several as
+/// one answer by [`for_every_game`], built a few decisions at a time: the
+/// same decisions in the same order, so a caller with a time budget per
+/// frame can spread them over frames. The inputs that are not in the work
+/// (the profile, the caps and the validator) must not change between
+/// steps: a caller that changes them starts a new work.
+#[derive(Debug, Clone)]
+pub struct ChoicesWork {
+    sources: Vec<SourceGeometry>,
+    settings: PolicySettings,
+    scanlines: ScanlineChoice,
+    /// The index of the source in work.
+    next: usize,
+    /// The options of the source in work.
+    current: Option<Vec<RowJob>>,
+    /// The answers of each source done, in order.
+    done: Vec<PictureChoices>,
+    /// The first error of a source that has no plan.
+    error: Option<PolicyError>,
+}
+
+/// An option in work: its pair, its pair with the other row at Auto, and
+/// what the decisions gave so far.
+#[derive(Debug, Clone)]
+struct RowJob {
+    pair: PolicySettings,
+    at_auto: PolicySettings,
+    which: Judge,
+    /// The reason of the pair, declined, while the pair with the other row
+    /// at Auto waits for its decision.
+    stored: Option<DeclineReason>,
+    answer: Option<RowAnswer>,
+}
+
+impl ChoicesWork {
+    /// A work for `sources` with `settings` and `scanlines`. One source
+    /// gives its own answers; several give one answer for every game.
+    pub fn new(
+        sources: &[SourceGeometry],
+        settings: PolicySettings,
+        scanlines: ScanlineChoice,
+    ) -> Self {
+        Self {
+            sources: sources.to_vec(),
+            settings,
+            scanlines,
+            next: 0,
+            current: None,
+            done: Vec::with_capacity(sources.len()),
+            error: None,
+        }
+    }
+
+    /// Makes at most `budget` decisions. Returns whether the work is done.
+    pub fn step<E>(
+        &mut self,
+        profile: &MonitorProfile,
+        caps: &GpuCaps,
+        mut validate: impl FnMut(&Modeline) -> Result<(), E>,
+        budget: usize,
+    ) -> bool {
+        let mut left = budget;
+        while let Some(source) = self.sources.get(self.next) {
+            let display = Display {
+                source,
+                scanlines: self.scanlines,
+                profile,
+                caps,
+            };
+            let jobs = self.current.get_or_insert_with(|| row_jobs(&self.settings));
+            let mut failed = None;
+            for job in jobs.iter_mut() {
+                while job.answer.is_none() {
+                    if left == 0 {
+                        return false;
+                    }
+                    left -= 1;
+                    if let Err(error) = advance(job, &display, &mut validate) {
+                        failed = Some(error);
+                        break;
+                    }
+                }
+                if failed.is_some() {
+                    break;
+                }
+            }
+            let jobs = self.current.take().unwrap_or_default();
+            match failed {
+                Some(error) => {
+                    self.error.get_or_insert(error);
+                }
+                None => self.done.extend(assemble(jobs)),
+            }
+            self.next += 1;
+        }
+        true
+    }
+
+    /// The answers: of the one source, or one answer for every source that
+    /// has a plan.
+    ///
+    /// # Errors
+    ///
+    /// [`PolicyError`] of the first source with no plan, when no answer is
+    /// there.
+    pub fn finish(self) -> Result<PictureChoices, PolicyError> {
+        let answer = if self.sources.len() == 1 {
+            self.done.into_iter().next()
+        } else {
+            for_every_game(&self.done)
         };
-        Ok::<_, PolicyError>(RowChoice {
-            answer,
-            not_for_every_game: None,
-        })
-    };
-    let modes = PictureStyle::ALL
-        .into_iter()
-        .map(|style| {
-            let pair = PolicySettings { style, ..*settings };
-            let at_auto = PolicySettings {
+        match (answer, self.error) {
+            (Some(answer), _) => Ok(answer),
+            (None, Some(error)) => Err(error),
+            (None, None) => Err(PolicyError::EmptySource {
+                width: 0,
+                height: 0,
+                refresh_mhz: 0,
+            }),
+        }
+    }
+}
+
+/// The options of the two rows for the stored pair of `settings`, in the
+/// order of [`PictureStyle::ALL`] then [`RefreshPolicy::ALL`].
+fn row_jobs(settings: &PolicySettings) -> Vec<RowJob> {
+    let modes = PictureStyle::ALL.into_iter().map(|style| {
+        let pair = PolicySettings { style, ..*settings };
+        RowJob {
+            pair,
+            at_auto: PolicySettings {
                 refresh: RefreshPolicy::Exact,
                 ..pair
-            };
-            Ok((style, row(pair, at_auto, Judge::Candidate)?))
-        })
-        .collect::<Result<_, PolicyError>>()?;
-    let refresh = RefreshPolicy::ALL
-        .into_iter()
-        .map(|refresh| {
-            let pair = PolicySettings {
-                refresh,
-                ..*settings
-            };
-            let at_auto = PolicySettings {
+            },
+            which: Judge::Candidate,
+            stored: None,
+            answer: None,
+        }
+    });
+    let refresh = RefreshPolicy::ALL.into_iter().map(|refresh| {
+        let pair = PolicySettings {
+            refresh,
+            ..*settings
+        };
+        RowJob {
+            pair,
+            at_auto: PolicySettings {
                 style: PictureStyle::Auto,
                 ..pair
-            };
-            Ok((refresh, row(pair, at_auto, Judge::RefreshOption)?))
-        })
-        .collect::<Result<_, PolicyError>>()?;
-    Ok(PictureChoices { modes, refresh })
+            },
+            which: Judge::RefreshOption,
+            stored: None,
+            answer: None,
+        }
+    });
+    modes.chain(refresh).collect()
+}
+
+/// One decision for `job`: its pair, or else its pair with the other row
+/// at Auto.
+fn advance<E>(
+    job: &mut RowJob,
+    display: &Display<'_>,
+    validate: impl FnMut(&Modeline) -> Result<(), E>,
+) -> Result<(), PolicyError> {
+    match job.stored {
+        None => match judge(display, &job.pair, job.which, validate)? {
+            Ok(offered) => job.answer = Some(RowAnswer::Plain(offered)),
+            Err(declined) if job.pair == job.at_auto => {
+                job.answer = Some(RowAnswer::Declined(declined));
+            }
+            Err(declined) => job.stored = Some(declined.reason),
+        },
+        Some(stored_pair) => {
+            job.answer = Some(match judge(display, &job.at_auto, job.which, validate)? {
+                Ok(offered) => RowAnswer::ResetsOther {
+                    offered,
+                    stored_pair,
+                },
+                Err(declined) => RowAnswer::Declined(declined),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The answers of the rows of one source, from its finished jobs: `None`
+/// when a job has no answer.
+fn assemble(jobs: Vec<RowJob>) -> Option<PictureChoices> {
+    let mut answers = Vec::with_capacity(jobs.len());
+    for job in jobs {
+        answers.push(RowChoice {
+            answer: job.answer?,
+            not_for_every_game: None,
+        });
+    }
+    let mut answers = answers.into_iter();
+    let modes = PictureStyle::ALL
+        .into_iter()
+        .zip(answers.by_ref())
+        .collect();
+    let refresh = RefreshPolicy::ALL.into_iter().zip(answers).collect();
+    Some(PictureChoices { modes, refresh })
 }
 
 /// The answers of [`picture_choices`] for several sources, as one answer

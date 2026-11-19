@@ -94,6 +94,7 @@ fn list_launch_mode_switches_quick_menu_and_quit() {
             rig.focus("Video");
             rig.tap(&[Control::A]);
             assert_eq!(rig.screen(), "quick-menu/video");
+            rig.wait_for_picture_answers();
             let style = rig
                 .shell()
                 .snapshot()

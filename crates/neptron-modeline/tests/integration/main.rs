@@ -6,6 +6,7 @@
 
 mod arcade_table;
 mod golden;
+mod policy_cost;
 mod policy_golden;
 mod policy_modes;
 mod policy_offer;

@@ -10,6 +10,7 @@
 
 #![forbid(unsafe_code)]
 
+mod answers;
 mod cache;
 mod decision;
 mod engine;
@@ -21,6 +22,7 @@ mod settings;
 mod status;
 mod trace;
 
+pub use answers::AnswerRequest;
 pub use cache::CACHE_ENTRIES;
 pub use decision::{Chosen, Refusal, Unshowable, Veto, picture_choices_on};
 pub use engine::{Presented, VideoEngine, VideoError};

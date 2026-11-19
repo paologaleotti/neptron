@@ -236,6 +236,9 @@ pub struct Names<'a> {
     /// engine, with the values of the level the page writes. `None` when
     /// the run has no engine: the options are then greyed.
     pub choices: Option<&'a PictureChoices>,
+    /// The answers are in work: the options of the picture mode and
+    /// refresh rows show [`JUDGING`] until they are there.
+    pub judging: bool,
     /// Whom the page writes for: every game, or the game of the run.
     pub scope: Scope,
     /// The class of the display that the run drives. A row whose setting
@@ -449,6 +452,10 @@ fn hz(mhz: u64) -> String {
 /// The reason of an option of the picture mode or refresh rows when the
 /// run has no engine to ask.
 pub const NO_DECISION: &str = "No picture decision now";
+
+/// The text of an option of the picture mode or refresh rows while its
+/// answer is in work.
+pub const JUDGING: &str = "…";
 
 /// Whom a page writes for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1112,7 +1119,13 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
                 let answer = names
                     .choices
                     .and_then(|c| c.modes.iter().find(|(s, _)| *s == style).map(|(_, a)| a));
-                offered_option(option, answer, DISPLAY_REFRESH_POLICY, names.scope)
+                offered_option(
+                    option,
+                    answer,
+                    DISPLAY_REFRESH_POLICY,
+                    names.scope,
+                    names.judging,
+                )
             }
             None => ChoiceOption::new(choice),
         },
@@ -1127,7 +1140,7 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
                             .find(|(r, _)| *r == refresh)
                             .map(|(_, a)| a)
                     });
-                    offered_option(option, answer, DISPLAY_STYLE, names.scope)
+                    offered_option(option, answer, DISPLAY_STYLE, names.scope, names.judging)
                 }
                 None => ChoiceOption::new(choice),
             }
@@ -1156,9 +1169,10 @@ fn offered_option(
     choice: Option<&RowChoice>,
     other: &str,
     scope: Scope,
+    judging: bool,
 ) -> ChoiceOption {
     let Some(choice) = choice else {
-        return option.unavailable(NO_DECISION);
+        return option.unavailable(if judging { JUDGING } else { NO_DECISION });
     };
     let (plan, winner) = match choice.answer.offer() {
         Ok(offered) => (&offered.plan, Some(offered.winner)),
@@ -1418,6 +1432,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             outputs: &outputs,
             class: DisplayClass::Crt,
@@ -1487,6 +1502,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             outputs: &[],
             class: DisplayClass::Crt,
@@ -1509,6 +1525,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
@@ -1537,6 +1554,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
@@ -1654,6 +1672,7 @@ mod tests {
                                 presets: &presets,
                                 detected: &detected,
                                 choices: Some(&choices),
+                                judging: false,
                                 scope,
                                 class,
                                 outputs: &[],
@@ -1711,6 +1730,7 @@ mod tests {
                     presets: &presets,
                     detected: &detected,
                     choices: Some(&choices),
+                    judging: false,
                     scope: Scope::EveryGame,
                     class,
                     outputs: &[],
@@ -1855,6 +1875,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
@@ -1889,6 +1910,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::FlatPanel,
             outputs: &[],
@@ -1967,6 +1989,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
@@ -1997,6 +2020,7 @@ mod tests {
                 presets: &presets,
                 detected: &detected,
                 choices: None,
+                judging: false,
                 scope: Scope::ThisGame,
                 class,
                 outputs: &[],
@@ -2018,6 +2042,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::FlatPanel,
             outputs: &[],
@@ -2045,6 +2070,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
@@ -2074,6 +2100,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],
@@ -2115,6 +2142,7 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::Tv,
             outputs: &[],
@@ -2226,6 +2254,7 @@ mod tests {
             presets,
             detected,
             choices: None,
+            judging: false,
             scope: Scope::ThisGame,
             class: DisplayClass::Crt,
             outputs: &[],

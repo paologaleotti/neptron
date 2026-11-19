@@ -3,6 +3,7 @@ use neptron_modeline::policy::{PolicySettings, Proposal, Switch, panel_scanlines
 use neptron_safety::{Rejection, ValidatedMode, validate};
 use neptron_types::{FlipEvent, Frame, GpuCaps, Modeline, Scene, SourceGeometry};
 
+use crate::answers::{AnswerCache, AnswerRequest};
 use crate::cache::Cache;
 use crate::decision::{Decision, Inputs};
 use crate::{
@@ -88,6 +89,7 @@ pub struct Odren {
     /// Scanlines change the scene only, never the mode.
     scanlines: ScanlineSettings,
     cache: Cache,
+    answers: AnswerCache,
     current: Option<Current>,
     /// The generation of the inputs whose decision placed `current`. A
     /// restore of the last good mode keeps the old one.
@@ -155,6 +157,7 @@ impl Odren {
             generation: 0,
             scanlines: ScanlineSettings::OFF,
             cache: Cache::new(),
+            answers: AnswerCache::default(),
             current: None,
             current_generation: 0,
             request: None,
@@ -734,27 +737,71 @@ impl Odren {
     }
 
     /// The answers of `neptron_modeline::policy::offer` for the options of
-    /// the picture mode and the refresh rows, with the scanlines of the
-    /// engine, from the same policy, caps and validator.
+    /// the picture mode and the refresh rows, with the settings and the
+    /// scanlines of the engine, from the same policy, caps and validator.
+    /// The answers come from the cache of [`Self::answers`], finished at
+    /// once.
     pub fn picture_choices(
         &self,
         source: &SourceGeometry,
     ) -> Result<neptron_modeline::policy::PictureChoices, crate::Unshowable> {
-        self.inputs
-            .picture_choices(source, &self.inputs.settings, self.scanlines)
+        self.answers_now(&self.request_for(source))
     }
 
-    /// The answers of `neptron_modeline::policy::picture_choices` for other
-    /// settings and scanlines than the engine's, from the same policy, caps
-    /// and validator: the menu of a level whose values the engine does not
-    /// run, such as the global level of Settings > Display in a game.
-    pub fn picture_choices_with(
+    /// The request of the answers for `source` with the settings and the
+    /// scanlines of the engine.
+    pub fn request_for(&self, source: &SourceGeometry) -> AnswerRequest {
+        AnswerRequest {
+            sources: vec![*source],
+            settings: self.inputs.settings,
+            scanlines: self.scanlines,
+        }
+    }
+
+    /// The answers of `request`, from the cache, or `None` while they are
+    /// in work: a request that the cache does not hold starts its work,
+    /// which [`Self::step_answers`] makes a few decisions at a time. The
+    /// cache holds the answers until an input of the engine changes.
+    pub fn answers(
         &self,
-        source: &SourceGeometry,
-        settings: &PolicySettings,
-        scanlines: ScanlineSettings,
+        request: &AnswerRequest,
+    ) -> Option<Result<neptron_modeline::policy::PictureChoices, crate::Unshowable>> {
+        self.answers
+            .get(self.generation, request)
+            .map(|done| done.map_err(crate::Unshowable::Policy))
+    }
+
+    /// Makes at most `budget` decisions of the answers in work, the oldest
+    /// request first. Returns whether a request got its answers.
+    pub fn step_answers(&self, budget: usize) -> bool {
+        self.answers.step(|work| {
+            work.step(
+                self.inputs.monitor.profile(),
+                &self.inputs.caps,
+                |mode| self.inputs.check(mode).map(drop),
+                budget,
+            )
+        })
+    }
+
+    /// Whether answers are in work.
+    pub fn answers_in_work(&self) -> bool {
+        self.answers.working()
+    }
+
+    /// The answers of `request`, with its work finished at once: for a set
+    /// that must be judged now, such as a value set from the control
+    /// protocol.
+    pub fn answers_now(
+        &self,
+        request: &AnswerRequest,
     ) -> Result<neptron_modeline::policy::PictureChoices, crate::Unshowable> {
-        self.inputs.picture_choices(source, settings, scanlines)
+        loop {
+            if let Some(done) = self.answers(request) {
+                return done;
+            }
+            while !self.step_answers(usize::MAX) {}
+        }
     }
 
     /// The answer of `neptron_modeline::policy::offer` for the settings

@@ -367,6 +367,37 @@ fn the_picture_choices_for_every_game_judge_each_source() {
     );
 }
 
+/// The answers of a request come from the cache once made: a request
+/// starts its work, the frame makes it a few decisions at a time, the same
+/// request then costs nothing, and a change of an input of the engine (here
+/// the monitor) makes the old answers stale.
+#[test]
+fn the_picture_answers_are_made_a_few_decisions_at_a_time_and_kept() {
+    let mut rig = Rig::generic_15(native_width());
+    rig.frame(SNES);
+    let request = rig.engine.request_for(&SNES);
+    assert!(
+        rig.engine.answers(&request).is_none(),
+        "a new request starts work"
+    );
+    assert!(rig.engine.answers_in_work());
+    let mut frames = 0;
+    while !rig.engine.step_answers(2) {
+        frames += 1;
+        assert!(frames < 100, "the work ends");
+    }
+    assert!(frames > 1, "two decisions a frame spread the work");
+    let answers = rig.engine.answers(&request).expect("ready");
+    assert!(answers.is_ok());
+    assert!(!rig.engine.answers_in_work());
+    assert_eq!(rig.engine.answers(&request), Some(answers), "kept");
+    rig.engine.set_monitor(generic_15());
+    assert!(
+        rig.engine.answers(&request).is_none(),
+        "a new input is new work"
+    );
+}
+
 #[test]
 fn the_picture_choices_come_from_the_same_decision() {
     let mut rig = Rig::generic_15(native_width());

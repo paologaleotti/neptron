@@ -4,7 +4,7 @@
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::PadRoster;
 use neptron_settings::{DisplayClass, Level};
-use neptron_types::{Modeline, MonitorKind, SourceGeometry, TvStandard};
+use neptron_types::{Modeline, MonitorKind, TvStandard};
 use neptron_ui::screens::{
     AUDIO_PAGE, DISPLAY_PAGE, INPUT_PAGE, LIBRARY_PAGE, NETWORK_PAGE, QUICK_MENU_PAGE, SYSTEM_PAGE,
     VIDEO_PAGE,
@@ -13,7 +13,9 @@ use neptron_ui::snapshot::{
     ConfirmId, GameId, Notice, NoticeId, NoticeKind, PageId, PendingConfirm, SessionInfo,
     SettingsPage, VideoStatus,
 };
-use neptron_video::{Monitor, Phase, PictureChoices, REFERENCE_SOURCES, VideoStatusText};
+use neptron_video::{
+    AnswerRequest, Monitor, Phase, PictureChoices, REFERENCE_SOURCES, VideoStatusText,
+};
 
 use super::boot::profile_id;
 use super::{Shell, Stage};
@@ -133,14 +135,22 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             VIDEO_PAGE => Level::Game,
             _ => Level::Global,
         };
-        let choices = match page {
-            DISPLAY_PAGE | VIDEO_PAGE => self.picture_choices(level),
-            _ => None,
+        // The answers come from the cache of the engine; while they are in
+        // work, the frame makes them a few decisions at a time and loads
+        // the page again when they are there.
+        let (choices, judging) = match page {
+            DISPLAY_PAGE | VIDEO_PAGE => match self.picture_answers(level) {
+                Some(Some(choices)) => (Some(choices), false),
+                Some(None) => (None, true),
+                None => (None, false),
+            },
+            _ => (None, false),
         };
         let names = Names {
             presets: &self.presets,
             detected: &self.detected,
             choices: choices.as_ref(),
+            judging,
             scope: self.scope_of(level),
             class: self.display_class(),
             outputs: &self.runtime.audio_outputs,
@@ -204,37 +214,35 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         }
     }
 
-    /// The answers of the policy for the options of the picture mode and
-    /// refresh rows of a page or a set that writes `level`, from the same
-    /// policy, caps and validator as the run, with the values resolved from
-    /// the defaults up to that level. The game level is judged for the
-    /// running game with the values of the run; the system level in a game
-    /// for the running game with the values up to the system level; the
-    /// global level, and every level in the game list, for every game (the
-    /// running game, if any, then the reference sources,
-    /// `REFERENCE_SOURCES`) with the global values. `None` with no engine.
-    pub(super) fn picture_choices(&self, level: Level) -> Option<PictureChoices> {
-        let (engine, game) = match &self.stage {
-            Stage::List(list) => (&list.engine, None),
-            Stage::Game(game) => (game.session.video(), Some(game.session.source())),
+    /// The request of the answers for the options of the picture mode and
+    /// refresh rows of a page or a set that writes `level`, with the values
+    /// resolved from the defaults up to that level. The game level is
+    /// judged for the running game with the values of the run; the system
+    /// level in a game for the running game with the values up to the
+    /// system level; the global level, and every level in the game list,
+    /// for every game (the running game, if any, then the reference
+    /// sources, `REFERENCE_SOURCES`) with the global values.
+    fn picture_request(&self, level: Level) -> Option<AnswerRequest> {
+        let game = match &self.stage {
+            Stage::List(_) => None,
+            Stage::Game(game) => Some(game.session.source()),
             Stage::Ended => return None,
         };
         match (level, game) {
-            (Level::Game, Some(source)) => engine.picture_choices(&source).ok(),
-            (Level::System, Some(source)) => {
-                let settings = self.config.policy_up_to(Level::System).ok()?;
-                let scanlines = self.config.scanlines_up_to(Level::System).ok()?;
-                engine
-                    .picture_choices_with(&source, &settings, scanlines)
-                    .ok()
+            (Level::Game, Some(source)) => {
+                let engine = self.engine_ref()?;
+                Some(engine.request_for(&source))
             }
-            (Level::Global, _) | (Level::System | Level::Game, None) => {
-                let settings = self.config.policy_up_to(Level::Global).ok()?;
-                let scanlines = self.config.scanlines_up_to(Level::Global).ok()?;
-                let sources: Vec<SourceGeometry> =
-                    game.into_iter().chain(REFERENCE_SOURCES).collect();
-                engine.picture_choices_for_every_game(&sources, &settings, scanlines)
-            }
+            (Level::System, Some(source)) => Some(AnswerRequest {
+                sources: vec![source],
+                settings: self.config.policy_up_to(Level::System).ok()?,
+                scanlines: self.config.scanlines_up_to(Level::System).ok()?,
+            }),
+            (Level::Global, _) | (Level::System | Level::Game, None) => Some(AnswerRequest {
+                sources: game.into_iter().chain(REFERENCE_SOURCES).collect(),
+                settings: self.config.policy_up_to(Level::Global).ok()?,
+                scanlines: self.config.scanlines_up_to(Level::Global).ok()?,
+            }),
         }
     }
 
@@ -245,6 +253,35 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             (Level::Game | Level::System, Stage::Game(_)) => Scope::ThisGame,
             (Level::Global, _) | (_, Stage::List(_) | Stage::Ended) => Scope::EveryGame,
         }
+    }
+
+    /// The engine of the run: the list's or the game's.
+    pub(super) fn engine_ref(&self) -> Option<&neptron_video::VideoEngine<D>> {
+        match &self.stage {
+            Stage::List(list) => Some(&list.engine),
+            Stage::Game(game) => Some(game.session.video()),
+            Stage::Ended => None,
+        }
+    }
+
+    /// The answers for a page that writes `level`: `Some(None)` while they
+    /// are in work, `None` with no engine or no plan.
+    fn picture_answers(&self, level: Level) -> Option<Option<PictureChoices>> {
+        let request = self.picture_request(level)?;
+        match self.engine_ref()?.answers(&request) {
+            None => Some(None),
+            Some(Ok(choices)) => Some(Some(choices)),
+            Some(Err(_)) => None,
+        }
+    }
+
+    /// The answers for a set at `level`, finished at once: the gate of a
+    /// set takes the answers of the loaded page from the cache, and makes
+    /// them only for a level that no page shows (a keep, the protocol).
+    /// `None` with no engine or no plan.
+    pub(super) fn picture_choices(&self, level: Level) -> Option<PictureChoices> {
+        let request = self.picture_request(level)?;
+        self.engine_ref()?.answers_now(&request).ok()
     }
 
     /// Builds the loaded page again after a change of the settings.
