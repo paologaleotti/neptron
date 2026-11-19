@@ -87,6 +87,18 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: picture_mode_tv,
     },
     SceneDef {
+        name: "screens/picture-mode-speed-not-held",
+        build: picture_mode_speed_not_held,
+    },
+    SceneDef {
+        name: "screens/refresh-rate",
+        build: refresh_rate_crt,
+    },
+    SceneDef {
+        name: "screens/picture-mode-reset",
+        build: picture_mode_reset,
+    },
+    SceneDef {
         name: "screens/display-safe-mode",
         build: display_safe_mode,
     },
@@ -660,100 +672,292 @@ fn setting(
     item
 }
 
-/// The picture styles on a 31 kHz monitor that accepts 120 Hz, for a
-/// 240-line game at 59.94 Hz.
-pub(super) fn styles() -> Vec<ChoiceOption> {
-    vec![
-        ChoiceOption::new("Auto").with_detail("31.5 kHz  59.94 Hz"),
-        ChoiceOption::new("Native").unavailable("Needs a 15 kHz monitor"),
-        ChoiceOption::new("2x").with_detail("31.5 kHz  59.94 Hz"),
-        ChoiceOption::new("3x").unavailable("Needs a 45 kHz monitor"),
-        ChoiceOption::new("4x").unavailable("Needs a 60 kHz monitor"),
-    ]
+/// The labels and the help lines of the picture modes, in the order of the
+/// menus of the app. A test of the app keeps them equal to the app's own
+/// texts.
+pub const PICTURE_MODE_TEXTS: [(&str, &str); 8] = [
+    (
+        "Auto",
+        "Exact lines first, at the game's speed. A notice names each compromise.",
+    ),
+    (
+        "Sharp lines",
+        "Exact lines over the game's speed. The picture can flicker or be small.",
+    ),
+    (
+        "Game speed",
+        "The game's own speed first. The picture can be soft.",
+    ),
+    (
+        "Fill",
+        "The largest picture with no flicker where the screen allows it. The picture can be soft.",
+    ),
+    (
+        "Native",
+        "Each game line on one screen line. The picture can be small, with borders.",
+    ),
+    ("2x", "Each game line on two screen lines."),
+    ("3x", "Each game line on three screen lines."),
+    ("4x", "Each game line on four screen lines."),
+];
+
+/// The labels and the help lines of the refresh choices on Settings >
+/// Display, in the order of the schema. A test of the app keeps them equal
+/// to the app's own texts.
+pub const REFRESH_RATE_TEXTS: [(&str, &str); 4] = [
+    (
+        "Auto",
+        "The game's own rate, or the nearest rate the monitor takes.",
+    ),
+    (
+        "Double rate",
+        "Each frame shows twice, at twice the game's rate. The game speed does not change.",
+    ),
+    (
+        "50 Hz",
+        "Every game at 50 Hz. A game made for 60 Hz runs slower.",
+    ),
+    (
+        "60 Hz",
+        "Every game at 60 Hz. A game made for 50 Hz runs faster.",
+    ),
+];
+
+/// The reasons and help lines of the picture rows that the scenes show,
+/// as the app gives them. A test of the app keeps each equal to the app's
+/// own text.
+pub mod picture_texts {
+    /// `NotShownHere`.
+    pub const NOT_SHOWN_HERE: &str = "Not possible with this screen and video output";
+    /// `OneRateOnTv`.
+    pub const ONE_RATE_ON_TV: &str = "A TV has one rate";
+    /// `SpeedNotHeld`.
+    pub const SPEED_NOT_HELD: &str = "This screen cannot hold the game's speed";
+    /// `RateNotCovered` at twice the rate of the Game Boy, 59.728 Hz.
+    pub const NO_119_HZ: &str = "This monitor does not take 119.45 Hz";
+    /// A row that the display does not read on a TV.
+    pub const NOT_USED_ON_A_TV: &str = "Not used on a TV";
+    /// A row that the display does not read on a flat panel.
+    pub const NOT_USED_ON_A_PANEL: &str = "Not used on a flat panel";
+    /// The help line of a picture mode that also sets the refresh rate.
+    pub const RESETS_REFRESH: &str = "Also sets Refresh rate to Auto.";
+    /// `NotShownHere` for some reference game.
+    pub const SOME_NOT_SHOWN: &str =
+        "Not for every game: not possible with this screen and video output.";
+    /// `TooLargeForScreen` for some reference game.
+    pub const SOME_TOO_LARGE: &str = "Not for every game: too large for this screen.";
+    /// `SpeedNotHeld` for some reference game.
+    pub const SOME_SPEED_NOT_HELD: &str =
+        "Not for every game: this screen cannot hold the game's speed.";
+    /// `RateNotCovered` at twice the rate of the Amiga PAL, 49.920 Hz, for
+    /// some reference game.
+    pub const SOME_NO_99_HZ: &str = "Not for every game: this monitor does not take 99.84 Hz.";
 }
 
-/// The display classes of the picture mode scenes.
+use picture_texts as texts;
+
+/// The displays of the picture mode scenes.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Class {
+    /// `generic_15`, judged for every game: the reference sources.
     Crt15,
+    /// `pc_31_120`, judged for every game.
+    Crt31,
+    /// A 1080p panel, judged for every game.
     Panel,
+    /// NTSC, judged for every game.
     Tv,
 }
 
-/// The picture modes of the app for a 224-line game at 60.10 Hz, in the
-/// order of the schema, with the help line of each: on a 15 kHz tube, on a
-/// 1080p panel, and on NTSC.
+/// The picture modes on Settings > Display, as the app gives them for the
+/// reference sources with the default settings, in the order of the menus.
 fn picture_modes(class: Class) -> Vec<ChoiceOption> {
     let rate = match class {
-        Class::Crt15 => "15.63 kHz  60.10 Hz",
+        Class::Crt15 => "15.64 kHz  59.72 Hz",
+        Class::Crt31 => "31.41 kHz  59.72 Hz",
         Class::Panel => "67.50 kHz  60.00 Hz",
         Class::Tv => "15.73 kHz  60.05 Hz",
     };
-    let multiple = |label: &str, help: &str| match class {
-        Class::Panel => ChoiceOption::new(label).with_detail(rate).with_help(help),
-        Class::Crt15 | Class::Tv => ChoiceOption::new(label)
-            .unavailable("Needs another monitor")
-            .with_help(help),
-    };
-    let speed = ChoiceOption::new("Game speed")
-        .with_detail(rate)
-        .with_help("The game's own speed first. The picture can be soft.");
-    vec![
-        ChoiceOption::new("Auto")
-            .with_detail(rate)
-            .with_help("Exact lines first, at the game's speed. A notice names each compromise."),
-        ChoiceOption::new("Native")
-            .with_detail(rate)
-            .with_help("The game's own lines, one time each. The picture can be small, with borders."),
-        multiple("2x", "Each line two times. If the screen cannot show it, a smaller step."),
-        multiple("3x", "Each line three times. If the screen cannot show it, a smaller step."),
-        multiple("4x", "Each line four times. If the screen cannot show it, a smaller step."),
-        ChoiceOption::new("Sharp lines").with_detail(rate).with_help(
-            "Exact lines always. The speed can change, and the picture can flicker or be small.",
-        ),
-        match class {
-            Class::Tv => speed.unavailable("A TV has one rate"),
-            Class::Crt15 | Class::Panel => speed,
-        },
-        ChoiceOption::new("Fill")
-            .with_detail(rate)
-            .with_help("Fills the screen height with no flicker. The picture is soft."),
-    ]
+    PICTURE_MODE_TEXTS
+        .iter()
+        .map(|&(label, help)| {
+            let option = ChoiceOption::new(label).with_detail(rate).with_help(help);
+            match (class, label) {
+                (Class::Crt15 | Class::Tv, "2x" | "3x" | "4x") | (Class::Crt31, "4x") => {
+                    option.unavailable(texts::NOT_SHOWN_HERE)
+                }
+                (Class::Crt31, "2x" | "3x") => option.with_help(texts::SOME_NOT_SHOWN),
+                (Class::Crt31, "Native") => option.with_detail("31.41 kHz  119.45 Hz"),
+                (Class::Tv, "Game speed") => option.unavailable(texts::ONE_RATE_ON_TV),
+                (Class::Panel, "Game speed") => option.with_help(texts::SOME_SPEED_NOT_HELD),
+                (Class::Panel, "3x" | "4x") => option.with_help(texts::SOME_TOO_LARGE),
+                _ => option,
+            }
+        })
+        .collect()
 }
 
-/// The options of the picture mode on a display of `class`, with the
-/// cursor `down` options below `Auto`.
+/// The refresh choices on Settings > Display, as the app gives them for
+/// the reference sources with the default settings.
+fn refresh_rates(class: Class) -> Vec<ChoiceOption> {
+    let details: [&str; 4] = match class {
+        Class::Crt15 => [
+            "15.64 kHz  59.72 Hz",
+            "15.64 kHz  59.72 Hz",
+            "15.65 kHz  50.00 Hz",
+            "15.65 kHz  60.00 Hz",
+        ],
+        Class::Crt31 => [
+            "31.41 kHz  59.72 Hz",
+            "31.41 kHz  119.45 Hz",
+            "31.40 kHz  50.00 Hz",
+            "31.43 kHz  60.00 Hz",
+        ],
+        Class::Panel => ["67.50 kHz  60.00 Hz"; 4],
+        Class::Tv => ["15.73 kHz  60.05 Hz"; 4],
+    };
+    REFRESH_RATE_TEXTS
+        .iter()
+        .zip(details)
+        .map(|(&(label, help), detail)| {
+            let option = ChoiceOption::new(label).with_detail(detail).with_help(help);
+            match (class, label) {
+                (_, "Auto") => option,
+                (Class::Crt15, "Double rate") => option.unavailable(texts::NO_119_HZ),
+                (Class::Crt31, "Double rate") => option.with_help(texts::SOME_NO_99_HZ),
+                (Class::Tv, _) => option.unavailable(texts::ONE_RATE_ON_TV),
+                _ => option,
+            }
+        })
+        .collect()
+}
+
+/// The options of the picture mode on Settings > Display on a display of
+/// `class`, with the cursor `down` options below `Auto`.
 fn picture_mode(frame: &mut UiFrame, theme: &Theme, class: Class, down: usize) {
+    choice_scene(
+        frame,
+        theme,
+        STYLE,
+        "Picture mode",
+        picture_modes(class),
+        down,
+    );
+}
+
+/// The options of a row of the display panel, with the cursor `down`
+/// options below the first.
+fn choice_scene(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    key: SettingKey,
+    label: &str,
+    options: Vec<ChoiceOption>,
+    down: usize,
+) {
     let mut snap = with_display();
     for row in &mut snap.settings.rows {
-        if row.key == STYLE {
-            row.label = "Picture mode".to_owned();
-            row.value = choice(0, picture_modes(class));
+        if row.key == key {
+            row.label = label.to_owned();
+            row.value = choice(0, options.clone());
         }
     }
+    let to_row = if key == STYLE { 2 } else { 3 };
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &TO_DISPLAY, frame);
-    screens.update(
-        &snap,
-        &[UiAction::Down, UiAction::Down, UiAction::Accept],
-        frame,
-    );
+    let mut actions = vec![UiAction::Down; to_row];
+    actions.push(UiAction::Accept);
+    screens.update(&snap, &actions, frame);
     screens.update(&snap, &vec![UiAction::Down; down], frame);
 }
 
-/// Sharp lines on a 15 kHz tube, with its help line.
+/// The options of the picture mode on the Video page of the quick menu, as
+/// the app gives them for the running game, with the cursor `down` options
+/// below `Auto`.
+fn quick_picture_mode(frame: &mut UiFrame, theme: &Theme, options: Vec<ChoiceOption>, down: usize) {
+    let mut snap = in_game();
+    let mut screens = video_page_of(frame, theme, &mut snap);
+    for row in &mut snap.settings.rows {
+        if row.key == STYLE {
+            row.value = choice(0, options.clone());
+        }
+    }
+    screens.update(&snap, &[UiAction::Accept], frame);
+    screens.update(&snap, &vec![UiAction::Down; down], frame);
+}
+
+/// Sharp lines on Settings > Display on a 15 kHz tube: the multiples are
+/// greyed for every game.
 fn picture_mode_crt(frame: &mut UiFrame, theme: &Theme) {
-    picture_mode(frame, theme, Class::Crt15, 5);
+    picture_mode(frame, theme, Class::Crt15, 1);
 }
 
-/// Fill on a flat panel, where the multiples apply.
+/// Fill on Settings > Display on a flat panel, where every mode applies.
 fn picture_mode_panel(frame: &mut UiFrame, theme: &Theme) {
-    picture_mode(frame, theme, Class::Panel, 7);
+    picture_mode(frame, theme, Class::Panel, 3);
 }
 
-/// Game speed on a TV: greyed, with its reason.
+/// Game speed on Settings > Display on a TV: greyed, with its reason.
 fn picture_mode_tv(frame: &mut UiFrame, theme: &Theme) {
-    picture_mode(frame, theme, Class::Tv, 6);
+    picture_mode(frame, theme, Class::Tv, 2);
+}
+
+/// Game speed on the quick menu for a DOS game at 70.086 Hz on a 15 kHz
+/// tube: greyed with the longest reason, which the row shortens and the
+/// help line gives in full.
+fn picture_mode_speed_not_held(frame: &mut UiFrame, theme: &Theme) {
+    let options = PICTURE_MODE_TEXTS
+        .iter()
+        .map(|&(label, help)| {
+            let option = ChoiceOption::new(label).with_help(help);
+            match label {
+                "Auto" | "Sharp lines" => option.with_detail("15.71 kHz  64.28 Hz"),
+                "Fill" => option.with_detail("15.66 kHz  65.00 Hz"),
+                "Game speed" => option
+                    .with_detail("15.66 kHz  65.00 Hz")
+                    .unavailable(texts::SPEED_NOT_HELD),
+                _ => option
+                    .with_detail("15.71 kHz  64.28 Hz")
+                    .unavailable(texts::NOT_SHOWN_HERE),
+            }
+        })
+        .collect();
+    quick_picture_mode(frame, theme, options, 2);
+}
+
+/// Game speed on the quick menu for the SNES on a 15 kHz tube with the
+/// refresh rate at 50 Hz: Game speed holds the speed only at the game's
+/// own rate, so a pick also sets the refresh rate to Auto.
+fn picture_mode_reset(frame: &mut UiFrame, theme: &Theme) {
+    let options = PICTURE_MODE_TEXTS
+        .iter()
+        .map(|&(label, help)| {
+            let option = ChoiceOption::new(label).with_help(help);
+            match label {
+                "Game speed" => option
+                    .with_detail("15.62 kHz  60.09 Hz")
+                    .with_help(texts::RESETS_REFRESH),
+                "2x" | "3x" | "4x" => option
+                    .with_detail("15.62 kHz  60.09 Hz")
+                    .unavailable(texts::NOT_SHOWN_HERE),
+                _ => option.with_detail("15.64 kHz  50.00 Hz"),
+            }
+        })
+        .collect();
+    quick_picture_mode(frame, theme, options, 2);
+}
+
+/// The refresh choices on Settings > Display on `pc_31_120`: Double rate
+/// is not for every game, and its help line says why.
+fn refresh_rate_crt(frame: &mut UiFrame, theme: &Theme) {
+    choice_scene(
+        frame,
+        theme,
+        REFRESH,
+        "Refresh rate",
+        refresh_rates(Class::Crt31),
+        1,
+    );
 }
 
 /// The rows of a settings page with the display settings, written at the
@@ -781,24 +985,15 @@ pub(super) fn display_rows(scopes: Scopes) -> Vec<MenuItem> {
         ),
         setting(
             STYLE,
-            "Picture style",
-            choice(0, styles()),
+            "Picture mode",
+            choice(0, picture_modes(Class::Crt31)),
             Level::Default,
             scopes,
         ),
         setting(
             REFRESH,
-            "Refresh",
-            choice(
-                0,
-                vec![
-                    ChoiceOption::new("Exact").with_detail("The rate of the game"),
-                    ChoiceOption::new("Exact x2").with_detail("Twice the rate of the game"),
-                    ChoiceOption::new("Force 50 Hz")
-                        .unavailable("The monitor does not accept 50 Hz"),
-                    ChoiceOption::new("Force 60 Hz").with_detail("Games made for 50 Hz run faster"),
-                ],
-            ),
+            "Refresh rate",
+            choice(0, refresh_rates(Class::Crt31)),
             Level::Default,
             scopes,
         ),
@@ -856,6 +1051,9 @@ fn display_safe_mode(frame: &mut UiFrame, theme: &Theme) {
     screens.update(&snap, &[UiAction::Up], frame);
 }
 
+/// The picture modes of Settings > Display on `pc_31_120`, the monitor of
+/// the fixture, with the focus on 2x: not for every game, and its help
+/// line says why.
 fn display_style(frame: &mut UiFrame, theme: &Theme) {
     let snap = with_display();
     let mut screens = Screens::new(theme.clone());
@@ -865,7 +1063,7 @@ fn display_style(frame: &mut UiFrame, theme: &Theme) {
         &[UiAction::Down, UiAction::Down, UiAction::Accept],
         frame,
     );
-    screens.update(&snap, &[UiAction::Down], frame);
+    screens.update(&snap, &[UiAction::Down; 5], frame);
 }
 
 /// The rows of the display page on the composite output of a Raspberry
@@ -908,7 +1106,7 @@ fn display_tv_rows() -> Vec<MenuItem> {
             Level::Default,
             global,
         )
-        .unavailable("Not used on a TV"),
+        .unavailable(texts::NOT_USED_ON_A_TV),
         setting(
             TV_STANDARD,
             "TV standard",
@@ -925,20 +1123,19 @@ fn display_tv_rows() -> Vec<MenuItem> {
         ),
         setting(
             STYLE,
-            "Picture style",
-            choice(
-                0,
-                vec![
-                    ChoiceOption::new("auto").with_detail("15.73 kHz  60.05 Hz"),
-                    ChoiceOption::new("native").with_detail("15.73 kHz  60.05 Hz"),
-                    ChoiceOption::new("2x").unavailable("Needs another monitor"),
-                    ChoiceOption::new("3x").unavailable("Needs another monitor"),
-                    ChoiceOption::new("4x").unavailable("Needs another monitor"),
-                ],
-            ),
+            "Picture mode",
+            choice(0, picture_modes(Class::Tv)),
             Level::Default,
             global,
         ),
+        setting(
+            REFRESH,
+            "Refresh rate",
+            choice(0, refresh_rates(Class::Tv)),
+            Level::Default,
+            global,
+        )
+        .unavailable(texts::NOT_USED_ON_A_TV),
         MenuItem::new(SettingKey(5), "Grid pattern", SettingValue::Page(GRID_PAGE)),
     ]
 }
@@ -1613,15 +1810,15 @@ fn breadcrumb_long(frame: &mut UiFrame, theme: &Theme) {
     screens.update(&snap, &[UiAction::Down], frame);
 }
 
-/// The video page of the quick menu on a flat panel: the picture style and
-/// the refresh policy have no effect there, so both rows are disabled with
-/// the reason.
+/// The video page of the quick menu on a flat panel: the panel keeps its own
+/// rates, so the refresh rate row is disabled with the reason. The picture
+/// mode has an effect there and stays open.
 fn quick_menu_panel(frame: &mut UiFrame, theme: &Theme) {
     let mut snap = in_game();
     let mut screens = video_page_of(frame, theme, &mut snap);
     for row in &mut snap.settings.rows {
-        if row.key == STYLE || row.key == REFRESH {
-            *row = row.clone().unavailable("Not used on a flat panel");
+        if row.key == REFRESH {
+            *row = row.clone().unavailable(texts::NOT_USED_ON_A_PANEL);
         }
     }
     screens.update(&snap, &[UiAction::Down], frame);
@@ -1686,9 +1883,10 @@ pub(super) fn long_status() -> VideoStatus {
     .with_alert(true)
 }
 
-/// A board sped up to the rate of a 31 kHz mode that the fixture monitor
-/// `pc_31_120` shows: 4.15 %, above the alert threshold.
-pub(super) fn slowed_status() -> VideoStatus {
+/// A board at 57.550 Hz sped up to the 59.940 Hz of a 31 kHz mode that
+/// the fixture monitor `pc_31_120` shows: 4.15 % faster, above the alert
+/// threshold.
+pub(super) fn sped_up_status() -> VideoStatus {
     VideoStatus::new(
         "320x240             57.550 Hz",
         "640x480p  31.47 kHz 59.940 Hz  2x",
@@ -1725,7 +1923,7 @@ fn quick_menu_video_long(frame: &mut UiFrame, theme: &Theme) {
 /// The display panel opened from the quick menu, with the video block of
 /// a 31 kHz mode.
 fn display_video(frame: &mut UiFrame, theme: &Theme) {
-    let mut snap = in_game_with(slowed_status());
+    let mut snap = in_game_with(sped_up_status());
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &[], frame);
     screens.update(&snap, &TO_GAME_DISPLAY, frame);

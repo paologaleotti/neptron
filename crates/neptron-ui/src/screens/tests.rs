@@ -469,7 +469,7 @@ fn the_display_panel_never_changes_a_choice_in_place() {
     let snap = with_display();
     run.step(&snap, &TO_DISPLAY);
     run.step(&snap, &[Down, Down]);
-    assert_eq!(run.focused(), Some("Picture style"));
+    assert_eq!(run.focused(), Some("Picture mode"));
     for action in [Left, Right, Left, Right] {
         run.step(&snap, &[action]);
         assert!(run.intents().is_empty(), "{action:?}");
@@ -493,32 +493,40 @@ fn a_picture_style_applies_only_from_its_option_list() {
         .filter(|r| r.widget == crate::WidgetKind::List)
         .map(|r| (r.label, r.value))
         .collect();
+    let rate = Some("31.41 kHz  59.72 Hz");
     assert_eq!(
         rows,
         [
-            ("Auto", Some("31.5 kHz  59.94 Hz")),
-            ("Native", Some("Needs a 15 kHz monitor")),
-            ("2x", Some("31.5 kHz  59.94 Hz")),
-            ("3x", Some("Needs a 45 kHz monitor")),
-            ("4x", Some("Needs a 60 kHz monitor")),
+            ("Auto", rate),
+            ("Sharp lines", rate),
+            ("Game speed", rate),
+            ("Fill", rate),
+            ("Native", Some("31.41 kHz  119.45 Hz")),
+            ("2x", rate),
+            ("3x", rate),
+            ("4x", Some("Not available")),
         ]
     );
 
-    run.step(&snap, &[Down, Accept]);
+    run.step(&snap, &[Down; 7]);
+    run.step(&snap, &[Accept]);
     assert_eq!(run.screen(), "options");
     assert!(run.intents().is_empty());
     assert!(
         run.labels()
-            .contains(&"Not available. Needs a 15 kHz monitor.")
+            .join(" ")
+            .contains("Not available. Not possible with this screen and video output."),
+        "{:?}",
+        run.labels()
     );
 
-    run.step(&snap, &[Down, Accept]);
+    run.step(&snap, &[Up, Accept]);
     assert_eq!(
         run.intents(),
         [Intent::SetValue {
             key: STYLE,
             level: Level::Global,
-            value: Value::Choice(2)
+            value: Value::Choice(6)
         }]
     );
     assert_eq!(run.screen(), "display");
@@ -535,6 +543,7 @@ fn the_help_line_shows_the_help_of_the_focused_option_or_its_detail() {
             options[0] = ChoiceOption::new("Auto")
                 .with_detail("31.5 kHz  59.94 Hz")
                 .with_help("Exact lines first.");
+            options[1] = ChoiceOption::new("Sharp lines").with_detail("31.41 kHz  59.72 Hz");
         }
     }
     run.step(&snap, &TO_DISPLAY);
@@ -553,10 +562,11 @@ fn the_help_line_shows_the_help_of_the_focused_option_or_its_detail() {
         Some(Some("31.5 kHz  59.94 Hz")),
         "the row keeps the detail"
     );
-    // 2x has no help: the help line shows its detail.
-    run.step(&snap, &[Down, Down]);
-    assert_eq!(run.focused(), Some("2x"));
+    // An option with no help: the help line shows its detail.
+    run.step(&snap, &[Down]);
+    assert_eq!(run.focused(), Some("Sharp lines"));
     assert!(!run.labels().contains(&"Exact lines first."));
+    assert!(run.labels().join(" ").contains("31.41 kHz  59.72 Hz"));
 }
 
 #[test]
@@ -1007,7 +1017,7 @@ fn a_change_in_the_quick_menu_is_written_for_the_game() {
     assert_eq!(run.screen(), "quick-menu/video");
     assert_eq!(
         run.focused(),
-        Some("Refresh"),
+        Some("Refresh rate"),
         "the row the player came from"
     );
 }
@@ -1818,7 +1828,7 @@ fn the_video_block_takes_no_focus_and_changes_no_navigation() {
     for path in paths {
         let (mut plain, _, snap) = video_menu(None);
         let (mut run, _, with) = video_menu(Some(long_status()));
-        assert_eq!(run.focused(), Some("Picture style"));
+        assert_eq!(run.focused(), Some("Picture mode"));
         for &action in path.iter().chain(&[Back, Accept, Back]) {
             plain.step(&snap, &[action]);
             run.step(&with, &[action]);
@@ -1834,15 +1844,15 @@ fn the_video_block_takes_no_focus_and_changes_no_navigation() {
 fn a_status_that_comes_or_goes_keeps_the_cursor() {
     let (mut run, _, mut snap) = video_menu(None);
     run.step(&snap, &[Down]);
-    assert_eq!(run.focused(), Some("Refresh"));
+    assert_eq!(run.focused(), Some("Refresh rate"));
     snap.video = Some(filtered_status());
     run.step(&snap, &[]);
-    assert_eq!(run.focused(), Some("Refresh"));
+    assert_eq!(run.focused(), Some("Refresh rate"));
     assert_eq!(video_rows(&run).len(), 4);
     run.step(&snap, &[Up]);
     snap.video = None;
     run.step(&snap, &[]);
-    assert_eq!(run.focused(), Some("Picture style"));
+    assert_eq!(run.focused(), Some("Picture mode"));
     assert!(video_rows(&run).is_empty());
 }
 
@@ -1905,7 +1915,7 @@ fn long_video_text_is_cut_and_stays_in_its_line() {
         .frame
         .tree
         .rows()
-        .find(|r| r.label == "Picture style")
+        .find(|r| r.label == "Picture mode")
         .map(|r| r.rect.y);
     assert!(menu_top.is_some_and(|top| i64::from(top) > rows[2].rect.bottom()));
 }
@@ -2224,7 +2234,7 @@ fn back_closes_one_level_and_gives_the_focus_back_to_its_row() {
     run.step(&display, &[Back]);
     assert_eq!(
         (run.screen(), run.focused()),
-        ("display", Some("Picture style"))
+        ("display", Some("Picture mode"))
     );
     run.step(&display, &[Back]);
     assert_eq!((run.screen(), run.focused()), ("settings", Some("Display")));
@@ -2310,8 +2320,8 @@ fn a_long_breadcrumb_keeps_its_end_and_the_tree_keeps_it_whole() {
     snap.settings = super::scenes::video_page();
     run.step(&snap, &[Down, Accept]);
     let (shown, whole) = title(&run);
-    assert_eq!(shown, "... > Video > Refresh");
-    let full = format!("{} > Video > Refresh", super::scenes::LONG_TITLE);
+    assert_eq!(shown, "... > Video > Refresh rate");
+    let full = format!("{} > Video > Refresh rate", super::scenes::LONG_TITLE);
     assert_eq!(whole, Some(full.as_str()));
 }
 

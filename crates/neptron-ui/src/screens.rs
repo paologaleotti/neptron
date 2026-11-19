@@ -22,6 +22,7 @@ mod pattern;
 mod quick_menu;
 mod router;
 mod scenes;
+pub use scenes::{PICTURE_MODE_TEXTS, REFRESH_RATE_TEXTS, picture_texts};
 mod settings;
 mod video;
 

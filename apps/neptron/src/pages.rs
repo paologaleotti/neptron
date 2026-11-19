@@ -1759,6 +1759,52 @@ mod tests {
         }
     }
 
+    /// The fixture of the picture mode and refresh rate scenes of
+    /// `neptron-ui` has the texts and the order of the menus.
+    #[test]
+    fn the_ui_scenes_show_the_texts_of_the_menus() {
+        let modes: Vec<_> = PICTURE_MODE_MENU_ORDER
+            .iter()
+            .map(|m| (mode_label(*m), mode_help(*m)))
+            .collect();
+        assert_eq!(modes, neptron_ui::screens::PICTURE_MODE_TEXTS);
+        let rates: Vec<_> = RefreshPolicy::ALL
+            .iter()
+            .map(|r| (refresh_label(*r), refresh_help(*r, Scope::EveryGame)))
+            .collect();
+        assert_eq!(rates, neptron_ui::screens::REFRESH_RATE_TEXTS);
+        use neptron_ui::screens::picture_texts as t;
+        let not_shown = DeclineReason::NotShownHere {
+            asked: PictureStyle::X2,
+            shown: neptron_video::Rung::Native,
+        };
+        let too_large = DeclineReason::TooLargeForScreen {
+            asked: PictureStyle::X3,
+            shown: neptron_video::Rung::Multiple(2),
+        };
+        let not_covered = |rate_mhz| DeclineReason::RateNotCovered {
+            asked: RefreshPolicy::ExactX2,
+            rate_mhz,
+        };
+        assert_eq!(decline_text(not_shown), t::NOT_SHOWN_HERE);
+        assert_eq!(decline_text(DeclineReason::OneRateOnTv), t::ONE_RATE_ON_TV);
+        assert_eq!(decline_text(DeclineReason::SpeedNotHeld), t::SPEED_NOT_HELD);
+        assert_eq!(decline_text(not_covered(119_456)), t::NO_119_HZ);
+        assert_eq!(NOT_USED_ON_A_TV, t::NOT_USED_ON_A_TV);
+        assert_eq!(NOT_USED_ON_A_PANEL, t::NOT_USED_ON_A_PANEL);
+        assert_eq!(reset_help(DISPLAY_REFRESH_POLICY), t::RESETS_REFRESH);
+        assert_eq!(not_for_every_game_help(not_shown), t::SOME_NOT_SHOWN);
+        assert_eq!(not_for_every_game_help(too_large), t::SOME_TOO_LARGE);
+        assert_eq!(
+            not_for_every_game_help(DeclineReason::SpeedNotHeld),
+            t::SOME_SPEED_NOT_HELD
+        );
+        assert_eq!(
+            not_for_every_game_help(not_covered(99_840)),
+            t::SOME_NO_99_HZ
+        );
+    }
+
     /// With no answer of the policy (no engine), no option of the picture
     /// mode or refresh rows can be chosen.
     #[test]
