@@ -66,11 +66,11 @@ pub struct Notice {
     /// GPU's pixel clock floor, and the dynamic super width replaced it.
     pub strategy_replaced: Option<StrategyReplaced>,
     /// The `native` style shows each frame twice at twice the game's rate,
-    /// although the refresh policy did not ask for it, because the monitor
+    /// although the refresh choice did not ask for it, because the monitor
     /// cannot show the game's lines at the game's rate. The game speed does
     /// not change.
     pub double_refresh: bool,
-    /// The winner is not on the first rung of the picture style: the
+    /// The winner is not on the first rung of the picture mode: the
     /// picture is not the one the style names (a smaller multiple, rung 3
     /// or the fit). Auto has no rung of its own.
     pub style_fallback: bool,
@@ -231,7 +231,7 @@ pub fn switch_for(current: Option<&Modeline>, winner: &Modeline) -> Switch {
 /// source lines, when the winner is padded or small, when a flat panel
 /// fills below the scale of 4 because the fit is asked, or when a flat
 /// panel keeps whole steps where the mode would fill. Double refresh that
-/// the refresh policy asks for shows each frame twice at the game's own
+/// the refresh choice asks for shows each frame twice at the game's own
 /// rate, so it needs no notice.
 pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
     let proposal = considered.outcome.as_ref().ok()?;

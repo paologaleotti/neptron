@@ -67,7 +67,7 @@ pub enum Dropped {
     /// A TV standard has no mode with a multiple of the game's lines: one
     /// game line is one scan line.
     TvNoMultiple {
-        /// The factor that the picture style asks for.
+        /// The factor that the picture mode asks for.
         factor: u8,
     },
     /// Switchres changed the line count: the request does not fit a range

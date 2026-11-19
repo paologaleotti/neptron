@@ -269,7 +269,7 @@ Other golden lines that show a rule:
 | `force_50` or `force_60` | Result `[!] speed (X to Y Hz)` when the forced rate differs from the game rate by 5 mHz or more. When no range covers the forced rate, the policy skips it silently and the game runs at its own rate. | Set `display.refresh_policy` to `exact`. |
 | A few lines too many for a whole multiple | Result `cropped N lines` (N for both edges). One toast `Picture: cropped N lines.` | None needed: at most `OVERSCAN_CROP_MAX_LINES_PER_EDGE` = 8 lines per edge. A crop can hide real content on an arcade board that draws to the edge. |
 | The game fills less than 75 % of the picture lines | Result `small picture N%`. One toast `Picture: small picture N%.` | Style `auto` or `2x` on 31 kHz. On 15 kHz a handheld stays small: that is the border rule. |
-| The style cannot be shown | `notice.style_fallback` is set, the winner is a lower rung. The Display panel greys out the row. | Pick a style that is not greyed out. |
+| The picture mode cannot be shown | `notice.style_fallback` is set, the winner is a lower rung. The menus grey the option with its reason (`picture_choices`). | Pick a mode that is not greyed out. |
 | The width strategy is below the GPU pixel clock floor | The dynamic super width replaces it (`strategy_replaced`). No word in the Video block. | None needed. |
 | A rotated game (90 or 270 degrees) | The engine refuses the source (`Unshowable::Rotated`) and sets no mode. See [ODREN](04-odren.md). | None in the MVP: the renderer does not rotate. |
 | The validator refuses every proposal | No winner. The mode on screen stays. See [ODREN](04-odren.md). | Another monitor profile. |

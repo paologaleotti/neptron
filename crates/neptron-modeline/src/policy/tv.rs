@@ -361,7 +361,7 @@ fn ui_dest(mode: &Modeline) -> Rect {
     }
 }
 
-/// The rate that the refresh policy asks for, which a TV cannot give: the
+/// The rate that the refresh choice asks for, which a TV cannot give: the
 /// standard fixes the field rate.
 fn skipped(policy: RefreshPolicy, game_mhz: u32) -> Vec<SkippedTarget> {
     let asked = match policy {

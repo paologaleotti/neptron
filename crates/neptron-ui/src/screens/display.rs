@@ -24,7 +24,7 @@ const INFO_LINES_WITH_VIDEO: u32 = 2;
 const GAP_PX: u32 = 4;
 
 /// The display panel. It writes at the global level: the output and the
-/// monitor are global, and the picture style of one game is changed from
+/// monitor are global, and the picture mode of one game is changed from
 /// the quick menu.
 ///
 /// While a game runs with a video status, the info box shows the output

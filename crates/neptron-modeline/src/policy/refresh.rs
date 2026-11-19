@@ -33,7 +33,7 @@ pub enum RefreshKind {
     /// Twice the game's rate; each game frame is shown twice.
     Double,
     /// Twice the game's rate, which the policy takes on its own when the
-    /// refresh policy did not ask for it: the `native` style where the
+    /// refresh choice did not ask for it: the `native` style where the
     /// game's lines do not fit at its rate, and every style for a source
     /// below every range. Each game frame is shown twice, and the game
     /// speed does not change. The notice says so.
@@ -117,7 +117,7 @@ pub(crate) fn refresh_targets(
 /// rate changes it; when no range covers twice the rate, the covered rate
 /// nearest twice it, each frame twice, if that changes the speed less than
 /// the nearest rate. `None` when a range covers the game's rate, or when
-/// the refresh policy asks for double refresh already. The policy puts it
+/// the refresh choice asks for double refresh already. The policy puts it
 /// before the game's own target.
 pub(crate) fn below_ranges_double_target(
     policy: RefreshPolicy,
@@ -153,8 +153,8 @@ pub(crate) fn below_ranges_double_target(
 
 /// The extra target of the `native` style: twice the game's rate, for a
 /// monitor that cannot show the game's lines at its own rate. `None` when
-/// the refresh policy asks for double refresh already, or when no range
-/// covers the rate. The refresh policy did not ask for it, so a rate that
+/// the refresh choice asks for double refresh already, or when no range
+/// covers the rate. The refresh choice did not ask for it, so a rate that
 /// no range covers is not a skipped target.
 pub(crate) fn native_double_target(
     policy: RefreshPolicy,

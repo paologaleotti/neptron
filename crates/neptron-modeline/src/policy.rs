@@ -11,7 +11,7 @@
 //! 1. `take_source`: the source, axes swapped for a turned game.
 //! 2. `read_settings`: the effective settings; the horizontal strategy
 //!    defaults to the GPU's ([`HorizontalStrategy::default_for`]).
-//! 3. [`walk_ladder`]: the rungs the picture style walks.
+//! 3. [`walk_ladder`]: the rungs the picture mode walks.
 //! 4. `refresh_targets` and `shape`: per candidate, the lines (height
 //!    times the factor), the refresh (the game's rate, twice it, or the
 //!    forced rate) and the scan.
@@ -107,7 +107,7 @@ pub enum PolicyError {
 
 /// Steps 1 to 5 of the decision procedure: the plan for a source.
 ///
-/// On a CRT profile, each rung of the picture style's walk at each refresh
+/// On a CRT profile, each rung of the picture mode's walk at each refresh
 /// target, then a last resort; on a flat panel, each listed mode; on a TV,
 /// the modes of the standard's table in the order of the TV rungs. The
 /// engine walks the proposals with the validator ([`choose`]); the Display

@@ -148,7 +148,7 @@ stateDiagram-v2
 | Policy | `neptron_modeline::policy::decide` fails | `Unshowable::Policy(error)`. |
 | Choose | `policy::choose` walks the plan's proposals in order. The first one that `check` accepts wins. | `Chosen` with the `ValidatedMode` token and the notice of the policy. |
 | Check | 1. the veto, if set (refuse only). 2. `neptron_safety::validate` with the monitor profile and the caps. 3. the mode is not in `driver_refused`. | `Refusal::Validator(rejection)` or `Refusal::Driver`. |
-| No winner | every proposal refused | `Unshowable::NoWinner`. |
+| No winner | every proposal of the plan of the picture mode, of `auto` and of `fit` refused (`decide_shown`: a mode with no picture shows the picture of `auto`, then of `fit`) | `Unshowable::NoWinner`. |
 
 The caps are the display's caps, lowered to the EDID pixel clock limit when the monitor comes from EDID (`Monitor::caps_for`). Decisions are cached per source: `CACHE_ENTRIES` = 8 sources. A change of the monitor, the settings, the veto or the driver refusals clears the cache.
 

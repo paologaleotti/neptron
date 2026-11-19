@@ -164,7 +164,7 @@ pub fn replies() -> Vec<(Reply, String)> {
                 focused: Some("style".into()),
                 rows: vec![UiRow {
                     id: "style".into(),
-                    label: "Picture style".into(),
+                    label: "Picture mode".into(),
                     value: Some("Native".into()),
                     setting: Some("video.style".into()),
                     source: Some(SettingLevel::Global),
@@ -179,7 +179,7 @@ pub fn replies() -> Vec<(Reply, String)> {
             }),
             concat!(
                 r#"{"reply":"ui_tree","data":{"screen":"settings/display","focused":"style","rows":[{"#,
-                r#""id":"style","label":"Picture style","value":"Native","setting":"video.style","#,
+                r#""id":"style","label":"Picture mode","value":"Native","setting":"video.style","#,
                 r#""source":"global","clipped":false,"bounds":{"x":8,"y":32,"w":304,"h":12}}]}}"#
             )
             .into(),

@@ -271,9 +271,10 @@ pub enum SettingValue {
 /// One option of a [`SettingValue::Choice`]: its label, what it gives, and
 /// whether the player can choose it now.
 ///
-/// The display panel uses the detail for the line rate and the field rate
-/// that a picture style gives, and the reason for a style that the monitor
-/// cannot show.
+/// The quick menu uses the detail for the line rate and the field rate that
+/// a picture mode gives the running game, Settings > Display for a tag such
+/// as `Not all games`, and the reason for a mode that the display cannot
+/// show.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ChoiceOption {
@@ -283,7 +284,8 @@ pub struct ChoiceOption {
     /// empty.
     pub detail: String,
     /// Why the player cannot choose the option now, for example
-    /// `Needs a 45 kHz monitor`. `None` when the player can choose it.
+    /// `Not possible with this screen and video output`. `None` when the
+    /// player can choose it.
     pub unavailable: Option<String>,
     /// A short form of the label for the value column of a settings row,
     /// for example `HDMI/DP 1` for `HDMI/DP 1 (HDA Intel PCH)`. `None`

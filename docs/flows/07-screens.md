@@ -2,7 +2,7 @@
 
 This flow covers everything the player sees and presses in the menus: the screens, the buttons that move between them, the rows of each settings page, the video block, the confirm dialog, the keep prompt and the notices. It also says when a change reaches its settings file. The UI (`neptron-ui`) decides nothing about the display. It sends intents, and the app (`apps/neptron/src/shell`) carries them out. A display change goes through [the guard](03-guard.md); the mode itself comes from [ODREN](04-odren.md) and [the policy](05-policy.md).
 
-The menu canvas is 320x240. The golden pictures below are the reference renders of the screens. They use test fixtures (system names, row labels such as `Monitor` and `Refresh`, option labels such as `Auto` and `Exact`, and reasons such as `Needs a 15 kHz monitor`), so their texts are not always the texts of the real app. This file quotes the real texts from the code.
+The menu canvas is 320x240. The golden pictures below are the reference renders of the screens. They use test fixtures (system names, game titles, video modes). The options of the picture rows in the scenes are the options that the app builds: a test of the app (`the_scenes_of_the_picture_rows_show_what_the_app_builds`) holds them equal. This file quotes the real texts from the code.
 
 ## Diagrams
 
@@ -239,16 +239,16 @@ The title band shows a breadcrumb: `Settings > Audio > Audio output`, or `<game>
 | `Monitor profile` | `auto`, `flat` (only when a panel was detected), the preset ids, then the value in the file when it is not among them | The detail of `auto` names what it drives: the EDID name and native mode, for example `NPT FHD 24  1920x1080 60 Hz`, `<name>  EDID ranges`, or `generic_15` when there is no EDID. `flat` shows the same for the panel profile. A change opens the confirm dialog. Disabled with `Not used on a TV` on a TV. |
 | `TV standard` | `auto`, `ntsc`, `ntsc_j`, `ntsc_443`, `pal_60`, `pal_m`, `pal`, `pal_n`, `secam`, `mono_60`, `mono_50` | Only on a TV. A standard the output does not offer is dim with `Not offered by this output`. A change opens the confirm dialog. |
 | `TV picture width` | `aspect`, `integer`, `fill` | Only on a TV. A change opens the confirm dialog. |
-| `Picture mode` | Auto, Sharp lines, Game speed, Fill, Native, 2x, 3x, 4x | Each option shows what it gives on the display now, for example `15.73 kHz  59.94 Hz`, and a help line with its compromises. The page writes for every game, so it judges each option for the reference sources (`REFERENCE_SOURCES`): an option no reference game can have is dim with the reason, for example `Not possible with this screen and video output`; an option some games cannot have says `Not for every game: {reason}.` in its help line; an option that needs the refresh rate at Auto says `Also sets Refresh rate to Auto.`. |
+| `Picture mode` | Auto, Sharp lines, Game speed, Fill, Native, 2x, 3x, 4x | Each option has a help line with its compromises. The page writes for every game, so it judges each option for the running game and the reference sources (`REFERENCE_SOURCES`) and shows no rate: an option no game can have is dim with the reason, for example `Not possible with this screen and video output`; an option that some games cannot have shows the tag `Not all games`, and the notice after the pick says why; an option that needs the refresh rate at Auto shows the tag `Sets rate Auto`. The options show `…` while the frame makes their answers. |
 | `Refresh rate` | Auto, Double rate, 50 Hz, 60 Hz | The same rules. Disabled with `Not used on a flat panel` on a panel and `Not used on a TV` on a TV. |
-| `Refresh policy` | `exact`, `exact_x2`, `force_50`, `force_60` | A change opens the confirm dialog. Disabled with `Not used on a flat panel` on a panel, and with `Not used on a TV` on a TV. |
+
 | `Scanlines` | `auto`, `off`, `on` | Written at once, applied live. |
 | `Scanline strength` | 0 to 100 `%`, step 5, default 75 | Written at once, applied live. |
 | `Grid pattern` | page | Opens the grid pattern. |
 
 Info box: `Output` is the connector name (`none` with no display). `Mode` is the mode the driver read back, for example `640x480p 59.94 Hz`, or on a TV the standard and the lines, `NTSC 240p 60.05 Hz`, with ` (safe mode)` after it while the guard is in safe mode. It is empty before the first read back. `Monitor` is the preset id that the guard gave the engine. A monitor of its EDID (`auto` with an EDID, or `flat`) shows the monitor name of the EDID (`DisplayInfo::monitor`), or its profile id when the EDID has no name, for example `NPT FHD 24`. `not set` shows only before the app gives a monitor.
 
-The style details on the display panel come from the source on screen: the game in a game, the menu canvas (320x240 at 60 Hz) in the menus.
+The display panel judges the picture options for every game (the running game and the reference sources) and shows no rate detail; the quick menu shows the line rate and the field rate of the mode that each option gives the running game.
 
 ### Input panel rows (`INPUT_PAGE`, written at the global level)
 
@@ -273,7 +273,6 @@ The style details on the display panel come from the source on screen: the game 
 | --- | --- |
 | `TV picture width` | Only on a TV, at the game level. A change opens the confirm dialog. |
 | `Picture mode`, `Refresh rate` | As on the display panel, at the game level, judged for the running game: an option the game cannot have is dim with the reason. |
-| `Refresh policy` | As on the display panel, at the game level. A change opens the confirm dialog. |
 | `Scanlines` | At the game level. Written at once. |
 | `Scanline strength` | At the game level. Written at once. |
 

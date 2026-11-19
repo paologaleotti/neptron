@@ -40,7 +40,7 @@ pub(crate) struct Crt<'a> {
 ///
 /// The `native` style shows the game's own lines and orders by rung first
 /// (`native_key`): the native rung at each target, then at twice the game's
-/// rate when the refresh policy did not ask for it; rung 3; every padded
+/// rate when the refresh choice did not ask for it; rung 3; every padded
 /// exact mode, the fuller first; the fitted rung.
 ///
 /// For every style, an exact mode at the asked rate (`exact_x2`,

@@ -15,9 +15,9 @@ use super::{
 pub struct Plan {
     /// The source after step 1.
     pub source: OrientedSource,
-    /// The picture style the plan walks.
+    /// The picture mode the plan walks.
     pub style: PictureStyle,
-    /// The refresh policy the plan follows.
+    /// The refresh choice the plan follows.
     pub refresh: RefreshPolicy,
     /// The horizontal strategy after step 2. `None` on a flat panel and on
     /// a TV.

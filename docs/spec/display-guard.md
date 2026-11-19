@@ -23,7 +23,7 @@ This spec settles OP-105 and OP-076. It describes when the guard opens the keep 
 
    Otherwise it opens the boot prompt. The boot prompt reverts to the last known good monitor with the wanted settings, or else to the safe default.
 4. A user change of the output, the monitor profile or the TV standard opens the dialog. The window is 15 s (`CONFIRM_WINDOW_NS`), counted from the first settled frame of the change. Until that frame, the deadline is the time of the change plus 15 s. A chain of changes with no Keep ends at the latest 30 s after the first (`PENDING_LIMIT_NS`). The default action is Revert. The focus starts on Revert, and a fresh press of Right moves it at once.
-5. A change of the picture style, the refresh policy or the TV picture width applies with no prompt when the guard is in `Confirmed` (the monitor is trusted, confirmed or the safe default). In a pending change or in safe mode it follows rule 4.
+5. A change of the picture mode, the refresh rate or the TV picture width applies with no prompt when the guard is in `Confirmed` (the monitor is trusted, confirmed or the safe default). In a pending change or in safe mode it follows rule 4.
 6. A run that follows a relaunch file (into a game, or back to the game list) calls `Guard::continue_boot`. It never prompts and never counts a boot. A wanted monitor that is not known starts on the revert target with no event.
 7. A revert whose target equals the configuration on the engine changes nothing that the user can see. It shows no notice.
 8. Notices:
@@ -87,7 +87,7 @@ While the record is in safe mode, the failed boots stay as they are after a good
 
 In safe mode the Display panel shows action rows at its end:
 
-- "Keep this picture", in every safe state. It keeps the configuration on screen (`Guard::keep_shown`). The guard refuses it with no settled picture. The app then writes the safe default's monitor, style and refresh policy to the global settings, as for a reverted boot prompt.
+- "Keep this picture", in every safe state. It keeps the configuration on screen (`Guard::keep_shown`). The guard refuses it with no settled picture. The app then writes the safe default's monitor, picture mode and refresh rate to the global settings, as for a reverted boot prompt.
 - "Try my settings again", in `Safe(FailedBoots)` only. It ends safe mode and applies the configuration of the settings (`Guard::retry_settings`). The run counts again from there: the run marker is set and the run is not good, so a hang on those settings counts as a failed boot, and a good picture clears the marker. A monitor that is not known opens the dialog; its revert goes to the safe default, outside safe mode. In any other state the guard ignores the call.
 
 ## The record

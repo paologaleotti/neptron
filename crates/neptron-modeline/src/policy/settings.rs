@@ -38,7 +38,7 @@ pub enum PictureStyle {
     Fit,
 }
 
-/// The refresh policy. In the settings files: `exact`, `exact_x2`,
+/// The refresh choice (the Refresh rate row). In the settings files: `exact`, `exact_x2`,
 /// `force_50`, `force_60`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RefreshPolicy {
@@ -72,9 +72,9 @@ pub enum HorizontalStrategy {
 /// and global levels are resolved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PolicySettings {
-    /// The picture style.
+    /// The picture mode.
     pub style: PictureStyle,
-    /// The refresh policy.
+    /// The refresh choice.
     pub refresh: RefreshPolicy,
     /// The horizontal strategy that the system names, or `None` for the
     /// default of the GPU ([`HorizontalStrategy::default_for`]).

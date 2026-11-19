@@ -56,7 +56,7 @@ pub fn crt_31() -> DisplayConfig {
     config(pc_31_120())
 }
 
-/// `config` with another picture style.
+/// `config` with another picture mode.
 pub fn with_style(config: DisplayConfig, style: PictureStyle) -> DisplayConfig {
     DisplayConfig {
         settings: PolicySettings {
