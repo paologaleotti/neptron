@@ -584,6 +584,38 @@ mod tests {
         }
     }
 
+    /// With `BR2_KERNEL_HEADERS_AS_KERNEL`, the `linux-headers` package of
+    /// Buildroot downloads the remote kernel patches too, and checks them
+    /// against its own hash file only. With forced hash checks, a patch
+    /// that is missing there stops a build from an empty output at
+    /// "No hash found" (OP-111).
+    #[test]
+    fn the_kernel_headers_check_every_kernel_patch_against_a_hash() {
+        let os = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../os");
+        let defconfig =
+            std::fs::read_to_string(os.join("configs").join(Arch::X86_64.defconfig())).unwrap();
+        assert!(defconfig.contains("BR2_KERNEL_HEADERS_AS_KERNEL=y"));
+        assert!(defconfig.contains("BR2_DOWNLOAD_FORCE_CHECK_HASHES=y"));
+        let kernel = std::fs::read_to_string(os.join("patches/linux/linux.hash")).unwrap();
+        let headers =
+            std::fs::read_to_string(os.join("patches/linux-headers/linux-headers.hash")).unwrap();
+        assert_eq!(headers, kernel, "the two packages check the same files");
+        let line = defconfig
+            .lines()
+            .find_map(|l| l.strip_prefix("BR2_LINUX_KERNEL_PATCH=\""))
+            .unwrap()
+            .trim_end_matches('"');
+        for url in line.split_whitespace() {
+            let file = url.rsplit('/').next().unwrap();
+            assert!(
+                headers
+                    .lines()
+                    .any(|l| l.starts_with("sha256  ") && l.ends_with(&format!("  {file}"))),
+                "linux-headers.hash has no hash for {file}"
+            );
+        }
+    }
+
     #[test]
     fn an_output_name_gives_a_volume_and_images_of_their_own() {
         let p = plan(&["--arch", "x86_64", "--output", "x86_64-clean"]);
