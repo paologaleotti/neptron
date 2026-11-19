@@ -18,6 +18,10 @@ use super::chrome::{self, Layout};
 use super::page::Crumb;
 use super::router::Nav;
 
+/// The row text of an option the player cannot choose when its reason does
+/// not fit half the row; the help line shows the reason in full.
+const NOT_AVAILABLE: &str = "Not available";
+
 /// Lines of the box under the list that shows the detail or the reason of
 /// the focused option in full.
 const HELP_LINES: u32 = 2;
@@ -144,13 +148,20 @@ impl Options {
         let Some((_, index, options)) = choice else {
             return;
         };
+        // A row gives at most half its width to the detail, so the label
+        // never clips; a reason too long for that half shows in full in the
+        // help line only.
+        let half = self.list.rect().w.saturating_sub(2 * theme.padding_px()) / 2;
         self.list.draw(frame, theme, options.len(), |i| {
             let option = options.get(i);
+            let detail = option.map(|o| match o.unavailable.as_deref() {
+                Some(reason) if crate::font::text_width(reason) > half => NOT_AVAILABLE,
+                Some(reason) => reason,
+                None => o.detail.as_str(),
+            });
             ListItem {
                 label: option.map_or("", |o| o.label.as_str()),
-                detail: option
-                    .map(|o| o.unavailable.as_deref().unwrap_or(&o.detail))
-                    .filter(|d| !d.is_empty()),
+                detail: detail.filter(|d| !d.is_empty()),
                 enabled: option.is_some_and(ChoiceOption::is_enabled),
                 kind: RowKind::Action,
             }
@@ -164,7 +175,7 @@ impl Options {
             Some(reason) => {
                 let mut text = StackText::<HELP_BYTES>::new();
                 // `StackText` never fails; it drops what does not fit.
-                let _ = write!(text, "Not available. {reason}");
+                let _ = write!(text, "Not available. {reason}.");
                 chrome::paragraph(frame, theme, help, theme.colors.text, text.as_str());
             }
             None if option.help.is_empty() => {

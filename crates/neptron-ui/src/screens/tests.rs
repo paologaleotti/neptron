@@ -509,7 +509,7 @@ fn a_picture_style_applies_only_from_its_option_list() {
     assert!(run.intents().is_empty());
     assert!(
         run.labels()
-            .contains(&"Not available. Needs a 15 kHz monitor")
+            .contains(&"Not available. Needs a 15 kHz monitor.")
     );
 
     run.step(&snap, &[Down, Accept]);
@@ -3156,4 +3156,38 @@ fn a_panel_that_cannot_open_is_reported() {
     assert_eq!(run.screen(), "game");
     assert_eq!(run.screens.take_open_failure(), Some(super::INPUT_PAGE));
     assert_eq!(run.screens.take_open_failure(), None, "once");
+}
+
+/// A reason wider than half the row shows "Not available" in the row, so
+/// the label never clips; the help line gives the reason in full, with a
+/// period.
+#[test]
+fn a_long_reason_shows_not_available_in_the_row_and_in_full_below() {
+    let mut run = Run::new();
+    let mut snap = with_display();
+    let long = "A reason far too long to fit in half of the row";
+    for row in &mut snap.settings.rows {
+        if let SettingValue::Choice { options, .. } = &mut row.value
+            && row.key == STYLE
+        {
+            options[1] = ChoiceOption::new("Native").unavailable(long);
+            options[2] = ChoiceOption::new("2x").unavailable("Short");
+        }
+    }
+    run.step(&snap, &TO_DISPLAY);
+    run.step(&snap, &[Down, Down, Accept]);
+    let rows: Vec<_> = run
+        .frame
+        .tree
+        .rows()
+        .filter(|r| r.widget == crate::WidgetKind::List)
+        .map(|r| (r.label, r.value))
+        .collect();
+    assert_eq!(rows[1], ("Native", Some("Not available")));
+    assert_eq!(rows[2], ("2x", Some("Short")));
+    assert!(run.frame.tree.rows().all(|r| !r.clipped));
+    run.step(&snap, &[Down]);
+    assert_eq!(run.focused(), Some("Native"));
+    let help = run.labels().join(" ");
+    assert!(help.contains(&format!("Not available. {long}.")), "{help}");
 }
