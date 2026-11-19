@@ -185,7 +185,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Game list | same | Scroll past the loaded rows | `WINDOW_ROWS` = 128, `PREFETCH_ROWS` = 32 | One `LoadGames` per frame, 128 rows centred on the visible rows, until the snapshot holds the visible rows plus 32 on each side |
 | Game list | Game (next run) | Accept on a loaded game | `RELAUNCH_EXIT_CODE` = 75 | The run writes the relaunch file with the game and exits 75. The launcher starts the next run, which loads the core. See [the session](06-session.md). |
 | Game list | same | Menu (X) on a game | none | `ToggleFavourite`. The app does nothing with it: favourites are not kept in the MVP. |
-| Display panel | Option list | Accept on a choice row (Output, Monitor profile, Picture style, Refresh policy, Scanlines) | none | nothing until a choice |
+| Display panel | Option list | Accept on a choice row (Output, Monitor profile, Picture mode, Refresh rate, Scanlines) | none | nothing until a choice |
 | Display panel | Grid pattern | Accept on `Grid pattern` | none | nothing |
 | Library panel | same | Accept on `Rescan games` (game list run only; disabled in a game with the reason `Not during a game`) | none | A full scan of `share/roms` starts on the scan thread. The row keeps its label and is disabled with the reason `Scanning...` until the scan ends. The lists stay usable with the old index. At the end, the index and the cache are replaced, a game list on show keeps its focused game (when it moved by at most `MOVED_GAME_MARGIN_ROWS` = 64 rows), and an Info notice says what changed. |
 | System panel | Confirm question | Accept on `Reboot` or `Shut down` (game list run with power control only) | none | nothing: the UI opens the dialog with the focus on `Cancel` |
@@ -206,7 +206,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Quick menu | Video page | Accept on `Video` | none | `LoadSettings` for `VIDEO_PAGE` |
 | Quick menu | Settings page | Accept on `Settings` | none | nothing: the UI shows the page |
 | Quick menu | same | Left, Right on `Volume` | step 5 | `SetValue` at the game level |
-| Video page | Option list | Accept on `Picture style`, `Refresh policy` or `Scanlines` | none | nothing until a choice |
+| Video page | Option list | Accept on `Picture mode`, `Refresh rate` or `Scanlines` | none | nothing until a choice |
 | Video page | Quick menu | Back | none | The quick menu forgets a noted change that the app took back |
 | Quick menu | Game | Accept on `Resume`, or Back, no change noted | none | `Resume`: the core runs from the next frame. Buttons held now reach the core only after their release. A modeset that failed on the device is tried again. |
 | Quick menu | Keep prompt | Resume, Back or `Quit game` after a change at the game level in this visit | `MAX_CHANGES` = 16 noted changes | nothing yet |
@@ -239,7 +239,8 @@ The title band shows a breadcrumb: `Settings > Audio > Audio output`, or `<game>
 | `Monitor profile` | `auto`, `flat` (only when a panel was detected), the preset ids, then the value in the file when it is not among them | The detail of `auto` names what it drives: the EDID name and native mode, for example `NPT FHD 24  1920x1080 60 Hz`, `<name>  EDID ranges`, or `generic_15` when there is no EDID. `flat` shows the same for the panel profile. A change opens the confirm dialog. Disabled with `Not used on a TV` on a TV. |
 | `TV standard` | `auto`, `ntsc`, `ntsc_j`, `ntsc_443`, `pal_60`, `pal_m`, `pal`, `pal_n`, `secam`, `mono_60`, `mono_50` | Only on a TV. A standard the output does not offer is dim with `Not offered by this output`. A change opens the confirm dialog. |
 | `TV picture width` | `aspect`, `integer`, `fill` | Only on a TV. A change opens the confirm dialog. |
-| `Picture style` | `auto`, `native`, `2x`, `3x`, `4x` | Each option shows what it gives on the monitor now, for example `15.73 kHz  59.94 Hz`. A style the monitor cannot show is dim with `Needs another monitor`. A change opens the confirm dialog. Disabled with `Not used on a flat panel` on a panel. |
+| `Picture mode` | Auto, Sharp lines, Game speed, Fill, Native, 2x, 3x, 4x | Each option shows what it gives on the display now, for example `15.73 kHz  59.94 Hz`, and a help line with its compromises. The page writes for every game, so it judges each option for the reference sources (`REFERENCE_SOURCES`): an option no reference game can have is dim with the reason, for example `Not possible with this screen and video output`; an option some games cannot have says `Not for every game: {reason}.` in its help line; an option that needs the refresh rate at Auto says `Also sets Refresh rate to Auto.`. |
+| `Refresh rate` | Auto, Double rate, 50 Hz, 60 Hz | The same rules. Disabled with `Not used on a flat panel` on a panel and `Not used on a TV` on a TV. |
 | `Refresh policy` | `exact`, `exact_x2`, `force_50`, `force_60` | A change opens the confirm dialog. Disabled with `Not used on a flat panel` on a panel, and with `Not used on a TV` on a TV. |
 | `Scanlines` | `auto`, `off`, `on` | Written at once, applied live. |
 | `Scanline strength` | 0 to 100 `%`, step 5, default 75 | Written at once, applied live. |
@@ -271,7 +272,7 @@ The style details on the display panel come from the source on screen: the game 
 | Row | What it does |
 | --- | --- |
 | `TV picture width` | Only on a TV, at the game level. A change opens the confirm dialog. |
-| `Picture style` | As on the display panel, at the game level. A change opens the confirm dialog. |
+| `Picture mode`, `Refresh rate` | As on the display panel, at the game level, judged for the running game: an option the game cannot have is dim with the reason. |
 | `Refresh policy` | As on the display panel, at the game level. A change opens the confirm dialog. |
 | `Scanlines` | At the game level. Written at once. |
 | `Scanline strength` | At the game level. Written at once. |
@@ -322,7 +323,7 @@ A value resolves game, then system, then global, then the built-in default. The 
 | Setting | When it reaches its file |
 | --- | --- |
 | `Scanlines`, `Scanline strength`, `Hold Start for menu`, `Volume`, `Audio output` (safety none) | At once, on the writer thread. Applied live. |
-| `Picture style`, `Refresh policy`, `TV picture width` (safety validated), `Monitor profile`, `TV standard` (confirm or revert) | Only on `Confirmed` (Keep). Taken back in memory on a revert or safe mode. Written at once, with no dialog, when the new display configuration equals the active one and no prompt is open. |
+| `Picture mode`, `Refresh rate`, `TV picture width` (safety validated), `Monitor profile`, `TV standard` (confirm or revert) | Only on `Confirmed` (Keep). Taken back in memory on a revert or safe mode. Written at once, with no dialog, when the new display configuration equals the active one and no prompt is open. |
 | `Output` | Never from the menu. |
 
 All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A failed write comes back as an Error notice.
@@ -335,8 +336,8 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 | A held direction when the dialog opens | The focus stays on `Revert`. | Release the key. Held keys are ignored until their release (`Navigator::hold_back`); then a fresh Right moves the focus at once. |
 | Keep refused by the guard (no valid picture now, or no frame of the change shown yet) | The dialog says `One moment.` for one frame, then shows the count again with the focus on `Keep`. | Press Accept again when the picture is on screen. The app logs `keep refused: <reason>`. With no accepted keep the change goes back at the deadline with `Display change undone: not kept in time.` |
 | No answer in time | At 0 s only `Revert` shows; then `Display change undone: not kept in time.` | Make the change again and keep it. |
-| A style the monitor cannot show | The option is dim, with `Needs another monitor` in the row and `Not available. Needs another monitor` under the list. Accept does nothing. | Choose another style, or change the monitor profile. |
-| A game the monitor cannot show exactly | The video block result is `[!] filtered` or `[!] speed (X to Y Hz)` in the warning colour, or `cropped N lines` or `small picture N%`. A Warning notice `Picture: <result>.` waits for the quick menu. | Try another picture style or refresh policy in the quick menu. See [the policy](05-policy.md). |
+| A picture mode or refresh rate the display cannot give | The option is dim, with the reason in the row (or `Not available` when the reason is longer than half the row) and `Not available. {reason}.` under the list. Accept does nothing. The control protocol refuses the value with the same reason. | Choose another option, or change the monitor profile. |
+| A game the monitor cannot show exactly | The video block result is `[!] filtered` or `[!] speed (X to Y Hz)` in the warning colour, or `cropped N lines` or `small picture N%`. A Warning notice `Picture: <result>.` waits for the quick menu. | Try another picture mode or refresh rate in the quick menu. See [the policy](05-policy.md). |
 | A change on the in-game display panel (`Settings > Display`) has no visible effect | The row changes to `global`, no confirm dialog. | The game or its system has its own value, which wins over global. Change it on the video page of the quick menu, or reset the game row with Menu (X). |
 | Output must change | The `Output` option list does not apply a choice. | Edit `display.output` in `global.toml`. A new connector at the next start opens the boot prompt. |
 | A two-button pad | Reset to inherited and favourites need the Menu button (X). | Use a pad with X, or edit the settings file. |
@@ -389,15 +390,15 @@ Against `docs/definition/08-frontend-and-ux.md`:
 7. Screens table, "Settings" (full tree): the Settings page has six panels, `Display`, `Audio`, `Input`, `Library`, `Network` and `System`.
 8. "Settings model", "offers reset to inherited": there is no row or option for it. The Menu button (X) on a row resets it. A pad with two buttons cannot reset.
 9. "Quick menu", combination: Select+Start held for 0.5 s is fixed (`QUICK_MENU_COMBO`, `QUICK_MENU_HOLD_NS`), not configurable. The Start hold exists but is off by default (`input.menu_hold_start_seconds` = 0, max 10 s); the definition says the arcade default is a 2 s hold.
-10. "Quick menu", contents: the code has `Resume`, `Volume`, `Video` (`Picture style`, `Refresh policy`, `Scanlines`, `Scanline strength`), `Settings` (the global panels) and `Quit game`. No save states, interlace, position, shader, rotation, core options, controls, disc swap or reset.
-11. "Quick menu", "Changes apply immediately": a picture style or refresh policy change applies at once but opens the confirm dialog, and goes back after 10 s with no Keep.
+10. "Quick menu", contents: the code has `Resume`, `Volume`, `Video` (`Picture mode`, `Refresh rate`, `Scanlines`, `Scanline strength`), `Settings` (the global panels) and `Quit game`. No save states, interlace, position, shader, rotation, core options, controls, disc swap or reset.
+11. "Quick menu", "Changes apply immediately": a picture mode or refresh rate change on a confirmed monitor applies at once with no dialog; on a monitor that is not confirmed it opens the confirm dialog and goes back with no Keep.
 12. "Quick menu", keep prompt: the buttons are `This game`, `System`, `All games`, with the focus on `This game`. Back in the prompt returns to the quick menu. The prompt appears only when a game-level change was made in this visit.
 13. "UX rules", "Everything works with a D-pad and two buttons": reset to inherited and favourites need the Menu button (X), and the quick menu needs Select and Start.
 
 Against the READMEs and code comments:
 
 14. `crates/neptron-ui/src/screens.rs`, doc of `DISPLAY_PAGE`, and `crates/neptron-ui/README.md` ("The display panel and the confirm dialog"): they name four setting rows and the grid row, and say "all five rows of the display page still fit". The app page has nine setting rows (two only on a TV) plus `Grid pattern` (`DISPLAY_KEYS` in `apps/neptron/src/pages.rs`).
-15. `crates/neptron-ui/README.md` gives the reason example `Not available. Needs a 15 kHz monitor`. The app sends `Needs another monitor` for every style, so the help line reads `Not available. Needs another monitor`.
+15. The reasons of the picture rows come from `DeclineReason` (`pages::decline_text`); `docs/spec/video-policy-cases.md`, section 8.7, lists them.
 16. `crates/neptron-ui/src/intent.rs`, doc of `Intent::QuitGame`: "Stop the game and return to the game list". The next run starts on Home with the cursor on the first row, not on the list of the system.
 17. The UI opens the grid pattern from any `Page(GRID_PAGE)` row, also on a page of the quick menu. The app has such a row on the display page only.
 18. `apps/neptron/README.md`, "Resume, reset and quit go to the session": the quick menu has no reset.

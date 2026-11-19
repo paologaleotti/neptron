@@ -264,7 +264,7 @@ Other golden lines that show a rule:
 
 | Case | What the user sees | Way out |
 | --- | --- | --- |
-| No exact placement at any target | The fitted rung wins. Mode line ends in `fit`, result `[!] filtered`. One toast `Picture: [!] filtered.` | Pick another picture style or another monitor profile in the Display panel. The Display panel greys out the styles whose winner is not on their own rung. |
+| No exact placement at any target | The fitted rung wins. Mode line ends in `fit`, result `[!] filtered`. One toast `Picture: [!] filtered.` | Pick another picture mode or another monitor profile. The menus grey the modes the display cannot give, with the reason (`picture_choices`). |
 | The game rate is outside every range | Kind `Nearest`. Result `[!] speed (X to Y Hz)`. No toast. | None in the policy: the monitor cannot show that rate. A profile with a wider range removes it. |
 | `force_50` or `force_60` | Result `[!] speed (X to Y Hz)` when the forced rate differs from the game rate by 5 mHz or more. When no range covers the forced rate, the policy skips it silently and the game runs at its own rate. | Set `display.refresh_policy` to `exact`. |
 | A few lines too many for a whole multiple | Result `cropped N lines` (N for both edges). One toast `Picture: cropped N lines.` | None needed: at most `OVERSCAN_CROP_MAX_LINES_PER_EDGE` = 8 lines per edge. A crop can hide real content on an arcade board that draws to the edge. |
@@ -293,11 +293,11 @@ Other golden lines that show a rule:
 - [placement.rs](../../crates/neptron-modeline/src/policy/placement.rs): `crt_placement`, `panel_placement`, `panel_filter`, `filter_for`, `UI_CANVAS`
 - [panel.rs](../../crates/neptron-modeline/src/policy/panel.rs): `panel_plan`
 - [reason.rs](../../crates/neptron-modeline/src/policy/reason.rs): `Dropped`, `Dropped::rule`
-- [choose.rs](../../crates/neptron-modeline/src/policy/choose.rs): `choose`, `switch_for`, `notice`, `style_rows`, `on_own_rung`
+- [choose.rs](../../crates/neptron-modeline/src/policy/choose.rs): `choose`, `switch_for`, `notice`, `mode_refusal`, `on_own_rung`; [offer.rs](../../crates/neptron-modeline/src/policy/offer.rs): `offer`, `picture_choices`, `for_every_game`
 - [plan.rs](../../crates/neptron-modeline/src/policy/plan.rs): `Plan::proposals`, `Timing::repeat`, `Timing::changes_speed`
 - [panel.rs (platform)](../../crates/neptron-platform/src/panel.rs): `EdidProfile::fit_panel`, `GAME_RATE_MIN_MHZ`
 - [display.rs](../../apps/neptron/src/display.rs): `fit_to`, `PANEL_WIDTH_MAX_PX`, `PANEL_HEIGHT_MAX_PX`
-- [decision.rs](../../crates/neptron-video/src/decision.rs): `Inputs::decide`, `Inputs::check`, `Inputs::style_rows`
+- [decision.rs](../../crates/neptron-video/src/decision.rs): `Inputs::decide`, `Inputs::check`, `Inputs::picture_choices`, `Inputs::offer`
 - [settings.rs (video)](../../crates/neptron-video/src/settings.rs): `policy_settings`
 - [config.rs](../../apps/neptron/src/config.rs): `policy`, `global_policy`
 - [status.rs](../../crates/neptron-video/src/status.rs): `write_result`, `write_rung`, `ALERT_MARK`
@@ -318,6 +318,6 @@ Other golden lines that show a rule:
 9. `04-crt-video-pipeline.md`, force 50/60: "Where a core exposes a region option, NEPTRON sets it to match." The policy has no region logic; it only changes the rate.
 10. `06-flat-panels-shaders-and-vertical-games.md`, scaling options "Integer (default)", "Integer, overscan", "Fit, sharp", "Stretch", and the aspect options. The code has one panel rule: the largest whole vertical factor, width at the core aspect. No setting chooses another.
 11. `06-flat-panels-shaders-and-vertical-games.md`, refresh: "Audio rate control absorbs small differences." On a panel the code picks the listed mode nearest the game rate, but only after the whole-factor rule and the preferred size. With no 50 Hz mode, a 50 Hz game gets the 60 Hz mode and runs at the panel rate; the difference is not small, and the Video block shows the `speed` alert, because it is above `PANEL_SPEED_SILENT_PPM` (5000 ppm).
-12. `04-crt-video-pipeline.md` says the picture style and the refresh policy are settings at global, system and game level, with no exception for a panel. In the code a panel ignores `display.style` and `display.refresh_policy`: `panel_plan` does not read them, and the display panel shows the `Picture style` and `Refresh policy` rows disabled with `Not used on a flat panel`.
+12. `04-crt-video-pipeline.md` says the picture style and the refresh policy are settings at global, system and game level, with no exception for a panel. In the code a panel ignores `display.refresh_policy`: `panel_plan` does not read it, and the menus show the `Refresh rate` row disabled with `Not used on a flat panel`. A panel reads `display.style`: each picture mode gives its factor or its fill there.
 13. `06-flat-panels-shaders-and-vertical-games.md`, vertical games: rotated upright on a panel and on a 31 kHz CRT, with a one-time warning on 15 kHz. The policy swaps the axes, but the engine refuses every rotated source (`Unshowable::Rotated`), so a rotated game gets no mode in the MVP.
-14. `crates/neptron-modeline/README.md`, "Picture styles": "`auto` takes ... native at twice the rate with `exact_x2` where a range covers it". `auto` takes `Double` only when the policy is `exact_x2`; with `exact` it never takes `NativeDouble` (only `native` does).
+14. `crates/neptron-modeline/README.md`, "Picture styles" (the picture modes): "`auto` takes ... native at twice the rate with `exact_x2` where a range covers it". `auto` takes `Double` only when the policy is `exact_x2`; with `exact` it never takes `NativeDouble` (only `native` does).

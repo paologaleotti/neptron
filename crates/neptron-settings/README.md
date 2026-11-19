@@ -32,7 +32,7 @@ Each entry has `applies_to`: the displays on which it has an effect (`AppliesTo:
 
 Each entry also has `expert`: the menus never show the row of an expert key (`Entry::shown`), and only a settings file sets it. Its value keeps its effect. `display.vertical` and `display.panel_scale` are expert keys: the picture modes `fit` and `sharp` cover them. `display.refresh_policy` keeps its row: it is the rate target of every picture mode. The crawler does not look for them.
 
-Picture mode and refresh policy are independent settings. The "Native, double refresh" row of the picture style table is the pair `style = native` with `refresh_policy = exact_x2`. The UI can show the pair as one row.
+Picture mode and refresh rate are two settings. The "Native, double refresh" row of the picture mode table is the pair `style = native` with `refresh_policy = exact_x2`. The menus judge each option of one row with the stored value of the other row; a pick that the display gives only with the other row at Auto sets both (`docs/spec/video-policy-cases.md`, section 8.7).
 
 `input.menu_hold_start_seconds`: hold Start alone on a controller for this number of seconds to open the quick menu. 0 turns it off. Select and Start held together for 0.5 s still open the quick menu, and their 5 s hold is still the blind recovery. It is for an arcade panel with no Select button. `neptron-input` describes the exact rule. The schema has no help text field, so the menu help text is in the doc comment of `INPUT_MENU_HOLD_START_SECONDS`.
 
