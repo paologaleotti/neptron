@@ -112,11 +112,161 @@ The session runs one frame in this order:
 flip event -> input -> core (retro_run) -> mute if asked -> present -> end_frame -> wait for the flip -> unmute when no longer asked -> run rate update
 ```
 
+This is the wait pacing. When a core frame does not fit in one flip interval, the loop uses the late pacing of the section "A core slower than the field":
+
+```text
+end of the present before -> input -> core (retro_run) -> mute if asked -> wait for the flip before -> present -> end_frame -> unmute when no longer asked -> run rate update
+```
+
 The present uploads the frame, queues the GPU's work and asks for a nonblocking page flip, which the kernel makes once the GPU has drawn the frame. `end_frame` resamples the frame's audio (1.3 to 1.4 ms on the Raspberry Pi 3) while the GPU draws, so it is off the path from the flip event to the GPU submit. A frame with no core (the quick menu) calls `idle_frame` at the same place. A failed present still ends the audio of the frame. With double refresh only the first present of the core frame is followed by `end_frame`. A UI over the game (the quick menu, a dialog, a notice) costs no more than the game alone: the app draws the canvas only when its scene changes, the renderer sends only the changed canvas rows, and the game quad is drawn only outside the opaque UI.
 
 A modeset happens inside the present and blocks it. The first flip of the new mode comes one field of that mode after it. The mute comes before the present: it leaves the queue at the target, about 32 ms, which covers the modeset. The frame's audio, written after the present, covers the field until the first flip. So the device keeps playing through a modeset of up to about 32 ms, also into a 50 Hz mode, whose field is longer than a 60 Hz frame. A session test runs a 30 ms modeset into 50.007 Hz and loses no frame. A longer modeset empties the muted queue: the device plays silence it does not have, which is still silence, and the pipeline counts an underrun. On the Raspberry Pi 3 a change of the TV standard takes about 75 ms from the last flip of the old mode to the first flip of the new one (ftrace). That is longer than the muted queue covers, so the underrun count goes up by one.
 
 The pipeline reads `q` after the present, at the same point of every frame. The law holds `q` at its target at that point, so the target, the time constant and the fixed point are those above. The audio of a frame reaches the sink after the present, about 0.7 ms later on the Pi, while the picture keeps its timing. The latency in the table above is measured from the write. The session counts missed fields (`Counters::missed_fields`, `fields_missed` in the stats reply): each flip of a frame in which the core ran counts the vertical blanks since the flip before, beyond the blanks that one flip takes (1, or 2 for an interlaced mode on a driver that flips once per frame). The first flip of a mode counts nothing. The tests of timing check 6 run on the simulated clock, where a present takes no time, and check that the session counts each late blank as a missed field. A session test records, at each write of the sink, whether a flip of the fake display is pending, and so checks in every frame that the audio goes out between the present and the flip.
+
+## A core slower than the field
+
+### The problem
+
+In the frame order above, a core frame starts when the flip of the frame before completes, at a vertical blank `V(n)` (`session/frame.rs`, `show`: `present`, then `wait_flip`). The present asks for a flip at the first blank after the commit (`neptron-kms`, `KmsDisplay::present`: an atomic commit with `NONBLOCK | PAGE_FLIP_EVENT`; `wait_flip` polls the DRM descriptor for the event). When the core and the present take less than one flip interval, the flip lands at `V(n+1)`. When they take a little more, the flip cannot land at `V(n+1)`. It lands at `V(n+2)`, the loop waits for it, and only then does the next core frame start. Each late frame costs a whole field, and the next frame starts with no head start, so it is late again. A core that needs 4% more than one field runs at half speed.
+
+Measured on an Intel i3-6100T at 2.7 GHz (FinalBurn Neo, Killer Instinct, a 59.951 Hz panel): `frames_presented` grows by 29.8 per second, `fields_missed` by 30.1 per second, and `audio_underruns` by about 13 per second. The audio underruns come from the same cause: the run rate stays at the field rate, but the core makes the audio of 30 frames per second, and the rate control can correct only 0.5%.
+
+### Two pacings
+
+The loop has two pacings.
+
+- **Wait pacing.** The frame order above. Each frame waits for its last flip before the next frame reads the input. This is the default. The delay from the input poll to the flip of the frame is one flip interval.
+- **Late pacing.** After the present of a core frame, the loop does not wait for its last flip. The next frame reads the input and runs the core at once, while the display still shows the frame before. After its core ran, the next frame waits for that flip (`VideoEngine::wait_flip`), then presents. The display takes one queued flip only (a second atomic commit before the flip event gives `EBUSY`), so at most one frame waits for its flip while the next frame runs. The present still draws after the flip of the frame before, as in the wait pacing, so the display needs no extra buffer.
+
+With late pacing a frame that is late by a part of a field loses only that part: the next frame starts at the end of the present, not at the late blank.
+
+The pacing uses three values of each core frame, on the session clock and the flip events:
+
+- `work`: the time of the frame's own work, counted from the flip that it follows. In wait pacing it is the time from the flip of the frame before, moved to the session clock (`FlipClock`), to the end of the first present of this frame. In late pacing it is the core time (from the end of the frame before to the start of the wait for the flip before) plus the time from the later of that flip and the start of the wait to the end of the present. So the time from a flip to the return of its wait counts too, as in wait pacing. It does not hold the time the GPU draws after the commit: the flip waits for the GPU's fence.
+- `interval`: the flip interval of the mode on screen, `10^12 / field_rate_mhz` nanoseconds times the blanks that one flip takes (1, or 2 for an interlaced mode on a driver that flips once per frame), from the mode read back.
+- A late flip: the gap from the flip before is more than the blanks one flip takes, so the flip landed after the blank it aimed at. The gap is the difference of the vertical blank counts; when a driver does not advance the count, it is the time between the flips in whole fields, rounded (more than 1.5 fields is 2). When the `work` of its frame was below `interval`, the GPU or the display made the flip late (`Counters::late_flips`).
+
+The rules (constants in `crates/neptron-session/src/pacing.rs`):
+
+| From | To | When |
+| --- | --- | --- |
+| Wait | Late | A core frame with `work >= interval`: its flip cannot land on its target blank, so the loop does not wait for it |
+| Wait | Late | `LATE_FLIPS_TO_ENTER` (2) late flips in a row of frames whose `work` fit: the commit was in time, but the GPU was not done at the blank. The next frame does not wait for its flip. The loop learns the `work` of that frame as the late work |
+| Late | Wait | A hold of core frames in a row whose `work` is below `interval`, whose flip lands on its blank, and, when a late work is learned, whose `work` is at least `TRY_MARGIN_PERMILLE` (30, 3%) below it. The frame after the hold waits for its flip |
+| Any | Wait | A frame with no core run (the quick menu, the output off), a frame with a modeset, a frame with a display error, a frame whose present first drained the flip of a failed wait (its work holds that wait, so it is not known), and a frame in which the session ends. Such a frame waits for its flip, the hold is back at its shortest, and the late work is forgotten |
+
+The hold:
+
+- Each entry into late pacing uses the hold for its stay, then doubles the hold of the next stay, from `LATE_HOLD_FRAMES` (30 frames, 0.5 s at 60 Hz) up to `LATE_HOLD_MAX_FRAMES` (1920 frames, 32 s).
+- In wait pacing the hold halves, down to 30 frames, after each `HOLD_DECAY_FRAMES` (600 frames, 10 s) with no late frame.
+
+Why these rules:
+
+- A rule for each frame alone (wait when the frame fits) loses the head start: with a core at 1.04 intervals, a frame after a late one fits, waits for the next blank, and the frame after it is late again. That gives 2 frames in 3 fields, 67%, and the input delay changes from frame to frame. The hold keeps a core near the limit in one pacing.
+- The first hold is short (0.5 s) because the input delay of late pacing is one interval more: after one long frame (a disk read, a shader compile) a fast core is back at one interval of delay within 0.5 s.
+- A loop that changes its delay again and again is worse than a steady delay of two intervals for a core at the edge. Long frames that come again before the hold has decayed lengthen each stay until the loop stays in late pacing. The decay is slower than the growth: long frames closer than 10 s apart lead to a stable late pacing; rarer ones each cost one short stay.
+- Inside late pacing the hold cannot see the GPU time (the GPU draws while the next core frame runs). A core that the GPU makes late would pass every hold and fail every try of wait pacing. The learned late work stops this: such a core tries wait pacing again only when its work drops 3% below the work at which its flips were late.
+- The late flips are what the display did, so the loop also sees a frame that is late although its commit is in time. The work alone cannot see the time of the GPU after the commit.
+
+### What the player gets
+
+`x` is `work / interval` of a core with a fixed cost. The presented rate is a fraction of the flip rate of the mode.
+
+| `x` | Pacing | Presented rate | Missed fields per presented frame | Input poll to flip | Wait pacing alone |
+| --- | --- | --- | --- | --- | --- |
+| 0.5, 0.9, 0.95, 0.99 | Wait | 100% | 0 | 1 interval | the same |
+| 0.95, with a GPU that draws 0.1 interval after the commit | Late | 100% after the entry | 3 at the entry, then 0 | 2 intervals | 50%, 2 intervals |
+| 1.02 | Late | 98.0% (`1 / x`) | 0.02 | `x` to `x + 1` intervals | 50%, 2 intervals |
+| 1.04 | Late | 96.2% | 0.04 | `x` to `x + 1` intervals | 50%, 2 intervals |
+| 1.3 | Late | 76.9% | 0.3 | `x` to `x + 1` intervals | 50%, 2 intervals |
+| 2.0 | Late | 50% | 1 | `x` to `x + 1` intervals | 33%, 3 intervals |
+| 2.5 | Late | 40% | 1.5 | `x` to `x + 1` intervals | 33%, 3 intervals |
+
+The steady states, in plain words:
+
+- **A game that fits.** It stays in wait pacing for the whole session. Each frame shows at the next blank, one interval after the input was read, as before late pacing existed.
+- **A game a little too slow, or a GPU that is a little late.** It stays in late pacing. It runs at `1 / x` of the full rate (or at the full rate when only the GPU was late), the input shows one more interval later, and nothing changes from then on.
+- **A game that fits, with a long frame now and then.** A long frame costs the fields by which it was late, then 0.5 s of late pacing, then wait pacing again. When long frames come again and again (closer than about 10 s apart), each stay is longer than the one before, until the loop stays in late pacing: a steady delay of two intervals, no more changes.
+- **A game at the edge.** A core whose cost jitters around one interval enters late pacing once and stays there.
+- **A game below half speed.** As a slow game, with no sound.
+
+### Audio of a slow game
+
+The honest result for a core that is too slow is that the game runs slower than real time, and its sound with it. The core makes one frame of audio per core frame. In late pacing the session measures the real rate of core frames and gives it to the pipeline as `f_run` (constants in `crates/neptron-session/src/speed.rs`):
+
+- The session keeps the cycle times of the last `SPEED_WINDOW_FRAMES` (120) frames of late pacing, in a fixed array made at launch: the time from the end of the frame before to the end of the frame. The measured rate is the frames over the sum of the cycles, in mHz. The cycles of a late core end at the ends of their presents, not at vertical blanks, so the measure has no step of a whole field. A core at 1.04 intervals gives 96.2% of the flip rate.
+- The measure is used when the core is slow, decided from the window, not from a run of frames: the window holds `SPEED_MIN_FRAMES` (8) cycles or more and its mean cycle without its single largest cycle is above `interval` by more than `SPEED_SLOW_MARGIN_PERMILLE` (5, 0.5%, the error that the rate control corrects). So a single long frame of a fast core (a disk read, a state load, a shader compile) changes nothing in the audio, and a core that is slow on average is measured: frames of 0.97 and 1.05 intervals in turn, a long frame every few frames.
+- A core that is clearly slow is measured at once: `SPEED_CLEAR_SLOW_FRAMES` (2) cycles in a row of at least `SPEED_CLEAR_SLOW_PERMILLE` (1200, 1.2 intervals). A single long frame never passes this.
+- The window follows a change of speed. When the mean of its last `SPEED_RECENT_FRAMES` (30, 0.5 s) cycles differs from the mean of its older cycles (at least as many) by more than `SPEED_CHANGE_PERMILLE` (100, 10%), the window keeps only the last 30 cycles, so the measure follows a new speed within about 60 frames, in both directions. A core with a long frame every few frames has the same mean in both parts and stays measured. A clearly slow run that turns clearly fast, `SPEED_CLEAR_SLOW_FRAMES` (2) cycles in a row of at most `SPEED_CLEAR_FAST_PERMILLE` (1050), clears the window at once: the end of a heavy scene stops the measure after 2 frames.
+- `f_run` is the lower of the run rate of the "Rates and the nominal ratio" section and the measure. In wait pacing, and while the core is not slow, the target is the run rate of that section alone, so a game at full speed has the same audio as before.
+- `f_run` moves to its target by at most `RUN_RATE_SLEW_PERMILLE_PER_S` (4000) of the mode's run rate per second, at the start of a measure, during it, and at its end, until it is back at the mode's rate. A change `D` (as a fraction) over `D / s` seconds puts the queue off by `D * D / (2 s)` seconds of audio: at 4 per second the largest change before the mute, 50%, costs at most 31 ms, the queue's target level, half of its span, and the change of a scene of Killer Instinct (33%) costs 14 ms. The pitch glides over at most 125 ms (for a change of 50%), and does not jump. A change inside the steady measure (the window moves) is a small fraction of a percent per frame.
+- The queue corrects the run rate while a measure is in use, and until the run rate is back at the mode's rate with the queue inside its band. The band is `QUEUE_BAND_PERMILLE` (500): 16 ms either way of the 32 ms target, where the rate control alone holds it; a core with a long frame every few frames swings the level before a write inside it. Beyond the band, in proportion to the distance beyond it: the level smoothed over `QUEUE_SMOOTH_FRAMES` (16) frames trims the run rate by up to `QUEUE_TRIM_PERMILLE` (60, 6%) in either direction, a time constant of about 0.5 s; and a last level above twice the target (the span) moves the rate from the measure towards the mode's rate at once, all the way at three times the target, because then the core makes audio faster than measured. So after any change of speed the level before a write is back within half the target of its target within `QUEUE_SETTLE_S` (3 s, in the test of the scenes of Killer Instinct), and the queue never holds more than the 128 ms of the sink (`Sdl3Sink`); more is an overrun, which the sink drops as before, and the test asserts none. The pitch is up to a semitone off while the queue is far off. A game at full speed (no measure) keeps the audio of the rate control alone.
+- So a game at 96% speed plays its sound at 96% of its tempo and pitch (0.7 semitones lower), with no underrun in the steady state. The rate control keeps its `d` of 0.5% and absorbs the rest.
+- The pipeline refuses `f_run` below half the core's frame rate (`AudioError::RunRatio`). When the measure goes below `SOUND_MUTE_PERMILLE` (500, the bound of the pipeline) of the core's frame rate, the session mutes the audio (`AudioPipeline::mute`: a 5 ms ramp to silence), feeds it no core audio and calls `idle_frame` in place of `end_frame`, as under the quick menu. The device plays the ramp and the silence after it, then runs dry, which is not counted as an underrun. The sound comes back only when the measure is above `SOUND_RESUME_PERMILLE` (520): a core that hovers at half speed does not chop the sound. When the measure stops (wait pacing, a core no longer slow, no mode on screen), the mute ends too. The next frame's `end_frame` tops the muted queue up with silence, and the audio fades in at the frame after it. Below half speed the sound is more than an octave low and is no longer the game's sound.
+- The entry into late pacing costs the queue audio once. The queue level is read after the present. In wait pacing that is just after the blank; a late frame reads it `x` intervals after the blank. Until the measure is used (2 frames for a clearly slow core) and the run rate has glided to it, each frame also brings `1 / x` of the audio the device plays. The queue target is 32 ms, about 1.9 intervals at 60 Hz. So the change of a scene from 1.0 to 1.5 intervals costs at most one underrun (one prime with a fade-in), and a core near or above the length of the queue (from about 1.9 intervals) costs a few at the entry. After that, none.
+- A long frame that is longer than the 64 ms span of the rate control (4 intervals at 60 Hz), and that comes every few frames, makes the deepest dips of the queue touch zero now and then, for about 1 ms (about every 5 s in the test). This is the size of the queue, not the run rate: a frame of 3 intervals every 10 frames plays with no underrun.
+
+### Notice and statistics
+
+- `Session::sound_too_slow` is true while the audio is muted because the game runs below half speed.
+- `Session::slow_speed_percent` returns the speed of the game in percent of the run rate of the mode on screen while the measure is used, the window is full (120 frames, about 2 s), and the speed is below `SLOW_NOTICE_PERMILLE` (980, 98%). Else `None`. A single long frame does not give it.
+- The owner approved the two notice texts: "This game runs at {p}% speed. This machine is too slow for it." (from `slow_speed_percent`) and "Sound off: the game runs at less than half speed." (from `sound_too_slow`). The app wires them after the change of its notice code, in a later task.
+- `frames_presented` (`Counters::flips`) counts every flip that completed, also the flip that the next frame waits for in late pacing and the flip that the engine drains after a timed-out wait.
+- A flip that the engine drains in a present after a failed wait (`FrameReport::drained_flips`) is no progress of the display for `FLIPLESS_FRAMES_LIMIT`: a display whose flips take 500 to 1000 ms ends the session with `DisplayStalled`. A flip that a wait of the loop returned, also the wait for the flip of the frame before in late pacing, is progress.
+- `fields_missed` keeps its rule. Each flip counts its gap for the frame it shows: a flip that the next frame waits for counts for the frame that queued it.
+- `frames_dropped` (`Counters::flipless_frames`) keeps its meaning: a frame whose flip the loop did not wait for is shown at the next blank, and is not flipless.
+- `Counters::late_frames` counts the core frames whose flip the loop did not wait for, and `Counters::late_flips` the late flips of frames whose work fit. The stats reply gives both as `late_frames` and `late_flips` from protocol version 3 (`LATE_PACING_VERSION`), append-only.
+- `FrameReport::pacing` gives each change of pacing. The app writes one log line at each change, through the log of the run. With the hold rules the loop changes pacing a few times at most, then reaches a steady state.
+- `Counters::input_to_flip_ns` is the last delay from an input poll that returned at least one event to the first flip of the frame that ran the core with it, on the session clock. The flip event can come from another clock with another origin (the kernel's on KMS). Both clocks are monotonic, so the session keeps the lowest offset that a wait shows (the session time after the wait less the flip time: a wait that returns at the flip) and moves each flip time to its own clock with it (`FlipClock`). In late pacing the next frame waits for a flip that completed earlier, and the offset still gives the time of the flip. The app gives it as `input_to_frame_ns` in the stats reply, which had no source before.
+
+### Safety and other paths
+
+The pacing decides only when the loop waits for a flip. It sets no mode, calls no `Display` method of its own, and bypasses nothing.
+
+| Path | In late pacing |
+| --- | --- |
+| A mode change | The engine sets every mode in its present, through `ValidatedMode`, after the frame waited for the flip of the frame before. A frame with a modeset waits for its flip and goes back to wait pacing; the rate meter starts again |
+| Display guard and blind recovery | They change the engine's inputs (monitor, settings) between two frames. The next present applies them, after the wait for the flip before. The guard's timers are on the session clock and do not change |
+| Quick menu | The frame that opens the menu waits for the flip of the frame before, presents the menu and waits for its own flip. Under the menu the loop is in wait pacing, with the shortest hold and nothing learned. After `resume` it starts in wait pacing |
+| Output off (blank) | The engine blanks only with no flip queued; the frame waits for the flip of the frame before first. A blanked frame runs no core and is in wait pacing. With no mode there is no measure, and a mute for a slow core ends |
+| Interlaced mode | The driver decides on which blank a flip lands, as before; the loop changes only when it commits. `interval` is two fields on a driver that flips once per frame. Nothing in the commit chooses a field. Whether the field order stays right in late pacing is not proven: the fake display puts every flip on a blank where a flip can land by construction, so its test cannot show a swapped field. The 15 kHz CRT check of `docs/hardware-checklist.md` decides it |
+| Double refresh (`repeat` 2) | Only the last flip of a core frame is not waited for. The first flip is waited for before the second present, because the display takes one queued flip. `work` ends at the first present, so the limit is one flip interval, as in wait pacing |
+| Hot unplug, a display that stops flipping | The wait for the flip of the frame before is the bounded wait of the backend (500 ms on KMS). A wait that fails ends the frame with no present; the frame still ends its audio, and it is flipless. A drained flip is no progress. `FLIPLESS_FRAMES_LIMIT` ends the session as before. A new monitor profile is a modeset |
+| A driver that does not count blanks | The gap between flips comes from their times, so late flips and missed fields are still seen |
+| End of the session | A frame in which the core asks to stop waits for its flip, so no flip stays queued after the last frame |
+| Drivers | The loop uses only what the atomic KMS API gives every driver: a flip completes at a vertical blank with an event, and one flip can be queued. There is no code for one board |
+
+No thread is added. The frame thread waits in the same bounded flip wait, at a different point of the frame. The pacing state and the window of cycles are made at launch; a frame allocates nothing more.
+
+On the desktop window the interval comes from the read back of the window's mode, while the window flips at the desktop rate. There the change to late pacing follows the mode rate, not the desktop rate. The window is a development output, and this is accepted.
+
+### Tests
+
+The session tests give each frame a cost on the simulated clock: the scripted input of the tests moves the clock forward by the cost in each poll, so the frame's work takes that time before the core runs. The test core cannot move the simulated clock: it is a separate library loaded by the host. The fake display models the GPU with `DisplayOptions::gpu_ns` (a flip lands only on a blank after the present plus that time) and a driver that does not count blanks with `DisplayOptions::frozen_vblank_count`. Each test runs a 60 Hz test core on the fake display.
+
+| Case | Asserts |
+| --- | --- |
+| `x` 0.5, 0.9, 0.95, 0.99 | Wait pacing in every frame; one flip per core frame; no missed field; input poll to flip is one interval within 1 ns; no `slow_speed_percent` |
+| `x` 1.02, 1.04, 1.3, 2.0, 2.5 | One change to late pacing and none back; presented rate `1 / x` of the flip rate within 0.5% after the entry; missed fields equal the repeated blanks of the fake display; no frame dropped (`flipless_frames` 0, every presented frame shown once, only the last flip still queued); input poll to flip from `x` to `x + 1` intervals |
+| Sound at `x` 1.02, 1.04, 1.3, 2.0 | `f_run` within 0.5% of the measured rate; no underrun at 1.02 and 1.04, at most one at 1.3 and four at 2.0, all in the first second; no overrun |
+| Sound at `x` 2.5 | `sound_too_slow`; at most four underruns at the entry; no `end_frame` and no underrun in the 60 frames after the run |
+| `slow_speed_percent` | `100 / x` within 1 below 98%, else `None`; none for a jitter around 1.0, for 0.9, and after a single long frame |
+| `x` 1.0, jitter of 5% | One change to late pacing and none back; presented rate above 96%; no underrun, no overrun |
+| `x` 0.5 and 1.5 in turn | Presented rate above 99%; no frame dropped; at most one underrun |
+| 60 s of 0.97 and 1.05 in turn; of 1.0 with 3.5 every 4 frames; of 0.5 with 3 every 10 frames; of 0.5 with 4 every 10 frames | `f_run` within 0.5% of the real rate of core frames; at most 2 pacing changes; no underrun after the first 3 s (at most 15 of about 1 ms for the frames of 4 intervals, longer than the span); no overrun |
+| 200 frames fast, 300 frames at 1.3, 400 fast | The change of `f_run` in each frame is at most `RUN_RATE_SLEW_PERMILLE_PER_S` of the mode's rate per second of the frame; no overrun |
+| The scenes of Killer Instinct: 12 s at 0.97 (jitter 3%), 17 s at 1.5 (jitter 5%), twice | In each second the queue holds at most the 6144 frames of the sink; from 3 s after each change the level before a write is within half the target of the target; at most one underrun per scene; no overrun |
+| `x` 0.95, GPU 0.1 interval | Late pacing from the late flips; presented rate at least 98%; `late_flips` at least 2; at most one underrun; then 4000 frames (67 s) with no change of pacing, no missed field and no underrun |
+| The same, with a vertical blank count of 0 | Presented rate at least 98% |
+| The same, then the quick menu and a resume | One entry after the resume (3 late flips), then quiet |
+| A long frame of 3 intervals every 180 frames | At most 10 changes of pacing in the first minute, none in the next 4 minutes |
+| One frame of 2.5 fields, and one of 300 ms, of a fast core | For 240 frames after it: `f_run` is the mode's run rate in every frame, no mute, no overrun, at most one underrun, the queue at 0.4 to 0.6 of the span at the end |
+| One frame of 1.5 intervals, then `x` 0, 0.5 or 0.95 | Late pacing for the shortest hold plus at most 2 frames, then wait pacing with an input delay of one interval; one missed field |
+| A core at 49%, then 51%, then 55% of its rate | Muted at 49%, still muted at 51% in every frame, sound at 55% |
+| Flips of 700 ms (two timed-out waits of 350 ms each) | The session ends with `DisplayStalled` after `FLIPLESS_FRAMES_LIMIT` frames; drained flips still count as presented |
+| A failed wait for the flip of the frame before | The frame ends its audio; one flipless frame; the game goes on |
+| Quick menu, modeset, a change of monitor and its revert, the output off and on, interlaced, double refresh, a lost flip, the end of the session | The rules of the safety table; at 2.5 intervals the mute ends while the output is off |
 
 ## Resampler
 
