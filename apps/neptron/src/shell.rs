@@ -265,51 +265,35 @@ struct GameStage<D: Display, S: AudioSink, I: InputSource, C: Clock> {
 enum PictureNotice {
     /// At the first picture of the game.
     Launch,
-    /// At the first picture after a change of the picture mode or the
-    /// refresh choice in the game whose proposal differs from the one with
-    /// the hash `before` (`proposal_hash`), within `frames` more frames.
+    /// After a change of the picture mode or the refresh choice in the
+    /// game, when the engine has the picture of the new settings on screen
+    /// (`VideoEngine::settled`): the notice shows if that picture differs
+    /// from the one with the hash `before` (`proposal_hash`). A slow
+    /// modeset only makes the wait longer.
     AfterChange {
         /// The hash of the proposal before the change.
         before: u64,
-        /// The frames left to wait for a new picture.
-        frames: u32,
     },
     /// Shown; nothing waits.
     Shown,
 }
 
-/// The frames that a change of the picture mode or the refresh choice
-/// waits for a new picture before the notice stops waiting: a modeset waits
-/// `DEBOUNCE_FRAMES` frames for a steady source, and a change that gives
-/// the same picture must not leave a notice waiting for a later, unrelated
-/// one.
-const PICTURE_CHANGE_WAIT_FRAMES: u32 = 4 * neptron_video::DEBOUNCE_FRAMES;
-
 impl PictureNotice {
-    /// The state after `change` (a change of the picture mode or refresh
-    /// choice) with the current proposal `current`.
+    /// The state after a change of the picture mode or refresh choice,
+    /// with the current proposal `current`.
     fn after_change(current: u64) -> Self {
-        Self::AfterChange {
-            before: current,
-            frames: PICTURE_CHANGE_WAIT_FRAMES,
-        }
+        Self::AfterChange { before: current }
     }
 
-    /// One frame with the proposal `current` on screen: the next state,
-    /// and whether the notice shows now.
-    fn step(self, current: u64) -> (Self, bool) {
+    /// One frame with the proposal `current` on screen, `settled` when the
+    /// engine placed it for its current inputs: the next state, and
+    /// whether the notice shows now.
+    fn step(self, current: u64, settled: bool) -> (Self, bool) {
         match self {
             Self::Shown => (Self::Shown, false),
             Self::Launch => (Self::Shown, true),
-            Self::AfterChange { before, .. } if before != current => (Self::Shown, true),
-            Self::AfterChange { frames: 0, .. } => (Self::Shown, false),
-            Self::AfterChange { before, frames } => (
-                Self::AfterChange {
-                    before,
-                    frames: frames - 1,
-                },
-                false,
-            ),
+            Self::AfterChange { .. } if !settled => (self, false),
+            Self::AfterChange { before } => (Self::Shown, before != current),
         }
     }
 }
@@ -558,27 +542,26 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 mod picture_notice_tests {
     use super::*;
 
-    /// After a change that gives the same picture, the notice stops
-    /// waiting, so a later picture of another cause does not show it.
+    /// After a change, the notice waits for the picture of the new
+    /// settings, however many frames the modeset takes; the same picture
+    /// shows no notice and stops the wait.
     #[test]
-    fn a_change_with_the_same_picture_stops_waiting() {
+    fn a_change_waits_for_its_picture_and_shows_only_a_new_one() {
         let mut state = PictureNotice::after_change(7);
-        for _ in 0..PICTURE_CHANGE_WAIT_FRAMES {
-            let (next, show) = state.step(7);
+        for _ in 0..1_000 {
+            let (next, show) = state.step(7, false);
             assert!(!show);
             state = next;
         }
-        let (next, show) = state.step(7);
-        assert!(!show);
-        assert_eq!(next, PictureNotice::Shown);
-        assert_eq!(next.step(8), (PictureNotice::Shown, false));
-    }
-
-    #[test]
-    fn a_new_picture_after_a_change_shows_the_notice_once() {
-        let (next, show) = PictureNotice::after_change(7).step(8);
-        assert!(show);
-        assert_eq!(next.step(9), (PictureNotice::Shown, false));
-        assert_eq!(PictureNotice::Launch.step(1), (PictureNotice::Shown, true));
+        assert_eq!(state.step(7, true), (PictureNotice::Shown, false));
+        assert_eq!(state.step(8, true), (PictureNotice::Shown, true));
+        assert_eq!(
+            PictureNotice::Shown.step(9, true),
+            (PictureNotice::Shown, false)
+        );
+        assert_eq!(
+            PictureNotice::Launch.step(1, false),
+            (PictureNotice::Shown, true)
+        );
     }
 }

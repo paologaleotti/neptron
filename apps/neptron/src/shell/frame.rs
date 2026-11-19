@@ -386,9 +386,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         let Some(current) = game.session.video().current() else {
             return;
         };
+        let settled = game.session.video().settled();
         let (next, show) = self
             .picture_notice
-            .step(proposal_hash(&current.chosen.proposal));
+            .step(proposal_hash(&current.chosen.proposal), settled);
         self.picture_notice = next;
         if !show {
             return;

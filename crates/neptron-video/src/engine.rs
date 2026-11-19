@@ -297,6 +297,12 @@ impl<D: Display> VideoEngine<D> {
         self.odren.step_answers(budget)
     }
 
+    /// No decision is due, and the mode on screen was placed by a decision
+    /// on the current inputs ([`Odren::settled`]).
+    pub fn settled(&self) -> bool {
+        self.odren.settled()
+    }
+
     /// Whether answers are in work.
     pub fn answers_in_work(&self) -> bool {
         self.odren.answers_in_work()
