@@ -237,7 +237,7 @@ ADR 0012 records the design. A TV is a **monitor kind**, not an output kind. `Ou
 
 | Game | Source | On NTSC (525) | On PAL (625) |
 | --- | --- | --- | --- |
-| NES | 256x240, 60.099 Hz | 240p, 240 of 240 lines, 60.054 Hz, silent (-738 ppm) | 288p, 240 of 288 lines centred, 50.080 Hz, speed alert (-16.7 %) |
+| NES | 256x240, 60.099 Hz | 240p, 240 of 240 lines, 60.054 Hz, silent (-749 ppm) | 288p, 240 of 288 lines centred, 50.080 Hz, speed alert (-16.7 %) |
 | SNES | 256x224, 60.099 Hz | 240p, 224 lines centred (8 black lines above and below, as on the console), silent | 288p, speed alert |
 | SNES, PAL game | 256x239, 50.007 Hz | 240p, 239 lines, 60.054 Hz, speed alert (+20.1 %) | 288p, 239 lines centred, silent (+1462 ppm) |
 | Mega Drive | 320x224, 59.923 Hz | 240p, silent (+2199 ppm) | 288p, speed alert |

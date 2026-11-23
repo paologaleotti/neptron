@@ -98,7 +98,7 @@ The state column is one line. The full entry below is the reference.
 | OP-099 | A picture width per system on composite | Neo Geo 11 % narrow |
 | OP-100 | Keep the video rules few | Accepted as built; checks to do |
 | OP-101 | An old share at another place | No share, data safe |
-| OP-102 | First composite picture: open points | Menu width, HDMI PCM label |
+| OP-102 | First composite picture: open points | Menu width, after 0.1 |
 | OP-103 | Frame budget on the Pi 3 | Dialog rate fixed; standard change underruns |
 | OP-104 | CI limits | aarch64 timing checks not in CI; two paths not proven |
 | OP-106 | Open questions of the arcade spec | Defaults in `docs/spec/arcade.md`, section 19; A1, A2 built; A6 in OP-107 |
@@ -970,7 +970,7 @@ The state column is one line. The full entry below is the reference.
 ### OP-102: First composite picture on a Pi 3 B, and what it showed.
 
 - Raised by: the owner's first test on a tube (Samsung, composite, Pi 3 B, 2026-11-14)
-- Status: open for points 1 and 2; point 3 is closed by commit `fd713d9`
+- Status: open for point 1 (after 0.1, with OP-097); point 2 is closed by commit `0c7e3d3a` (M10), with its check on a Pi 3 open in the hardware checklist; point 3 is closed by commit `fd713d9`
 - Default: the owner reports (2026-11-15, image of commit `7f2e31e`): the picture locks in NTSC 240p, the menu is sharp, the 240p test suite grid fills the tube with correct geometry, SNES and Mega Drive games are very sharp, and the audio is fine. The points:
   1. The menu is 640 samples wide in the 720 samples of the line, so the tube shows a black band at each side of the menu. This is the UI rectangle of `policy/tv.rs` by design, not the TV. A wider menu needs the overscan decision of OP-097.
   2. The audio list labels the PCM of the `vc4-hdmi` card "Analog", because the kind of a PCM comes from its name only, and its name (`MAI PCM i2s-hifi-0`) has no HDMI word (`crates/neptron-audio/src/alsa.rs`). With no jack card, `auto` then took the HDMI card as an analog output, and the open failed with error 524 while HDMI was off.
