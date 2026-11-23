@@ -21,6 +21,6 @@
 
 - Every screen registers a **scene**: the screen plus fixture data. `cargo xtask shot settings/display` renders one scene to a PNG in under a second, also in a 4x enlarged copy that is easier to read.
 - `cargo xtask gallery` renders every scene, for every skin and canvas size, onto one contact sheet. An agent opens that single image to review a UI change.
-- Goldens live in `tests/golden/`. `cargo xtask golden --bless` updates them, and CI attaches a before/after diff image for every changed golden to the pull request, so a human approves visual changes in seconds.
+- Goldens live in `tests/golden/`. `cargo xtask golden --bless` updates them. For a failed golden, CI keeps the expected, actual and diff pictures as an artifact (`docs/ci.md`), so a reviewer judges a visual change in seconds.
 
 **The UI crawler.** One test walks every menu path using only D-pad and two buttons through the control API. It fails on dead ends, on text the layout engine reports as clipped, on anything outside the overscan-safe area, and on any schema setting it could not reach.

@@ -1,6 +1,6 @@
 ## Specs to pin down before coding
 
-Four areas are too complex to start from a one-line description. Each gets a short spec file in `docs/spec/` as the first step of its work package.
+Four areas are too complex to start from a one-line description. Each gets a short spec file in `docs/spec/` as the first step of its work package. Three exist: `libretro-host.md`, `kms.md` and `pacing-audio.md`. The settings schema is in `crates/neptron-settings/README.md`; the skin format has no spec yet.
 
 | Area | Why it needs a spec | What the spec contains | What to lean on |
 | --- | --- | --- | --- |
@@ -9,7 +9,7 @@ Four areas are too complex to start from a one-line description. Each gets a sho
 | Frame pacing and audio | Easy to get subtly wrong; errors show as stutter or crackle | The display-locked loop, the rate-control method, what happens when game and display rates differ | RetroArch's dynamic rate control, reused rather than reinvented |
 | Settings schema and skin format | The whole UI is generated from them | Field list, value types, scopes; the five screen templates and their parameters | Written at the start of WP 3.1 and 3.2 |
 
-**Libretro callbacks, starting tiers.** This list is from memory; the logging run of the reference cores decides the real one.
+**Libretro callbacks, starting tiers.** `docs/spec/libretro-host.md`, section "Environment calls", has the calls the host answers. The tiers below plan the rest.
 
 | Tier | Purpose | Callbacks |
 | --- | --- | --- |
