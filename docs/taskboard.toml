@@ -1,5 +1,6 @@
-# The MVP taskboard: the rows of docs/plan/07-mvp-build-taskboard-for-claude-code.md
-# plus a status. The orchestrator reads it to find ready tasks and updates it on each merge.
+# The MVP taskboard: one row per task with its status. docs/plan/07-mvp-build-taskboard-for-claude-code.md
+# holds the run rules, the contracts and the briefs of the T tasks.
+# The orchestrator reads this file to find ready tasks and updates it on each merge.
 #
 # status: pending | in_progress | in_review | merged | blocked
 

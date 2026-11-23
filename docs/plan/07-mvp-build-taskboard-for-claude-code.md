@@ -22,7 +22,7 @@ The MVP is one playable path on the i3-6100T: boot, game list, launch, correct C
 2. A task starts from current `main`, and only when every task in its "Needs" column is merged.
 3. A task edits only the paths in its "Owns" column. The orchestrator alone edits the root `Cargo.toml`, `Cargo.lock`, `CLAUDE.md`, `docs/taskboard.toml` and `docs/open-points.md`. A task that needs a new external dependency adds it to `[workspace.dependencies]` in the root `Cargo.toml`, in a separate `build(deps)` commit with the reason in the body, and lists it in its task report. The orchestrator resolves conflicts in the root `Cargo.toml` and `Cargo.lock` at the rebase.
 4. The contracts and the task briefs below are the starting point, not a cage. A task that needs a contract, a brief or an earlier task's code to change makes that change itself, on a separate small branch: the change, every caller in the workspace fixed so that all crates still build, and an ADR that says why. The orchestrator verifies and merges it before anything else, updates this document and the taskboard, and tells every running task to rebase onto main. A running task rebases, adapts, and continues.
-5. Commits are Conventional Commits (`feat(modeline): add crt_range parser`), one logical change each, as many as the work needs. Each commit builds and passes T0 and T1. No `wip` or fixup commits: rebase before merge. Always rebase, never merge: a branch gets new commits from main with git rebase only, and no merge commit exists anywhere in the history. Merges are fast-forward only, so `main` stays linear and bisectable. No emojis. No mention of AI, Claude or any assistant, and no Co-Authored-By trailer, in commits, branch names, pull requests, code or comments. CLAUDE.md files are tracked in the repository as usual.
+5. Commits are Conventional Commits (`feat(modeline): add crt_range parser`), one logical change each, as many as the work needs. Each commit builds and passes T0 alone, and the head of the branch passes T1. No `wip` or fixup commits: rebase before merge. Always rebase, never merge: a branch gets new commits from main with git rebase only, and no merge commit exists anywhere in the history. Merges are fast-forward only, so `main` stays linear and bisectable. No emojis. No mention of AI, Claude or any assistant, and no Co-Authored-By trailer, in commits, branch names, pull requests, code or comments. CLAUDE.md files are tracked in the repository as usual.
 6. A task marked "spec first" commits its file in `docs/spec/` before any code. The reviewer checks the spec against the Definition before the code.
 7. A task is done when its gate passes, the definition of done holds, and a review agent with a fresh context approves the diff and the commit structure (rule 16) against this document. No human reviews during the MVP: the reviewer approves new goldens after it opens each image, and the generated safety limits after it checks them against the presets.
 8. A question this document does not answer becomes an open point. With a safe default, the task takes the default, records it in its task report (question, default, where in the code, how to change it), and continues. The orchestrator copies it to `docs/open-points.md`.
@@ -118,39 +118,7 @@ pub trait Clock { fn now_ns(&self) -> u64; }
 
 ### Taskboard
 
-| ID | Wave | Task | Owns | Needs | Gate |
-| --- | --- | --- | --- | --- | --- |
-| T01 | 0 | Scaffold | Whole repo | None | T0 green on both hosts in CI |
-| T02 | 0 | Contracts and monitor presets | `crates/neptron-types`, `crates/neptron-backend`, API of `crates/neptron-safety`, `data/monitors` | T01 | T1; code matches the contracts block |
-| T03 | 1 | Test fakes | `crates/neptron-testkit` | T02, T04 | A 1,000-frame fake session gives identical output twice |
-| T04 | 1 | Safety validator | `crates/neptron-safety` | T02 | Timing check 2 |
-| T05 | 1 | Switchres wrapper | `crates/neptron-modeline`, `crates/neptron-switchres-sys`, `vendor/switchres` | T02 | Timing check 1, identical on macOS and Linux |
-| T06 | 1 | Reference renderer | `crates/neptron-gfx` except `src/gles` | T02 | Pixel goldens |
-| T07 | 1 | UI core | `crates/neptron-ui`, `xtask/src/ui` | T01 | First scene golden is bit-identical on both hosts |
-| T08 | 1 | Settings | `crates/neptron-settings` | T01 | Unit tests and fixtures |
-| T09 | 1 | Libretro bindings and test core | `crates/neptron-libretro-sys`, `crates/neptron-testcore` | T01 | Test core builds as a dynamic library; layout tests |
-| T10 | 1 | Library | `crates/neptron-library`, `data/systems`, `data/cores` | T01 | Fixture trees; a 10,000-game query fits the frame budget |
-| T11 | 1 | GPU detection and capability table | `crates/neptron-platform`, `data/hardware` | T02 | Unit tests on fixture sysfs trees |
-| T12 | 1 | Control protocol and `neptronctl` client | `crates/neptron-ipc`, `apps/neptronctl` | T02 | Round-trip tests |
-| T13 | 1 | Window backend | `crates/neptron-window` | T02, T04 | Builds on both hosts; smoke test |
-| T14 | 1 | OS base and QEMU | `os/`, `Dockerfile`, `xtask/src/os` | T01 | Image boots in QEMU; `vkms` findings in the task report |
-| T15 | 2 | ODREN policy | `crates/neptron-modeline/src/policy` | T05, T11 | Timing checks 3 and 4 |
-| T16 | 2 | Libretro host (spec first) | `crates/neptron-libretro`, `docs/spec/libretro-host.md` | T03, T09 | Test-core frame hashes |
-| T17 | 2 | Audio (spec first) | `crates/neptron-audio`, `docs/spec/pacing-audio.md` | T03 | Audio part of timing check 6 |
-| T18 | 2 | Input | `crates/neptron-input` | T03 | Scripted device tests; mapping fixtures |
-| T19 | 2 | OpenGL ES renderer | `crates/neptron-gfx/src/gles` | T06, T14 | T3: matches the reference renderer under Mesa software GL |
-| T20 | 2 | Screens | `crates/neptron-ui/src/screens`, `data/skins/default` | T07 | Scene goldens |
-| T21 | 2 | KMS spike tool (WP 1.1) | `tools/kms-spike` | T04 | Runs on `vkms`; you run it on the i3-6100T when you can |
-| T22 | 3 | ODREN engine | `crates/neptron-video` except `src/guard` | T03, T04, T15 | Timing check 5 |
-| T23 | 3 | KMS backend (spec first) | `crates/neptron-kms`, `docs/spec/kms.md` | T04, T14, T19 | Timing check 7 on `vkms` |
-| T24 | 3 | Three real cores and test ROMs | `os/package/libretro-*`, `tests/roms`, `tests/traces` | T14, T16 | T4 frame hashes; traces committed |
-| T25 | 4 | Session | `crates/neptron-session` | T06, T16, T17, T18, T22 | Timing check 6; scripted session |
-| T26 | 4 | Safety behaviours | `crates/neptron-video/src/guard` | T08, T22 | Scripted safety scenarios |
-| T27 | 5 | App wiring and launcher | `apps/neptron`, `apps/neptron-launch`, `xtask/src/verify` | T10, T11, T12, T13, T20, T25, T26 | T2 end to end: list, launch, mode switches, quick menu, quit; UI crawler |
-| T28 | 6 | x86\_64 image | `os/` | T23, T24, T27 | T3: QEMU boots to the game list; `vkms` writeback equals the golden; boot time recorded |
-| T29 | 6 | Hardware test kit | `apps/neptronctl/src/selftest`, `docs/hardware-checklist.md` | T23, T27 | Self-test passes on `vkms` |
-
-`docs/taskboard.toml` holds the same rows plus a status field. The orchestrator reads it to find ready tasks and updates it on each merge.
+`docs/taskboard.toml` holds every task (id, wave, name, owned paths, needs, gate) with its status. The orchestrator reads it to find ready tasks and updates it on each merge.
 
 ### Task briefs
 
@@ -190,7 +158,7 @@ Each brief lists what the task must deliver and the choices that are already mad
 
 ### How the orchestrator runs a task
 
-1. Pick every task whose needs are merged. Start one implementer agent per task, each in its own worktree. The brief is the task's two table rows, the contracts block, the Definition sections it names, and the crate README.
+1. Pick every task whose needs are merged. Start one implementer agent per task, each in its own worktree. The brief is the task's row in `docs/taskboard.toml` and its row in the task briefs, the contracts block, the Definition sections it names, and the crate README.
 2. The implementer writes tests with the code, runs the gate, and sends the orchestrator a task report with the gate summary and any open points.
 3. A verifier runs `cargo xtask verify` at the task's tier on a clean checkout. A reviewer with a fresh context reads the diff against this document. Neither can edit the code. A rejected task goes back to its implementer, at most twice; a third failure becomes an open point for you.
 4. On approval the orchestrator rebases the branch, merges fast-forward in ID order, and runs T0 and T1 on `main`. A failure reverts that merge.
