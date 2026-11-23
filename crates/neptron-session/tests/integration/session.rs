@@ -954,13 +954,11 @@ fn the_audio_of_each_frame_goes_out_between_its_present_and_its_flip() {
 }
 
 /// A 30 ms modeset at launch (60.099 Hz) and another in the game (to
-/// 50.007 Hz). The mute leaves the queue at the target, 32 ms, which covers
-/// the modeset; the frame's audio, written after the present, covers the
-/// field until the first flip of the new mode. So the device never runs
-/// dry, and the pipeline counts no underrun. A modeset longer than the
-/// target empties the queue; the audio before the present would not help,
-/// because then the target and one frame must cover the modeset and that
-/// field, which at 50 Hz is longer than a frame at 60 Hz.
+/// 50.007 Hz). The mute fills the queue with silence up to the cover,
+/// 100 ms (`MUTE_COVER_MS`), which covers the modeset; the frame's audio,
+/// written after the present, covers the field until the first flip of the
+/// new mode. So the device never runs dry, and the pipeline counts no
+/// underrun. A modeset longer than the cover empties the queue.
 #[test]
 fn a_30_ms_modeset_leaves_audio_in_the_queue() {
     let script = format!("{SCRIPT}at 300 av_info 256 224 1333 320 240 50007 32040\n");

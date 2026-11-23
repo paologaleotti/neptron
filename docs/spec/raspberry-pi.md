@@ -459,7 +459,7 @@ Measured on a Pi 3 B on composite, NTSC 240p, with the development build of `os 
 - NES, SNES and Mega Drive games hold 60.054 frames per second with no missed field.
 - Super Mario World leaves 1.66 ms in its worst frame. The release image is not measured.
 - A keep or revert dialog over a running game halves the rate while it is open.
-- A change of the TV standard takes about 75 ms from the last flip of the old mode to the first flip of the new one. The muted queue covers about 32 ms, so the underrun count goes up by one.
+- A change of the TV standard takes about 75 ms from the last flip of the old mode to the first flip of the new one. The muted queue covered about 32 ms, so the underrun count went up by one. Since M10 a mute fills the queue up to 100 ms (`MUTE_COVER_MS`), which covers the change; the check on the Pi is in `docs/hardware-checklist.md`.
 - With the vc4 vblank sequence in 480i not checked, `fields_missed` can hide real misses in interlace (UNVERIFIED).
 
 ### SD card layout

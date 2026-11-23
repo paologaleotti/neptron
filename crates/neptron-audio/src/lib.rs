@@ -27,7 +27,9 @@ pub use outputs::{
     ALSA_DRIVER, AUTO_OUTPUT, AudioOutputs, AutoChoice, Monitor, OpenedDevice, OpenedOutput,
     OutputDevice, OutputError, OutputKind, OutputNotice, auto_choice, open_output, output_label,
 };
-pub use pipeline::{AudioPipeline, AudioStats, FADE_MS, MAX_INPUT_PER_FRAME_MS, Resampling};
+pub use pipeline::{
+    AudioPipeline, AudioStats, FADE_MS, MAX_INPUT_PER_FRAME_MS, MUTE_COVER_MS, Resampling,
+};
 pub use rates::{
     CoreTiming, MAX_CORE_FRAME_RATE_MHZ, MAX_CORE_SAMPLE_RATE_MHZ, MAX_DEVICE_RATE_HZ,
     MIN_CORE_FRAME_RATE_MHZ, MIN_CORE_SAMPLE_RATE_MHZ, MIN_DEVICE_RATE_HZ, check_device_rate,

@@ -22,7 +22,7 @@ Audio out: rubato resampler, dynamic rate control and the SDL3 sink.
 1. At launch, and when the core's AV info changes: `AudioPipeline::new` with the core's timing and the run rate (the core's own frame rate when no better figure is known yet). This is the only allocation.
 2. Give the run rate (core frames per second of real time): on KMS, the field rate of the mode read back (half of it for double refresh); in the desktop window, `FlipRateMeter::rate_mhz` fed with every `FlipEvent::time_ns`.
 3. Each frame: the core's audio goes to `push_samples`; after `retro_run`, call `end_frame`.
-4. Before a modeset or a pause: `mute`. After the first flip in the new mode, or on resume: `unmute`.
+4. Before a modeset or a pause: `mute`. It fills the queue with silence up to `MUTE_COVER_MS` (100 ms), which covers a TV standard change on the Raspberry Pi 3 (about 75 ms), so a mute silences at least about 100 ms. Each muted frame drops its silence while the queue is above its target and keeps one frame, so the cover lasts only through a present that blocks. After the first flip in the new mode, or on resume: `unmute`. The frames after it drop the start of their output until the queue is back at its target, so a short modeset adds no delay.
 
 ## Choices
 

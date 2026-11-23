@@ -912,6 +912,11 @@ Each check is `needs-hardware`. The setup: a Pi 3 with an image built after P07,
   - Also record: whether `/usr/share/alsa/cards/vc4-hdmi.conf` is in the image (`ls /usr/share/alsa/cards`).
   - Record: the two files, the list, and the log line of each run.
 
+- [ ] `needs-hardware` **The audio cover of a TV standard change on the Pi 3.** A Pi 3 B with the development image after M10, on composite, headphones on the jack.
+  - Do: run the SNES 240p suite on NTSC with a tone or music. Read `neptronctl stats`. Change `display.tv` to `pal` with Keep, then back to `auto` with Keep, 8 times (`neptronctl settings set display.tv global pal`, then `auto`). Read the stats again. Listen at each change.
+  - Expect: `audio_underruns` does not grow at a change (before M10 it grew by 1 to 2). No click, no gap of old sound, and no echo of the sound before the change: the sound fades out, stays silent through the change, and fades in. The delay of the sound after a change is the same as before it.
+  - Record: `audio_underruns` and `fields_missed` before and after, and what is heard.
+
 ### The share partition on an SD card (C18)
 
 - [ ] Do: on a Raspberry Pi 3 with an SD card, an empty partition 4 with no marker, time the first boot that offers the format and the second boot. Expect: the second boot scans nothing (no new `neptron-storage` lines of the scan; `/state/cache/share-scan` holds the key and `result=none`). Record: the time of the storage script at each boot (the first and the last `neptron-storage` line in `/var/log/messages`).

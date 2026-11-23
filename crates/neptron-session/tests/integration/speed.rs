@@ -5,7 +5,9 @@
 use neptron_backend::AudioSink;
 use neptron_safety::Rejection;
 use neptron_session::RUN_RATE_SLEW_PERMILLE_PER_S;
+use neptron_testkit::preset::monitor_preset;
 use neptron_types::Modeline;
+use neptron_video::Monitor;
 
 use crate::harness::{Rig, Setup};
 use crate::pacing::{RUN_FRAMES, SCRIPT, interval_ns, run_with_cost};
@@ -339,6 +341,56 @@ fn the_mute_ends_while_the_output_is_off() {
         assert!(late > 50, "late pacing again: {late}");
         assert_eq!(rig.session.counters().flipless_frames, 0);
     });
+}
+
+/// A core in late pacing at 1.3 intervals, and a change of monitor and
+/// its revert, as the display guard makes: the session mutes for each
+/// modeset while frames still run. The muted frames bring the queue back
+/// to its target, so the run rate stays at the measured rate, nothing
+/// overruns, and no underrun comes after the unmute.
+#[test]
+fn a_mute_with_frames_running_in_late_pacing_keeps_the_measured_rate() {
+    with_script!(
+        "a_mute_with_frames_running_in_late_pacing_keeps_the_measured_rate",
+        SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(30);
+            run_with_cost(&mut rig, 1_300, 0, RUN_FRAMES);
+            let mode_rate = rig.display.active_mode().unwrap().field_rate_mhz();
+            let measured = mode_rate as f64 * 1_000.0 / 1_300.0;
+            for preset in ["pc_31_120", "generic_15"] {
+                let profile = monitor_preset(preset).unwrap();
+                rig.session
+                    .video_mut()
+                    .set_monitor(Monitor::Profile(profile));
+                for _ in 0..60 {
+                    let report = rig.session.run_frame(None).unwrap();
+                    assert!(report.display_error.is_none(), "{report:?}");
+                }
+            }
+            assert_eq!(rig.display.mode_calls().len(), 3);
+            let unmuted_ns = rig.clock_ns();
+            rig.run(600);
+            assert!(
+                rig.audio.overruns().is_empty(),
+                "{:?}",
+                rig.audio.overruns()
+            );
+            let late: Vec<_> = rig
+                .audio
+                .underruns()
+                .into_iter()
+                .filter(|u| u.time_ns > unmuted_ns)
+                .collect();
+            assert!(late.is_empty(), "{late:?}");
+            let run_rate = rig.session.run_rate_mhz().unwrap() as f64;
+            assert!(
+                (run_rate / measured - 1.0).abs() < 0.005,
+                "run rate {run_rate} for {measured}"
+            );
+        }
+    );
 }
 
 /// One scene of [`scenes_of_killer_instinct`]: the cost of a frame, in

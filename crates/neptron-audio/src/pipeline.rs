@@ -19,6 +19,13 @@ pub const MAX_INPUT_PER_FRAME_MS: u32 = 100;
 /// The length of a fade in or out, in milliseconds of output frames.
 pub const FADE_MS: u32 = 5;
 
+/// The silence a mute puts in the queue, in milliseconds of output frames:
+/// the audio that covers a modeset with no write. A TV standard change on
+/// the Raspberry Pi 3 takes about 75 ms from the last flip of the old mode
+/// to the first flip of the new one, longer than the target level of the
+/// queue. It stays below the 128 ms queue of the SDL sink.
+pub const MUTE_COVER_MS: u32 = 100;
+
 /// The interpolation of the resampler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Resampling {
@@ -96,12 +103,18 @@ pub struct AudioPipeline<S> {
     output: Vec<f32>,
     /// Interleaved output for the sink.
     samples: Vec<i16>,
-    /// Zeros, for priming and topping up: the target level of frames.
+    /// Zeros, for priming and topping up: the cover of a mute, in frames.
     silence: Vec<i16>,
+    /// The frames of [`MUTE_COVER_MS`].
+    cover_frames: usize,
     fade_frames: usize,
     /// Output frames still to fade in.
     fade_in_left: usize,
     muted: bool,
+    /// After an unmute, the output frames that the next frames may still
+    /// drop to bring the queue down to the target level, so the cover does
+    /// not delay the sound. At most the cover above the target.
+    trim_frames: usize,
     /// The last end of a frame left audio in the queue, so an empty queue
     /// at the next one is an underrun.
     playing: bool,
@@ -146,6 +159,8 @@ impl<S: AudioSink> AudioPipeline<S> {
         let control = RateControl::new(device_rate_hz);
         let fade_frames = frames_in_ms_mhz(u64::from(device_rate_hz) * 1_000, FADE_MS).max(1);
         let ramp_frames = frames_in_ms_mhz(u64::from(device_rate_hz) * 1_000, VOLUME_RAMP_MS);
+        let cover_frames = frames_in_ms_mhz(u64::from(device_rate_hz) * 1_000, MUTE_COVER_MS)
+            .max(control.target_frames());
         Ok(Self {
             sink,
             core,
@@ -158,10 +173,12 @@ impl<S: AudioSink> AudioPipeline<S> {
             input_frames: 0,
             output: vec![0.0; max_output_frames * 2],
             samples: vec![0; max_output_frames.max(fade_frames) * 2],
-            silence: vec![0; control.target_frames() * 2],
+            silence: vec![0; cover_frames * 2],
+            cover_frames,
             fade_frames,
             fade_in_left: 0,
             muted: false,
+            trim_frames: 0,
             playing: false,
             gain: Gain::new(u32::try_from(ramp_frames).unwrap_or(u32::MAX)),
             last: [0; 2],
@@ -231,10 +248,12 @@ impl<S: AudioSink> AudioPipeline<S> {
 
         let frames = self.resample();
         self.stats.output_frames += frames as u64;
+        let skip = self.trimmed(level, frames);
+        let frames = frames - skip;
         if self.muted {
             self.samples[..frames * 2].fill(0);
         } else {
-            self.convert(frames);
+            self.convert(skip, frames);
         }
         self.gain.apply(&mut self.samples[..frames * 2]);
         if !self.muted && frames > 0 {
@@ -245,7 +264,7 @@ impl<S: AudioSink> AudioPipeline<S> {
         self.mix_cue(frames);
         level += self.write_samples(frames);
         if self.muted {
-            self.top_up(level);
+            self.top_up(level, self.control.target_frames());
         }
         self.playing = self.sink.queued_frames() > 0;
     }
@@ -281,27 +300,33 @@ impl<S: AudioSink> AudioPipeline<S> {
     }
 
     /// Mutes the output now: writes a fade from the last sample to zero,
-    /// then silence up to the target level. While muted, each frame writes
-    /// silence of the length of its audio, and the rate control keeps
-    /// running.
+    /// then silence up to [`MUTE_COVER_MS`], so a modeset that follows
+    /// finds audio in the queue for that time. While muted, each frame
+    /// writes silence of the length of its audio, less the excess of the
+    /// queue over its target, and the rate control keeps running.
     pub fn mute(&mut self) {
         if self.muted {
             return;
         }
         self.muted = true;
+        self.trim_frames = 0;
         let frames = output::fade_out(self.last, &mut self.samples, self.fade_frames);
         let written = self.write_samples(frames);
         self.last = [0; 2];
         let level = self.sink.queued_frames().max(written);
-        self.top_up(level);
+        self.top_up(level, self.cover_frames);
     }
 
-    /// Ends a mute: the next frame fades in.
+    /// Ends a mute: the next frames drop their output until the queue is
+    /// back at its target level, then fade in.
     pub fn unmute(&mut self) {
         if !self.muted {
             return;
         }
         self.muted = false;
+        self.trim_frames = self
+            .cover_frames
+            .saturating_sub(self.control.target_frames());
         self.fade_in_left = self.fade_frames;
     }
 
@@ -414,13 +439,39 @@ impl<S: AudioSink> AudioPipeline<S> {
         self.stats.cue_frames += (count / 2) as u64;
     }
 
-    /// Converts `frames` output frames to `samples`, with the fade-in.
-    fn convert(&mut self, frames: usize) {
+    /// The output frames to drop in a frame, from the queue `level` and
+    /// the `frames` of output: the excess of the level over the target. A
+    /// frame keeps its last output frame, so each frame writes after its
+    /// present. A muted frame drops its silence, so the cover of a mute
+    /// lasts only through a present that blocks, and the queue does not
+    /// overrun when a frame brings more audio than the sink has room for
+    /// above the cover. After an unmute the frames drop at most what is
+    /// left of the trim; the fade-in starts at zero, so these frames are
+    /// near silence. That trim ends with the first frame that drops less
+    /// than it may.
+    fn trimmed(&mut self, level: usize, frames: usize) -> usize {
+        let most = frames.saturating_sub(1);
+        let excess = level.saturating_sub(self.control.target_frames());
+        if self.muted {
+            return excess.min(most);
+        }
+        let skip = excess.min(most).min(self.trim_frames);
+        self.trim_frames = if skip < most {
+            0
+        } else {
+            self.trim_frames - skip
+        };
+        skip
+    }
+
+    /// Converts `frames` output frames after the first `skip` to
+    /// `samples`, with the fade-in.
+    fn convert(&mut self, skip: usize, frames: usize) {
         if frames == 0 {
             return;
         }
         self.fade_in_left = output::convert(
-            &self.output[..frames * 2],
+            &self.output[skip * 2..(skip + frames) * 2],
             &mut self.samples[..frames * 2],
             self.fade_frames,
             self.fade_in_left,
@@ -441,9 +492,9 @@ impl<S: AudioSink> AudioPipeline<S> {
         taken
     }
 
-    /// Writes silence up to the target level from `level`.
-    fn top_up(&mut self, level: usize) {
-        let missing = self.control.target_frames().saturating_sub(level);
+    /// Writes silence up to `goal` frames from `level`.
+    fn top_up(&mut self, level: usize, goal: usize) {
+        let missing = goal.saturating_sub(level);
         if missing > 0 {
             self.write_silence(missing);
         }

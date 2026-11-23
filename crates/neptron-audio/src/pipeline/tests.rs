@@ -171,7 +171,9 @@ fn mute_fades_out_from_the_last_sample_and_tops_up_with_silence() {
     assert!(fade.windows(4).step_by(2).all(|w| w[2] <= w[0]));
     assert!(samples[before + 240 * 2..].iter().all(|s| *s == 0));
 
-    // Muted frames still run the law and write silence of their length.
+    // Muted frames still run the law and write silence of their length,
+    // once the device has played the cover of the mute down to the target.
+    clock.advance(70 * MS);
     let silence_before = pipeline.stats().silence_frames;
     let written_before = audio.written_frames();
     pipeline.push_samples(&[10_000; 533 * 2]);
@@ -197,8 +199,10 @@ fn unmute_fades_the_next_frame_in() {
     pipeline.unmute();
     pipeline.unmute();
     assert!(!pipeline.is_muted());
+    // The device plays the cover of the mute down to the target first, so
+    // the trim of the unmute drops no output of the next frame.
+    clock.advance(70 * MS);
     let before = audio.samples().len();
-    clock.advance(16 * MS);
     pipeline.push_samples(&[10_000; 800 * 2]);
     pipeline.end_frame();
     let samples = audio.samples();
@@ -210,6 +214,117 @@ fn unmute_fades_the_next_frame_in() {
         part[240]
     );
     assert_eq!(part[2 * 300], 10_000);
+}
+
+/// The frames that the sink took since `before`.
+fn written_since(audio: &FakeAudio, before: u64) -> u64 {
+    audio.written_frames() - before
+}
+
+#[test]
+fn a_frame_16_ms_after_an_unmute_writes_one_faded_frame() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    pipeline.push_samples(&[10_000; 533 * 2]);
+    pipeline.end_frame();
+    pipeline.mute();
+    pipeline.unmute();
+    clock.advance(16 * MS);
+    let before = audio.written_frames();
+    let samples_before = audio.samples().len();
+    pipeline.push_samples(&[10_000; 533 * 2]);
+    pipeline.end_frame();
+    assert_eq!(written_since(&audio, before), 1);
+    // The first frame of the fade-in is zero.
+    assert_eq!(audio.samples()[samples_before..], [0, 0]);
+}
+
+#[test]
+fn the_trim_of_an_unmute_stops_at_the_target() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    let target = pipeline.control().target_frames();
+    pipeline.push_samples(&[10_000; 533 * 2]);
+    pipeline.end_frame();
+    pipeline.mute();
+    pipeline.unmute();
+    let mut trimmed = 0;
+    loop {
+        clock.advance(16_639_000);
+        let before = audio.written_frames();
+        pipeline.push_samples(&[10_000; 533 * 2]);
+        pipeline.end_frame();
+        if written_since(&audio, before) > 1 {
+            break;
+        }
+        trimmed += 1;
+        assert!(trimmed < 10, "the trim does not end");
+    }
+    // A frame of output (798 frames) equals the time of a frame (798.7
+    // frames), so the next frame finds the queue at its target.
+    clock.advance(16_639_000);
+    pipeline.push_samples(&[10_000; 533 * 2]);
+    pipeline.end_frame();
+    let level = pipeline.stats().level_frames;
+    assert!(
+        level.abs_diff(target) <= 2,
+        "level {level}, target {target}"
+    );
+}
+
+#[test]
+fn the_trim_of_an_unmute_drops_at_most_the_cover_less_the_target() {
+    let clock = SimClock::new();
+    let (mut pipeline, audio) = pipeline(&clock);
+    pipeline.push_samples(&[10_000; 533 * 2]);
+    pipeline.end_frame();
+    pipeline.mute();
+    pipeline.unmute();
+    // The clock does not move: the device plays nothing, the queue stays
+    // above its target, and only the bound of the trim stops it.
+    let output_before = pipeline.stats().output_frames;
+    let written_before = audio.written_frames();
+    for _ in 0..3 {
+        pipeline.push_samples(&[10_000; 533 * 2]);
+        pipeline.end_frame();
+    }
+    let output = pipeline.stats().output_frames - output_before;
+    let written = written_since(&audio, written_before);
+    let dropped = output - written;
+    let bound = (pipeline.cover_frames - pipeline.control().target_frames()) as u64;
+    assert!(dropped <= bound, "dropped {dropped}, bound {bound}");
+    // Four frames drop 797 frames each, the fifth the rest of the bound.
+    // More frames would fill the sink, which the clock does not drain.
+    for _ in 0..2 {
+        pipeline.push_samples(&[10_000; 533 * 2]);
+        pipeline.end_frame();
+    }
+    let output = pipeline.stats().output_frames - output_before;
+    let dropped = output - written_since(&audio, written_before);
+    assert_eq!(dropped, bound);
+    assert_eq!(pipeline.stats().overrun_frames, 0);
+}
+
+/// A run rate of 30 Hz gives about 1600 output frames (33 ms) per frame,
+/// more than the room of the 128 ms sink above the 100 ms cover.
+#[test]
+fn a_muted_frame_right_after_a_mute_at_30_hz_does_not_overrun() {
+    let clock = SimClock::new();
+    let audio = fake(&clock, 48_000, 6_144);
+    let mut pipeline =
+        AudioPipeline::new(audio.clone(), SNES, 30_050, Resampling::Polynomial).unwrap();
+    for _ in 0..30 {
+        pipeline.push_samples(&[10_000; 533 * 2]);
+        pipeline.end_frame();
+        clock.advance(33_278_000);
+    }
+    assert_eq!(pipeline.stats().overrun_frames, 0);
+    pipeline.mute();
+    let before = audio.written_frames();
+    pipeline.push_samples(&[10_000; 533 * 2]);
+    pipeline.end_frame();
+    assert_eq!(pipeline.stats().overrun_frames, 0);
+    assert_eq!(written_since(&audio, before), 1);
 }
 
 #[test]
@@ -498,9 +613,14 @@ fn a_cue_longer_than_the_sink_plays_whole_and_keeps_the_level() {
         .count();
     assert_eq!(loud, cue.len(), "the whole cue, through mute");
     assert_eq!(pipeline.stats().cue_frames, 9_600);
+    // A mute fills the queue to its cover, and the muted frames drop their
+    // silence down to the target, so the cue never lifts it above the
+    // cover.
+    let cover = pipeline.cover_frames;
+    assert!(target < cover);
     assert!(
-        most <= target + 1_000,
-        "the queue stays near its target of {target}: {most}"
+        most <= cover,
+        "the queue stays under the cover of {cover}: {most}"
     );
 }
 
