@@ -1,11 +1,13 @@
 # Arcade
 
-This spec defines arcade games in NEPTRON 0.1: the core, the folders, the game list, the check of a ROM set before launch, the changes to the core host, vertical games, the rates, the controls and the tasks that build it.
+This spec defines arcade games in NEPTRON 0.1: the core, the folders, the game list, the check of a ROM set before launch, the core host, vertical games, the rates and the controls.
 
-The owner decided the main points on 2026-11-16. The research for this spec read the FinalBurn Neo (FBNeo) source at `libretro/FBNeo` master `d7450cf1` (2026-11-15), the RetroPie and Batocera sources, and the libretro documentation. A statement about FBNeo in this spec comes from that reading unless it carries a mark:
+The owner decided the main points on 2026-11-16. A statement about FinalBurn Neo (FBNeo) comes from a reading of its source at `libretro/FBNeo` `d7450cf1` (2026-11-15, the pin), of the RetroPie and Batocera sources and of the libretro documentation, unless it carries a mark:
 
 - **UNVERIFIED**: nobody has checked it. A task must not rely on it without its own check.
-- **trace**: the core trace of M07b confirms it. Until then it is the reading of the source.
+- **trace**: a core trace confirms it.
+
+No diagnostics page exists yet (OP-108). A line that this spec gives to the diagnostics page is planned. Until then, the set check writes its full list to the log.
 
 ## 1. Scope
 
@@ -14,7 +16,7 @@ The owner decided the main points on 2026-11-16. The research for this spec read
 - One arcade core: FBNeo, the full build, on both images (PC x86_64 and Raspberry Pi aarch64). ADR 0014 records the core and its licence.
 - Two system folders, `arcade` and `neogeo`. Both run FBNeo.
 - ROM sets as `.zip` files only.
-- A hard disk image that a set needs (CHD, or a raw dump) is passed through: the core opens it itself from the folder of the set (section 10). NEPTRON checks only that the file is present. No board with a disk image is a tested board family (Killer Instinct is the only one in the pinned DAT).
+- A hard disk image that a set needs (CHD, or a raw dump) is passed through: the core opens it itself from the folder of the set. NEPTRON checks only that the file is present (section 10). No board with a disk image is a tested board family (Killer Instinct is the only one in the pinned DAT).
 - A game list from an index that NEPTRON makes from the DAT of the pinned FBNeo commit: titles, BIOS sets hidden, clones folded under their parent, a mark for vertical games.
 - A check of the set and its BIOS before launch, with NEPTRON's own messages.
 - Vertical games turned upright by NEPTRON's renderer (ADR 0015).
@@ -25,7 +27,7 @@ The owner decided the main points on 2026-11-16. The research for this spec read
 ### After the MVP
 
 - MAME 2003-Plus as the second core, in a `mame` folder. Then a core setting per game. Then the choice of core by checksum.
-- TATE: the screen on its side, with the UI turned (section 15).
+- TATE: the screen on its side, with the UI turned (section 15, OP-107).
 - Save states, `hiscore.dat`, samples.
 - `.7z`, Neo Geo CD, CD images (CHD) of consoles. A check of the content of a disk image (its SHA-1).
 - The Modern and 6-Panel layouts, light guns, trackballs, keyboard encoders.
@@ -45,7 +47,9 @@ The owner decided the main points on 2026-11-16. The research for this spec read
 | Toaplan, Psikyo, Taito F3, Irem, Data East and other 2D boards | FBNeo ("may work") | FBNeo ("may work") |
 | CPS-3, Cave CV1000 (SH-3) | FBNeo ("may work") | Not expected at full speed (research judgement, UNVERIFIED) |
 
-The Pi 3 column is not a claim. NEPTRON's Pi image is aarch64. The FBNeo makefile does not set `USE_CYCLONE` for the `rpi3_64` platform, so the 68000 runs on the Musashi C core, not the Cyclone ARM32 dynarec. No published measurement of FBNeo on an aarch64 Pi 3 exists for Neo Geo or Cave games. The speed on the Pi 3 is measured in a separate task that runs now. **The Pi 3 board list in the release notes and on the About screen follows that measurement and nothing else.** A family that fails it is "may be slow" on the Pi 3. MAME 2003-Plus is the candidate for such a family after the MVP.
+The Pi 3 column is not a claim. NEPTRON's Pi image is aarch64. The FBNeo makefile does not set `USE_CYCLONE` for the `rpi3_64` platform, so the 68000 runs on the Musashi C core, not the Cyclone ARM32 dynarec. Measured on a Pi 3 B on 2026-11-16 (aarch64, composite NTSC 240p): DoDonPachi and Metal Slug X run with 0 missed fields and 0 underruns, worst field 11.83 ms of 16.65 ms. Late stages and HDMI are not measured (section 17).
+
+**The Pi 3 board list in the release notes and on the About screen follows the measurement and nothing else.** A family that fails it is "may be slow" on the Pi 3. MAME 2003-Plus is the candidate for such a family after the MVP. If a board family needs another core, that is a change to the scope, and the owner decides.
 
 ## 3. Folders and aliases
 
@@ -56,28 +60,18 @@ The Pi 3 column is not a claim. NEPTRON's Pi image is aarch64. The FBNeo makefil
 
 - The folder gives the core. A system has exactly one core, as `data/cores/README.md` requires.
 - `.7z` is not accepted. NEPTRON has no `.7z` reader for the set check.
-- `mame`, `mame-libretro`, `mame2003` and `mame2003-plus` stay unknown folders in the MVP. The scan lists an unknown folder in `ScanReport::unknown_folders` today. For these four names the diagnostics page shows this line:
+- `mame`, `mame-libretro`, `mame2003` and `mame2003-plus` stay unknown folders in the MVP. The scan lists an unknown folder in `ScanReport::unknown_folders`. For these four names the diagnostics page shows this line:
 
   > `<folder>`: MAME sets need a MAME core. This version has no MAME core. Put FinalBurn Neo sets in `arcade` or `neogeo`.
 
 ### Growth path
 
 1. MAME 2003-Plus runs the `mame` folder, as on Batocera.
-2. A `core` setting at the game and system levels picks the core. The settings levels exist today.
+2. A `core` setting at the game and system levels picks the core. The settings levels exist.
 3. The set check tries the index of each core and takes the core whose CRCs match. The setting overrides it.
 4. A merged "Arcade" list over every arcade folder.
 
 ## 4. The data files
-
-`data/systems/arcade.toml`, `data/systems/neogeo.toml` and `data/cores/fbneo.toml` are not in this task. The existing code does not accept them:
-
-1. `Catalog::builtin()` embeds a fixed list of files with `include_str!` (`crates/neptron-library/src/catalog.rs`). A new file in `data/` is not read and not checked until the list names it. That is a code change.
-2. `check_option_key` accepts ASCII letters, digits and `_` in a core option key. FBNeo keys have `-` (`fbneo-diagnostic-input`). The parser refuses the core file.
-3. The test `builtin_core_options_are_announced_by_the_cores` checks each default option against the `option` lines of a core trace. `core_trace` writes those lines only for options that the core declares in `Host::open`. FBNeo declares its options in `retro_load_game`, so its trace has no `option` line yet.
-4. The `always_progressive` key (section 9) is unknown to the parser, which rejects an unknown key.
-5. Every system must have exactly one core, so the system files and the core file must arrive together.
-
-**M07b adds the three files**, with the embed list, `-` in option keys, the `always_progressive` key and the FBNeo trace. It needs M07a for the trace (section 8.4). The proposed contents:
 
 ```toml
 # data/systems/arcade.toml
@@ -109,11 +103,14 @@ systems = ["arcade", "neogeo"]
 licence = "LicenseRef-FBNeo"
 
 [options]
-fbneo-diagnostic-input = "Start + L + R"
 fbneo-vertical-mode = "disabled"
 ```
 
-`name` must equal the core's `library_name`, and each option value must be one that the trace lists. `name` is UNVERIFIED until M07b reads the trace. Both option values are in the option table of `src/burner/libretro/retro_common.cpp` (read at master on 2026-11-16); the trace of the pin confirms them. Section 13 gives the reason for `fbneo-diagnostic-input`. `fbneo-vertical-mode = "disabled"` is the core's own default (checked in `src/burner/libretro/retro_common.cpp`); NEPTRON pins it so that the turns of section 11 do not depend on a later change of that default.
+- `name` equals the core's `library_name` (**trace**, `tests/traces/fbneo.trace`). Each option value must be one that the trace lists. A core option key can hold `-`.
+- `fbneo-vertical-mode = "disabled"` is the core's own default. NEPTRON pins it so that the turns and the aspect of section 11 do not depend on a later change of that default.
+- `fbneo-diagnostic-input` is not set. The free set of the trace (`robby`) does not declare it, so no trace shows its values (OP-108). Section 13 gives the value it is to get.
+- `Catalog::builtin()` embeds a fixed list of data files with `include_str!` (`crates/neptron-library/src/catalog.rs`). A new file in `data/` is not read until the list names it.
+- `always_progressive` is section 9.
 
 ## 5. How a game gets its core
 
@@ -143,11 +140,11 @@ For each set of the DAT of the pinned FBNeo commit (`FinalBurn Neo (ClrMame Pro 
 
 Example, with an invented description: "Star Patrol - Mission One (XYZ-0001 ~ XYZ-0002)" gives the title "Star Patrol - Mission One" and the details "XYZ-0001 ~ XYZ-0002". A description with no bracket group has no details.
 
-The research reports these DAT attributes and the absence of device sets, of a refresh rate and of a player count. M07c checks them against the DAT of the pin.
+The DAT has no device sets, no refresh rate and no player count.
 
 ### The file format
 
-The index is UTF-8 text, one record per line, fields split by one tab (`\t`). Text keeps the file readable in a review and easy to test. About 8,500 sets and their ROMs give a few MiB; NEPTRON reads it once, off the frame thread.
+The index is UTF-8 text, one record per line, fields split by one tab (`\t`). Text keeps the file readable in a review and easy to test. The index of the pin has 8,531 sets (14 BIOS sets) and 168,288 ROMs, 7.4 MiB. NEPTRON reads it once, off the frame thread.
 
 ```text
 neptron-arcade-index	1
@@ -173,16 +170,16 @@ set	...
 
 ### How it is made
 
-- `cargo xtask arcade-index <dat> <out>` reads the DAT and writes the index. The DAT parser lives in xtask only, so the image has no XML code. It needs an XML reader in xtask: a new external dependency. The orchestrator adds it to `[workspace.dependencies]` of the root `Cargo.toml` in a `build(deps)` commit (`roxmltree`, MIT or Apache-2.0, no dependencies, is the proposal); M07c adds it to `xtask/Cargo.toml` and the command to `xtask/src/main.rs`.
-- The encoder and the reader of the format live in `neptron-library` (module `arcade`), so xtask writes with the code that the frontend reads with. xtask already depends on `neptron-ui` in the same way.
+- `cargo xtask arcade-index --commit <hex> <dat> <out>` reads the DAT and writes the index. The DAT parser (`roxmltree`) lives in xtask only, so the image has no XML code.
+- The encoder and the reader of the format live in `neptron-library` (module `arcade`), so xtask writes with the code that the frontend reads with.
 - The tests use synthetic DAT text written for the test: invented set names, sizes and CRCs. No ROM, no BIOS and no DAT excerpt goes into the repository.
 
 ### How it is installed
 
-- The image build makes the index from the DAT in the source tarball of the pinned `libretro-fbneo` package, the same tarball that Buildroot hashes. The default: a post-install hook of `libretro-fbneo` runs the generator as a host tool. M07c may choose another step with the same result, and records the choice in the package's `.mk` comment.
-- Path in the image: `/usr/share/neptron/arcade/fbneo.idx` (`Paths::data`).
-- The index ships under the FBNeo licence. M07b adds its line to `os/board/*/LICENCES.txt` with the core's own lines.
-- A pin change of the core makes a new index in the same build, so the index and the core always agree.
+- The install step of `os/package/neptron` runs the generator on the DAT in the source of the pinned `libretro-fbneo` package, the same tarball that Buildroot hashes. Each build of the `neptron` package writes the index again, so the index and the core agree. A local build after a new pin keeps the old index until the `neptron` package builds again; CI always builds it (OP-108).
+- `os/board/common/check-arcade-index.sh` fails a build whose image has the FBNeo core and no index.
+- Path in the image: `/usr/share/neptron/arcade/fbneo.idx` (`Paths::arcade_index`).
+- The index ships under the FBNeo licence. `os/board/*/LICENCES.txt` has its line next to the lines of the core.
 
 ### How it is read
 
@@ -204,26 +201,26 @@ The scan rules of `crates/neptron-library/README.md` hold. The arcade systems ad
 
 - The lookup ignores ASCII case, as exFAT does. The DAT names are lower case.
 - A vertical set gets a mark in the list. A set with the `n` flag gets the mark "not working".
-- The list sorts by title. The title, the parent, the flags and the details go into the library index and its cache, because a query does no I/O. The cache format gets a new version for this. A cache of the old version is rebuilt, as for any damaged cache.
+- The list sorts by title. The title, the parent, the flags and the details go into the library index and its cache, because a query does no I/O. A cache of an older version is rebuilt, as for any damaged cache.
 - A merged set holds its clones inside the parent zip. Only the parent shows, and only the parent can start. This is how FBNeo works (Batocera wiki).
 
 For an unknown name, the diagnostics page says:
 
 > `<file>.zip` is not a set name of FinalBurn Neo. Check the file name, or the set version.
 
-## 8. Changes to the core host
+## 8. The core host
 
-ADR 0016 and this section change `docs/spec/libretro-host.md`. M07a updates that spec with the code.
+ADR 0016 and this section set what the core host does for arcade. `docs/spec/libretro-host.md` holds the details.
 
 ### 8.1 Initial option values
 
-FBNeo declares its options inside `retro_load_game`, after it knows the DIP switches of the game. Today the session calls `set_option` before `load_game`, so each FBNeo value gives `OptionError::UnknownKey` and counts as refused (`Counters::refused_options`). ADR 0016 adds held values: the host keeps the initial values and applies each one at the `SET_VARIABLES` call that declares its key.
+FBNeo declares its options inside `retro_load_game`, after it knows the DIP switches of the game. A value set before the load would be an unknown key. So the host holds the initial values and applies each one at the `SET_VARIABLES` call that declares its key (ADR 0016).
 
 ### 8.2 `SET_ROTATION`
 
 - The host answers `true` for 0, 1, 2 and 3 and stores the value as `Rotation` (`R0`, `R90`, `R180`, `R270`, counter-clockwise, as `libretro.h` defines it). Another value: `false` and `Event::Refused(Refusal::Rotation { value })`.
 - A call during `load_game` or `Host::open` sets `Host::rotation()`. A call during `run_frame` also adds `Event::Rotation(Rotation)`, in the output of that frame.
-- FBNeo calls it in `retro_load_game` and when its vertical-mode option changes (`SetRotation()` in `src/burner/libretro/libretro.cpp`, read for this spec). The frame stays as the board draws it. With `fbneo-vertical-mode = "disabled"` (its default, and NEPTRON's pinned value) the core asks for:
+- FBNeo calls it in `retro_load_game` and when its vertical-mode option changes (`SetRotation()` in `src/burner/libretro/libretro.cpp`). The frame stays as the board draws it. With `fbneo-vertical-mode = "disabled"` (its default, and NEPTRON's pinned value) the core asks for:
 
   | Driver flags | Rotation |
   | --- | --- |
@@ -232,61 +229,58 @@ FBNeo declares its options inside `retro_load_game`, after it knows the DIP swit
   | `BDF_ORIENTATION_FLIPPED` | 2, `R180` |
   | `BDF_ORIENTATION_VERTICAL` and `BDF_ORIENTATION_FLIPPED` | 3, `R270` |
 
-  The value `enabled` (mode 1) turns horizontal games too, for a screen on its side; it is not for the MVP. DoDonPachi is `BDF_ORIENTATION_VERTICAL` with an upright size of 240x320 in its driver (`ddp.cpp`), so it sends 320x240 and asks for `R90`. A trace of a vertical set needs the owner's set, so it waits for the bench session. The test core covers `R90`, `R180` and `R270`.
+  The value `enabled` (mode 1) turns horizontal games too, for a screen on its side; it is not for the MVP. DoDonPachi is `BDF_ORIENTATION_VERTICAL` with an upright size of 240x320 in its driver (`ddp.cpp`), so it sends 320x240 and asks for `R90`. No trace of a vertical set exists: it needs the owner's set (bench session). The test core covers `R90`, `R180` and `R270`.
 
 ### 8.3 Input descriptors
 
-`SET_INPUT_DESCRIPTORS` stores the list (port, device, index, id, description), at most `MAX_INPUT_DESCRIPTORS` (256) entries, each description at most `MAX_CORE_STRING_BYTES`. A longer list is cut and logged once. `Host::input_descriptors()` gives the list. Nothing reads it in the MVP. M05 (remapping) shows it.
+`SET_INPUT_DESCRIPTORS` stores the list (port, device, index, id, description), at most `MAX_INPUT_DESCRIPTORS` (256) entries, each description at most `MAX_CORE_STRING_BYTES`. A longer list is cut and logged once. `Host::input_descriptors()` gives the list. Nothing reads it in the MVP.
 
 ### 8.4 The core trace
 
-`core_trace` writes an `option` line, with its values, for each option that the core declares during `load_game` too, after the `load` logs. It writes the rotation after the `av` line (`rotation r90`). The trace format only grows. The catalog test then finds the FBNeo option values.
+`core_trace` writes an `option` line, with its values, for each option that the core declares during `load_game` too, after the `load` logs. It writes the rotation after the `av` line (`rotation r90`). The trace format only grows. So the catalog test finds the FBNeo option values.
 
 ### 8.5 The zip central directory
 
-`neptron-libretro` makes its central-directory reader public as a function that lists the entries of a zip: name, uncompressed size, CRC-32. It reads only the end record and the central directory, at most `MAX_CENTRAL_DIRECTORY_BYTES`. `neptron-session` re-exports it as `neptron_session::zip_entries`, because the app reaches the core host only through the session (section 10). The reader exists and has tests; this is a new public function, not new parsing code.
+`neptron-libretro` makes its central-directory reader public as `zip_entries`, which lists the entries of a zip: name, uncompressed size, CRC-32. It reads only the end record and the central directory, with the listing limits of `docs/spec/libretro-host.md`. `neptron-session` re-exports it as `neptron_session::zip_entries`, because the app reaches the core host only through the session (section 10).
 
 ### 8.6 The origin of the aspect
 
-`GameGeometry` gets `aspect_from_core: bool`: `true` when the core reported an aspect above 0, `false` when the host used its fallback, the base width over the base height (`crates/neptron-libretro/src/geometry.rs`). The session needs it for a turned source (section 11).
+`GameGeometry::aspect_from_core` is `true` when the core reported an aspect above 0, and `false` when the host used its fallback, the base width over the base height (`crates/neptron-libretro/src/geometry.rs`). The session needs it for a turned source (section 11).
 
 ### 8.7 What does not change
 
-- Content: FBNeo sets `need_fullpath` and `block_extract`, so the host passes the path of the zip and the core opens it, finds the parent and the BIOS by name, and matches the ROMs by CRC. This works today.
+- Content: FBNeo sets `need_fullpath` and `block_extract`, so the host passes the path of the zip and the core opens it, finds the parent and the BIOS by name, and matches the ROMs by CRC.
 - Pixel formats: XRGB8888, or RGB565 for drivers that draw 16-bit only. Both are supported.
 - `SET_CORE_OPTIONS_DISPLAY`, the update-display callback, `SET_SUBSYSTEM_INFO`, disk control and `GET_VFS_INTERFACE` stay refused. FBNeo uses them for DIP visibility, Neo Geo CD and consoles, or falls back to stdio.
 - Rate: FBNeo reports `nBurnFPS / 100`, cut to 0.01 Hz. The host turns it into millihertz as for every core.
 
 ## 9. Interlace: "always progressive"
 
-The session takes a frame of 289 lines or more as interlaced (`INTERLACE_MIN_LINES` in `crates/neptron-session/src/source.rs`). The cores do not say it, and 288 is the tallest progressive console picture. For arcade this guess is wrong: an arcade board draws progressive frames, also tall ones, and a core that turns a vertical game itself (MAME 2003-Plus) sends 320 lines upright. For FBNeo the guess rarely fires today, because it sends a vertical frame on its side (240 lines), but a tall board would.
+The session takes a frame of 289 lines or more as interlaced (`INTERLACE_MIN_LINES` in `crates/neptron-session/src/source.rs`). The cores do not say it, and 288 is the tallest progressive console picture. For arcade this guess is wrong: an arcade board draws progressive frames, also tall ones, and a core that turns a vertical game itself (MAME 2003-Plus) sends 320 lines upright. FBNeo sends a vertical frame on its side (240 lines), but a tall board would trip the guess.
 
-The systems data gets a key:
+The systems data has a key:
 
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `always_progressive` | boolean, optional, default `false` | Every frame of the system is progressive. The line count does not decide |
 
-- The default keeps every present system as it is. The key is an addition, so `format` stays `1`.
+- The default keeps every other system as it is. The key is an addition, so `format` stays `1`.
 - `arcade` and `neogeo` set it to `true`.
-- The session takes it from the launch request and sets `SourceGeometry::interlaced` to `false` for every frame.
+- The app passes it in the launch request (`apps/neptron/src/shell/boot.rs`), and the session sets `SourceGeometry::interlaced` to `false` for every frame (`FrameRules` in `crates/neptron-session/src/source.rs`).
 - A tall progressive frame on a 15 kHz CRT then goes to rung 3 (interlaced 1:1), as the owner decided for a medium-resolution board (`crates/neptron-modeline/README.md`).
-
-M07b adds the key to the parser and the data files. M08a uses it in the session.
 
 ## 10. The set check before launch
 
 ### When and where
 
-- The check runs in the menu process when the user starts an arcade game, before the menu writes the relaunch file and exits with code 75 (`RELAUNCH_EXIT_CODE`) for `neptron-launch` to start the game run. A failed check shows its message in the menu, with no mode change and no relaunch.
-- **Caller and thread:** `apps/neptron` (the `Library` of `apps/neptron/src/library.rs`) runs the check on a thread of its own, `neptron-set-check`, that `Library` owns, as it owns the scan thread `neptron-scan`: it starts it per check, and cancels and joins it on drop. The frame thread never reads a file: it shows the launch as pending and polls the result with `is_finished()` and `join()`, as for the scan.
-- **Who reads the zip:** the reader is the central-directory reader of `neptron-libretro` (section 8.5). `apps/neptron` does not depend on `neptron-libretro`, and it must not get that edge: the Definition (`docs/definition/11-monorepo-layout.md`) makes `neptron-session` the crate that mediates between the app and the core host. So `neptron-session` re-exports the function (`neptron_session::zip_entries`), and the app calls it there. The edges app to session and session to libretro exist today; no new edge is added. `neptron-library` stays free of I/O on zips and of any dependency on the host.
-- It reads only the central directory of each zip it finds for the set, its parent and its BIOS (section "Where it looks"). A central directory is a few KiB.
-- The check is pure: a function in `neptron-library` (`arcade::check_set`) takes the index record and the entry lists, and returns a verdict.
+- The check runs in the menu process when the user starts a game of the core `fbneo`, before the menu writes the relaunch file and exits with code 75 (`RELAUNCH_EXIT_CODE`) for `neptron-launch` to start the game run. A failed check shows its message in the menu, with no mode change and no relaunch.
+- The `Library` of `apps/neptron/src/library.rs` runs the check on a thread of its own, `neptron-set-check` (`Library::start_check`). It owns the thread as it owns the scan thread `neptron-scan`: drop cancels and joins it. The frame thread never reads a file: it shows the launch as pending and polls the result (`Shell::poll_set_check`). A second launch while a check runs is ignored.
+- The thread reads only the central directory of each zip it finds for the set, its parent and its BIOS, with `neptron_session::zip_entries` (section 8.5). A central directory is a few KiB. The app gets no dependency on `neptron-libretro`: `neptron-session` mediates between the app and the core host (`docs/definition/11-monorepo-layout.md`). `neptron-library` stays free of I/O on zips and of any dependency on the host.
+- The check is pure: `arcade::check_set` in `neptron-library` takes the index record and the entry lists, and returns a verdict.
 
 ### Where it looks for files
 
-FBNeo searches for three zip names: the set, its parent and its BIOS (`BurnDrvGetZipName`, indexes 0 to 2). For each name it tries, in this order, the folder of the game, then `system/fbneo/`, then `system/`, and it opens **every** file that exists, not only the first. Then it matches each ROM by CRC in the opened files, in the order they were found; the first file that holds the CRC gives the ROM. A ROM of the wrong size is an error. (`locate_archive` and `open_archive` in `src/burner/libretro/libretro.cpp`, read for this spec. With `fbneo-allow-patched-romsets` on, a `system/fbneo/patched/` folder comes first; NEPTRON leaves that option at its default.)
+FBNeo searches for three zip names: the set, its parent and its BIOS (`BurnDrvGetZipName`, indexes 0 to 2). For each name it tries, in this order, the folder of the game, then `system/fbneo/`, then `system/`, and it opens **every** file that exists, not only the first. Then it matches each ROM by CRC in the opened files, in the order they were found; the first file that holds the CRC gives the ROM. A ROM of the wrong size is an error. (`locate_archive` and `open_archive` in `src/burner/libretro/libretro.cpp`. With `fbneo-allow-patched-romsets` on, a `system/fbneo/patched/` folder comes first; NEPTRON leaves that option at its default.)
 
 NEPTRON's system folder is `share/bios`. The check does the same, in the same order:
 
@@ -298,17 +292,21 @@ So `neogeo.zip` can be in `bios/`, in `bios/fbneo/` or next to the games, and a 
 
 ### What it checks
 
+The rules, in this order:
+
 1. The zip of the game is in the index. Otherwise: message 1.
 2. The BIOS of the set: follow `romof` from the set to the first set with the `b` flag. If one exists, a zip of that name must exist in one of the places. Otherwise: message 2.
-3. If the set is a clone and needs a ROM that no zip of the set's own name holds, a zip of the parent's name must exist. Otherwise: message 3.
-4. Each ROM of the set, except `nodump` ROMs and ROMs that are also ROMs of its BIOS set (the same CRC), must be in one of the found zips of the set, its parent or its BIOS, with the same CRC-32 and the same size. The match is by CRC and size, not by name, as FBNeo matches. This one rule covers split, non-merged and full non-merged sets. Otherwise: message 4. When more than half of those ROMs (`WRONG_SET_PERCENT`, 50) are missing or differ, the set is for another emulator or another version: message 4b.
-5. The BIOS: if no found zip of the BIOS name holds any ROM of the BIOS set, message 5. If some but not all match, the launch goes on and the diagnostics page lists the differences. FBNeo does not require a ROM that its driver marks `BRF_OPT`, and a Neo Geo BIOS set lists many BIOS variants, of which the core needs only the selected one. The DAT has no such mark, so the check cannot tell which BIOS files are needed. A stricter rule is an open point (section 19, A3). The same mark can make a game ROM optional; the check then asks for a ROM that the core would not need. That is safe (it stops, never passes wrongly), and the same open point covers it.
-6. A zip that cannot be read (damaged, ZIP64, multi-disk, too large a central directory): message 6.
-7. Each disk image of the set (`disk` line) has a file where the core looks for it. Otherwise: message 8. Without the file, FBNeo's driver init fails and the core shows its own error screen (section 10, "Why the check is needed"). The check comes after the zips, because the player fixes the zips first and the image is a large file to copy.
+3. Each zip found for the set, its parent and its BIOS can be read. A damaged zip, ZIP64, multi-disk or a central directory over the limit: message 6.
+4. If the set is a clone and needs a ROM that no zip of the set's own name holds, a zip of the parent's name must exist. Otherwise: message 3.
+5. The BIOS: if no found zip of the BIOS name holds any ROM of the BIOS set, message 5. If some but not all match, the launch goes on and the diagnostics page lists the differences. FBNeo does not require a ROM that its driver marks `BRF_OPT`, and a Neo Geo BIOS set lists many BIOS variants, of which the core needs only the selected one. The DAT has no such mark, so the check cannot tell which BIOS files are needed. A stricter rule is open point A3 (section 19). The same mark can make a game ROM optional; the check then asks for a ROM that the core would not need. That is safe (it stops, never passes wrongly), and A3 covers it.
+6. Each ROM of the set, except `nodump` ROMs and ROMs that are also ROMs of its BIOS set (the same CRC), must be in one of the found zips of the set, its parent or its BIOS, with the same CRC-32 and the same size. The match is by CRC and size, not by name, as FBNeo matches. This one rule covers split, non-merged and full non-merged sets. Otherwise: message 4. When more than half of those ROMs (`WRONG_SET_PERCENT`, 50) are missing or differ, the set is for another emulator or another version: message 4b.
+7. Each disk image of the set (`disk` line) has a file where the core looks for it. Otherwise: message 8. Without the file, FBNeo's driver init fails and the core shows its own error screen ("Why the check is needed"). The check comes after the zips, because the player fixes the zips first and the image is a large file to copy.
+
+With no index (section 6), the check gives message 7 and lets the user start the game.
 
 ### Where it looks for disk images
 
-FBNeo opens a disk image in `BurnHDDOpen` (`src/burn/burn_hdd.cpp`, read for this rule at the pin `d7450cf`). The libretro port sets its HDD folder `szAppHDDPath` to the folder of the game zip (`g_rom_dir`, in `retro_load_game_common`). For the disk name of the driver (the `disk` name of the DAT, with no extension), it tries in this order, and opens the first file that exists:
+FBNeo opens a disk image in `BurnHDDOpen` (`src/burn/burn_hdd.cpp`). The libretro port sets its HDD folder `szAppHDDPath` to the folder of the game zip (`g_rom_dir`, in `retro_load_game_common`). For the disk name of the driver (the `disk` name of the DAT, with no extension), it tries in this order, and opens the first file that exists:
 
 1. `<game folder>/<set>/<disk>.chd`
 2. `<game folder>/<parent>/<disk>.chd`, for a clone
@@ -319,11 +317,9 @@ The core knows a CHD by its signature, so the extension does not decide the form
 
 Message 8 names one folder: the folder of the parent for a clone, else the folder of the set. The clones of Killer Instinct use the disk of the parent (`kinst`), and a MAME CHD set keeps that disk in the folder of the parent, so this is the folder that users have.
 
-With no index (section 6), the check gives message 7 and lets the user start the game.
-
 ### The messages
 
-Each message shows in a dialog in the menu, and the full list goes to the log (a diagnostics page is a later item). `<set>` is the zip stem, `<n>` a count. `<names>` gives the DAT names of the first two wrong ROMs, each cut to 24 characters, and counts the others (`gg1.bin, gg2.bin and 1 more`), so the dialog fits the 320x240 canvas. `<version>` comes from the index: the DAT version and the short commit of the core, `1.0.0.03 (commit d7450cf)`. With one file, message 4 says `1 file of this game is missing or differs`.
+Each message shows in a dialog in the menu, and the full list goes to the log. `<set>` is the zip stem, `<n>` a count. `<names>` gives the DAT names of the first two wrong ROMs, each cut to 24 characters, and counts the others (`gg1.bin, gg2.bin and 1 more`), so the dialog fits the 320x240 canvas. `<version>` comes from the index: the DAT version and the short commit of the core, `1.0.0.03 (commit d7450cf)`. With one file, message 4 says `1 file of this game is missing or differs`.
 
 | # | Text | Launch |
 | --- | --- | --- |
@@ -334,18 +330,18 @@ Each message shows in a dialog in the menu, and the full list goes to the log (a
 | 4b | Most files of this game do not match. The set is for another emulator or another version. This image needs sets for FinalBurn Neo `<version>`. | Stopped |
 | 5 | The BIOS file `<bios>.zip` does not match this version of FinalBurn Neo. This image needs sets for FinalBurn Neo `<version>`. | Stopped |
 | 6 | The file `<file>.zip` cannot be read: `<reason>`. | Stopped |
-| 7 | NEPTRON cannot find its list of arcade games, so it cannot check this game. | The user chooses: start or cancel |
+| 7 | NEPTRON cannot find its list of arcade games, so it cannot check this game. | The user chooses: `Cancel` (the focus) or `Start` |
 | 8 | This game needs the hard disk image `<disk>.chd`. Put it in the folder `<folder>`, next to `<set>.zip`. | Stopped |
 
-The owner approved the text of message 8 on 2026-11-18. `<disk>` is the name of the first disk image of the set with no file, and `<folder>` the folder of the parent for a clone, else of the set ("Where it looks for disk images").
+The owner approved the texts of messages 4, 4b and 5 on 2026-11-17, and of message 8 on 2026-11-18. `<disk>` is the name of the first disk image of the set with no file, and `<folder>` the folder of the parent for a clone, else of the set.
 
 The diagnostics page names the pinned FBNeo commit and the DAT version, so a user can get the right DAT for ClrMamePro.
 
 ### Why the check is needed
 
-When a ROM is missing, FBNeo's `retro_load_game` returns `true`, sets a 60 Hz geometry, draws its own error screen and sends `SHUTDOWN` at a button press. It logs `ROM at index %d with name %s and CRC 0x%08x is required` at error level (that log line is in `open_archive`, read for this spec). Without the check, a CRT would change its mode to show that screen. The host cannot tell this from a good load. (The `true` return and the error screen are the research reading of `libretro.cpp`; the trace of a missing-ROM case in M07b confirms them.)
+When a ROM is missing, FBNeo's `retro_load_game` returns `true`, sets a 60 Hz geometry, draws its own error screen and sends `SHUTDOWN` at a button press. It logs `ROM at index %d with name %s and CRC 0x%08x is required` at error level (`open_archive`). Without the check, a CRT would change its mode to show that screen. The host cannot tell this from a good load. (No trace of a missing-ROM case exists: this is the reading of `libretro.cpp`, OP-108.)
 
-**trace** The same happens when the driver init fails for another reason. A core trace of `kinst.zip` with no disk image (2026-11-18, FBNeo `d7450cf`, aarch64 guest) shows: the ROMs all match; the load logs three lines at error level, `HDD: kinst.chd not found`, `[FBNeo] Failed initializing driver.` and `[FBNeo] This is unexpected, you should probably report it.`, the last of its 57 lines; `retro_load_game` returns `true` with a 640x480 geometry at 60 Hz; the core sends the same three lines with `SET_MESSAGE`; every frame is the same white error screen; and each frame with a button of port 0 held sends `SHUTDOWN` (the "press any button to exit" code at the error screen in `retro_run`). The core does not end the process. A session that takes that `SHUTDOWN` as a normal end sends the run back to the game list with no notice and no log line, so the player sees the error screen for a moment and then the list. A launch button still held when the game run starts ends the game at its first frames.
+**trace** The same happens when the driver init fails for another reason. A core trace of `kinst.zip` with no disk image (2026-11-18, FBNeo `d7450cf`, aarch64 guest) shows: the ROMs all match; the load logs three lines at error level, `HDD: kinst.chd not found`, `[FBNeo] Failed initializing driver.` and `[FBNeo] This is unexpected, you should probably report it.`, the last of its 57 lines; `retro_load_game` returns `true` with a 640x480 geometry at 60 Hz; the core sends the same three lines with `SET_MESSAGE`; every frame is the same white error screen; and each frame with a button of port 0 held sends `SHUTDOWN` (the "press any button to exit" code at the error screen in `retro_run`). The core does not end the process. A launch button still held when the game run starts ends the game at its first frames. Section 10.1 makes sure that such a stop never returns to the list in silence.
 
 ### What the check does not prove
 
@@ -353,7 +349,7 @@ A set that passes can still fail in the core: a ROM the DAT marks as needed that
 
 ### 10.1 A game that fails at its start, or that the core stops
 
-This rule holds for every core, not only for arcade. NEPTRON never ends because a game does not start, and a stop by the core never returns to the game list in silence. The game run ends with a relaunch to the game list, as for any end of a game, and the list shows a notice of kind Error that says what happened. The run before has not changed the display mode for a failure in the load: the first mode comes with the first frame of the session.
+This rule holds for every core, not only for arcade. NEPTRON never ends because a game does not start, and a stop by the core never returns to the game list in silence. The game run ends with a relaunch to the game list, as for any end of a game, and the list shows a notice of kind Error that says what happened. A failure in the load does not change the display mode: the first mode comes with the first frame of the session.
 
 | Case | How the session sees it | Notice |
 | --- | --- | --- |
@@ -381,24 +377,22 @@ The game list shows one notice, and the notice that loses always goes to the log
 
 The log gets one line for the failure or the stop with the same text, one line for each error-level core log line of the launch (at most 8), and a line with the count of log records of the launch that the host lost, when it lost some. The session collects the error lines during the launch only, and keeps the last error line of the frames in a buffer made at launch, so the frame loop does not allocate for them.
 
-The arcade case Killer Instinct with no disk image (`kinst.zip` alone) reaches none of these rows on an image with the new index: message 8 stops it before the launch. With an index of an older image, it reaches the fourth row (three error lines and three messages at the launch, and a stop at the first button press). With a file at `kinst/kinst.chd` that the core cannot use, it reaches the fourth row too.
+Killer Instinct with no disk image (`kinst.zip` alone) reaches none of these rows on an image whose index has `disk` lines: message 8 stops it before the launch. With an older index, it reaches the fourth row (three error lines and three messages at the launch, and a stop at the first button press). With a file at `kinst/kinst.chd` that the core cannot use, it reaches the fourth row too.
 
 ## 11. Vertical games
 
 ### What the core does
 
-FBNeo draws a vertical game as the board draws it, on its side, and calls `SET_ROTATION` to make it upright (section 8.2 has the values). Its frame size comes from `BurnDrvGetFullSize`, which swaps the driver's upright size for a vertical driver: DoDonPachi's driver says 240x320, the frame is 320x240. Its aspect comes from `BurnDrvGetAspect`, the driver's own aspect with no swap when `fbneo-vertical-mode` is `disabled`: 3:4 for DoDonPachi, the shape of the upright picture. (`retro_get_system_av_info` in `libretro.cpp` and `burn.cpp`, read for this spec. The core swaps the aspect only for the `enabled` and `alternate` modes, and for the TATE modes on a vertical driver.) Its option `fbneo-vertical-mode` has the values `disabled` (the default), `enabled`, `alternate`, `TATE` and `TATE alternate`. FBNeo cannot send an upright frame to a horizontal screen.
+FBNeo draws a vertical game as the board draws it, on its side, and calls `SET_ROTATION` to make it upright (section 8.2 has the values). Its frame size comes from `BurnDrvGetFullSize`, which swaps the driver's upright size for a vertical driver: DoDonPachi's driver says 240x320, the frame is 320x240. Its aspect comes from `BurnDrvGetAspect`, the driver's own aspect with no swap when `fbneo-vertical-mode` is `disabled`: 3:4 for DoDonPachi, the shape of the upright picture. (`retro_get_system_av_info` in `libretro.cpp` and `burn.cpp`. The core swaps the aspect only for the `enabled` and `alternate` modes, and for the TATE modes on a vertical driver.) Its option `fbneo-vertical-mode` has the values `disabled` (the default), `enabled`, `alternate`, `TATE` and `TATE alternate`. FBNeo cannot send an upright frame to a horizontal screen.
 
-### What NEPTRON does in the MVP
+### What NEPTRON does
 
 - The host accepts the rotation (section 8.2).
-- The session builds `SourceGeometry` with the rotation. `SourceGeometry::aspect_milli` is the aspect of the frame as the core draws it: the policy (`take_source` in `crates/neptron-modeline/src/policy/source.rs`) swaps the axes of a turned source and inverts its aspect. FBNeo reports the aspect of the upright picture (above).
-- So for `R90` and `R270`, **and only when the core reported the aspect** (`GameGeometry::aspect_from_core`, section 8.6), the session sets `aspect_milli = round(1_000_000 / core_aspect_milli)`. DoDonPachi: the core gives 750, the source gets 1,333, the policy gets 750 back for 240x320.
+- The session builds `SourceGeometry` with the rotation. `SourceGeometry::aspect_milli` is the aspect of the frame as the core draws it: the policy (`take_source` in `crates/neptron-modeline/src/policy/source.rs`) swaps the axes of a turned source and inverts its aspect.
+- So for `R90` and `R270`, **and only when the core reported the aspect** (`GameGeometry::aspect_from_core`, section 8.6), the session sets `aspect_milli = round(1_000_000 / core_aspect_milli)`. DoDonPachi: the core gives 750, the source gets 1,333, the policy gets 750 back for 240x320. Without this step a vertical game is placed with the inverse shape.
 - When the core gives no aspect (0 or less), the host falls back to the base width over the base height (`crates/neptron-libretro/src/geometry.rs`). That value is already the shape of the frame as drawn, so the session keeps it. A turned 320x240 frame then gets 1,333, and the policy gives the upright 240x320 picture square pixels.
-- The research does not cover this step; without it a vertical game is placed with the inverse shape.
 - The policy places the upright picture by the rule below: it swaps the axes, treats the long side as lines, and keeps the shape of the upright picture.
 - `Scene` carries the rotation, and both renderers turn the game picture (ADR 0015). The UI canvas is never turned.
-- `data/cores/fbneo.toml` pins `fbneo-vertical-mode = "disabled"`, the core's default, so that the turns and the aspect above do not change if the core's default changes.
 
 ### The owner's rule
 
@@ -412,94 +406,9 @@ The owner decided the video rule for arcade games on 2026-11-16. In substance:
 - On a CRT the horizontal scale is free (the signal is analog). The policy chooses the mode width for the right shape. Only the line count must be a whole multiple of the game's lines.
 - A soft "fit" is only an opt-in value of the setting.
 
-### The reference boards
-
-The policy table (next section) runs these boards. The size is the frame as the core draws it, and the turn is the one the core asks for. Unless the source names MAME, the size is the one of the FBNeo driver entry and the rate is the one FBNeo reports: its `BurnSetRefreshRate` value cut to 0.01 Hz, or 60.00 Hz when the driver sets no rate (`nBurnFPS` starts at 6000 in `burn.cpp`). The drivers were read at `libretro/FBNeo` master on 2026-11-16, and the MAME drivers at `mamedev/mame` master on the same day.
-
-| Name in the table | Game, board | Frame, turn | Upright | Rate | Source |
-| --- | --- | --- | --- | --- | --- |
-| `ddonpach` | DoDonPachi, Cave 68000 | 320x240, R90 | 240x320 | 57.55 Hz | `d_dodonpachi.cpp`, `CAVE_REFRESHRATE` 15625 / 271.5 |
-| `batsugun` | Batsugun, Toaplan 2 | 320x240, R90 | 240x320 | 59.63 Hz | `d_batsugun.cpp`, `TOA_REFRESHRATE` 59.637405 |
-| `gunbird` | Gunbird, Psikyo | 320x224, R90 | 224x320 | 59.29 Hz | `d_psikyo.cpp`, 15625 / 263.5 |
-| `gunlock` | Gunlock, Taito F3 | 320x224, R270 | 224x320 | 58.94 Hz | `d_taitof3.cpp`, vertical and flipped, 58.943844 |
-| `pacman` | Pac-Man | 288x224, R270 | 224x288 | 60.00 Hz | `d_pacman.cpp`: no rate set |
-| `pacman_60606` | Pac-Man at the board's rate | 288x224, R270 | 224x288 | 60.606 Hz | MAME timing, 6.144 MHz / 384 / 264 (`tests/golden/systems.toml`) |
-| `dkong` | Donkey Kong | 256x224, R270 | 224x256 | 60.00 Hz | `d_dkong.cpp`: no rate set |
-| `gground` | Gain Ground, Sega System 24 | 496x384, R270 | 384x496 | 57.524 Hz | MAME `segas24.cpp`: ROT270, 16 MHz / 656 / 424; 24.39 kHz |
-| `ikaruga` | Ikaruga, NAOMI | 640x480, R270 | 480x640 | 60.00 Hz | MAME `naomi.cpp`: ROT270. The rate is the nominal VGA rate. UNVERIFIED: the MAME raw screen (26.917 MHz, 820 by 532) gives 61.70 Hz |
-| `neogeo` | Neo Geo MVS | 304x224, R0 | | 59.18 Hz | section 12; the width is the research reading of OP-099 |
-| `cps2` | CPS-1 and CPS-2 | 384x224, R0 | | 59.63 Hz | section 12 |
-| `pwrinst2` | Power Instinct 2, Cave 68000 | 320x240, R0 | | 57.55 Hz | `d_pwrinst2.cpp` |
-| `dariusg` | Darius Gaiden, Taito F3 | 320x232, R0 | | 58.94 Hz | `d_taitof3.cpp` |
-| `rtype` | R-Type, Irem M72 | 384x256, R0 | | 55.00 Hz | `d_m72.cpp` |
-| `mk` | Mortal Kombat, Midway Y Unit | 400x256, R0 | | 54.70 Hz | `d_yunit.cpp`: 54.70, or 54.82 for a 400-line screen |
-| `sfiii3ws` | Street Fighter III 3rd Strike, CPS-3 wide mode | 496x224, R0 | | 59.59 Hz | `cps3run.cpp`: 59.59949; the normal mode is 384x224 |
-| `bnzabros` | Bonanza Bros, Sega System 24 | 496x384, R0 | | 57.524 Hz | MAME `segas24.cpp`: ROT0 |
-| `littlerb` | Little Robin | 338x288, R0 | | 30.00 Hz | `d_littlerb.cpp` |
-
-Notes on the owner's candidates:
-
-- Mortal Kombat is 400x256 in FBNeo, not 400x254, at 54.70 Hz.
-- Pac-Man, Galaga and Donkey Kong: FBNeo sets no rate for them, so it reports 60.00 Hz. The boards run at 60.606 Hz. The game then runs 1 % slower than the board on every display, also on a CRT that shows 60.00 Hz exactly. The policy cannot know the board's rate. `pacman_60606` shows the result for a core that reports the board's rate. Galaga (224x288) gives the same cells as Pac-Man.
-- Radiant Silvergun: MAME `stv.cpp` lists `rsgun` as ROT0, so it is not a vertical board. ST-V has no FBNeo driver. It is not in the table.
-- Rainbow Islands (`d_taitomisc.cpp`, 320x224, no rate set, so 60.00 Hz) gives the same cells as other 224-line boards at 60 Hz. It is not in the table.
-- A horizontal board of 288 lines: the only ones in FBNeo are Little Robin and its clone (338x288). Little Robin reports 30.00 Hz, so it is also the case of a board below every CRT range.
-- 24 kHz boards: Sega System 24 is the medium-resolution case (496x384 at 24.39 kHz). Gain Ground and Scramble Spirits are System 24 boards that are vertical (ROT270): 496 lines upright. No FBNeo driver exists for System 24, so these need a MAME core, after the MVP.
-- No board in the list runs above 60.606 Hz. NAOMI is the 31 kHz board.
-
-### The policy today: the table
-
-`crates/neptron-modeline/tests/integration/arcade_table.rs` runs each board through `decide` and `choose` with `neptron_safety::validate`, with the default settings (`auto`, `exact`), on these displays:
-
-- Every preset of `data/monitors`, with a GPU that has no pixel clock floor and sends interlace, as the policy goldens do. A pixel clock floor changes the width of a mode, not its lines.
-- Four profiles that `profile_from_edid` builds from the range limits of typical PC tubes (one range, GTF porches, no interlace), with the GPU's pixel clock limited to the EDID's: `edid_31` (31 to 32 kHz, 50 to 75 Hz, 40 MHz), `edid_30_54` (30 to 54 kHz, 50 to 120 Hz, 80 MHz), `edid_30_70` (30 to 70 kHz, 50 to 160 Hz, 110 MHz), `edid_30_96` (30 to 96 kHz, 50 to 160 Hz, 230 MHz). The test copies the GTF rule of `neptron-platform`, and a test holds the copy to the platform's result for a 30 to 71 kHz tube.
-- Flat panels with their 60 Hz mode: `panel_720`, `panel_768`, `panel_1080` (the panel of the policy goldens, which also lists 50 Hz and 720p), `panel_1440`, `panel_2160`.
-- `tv_ntsc` and `tv_pal`, on the composite output of the Raspberry Pi.
-
-To make the table again: `cargo xtask test -p neptron-modeline --no-capture arcade_table`. Appendix A holds the whole table. The columns:
-
-- Rung, mode (active size and scan), total lines (a frame of both fields when interlaced), line rate and field rate of the winner.
-- Rate: `exact` when the field rate is the game's rate within 5 mHz, `exact x2` at twice it; else the refresh kind and the speed change. On a panel and a TV, the speed change.
-- Scale: the vertical scale, whole or a fraction for a fit. Filter: of the game picture.
-- Height: the game's share of the active lines of the mode. Border: the black lines of the mode.
-- Shape: the shape on the screen against the game's own shape. A CRT shows its active area on a 4:3 face, a TV shows 704 of its 720 samples as 4:3, a panel has square pixels. +77.8 % is a 3:4 picture stretched to 4:3.
-- Best whole: the largest whole scale that a proposal of the plan has at the game's rate and that the validator accepts.
-- Rule: `ok` when the winner follows the owner's rule; else the first rule it breaks (`no mode`, `soft fit`, `shape` beyond 2 %, `rate` when a range covers the game's rate or twice it, `smaller scale` when a larger whole scale keeps the rate on a CRT).
-
-#### The main cases
-
-DoDonPachi (240x320 upright, 57.55 Hz) and the 480x640 board (Ikaruga, 60 Hz). "Proposed" is the rule below, without the panel rule R8 of 2026-11-16.
-
-| Display | DoDonPachi today | DoDonPachi proposed | 480x640 today | 480x640 proposed |
-| --- | --- | --- | --- | --- |
-| 15 kHz (`generic_15`) | 448i, 320 lines 1:1, 57.550 Hz, 71 % of the lines, right shape | The same | Fit into 480i, 0.75, soft, stretched to 4:3 | Fit into 480i, 0.75, soft, right shape, `fitted` notice. No exact mode exists |
-| 31 kHz only (`edid_31`) | 520p, 320 lines 1:1, 57.550 Hz, 62 %, right shape | The same | Fit into 509p, 0.80, soft, stretched | Fit into 509p, 0.80, soft, right shape. No exact mode exists |
-| Multi-sync to 54 kHz (`edid_30_54`) | 2x, 640p at 38.2 kHz, 57.550 Hz, full height, stretched to 4:3 | 2x, 640p, 427 pixels wide, right shape | 1x, 640p at 39.9 kHz, stretched | 1x, 640p, 853 pixels wide, right shape |
-| Multi-sync to 96 kHz (`edid_30_96`) | 2x, 640p, stretched; 4x 1280p is possible | 2x, 640p, right shape: the smallest multiple that fills (A7) | 1x, 640p, stretched; 2x 1280p is possible | 1x, 640p, right shape (A7) |
-| Panel 1080p | 3x, 720x960, nearest, 89 %, +4.26 % speed | The same | 1x, 480x640, nearest, 59 % | The same, with the small-picture notice (decided, A9) |
-| Panel 4K | 6x, 1440x1920, nearest, 89 % | The same | 3x, 1440x1920, nearest, 89 % | The same |
-| Composite NTSC | 480i, 320 lines 1:1, 67 %, +4.15 % speed | The same | Fit into 240p, 0.38, soft | Fit into 480i, 0.75, soft, right shape |
-
-#### What the table showed before the change
-
-These findings describe the policy as it was before the change of 2026-11-16 (section "After the change" gives the result).
-
-1. **Stretch (rule `shape`).** A turned board in a CRT mode with no border of the policy's own fills the whole 4:3 width: +77.8 % for a 3:4 picture. This is every multi-sync tube (2x 640p for a 320-line board), `d9400` and `d9800` (240x320p), Donkey Kong on every 15 kHz preset (224x240p to 224x256p), the 496-line Gain Ground on every display that holds 496 lines, and every fit of a turned board. Cause: `shape` (`policy/shape.rs`) gives a mode the board's aspect width (`border_width`) only when the mode is bordered; otherwise `base_width` is the game width, and `crt_placement` fills the width with it. The fitted rung fills the active area (`Vertical::Fill`). A turned board shows correctly today only by chance, in a bordered mode. Some existing goldens of `policy.toml` hold such stretched results for turned systems: `donkey_kong` on `arcade_15`, `pc_31_120` and `edid_npt_0071`; `pacman` on `edid_npt_0071`; `space_invaders` on `generic_15`, `arcade_15`, `arcade_31`, `pc_31_120` and `edid_npt_0071`.
-2. **Soft fit on multi-range presets (rule `soft fit`).** On `arcade_15_25`, `arcade_15_31`, `m3129`, `d9200`, `ms929`, `ms2930`, `r666b` and `pstar`, a 320-line vertical board gets the fit, stretched, although a 25 kHz or 31 kHz range holds 320 lines with a border and the 15 kHz range holds them interlaced 1:1. The 384-line Bonanza Bros gets the fit on `arcade_15_31`, `m3129` and `d9200` the same way. Cause: `progressive_min` and `interlaced_min` take the smallest minimum of all ranges that cover the rate, so 320 lines count as "needs no border"; Switchres then puts the mode in a range whose window starts above 320 lines (`LinesChanged`). Rung 3 drops with `FitsProgressive` because `progressive_capacity` is the largest capacity of all ranges. The policy looks at the ranges as one window, but they have gaps.
-3. **No mode (rule `no mode`).** Gunlock on `arcade_15_25` and `arcade_15_25_31`, the 480x640 board on `arcade_15_25`, `arcade_15_25_31` and `arcade_25`, and Pac-Man at 60.606 Hz on `arcade_25` get no mode at all. The validator refuses each proposal for its line rate: 24.989 kHz and 24.961 kHz on a range of exactly 24.960 kHz. The same cause gives DoDonPachi, Batsugun, Pac-Man and Gain Ground the fit on the `ntsc` preset (checked for DoDonPachi): its interlaced 1:1 mode has 15.734353 kHz against a range of exactly 15.734260 kHz. The validator is right. The policy must propose a mode inside a range whose lowest and highest line rate are equal.
-4. **Rate (rule `rate`).** Little Robin (30.00 Hz) runs 33 % to 67 % fast on every CRT: no range covers 30 Hz, so the target is the nearest rate a range covers (`Nearest`). Every range covers 60 Hz, where each frame shows twice at the right speed. With `exact`, `refresh_targets` offers twice the rate only for the `native` style (`native_double_target`). A panel and a TV already show each frame twice (`repeat` 2).
-5. **TV fit (rule `soft fit`).** A board taller than the interlaced mode (Gain Ground 496 lines, the 480x640 board) gets the fit into the progressive mode (0.48 and 0.38 of its lines) and not into the interlaced mode (0.97 and 0.75). `tv_plan` puts the fitted rung on the progressive mode only.
-6. **TV width (rule `shape`).** On PAL, 224-line boards are 18.7 % too wide and 256-line boards 3.9 % too wide. On NTSC, a 240-line board is 9.1 % too narrow and a 256-line board 6.2 % too narrow (the width stops at the 704 safe samples). The `aspect` width rule gives a 4:3 source of 224 to 240 lines the console width (644 or 650 samples), because a console does not fill the line. An arcade board fills its monitor. OP-099 covers the Neo Geo on NTSC only.
-7. **Smaller scale (rule `smaller scale`).** On a multi-sync tube a horizontal board gets 2x (full height) where 3x or 4x also keep the rate; on a tube with 15 kHz and 31 kHz ranges it gets 1x on 15 kHz where 2x on 31 kHz keeps the rate; Bonanza Bros gets 1x where 2x to 4x keep the rate. On a CRT these give the same picture size, and the smallest multiple that fills is the rule (A7).
-8. **Borders that the rule accepts.** A 320-line board on a 31 kHz-only tube is 1:1 in 482 to 520 lines (62 % to 66 %); Pac-Man is 288 lines in 473 to 506 (57 % to 61 %); Donkey Kong is 256 lines in 479 on `arcade_31` (53 %). No whole multiple above 1 fits these tubes, and the overscan crop (8 lines per edge at most) does not reach it. The rule refuses a soft fit, so these stay. On a 1080p panel the 480x640 board is 1x, 59 % of the height.
-9. **15 kHz mode size.** The interlaced 1:1 mode on a 15 kHz preset is 448i, the smallest interlaced mode of the range, not 480i. The game's lines are the same on the tube: the rest of the field is black lines or blanking. The rule holds.
-10. **Panel filter.** On a panel the vertical scale is whole and nearest. The horizontal scale is whole only when the board's pixels are square at that scale (DoDonPachi 3x: 720 pixels for 240). Gunbird (224 pixels, 3:4 at 320 lines) gets 720 pixels at 3x, 3.21 times its width, with sharp bilinear on that axis. This is the present panel rule for every source with pixels that are not square.
-
-Before the change, 319 of the 648 cells (18 boards on 36 displays) followed the rule; they were the first goldens of `tests/golden/policy_arcade.toml`.
-
 ### The decisions of 2026-11-16
 
-The owner decided the open points of the first version of this section (A7 to A13) on 2026-11-16. The rule below holds them:
+The owner decided A7 to A12 on 2026-11-16. The rule below holds them:
 
 | Item | Decision |
 | --- | --- |
@@ -510,22 +419,21 @@ The owner decided the open points of the first version of this section (A7 to A1
 | TV width (A10) | The systems `arcade` and `neogeo` fill the TV width by their aspect (a board fills its monitor), not by the console width rule |
 | Double refresh (A11) | A board below every CRT range gets double refresh, each frame shown twice, for every style |
 | `display.vertical` (A12) | The values `exact` (default) and `fit`, on a CRT, a TV and a panel |
-| Task order (A13) | The policy change is done on the branch of M08b, before M08a |
 | Scanlines on a panel | A flat panel with scanlines (`display.scanlines = on`) takes the largest whole multiple and never the fill: the renderer draws scanlines only at a whole vertical scale |
 | Notices | Every result that is not exact tells the user through the notice of the quick menu: a soft picture because no exact mode exists (with the reason), a small picture, a speed change, double refresh. The policy returns them as data |
-| Vertical games | A vertical game on a horizontal display is the best possible case: no odd modes and no odd default scaling. TATE is the right answer later (OP-107); it is not designed here |
+| Vertical games | A vertical game on a horizontal display is the best possible case: no odd modes and no odd default scaling. TATE is the right answer later (OP-107) |
 
 ### The rule
 
-The rule applies to every arcade source and, where it says so, to a turned source. It decides in the policy and gives the validator every mode, as today. It widens no limit: every mode stays inside a range of the profile, an interlaced mode needs an interlaced window of the range, and `neptron_safety::validate` judges every proposal.
+The rule applies to every arcade source and, where it says so, to a turned source. It decides in the policy and gives the validator every mode. It widens no limit: every mode stays inside a range of the profile, an interlaced mode needs an interlaced window of the range, and `neptron_safety::validate` judges every proposal.
 
 Terms: `h` is the game's lines after the turn, `r` its rate, `a` its display aspect after the turn. A mode is **exact** when its game lines are `k x h` for a whole `k` (or `h` interlaced, rung 3), its field rate is `r` or `2r` within `REFRESH_MATCH_MHZ`, and its filter is nearest on the vertical axis. The **fill** of a mode is the game's lines over the picture lines of the range at that rate (`Padding::fill_permille`, which already counts the lines that the minimum line rate forces).
 
 **R1. Shape, every display.** The game keeps its display aspect within one pixel. A game wider than the face takes the tallest height a range holds that is short of its shaped height by less than one pixel of the game, when no range holds the shaped height rounded up. No mode squeezes a game by more (decided, V7). On a CRT the mode width is the width at which the game's lines have the aspect `a` on the 4:3 face: `border_width` for every rung, bordered or not, and for the fit. A turned board is pillarboxed. The game's pixel width stays a whole multiple of its width (native or dynamic super width); only the mode width changes. On a TV and a panel, the present width rules hold, except R7.
 
-**R2. Rates on a CRT.** The targets in order: the asked rate (`exact_x2`, `force_50`, `force_60`) when a range covers it; `r`; for any source that no range covers, `2r` when a range covers it, else the covered rate nearest `2r` with each frame twice when that changes the speed less than the nearest rate once (30 Hz on `ntsc`: -0.1 % against +99.8 %); the nearest covered rate; when the exact rungs gave no mode at `r` (or the nearest covered rate), the highest lower rate at which a range holds the game's lines (`arcade_25` holds 384 lines up to 60.000 Hz), ranked before the fit while it changes the speed at most `EXACT_SPEED_MARGIN_PPM` (2 percentage points) more than the fit, within `REFRESH_MATCH_MHZ` (decided, V6 of `docs/spec/video-policy-cases.md`); the last resort. On a profile of one field rate (`ntsc`, `pal`) a mode that misses the rate takes the next whole multiples of the game width until one hits it to the millihertz.
+**R2. Rates on a CRT.** The targets in order: the asked rate (`exact_x2`, `force_50`, `force_60`) when a range covers it; `r`; for any source that no range covers, `2r` when a range covers it (`below_ranges_double_target`), else the covered rate nearest `2r` with each frame twice when that changes the speed less than the nearest rate once (30 Hz on `ntsc`: -0.1 % against +99.8 %); the nearest covered rate; when the exact rungs gave no mode at `r` (or the nearest covered rate), the highest lower rate at which a range holds the game's lines (`arcade_25` holds 384 lines up to 60.000 Hz), ranked before the fit while it changes the speed at most `EXACT_SPEED_MARGIN_PPM` (2 percentage points) more than the fit, within `REFRESH_MATCH_MHZ` (decided, V6 of `docs/spec/video-policy-cases.md`); the last resort. On a profile of one field rate (`ntsc`, `pal`) a mode that misses the rate takes the next whole multiples of the game width until one hits it to the millihertz.
 
-**R3. Ranges on a CRT.** Each range is its own window. For each rung and each range that covers the rate, the policy shapes the mode inside that range: its own minimum (for the border), its own capacity (for the multiple and the crop), its own interlaced window (for rung 3). Rung 3 is open when the game's lines do not fit the progressive capacity of every range, or when the interlaced mode fills more than every progressive exact mode that is below the fill threshold (R4).
+**R3. Ranges on a CRT.** Each range is its own window (`per_range` in `policy/crt.rs`). For each rung and each range that covers the rate, the policy shapes the mode inside that range: its own minimum (for the border), its own capacity (for the multiple and the crop), its own interlaced window (for rung 3). A range whose fewest progressive lines exceed what it holds at the rate adds no capacity. Rung 3 is open when the game's lines do not fit the progressive capacity of every range, or when the interlaced mode fills more than every progressive exact mode that is below the fill threshold (R4). A Switchres mode outside the line rates that the validator takes moves into them by lines of the vertical back porch at the same field rate, so a range whose lowest and highest line rate are equal gets a mode.
 
 **R4. Order on a CRT.** Among exact modes at one target (the fill thresholds are `PADDED_FILL_MIN_PERCENT`, 75 %, and `SMALL_PICTURE_MIN_PERCENT`, 60 %):
 
@@ -549,100 +457,77 @@ So on 15 kHz a 320-line board is interlaced 1:1 (448i or 480i, 71 %); on 25 kHz 
 - On a panel: the largest whole scale (1x on 720p to 1080p, 2x on 1440p, 3x on 4K).
 - On a TV: the fit into 480i (0.75) or 576i (0.90), not into 240p or 288p (R7).
 
-**R7. TV.** The fit of a board taller than the interlaced mode goes into the interlaced mode. An arcade board (the systems `arcade` and `neogeo`) gets the aspect width (`aspect x lines x 2.2` on 525 lines, `x 1.8333` on 625 lines, at most 704 samples), not the console width (decided, A10). The rest of the TV rules hold: lines 1:1, the crop up to 8 lines per edge, the speed alert.
+**R7. TV.** The fit of a board taller than the interlaced mode goes into the interlaced mode. An arcade board (the systems `arcade` and `neogeo`) gets the aspect width (`board_samples`: `aspect x lines x 2.2` on 525 lines, `x 1.8333` on 625 lines, at most 704 samples), not the console width (decided, A10). The rest of the TV rules hold: lines 1:1, the crop up to 8 lines per edge, the speed alert.
 
-**R8. Panel, every game.** Let `s` be the scale at which the game, at its aspect, fills the height of the preferred mode (or its width, when the width is reached first), in thousandths. When `s` is at least `PANEL_FILL_MIN_SCALE_MILLI` (4,000), the game fills that height, centred, with its shape kept, sharp bilinear. Under 4,000 it takes the largest whole vertical multiple that fits, nearest on that axis, centred (the rule before 2026-11-16). `display.panel_scale = integer` takes the largest whole multiple at every scale, and so do scanlines on a panel (`display.scanlines = on`, `PolicySettings::panel_scanlines`): the renderer draws them only at a whole vertical scale of 2 or more. A fill whose height is a whole multiple of the lines takes the whole path (nearest, status exact). The scale rounds down, so 3.9995 stays under 4. Below 60 % of the height at 1x (the 480x640 board on 720p to 1080p) the picture stays 1x with the small-picture notice; `display.vertical = fit` fills the height for a turned game. The panel never gets a mode that its own scaler stretches.
+**R8. Panel, every game.** Let `s` be the scale at which the game, at its aspect, fills the height of the preferred mode (or its width, when the width is reached first), in thousandths. When `s` is at least `PANEL_FILL_MIN_SCALE_MILLI` (4,000), the game fills that height, centred, with its shape kept, sharp bilinear. Under 4,000 it takes the largest whole vertical multiple that fits, nearest on that axis, centred. `display.panel_scale = integer` takes the largest whole multiple at every scale, and so do scanlines on a panel (`display.scanlines = on`, `PolicySettings::panel_scanlines`): the renderer draws them only at a whole vertical scale of 2 or more. A fill whose height is a whole multiple of the lines takes the whole path (nearest, status exact). The scale rounds down, so 3.9995 stays under 4. Below 60 % of the height at 1x (the 480x640 board on 1080p, 59 %) the picture stays 1x with the small-picture notice; `display.vertical = fit` fills the height for a turned game. The panel never gets a mode that its own scaler stretches.
 
 **R9. Horizontal boards.** They differ from consoles in four points, and the rest of the console rules hold:
 
 - An arcade board fills its 4:3 monitor, so on a TV it gets the aspect width (R7).
 - Board rates are 54.70 Hz to 60.606 Hz, and 30 Hz for Little Robin. A CRT shows each rate exactly (R2). A panel and a TV change the speed (section 12).
 - Heights of 256 lines (R-Type, Mortal Kombat) are 1:1 on 15 kHz at 55 Hz and below, and 2x 512 lines on 31 kHz; on NTSC they lose 8 lines per edge.
-- Medium-resolution boards (384 lines, System 24) are interlaced 1:1 on 15 kHz (the present rule), 1:1 on 25 kHz, 1:1 in about 500 lines on 31 kHz (74 % to 77 %), and on a multi-sync tube 1x or 2x by A7.
+- Medium-resolution boards (384 lines, System 24) are interlaced 1:1 on 15 kHz, 1:1 on 25 kHz, 1:1 in about 500 lines on 31 kHz (74 % to 77 %), and on a multi-sync tube 1x or 2x by A7.
 
-**R10. Safety.** Nothing in R1 to R9 changes a validator rule, a range, the hard rails or `ValidatedMode`. A change of the mode width, of the range that makes a mode, or of the target rate is a different modeline that the validator judges as today.
-
-### The work for the policy change
-
-Every item is done on the branch of M08b (task M08c), in its own commit with its tests:
-
-| Item | Finding | Change |
-| --- | --- | --- |
-| W1 | 1 | The mode width keeps the shape of every source that is not 4:3 (`border_width` for every exact rung, the crop and the fit); a game wider than the face is bordered with the lines its shape needs, and takes no crop |
-| W2 | 2 | Each range of a multi-range profile is shaped on its own (`per_range` in `policy/crt.rs`), whenever two or more ranges cover the rate; a range whose fewest progressive lines exceed what it holds at the rate adds no capacity |
-| W3 | 3 | A Switchres mode outside the line rates that the validator takes moves into them by lines of the vertical back porch at the same field rate (`onto_fixed_line_rate`); the whole-kHz clock aims for a field rate inside the range and ranks a mode inside the range first |
-| W4 | 4 | An arcade board below every range gets twice its rate (`below_ranges_double_target`), for every style |
-| W5 | 5 | An arcade board taller than the progressive TV mode fits into the interlaced mode |
-| W6 | 6 | An arcade board gets the TV width of its aspect (`board_samples`) |
-| W7 | 7 | The order of R4: `SMALL_PICTURE_MIN_PERCENT` (60 %); an interlaced 1:1 mode only over a small progressive picture |
-| W8 | | `display.vertical` (`VerticalMode`, `Dropped::VerticalFit`) and `display.panel_scale` (`PanelScale`), in the schema, the policy and the app |
-| R8 | | The panel rule: fill the height from a scale of 4 (`PANEL_FILL_MIN_SCALE_MILLI`) |
-| Notices | | `Notice::soft`, `Notice::small_fill_permille`, `Notice::speed_change`, `Notice::reasons` |
-
-The invariant sweep (`docs/spec/video-policy-cases.md`) found four more faults, fixed the same way: a mode above the top line rate of a band range (Switchres's), a field rate one millihertz off a range of one field rate, a wide or deinterlaced game with the wrong shape or no border, and a whole-profile mode that the validator refuses where one range alone holds the game.
+**R10. Safety.** Nothing in R1 to R9 changes a validator rule, a range, the hard rails or `ValidatedMode`. A change of the mode width, of the range that makes a mode, or of the target rate is a different modeline that the validator judges as always.
 
 ### The overscan crop
 
 The crop hides at most 8 source lines per edge (`OVERSCAN_CROP_MAX_LINES_PER_EDGE`) and at most 8 lines of a 240-line screen per edge as a share of the lines the range holds (`OVERSCAN_CROP_SCREEN_LINES`, rounded up): 9 of 256 lines at 15 kHz, 16 of 480 at 31 kHz. A Game Boy at 2x on a 256-line 15 kHz tube would lose 16 screen lines per edge, so it shows 1x.
 
-### After the change
+### The results
 
-The table after the change, made by the same test, is Appendix A. Every cell follows the rule or carries an allowed reason:
+Appendix A holds the result of the policy for each reference board (Appendix B) on 36 displays. Every cell follows the rule or carries an allowed reason:
 
-| Verdict | Before (2026-11-16, first table) | After |
+| Verdict | Cells |
+| --- | --- |
+| ok | 619 |
+| ok: no exact mode exists on this profile | 21 |
+| ok: the profile declares no interlace | 3 |
+| ok: no window at the game's rate (the exact rung at the nearest rate that holds it) | 1 |
+| ok: overscan crop | 4 |
+
+`tests/golden/policy_arcade.toml` (`crates/neptron-modeline`) holds every cell that follows the rule as a golden.
+
+The main cases, DoDonPachi (240x320 upright, 57.55 Hz) and the 480x640 board (Ikaruga, 60 Hz):
+
+| Display | DoDonPachi | 480x640 board |
 | --- | --- | --- |
-| ok | 319 | 619 |
-| ok: no exact mode exists on this profile | 0 | 21 |
-| ok: the profile declares no interlace | 0 | 3 |
-| ok: no window at the game's rate (the exact rung at the nearest rate that holds it) | 0 | 1 |
-| ok: overscan crop | 0 | 4 |
-| shape | 113 | 0 |
-| smaller scale (rule before A7) | 94 | 0 |
-| soft fit | 90 | 0 |
-| rate | 26 | 0 |
-| no mode | 6 | 0 |
+| 15 kHz (`generic_15`) | Rung 3: 448i at 57.550 Hz, 320 lines 1:1, 71 %, pillarboxed. With `fit`: 240p, fitted, sharp bilinear | Fit into 480i, 0.75, right shape; notice: soft, too tall |
+| 31 kHz only (`edid_31`, `arcade_31`, `pc_31_120`) | 320 lines 1:1 at 57.550 Hz in 501 to 520 lines (62 % to 64 %), pillarboxed | Fit into 509p, 0.80, right shape; notice: soft, no interlace |
+| Multi-sync to 54 kHz | 2x, 427x640p, right shape | 1x, 853x640p, right shape |
+| Multi-sync to 96 kHz | 2x, 427x640p (A7: the smallest that fills) | 1x, 853x640p |
+| Panel 720p | 2x, 480x640, nearest, 89 % | 1x, 480x640, nearest, 89 % |
+| Panel 1080p | 3x, 720x960, nearest, 89 % (scale 3.4, under 4) | 1x, 480x640, 59 %, small-picture notice |
+| Panel 4K | Fills the height: 1620x2160, sharp (scale 6.75); with scanlines on, 6x, nearest | 3x, 1440x1920 (scale 3.4) |
+| TV, NTSC (Pi composite) | 480i, 320 lines 1:1, 67 %, 264 of the 704 samples wide, sharp bilinear. 59.940 Hz: +4.15 % speed | Fit into 480i, 0.75 |
+| TV, PAL | 576i, 320 lines 1:1, 220 samples wide. 50.000 Hz: -13.1 % speed | Fit into 576i, 0.90 |
 
-The main cases:
+The 480i field order on the Pi `vc4` is not checked yet (OP-103 point 5).
 
-| Display | DoDonPachi before | DoDonPachi after | 480x640 before | 480x640 after |
-| --- | --- | --- | --- | --- |
-| 15 kHz (`generic_15`) | 448i, 320 lines 1:1, 71 % | The same | Fit into 480i, 0.75, stretched to 4:3 | Fit into 480i, 0.75, right shape; notice: soft, too tall |
-| 31 kHz only (`edid_31`) | 520p, 1:1, 62 % | The same | Fit into 509p, 0.80, stretched | Fit into 509p, 0.80, right shape; notice: soft, no interlace |
-| Multi-sync to 54 kHz | 2x, 640p, stretched to 4:3 | 2x, 427x640p, right shape | 1x, 640p, stretched | 1x, 853x640p, right shape |
-| Multi-sync to 96 kHz | 2x, 640p, stretched | 2x, 427x640p (A7: the smallest that fills) | 1x, 640p, stretched | 1x, 853x640p |
-| Panel 1080p | 3x, 720x960, nearest, 89 % | The same (scale 3.4, under 4) | 1x, 480x640, 59 % | The same, with the small-picture notice |
-| Panel 4K | 6x, 1440x1920, nearest | Fills the height: 1620x2160, sharp (scale 6.75); with scanlines on, 6x, nearest | 3x, 1440x1920 | The same (scale 3.4) |
-| Composite NTSC | 480i, 1:1, 67 %, +4.15 % | The same | Fit into 240p, 0.38 | Fit into 480i, 0.75 |
+Results that the rule accepts:
 
-The existing goldens that the change corrected (each commit body gives the reason):
-
-- W1, nine cases of `policy.toml` that recorded a stretched turned system: `donkey_kong` on `arcade_15`, `edid_npt_0071` and `pc_31_120`; `pacman` on `edid_npt_0071`; `space_invaders` on `arcade_15`, `arcade_31`, `edid_npt_0071`, `generic_15` and `pc_31_120`. The lines, rates and game rectangles stay; the mode is wider and the game centred in it.
-- R8, 25 cases of `policy.toml` on `panel_1080`: every source of 270 lines or fewer now fills the 1080 lines at its aspect with sharp bilinear, in place of the largest whole multiple with borders. No case on 720p changes.
-- Arcade goldens added on this branch moved with W3 (1 mHz), W2 (Donkey Kong on `ms2930` and `r666b`: the smallest multiple that fills) and W6 (657 samples in place of 644).
-- V3, three cases of `policy_tv.toml`: `pal_576i tv_ntsc` with each width rule, from the fit into 240p to the fit into 480i.
-- V5, ten cases: `md_pal_h40 edid_npt_0071` in `policy.toml` and the nine `edid_npt_0071 md_pal_h40` cases of `policy_gpus.toml`, from 2x at 50.000 Hz to 1x at 99.40 Hz, each frame twice.
-- The handhelds of the goldens now have the aspect their cores report (Game Boy 10:9, Game Boy Advance 3:2, WonderSwan 14:9; the shipped systems data holds no aspect): 18 cases of `policy.toml` and 18 of `policy_gpus.toml` move in width, offset or multiple to keep that shape.
-
-The exceptions that stay, each an allowed reason of the table and the sweep:
-
+- Borders: a 320-line board on a 31 kHz-only tube is 1:1 in 482 to 520 lines (62 % to 66 %); Pac-Man is 288 lines in 473 to 506 (57 % to 61 %); Donkey Kong is 256 lines in 479 on `arcade_31` (53 %). No whole multiple above 1 fits these tubes, and the overscan crop (8 lines per edge at most) does not reach it. The rule refuses a soft fit, so these stay.
+- 15 kHz mode size: the interlaced 1:1 mode on a 15 kHz preset is 448i, the smallest interlaced mode of the range, not 480i. The game's lines are the same on the tube: the rest of the field is black lines or blanking.
+- Panel filter: on a panel the vertical scale is whole and nearest. The horizontal scale is whole only when the board's pixels are square at that scale (DoDonPachi 3x: 720 pixels for 240). Gunbird (224 pixels, 3:4 at 320 lines) gets 720 pixels at 3x, 3.21 times its width, with sharp bilinear on that axis. This is the panel rule for every source with pixels that are not square.
 - The overscan crop keeps the width, so the 240 lines that a 256-line board shows on NTSC are 6.2 % narrow: the full width would need 751 of the 704 safe samples.
 - No exact mode exists for the 480x640 board on 15 kHz, on a 31 kHz profile with no interlace, and on a TV: the fit, with its reason in the notice.
 
 ### The notices
 
-The policy returns the reason for every result that is not exact as data: `Notice::reasons`, a list of `NoticeReason` values, beside the flags that `Notice` already holds. The app shows them in the quick menu with the other notices. The app texts (the app owns them):
+The policy returns the reason for every result that is not exact as data: `Notice::reasons`, a list of `NoticeReason` values, beside the flags that `Notice` holds. The app shows them in the quick menu with the other notices (`apps/neptron/src/shell/picture.rs`, which owns the texts). The reasons of the picture mode (`FillFallback`, `WholeSteps`) are in `docs/spec/video-policy-cases.md`, section 8.9.
 
-| `NoticeReason` | When | Proposed text |
+| `NoticeReason` | When | Text |
 | --- | --- | --- |
-| `Soft(NoExactMode::TooTall { lines, capacity })` | The game's lines do not fit any mode of the profile at its rate | "Soft picture: this screen cannot show the game's {lines} lines (at most {capacity})." |
-| `Soft(NoExactMode::NoInterlace { lines })` | The game needs an interlaced mode, and the profile declares none | "Soft picture: the game needs {lines} lines, and this monitor profile has no interlaced mode." |
-| `Soft(NoExactMode::NoRate)` | No exact mode at any rate the profile covers | "Soft picture: no sharp mode at this game's rate." |
-| `Soft(NoExactMode::Chosen)` | `display.vertical = fit` | "Soft picture: the setting display.vertical is set to fit." |
-| `Soft(NoExactMode::FillMode)` | The picture mode `fit` | "Soft picture: Picture mode is set to Fill." |
-| `Soft(NoExactMode::PanelFill { scale_milli })` | A panel fills the height at 4.0 or more | No notice: this is the panel rule |
+| `Soft(SoftReason::TooTall { lines })` | The game's lines fit no exact mode of the display at its rate | "Soft picture: this screen cannot show the game's {lines} lines." |
+| `Soft(SoftReason::NoInterlace { lines })` | The game needs an interlaced mode, and neither the profile nor the GPU offers one | "Soft picture: the game needs {lines} lines, and this monitor profile has no interlaced mode." |
+| `Soft(SoftReason::NoRate)` | No exact mode at any rate the display covers | "Soft picture: no sharp mode at this game's rate." |
+| `Soft(SoftReason::Chosen)` | `display.vertical = fit` | "Soft picture: the setting display.vertical is set to fit." |
+| `Soft(SoftReason::FillMode)` | The picture mode `fit` | "Soft picture: Picture mode is set to Fill." |
 | `SmallPicture { fill_permille }` | Below 60 % of the screen height | "Small picture: the game uses {fill} % of the screen height, to stay sharp." |
 | `SpeedChange { game_mhz, shown_mhz }` | The game runs at another rate | "The game runs at {shown} Hz, not {game} Hz: {percent} % speed." |
-| `DoubleRefresh` | Each frame shows twice | "Each frame shows twice at {shown} Hz. The game speed does not change." |
+| `DoubleRefresh { field_mhz }` | Each frame shows twice | "Each frame shows twice at {shown} Hz. The game speed does not change." |
+
+A panel that fills the height at a scale of 4.0 or more gives no notice: that is the panel rule.
 
 ### The setting `display.panel_scale`
 
@@ -672,52 +557,37 @@ Since the picture mode (`docs/spec/video-policy-cases.md`, section 8), this key 
 | Safety | `Validated`, as the picture mode |
 | Help text | "How a vertical game shows on a horizontal screen. Exact shows every pixel exact, with black borders, and on a 15 kHz screen or a TV with flicker. Fit fills the height, with a soft picture." |
 
-- This replaces the choices `interlaced` and `fitted` of the first version of this spec. The setting is not built yet (M08a), so no stored value changes.
-- The choices are append-only from M08a on. A cropped 1:1 view and the TATE choices are later values at the end of the list.
+- The choices are append-only. A cropped 1:1 view and the TATE choices are later values at the end of the list.
 - The picture mode still applies: `3x` or `4x` on a multi-sync tube asks for that multiple of a vertical game.
 - The crawler finds the setting, as every setting.
 
 ### The notice the first time
 
-The first time a vertical game gets the interlaced rung on a 15 kHz CRT or a TV with `display.vertical = exact`, the frontend shows this notice once:
+The first time a vertical game gets the interlaced rung on a 15 kHz CRT or a TV with `display.vertical = exact`, the frontend shows this notice once (`VERTICAL_INTERLACED_TEXT` in `apps/neptron/src/notices.rs`):
 
 > This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fill, in Settings > Display or in Video in the quick menu, shows it as a soft picture with no flicker. A screen turned on its side (TATE) comes in a later version.
 
-The frontend keeps the notices already shown in `state/config/notices.toml`. The writer thread of `apps/neptron/src/outbox.rs`, which does every file write of the frame loop, writes it as temp file, fsync, rename; the frame thread only sends the job. The menu process reads the file at boot with the settings. A deleted file shows the notice again and loses nothing. (A store for one-time notices does not exist yet; open point A4.)
-
-### Expected results for DoDonPachi (240x320 upright, 57.55 Hz)
-
-| Display | Today (the goldens) | With the proposed rule |
-| --- | --- | --- |
-| 15 kHz PC CRT | Rung 3: 448i at 57.550 Hz, 320 lines 1:1, centred, pillarboxed | The same. With `fit`: 240p, the picture fitted, sharp bilinear |
-| 31 kHz PC CRT | 320 lines 1:1 at 57.550 Hz, centred in 501 to 520 lines (62 % to 64 %), pillarboxed | The same, with the small-picture notice only below 60 % |
-| Multi-sync PC CRT | 2x, 640p, stretched to 4:3 | 2x, 640p, about 427 pixels wide, pillarboxed |
-| Flat panel, 1080p | Upright, factor 3: 720x960, nearest, pillarboxed. The game runs at the panel rate | The same |
-| Flat panel, 720p | Upright, factor 2: 480x640, nearest | The same |
-| TV, NTSC (Pi composite) | 480i, 320 lines 1:1, 264 of the 704 samples wide (the `aspect` width rule), sharp bilinear. 59.940 Hz: +4.15 % speed | The same |
-| TV, PAL | 576i, 320 lines 1:1, 220 samples wide. 50.000 Hz: -13.1 % speed | The same |
-
-The goldens of M08b check the column "Today" (`tests/golden/policy_arcade.toml`), except the multi-sync row, which breaks the rule. The 480i field order on the Pi `vc4` is not checked yet (OP-103 point 5).
+The frontend keeps the notices already shown in `state/config/notices.toml` (open point A4). The writer thread of `apps/neptron/src/outbox.rs`, which does every file write of the frame loop, writes it as temp file, fsync, rename; the frame thread only sends the job. The menu process reads the file at boot with the settings. A deleted file shows the notice again and loses nothing.
 
 ## 12. Rates
 
-The present policy stays. FBNeo reports each board's rate, cut to 0.01 Hz (`BurnSetRefreshRate` in `burn.cpp` stores `(INT32)(100.0 * rate)`; read for this spec). The about 95 ppm that the cut takes from the Neo Geo cannot be heard.
+FBNeo reports each board's rate, cut to 0.01 Hz (`BurnSetRefreshRate` in `burn.cpp` stores `(INT32)(100.0 * rate)`). The about 95 ppm that the cut takes from the Neo Geo cannot be heard.
 
 | Board | Rate reported | Source (FBNeo driver) |
 | --- | --- | --- |
 | Neo Geo | 59.18 Hz (board: 15625/264 = 59.1856) | `neo_run.cpp` |
 | CPS-1, CPS-2 | 59.63 Hz | `cps.cpp` |
 | Toaplan 2 | 59.63 Hz (59.637, cut) | `toaplan.h` |
-| Psikyo | 59.29 Hz (15625/263.5 = 59.2979, cut) | `d_psikyo.cpp`: `BurnSetRefreshRate(15625.0 / 263.5)`, read for this spec |
+| Psikyo | 59.29 Hz (15625/263.5 = 59.2979, cut) | `d_psikyo.cpp`: `BurnSetRefreshRate(15625.0 / 263.5)` |
 | Taito F3 | 58.94 Hz (58.944, cut) | `d_taitof3.cpp` |
 | Cave 68000 | 57.55 Hz (15625/271.5) | `cave.h` |
 | Data East dec0 | 57.41 Hz | `d_dec0.cpp` |
 | Irem M72 | 55.00 Hz | `d_m72.cpp` |
-| Midway Y Unit | 54.70 Hz (54.82 for a 400-line screen) | `d_yunit.cpp`: `BurnSetRefreshRate((nScreenHeight == 400) ? 54.82 : 54.70)`, read for M08b. Mortal Kombat is 400x256 |
+| Midway Y Unit | 54.70 Hz (54.82 for a 400-line screen) | `d_yunit.cpp`: `BurnSetRefreshRate((nScreenHeight == 400) ? 54.82 : 54.70)`. Mortal Kombat is 400x256 |
 | Midway T Unit | about 54.7 Hz | UNVERIFIED |
-| CPS-3 | 59.59 Hz (59.59949, cut) | `cps3run.cpp`, read for M08b. 384x224, or 496x224 in the wide mode |
-| Pac-Man, Galaga, Donkey Kong | 60.00 Hz (board: 60.606 Hz) | `d_pacman.cpp`, `d_galaga.cpp`, `d_dkong.cpp` set no rate, so `nBurnFPS` keeps 6000 (`burn.cpp`), read for M08b. The game runs 1 % slower than the board on every display |
-| Little Robin | 30.00 Hz | `d_littlerb.cpp`, read for M08b. A CRT needs double refresh for it (section 11, R2) |
+| CPS-3 | 59.59 Hz (59.59949, cut) | `cps3run.cpp`. 384x224, or 496x224 in the wide mode |
+| Pac-Man, Galaga, Donkey Kong | 60.00 Hz (board: 60.606 Hz) | `d_pacman.cpp`, `d_galaga.cpp`, `d_dkong.cpp` set no rate, so `nBurnFPS` keeps 6000 (`burn.cpp`). The game runs 1 % slower than the board on every display |
+| Little Robin | 30.00 Hz | `d_littlerb.cpp`. A CRT needs double refresh for it (section 11, R2) |
 
 ### Expected result per display class
 
@@ -741,21 +611,20 @@ Speed change of the game (field rate divided by the reported rate, less 1). Ever
 - The owner accepts the speed change on composite for 0.1, with the existing alert (Cave +4.35 % on NTSC).
 - PAL is much worse: every arcade board runs 9 to 16 % slow. The owner's decision names NTSC; PAL follows the same rule. Open point A5.
 - The other rule (keep the game's rate and repeat a field every 20 to 25 fields) judders in a scrolling shooter. RetroArch with its default timing-skew limit also speeds such games up (from memory, UNVERIFIED). A per-game "keep game speed" choice is a later item.
-- OP-099: FBNeo gives the Neo Geo 304 pixels wide, not 320 (research reading; trace). At 6 MHz, 304 pixels are about 684 samples, against the 644 of the console rule: about 6 % narrow on composite, not the 11 % that OP-099 states for 320.
+- OP-099: FBNeo gives the Neo Geo 304 pixels wide, not 320 (research reading; trace). At 6 MHz, 304 pixels are about 684 samples, against the 644 of the console rule: about 6 % narrow on composite, not the 11 % that OP-099 states for 320. Rule R7 gives an arcade board the aspect width on a TV.
 
 ## 13. Controls
 
 - FBNeo maps the arcade inputs to the RetroPad. Select is the coin, Start is start.
-- For `RETRO_DEVICE_JOYPAD` FBNeo uses its "Classic" layout (the Neo Geo CD pad): Neo Geo A to D on the face buttons; L and R are the 5th and 6th buttons of a six-button game. NEPTRON passes `RETRO_DEVICE_JOYPAD` on ports 0 and 1 today. Nothing in the input path changes in the MVP.
+- For `RETRO_DEVICE_JOYPAD` FBNeo uses its "Classic" layout (the Neo Geo CD pad): Neo Geo A to D on the face buttons; L and R are the 5th and 6th buttons of a six-button game. The host passes `RETRO_DEVICE_JOYPAD` on every port (`JOYPAD_PORTS`, ports 0 to 3), so a four-player board gets four pads.
 - DIP switches are core options. Each game declares its own (section 8.1).
-- `fbneo-diagnostic-input` opens the service menu. Its default is "Hold Start" (`retro_common.cpp`, read for this spec). NEPTRON's setting `input.menu_hold_start_seconds` opens the quick menu with a Start hold, for an arcade panel with no Select. Its default is 0 (off), so the two only clash when the user turns it on, but then one hold does two things. `data/cores/fbneo.toml` sets the option to "Start + L + R", one of the values in the core's option table. A combination with Select is not used, because Select is the coin and a hold of Select with Start opens the quick menu.
+- `fbneo-diagnostic-input` opens the service menu. Its default is "Hold Start" (`retro_common.cpp`), and NEPTRON keeps it (section 4). NEPTRON's setting `input.menu_hold_start_seconds` opens the quick menu with a Start hold, for an arcade panel with no Select. Its default is 0 (off), so the two clash only when the user turns it on, and then one hold does two things. The value for NEPTRON is "Start + L + R", one of the values in the core's option table; it goes into `data/cores/fbneo.toml` when a trace of a set that declares the option shows it (OP-108, ADR 0016). A combination with Select is not used, because Select is the coin and a hold of Select with Start opens the quick menu.
 - Select is the coin, so a player presses Select and Start in a quick sequence, and the two can overlap for a moment. Such an overlap opens no quick menu, and the game gets the coin and the start. Only a hold of both for 0.5 s opens the quick menu (section 13.1).
-- M04 (four players) calls `retro_set_controller_port_device` on ports 2 and 3 too. Several arcade boards have four players.
-- M05 (remapping) shows the descriptors of section 8.3 and adds the layout per system or per game (Classic, Modern, 6-Panel) as the libretro device subclass.
+- A later item: show the descriptors of section 8.3, and a layout per system or per game (Classic, Modern, 6-Panel) as the libretro device subclass.
 
 ### 13.1 The quick menu hold
 
-The owner's decision (2026-11-18): the quick menu opens only when Select and Start stay held together for 0.5 s. Before it, the two opened the quick menu at their release, with no time condition. A player who inserted a coin and pressed Start in a quick sequence overlapped the two for a moment and opened the menu by accident.
+The owner decided on 2026-11-18: the quick menu opens only when Select and Start stay held together for 0.5 s. A player who inserts a coin and presses Start in a quick sequence overlaps the two for a moment, and that must not open the menu.
 
 The rule, on each port (`Hotkeys` in `neptron-input`):
 
@@ -764,11 +633,11 @@ The rule, on each port (`Hotkeys` in `neptron-input`):
 - A release of Select or Start ends the hold. A shorter hold opens nothing.
 - A hold fires once. While both buttons stay down, it does not fire again. A new hold starts when both are down again: the player releases one button and presses it again, or releases both and presses both. This is the rule of the blind recovery hold too.
 - `Hotkeys::cancel_quick_menu` (the session calls it at resume): the hold in progress gives no quick menu. The next hold, after a release, can.
-- The Start hold (`input.menu_hold_start_seconds`, off by default) does not change. On one port, one press of Start gives one quick menu at most: when the Start hold fired, Select that joins later on the same press of Start gives no second one. Select down first stops the Start hold, as before.
+- The Start hold (`input.menu_hold_start_seconds`, off by default) is a separate rule. On one port, one press of Start gives one quick menu at most: when the Start hold fired, Select that joins later on the same press of Start gives no second one. Select down first stops the Start hold.
 - Every source follows the rule, because it reads only the port state: any pad on any port, a generic pad with Select (button 8) and Start (button 9), and the keyboard pair Right Shift (Select) and Enter (Start).
 - The time is a constant. A setting can come later, in the same way as `input.menu_hold_start_seconds`.
 
-The blind recovery does not change: `BLIND_RECOVERY_COMBO` is the same two buttons, held for `BLIND_RECOVERY_HOLD_NS` (5 s), and it fires once per hold, also while the quick menu is open. A hold has no way to know at 0.5 s that it goes on to 5 s. So a 5 s hold in a game now opens the quick menu at 0.5 s, and the recovery fires at 5 s under the open menu. The game is paused under the safe picture, and the notice of the safe mode shows at once over the menu. Before, a recovery hold opened no menu and the game went on. In the game list and the other menus the quick menu hotkey does nothing, so there the hold gives the recovery only, as before.
+The blind recovery: `BLIND_RECOVERY_COMBO` is the same two buttons, held for `BLIND_RECOVERY_HOLD_NS` (5 s), and it fires once per hold, also while the quick menu is open. A hold has no way to know at 0.5 s that it goes on to 5 s. So a 5 s hold in a game opens the quick menu at 0.5 s, and the recovery fires at 5 s under the open menu. The game is paused under the safe picture, and the notice of the safe mode shows at once over the menu. In the game list and the other menus the quick menu hotkey does nothing, so there the hold gives the recovery only.
 
 What the game gets (`PadMask` in `neptron-session`), on each port of the core:
 
@@ -778,104 +647,86 @@ What the game gets (`PadMask` in `neptron-session`), on each port of the core:
 - A late press lasts at least `LATE_PRESS_MIN_FRAMES` (3) core frames. Some arcade games read a coin only when it stays down for 2 frames or more, so a late press of one frame can be lost. 3 frames are 50 ms at 60 Hz.
 - A late press lasts at most `LATE_PRESS_MAX_FRAMES` (30) core frames, about the 0.5 s of the hold at 60 Hz. A combination that cannot open the menu (Select joins a press of Start whose Start hold fired) can be held back for seconds, and a replay of seconds would be a press that the player did not make. A press held back for longer replays for 30 frames.
 - Only frames in which the core runs count, for the time held back and for the late press. So a late press does not run out while the core is paused or the output is off.
-- A short tap of Select and Start now reaches the game, as on the original hardware, so a game's own Select and Start combination (for example a soft reset with other buttons) works with a tap; only a hold of 0.5 s opens the menu.
-- When the quick menu opens, the held-back press is dropped: it was for the menu. When the menu closes, every button still down stays up for the core until its release, as before. So the menu leaves no stuck press and no phantom press in the game.
-
-What the game got before: from the poll in which both were down until both were up, the core saw neither. A coin then Start with an overlap gave the coin, lost the start, and opened the quick menu at the release.
+- A short tap of Select and Start reaches the game, as on the original hardware, so a game's own Select and Start combination (for example a soft reset with other buttons) works with a tap; only a hold of 0.5 s opens the menu.
+- When the quick menu opens, the held-back press is dropped: it was for the menu. When the menu closes, every button still down stays up for the core until its release. So the menu leaves no stuck press and no phantom press in the game.
 
 ## 14. Save files
 
 - FBNeo writes NVRAM and EEPROM files itself (Cave high scores and settings) to `<save directory>/fbneo/`, that is `state/saves/arcade/fbneo/` or `state/saves/neogeo/fbneo/`. The same set in the two folders has two save places.
-- FBNeo has no `RETRO_MEMORY_SAVE_RAM`. `copy_save_ram` gives 0 bytes. M07a checks with a test that a core with no save RAM gives no `.srm` file and no `.bak`.
+- FBNeo has no `RETRO_MEMORY_SAVE_RAM`. `copy_save_ram` gives 0 bytes. A test checks that a core with no save RAM gives no `.srm` file and no `.bak` (`crates/neptron-session/tests/integration/arcade.rs`).
 - The core's own writes are not atomic: a power cut during a write can damage an NVRAM file. NEPTRON cannot change this without a patch to the core. It is a risk (section 18), not a rule break: the code standard covers the files that NEPTRON writes.
 - Save states are after the MVP.
 - `fbneo-hiscores` stays at the core's default. Without `system/fbneo/hiscore.dat` it does nothing. Shipping `hiscore.dat` is a later item.
 
 ## 15. TATE (planned, after the MVP)
 
-TATE is a screen turned on its side. It gives a vertical game its native mode: DoDonPachi as 320x240 at 57.55 Hz, 240p, every pixel exact, no flicker. This is the best picture a CRT can give a vertical game, and a strong reason for a vertical cabinet. It needs the UI turned too, so it is a separate task. These notes are the start for that task.
+TATE is a screen turned on its side. It gives a vertical game its native mode: DoDonPachi as 320x240 at 57.55 Hz, 240p, every pixel exact, no flicker. This is the best picture a CRT can give a vertical game, and a strong reason for a vertical cabinet. It needs the UI turned too, so it is a separate task: the first task after version 0.1 (OP-107).
 
-### Settings
+### The owner's decision (2026-11-19, OP-107)
 
-- The Definition names `screen_orientation` (horizontal or vertical) and `rotation` (auto, 0, 90, 180, 270). A screen can be turned either way, so the TATE task decides between two choices `vertical_left` and `vertical_right` and one choice `vertical` with a separate direction. This is a question for the owner.
-- `screen_orientation` is a global setting, safety `ConfirmOrRevert`: the user must be able to read the keep or revert dialog in the new orientation, or the revert must come with no input.
-- `rotation` (per game, per system) overrides what the core asks.
+- One system setting gives the screen orientation: 0 (YOKO), 90, 180 or 270 degrees. The UI follows it.
+- In Auto, a vertical game runs at its own lines, full screen. A horizontal game shows upright and small, with a notice.
+- Each game has an orientation override (Auto, 0, 90, 180, 270) in its display settings.
 
-### The rule
+### Design notes
 
+- The screen orientation is a global setting, safety `ConfirmOrRevert`: the user must be able to read the keep or revert dialog in the new orientation, or the revert must come with no input.
 - The game turn that the renderer applies is the core's rotation less the screen rotation, modulo 360 degrees.
 - A vertical game on a vertical screen: turn 0. The policy gets the frame as drawn (320x240) and finds its native mode.
 - A horizontal game on a vertical screen: turn 90 or 270. The policy swaps the axes and the game gets the treatment of section 11 that a vertical game gets on a horizontal screen. `display.vertical` then applies to horizontal games: its meaning is "a game whose long side is across the tube's lines".
 - The core keeps `fbneo-vertical-mode = "disabled"`, so it always reports the turn that the board needs (`R0`, `R90`, `R180` or `R270`, section 8.2) and the aspect of the upright picture. NEPTRON does all turns, so one code path serves both orientations. The core's `TATE` modes are not used: they move the turn into the core and change the aspect it reports.
-- The validator and the hard rails see the real raster of the tube, as today. TATE changes no safety rule.
-
-### The scene and the UI
-
+- The validator and the hard rails see the real raster of the tube. TATE changes no safety rule.
 - `Scene` gets a turn for the UI canvas (a second field, by a new ADR), or one screen turn that applies to the game and the UI. ADR 0015 leaves both open.
 - The UI needs a portrait layout: a 240x320 canvas, or the 320x240 canvas turned and scaled. A turned 320x240 canvas does not fit the 240-pixel width of a turned 15 kHz screen at 1:1, so the portrait layout is the likely path. That is the largest part of the task (`neptron-ui` screens, scenes and goldens, the crawler in both orientations).
 - The menu directions follow the viewer: up on the d-pad is up on the turned screen. The game's input is not turned: the controls of a cabinet do not move.
 - Every screen of the frontend must be turned: the boot prompt, the keep or revert dialog, the safe mode, the recovery screens, the notices.
+- Tests: goldens of the policy for turned screens on every profile; scene goldens of each UI screen in portrait; `gles-compare` scenes with a turned UI; a bench check with a turned monitor (a hardware checklist line). Whether the owner can turn a monitor for this test is a question for the owner.
 
-### Tests
+## 16. Where the code is
 
-- Goldens of the policy for turned screens on every profile.
-- Scene goldens of each UI screen in portrait.
-- `gles-compare` scenes with a turned UI.
-- A bench check with a turned monitor (a hardware checklist line). Whether the owner can turn a monitor for this test is a question for the owner.
-
-## 16. Task split
-
-M06 is this spec and ADRs 0014, 0015 and 0016. The tasks below replace M07 and M08 of the taskboard.
-
-| Task | Content | Owns | Needs |
-| --- | --- | --- | --- |
-| M07a, host | ADR 0016: held option values. `SET_ROTATION` (`Host::rotation`, `Event::Rotation`, `Refusal::Rotation`). `GameGeometry::aspect_from_core` (section 8.6). Input descriptors stored. The public zip entry list and its re-export from `neptron-session` (section 8.5). `core_trace` writes options declared at load and the rotation. Session: held values in place of `set_option` before load. Test core cases: options declared in `retro_load_game`; a rotation at load and in a frame; a 320x240 frame with `R90`, `R180` and `R270`; an aspect of 0 with a turn; no save RAM. `docs/spec/libretro-host.md` updated | `crates/neptron-libretro`, `crates/neptron-testcore`, `crates/neptron-session` (launch, the re-export), `docs/spec/libretro-host.md` | M06 |
-| M07b, package and data | `os/package/libretro-fbneo`: pinned commit, sha256, `platform=unix-rpi3_64` on the Pi and `unix` with `USE_X64_DRC=1` on the PC (the Batocera settings, research reading), `license.txt` verbatim and the licence texts of the third-party parts in each built `.so` (ADR 0014). `LICENCES.txt` lines for the core and for the arcade index. Build time and `.so` size measured and recorded. The three data files (section 4), the embed list, `-` in option keys, the `always_progressive` key. Core traces of free sets: the ROMs stay outside the repository (OP-053 rule), the traces go into `tests/traces`, where the catalog test reads them with `include_str!`. A trace of a missing-ROM case. The README of `data/systems` and `data/cores` | `os/package/libretro-fbneo`, `os/Config.in`, `os/configs`, `os/board/*/LICENCES.txt`, `xtask/src/os`, `data/systems`, `data/cores`, `crates/neptron-library/src/catalog*`, `tests/traces` | M07a (for the trace; the package work can start at once, the merge waits) |
-| M07c, library and set check | The index format, reader and encoder (`neptron-library`, module `arcade`). `cargo xtask arcade-index`. The index in the image. The scan lookup: title, folding, BIOS hidden, marks. The cache version. The set check, its thread `neptron-set-check` and its messages. "Other versions" in the list. The diagnostics lines (`mame` folders, unknown sets, the index state, the full check list) | `crates/neptron-library` (except `catalog*`), `xtask/src/arcade*`, `xtask/src/main.rs`, `xtask/Cargo.toml`, `os/package/libretro-fbneo` (install hook), `crates/neptron-ui`, `apps/neptron` | M07a, M07b, and the orchestrator's `build(deps)` commit for the XML reader in the root `Cargo.toml` |
-| M08b, arcade policy table and goldens | The policy table of section 11 and Appendix A (`tests/integration/arcade_table.rs`), made from the policy as it is. The owner's rule, the findings, the proposed rule set and `display.vertical`, in section 11. Policy goldens (`tests/golden/policy_arcade.toml`) for every cell that follows the rule, and a test that a turn of 270 degrees gives the decision of 90, and 180 that of 0. No change of the policy source | `crates/neptron-modeline/tests`, `docs/spec/arcade.md` | M06 |
-| M08c, arcade video rule | The work items W1 to W8 of section 11, the panel rule R8, `display.panel_scale` and the notices as data, with the decisions of 2026-11-16. Done on the branch of M08b. Every golden that the rule changes, with the reason in the commit; the cells of Appendix A that follow the rule become goldens | `crates/neptron-modeline`, `crates/neptron-settings`, and the callers of the settings | M08b |
-| M08a, rotation | ADR 0015: `Scene::rotation`, both renderers, every `Scene` caller, the testkit hash, `gles-compare` scenes with `R90`, `R180` and `R270`. The session: the source rotation, the aspect inversion (section 11), `always_progressive`. The setting `display.vertical` and its policy effect. The notice and its store | `crates/neptron-types`, `crates/neptron-gfx`, `crates/neptron-testkit`, `crates/neptron-video`, `crates/neptron-session`, `crates/neptron-modeline/src`, `crates/neptron-settings`, `crates/neptron-ui`, `crates/neptron-kms/src/kms/mode.rs`, `crates/neptron-kms/examples`, `crates/neptron-window/examples`, `apps/neptron`, `apps/neptronctl`, `docs/adr` | M07a, M07b, M07c, M08b |
-
-- Build order: M07a; then M07b; then M07c and M08b; then M08c; then M08a. M08b needs only M06 and can start at once.
-- M08a needs W1 of M08c: without it a turned game shows stretched on a multi-sync tube and on every fit. M08c is done on the branch of M08b and merges with it, before M08a (decided 2026-11-16). M08c adds `display.vertical` to the schema and to the policy; M08a passes the source rotation, which makes it take effect.
-- M08a needs M07c because both own `crates/neptron-ui` and `apps/neptron`.
-- M08a needs M08b because both touch `neptron-modeline`: M08a its source, M08b its golden tests. If M08a adds a field to `PolicySettings` (for `display.vertical`), every golden case must set it. M08b merges first, and M08a rebases onto it and fixes the golden cases it then breaks, with no change of an expected result.
-- M13 (the bench sessions) needs M07c and M08a in place of M07.
-- The Pi 3 measurement task that runs now gives the board list for the Pi 3 (section 2). If it finds that a board family needs another core, that is a change to the scope, and the owner decides.
+| Part | Where |
+| --- | --- |
+| Held option values, `SET_ROTATION`, `aspect_from_core`, input descriptors, `zip_entries` | `crates/neptron-libretro`; the re-export in `crates/neptron-session` |
+| Rotation and aspect cases, a core with no save RAM | `crates/neptron-testcore`, `crates/neptron-session/tests/integration/arcade.rs` |
+| The core package | `os/package/libretro-fbneo` |
+| The data files | `data/systems/arcade.toml`, `data/systems/neogeo.toml`, `data/cores/fbneo.toml`; the trace `tests/traces/fbneo.trace` |
+| The index format, the set check | `crates/neptron-library` (module `arcade`) |
+| The index generator | `cargo xtask arcade-index`; the install step of `os/package/neptron` |
+| The check thread, the notices S1 to S3 | `apps/neptron` (`library.rs`, `shell/intents.rs`, `start_failure.rs`) |
+| The video rule | `crates/neptron-modeline` (`policy/`); the table `tests/integration/arcade_table.rs`; the goldens `tests/golden/policy_arcade.toml` |
+| The turn of the game picture | `Scene::rotation` (ADR 0015), both renderers |
+| `display.vertical`, `display.panel_scale` | `crates/neptron-settings`, `crates/neptron-modeline/src/policy/settings.rs` |
 
 ## 17. Measurement plan
 
 ### Free material
 
-- MAME's free sets (mamedev.org/roms) are "approved for free distribution on this site only". They are downloaded to the development machine and never committed (OP-053 rule). FBNeo runs Gridlee, Robby Roto, Alien Arena, Targ, Spectar, Side Trak, Teeter Torture, Hard Hat, Circus, Robot Bowl, Rip Cord and Crash (research list; M07b checks each name against the DAT of the pin). They are light 8-bit boards: they test the package, the scan, the set check, the options, the rates and the core trace, not the speed.
+- MAME's free sets (mamedev.org/roms) are "approved for free distribution on this site only". They are downloaded to the development machine and never committed (OP-053 rule). FBNeo runs Gridlee, Robby Roto, Alien Arena, Targ, Spectar, Side Trak, Teeter Torture, Hard Hat, Circus, Robot Bowl, Rip Cord and Crash (research list). They are light 8-bit boards: they test the package, the scan, the set check, the options, the rates and the core trace, not the speed. The trace of the data files uses Robby Roto (`robby`).
 - The DAT has `test240p` (the 240p Test Suite for Neo Geo). Its licence is UNVERIFIED. It needs `neogeo.zip`, which is SNK code.
 - The NeoOpen BIOS (`neopen.sp1`, ISC) is an optional entry of FBNeo's `neogeo` set. Whether FBNeo boots with it in place of the SNK files is UNVERIFIED.
 - No free Cave, CPS or vertical set is known. `neptron-testcore` covers the rotation path: a 320x240 frame on its side with `SET_ROTATION` 1, 2 and 3 (`R90`, `R180`, `R270`), with an aspect of 3:4 and with no aspect.
 
 ### What only the owner's sets show
 
-The owner's own sets and `neogeo.zip` stay outside the repository, on the development machine and the Pi.
+The owner's own sets and `neogeo.zip` stay outside the repository, on the development machine and the Pi. Section 2 has the first Pi 3 result. Still to do:
 
-1. A headless run of the attract mode of `mslugx` and `ddonpach`, 3 minutes, with no input. Report p50, p99 and the maximum of the CPU time of `retro_run` against the core budget. The research estimates the budget at about 11 ms on the Pi 3 (UNVERIFIED); the measurement task sets it from the frame statistics of OP-103.
-2. The owner's play input, recorded once with `neptron-testkit` and replayed, for the heaviest scenes (DoDonPachi late stages, Metal Slug X boss fights).
-3. The same on the PC.
-4. `fields_missed = 0` on composite and on HDMI.
-5. The 480i picture of DoDonPachi on the PC CRT and on the TV.
+1. The heaviest scenes (DoDonPachi late stages, Metal Slug X boss fights), with the owner's play input recorded once with `neptron-testkit` and replayed. Report p50, p99 and the maximum of the CPU time of `retro_run` against the core budget. The research estimates the budget at about 11 ms on the Pi 3 (UNVERIFIED); the frame statistics of OP-103 set it.
+2. The same on the PC.
+3. `fields_missed = 0` on HDMI.
+4. The 480i picture of DoDonPachi on the PC CRT and on the TV.
 
-The results go into `docs/hardware-checklist.md` through M13. No hardware result is claimed before that.
+The results go into `docs/hardware-checklist.md`. No hardware result is claimed before that.
 
 ## 18. Risks
 
 | Risk | What we do |
 | --- | --- |
-| Pi 3 speed with no Cyclone on aarch64. Cave and CPS-2 are most at risk | The separate measurement decides the Pi 3 list. A failing family is "may be slow" |
+| Pi 3 speed with no Cyclone on aarch64. Cave and CPS-2 are most at risk | The measurement decides the Pi 3 list (section 2). A failing family is "may be slow" |
 | FBNeo changes its sets between commits ("might change from time to time") | One pinned commit. The index and the diagnostics name it |
 | The donation clause of the FBNeo licence | ADR 0014: the project takes no donations; a later plan removes FBNeo first |
 | FBNeo's own error screen when a set passes the check and still fails | The check before launch; the session ends the game at `SHUTDOWN`, and the game list says why (section 10.1) |
 | 480i on Intel and on the Pi `vc4` not proven (OP-103 point 5) | The bench session checks it. `display.vertical = fit` is the way out |
-| A turned game shows stretched on a multi-sync tube and on every fit (section 11, finding 1) | W1 of M08c, before M08a |
-| A display profile with a range of one line rate gets no mode for some boards (section 11, finding 3) | W3 of M08c. The validator refuses the mode, so nothing unsafe reaches the display |
-| Build time and image size: the full FBNeo build is large (a 21.4 MB zip on the libretro buildbot) | M07b measures both. The subset builds are the later size option |
+| Build time and image size: the full FBNeo build is large (a 21.4 MB zip on the libretro buildbot) | The subset builds are the later size option |
 | The core's NVRAM writes are not atomic | Recorded. A patch to the core is a later item |
 | A coin and a Start that overlap open the quick menu | Only a hold of 0.5 s opens it (section 13.1). Bench check with a stick |
 | PAL composite runs every board 9 to 16 % slow | Open point A5 |
@@ -883,22 +734,45 @@ The results go into `docs/hardware-checklist.md` through M13. No hardware result
 
 ## 19. Open points
 
-These are questions with a default. The orchestrator records each in `docs/open-points.md` with its id.
+Questions with a default. `docs/open-points.md` records them as OP-106.
 
 | Label | Question | Default | Where | How to change |
 | --- | --- | --- | --- | --- |
-| A1 | Which XML reader for the DAT in xtask? | `roxmltree` | `xtask`, root `Cargo.toml` | Another reader, or a small parser of the ClrMamePro XML subset |
-| A2 | How does the image build run the index generator? | A post-install hook of `libretro-fbneo` | `os/package/libretro-fbneo` | A step in `cargo xtask os build` before Buildroot |
+| A1 | Which XML reader for the DAT in xtask? | `roxmltree` (built) | `xtask`, root `Cargo.toml` | Another reader, or a small parser of the ClrMamePro XML subset |
+| A2 | How does the image build run the index generator? | The install step of `os/package/neptron` (built) | `os/package/neptron/neptron.mk` | A step in `cargo xtask os build` before Buildroot |
 | A3 | Which BIOS files must a Neo Geo BIOS zip hold, and which game ROMs are optional (`BRF_OPT`)? | For the BIOS, stop only when no file matches and list the rest on the diagnostics page; ask for every game ROM of the DAT | `neptron-library` (`arcade::check_set`) | Read the `BRF_OPT` and `BRF_BIOS` flags of FBNeo's Neo Geo driver into the index, and require the files that the selected BIOS needs |
-| A4 | Where does the frontend keep the one-time notices it has shown? | `state/config/notices.toml`, atomic write | `apps/neptron` | A settings key, or another state file |
+| A4 | Where does the frontend keep the one-time notices it has shown? | `state/config/notices.toml`, atomic write (built) | `apps/neptron` | A settings key, or another state file |
 | A5 | PAL composite runs arcade boards 9 to 16 % slow. Accept for 0.1? | Accept, with the speed alert, as for NTSC | `crates/neptron-modeline/src/policy/tv.rs` | The "keep game speed" choice |
-| A6 | TATE: `screen_orientation` with one `vertical` choice and a direction, or two choices? | Decided by the TATE task with the owner | `crates/neptron-settings` | The TATE ADR |
+| A6 | TATE: `screen_orientation` with one `vertical` choice and a direction, or two choices? | Decided by the owner on 2026-11-19: one setting of 0, 90, 180 or 270 degrees (section 15, OP-107) | `crates/neptron-settings` | The TATE ADR |
 
-The owner decided A7 to A13 on 2026-11-16. Section 11 ("The decisions of 2026-11-16") holds the decisions.
+The owner decided A7 to A12 on 2026-11-16. Section 11 ("The decisions of 2026-11-16") holds the decisions.
 
 ## Appendix A: the arcade policy table
 
-The table of section 11 after the change, made by `cargo xtask test -p neptron-modeline --no-capture arcade_table` on 2026-11-16. Section 11 explains the columns. The rule column gives "ok", an allowed reason, or the first rule that the cell breaks. The table before the change is in the history of this file (commit "docs(spec): decide the arcade video rule from the policy table").
+`crates/neptron-modeline/tests/integration/arcade_table.rs` runs each board of Appendix B through `decide` and `choose` with `neptron_safety::validate`, with the default settings (`auto`, `exact`), and prints this table. It was made on 2026-11-16 with:
+
+```text
+cargo xtask test -p neptron-modeline --no-capture arcade_table
+```
+
+The displays:
+
+- Every preset of `data/monitors`, with a GPU that has no pixel clock floor and sends interlace, as the policy goldens do. A pixel clock floor changes the width of a mode, not its lines.
+- Four profiles that `profile_from_edid` builds from the range limits of typical PC tubes (one range, GTF porches, no interlace), with the GPU's pixel clock limited to the EDID's: `edid_31` (31 to 32 kHz, 50 to 75 Hz, 40 MHz), `edid_30_54` (30 to 54 kHz, 50 to 120 Hz, 80 MHz), `edid_30_70` (30 to 70 kHz, 50 to 160 Hz, 110 MHz), `edid_30_96` (30 to 96 kHz, 50 to 160 Hz, 230 MHz). The test copies the GTF rule of `neptron-platform`, and a test holds the copy to the platform's result for a 30 to 71 kHz tube.
+- Flat panels with their 60 Hz mode: `panel_720`, `panel_768`, `panel_1080` (the panel of the policy goldens, which also lists 50 Hz and 720p), `panel_1440`, `panel_2160`.
+- `tv_ntsc` and `tv_pal`, on the composite output of the Raspberry Pi.
+
+The columns:
+
+- Rung, mode (active size and scan), total lines (a frame of both fields when interlaced), line rate and field rate of the winner.
+- Rate: `exact` when the field rate is the game's rate within 5 mHz, `exact x2` at twice it; else the refresh kind and the speed change. On a panel and a TV, the speed change.
+- Scale: the vertical scale, whole or a fraction for a fit. Filter: of the game picture.
+- Height: the game's share of the active lines of the mode. Border: the black lines of the mode.
+- Shape: the shape on the screen against the game's own shape. A CRT shows its active area on a 4:3 face, a TV shows 704 of its 720 samples as 4:3, a panel has square pixels. +77.8 % is a 3:4 picture stretched to 4:3.
+- Best whole: the largest whole scale that a proposal of the plan has at the game's rate and that the validator accepts.
+- Rule: `ok` when the winner follows the owner's rule, or `ok:` with an allowed reason; else the first rule it breaks (`no mode`, `soft fit`, `shape` beyond 2 %, `rate` when a range covers the game's rate or twice it, `smaller scale` when a larger whole scale keeps the rate on a CRT).
+
+The table is a report of the policy, not a golden. The cells that follow the rule are goldens in `tests/golden/policy_arcade.toml`.
 
 ### `ddonpach`: 320x240 frame, R90, 57.550 Hz
 
@@ -1637,3 +1511,38 @@ The table of section 11 after the change, made by `cargo xtask test -p neptron-m
 | panel_2160 | panel | 3840x2160p | 2250 | 135.000 | 60.000 | +0.00 % | 7.50 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
 | tv_ntsc | interlaced 1:1 | 720x480i | 525 | 15.734 | 59.940 | -0.10 % | 1 | sharp | 60.0 % | 192 | -0.1 % | - | ok |
 | tv_pal | native | 720x288p | 312 | 15.625 | 50.080 | -16.53 % | 1 | sharp | 100.0 % | 0 | +0.0 % | - | ok |
+
+## Appendix B: the reference boards
+
+The policy table (Appendix A) runs these boards (`BOARDS` in `arcade_table.rs`). The size is the frame as the core draws it, and the turn is the one the core asks for. Unless the source names MAME, the size is the one of the FBNeo driver entry and the rate is the one FBNeo reports: its `BurnSetRefreshRate` value cut to 0.01 Hz, or 60.00 Hz when the driver sets no rate (`nBurnFPS` starts at 6000 in `burn.cpp`). The drivers were read at `libretro/FBNeo` master on 2026-11-16, and the MAME drivers at `mamedev/mame` master on the same day.
+
+| Name in the table | Game, board | Frame, turn | Upright | Rate | Source |
+| --- | --- | --- | --- | --- | --- |
+| `ddonpach` | DoDonPachi, Cave 68000 | 320x240, R90 | 240x320 | 57.55 Hz | `d_dodonpachi.cpp`, `CAVE_REFRESHRATE` 15625 / 271.5 |
+| `batsugun` | Batsugun, Toaplan 2 | 320x240, R90 | 240x320 | 59.63 Hz | `d_batsugun.cpp`, `TOA_REFRESHRATE` 59.637405 |
+| `gunbird` | Gunbird, Psikyo | 320x224, R90 | 224x320 | 59.29 Hz | `d_psikyo.cpp`, 15625 / 263.5 |
+| `gunlock` | Gunlock, Taito F3 | 320x224, R270 | 224x320 | 58.94 Hz | `d_taitof3.cpp`, vertical and flipped, 58.943844 |
+| `pacman` | Pac-Man | 288x224, R270 | 224x288 | 60.00 Hz | `d_pacman.cpp`: no rate set |
+| `pacman_60606` | Pac-Man at the board's rate | 288x224, R270 | 224x288 | 60.606 Hz | MAME timing, 6.144 MHz / 384 / 264 (`tests/golden/systems.toml`) |
+| `dkong` | Donkey Kong | 256x224, R270 | 224x256 | 60.00 Hz | `d_dkong.cpp`: no rate set |
+| `gground` | Gain Ground, Sega System 24 | 496x384, R270 | 384x496 | 57.524 Hz | MAME `segas24.cpp`: ROT270, 16 MHz / 656 / 424; 24.39 kHz |
+| `ikaruga` | Ikaruga, NAOMI | 640x480, R270 | 480x640 | 60.00 Hz | MAME `naomi.cpp`: ROT270. The rate is the nominal VGA rate. UNVERIFIED: the MAME raw screen (26.917 MHz, 820 by 532) gives 61.70 Hz |
+| `neogeo` | Neo Geo MVS | 304x224, R0 | | 59.18 Hz | section 12; the width is the research reading of OP-099 |
+| `cps2` | CPS-1 and CPS-2 | 384x224, R0 | | 59.63 Hz | section 12 |
+| `pwrinst2` | Power Instinct 2, Cave 68000 | 320x240, R0 | | 57.55 Hz | `d_pwrinst2.cpp` |
+| `dariusg` | Darius Gaiden, Taito F3 | 320x232, R0 | | 58.94 Hz | `d_taitof3.cpp` |
+| `rtype` | R-Type, Irem M72 | 384x256, R0 | | 55.00 Hz | `d_m72.cpp` |
+| `mk` | Mortal Kombat, Midway Y Unit | 400x256, R0 | | 54.70 Hz | `d_yunit.cpp`: 54.70, or 54.82 for a 400-line screen |
+| `sfiii3ws` | Street Fighter III 3rd Strike, CPS-3 wide mode | 496x224, R0 | | 59.59 Hz | `cps3run.cpp`: 59.59949; the normal mode is 384x224 |
+| `bnzabros` | Bonanza Bros, Sega System 24 | 496x384, R0 | | 57.524 Hz | MAME `segas24.cpp`: ROT0 |
+| `littlerb` | Little Robin | 338x288, R0 | | 30.00 Hz | `d_littlerb.cpp` |
+
+Notes on the owner's candidates:
+
+- Mortal Kombat is 400x256 in FBNeo, not 400x254, at 54.70 Hz.
+- Pac-Man, Galaga and Donkey Kong: FBNeo sets no rate for them, so it reports 60.00 Hz. The boards run at 60.606 Hz. The game then runs 1 % slower than the board on every display, also on a CRT that shows 60.00 Hz exactly. The policy cannot know the board's rate. `pacman_60606` shows the result for a core that reports the board's rate. Galaga (224x288) gives the same cells as Pac-Man.
+- Radiant Silvergun: MAME `stv.cpp` lists `rsgun` as ROT0, so it is not a vertical board. ST-V has no FBNeo driver. It is not in the table.
+- Rainbow Islands (`d_taitomisc.cpp`, 320x224, no rate set, so 60.00 Hz) gives the same cells as other 224-line boards at 60 Hz. It is not in the table.
+- A horizontal board of 288 lines: the only ones in FBNeo are Little Robin and its clone (338x288). Little Robin reports 30.00 Hz, so it is also the case of a board below every CRT range.
+- 24 kHz boards: Sega System 24 is the medium-resolution case (496x384 at 24.39 kHz). Gain Ground and Scramble Spirits are System 24 boards that are vertical (ROT270): 496 lines upright. No FBNeo driver exists for System 24, so these need a MAME core, after the MVP.
+- No board in the list runs above 60.606 Hz. NAOMI is the 31 kHz board.
