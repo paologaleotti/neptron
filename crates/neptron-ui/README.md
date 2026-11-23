@@ -2,239 +2,6 @@
 
 The sealed UI: snapshot in, scene and intents out. A 320x240 XRGB8888 canvas, a bitmap font, five widget templates, the scene registry and the screens.
 
-## Public API sketch
-
-- `Snapshot` (module `snapshot`): what the UI shows. All systems; a `GameWindow` of one game list; a `SettingsPage` of one page (`MenuItem` with a typed `SettingValue` and its source `Level`); monitor profiles, the display, a pending confirm-or-revert, the session, notices, and the video status of the running game. The app fills it. The snapshot and its entry structs are `#[non_exhaustive]`: start from `Snapshot::default()` and the `new` constructors.
-- `ChoiceOption`: one option of a `SettingValue::Choice`. Fields: a label; a detail text (for a picture mode in the quick menu: the line rate and the field rate it gives; on Settings > Display a tag such as "Not all games"); `unavailable: Option<String>`, the reason why the player cannot choose it now; `short: Option<String>`, a short label for the value column of a settings row (`HDMI/DP 1` for `HDMI/DP 1 (HDA Intel PCH)`); `help`, what the option gives up (the compromises of a picture mode), which the help line under the option list shows in place of the detail. The option list always shows the label. `ChoiceOption::new(label).with_detail(..).with_short(..).with_help(..).unavailable(..)`; `From<&str>` makes a plain option.
-- `SettingValue::Page(PageId)`: a row that opens a page. A reserved page id opens a screen of the UI: `SETTINGS_PAGE` the Settings page, `GRID_PAGE` the grid pattern.
-- `SettingValue::Link { page, text }`: an information text on a row that opens a page, such as the name of a controller on the Input panel. It draws as a `Text` row with the arrow of a page row, so its text ends before the arrow column. Accept opens the page; the tree kind is `Page`.
-- `Snapshot::pad_mapping: Option<PadMapping>`: the guided mapping of a controller (`docs/spec/input-remapping.md`). `PadMapping::new(id, pad, stage, remaining_ns)`, `MappingId`, and `MappingStage::Prompt { prompt, step, steps, note }` or `MappingStage::Review { message, can_keep }`. It shows over every screen, under a pending confirmation, also over a running game. The prompt takes no action but back, which sends `Intent::CancelPadMapping`: the pad of the mapping sends no action, so back comes from a keyboard or another pad. The review is a dialog with `Cancel` (the focus) and `Keep`, which sends `Intent::KeepPadMapping`; a review that cannot keep shows `Cancel` alone. Screen ids `pad-mapping` and `pad-mapping/review`.
-- `SettingValue::Text(String)`: an information row, such as the address in the Network panel. It takes no change, no reset and no picker, and has no source. The label is drawn at the left in its own width, and the text right-aligned in the rest of the row, after one character of space, in the arrow column too. Both are in `text`, at full brightness. With the focus it looks like a disabled row with the focus. A text that does not fit is cut with `...`; the tree row is clipped and holds the whole text. The tree kind is `Info`.
-- `MenuItem::with_confirm(question, message, working)`: an action row that asks first. Accept opens the dialog widget over the page with the question as its title, the message, and the buttons `Cancel` and the label of the row. The focus starts on `Cancel`, so a blind accept sends nothing; only right, then accept, sends `Intent::Action`. Back and `Cancel` close it with no intent. A row that goes away, is disabled or loses its question closes the dialog with no intent. After the confirm, a box with the row label and `working` (for example `Shutting down...`) and no buttons replaces the dialog (screen id `confirm-action/working`), so the last frame of the run says what happens; it takes only back, which closes it. The tree shows the dialog alone under the screen id `confirm-action`, with the hints `Accept: choose` and `Back: cancel`.
-- `MenuItem::unavailable(reason)`: a row whose setting has no effect now, for example the refresh rate on a flat panel. The row shows the reason in place of its value, source and arrows, in the dim colour, and takes no change, no reset and no picker. With the focus it looks like a focused option that cannot be chosen in an option list: a solid bar in the `border` colour with the label and the reason in `text`, not the amber focus fill. It is not a one-pixel edge, because a scanline can hide it. The footer shows no accept hint. The UI tree gives the reason as the row's value and the kind `Disabled`.
-- `VideoStatus`: the video status of the running game: `game`, `mode`, `result` and `alert`. `VideoStatus::new(game, mode, result).with_alert(..)`. See "The video block".
-- `Notice` carries a `NoticeId`. Two notices in one snapshot have different ids.
-- `UiAction`: up, down, left, right, accept, back, menu.
-- `Intent` and `Value`: what the app must do (load a game window or a settings page, launch, set or reset a value at a level, run an action, select a profile, keep or revert a mode, resume, quit, dismiss a notice). `Intent` is exhaustive on purpose: a new intent breaks the build of the app until the app handles it.
-- `UiFrame`: the output of one frame. `scene: UiScene` (draw commands), `tree: UiTree` (rows for `ui tree` in the control API, each with its `RowKind` when it is a row of a list), `intents: Vec<Intent>`. Make one at launch and reuse it; `clear()` keeps the memory.
-- `UiScene`: the four primitives `rect`, `sprite`, `text_run` (or `text_fmt`), `clip`. `render(&mut impl Canvas)` replays them.
-- `trait Canvas` and `CpuCanvas`: `CpuCanvas::as_bytes()` is XRGB8888, little-endian, pitch 1280, ready for the `ui` frame of a `Scene` in `neptron-types`. A fill writes one row with doubling copies and copies it to the other rows: a loop over the pixels took 5.5 ms a frame for the quick menu on a Raspberry Pi 3.
-- `SceneCanvas`: a `CpuCanvas` and the scene on it. `paint(&UiScene) -> bool` draws only a scene that differs from the scene on the canvas, so a static UI costs one comparison of the commands per frame.
-- `font`: Spleen 6x12, printable ASCII and Latin-1, 6 px advance, capitals 8 px tall. Other characters draw `?`.
-- `text`: `fit`, `draw_in` (cut with `...`, aligned, reports clipping), `wrap`, `StackText` (formatting with no allocation), `value_text`.
-- `skin`: `parse(text) -> Result<Theme, SkinError>` reads a skin file (see "Skin").
-- `theme`: `Palette` (ten colours: `background`, `panel`, `border`, `text`, `text_dim`, `focus`, `focus_text`, `accent`, `warning` for a result the player must notice, `error` for something that failed), `Theme` and `SAFE_AREA` (5% overscan margin: 16 px left and right, 12 px top and bottom). `Theme::new(palette, row_height_px, padding_px)` refuses sizes outside `ROW_HEIGHT_MIN_PX..=ROW_HEIGHT_MAX_PX` (12 to 24) and above `PADDING_MAX_PX` (16) with a `ThemeError`, so a bad skin fails once at load. Inside these limits no layout sum can overflow, and the templates use saturating maths on every count and rectangle from the caller. A test with a fixed seed draws all five templates with random themes, rectangles, counts and values.
-- `widgets`: `List`, `SettingsList`, `Dialog`, `Grid`, `Slider`. `DialogContent::tone` (`DialogTone::Normal`, `Warning` or `Error`) sets the colour of the title bar of a dialog. Each holds only its cursor or focus. `handle(action, ...)` returns an event (`SettingsList` returns ready intents); `draw(frame, theme, data)` adds commands and tree rows. A `List` row that is not available is dim, and grey instead of the focus colour when focused. `SettingsList::with_pickers()` makes accept on a choice row give `SettingsEvent::Pick` instead of a change; accept on a `SettingValue::Page` row gives `SettingsEvent::Open`. See "Rows".
-- `registry`: `SceneDef { name, build }`, `scenes()`, `find()`, `render()`. The template scenes are `widgets/*` and `font/ascii`.
-- `golden`: the golden image format and a bit-exact comparison with a readable difference.
-- `screens`: `Screens`, the router that the app calls once per frame; the page ids and the reserved menu actions; `screens::SCENES` adds the scenes of the screens to the registry. See "Screens".
-
-### Data for each view
-
-The UI chooses the view; the app owns the data. A screen asks for the data of its view with an intent, and the app answers in a later snapshot:
-
-- `Intent::LoadGames { source, first, count }` asks for rows of a game list. `GameSource` is `System(id)`, `Favourites`, `Recents` or `Versions(id)`. The app puts a window of rows around them in `Snapshot::games`: a `GameWindow` with its `source`, the index `first` of its first row, the `total` of the list, and the rows. A list of 10,000 games costs a window of rows, not 10,000 copies, and the snapshot is passed by reference, never copied per frame.
-- `Intent::LoadSettings { page }` asks for the rows of a settings page. The UI names the pages that the app loads (`screens::DISPLAY_PAGE`, `AUDIO_PAGE`, `QUICK_MENU_PAGE`, `VIDEO_PAGE` and the panels in the table below); the app numbers other pages below `screens::RESERVED_ID_MIN`. The app puts the rows in `Snapshot::settings`, a `SettingsPage` with its `page`.
-- Systems, profiles, display, confirm and session are small and always complete.
-
-`GameWindow::is_for`, `covers` and `SettingsPage::is_for` let a screen tell old data from current data. A screen asks again in each frame until the snapshot answers, at most one request per frame, and never while the snapshot holds what it needs. The app drops a request that is already in flight, so the repeats cost nothing. This keeps the UI free of I/O and the app free of screen logic. A snapshot with every list complete would copy or hold the whole library for each frame.
-
-## Screens
-
-### The router and what the app does each frame
-
-`screens::Screens` holds the state of the UI: the stack of open screens with their cursors, the focus of the confirm dialog, the notices the player dismissed, and the changes made in the quick menu. Everything else comes from the snapshot, so a screen is a function of that state, the snapshot and the actions of the frame.
-
-The app makes one `Screens::new(theme)` at launch, keeps it, and each frame:
-
-1. Fills the snapshot from the library, the settings, the session and the video engine. A notice stays until the player dismisses it or the app removes it.
-2. Calls `screens.update(&snapshot, &actions, &mut frame)`. `update` clears the frame, follows the snapshot (a session that starts or ends), applies the actions in order, asks for missing data, and draws.
-3. Carries out `frame.intents` in order. It drops a `LoadGames` or `LoadSettings` that is already in flight. It ignores a `Launch` while a session starts or runs. When it puts a new `PendingConfirm` in the snapshot, it stops every key repeat and sends no action for a key held at that moment until the key is released (`Navigator::hold_back`).
-4. Reads `screens.shows_ui()`. False: a game runs with no menu over it, so the app shows the game alone, keeps the core running, and sends the UI only the menu button. True: the core is paused and the app draws `frame.scene` over it.
-5. Renders `frame.scene` on the canvas and gives `frame.tree` to the control API (`ui tree`).
-
-The UI has no clock and takes no time step. Key repeat comes from the app (for example after 400 ms, then every 66 ms). The UI cannot see a held key, because `UiAction` has no press or repeat flag, so step 3 is what keeps a held direction from moving the confirm focus to Keep. The countdown of the confirm dialog comes from `PendingConfirm::remaining_ns`. No screen needs a timer: a long title is cut with `...` and shown in full under the list, and the UI never expires a notice.
-
-### Navigation
-
-- Everything works with the D-pad, accept and back, with two exceptions that need the menu button: it opens the quick menu during a game (the app sends it for the button combination), and it resets a settings row to the inherited value. A pad with two buttons can choose any value, but cannot reset a row to inherited (OP-049).
-- Accept opens, plays or chooses. Back closes the screen on top and nothing else; on home it does nothing. The screen under it keeps its cursor, so the focus is on the row that opened the closed screen. A page whose rows are not in the snapshot yet takes only back, so an early action cannot move its cursor.
-- Up and down move one row; left and right move one page in a list. Lists stop at their ends and do not wrap.
-- Menu in a game list adds the focused game to the favourites or removes it. Menu on a settings row removes a value set at the level of the screen, so the row inherits again.
-- The stack: home, then a game list, then the game. Over the game: the quick menu, from it the video page or the Settings page, then a panel, then options or the grid pattern. From home: the Settings page, then a panel, then options or the grid pattern. `MAX_DEPTH` is 8; the deepest path is 7 (home, game list, game, quick menu, Settings, display panel, options).
-- On top of every screen: the confirm dialog while the snapshot holds a pending confirmation (also over a running game), else the oldest notice that the player has not dismissed (not while a game runs alone: the canvas is opaque and would hide the game).
-
-The screen ids in the tree are `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `quick-menu/video`, `settings`, `display`, `audio`, `library`, `system`, `page` (any other page), `options`, `pattern/grid`, `confirm`, `confirm-action` and `notice`. The rows of the video block have the ids `video/game`, `video/mode` and `video/result` as their labels. Under a dialog the tree holds the rows of the dialog only, and the hint band shows the hints of the dialog: "Accept: revert" and "Right, then Accept: keep" for the confirm dialog, "Accept: OK" for a notice, "Accept: choose" and "Back: cancel" for the prompt of the quick menu.
-
-### Ids that the UI and the app share
-
-| Id | Value | Use |
-| --- | --- | --- |
-| `DISPLAY_PAGE` | `PageId(RESERVED_ID_MIN + 1)` | The display panel: the display setting rows of the app (`DISPLAY_KEYS` in `apps/neptron/src/pages.rs`) and a row that opens `GRID_PAGE`. Written at the global level |
-| `QUICK_MENU_PAGE` | `PageId(RESERVED_ID_MIN + 2)` | The first page of the quick menu: Resume, the volume of the game, a row for `VIDEO_PAGE`, a row for `SETTINGS_PAGE`, Quit game. Written at the game level |
-| `AUDIO_PAGE` | `PageId(RESERVED_ID_MIN + 3)` | The audio panel: volume and output device. Written at the global level |
-| `GRID_PAGE` | `PageId(RESERVED_ID_MIN + 4)` | The grid test pattern, as the target of a `Page` row. The app never loads it |
-| `SETTINGS_PAGE` | `PageId(RESERVED_ID_MIN + 5)` | The Settings page, as the target of a `Page` row. The UI shows it from `SETTINGS_PANELS`; the app never loads it |
-| `VIDEO_PAGE` | `PageId(RESERVED_ID_MIN + 6)` | The video page of the quick menu: the video block and the display settings of the game. Written at the game level |
-| `LIBRARY_PAGE` | `PageId(RESERVED_ID_MIN + 7)` | The Library panel: the rescan row of the app |
-| `SYSTEM_PAGE` | `PageId(RESERVED_ID_MIN + 8)` | The System panel: the reboot and shut down rows of the app |
-| `NETWORK_PAGE` | `PageId(RESERVED_ID_MIN + 9)` | The Network panel: information rows with the address, the host name and the share (`docs/spec/network-panel.md`). Screen id `network` (`NETWORK_SCREEN`), which the app reads to know whether the panel is on screen |
-| `INPUT_PAGE` | `PageId(RESERVED_ID_MIN + 10)` | The Input panel: information rows with the pad of each player, and the input settings (`docs/spec/input-players.md`). Screen id `input` (`INPUT_SCREEN`), which the app reads to know whether the panel is on screen |
-| `RESUME` | `ActionId(RESERVED_ID_MIN + 1)` | Close the quick menu: `Intent::Resume` |
-| `QUIT_GAME` | `ActionId(RESERVED_ID_MIN + 2)` | Stop the game: `Intent::QuitGame` |
-
-`RESERVED_ID_MIN` is `0xFFFF_0000`. The UI carries out the reserved actions itself and never sends them as `Intent::Action`. The app numbers its own pages and actions below it.
-
-`SETTINGS_PANELS` is the list of the Settings page: a static table of `Panel { label, page }`: `Display`, `Audio`, `Input`, `Library`, `Network` and `System`. A new panel is one entry and a page that the app answers for. Any page other than the display panel shows in the generic page screen (`PagePanel`), so a new panel needs no screen code.
-
-### Home and the game list
-
-Home lists the systems with their game counts, then Favourites, Recent games and Settings. With no systems it says where the games go: the `roms` folder of the share partition, with a folder for each system. It names `roms/snes` and `roms/arcade` as examples, so the text does not grow with each system. The first boot makes every system folder on the share. With no systems home keeps one Settings row, so a new user can still fix the picture and the sound.
-
-### Pages and the audio panel
-
-The Settings page lists the panels of `SETTINGS_PANELS` and writes nothing; its panels write at the global level, also in a game. A page opened from a row writes at the level of the screen that opened it. The generic page screen shows the rows of its page in one framed box, and the video block above them for `VIDEO_PAGE`. The audio panel is such a page: the volume as a number row (left and right step it) and the output device as a choice row, whose options open in a list (`docs/spec/audio-settings.md`).
-
-### Rows
-
-`docs/spec/ui-navigation.md` sets one rule for the rows of every list. A row has a `RowKind`: `Page` (accept opens a page, an option list or the grid), `Value` (it changes in place), `Action` (accept does something), `Disabled`, or `Info` (a text to read, no control). A `Page` row shows a right-pointing triangle at its right edge, 4 px wide and 7 px high, drawn with rectangles in `text_dim` (`focus_text` on the focused row). A `>` glyph would read as the end of `< value >`. Every settings row keeps a column of `ARROW_COLUMN_PX` (8) free at its right edge, so the value and source columns line up. The footer hint follows the kind of the focused row (`SettingsList::hint`): `Accept: open`, `Accept: change` for a switch, `Left/Right: change` for a number, `Accept: choose` for an action, none for a disabled row or an information row.
-
-### The breadcrumb
-
-The title band of every page below home and of every quick menu page shows the path to it: `Settings > Audio > Audio output`, or the title of the game first in a game (`Astro Racer > Video`). The separator is ` > `. A path too long for the band keeps its last two parts after `... > `; then the second last part is cut at its end with `...`; then only the last part stays, cut the same way (`breadcrumb::fit`). The tree row holds the text as drawn, and the whole path as its value when the rule shortened it. Each screen keeps the label of the row that opened it in a `StackText`, so opening a screen allocates nothing for it.
-
-### The game list window
-
-The game list needs the visible rows and `PREFETCH_ROWS` (32) rows on each side of them. While the snapshot holds that range it asks for nothing. When it does not, it asks for `WINDOW_ROWS` (128) rows centred on the visible rows, once per frame, until the snapshot holds them. The margin is larger than a page, so a step or a page jump shows rows of the old window while the new one loads. A jump past the window shows `...` rows until the data comes. While the snapshot holds a window of a different list, the cursor stays where it is and the list draws no rows. An empty list says why it is empty. The focused title shows in full on two lines under the list.
-
-A game list draws the marks of a game in its detail column: `*` favourite, `V` vertical screen, `!` not working, `?` not a set of the arcade index. The panel under the list gives them in words on its last line, with `Other versions (N)` for a game that has folded clones (`GameEntry::versions`). Accept on such a game opens the list `GameSource::Versions(id)`: the game itself first, then its other versions, each named with its details by the app. Accept there starts the version, and back returns to the list.
-
-### The display panel and the confirm dialog
-
-The display panel shows the output, the mode and the monitor on screen now, then the rows of `DISPLAY_PAGE`. While a game runs with a video status, the panel shows the output and the monitor, then the video block (see "The video block"), which shows the mode as the kernel reports it, then the rows. With the default skin all five rows of the display page still fit. A skin with rows too tall for the block (24 px rows leave no row under it) keeps the panel without the block, with the mode line in the info box. The panel never changes the display itself. A choice row does not change with left and right: accept opens the list of its options, each with its detail, for example "31.5 kHz  59.94 Hz". An option with a help line shows it under the list in place of its detail. An option the display cannot give is grey, with its reason in the row and in full under the list ("Not available. A TV has one rate."), and accept on it does nothing. A reason wider than half the row shows as "Not available" in the row, so the label never clips; the help line still gives it in full. Accept on a different option sends one `SetValue`. The app validates the change, switches, and puts a `PendingConfirm` in the snapshot.
-
-The confirm dialog has the buttons Revert and Keep, in that order. The focus starts on Revert for each new confirmation: one whose `PendingConfirm::id` differs from the last frame, or that the last frame did not have. The app gives each signal change a new `ConfirmId`, also a change that replaces another at once; more time left under the same id is the same confirmation. Accept on Revert and back send `RevertMode`. Only right, then accept, sends `KeepMode`. Each direction that reaches the dialog moves its focus at once. So a player who cannot see the picture and presses accept gets the old picture back. After one answer the dialog ignores the other actions of that frame. The app carries out the answer in the same frame. When the next snapshot still holds the same confirmation, the app refused the keep: the dialog takes input again, with the focus where it was. The dialog shows the time left, rounded up to whole seconds. At 0 s it shows Revert alone, because the app refuses a keep at the deadline. When the time ends the app reverts; the UI never does.
-
-### The quick menu
-
-Menu during a game opens the quick menu over the paused game: Resume, Volume, Video, Settings and Quit game. Its rows and the rows of the video page write at the game level and apply at once. When the player leaves after a change (back, Resume or Quit game), one prompt asks where to keep the changes: This game (the focus), System or All games. For System or All games the UI sends `SetValue` at that level and `ResetValue` at the game level, for each changed row that allows the level. The quick menu reads the scopes of the row when the change is made, from the page of that frame, because the prompt opens on the first page, which does not hold the rows of the video page. A change whose row was not in the snapshot stays at the game level. The app checks the scopes of every `SetValue` again, as for any other change. Back in the prompt returns to the quick menu.
-
-When the player leaves a sub page with back, before it asks, and again before it moves a change, the quick menu forgets a noted change whose row on the page that made it no longer shows that value at the game level: the app took it back (the guard reverted a display change that was not kept), so there is nothing to keep. Rows of another page, such as a global panel with the same key, never count. The UI takes no more actions in the frame of a change at the game level, so the snapshot shows the change before any check. The UI notes at most `MAX_CHANGES` (16) settings per visit; a further one stays at the game level. After Quit game the quick menu waits for the session to end and ignores input, except back: back gives the quick menu back, so a player is never stuck when the app does not stop the game.
-
-### The video block
-
-`Snapshot::video` holds the video status of the running game as text. A formatter in `neptron-video` makes the text from the state of the video engine, and the app copies it into the snapshot each frame. The UI draws the text as it gets it. It does not parse, compare or round a value, and it does not choose which result is an alert.
-
-| Field | Meaning | Example |
-| --- | --- | --- |
-| `game` | What the core asks for: the source size, then the field rate | `256x224             60.099 Hz` |
-| `mode` | The mode on screen as the kernel reports it: the size with its scan suffix, the line rate, the field rate, then two spaces and the rung of the picture | `768x448p  30.05 kHz 60.099 Hz  2x` |
-| `result` | The result in words. The formatter joins two or more results with `, `. An alert result starts with the mark `[!] ` | `exact`, `[!] cropped 2 lines, speed (60.099 to 59.940 Hz)` |
-| `alert` | True when the player must notice the result. The formatter sets it for `filtered` and for `speed` | |
-
-The formatter writes fixed columns, so that the field rates of the two lines are one under the other:
-
-- Columns 1 to 10: the size, padded with spaces to 10 characters. The mode size ends with the scan suffix: `p` for progressive, `i` for interlaced (`768x448p`, `640x480i`).
-- Columns 11 to 20: the line rate, padded to 10 characters. It is in kHz with two decimals (`30.05 kHz`), and with one decimal from 100 kHz up (`133.3 kHz`, a 2160p panel), so it stays 9 characters. On the game line these columns are spaces.
-- Then the field rate in Hz with three decimals (`60.099 Hz`). The mode line uses the rate read back from the kernel, never the requested one.
-- On the mode line only: two spaces, then the rung of the picture (`2x`, `native`, `fit`).
-- When `alert` is true: the mark `[!] ` first. It is not a result word, and no `, ` follows it.
-- The results, in this order when there are more than one: `exact`, `double refresh`, `cropped N lines`, `small picture N%`, `filtered`, `speed (X to Y Hz)`. X is the rate of the game and Y the rate on screen, both with three decimals.
-
-Before the video engine reads the mode back from the kernel, the app sends no status (`None`), and the block does not show. So the block never shows a requested mode as if it were on screen.
-
-The app supplies `Some(status)` while a game runs and `None` when no game runs. It keeps one `VideoStatus` and writes new text into its strings (`clear`, then `write!`) when the status changes, so the frame allocates nothing. The screens show the block only while `Snapshot::session` holds a game as well.
-
-The video page of the quick menu shows the block above its rows, and the display panel shows it under its info box while a game runs: a framed box with the heading "Video" and four lines of 12 pixels (one glyph box, for every row height of the skin).
-
-```
-Video
-Game     256x224             60.099 Hz
-Mode     768x448p  30.05 kHz 60.099 Hz  2x
-         exact
-         (second line of the result, empty here)
-```
-
-The layout is fixed: the result always starts on its own line under the mode text, and the block always has two lines for it. A digit or a result that changes never moves a line or the menu rows, which reads better on a 15 kHz CRT. An alert result is drawn in the `warning` colour of the skin (orange in the default skin), which differs from the amber focus colour, so it never reads as a focused row. The block is not focusable and takes no input: the cursor starts on the first menu row, and Up from it stays there. Without a status the block is absent. A screen shows the block only when at least 2 rows of its page fit under it. With the default skin the video page shows all its rows; with 24 px rows it shows 3 of its 4 rows and scrolls.
-
-Lengths at 320x240 with the default skin: the value column starts after a name column of 9 characters and holds 37 characters (222 px). `game` and `mode` that are longer are cut and end with `...`; the UI never wraps them. The worst case of the mode line is `1920x238p 15.73 kHz 59.940 Hz  native`: 37 characters. A field rate of 100 Hz or more adds one character, so with `native` the line has 38 characters and is cut. `result` wraps at spaces onto two lines of 37 characters; text left over after the second line is cut with `...`. Results with the mark such as `[!] double refresh, small picture 100%, speed (57.500 to 50.082 Hz)` (67 characters, 33 and 33 on two lines) fit. A test in `neptron-video` checks the longest real results. A skin with a larger padding gives fewer characters. The UI never draws outside the block.
-
-The tree gives each line one label row with a stable id as the label and the whole text as the value, also when the drawing is cut: `video/game` (`screens::VIDEO_GAME_ROW`), `video/mode` (`VIDEO_MODE_ROW`) and `video/result` (`VIDEO_RESULT_ROW`). The heading is a label row "Video".
-
-### Notices
-
-A notice shows as a dialog with one button, oldest first. Accept or back sends `DismissNotice(id)`, and the UI hides that notice until the app removes it from the snapshot. The UI shows the notice after the newest one the player dismissed: the notices are oldest first, so the ones before it were dismissed too. It remembers 8 dismissed ids; when all 8 are still in the snapshot, it forgets the oldest one, which stays hidden behind a newer dismissed one. The app adds new notices at the end. A failed launch is a notice of kind `Error`. The title bar of a notice has the colour of its kind: `accent` for `Info` ("Note"), `warning` for `Warning` and `error` for `Error`, so the player sees how serious it is before reading it.
-
-A notice with a choice (`Notice::with_choice(label)`) shows `Cancel` and the label, and each new notice opens with the focus on `Cancel`, so a blind accept does nothing. Accept on the label sends `AcceptNotice(id)`; back, or accept on `Cancel`, sends `DismissNotice(id)`. An arcade game that cannot be checked uses it, with the label `Start`.
-
-The buttons of a dialog share one width while the widest label fits in an equal share of the row. A longer label gets its own width when every label of the row then fits.
-
-### Opening a panel from the app
-
-`Screens::open_panel(page, focus)` opens a panel of the Settings page in the next `update`, with the focus on the row `focus` once the rows are in the snapshot. The panel on show only moves its focus. When a Settings page is open, the screens above it close (as by back) and the panel opens from it, so there is never a second Settings page. Else, when the stack has no room for both, the screens above the quick menu or the home screen close first (the deepest stack with no Settings page is seven screens: home, a game list, the versions of a game, the game, the quick menu, its video page and an option list). Then the Settings page and the panel open on top. When the panel cannot open, nothing more opens and `Screens::take_open_failure()` gives the page once; the app shows a notice. Nothing opens over a game with no menu. The app uses it for the button `Set up this controller` of the notice of a pad with the generic layout.
-
-### The grid pattern
-
-The grid pattern draws fixed pixels that do not follow the skin. `src/screens/pattern.rs` lists every pixel: a white border on the exact edge of the canvas, a grey grid of 16-pixel squares with lines two pixels wide and centred on the canvas, a white centre cross, amber corner marks at the safe area, and "Back: return" at the bottom of the safe area. Accept or back closes it.
-
-### Look
-
-The screens use the templates on a dark background: a title band with the breadcrumb and a two-pixel accent line under it, framed boxes, a hint band at the bottom, an amber bar on the focused row, and an arrow at the right edge of a row that opens a page. The frames that the screens draw are two pixels high, so an interlaced mode shows them in both fields. The dialog template keeps its one-pixel frame in the border colour, which has medium contrast. No text is pure red or pure blue. All content is inside `SAFE_AREA`.
-
-### Scenes
-
-Every screen state that matters is a scene with a golden image: `screens/home`, `screens/home-empty`, `screens/settings`, `screens/breadcrumb-long` (a game title cut in the breadcrumb), `screens/games-top`, `screens/games-middle` (a title too long for its row), `screens/games-end`, `screens/games-one`, `screens/games-empty`, `screens/games-arcade` (the marks and the line of facts under the title), `screens/games-versions`, `screens/display`, `screens/display-style` (the picture modes on Settings > Display, with 2x not for every game), `screens/picture-mode`, `screens/picture-mode-panel`, `screens/picture-mode-tv` (the picture modes on a 15 kHz tube, a panel and a TV), `screens/picture-mode-speed-not-held` (a long reason in the quick menu), `screens/picture-mode-reset` (an option that also sets the refresh rate), `screens/refresh-rate` (Double rate not for every game), `screens/display-safe-mode` (the rows that end safe mode), `screens/confirm-10s`, `screens/confirm-3s`, `screens/confirm-0s` (Revert alone), `screens/notice` (an error), `screens/notice-warning`, `screens/notice-choice` (`Cancel` first), `screens/notice-set-files` and `screens/notice-wrong-set` (the longest texts of the arcade set check), `screens/quick-menu`, `screens/quick-menu-panel` (the video page on a flat panel), `screens/quick-menu-keep`, `screens/quick-menu-video` (the video block, exact), `screens/quick-menu-video-filtered` (an alert, in the warning colour), `screens/quick-menu-video-long` (a full mode line and a result on two lines), `screens/display-video` (the display panel during a game, 31 kHz mode), `pattern/grid`, `screens/audio` (with the short value of the output), `screens/audio-output` (the options of the output device, a three-part breadcrumb) and `screens/quick-menu-volume` (the volume of a game, set for its system). Each scene drives a `Screens` with fixture data and actions, as the app does. A new scene needs a golden image in `crates/neptron-ui/tests/golden/<name>.ppm`: look at it with `cargo xtask shot <name>` first, then write it with `cargo xtask golden --bless <name>`.
-
-## Screensaver
-
-Module `screensaver`, pure, as `docs/spec/screensaver.md` specifies.
-
-- `Idle`: the idle timer. `Idle::step(now_ns, input, allowed, timeout_ns)` gives `IdleStep::Hidden`, `Shows { elapsed_ns }` or `Woken`. While the screensaver may not show, or is off (`timeout_ns` is `None`), the timer restarts. `Woken` means the app consumes the input of the frame.
-- `pose(frames, width, height)`: the position of the word `NEPTRON` (the UI font at `WORDMARK_SCALE` 2, 84x24 pixels) in whole pixels, the walls hit, and the colour from `PALETTE` (8 colours, no channel above 0xBF). It is a pure function of the count of UI frames since the start: `STEP_PX` (1) pixel on each axis in each frame, a 45 degree path, in integer maths.
-- `Snapshot::screensaver`: the count of UI frames since the start while it shows. The router then draws the screensaver over every screen and overlay (screen id `screensaver`, no rows) and ignores every action.
-- Scenes `screens/screensaver-start`, `-wall` and `-later` at three times.
-
-## Skin
-
-`data/skins/default/skin.toml` holds the colours and sizes of the built-in skin. It is a small subset of TOML: a top-level `version`, a `[colors]` table with the palette colours as `"#RRGGBB"`, and a `[sizes]` table with `row_height_px` and `padding_px`. The app reads the file and passes the text to `skin::parse`, which makes the theme through `Theme::new`. A missing or unknown key, a bad colour or number, a size outside the theme limits, or a version outside `SKIN_VERSION_OLDEST..=SKIN_VERSION` is refused with a `SkinError` that names the line or the key. The parser checks the version when it reads it, so a newer file gets the version error and not an error for one of its new keys.
-
-The format is append-only: a new version adds keys and never renames or removes one. Every key of the version of the file is required.
-
-| Version | Colours | Sizes |
-| --- | --- | --- |
-| 1 | `background`, `panel`, `border`, `text`, `text_dim`, `focus`, `focus_text`, `accent` | `row_height_px`, `padding_px` |
-| 2 | Version 1, plus `warning` and `error` | As version 1 |
-
-A version 1 file still loads. It gets `warning` and `error` from `Palette::default()`, and a `warning` or `error` key in it is an unknown key. The committed file is version 2, and a test checks that it gives `Theme::default()`. Images, fonts and sounds of a skin come after the MVP.
-
-The default colours of version 2: `warning` is orange `#FF8020` and `error` is a light red `#FF6060`. `warning` is 19 degrees of hue away from the amber focus bar (`#F0C030`) and has two thirds of its luminance, so warning text does not read as a focused row. Both stay readable on the panel (contrast 5.7:1 and 4.9:1), and dark text on them reads at 7.3:1 and 6.2:1. The red has green and blue in it: pure red text smears on a CRT and has low luminance.
-
-## Golden images
-
-The goldens of the scenes live in `crates/neptron-ui/tests/golden/` (`golden::GOLDEN_DIR` is relative to the crate). The root `tests/golden/` is for application-level screenshots, such as the end-to-end runs of the app.
-
-The format is binary PPM (`P6`, maxval 255): the header `P6\n320 240\n255\n`, then RGB rows. The unused byte of XRGB is not stored. The test `tests/golden.rs` renders every scene and compares the bytes. Every value in the pixel path is an integer (positions, sizes, slider fill, scroll bar), so macOS and Linux give the same bytes.
-
-## No allocation per frame
-
-`UiScene`, `UiTree` and the intent list keep their memory on `clear()`. Text goes into the store of the scene; numbers are formatted with `StackText` on the stack. `CpuCanvas` makes its buffer once in `new()`. `SceneCanvas` copies the scene it drew with `UiScene::copy_from`, which keeps the memory. A unit test draws every registered scene twice and checks that no buffer grew or moved. That test is a proxy: the crate forbids `unsafe`, so it cannot install a counting allocator. Fixture data of the scenes is made when the scene is built and is not part of the frame.
-
-For the router, the tests prove that the scene, the tree, the intent list and the screen stack keep their capacity: for a static screen or overlay after its first frame; for a round trip from the top of a 10,000-game list to its end and back, after one warm-up round trip; for a confirmation, a notice and the quick menu that open and close over a game, after one warm-up round, with and without the video block. What can still grow: a frame with more or longer text than any frame before it grows the scene and the tree once; opening the quick menu allocates one box for its state, freed when it closes; the snapshot belongs to the app and is not counted.
-
-## Why no `embedded-graphics`
-
-The crate draws with its own code, not `embedded-graphics` 0.8. Compile time has priority: `embedded-graphics` brings its own crates (`embedded-graphics-core`, `az`, `byteorder`, `micromath`, `float-cmp`), while this crate needs none and checks in under a second. The UI uses only the four primitives the Definition allows (rectangle, sprite, text run, clip). Every pixel rule is in about 300 lines of integer maths here, which the GLES renderer can reproduce; `embedded-graphics` has its own rules for strokes, text baselines and alignment. The comparison comes from the documented design and dependency tree of `embedded-graphics` 0.8, not from a build.
-
-## Font
-
-The font is Spleen by Frederic Cambus, release 2.2.0, size 6x12, licence BSD-2-Clause. `assets/fonts/spleen/` holds the unchanged BDF file, the upstream `LICENSE`, and a README with the source, the commit, the SHA-256 of each file and how to refresh them.
-
-`cargo xtask font` generates `src/font/spleen_6x12.rs` from the BDF file: printable ASCII and the Latin-1 Supplement, so accented game names show correctly. Do not edit the generated file. A test in `xtask` fails when the committed table differs from the generator output.
-
-At 320x240, 6x12 gives 48 characters on a line of the safe area and 18 rows of 12 pixels. Capitals are 8 pixels tall, the minimum for text on the canvas. The layout reads the size from the `font` constants, so a different Spleen size needs a change of the generator paths, of the module name in `src/font.rs`, and new goldens.
-
-The BSD-2-Clause licence asks that a binary distribution reproduces the notice. The crate therefore declares `license = "(MIT OR Apache-2.0) AND BSD-2-Clause"`, and the licence manifest of the image must list `crates/neptron-ui/assets/fonts/spleen/LICENSE`. `docs/adr/0004-font-licence.md` records the decision.
-
 ## Must never depend on
 
 - Any other NEPTRON crate
@@ -247,4 +14,192 @@ Only the app and `xtask` (for `shot`, `gallery` and `golden`) depend on this cra
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
 - No I/O, no clock, no threads. The golden module works on bytes; the caller reads and writes files.
 - No features.
-- Dependency: `thiserror` only. The skin file is read by a small parser in `skin.rs`, not by the `toml` crate.
+- Dependency: `thiserror` only. A small parser in `skin.rs` reads the skin file, not the `toml` crate.
+
+## Public API sketch
+
+- `Snapshot` (module `snapshot`): what the UI shows. The systems, a `GameWindow` of one game list, a `SettingsPage` of one page (`MenuItem` with a typed `SettingValue` and its source `Level`), the monitor profiles, the display, a `PendingConfirm`, the session, the notices, the `VideoStatus` of the running game, a `PadMapping` and the screensaver frame count. The app fills it. The snapshot and its entry structs are `#[non_exhaustive]`: start from `Snapshot::default()` and the `new` constructors.
+- `SettingValue`: `Toggle`, `Number`, `Choice` (of `ChoiceOption`), `Action(ActionId)`, `Page(PageId)` (a row that opens a page), `Text(String)` (an information row) and `Link { page, text }` (an information text on a row that opens a page). `MenuItem::with_confirm(question, message, working)` gives an action row a confirm question; `MenuItem::unavailable(reason)` disables a row and shows the reason in place of its value.
+- `ChoiceOption::new(label).with_detail(..).with_short(..).with_help(..).unavailable(..)`; `From<&str>` makes a plain option. `short` is the text of the value column of a settings row; the option list always shows the label. `help` replaces the detail in the help line under the option list.
+- `UiAction`: up, down, left, right, accept, back, menu.
+- `Intent` and `Value`: what the app must do. `Intent` is exhaustive on purpose: a new intent breaks the build of the app until the app handles it.
+- `UiFrame`: the output of one frame. `scene: UiScene`, `tree: UiTree` (rows for `ui tree` of the control API, with a `RowKind` on each row of a list) and `intents: Vec<Intent>`. Make one at launch and reuse it; `clear()` keeps the memory.
+- `UiScene`: the four primitives `rect`, `sprite`, `text_run` (or `text_fmt`) and `clip`. `render(&mut impl Canvas)` replays them.
+- `trait Canvas` and `CpuCanvas`: `CpuCanvas::as_bytes()` is XRGB8888, little-endian, pitch 1280, ready for the `ui` frame of a `Scene` in `neptron-types`. A fill writes one row and copies it to the other rows: a loop over the pixels took 5.5 ms a frame for the quick menu on a Raspberry Pi 3.
+- `SceneCanvas`: a `CpuCanvas` and the scene on it. `paint(&UiScene) -> bool` draws only a scene that differs from the scene on the canvas, so a static UI costs one comparison per frame.
+- `font`: Spleen 6x12, printable ASCII and Latin-1, 6 px advance, capitals 8 px tall. Other characters draw `?`.
+- `text`: `fit`, `draw_in` (cut with `...`, aligned, reports clipping), `wrap`, `StackText` (formatting with no allocation), `value_text`.
+- `skin`: `parse(text) -> Result<Theme, SkinError>` (see "Skin").
+- `theme`: `Palette` (ten colours: `background`, `panel`, `border`, `text`, `text_dim`, `focus`, `focus_text`, `accent`, `warning`, `error`), `Theme` and `SAFE_AREA` (5% overscan margin: 16 px left and right, 12 px top and bottom). `Theme::new(palette, row_height_px, padding_px)` refuses a row height outside `ROW_HEIGHT_MIN_PX..=ROW_HEIGHT_MAX_PX` (12 to 24) or a padding above `PADDING_MAX_PX` (16) with a `ThemeError`, so a bad skin fails once at load. Inside these limits no layout sum can overflow, and the templates use saturating maths on every count and rectangle from the caller.
+- `widgets`: `List`, `SettingsList`, `Dialog` (`DialogTone` sets the colour of its title bar), `Grid`, `Slider`. Each holds only its cursor or focus. `handle(action, ...)` returns an event (`SettingsList` returns ready intents); `draw(frame, theme, data)` adds commands and tree rows. `SettingsList::with_pickers()` makes accept on a choice row give `SettingsEvent::Pick`; accept on a `Page` row gives `SettingsEvent::Open`.
+- `registry`: `SceneDef { name, build }`, `scenes()`, `find()`, `render()`.
+- `golden`: the golden image format and a bit-exact comparison with a readable difference.
+- `screens`: `Screens`, the router that the app calls once per frame; the page ids and the reserved actions; the scenes of the screens.
+- `screensaver`: `Idle` and `pose`, pure (`docs/spec/screensaver.md`). While `Snapshot::screensaver` holds a frame count, the router draws the screensaver over every screen (screen id `screensaver`) and ignores every action.
+
+### Data for each view
+
+The UI chooses the view; the app owns the data. A screen asks for the data of its view with an intent, and the app answers in a later snapshot:
+
+- `Intent::LoadGames { source, first, count }` asks for rows of a game list (`GameSource`: `System(id)`, `Favourites`, `Recents` or `Versions(id)`). The app puts a `GameWindow` with its `source`, `first`, `total` and rows in `Snapshot::games`. A list of 10,000 games costs one window of rows.
+- `Intent::LoadSettings { page }` asks for the rows of a settings page. The app puts a `SettingsPage` in `Snapshot::settings`.
+- Systems, profiles, display, confirm and session are small and always complete.
+
+`GameWindow::is_for`, `covers` and `SettingsPage::is_for` tell old data from current data. A screen asks again in each frame until the snapshot answers, at most one request per frame. The app drops a request that is already in flight. So the UI does no I/O, and the app has no screen logic.
+
+## Screens
+
+`docs/spec/ui-navigation.md` is the spec of the Settings page, the row kinds, the arrow, the breadcrumb, Back and the focus, the footer hints, the generic pages, the confirm question of an action row and the keep prompt. `docs/flows/07-screens.md` describes the screens as built. This section gives the contract between the UI and the app.
+
+### The router and what the app does each frame
+
+`screens::Screens` holds the state of the UI: the stack of open screens with their cursors, the focus of the confirm dialog, the dismissed notices, and the changes made in the quick menu. Everything else comes from the snapshot.
+
+The app makes one `Screens::new(theme)` at launch and, each frame:
+
+1. Fills the snapshot. A notice stays until the player dismisses it or the app removes it.
+2. Calls `screens.update(&snapshot, &actions, &mut frame)`. `update` clears the frame, follows the snapshot (a session that starts or ends), applies the actions in order, asks for missing data, and draws.
+3. Carries out `frame.intents` in order. It drops a `LoadGames` or `LoadSettings` that is already in flight, and ignores a `Launch` while a session starts or runs. When it puts a new `PendingConfirm` in the snapshot, it stops every key repeat and ignores a key held at that moment until its release (`Navigator::hold_back` in the app).
+4. Reads `screens.shows_ui()`. False: a game runs with no menu over it; the app shows the game alone, keeps the core running, and sends the UI only the menu button. True: the core is paused and the app draws `frame.scene` over it.
+5. Renders `frame.scene` and gives `frame.tree` to the control API.
+
+The UI has no clock. Key repeat comes from the app (`REPEAT_DELAY_NS` 400 ms, then `REPEAT_INTERVAL_NS` 66 ms in `apps/neptron/src/nav.rs`). `UiAction` has no press or repeat flag, so step 3 is what keeps a held direction from moving the confirm focus to Keep. The countdown of the confirm dialog comes from `PendingConfirm::remaining_ns`. The UI never expires a notice.
+
+### Navigation
+
+- Everything works with the D-pad, accept and back, except two uses of the menu button: it opens the quick menu during a game (the app sends it for the button combination), and on a settings row it removes the value set at the level of the screen, so the row inherits again. A pad with two buttons cannot reset a row to inherited (OP-049).
+- Up and down move one row; left and right move one page in a list. Lists do not wrap.
+- Menu in a game list adds the focused game to the favourites or removes it.
+- `MAX_DEPTH` is 8: home, game list, the versions of a game, game, quick menu, Settings, display panel, option list.
+- On top of every screen: the confirm dialog while the snapshot holds a pending confirmation (also over a running game), else the guided mapping of a pad (`docs/spec/input-remapping.md`, also over a running game), else the oldest notice not dismissed. A notice waits while a game runs alone, because the opaque canvas would hide the game.
+
+Screen ids in the tree: `home`, `games`, `game` (nothing drawn), `quick-menu`, `quick-menu/keep`, `quick-menu/video`, `settings`, `display`, `audio`, `input`, `library`, `network`, `system`, `page` (any other page), `options`, `pattern/grid`, `confirm`, `confirm-action`, `confirm-action/working`, `notice`, `pad-mapping`, `pad-mapping/review` and `screensaver`. Under a dialog the tree holds the rows of the dialog only, and the hint band shows its hints: "Accept: revert" and "Right, then Accept: keep" for the confirm dialog, "Accept: OK" for a notice.
+
+### Ids that the UI and the app share
+
+The page ids are in `docs/spec/ui-navigation.md`, "Ids". `RESERVED_ID_MIN` is `0xFFFF_0000`; the app numbers its own pages and actions below it. The app answers `LoadSettings` for `DISPLAY_PAGE`, `QUICK_MENU_PAGE`, `AUDIO_PAGE`, `VIDEO_PAGE`, `LIBRARY_PAGE`, `SYSTEM_PAGE`, `NETWORK_PAGE` and `INPUT_PAGE`, and never loads `GRID_PAGE` or `SETTINGS_PAGE`. The UI carries out `RESUME` (`Intent::Resume`) and `QUIT_GAME` (`Intent::QuitGame`) itself and never sends them as `Intent::Action`. The app reads `NETWORK_SCREEN` and `INPUT_SCREEN` to know whether that panel is on screen.
+
+`SETTINGS_PANELS` is the static table of the Settings page. Any page other than the display panel shows in the generic page screen, so a new panel is one table entry and a page that the app answers for.
+
+### Home and the game list
+
+Home lists the systems with their game counts, then Favourites, Recent games and Settings (OP-049). With no systems it says where the games go (the `roms` folder of the share partition, with `roms/snes` and `roms/arcade` as examples) and keeps one Settings row.
+
+The game list needs the visible rows and `PREFETCH_ROWS` (32) rows on each side. When the snapshot lacks that range, it asks for `WINDOW_ROWS` (128) rows centred on the visible rows. A jump past the window shows `...` rows until the data comes. While the snapshot holds a window of a different list, the list draws no rows. An empty list says why it is empty. The focused title shows in full on two lines under the list.
+
+The detail column shows the marks of a game: `*` favourite, `V` vertical screen, `!` not working, `?` not a set of the arcade index. The last line under the list gives them in words, with `Other versions (N)` for a game with folded clones (`GameEntry::versions`). Accept on such a game opens `GameSource::Versions(id)`: the game first, then its other versions.
+
+### The display panel and the confirm dialog
+
+The display panel shows the output, the mode and the monitor on screen now, then the rows of `DISPLAY_PAGE`. While a game runs with a video status, it shows the video block under the info box, with the mode as the kernel reports it, when at least 2 rows of the page fit under the block; the rows scroll. Else the panel has no block and the mode line stays in the info box. The panel always writes the global level (OP-049) and never changes the display itself.
+
+A choice row opens the list of its options on accept; left and right do not change it. Each option shows its detail, or its help line under the list. An option the display cannot give is grey, with its reason in the row and in full under the list, and accept on it does nothing. A reason wider than half the row shows as "Not available" in the row. Accept on a different option sends one `SetValue`. The app validates the change, switches, and puts a `PendingConfirm` in the snapshot.
+
+The confirm dialog has the buttons Revert and Keep, in that order. The focus starts on Revert for each new confirmation: a `PendingConfirm::id` that differs from the last frame, or that the last frame did not have. The app gives each signal change a new `ConfirmId`, also a change that replaces another at once. Accept on Revert and back send `RevertMode`. Only right, then accept, sends `KeepMode`. So a player who cannot see the picture and presses accept gets the old picture back. After one answer the dialog ignores the other actions of that frame. When the next snapshot still holds the same confirmation, the app refused the keep, and the dialog takes input again. The dialog shows the time left, rounded up to whole seconds. At 0 s it shows Revert alone, because the app refuses a keep at the deadline. When the time ends the app reverts; the UI never does.
+
+### The quick menu
+
+`docs/spec/ui-navigation.md`, "The quick menu", gives the rows and the keep prompt. For System or All games the prompt sends `SetValue` at that level and `ResetValue` at the game level, for each noted change whose row scopes allow the level. "All games" writes the global level only, so a value set for the system still wins (OP-049). The app checks the scopes of every `SetValue` again. The UI notes at most `MAX_CHANGES` (16) settings per visit; a further one stays at the game level (OP-049). After Quit game the quick menu waits for the session to end and takes only back, which gives the quick menu back.
+
+### The video block
+
+`Snapshot::video` holds the video status of the running game as text. A formatter in `neptron-video` makes the text, and the app copies it into the snapshot. The UI draws the text as it gets it: it does not parse, compare or round a value, and it does not choose which result is an alert (OP-058).
+
+| Field | Meaning | Example |
+| --- | --- | --- |
+| `game` | What the core asks for: the source size, then the field rate | `256x224             60.099 Hz` |
+| `mode` | The mode on screen as the kernel reports it: the size with its scan suffix, the line rate, the field rate, two spaces, the rung of the picture | `768x448p  30.05 kHz 60.099 Hz  2x` |
+| `result` | The result in words, joined with `, `. An alert result starts with the mark `[!] ` | `exact`, `[!] cropped 2 lines, speed (60.099 to 59.940 Hz)` |
+| `alert` | True for `filtered` and for `speed` | |
+
+The formatter writes fixed columns, so the field rates of the two lines are one under the other:
+
+- Columns 1 to 10: the size, padded with spaces. The mode size ends with `p` for progressive or `i` for interlaced.
+- Columns 11 to 20: the line rate, padded. kHz with two decimals (`30.05 kHz`), with one decimal from 100 kHz up (`133.3 kHz`). Spaces on the game line.
+- Then the field rate in Hz with three decimals. The mode line uses the rate read back from the kernel, never the requested one.
+- On the mode line only: two spaces, then the rung (`2x`, `native`, `fit`).
+- When `alert` is true: the mark `[!] ` first. It is not a result word, and no `, ` follows it.
+- The results in this order: `exact`, `double refresh`, `cropped N lines`, `small picture N%`, `filtered`, `speed (X to Y Hz)`. X is the rate of the game and Y the rate on screen, with three decimals.
+
+The app sends `None` before the video engine reads the mode back from the kernel, and when no game runs, so the block never shows a requested mode as if it were on screen. It keeps one `VideoStatus` and writes new text into its strings, so the frame allocates nothing. The screens show the block only while `Snapshot::session` holds a game as well.
+
+The block is a framed box with the heading "Video" and four lines of 12 px:
+
+```
+Video
+Game     256x224             60.099 Hz
+Mode     768x448p  30.05 kHz 60.099 Hz  2x
+         exact
+         (second line of the result, empty here)
+```
+
+The result always starts on its own line and has two lines, so a changed digit or result never moves a line or the menu rows. An alert result is drawn in the `warning` colour, which differs from the amber focus colour. The block takes no focus and no input. A screen shows it only when at least 2 rows of its page fit under it.
+
+With the default skin the value column holds 37 characters. A longer `game` or `mode` is cut with `...`, never wrapped. The worst mode line, `1920x238p 15.73 kHz 59.940 Hz  native`, is 37 characters; a field rate of 100 Hz or more makes it 38, and it is cut. `result` wraps at spaces onto two lines; text after the second line is cut with `...`. A test in `neptron-video` checks the longest real results. A skin with a larger padding gives fewer characters.
+
+The tree gives each line a row with a stable id as the label and the whole text as the value, also when the drawing is cut: `video/game` (`screens::VIDEO_GAME_ROW`), `video/mode` (`VIDEO_MODE_ROW`) and `video/result` (`VIDEO_RESULT_ROW`).
+
+### Notices
+
+A notice shows as a dialog with one button, oldest first. Accept or back sends `DismissNotice(id)`, and the UI hides that notice until the app removes it. Two notices in one snapshot have different `NoticeId`s, and the app adds new notices at the end. The UI shows the notice after the newest dismissed one, and remembers 8 dismissed ids. The title bar has the colour of the kind: `accent` for `Info`, `warning` for `Warning`, `error` for `Error`.
+
+`Notice::with_choice(label)` shows `Cancel` and the label, with the focus on `Cancel`. Accept on the label sends `AcceptNotice(id)`; back, or accept on `Cancel`, sends `DismissNotice(id)`.
+
+### Opening a panel from the app
+
+`Screens::open_panel(page, focus)` opens a panel of the Settings page in the next `update`, with the focus on the row `focus` once the rows are in the snapshot. When a Settings page is open, the screens above it close and the panel opens from it, so there is never a second Settings page. Else, when the stack has no room, the screens above the quick menu or home close first. When the panel cannot open, `Screens::take_open_failure()` gives the page once, and the app shows a notice. Nothing opens over a game with no menu.
+
+### The grid pattern
+
+The grid pattern draws fixed pixels that do not follow the skin; `src/screens/pattern.rs` lists them. Accept or back closes it.
+
+### Look
+
+Frames that the screens draw are two pixels high, so an interlaced mode shows them in both fields. No text is pure red or pure blue. All content is inside `SAFE_AREA`.
+
+## Skin
+
+`data/skins/default/skin.toml` holds the colours and sizes of the built-in skin, in a small subset of TOML: a top-level `version`, a `[colors]` table with `"#RRGGBB"` values, and a `[sizes]` table with `row_height_px` and `padding_px`. The app passes the text to `skin::parse`, which makes the theme through `Theme::new`. A missing or unknown key (OP-049), a bad colour or number, a size outside the theme limits, or a version outside `SKIN_VERSION_OLDEST..=SKIN_VERSION` gives a `SkinError` that names the line or the key. The parser checks the version first, so a newer file gets the version error.
+
+The format is append-only: a new version adds keys and never renames or removes one. Every key of the version of the file is required.
+
+| Version | Colours | Sizes |
+| --- | --- | --- |
+| 1 | `background`, `panel`, `border`, `text`, `text_dim`, `focus`, `focus_text`, `accent` | `row_height_px`, `padding_px` |
+| 2 | Version 1, plus `warning` and `error` | As version 1 |
+
+A version 1 file gets `warning` and `error` from `Palette::default()`, and a `warning` or `error` key in it is an unknown key. The committed file is version 2, and a test checks that it gives `Theme::default()`.
+
+Default colours of version 2: `warning` is orange `#FF8020`, 19 degrees of hue from the amber focus bar (`#F0C030`) with two thirds of its luminance, so warning text does not read as a focused row. `error` is light red `#FF6060`: pure red text smears on a CRT and has low luminance. Both read on the panel at 5.7:1 and 4.9:1, and dark text on them at 7.3:1 and 6.2:1.
+
+## Font
+
+Spleen by Frederic Cambus, release 2.2.0, size 6x12, licence BSD-2-Clause. `assets/fonts/spleen/` holds the unchanged BDF file, the upstream `LICENSE`, and a README with the source, the commit and the SHA-256 of each file.
+
+`cargo xtask font` generates `src/font/spleen_6x12.rs` from the BDF file. Do not edit the generated file: a test in `xtask` fails when it differs from the generator output.
+
+At 320x240, 6x12 gives 48 characters on a line of the safe area and 18 rows of 12 px. Capitals are 8 px tall, the minimum for text on the canvas. Another Spleen size needs a change of the generator paths, of the module name in `src/font.rs`, and new goldens.
+
+BSD-2-Clause asks that a binary distribution reproduces the notice. So the crate declares `license = "(MIT OR Apache-2.0) AND BSD-2-Clause"`, and the licence manifest of the image lists `crates/neptron-ui/assets/fonts/spleen/LICENSE` (`docs/adr/0004-font-licence.md`).
+
+## Why no `embedded-graphics`
+
+Compile time has priority. `embedded-graphics` 0.8 brings `embedded-graphics-core`, `az`, `byteorder`, `micromath` and `float-cmp`; this crate needs none and checks in under a second. The UI uses only the four primitives of the Definition, and every pixel rule is integer maths here that the GLES renderer can reproduce. `embedded-graphics` has its own rules for strokes, text baselines and alignment. This comparison comes from its documented design and dependency tree, not from a build.
+
+## How to test
+
+`cargo xtask test -p neptron-ui`.
+
+### Golden images
+
+Every screen state that matters is a scene with a golden image (`src/screens/scenes.rs`, `src/registry/demos.rs`). Each screen scene drives a `Screens` with fixture data and actions, as the app does. The goldens are in `crates/neptron-ui/tests/golden/` (`golden::GOLDEN_DIR`); the root `tests/golden/` is for application-level screenshots. A new scene needs a golden: look at it with `cargo xtask shot <name>` first, then write it with `cargo xtask golden --bless <name>`.
+
+The format is binary PPM: the header `P6\n320 240\n255\n`, then RGB rows, without the unused byte of XRGB. `tests/golden.rs` renders every scene and compares the bytes. Every value in the pixel path is an integer, so macOS and Linux give the same bytes.
+
+A test with a fixed seed draws all five templates with random themes, rectangles, counts and values.
+
+### No allocation per frame
+
+`UiScene`, `UiTree` and the intent list keep their memory on `clear()`. Text goes into the store of the scene; numbers are formatted with `StackText`. `CpuCanvas` makes its buffer once in `new()`. `SceneCanvas` copies the scene with `UiScene::copy_from`, which keeps the memory.
+
+A unit test draws every registered scene twice and checks that no buffer grew or moved. It is a proxy: the crate forbids `unsafe`, so it cannot install a counting allocator. Router tests prove that the scene, the tree, the intents and the screen stack keep their capacity: for a static screen after its first frame; for a round trip over a 10,000-game list after one warm-up round trip; for a confirmation, a notice and the quick menu over a game, with and without the video block, after one warm-up round. What can still grow: a frame with more or longer text than any frame before grows the scene and the tree once; opening the quick menu allocates one box for its state, freed when it closes. The snapshot belongs to the app and is not counted.
