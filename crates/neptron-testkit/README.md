@@ -1,20 +1,26 @@
 # neptron-testkit
 
-Test fakes: a display that records every mode and scene, a fake audio sink, scripted input, a simulated clock and golden helpers.
+Test fakes: a display that records every mode and scene, a fake audio sink, scripted input, a simulated clock and golden helpers. Other crates use it as a dev-dependency. It is library code: typed errors, no `unwrap` outside its own tests.
 
-Other crates use it as a dev-dependency. It is library code: typed errors, no `unwrap` outside its own tests.
+## Must never depend on
+
+- Any hardware crate, SDL3, or a hardware feature of `neptron-gfx`
+- Threads or sleeps: the simulated clock is the only time source
+
+## Rules
+
+- `#![forbid(unsafe_code)]` at the crate root. No features.
+- Clones of each fake share one state behind a mutex, so a test keeps a clone to read the records and gives another to the code under test. The mutex only makes the fakes `Send`. Nothing here starts a thread.
 
 ## Public API sketch
 
 - `SimClock: Clock`: the only time source. Clones share one time. Time moves only on `advance`, `advance_to`, or when a fake display waits for a flip.
-- `FakeDisplay: Display`: vertical blanks at the field rate of the mode read back, on the simulated clock. `present` queues one flip for the first blank after the call where a flip can land; `wait_flip` moves the clock to that blank. Options: `Render` mode, `Jitter` (scripted or seeded), seeded `LateFlips`, a programmed refresh rate, a modeset duration, a flip timeout, the TV standards of the connector (`tv_standards`). Faults: `ModeFault` (refused, device error, other mode read back) by call number or by the requested mode (`fault_requested_mode`), and `FlipFault` (late, lost, slow, failed `present`, device failure in one `wait_flip`; each keeps the flip queued) by present number. `fault_blank` scripts a device error of one `blank` call. Queries: `mode_calls`, `blank_calls`, `mode_switches` (each with the TV standard of the call), `active_mode`, `active_tv_standard`, `frames`, `flips`, `flip_times`, `frame_hashes`, `late_frames`, `dropped_frames`, `repeated_vblanks`, `screen`, `capture` and `captured`.
-- `FakeAudio: AudioSink`: a device that plays its queue at its rate on the simulated clock, from the first write. Queries: `writes` (time, offered, taken, depth after), `overruns`, `underruns`, `played_frames`, `written_frames`, `sample_hash`, `samples` (on request). The device rate can differ from the nominal rate.
-- `ScriptedInput: InputSource`: timed RetroPad events. `press`, `release`, `tap`, `set`, `push`; `delivered` and `pending`.
+- `FakeDisplay: Display`: vertical blanks at the field rate of the mode read back, on the simulated clock. `present` queues one flip for the first blank after the call where a flip can land. `wait_flip` moves the clock to that blank. Options (`DisplayOptions`): `Render` mode, `Jitter` (scripted or seeded), seeded `LateFlips`, a programmed refresh rate, a modeset duration, a flip timeout, `tv_standards`, `gpu_ns`, `frozen_vblank_count`. Faults: `ModeFault` (refused, device error, other mode read back) by call number or by requested mode (`fault_requested_mode`); `FlipFault` (late, lost, slow, failed `present`, failed `wait_flip`) by present number; `fault_blank` for one `blank` call. Queries: `mode_calls`, `blank_calls`, `mode_switches`, `active_mode`, `active_tv_standard`, `frames`, `flips`, `flip_times`, `frame_hashes`, `late_frames`, `dropped_frames`, `repeated_vblanks`, `screen`, `capture`, `captured`.
+- `FakeAudio: AudioSink`: a device that plays its queue at its rate on the simulated clock, from the first write. The device rate can differ from the nominal rate. Queries: `writes`, `overruns`, `underruns`, `played_frames`, `written_frames`, `sample_hash`, `samples` (on request).
+- `ScriptedInput: InputSource`: timed RetroPad events. `press`, `release`, `tap`, `set`, `push`; `delivered`, `pending`.
 - `golden`: `RgbImage`, `encode_ppm`, `decode_ppm`, `difference`, and `Golden`, which compares an image with `tests/golden/<name>.ppm` at the workspace root.
-- `preset`: `monitor_preset(id)` reads `data/monitors/<id>.toml`; `validated_mode` runs `validate` against it. `MODE_240P`, `MODE_288P`, `MODE_480I` and `CAPS_LOW_CLOCK` pass `generic_15`.
+- `preset`: `monitor_preset(id)` reads `data/monitors/<id>.toml`. `validated_mode` runs `validate` against it. `MODE_240P`, `MODE_288P`, `MODE_480I` and `CAPS_LOW_CLOCK` pass `generic_15`.
 - `frame_hash`: FNV-1a 64 over little-endian 64-bit words, the same on every host.
-
-Clones of each fake share one state behind a mutex, so a test keeps a clone to read the records and gives another to the code under test. The mutex only makes the fakes `Send`; nothing here starts a thread.
 
 ## Determinism
 
@@ -23,26 +29,24 @@ No fake reads the wall clock, sleeps, starts a thread, iterates a hash map or re
 ## Display contract choices
 
 - `present` and `wait_flip` before the first successful `set_mode` return `NoMode`.
-- One flip at a time. A second `present`, a `set_mode` with a queued flip, or a `wait_flip` with nothing queued returns `Device`, as KMS returns `EBUSY` or never sends an event.
-- A failed `set_mode` keeps the active mode. A wait that times out moves the clock by the flip timeout (100 ms by default), returns `Device` and keeps the flip queued.
 - Jitter of half a period or more is refused at `set_mode`, so blanks stay in order.
-- Vertical blanks come at the field rate, and the sequence counts fields. For an interlaced mode on caps without `flip_per_field`, a flip lands only on the blank that starts a frame, every second field: 480i gives 30 flips per second. With `flip_per_field`, every field takes a flip. A programmed refresh rate overrides both: every blank of that rate takes a flip.
+- Vertical blanks come at the field rate, and the sequence counts fields. A programmed refresh rate overrides the flip rule below: every blank of that rate takes a flip.
 - `repeated_vblanks` counts the blanks beyond the flip interval of each frame (`FrameRecord::flip_interval`), so 480i without `flip_per_field` repeats nothing when each frame starts a new picture.
-- A late flip in the records means a flip that landed after the first blank following its `present`. A frame presented after its blank has passed lands on the next one and shows as a repeated blank, not as a late flip.
+- A late flip is a flip that landed after the first blank following its `present`. A frame presented after its blank has passed lands on the next one and counts as a repeated blank, not as a late flip.
 
 ## What the real backend must match
 
 Code that passes on the fake display must also work on the KMS backend. The KMS backend must keep these choices, or the fake must change with it:
 
-- `present` or `set_mode` while a flip is pending returns `DisplayError::Device`, as a nonblocking atomic commit returns `EBUSY`. The engine must call `wait_flip` first.
+- One flip at a time. `present` or `set_mode` while a flip is pending returns `DisplayError::Device`, as a nonblocking atomic commit returns `EBUSY`. The engine must call `wait_flip` first.
 - `wait_flip` with no flip queued returns `DisplayError::Device`. It does not block.
 - `blank` with a flip pending returns `DisplayError::Device` as busy. After a blank, `present` and `wait_flip` return `NoMode` and the next `set_mode` is a real modeset. The KMS backend never takes its same-mode shortcut after a blank.
 - `DisplayOptions::gpu_ns` is the time the GPU draws a presented scene: the flip lands only on a blank after the present plus that time, as a KMS flip waits for the fence of the frame. The clock does not move at the present.
 - `DisplayOptions::frozen_vblank_count` makes every flip event carry a vertical blank count of 0, as from a driver that does not count blanks.
-- `wait_flip` is bounded. On a timeout or another wait error it returns `DisplayError::Device` and the flip stays queued: a later `wait_flip` returns its event, and until then `present` and `set_mode` are busy. `FlipFault::Lost` never lands, `FlipFault::Slow { timeouts }` lands after `timeouts` timed-out waits, and `FlipFault::WaitFails` fails one wait at once. A timed-out wait moves the simulated clock by `DisplayOptions::flip_timeout_ns`.
+- `wait_flip` is bounded. On a timeout or another wait error it returns `DisplayError::Device` and the flip stays queued: a later `wait_flip` returns its event, and until then `present` and `set_mode` are busy. `FlipFault::Lost` never lands, `FlipFault::Slow { timeouts }` lands after `timeouts` timed-out waits, and `FlipFault::WaitFails` fails one wait at once. A timed-out wait moves the simulated clock by `DisplayOptions::flip_timeout_ns` (`DEFAULT_FLIP_TIMEOUT_NS`, 100 ms).
 - A failed `set_mode` keeps the old mode active.
 - `set_mode` refuses a mode whose pixel clock is not a whole number of kHz with `DisplayError::ModeRefused`, after the busy check, and never rounds it. The kernel's mode record holds the clock in kHz, and the KMS backend refuses such a mode in `ModeRecord::from_validated`. Both use `Modeline::pclock_is_whole_khz`.
-- Interlaced flips follow `GpuCaps::flip_per_field`: one flip per field with it, one flip per frame without it.
+- Interlaced flips follow `GpuCaps::flip_per_field`: one flip per field with it, one flip per frame (every second field) without it. So 480i without it gives 30 flips per second.
 - A mode with a TV standard (`ValidatedMode::tv_standard`) sets the standard with the mode. A connector without the `TV mode` property (`DisplayOptions::tv_standards` empty, the default, as HDMI or vkms), or without the value of the standard, refuses it with `DisplayError::ModeRefused` and keeps the active mode. A mode that is not one of the two modes of its standard is refused the same way. The check comes after the pixel clock check, and no fault applies to such a mode. A change of the standard alone is a modeset (ADR 0012).
 
 ## Render modes and memory per frame
@@ -57,14 +61,8 @@ Each frame also adds one `FrameRecord` (a few hundred bytes). A capture keeps on
 
 ## Golden helpers
 
-The PPM format (`P6`, maxval 255, one whitespace byte after each header field) and the difference report are the same as in the `neptron-gfx` goldens. Those helpers are private to that crate's test binary, so this crate has its own copy. A check never writes a golden: on a difference or a missing file it writes the actual image to the directory the caller names and returns an error that says to look at it first.
+The PPM format (`P6`, maxval 255, one whitespace byte after each header field) and the difference report are the same as in the `neptron-gfx` goldens. Those helpers are private to the `neptron-gfx` test binary, so this crate has its own copy. A check never writes a golden: on a difference or a missing file it writes the actual image to the directory the caller names, and returns an error that says to look at it first.
 
-## Must never depend on
+## Tests
 
-- Any hardware crate, SDL3, or a hardware feature of `neptron-gfx`
-- Threads or sleeps: the simulated clock is the only time source
-
-## Rules
-
-- `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
-- No features.
+`cargo xtask test -p neptron-testkit`.

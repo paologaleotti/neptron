@@ -2,7 +2,22 @@
 
 Command-line client of the control API, and the video self-test. It talks to the frontend on the control socket.
 
-Each command sends one request of the control API (see `crates/neptron-ipc/README.md`) and prints the `data` of the reply as one JSON line on stdout. The client asks at its own protocol version. When the server is older, it answers `unsupported_version`, and the client asks again once at the newest version of the server (`Client::call`). It prints the fields of the version in use, so `stats` of a version 1 server has no `fields_missed`.
+Each command sends one request of the control API (`crates/neptron-ipc/README.md`) and prints the `data` of the reply as one JSON line on stdout. The client asks at its own protocol version. When the server is older, it answers `unsupported_version`, and the client asks again once at the newest version of the server (`Client::call`). It prints the fields of the version in use, so `stats` of a version 1 server has no `fields_missed`.
+
+## Must never depend on
+
+- `neptron-ui`
+- Any async runtime
+
+## Rules
+
+- `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
+- Features: `kms`, off by default. With it, on Linux, `selftest video` shows its modes through `neptron-kms` (`KmsDisplay`), with `signal-hook` for the stop signals. Without it, the run on a display ends with exit code 6, and the dry run works.
+- The parser is written by hand: the grammar is a few fixed words, and a parser crate costs more compile time than it saves.
+
+## Dependencies
+
+`neptron-ipc` for the control API. For the self-test: `neptron-modeline` (the policy), `neptron-safety`, `neptron-types`, `neptron-backend` (the `Display` and `Clock` traits), `neptron-platform` (detection, capability table, EDID profile) and `toml` (the preset files). With `kms`: `neptron-kms` and `signal-hook`. For the tests: `neptron-testkit`. `neptron-modeline` links Switchres, so the binary is a combined work under GPL-3.0-or-later, as the frontend is (ADR 0002). The presets stay files on the image and are not embedded (OP-044).
 
 ## Usage
 
@@ -31,7 +46,7 @@ neptronctl [--socket PATH] [--timeout-ms N] COMMAND
 ```
 
 - The socket is `--socket`, else `$NEPTRON_CONTROL_SOCKET`, else `/run/neptron/control.sock`.
-- The client waits 10 seconds for a reply, or `--timeout-ms`, which must be above 0. A `wait` waits 10 seconds for its condition, or `--within-ms`, and the client then waits 5 seconds more for the server's `timeout` answer.
+- The client waits 10 s for a reply, or `--timeout-ms` (above 0). A `wait` waits 10 s for its condition, or `--within-ms`, and the client then waits 5 s more for the server's `timeout` answer.
 - Names (stage, control, state, level) are the wire names: `ui`, `left_x`, `quick_menu`, `global`.
 - `screenshot` writes the PNG to `FILE` and prints `{"stage","width","height","path","bytes"}`.
 - `input script` reads a JSON array of events, each `{"frame","port","control","value"}`.
@@ -56,58 +71,46 @@ An error prints one JSON line on stderr: `{"error":{"code":"...","message":"..."
 
 ## The video self-test
 
-`selftest video` plans one test mode for each mode family that the monitor profile supports, prints the plan and writes a JSON report. A dry run is the default: it opens no device and sets no mode. With `--i-have-checked-the-monitor ID` it shows each mode on the DRM device for 10 seconds with its read back, and restores the display at the end.
+`selftest video` plans one test mode for each mode family that the monitor profile supports, prints the plan and writes a JSON report. A dry run is the default: it opens no device and sets no mode. With `--i-have-checked-the-monitor ID` it shows each mode on the DRM device with its read back, and turns the output off at the end.
 
-- `--profile ID`: a preset of the monitor folder, read at run time (`--monitors`, default `/usr/share/neptron/monitors`). `--profile edid`: the profile from the EDID of the connector. There is no default profile. `--profile tv_<standard>` (`tv_ntsc`, `tv_pal`, `tv_pal_60` and the other keys of `display.tv`) is the built-in TV profile of that standard, not a file.
+- `--profile ID`: a preset of the monitor folder, read at run time (`--monitors`, default `/usr/share/neptron/monitors`). `--profile edid`: the profile from the EDID of the connector. `--profile tv_<standard>` (`tv_ntsc`, `tv_pal`, `tv_pal_60` and the other keys of `display.tv`): the built-in TV profile of that standard. There is no default profile.
 - `--sysfs DIR` (default `/sys`): the GPU, its capability table entry and the connector come from sysfs, as in the frontend. With nothing detected, `validate` gets the values of an unknown GPU. The EDID profile also lowers the highest pixel clock to the EDID limit.
-- `--connector NAME`: the connector, for example `DP-1`. Without it, the first connected connector.
-- `--report FILE` (default `neptron-selftest-video.json` in the current folder): the JSON report. The dry run writes it too, with `dry_run` true.
+- `--connector NAME`: for example `DP-1`. Default: the first connected connector.
+- `--report FILE` (default `neptron-selftest-video.json` in the current folder). The dry run writes it too, with `dry_run` true.
 - `--device PATH` (default `/dev/dri/card0`): the DRM device of the run on a display.
-- `--seconds-per-mode N` (1 to 10, default 10): the display time of each mode. A test option: the check on `vkms` uses 2 s. A person needs the 10 s to read the pattern and to see that the monitor holds the mode.
-- `--i-have-checked-the-monitor ID`: the run on a display. `ID` must be the id of the profile that the dry run prints (for the EDID profile, `edid_<manufacturer>_<product>`), so the person names the monitor whose ranges they checked.
+- `--seconds-per-mode N` (1 to 10, default 10). The check on `vkms` uses 2 s; a person needs 10 s to read the pattern and see that the monitor holds the mode.
+- `--i-have-checked-the-monitor ID`: the run on a display. `ID` must be the profile id that the dry run prints (for EDID, `edid_<manufacturer>_<product>`), so the person names the monitor whose ranges they checked. Another id is refused.
 
 ### Safety of the tool
 
-- Every mode is a `ValidatedMode` from the policy and `validate`. The tool has no flag that widens the GPU values or skips the validator. The display gets nothing else, except `blank()`, which turns the output off.
-- The dry run is the default. The run on a display needs the confirmation flag with the profile id; another id is refused.
-- The run is refused when the frontend holds the display: the control socket (`--socket`, `$NEPTRON_CONTROL_SOCKET` or `/run/neptron/control.sock`) accepts a connection, a process named `neptron` or `neptron-launch` runs (`/proc/*/comm`), or `NEPTRON_DRM_FD` is set. The tool runs with the frontend and the launcher stopped and opens the device itself, read and write; it does not run under the launcher, because the launcher would start it again after a failure. The device must be a DRM character device (major 226).
+- Every mode is a `ValidatedMode` from the policy and `validate`. No flag widens the GPU values or skips the validator. The display gets nothing else, except `blank()`, which turns the output off.
+- The run is refused when the frontend holds the display: the control socket accepts a connection, a process named `neptron` or `neptron-launch` runs (`/proc/*/comm`), or `NEPTRON_DRM_FD` is set. The tool runs with the frontend and the launcher stopped and opens the device itself, read and write. It does not run under the launcher, because the launcher would start it again after a failure. The device must be a DRM character device (major 226).
 - The report is written before the device opens, so a report that cannot be written stops the run before any modeset.
-- The connector: `--connector`, else the backend's connector rule. The GPU values and the EDID profile come from the card and the connector that sysfs detection chose. The run is refused before any modeset when `--device` (with links followed) is the node of another card, or when the backend chooses another connector.
-- SIGINT, SIGTERM and SIGHUP set a stop flag (`signal-hook`, no `unsafe`). The run reads it before each flip and stops within one flip wait (at most 500 ms on KMS), then turns the output off. SIGKILL runs no code: the kernel closes the descriptor, and the validated test mode can stay on the wire with no picture, or the driver turns the CRTC off.
-- A panic in the dev profile unwinds into the drop of `KmsDisplay`, which turns the plane off with the validated mode kept, or the output off. A release build aborts on a panic; then the last mode on the wire is a validated mode.
+- The GPU values and the EDID profile come from the card and the connector that sysfs detection chose. The run is refused before any modeset when `--device` (links followed) is the node of another card, or when the backend chooses another connector.
+- SIGINT, SIGTERM and SIGHUP set a stop flag (`signal-hook`, no `unsafe`). The run reads it before each mode and each flip, stops within one flip wait (at most 500 ms on KMS), and turns the output off. SIGKILL runs no code: the kernel closes the descriptor, and the validated test mode can stay on the wire with no picture, or the driver turns the CRTC off.
+- A panic in the dev profile unwinds into the drop of `KmsDisplay`, which turns the plane off with the validated mode kept, or the output off. A release build aborts on a panic; the last mode on the wire is then a validated mode.
 - Limits, each a named constant with its unit: `SECONDS_PER_MODE_MAX_S` (10), `SECONDS_PER_MODE_MIN_S` (1), `FLIP_WAIT_RETRIES` (2), `FLIPS_PER_MODE_MAX` (2000), `FLIPS_MIN` (2), `VBLANK_PERIOD_TOLERANCE_PPM` (10 000), `PATTERN_WIDTH_MAX_PX` (512), `TEXTURE_SIDE_MAX_TEXELS` (2048), `TEXELS_PER_PIXEL` (4).
 
-### On the bench
+### The families
 
-Build `neptronctl` for Linux with the `kms` feature (the image installs it from `os/package/neptronctl`; on a development machine, `cargo xtask os selftest-check` builds it for the guest). On the target, as root, with the frontend and the launcher stopped:
-
-```sh
-neptronctl selftest video --profile pc_31_120 --connector DP-1 --report /tmp/dry.json
-neptronctl selftest video --profile pc_31_120 --connector DP-1 --report /tmp/selftest.json \
-    --i-have-checked-the-monitor pc_31_120
-```
-
-The first command is the dry run: it prints the ranges, the GPU values and the modes. The second shows each mode for 10 seconds. The report is the file of `--report`. `docs/hardware-checklist.md` says what to check and what to write down.
-
-The families, in the order they show: `240p`, `288p`, `240p_double_refresh`, `480i`, `576i`, `480p`, `2x`, `super_width_dynamic`, `super_width_fixed`. Each family is a game source and the policy settings that ask for it (`src/selftest/family.rs`). The policy decides the mode (`decide`, then `choose` with `neptron_safety::validate`), and the family takes the winner only when it belongs to the family: for example a 240-line progressive mode with one field per game frame for `240p`. A family with no such winner is "not tested", with the policy's mode and reason. A family whose mode equals the mode of an earlier family is "the same mode as" that family, so no mode shows twice.
-
-On a TV output (a composite connector with the `TV mode` property, as on a Raspberry Pi) the self-test shows only the two table modes of one standard: the profile `tv_<standard>` gives the progressive mode in the `240p` or `288p` family and the interlaced mode in the `480i` or `576i` family, each with its standard, and every other family is "not tested". After the open, and before any modeset, the run is refused when the connector has the property and the profile is no TV profile, when the profile is a TV profile of a standard the connector does not offer, and when a TV profile meets a connector with no property (`preflight::tv_refusal`). The kernel would refuse such a mode too (ADR 0012). On the bench: `neptronctl selftest video --profile tv_ntsc --connector Composite-1`, and the line rate of 240p is 15.734 kHz, its field period 16.652 ms.
+In the order they show: `240p`, `288p`, `240p_double_refresh`, `480i`, `576i`, `480p`, `2x`, `super_width_dynamic`, `super_width_fixed` (`src/selftest/family.rs`). Each family is a game source and the policy settings that ask for it. The policy decides the mode (`decide`, then `choose` with `neptron_safety::validate`), and the family takes the winner only when it belongs to the family. A family with no such winner is "not tested", with the policy's mode and reason. A family whose mode equals the mode of an earlier family is "the same mode as" that family, so no mode shows twice.
 
 On `pc_31_120` with the values of an Intel gen9 GPU the plan is 240p at 120 Hz (`240p_double_refresh`), 480p (`2x` gives the same mode), 768x224 at 120 Hz (`super_width_dynamic`) and 1920x224 at 120 Hz (`super_width_fixed`).
+
+On a TV output (a composite connector with the `TV mode` property) the profile `tv_<standard>` gives only the two table modes of its standard: the progressive mode in `240p` or `288p` and the interlaced mode in `480i` or `576i`. Every other family is "not tested". After the open, and before any modeset, `preflight::tv_refusal` refuses the run when the connector has the property and the profile is no TV profile, when the connector does not offer the standard of the TV profile, and when a TV profile meets a connector with no property. The kernel would refuse such a mode too (ADR 0012).
 
 ### One mode on the display
 
 `src/selftest/show.rs` runs on any `Display` and `Clock`: the KMS backend in the real run, the fake display of `neptron-testkit` in the tests.
 
-1. `set_mode` with the mode's `ValidatedMode`. On KMS this is a test-only commit, then the real one. `ModeRefused` is a refused test-only commit, and a device error of the operation `modeset commit` (`KMS_COMMIT_OPERATION`) is a refused real commit: a commit is all or nothing, so the mode before stays, and the run goes on with the next mode. Any other error of `set_mode` leaves the display state unknown, and the run stops and turns the output off.
-2. The read back is compared field by field with the request and validated again. A read back that fails `validate` stops the run at once and turns the output off. A read back that differs but passes fails the mode, and the run goes on; the pattern does not show, because it is drawn for the request.
-3. The pattern shows for `seconds_per_mode`: `present`, then `wait_flip`, until the clock passes the time. The pattern is a white border on the outermost pixels of all four edges, a centre cross, eight colour bars at 75 %, and four lines of text: the family, the size and scan, the line and field rates, the pixel clock. The text is a 5x7 font of the tool (`neptron-ui` and its font are only for the app). The frame is at most 512 pixels wide (`PATTERN_WIDTH_MAX_PX`): the GLES renderer uploads each byte of a row as one texel, so a pixel takes 4 texels (`TEXELS_PER_PIXEL`), and 2048 texels (`TEXTURE_SIDE_MAX_TEXELS`) is the `GL_MAX_TEXTURE_SIZE` of vc4, the smallest of the supported GPUs. A wider mode gets a frame narrower by a whole factor (`width_factor`: the smallest that divides the width, when one fits), which the renderer scales back with nearest sampling. The border stays on the outermost pixels of the mode, and no present fails on the texture size. A failed wait is tried `FLIP_WAIT_RETRIES` (2) more times; then the flip stays queued and the run stops.
-4. The timing comes from the kernel's vblank counter and time stamps of the flip events: the mean vertical blank period over the whole time, the expected period of the mode (a field; for an interlaced mode a field when the capability table gives `flip_per_field`, and a frame when it does not; for a GPU that the table does not know, the nearer of the two, with `unit_assumed` true; `vblank_unit` says which), the error in ppm, the pixel clock that the period implies, the flips per second and the vertical blanks with no flip.
-5. The stop flag (SIGINT, SIGTERM, SIGHUP in the real run) is read before each flip and before each mode.
+1. `set_mode` with the mode's `ValidatedMode`. On KMS this is a test-only commit, then the real one. `ModeRefused` (a refused test-only commit) and a device error of the operation `modeset commit` (`KMS_COMMIT_OPERATION`, a refused real commit) leave the mode before, because a commit is all or nothing, and the run goes on with the next mode. Any other error of `set_mode` leaves the display state unknown: the run stops and turns the output off.
+2. The read back is compared field by field with the request and validated again. A read back that fails `validate` stops the run at once and turns the output off. A read back that differs but passes fails the mode, without the pattern, and the run goes on.
+3. The pattern shows for `seconds_per_mode` (`present`, then `wait_flip`): a white border on the outermost pixels, a centre cross, eight colour bars at 75 %, and four lines of text (family, size and scan, line and field rates, pixel clock) in a 5x7 font of the tool. The frame is at most `PATTERN_WIDTH_MAX_PX` wide: the GLES renderer uploads each byte of a row as one texel, so a pixel takes 4 texels, and 2048 texels is the `GL_MAX_TEXTURE_SIZE` of vc4, the smallest supported GPU. A wider mode gets a frame narrower by a whole factor (`width_factor`), which the renderer scales back with nearest sampling. A failed flip wait is tried `FLIP_WAIT_RETRIES` more times; then the flip stays queued and the run stops.
+4. The timing comes from the kernel's vblank counter and the time stamps of the flip events: the mean vertical blank period, the expected period of the mode, the error in ppm, the pixel clock that the period implies, the flips per second and the vertical blanks with no flip. For an interlaced mode the expected period is a field when the capability table gives `flip_per_field`, else a frame; for a GPU that the table does not know, the nearer of the two, with `unit_assumed` true. `vblank_unit` says which.
 
-At the end, on a stop and on an error with the display state unknown, the run calls `blank()`: the output goes off. The state before the run cannot be read back and validated through `KmsDisplay`, so no signal is the restore, as the safety model allows. With a flip still queued, the backend refuses the blank as busy and the report says so; the backend's drop then turns the plane off with the validated mode kept, or the output off.
+At the end, on a stop, and on an error with the display state unknown, the run calls `blank()`. The state before the run cannot be read back and validated through `KmsDisplay`, so no signal is the restore, as the safety model allows. With a flip still queued, the backend refuses the blank as busy and the report says so; the drop of the backend then turns the plane off with the validated mode kept, or the output off.
 
-A mode passes when (`src/selftest/verdict.rs`): both commits passed; a mode was read back, equal to the request in every field and valid; the pattern showed for the whole time; at least 2 flips completed (`FLIPS_MIN`); the vertical blank period is within 1 % (`VBLANK_PERIOD_TOLERANCE_PPM`, 10 000 ppm) of the mode's period; and no display error came. Missed vertical blanks do not fail a mode: they show how fast the tool draws (software GL in the QEMU guest misses most), and the period does not depend on them. The run passes when it finished, it had at least one mode, every mode passed, the restore succeeded, and no other error came.
+A mode passes (`src/selftest/verdict.rs`) when both commits passed, the read back equals the request in every field and is valid, the pattern showed for the whole time, at least `FLIPS_MIN` flips completed, the vertical blank period is within `VBLANK_PERIOD_TOLERANCE_PPM` (1 %) of the mode's period, and no display error came. Missed vertical blanks do not fail a mode: they show how fast the tool draws (software GL in the QEMU guest misses most), and the period does not depend on them. The run passes when it finished with at least one mode, every mode passed, the restore succeeded, and no other error came.
 
 ### The report
 
@@ -138,28 +141,26 @@ One JSON file, written as a temporary file in the same folder, fsync, rename, an
 | `restore` | `method` (`blank`), `ok`, `error`; `null` when no mode was set |
 | `stopped`, `errors` | Why the run stopped early, and errors outside one mode |
 
-## Argument parsing
+### On the bench
 
-The parser is written by hand. The grammar is a few fixed words, and a parser crate costs more compile time than it saves.
+Build `neptronctl` for Linux with the `kms` feature (the image installs it from `os/package/neptronctl`; `cargo xtask os selftest-check` builds it for the QEMU guest). On the target, as root, with the frontend and the launcher stopped:
 
-## Dependencies
+```sh
+neptronctl selftest video --profile pc_31_120 --connector DP-1 --report /tmp/dry.json
+neptronctl selftest video --profile pc_31_120 --connector DP-1 --report /tmp/selftest.json \
+    --i-have-checked-the-monitor pc_31_120
+```
 
-`neptron-ipc` for the control API. For the self-test: `neptron-modeline` (the policy), `neptron-safety`, `neptron-types`, `neptron-backend` (the `Display` and `Clock` traits), `neptron-platform` (detection, capability table, EDID profile) and `toml` (the preset files). With the `kms` feature: `neptron-kms` and `signal-hook`. For the tests: `neptron-testkit`. `neptron-modeline` links Switchres, so the binary is a combined work under GPL-3.0-or-later, as the frontend is (ADR 0002). The presets stay files on the image and are not embedded (OP-044).
-
-## Must never depend on
-
-- `neptron-ui`
-- Any async runtime
-
-## Rules
-
-- `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
-- Features: `kms`, off by default. With it, on Linux, `selftest video` shows its modes through `neptron-kms` (`KmsDisplay`), with `signal-hook` for the stop signals. Without it, the run on a display ends with exit code 6 and the dry run works.
+The first command is the dry run: it prints the ranges, the GPU values and the modes. The second shows each mode for 10 s. For a TV: `neptronctl selftest video --profile tv_ntsc --connector Composite-1`; the line rate of 240p is 15.734 kHz and its field period 16.652 ms. `docs/hardware-checklist.md` says what to check and what to write down.
 
 ## Status
 
-`selftest video` runs in the QEMU guest on `vkms` (`cargo xtask os selftest-check`). The policy gives every CRT mode a pixel clock in whole kHz (ADR 0009), which the KMS backend takes as it is. No run of the self-test on real hardware is recorded. There is no `modeline` command and no mode test command.
+`selftest video` runs in the QEMU guest on `vkms` (`cargo xtask os selftest-check`). The policy gives every CRT mode a pixel clock in whole kHz (ADR 0009), which the KMS backend takes as it is. No run on real hardware is recorded. There is no `modeline` command and no mode test command.
 
 ## The copy of the mode conversion in `tools/kms-spike` (OP-060)
 
-The self-test uses `KmsDisplay` of `neptron-kms`, so it has no mode conversion of its own. `tools/kms-spike` keeps its own copy, because its dependency rule allows only `drm`, `neptron-types` and `neptron-safety`. Until the owner runs the hardware checklist with both tools and compares the two reports for the same modes, the spike stays, and a change to `ModeRecord` must be made in both places. Then `tools/kms-spike` and its dependency rule in `xtask/src/rules.rs` go in one change: `selftest video` covers what it did (the test modes, the read back, the timing, the restore) through the backend that the product uses.
+The self-test uses `KmsDisplay`, so it has no mode conversion of its own. `tools/kms-spike` keeps its own copy, because its dependency rule allows only `drm`, `neptron-types` and `neptron-safety`. Until the owner runs the hardware checklist with both tools and compares the two reports for the same modes, the spike stays, and a change to `ModeRecord` must be made in both places. Then `tools/kms-spike` and its rule in `xtask/src/rules.rs` go in one change.
+
+## How to test
+
+`cargo xtask test -p neptronctl`: the parser, the plan and the run on the fake display of `neptron-testkit`. `cargo xtask os selftest-check` runs the self-test in the QEMU guest on `vkms` (tier 3).

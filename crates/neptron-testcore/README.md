@@ -1,12 +1,21 @@
 # neptron-testcore
 
-A libretro core that follows a script, for tests. It reads its script from the file that the environment variable `NEPTRON_TESTCORE_SCRIPT` names.
+A libretro core that follows a script, for tests. It reads its script from the file that the environment variable `NEPTRON_TESTCORE_SCRIPT` names. The test core is never in the image.
+
+## Must never depend on
+
+- Any NEPTRON crate except `neptron-libretro-sys`
+
+## Rules
+
+- `unsafe` is allowed only in `src/ffi.rs`: the exported libretro functions and the calls into the frontend callbacks. Each block has a `// SAFETY:` comment. Every other module carries `#![forbid(unsafe_code)]`.
+- No features.
 
 ## Script format
 
 A script is a UTF-8 text file. A byte sequence that is not UTF-8 is an error, reported with its line. Each line holds one keyword and its arguments, separated by spaces. A `#` starts a comment to the end of the line. Blank lines do not count. Every number is an unsigned decimal integer, ASCII digits only (no sign, no separators): frequencies in millihertz or hertz, sizes in pixels, aspect ratios in thousandths.
 
-The first line is the header `neptron-testcore <version>`, with version 1, 2 or 3. Version 2 adds the setup lines `load` and `load_error`, and version 3 the actions `log` and `message`; a script of an older version that has one of them is an error.
+The first line is the header `neptron-testcore <version>`, version 1, 2 or 3. Version 2 adds the setup lines `load` and `load_error`. Version 3 adds the actions `log` and `message`. A script of an older version that has one of them is an error.
 
 The setup lines come next. Each one is optional and can appear once.
 
@@ -39,7 +48,7 @@ Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` afte
 | `log <debug\|info\|warn\|error> <text>` | Version 3. Writes the text (the rest of the line) to the log interface at that level |
 | `message <frames> <text>` | Version 3. Calls `SET_MESSAGE` with the text (the rest of the line) for that many frames |
 
-The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, rotation values 0 to 4294967295, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB. An error names the line. A script with an error makes `retro_load_game` return false.
+The parser checks every value. A size must fit the maximum size in force at that line. Limits: sizes 1 to 4096 pixels, rotation 0 to 4294967295, frame rate 1,000 to 1,000,000 mHz, sample rate 1 to 384,000 Hz, aspect up to 100,000, save RAM up to 16 MiB (the constants in `src/script.rs`). An error names the line. A script with an error makes `retro_load_game` return false.
 
 The format is append-only. A new keyword or action can come in a later version. A keyword never changes its meaning or its arguments.
 
@@ -114,20 +123,7 @@ Panics: no panic crosses the C boundary. Each entry point runs in `catch_unwind`
 
 ## Tests
 
+`cargo xtask test -p neptron-testcore`.
+
 - Unit tests of the parser, the generators, the core model and the FFI helpers.
-- `tests/load.rs` opens the built library with `libloading`, checks that all 25 entry points are exported, and runs a script through the raw API with frontend callbacks: frame hashes, the order of the environment calls, audio counts and pattern, save RAM, reset, the two load failures, and the `load refuse` and `load shutdown` lines. The test plays the frontend, so it uses `unsafe` to call the core and to read the data the core passes. Each test needs its own process, which `cargo nextest` gives.
-
-## Dependencies
-
-- `neptron-libretro-sys`: the types and constants of `libretro.h`.
-- `thiserror`: the error enums.
-- `libloading` (dev): the load test.
-
-## Must never depend on
-
-- Any NEPTRON crate except `neptron-libretro-sys`
-
-## Rules
-
-- `unsafe` is allowed only on the exported libretro functions, in `src/ffi.rs`: the exports and the calls into the frontend callbacks. Each block has a `// SAFETY:` comment. Every other module carries `#![forbid(unsafe_code)]`. The test core is never in the image.
-- No features.
+- `tests/load.rs` opens the built library with `libloading` (a dev-dependency), checks that all 25 entry points are exported, and runs scripts through the raw API with frontend callbacks: frame hashes, the order of the environment calls, audio, save RAM, reset, the load failures, and the `load refuse` and `load shutdown` lines. The test plays the frontend, so it uses `unsafe` to call the core. Each test needs its own process, which `cargo nextest` gives.

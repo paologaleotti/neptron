@@ -1,16 +1,25 @@
 # neptron-ipc
 
-The control protocol: JSON lines on a Unix socket for screenshot, UI tree, input, clock, session, video state, stats, settings and log. A TCP listener exists only with the `control` feature.
+The control protocol: JSON lines on a Unix socket for screenshot, UI tree, input, clock, session, video state, stats, settings and log. A TCP listener exists only with the `control` feature. The crate carries the protocol only; the app implements the handlers.
 
-The crate carries the protocol only. The app implements the handlers.
+## Must never depend on
+
+- `neptron-kms`, `neptron-ui`
+- Any async runtime
+
+## Rules
+
+- `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
+- Features: `control` adds the TCP listener and the TCP client. No feature is on by default, and without it no TCP code compiles.
+- Dependencies: `neptron-types`, `serde`, `serde_json`, `thiserror`. The base64 codec is in the crate.
 
 ## Public API sketch
 
 - Messages: `enum Command` with one argument struct per command, `enum Reply` with one data struct per reply, `ErrorBody { code: ErrorCode, message }`.
-- Codec, with no I/O: `encode_request`, `decode_request`, `encode_response`, `decode_response`, `read_line` with a byte limit.
+- Codec, with no I/O: `encode_request`, `decode_request`, `encode_response`, `decode_response`, `read_line` with a byte limit (`MAX_REQUEST_LINE_BYTES` 1 MiB, `MAX_RESPONSE_LINE_BYTES` 64 MiB).
 - Server: `trait Handler` (one method per command), `dispatch`, `handle_line`, `serve_lines` over any `BufRead` and `Write`, `serve_stream` over a socket.
 - Transport: `ControlListener::bind(path)`, `Client::connect(path)`, `Client::call(command)`. With `control`: `TcpControlListener`, `Client::connect_tcp`.
-- `DEFAULT_SOCKET_PATH` is `/run/neptron/control.sock`. The environment variable `NEPTRON_CONTROL_SOCKET` names a different path.
+- `DEFAULT_SOCKET_PATH` is `/run/neptron/control.sock`. The environment variable `NEPTRON_CONTROL_SOCKET` (`SOCKET_PATH_ENV`) names a different path.
 
 ## Wire format
 
@@ -63,54 +72,43 @@ The server checks a line in this order, and the first fault gives the code:
 | `cmd` names no known command | `unknown_command` | the id |
 | `args` missing, of the wrong type, or with an unknown key | `invalid_arguments` | the id |
 
-A handler answers `unavailable` (not served in this build or state), `timeout` (a `wait` passed its timeout) or `failed`. No line makes the server crash or hang: a line that is not JSON gets `malformed`, and the reader never holds more than the limit of one line.
+A handler answers `unavailable` (not served in this build or state), `timeout` (a `wait` passed its timeout) or `failed`. No line makes the server crash or hang, and the reader never holds more than the limit of one line.
 
-The request side refuses unknown keys, because a key the server does not know can change the meaning of a request. The response side ignores unknown keys, so that a newer server can add fields.
-
-The JSON parser keeps only the last of two equal keys, so the server reads the line a second time to find them. A key twice is refused, not resolved.
+The request side refuses unknown keys, because a key the server does not know can change the meaning of a request. The response side ignores unknown keys, so a newer server can add fields. The JSON parser keeps only the last of two equal keys, so the server reads the line a second time to find a key twice and refuses it.
 
 ### Versioning
 
-The protocol is append-only. A new version adds commands, reply fields, enum values or error codes, and never renames or removes one. These rules keep each side readable for the other:
+The protocol is append-only. A new version adds commands, reply fields, enum values or error codes, and never renames or removes one.
 
-1. A server serves every request version from `MIN_PROTOCOL_VERSION` to `PROTOCOL_VERSION`. It answers a version outside that range with `unsupported_version`, and the error carries `min_version` and `max_version` as fields.
-2. A response echoes the `v` of its request. It holds only names (commands, fields, enum values, error codes) that exist in that version. A server that adds a name in version N writes it only to a request of version N or above.
-3. A field that a later version adds to `args` or to a reply is optional: an `Option` or a field with `#[serde(default)]`. An older request and an older reply stay valid.
-4. A client ignores reply keys it does not know. An error code it does not know reads as `ErrorCode::Unknown`, so a failure stays a failure.
+1. A server serves every request version from `MIN_PROTOCOL_VERSION` to `PROTOCOL_VERSION`. It answers a version outside that range with `unsupported_version`, with `min_version` and `max_version` as fields.
+2. A response echoes the `v` of its request and holds only names (commands, fields, enum values, error codes) that exist in that version.
+3. A field that a later version adds to `args` or to a reply is optional (an `Option` or `#[serde(default)]`), so an older request and an older reply stay valid.
+4. A client ignores reply keys it does not know. An unknown error code reads as `ErrorCode::Unknown`, so a failure stays a failure.
 5. A reply enum value that a client does not know is a codec error. Rule 2 makes this impossible for a correct server, so the client does not try to recover from it.
-
-The versions so far:
 
 | Version | Adds |
 | --- | --- |
 | 1 | Everything above except what a later version adds |
-| 2 | `fields_missed` in the `stats` reply: the fields in which no new frame reached the display while the core ran (`FIELDS_MISSED_VERSION`). `Reply::for_version` removes it from a reply to a version 1 request, and `handle_line` applies it to every reply |
-| 3 | `late_frames` and `late_flips` in the `stats` reply: the core frames whose flip the loop did not wait for (late pacing), and the flips that landed after their blank although the work of their frame fit (`LATE_PACING_VERSION`). `Reply::for_version` removes them from a reply to a version 1 or 2 request |
+| 2 | `fields_missed` in `stats`: the fields in which no new frame reached the display while the core ran (`FIELDS_MISSED_VERSION`) |
+| 3 | `late_frames` and `late_flips` in `stats`: the core frames whose flip the loop did not wait for (late pacing), and the flips that landed after their blank although the work of their frame fit (`LATE_PACING_VERSION`) |
 
-Version discovery: a client sends `hello` at its own version. A server that speaks it answers with `protocol`, its newest version. A server that does not answers `unsupported_version` with `min_version` and `max_version`, and the client then picks a version in that range. `Client::call` does this for any command: on `unsupported_version` it sends the command again once, at the newest version of the server when that is older than its own and not older than `MIN_PROTOCOL_VERSION`, and keeps that version for the next calls (`Client::version`). A request of the older version gets only the fields of that version, so `neptronctl` of this version reads `stats` of a version 1 server with no `fields_missed`.
+`Reply::for_version` removes the fields of a later version from a reply to an older request, and `handle_line` applies it to every reply.
+
+Version discovery: a client sends `hello` at its own version. A server that speaks it answers with `protocol`, its newest version. A server that does not answers `unsupported_version` with `min_version` and `max_version`. `Client::call` does this for any command: on `unsupported_version` it sends the command again once, at the newest version of the server when that is older than its own and not older than `MIN_PROTOCOL_VERSION`, and keeps that version for the next calls (`Client::version`).
 
 ### Binary payloads
 
-A screenshot travels as standard base64 with padding in the `png_base64` field of the reply. A server-side file path would be simpler for the server, but it works only when the client runs on the same machine, and the TCP listener exists for a client that does not, such as the host of a QEMU guest. Base64 also needs no shared directory, no file cleanup and no trust in a path from the network. The cost is a third more bytes, and the client reads a response line of up to 64 MiB, which holds a 4096x2160 picture with no compression.
+A screenshot travels as standard base64 with padding in the `png_base64` field. A server-side file path works only when the client runs on the same machine, and the TCP listener exists for a client that does not, such as the host of a QEMU guest. Base64 also needs no shared directory, no cleanup and no trust in a path from the network. The cost is a third more bytes; a response line of up to 64 MiB holds a 4096x2160 picture with no compression.
 
 ## What the application must do
-
-The crate carries the protocol only. The application that writes the handlers must also:
 
 - Set a read timeout and a write timeout on each accepted stream. Without the write timeout, a client that never reads its responses holds the I/O thread forever.
 - Set the permissions of the socket file: the owner only, or one group. `ControlListener::bind` does not change them.
 - Refuse `settings_set` at the level `default`, with `invalid_arguments`. The default comes from the schema and is not written.
 - Send every display change (`session_launch`, `settings_set` of a video setting) through `validate` and confirm-or-revert, as a menu choice does. The protocol has no command that sets a modeline.
 - Serve the socket on an I/O thread, and pass each command to the frame thread over a bounded channel. The frame thread never waits on the socket.
-- Never serve `input_send`, `input_script`, `clock_step`, `session_launch` or `settings_set` unless the application is built with its `control` feature. Without it, these handlers keep the default answer `unavailable`.
+- Never serve `input_send`, `input_script`, `clock_step`, `session_launch` or `settings_set` unless the application is built with its `control` feature (OP-024). Without it, these handlers keep the default answer `unavailable`.
 
-## Must never depend on
+## How to test
 
-- `neptron-kms`, `neptron-ui`
-- Any async runtime
-
-## Rules
-
-- `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
-- Features: `control` adds the TCP listener and the TCP client. No feature is on by default, and without it no TCP code compiles.
-- Dependencies: `neptron-types`, `serde`, `serde_json`, `thiserror`. The base64 codec is in the crate, so it needs no dependency.
+`cargo xtask test -p neptron-ipc`. Unit tests cover the codec and the server; `tests/integration/` runs them over a Unix socket and, with `control`, over TCP.

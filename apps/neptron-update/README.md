@@ -2,13 +2,13 @@
 
 Thin glue around RAUC. Milestone M4: this app stays a stub in the MVP.
 
-## Public API sketch
-
-- `main`, which does nothing yet
-
 ## Must never depend on
 
 - `neptron-ui`, `neptron-kms`
+
+## Public API sketch
+
+- `main`, which does nothing yet
 
 ## Rules
 
