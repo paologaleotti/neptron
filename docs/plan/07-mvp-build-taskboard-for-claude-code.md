@@ -1,22 +1,18 @@
 ## MVP build: taskboard for Claude Code
 
-The MVP is one playable path on the i3-6100T: boot, game list, launch, correct CRT mode, sound, gamepad, quit. It is 29 tasks in 7 waves, built by Claude Code with no human review. Tasks in one wave own different folders, so Claude Code can run a whole wave in parallel. The longest dependency chain is 8 tasks.
-
-&#91;embedded content: MVP waves · 29 tasks, critical path highlighted\]
-
-Highlighted boxes are the critical path. Every other task has slack. The taskboard table gives the exact dependencies.
+The MVP is one playable path on the i3-6100T: boot, game list, launch, correct CRT mode, sound, gamepad, quit. Its first plan is 29 tasks (T01 to T29) in 7 waves, built by Claude Code with no human review. Tasks in one wave own different folders, so a whole wave can run in parallel. The longest dependency chain is 8 tasks. The owner added the later tasks (ids C, P, CI, D and M) to the MVP; `docs/taskboard.toml` lists every task with its status.
 
 ### Scope
 
 | In the MVP | After the MVP |
 | --- | --- |
-| x86\_64 image (QEMU and USB stick) and a desktop window backend | Raspberry Pi image: composite on your Pi 3B first, GPIO DPI when the VGA666 arrives |
-| Software-rendered cores: NES (FCEUmm), SNES (Snes9x), Mega Drive (Genesis Plus GX), and the scripted test core. ROMs as plain files or in `.zip` files | Hardware-rendered cores, PlayStation, arcade, `.7z` ROMs |
-| OpenGL ES 2 game path on GBM buffers, allocated once, with linear modifiers | Shaders, rotation, plane crops |
+| x86\_64 image (QEMU and USB stick) and a desktop window backend; Raspberry Pi 3 image with composite video and HDMI (`docs/spec/raspberry-pi.md`) | GPIO DACs on the Pi (VGA666, RGB-Pi, Pi2SCART) |
+| Software-rendered cores: NES (FCEUmm), SNES (Snes9x), Mega Drive (Genesis Plus GX), arcade (FBNeo, ADR 0014), and the scripted test core. ROMs as plain files or in `.zip` files | Hardware-rendered cores, PlayStation, `.7z` ROMs |
+| OpenGL ES 2 game path on GBM buffers, allocated once, with linear modifiers; scanlines (ADR 0006); rotation for vertical games (ADR 0015) | Shaders, plane crops |
 | ODREN: full decision procedure for 15 kHz, 31 kHz and flat-panel profiles, and a profile built from a PC CRT's EDID | Signal geometry adjustment |
 | Safety layers 1 to 8, with the launcher | Proof of layer 7 on AMD hardware |
 | UI: home, game list, quick menu, display panel with confirm-or-revert, one grid test pattern | First-boot wizard, full settings tree, skins, save-state UI, search |
-| Three-level settings with the typed schema | Network, updates (RAUC), installer, guns, wheels, box art |
+| Three-level settings with the typed schema; the SMB share of the games folder (`docs/spec/network-share.md`) | Network setup, updates (RAUC), installer, guns, wheels, box art |
 | SDL3 audio with rate control; SDL3 gamepads, evdev keyboards | Guided mapping, mice, spinners |
 | Control API and tiers T0 to T3; T4 for the three real cores | T5 hardware runners |
 
@@ -35,8 +31,8 @@ Highlighted boxes are the critical path. Every other task has slack. The taskboa
 11. Never weaken validation, loosen a tolerance, skip a test or bless a changed golden to get a green run.
 12. Build cache. A new worktree gets its `target/` as an APFS clone of the warm `target/` of `main` (`cp -cRp`). Dependencies do not compile again, and the clone uses almost no disk space. The orchestrator deletes the worktree and its `target/` at merge, and builds `main` again after each wave to keep the source warm. If the clone does not keep the dependencies fresh, the run uses `sccache` instead.
 13. Machine load. The development machine is an M1 Pro with 10 cores (8 performance, 2 efficiency) and 16 GB of memory, and it must stay usable during the run. Every build, test and QEMU command goes through `xtask`, which starts it with `taskpolicy -c utility`: the work uses all cores when they are free and gives way to the applications in use. `xtask` also holds a lock with two build slots, each with `CARGO_BUILD_JOBS=5`, so builds fill the 10 cores and no more. A third build waits for a slot. Only one QEMU guest runs at a time, with 2 GB of memory. Memory is the hard limit: if the machine starts to swap, the orchestrator goes down to one build slot. No agent calls `cargo` directly for a build or a test.
-14. Fast builds. Compile time has priority over run-time speed for the whole MVP. A task builds and tests only its own crate (`cargo check -p`, `cargo nextest run -p`) in the dev profile. The full workspace gate runs one time, before merge. Only T28 builds the release profile.
-15. Local flow. The MVP run opens no pull requests and pushes no task branch. The review agent reads the local diff of the branch against `main`. After approval, the orchestrator rebases the branch, runs the local gate on it, moves `main` forward (fast-forward) and deletes the branch and the worktree. The local gate includes T3 in the aarch64 QEMU guest for the tasks that need T3. The orchestrator pushes `main` one time, when the MVP is finished, with the full commit history and no squash. CI runs on that push. The x86\_64 checks run only in CI, so this first run can show failures that the local gate cannot see; the orchestrator repairs them with new commits. Where this document says "pull request", the MVP run uses the task report. Pull requests become the normal flow after the MVP.
+14. Fast builds. Compile time has priority over run-time speed for the whole MVP. A task builds and tests only its own crate (`cargo xtask check -p`, `cargo xtask test -p`) in the dev profile. The full workspace gate runs one time, before merge. Only T28 builds the release profile.
+15. Local flow. The MVP run opens no pull requests and pushes no task branch. The review agent reads the local diff of the branch against `main`. After approval, the orchestrator rebases the branch, runs the local gate on it, moves `main` forward (fast-forward) and deletes the branch and the worktree. The local gate includes T3 in the aarch64 QEMU guest for the tasks that need T3. Only the orchestrator pushes `main` to `origin`, after a merge with a green gate, with the full commit history and no squash. CI runs on each push of `main` (`docs/ci.md`). The x86\_64 checks run only in CI, so CI can show failures that the local gate cannot see; the orchestrator repairs them with new commits. Where this document says "pull request", the MVP run uses the task report. Pull requests become the normal flow after the MVP.
 16. Commit quality. The history is part of the product, and the work must be clean. A commit holds one logical change with its tests, and a person can read it alone. No commit is a dump of a full task. Each commit builds. The agent decides the number and the size of the commits. Nothing is squashed, at any time.
 17. Model. Every agent of the run (orchestrator, implementer, reviewer) uses Opus 5.5 (`claude-opus-5-5`) at medium effort.
 18. ADRs. An ADR (architecture decision record, a short file in `docs/adr/`) is only for a decision that changes the design: a contract change, a new crate, a change to a dependency rule, a licence decision, a change to a safety rule. A routine choice goes in the commit body or the crate README, not in an ADR.
@@ -50,7 +46,7 @@ Highlighted boxes are the critical path. Every other task has slack. The taskboa
 
 ### Contracts
 
-T02 turned this sketch into code. The code in `crates/neptron-types`, `crates/neptron-safety` and `crates/neptron-backend` is now the contract, and rule 4 says how it changes. The block below is the original sketch; `docs/adr/0001-contract-corrections-in-code.md` lists the differences (a tenth `Rejection` variant `Malformed`, payloads on every variant, `FlipEvent`, `InputEvent` and `Control` in `neptron-types`, `DisplayError`, and snake_case names on the wire). All values are integers: frequencies in millihertz, times in nanoseconds.
+T02 turned this sketch into code. The code in `crates/neptron-types`, `crates/neptron-safety` and `crates/neptron-backend` is now the contract, and rule 4 says how it changes. The block below is the original sketch; `docs/adr/0001-contract-corrections-in-code.md` lists the differences (a tenth `Rejection` variant `Malformed`, payloads on every variant, `FlipEvent`, `InputEvent` and `Control` in `neptron-types`, `DisplayError`, and snake_case names on the wire). Later contract changes have their own ADRs: 0005, 0006, 0007, 0009, 0010, 0012 and 0015 (index in `docs/adr/README.md`). All values are integers: frequencies in millihertz, times in nanoseconds.
 
 ```rust
 // neptron-types: plain data with serde, no I/O, #![forbid(unsafe_code)]
@@ -158,17 +154,17 @@ pub trait Clock { fn now_ns(&self) -> u64; }
 
 ### Task briefs
 
-Each brief lists what the task must deliver and the choices that are already made. The implementer also reads the Definition section in brackets.
+Each brief lists what the task must deliver and the choices that are already made. The implementer also reads the Definition section in brackets. Every task below is merged. Where a brief and the code differ, the code, its crate README and the ADRs give the current state.
 
 | ID | Must deliver | Already decided |
 | --- | --- | --- |
 | T01 | Cargo workspace with every crate of the monorepo layout as a stub with a README; `xtask verify` for T0 and T1; dependency-rule and `unsafe` allow-list checks; CI; `CLAUDE.md`, `docs/adr/`, `docs/taskboard.toml`, `docs/open-points.md` \[Monorepo layout\] | Edition 2024, toolchain pinned in `rust-toolchain.toml`. `LICENSE-MIT` and `LICENSE-APACHE`. Licence check with `cargo-deny`. Automation lives in `xtask`, not in shell scripts. Build profiles as in the Definition. The headless build for T0 to T2 compiles no SDL3, EGL or KMS code. An xtask command makes a task worktree with its target directory cloned from main (rule 12), and a check proves that a build in a new clone compiles no dependency again |
-| T02 | The contracts block as code; monitor presets converted from Switchres into `data/monitors/*.toml`, with a parse test | Integers only, no floats in any contract type. `validate` is `todo!()` until T04 |
+| T02 | The contracts block as code; monitor presets converted from Switchres into `data/monitors/*.toml`, with a parse test | Integers only, no floats in any contract type |
 | T03 | Fake display that records every mode and scene, with programmable refresh, jitter and late flips; fake audio sink; scripted input; simulated clock \[Verification ladder\] | The simulated clock is the only time source. No threads, no sleeps |
 | T04 | `validate` with every range check, and the hard rails \[CRT safety model\] | Integer maths only. It judges the modeline it is given. A build script generates the rails from `data/monitors`. No dependency except `neptron-types` |
 | T05 | Switchres as a vendored copy of the calculation sources at a pinned commit, in `vendor/switchres` with its licence file and the commit in a README, compiled with the `cc` crate; no git submodule (rule 19); a safe function from source geometry, profile and GPU capabilities to a list of modelines; the golden list of about 40 systems | Compile only the calculation sources, with `-ffp-contract=off`, in `neptron-switchres-sys`. That crate holds the C++ build and the raw calls, and nothing else. `neptron-modeline` wraps it and has no `unsafe`. Calls are serialised behind one lock. An ADR records the licence |
 | T06 | `ReferenceRenderer`: scale, crop, both filters, UI overlay, all three pixel formats | Pure Rust, no dependencies. Its output is the definition of correct |
-| T07 | Canvas trait and CPU canvas, bitmap font, the five widget templates, scene registry, snapshot and intent types; `xtask shot`, `gallery`, `golden` \[Frontend and UX\] | No dependency on any NEPTRON crate. 320x240 XRGB. Try `embedded-graphics` first and record the choice in the crate README. The font has a permissive licence, committed with it |
+| T07 | Canvas trait and CPU canvas, bitmap font, the five widget templates, scene registry, snapshot and intent types; `xtask shot`, `gallery`, `golden` \[Frontend and UX\] | No dependency on any NEPTRON crate. 320x240 XRGB. No `embedded-graphics`: the crate README says why. The font has a permissive licence, committed with it |
 | T08 | Typed schema, three-level resolution, TOML files \[Settings model\] | Order is game, system, global, default. Writes are temp file, fsync, rename |
 | T09 | Bindings for `libretro.h`; `neptron-testcore`, a core that follows a script | `xtask bindgen` generates the bindings and they are committed. `libretro.h` is vendored. The test core reads its script from a file named in an environment variable. In the test core, `unsafe` is only on the exported libretro functions, each with a `// SAFETY:` comment |
 | T10 | ROM scan, index cache, metadata for the three MVP systems, the folder layout of the Definition (Batocera and RetroPie names). A `.zip` file in a system folder is one game, listed by its file name; the scan does not open it | The cache is one versioned binary file, rebuilt on a version mismatch. Scans never run on the frame thread |
@@ -180,21 +176,19 @@ Each brief lists what the task must deliver and the choices that are already mad
 | T16 | Core loading, the "Must" callbacks, save RAM, core options, content from a plain file or from a `.zip` file | `libloading`. An unknown environment call returns false and is logged once. One core per process. For a `.zip`, the host reads the first entry whose extension the system accepts into memory and gives it to the core as data; the archive is opened read-only and never changed; an archive with no such entry, a damaged archive or an entry above a size limit is a typed error. Deflate and stored entries only; no `.7z` |
 | T17 | Resampler, dynamic rate control, SDL3 sink | `rubato`. RetroArch's method with at most 0.5% deviation. 16-bit stereo. SDL3 audio subsystem only |
 | T18 | Gamepads and keyboards mapped to RetroPad, hotplug \[Input\] | SDL3 gamepad subsystem with no video subsystem. Keyboards through the `evdev` crate, grabbed. One read per frame |
-| T19 | `GlesRenderer` for a `Scene` | EGL and OpenGL ES 2 through `khronos-egl` and `glow`. Two textured quads, no other shaders. Nearest is exact; sharp-bilinear is within 1/255 per channel |
+| T19 | `GlesRenderer` for a `Scene` | EGL and OpenGL ES 2 through `khronos-egl` and `glow`. Two textured quads. The only effect is the scanline pattern (ADR 0006); `crates/neptron-gfx/README.md` has the shader rules. Nearest is exact; sharp-bilinear is within 1/255 per channel |
 | T20 | Home, game list, quick menu, display panel, confirm dialog, notice, grid pattern | Each screen is a pure function of snapshot and input. D-pad and two buttons only. One golden per scene |
 | T21 | A standalone program that shows 240p, 480i and 480p test modes for a named preset, each for 10 seconds, and prints what the driver programmed | Depends on `drm`, `neptron-types` and `neptron-safety` only. Every mode passes `validate` first. It reverts on exit |
 | T22 | The engine that joins policy, validator and display: debounce, commit, mute, switch trace \[Switching, Timing\] | It uses the `Display` trait, never `neptron-kms`. Debounce is 3 frames. An equal mode changes only scale and crop |
 | T23 | `Display` on DRM/KMS: connector choice, atomic modeset, GBM buffers, flips | Atomic API only, with a test-only commit first. Buffers once at the largest size, linear modifier. The DRM descriptor comes from the launcher through `NEPTRON_DRM_FD`. Connector rule as in the Definition |
 | T24 | Buildroot packages for FCEUmm, Snes9x and Genesis Plus GX at pinned commits; test ROMs; core traces | Each core's licence goes in its metadata and the licence manifest. ROMs are the 240p Test Suite builds. Hashes after a fixed frame count |
 | T25 | Launch, the display-locked loop, pause, quick menu, exit, save RAM flush | The core runs one frame per flip. Double refresh presents each frame twice. Save RAM is flushed on exit and on a timer |
-| T26 | Confirm-or-revert, last known good, safe mode, blind recovery \[CRT safety model\] | 10-second confirm, 5-second recovery hold, safe mode after two failed boots. All tested in simulated time |
+| T26 | Confirm-or-revert, last known good, safe mode, blind recovery \[CRT safety model\] | 15-second confirm window (ADR 0013), 5-second recovery hold, safe mode after two failed boots. All tested in simulated time |
 | T27 | `neptron` (wiring only), `neptron-launch`, control handlers, `xtask verify --tier 2`, the UI crawler | The launcher opens the DRM device, passes the descriptor, and respawns the frontend with a backoff. No logic in the app crate |
 | T28 | Kernel fragments, the 15 kHz patch set, the frontend and cores in the image, licence manifest, USB image | fbdev emulation, framebuffer console and virtual terminals are off. GRUB boots on BIOS and UEFI. The patch set is pinned |
 | T29 | `neptronctl selftest video`; the checklist for your bench | Each mode family shows for 10 seconds with readback. The report is one JSON file |
 
 ### How the orchestrator runs a task
-
-**Pilot first.** Wave 0 (T01 and T02) runs alone. The contracts block is a sketch that was never compiled, so T02 may correct it where the compiler demands, and records each correction in an ADR and in this document. After T02 merges, the orchestrator proves that the stubs of every wave-1 crate build against the contracts, sends you a short report, and waits for your go. Wave 1 then starts its twelve tasks. T03 and T13 are written with the others, but they merge after T04, because only `validate` can make the `ValidatedMode` that a display needs. Later contract changes follow rule 4.
 
 1. Pick every task whose needs are merged. Start one implementer agent per task, each in its own worktree. The brief is the task's two table rows, the contracts block, the Definition sections it names, and the crate README.
 2. The implementer writes tests with the code, runs the gate, and sends the orchestrator a task report with the gate summary and any open points.
@@ -210,4 +204,4 @@ Each brief lists what the task must deliver and the choices that are already mad
 | SyncMaster 740s, profile from its EDID | You, 15 minutes | The self-test report shows the programmed modes; 480p, the 2x picture style and 240p at 120 Hz are stable; confirm-or-revert reverts with no button press; blind recovery restores the safe mode |
 | SCART TV, 15 kHz profile | Not required for the MVP; you or the community, when an adapter is there | 288p at 50 Hz, 240p at 60 Hz and 576i are stable |
 
-The taskboard covers WP 0.1 to 0.6, 1.1 to 1.7 and 2.1 to 2.5, and the minimum of 2.6, 2.7, 3.1 to 3.3. The work packages below stay the full plan to the alpha.
+The taskboard covers WP 0.1 to 0.6, 1.1 to 1.7 and 2.1 to 2.5, and the minimum of 2.6, 2.7, 3.1 to 3.3. The work packages in `08-work-packages.md` stay the full plan to the alpha.
