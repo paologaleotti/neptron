@@ -111,8 +111,8 @@ pub struct Snapshot {
     /// The guided mapping of a controller, while it runs. It shows over
     /// every screen, under a pending confirmation.
     pub pad_mapping: Option<PadMapping>,
-    /// The time since the screensaver started, in nanoseconds, while it
-    /// shows. It then covers every screen and overlay, and the screens
+    /// The UI frames the screensaver has shown, from 0 at its start, while
+    /// it shows: the word moves one step in each. It then covers every screen and overlay, and the screens
     /// take no action.
     pub screensaver: Option<u64>,
 }

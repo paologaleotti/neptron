@@ -20,6 +20,21 @@ pub(super) struct Screensaver {
     /// off.
     timeout_ns: Option<u64>,
     sticks: Sticks,
+    steps: Steps,
+}
+
+/// The count of UI frames of the screensaver: the step of the word. In
+/// the game list the loop runs once per flip, so a menu mode with double
+/// refresh (`repeat` 2, such as 120 Hz for the 60 Hz menu) runs it twice
+/// per UI frame; each step then shows for `repeat` flips, and the word
+/// keeps one pixel per frame of the menu source. In a game the session
+/// shows each frame of the loop for its `repeat` flips itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Steps {
+    /// The step on show.
+    frames: u64,
+    /// The flips that showed it so far.
+    flips: u8,
 }
 
 /// The stick axes out of their dead zone now. A stick that drifts or
@@ -39,6 +54,7 @@ impl Screensaver {
             idle: Idle::new(now_ns),
             timeout_ns,
             sticks: Sticks::new(),
+            steps: Steps::new(),
         }
     }
 
@@ -73,13 +89,45 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             self.actions.clear();
             self.nav.hold_back();
         }
+        let flips_per_step = match &self.stage {
+            Stage::List(list) => list
+                .engine
+                .current()
+                .map_or(1, |c| c.chosen.proposal.timing.repeat()),
+            Stage::Game(_) | Stage::Ended => 1,
+        };
         self.snap.screensaver = match step {
-            IdleStep::Shows { elapsed_ns } => Some(elapsed_ns),
-            IdleStep::Hidden | IdleStep::Woken => None,
+            IdleStep::Shows { .. } => Some(saver.steps.next(flips_per_step)),
+            IdleStep::Hidden | IdleStep::Woken => {
+                saver.steps = Steps::new();
+                None
+            }
         };
         if let Stage::Game(game) = &mut self.stage {
             game.session.hide_picture(self.snap.screensaver.is_some());
         }
+    }
+}
+
+impl Steps {
+    fn new() -> Self {
+        Self {
+            frames: 0,
+            flips: 0,
+        }
+    }
+
+    /// The step to show in this loop frame, which shows for one flip of a
+    /// mode that shows each step for `flips_per_step` flips (0 counts as
+    /// 1).
+    fn next(&mut self, flips_per_step: u8) -> u64 {
+        let step = self.frames;
+        self.flips += 1;
+        if self.flips >= flips_per_step.max(1) {
+            self.flips = 0;
+            self.frames += 1;
+        }
+        step
     }
 }
 
@@ -149,6 +197,18 @@ mod tests {
         assert!(sticks.wakes(&[event(Control::LeftX, -9_000)]));
         assert!(!sticks.wakes(&[event(Control::A, 0), event(Control::LeftY, 0)]));
         assert!(!sticks.wakes(&[]));
+    }
+
+    #[test]
+    fn each_frame_shows_the_next_step_and_double_refresh_shows_each_twice() {
+        let mut steps = Steps::new();
+        let single: Vec<_> = (0..5).map(|_| steps.next(1)).collect();
+        assert_eq!(single, [0, 1, 2, 3, 4]);
+        let mut steps = Steps::new();
+        let double: Vec<_> = (0..6).map(|_| steps.next(2)).collect();
+        assert_eq!(double, [0, 0, 1, 1, 2, 2]);
+        let mut steps = Steps::new();
+        assert_eq!([steps.next(0), steps.next(0)], [0, 1], "0 counts as 1");
     }
 
     #[test]

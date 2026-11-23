@@ -433,9 +433,9 @@ impl Screens {
     }
 
     fn draw(&self, snap: &Snapshot, out: &mut UiFrame) {
-        if let Some(elapsed_ns) = snap.screensaver {
+        if let Some(frames) = snap.screensaver {
             out.tree.set_screen(screensaver::SCREENSAVER_SCREEN);
-            screensaver::draw(elapsed_ns, out);
+            screensaver::draw(frames, out);
             return;
         }
         let (theme, layout) = (&self.theme, &self.layout);

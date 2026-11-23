@@ -5,7 +5,8 @@
 use neptron_backend::Clock;
 use neptron_settings::Level;
 use neptron_types::Control;
-use neptron_ui::screensaver::SCREENSAVER_SCREEN;
+use neptron_ui::screensaver::{SCREENSAVER_SCREEN, pose};
+use neptron_ui::{UI_HEIGHT, UI_WIDTH};
 use serde_json::Value;
 
 use crate::pause::in_game;
@@ -62,6 +63,27 @@ fn press(rig: &mut Rig, control: Control, seen_frames: u32) -> u64 {
     seen
 }
 
+/// Runs `n` frames under the screensaver and checks that each one shows
+/// the next step, a new pose, and draws the canvas once.
+fn each_frame_is_one_step(rig: &mut Rig, n: u32) {
+    let mut step = rig.shell().snapshot().screensaver.expect("the screensaver");
+    let mut paints = rig.shell().canvas().paints();
+    for _ in 0..n {
+        rig.frames(1);
+        let next = rig.shell().snapshot().screensaver.expect("the screensaver");
+        assert_eq!(next, step + 1, "one step per frame");
+        let (a, b) = (
+            pose(step, UI_WIDTH, UI_HEIGHT),
+            pose(next, UI_WIDTH, UI_HEIGHT),
+        );
+        assert_eq!(a.x.abs_diff(b.x), 1, "{a:?} {b:?}");
+        assert_eq!(a.y.abs_diff(b.y), 1, "{a:?} {b:?}");
+        let now = rig.shell().canvas().paints();
+        assert_eq!(now, paints + 1, "the canvas is drawn once per frame");
+        (step, paints) = (next, now);
+    }
+}
+
 fn set(rig: &mut Rig, key: &str, value: Value) {
     rig.shell()
         .set_from_protocol(key, Level::Global, &value)
@@ -85,7 +107,7 @@ fn in_the_menus_it_shows_at_the_set_time_and_the_wake_does_nothing_else() {
         let screen = rig.screen();
         let focus = rig.focused();
         idle_until_it_shows(&mut rig, last_press, DEFAULT_NS);
-        rig.frames(120);
+        each_frame_is_one_step(&mut rig, 600);
         assert!(shows(&mut rig), "it stays with no input");
 
         // An accept on the focused row only wakes the screensaver: the row
@@ -192,7 +214,7 @@ fn a_running_game_never_shows_it_and_a_paused_game_does() {
         let last_press = press(&mut rig, Control::Up, 2);
         let focus = rig.focused();
         idle_until_it_shows(&mut rig, last_press, MINUTE_NS);
-        rig.frames(2);
+        each_frame_is_one_step(&mut rig, 300);
         let last = rig.display.frames().last().expect("a frame").clone();
         assert!(last.scene.ui.is_some());
         assert!(last.scene.game.is_none(), "no frozen game picture");

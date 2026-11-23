@@ -545,10 +545,11 @@ pub(super) fn with_systems() -> Snapshot {
     }
 }
 
-/// The screensaver over the home screen, `elapsed_ns` after its start.
-fn screensaver_at(frame: &mut UiFrame, theme: &Theme, elapsed_ns: u64) {
+/// The screensaver over the home screen, `frames` UI frames after its
+/// start.
+fn screensaver_at(frame: &mut UiFrame, theme: &Theme, frames: u64) {
     let mut snap = with_systems();
-    snap.screensaver = Some(elapsed_ns);
+    snap.screensaver = Some(frames);
     let mut screens = Screens::new(theme.clone());
     screens.update(&snap, &[], frame);
 }
@@ -558,14 +559,14 @@ fn screensaver_start(frame: &mut UiFrame, theme: &Theme) {
     screensaver_at(frame, theme, 0);
 }
 
-/// The first wall: the right edge, in orange.
+/// The first wall: the bottom edge, in orange.
 fn screensaver_wall(frame: &mut UiFrame, theme: &Theme) {
-    screensaver_at(frame, theme, 2_950_000_000);
+    screensaver_at(frame, theme, 108);
 }
 
-/// Twenty seconds in: six walls, in violet.
+/// 1200 frames in: eleven walls, in green.
 fn screensaver_later(frame: &mut UiFrame, theme: &Theme) {
-    screensaver_at(frame, theme, 20_000_000_000);
+    screensaver_at(frame, theme, 1_200);
 }
 
 fn home(frame: &mut UiFrame, theme: &Theme) {
