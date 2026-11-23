@@ -111,6 +111,7 @@ The state column is one line. The full entry below is the reference.
 | OP-113 | Leftovers of the start failure and quick menu work of 2026-11-18 | Start failure logged twice; no game with a disk image is tested |
 | OP-114 | Decisions and findings of 2026-11-19 | M05b dropped; M12's gate met in CI; Killer Instinct is slow on the bench PC; the Pi has no HDMI entry in the hardware matrix |
 | OP-115 | Decisions and findings of 2026-11-23 | The last sound round of M16 is dropped; the cost of the picture answers in a menu has no limit per frame; the screensaver is a bouncing wordmark |
+| OP-116 | Release review of 2026-11-23 | Six fix tasks before 0.1; the list of what waits until after 0.1 |
 
 ### Decided
 
@@ -1106,3 +1107,15 @@ The state column is one line. The full entry below is the reference.
 - Where: `crates/neptron-session/src/pacing.rs`, `crates/neptron-session/src/speed.rs`, `crates/neptron-video/src/answers.rs`, `docs/hardware-checklist.md`
 - How to change: for (1), first give the fake audio sink the period and the blocking of the real device so the loss shows in a test, then take up the speed measure again; for (2), measure `policy_cost` on a Pi 3, and if needed give the step a budget in plans and make the fallback of `decide_shown` resumable.
 - Decision: Owner, 2026-11-23: merge the tested build of M16 and drop the last round; the screensaver starts after 5 minutes in the menu, a paused game and the quick menu, never in a running game, with the settings On or Off and 1, 5, 10 or 30 minutes. M09 and C19 move after 0.1. The screensaver word has twice the font size and moves one pixel on each axis in each frame.
+
+### OP-116: Release review of 2026-11-23, and what waits until after 0.1.
+
+- Raised by: eight read-only reviews of `main` before release 0.1 (monitor safety, mode policy, user data, core host and `unsafe`, frame loop and audio, input, OS layer, release and licences)
+- Status: open
+- Default:
+  1. Fixed before 0.1, each in its own task: a named 15 kHz profile falls back to a mode from a false analog EDID, and the blind recovery keeps the safe mode of the monitor of the boot; the PC kernel has IPv6 and the share has no address limit; the share and a damaged state partition get no check or repair, a RAM folder has no size limit, the save backup covers one write and not a session, and two games of one system with the same file name share a save; a guided mapping is lost when a held A or B ends the last skip, a damaged `pads.toml` map is applied with no check, and a joystick with 2 buttons gets no Accept; a pick of the refresh rate removes `display.vertical` and `display.panel_scale`; the licence fields, notices and sources archive of the images are not complete.
+  2. After 0.1: the confirm or revert of a pending mode when the frontend hangs (the mode is a validated mode of the named profile); the sync polarity of a CRT mode is not checked against the profile; no notice when the sound device goes away; a display that stops for 5 s ends the game; the sound plays in bursts while the display does not flip; a modeset at each change between the 256 and 512 widths of the SNES on a GPU with a pixel clock floor, and no limit on the rate of modesets from a source that changes; the power button of a PC does nothing; two sticks of one build variant share a root PARTUUID; a PC with an AMD GPU has no firmware in the image; the menu on a TV has a black band at each side (OP-097, OP-102 point 1).
+  3. The core host and the frame loop have no finding above minor. In release, `panic = "abort"` ends the process, so the comment in `neptron-libretro/src/ffi.rs` about `catch_unwind` is wrong for the shipped binary.
+- Where: the findings are in the task reports of the fix tasks; `apps/neptron/src/display.rs`, `os/board`, `crates/neptron-session`, `crates/neptron-input`, `apps/neptron/src/config.rs`, `os/package`
+- How to change: each point of 2 is a task of its own after 0.1.
+- Decision: Owner, 2026-11-23: the menu width on a TV waits until after 0.1.
