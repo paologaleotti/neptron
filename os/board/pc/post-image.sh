@@ -34,6 +34,7 @@ mkdir -p "$part/EFI/BOOT" "$part/boot/grub" "$part/legal"
 cp "$images/efi-part/EFI/BOOT/bootx64.efi" "$part/EFI/BOOT/bootx64.efi"
 sed "s/@SIGNATURE@/$signature/g" "$board/grub.cfg" > "$part/EFI/BOOT/grub.cfg"
 cp "$part/EFI/BOOT/grub.cfg" "$part/boot/grub/grub.cfg"
+cp "$board/neptron.toml" "$part/neptron.toml"
 cp "$board/LICENCES.txt" "$part/LICENCES.txt"
 legal=$BASE_DIR/legal-info
 cp "$legal/manifest.csv" "$legal/README" "$part/legal/"

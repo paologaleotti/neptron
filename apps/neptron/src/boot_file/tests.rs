@@ -2,6 +2,9 @@ use neptron_settings::{DISPLAY_OUTPUT, DISPLAY_TV, Schema, Value};
 
 use super::*;
 
+const PI_FILE: &str = include_str!("../../../../os/board/rpi/neptron.toml");
+const PC_FILE: &str = include_str!("../../../../os/board/pc/neptron.toml");
+
 fn read(text: &str) -> FileRead {
     FileRead::Read(text.as_bytes().to_vec())
 }
@@ -213,4 +216,102 @@ fn a_file_with_comments_only_stores_its_hash() {
         decision.log,
         ["neptron.toml has changed: no setting to copy"]
     );
+}
+
+/// The commented key lines of a shipped file: the line with its `# `
+/// removed, the key, and the choices that its comment names.
+fn commented_keys(file: &str) -> Vec<(String, String, Vec<String>)> {
+    file.lines()
+        .filter_map(|line| {
+            let line = line.strip_prefix("# ")?;
+            let (key, _) = line.split_once('=')?;
+            let (setting, comment) = line.split_once('#')?;
+            Some((
+                setting.trim().to_owned(),
+                key.trim().to_owned(),
+                choices(comment),
+            ))
+        })
+        .collect()
+}
+
+/// The values a comment names: the first word of each `|` part, or the
+/// names after "such as".
+fn choices(comment: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for part in comment.split('|') {
+        match part.split_once("such as") {
+            Some((_, names)) => out.extend(
+                names
+                    .split(',')
+                    .flat_map(|n| n.split(" or "))
+                    .map(|n| n.trim().to_owned()),
+            ),
+            None => {
+                let word = part.split_whitespace().next().unwrap_or_default();
+                out.push(word.trim_end_matches('.').to_owned());
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn the_shipped_files_set_nothing_until_a_line_is_uncommented() {
+    for (name, file, keys) in [
+        ("rpi", PI_FILE, &["output", "tv", "tv_width", "pi_dac"][..]),
+        ("pc", PC_FILE, &["output", "monitor"][..]),
+    ] {
+        let decision = decide_text(file, None);
+        assert!(
+            decision.changes.is_empty(),
+            "{name}: {:?}",
+            decision.changes
+        );
+        assert!(
+            decision.problems.is_empty(),
+            "{name}: {:?}",
+            decision.problems
+        );
+        let found = commented_keys(file);
+        let names: Vec<&str> = found.iter().map(|(_, key, _)| key.as_str()).collect();
+        assert_eq!(names, keys, "{name}");
+    }
+}
+
+#[test]
+fn each_commented_key_and_its_choices_are_accepted_by_the_schema() {
+    let schema = Schema::builtin();
+    let monitors = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/monitors");
+    for file in [PI_FILE, PC_FILE] {
+        for (setting, key, choices) in commented_keys(file) {
+            let uncommented = decide(&schema, &read(&format!("[display]\n{setting}\n")), None);
+            assert!(
+                uncommented.problems.is_empty(),
+                "{setting}: {:?}",
+                uncommented.problems
+            );
+            let dotted = format!("display.{key}");
+            if dotted != PI_DAC_KEY {
+                assert_eq!(uncommented.changes.len(), 1, "{setting}");
+                assert_eq!(uncommented.changes[0].0, dotted);
+            }
+            assert!(!choices.is_empty(), "{setting}");
+            for choice in choices {
+                let one = format!("[display]\n{key} = \"{choice}\"\n");
+                let decision = decide(&schema, &read(&one), None);
+                assert!(
+                    decision.problems.is_empty(),
+                    "{key} = {choice}: {:?}",
+                    decision.problems
+                );
+                if key == "monitor" && choice != "auto" {
+                    assert!(
+                        monitors.join(format!("{choice}.toml")).is_file(),
+                        "no profile {choice}"
+                    );
+                }
+            }
+        }
+    }
 }

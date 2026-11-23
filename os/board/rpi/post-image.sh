@@ -40,6 +40,7 @@ variant=release
 [ "$dev" = yes ] && variant=dev
 "$board/cmdline.sh" "$board/cmdline.txt" "$signature" "$variant" > "$part/cmdline.txt"
 
+cp "$board/neptron.toml" "$part/neptron.toml"
 cp "$board/LICENCES.txt" "$part/LICENCES.txt"
 legal=$BASE_DIR/legal-info
 cp "$legal/manifest.csv" "$legal/README" "$part/legal/"

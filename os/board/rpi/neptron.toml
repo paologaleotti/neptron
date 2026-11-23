@@ -1,0 +1,9 @@
+# NEPTRON first-boot settings. This partition is FAT32: edit it on any PC.
+# Remove the # at the start of a line and set its value. A value here is
+# copied into the settings once, when this file changes.
+
+[display]
+# output   = "auto"     # auto | HDMI-A-1 | Composite-1
+# tv       = "auto"     # auto (NTSC) | ntsc | ntsc_j | ntsc_443 | pal_60 | pal_m | pal | pal_n | secam | mono_60 | mono_50
+# tv_width = "aspect"   # aspect | integer | fill
+# pi_dac   = "none"     # none. GPIO DACs are not supported by this image.
