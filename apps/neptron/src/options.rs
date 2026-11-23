@@ -8,7 +8,8 @@ use crate::paths::Paths;
 /// The usage text.
 pub const USAGE: &str =
     "usage: neptron [--backend kms|window] [--share DIR] [--state DIR] [--data DIR]
-               [--cores DIR] [--run DIR] [--sysfs DIR] [--control-socket PATH | --no-control]";
+               [--cores DIR] [--run DIR] [--sysfs DIR] [--boot DIR]
+               [--control-socket PATH | --no-control]";
 
 /// The display backend of a run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +88,7 @@ pub fn parse(
             "--cores" => paths.cores = path,
             "--run" => paths.run = path,
             "--sysfs" => paths.sysfs = path,
+            "--boot" => paths.boot = path,
             "--control-socket" => options.control = Some(path),
             _ => return Err(usage(format!("unknown argument {name}"))),
         }
@@ -134,12 +136,15 @@ mod tests {
             "r",
             "--sysfs",
             "y",
+            "--boot",
+            "b",
             "--no-control",
         ])
         .expect("parse");
         assert_eq!(options.backend, Some(Backend::Window));
         assert_eq!(options.paths.share, PathBuf::from("s"));
         assert_eq!(options.paths.sysfs, PathBuf::from("y"));
+        assert_eq!(options.paths.boot, PathBuf::from("b"));
         assert_eq!(options.control, None);
     }
 

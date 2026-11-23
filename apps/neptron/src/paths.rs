@@ -18,6 +18,8 @@ pub struct Paths {
     pub run: PathBuf,
     /// The sysfs root for the GPU and EDID detection.
     pub sysfs: PathBuf,
+    /// The boot partition, read-only: `neptron.toml`.
+    pub boot: PathBuf,
 }
 
 impl Paths {
@@ -30,7 +32,19 @@ impl Paths {
             cores: PathBuf::from("/usr/lib/libretro"),
             run: PathBuf::from("/run/neptron"),
             sysfs: PathBuf::from("/sys"),
+            boot: PathBuf::from("/boot"),
         }
+    }
+
+    /// `boot/neptron.toml`, the first-boot file.
+    pub fn boot_file(&self) -> PathBuf {
+        self.boot.join(crate::boot_file::FILE_NAME)
+    }
+
+    /// `state/neptron.toml.sha256`, the SHA-256 of the `neptron.toml` that
+    /// the last import copied.
+    pub fn boot_file_hash(&self) -> PathBuf {
+        self.state.join("neptron.toml.sha256")
     }
 
     /// `share/roms`.

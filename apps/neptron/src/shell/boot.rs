@@ -87,10 +87,11 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     pub fn boot(
         paths: Paths,
         devices: Devices<D, S, I, C>,
-        runtime: Runtime,
+        mut runtime: Runtime,
         next: Option<NextRun>,
     ) -> Result<Booted<D, S, I, C>, BootError> {
         let mut found = Found { issues: Vec::new() };
+        let imported = std::mem::take(&mut runtime.boot_file);
         found.warn_all(runtime.notices.iter().cloned());
         // The guard boots and its record is written before every step
         // that can fail for a reason other than the display, so a start
@@ -379,6 +380,18 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             outcome: None,
         };
         shell.first_snapshot();
+        for line in imported.log {
+            shell.log(line);
+        }
+        // A relaunch is a run of the same boot: its first run showed the
+        // problems already.
+        if next.is_none() {
+            found.warn_all(imported.problems);
+        } else {
+            for problem in imported.problems {
+                shell.log(problem);
+            }
+        }
         if let Some(issue) = pad_notes_issue {
             shell.log(format!("input: {issue}"));
         }

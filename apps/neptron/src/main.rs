@@ -49,9 +49,21 @@ fn main() -> ExitCode {
     ));
     let code = match options.backend.or(DEFAULT_BACKEND) {
         #[cfg(all(feature = "kms", target_os = "linux"))]
-        Some(Backend::Kms) => kms::run(&options, take_next(&options.paths), stop, log),
+        Some(Backend::Kms) => kms::run(
+            &options,
+            neptron::prestart::prepare(&options.paths),
+            take_next(&options.paths),
+            stop,
+            log,
+        ),
         #[cfg(feature = "window")]
-        Some(Backend::Window) => window::run(&options, take_next(&options.paths), stop, log),
+        Some(Backend::Window) => window::run(
+            &options,
+            neptron::prestart::prepare(&options.paths),
+            take_next(&options.paths),
+            stop,
+            log,
+        ),
         other => {
             drop((stop, log));
             say!(

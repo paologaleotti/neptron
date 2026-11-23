@@ -30,6 +30,7 @@ pub mod pages;
 pub mod paths;
 pub mod power;
 pub mod presets;
+pub mod prestart;
 pub mod record;
 pub mod relaunch;
 mod sha256;

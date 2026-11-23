@@ -11,6 +11,7 @@
 mod arcade;
 mod audio;
 mod boot;
+mod boot_file;
 mod continued;
 mod control;
 mod crawler;

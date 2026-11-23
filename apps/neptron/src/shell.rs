@@ -107,6 +107,9 @@ pub struct Runtime {
     /// What the backend could not open, as notices for the player: a run
     /// goes on with no sound or no gamepad.
     pub notices: Vec<String>,
+    /// What the import of `neptron.toml` found before the backend opened
+    /// ([`crate::prestart::prepare`]): its problems and log lines.
+    pub boot_file: crate::boot_file::Imported,
     /// The playback devices the audio backend listed at start, as the
     /// options of the audio output row after `auto`.
     pub audio_outputs: Vec<neptron_audio::OutputDevice>,

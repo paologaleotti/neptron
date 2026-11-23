@@ -9,6 +9,7 @@ use std::time::Duration;
 use neptron::devices::{audio_output_setting, open_audio};
 use neptron::logbook::LogLines;
 use neptron::options::Options;
+use neptron::prestart::Prestart;
 use neptron::{Devices, NextRun, Runtime, Shell};
 use neptron_audio::{Resampling, Sdl3Outputs};
 use neptron_backend::{Clock, InputSource};
@@ -45,6 +46,7 @@ impl neptron_input::PadRoster for WindowInput {
 /// Runs the frontend in a desktop window.
 pub fn run(
     options: &Options,
+    prestart: Prestart,
     next: Option<NextRun>,
     quit: Arc<AtomicBool>,
     log: LogLines,
@@ -86,6 +88,7 @@ pub fn run(
         subconnector: None,
         tv_standards: None,
         notices,
+        boot_file: prestart.imported,
         audio_outputs: opened.outputs,
         // A desktop run never turns off the computer it runs on.
         power: false,

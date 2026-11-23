@@ -275,6 +275,7 @@ impl Rig {
             cores: root.join("cores"),
             run: root.join("run"),
             sysfs: root.join("sys"),
+            boot: root.join("boot"),
         };
         let nes = paths.roms().join("nes");
         std::fs::create_dir_all(&nes).expect("roms");
@@ -328,6 +329,7 @@ impl Rig {
             subconnector: None,
             tv_standards: self.tv_standards.clone(),
             notices: self.notices.clone(),
+            boot_file: neptron::prestart::prepare(&self.paths).imported,
             audio_outputs: audio_outputs(),
             power: self.power,
         };

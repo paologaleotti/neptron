@@ -13,13 +13,13 @@ use neptron::display_wait::{Look, NO_DISPLAY_EXIT_CODE, auto_output, wait_line, 
 use neptron::logbook::LogLines;
 use neptron::options::Options;
 use neptron::presets::Presets;
+use neptron::prestart::Prestart;
 use neptron::{Devices, NextRun, Runtime, Shell};
 use neptron_audio::{Resampling, Sdl3Outputs};
 use neptron_backend::{Clock, Display, InputSource};
 use neptron_kms::{ChoiceError, KmsConfig, KmsDisplay, KmsError};
 use neptron_platform::Matrix;
 use neptron_session::RunRateSource;
-use neptron_settings::{Schema, Storage, Target};
 use neptron_types::InputEvent;
 
 /// The monotonic clock of the device.
@@ -110,22 +110,17 @@ impl neptron_input::PadRoster for Inputs {
 /// Runs the frontend on the DRM device that the launcher holds.
 pub fn run(
     options: &Options,
+    prestart: Prestart,
     next: Option<NextRun>,
     stop: Arc<AtomicBool>,
     log: LogLines,
 ) -> ExitCode {
     let paths = &options.paths;
-    let global = Storage::new(paths.config())
-        .load(&Schema::builtin(), Target::Global)
-        .ok();
-    let setting = |key: &str| {
-        global
-            .as_ref()
-            .and_then(|l| l.parsed.layer.get(key).map(ToString::to_string))
-            .unwrap_or_else(|| AUTO.to_owned())
-    };
-    let named = Some(setting(neptron_settings::DISPLAY_OUTPUT)).filter(|o| o != AUTO);
-    let monitor = setting(neptron_settings::DISPLAY_MONITOR);
+    let Prestart {
+        imported,
+        output: named,
+        monitor,
+    } = prestart;
     let clock = Monotonic {
         start: Instant::now(),
     };
@@ -280,6 +275,7 @@ pub fn run(
         subconnector,
         tv_standards,
         notices,
+        boot_file: imported,
         audio_outputs: opened.outputs,
         power: neptron::power::control_from(std::env::var_os(neptron::power::POWER_ENV).as_deref()),
     };

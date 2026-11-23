@@ -87,7 +87,7 @@ fn assert_only_tv_modes(rig: &Rig) {
     }
 }
 
-fn on_wire(rig: &Rig) -> (Modeline, TvStandard) {
+pub(crate) fn on_wire(rig: &Rig) -> (Modeline, TvStandard) {
     (
         rig.display.active_mode().expect("a mode"),
         rig.display.active_tv_standard().expect("a standard"),
@@ -99,7 +99,7 @@ fn last_ui_dest(rig: &Rig) -> Rect {
 }
 
 /// Closes the notices on show with OK.
-fn dismiss_notices(rig: &mut Rig) {
+pub(crate) fn dismiss_notices(rig: &mut Rig) {
     for _ in 0..8 {
         if rig.screen() != "notice" {
             return;
@@ -109,7 +109,7 @@ fn dismiss_notices(rig: &mut Rig) {
 }
 
 /// Opens Settings, Display and the option list of `row`.
-fn open_options(rig: &mut Rig, row: &str) {
+pub(crate) fn open_options(rig: &mut Rig, row: &str) {
     rig.focus("Settings");
     rig.tap(&[Control::A]);
     rig.focus("Display");
@@ -395,7 +395,7 @@ fn write_global(rig: &Rig, text: &str) {
 }
 
 /// The texts of the notices of the run.
-fn notice_texts(rig: &mut Rig) -> Vec<String> {
+pub(crate) fn notice_texts(rig: &mut Rig) -> Vec<String> {
     rig.shell()
         .snapshot()
         .notices
