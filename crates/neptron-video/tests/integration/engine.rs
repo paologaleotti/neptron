@@ -369,8 +369,10 @@ fn the_picture_choices_for_every_game_judge_each_source() {
 
 /// The answers of a request come from the cache once made: a request
 /// starts its work, the frame makes it a few decisions at a time, the same
-/// request then costs nothing, and a change of an input of the engine (here
-/// the monitor) makes the old answers stale.
+/// request then costs nothing, a change of the settings or the scanlines
+/// of the run keeps them (they are in the request), and a change of an
+/// input that the request does not carry (here the monitor) makes the old
+/// answers stale.
 #[test]
 fn the_picture_answers_are_made_a_few_decisions_at_a_time_and_kept() {
     let mut rig = Rig::generic_15(native_width());
@@ -382,7 +384,7 @@ fn the_picture_answers_are_made_a_few_decisions_at_a_time_and_kept() {
     );
     assert!(rig.engine.answers_in_work());
     let mut frames = 0;
-    while !rig.engine.step_answers(2) {
+    while !rig.engine.step_answers([&request], 2) {
         frames += 1;
         assert!(frames < 100, "the work ends");
     }
@@ -390,7 +392,20 @@ fn the_picture_answers_are_made_a_few_decisions_at_a_time_and_kept() {
     let answers = rig.engine.answers(&request).expect("ready");
     assert!(answers.is_ok());
     assert!(!rig.engine.answers_in_work());
-    assert_eq!(rig.engine.answers(&request), Some(answers), "kept");
+    assert_eq!(rig.engine.answers(&request), Some(answers.clone()), "kept");
+    rig.engine.set_settings(PolicySettings {
+        style: PictureStyle::Fit,
+        ..PolicySettings::default()
+    });
+    rig.engine.set_scanlines(neptron_video::ScanlineSettings {
+        mode: neptron_types::ScanlineMode::On,
+        strength_percent: 50,
+    });
+    assert_eq!(
+        rig.engine.answers(&request),
+        Some(answers),
+        "a pick keeps the answers of every request"
+    );
     rig.engine.set_monitor(generic_15());
     assert!(
         rig.engine.answers(&request).is_none(),

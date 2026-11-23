@@ -69,7 +69,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         }
         let ready = self
             .engine_ref()
-            .is_some_and(|engine| engine.step_answers(PICTURE_DECISIONS_PER_FRAME));
+            .is_some_and(|engine| engine.step_answers([], PICTURE_DECISIONS_PER_FRAME));
         if ready {
             self.reload_page();
         }

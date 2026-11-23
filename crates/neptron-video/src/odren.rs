@@ -86,6 +86,11 @@ pub struct Odren {
     inputs: Inputs,
     /// Counts the changes of the inputs that judge a mode.
     generation: u64,
+    /// Counts the changes of the inputs that the picture answers do not
+    /// carry in their request: the monitor (with its profile and caps), the
+    /// veto and the driver refusals. A change of the settings or of the
+    /// scanlines is no change here.
+    answers_generation: u64,
     /// Scanlines change the scene only, never the mode.
     scanlines: ScanlineSettings,
     cache: Cache,
@@ -155,6 +160,7 @@ impl Odren {
                 driver_refused: Vec::new(),
             },
             generation: 0,
+            answers_generation: 0,
             scanlines: ScanlineSettings::OFF,
             cache: Cache::new(),
             answers: AnswerCache::default(),
@@ -182,6 +188,7 @@ impl Odren {
     /// more modes.
     pub fn set_veto(&mut self, veto: Veto) {
         self.inputs.veto = Some(veto);
+        self.answers_generation += 1;
         self.invalidate(Trigger::Settings);
     }
 
@@ -192,6 +199,7 @@ impl Odren {
         self.inputs.settings.panel_scanlines =
             panel_scanlines(&self.inputs.monitor.profile().kind, self.scanlines);
         self.inputs.driver_refused.clear();
+        self.answers_generation += 1;
         self.invalidate(Trigger::Monitor);
     }
 
@@ -767,14 +775,21 @@ impl Odren {
         request: &AnswerRequest,
     ) -> Option<Result<neptron_modeline::policy::PictureChoices, crate::Unshowable>> {
         self.answers
-            .get(self.generation, request)
+            .get(self.answers_generation, request)
             .map(|done| done.map_err(crate::Unshowable::Policy))
     }
 
-    /// Makes at most `budget` decisions of the answers in work, the oldest
-    /// request first. Returns whether a request got its answers.
-    pub fn step_answers(&self, budget: usize) -> bool {
-        self.answers.step(|work| {
+    /// Makes at most `budget` decisions of the answers in work: of the
+    /// first request of `waited` in work (the page on show, then the
+    /// prompt), else of the oldest request in work. The requests of
+    /// `waited` stay in the cache. Returns whether a request got its
+    /// answers.
+    pub fn step_answers<'r>(
+        &self,
+        waited: impl IntoIterator<Item = &'r AnswerRequest> + Clone,
+        budget: usize,
+    ) -> bool {
+        self.answers.step(self.answers_generation, waited, |work| {
             work.step(
                 self.inputs.monitor.profile(),
                 &self.inputs.caps,
@@ -800,7 +815,7 @@ impl Odren {
             if let Some(done) = self.answers(request) {
                 return done;
             }
-            while !self.step_answers(usize::MAX) {}
+            while !self.step_answers([request], usize::MAX) {}
         }
     }
 
@@ -882,6 +897,7 @@ impl Odren {
             self.inputs.driver_refused.push(mode);
         }
         self.generation += 1;
+        self.answers_generation += 1;
         self.commit = None;
         self.cache.clear();
         self.redo = Some(Trigger::Retry);

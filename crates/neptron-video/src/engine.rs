@@ -291,10 +291,15 @@ impl<D: Display> VideoEngine<D> {
         self.odren.answers(request)
     }
 
-    /// Makes at most `budget` decisions of the answers in work. Returns
+    /// Makes at most `budget` decisions of the answers in work, the first
+    /// request of `waited` in work first ([`Odren::step_answers`]). Returns
     /// whether a request got its answers.
-    pub fn step_answers(&self, budget: usize) -> bool {
-        self.odren.step_answers(budget)
+    pub fn step_answers<'r>(
+        &self,
+        waited: impl IntoIterator<Item = &'r AnswerRequest> + Clone,
+        budget: usize,
+    ) -> bool {
+        self.odren.step_answers(waited, budget)
     }
 
     /// No decision is due, and the mode on screen was placed by a decision
