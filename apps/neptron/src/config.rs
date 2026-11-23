@@ -54,6 +54,19 @@ pub struct PicturePair {
     pub refresh: Value,
 }
 
+/// What a write of the picture pair does with the expert keys that the
+/// picture mode covers (`PICTURE_MODE_COVERS`) at its level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpertKeys {
+    /// The player picked the picture mode: the keys go, so the mode the
+    /// player picks is what the player gets.
+    Remove,
+    /// A pick of the refresh rate (also one that sets the mode to Auto
+    /// too), a keep, or a removal of the pair: the keys stay, as the menu
+    /// judged the pair with them.
+    Keep,
+}
+
 /// The schema and the layers of the context.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -177,11 +190,10 @@ impl Config {
 
     /// Writes the picture pair at `level` in memory: both keys set
     /// (`Some`), or both removed (`None`), so a level that the app writes
-    /// holds both keys or neither. A set also removes, at the same level,
-    /// the expert keys that the picture mode covers (`PICTURE_MODE_COVERS`),
-    /// so the mode the player picks is what the player gets. Returns every
-    /// key that changed, with its old and new value, for the same write and
-    /// for a revert.
+    /// holds both keys or neither. A set with [`ExpertKeys::Remove`] also
+    /// removes, at the same level, the expert keys that the picture mode
+    /// covers (`PICTURE_MODE_COVERS`). Returns every key that changed,
+    /// with its old and new value, for the same write and for a revert.
     ///
     /// # Errors
     ///
@@ -190,6 +202,7 @@ impl Config {
         &mut self,
         level: Level,
         pair: Option<PicturePair>,
+        expert: ExpertKeys,
     ) -> Result<Vec<KeyChange>, SetError> {
         let before = |c: &Self, key| c.get(level, key).cloned();
         let old_style = before(self, DISPLAY_STYLE);
@@ -212,6 +225,9 @@ impl Config {
                     old: old_refresh,
                     new: Some(pair.refresh),
                 });
+                if expert == ExpertKeys::Keep {
+                    return Ok(changes);
+                }
                 changes.extend(PICTURE_MODE_COVERS.into_iter().filter_map(|covered| {
                     Some(KeyChange {
                         key: covered,
@@ -511,15 +527,23 @@ mod tests {
             .unwrap();
         // A value the layer refuses changes nothing: no key of the pair and
         // no expert key.
-        assert!(c.write_pair(Level::Global, pair("speed", "never")).is_err());
-        assert!(c.write_pair(Level::Global, pair("nine", "exact")).is_err());
+        assert!(
+            c.write_pair(Level::Global, pair("speed", "never"), ExpertKeys::Remove)
+                .is_err()
+        );
+        assert!(
+            c.write_pair(Level::Global, pair("nine", "exact"), ExpertKeys::Remove)
+                .is_err()
+        );
         assert_eq!(c.get(Level::Global, DISPLAY_STYLE), None);
         assert_eq!(
             c.get(Level::Global, DISPLAY_REFRESH_POLICY),
             Some(&text("force_50"))
         );
         assert!(c.get(Level::Global, DISPLAY_VERTICAL).is_some());
-        let changes = c.write_pair(Level::Global, pair("sharp", "exact")).unwrap();
+        let changes = c
+            .write_pair(Level::Global, pair("sharp", "exact"), ExpertKeys::Remove)
+            .unwrap();
         let keys: Vec<&str> = changes.iter().map(|c| c.key).collect();
         assert_eq!(
             keys,
@@ -543,6 +567,26 @@ mod tests {
         assert_eq!(c.get(Level::Global, DISPLAY_PANEL_SCALE), None);
     }
 
+    /// A write that is no pick of the picture mode keeps the expert keys
+    /// of its level: the menu judged the pair with them.
+    #[test]
+    fn a_pair_write_that_keeps_the_expert_keys_changes_only_the_pair() {
+        let mut c = Config::load(&Storage::new("/nonexistent/config"), None).0;
+        c.set(Level::Global, DISPLAY_VERTICAL, text("fit")).unwrap();
+        c.set(Level::Global, DISPLAY_PANEL_SCALE, text("integer"))
+            .unwrap();
+        let changes = c
+            .write_pair(Level::Global, pair("auto", "force_60"), ExpertKeys::Keep)
+            .unwrap();
+        let keys: Vec<&str> = changes.iter().map(|c| c.key).collect();
+        assert_eq!(keys, [DISPLAY_STYLE, DISPLAY_REFRESH_POLICY]);
+        assert_eq!(c.get(Level::Global, DISPLAY_VERTICAL), Some(&text("fit")));
+        assert_eq!(
+            c.get(Level::Global, DISPLAY_PANEL_SCALE),
+            Some(&text("integer"))
+        );
+    }
+
     /// A removal takes both keys and only them: an expert key of the level
     /// stays, and a level with one key (an old or hand-edited file) loses
     /// that key.
@@ -550,16 +594,21 @@ mod tests {
     fn a_pair_removal_takes_both_keys_and_nothing_else() {
         let mut c = Config::load(&Storage::new("/nonexistent/config"), None).0;
         c.set(Level::Global, DISPLAY_VERTICAL, text("fit")).unwrap();
-        c.write_pair(Level::Global, pair("2x", "force_60")).unwrap();
+        c.write_pair(Level::Global, pair("2x", "force_60"), ExpertKeys::Remove)
+            .unwrap();
         c.set(Level::Global, DISPLAY_VERTICAL, text("fit")).unwrap();
-        let changes = c.write_pair(Level::Global, None).unwrap();
+        let changes = c
+            .write_pair(Level::Global, None, ExpertKeys::Remove)
+            .unwrap();
         assert_eq!(changes.len(), 2, "{changes:?}");
         assert!(!c.holds_picture(Level::Global));
         assert_eq!(c.get(Level::Global, DISPLAY_VERTICAL), Some(&text("fit")));
         c.set(Level::Global, DISPLAY_REFRESH_POLICY, text("force_50"))
             .unwrap();
         assert!(c.holds_picture(Level::Global));
-        let changes = c.write_pair(Level::Global, None).unwrap();
+        let changes = c
+            .write_pair(Level::Global, None, ExpertKeys::Remove)
+            .unwrap();
         assert_eq!(
             changes,
             vec![KeyChange {
@@ -568,7 +617,11 @@ mod tests {
                 new: None,
             }]
         );
-        assert!(c.write_pair(Level::Global, None).unwrap().is_empty());
+        assert!(
+            c.write_pair(Level::Global, None, ExpertKeys::Remove)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// Old files and hand-edited files can hold one key of the pair at a

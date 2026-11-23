@@ -11,7 +11,7 @@ use neptron_ui::snapshot::{Level as UiLevel, NoticeKind, Scopes, SettingKey};
 use neptron_video::{AnswerRequest, Phase, REFERENCE_SOURCES};
 
 use super::{PendingChange, Shell, Stage};
-use crate::config::PicturePair;
+use crate::config::{ExpertKeys, PicturePair};
 use crate::pages::{self, Gate};
 
 /// The start of the line in the log of each write of the picture pair: one
@@ -104,7 +104,16 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             return;
         };
         let pair = pages::pair_of(key, value, other_value);
-        if self.config.holds_pair(level, &pair) || !self.write_pair(level, Some(pair), now_ns) {
+        // A refresh pick that sets the mode to Auto too is no pick of the
+        // mode: the pair was judged with the expert keys (spec 8.5).
+        let expert = if key == DISPLAY_STYLE {
+            ExpertKeys::Remove
+        } else {
+            ExpertKeys::Keep
+        };
+        if self.config.holds_pair(level, &pair)
+            || !self.write_pair(level, Some(pair), expert, now_ns)
+        {
             return;
         }
         if reset {
@@ -122,7 +131,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// not give it, the notice of a stored choice says what shows.
     pub(super) fn reset_pair(&mut self, level: Level, now_ns: u64) {
         if self.config.holds_picture(level) {
-            self.write_pair(level, None, now_ns);
+            self.write_pair(level, None, ExpertKeys::Keep, now_ns);
         }
     }
 
@@ -147,7 +156,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         match judged {
             Ok(note) => {
                 if !self.config.holds_pair(level, &pair) {
-                    self.write_pair(level, Some(pair), now_ns);
+                    self.write_pair(level, Some(pair), ExpertKeys::Keep, now_ns);
                 }
                 if let Some(note) = note {
                     self.notice(NoticeKind::Info, note);
@@ -210,7 +219,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             .filter(|level| *level == Level::System || !system_own)
             .filter_map(|level| {
                 let mut after = self.config.clone();
-                after.write_pair(level, Some(pair.clone())).ok()?;
+                after
+                    .write_pair(level, Some(pair.clone()), ExpertKeys::Keep)
+                    .ok()?;
                 let sources = match level {
                     Level::Global => std::iter::once(source).chain(REFERENCE_SOURCES).collect(),
                     Level::System | Level::Game => vec![source],
@@ -247,11 +258,17 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// Writes `pair` at `level` in memory, or removes both keys there with
     /// `None`, then in one write to the file, or under the prompt of the
     /// guard while it waits. Returns whether a key changed.
-    fn write_pair(&mut self, level: Level, pair: Option<PicturePair>, now_ns: u64) -> bool {
+    fn write_pair(
+        &mut self,
+        level: Level,
+        pair: Option<PicturePair>,
+        expert: ExpertKeys,
+        now_ns: u64,
+    ) -> bool {
         if self.config.file(level).is_none() {
             return false;
         }
-        let changes = match self.config.write_pair(level, pair) {
+        let changes = match self.config.write_pair(level, pair, expert) {
             Ok(changes) => changes,
             Err(e) => {
                 self.notice(

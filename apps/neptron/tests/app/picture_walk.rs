@@ -1026,3 +1026,78 @@ fn a_pick_on_settings_display_that_also_sets_the_refresh_rate() {
         rig.finish();
     });
 }
+
+/// A pick of the refresh rate keeps the expert keys of its level: the
+/// menu judged the pair with them, so the engine runs that pair. Only a
+/// pick of the picture mode removes them.
+#[test]
+#[ignore = "tier 2"]
+fn a_refresh_pick_keeps_the_expert_keys_at_each_level() {
+    let name = test_name(
+        module_path!(),
+        "a_refresh_pick_keeps_the_expert_keys_at_each_level",
+    );
+    in_child(&name, |dir| {
+        use neptron_settings::Level;
+        let mut rig = Rig::new(dir);
+        let config = rig.paths.config();
+        let expert = "schema_version = 1\n\n[display]\nvertical = \"fit\"\n";
+        for file in [
+            "global.toml",
+            "systems/nes.toml",
+            "games/nes/Test Game.toml",
+        ] {
+            let path = config.join(file);
+            std::fs::create_dir_all(path.parent().expect("a parent")).expect("the folder");
+            std::fs::write(&path, expert).expect("the settings");
+        }
+        rig.boot(the_game());
+        rig.frames(30);
+        for level in [Level::Global, Level::System, Level::Game] {
+            rig.shell()
+                .set_from_protocol(
+                    "display.refresh_policy",
+                    level,
+                    &serde_json::Value::String("exact".to_owned()),
+                )
+                .expect("the pick");
+            rig.frames(10);
+            let config = rig.shell().config();
+            assert!(config.get(level, "display.refresh_policy").is_some());
+            assert!(
+                config.get(level, "display.vertical").is_some(),
+                "{level:?}: the expert key stays"
+            );
+            let judged = config.policy().expect("the settings");
+            let engine = *rig.shell().engine().expect("the engine").odren().settings();
+            assert_eq!(engine, judged, "{level:?}: the engine runs the pair judged");
+        }
+
+        // A pick of the picture mode removes the key of its level only.
+        rig.shell()
+            .set_from_protocol(
+                "display.style",
+                Level::Game,
+                &serde_json::Value::String("sharp".to_owned()),
+            )
+            .expect("the pick");
+        rig.frames(10);
+        let config = rig.shell().config();
+        assert_eq!(config.get(Level::Game, "display.vertical"), None);
+        assert!(config.get(Level::System, "display.vertical").is_some());
+        rig.finish();
+        for file in ["global.toml", "systems/nes.toml"] {
+            let text = std::fs::read_to_string(config_path(&rig, file)).expect("the file");
+            assert!(text.contains("vertical = \"fit\""), "{file}: {text}");
+            assert!(
+                text.contains("refresh_policy = \"exact\""),
+                "{file}: {text}"
+            );
+        }
+        assert!(!game_file(&rig).contains("vertical"), "{}", game_file(&rig));
+    });
+}
+
+fn config_path(rig: &Rig, file: &str) -> std::path::PathBuf {
+    rig.paths.config().join(file)
+}
