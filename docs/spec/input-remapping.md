@@ -1,6 +1,6 @@
 # Input remapping: the map of the player, per controller
 
-This spec settles task M05. The player can fix the layout of any controller: one that SDL3 does not know (the generic layout), and one that SDL3 or the mapping file knows but maps wrongly. One flow serves both. The map is kept per controller model in the settings folder, so it holds on every port and after a reboot. The port rules of `docs/spec/input-players.md` and the map sources of `docs/spec/input-generic-pads.md` stay, with the map of the player as the first source.
+The player can fix the layout of any controller: one that SDL3 does not know (the generic layout), and one that SDL3 or the mapping file knows but maps wrongly. One flow serves both. The map is kept per controller model in the settings folder, so it holds on every port and after a reboot. The port rules are in `docs/spec/input-players.md`. The map sources are in `docs/spec/input-generic-pads.md`; the map of the player is the first source.
 
 ## Facts that drive the design
 
@@ -42,7 +42,7 @@ A map of the player always reads raw indices (`RawInput::JoyButton`, `JoyHat`, `
   - a plain joystick and `Generic`: read the indices of the generic table;
   - a gamepad and `Player`: read the indices of the map from the joystick of the gamepad. The source keeps the gamepad open too, so a reset to the default goes back to the standard layout with no reconnect;
   - a plain joystick and `Player`: read the indices of the map;
-  - a gamepad and `Generic`, or a plain joystick and `Known`: refused, as before.
+  - a gamepad and `Generic`, or a plain joystick and `Known`: refused.
 - The source keeps the joystick of every pad open, a gamepad too. The guided mapping reads it (see below).
 
 ## A binding
@@ -175,7 +175,7 @@ left_y = "-a1"
 
 ## The Input panel and the page of a controller
 
-- A player row and an extra pad row of a present pad open the page of that pad. The row keeps its text (`USB Joystick (generic layout)`) and gets the arrow of a row that opens a page. The UI gets a new row value for it, `SettingValue::Link { page, text }`: an information text and a page. A row with no pad, or of an away pad, stays an information row. The arrow takes the room of one character, so the text of such a row is cut to 43 characters with its label (`LINK_ROW_MAX_CHARS`).
+- A player row and an extra pad row of a present pad open the page of that pad. The row keeps its text (`USB Joystick (generic layout)`) and gets the arrow of a row that opens a page. Its row value is `SettingValue::Link { page, text }`: an information text and a page. A row with no pad, or of an away pad, stays an information row. The arrow takes the room of one character, so the text of such a row is cut to 43 characters with its label (`LINK_ROW_MAX_CHARS`).
 - The suffix of a row: none for a known pad, ` (generic layout)` for the generic layout, ` (your layout)` for a map of the player.
 - The page of a controller is a page of the app, one page id per port (`pad_page(port)`). Its title is the label of the row (`Player 1`). Its rows:
 
@@ -195,7 +195,7 @@ left_y = "-a1"
 The simplest correct rule: **the mapping runs only in the game list.** In a game the source belongs to the session, and the core reads the pad: a change of map under a paused core, and a pad that sends nothing to the menu, are both risks for no gain.
 
 - In a game the Input panel and the page of a controller show as in the game list, read only: `Map buttons` and `Reset to default` are disabled with the reason `Not during a game`.
-- The notice of a generic pad in a game: `Set up this controller` opens the Input panel on the row of the pad, as in M04b.
+- The notice of a generic pad in a game: `Set up this controller` opens the Input panel on the row of the pad (`docs/spec/input-generic-pads.md`).
 
 ## Set up this controller
 
@@ -220,7 +220,7 @@ The rule of the minimum holds for a map that the guided mapping makes. A map fro
 
 ## Hardware checks
 
-Added to `docs/hardware-checklist.md`, section "Input remapping (M05)", labelled `needs-hardware`: the flow on the PC and on the Pi with a real unknown pad and with a known one, on a 240-line CRT picture; a trigger that rests at full travel; cancel from the keyboard; the map after a reboot. No hardware result is claimed.
+In `docs/hardware-checklist.md`, section "Input remapping (M05)", labelled `needs-hardware`: the flow on the PC and on the Pi with a real unknown pad and with a known one, on a 240-line CRT picture; a trigger that rests at full travel; cancel from the keyboard; the map after a reboot. No hardware result is claimed.
 
 ## Open questions
 
@@ -228,7 +228,7 @@ Added to `docs/hardware-checklist.md`, section "Input remapping (M05)", labelled
 | --- | --- | --- | --- |
 | Remap during a game | No: the page is read only in a game | `apps/neptron`, `pages.rs` | Let the session give the app the source mutably, then allow it with the core paused |
 | A press used twice | Refused | `guided.rs` | A swap rule in `GuidedMapping` |
-| The times | 2 s to skip, 15 s with no input, 15 s for the trial | `guided.rs`, app | The constants |
+| The times | 2 s to skip, 15 s with no input, 300 s in total, 15 s for the trial | `guided.rs`, `shell/mapping.rs` | The constants |
 | A map per game or per system | Not built; such an entry is skipped and kept | `config/input/pads.toml` | Add the keys `system` and `game` and a source per level |
 | The map is a schema key | No: a file of its own in the settings folder | `apps/neptron`, `pad_maps.rs` | None needed |
 
@@ -239,6 +239,6 @@ Added to `docs/hardware-checklist.md`, section "Input remapping (M05)", labelled
 
 ## Not built
 
-- The picker of the pad of each player (M05b).
+- The picker of the pad of each player.
 - Maps per game or per system, turbo, macros, pressure-sensitive buttons, multitap.
 - A swap of two bindings in the guided mapping.

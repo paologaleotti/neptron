@@ -1,16 +1,16 @@
 # Input for four players: ports, order, hotplug and Settings > Input
 
-This spec settles task M04. It decides how a gamepad gets its port, what happens when a gamepad goes away and comes back, what the menus read, and what `Settings > Input` shows. It does not change the gamepad map, the keyboard map or the hotkeys (`crates/neptron-input/README.md`).
+How a gamepad gets its port, what happens when a gamepad goes away and comes back, what the menus read, and what `Settings > Input` shows. The gamepad map, the keyboard map and the hotkeys are in `crates/neptron-input/README.md`; the map sources in `docs/spec/input-generic-pads.md`.
 
 ## Facts that drive the design
 
 - `docs/definition/09-input.md` names SDL3 for gamepads, evdev for keyboards, hotplug with no udev daemon, and "per-player assignment" for arcade encoders. It says nothing about the order of gamepads, a gamepad that goes away in a game, more pads than players, or a settings panel. Those answers are defaults of this spec (see "Open questions").
 - **One run of the frontend is one process: the menus, or one game.** A launch writes the relaunch file (`/run`, RAM) and exits; the launcher starts the next run, which opens the gamepads again. A return to the menus does the same. So the order of the pads must cross the relaunch file, or each run gets the order in which SDL3 lists the devices.
-- The libretro host answers `input_state` for 4 ports (`neptron_libretro::MAX_PORTS`). The session gives the core ports 0 to 3 each frame. After the load the host sets `RETRO_DEVICE_JOYPAD` on ports 0 and 1 only.
+- The libretro host answers `input_state` for 4 ports (`neptron_libretro::MAX_PORTS`). The session gives the core ports 0 to 3 each frame.
 - The mapper of `neptron-input` has 8 gamepad slots (`MAX_PORTS` = 8). A gamepad device id holds its port (`0x100 + port`). The port state (`PortStates`) and the hotkeys follow all 8 ports. Every keyboard plays on port 0.
 - The menus take a UI action from any device (`Navigator`), and the quick menu hotkey and the blind recovery fire on any port.
 - The identity of a gamepad is a hash of its SDL GUID (vendor, product, version). Two pads of one model have the same identity. The source does not read the serial number: the `sdl3` crate panics on a serial that is not UTF-8 (OP-039).
-- SDL3 gives the path of a gamepad (`SDL_GetGamepadPath`). On Linux it is the event node, `/dev/input/eventN`, or, with the HIDAPI drivers of SDL3, the hidraw node, `/dev/hidrawN`. The kernel keeps the node while the device stays plugged, so the path tells two pads of one model apart for as long as they stay plugged, also across a relaunch. A replug can give a different node.
+- SDL3 gives the path of a pad (`SDL_GetJoystickPathForID`, `docs/spec/input-generic-pads.md`, "The path of a pad"). On Linux it is the event node, `/dev/input/eventN`, or, with the HIDAPI drivers of SDL3, the hidraw node, `/dev/hidrawN`. The kernel keeps the node while the device stays plugged, so the path tells two pads of one model apart for as long as they stay plugged, also across a relaunch. A replug can give a different node.
 
 ## Words
 
@@ -66,39 +66,39 @@ Why not a fixed rule (for example by USB socket): the USB topology is not known 
 
 ## Who controls what
 
-- **The menus**: every device, on every port: each pad, extra pads too, every keyboard, the window keyboard, the control API. This is the behaviour today, and it stays. A couch with four pads needs no "pad 1 only" rule, and an arcade panel can wire its player 2 controls to any port.
+- **The menus**: every device, on every port: each pad, extra pads too, every keyboard, the window keyboard, the control API. A couch with four pads needs no "pad 1 only" rule, and an arcade panel can wire its player 2 controls to any port.
 - **The quick menu**: the quick menu hotkey on any port opens it, and every device then drives it. The rule "the menu is never a toggle" stays.
-- **The blind recovery**: any port, as today.
+- **The blind recovery**: any port.
 - **The keyboard**: every keyboard plays as player 1 (port 0), together with the pad on port 0. A button of the port is down while any device holds it. A keyboard never takes a pad port and never moves a pad. Per-player keyboard encoders (`09-input.md`, "Keyboard-as-joystick profiles, per-player assignment") come later.
 
 ## The core
 
-- The host sets `RETRO_DEVICE_JOYPAD` on all 4 ports after the load, as RetroArch does for each player it has. Today it sets ports 0 and 1 only, and some cores read a port only after the frontend has set its device.
-- A multitap (SNES, PC Engine) or a four-player adapter (NES Four Score, Mega Drive 4-Way Play) is a device or an option of the core. This task sets no such device and no core option (see "Open questions").
+- The host sets `RETRO_DEVICE_JOYPAD` on all 4 ports after the load, as RetroArch does for each player it has: some cores read a port only after the frontend has set its device.
+- A multitap (SNES, PC Engine) or a four-player adapter (NES Four Score, Mega Drive 4-Way Play) is a device or an option of the core. NEPTRON sets no such device and no core option (see "Open questions").
 
 ## Changing the order
 
 The design asks for no order screen. The order changes with the cable: in the menus, unplug a pad and plug it in again, and it goes to the end of the list. With two pads, unplugging player 1 for a moment swaps players 1 and 2. `Settings > Input` shows the result at once.
 
-A screen that picks the pad for each player is a later step (see "Open questions").
+A screen that picks the pad for each player is not built (see "Open questions").
 
 ## Settings > Input
 
-`Settings` gets a panel `Input` (`INPUT_PAGE`), after `Audio`: Display, Audio, Input, Library, Network, System. It shows in the generic page screen, at the global level, from home and from the quick menu. Screen id: `input`.
+`Settings` has a panel `Input` (`INPUT_PAGE`), after `Audio`: Display, Audio, Input, Library, Network, System. It shows in the generic page screen, at the global level, from home and from the quick menu. Screen id: `input`.
 
 | Row | Label | Kind | Text or value |
 | --- | --- | --- | --- |
 | Player | `Player 1` to `Player 4` | information | the name of the pad, or `<name> (away)` for a held port, or `None` |
 | Extra pad | `Extra pad` | information | the name of the pad. One row for each pad on an extra port, in port order; none when there is none |
 | Keyboard | `Keyboard` | information | `Player 1` |
-| Hold Start | `Hold Start for menu` | value | the setting `input.menu_hold_start_seconds`, as today |
+| Hold Start | `Hold Start for menu` | value | the setting `input.menu_hold_start_seconds` |
 
 - The four player rows are always there, so the panel has the same shape with no pad, and the crawler finds it on every rig.
-- `Hold Start for menu` moves from the Display panel to this panel. It is an input setting; the Display panel held it only because no input panel existed. The key, the schema entry and the levels do not change.
+- `Hold Start for menu` is an input setting, so it is on this panel and not on the Display panel.
 - The panel reads the port list of the input source when it opens, and again when the list changes while it is on screen. A pad plugged in while the panel is open shows in the next frames.
-- A pad with the generic layout shows ` (generic layout)` after its name (`docs/spec/input-generic-pads.md`).
-- The name is the device name that SDL3 gives the pad, read through the joystick API: the gamepad API of the `sdl3` crate panics on a name that is not UTF-8, and such bytes become the replacement character. A character that the font has no glyph for (it has ASCII and the Latin-1 Supplement) shows as `?`, so `é` stays `é`. A name that does not fit is cut by the app with `...` so that the row fits: `Player 1`, one space and the text hold 44 characters, with a scroll bar. So the name has at most 35 characters, and 28 before ` (away)`. The tree row is then not clipped, and the crawler does not fail on a long name.
-- Every player row is a row of its own key, one for each port. The row of a present pad opens the page of that pad (M05, `docs/spec/input-remapping.md`), with no change of the layout.
+- A pad with the generic layout shows ` (generic layout)` after its name, and a pad with a map of the player ` (your layout)` (`docs/spec/input-generic-pads.md`, `docs/spec/input-remapping.md`).
+- The name is the device name that SDL3 gives the pad, read through the joystick API: the gamepad API of the `sdl3` crate panics on a name that is not UTF-8, and such bytes become the replacement character. A character that the font has no glyph for (it has ASCII and the Latin-1 Supplement) shows as `?`, so `é` stays `é`. A name that does not fit is cut by the app with `...` so that the row fits: `Player 1`, one space and the text hold 44 characters, with a scroll bar. So the name has at most 35 characters, and 28 before ` (away)`. A row with the arrow of a present pad holds 43 (`docs/spec/input-remapping.md`). The tree row is then not clipped, and the crawler does not fail on a long name.
+- Every player row is a row of its own key, one for each port. The row of a present pad opens the page of that pad (`docs/spec/input-remapping.md`).
 
 Example, in a game, with player 2 unplugged:
 
@@ -113,12 +113,12 @@ Hold Start for menu         0 s          default
 
 ## The input source
 
-- The port rules are pure code in `neptron-input`: one table of ports (free, playing, held) and the rules above. The mapper uses it. The device backends decide nothing: they connect, disconnect and read.
-- The SDL3 source passes the pad key and the name on connect. It reads the path with `Gamepad::path` (every path that SDL3 makes is ASCII, so the UTF-8 unwrap of the crate cannot fail there) and the name with `Joystick::name`, which converts lossy. SDL types stay in `sdl.rs`.
+- The port rules are pure code in `neptron-input`: one table of ports (free, playing, held) and the rules above. The mapper uses it. The device backends decide nothing: they connect, disconnect and read. A plain joystick with the generic layout takes a port by the same rules, by its pad key.
+- The SDL3 source passes the pad key and the name on connect. It reads the path through the safe wrapper of `SDL_GetJoystickPathForID` (`ffi.rs`, a lossy conversion) and the name with `Joystick::name`, which converts lossy. SDL types stay in `sdl.rs` and `ffi.rs`.
 - A source of pads gives the frontend its port list (the "roster") and a change counter, through a trait of `neptron-input`. Sources with no pads (the window keyboard) give an empty list.
 - The source takes, when it opens, the rule of the run (menus or game) and the list of the run before.
 - A scripted pad source in `neptron-input` runs the same mapper and port table with no hardware. The tier 2 tests use it to plug, unplug and press pads.
-- The relaunch file gets one optional field with the port list. The version stays 1: an old file with no list reads as "no list", and the file lives in RAM, so no file of an older build survives a reboot.
+- The relaunch file has one optional field with the port list. The version is 1: an old file with no list reads as "no list", and the file lives in RAM, so no file of an older build survives a reboot.
 
 ## Tests
 
@@ -126,20 +126,20 @@ Hold Start for menu         0 s          default
 - Libretro host: the fake core sees `RETRO_DEVICE_JOYPAD` on ports 0 to 3.
 - App: the Settings > Input rows for no pad, four pads, a held pad, extra pads and a long name; the relaunch file with and without the list.
 - Tier 2, with scripted pads: two pads in the menus, then a launch: the relaunch file holds both in order, and the game run gives each its port. In the game, player 1 unplugs, a third pad comes and gets port 2, and player 1 comes back on port 0; the core reads each press on its port. The panel shows the pads and an away pad. The crawler finds the panel.
-- Scenes and goldens: `screens/input` (four players, one away, an extra pad) and `screens/input-empty` (no pad). The Settings page and the Display panel scenes change: the Settings page has one more row, and the Display panel has no `Hold Start for menu` row.
+- Scenes and goldens: `screens/input` (four players, one away, an extra pad) and `screens/input-empty` (no pad). The Settings page lists `Input`, and the Display panel has no `Hold Start for menu` row.
 
 ## Hardware checks
 
-Added to `docs/hardware-checklist.md`, section "Input (M04)": two pads and four pads in a game, an unplug and a replug in a game, two pads of the same model across a launch, a fifth pad, and the order after an unplug in the menus. No hardware result is claimed.
+In `docs/hardware-checklist.md`, section "Input (M04)": two pads and four pads in a game, an unplug and a replug in a game, two pads of the same model across a launch, a fifth pad, and the order after an unplug in the menus. No hardware result is claimed.
 
 ## Open questions
 
-Each one has a default that this task builds. OP-110 records the decisions of the owner on them: plug order stays, every pad controls the menus, more than four pads stay as built, a picker for the pad of each player is task M05b, and four-player adapters stay open.
+Each one has a built default. OP-110 records the decisions of the owner on them: plug order stays, every pad controls the menus, more than four pads stay as built, a picker for the pad of each player is wanted, and four-player adapters stay open.
 
 | Question | Default | Where | How to change |
 | --- | --- | --- | --- |
 | How does a pad get its port? | Plug order; at boot, the order of SDL3 | `neptron-input`, port table | A first-input rule in the port table |
-| Can the player pick the pad of each player in the UI? | No; the order changes by a replug in the menus | `Settings > Input` | Make each player row a choice of the pads, or a page (M05) |
+| Can the player pick the pad of each player in the UI? | No; the order changes by a replug in the menus | `Settings > Input` | Make each player row a choice of the pads, or a page |
 | Can a new pad take a held port in a game? | No, never in that run | port table | An action in the quick menu that frees the held ports |
 | Who controls the menus? | Every device | `nav.rs` of the app | Filter the events by port in the navigator |
 | Multitap and four-player adapters | Not set; `RETRO_DEVICE_JOYPAD` on ports 0 to 3 | libretro host, per-core data | A device per system in the core data, set after the load |
@@ -148,7 +148,6 @@ Each one has a default that this task builds. OP-110 records the decisions of th
 
 ## Not built
 
-- A UI to pick the pad of each player, to remap a pad (M05), or to name a pad.
-- Pads with no SDL3 mapping: M04b opens them as joysticks with a generic layout (`docs/spec/input-generic-pads.md`). The port table takes them with no change, by their pad key.
+- A UI to pick the pad of each player, or to name a pad. The remapping is in `docs/spec/input-remapping.md`.
 - Light guns, mice, wheels and per-player keyboards.
 - Rumble.
