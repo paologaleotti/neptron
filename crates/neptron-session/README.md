@@ -78,7 +78,7 @@ The rotation is the turn that the core asks for with `SET_ROTATION` (`Host::rota
 
 - Select+Start held together for 0.5 s (`QUICK_MENU_HOLD_NS`), and the Start hold (`input.menu_hold_start_seconds`), open it. The hotkey pauses the core. A second quick menu hotkey while it is open does nothing: the menu is never a toggle (OP-051). The app closes it with `resume()`.
 - On `resume()`, every button held at that moment reaches the core only after its release. The button that chose "resume" does not reach the game, and after a Start hold the game sees Start go up and no new press (OP-051).
-- Select and Start down together on a port can be the quick menu hold, and on an arcade stick a coin and a start that overlap (`PadMask`). The button that completes the combination is held back while the combination is down, so the core does not see both down during a hold. When the combination ends before the menu opens, the held-back press reaches the core late: until its release, or, when it is up already, for as many core frames as it was held back, at least `LATE_PRESS_MIN_FRAMES` (3) and at most `LATE_PRESS_MAX_FRAMES` (30). Only frames in which the core runs count (`PadMask::core_ran`), so a late press does not run out while the core is paused or the output is off. So the game gets the coin and the start. A short tap of Select and Start now reaches the game, as on the original hardware, so a game's own Select and Start combination (for example a soft reset with other buttons) works with a tap; only a hold of 0.5 s opens the menu. When the menu opens, the held-back press is dropped, and at `resume()` every button still down waits for its release: the menu leaves no stuck or phantom press.
+- Select and Start down together on a port can be the quick menu hold, and on an arcade stick a coin and a start that overlap (`PadMask`). The button that completes the combination is held back while the combination is down, so the core does not see both down during a hold. When the combination ends before the menu opens, the held-back press reaches the core late: until its release, or, when it is up already, for as many core frames as it was held back, at least `LATE_PRESS_MIN_FRAMES` (3) and at most `LATE_PRESS_MAX_FRAMES` (30). Only frames in which the core runs count (`PadMask::core_ran`), so a late press does not run out while the core is paused or the output is off. So the game gets the coin and the start. A short tap of Select and Start reaches the game, as on the original hardware, so a game's own Select and Start combination (for example a soft reset with other buttons) works with a tap; only a hold of 0.5 s opens the menu. When the menu opens, the held-back press is dropped, and at `resume()` every button still down waits for its release: the menu leaves no stuck or phantom press.
 - `FrameReport::blind_recovery` reports the 5 s hold of the combination, also while the menu is open. The safety layer acts on it.
 - `resume()` calls the engine's `retry()` when the engine has a source blocked after a device error of its `set_mode` (`VideoEngine::source_blocked`), whatever the last switch record.
 - Opening the menu flushes the save RAM.
@@ -98,13 +98,13 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 - The flush runs every `SAVE_RAM_FLUSH_INTERVAL_NS` (30 s) while the game runs, when the quick menu opens, and at exit. A failed write makes the next flush write again.
 - At exit, `quit()` waits for the writes in flight, sends the save RAM when it changed, joins the writer, and reports the result of that last write in `ExitReport::save`: `Written`, `WriteFailed` (the reason is in `SaveStats::last_error`), `Unchanged`, `Failed` (the copy failed) or `NoSaveRam`.
 
-## What the app (T27) must do
+## What the app must do
 
 1. Resolve the settings: `policy_settings` and `scanline_settings` of `neptron-video`, `input.menu_hold_start_seconds` times 10^9, the core option values. Pick `RunRateSource::ReadBack` for KMS and `Measured` for the window.
 2. `Session::launch`. On `LaunchError`, go back to the game list with a notice. For `Refused` and `CoreStopped`, the notice quotes the core.
 3. Each frame: build the UI snapshot from `paused()`, `video_status`, `message()`, `host().options()`, then let the UI update with the navigation of `input_events()`, draw the canvas, and call `run_frame(Some(canvas))` (or `None` when nothing is drawn).
-4. `FrameReport::menu_opened`: show the quick menu. The UI intent "resume" calls `resume()`, "reset" calls `reset()`, "quit" calls `quit()`. A second quick menu hotkey while it is open is ignored by the session.
-5. `FrameReport::blind_recovery`, `FrameReport::blanked`, `video().current_refused()`: pass to the safety layer (T26). While `blanked`, pace the loop with the clock.
+4. `FrameReport::menu_opened`: show the quick menu. The UI intent `Resume` calls `resume()`, and `QuitGame` calls `quit()`. The UI has no reset intent, so the app does not call `reset()`. A second quick menu hotkey while it is open is ignored by the session.
+5. `FrameReport::blind_recovery`, `FrameReport::blanked`, `video().current_refused()`: pass to the safety layer (the `Guard` of `neptron-video`). While `blanked`, pace the loop with the clock.
 6. `FrameReport::ended`, `SessionError`: call `quit()` and re-execute for the game list. For `EndReason::FailedStart`, the game list shows a notice with `start_errors()` or `last_message()`; for `CoreShutdown`, a notice with `last_message()` or `last_error()`.
 7. Make the save folder writable. The session makes it when it is missing.
 
@@ -125,6 +125,9 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 - `tests/integration/launch.rs`: the first mode for the Genesis Plus GX geometry, and the two modesets without the settle.
 - `tests/integration/start.rs`: a refused load with the error line of the core, a `SHUTDOWN` in the load and in a settle frame (no mode, no sound), a `SHUTDOWN` in the first loop frame, a `SHUTDOWN` within the start window after an error line or a message, one after the window, info and warn lines that do not count, error lines of the settle frames up to the cap, a noisy load that keeps its error line and counts what it lost, and a long run in a refused mode.
 - `tests/integration/arcade.rs`: held option values for a core that declares its options at load, the rotation of a board drawn on its side in the host of the session, the turned source (rotation and inverted aspect) and its scene on a 15 kHz CRT (1:1 interlaced, turned by 90 then 270 degrees after the debounce), a half turn, the fallback aspect, `always_progressive` against a console system, no save file for a core with no save RAM, and the zip listing through the session.
+- `tests/integration/pacing.rs` and `pacing_edges.rs`: the input delay of a fast core, a core that needs more than one flip interval, late flips from the GPU, the return to wait pacing, repeated long frames, flips with no blank count, and the safety paths in late pacing.
+- `tests/integration/speed.rs` and `slow_notice.rs`: the run rate at the measured speed of a late core, its bounded change, the mute below half speed, and the speed for the notice of a slow game.
+- `tests/integration/volume.rs`: the user volume, and a sound device lost during a game.
 - `tests/integration/faults.rs`: a slow flip, a failed present and wait, a display that stops flipping, the output turned off and on again.
 - `tests/integration/timing.rs`: timing check 6 at 50.00, 59.94 and 60.10 Hz with jitter, with late flips, and with a display rate that differs from the mode (measured run rate). 30 simulated seconds each in the tier. Two 100,000-frame runs (about 28 simulated minutes, about 67 s each in the dev profile) are ignored tests: with jitter only, and with one late flip in a thousand.
 
@@ -132,8 +135,8 @@ When the inputs refuse the mode on the display and no mode is valid, the engine 
 cargo xtask test -p neptron-session --run-ignored only -E 'test(hundred_thousand)'
 ```
 
-A late flip takes one frame of audio (16.7 ms) from the 32 ms queue, and the law gives it back with a time constant of 6.4 s. Two late flips a few seconds apart run the queue dry. The long run with late flips asserts that every underrun follows two late flips in the 10 s before it, so the session adds no underrun of its own. A larger target level would trade latency for this margin (see the open points in the task report).
+A late flip takes one frame of audio (16.7 ms) from the 32 ms queue, and the law gives it back with a time constant of 6.4 s. Two late flips a few seconds apart run the queue dry. The long run with late flips asserts that every underrun follows two late flips in the 10 s before it, so the session adds no underrun of its own. A larger target level would trade latency for this margin.
 
 ## Status
 
-Complete for the MVP. It runs the real cores on the i3-6100T and on a Pi 3 B. On composite NTSC on the Pi, NES, SNES and Mega Drive games hold 60.054 frames per second with no missed field (OP-103).
+It runs the real cores on the i3-6100T and on a Pi 3 B. On composite NTSC on the Pi, NES, SNES and Mega Drive games hold 60.054 frames per second with no missed field (OP-103).
