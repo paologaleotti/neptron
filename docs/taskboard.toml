@@ -483,7 +483,7 @@ status = "merged"
 [[task]]
 id = "C19"
 wave = 11
-name = "A second network share for saves and states (OP-092)"
+name = "After 0.1: A second network share for saves and states (OP-092)"
 owns = ["os", "docs/spec/network-share.md", "xtask/src/os"]
 needs = ["C13", "P06"]
 gate = "T1; the boot checks and the share check"
@@ -497,7 +497,7 @@ name = "Raspberry Pi: the neptron.toml reader on the boot partition"
 owns = ["os/board/common/rootfs-overlay", "apps/neptron", "os/board/rpi", "os/board/pc"]
 needs = ["P04", "P06"]
 gate = "T2; boot check on aarch64 and x86_64"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "P08"
@@ -681,7 +681,7 @@ status = "merged"
 [[task]]
 id = "M09"
 wave = 12
-name = "Adopt an older share that lies at another place on the disk, after the user confirms (OP-101)"
+name = "After 0.1: Adopt an older share that lies at another place on the disk, after the user confirms (OP-101)"
 owns = ["os/board/common", "xtask/src/os", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = []
 gate = "T2; os share-check with a new case"
@@ -703,7 +703,7 @@ name = "Build tooling: a push or a build from another worktree never links a sta
 owns = ["xtask", "os/package"]
 needs = []
 gate = "T1; a test that fails with the old behaviour"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "M12"
