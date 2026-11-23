@@ -138,6 +138,14 @@ impl LoadedContent {
     }
 
     fn new(path: &Path, names: Names, data: Option<Vec<u8>>) -> Result<Self, LoadError> {
+        // The pointer of an empty `Vec` is dangling, not null: a core that
+        // reads a header before it checks the size would read it. Empty
+        // content is a failed copy, never a game.
+        if data.as_ref().is_some_and(Vec::is_empty) {
+            return Err(LoadError::EmptyContent {
+                path: names.full_path.into(),
+            });
+        }
         let c = |s: &str| {
             CString::new(s).map_err(|_| LoadError::InvalidPath {
                 path: path.to_owned(),
@@ -342,6 +350,36 @@ mod tests {
                 Some("game".to_owned()),
                 Some("nes".to_owned())
             ]
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn empty_content_is_refused_as_a_file_and_as_a_zip_entry() {
+        let path = temp_file("empty.nes", b"");
+        let err = prepare(&path, &PLAIN).unwrap_err();
+        assert!(
+            matches!(&err, LoadError::EmptyContent { path: p } if *p == path),
+            "{err:?}"
+        );
+        assert!(err.to_string().ends_with("empty.nes is empty"), "{err}");
+        assert!(
+            prepare(&path, &FULLPATH).is_ok(),
+            "a core that reads the file itself gets no data pointer"
+        );
+        std::fs::remove_file(path).unwrap();
+
+        let zip = build(&[TestEntry {
+            name: "game.nes",
+            data: b"",
+            deflate: false,
+        }]);
+        let path = temp_file("empty-entry.zip", &zip);
+        let err = prepare(&path, &PLAIN).unwrap_err();
+        assert!(
+            err.to_string()
+                .ends_with("empty-entry.zip#game.nes is empty"),
+            "{err}"
         );
         std::fs::remove_file(path).unwrap();
     }

@@ -92,6 +92,13 @@ pub enum LoadError {
         /// The limit.
         limit: u64,
     },
+    /// The content file, or the zip entry, has no byte. The core would
+    /// get a data pointer that points to nothing.
+    #[error("the game file {path} is empty")]
+    EmptyContent {
+        /// The content path; for a zip entry, `archive#entry`.
+        path: PathBuf,
+    },
     /// The zip file could not be opened or gave no usable entry.
     #[error("cannot load from {path}: {source}")]
     Zip {

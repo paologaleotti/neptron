@@ -338,7 +338,7 @@ Why not answer `false`: Snes9x calls its log pointer without a null check on som
 3. The path ends in `.zip` (any case) and the core did not set `block_extract`: zip content (below). Otherwise: plain content.
 4. `need_fullpath` for the content is the override for its extension (from `SET_CONTENT_INFO_OVERRIDE`), else the value from `retro_system_info`.
 
-Plain content: with `need_fullpath`, the core gets the path and no data. Without it, the host reads the file (at most `MAX_CONTENT_BYTES`, 64 MiB; more is `LoadError::ContentTooLarge`) and the core gets the path and the data.
+Plain content: with `need_fullpath`, the core gets the path and no data. Without it, the host reads the file (at most `MAX_CONTENT_BYTES`, 64 MiB; more is `LoadError::ContentTooLarge`) and the core gets the path and the data. A file or a zip entry with no byte is `LoadError::EmptyContent`: the data pointer of empty content would point to nothing, and a core that reads a header before it checks the size would crash. The game list shows the start failure notice: `{name} did not start: the core cannot load the content: the game file {path} is empty.`
 
 Zip content:
 
@@ -409,7 +409,7 @@ The settings crate keeps option values as unknown keys under `[core.<name>]` unt
 Each module owns its error enum, made with `thiserror`. Each variant carries the value, the limit or the path.
 
 - `OpenError`: `ProcessAlreadyUsed`, `InvalidPath` (a folder path that is not UTF-8), `Library` (the file is not a loadable library), `MissingSymbol { name }`, `ApiVersion { found, expected }`, `InvalidSystemInfo`, `HostPoisoned`.
-- `LoadError`: `GameAlreadyLoaded`, `NoContent`, `InvalidPath`, `ReadContent`, `ContentTooLarge`, `Zip { path, source: ZipError }`, `ZipNeedsFullPath`, `Refused`, `InvalidAvInfo`, `OutOfMemory`, `HostPoisoned`.
+- `LoadError`: `GameAlreadyLoaded`, `NoContent`, `InvalidPath`, `ReadContent`, `ContentTooLarge`, `EmptyContent`, `Zip { path, source: ZipError }`, `ZipNeedsFullPath`, `Refused`, `InvalidAvInfo`, `OutOfMemory`, `HostPoisoned`.
 - `ZipError`: `Io`, `NoEndOfCentralDirectory`, `MultiDisk`, `Zip64`, `CentralDirectory`, `NoMatchingEntry`, `Encrypted`, `Method`, `ListingTooLarge`, `TooLarge`, `LocalHeader`, `Inflate`, `SizeMismatch`, `Crc`.
 - `RunError`: `NoGame`, `HostPoisoned`.
 - `SaveRamError`: `NoGame`, `TooLarge`, `OutOfMemory`, `HostPoisoned`.
