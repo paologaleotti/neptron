@@ -12,7 +12,7 @@ use neptron_video::{
 };
 
 use super::{PendingChange, Shell, Stage};
-use crate::display::{tv_setting, tv_standard};
+use crate::display::{Detected, tv_setting, tv_standard};
 use crate::outbox::Job;
 use crate::record;
 
@@ -99,9 +99,56 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// The blind recovery hotkey: the safe default, in every screen and
     /// state, also with a dialog open.
     pub(super) fn recover(&mut self, now_ns: u64) {
+        self.detect_again();
         if let Some(step) = self.with_engine(|guard, engine| guard.recover(engine)) {
             self.on_guard(step, now_ns);
         }
+    }
+
+    /// Reads the display on the driven connector again, and gives the
+    /// guard the safe default of that display and of the stored
+    /// `display.monitor`. The run handles no hot plug, so the monitor on
+    /// the connector can differ from the one of the boot, and the safe
+    /// default of the boot can be unsafe for it.
+    ///
+    /// This reads sysfs on the frame thread. The blind recovery is a rare
+    /// action of the user that sets a mode at once, which takes longer
+    /// than this read, and a read on another thread would come after that
+    /// mode.
+    fn detect_again(&mut self) {
+        let Some(caps) = self.with_engine(|_, engine| *engine.display().caps()) else {
+            return;
+        };
+        // The safe default follows the stored setting, not a change that
+        // waits for a Keep: the recovery ends that change.
+        self.roll_back();
+        let mut detected = Detected::read(
+            &self.paths.sysfs,
+            &self.runtime.output,
+            self.runtime.subconnector.as_deref(),
+        )
+        .with_tv(self.runtime.tv_standards.clone());
+        detected.fit_to(&caps);
+        let safe = match detected.safe(&self.presets, &self.config.monitor()) {
+            Ok(safe) => safe,
+            Err(e) => {
+                self.log(format!("display: {e}; the safe default of the boot stays"));
+                return;
+            }
+        };
+        let identity = detected.identity();
+        if identity != self.here.monitor {
+            self.log(format!(
+                "display: the monitor on {} changed from {} to {identity}; the safe default is {}",
+                self.runtime.output,
+                self.here.monitor,
+                safe.monitor.profile().id
+            ));
+            self.here.monitor = identity;
+        }
+        self.detected = detected;
+        self.safe = safe.clone();
+        self.guard.set_safe(safe);
     }
 
     /// Puts the safe default on the engine for this run, with `notice`.

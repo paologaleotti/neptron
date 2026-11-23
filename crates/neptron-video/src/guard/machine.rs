@@ -385,6 +385,15 @@ impl Guard {
         &self.safe
     }
 
+    /// Replaces the safe default with `safe`, the safe default of the
+    /// display as the app detects it now: another monitor on the connector
+    /// has its own. Later reverts to the safe default, safe states and the
+    /// blind recovery use it. The engine keeps its configuration until one
+    /// of them.
+    pub fn set_safe(&mut self, safe: DisplayConfig) {
+        self.safe = safe;
+    }
+
     /// The record as it is now.
     pub fn record(&self) -> &GuardRecord {
         &self.record

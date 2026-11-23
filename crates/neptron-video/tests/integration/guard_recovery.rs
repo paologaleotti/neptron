@@ -262,3 +262,33 @@ fn trying_the_settings_again_outside_failed_boots_changes_nothing() {
     assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::Recovery));
     assert_eq!(rig.guard.record(), &before);
 }
+
+/// Another monitor on the same connector during the run: the app gives
+/// the guard the safe default of the new monitor, and the blind recovery
+/// puts that one on the wire, not the safe default of the boot.
+#[test]
+fn recovery_uses_the_safe_default_of_the_monitor_detected_now() {
+    let mut rig = GuardRig::confirmed_on(crt_31(), crt_31());
+    rig.run_for(10 * FRAME_NS);
+    rig.guard.set_safe(crt_15());
+    assert_eq!(
+        rig.wire(),
+        Some(mode_of(&crt_31())),
+        "no change before the recovery"
+    );
+    assert_eq!(rig.guard.safe(), &crt_15());
+    assert_recovers(&mut rig);
+}
+
+/// A revert to the safe default after the safe default changed goes to
+/// the new one.
+#[test]
+fn a_revert_to_the_safe_default_uses_the_one_given_last() {
+    let mut rig = GuardRig::boot(GuardRecord::default(), crt_15(), crt_31());
+    assert!(rig.guard.pending().is_some(), "the boot prompt");
+    rig.guard.set_safe(crt_15());
+    rig.run_past_deadline();
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::NothingConfirmed));
+    rig.frame();
+    assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
+}

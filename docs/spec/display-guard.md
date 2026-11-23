@@ -50,7 +50,7 @@ A display is trusted at boot by its class. The function is `Detected::trusts(set
   - `display.monitor` is `auto` or `flat`.
 - Any other display is not trusted: no EDID; an analog connector or subconnector; a CRT EDID; a named preset, also on a trusted panel. A CRT EDID with `auto` needs no trust: its profile is the safe default.
 
-A trusted flat panel is also the safe default of the run, in its native mode as fitted to the caps. So a revert, safe mode and the blind recovery on such a display give the panel mode. The boot decides the safe default once, from the setting at boot. A named preset on a panel tells the frontend that a CRT can be behind an adapter, so its safe default stays the 15 kHz safe start. On every other display the safe default does not change: the CRT EDID profile, or `generic_15`, or the TV profile of NTSC (or of the first standard the output offers).
+A trusted flat panel is also the safe default of the run, in its native mode as fitted to the caps. So a revert, safe mode and the blind recovery on such a display give the panel mode. The boot decides the safe default from the setting at boot. The run handles no hot plug, so another monitor can be on the connector later. The blind recovery therefore reads the display on the driven connector again and decides the safe default again, from that display and the stored `display.monitor` (`Guard::set_safe`), before it sends it. The safe default of the run is then that one. A named preset on a panel tells the frontend that a CRT can be behind an adapter, so its safe default stays the 15 kHz safe start. On every other display the safe default does not change: the CRT EDID profile, or `generic_15`, or the TV profile of NTSC (or of the first standard the output offers).
 
 ## A named preset bounds the safe default
 
@@ -175,6 +175,7 @@ The tests of the rules:
 - `a_trusted_panel_boots_native_with_no_prompt` (app, tier 2)
 - `a_change_window_starts_at_the_first_settled_frame` (guard)
 - `a_named_15_khz_preset_never_falls_back_to_a_pc_range_edid`, `an_analog_edid_inside_the_named_preset_stays_the_safe_default` and `a_preset_under_the_safe_start_is_its_own_safe_default` (app unit tests)
+- `recovery_uses_the_safe_default_of_the_monitor_detected_now` and `a_revert_to_the_safe_default_uses_the_one_given_last` (guard), and `the_blind_recovery_after_a_hot_plug_is_safe_for_the_new_monitor` (app, tier 2)
 - `an_unanswered_boot_prompt_stays_inside_the_named_preset`, `a_reverted_menu_change_stays_inside_the_named_preset`, `safe_mode_after_failed_boots_stays_inside_the_named_preset` and `the_blind_recovery_stays_inside_the_named_preset` (app, tier 2): `arcade_15` and `generic_15` on a VGA output with an analog EDID of 30 to 71 kHz. Every mode that reaches the fake display is inside the named preset.
 
 These stay green:

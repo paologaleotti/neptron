@@ -6,6 +6,7 @@ use neptron_input::{BLIND_RECOVERY_HOLD_NS, QUICK_MENU_HOLD_NS};
 use neptron_types::Control;
 use neptron_video::{Phase, SafeReason};
 
+use crate::output::{CRT_ANALOG, sysfs_with_vga};
 use crate::rig::{Rig, in_child, test_name};
 
 /// The frames of the hold at 60 Hz, and a margin.
@@ -246,6 +247,57 @@ fn the_safe_mode_notice_of_a_start_shows_once_per_power_cycle() {
                 assert_eq!(safe_notices(&mut rig), 0, "said once");
                 rig.finish();
             }
+        },
+    );
+}
+
+/// A hot plug within one run: the run boots on a PC CRT that reports an
+/// analog EDID (30 to 71 kHz), so its safe default is the EDID profile.
+/// The CRT is then replaced by a 15 kHz CRT with no EDID on the same
+/// connector. The blind recovery reads the display again and sends the
+/// 15 kHz safe start, never the safe default of the monitor of the boot.
+#[test]
+#[ignore = "tier 2"]
+fn the_blind_recovery_after_a_hot_plug_is_safe_for_the_new_monitor() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "the_blind_recovery_after_a_hot_plug_is_safe_for_the_new_monitor",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            rig.output = "VGA-1".to_owned();
+            sysfs_with_vga(&rig.paths.sysfs, CRT_ANALOG);
+            rig.boot(None);
+            rig.frames(2);
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            let boot_mode = rig.display.active_mode().expect("a mode");
+            assert!(boot_mode.line_rate_mhz() > 20_000_000, "{boot_mode:?}");
+
+            // The kernel shows an empty EDID file for a monitor with no EDID.
+            sysfs_with_vga(&rig.paths.sysfs, &[]);
+            let calls = rig.display.mode_calls().len();
+            rig.hold(&[Control::Select, Control::Start]);
+            rig.until(HOLD_FRAMES, "the recovery", |r| {
+                r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
+            });
+            rig.release(&[Control::Select, Control::Start]);
+            rig.frames(10);
+            assert_eq!(
+                rig.shell().guard().safe().monitor.profile().id,
+                "generic_15"
+            );
+            let after = &rig.display.mode_calls()[calls..];
+            assert!(!after.is_empty(), "the recovery sets a mode");
+            for call in after {
+                assert!(
+                    call.requested.line_rate_mhz() <= 15_750_000,
+                    "call {} is above generic_15: {:?}",
+                    call.call,
+                    call.requested
+                );
+            }
+            rig.finish();
         },
     );
 }

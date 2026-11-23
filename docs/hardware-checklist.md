@@ -321,7 +321,7 @@ Each check is `needs-hardware`.
 - [ ] An HDMI panel on the first boot of a new image. Expect: its native mode with no prompt and no notice. Record: the mode.
 - [ ] The same panel switched on 30 s after power-on. Expect: when the kernel read the EDID at boot, the native mode when the panel wakes, with no revert. With no EDID at boot the display is not trusted, and the 15 kHz safe start applies. Record: which case, and what the panel shows.
 - [ ] Blind recovery on the panel. Expect: the panel mode again, with the tone. Record: the mode.
-- [ ] A hotplug within one run: boot on the trusted panel, then unplug it and plug a CRT (or an adapter with a CRT) into the same connector while the frontend runs. Expect: record what the CRT gets. The trust and the safe default were decided at boot from the panel's EDID, so this run can still send the panel mode; the next boot reads the new display. Record: the mode on the wire and what the CRT shows, with a hand on its power switch.
+- [ ] A hotplug within one run: boot on the trusted panel, then unplug it and plug a CRT (or an adapter with a CRT) into the same connector while the frontend runs. Expect: the panel mode stays on the wire, because the run handles no hot plug; then hold Select and Start for 5 s: the blind recovery reads the display again and sends the safe default of the CRT (the 15 kHz safe start with no EDID), not the panel mode. The next boot reads the new display. Record: the mode on the wire before and after the recovery, the `display:` line of the log, and what the CRT shows, with a hand on its power switch.
 
 ### C11 findings of the first hardware session
 
