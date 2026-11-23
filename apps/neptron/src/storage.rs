@@ -205,7 +205,7 @@ impl StorageStatus {
         }
         if self.share == Mounted::Partition && self.share_read_only {
             notices.push(format!(
-                "The share partition is read-only: its check found errors that it cannot repair safely ({}). Games run, but no file can be added. Copy your files off over the network, then repair the partition on a computer.",
+                "The share partition is read-only: its check found errors that the repair could not fix ({}). Games run, but no file can be added. Copy your files off over the network, then repair the partition on a computer.",
                 reason(self.share_read_only_reason.as_deref())
             ));
         }
@@ -323,14 +323,16 @@ mod tests {
     #[test]
     fn a_read_only_share_gives_a_notice_with_its_reason() {
         let text = "state = \"partition\"\nshare = \"partition\"\nshare_read_only = true\n\
-                    share_read_only_reason = \"fsck.exfat /dev/sda4 left errors (exit 4)\"\n";
+                    share_read_only_reason = \"fsck.exfat found errors on /dev/sda4 that its repair could not fix (exit 4)\"\n";
         let dir = folder("read-only", Some(text));
         let status = StorageStatus::read(&dir).expect("read").expect("a status");
         assert_eq!(status.format_offer(), None, "never a format");
         let notices = status.notices(true);
         assert_eq!(notices.len(), 1, "{notices:?}");
         assert!(notices[0].starts_with("The share partition is read-only"));
-        assert!(notices[0].contains("(fsck.exfat /dev/sda4 left errors (exit 4))"));
+        assert!(notices[0].contains(
+            "(fsck.exfat found errors on /dev/sda4 that its repair could not fix (exit 4))"
+        ));
     }
 
     fn offer_text(device: &str, kind: &str) -> String {

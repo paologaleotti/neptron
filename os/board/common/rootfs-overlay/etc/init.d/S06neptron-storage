@@ -1087,39 +1087,61 @@ fi
 # exFAT has no journal: a power cut during a write can leave the
 # allocation bitmap out of step with the files, and the kernel mounts such
 # a volume read-write. A later write can then take clusters of a ROM or a
-# BIOS file. So fsck.exfat -p checks the share before each mount and
-# repairs, with no question, what is safe to repair. Its exit codes
-# (exfatprogs): 0 clean, 1 errors corrected, 2 corrected and a reboot
-# needed (a mounted volume only), 4 errors left, 8 an operation error. The
-# check reads the whole allocation, so a time limit keeps a slow or failing
-# stick from stopping the boot.
+# BIOS file. So the share is checked before each mount, in two steps:
+#
+# - fsck.exfat -n reads the volume and writes nothing. It reads the whole
+#   allocation, so a time limit keeps a slow or failing stick from
+#   stopping the boot; a check that is stopped has changed nothing.
+# - Only when it reports errors, fsck.exfat -p repairs, with no question,
+#   what is safe to repair. It runs with no time limit: a repair stopped
+#   in the middle can leave the FAT half written. The check before it read
+#   the same volume within the limit, so the repair has a known amount of
+#   work.
+#
+# The exit codes (exfatprogs, the fsck convention): 0 clean, 1 errors
+# corrected, 2 corrected and a reboot needed (a mounted volume only), 4
+# errors left, 8 an error of the program. A check that does not end in
+# time or fails as a program proves no error of the share: the share is
+# mounted read-write, as with no check, and the log says so.
 SHARE_CHECK_SECONDS=120
 
 # Checks the share partition $1 before the mount, and sets share_check to
-# clean, repaired or failed (the reason in share_check_reason), or none
-# when the image has no fsck.exfat.
+# clean, repaired, failed (the reason in share_check_reason) or unchecked,
+# or none when the image has no fsck.exfat.
 check_share() {
 	if ! command -v fsck.exfat >/dev/null 2>&1; then
 		share_check=none
 		log "the image has no fsck.exfat, so $1 is mounted with no check"
 		return
 	fi
-	output=$(timeout "$SHARE_CHECK_SECONDS" fsck.exfat -p "$1" 2>&1)
+	output=$(timeout "$SHARE_CHECK_SECONDS" fsck.exfat -n "$1" 2>&1)
 	code=$?
 	case $code in
 	0)
 		share_check=clean
 		log "fsck.exfat $1: clean"
+		return
 		;;
-	1 | 2)
+	4) log_tail "fsck.exfat -n" "$output" ;;
+	*)
+		share_check=unchecked
+		log_tail "fsck.exfat -n" "$output"
+		log "the check of $1 did not end within $SHARE_CHECK_SECONDS s or failed (exit $code), so it is mounted unchecked"
+		return
+		;;
+	esac
+	log "fsck.exfat found errors on $1; fsck.exfat -p repairs them"
+	output=$(fsck.exfat -p "$1" 2>&1)
+	code=$?
+	log_tail "fsck.exfat" "$output"
+	case $code in
+	0 | 1 | 2)
 		share_check=repaired
-		log_tail "fsck.exfat" "$output"
 		log "fsck.exfat repaired $1 (exit $code)"
 		;;
 	*)
 		share_check=failed
-		log_tail "fsck.exfat" "$output"
-		share_check_reason="fsck.exfat $1 left errors or did not end within $SHARE_CHECK_SECONDS s (exit $code)"
+		share_check_reason="fsck.exfat found errors on $1 that its repair could not fix (exit $code)"
 		log "$share_check_reason"
 		;;
 	esac

@@ -63,6 +63,9 @@ const FAKES: &[(&str, &str)] = &[
         "fsck.exfat",
         "echo \"fsck.exfat $*\" >> \"$LOG\"\n\
          if [ -n \"$FAKE_FSCK_EXFAT_SAYS\" ]; then echo \"$FAKE_FSCK_EXFAT_SAYS\"; fi\n\
+         case \"$1\" in\n\
+         -n) exit \"${FAKE_FSCK_EXFAT_N_EXIT:-0}\" ;;\n\
+         esac\n\
          exit \"${FAKE_FSCK_EXFAT_EXIT:-0}\"",
     ),
     (
@@ -1055,14 +1058,16 @@ fn out_root(out: &Outcome) -> String {
         .to_owned()
 }
 
-/// Every share gets fsck.exfat -p before its mount, under a time limit.
+/// Every share gets the read-only check fsck.exfat -n before its mount,
+/// under a time limit, and no repair when it is clean.
 #[test]
 fn the_share_is_checked_before_each_mount() {
     let run = Run::new("exfat-check");
     let out = run.boot(&[]);
     out.assert_share_mounted(true);
     assert!(run.path("share/roms/nes").is_dir(), "{out:#?}");
-    assert_eq!(out.calls("fsck.exfat -p "), 1, "{out:#?}");
+    assert_eq!(out.calls("fsck.exfat -n "), 1, "{out:#?}");
+    assert_eq!(out.calls("fsck.exfat -p "), 0, "{out:#?}");
     assert!(
         out.first("mkfs.exfat") < out.first("fsck.exfat"),
         "{out:#?}"
@@ -1071,19 +1076,31 @@ fn the_share_is_checked_before_each_mount() {
         out.first("fsck.exfat") < out.first("mount -t exfat"),
         "{out:#?}"
     );
-    assert!(out.log.contains("timeout 120\n"), "{out:#?}");
+    assert!(out.log.contains("timeout 120\nfsck.exfat -n "), "{out:#?}");
     assert!(out.state_log.contains("sda4: clean"), "{out:#?}");
 }
 
+/// The check finds errors: the repair runs with no time limit, and a
+/// repaired share mounts read-write.
 #[test]
-fn a_share_that_the_check_repairs_mounts_read_write() {
+fn a_share_that_the_repair_fixes_mounts_read_write() {
     let out = Run::new("exfat-repaired")
         .set("FAKE_BLKID", "TYPE=exfat")
+        .set("FAKE_FSCK_EXFAT_N_EXIT", "4")
         .set("FAKE_FSCK_EXFAT_EXIT", "1")
         .set("FAKE_FSCK_EXFAT_SAYS", "bitmap fixed")
         .with_partition_4()
         .start();
     out.assert_share_mounted(false);
+    assert_eq!(
+        out.calls("timeout "),
+        1,
+        "only the check is timed: {out:#?}"
+    );
+    assert!(
+        out.first("fsck.exfat -n ") < out.first("fsck.exfat -p "),
+        "{out:#?}"
+    );
     assert!(
         out.state_log.contains("fsck.exfat: bitmap fixed"),
         "{out:#?}"
@@ -1091,17 +1108,19 @@ fn a_share_that_the_check_repairs_mounts_read_write() {
     assert!(out.state_log.contains("sda4 (exit 1)"), "{out:#?}");
 }
 
-/// What the check leaves: the share mounts read-only, the notice says
+/// The repair leaves errors: the share mounts read-only, the notice says
 /// why, no folder is made, and nothing is formatted.
-fn read_only_share(name: &str, var: &str, value: &str, exit: &str) {
-    let run = Run::new(name)
+#[test]
+fn a_share_with_errors_left_mounts_read_only() {
+    let run = Run::new("exfat-errors")
         .set("FAKE_BLKID", "TYPE=exfat")
-        .set(var, value)
+        .set("FAKE_FSCK_EXFAT_N_EXIT", "4")
+        .set("FAKE_FSCK_EXFAT_EXIT", "4")
         .with_partition_4();
     let out = run.boot(&[]);
     assert!(out.ok, "{out:#?}");
     let reason = format!(
-        "fsck.exfat {}/dev/sda4 left errors or did not end within 120 s (exit {exit})",
+        "fsck.exfat found errors on {}/dev/sda4 that its repair could not fix (exit 4)",
         out_root(&out)
     );
     assert_eq!(
@@ -1109,11 +1128,11 @@ fn read_only_share(name: &str, var: &str, value: &str, exit: &str) {
         format!(
             "state = \"partition\"\nshare = \"partition\"\nshare_read_only = true\nshare_read_only_reason = \"{reason}\"\n"
         ),
-        "{name}: {out:#?}"
+        "{out:#?}"
     );
-    assert_eq!(out.calls("mount -t exfat -o ro,"), 1, "{name}: {out:#?}");
+    assert_eq!(out.calls("mount -t exfat -o ro,"), 1, "{out:#?}");
     assert_eq!(out.calls("mount -t exfat"), 1, "never read-write: {out:#?}");
-    assert_eq!(out.calls("mkfs"), 0, "{name}: {out:#?}");
+    assert_eq!(out.calls("mkfs"), 0, "{out:#?}");
     assert!(
         out.state_log.contains("mounted read-only at /share"),
         "{out:#?}"
@@ -1124,20 +1143,45 @@ fn read_only_share(name: &str, var: &str, value: &str, exit: &str) {
     );
 }
 
-#[test]
-fn a_share_with_errors_left_mounts_read_only() {
-    read_only_share("exfat-errors", "FAKE_FSCK_EXFAT_EXIT", "4", "4");
+/// A check that does not end in time, or that fails as a program, proves
+/// no error of the share: it mounts read-write as with no check, with a
+/// log line and no notice.
+fn unchecked_share(name: &str, var: &str, value: &str, line: &str) {
+    let out = Run::new(name)
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .set(var, value)
+        .with_partition_4()
+        .start();
+    out.assert_share_mounted(false);
+    assert_eq!(out.calls("fsck.exfat -p "), 0, "{name}: {out:#?}");
+    assert!(out.state_log.contains(line), "{name}: {out:#?}");
 }
 
 #[test]
-fn a_check_that_does_not_end_in_time_mounts_read_only() {
-    read_only_share("exfat-slow", "FAKE_TIMEOUT_EXPIRES", "yes", "143");
+fn a_check_that_does_not_end_in_time_mounts_read_write() {
+    unchecked_share(
+        "exfat-slow",
+        "FAKE_TIMEOUT_EXPIRES",
+        "yes",
+        "did not end within 120 s or failed (exit 143), so it is mounted unchecked",
+    );
+}
+
+#[test]
+fn a_check_that_fails_as_a_program_mounts_read_write() {
+    unchecked_share(
+        "exfat-op-error",
+        "FAKE_FSCK_EXFAT_N_EXIT",
+        "8",
+        "did not end within 120 s or failed (exit 8), so it is mounted unchecked",
+    );
 }
 
 #[test]
 fn a_share_that_does_not_mount_read_only_is_a_ram_folder() {
     let out = Run::new("exfat-ro-fails")
         .set("FAKE_BLKID", "TYPE=exfat")
+        .set("FAKE_FSCK_EXFAT_N_EXIT", "4")
         .set("FAKE_FSCK_EXFAT_EXIT", "4")
         .set("FAKE_MOUNT_EXFAT_RO_EXIT", "32")
         .with_partition_4()
