@@ -158,7 +158,7 @@ The state column is one line. The full entry below is the reference.
 | OP-090 | Settings row, submenu arrow, breadcrumb | C15 |
 | OP-094 | Reboot and shut down from the UI | C17 |
 | OP-095 | First boot did not attach the share | C16 and C18 |
-| OP-096 | The Raspberry Pi image | P01 to P06; P07 and P09 left |
+| OP-096 | The Raspberry Pi image | P01 to P07; P09 left |
 | OP-076 | Boot prompt when nothing would change | M01: no prompt for the safe default |
 | OP-105 | The keep or revert dialog of the display | M01, ADR 0013 |
 | OP-089 | Stale cross-build cache between worktrees | M11 |
@@ -902,7 +902,7 @@ The state column is one line. The full entry below is the reference.
 
 ### OP-096: The Raspberry Pi image: composite first, GPIO DACs later.
 
-- Status: closed by P01 to P06 (`docs/spec/raspberry-pi.md`, ADR 0012, the TV policy, the `TV mode` property in `neptron-kms`, the `rpi-arm64` image, the app wiring). P07 (`neptron.toml`) and P09 (the bench session) are left. OP-097 to OP-103 hold the points of the first tests.
+- Status: closed by P01 to P07 (`docs/spec/raspberry-pi.md`, ADR 0012, the TV policy, the `TV mode` property in `neptron-kms`, the `rpi-arm64` image, the app wiring, the import of `neptron.toml`). P09 (the bench session) is left. OP-097 to OP-103 hold the points of the first tests.
 - Decision: the owner (2026-11-13): composite is the default output, NTSC at 60 Hz, and the user can change the standard (PAL at 50 Hz, PAL at 60 Hz and the others the hardware gives); the picture must be as sharp as composite allows and work on a 15 kHz tube. The GPIO DACs (VGA666, RGB-Pi, Pi2SCART) are not in the first image; they need a line in the boot configuration on the card (`docs/definition/05-crt-safety-model.md`). Owner, 2026-11-13: the test board is a Pi 3 B+ (the tests of 2026-11-14 ran on a Pi 3 B); HDMI on the Pi is in the first image as a flat panel; the default standard stays NTSC; the default width rule is `aspect`; the names NTSC and PAL are used only for composite, other outputs show lines and rates.
 
 ### OP-097: Picture size and position on a TV-class CRT (overscan).
