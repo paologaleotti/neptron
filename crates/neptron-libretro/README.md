@@ -12,7 +12,7 @@ The host produces data and decides nothing for the session. It does not own the 
 - `set_pad(port, Pad)`, then `run_frame() -> FrameOutput<'_>`: the video (`Frame`, `Duplicate` with the last frame, `Missing` or `Rejected`), the audio, the events (`Geometry`, `AvInfo`, `PixelFormat`, `Rotation`, `Shutdown`, `Message`, `Refused`), the log records and the drop counts.
 - `reset()`, `av_info()`, `pixel_format()`, `rotation()`, `logs()`, `error_logs()` (the first `ERROR_LOG_CAPACITY` error-level records of the last call, kept also when the queue of `logs()` was full), `dropped_logs()`.
 - `copy_save_ram(&mut Vec<u8>)`, `load_save_ram(&[u8])`.
-- File functions for the session to call off the frame thread: `save_file_path`, `read_save_file`, `write_save_file` (temp file, fsync, rename, one `.bak`).
+- File functions for the session to call off the frame thread: `save_file_path`, `read_save_file`, `write_save_file` (temp file, fsync, rename; with `Backup::Refresh` it first copies the old file to one `.bak`, with `Backup::Keep` it leaves the `.bak`), `back_up_save_file` (the `.bak` step alone, which the session runs once per game session).
 - `read_zip_entry`, `GameGeometry::from_core`, `Timing::from_core`: the checks, usable on their own (for example to replay core traces).
 - `zip_entries`: the files of a zip archive (name, CRC-32, uncompressed size) from its central directory alone, for the arcade set check. Its own limits keep a hostile file small: a directory of at most 1 MiB and 256 KiB of names.
 

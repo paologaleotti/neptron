@@ -25,8 +25,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use neptron_libretro::{
-    ContentRequest, CoreOption, Event, Host, HostConfig, LogRecord, Pad, Video, read_save_file,
-    save_file_path, write_save_file,
+    Backup, ContentRequest, CoreOption, Event, Host, HostConfig, LogRecord, Pad, Video,
+    read_save_file, save_file_path, write_save_file,
 };
 use neptron_types::{Control, Frame, Rotation};
 
@@ -549,7 +549,7 @@ fn save_ram(out: &Out<'_>, host: &mut Host, save_dir: &Path, content: &Path) {
         out.line("save_ram error no save file name");
         return;
     };
-    if let Err(e) = write_save_file(&path, &ram) {
+    if let Err(e) = write_save_file(&path, &ram, Backup::Refresh) {
         out.line(&format!("save_ram error write {e}"));
         return;
     }

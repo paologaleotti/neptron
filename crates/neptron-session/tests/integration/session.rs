@@ -479,6 +479,55 @@ fn the_save_ram_is_flushed_on_the_timer_when_it_changed() {
     );
 }
 
+/// The `.bak` holds the save as it was when the game started, through
+/// every timed write of the session: a bad save that the game writes in
+/// play never reaches it.
+#[test]
+fn the_backup_keeps_the_save_from_the_start_of_the_session() {
+    let script = format!(
+        "{}at 2000 sram_write 1 43\n",
+        SAVE_SCRIPT.replace("geometry 256 224", "geometry 128 112")
+    );
+    with_script!(
+        "the_backup_keeps_the_save_from_the_start_of_the_session",
+        &script,
+        |dir| {
+            let path = write_old_save(dir);
+            let setup = Setup {
+                display: DisplayOptions {
+                    render: Render::Off,
+                    ..DisplayOptions::default()
+                },
+                ..Setup::default()
+            };
+            let mut rig = Rig::launch(dir, setup);
+            // The second timed flush is due one interval after the first,
+            // which comes in the frame after its due time.
+            let bound = rig.clock.now_ns() + 3 * SAVE_RAM_FLUSH_INTERVAL_NS;
+            while rig.session.save_stats().unwrap().sent < 2 && rig.clock.now_ns() < bound {
+                rig.run(1);
+            }
+            assert_eq!(
+                rig.session.save_stats().unwrap().sent,
+                2,
+                "two timed writes"
+            );
+            let exit = rig.session.quit();
+            assert_eq!(exit.save, Flush::Unchanged);
+            assert_eq!(exit.save_stats.written, 2);
+            let mut expected = [7_u8; 64];
+            expected[0] = 42;
+            expected[1] = 43;
+            assert_eq!(std::fs::read(&path).unwrap(), expected);
+            assert_eq!(
+                std::fs::read(dir.join("saves/game.srm.bak")).unwrap(),
+                [7; 64],
+                "the save from the start of the session"
+            );
+        }
+    );
+}
+
 #[test]
 fn opening_the_menu_flushes_the_save_ram() {
     with_script!(

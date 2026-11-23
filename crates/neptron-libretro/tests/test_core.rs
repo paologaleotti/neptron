@@ -12,9 +12,9 @@ use std::path::{Path, PathBuf};
 
 use neptron_backend::{AudioSink, InputSource};
 use neptron_libretro::{
-    AvInfo, ContentRequest, Event, GameGeometry, Host, HostConfig, LoadError, LogLevel, LogSource,
-    OpenError, OptionError, Pad, Refusal, Timing, Video, ZipError, read_save_file, save_file_path,
-    write_save_file,
+    AvInfo, Backup, ContentRequest, Event, GameGeometry, Host, HostConfig, LoadError, LogLevel,
+    LogSource, OpenError, OptionError, Pad, Refusal, Timing, Video, ZipError, read_save_file,
+    save_file_path, write_save_file,
 };
 use neptron_testcore::{
     PixelFormat as CoreFormat, SCRIPT_ENV, Size, expected_hash, frames_after, hash, sample,
@@ -482,7 +482,7 @@ fn save_ram_round_trips_through_a_file() {
     let srm = save_file_path(&saves, &script).unwrap();
     assert_eq!(srm, saves.join("game.srm"));
     let original: Vec<u8> = (1..=16).collect();
-    write_save_file(&srm, &original).unwrap();
+    write_save_file(&srm, &original, Backup::Refresh).unwrap();
 
     let mut host = open(&dir);
     load(&mut host, &script);
@@ -499,7 +499,7 @@ fn save_ram_round_trips_through_a_file() {
     let mut expected = original.clone();
     expected[3] = 42;
     assert_eq!(ram, expected);
-    write_save_file(&srm, &ram).unwrap();
+    write_save_file(&srm, &ram, Backup::Refresh).unwrap();
     assert_eq!(read_save_file(&srm).unwrap(), Some(expected));
     assert_eq!(
         std::fs::read(saves.join("game.srm.bak")).unwrap(),

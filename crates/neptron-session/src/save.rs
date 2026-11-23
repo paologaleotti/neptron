@@ -5,13 +5,14 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 
-use neptron_libretro::{SaveFileError, SaveRamError, write_save_file};
+use neptron_libretro::{Backup, SaveFileError, SaveRamError, back_up_save_file, write_save_file};
 
 /// How often the session flushes the save RAM while the game runs, in
 /// nanoseconds. A crash loses at most this much of the game's saves. The
 /// file is written only when the save RAM changed, so a game that saves
 /// once costs one write; a game that changes its save RAM all the time
-/// costs one write of three files in this time, which an SD card takes.
+/// costs one write of two files in this time (three at the first write of
+/// the session, which also makes the backup), which an SD card takes.
 pub const SAVE_RAM_FLUSH_INTERVAL_NS: u64 = 30_000_000_000;
 
 /// The buffers that travel between the frame thread and the writer: one
@@ -317,9 +318,23 @@ impl Drop for SaveRamWriter {
 
 /// The writer thread: writes each buffer it gets, and sends it back with
 /// the result. It ends when the frame thread drops its sender.
+///
+/// Before its first write, it copies the save file to the `.bak`: the
+/// save as it was when the game started. Every later write of the session
+/// leaves the `.bak`, so a bad save that the game writes in play never
+/// reaches it. When the copy fails, nothing is written, and the next write
+/// tries the copy again.
 fn write_loop(path: &std::path::Path, jobs: &Receiver<Vec<u8>>, done: &SyncSender<Done>) {
+    let mut backed_up = false;
     for buffer in jobs {
-        let result = write_save_file(path, &buffer);
+        let result = if backed_up {
+            write_save_file(path, &buffer, Backup::Keep)
+        } else {
+            back_up_save_file(path).and_then(|()| {
+                backed_up = true;
+                write_save_file(path, &buffer, Backup::Keep)
+            })
+        };
         if done.send(Done { buffer, result }).is_err() {
             return;
         }

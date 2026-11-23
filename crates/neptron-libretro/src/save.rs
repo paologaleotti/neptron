@@ -88,6 +88,17 @@ pub struct SaveRamLoad {
     pub ram_len: usize,
 }
 
+/// What a write of a save file does with its backup, `<name>.bak`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Backup {
+    /// Copy the old file to `<name>.bak` first: the first write of a game
+    /// session, so the backup is the save as it was when the game started.
+    Refresh,
+    /// Leave `<name>.bak` as it is: every later write of the session, so
+    /// a bad save that the game writes in play never reaches the backup.
+    Keep,
+}
+
 /// The save file of `content`: `<save_dir>/<content file stem>.srm`, as
 /// RetroArch names it. For a zip file it is the stem of the archive. `None`
 /// when the content path has no file stem.
@@ -109,30 +120,43 @@ pub fn read_save_file(path: &Path) -> Result<Option<Vec<u8>>, SaveFileError> {
 }
 
 /// Writes a save file so that a crash leaves the old file or the new file,
-/// never a broken one, and keeps the old file as `<name>.bak`.
+/// never a broken one. With [`Backup::Refresh`] it keeps the old file as
+/// `<name>.bak`; with [`Backup::Keep`] the backup stays as it is.
 ///
 /// 1. Write `<name>.tmp` and sync it.
-/// 2. Copy the old file, if there is one, to `<name>.bak.tmp`, sync it,
-///    and rename it to `<name>.bak`.
+/// 2. With [`Backup::Refresh`]: copy the old file, if there is one, to
+///    `<name>.bak.tmp`, sync it, and rename it to `<name>.bak`.
 /// 3. Rename `<name>.tmp` to `<name>` and sync the folder.
 ///
 /// Each temporary file is removed first and made with `create_new`, so a
 /// symlink left at its path is never followed.
-pub fn write_save_file(path: &Path, bytes: &[u8]) -> Result<(), SaveFileError> {
+pub fn write_save_file(path: &Path, bytes: &[u8], backup: Backup) -> Result<(), SaveFileError> {
     let tmp = with_suffix(path, ".tmp")?;
-    let bak = with_suffix(path, ".bak")?;
-    let bak_tmp = with_suffix(path, ".bak.tmp")?;
     write_new(&tmp, bytes)?;
-    match read_bounded(path) {
-        Ok(old) => {
-            write_new(&bak_tmp, &old)?;
-            rename(&bak_tmp, &bak)?;
-        }
-        Err(SaveFileError::Read { source, .. }) if source.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
+    if backup == Backup::Refresh {
+        back_up_save_file(path)?;
     }
     rename(&tmp, path)?;
     sync_folder(path)
+}
+
+/// Copies the save file, if there is one, to `<name>.bak`: to
+/// `<name>.bak.tmp` first, synced, then renamed. A missing save file
+/// leaves the backup as it is. The rename is made durable by the folder
+/// sync of the next [`write_save_file`].
+pub fn back_up_save_file(path: &Path) -> Result<(), SaveFileError> {
+    let bak = with_suffix(path, ".bak")?;
+    let bak_tmp = with_suffix(path, ".bak.tmp")?;
+    match read_bounded(path) {
+        Ok(old) => {
+            write_new(&bak_tmp, &old)?;
+            rename(&bak_tmp, &bak)
+        }
+        Err(SaveFileError::Read { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn read_bounded(path: &Path) -> Result<Vec<u8>, SaveFileError> {
@@ -248,15 +272,15 @@ mod tests {
     fn a_write_round_trips_and_keeps_one_backup() {
         let dir = temp_dir("round-trip");
         let path = dir.join("game.srm");
-        write_save_file(&path, b"first").unwrap();
+        write_save_file(&path, b"first", Backup::Refresh).unwrap();
         assert_eq!(
             read_save_file(&path).unwrap().as_deref(),
             Some(&b"first"[..])
         );
         assert!(!dir.join("game.srm.bak").exists(), "nothing to back up");
 
-        write_save_file(&path, b"second").unwrap();
-        write_save_file(&path, b"third").unwrap();
+        write_save_file(&path, b"second", Backup::Refresh).unwrap();
+        write_save_file(&path, b"third", Backup::Refresh).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"third");
         assert_eq!(fs::read(dir.join("game.srm.bak")).unwrap(), b"second");
         let mut names: Vec<_> = fs::read_dir(&dir)
@@ -273,11 +297,24 @@ mod tests {
     }
 
     #[test]
+    fn a_write_that_keeps_the_backup_leaves_it() {
+        let dir = temp_dir("keep");
+        let path = dir.join("game.srm");
+        write_save_file(&path, b"start", Backup::Refresh).unwrap();
+        write_save_file(&path, b"first", Backup::Refresh).unwrap();
+        write_save_file(&path, b"second", Backup::Keep).unwrap();
+        write_save_file(&path, b"third", Backup::Keep).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"third");
+        assert_eq!(fs::read(dir.join("game.srm.bak")).unwrap(), b"start");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn a_stale_temp_file_is_replaced() {
         let dir = temp_dir("stale");
         let path = dir.join("game.srm");
         fs::write(dir.join("game.srm.tmp"), b"half a write from a crash").unwrap();
-        write_save_file(&path, b"new").unwrap();
+        write_save_file(&path, b"new", Backup::Refresh).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"new");
         assert!(!dir.join("game.srm.tmp").exists());
         fs::remove_dir_all(dir).unwrap();
@@ -291,8 +328,8 @@ mod tests {
         fs::write(&victim, b"keep me").unwrap();
         std::os::unix::fs::symlink(&victim, dir.join("game.srm.tmp")).unwrap();
         std::os::unix::fs::symlink(&victim, dir.join("game.srm.bak.tmp")).unwrap();
-        write_save_file(&path, b"one").unwrap();
-        write_save_file(&path, b"two").unwrap();
+        write_save_file(&path, b"one", Backup::Refresh).unwrap();
+        write_save_file(&path, b"two", Backup::Refresh).unwrap();
         assert_eq!(fs::read(&victim).unwrap(), b"keep me");
         assert_eq!(fs::read(&path).unwrap(), b"two");
         assert_eq!(fs::read(dir.join("game.srm.bak")).unwrap(), b"one");
@@ -315,7 +352,7 @@ mod tests {
     #[test]
     fn a_path_without_a_file_name_is_an_error() {
         assert!(matches!(
-            write_save_file(Path::new("/"), b"x"),
+            write_save_file(Path::new("/"), b"x", Backup::Refresh),
             Err(SaveFileError::NoFileName { .. })
         ));
     }
