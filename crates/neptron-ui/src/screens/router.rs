@@ -4,6 +4,7 @@
 use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::intent::Intent;
+use crate::screensaver;
 use crate::snapshot::{GameSource, Level, PageId, SettingKey, Snapshot};
 use crate::theme::Theme;
 
@@ -121,12 +122,18 @@ impl Screens {
     /// An action goes to the topmost of: the confirm dialog of a pending
     /// signal change, the guided mapping of a controller, the oldest
     /// notice (not while a game runs alone), the screen on top of the
-    /// stack.
+    /// stack. While the snapshot shows the screensaver, no action goes
+    /// anywhere, and the screensaver covers every screen.
     ///
     /// The UI has no clock. A held direction repeats only when the app
     /// sends the action again.
     pub fn update(&mut self, snap: &Snapshot, actions: &[UiAction], out: &mut UiFrame) {
         out.clear();
+        let actions = if snap.screensaver.is_some() {
+            &[]
+        } else {
+            actions
+        };
         self.follow(snap);
         if self.open_requested(snap) {
             self.follow(snap);
@@ -426,6 +433,11 @@ impl Screens {
     }
 
     fn draw(&self, snap: &Snapshot, out: &mut UiFrame) {
+        if let Some(elapsed_ns) = snap.screensaver {
+            out.tree.set_screen(screensaver::SCREENSAVER_SCREEN);
+            screensaver::draw(elapsed_ns, out);
+            return;
+        }
         let (theme, layout) = (&self.theme, &self.layout);
         let mut parts = [""; MAX_DEPTH];
         let path = self.path(snap, &mut parts);

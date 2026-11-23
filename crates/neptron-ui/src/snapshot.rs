@@ -111,6 +111,10 @@ pub struct Snapshot {
     /// The guided mapping of a controller, while it runs. It shows over
     /// every screen, under a pending confirmation.
     pub pad_mapping: Option<PadMapping>,
+    /// The time since the screensaver started, in nanoseconds, while it
+    /// shows. It then covers every screen and overlay, and the screens
+    /// take no action.
+    pub screensaver: Option<u64>,
 }
 
 /// A window of rows of one game list: `rows[0]` is the game at index

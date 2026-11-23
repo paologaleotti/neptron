@@ -21,6 +21,7 @@ mod painted;
 pub mod registry;
 pub mod scene;
 pub mod screens;
+pub mod screensaver;
 pub mod skin;
 pub mod snapshot;
 pub mod text;

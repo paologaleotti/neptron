@@ -3244,3 +3244,40 @@ fn a_long_reason_shows_not_available_in_the_row_and_in_full_below() {
     let help = run.labels().join(" ");
     assert!(help.contains(&format!("Not available. {long}.")), "{help}");
 }
+
+#[test]
+fn the_screensaver_covers_the_screen_and_takes_no_action() {
+    let mut run = Run::new();
+    let mut snap = with_systems();
+    run.step(&snap, &[Down]);
+    let focus = run.focused().map(str::to_owned);
+    snap.screensaver = Some(0);
+    run.step(&snap, &[Accept, Down, Back, Menu]);
+    assert_eq!(run.screen(), crate::screensaver::SCREENSAVER_SCREEN);
+    assert!(run.labels().is_empty());
+    assert!(
+        !run.intents()
+            .iter()
+            .any(|i| matches!(i, Intent::LoadGames { .. }))
+    );
+    snap.screensaver = None;
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "home");
+    assert_eq!(run.focused().map(str::to_owned), focus);
+}
+
+#[test]
+fn the_screensaver_covers_a_notice_that_shows_again_after_it() {
+    let mut run = Run::new();
+    let mut snap = with_systems();
+    snap.notices = vec![Notice::new(NoticeId(1), "Scan done.", NoticeKind::Info)];
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "notice");
+    snap.screensaver = Some(5);
+    run.step(&snap, &[Accept]);
+    assert_eq!(run.screen(), crate::screensaver::SCREENSAVER_SCREEN);
+    assert!(run.intents().is_empty());
+    snap.screensaver = None;
+    run.step(&snap, &[]);
+    assert_eq!(run.screen(), "notice");
+}

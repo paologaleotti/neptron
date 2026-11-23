@@ -27,6 +27,18 @@ use super::{
 
 pub(super) const SCENES: &[SceneDef] = &[
     SceneDef {
+        name: "screens/screensaver-start",
+        build: screensaver_start,
+    },
+    SceneDef {
+        name: "screens/screensaver-wall",
+        build: screensaver_wall,
+    },
+    SceneDef {
+        name: "screens/screensaver-later",
+        build: screensaver_later,
+    },
+    SceneDef {
         name: "screens/home",
         build: home,
     },
@@ -531,6 +543,29 @@ pub(super) fn with_systems() -> Snapshot {
         systems: systems(),
         ..Snapshot::default()
     }
+}
+
+/// The screensaver over the home screen, `elapsed_ns` after its start.
+fn screensaver_at(frame: &mut UiFrame, theme: &Theme, elapsed_ns: u64) {
+    let mut snap = with_systems();
+    snap.screensaver = Some(elapsed_ns);
+    let mut screens = Screens::new(theme.clone());
+    screens.update(&snap, &[], frame);
+}
+
+/// The start: the centre, in red.
+fn screensaver_start(frame: &mut UiFrame, theme: &Theme) {
+    screensaver_at(frame, theme, 0);
+}
+
+/// The first wall: the right edge, in orange.
+fn screensaver_wall(frame: &mut UiFrame, theme: &Theme) {
+    screensaver_at(frame, theme, 3_475_000_000);
+}
+
+/// Twenty seconds in: six walls, in violet.
+fn screensaver_later(frame: &mut UiFrame, theme: &Theme) {
+    screensaver_at(frame, theme, 20_000_000_000);
 }
 
 fn home(frame: &mut UiFrame, theme: &Theme) {
