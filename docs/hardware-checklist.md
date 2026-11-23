@@ -955,6 +955,27 @@ Each check is `needs-hardware`. The setup: a Pi 3 with an image built after P07,
   - Expect: the UI and a game show.
   - Record: the macOS version.
 
+## Release images (M14)
+
+The images of a GitHub Release, not the development variant. `os/README.md`, "Check a release", reads the files with no hardware.
+
+- [ ] `needs-hardware` **The PC release image on Intel graphics.**
+  - Do: write `neptron-pc-x86_64-<version>.img.xz` of the release to a USB stick and boot the i3-6100T with a 31 kHz monitor or a flat panel.
+  - Expect: the NEPTRON menu shows; `LICENCES.txt` on the boot partition names the release, the commit of the tag and `Variant: release`; no SSH port answers.
+  - Record: the release, the first lines of `LICENCES.txt`, a photo of the menu.
+- [ ] `needs-hardware` **The Pi release image.**
+  - Do: write `neptron-rpi-arm64-<version>.img.xz` to an SD card and boot a Pi 3 on composite.
+  - Expect: the menu shows on the TV; `LICENCES.txt` names the release and `Variant: release`.
+  - Record: the release and a photo of the menu.
+- [ ] `needs-hardware` **The time of the firmware picture on a PC.**
+  - Do: with a 31 kHz monitor, time from power-on until the NEPTRON menu replaces the picture of the firmware and of GRUB, three times.
+  - Expect: a time of some seconds; the README warns that a 15 kHz-only monitor gets a 31 kHz signal for that time.
+  - Record: the three times, and whether fast boot of the firmware was on.
+- [ ] `needs-hardware` **A PC with AMD graphics.**
+  - Do: boot the PC release image on a PC with an AMD graphics card.
+  - Expect: release 0.1 does not promise a picture (the image has no AMD firmware); write down what happens.
+  - Record: the card, the picture or its absence, and `dmesg | grep -i amdgpu` if a console answers.
+
 ## Video policy of the arcade rule (M08b)
 
 These checks need a CRT. The policy tests prove each mode in emulation; only a tube shows the picture.
