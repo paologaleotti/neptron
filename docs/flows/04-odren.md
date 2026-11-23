@@ -1,6 +1,6 @@
 # 4. ODREN, the video engine
 
-ODREN takes the source of each core frame (width, height, rate, aspect, scan) and decides what goes on the wire: nothing new, a new scale only, a wait, a modeset, or the output off. The state machine `Odren` decides and does no I/O. `VideoEngine` applies its decisions to a `Display` (KMS on the target). This page follows one core frame from the source to the wire, and every result of a modeset. How the policy picks the mode is in [the policy](05-policy.md). How the guard uses `current_refused`, `blanked` and `settled` is in [the guard](03-guard.md). How the session calls the engine each frame is in [the session](06-session.md).
+ODREN takes the source of each core frame (width, height, rate, aspect, scan, rotation) and decides what goes on the wire: nothing new, a new scale only, a wait, a modeset, or the output off. The state machine `Odren` decides and does no I/O. `VideoEngine` applies its decisions to a `Display` (KMS on the target). This page follows one core frame from the source to the wire, and every result of a modeset. See [the policy](05-policy.md) for how the mode is picked, [the guard](03-guard.md) for how it uses `current_refused`, `blanked` and `settled`, and [the session](06-session.md) for how the engine is called each frame.
 
 ## Diagrams
 
@@ -102,7 +102,7 @@ stateDiagram-v2
 | `Rescale` | The winner's mode equals the mode on screen, and the inputs accept its read back. No debounce. | The same mode on the wire, no loss of sync. The game gets the new crop, destination and filter at once. |
 | `Waiting { stable_frames }` | A geometry change needs a new mode, and the new source has been the same for fewer than `DEBOUNCE_FRAMES` frames. | The old mode. A frame of the new size is shown whole in the old destination, with sharp bilinear when the scale is not whole (`build_scene`). |
 | `Modeset` | Launch, or a monitor, settings or retry trigger (no debounce), or a geometry change stable for `DEBOUNCE_FRAMES` frames. | Sound off. The monitor resyncs. The KMS backend draws a black buffer for the modeset commit, then the next flip shows the game. Sound on at the first flip in the new mode. |
-| `Kept` | The source is blocked after a device error, the game is turned (`Rotated`), the policy gives no plan, or every proposal is refused. | The mode on screen stays. Before the first mode there is no picture (`present` returns `NoMode`). |
+| `Kept` | The source is blocked after a device error, the policy gives no plan, or every proposal is refused. | The mode on screen stays. Before the first mode there is no picture (`present` returns `NoMode`). |
 | `Blank` | The mode on the display is refused (`current_refused()`), the directive would be `Steady` or `Kept`, and fewer than `MODESET_ATTEMPTS` blanks failed. | No signal at all: no sync, no picture. The game is frozen (the session does not run the core while the output is off). |
 
 ### Engine flags
@@ -144,7 +144,6 @@ stateDiagram-v2
 
 | Step | Condition | Result |
 | --- | --- | --- |
-| Rotation | `source.rotation != R0` | `Unshowable::Rotated`. The session always gives `R0` in the MVP. |
 | Policy | `neptron_modeline::policy::decide` fails | `Unshowable::Policy(error)`. |
 | Choose | `policy::choose` walks the plan's proposals in order. The first one that `check` accepts wins. | `Chosen` with the `ValidatedMode` token and the notice of the policy. |
 | Check | 1. the veto, if set (refuse only). 2. `neptron_safety::validate` with the monitor profile and the caps. 3. the mode is not in `driver_refused`. | `Refusal::Validator(rejection)` or `Refusal::Driver`. |
@@ -207,7 +206,7 @@ The session also mutes while the quick menu is open, while `current_refused()` i
 | Capacity | `TRACE_CAPACITY` = 64 records, the oldest goes first. |
 | Record fields | `asked_frame`, `decided_frame`, `count`, `shown_frame`, `gap_ns`, `trigger`, `source`, `previous`, `winner`, `read_back`, `rate_drift_mhz`, `outcome`, `dropped`, `refused`. |
 | Outcome words | `scale only`, `modeset`, `kept the mode: {reason}`, `set_mode failed: {error}`, `read back {w}x{h}{p or i} refused`, `last good mode set again`, `output off: no valid mode`, `blank failed: {error}`. |
-| Reason words | `the game is turned ({rotation}) and the renderer does not rotate`, `no plan: {error}`, `every proposal was refused`, `the inputs refuse the mode on screen: {refusal}`. Refusal: `validator: {rejection}` or `the display driver refused it`. |
+| Reason words | `no plan: {error}`, `every proposal was refused`, `the inputs refuse the mode on screen: {refusal}`. Refusal: `validator: {rejection}` or `the display driver refused it`. |
 | Log line | `frame {decided} (asked {asked}): {trigger} {w}x{h}{p or i} at {mHz} mHz: {outcome}`, then `, {rung} {w}x{h}{p or i} at {mHz} mHz`, `, read back {drift} mHz off`, `, {count} decisions`, `, shown after {n} frames` when they apply. |
 | Who reads it | The tests (`tests/golden/switch_trace.txt`), and the control protocol `video_state` (`switch_count` = `SwitchTrace::modeset_total`, every modeset since the start, also the ones that left the trace). |
 

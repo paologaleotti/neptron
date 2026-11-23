@@ -1,6 +1,6 @@
 # 6. The session: one game from launch to exit
 
-A session is one game in one frontend process. It opens the core, loads the content and the save RAM, settles the picture size before the first mode, then runs the display-locked frame loop: one core frame per flip, or per two flips for double refresh. It owns the quick menu pause, the hotkeys, the save RAM writer and the stall check of the display. The app (`apps/neptron`) starts it from a relaunch file and ends it with a relaunch to the game list. The video side of each frame is in [ODREN](04-odren.md), the display safety in [the guard](03-guard.md), the menus in [the screens](07-screens.md).
+A session is one game in one frontend process. It opens the core, loads the content and the save RAM, settles the picture size before the first mode, then runs the display-locked frame loop: one core frame per flip, or per two flips for double refresh. It owns the quick menu pause, the hotkeys, the save RAM writer and the stall check of the display. The app (`apps/neptron`) starts it from a relaunch file and ends it with a relaunch to the game list. See [ODREN](04-odren.md) for the video side of each frame, [the guard](03-guard.md) for the display safety, and [the screens](07-screens.md) for the menus.
 
 ## Diagrams
 
@@ -70,7 +70,7 @@ flowchart TD
 
 ### Hotkeys of one port
 
-Select and Start held together (`QUICK_MENU_COMBO`) for `QUICK_MENU_HOLD_NS` (0.5 s) fire the quick menu, once per hold, at the hold time. A shorter overlap fires nothing. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So in a game a recovery hold opens the quick menu first. `Session::resume` cancels a hold in progress (`Hotkeys::cancel_quick_menu`), so a combination held across the close does not open the menu again. While Select and Start are both down, the core does not see the button that completed the combination (`PadMask`), so the game does not see both down during a hold. When the combination ends before the menu opens, that press reaches the core late, for 3 to 30 core frames when it is up already (`LATE_PRESS_MIN_FRAMES`, `LATE_PRESS_MAX_FRAMES`), so a coin and a start that overlap both reach the game. A short tap of Select and Start now reaches the game, as on the original hardware, so a game's own Select and Start combination (for example a soft reset with other buttons) works with a tap; only a hold of 0.5 s opens the menu. When the menu opens, the press is dropped. The Start hold is a second way to the quick menu, with its own state per port:
+Select and Start held together (`QUICK_MENU_COMBO`) for `QUICK_MENU_HOLD_NS` (0.5 s) fire the quick menu, once per hold, at the hold time. A shorter overlap fires nothing. The same buttons (`BLIND_RECOVERY_COMBO`) held for `BLIND_RECOVERY_HOLD_NS` fire the blind recovery. So in a game a recovery hold opens the quick menu first. `Session::resume` cancels a hold in progress (`Hotkeys::cancel_quick_menu`), so a combination held across the close does not open the menu again. While Select and Start are both down, the core does not see the button that completed the combination (`PadMask`), so the game does not see both down during a hold. When the combination ends before the menu opens, that press reaches the core late, for 3 to 30 core frames when it is up already (`LATE_PRESS_MIN_FRAMES`, `LATE_PRESS_MAX_FRAMES`), so a coin and a start that overlap both reach the game. A short tap of Select and Start reaches the game, as on the original hardware, so a game's own Select and Start combination (for example a soft reset with other buttons) works with a tap; only a hold of 0.5 s opens the menu. When the menu opens, the press is dropped. The Start hold is a second way to the quick menu, with its own state per port:
 
 ```mermaid
 stateDiagram-v2
@@ -120,7 +120,7 @@ flowchart TD
 | State | What the user sees |
 | --- | --- |
 | Launch, settle | The picture of the run before stays until the first `run_frame` sets the game's mode. The core runs up to `LAUNCH_SETTLE_MAX_FRAMES` frames with no display, no sound and no input. |
-| `Running` | The game, in the mode ODREN chose. A notice can show over it (for example "Picture: ..." when the first picture is fitted, cropped or small). |
+| `Running` | The game, in the mode ODREN chose. A notice (for example the picture notice) waits for the quick menu. |
 | `Paused` | The quick menu over the frozen last frame, in the same video mode. Title: the game title, subtitle "Paused", hints "Accept: choose" and "Back: resume". Audio is muted. The core does not run. |
 | Output off (`blanked`) | No signal. The core waits with the game frozen, audio is muted, the app paces the loop at `UNPACED_FRAME_NS`. |
 | Refused mode (`current_refused`) | The mode stays on the wire but the session presents no game picture on it (only the UI, if any). Audio is muted. |
@@ -145,7 +145,7 @@ flowchart TD
 
 ### Frame details
 
-- **Source.** The size comes from the last frame the core sent, because some cores change size without an event. The rate and aspect come from the core's AV info. A frame with `INTERLACE_MIN_LINES` = 289 lines or more is interlaced. Rotation is always `R0`.
+- **Source.** The size comes from the last frame the core sent, because some cores change size without an event. The rate and aspect come from the core's AV info. A frame with `INTERLACE_MIN_LINES` = 289 lines or more is interlaced. The rotation is the turn the core asks for (`Host::rotation`).
 - **Double refresh.** Flips per core frame are `timing.repeat()` of the chosen mode (2 for double refresh). The same picture is presented on each flip.
 - **Run rate for the audio.** On KMS (`RunRateSource::ReadBack`) it is the field rate of the read-back mode divided by the flips per core frame. In the window (`RunRateSource::Measured`) it is the measured flip rate. A rate the audio pipeline refuses (more than twice or less than half of the core rate) keeps the last good one and counts `refused_run_rates`.
 - **Mute.** Audio is muted while the session is not `Running`, while the engine asks for it (a modeset is due or the new mode has not flipped yet), while the mode on screen is refused, and while the output is off. A modeset frame writes silence.
@@ -177,7 +177,7 @@ flowchart TD
 | Core call fails in the loop | Notice "The game stopped: the core failed: ...", then the game list. | Automatic. Save RAM is flushed at quit. |
 | Core crashes (signal) | The frontend process dies with the core. The launcher restarts it after its backoff (see [Power-on](01-power-on.md)). No relaunch file is left, so the start is a new boot with the game list. Save RAM is at most 30 s old. | Automatic. |
 | Power cut during play | On the next boot the save file is the last one written: at most `SAVE_RAM_FLUSH_INTERVAL_NS` = 30 s old, or the state at the last quick menu open. A cut during a write leaves the old file or the new one, plus `.bak`. | Nothing to do. |
-| Wrong picture or black screen during play | Hold Select and Start for 5 s. The quick menu opens at 0.5 s and pauses the game. At 5 s the safe default goes on the wire and the tone plays. The notice "Safe mode: the picture was reset. Keep a display setting to leave it." shows over the quick menu. | Keep a display setting to leave safe mode. |
+| Wrong picture or black screen during play | Hold Select and Start for 5 s. The quick menu opens at 0.5 s and pauses the game. At 5 s the safe default goes on the wire and the tone plays. The notice "Safe mode: the picture was reset. Keep a picture in Settings, Display to leave it." shows over the quick menu. | Keep a picture in Settings, Display to leave safe mode. |
 | Inputs refuse every mode | Output off, game frozen, no sound. | Blind recovery, or a guard revert, sets a mode again. |
 | A modeset failed on the device | The engine keeps the old mode and blocks that source. | Open and close the quick menu: `resume()` calls `retry()`. |
 
@@ -204,7 +204,7 @@ flowchart TD
 - `docs/definition/08-frontend-and-ux.md`, "Quick menu": says the combination is "configurable" and that on arcade panels the default is "holding Start for 2 seconds". The code has a fixed combination (`QUICK_MENU_COMBO` = Select + Start). The Start hold is the setting `input.menu_hold_start_seconds`, global only, 0 to 10 s, default 0 (off) on every machine.
 - `docs/definition/08-frontend-and-ux.md`, "Quick menu": lists resume, save and load state, video, core options, controls, disc swap, reset, quit. The code has the rows "Resume", "Volume", "Video" (a page with "Picture mode", "Refresh rate", "Scanlines" and "Scanline strength"), "Settings" (the global panels) and "Quit game" (`quick_menu_page`, `video_page`, `QUICK_MENU_KEYS`, `VIDEO_KEYS`). No save states, no core options editor, no controls, no disc swap, no reset row (`Session::reset` exists but nothing in the app calls it).
 - `docs/definition/05-crt-safety-model.md`, layer 6 "Blind recovery": says "An audio cue confirms it." The app plays the cue (`CUE_MS` = 200 ms at `CUE_HZ` = 880 Hz) in the game list and, through `Session::write_cue`, in a game.
-- `docs/definition/05-crt-safety-model.md`, "Burn-in protection": says the picture dims after five minutes without input in a menu, in the quick menu or while paused. No such code exists: the quick menu stays at full brightness.
+- `docs/definition/05-crt-safety-model.md`, "Burn-in protection": says the picture dims after five minutes without input in a menu, in the quick menu or while paused. The code shows a screensaver (a black screen with a moving `NEPTRON`) after `display.screensaver_minutes`, default 5, in the menus and in a paused game (`docs/spec/screensaver.md`).
 - `docs/definition/02-feature-definition.md`, Emulation row: "SRAM flush on exit". The code also flushes every 30 s and when the quick menu opens.
 - `docs/definition/14-risks-and-open-questions.md`, "Cores run in-process": says the supervisor "restarts into the game list with the last validated mode". After a crash the relaunch file is gone, so the next start is a new boot: the guard counts it and boots as described in [the guard](03-guard.md), not with a stored "last validated mode" of the crashed run.
 - `crates/neptron-session/README.md`, "What the app must do", step 4: says the UI intent "reset" calls `reset()`. There is no reset intent in `neptron-ui`.

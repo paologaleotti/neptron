@@ -8,9 +8,7 @@ The policy is the pure part of [ODREN](04-odren.md). For one game source, one se
 
 ```mermaid
 flowchart TD
-    S["Game source<br/>width, height, rate, scan, rotation"] --> R{"Rotation 90 or 270?"}
-    R -- "yes" --> U["Engine: Unshowable Rotated<br/>no mode set"]
-    R -- "no" --> T["take_source<br/>refuse 0 width, height or rate"]
+    S["Game source<br/>width, height, rate, scan, rotation"] --> T["take_source<br/>90 or 270: swap the axes<br/>refuse 0 width, height or rate"]
     T --> RS["read_settings<br/>resolve horizontal strategy"]
     RS --> K{"Profile kind"}
     K -- "Crt ranges" --> C["crt_plan<br/>rungs x refresh targets"]
@@ -21,7 +19,9 @@ flowchart TD
     C --> CH["choose<br/>validator walks proposals in order"]
     P --> CH
     CH -- "one accepted" --> W["Winner and token"]
-    CH -- "none accepted" --> N["No winner<br/>mode on screen stays"]
+    CH -- "none accepted" --> FB{"decide_shown: auto, then fit,<br/>when not the asked style"}
+    FB -- "one accepted" --> W
+    FB -- "none accepted" --> N["No winner<br/>mode on screen stays"]
     W --> SW["switch_for<br/>ScaleOnly or Modeset"]
     W --> NO["notice<br/>flags for the player"]
 ```
@@ -112,8 +112,11 @@ flowchart TD
     D --> N["Notice: native mode above<br/>what this system sends"]
     E --> P["panel_plan: one proposal per mode"]
     N --> P
-    P --> Q["panel_placement:<br/>largest whole vertical factor that fits"]
-    Q --> R["Order: whole factor, preferred size,<br/>rate nearest game, list order"]
+    P --> Q{"panel_placement"}
+    Q -- "fill asked (fit), or scale at least 4<br/>under auto, no scanlines" --> FILL["Fill the height<br/>at the game aspect"]
+    Q -- "else, or a factor style" --> WH["Largest whole vertical factor that fits<br/>(at most the factor of the style)"]
+    FILL --> R
+    WH --> R["Order: whole factor, preferred size,<br/>rate nearest game, list order"]
     R --> S{"Scale per axis"}
     S -- "both whole" --> T["Nearest: result exact"]
     S -- "1 to below 2, not whole" --> V["Nearest, uneven pixels: result sharp"]
@@ -126,15 +129,18 @@ The policy has no screen of its own. Its result shows in two places: the Video b
 
 ### Picture modes and their ladders (`walk_ladder`)
 
-The settings key is `display.style`. The values are `auto`, `native`, `2x`, `3x`, `4x`. The default is `auto`.
+The settings key is `display.style` (label `Picture mode`). The values are `auto`, `native`, `2x`, `3x`, `4x`, `sharp`, `speed`, `fit`. The default is `auto`. `docs/spec/video-policy-cases.md`, section 8, has the labels, the help lines and the rule of each mode on each display; this page gives the ladders only.
 
 | Style | Rungs in walk order | Notes |
 | --- | --- | --- |
 | `auto` | native, 2x, 3x, 4x, interlaced 1:1, fitted | Takes the best exact result. In practice: native on 15 kHz, 2x on 31 kHz (the native mode on 31 kHz is padded, so it ranks after 2x). |
+| `sharp`, `speed`, `fit` | the ladder of `auto` | Each changes the order or drops candidates (spec section 8.4). `sharp` reads `display.vertical` as `exact` and `display.panel_scale` as `integer`; `fit` fills. |
 | `native` | native, interlaced 1:1, fitted | Never a multiple. Also gets the native rung at twice the game rate (`NativeDouble`) when a range covers it. |
 | `2x` | 2x, interlaced 1:1, fitted | |
 | `3x` | 3x, 2x, interlaced 1:1, fitted | Falls to the smaller multiple, never to native. |
 | `4x` | 4x, 3x, 2x, interlaced 1:1, fitted | Falls to the smaller multiples, never to native. |
+
+On a flat panel, `native`, `2x`, `3x` and `4x` give that whole factor. When the plan of the asked style has no accepted proposal, `decide_shown` tries `auto`, then `fit` (spec section 8.4, `auto`). The expert keys `display.vertical` (`exact`, `fit`) and `display.panel_scale` (`auto`, `integer`) are not in the menus; a pick of a picture mode removes them at its level (spec section 8.8).
 
 ### The rungs (`Rung`)
 
@@ -164,17 +170,7 @@ The settings key is `display.refresh_policy`. The values are `exact`, `exact_x2`
 
 ### Result words in the Video block
 
-`write_result` joins the words with `, ` in this order. `[!] ` (`ALERT_MARK`) starts the line when the result is `filtered` or a speed change.
-
-| Word | When |
-| --- | --- |
-| `exact` | Not fitted, not sharp, no crop, not padded, no speed change. |
-| `sharp` | Flat panel only: a filter other than nearest, or an axis that is not a whole scale. Never an alert. |
-| `double refresh` | Fields per game frame is 2 (`Double`, `NativeDouble`, or a panel mode at twice the rate). |
-| `cropped N lines` | An overscan crop hides N source lines, both edges together. |
-| `small picture N%` | The winner is padded. N is the fill, rounded to whole percent. |
-| `filtered` | The winner is the fitted rung on a CRT. Alert. |
-| `speed (X to Y Hz)` | On a CRT, the shown rate per game frame differs from the game rate by `REFRESH_MATCH_MHZ` = 5 mHz or more. Alert. |
+`write_result` joins the result words with `, `, and `[!] ` (`ALERT_MARK`) starts the line for `filtered` or a speed change. [The screens](07-screens.md), "The video block", has each word and when it shows.
 
 ### Notice flags (`Notice`, step 8)
 
@@ -190,7 +186,7 @@ The settings key is `display.refresh_policy`. The values are `exact`, `exact_x2`
 | `cropped_lines` | Source lines that the overscan crop hides, both edges together. |
 | `padded_fill_permille` | The fill of a padded winner, in per mille. |
 
-The app turns the notice into one warning toast `Picture: <result>.` (the result words above) when the notice has `fitted` on a CRT, `cropped_lines` above 0, or a padded fill. It does this once per frontend run (see What can go wrong).
+The app turns the notice into one Warning notice with one sentence per reason (`Notice::reasons`), or `Picture: <result>.` (the result words above) for a fit or a crop with no reason of its own (`apps/neptron/src/shell/picture.rs`, `picture_text`). It shows at the first picture of a game and after a change of the picture mode or the refresh choice. `docs/spec/video-policy-cases.md`, section 8.9, has the texts.
 
 ## Transitions
 
@@ -199,7 +195,7 @@ Each row is one decision of the policy, with its exact condition and its effect 
 | Step | Decision | Condition (code) | Constant | Effect on the wire |
 | --- | --- | --- | --- | --- |
 | 1 | Refuse the source | width, height or refresh is 0 (`take_source`) | | `PolicyError::EmptySource`, no plan, no mode change |
-| 1 | Turn the source | rotation `R90` or `R270`: swap axes, invert aspect | | The engine refuses any rotation other than `R0` before the policy runs (`Unshowable::Rotated`): no mode change |
+| 1 | Turn the source | rotation `R90` or `R270`: swap axes, invert aspect | | The policy plans for the turned source |
 | 2 | Default strategy | `horizontal` is `None` | | `DynamicSuperWidth` when the GPU `pclock_min_hz` > 0, else `Native` |
 | 2 | Fixed width out of range | fixed width 0 or above GPU `max_width` | `FIXED_SUPER_WIDTHS` = 3840, 2560, 1920 px | the widest of these that the GPU sends, else the GPU `max_width` |
 | 3 | Ladder | style | `walk_ladder` tables | the rungs to try, see the style table |
@@ -222,7 +218,7 @@ Each row is one decision of the policy, with its exact condition and its effect 
 | 6 | Choose | validator `neptron_safety::validate`, a veto, and modes the driver refused | | first accepted proposal; its token is the only mode the engine sets |
 | 7 | Switch | winner mode equals current mode | | `ScaleOnly`: new crop, destination and filter, no modeset; else `Modeset` after the debounce of [ODREN](04-odren.md) |
 | panel | Fit to the system | mode within `PANEL_WIDTH_MAX_PX` = 3840, `PANEL_HEIGHT_MAX_PX` = 2160, GPU size, GPU pixel clock range | `GAME_RATE_MIN_MHZ` = 50 000 mHz | modes that do not fit are left out; when the preferred mode is left out, the largest kept mode of at least 50 Hz goes first |
-| panel | Placement | largest k with `height x k <= vactive` whose width at the game aspect fits `hactive` | | game centred at k x lines; no k: fitted height, rung `Fitted` |
+| panel | Placement | fill: `fit` asked, or scale at least `PANEL_FILL_MIN_SCALE_MILLI` under `panel_scale` `auto` with no scanlines and no factor style; else the largest k (at most the factor of the style) with `height x k <= vactive` whose width at the game aspect fits `hactive` | `PANEL_FILL_MIN_SCALE_MILLI` = 4000 (a scale of 4) | game centred at the full height, or at k x lines; no k: fitted height |
 | panel | Filter | an axis from 1 to below 2, not whole | | `Nearest`; both axes whole: `Nearest`; else `SharpBilinear` |
 | panel | Order | (not whole factor, not preferred size, `abs(field - game x repeat)`, list index) | | whole factor first, then preferred size, then the nearest rate per game frame |
 | panel | Repeat | `abs(field - 2 x game) < abs(field - game)` | | 2 fields per game frame |
@@ -235,27 +231,27 @@ The lines come from [`policy.toml`](../../crates/neptron-modeline/tests/golden/p
 
 | System | `generic_15` | `pc_31_120` | `panel_1080` |
 | --- | --- | --- | --- |
-| NES NTSC | `"nes_ntsc generic_15" = "native exact 256x240p 15.625kHz 60.099Hz game 256x240+0+0 nearest"` | `"nes_ntsc pc_31_120" = "2x exact 256x480p 31.431kHz 60.099Hz game 256x480+0+0 nearest"` | `"nes_ntsc panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1280x960+320+60 nearest"` |
-| NES PAL | `"nes_pal generic_15" = "native exact 256x240p 15.652kHz 50.008Hz game 256x240+0+0 nearest"` | `"nes_pal pc_31_120" = "2x exact 256x480p 31.404kHz 50.007Hz game 256x480+0+0 nearest"` | `"nes_pal panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 1280x960+320+60 nearest"` |
-| SNES NTSC | `"snes_ntsc generic_15" = "native exact 256x224p 15.625kHz 60.099Hz game 256x224+0+0 nearest"` | `"snes_ntsc pc_31_120" = "2x exact 256x448p 31.431kHz 60.099Hz game 256x448+0+0 nearest"` | `"snes_ntsc panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1194x896+363+92 sharp"` |
-| SNES PAL | `"snes_pal generic_15" = "native exact 256x239p 15.652kHz 50.008Hz game 256x239+0+0 nearest"` | `"snes_pal pc_31_120" = "2x exact 256x478p 31.404kHz 50.007Hz game 256x478+0+0 nearest"` | `"snes_pal panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 1274x956+323+62 sharp"` |
-| Mega Drive NTSC H32 | `"md_ntsc_h32 generic_15" = "native exact 256x224p 15.639kHz 59.923Hz game 256x224+0+0 nearest"` | `"md_ntsc_h32 pc_31_120" = "2x exact 256x448p 31.459kHz 59.923Hz game 256x448+0+0 nearest"` | `"md_ntsc_h32 panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1194x896+363+92 sharp"` |
-| Mega Drive NTSC H40 | `"md_ntsc_h40 generic_15" = "native exact 320x224p 15.639kHz 59.923Hz game 320x224+0+0 nearest"` | `"md_ntsc_h40 pc_31_120" = "2x exact 320x448p 31.459kHz 59.923Hz game 320x448+0+0 nearest"` | `"md_ntsc_h40 panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1194x896+363+92 sharp"` |
-| Mega Drive PAL H40 | `"md_pal_h40 generic_15" = "native exact 320x240p 15.655kHz 49.701Hz game 320x240+0+0 nearest"` | `"md_pal_h40 pc_31_120" = "2x nearest in range 320x480p 31.400kHz 50.000Hz game 320x480+0+0 nearest"` | `"md_pal_h40 panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 1280x960+320+60 nearest"` |
+| NES NTSC | `"nes_ntsc generic_15" = "native exact 256x240p 15.625kHz 60.099Hz game 256x240+0+0 nearest"` | `"nes_ntsc pc_31_120" = "2x exact 256x480p 31.431kHz 60.099Hz game 256x480+0+0 nearest"` | `"nes_ntsc panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1440x1080+240+0 sharp"` |
+| NES PAL | `"nes_pal generic_15" = "native exact 256x240p 15.652kHz 50.008Hz game 256x240+0+0 nearest"` | `"nes_pal pc_31_120" = "2x exact 256x480p 31.404kHz 50.007Hz game 256x480+0+0 nearest"` | `"nes_pal panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 1440x1080+240+0 sharp"` |
+| SNES NTSC | `"snes_ntsc generic_15" = "native exact 256x224p 15.625kHz 60.099Hz game 256x224+0+0 nearest"` | `"snes_ntsc pc_31_120" = "2x exact 256x448p 31.431kHz 60.099Hz game 256x448+0+0 nearest"` | `"snes_ntsc panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1440x1080+240+0 sharp"` |
+| SNES PAL | `"snes_pal generic_15" = "native exact 256x239p 15.652kHz 50.008Hz game 256x239+0+0 nearest"` | `"snes_pal pc_31_120" = "2x exact 256x478p 31.404kHz 50.007Hz game 256x478+0+0 nearest"` | `"snes_pal panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 1440x1080+240+0 sharp"` |
+| Mega Drive NTSC H32 | `"md_ntsc_h32 generic_15" = "native exact 256x224p 15.639kHz 59.923Hz game 256x224+0+0 nearest"` | `"md_ntsc_h32 pc_31_120" = "2x exact 256x448p 31.459kHz 59.923Hz game 256x448+0+0 nearest"` | `"md_ntsc_h32 panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1440x1080+240+0 sharp"` |
+| Mega Drive NTSC H40 | `"md_ntsc_h40 generic_15" = "native exact 320x224p 15.639kHz 59.923Hz game 320x224+0+0 nearest"` | `"md_ntsc_h40 pc_31_120" = "2x exact 320x448p 31.459kHz 59.923Hz game 320x448+0+0 nearest"` | `"md_ntsc_h40 panel_1080" = "panel panel rate 1920x1080p 67.500kHz 60.000Hz game 1440x1080+240+0 sharp"` |
+| Mega Drive PAL H40 | `"md_pal_h40 generic_15" = "native exact 320x240p 15.655kHz 49.701Hz game 320x240+0+0 nearest"` | `"md_pal_h40 pc_31_120" = "2x nearest in range 320x480p 31.400kHz 50.000Hz game 320x480+0+0 nearest"` | `"md_pal_h40 panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 1440x1080+240+0 sharp"` |
 
 How to read them:
 
 - On `generic_15` (15.625 to 15.750 kHz, 49.5 to 65 Hz, 192 to 288 progressive lines) every game gets its own lines at its own rate: rung `native`, kind `exact`.
 - On `pc_31_120` the 50 to 65 Hz range holds 400 to 512 progressive lines. A 224 or 240-line game is below 400 lines, so the native rung needs a border mode that is padded (below 75 %). The 2x rung fills the mode, so `auto` takes 2x. The 100 to 130 Hz range (200 to 256 lines) would hold the game at twice the rate, but only the style `native` (`NativeDouble`) or the policy `exact_x2` asks for it.
 - Mega Drive PAL runs at 49.701 Hz. `pc_31_120` covers 50 to 65 Hz only, so the target is `Nearest` at 50.000 Hz: the game runs 0.6 % fast and the Video block shows `[!] speed (49.701 to 50.000 Hz)` in the form of `write_result`.
-- On the panel, 240 lines fit 4 times in 1080 lines (960). NES and Mega Drive H40 get 1280 pixels, a whole 5x and 4x, so the filter is nearest and the result is `exact`. SNES and Mega Drive H32 at a 4:3 aspect get 1194 pixels for 256, not whole, so the filter is sharp bilinear and the result is `sharp`. PAL games take the 50 Hz mode of the same size, because the rate nearest the game wins after the size.
+- On the panel, 1080 lines are 4.5 times 240 lines, a scale of at least 4, so `auto` fills the height: every game is 1440x1080 at 4:3, not a whole scale, so the filter is sharp bilinear and the result is `sharp`. PAL games take the 50 Hz mode of the same size, because the rate nearest the game wins after the size.
 
 Other golden lines that show a rule:
 
 | Rule | Line |
 | --- | --- |
 | Overscan crop | `"nes_ntsc arcade_31" = "2x exact 256x476p 31.431kHz 60.099Hz game 256x476+0+0 nearest crop 1"` |
-| Border mode on 15 kHz | `"game_boy generic_15" = "native exact 249x224p 15.649kHz 59.729Hz game 160x144+44+40 nearest"` |
+| Border mode on 15 kHz | `"game_boy generic_15" = "native exact 299x224p 15.648kHz 59.728Hz game 160x144+69+40 nearest"` |
 | Rung 3, interlaced 1:1 | `"donkey_kong generic_15" = "interlaced 1:1 exact 697x448i 15.666kHz 60.606Hz game 224x256+236+96 nearest"` |
 | Fitted rung | `"pal_576i pc_31_120" = "fitted exact 720x512p 31.400kHz 50.000Hz game 720x512+0+0 sharp"` |
 | Panel, scale 1 to 2 gives nearest | `"pal_576i panel_1080" = "panel panel rate 1920x1080p 56.250kHz 50.000Hz game 768x576+576+252 nearest"` |
@@ -264,14 +260,14 @@ Other golden lines that show a rule:
 
 | Case | What the user sees | Way out |
 | --- | --- | --- |
-| No exact placement at any target | The fitted rung wins. Mode line ends in `fit`, result `[!] filtered`. One toast `Picture: [!] filtered.` | Pick another picture mode or another monitor profile. The menus grey the modes the display cannot give, with the reason (`picture_choices`). |
-| The game rate is outside every range | Kind `Nearest`. Result `[!] speed (X to Y Hz)`. No toast. | None in the policy: the monitor cannot show that rate. A profile with a wider range removes it. |
+| No exact placement at any target | The fitted rung wins. Mode line ends in `fit`, result `[!] filtered`. One Warning notice. | Pick another picture mode or another monitor profile. The menus grey the modes the display cannot give, with the reason (`picture_choices`). |
+| The game rate is outside every range | Kind `Nearest`. Result `[!] speed (X to Y Hz)`. | None in the policy: the monitor cannot show that rate. A profile with a wider range removes it. |
 | `force_50` or `force_60` | Result `[!] speed (X to Y Hz)` when the forced rate differs from the game rate by 5 mHz or more. When no range covers the forced rate, the policy skips it silently and the game runs at its own rate. | Set `display.refresh_policy` to `exact`. |
-| A few lines too many for a whole multiple | Result `cropped N lines` (N for both edges). One toast `Picture: cropped N lines.` | None needed: at most `OVERSCAN_CROP_MAX_LINES_PER_EDGE` = 8 lines per edge. A crop can hide real content on an arcade board that draws to the edge. |
-| The game fills less than 75 % of the picture lines | Result `small picture N%`. One toast `Picture: small picture N%.` | Style `auto` or `2x` on 31 kHz. On 15 kHz a handheld stays small: that is the border rule. |
+| A few lines too many for a whole multiple | Result `cropped N lines` (N for both edges). One Warning notice. | None needed: at most `OVERSCAN_CROP_MAX_LINES_PER_EDGE` = 8 lines per edge. A crop can hide real content on an arcade board that draws to the edge. |
+| The game fills less than 75 % of the picture lines | Result `small picture N%`. One Warning notice. | Style `auto` or `2x` on 31 kHz. On 15 kHz a handheld stays small: that is the border rule. |
 | The picture mode cannot be shown | `notice.style_fallback` is set, the winner is a lower rung. The menus grey the option with its reason (`picture_choices`). | Pick a mode that is not greyed out. |
 | The width strategy is below the GPU pixel clock floor | The dynamic super width replaces it (`strategy_replaced`). No word in the Video block. | None needed. |
-| A rotated game (90 or 270 degrees) | The engine refuses the source (`Unshowable::Rotated`) and sets no mode. See [ODREN](04-odren.md). | None in the MVP: the renderer does not rotate. |
+| A vertical game (90 or 270 degrees) on a 15 kHz CRT or a TV | The policy plans for the turned source. With `display.vertical` = `exact` the picture can be interlaced, and the first time a one-time Info notice says how to change it. | Picture mode `Fill`. |
 | The validator refuses every proposal | No winner. The mode on screen stays. See [ODREN](04-odren.md). | Another monitor profile. |
 | A CRT profile on a GPU with a fixed pixel clock (`pi_vc4_composite`, 13.5 MHz) | No mode (`policy_gpus.toml` gives `none`). | The composite connector is a TV, so its monitor is the TV profile of `display.tv`, whose plan comes from the fixed modes of the standard (`policy/tv.rs`, `policy_tv.toml`). |
 | The panel's preferred mode is above what the system sends | Notice `The panel's native mode <mode> is above what this system sends (<limits>). It runs at <mode>.` | None needed: the largest fitting mode of at least 50 Hz is used. |
@@ -316,7 +312,7 @@ Other golden lines that show a rule:
 7. `04-crt-video-pipeline.md`, sources that do not fit, "More lines than progressive allows ... Interlace". The code also has an overscan crop of up to 8 lines per edge before it uses rung 3 or the fit. The Definition does not name the crop.
 8. `04-crt-video-pipeline.md`, "Refresh matches the core to two decimals". The code reads this as less than `REFRESH_MATCH_MHZ` = 5 mHz.
 9. `04-crt-video-pipeline.md`, force 50/60: "Where a core exposes a region option, NEPTRON sets it to match." The policy has no region logic; it only changes the rate.
-10. `06-flat-panels-shaders-and-vertical-games.md`, scaling options "Integer (default)", "Integer, overscan", "Fit, sharp", "Stretch", and the aspect options. The code has one panel rule: the largest whole vertical factor, width at the core aspect. No setting chooses another.
+10. `06-flat-panels-shaders-and-vertical-games.md`, scaling options "Integer (default)", "Integer, overscan", "Fit, sharp", "Stretch", and the aspect options. The code has no stretch and no aspect option: the width is always at the core aspect. The picture mode and the expert key `display.panel_scale` (`auto`, `integer`) choose between the fill of the height and a whole vertical factor.
 11. `06-flat-panels-shaders-and-vertical-games.md`, refresh: "Audio rate control absorbs small differences." On a panel the code picks the listed mode nearest the game rate, but only after the whole-factor rule and the preferred size. With no 50 Hz mode, a 50 Hz game gets the 60 Hz mode and runs at the panel rate; the difference is not small, and the Video block shows the `speed` alert, because it is above `PANEL_SPEED_SILENT_PPM` (5000 ppm).
 12. `04-crt-video-pipeline.md` says the picture style and the refresh policy are settings at global, system and game level, with no exception for a panel. In the code a panel ignores `display.refresh_policy`: `panel_plan` does not read it, and the menus show the `Refresh rate` row disabled with `Not used on a flat panel`. A panel reads `display.style`: each picture mode gives its factor or its fill there.
 13. `06-flat-panels-shaders-and-vertical-games.md`, vertical games: rotated upright on a panel and on a 31 kHz CRT, with a one-time warning on 15 kHz. The policy swaps the axes and the engine shows a turned game; on a horizontal screen it is not turned upright, and on a 15 kHz CRT or a TV its interlaced picture gets the one-time notice of a vertical game. A screen turned on its side (TATE) comes in a later version.
