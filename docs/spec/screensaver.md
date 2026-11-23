@@ -13,9 +13,9 @@ This spec settles task M15. After a time with no input, the menus go to a dark p
 
 ## What shows
 
-- A black screen. The word `NEPTRON` in the UI font (Spleen 6x12, one size), 42x12 pixels.
+- A black screen. The word `NEPTRON` in the UI font (Spleen 6x12) at twice its size: each font pixel is a 2x2 square, so the word is 84x24 pixels. The canvas draws the font at one size only, so the word is one rectangle for each run of set pixels in a glyph row.
 - The word moves on a diagonal. At each wall it bounces and takes the next colour of a fixed cycle of 8 colours.
-- The colours are saturated, in the manner of the 1990s. No channel is above 0xBF (75 %), and no colour is white, to keep the load on a tube low. In cycle order: red `BF0000`, orange `BF5F00`, yellow `BFBF00`, green `00BF00`, cyan `00BFBF`, blue `005FBF`, violet `5F00BF`, magenta `BF00BF`. The cycle never gives the same colour twice in a row.
+- The colours are saturated, in the manner of the 1990s. No channel is above 0xBF (75 %), and no colour is white, to keep the load on a tube low. In cycle order: red `BF0000`, orange `BF5F00`, yellow `BFBF00`, green `00BF00`, cyan `00BFBF`, blue `005FBF`, violet `9040BF`, magenta `BF00BF`. No colour looks dark on black: each has a Rec. 709 light of at least 40 of 255, the light of red at 75 %. The violet has red and green raised for this. The cycle never gives the same colour twice in a row.
 - The first colour is red. The word starts at the centre of its free area and moves right and down. No random source is used.
 
 ## Movement
@@ -28,6 +28,7 @@ The position is a pure function of the time since the screensaver started and th
 - The unfolded coordinate is `u = free / 2 + distance`. The position is a triangle wave of `u` with the period `2 * free`. The count of walls hit on that axis is `u / free`.
 - The colour is entry `(walls_x + walls_y) mod 8` of the cycle. So the colour changes exactly in the frame in which the word reaches or passes a wall. A corner hits two walls in one frame and moves two steps; the colour still changes.
 - The position is in whole pixels, so the text stays sharp at 240p on a CRT. At 320x240 the word moves 0 or 1 pixel in a frame.
+- The bounce uses the scaled box of the word (84x24). At 320x240 the free area is 236x216, and the word starts at (118, 108).
 
 ## When it starts
 
@@ -36,7 +37,7 @@ The app keeps an idle timer (`Idle` in `neptron-ui`, pure). Each frame it gets t
 The screensaver may show:
 
 - in the game list and every menu screen of it,
-- in a paused game: the quick menu and every screen opened from it.
+- in a paused game (`Session::paused`, and the UI shows): the quick menu and every screen opened from it.
 
 It never shows while a game runs (the core runs, with no menu over it). It never starts while one of these shows:
 
@@ -53,7 +54,9 @@ A notice with no timeout stays under the screensaver, and shows again after the 
 
 ## Wake
 
-- A wake input is any input event with a value that is not 0: a button press or a key press on any controller or the keyboard, a d-pad press, or a stick out of its dead zone. A release is not a wake input.
+- A wake input is a button press or a key press on any controller or the keyboard, a d-pad press, or a stick axis that leaves its dead zone. A release is not a wake input.
+- A stick axis wakes only on its move from inside the dead zone (value 0) to outside it. The app keeps a fixed table of the axes out of their dead zone now (device and axis, 32 entries, no allocation). A stick that drifts or jitters outside its dead zone sends an event at each change; only its first one counts, so a worn stick does not hold the screensaver off for good. With the table full, each axis event out of the dead zone wakes.
+- An action of the navigator also counts as input, before the wake drops it. A held direction repeats with no new event, so a held direction keeps the screensaver off.
 - The wake input is consumed: the app sends the UI no action in that frame, and the screen under the screensaver shows as it was, with the same focus. A press of accept on a list row does not activate the row.
 - At the wake the app calls `Navigator::hold_back`. A control that is still held gives no repeat and no action until its release. The release gives no action, so nothing leaks.
 - The router of the UI also ignores every action while the snapshot says the screensaver shows. The rule then holds in the UI alone.
@@ -68,7 +71,7 @@ A notice with no timeout stays under the screensaver, and shows again after the 
 
 ## Background work
 
-Work of the app goes on under the screensaver: the game scan, the writes of the outbox, the network reader, the picture answers of the page under it. Their notices wait for the wake.
+Work of the app goes on under the screensaver: the game scan, the writes of the outbox, the picture answers of the page under it. Their notices wait for the wake. The network reader asks for a read only while the Network panel is the screen on show. The screensaver hides the panel, so no new read starts under it; a read in progress still comes in. At the wake the panel is on show again and asks for a fresh read.
 
 ## Sound
 
@@ -90,12 +93,12 @@ Two global settings on Settings > Display, after the scanline rows:
 
 ## Tests
 
-- The idle timer, with the simulated clock: it starts at the set time and not before; not in a running game; not with the setting Off; not while a confirm or a mapping shows; it restarts after input.
+- The idle timer, with the simulated clock: it starts at the set time and not before; not in a running game; not with the setting Off; not while a confirm or a mapping shows; it restarts after input, after a held direction, and after a stick that leaves its dead zone, but not after a stick that jitters outside it.
 - The wake consumes the input: an accept on a row of the game list does not open the row.
 - The bounce at 320x240, 640x480, 1920x1080 and 1920x240: the word stays inside the screen, the positions are whole pixels, the colour changes only in a frame that reaches or passes a wall, and it follows the cycle.
 - The settings: the schema entries, a round trip through a file, the rows on the Display panel, and the crawler finds both.
-- Scenes and goldens at 320x240 at three times: the start, and two later times with other positions and colours. The UI has one canvas size, so a larger screen is a test of the movement, not a golden.
-- A tier 2 app test: idle in the menus for the set time, the screensaver shows; one press, the menu is back and unchanged; the press did nothing else.
+- Scenes and goldens at 320x240 at three times: the start, the first wall, and a later time with another position and colour. A test checks that the word is the font at twice its size. The UI has one canvas size, so a larger screen is a test of the movement, not a golden.
+- Tier 2 app tests: idle in the menus for the set time, the screensaver shows; one press, the menu is back and unchanged; the press did nothing else. A running game never shows it; a paused game does, with no game picture. Off never shows it. A confirm that opens just before the time holds it back, and a guided mapping longer than the time holds it back; the time then counts from their end. A held direction holds it off.
 
 ## Hardware
 

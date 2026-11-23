@@ -186,7 +186,7 @@ Every screen state that matters is a scene with a golden image: `screens/home`, 
 Module `screensaver`, pure, as `docs/spec/screensaver.md` specifies.
 
 - `Idle`: the idle timer. `Idle::step(now_ns, input, allowed, timeout_ns)` gives `IdleStep::Hidden`, `Shows { elapsed_ns }` or `Woken`. While the screensaver may not show, or is off (`timeout_ns` is `None`), the timer restarts. `Woken` means the app consumes the input of the frame.
-- `pose(elapsed_ns, width, height)`: the position of the word `NEPTRON` in whole pixels, the walls hit, and the colour from `PALETTE` (8 colours, no channel above 0xBF). It is a pure function of the time, at 1/8 of the screen side per second on each axis, in integer maths.
+- `pose(elapsed_ns, width, height)`: the position of the word `NEPTRON` (the UI font at `WORDMARK_SCALE` 2, 84x24 pixels) in whole pixels, the walls hit, and the colour from `PALETTE` (8 colours, no channel above 0xBF). It is a pure function of the time, at 1/8 of the screen side per second on each axis, in integer maths.
 - `Snapshot::screensaver`: the time since the start while it shows. The router then draws the screensaver over every screen and overlay (screen id `screensaver`, no rows) and ignores every action.
 - Scenes `screens/screensaver-start`, `-wall` and `-later` at three times.
 
