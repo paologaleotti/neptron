@@ -240,7 +240,8 @@ fn load_save_file(host: &mut Host, game: &GameLaunch<'_>) -> Result<Option<SaveF
 }
 
 /// Copies the flat save `<save_dir>/<stem>.srm` to `path`, the game's own
-/// save file, when `path` has no file yet and the flat save exists. The
+/// save file, when `path` has no file yet and the flat save exists, once:
+/// the empty file `<path>.adopted` records it. The
 /// flat save stays as it is. The copy is a full write (temp file, fsync,
 /// rename), so a crash leaves no half copy, and it makes no backup: the
 /// first write of the session does.
@@ -249,17 +250,25 @@ fn adopt_flat_save(
     content: &std::path::Path,
     path: &std::path::Path,
 ) -> Result<(), LaunchError> {
-    if read_save_file(path)
-        .map_err(LaunchError::ReadSave)?
-        .is_some()
-    {
+    let mut record = path.as_os_str().to_owned();
+    record.push(ADOPTED_SUFFIX);
+    let record = std::path::PathBuf::from(record);
+    if std::fs::symlink_metadata(&record).is_ok() {
         return Ok(());
     }
-    let Some(flat) = save_file_path(save_dir, content) else {
-        return Ok(());
+    let own = read_save_file(path).map_err(LaunchError::ReadSave)?;
+    let flat = match (own, save_file_path(save_dir, content)) {
+        (None, Some(flat)) => read_save_file(&flat).map_err(LaunchError::ReadSave)?,
+        _ => None,
     };
-    let Some(bytes) = read_save_file(&flat).map_err(LaunchError::ReadSave)? else {
-        return Ok(());
-    };
-    write_save_file(path, &bytes, Backup::Keep).map_err(LaunchError::AdoptSave)
+    if let Some(bytes) = flat {
+        write_save_file(path, &bytes, Backup::Keep).map_err(LaunchError::AdoptSave)?;
+    }
+    // The record settles the question once, also when nothing was copied:
+    // a player who removes the save later to start again gets no copy.
+    write_save_file(&record, &[], Backup::Keep).map_err(LaunchError::AdoptSave)
 }
+
+/// The suffix of the empty file beside a save that records that its game
+/// took, or did not need, the flat save once.
+const ADOPTED_SUFFIX: &str = ".adopted";

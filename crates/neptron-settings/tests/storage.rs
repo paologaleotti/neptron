@@ -234,41 +234,49 @@ fn a_link_on_the_way_to_a_game_file_is_refused() {
 fn a_game_file_is_copied_only_to_a_game_with_none() {
     let dir = TempDir::create("game-copy");
     let s = storage(&dir);
-    let flat = s
-        .path(Target::Game {
+    let path = |game| {
+        s.path(Target::Game {
             system: "snes",
-            game: "Chrono Trigger",
+            game,
         })
-        .unwrap();
-    let own = s
-        .path(Target::Game {
-            system: "snes",
-            game: "hacks/Chrono Trigger",
-        })
-        .unwrap();
-    assert!(
-        !s.copy_game_file("snes", "Chrono Trigger", "hacks/Chrono Trigger")
-            .unwrap()
-    );
-    assert!(!own.exists(), "no flat file, no copy");
+        .unwrap()
+    };
+    let flat = path("Chrono Trigger");
+    let flat_text = "schema_version = 1\n[display]\nstyle = \"4x\"\n";
+    let copy = |to| s.copy_game_file("snes", "Chrono Trigger", to).unwrap();
 
+    // No flat file at the first launch: nothing to copy, and that is
+    // settled too.
+    assert!(!copy("early/Chrono Trigger"));
+    assert!(
+        !path("early/Chrono Trigger").exists(),
+        "no flat file, no copy"
+    );
     fs::create_dir_all(flat.parent().unwrap()).unwrap();
-    fs::write(&flat, "schema_version = 1\n[display]\nstyle = \"4x\"\n").unwrap();
-    assert!(
-        s.copy_game_file("snes", "Chrono Trigger", "hacks/Chrono Trigger")
-            .unwrap()
-    );
-    assert_eq!(fs::read(&own).unwrap(), fs::read(&flat).unwrap());
+    fs::write(&flat, flat_text).unwrap();
+    assert!(!copy("early/Chrono Trigger"), "settled at the first launch");
 
-    fs::write(&own, "schema_version = 1\n").unwrap();
+    // A copy, once: a removed copy does not come back.
+    let own = path("hacks/Chrono Trigger");
+    assert!(copy("hacks/Chrono Trigger"));
+    assert_eq!(fs::read(&own).unwrap(), fs::read(&flat).unwrap());
+    fs::remove_file(&own).unwrap();
     assert!(
-        !s.copy_game_file("snes", "Chrono Trigger", "hacks/Chrono Trigger")
-            .unwrap()
+        !copy("hacks/Chrono Trigger"),
+        "a removed copy does not come back"
     );
-    assert_eq!(fs::read_to_string(&own).unwrap(), "schema_version = 1\n");
+    assert!(!own.exists());
+
+    // A game with a file of its own keeps it.
+    let other = path("other/Chrono Trigger");
+    fs::create_dir_all(other.parent().unwrap()).unwrap();
+    fs::write(&other, "schema_version = 1\n").unwrap();
+    assert!(!copy("other/Chrono Trigger"));
+    assert_eq!(fs::read_to_string(&other).unwrap(), "schema_version = 1\n");
+
     assert_eq!(
         fs::read_to_string(&flat).unwrap(),
-        "schema_version = 1\n[display]\nstyle = \"4x\"\n",
+        flat_text,
         "the flat file never changes"
     );
 }

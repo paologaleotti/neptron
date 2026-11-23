@@ -464,6 +464,25 @@ fn the_flat_save_is_copied_and_kept() {
             [7; 64],
             "never moved or changed"
         );
+        assert!(
+            saves.join("hacks/game.srm.adopted").exists(),
+            "the copy is recorded"
+        );
+    });
+}
+
+/// The copy happens once: a player who removed the copied save to start
+/// again gets no old save back.
+#[test]
+fn a_recorded_copy_is_never_made_again() {
+    with_script!("a_recorded_copy_is_never_made_again", SAVE_SCRIPT, |dir| {
+        let flat = write_old_save(dir);
+        std::fs::create_dir_all(dir.join("saves/hacks")).unwrap();
+        std::fs::write(dir.join("saves/hacks/game.srm.adopted"), b"").unwrap();
+        play(dir, in_folders(&["hacks"], true));
+        let own = std::fs::read(dir.join("saves/hacks/game.srm")).unwrap();
+        assert_eq!(own[..2], [42, 0], "blank save RAM, not the flat save");
+        assert_eq!(std::fs::read(&flat).unwrap(), [7; 64]);
     });
 }
 
@@ -481,6 +500,10 @@ fn an_own_save_is_never_replaced_by_the_flat_save() {
             play(dir, in_folders(&["hacks"], true));
             assert_eq!(std::fs::read(&own).unwrap()[..2], [42, 5]);
             assert_eq!(std::fs::read(&flat).unwrap(), [7; 64]);
+            assert!(
+                dir.join("saves/hacks/game.srm.adopted").exists(),
+                "settled once: removing the own save later brings no copy"
+            );
         }
     );
 }

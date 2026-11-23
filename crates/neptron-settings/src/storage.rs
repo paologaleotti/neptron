@@ -214,9 +214,11 @@ impl Storage {
     }
 
     /// Copies the game file of `from` to the game file of `to`, both of
-    /// `system`, when `to` has no file and `from` has one. The file of
-    /// `from` stays as it is. The copy is an atomic write, as
-    /// [`Storage::apply`] makes. Returns true when it copied.
+    /// `system`, when `to` has no file and `from` has one, once: the empty
+    /// file `<to file>.adopted` records it, also when nothing was copied,
+    /// so a file that the player removes later does not come back. The
+    /// file of `from` stays as it is. The copy and the record are atomic
+    /// writes, as [`Storage::apply`] makes. Returns true when it copied.
     ///
     /// # Errors
     ///
@@ -225,6 +227,24 @@ impl Storage {
     pub fn copy_game_file(&self, system: &str, from: &str, to: &str) -> Result<bool, StorageError> {
         let source = self.checked_path(Target::Game { system, game: from })?;
         let target = self.checked_path(Target::Game { system, game: to })?;
+        let mut record = target.as_os_str().to_owned();
+        record.push(".adopted");
+        let record = PathBuf::from(record);
+        if fs::symlink_metadata(&record).is_ok() {
+            return Ok(false);
+        }
+        let copied = self.copy_if_missing(&source, &target)?;
+        write_atomic(&record, b"").map_err(|(step, source)| StorageError::Write {
+            path: record,
+            step,
+            source,
+        })?;
+        Ok(copied)
+    }
+
+    fn copy_if_missing(&self, source: &Path, target: &Path) -> Result<bool, StorageError> {
+        let target = target.to_path_buf();
+        let source = source.to_path_buf();
         match fs::symlink_metadata(&target) {
             Ok(_) => return Ok(false),
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}

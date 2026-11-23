@@ -8,10 +8,15 @@
 //! one save and one settings file, as in RetroArch.
 //!
 //! Before the files followed the folders, every game of one name in a
-//! system used the flat files. A game in a folder whose own file is missing
-//! gets a copy of the flat file at its first launch, when no game of that
-//! name is at the top of the system folder: then the flat file can only be
-//! its own. The flat file is never moved, changed or removed.
+//! system used the flat files. At its first launch, a game in a folder
+//! whose own file is missing gets a copy of the flat file, when no game of
+//! that name is at the top of the system folder: then the flat file is the
+//! one that game used. The flat file is never moved, changed or removed.
+//! The copy is made once per game: an empty `<file>.adopted` beside the
+//! game's own file records it, so a file that the player removes later
+//! does not come back. Two games of one name in two folders each take one
+//! copy of the same flat file, as both used it before. A ROM or a folder
+//! that is moved or renamed later leaves its save and settings behind.
 
 use std::io;
 use std::path::Path;

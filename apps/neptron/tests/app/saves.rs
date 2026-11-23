@@ -142,6 +142,16 @@ fn a_game_in_a_folder_takes_a_copy_of_its_earlier_flat_files() {
             [9; 64],
             "never moved or changed"
         );
+        assert!(
+            saves.join("old/Other Game.srm.adopted").exists(),
+            "copied once"
+        );
+        assert!(
+            rig.paths
+                .config()
+                .join("games/nes/old/Other Game.toml.adopted")
+                .exists()
+        );
         assert_eq!(
             std::fs::read(rig.paths.config().join("games/nes/Other Game.toml")).expect("flat"),
             flat_settings
