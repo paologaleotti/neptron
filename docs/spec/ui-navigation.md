@@ -129,7 +129,7 @@ A run that no launcher with power control started (the desktop window, a bench r
 
 #### Format share
 
-A third action row, `Format share`, comes after `Shut down`, but only when the storage script offers a format: `storage.toml` holds `share_fix = "format"` with the device, start, size and type of partition 4 (`os/README.md`, "A format that the user confirms"). With no offer the row is absent, not disabled: no other state has a format that can fix it. The row takes the reason of the other two rows: `Needs the launcher` with no power control, else `Not during a game` in a game.
+A third action row, `Format share`, comes after `Shut down`, but only when the storage script offers a format: `storage.toml` holds `share_fix = "format"` with the device, start, size and type of partition 4 (`os/REFERENCE.md`, "A format that the user confirms"). With no offer the row is absent, not disabled: no other state has a format that can fix it. The row takes the reason of the other two rows: `Needs the launcher` with no power control, else `Not during a game` in a game.
 
 | Row | Dialog title | Dialog message | Buttons |
 | --- | --- | --- | --- |
