@@ -99,10 +99,6 @@ fn names_that_leave_their_folder_are_rejected() {
                 system: bad,
                 game: "ok",
             },
-            Target::Game {
-                system: "nes",
-                game: bad,
-            },
         ] {
             let err = s.path(target).unwrap_err();
             assert!(
@@ -112,6 +108,169 @@ fn names_that_leave_their_folder_are_rejected() {
             assert!(s.load(&Schema::builtin(), target).is_err());
         }
     }
+    // A game key may hold folders, but each part is one plain name.
+    for bad in [
+        "",
+        ".",
+        "..",
+        ".hidden",
+        "a\\b",
+        "a\0b",
+        "../../etc",
+        "/abs",
+        "a/",
+        "a//b",
+        "a/../b",
+        "a/./b",
+        "a/.hidden/b",
+        "hacks/..",
+    ] {
+        let target = Target::Game {
+            system: "nes",
+            game: bad,
+        };
+        let err = s.path(target).unwrap_err();
+        assert!(
+            matches!(&err, StorageError::BadName { name, .. } if name == bad),
+            "{bad:?}"
+        );
+        assert!(s.load(&Schema::builtin(), target).is_err());
+    }
+}
+
+/// Two games of one name in two folders have two game files.
+#[test]
+fn a_game_key_with_folders_gives_a_file_in_those_folders() {
+    let s = Storage::new("/state/config");
+    let path = |game| {
+        s.path(Target::Game {
+            system: "snes",
+            game,
+        })
+        .unwrap()
+    };
+    assert_eq!(
+        path("hacks/Chrono Trigger"),
+        Path::new("/state/config/games/snes/hacks/Chrono Trigger.toml")
+    );
+    assert_eq!(
+        path("a/b c/Chrono Trigger (fr) [!]"),
+        Path::new("/state/config/games/snes/a/b c/Chrono Trigger (fr) [!].toml")
+    );
+    assert_eq!(
+        path("Chrono Trigger"),
+        Path::new("/state/config/games/snes/Chrono Trigger.toml"),
+        "a game at the top keeps its path"
+    );
+    for odd in ["é ü/漢字", "a;b&c$(d)'e\"/x", "  /#~%", "x.y/z.w"] {
+        let expected = format!("/state/config/games/snes/{odd}.toml");
+        assert_eq!(path(odd), Path::new(&expected), "{odd}");
+    }
+}
+
+#[test]
+fn game_files_in_folders_are_written_and_read() {
+    let dir = TempDir::create("game-folders");
+    let s = storage(&dir);
+    let schema = Schema::builtin();
+    let hack = Target::Game {
+        system: "snes",
+        game: "hacks/Chrono Trigger",
+    };
+    let top = Target::Game {
+        system: "snes",
+        game: "Chrono Trigger",
+    };
+    s.apply(&schema, hack, &[set(DISPLAY_STYLE, "4x")]).unwrap();
+    s.apply(&schema, top, &[set(DISPLAY_STYLE, "2x")]).unwrap();
+    let style = |target| {
+        s.load(&schema, target)
+            .unwrap()
+            .parsed
+            .layer
+            .get(DISPLAY_STYLE)
+            .cloned()
+    };
+    assert_eq!(style(hack), Some(text("4x")));
+    assert_eq!(style(top), Some(text("2x")));
+}
+
+/// A link on the way to a game file is never followed: no read and no
+/// write goes out of the settings folder.
+#[test]
+fn a_link_on_the_way_to_a_game_file_is_refused() {
+    let dir = TempDir::create("game-link");
+    let outside = dir.path().join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("Chrono Trigger.toml"), "schema_version = 1\n").unwrap();
+    let root = dir.path().join("config");
+    fs::create_dir_all(root.join("games/snes")).unwrap();
+    symlink(&outside, root.join("games/snes/hacks")).unwrap();
+    let s = Storage::new(&root);
+    let schema = Schema::builtin();
+    let hack = Target::Game {
+        system: "snes",
+        game: "hacks/Chrono Trigger",
+    };
+    assert!(matches!(
+        s.load(&schema, hack),
+        Err(StorageError::Link { path }) if path == root.join("games/snes/hacks")
+    ));
+    assert!(matches!(
+        s.apply(&schema, hack, &[set(DISPLAY_STYLE, "4x")]),
+        Err(StorageError::Link { .. })
+    ));
+    assert!(matches!(
+        s.copy_game_file("snes", "Chrono Trigger", "hacks/Chrono Trigger"),
+        Err(StorageError::Link { .. })
+    ));
+    assert_eq!(
+        fs::read_to_string(outside.join("Chrono Trigger.toml")).unwrap(),
+        "schema_version = 1\n"
+    );
+}
+
+#[test]
+fn a_game_file_is_copied_only_to_a_game_with_none() {
+    let dir = TempDir::create("game-copy");
+    let s = storage(&dir);
+    let flat = s
+        .path(Target::Game {
+            system: "snes",
+            game: "Chrono Trigger",
+        })
+        .unwrap();
+    let own = s
+        .path(Target::Game {
+            system: "snes",
+            game: "hacks/Chrono Trigger",
+        })
+        .unwrap();
+    assert!(
+        !s.copy_game_file("snes", "Chrono Trigger", "hacks/Chrono Trigger")
+            .unwrap()
+    );
+    assert!(!own.exists(), "no flat file, no copy");
+
+    fs::create_dir_all(flat.parent().unwrap()).unwrap();
+    fs::write(&flat, "schema_version = 1\n[display]\nstyle = \"4x\"\n").unwrap();
+    assert!(
+        s.copy_game_file("snes", "Chrono Trigger", "hacks/Chrono Trigger")
+            .unwrap()
+    );
+    assert_eq!(fs::read(&own).unwrap(), fs::read(&flat).unwrap());
+
+    fs::write(&own, "schema_version = 1\n").unwrap();
+    assert!(
+        !s.copy_game_file("snes", "Chrono Trigger", "hacks/Chrono Trigger")
+            .unwrap()
+    );
+    assert_eq!(fs::read_to_string(&own).unwrap(), "schema_version = 1\n");
+    assert_eq!(
+        fs::read_to_string(&flat).unwrap(),
+        "schema_version = 1\n[display]\nstyle = \"4x\"\n",
+        "the flat file never changes"
+    );
 }
 
 #[test]

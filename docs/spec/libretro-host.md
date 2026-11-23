@@ -109,9 +109,12 @@ pub struct AvInfo { pub geometry: GameGeometry, pub timing: Timing }
 Free functions for save files (they do file I/O, so the session calls them off the frame thread):
 
 ```rust
+pub fn save_folder(save_dir: &Path, folders: &[&str]) -> Result<PathBuf, SaveFileError>;
 pub fn save_file_path(save_dir: &Path, content: &Path) -> Option<PathBuf>;
 pub fn read_save_file(path: &Path) -> Result<Option<Vec<u8>>, SaveFileError>;
-pub fn write_save_file(path: &Path, bytes: &[u8]) -> Result<(), SaveFileError>;
+pub fn write_save_file(path: &Path, bytes: &[u8], backup: Backup) -> Result<(), SaveFileError>;
+pub fn back_up_save_file(path: &Path) -> Result<(), SaveFileError>;
+pub enum Backup { Refresh, Keep }
 ```
 
 A free function for the arcade set check (it reads a file, so the caller runs it off the frame thread):
@@ -377,13 +380,33 @@ The host reads zip files with `miniz_oxide` (raw deflate) and its own central-di
 
 `save_file_path(save_dir, content)` is `<save_dir>/<content file stem>.srm`, the RetroArch name. For a zip it is the stem of the archive.
 
-`write_save_file(path, bytes)` writes atomically and keeps one backup:
+The save file follows the folders of the game below its system's ROM folder. The session passes `save_folder(save_dir, folders)` as the folder:
+
+| ROM file | Save file |
+| --- | --- |
+| `roms/snes/Chrono Trigger.sfc` | `saves/snes/Chrono Trigger.srm` (the flat RetroArch name, as before) |
+| `roms/snes/hacks/Chrono Trigger.sfc` | `saves/snes/hacks/Chrono Trigger.srm` |
+| `roms/snes/a/b/Chrono Trigger.zip` | `saves/snes/a/b/Chrono Trigger.srm` |
+
+So two games of one name in two folders keep two saves. Two files with the same stem in one folder (`Chrono Trigger.sfc` beside `Chrono Trigger.zip`) share one save, as in RetroArch. The core's save directory (`GET_SAVE_DIRECTORY`) stays `saves/<system>/`, so files that a core writes there itself keep their paths.
+
+`save_folder` makes each missing folder with `create_dir` and syncs it into its parent. A folder name can hold any character that the share allows. A name that could leave the save folder (empty, `.`, `..`, a leading dot, `/`, `\` or NUL) is `SaveFileError::BadFolderName`. An entry on the way that is a symbolic link or not a folder is `SaveFileError::NotAFolder`: a link is never followed.
+
+`write_save_file(path, bytes, backup)` writes atomically:
 
 1. Remove a stale `<name>.srm.tmp` (a missing file is fine), then create it with `create_new`, so a symlink at that path is never followed. Write, `fsync`.
-2. If `<name>.srm` exists: copy it the same way to `<name>.srm.bak.tmp`, `fsync`, rename it to `<name>.srm.bak`.
+2. With `Backup::Refresh`, `back_up_save_file(path)`: if `<name>.srm` exists, copy it the same way to `<name>.srm.bak.tmp`, `fsync`, rename it to `<name>.srm.bak`. With `Backup::Keep`, the `.bak` stays as it is.
 3. Rename `<name>.srm.tmp` to `<name>.srm`. `fsync` the folder.
 
 At every moment `<name>.srm` is the old file or the new file. A crash leaves a `.tmp` file, which the next write removes.
+
+The session keeps one `.bak` per save file, made once per game session: before its first write, the writer thread calls `back_up_save_file`, so the `.bak` is the save as it was when the game started. Every later write of the session uses `Backup::Keep`. A save that the game spoils in play (a new game on the wrong slot, a save it clears) never reaches the `.bak` in that session. A failed backup writes nothing, and the next flush tries again.
+
+A core that gives zero bytes of save RAM after it had save RAM at launch (it drops its pointer for a moment) gets no write: an empty file never replaces a save. A core with no save RAM at launch gets no file.
+
+### Saves of the earlier flat layout
+
+Before the save followed the folders, every game of one name in a system used `saves/<system>/<stem>.srm`. The app sets `GameLaunch::adopt_flat_save` for a game in a folder when no game file of that stem, with an extension of the system, is at the top of a ROM folder of the system (its folder or an alias, in any ASCII case). Then the flat save can only be its own. At launch, when the game's own save file is missing and the flat save exists, the session copies the flat save to the game's own path (temp file, fsync, rename), and loads the copy. The flat save is never moved, changed or removed. When a game of that stem is at the top, the flat save belongs to it, and the game in the folder starts with no save. A game at the top keeps the flat path, so nothing moves for it. The per-game settings file follows the same rule (`Storage::copy_game_file` of `neptron-settings`).
 
 `read_save_file(path)`: a missing file is `Ok(None)`. A file above `MAX_SAVE_RAM_BYTES` is an error.
 

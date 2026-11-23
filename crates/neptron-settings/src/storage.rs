@@ -13,7 +13,9 @@ use crate::parse::{Issue, IssueKind, Parsed, parse_layer};
 use crate::schema::{Level, Schema};
 
 /// The settings folder: `global.toml`, `systems/<system>.toml` and
-/// `games/<system>/<game>.toml` under one root directory.
+/// `games/<system>/<game>.toml` under one root directory. A game key with
+/// folders, `hacks/Chrono Trigger`, gives
+/// `games/<system>/hacks/Chrono Trigger.toml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Storage {
     root: PathBuf,
@@ -33,7 +35,10 @@ pub enum Target<'a> {
     Game {
         /// The system folder name, such as `nes`.
         system: &'a str,
-        /// The game name: the ROM file name without its extension.
+        /// The game key: the path of the ROM file below its system folder,
+        /// without its extension, with `/` between the folders, such as
+        /// `Chrono Trigger` or `hacks/Chrono Trigger`. Each part is one
+        /// plain file name (see [`StorageError::BadName`]).
         game: &'a str,
     },
 }
@@ -50,13 +55,21 @@ pub struct Loaded {
 /// Why a settings file cannot be loaded or written.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
-    /// A system or game name cannot be one file name.
+    /// A system name, or a part of a game key, cannot be one file name:
+    /// it is empty, starts with a dot, or holds `/`, `\` or NUL.
     #[error("{what} name \"{name}\" cannot be used as a file name")]
     BadName {
         /// `system` or `game`.
         what: &'static str,
         /// The name.
         name: String,
+    },
+    /// An entry on the way to a settings file is a symbolic link. A link is
+    /// never followed, so a settings file never leaves the settings folder.
+    #[error("{} is a link, so no settings file goes through it", path.display())]
+    Link {
+        /// The entry.
+        path: PathBuf,
     },
     /// The file exists but cannot be read, so a write could lose it.
     #[error("cannot read {}: {source}", path.display())]
@@ -154,18 +167,97 @@ impl Storage {
                 .root
                 .join("systems")
                 .join(toml_name(file_name("system", system)?)),
-            Target::Game { system, game } => self
-                .root
-                .join("games")
-                .join(file_name("system", system)?)
-                .join(toml_name(file_name("game", game)?)),
+            Target::Game { system, game } => {
+                let mut path = self.root.join("games").join(file_name("system", system)?);
+                let mut parts = game.split('/').peekable();
+                while let Some(part) = parts.next() {
+                    let part = file_name("game", part).map_err(|_| StorageError::BadName {
+                        what: "game",
+                        name: game.to_owned(),
+                    })?;
+                    if parts.peek().is_some() {
+                        path.push(part);
+                    } else {
+                        path.push(toml_name(part));
+                    }
+                }
+                path
+            }
         })
     }
 
-    /// Loads the file for `target`. Only a bad system or game name is an error: a file that
+    /// The path of the file for `target`, after a check that no folder
+    /// between the root and the file is a symbolic link: a read or a write
+    /// would follow it.
+    fn checked_path(&self, target: Target<'_>) -> Result<PathBuf, StorageError> {
+        let path = self.path(target)?;
+        let mut folder = self.root.clone();
+        let below = path.strip_prefix(&self.root).unwrap_or(&path);
+        let mut parts = below.components().peekable();
+        while let Some(part) = parts.next() {
+            if parts.peek().is_none() {
+                break;
+            }
+            folder.push(part);
+            match fs::symlink_metadata(&folder) {
+                Ok(meta) if meta.is_dir() => {}
+                Ok(meta) if meta.file_type().is_symlink() => {
+                    return Err(StorageError::Link { path: folder });
+                }
+                // A missing folder is made by the write, and no file in it
+                // can be read. Another kind of entry makes the read and the
+                // write fail on their own, with their own error.
+                _ => break,
+            }
+        }
+        Ok(path)
+    }
+
+    /// Copies the game file of `from` to the game file of `to`, both of
+    /// `system`, when `to` has no file and `from` has one. The file of
+    /// `from` stays as it is. The copy is an atomic write, as
+    /// [`Storage::apply`] makes. Returns true when it copied.
+    ///
+    /// # Errors
+    ///
+    /// A bad name, a link on the way, a read that fails or a write that
+    /// fails. Nothing is copied then.
+    pub fn copy_game_file(&self, system: &str, from: &str, to: &str) -> Result<bool, StorageError> {
+        let source = self.checked_path(Target::Game { system, game: from })?;
+        let target = self.checked_path(Target::Game { system, game: to })?;
+        match fs::symlink_metadata(&target) {
+            Ok(_) => return Ok(false),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(StorageError::Read {
+                    path: target,
+                    source,
+                });
+            }
+        }
+        let bytes = match fs::read(&source) {
+            Ok(bytes) => bytes,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(err) => {
+                return Err(StorageError::Read {
+                    path: source,
+                    source: err,
+                });
+            }
+        };
+        write_atomic(&target, &bytes).map_err(|(step, source)| StorageError::Write {
+            path: target,
+            step,
+            source,
+        })?;
+        Ok(true)
+    }
+
+    /// Loads the file for `target`. Only a bad system or game name, or a link
+    /// on the way to the file, is an error: a file that
     /// cannot be read or parsed gives an empty layer and an issue, so it never stops the boot.
     pub fn load(&self, schema: &Schema, target: Target<'_>) -> Result<Loaded, StorageError> {
-        let path = self.path(target)?;
+        let path = self.checked_path(target)?;
         let level = target.level();
         let parsed = match fs::read(&path) {
             Ok(bytes) => match String::from_utf8(bytes) {
@@ -194,7 +286,7 @@ impl Storage {
         target: Target<'_>,
         changes: &[Change<'_>],
     ) -> Result<(), StorageError> {
-        let path = self.path(target)?;
+        let path = self.checked_path(target)?;
         let text = match fs::read(&path) {
             Ok(bytes) => String::from_utf8(bytes)
                 .map_err(|_| StorageError::NotUtf8 { path: path.clone() })?,

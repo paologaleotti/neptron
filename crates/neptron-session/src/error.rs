@@ -47,6 +47,14 @@ pub enum LaunchError {
         /// queue of the host dropped.
         dropped_logs: usize,
     },
+    /// The save folder of the game cannot be used: a folder name that
+    /// could leave the save folder, a link on the way, or a failed make.
+    #[error("cannot use the save folder of the game: {0}")]
+    SaveFolder(#[source] SaveFileError),
+    /// The flat save of the game could not be copied to its own save file.
+    /// Nothing else was written.
+    #[error("cannot copy the earlier save of the game: {0}")]
+    AdoptSave(#[source] SaveFileError),
     /// The save file exists but cannot be read. The session does not start,
     /// so it cannot write over a save file it did not load.
     #[error("cannot read the save file: {0}")]

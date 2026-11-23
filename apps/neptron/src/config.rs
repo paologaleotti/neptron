@@ -18,13 +18,14 @@ use crate::outbox::FileTarget;
 /// Nanoseconds in one minute.
 const NANOS_PER_MINUTE: u64 = 60_000_000_000;
 
-/// The game a run is for: the system and the game name (the ROM file name
-/// without its extension).
+/// The game a run is for: the system and the game key (the ROM path below
+/// the system folder without its extension, see
+/// [`GameFiles::key`](crate::game_files::GameFiles::key)).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameContext {
     /// The system id.
     pub system: String,
-    /// The game name.
+    /// The game key, which names the game's settings file.
     pub game: String,
     /// The game is an arcade board
     /// ([`runs_arcade_boards`](crate::library::runs_arcade_boards)): the

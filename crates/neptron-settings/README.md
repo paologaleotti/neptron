@@ -58,7 +58,7 @@ The schema checks only the form of a name. The consumer checks that the connecto
 
 ## Files
 
-The files are under `config/` on the state partition: `global.toml`, `systems/<system>.toml`, `games/<system>/<game>.toml`. A key `display.style` is the key `style` in the table `[display]`. Dotted keys and inline tables are read the same way.
+The files are under `config/` on the state partition: `global.toml`, `systems/<system>.toml`, `games/<system>/<game>.toml`. The game key may hold folders, `hacks/Chrono Trigger`, and then the file is `games/<system>/hacks/Chrono Trigger.toml`; each part is one plain file name. A symbolic link on the way to a file is refused (`StorageError::Link`), so no read or write leaves `config/`. `Storage::copy_game_file` copies the file of one game key to another that has none, with the atomic write; the app uses it for a game in a folder that used the flat file before. A key `display.style` is the key `style` in the table `[display]`. Dotted keys and inline tables are read the same way.
 
 - **Unknown key**: reported with its line, ignored, and kept in the file. A newer build may have written it.
 - **Wrong type, out of range, or a level the key does not allow**: reported with its line. The value is left out, so the level below applies. The file keeps it.

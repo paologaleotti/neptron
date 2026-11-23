@@ -16,6 +16,7 @@ pub mod control;
 pub mod devices;
 pub mod display;
 pub mod display_wait;
+pub mod game_files;
 pub mod library;
 pub mod logbook;
 pub mod nav;

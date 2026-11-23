@@ -6,8 +6,10 @@ use std::rc::Rc;
 
 use neptron_backend::{AudioSink, Clock};
 use neptron_input::QUICK_MENU_HOLD_NS;
+use neptron_libretro::SaveFileError;
 use neptron_session::{
-    EndReason, Flush, LATE_PRESS_MAX_FRAMES, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError, SessionError,
+    EndReason, Flush, LATE_PRESS_MAX_FRAMES, LaunchError, SAVE_RAM_FLUSH_INTERVAL_NS, SaveError,
+    SessionError,
 };
 use neptron_testkit::{DisplayOptions, FakeAudio, FakeDisplay, Render};
 use neptron_types::{Control, Frame, PixelFormat};
@@ -395,6 +397,153 @@ fn the_save_ram_is_loaded_at_launch_and_written_at_exit_with_a_backup() {
 
 /// A save file longer than the core's save RAM: the core gets the first
 /// 64 bytes, and the write keeps the other 16 after them.
+fn in_folders(folders: &[&str], adopt_flat_save: bool) -> Setup {
+    Setup {
+        save_folders: folders.iter().map(|f| (*f).to_owned()).collect(),
+        adopt_flat_save,
+        ..Setup::default()
+    }
+}
+
+/// Plays the game once with `setup`: the core writes 42 at byte 0.
+fn play(dir: &std::path::Path, setup: Setup) {
+    let mut rig = Rig::launch(dir, setup);
+    rig.run(30);
+    assert_eq!(rig.session.quit().save, Flush::Written);
+}
+
+/// Two games of one name in two folders keep two saves, and neither
+/// touches the flat save of the game of that name at the top.
+#[test]
+fn games_of_one_name_in_two_folders_keep_two_saves() {
+    with_script!(
+        "games_of_one_name_in_two_folders_keep_two_saves",
+        SAVE_SCRIPT,
+        |dir| {
+            let flat = write_old_save(dir);
+            let saves = dir.join("saves");
+            // The save of the game of the same name in another folder.
+            std::fs::create_dir_all(saves.join("hacks")).unwrap();
+            std::fs::write(saves.join("hacks/game.srm"), [5_u8; 64]).unwrap();
+            play(dir, in_folders(&["translations", "fr"], false));
+            let mut fresh = [0_u8; 64];
+            fresh[0] = 42;
+            assert_eq!(
+                std::fs::read(saves.join("translations/fr/game.srm")).unwrap(),
+                fresh,
+                "a save of its own, not the flat one"
+            );
+            assert_eq!(
+                std::fs::read(saves.join("hacks/game.srm")).unwrap(),
+                [5; 64]
+            );
+            assert_eq!(std::fs::read(&flat).unwrap(), [7; 64]);
+            assert!(!saves.join("game.srm.bak").exists());
+        }
+    );
+}
+
+/// A game in a folder that used the flat save before gets a copy of it,
+/// and the flat save stays as it was.
+#[test]
+fn the_flat_save_is_copied_and_kept() {
+    with_script!("the_flat_save_is_copied_and_kept", SAVE_SCRIPT, |dir| {
+        let flat = write_old_save(dir);
+        let saves = dir.join("saves");
+        play(dir, in_folders(&["hacks"], true));
+        let mut expected = [7_u8; 64];
+        expected[0] = 42;
+        let own = saves.join("hacks/game.srm");
+        assert_eq!(std::fs::read(&own).unwrap(), expected);
+        assert_eq!(
+            std::fs::read(saves.join("hacks/game.srm.bak")).unwrap(),
+            [7; 64]
+        );
+        assert_eq!(
+            std::fs::read(&flat).unwrap(),
+            [7; 64],
+            "never moved or changed"
+        );
+    });
+}
+
+/// A game in a folder with a save of its own never gets the flat save.
+#[test]
+fn an_own_save_is_never_replaced_by_the_flat_save() {
+    with_script!(
+        "an_own_save_is_never_replaced_by_the_flat_save",
+        SAVE_SCRIPT,
+        |dir| {
+            let flat = write_old_save(dir);
+            let own = dir.join("saves/hacks/game.srm");
+            std::fs::create_dir_all(dir.join("saves/hacks")).unwrap();
+            std::fs::write(&own, [5_u8; 64]).unwrap();
+            play(dir, in_folders(&["hacks"], true));
+            assert_eq!(std::fs::read(&own).unwrap()[..2], [42, 5]);
+            assert_eq!(std::fs::read(&flat).unwrap(), [7; 64]);
+        }
+    );
+}
+
+/// The caller found a game of the same name at the top: the flat save is
+/// its save, and the game in the folder starts with none.
+#[test]
+fn a_flat_save_that_is_not_adopted_stays_with_its_game() {
+    with_script!(
+        "a_flat_save_that_is_not_adopted_stays_with_its_game",
+        SAVE_SCRIPT,
+        |dir| {
+            let flat = write_old_save(dir);
+            play(dir, in_folders(&["hacks"], false));
+            let own = std::fs::read(dir.join("saves/hacks/game.srm")).unwrap();
+            assert_eq!(own[..2], [42, 0], "blank save RAM, not the flat save");
+            assert_eq!(std::fs::read(&flat).unwrap(), [7; 64]);
+        }
+    );
+}
+
+/// A game at the top keeps the flat save path, adopted or not.
+#[test]
+fn a_game_at_the_top_keeps_the_flat_save() {
+    with_script!(
+        "a_game_at_the_top_keeps_the_flat_save",
+        SAVE_SCRIPT,
+        |dir| {
+            let flat = write_old_save(dir);
+            play(dir, in_folders(&[], true));
+            assert_eq!(std::fs::read(&flat).unwrap()[..2], [42, 7]);
+        }
+    );
+}
+
+/// A link in the save folders is never followed: the launch stops, and
+/// nothing is written where the link points.
+#[test]
+fn a_link_in_the_save_folders_stops_the_launch() {
+    with_script!(
+        "a_link_in_the_save_folders_stops_the_launch",
+        SAVE_SCRIPT,
+        |dir| {
+            write_old_save(dir);
+            let outside = dir.join("outside");
+            std::fs::create_dir_all(&outside).unwrap();
+            std::os::unix::fs::symlink(&outside, dir.join("saves/hacks")).unwrap();
+            let failed = Rig::start(dir, in_folders(&["hacks"], true))
+                .err()
+                .expect("the launch fails");
+            assert!(
+                matches!(
+                    failed.error,
+                    LaunchError::SaveFolder(SaveFileError::NotAFolder { .. })
+                ),
+                "{:?}",
+                failed.error
+            );
+            assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+        }
+    );
+}
+
 #[test]
 fn a_save_file_longer_than_the_save_ram_is_never_cut() {
     with_script!(

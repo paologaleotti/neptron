@@ -43,7 +43,7 @@ pub use output::{Dropped, Event, FrameFault, FrameOutput, Refusal, Video};
 pub use pad::{InputError, MAX_PORTS, Pad};
 pub use save::{
     Backup, MAX_SAVE_RAM_BYTES, SaveFileError, SaveRamError, SaveRamLoad, back_up_save_file,
-    read_save_file, save_file_path, write_save_file,
+    read_save_file, save_file_path, save_folder, write_save_file,
 };
 pub use state::{EVENT_CAPACITY, MAX_CONTENT_OVERRIDES, MAX_LOGGED_COMMANDS, MESSAGE_MAX_BYTES};
 pub use video::MAX_PITCH_BYTES;

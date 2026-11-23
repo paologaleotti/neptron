@@ -203,6 +203,10 @@ pub struct Setup {
     pub volume_percent: u32,
     pub keep_samples: bool,
     pub always_progressive: bool,
+    /// The folders of the game below its system folder.
+    pub save_folders: Vec<String>,
+    /// The launch may copy the flat save of the game to its own folder.
+    pub adopt_flat_save: bool,
 }
 
 impl Default for Setup {
@@ -221,6 +225,8 @@ impl Default for Setup {
             volume_percent: 100,
             keep_samples: false,
             always_progressive: false,
+            save_folders: Vec::new(),
+            adopt_flat_save: false,
         }
     }
 }
@@ -258,6 +264,8 @@ pub fn launch_on<S: AudioSink>(
         save_dir: &save_dir,
         core_options: &setup.core_options,
         always_progressive: setup.always_progressive,
+        save_folders: &setup.save_folders,
+        adopt_flat_save: setup.adopt_flat_save,
     };
     let sink = audio(&clock, &display);
     let video = VideoSetup {
@@ -325,6 +333,8 @@ impl Rig {
             save_dir: &save_dir,
             core_options: &setup.core_options,
             always_progressive: setup.always_progressive,
+            save_folders: &setup.save_folders,
+            adopt_flat_save: setup.adopt_flat_save,
         };
         let video = VideoSetup {
             display: display.clone(),

@@ -24,6 +24,7 @@ use neptron_video::{
 use super::{ControlInput, Devices, GameStage, ListStage, Runtime, Shell, Stage};
 use crate::config::{Config, GameContext};
 use crate::display::{Detected, MonitorError};
+use crate::game_files::{self, GameFiles};
 use crate::library::{ARCADE_CORE, Library, ScanKind, runs_arcade_boards};
 use crate::nav::Navigator;
 use crate::network::{NetworkInfo, NetworkWatch};
@@ -99,12 +100,22 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         let presets = load_presets(&paths.monitors(), &mut found);
         let catalog = Catalog::builtin()?;
         let game = next.as_ref().and_then(|n| n.game.clone());
-        let context = game.as_ref().map(|g| GameContext {
+        let storage = Storage::new(paths.config());
+        let files = game.as_ref().map(|g| {
+            let mut issues = Vec::new();
+            let files = game_files::find(&paths.roms(), &catalog, g, &mut issues);
+            found.warn_all(issues);
+            if files.adopt_flat {
+                adopt_flat_settings(&storage, &g.system, &files, &mut found);
+            }
+            files
+        });
+        let context = game.as_ref().zip(files.as_ref()).map(|(g, f)| GameContext {
             system: g.system.clone(),
-            game: game_name(&g.path),
+            game: f.key(),
             arcade: runs_arcade_boards(&catalog, &g.system),
         });
-        let (config, issues) = Config::load(&Storage::new(paths.config()), context);
+        let (config, issues) = Config::load(&storage, context);
         found.warn_all(issues);
         let (shown_notices, issue) = ShownNotices::load(&paths.notices());
         found.warn_all(issue);
@@ -212,6 +223,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             // has counted this boot already, and it had the boot prompt:
             // the game run starts on what was kept, with no prompt.
             Some(reference) => {
+                // Made above for every game.
+                let files = files.clone().unwrap_or_else(|| GameFiles::of(reference));
                 let (library, issue) = Library::load(
                     catalog.clone(),
                     &paths.library_cache(),
@@ -226,6 +239,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     &library,
                     &config,
                     reference,
+                    &files,
                     &wanted,
                     &runtime,
                     SessionDevices {
@@ -517,6 +531,18 @@ pub(super) fn game_name(path: &str) -> String {
         .to_owned()
 }
 
+/// Copies the flat settings file of a game in a folder to its own file,
+/// when its own file is missing (see [`game_files`]). A failed copy is a
+/// warning: the game then runs on the settings of its system.
+fn adopt_flat_settings(storage: &Storage, system: &str, files: &GameFiles, found: &mut Found) {
+    if let Err(e) = storage.copy_game_file(system, &files.stem, &files.key()) {
+        found.warn(format!(
+            "the earlier settings of {} are not copied to its folder: {e}",
+            files.stem
+        ));
+    }
+}
+
 fn load_presets(dir: &Path, found: &mut Found) -> Presets {
     match Presets::load(dir) {
         Ok((presets, issues)) => {
@@ -570,6 +596,7 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
     library: &Library,
     config: &Config,
     reference: &GameRef,
+    files: &GameFiles,
     wanted: &DisplayConfig,
     runtime: &Runtime,
     devices: SessionDevices<S, ControlInput<I>, C>,
@@ -593,6 +620,8 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
         extensions: &system.extensions,
         system_dir: &system_dir,
         save_dir: &save_dir,
+        save_folders: &files.folders,
+        adopt_flat_save: files.adopt_flat,
         core_options: &core.options,
         always_progressive: system.always_progressive,
     };

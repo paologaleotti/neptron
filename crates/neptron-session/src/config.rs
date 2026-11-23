@@ -16,8 +16,22 @@ pub struct GameLaunch<'a> {
     /// The BIOS folder.
     pub system_dir: &'a Path,
     /// The save folder of the system. The session makes it when it is
-    /// missing.
+    /// missing. The core gets it as its save directory.
     pub save_dir: &'a Path,
+    /// The folders of the game below its system's ROM folder, in order:
+    /// empty for a game at the top of the system folder. The save file is
+    /// `<save_dir>/<folders>/<content stem>.srm`, so two games of one name
+    /// in two folders keep two saves. The session makes the folders and
+    /// follows no link (see `neptron_libretro::save_folder`).
+    pub save_folders: &'a [String],
+    /// Before the save followed the folders, a game in a folder used the
+    /// flat save `<save_dir>/<content stem>.srm`. When this is true, the
+    /// game is in a folder, it has no save file of its own yet, and the
+    /// flat save exists, the launch copies the flat save to the game's own
+    /// path first, and never changes or removes the flat save. The caller
+    /// sets it only when no game of the same name is at the top of the
+    /// system folder: the flat save is that game's save.
+    pub adopt_flat_save: bool,
     /// Core option values (key, value): the defaults of the core data,
     /// then the values from the settings, so a later pair for a key wins.
     /// The host holds them and applies each one when the core declares its

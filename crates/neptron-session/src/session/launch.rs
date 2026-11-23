@@ -7,8 +7,8 @@ use neptron_audio::{AudioPipeline, CoreTiming, FlipRateMeter};
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::{Hotkeys, PortStates};
 use neptron_libretro::{
-    ContentRequest, Host, HostConfig, LOG_TEXT_MAX_BYTES, LoadError, MESSAGE_MAX_BYTES,
-    read_save_file, save_file_path,
+    Backup, ContentRequest, Host, HostConfig, LOG_TEXT_MAX_BYTES, LoadError, MESSAGE_MAX_BYTES,
+    read_save_file, save_file_path, save_folder, write_save_file,
 };
 use neptron_video::VideoEngine;
 
@@ -215,12 +215,17 @@ fn load_save_file(host: &mut Host, game: &GameLaunch<'_>) -> Result<Option<SaveF
     let ram_bytes = host
         .copy_save_ram(&mut scratch)
         .map_err(LaunchError::SaveRam)?;
-    let path = game
-        .content
-        .and_then(|content| save_file_path(game.save_dir, content));
-    let (Some(path), true) = (path, ram_bytes > 0) else {
+    let (Some(content), true) = (game.content, ram_bytes > 0) else {
         return Ok(None);
     };
+    let folders: Vec<&str> = game.save_folders.iter().map(String::as_str).collect();
+    let folder = save_folder(game.save_dir, &folders).map_err(LaunchError::SaveFolder)?;
+    let Some(path) = save_file_path(&folder, content) else {
+        return Ok(None);
+    };
+    if game.adopt_flat_save && !folders.is_empty() {
+        adopt_flat_save(game.save_dir, content, &path)?;
+    }
     let loaded = read_save_file(&path)
         .map_err(LaunchError::ReadSave)?
         .unwrap_or_default();
@@ -232,4 +237,29 @@ fn load_save_file(host: &mut Host, game: &GameLaunch<'_>) -> Result<Option<SaveF
         loaded,
         ram_bytes,
     }))
+}
+
+/// Copies the flat save `<save_dir>/<stem>.srm` to `path`, the game's own
+/// save file, when `path` has no file yet and the flat save exists. The
+/// flat save stays as it is. The copy is a full write (temp file, fsync,
+/// rename), so a crash leaves no half copy, and it makes no backup: the
+/// first write of the session does.
+fn adopt_flat_save(
+    save_dir: &std::path::Path,
+    content: &std::path::Path,
+    path: &std::path::Path,
+) -> Result<(), LaunchError> {
+    if read_save_file(path)
+        .map_err(LaunchError::ReadSave)?
+        .is_some()
+    {
+        return Ok(());
+    }
+    let Some(flat) = save_file_path(save_dir, content) else {
+        return Ok(());
+    };
+    let Some(bytes) = read_save_file(&flat).map_err(LaunchError::ReadSave)? else {
+        return Ok(());
+    };
+    write_save_file(path, &bytes, Backup::Keep).map_err(LaunchError::AdoptSave)
 }

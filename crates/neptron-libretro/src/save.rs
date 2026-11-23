@@ -48,6 +48,21 @@ pub enum SaveFileError {
         /// The path.
         path: PathBuf,
     },
+    /// A folder name of a save folder is empty, `.`, `..`, starts with a
+    /// dot, or holds `/`, `\` or NUL, so it could leave the save folder.
+    #[error("the folder name {name:?} cannot be part of a save folder")]
+    BadFolderName {
+        /// The name.
+        name: String,
+    },
+    /// An entry on the way to a save folder is a symbolic link or not a
+    /// folder. A link is never followed, so a save never leaves the save
+    /// folder.
+    #[error("{path} is a link or not a folder, so no save goes through it")]
+    NotAFolder {
+        /// The entry.
+        path: PathBuf,
+    },
 }
 
 /// Why the save RAM of the core could not be copied.
@@ -106,6 +121,55 @@ pub fn save_file_path(save_dir: &Path, content: &Path) -> Option<PathBuf> {
     let mut name = content.file_stem()?.to_os_string();
     name.push(".srm");
     Some(save_dir.join(name))
+}
+
+/// The save folder of a game below `save_dir`: one folder for each folder
+/// of the game below its system's ROM folder, in order, so that two games
+/// of one name in two folders have two save files. Makes each missing
+/// folder and syncs it into its parent. `save_dir` itself must exist.
+///
+/// A name that could leave the folder (empty, `.`, `..`, a leading dot, a
+/// `/`, `\` or NUL) is refused, and so is an entry on the way that is a
+/// symbolic link or not a folder: a link is never followed.
+pub fn save_folder(save_dir: &Path, folders: &[&str]) -> Result<PathBuf, SaveFileError> {
+    // Every name is checked before the first folder is made, so a refused
+    // path leaves no folder behind.
+    let bad = folders
+        .iter()
+        .find(|name| name.is_empty() || name.starts_with('.') || name.contains(['/', '\\', '\0']));
+    if let Some(name) = bad {
+        return Err(SaveFileError::BadFolderName {
+            name: (*name).to_owned(),
+        });
+    }
+    let mut folder = save_dir.to_path_buf();
+    for name in folders {
+        let parent = folder.clone();
+        folder.push(name);
+        match fs::symlink_metadata(&folder) {
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => return Err(SaveFileError::NotAFolder { path: folder }),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir(&folder).map_err(|source| SaveFileError::Write {
+                    path: folder.clone(),
+                    source,
+                })?;
+                File::open(&parent)
+                    .and_then(|f| f.sync_all())
+                    .map_err(|source| SaveFileError::Write {
+                        path: parent,
+                        source,
+                    })?;
+            }
+            Err(source) => {
+                return Err(SaveFileError::Read {
+                    path: folder,
+                    source,
+                });
+            }
+        }
+    }
+    Ok(folder)
 }
 
 /// Reads a save file. A missing file is `Ok(None)`.
@@ -259,6 +323,62 @@ mod tests {
             Some(dir.join("Zelda.srm"))
         );
         assert_eq!(save_file_path(dir, Path::new("/")), None);
+    }
+
+    #[test]
+    fn the_save_folder_follows_the_game_folders() {
+        let dir = temp_dir("folders");
+        assert_eq!(save_folder(&dir, &[]).unwrap(), dir);
+        let folder = save_folder(&dir, &["hacks", "Chrono Trigger (fr) [!]"]).unwrap();
+        assert_eq!(folder, dir.join("hacks").join("Chrono Trigger (fr) [!]"));
+        assert!(folder.is_dir());
+        assert_eq!(save_folder(&dir, &["hacks"]).unwrap(), dir.join("hacks"));
+        let odd = ["  space ", "é ü ß 漢字", "a;b&c$(d)'e\"", "x.y", "#~%"];
+        for name in odd {
+            assert_eq!(
+                save_folder(&dir, &[name]).unwrap(),
+                dir.join(name),
+                "{name}"
+            );
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_save_folder_name_that_leaves_the_folder_is_refused() {
+        let dir = temp_dir("bad-folders");
+        for bad in ["", ".", "..", ".hidden", "a/b", "/abs", "a\\b", "a\0b"] {
+            assert!(
+                matches!(
+                    save_folder(&dir, &["ok", bad]),
+                    Err(SaveFileError::BadFolderName { name }) if name == bad
+                ),
+                "{bad:?}"
+            );
+        }
+        assert!(!dir.join("ok").exists(), "a refused path makes no folder");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_link_on_the_way_to_a_save_folder_is_not_followed() {
+        let dir = temp_dir("link-folder");
+        let outside = dir.join("outside");
+        let saves = dir.join("saves");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(&saves).unwrap();
+        std::os::unix::fs::symlink(&outside, saves.join("hacks")).unwrap();
+        assert!(matches!(
+            save_folder(&saves, &["hacks", "deep"]),
+            Err(SaveFileError::NotAFolder { path }) if path == saves.join("hacks")
+        ));
+        assert!(!outside.join("deep").exists());
+        fs::write(saves.join("file"), b"").unwrap();
+        assert!(matches!(
+            save_folder(&saves, &["file"]),
+            Err(SaveFileError::NotAFolder { .. })
+        ));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
