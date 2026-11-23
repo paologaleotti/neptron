@@ -739,7 +739,7 @@ name = "Frame pacing (spec first): a core that is a little too slow for the fiel
 owns = ["crates/neptron-session", "crates/neptron-testkit", "crates/neptron-ipc", "apps/neptron", "docs/spec"]
 needs = []
 gate = "T2 with the simulated clock; a measurement on the bench PC; the field order of an interlaced mode on a CRT is a line of the hardware checklist"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M15"
