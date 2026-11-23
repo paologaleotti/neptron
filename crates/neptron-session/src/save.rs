@@ -30,7 +30,9 @@ pub enum Flush {
     Busy,
     /// The copy failed. [`SaveStats::last_error`] has the reason.
     Failed,
-    /// The core has no save RAM, or the content has no save file.
+    /// The core has no save RAM, or the content has no save file, or the
+    /// core gave zero bytes of save RAM after it had some at launch.
+    /// Nothing is written.
     NoSaveRam,
     /// At exit: the writer wrote the save RAM, and has stopped.
     Written,
@@ -49,6 +51,10 @@ pub struct SaveStats {
     pub written: u64,
     /// Flushes with nothing to write.
     pub unchanged: u64,
+    /// Flushes that found no save RAM: the core gave zero bytes after it
+    /// had save RAM at launch. Nothing is written, so the file keeps the
+    /// last save.
+    pub no_save_ram: u64,
     /// Flushes that found both buffers with the writer.
     pub busy: u64,
     /// Failed copies or writes.
@@ -182,6 +188,7 @@ impl SaveRamWriter {
         match flush {
             Flush::Sent if self.last_write_ok == Some(true) => Flush::Written,
             Flush::Sent | Flush::Busy => Flush::WriteFailed,
+            Flush::NoSaveRam if self.last_write_ok == Some(false) => Flush::WriteFailed,
             other => other,
         }
     }
@@ -214,10 +221,21 @@ impl SaveRamWriter {
         mut buffer: Vec<u8>,
         copy: impl FnOnce(&mut Vec<u8>) -> Result<usize, SaveRamError>,
     ) -> Flush {
-        if let Err(error) = copy(&mut buffer) {
-            self.spare.push(buffer);
-            self.fail(error.into());
-            return Flush::Failed;
+        match copy(&mut buffer) {
+            Err(error) => {
+                self.spare.push(buffer);
+                self.fail(error.into());
+                return Flush::Failed;
+            }
+            // The writer starts only for a core with save RAM at launch,
+            // so zero bytes now is a core that dropped its pointer for a
+            // moment. An empty file would replace the save.
+            Ok(0) => {
+                self.spare.push(buffer);
+                self.stats.no_save_ram += 1;
+                return Flush::NoSaveRam;
+            }
+            Ok(_) => {}
         }
         buffer.extend_from_slice(&self.tail);
         if buffer == self.last {
@@ -425,6 +443,51 @@ mod tests {
         assert_eq!(stats.failures, 2);
         assert!(matches!(stats.last_error, Some(SaveError::Write(_))));
         assert!(path.join("inside").exists(), "nothing is removed");
+    }
+
+    /// A core that drops its save RAM pointer for a moment (a reset, a disk
+    /// change) gives zero bytes. That is no save: the file keeps the game's
+    /// save, at every flush and at exit.
+    #[test]
+    fn a_save_ram_that_reads_empty_after_launch_writes_nothing() {
+        let dir = temp_dir("empty");
+        let path = dir.join("game.srm");
+        std::fs::write(&path, [1, 2, 3, 4]).unwrap();
+        let mut writer = SaveRamWriter::start(path.clone(), &[1, 2, 3, 4], 4).unwrap();
+        assert_eq!(writer.flush(ram(&[])), Flush::NoSaveRam);
+        assert_eq!(writer.finish(ram(&[])), Flush::NoSaveRam);
+        assert_eq!(read(&path), Some(vec![1, 2, 3, 4]));
+        assert_eq!(read(&dir.join("game.srm.bak")), None);
+        let stats = writer.stats();
+        assert_eq!((stats.sent, stats.written, stats.no_save_ram), (0, 0, 2));
+    }
+
+    /// A file longer than the save RAM: its tail alone is no save either.
+    #[test]
+    fn an_empty_save_ram_never_leaves_only_the_tail() {
+        let dir = temp_dir("empty-tail");
+        let path = dir.join("game.srm");
+        let old = [1, 2, 3, 4, 5, 6];
+        std::fs::write(&path, old).unwrap();
+        let mut writer = SaveRamWriter::start(path.clone(), &old, 4).unwrap();
+        assert_eq!(writer.finish(ram(&[])), Flush::NoSaveRam);
+        assert_eq!(read(&path), Some(old.to_vec()));
+    }
+
+    /// A failed write, then no save RAM at exit: the file does not hold the
+    /// last save RAM, and the exit says so.
+    #[test]
+    fn an_empty_save_ram_after_a_failed_write_is_a_failed_save() {
+        let dir = temp_dir("empty-after-fail");
+        let path = dir.join("game.srm");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("inside"), [0]).unwrap();
+        let mut writer = SaveRamWriter::start(path.clone(), &[], 2).unwrap();
+        assert_eq!(writer.flush(ram(&[1, 2])), Flush::Sent);
+        while writer.stats().failures == 0 {
+            assert!(writer.wait_for_done());
+        }
+        assert_eq!(writer.finish(ram(&[])), Flush::WriteFailed);
     }
 
     #[test]
