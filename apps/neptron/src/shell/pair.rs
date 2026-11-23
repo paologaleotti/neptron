@@ -167,14 +167,18 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// What the answers of the keep request of `level` say of `pair`: the
     /// option of its picture mode, judged with the pair stored, gives the
     /// note for some games, or the reason of the refusal. Only settled
-    /// answers count; the prompt does not take a level whose answers are
-    /// in work.
+    /// answers of the request of the settings now count, and only when the
+    /// prompt waited for that request; else the keep is refused with
+    /// [`pages::NO_DECISION`].
     fn keep_judged(&self, level: Level, pair: &PicturePair) -> Result<Option<String>, String> {
-        let request = self
-            .keep_asks
+        // The requests of the settings now: the settled answers count only
+        // for the request that the prompt waited for, the same one.
+        let fresh = self.keep_requests();
+        let request = fresh
             .iter()
             .find(|(l, _)| *l == level)
-            .map(|(_, r)| r);
+            .map(|(_, r)| r)
+            .filter(|r| self.keep_asks.iter().any(|(_, asked)| asked == *r));
         let answers = request.and_then(|r| self.engine_ref()?.answers(r));
         match answers {
             Some(Ok(choices)) => {

@@ -454,7 +454,7 @@ pub const NO_DECISION: &str = "Not available now";
 /// The text of an option of the picture mode or refresh rows while its
 /// answer is in work. Three full stops: the font of the menus has no
 /// ellipsis character.
-pub const JUDGING: &str = "...";
+pub const JUDGING: &str = neptron_ui::snapshot::IN_WORK;
 
 /// Whom a page writes for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1082,6 +1082,47 @@ fn leaving_after_a_change_asks_where_to_keep_it() {
     }
 }
 
+/// A level whose answers the app still makes takes no choice: its button
+/// shows "..." in the tree and Accept on it does nothing. Once the answers
+/// are there, the same press keeps the change there.
+#[test]
+fn a_waiting_level_of_the_keep_prompt_takes_no_choice() {
+    let (mut run, mut snap) = force_60_and_back();
+    if let Some(session) = &mut snap.session {
+        session.keep_waits.global = true;
+    }
+    run.step(&snap, &[Back]);
+    assert_eq!(run.screen(), "quick-menu/keep");
+    let value = |run: &Run, label: &str| {
+        run.frame
+            .tree
+            .rows()
+            .find(|r| r.label == label)
+            .and_then(|r| r.value)
+            .map(str::to_owned)
+    };
+    assert_eq!(value(&run, "All games").as_deref(), Some("..."));
+    assert_eq!(value(&run, "System"), None, "System does not wait");
+    run.step(&snap, &[Right, Right, Accept]);
+    assert!(run.intents().is_empty(), "no choice while it waits");
+    assert_eq!(run.screen(), "quick-menu/keep");
+    if let Some(session) = &mut snap.session {
+        session.keep_waits.global = false;
+    }
+    run.step(&snap, &[Accept]);
+    assert_eq!(
+        run.intents(),
+        [
+            force_60(Level::Global),
+            Intent::ResetValue {
+                key: REFRESH,
+                level: Level::Game,
+            },
+            Intent::Resume
+        ]
+    );
+}
+
 #[test]
 fn back_in_the_prompt_returns_to_the_quick_menu() {
     let (mut run, snap) = force_60_and_back();

@@ -56,6 +56,11 @@ pub enum Level {
     Game,
 }
 
+/// The reason of an option whose answer the app still makes: the option
+/// takes no choice yet, and the help line shows this text alone, with no
+/// "Not available". Three full stops: the font has no ellipsis character.
+pub const IN_WORK: &str = "...";
+
 /// The levels at which a setting can hold a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Scopes {

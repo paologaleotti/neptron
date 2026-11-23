@@ -115,6 +115,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             self.roll_back();
             self.snap.confirm = None;
             self.notice(NoticeKind::Warning, notice);
+            // The settings in memory changed: the page and the requests of
+            // the keep prompt follow them.
+            self.reload_page();
         }
     }
 

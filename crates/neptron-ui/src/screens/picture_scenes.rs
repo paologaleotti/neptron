@@ -76,7 +76,7 @@ pub mod picture_texts {
     pub const CONFIRM_PICTURE: &str = "Keep the new picture?\nNo answer brings the old one back.";
     /// An option whose answer is in work. The font has the full stop, not
     /// the ellipsis character.
-    pub const JUDGING: &str = "...";
+    pub const JUDGING: &str = crate::snapshot::IN_WORK;
     /// The tag of a picture mode that also sets the refresh rate to Auto.
     pub const RATE_TO_AUTO: &str = "Rate to Auto too";
     /// The longest picture notice of one picture: a stored pair that the

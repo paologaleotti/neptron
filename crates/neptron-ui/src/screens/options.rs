@@ -8,7 +8,9 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
-use crate::snapshot::{ChoiceOption, Level, MenuItem, PageId, SettingKey, SettingValue, Snapshot};
+use crate::snapshot::{
+    ChoiceOption, IN_WORK, Level, MenuItem, PageId, SettingKey, SettingValue, Snapshot,
+};
 use crate::text::StackText;
 use crate::theme::Theme;
 use crate::tree::{RowKind, TreeRow, WidgetKind};
@@ -173,13 +175,15 @@ impl Options {
         };
         let help = chrome::padded(self.help, theme);
         match &option.unavailable {
+            // An option whose answer is in work is not refused: the help
+            // line says only that the answer is not there yet.
+            Some(reason) if reason == IN_WORK => {
+                chrome::paragraph(frame, theme, help, theme.colors.text_dim, IN_WORK);
+            }
             Some(reason) => {
                 let mut text = StackText::<HELP_BYTES>::new();
-                // A reason that ends a sentence itself, such as the "..." of
-                // an answer in work, takes no second full stop.
-                let stop = if reason.ends_with('.') { "" } else { "." };
                 // `StackText` never fails; it drops what does not fit.
-                let _ = write!(text, "Not available. {reason}{stop}");
+                let _ = write!(text, "Not available. {reason}.");
                 chrome::paragraph(frame, theme, help, theme.colors.text, text.as_str());
             }
             None if option.help.is_empty() => {
