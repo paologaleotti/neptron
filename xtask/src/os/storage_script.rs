@@ -1463,6 +1463,148 @@ fn a_marker_that_names_no_partition_allows_no_format() {
     marker_mismatch("marker-old", "partition 4 made at DATE\n");
 }
 
+// A power cut during the first-boot format. The marker records
+// `format=started` before mkfs.exfat and `format=done` after it, as
+// information for the notice only: no rule of a format reads them, and the
+// script never formats a share by itself after a format started.
+
+const STARTED: &str = "format=started\n";
+const DONE: &str = "format=started\nformat=done\n";
+
+#[test]
+fn the_marker_records_the_start_and_the_end_of_the_first_format() {
+    let out = Run::new("format-record")
+        .set("FAKE_MOUNT_EXFAT_EXIT", "32")
+        .start();
+    assert_eq!(out.calls("mkfs.exfat"), 1, "{out:#?}");
+    assert!(out.marker_text.ends_with(DONE), "{out:#?}");
+    assert!(!out.status.contains("share_first_format"), "{out:#?}");
+}
+
+/// The line `format=started` is on the disk before mkfs.exfat runs.
+#[test]
+fn the_start_of_the_format_is_recorded_before_mkfs_runs() {
+    let run = Run::new("format-started");
+    write_exec(
+        &run.path("bin/mkfs.exfat"),
+        "#!/bin/sh\necho \"mkfs.exfat $* marker:$(tail -n 1 \"$FAKE_ROOT/state/share-pending\")\" >> \"$LOG\"\n",
+    );
+    let out = run.boot(&[]);
+    assert!(
+        out.log.lines().any(|l| l.starts_with("mkfs.exfat -L NEPTRON")
+            && l.ends_with("marker:format=started")),
+        "{out:#?}"
+    );
+}
+
+/// Boot 1 stops in mkfs.exfat (the fake exits as a killed program does).
+/// Every later boot whose partial filesystem does not mount says so, and
+/// none formats it.
+#[test]
+fn an_interrupted_first_format_is_named_and_never_formatted_again() {
+    let run = Run::new("format-cut");
+    let first = run.boot(&[("FAKE_MKFS_EXIT", "137")]);
+    first.assert_share_ram_with("mkfs.exfat failed on ", 1);
+    assert!(first.marker_text.ends_with(STARTED), "{first:#?}");
+    assert!(
+        first
+            .status
+            .contains("share_first_format = \"interrupted\"\n"),
+        "{first:#?}"
+    );
+    for boot in 2..=3 {
+        let out = run.boot(&[
+            ("FAKE_BLKID", "TYPE=exfat"),
+            ("FAKE_MOUNT_EXFAT_EXIT", "32"),
+        ]);
+        assert_eq!(out.calls("mkfs"), 0, "boot {boot}: {out:#?}");
+        assert!(!out.marker, "boot {boot}: {out:#?}");
+        assert!(
+            out.status.contains("share = \"ram\"")
+                && out
+                    .status
+                    .contains("share_first_format = \"interrupted\"\n"),
+            "boot {boot}: {out:#?}"
+        );
+    }
+    let mounted = run.boot(&[("FAKE_BLKID", "TYPE=exfat")]);
+    assert_eq!(
+        mounted.status, "state = \"partition\"\nshare = \"partition\"\n",
+        "{mounted:#?}"
+    );
+    assert!(!run.path("state/share-format-interrupted").exists());
+}
+
+/// A marker with `format=started` and no `format=done`, left by a power
+/// cut after a good format: the user's files are on the share. A check
+/// that fails or that does not end in time never formats it.
+#[test]
+fn a_started_marker_never_formats_a_share_with_files() {
+    for (name, extra) in [
+        (
+            "started-errors",
+            &[
+                ("FAKE_FSCK_EXFAT_N_EXIT", "4"),
+                ("FAKE_FSCK_EXFAT_EXIT", "4"),
+            ][..],
+        ),
+        ("started-slow", &[("FAKE_TIMEOUT_EXPIRES", "yes")][..]),
+        ("started-no-mount", &[("FAKE_MOUNT_EXFAT_EXIT", "32")][..]),
+    ] {
+        let run = Run::new(name)
+            .set("FAKE_BLKID", "TYPE=exfat")
+            .with_partition_4();
+        run.write_marker();
+        let marker = run.path("state/share-pending");
+        let mut text = std::fs::read_to_string(&marker).unwrap();
+        text.push_str(STARTED);
+        std::fs::write(&marker, text).unwrap();
+        let out = run.boot(extra);
+        assert_eq!(out.calls("mkfs"), 0, "{name}: {out:#?}");
+        assert!(!out.marker, "{name}: {out:#?}");
+    }
+}
+
+/// A marker that cannot be removed allows no format at a later boot.
+#[test]
+fn a_marker_that_cannot_be_removed_allows_no_format() {
+    let run = Run::new("marker-stuck")
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .with_partition_4();
+    // A folder in the place of the marker: rm -f cannot remove it.
+    std::fs::create_dir_all(run.path("state/share-pending/x")).unwrap();
+    for _ in 0..2 {
+        let out = run.boot(&[
+            ("FAKE_FSCK_EXFAT_N_EXIT", "4"),
+            ("FAKE_FSCK_EXFAT_EXIT", "4"),
+        ]);
+        assert_eq!(out.calls("mkfs"), 0, "{out:#?}");
+    }
+}
+
+/// The rules that keep an old or damaged share hold with a started
+/// marker too: the backup boot sector check and the scan for an old
+/// share.
+#[test]
+fn a_started_marker_keeps_every_format_rule() {
+    let run = marked_partition_4("started-backup", PLANNED, "7");
+    let marker = run.path("state/share-pending");
+    let mut text = std::fs::read_to_string(&marker).unwrap();
+    text.push_str(STARTED);
+    std::fs::write(&marker, &text).unwrap();
+    let mut sectors = vec![0_u8; 13 * 512];
+    sectors[12 * 512 + 3..12 * 512 + 11].copy_from_slice(b"EXFAT   ");
+    std::fs::write(run.path("dev/sda4"), sectors).unwrap();
+    run.boot(&[])
+        .assert_share_ram("it holds an exFAT backup boot sector (sector 12)");
+
+    let run = marked_partition_4("started-scan", PLANNED, "7");
+    std::fs::write(run.path("state/share-pending"), &text).unwrap();
+    run.exfat_at(PLANNED);
+    run.boot(&[])
+        .assert_share_ram("so it can hold an old share");
+}
+
 // The format offer and the format request of the user. Each test fails
 // when its rule is gone from the script.
 

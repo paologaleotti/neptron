@@ -80,6 +80,7 @@ request_result=
 request_reason=
 table_touched=no
 share_scanned=
+first_format=
 fix_device=
 fix_start=
 fix_size=
@@ -291,6 +292,15 @@ NODE_WAIT_STEP_US=100000
 # partition ends before 2 TiB.
 MBR_LAST_SECTOR=4294967294
 MARKER=$STATE/share-pending
+# The first-boot format adds these lines to the marker, each with a sync:
+# FORMAT_STARTED just before mkfs.exfat, FORMAT_DONE after it exits 0. They
+# are information for the notice only: no rule of a format reads them.
+FORMAT_STARTED=format=started
+FORMAT_DONE=format=done
+# A copy of a marker whose format started and never ended, kept when the
+# marker goes, so that later boots can still name the cause. Information
+# only, as the lines above; it goes when the share mounts.
+INTERRUPTED=$STATE/share-format-interrupted
 # The boot code of the MBR, before the disk signature and the table, in
 # bytes: the type change must leave it as it was.
 MBR_BOOT_CODE_BYTES=440
@@ -609,6 +619,9 @@ prepare_share() {
 		# A partition with a filesystem never needs the permission to
 		# format again, also when its mount fails.
 		if [ -e "$MARKER" ]; then
+			if format_interrupted "$MARKER"; then
+				cp "$MARKER" "$INTERRUPTED" 2>/dev/null && sync
+			fi
 			rm -f "$MARKER"
 			sync
 			log "partition 4 holds a filesystem, so /state/share-pending is removed"
@@ -627,10 +640,24 @@ prepare_share() {
 		return 1
 	fi
 	log "$share holds no filesystem; formatting it exFAT"
+	record_format "$FORMAT_STARTED"
 	format_exfat "$share" || {
 		note_offer "$share"
 		return 1
 	}
+	record_format "$FORMAT_DONE"
+}
+
+# Adds the line $1 to the marker, with a sync. A line that cannot be
+# written costs only the notice of an interrupted format.
+record_format() {
+	{ echo "$1" >> "$MARKER" && sync; } 2>/dev/null ||
+		log "$MARKER cannot record $1"
+}
+
+# 0 when the file $1 records a first format that started and never ended.
+format_interrupted() {
+	grep -qx "$FORMAT_STARTED" "$1" 2>/dev/null && ! grep -qx "$FORMAT_DONE" "$1" 2>/dev/null
 }
 
 # Formats $1 exFAT. The only call of mkfs.exfat in this script.
@@ -1168,17 +1195,22 @@ fi
 case $mounted in
 yes)
 	log "$share mounted at /share"
-	if [ -e "$MARKER" ]; then
-		rm -f "$MARKER"
+	if [ -e "$MARKER" ] || [ -e "$INTERRUPTED" ]; then
+		rm -f "$MARKER" "$INTERRUPTED"
 		sync
 	fi
 	;;
 ro)
 	log "$share mounted read-only at /share: $share_check_reason"
+	rm -f "$INTERRUPTED"
 	;;
 *)
 	log "/share is a RAM folder: $last"
 	ram_folder share
+	if format_interrupted "$MARKER" || format_interrupted "$INTERRUPTED"; then
+		first_format=interrupted
+		log "the first format of the share partition started at an earlier boot and never ended, for example after a power cut; format partition 4 exFAT on a computer"
+	fi
 	;;
 esac
 if [ "$format_request" = yes ]; then
@@ -1200,6 +1232,9 @@ status() {
 	fi
 	if [ "$share_kind" = ram ]; then
 		echo "share_reason = \"$share_reason\""
+		if [ -n "$first_format" ]; then
+			echo "share_first_format = \"$first_format\""
+		fi
 		if [ -n "$fix_device" ]; then
 			echo "share_fix = \"format\""
 			echo "share_fix_device = \"$(printf '%s' "$fix_device" | tr -d '"\\')\""

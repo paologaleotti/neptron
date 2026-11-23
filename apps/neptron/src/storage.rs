@@ -70,11 +70,23 @@ pub struct StorageStatus {
     /// Why the share partition is read-only.
     #[serde(default)]
     pub share_read_only_reason: Option<String>,
+    /// `interrupted` when the first format of the share partition started
+    /// at an earlier boot and never ended (a power cut in `mkfs.exfat`),
+    /// and the share is a RAM folder. The script never formats it again
+    /// by itself.
+    #[serde(default)]
+    pub share_first_format: Option<String>,
 }
 
 /// The notice after a format that the user asked for: an Info notice,
 /// where the other notices of this file are warnings.
 pub const FORMATTED_NOTICE: &str = "The share partition is formatted.";
+
+/// The value of `share_first_format` for a first format that never ended.
+pub const FIRST_FORMAT_INTERRUPTED: &str = "interrupted";
+
+/// The notice for a first format of the share partition that never ended.
+pub const INTERRUPTED_NOTICE: &str = "The first format of the share partition did not finish, for example because of a power cut. It holds no files. Format partition 4 as exFAT on a computer to use it.";
 
 /// The value of `share_fix` that offers a format.
 pub const FIX_FORMAT: &str = "format";
@@ -219,6 +231,9 @@ impl StorageStatus {
                 "The share partition is not in use ({}). The game folder is empty, and files copied to it are lost at power-off.{fix}",
                 reason(self.share_reason.as_deref())
             ));
+            if self.share_first_format.as_deref() == Some(FIRST_FORMAT_INTERRUPTED) {
+                notices.push(INTERRUPTED_NOTICE.to_owned());
+            }
         }
         notices
     }
@@ -333,6 +348,19 @@ mod tests {
         assert!(notices[0].contains(
             "(fsck.exfat found errors on /dev/sda4 that its repair could not fix (exit 4))"
         ));
+    }
+
+    #[test]
+    fn an_interrupted_first_format_gives_its_own_notice() {
+        let text = "state = \"partition\"\nshare = \"ram\"\nshare_reason = \"/dev/sda4 does not mount\"\n\
+                    share_first_format = \"interrupted\"\n";
+        let dir = folder("interrupted", Some(text));
+        let status = StorageStatus::read(&dir).expect("read").expect("a status");
+        assert_eq!(status.format_offer(), None, "never a format by itself");
+        let notices = status.notices(true);
+        assert_eq!(notices.len(), 2, "{notices:?}");
+        assert!(notices[0].contains("(/dev/sda4 does not mount)"));
+        assert_eq!(notices[1], INTERRUPTED_NOTICE);
     }
 
     fn offer_text(device: &str, kind: &str) -> String {
