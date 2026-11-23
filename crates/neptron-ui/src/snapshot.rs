@@ -392,6 +392,9 @@ pub struct SessionInfo {
     pub title: String,
     /// True while the core is paused.
     pub paused: bool,
+    /// The levels of the keep prompt that the app cannot judge yet: their
+    /// answers are in work. Their buttons take no choice until then.
+    pub keep_waits: Scopes,
 }
 
 /// The video status of the running game, as text that the app makes. The
@@ -731,6 +734,7 @@ impl SessionInfo {
             game,
             title: title.into(),
             paused: false,
+            keep_waits: Scopes::NONE,
         }
     }
 }

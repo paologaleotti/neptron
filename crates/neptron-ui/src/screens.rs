@@ -81,6 +81,10 @@ pub const NETWORK_PAGE: PageId = PageId(RESERVED_ID_MIN + 9);
 /// screen on show to know whether the panel is open.
 pub const NETWORK_SCREEN: &str = "network";
 
+/// The screen id of the keep prompt of the quick menu in the tree. The app
+/// reads the screen on show to judge the levels of the prompt first.
+pub const KEEP_SCREEN: &str = "quick-menu/keep";
+
 /// The Input panel: information rows of the app with the pad of each
 /// player, and the input settings, written at the global level.
 pub const INPUT_PAGE: PageId = PageId(RESERVED_ID_MIN + 10);

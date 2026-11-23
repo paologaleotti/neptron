@@ -142,7 +142,7 @@ impl PadMappingScreen {
                     buttons: buttons(*can_keep),
                     tone,
                 };
-                draw_dialog(&self.dialog, &content, theme, frame);
+                draw_dialog(&self.dialog, &content, &[], theme, frame);
                 if *can_keep {
                     chrome::hints(frame, theme, "Accept: cancel", "Right, then Accept: keep");
                 } else {

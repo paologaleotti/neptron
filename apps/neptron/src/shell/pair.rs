@@ -7,7 +7,7 @@ use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::PadRoster;
 use neptron_settings::{DISPLAY_STYLE, Level, Value};
 use neptron_ui::Intent;
-use neptron_ui::snapshot::{Level as UiLevel, NoticeKind, SettingKey};
+use neptron_ui::snapshot::{Level as UiLevel, NoticeKind, Scopes, SettingKey};
 use neptron_video::{AnswerRequest, Phase, REFERENCE_SOURCES};
 
 use super::{PendingChange, Shell, Stage};
@@ -219,6 +219,25 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 Some((level, request))
             })
             .collect()
+    }
+
+    /// The levels of the keep prompt whose answers are in work: their
+    /// buttons do not take a choice until the answers are there.
+    pub(super) fn keep_waits(&self) -> Scopes {
+        let mut waits = Scopes::NONE;
+        let Some(engine) = self.engine_ref() else {
+            return waits;
+        };
+        for (level, request) in &self.keep_asks {
+            if engine.answers(request).is_none() {
+                match level {
+                    Level::System => waits.system = true,
+                    Level::Global => waits.global = true,
+                    Level::Game => waits.game = true,
+                }
+            }
+        }
+        waits
     }
 
     /// Writes `pair` at `level` in memory, or removes both keys there with

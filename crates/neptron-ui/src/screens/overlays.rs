@@ -137,7 +137,7 @@ impl Confirm {
             buttons: buttons(pending),
             tone: DialogTone::Normal,
         };
-        draw_dialog(&self.dialog, &content, theme, frame);
+        draw_dialog(&self.dialog, &content, &[], theme, frame);
         if self.answered {
             chrome::hints(frame, theme, "", "");
         } else if pending.remaining_ns == 0 {
@@ -228,7 +228,7 @@ impl Notices {
                 buttons: &["OK"],
                 tone,
             };
-            draw_dialog(&self.dialog, &content, theme, frame);
+            draw_dialog(&self.dialog, &content, &[], theme, frame);
             chrome::hints(frame, theme, "Accept: OK", "");
             return;
         };
@@ -238,7 +238,7 @@ impl Notices {
             buttons: &["Cancel", choice],
             tone,
         };
-        draw_dialog(&self.dialog, &content, theme, frame);
+        draw_dialog(&self.dialog, &content, &[], theme, frame);
         chrome::hints(frame, theme, "Accept: choose", "Back: cancel");
     }
 
@@ -274,6 +274,7 @@ fn buttons(pending: &PendingConfirm) -> &'static [&'static str] {
 pub(super) fn draw_dialog(
     dialog: &Dialog,
     content: &DialogContent<'_>,
+    waiting: &[bool],
     theme: &Theme,
     frame: &mut UiFrame,
 ) {
@@ -285,5 +286,5 @@ pub(super) fn draw_dialog(
         area.h.saturating_add(2 * RING_PX),
     );
     frame.scene.rect(ring, theme.colors.background);
-    dialog.draw(frame, theme, content);
+    dialog.draw_waiting(frame, theme, content, waiting);
 }

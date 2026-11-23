@@ -89,7 +89,11 @@ fn keep(rig: &mut Rig, right: u32) {
     rig.tap(&[Control::A]);
     assert_eq!(rig.screen(), "quick-menu/keep");
     rig.until(600, "the answers of the keep prompt", |r| {
-        r.shell().engine().is_some_and(|e| !e.answers_in_work())
+        r.shell()
+            .snapshot()
+            .session
+            .as_ref()
+            .is_some_and(|s| s.keep_waits == neptron_ui::snapshot::Scopes::NONE)
     });
     for _ in 0..right {
         rig.tap(&[Control::Right]);

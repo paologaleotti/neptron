@@ -14,7 +14,7 @@ use super::chrome::{self, Layout};
 use super::overlays::draw_dialog;
 use super::page::{Page, PageEvent};
 use super::router::Nav;
-use super::{QUICK_MENU_PAGE, QUIT_GAME, RESUME};
+use super::{KEEP_SCREEN, QUICK_MENU_PAGE, QUIT_GAME, RESUME};
 
 /// The settings changed in one visit of the quick menu that the prompt can
 /// move. A further setting stays at the game level.
@@ -134,6 +134,9 @@ impl QuickMenu {
             return match dialog.handle(action, KEEP_BUTTONS.len()) {
                 DialogEvent::Chosen(i) => {
                     let level = KEEP_LEVELS.get(i).copied().unwrap_or(Level::Game);
+                    if waits(snap, level) {
+                        return Nav::Stay;
+                    }
                     self.keep_at(level, snap, out);
                     self.prompt = None;
                     self.leave(leave, out)
@@ -176,14 +179,15 @@ impl QuickMenu {
         self.page.draw(snap, theme, frame);
         if let Some((dialog, _)) = &self.prompt {
             frame.tree.clear();
-            frame.tree.set_screen("quick-menu/keep");
+            frame.tree.set_screen(KEEP_SCREEN);
             let content = DialogContent {
                 title: "Keep the changes?",
                 message: "Keep the new settings for this game only, for all games of this system, or for all games?",
                 buttons: &KEEP_BUTTONS,
                 tone: DialogTone::Normal,
             };
-            draw_dialog(dialog, &content, theme, frame);
+            let waiting = KEEP_LEVELS.map(|level| waits(snap, level));
+            draw_dialog(dialog, &content, &waiting, theme, frame);
             chrome::hints(frame, theme, "Accept: choose", "Back: cancel");
         }
     }
@@ -250,6 +254,19 @@ impl QuickMenu {
                 level: Level::Game,
             });
         }
+    }
+}
+
+/// Whether the app still judges a keep at `level`: its button takes no
+/// choice yet.
+fn waits(snap: &Snapshot, level: Level) -> bool {
+    let Some(session) = &snap.session else {
+        return false;
+    };
+    match level {
+        Level::System => session.keep_waits.system,
+        Level::Global => session.keep_waits.global,
+        Level::Game | Level::Default => false,
     }
 }
 

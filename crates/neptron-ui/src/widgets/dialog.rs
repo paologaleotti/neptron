@@ -15,6 +15,9 @@ const BORDER_PX: u32 = 1;
 const BUTTON_GAP_PX: u32 = 8;
 const BUTTON_MIN_WIDTH_PX: u32 = 48;
 
+/// The value of a waiting button in the tree.
+const WAITING: &str = "...";
+
 /// The text of a [`Dialog`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DialogContent<'a> {
@@ -111,6 +114,19 @@ impl Dialog {
 
     /// Draws the dialog.
     pub fn draw(&self, frame: &mut UiFrame, theme: &Theme, content: &DialogContent<'_>) {
+        self.draw_waiting(frame, theme, content, &[]);
+    }
+
+    /// Draws the dialog with the buttons that wait marked: `waiting[i]` is
+    /// true for a button that takes no choice yet. Its label is dim, and
+    /// its row in the tree has the value `...`.
+    pub fn draw_waiting(
+        &self,
+        frame: &mut UiFrame,
+        theme: &Theme,
+        content: &DialogContent<'_>,
+        waiting: &[bool],
+    ) {
         let area = Self::layout(content, theme);
         let row = theme.row_height_px();
         framed(
@@ -163,7 +179,7 @@ impl Dialog {
             focused: false,
             clipped: message_clipped,
         });
-        self.draw_buttons(frame, theme, content.buttons, area);
+        self.draw_buttons(frame, theme, content.buttons, waiting, area);
     }
 
     fn draw_message(&self, frame: &mut UiFrame, theme: &Theme, message: &str, inner: Rect) -> bool {
@@ -190,7 +206,14 @@ impl Dialog {
         clipped
     }
 
-    fn draw_buttons(&self, frame: &mut UiFrame, theme: &Theme, buttons: &[&str], area: Rect) {
+    fn draw_buttons(
+        &self,
+        frame: &mut UiFrame,
+        theme: &Theme,
+        buttons: &[&str],
+        waiting: &[bool],
+        area: Rect,
+    ) {
         let count = to_u32(buttons.len());
         if count == 0 {
             return;
@@ -212,10 +235,12 @@ impl Dialog {
             x = add(x, button_w.saturating_add(BUTTON_GAP_PX));
             let rect = Rect::new(left, y, button_w, row + 2);
             let focused = i == focus;
-            let (fill, color) = if focused {
-                (theme.colors.focus, theme.colors.focus_text)
-            } else {
-                (theme.colors.panel, theme.colors.text)
+            let waits = waiting.get(i).copied().unwrap_or(false);
+            let (fill, color) = match (focused, waits) {
+                (true, false) => (theme.colors.focus, theme.colors.focus_text),
+                (true, true) => (theme.colors.border, theme.colors.text_dim),
+                (false, false) => (theme.colors.panel, theme.colors.text),
+                (false, true) => (theme.colors.panel, theme.colors.text_dim),
             };
             framed(&mut frame.scene, rect, theme.colors.border, fill, BORDER_PX);
             let clipped = text::draw_in(&mut frame.scene, rect, Align::Center, color, label);
@@ -223,7 +248,7 @@ impl Dialog {
                 widget: WidgetKind::Button,
                 kind: None,
                 label,
-                value: None,
+                value: waits.then_some(WAITING),
                 source: None,
                 rect,
                 focused,
