@@ -8,7 +8,8 @@
 //! password (`BatchMode=yes`), and a known-hosts file of its own in the
 //! cache directory, so the user's own file does not change.
 
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
 
@@ -39,8 +40,61 @@ pub const PUSHED: [(&str, &str, &str); 3] = [
     ("neptronctl", "kms", "neptronctl"),
 ];
 
-/// The data folders of `--data`, from `data/` in the checkout.
-pub const DATA_DIRS: [&str; 5] = ["monitors", "cores", "systems", "skins", "hardware"];
+/// The data folders of `--data`, from `data/` in the checkout: the folders
+/// that the `neptron` package copies into the image.
+pub const DATA_DIRS: [&str; 6] = ["monitors", "cores", "systems", "skins", "hardware", "input"];
+
+/// The folder of `--data` that the push makes, as the image build does:
+/// the arcade index, `arcade/fbneo.idx`.
+pub const ARCADE_DIR: &str = "arcade";
+
+/// The package file of the FinalBurn Neo core, which pins its commit.
+pub const FBNEO_MK: &str = "os/package/libretro-fbneo/libretro-fbneo.mk";
+
+/// The DAT in the source of the FinalBurn Neo core that the arcade index
+/// comes from, as the `neptron` package names it.
+pub const FBNEO_DAT: &str = "dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat";
+
+/// The pinned commit of the FinalBurn Neo core in the text of
+/// [`FBNEO_MK`]: the value of `LIBRETRO_FBNEO_VERSION`.
+pub fn fbneo_version(mk: &str) -> Option<&str> {
+    mk.lines()
+        .find_map(|l| l.strip_prefix("LIBRETRO_FBNEO_VERSION ="))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+}
+
+/// The `docker run` arguments that copy the DAT of the FinalBurn Neo core
+/// at commit `version` from the build folder of the Buildroot output
+/// `output` to `export/fbneo.dat`. The build folder has the version in its
+/// name, so an output with another pin of the core has no such file, and
+/// the copy fails.
+pub fn dat_copy_step(container: &str, output: &str, version: &str, export: &Path) -> Vec<String> {
+    vec![
+        "run".to_owned(),
+        "--rm".to_owned(),
+        "--volume".to_owned(),
+        format!("{}{output}:/work/out:ro", build::OUT_VOLUME_PREFIX),
+        "--volume".to_owned(),
+        format!("{}:/work/export", export.display()),
+        container.to_owned(),
+        "cp".to_owned(),
+        format!("/work/out/build/libretro-fbneo-{version}/{FBNEO_DAT}"),
+        format!("/work/export/{DAT_COPY}"),
+    ]
+}
+
+/// The `tar` arguments that write the data of `--data` to standard output:
+/// [`DATA_DIRS`] from `data`, and [`ARCADE_DIR`] from `generated`.
+pub fn data_tar_args(data: &Path, generated: &Path) -> Vec<OsString> {
+    let mut args: Vec<OsString> = ["-c", "-f", "-", "-C"].map(OsString::from).into();
+    args.push(data.into());
+    args.extend(DATA_DIRS.map(OsString::from));
+    args.push("-C".into());
+    args.push(generated.into());
+    args.push(ARCADE_DIR.into());
+    args
+}
 
 /// The PC and how to reach it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -346,6 +400,9 @@ fn push(
                 super::run_step(Command::new("docker").args(step))?;
             }
         }
+        if data {
+            arcade_index(&repo.root, &container, output, &export)?;
+        }
     }
     eprintln!(
         "xtask: the bench build took {} s",
@@ -365,7 +422,12 @@ fn push(
         super::run_step(&mut ssh)?;
     }
     if data {
-        send_data(target, known_hosts, &repo.root.join("data"))?;
+        send_data(
+            target,
+            known_hosts,
+            &repo.root.join("data"),
+            &export.join(GENERATED_DATA),
+        )?;
     }
     remote_step(target, known_hosts, &install_script(data))?;
     if restart {
@@ -381,15 +443,45 @@ fn push(
     Ok(ExitCode::SUCCESS)
 }
 
+/// Writes the arcade index of the push to `<export>/data/arcade/fbneo.idx`,
+/// as the `neptron` package writes it into the image: the generator of
+/// `cargo xtask arcade-index`, the DAT of the core in the Buildroot output,
+/// and the commit that the checkout pins.
+fn arcade_index(repo: &Path, container: &str, output: &str, export: &Path) -> Result<(), OsError> {
+    let mk = repo.join(FBNEO_MK);
+    let text = std::fs::read_to_string(&mk).map_err(|source| OsError::Io {
+        path: mk.clone(),
+        source,
+    })?;
+    let version = fbneo_version(&text).ok_or_else(|| {
+        OsError::Usage(format!("{} names no LIBRETRO_FBNEO_VERSION", mk.display()))
+    })?;
+    super::run_step(
+        Command::new("docker").args(dat_copy_step(container, output, version, export)),
+    )?;
+    let dat = export.join(DAT_COPY);
+    let index: PathBuf = [GENERATED_DATA, ARCADE_DIR, "fbneo.idx"]
+        .iter()
+        .fold(export.to_path_buf(), |p, part| p.join(part));
+    let (dat, index) = (path_str(&dat)?, path_str(&index)?);
+    crate::arcade::run(&["--commit", version, dat, index])?;
+    Ok(())
+}
+
+fn path_str(path: &Path) -> Result<&str, OsError> {
+    path.to_str()
+        .ok_or_else(|| OsError::Usage(format!("the path {} is not UTF-8", path.display())))
+}
+
 /// Sends the data folders as a tar stream into the new hot data folder.
-fn send_data(target: &Target, known_hosts: &Path, data: &Path) -> Result<(), OsError> {
+fn send_data(
+    target: &Target,
+    known_hosts: &Path,
+    data: &Path,
+    generated: &Path,
+) -> Result<(), OsError> {
     let mut tar = Command::new("tar");
-    tar.arg("-c")
-        .arg("-f")
-        .arg("-")
-        .arg("-C")
-        .arg(data)
-        .args(DATA_DIRS)
+    tar.args(data_tar_args(data, generated))
         // macOS tar adds AppleDouble files for extended attributes unless
         // this is set.
         .env("COPYFILE_DISABLE", "1")
@@ -450,6 +542,11 @@ fn remote_run(target: &Target, known_hosts: &Path, remote: &str) -> Result<ExitC
     ))
 }
 
+/// The DAT copy in the export folder of the push.
+const DAT_COPY: &str = "fbneo.dat";
+/// The folder in the export folder of the push that holds the data the
+/// push makes.
+const GENERATED_DATA: &str = "data";
 const DEFAULT_USER: &str = "root";
 const DEFAULT_PORT: u16 = 22;
 
@@ -641,5 +738,110 @@ mod tests {
         assert!(logs_script(false).contains("grep neptron-storage /var/log/messages"));
         assert!(logs_script(false).contains("cat /run/neptron/storage.toml"));
         assert!(logs_script(false).contains("tail -n 100 /state/log/storage.log"));
+    }
+
+    fn repo_file(path: &str) -> String {
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(path))
+            .unwrap()
+    }
+
+    #[test]
+    fn the_data_push_carries_the_input_folder_and_the_arcade_index() {
+        let args = data_tar_args(
+            Path::new("/repo/data"),
+            Path::new("/repo/target/os-push/data"),
+        );
+        let words: Vec<&str> = args.iter().map(|a| a.to_str().unwrap()).collect();
+        assert_eq!(
+            words,
+            [
+                "-c",
+                "-f",
+                "-",
+                "-C",
+                "/repo/data",
+                "monitors",
+                "cores",
+                "systems",
+                "skins",
+                "hardware",
+                "input",
+                "-C",
+                "/repo/target/os-push/data",
+                "arcade",
+            ]
+        );
+    }
+
+    /// The push sends the folders that the image install step copies, and
+    /// writes the index where the image has it.
+    #[test]
+    fn the_data_push_holds_what_the_image_holds() {
+        let mk = repo_file("os/package/neptron/neptron.mk");
+        let copied = mk
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("for dir in "))
+            .and_then(|l| l.strip_suffix("; do \\"))
+            .unwrap();
+        assert_eq!(copied.split_whitespace().collect::<Vec<_>>(), DATA_DIRS);
+        assert!(
+            mk.contains("$(TARGET_DIR)/usr/share/neptron/arcade/fbneo.idx"),
+            "the image index is {ARCADE_DIR}/fbneo.idx"
+        );
+        assert_eq!(crate::arcade::CORE, "fbneo");
+        assert!(
+            mk.contains(&format!(
+                "NEPTRON_ARCADE_DAT = $(LIBRETRO_FBNEO_DIR)/{FBNEO_DAT}"
+            )),
+            "the push reads the DAT that the image build reads"
+        );
+        for dir in DATA_DIRS {
+            assert!(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../data")
+                    .join(dir)
+                    .is_dir(),
+                "data/{dir}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_dat_comes_from_the_core_build_folder_of_the_output() {
+        let mk = repo_file(FBNEO_MK);
+        let version = fbneo_version(&mk).unwrap();
+        assert_eq!(version.len(), 40, "{version}");
+        let step = dat_copy_step(
+            "neptron-dev:0123456789abcdef",
+            "rpi-arm64-dev",
+            version,
+            Path::new("/repo/target/os-push"),
+        );
+        assert_eq!(
+            step[..7],
+            [
+                "run",
+                "--rm",
+                "--volume",
+                "neptron-br-out-rpi-arm64-dev:/work/out:ro",
+                "--volume",
+                "/repo/target/os-push:/work/export",
+                "neptron-dev:0123456789abcdef",
+            ]
+        );
+        assert_eq!(
+            step[7..],
+            [
+                "cp".to_owned(),
+                format!(
+                    "/work/out/build/libretro-fbneo-{version}/dats/\
+                     FinalBurn Neo (ClrMame Pro XML, Arcade only).dat"
+                ),
+                "/work/export/fbneo.dat".to_owned(),
+            ]
+        );
+        assert_eq!(fbneo_version("LIBRETRO_FBNEO_VERSION = abc\n"), Some("abc"));
+        assert_eq!(fbneo_version("LIBRETRO_FBNEO_VERSION =\n"), None);
+        assert_eq!(fbneo_version("LIBRETRO_FBNEO_DATE = 261115\n"), None);
     }
 }

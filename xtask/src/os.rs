@@ -171,6 +171,9 @@ pub enum OsError {
     /// A repository path or a git command failed.
     #[error(transparent)]
     Repo(#[from] RepoError),
+    /// The arcade index of `os push --data` could not be made.
+    #[error("the arcade index of the push: {0}")]
+    Arcade(#[from] crate::arcade::ArcadeError),
 }
 
 /// The usage text of `os build`, `qemu`, `gles-compare`, `kms-check` and
