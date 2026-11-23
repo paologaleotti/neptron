@@ -140,7 +140,9 @@ impl BootCheckArgs {
 }
 
 /// The guest script: check the storage of the disk, wait until the SMB
-/// server of the network share listens, check that every CPU with a
+/// server of the network share listens, check that the kernel has no IPv6
+/// and that the packet filter of the share is loaded, check that `/run`
+/// and a RAM share are tmpfs with a size, check that every CPU with a
 /// cpufreq driver runs the `performance` governor, on x86-64 check that
 /// the kernel enumerates USB with the old scheme first, dismiss the notice
 /// of each RAM folder, wait for the game list, then print the picture. The
@@ -159,8 +161,13 @@ impl BootCheckArgs {
 pub fn guest_script(timeout_secs: u64, arch: Arch) -> String {
     let wait_secs = timeout_secs.saturating_sub(GUEST_MARGIN_SECS).max(1);
     let [state, share] = expected_storage(arch);
+    let ram_sizes = if share == "ram" {
+        "/proc/mounts /run /share"
+    } else {
+        "/proc/mounts /run"
+    };
     let mut steps = format!(
-        "ready && storage state {state} && storage share {share} && network_share && governor {CPU_SYSFS} && "
+        "ready && storage state {state} && storage share {share} && network_share && share_limits /proc/net/if_inet6 && ram_sizes {ram_sizes} && governor {CPU_SYSFS} && "
     );
     if arch == Arch::X86_64 {
         steps.push_str(&format!("usb_scheme {USB_OLD_SCHEME_FIRST} && "));
@@ -206,6 +213,26 @@ network_share() {
 	until cat /proc/net/tcp /proc/net/tcp6 2>/dev/null | awk '$2 ~ /:01BD$/ && $4 == "0A" { found = 1 } END { exit !found }' && pidof mdnsd > /dev/null; do
 		in_time "the network share does not listen on port 445, or mdnsd does not run; was the image built before the network share? rebuild it" || return 1
 		sleep 1
+	done
+}
+share_limits() {
+	# The guest share is for the local network only: no IPv6 ($1 is the
+	# address list of IPv6), and the filter that drops every other source
+	# is in place.
+	if [ -e "$1" ]; then
+		echo "neptron-check: the kernel has IPv6 ($1); the network share must not be reachable over IPv6"; return 1
+	fi
+	iptables-legacy -S neptron-lan 2>/dev/null | grep -qx -e '-A neptron-lan -j DROP' && return 0
+	echo "neptron-check: the packet filter of the network share is not loaded (iptables-legacy -S neptron-lan)"; return 1
+}
+ram_sizes() {
+	# $1 is the mount table. It shows size= for a tmpfs only when the size
+	# is not the default, half of the memory.
+	mounts=$1
+	shift
+	for point in "$@"; do
+		awk -v p="$point" '$2 == p && $3 == "tmpfs" && ("," $4 ",") ~ /,size=/ { found = 1 } END { exit !found }' "$mounts" && continue
+		echo "neptron-check: $point is not a tmpfs with a size in $mounts"; return 1
 	done
 }
 governor() {
@@ -953,12 +980,12 @@ mod tests {
     #[test]
     fn the_guest_script_states_the_storage_it_expects() {
         let x86 = guest_script(900, Arch::X86_64);
-        let checks = "ready && storage state partition && storage share partition && network_share && governor /sys/devices/system/cpu && usb_scheme /sys/module/usbcore/parameters/old_scheme_first && neptron-capture";
+        let checks = "ready && storage state partition && storage share partition && network_share && share_limits /proc/net/if_inet6 && ram_sizes /proc/mounts /run && governor /sys/devices/system/cpu && usb_scheme /sys/module/usbcore/parameters/old_scheme_first && neptron-capture";
         assert!(x86.contains(checks), "{x86}");
         assert!(!x86.contains("&& dismiss "), "no notice to dismiss: {x86}");
         assert!(!x86.contains("&& controlled "), "no input needed: {x86}");
         let arm = guest_script(900, Arch::Aarch64);
-        let checks = "ready && storage state ram && storage share ram && network_share && governor /sys/devices/system/cpu && controlled && dismiss state && dismiss share && neptron-capture";
+        let checks = "ready && storage state ram && storage share ram && network_share && share_limits /proc/net/if_inet6 && ram_sizes /proc/mounts /run /share && governor /sys/devices/system/cpu && controlled && dismiss state && dismiss share && neptron-capture";
         assert!(arm.contains(checks), "{arm}");
         assert!(arm.contains("this server does not serve"), "{arm}");
         assert!(!arm.contains("&& usb_scheme "), "{arm}");
@@ -984,7 +1011,117 @@ mod tests {
             ] {
                 assert!(share.contains(part), "{part}: {share}");
             }
+            let limits = script
+                .split("share_limits() {")
+                .nth(1)
+                .and_then(|rest| rest.split("\n}").next())
+                .expect("the share limits function");
+            for part in [
+                "if [ -e \"$1\" ]; then",
+                "iptables-legacy -S neptron-lan 2>/dev/null | grep -qx -e '-A neptron-lan -j DROP' && return 0",
+                "return 1",
+            ] {
+                assert!(limits.contains(part), "{part}: {limits}");
+            }
+            assert!(script.contains("~ /,size=/"), "{script}");
         }
+    }
+
+    /// Runs the shell function `name` of the guest script with `args`, with
+    /// `iptables-legacy` on the PATH printing `rules`, in the folder `dir`.
+    fn run_guest_function(dir: &Path, name: &str, args: &[&str], rules: &str) -> (bool, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let script = guest_script(900, Arch::X86_64);
+        let body = script
+            .split(&format!("{name}() {{"))
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("the function");
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let fake = bin.join("iptables-legacy");
+        std::fs::write(&fake, format!("#!/bin/sh\nprintf '%s' '{rules}'\n")).unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("{name}() {{{body}\n}}\n{name} \"$@\""))
+            .arg("sh")
+            .args(args)
+            .env("PATH", path)
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+        )
+    }
+
+    /// The boot check fails an image with IPv6 or with no filter on the
+    /// share, and a `/run` or RAM share with no size.
+    #[test]
+    fn the_guest_script_checks_the_limits_of_the_share() {
+        let dir = std::env::temp_dir().join(format!("xtask-boot-limits-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let inet6 = dir.join("if_inet6");
+        let inet6_arg = inet6.to_str().unwrap();
+        let loaded =
+            "-N neptron-lan\n-A neptron-lan -s 127.0.0.0/8 -j ACCEPT\n-A neptron-lan -j DROP\n";
+        let (ok, out) = run_guest_function(&dir, "share_limits", &[inet6_arg], loaded);
+        assert!(ok, "{out}");
+        let (ok, out) = run_guest_function(&dir, "share_limits", &[inet6_arg], "");
+        assert!(!ok);
+        assert!(
+            out.contains("packet filter of the network share is not loaded"),
+            "{out}"
+        );
+        let (ok, out) = run_guest_function(
+            &dir,
+            "share_limits",
+            &[inet6_arg],
+            "-N neptron-lan\n-A neptron-lan -s 127.0.0.0/8 -j ACCEPT\n",
+        );
+        assert!(!ok, "a chain with no DROP: {out}");
+        std::fs::write(&inet6, "fe80000000000000\n").unwrap();
+        let (ok, out) = run_guest_function(&dir, "share_limits", &[inet6_arg], loaded);
+        assert!(!ok);
+        assert!(out.contains("the kernel has IPv6"), "{out}");
+
+        let mounts = dir.join("mounts");
+        let mounts_arg = mounts.to_str().unwrap();
+        let sized = "tmpfs /run tmpfs rw,nosuid,nodev,size=8192k,mode=755 0 0\n\
+                     share /share tmpfs rw,nosuid,nodev,noexec,size=65536k,mode=755,uid=65534,gid=65534 0 0\n";
+        std::fs::write(&mounts, sized).unwrap();
+        let (ok, out) = run_guest_function(&dir, "ram_sizes", &[mounts_arg, "/run", "/share"], "");
+        assert!(ok, "{out}");
+        for (name, text, point) in [
+            (
+                "run",
+                "tmpfs /run tmpfs rw,nosuid,nodev,mode=755 0 0\n",
+                "/run",
+            ),
+            (
+                "share",
+                "tmpfs /run tmpfs rw,size=8192k 0 0\nshare /share tmpfs rw,mode=755 0 0\n",
+                "/share",
+            ),
+            ("missing", "tmpfs /run tmpfs rw,size=8192k 0 0\n", "/share"),
+            (
+                "notmpfs",
+                "tmpfs /run tmpfs rw,size=8192k 0 0\n/dev/sda4 /share exfat rw,size=1 0 0\n",
+                "/share",
+            ),
+        ] {
+            std::fs::write(&mounts, text).unwrap();
+            let (ok, out) =
+                run_guest_function(&dir, "ram_sizes", &[mounts_arg, "/run", "/share"], "");
+            assert!(!ok, "{name}");
+            assert!(
+                out.contains(&format!("{point} is not a tmpfs with a size")),
+                "{name}: {out}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// The script calls `neptronctl` only after the control socket and the

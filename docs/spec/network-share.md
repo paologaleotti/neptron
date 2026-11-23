@@ -192,7 +192,7 @@ The test image gets the same server so that the boot check can see port 445 list
 - The packet filter: the post-build step runs `board/common/check-share-filter.sh` on the target directory. It fails the build when the rule lines of `/etc/neptron/share-filter.rules` are not exactly the expected ones, when `/usr/sbin/iptables-legacy-restore` is missing, when `S45neptron-share` does not load the rules, or when `S35iptables` is in the image. xtask tests run it on fixtures (a missing `DROP`, an added `ACCEPT`, a wider range, a missing jump, no rules file, no tool, no load, `S35iptables`), and run the share script with a filter that does not load.
 - The network script waits at most 1 s for a stopped client to end, so its late `deconfig` cannot remove the address of a new client on a port that came back with the same name.
 - `cargo xtask os share-check --case address` checks the file in QEMU with a network card, a removed port and a port that comes back.
-- The boot check (`cargo xtask os boot-check`, tier 3) waits, inside its deadline, until a socket listens on port 445 and `mdnsd` runs, before it waits for the picture.
+- The boot check (`cargo xtask os boot-check`, tier 3) waits, inside its deadline, until a socket listens on port 445 and `mdnsd` runs, before it waits for the picture. Then it fails when the kernel has IPv6 (`/proc/net/if_inet6`), when the filter chain `neptron-lan` is not loaded with its final `DROP`, or when `/run` or a RAM share is a tmpfs with no size.
 - Hardware checks in `docs/hardware-checklist.md`: Windows 11, Windows 10, macOS, Linux; a large copy; the cable pulled during a copy; a power cut during a copy; the off switch; a boot with no cable; no access over IPv6 and from outside the private ranges.
 
 ## Later steps
