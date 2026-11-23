@@ -456,8 +456,9 @@ fn hz(mhz: u64) -> String {
 pub const NO_DECISION: &str = "No picture decision now";
 
 /// The text of an option of the picture mode or refresh rows while its
-/// answer is in work.
-pub const JUDGING: &str = "…";
+/// answer is in work. Three full stops: the font of the menus has no
+/// ellipsis character.
+pub const JUDGING: &str = "...";
 
 /// Whom a page writes for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2050,6 +2051,17 @@ mod tests {
             &open_caps(),
         )
         .expect("a plan")
+    }
+
+    /// The placeholder of an answer in work is the text of the scenes, and
+    /// the font draws each of its characters.
+    #[test]
+    fn the_placeholder_of_an_answer_in_work_has_glyphs() {
+        assert_eq!(
+            JUDGING,
+            neptron_ui::screens::picture_scenes::picture_texts::JUDGING
+        );
+        assert!(JUDGING.chars().all(has_glyph), "{JUDGING}");
     }
 
     /// A keep judges the pair of the game as stored at the new level: the

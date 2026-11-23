@@ -71,6 +71,9 @@ pub mod picture_texts {
     pub const NOT_USED_ON_A_PANEL: &str = "Not used on a flat panel";
     /// The tag of an option that some reference games do not get.
     pub const NOT_ALL_GAMES: &str = "Not all games";
+    /// An option whose answer is in work. The font has the full stop, not
+    /// the ellipsis character.
+    pub const JUDGING: &str = "...";
     /// The tag of a picture mode that also sets the refresh rate to Auto.
     pub const SETS_RATE_AUTO: &str = "Sets rate Auto";
     /// The longest picture notice of one picture: a stored pair that the
@@ -176,6 +179,36 @@ pub fn quick_reset_modes() -> Vec<ChoiceOption> {
                     .with_detail("15.63 kHz  60.099 Hz")
                     .unavailable(texts::NOT_SHOWN_HERE),
                 _ => option.with_detail("15.65 kHz  50.000 Hz"),
+            }
+        })
+        .collect()
+}
+
+/// The picture modes of the quick menu while their first answers are in
+/// work: every option greyed with [`texts::JUDGING`].
+pub fn quick_judging_modes() -> Vec<ChoiceOption> {
+    PICTURE_MODE_TEXTS
+        .iter()
+        .map(|&(label, help)| {
+            ChoiceOption::new(label)
+                .with_help(help)
+                .unavailable(texts::JUDGING)
+        })
+        .collect()
+}
+
+/// The picture modes of the quick menu after a pick, while the new answers
+/// are in work: the last settled answers ([`quick_reset_modes`]) stay on
+/// show, and each offered option takes no pick until the new answers are
+/// there.
+pub fn quick_last_modes() -> Vec<ChoiceOption> {
+    quick_reset_modes()
+        .into_iter()
+        .map(|option| {
+            if option.is_enabled() {
+                option.unavailable(texts::JUDGING)
+            } else {
+                option
             }
         })
         .collect()

@@ -174,8 +174,11 @@ impl Options {
         match &option.unavailable {
             Some(reason) => {
                 let mut text = StackText::<HELP_BYTES>::new();
+                // A reason that ends a sentence itself, such as the "..." of
+                // an answer in work, takes no second full stop.
+                let stop = if reason.ends_with('.') { "" } else { "." };
                 // `StackText` never fails; it drops what does not fit.
-                let _ = write!(text, "Not available. {reason}.");
+                let _ = write!(text, "Not available. {reason}{stop}");
                 chrome::paragraph(frame, theme, help, theme.colors.text, text.as_str());
             }
             None if option.help.is_empty() => {

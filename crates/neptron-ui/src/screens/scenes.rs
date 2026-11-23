@@ -103,6 +103,14 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: picture_mode_reset,
     },
     SceneDef {
+        name: "screens/picture-mode-judging",
+        build: picture_mode_judging,
+    },
+    SceneDef {
+        name: "screens/picture-mode-judging-last",
+        build: picture_mode_judging_last,
+    },
+    SceneDef {
         name: "screens/notice-picture-long",
         build: notice_picture_long,
     },
@@ -767,6 +775,25 @@ fn picture_mode_speed_not_held(frame: &mut UiFrame, theme: &Theme) {
 /// rate to Auto, and its help line keeps its own text.
 fn picture_mode_reset(frame: &mut UiFrame, theme: &Theme) {
     quick_picture_mode(frame, theme, quick_reset_modes(), 2);
+}
+
+/// The picture modes on the quick menu while their first answers are in
+/// work: every option shows "..." and takes no pick.
+fn picture_mode_judging(frame: &mut UiFrame, theme: &Theme) {
+    quick_picture_mode(
+        frame,
+        theme,
+        super::picture_scenes::quick_judging_modes(),
+        2,
+    );
+}
+
+/// The picture modes on the quick menu after a pick, while the new
+/// answers are in work: the last answers stay, with their tags and
+/// reasons, and the offered options show "..." until the new ones are
+/// there.
+fn picture_mode_judging_last(frame: &mut UiFrame, theme: &Theme) {
+    quick_picture_mode(frame, theme, super::picture_scenes::quick_last_modes(), 2);
 }
 
 /// The refresh choices on Settings > Display on `pc_31_120`: Double rate
