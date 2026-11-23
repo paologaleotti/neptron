@@ -189,3 +189,29 @@ fn a_running_game_never_shows_it_and_a_paused_game_does() {
         rig.finish();
     });
 }
+
+#[test]
+#[ignore = "tier 2"]
+fn a_held_direction_holds_it_off() {
+    let name = test_name(module_path!(), "a_held_direction_holds_it_off");
+    in_child(&name, |dir| {
+        let mut rig = Rig::new(dir);
+        rig.boot(None);
+        rig.scanned();
+        set(
+            &mut rig,
+            "display.screensaver_minutes",
+            Value::String("1".to_owned()),
+        );
+        // The key repeat makes actions with no new event.
+        rig.hold(&[Control::Down]);
+        for _ in 0..frames_for(2 * MINUTE_NS) {
+            rig.frames(1);
+            assert!(!shows(&mut rig));
+        }
+        rig.release(&[Control::Down]);
+        let last_repeat = rig.clock.now_ns() - neptron::nav::REPEAT_INTERVAL_NS;
+        idle_until_it_shows(&mut rig, last_repeat, MINUTE_NS);
+        rig.finish();
+    });
+}
