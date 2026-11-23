@@ -170,13 +170,27 @@ Why not a container image on GHCR: it would also work, and container storage on 
 
 | Artifact | From | Retention | Contents |
 | --- | --- | --- | --- |
-| `neptron-pc-x86_64` | `image x86_64`, on success | 7 days | `neptron-x86_64.img`, `SHA256SUMS`, `legal/`, `LICENCES.txt`, `README.txt` |
-| `neptron-pc-x86_64-sources` | `image x86_64`, on success | 7 days | The source archives of `make legal-info`, with the kernel and its patches; they go out with the image (the written offer in `LICENCES.txt`) |
-| `neptron-rpi-arm64` | `image rpi-arm64`, on success | 7 days | `neptron-rpi-arm64.img`, `SHA256SUMS`, `legal/`, `LICENCES.txt` (of `os/board/rpi`, with the terms of the Broadcom firmware), `README.txt` |
-| `neptron-rpi-arm64-sources` | `image rpi-arm64`, on success | 7 days | The source archives of `make legal-info` |
+| `neptron-pc-x86_64` | `image x86_64`, on success | 7 days | `neptron-x86_64.img`, `SHA256SUMS`, `legal/` (manifest, licence texts, `neptron-rust/`), `LICENCES.txt` (from the boot partition of the image, with its commit), `README.txt` |
+| `neptron-pc-x86_64-sources` | `image x86_64`, on success | 7 days | `neptron-pc-x86_64-sources.tar`: the sources archive of the image (see "The sources archive"); it goes out with the image |
+| `neptron-rpi-arm64` | `image rpi-arm64`, on success | 7 days | `neptron-rpi-arm64.img`, `SHA256SUMS`, `legal/`, `LICENCES.txt` (of the Pi boot partition, with the terms of the Broadcom firmware), `README.txt` |
+| `neptron-rpi-arm64-sources` | `image rpi-arm64`, on success | 7 days | `neptron-rpi-arm64-sources.tar`, the same for the Pi image |
 | `t3-<target>` | Each QEMU image job | 14 days | The boot check report, the captured picture (PPM and PNG), the expected and diff pictures on a failure, the QEMU console logs, the core traces |
 | `verify-lint`, `verify-linux`, `verify-macos` | A failed check job | 14 days | `target/verify/report.json`; for a golden failure the expected, actual and diff pictures of `cargo xtask golden` and the actual pictures of the `neptron-gfx` goldens |
 | `br-base-v<format>-<target>-<key>`, `br-partial-v<format>-<target>-<key>` | Image jobs | 30 days | The Buildroot base (see above) |
+
+### The sources archive
+
+The step "Collect the image, its checksum, the licences and the sources" makes one tar file per uploaded image, with everything needed to build that image again:
+
+- `legal-info/`: `sources/` of `make legal-info` (the archive of each package that Buildroot gives out, with its patches and `series`; the PC kernel with the 15 kHz patch set is in `sources/linux-6.18.63`), `manifest.csv` and `README`. Host packages (`host-sources`) are not in it: they build the image and are not in it.
+- `buildroot-<version>.tar.gz`: the Buildroot release of the `Dockerfile`, downloaded from buildroot.org and checked against the SHA-256 of the `Dockerfile`.
+- `neptron-<commit>.tar.xz`: `git archive` of the checked-out commit, the commit that the image names. It holds `os/` (the br2-external tree: defconfigs, board files and scripts, package files, kernel configuration fragments), the `Dockerfile` and `xtask`. It leaves out `tests/roms/nes`: no image holds the GPL test ROM, so the archive gives out no binary without its source.
+- `neptron-<commit>-vendor.tar.xz`: `VENDOR/` and `.cargo/config.toml` of the build folder of the `neptron` package: the crates of `Cargo.lock` that the build used.
+- `README.txt`: what each part is and how to build again.
+
+Legal-info does not save the source of the NEPTRON packages (`neptron`, `neptron-launch`, `neptronctl`): its copy of a local package ignores the rsync exclusions and would take the build output of the checkout. The NEPTRON archive and the vendor archive take its place. The Pi sources artifact was 1.0 GB before this change; the Buildroot archive adds about 8 MB, the NEPTRON archive about 2 MB and the vendored crates about 16 MB (the `.crate` files of `Cargo.lock`, compressed). The size of the archive is in the summary of each run.
+
+Before the upload, the step checks the image against the SHA-256 that "Record the checksums of the built images" wrote right after the build, so the file that goes out is the file that the checks ran on. "Check the release variant" (`.github/check-release-variant.sh`) fails the job when the output holds the SSH server or a file of the development variant, or when the boot partition of the image file does not say `Variant: release`.
 
 Get them on the run page (Summary, Artifacts) or with `gh run download RUN_ID --name NAME`. A downloaded image is written to a stick as `os/README.md` describes. Check it first: `sha256sum -c SHA256SUMS`.
 
@@ -189,7 +203,7 @@ Get them on the run page (Summary, Artifacts) or with `gh run download RUN_ID --
 ## Add an image target
 
 1. Add the defconfig to `os/configs` and the target to `xtask` (`os build --arch NAME` and the commands of tier 3), with tests.
-2. Add an entry to `.github/image-targets.json`: `name`, `runner`, `arch`, `defconfig`, `fragments`, `base_paths` (the paths whose files go into the key of the base, beside the Dockerfile, the defconfig and the fragments), `build_args` (the arguments of `cargo xtask os build`), `images_dir` (the directory under `~/.cache/neptron/buildroot/images`), `image_files`, `licences` (the licence notes that go into the image artifact), `artifact`, `upload_image`, `rebuild` (the local packages that the defconfig selects), `checks` (from `boot`, `boot-bios`, `boot-uefi`, `app`, `kms`, `gles`, `selftest`, `core`, `share`, `pi-layout`) and `build_minutes` (the time limit of the build step; the job stops at 355 minutes).
+2. Add an entry to `.github/image-targets.json`: `name`, `runner`, `arch`, `defconfig`, `fragments`, `base_paths` (the paths whose files go into the key of the base, beside the Dockerfile, the defconfig and the fragments), `build_args` (the arguments of `cargo xtask os build`), `images_dir` (the directory under `~/.cache/neptron/buildroot/images`), `image_files` (an uploaded target has one raw `.img` file), `artifact`, `upload_image`, `rebuild` (the local packages that the defconfig selects), `checks` (from `boot`, `boot-bios`, `boot-uefi`, `app`, `kms`, `gles`, `selftest`, `core`, `share`, `pi-layout`) and `build_minutes` (the time limit of the build step; the job stops at 355 minutes).
 3. Set `"enabled": true`.
 
 A target names its kernel patches through its defconfig and its fragments. The patch check step runs for every target, so an output whose patches differ from what the target names fails before any upload.

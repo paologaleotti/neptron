@@ -11,18 +11,33 @@
 #   one is set). The step "Check the kernel patches of the output" proves,
 #   on each output before any upload, cache or base, that the kernel
 #   applied exactly the patches that the defconfig and fragments of the
-#   target name. A kernel binary is GPL-2.0: the sources artifact (kernel
-#   archive, patches and series) goes with every uploaded image, with the
-#   same retention.
-# - OP-054: the images hold Snes9x and Genesis Plus GX (non-commercial
-#   licences). An uploaded image carries the licence manifest and the
-#   licence texts, and the GPL sources go in an artifact beside it. There is
-#   no GitHub Release: artifacts with a short retention only.
+#   target name.
+# - The sources archive goes with every uploaded image, with the same
+#   retention: the legal-info sources (the kernel archive, its patches and
+#   series among them), the Buildroot release of the Dockerfile, the
+#   NEPTRON tree at the commit (which holds os/, the br2-external tree) and
+#   the vendored Rust crates of the build.
+# - ADR 0019: the images hold FinalBurn Neo, Snes9x and Genesis Plus GX
+#   (non-commercial licences), so an image may not be sold. An uploaded
+#   image carries the licence manifest, the licence texts and LICENCES.txt
+#   of its own boot partition.
+# - An uploaded image is the file that the checks ran on (its SHA-256 is
+#   recorded after the build and checked before the upload), and it is the
+#   release variant (.github/check-release-variant.sh).
+# - release.yml calls this workflow with release: true for a version tag.
+#   Each uploaded image then also becomes the release assets: the
+#   compressed image and its sources archive, named by
+#   `cargo xtask release-names`.
 
 name: Images
 
 on:
   workflow_call:
+    inputs:
+      release:
+        description: Make the assets of the GitHub Release of the tag
+        type: boolean
+        default: false
   workflow_dispatch:
 
 permissions: {}
@@ -65,6 +80,7 @@ jobs:
               - 'Dockerfile'
               - '.github/image-targets.json'
               - '.github/check-pi-image.sh'
+              - '.github/check-release-variant.sh'
               - '.github/workflows/images.yml'
               - 'xtask/src/os.rs'
               - 'xtask/src/os/**'
@@ -351,6 +367,17 @@ jobs:
           echo "Image build: $(( $(date +%s) - start )) s (base: ${{ steps.base.outputs.state }})" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # The checks below boot copies or snapshots of the image. The upload
+      # checks these sums, so the file that goes out is the file that the
+      # checks ran on.
+      - name: Record the checksums of the built images
+        if: steps.build.outcome == 'success' && matrix.upload_image
+        env:
+          FILES: ${{ join(matrix.image_files, ' ') }}
+        run: |
+          mkdir -p "$WORK/dist"
+          (cd "$IMAGES" && sha256sum $FILES) | tee "$WORK/dist/built.sha256"
+
       # ADR 0018. Every later step that uploads or caches the output, the
       # image or the base runs only after this step passed. The configuration
       # of the output must name the kernel patches that the defconfig and the
@@ -476,32 +503,95 @@ jobs:
             target/core-trace/actual
             target/qemu/*-console.log
 
-      - name: Collect the image, its checksum and the licence manifest
+      # The image that goes out is the release variant, and for a release
+      # it names the tag and exactly the commit of the tag.
+      - name: Check the release variant
+        if: success() && matrix.upload_image
+        env:
+          IMAGE: ${{ matrix.image_files[0] }}
+          TAG: ${{ inputs.release && github.ref_name || '' }}
+        run: |
+          sha=
+          [ -n "$TAG" ] && sha=$(git rev-parse HEAD)
+          .github/check-release-variant.sh "$IMAGES/$IMAGE" "$OUT_DIR" $TAG $sha
+
+      - name: Collect the image, its checksum, the licences and the sources
         if: success() && matrix.upload_image
         env:
           FILES: ${{ join(matrix.image_files, ' ') }}
           ARTIFACT: ${{ matrix.artifact }}
-          LICENCES: ${{ matrix.licences }}
         run: |
+          head=$(git rev-parse HEAD)
           dist="$WORK/dist/$ARTIFACT"
-          mkdir -p "$dist/legal" "$WORK/dist/sources"
+          src="$WORK/dist/$ARTIFACT-sources"
+          mkdir -p "$dist/legal" "$src/legal-info"
+          (cd "$IMAGES" && sha256sum -c "$WORK/dist/built.sha256")
           for f in $FILES; do cp "$IMAGES/$f" "$dist/"; done
           sudo cp "$OUT_DIR"/legal-info/*.csv "$OUT_DIR"/legal-info/*.txt "$dist/legal/" 2>/dev/null || true
           sudo cp -r "$OUT_DIR/legal-info/licenses" "$dist/legal/"
-          sudo cp -r "$OUT_DIR/legal-info/sources" "$WORK/dist/sources/"
+          cp -r "$IMAGES/boot-part/legal/neptron-rust" "$dist/legal/"
+          cp "$IMAGES/boot-part/LICENCES.txt" "$dist/LICENCES.txt"
+
+          # The sources archive: everything needed to build the image again.
+          sudo cp -r "$OUT_DIR/legal-info/sources" "$OUT_DIR/legal-info/manifest.csv" \
+            "$OUT_DIR/legal-info/README" "$src/legal-info/"
+          br_version=$(sed -n 's/^ARG BUILDROOT_VERSION=//p' Dockerfile)
+          br_sha256=$(sed -n 's/^ARG BUILDROOT_SHA256=//p' Dockerfile)
+          br="$src/buildroot-$br_version.tar.gz"
+          curl -fsSL --retry 3 -o "$br" "https://buildroot.org/downloads/buildroot-$br_version.tar.gz"
+          echo "$br_sha256  $br" | sha256sum -c -
+          # No image holds the GPL test ROM (tests/roms/README.md); the
+          # archive leaves it out, so it gives out no binary without source.
+          git archive --format=tar --prefix="neptron-$head/" HEAD -- . ':(exclude)tests/roms/nes' \
+            | xz -T0 -6 > "$src/neptron-$head.tar.xz"
+          vendor=$(sudo sh -c 'ls -d "$1"/build/neptron-[0-9]*/VENDOR' sh "$OUT_DIR")
+          [ "$(echo "$vendor" | wc -l)" = 1 ] || { echo "not one vendor folder: $vendor"; exit 1; }
+          sudo tar -C "${vendor%/VENDOR}" -cf - VENDOR .cargo/config.toml \
+            | xz -T0 -6 > "$src/neptron-$head-vendor.tar.xz"
+          cat > "$src/README.txt" <<EOF
+          The source code of NEPTRON $ARTIFACT ($FILES), commit $head,
+          CI run $GITHUB_RUN_ID. LICENCES.txt of the image names the same commit.
+
+          - legal-info/: the output of make legal-info of the build. sources/
+            holds the source archive of each package that Buildroot gives out,
+            with the patches that the build applies and their order (series);
+            the kernel, with the 15 kHz patch set of the PC image, is in
+            sources/linux-*. manifest.csv lists every package, its version and
+            its licence.
+          - buildroot-$br_version.tar.gz: Buildroot $br_version, the build system
+            (https://buildroot.org/downloads/, SHA-256 $br_sha256).
+          - neptron-$head.tar.xz: the NEPTRON tree at that commit: the
+            programs, os/ (the br2-external tree: defconfigs, board files and
+            scripts, package files, kernel configuration fragments), the
+            Dockerfile of the build container and xtask, which runs the build.
+            tests/roms/nes is left out: no image holds the test ROM.
+          - neptron-$head-vendor.tar.xz: the Rust crates that the build took
+            from crates.io for Cargo.lock (VENDOR/), and the Cargo settings
+            that use them (.cargo/config.toml).
+
+          To build the image again, unpack the NEPTRON tree and run
+          cargo xtask os build --arch ARCH in it, as os/README.md describes.
+          It builds the container of the Dockerfile, which runs this Buildroot
+          release, and Buildroot downloads the package archives that
+          legal-info/sources holds, checked against the hash files.
+          EOF
           sudo chown -R "$(id -u):$(id -g)" "$WORK/dist"
-          cp "$LICENCES" "$dist/LICENCES.txt"
+          (cd "$WORK/dist" && tar -cf "$ARTIFACT-sources.tar" "$ARTIFACT-sources" && rm -rf "$ARTIFACT-sources")
+
           cat > "$dist/README.txt" <<EOF
-          NEPTRON $ARTIFACT, commit $GITHUB_SHA, CI run $GITHUB_RUN_ID.
-          LICENCES.txt names the kernel and its patches with their licences.
-          The image holds Snes9x and Genesis Plus GX, which allow non-commercial
-          use only: never sell this image. legal/ holds the licence manifest and
-          the licence texts. The sources of the GPL and LGPL packages, the
-          kernel with its patches among them, are in the artifact
-          $ARTIFACT-sources of the same run. Give them out with the image.
+          NEPTRON $ARTIFACT, commit $head, CI run $GITHUB_RUN_ID.
+          LICENCES.txt (also on the boot partition of the image) names the
+          commit, the licences, the kernel and its patches. The image holds
+          FinalBurn Neo, Snes9x and Genesis Plus GX, which may not be sold or
+          used commercially, so this image may not be sold. Every other
+          program keeps its own licence. legal/ holds the licence manifest,
+          the licence texts and the notices of the Rust crates. The source
+          code is the artifact $ARTIFACT-sources of the same run
+          ($ARTIFACT-sources.tar). Give it out with the image.
           EOF
           (cd "$dist" && sha256sum $FILES > SHA256SUMS && cat SHA256SUMS)
-          du -sh "$dist" "$WORK/dist/sources"
+          du -sh "$dist" "$WORK/dist/$ARTIFACT-sources.tar"
+          ls -l "$WORK/dist/$ARTIFACT-sources.tar" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the image
         if: success() && matrix.upload_image
@@ -518,7 +608,7 @@ jobs:
           name: ${{ matrix.artifact }}-sources
           retention-days: 7
           compression-level: 0
-          path: ${{ env.WORK }}/dist/sources
+          path: ${{ env.WORK }}/dist/${{ matrix.artifact }}-sources.tar
 
       # A build step that ran out of time can leave its container running.
       - name: Stop the build containers
