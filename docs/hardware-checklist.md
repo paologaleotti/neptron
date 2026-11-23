@@ -1,8 +1,13 @@
 # Hardware check list
 
-Emulation cannot verify these checks. Each one needs real hardware, and each one is labelled `needs-hardware` until a person runs it. A result is written here only when a person ran the check and the result is recorded, with its date and its source (a document or a commit). The orchestrator adds the checks of each task when the task merges.
+Emulation cannot verify these checks. Each one needs real hardware, and each one is labelled `needs-hardware` until a person runs it. A result is written here only when a person ran the check, with its date and its source (a document or a commit). A check that is done keeps one line with its result. The orchestrator adds the checks of each task when the task merges.
 
-The list is grouped by machine and session: the PC bench with the VGA CRT, the PC on a flat panel, the PC with any monitor, the PC with a 15 kHz display, the Raspberry Pi 3 on HDMI, the Raspberry Pi 3 on composite, and any machine. Each group starts with the results recorded so far.
+Sections 1 to 7 group the checks by machine and setup: the PC with the VGA CRT, the PC on a flat panel, the PC with any monitor, the PC with a 15 kHz display, the Raspberry Pi 3 on HDMI, the Raspberry Pi 3 on composite, and any machine. Each group starts with the results recorded so far. The sections after section 7 hold the checks of one feature on several machines; each check names its machine.
+
+Two limits of the images decide where a check can run:
+
+- Every PC GPU in `data/hardware/matrix.toml` has `interlace = false` (the bench PC is `intel_gen9`). The validator refuses an interlaced mode on the PC, so a check of an interlaced mode (480i, 576i, 448i, 768i) runs on the Pi 3 composite output, never on the PC. Only `kms-spike` with `--allow-interlace` commits an interlaced mode on the PC.
+- The Pi image ships only the `vc4-kms-v3d` overlay (and `disable-bt` in the development variant, `os/board/rpi/post-image.sh`), with no DPI overlay. A check on "a Pi 3 on DPI" is marked "Not possible in this image".
 
 ## How to record a result
 
@@ -25,18 +30,14 @@ The frontend falls back to its safe default when it has no settings, after two f
 
 - Do the check "Find the VGA connector" first. Its result decides the rest:
   - **EDID**: the `edid` file of the connector is not empty. The safe default is the EDID profile, and every check below can run.
-  - **No EDID**: the file is empty. Before the frontend starts with the 740s connected, write the preset into `/state/config/global.toml` (`[display]` with `monitor = "pc_31_120"`), and confirm the boot prompt within 15 s; with no confirmation the guard reverts to the safe default. Skip each check marked "Needs EDID", and write "skipped: no EDID through the bridge" under it.
+  - **No EDID**: the file is empty. Before the frontend starts with the 740s connected, write the preset into `/state/config/global.toml` (`[display]` with `monitor = "pc_31_120"`), and confirm the boot prompt within 15 s (`CONFIRM_WINDOW_NS`); with no confirmation the guard reverts to the safe default. Skip each check marked "Needs EDID", and write "skipped: no EDID through the bridge" under it.
 - Keep a hand on the power switch of the monitor. Switch the monitor off at once if it whines, clicks, or shows a rolling or folded picture, and write down what the tool or the frontend showed at that moment.
 - A check marked "Needs EDID" can make the frontend fall back to the safe default.
 
 ### First boot and safety checks
 
-Do these before the CRT gets a mode that nobody checked on it.
+Do these before the CRT gets a mode that nobody checked on it. First boot the image on a flat panel (section 3, the first check of "The PC image (T28)").
 
-- [ ] `needs-hardware` **The image boots on any monitor.**
-  - Do: boot the USB image of the x86_64 target with a flat panel connected, not the CRT.
-  - Expect: the game list shows.
-  - Record: the boot time to the game list, and the connector name in the log of the frontend.
 - [ ] `needs-hardware` **Find the VGA connector.**
   - Do: with the CRT connected through the bridge, run `ls /sys/class/drm/` and `cat /sys/class/drm/card0-*/status`, or `kms-spike --list-connectors`.
   - Expect: one connector of the bridge is connected. It is probably `DP-1`, not `VGA-1`.
@@ -72,7 +73,7 @@ Do these before the CRT gets a mode that nobody checked on it.
 
 - [ ] `needs-hardware` **The self-test on `pc_31_120`.**
   - Do: `neptronctl selftest video --profile pc_31_120 --connector <name> --report /tmp/selftest-pc.json --i-have-checked-the-monitor pc_31_120`
-  - Expect: each mode shows for 10 s. The white border is visible on all four edges, the cross is at the centre, and the text names the family, the size, the rates and the pixel clock. The monitor holds each mode with no roll, tear or flicker. If the monitor shows its frequencies, 240p and the super widths read about 31.4 kHz at 120 Hz, and 480p about 31.4 kHz at 60 Hz. The tool prints `PASS` for each mode, `Restore: the output is off`, `Result: PASS`, and exits with 0.
+  - Expect: each mode shows for 10 s. The white border is visible on all four edges, the cross is at the centre, and the text names the family, the size, the rates and the pixel clock. The read back equals the request, and the monitor holds each mode with no roll, tear, flicker or offset. If the monitor shows its frequencies, 240p and the super widths read about 31.4 kHz at 120 Hz, and 480p about 31.4 kHz at 60 Hz. The tool prints `PASS` for each mode, `Restore: the output is off`, `Result: PASS`, and exits with 0.
   - Record: for each mode, from the report: `readback_equal`, `timing.period_error_ppm`, `timing.implied_pclock_hz` against `request.pclock_hz`, `timing.missed_vblanks` and `timing.flips_per_second_mhz`. For each mode, what the picture showed: how much of the border is hidden, and whether the picture sits off centre.
 - [ ] `needs-hardware` **The self-test on the EDID profile.**
   - Do: if the bridge passes EDID, the same with `--profile edid --i-have-checked-the-monitor <edid id>`.
@@ -97,6 +98,8 @@ Do these before the CRT gets a mode that nobody checked on it.
 
 ### kms-spike (T21)
 
+Keep the JSON report and `dmesg | tail -50` of every run of the spike.
+
 - [ ] `needs-hardware` **Build the spike.**
   - Do: build on Linux with `cargo build -p kms-spike --features kms` (dev profile).
   - Expect: it builds. The release profile aborts on a panic and skips the restore guard, so do not use it.
@@ -107,8 +110,8 @@ Do these before the CRT gets a mode that nobody checked on it.
   - Record: the restore plan.
 - [ ] `needs-hardware` **Confirmed run of the spike.**
   - Do: `kms-spike pc_31_120 --connector <name> --i-have-checked-the-monitor`.
-  - Expect: for each mode, the border is visible on all four edges, the cross is centred, and the label matches the mode. The monitor's on-screen display shows about 31.4 kHz at 120 Hz for 240p, and 31.4 kHz at 60 Hz for 480p. In the report, `test_commit` and `commit` are ok, and `readback.equals_request` is true. For a progressive mode, `vblank.rate_mhz` is within 1 % of the field rate. At the end, the console comes back in its own mode after the "output off" restore, and the summary shows `restore:` with no `RESTORE FAILED`.
-  - Record: for 480i, `rate_mhz` against the field rate and twice the field rate. `flip_cadence` together with `flips.skipped_vblanks`. `implied_pclock_hz` against `requested.pclock_hz` and against `/sys/kernel/debug/dri/0/i915_display_info`.
+  - Expect: for each mode, the border is visible on all four edges, the cross is centred, and the label matches the mode. The monitor's on-screen display shows about 31.4 kHz at 120 Hz for 240p, and 31.4 kHz at 60 Hz for 480p. 480i is refused: `pc_31_120` has no interlaced range. In the report, `test_commit` and `commit` are ok, and `readback.equals_request` is true. For a progressive mode, `vblank.rate_mhz` is within 1 % of the field rate. At the end, the console comes back in its own mode after the "output off" restore, and the summary shows `restore:` with no `RESTORE FAILED`.
+  - Record: `flip_cadence` together with `flips.skipped_vblanks`. `implied_pclock_hz` against `requested.pclock_hz` and against `/sys/kernel/debug/dri/0/i915_display_info`.
 - [ ] `needs-hardware` **A low clock through the bridge.**
   - Do: `kms-spike pc_31_120 --connector <name> --width 320 --allow-low-pclock 10000000 --i-have-checked-the-monitor` (about 12.8 MHz).
   - Expect: the test-only commit passes or fails with a clear error.
@@ -121,10 +124,6 @@ Do these before the CRT gets a mode that nobody checked on it.
   - Do: show 480p of `pc_31_120` with the spike.
   - Expect: the vertical porches are about 14, 3 and 27 lines (VGA is 10, 2 and 33).
   - Record: whether the picture sits off centre.
-- [ ] `needs-hardware` **Keep the spike's files.**
-  - Do: after every run of the spike, save `dmesg | tail -50` and the JSON report.
-  - Expect: one pair of files per run.
-  - Record: where the files are.
 
 ### KMS backend (T23) and blank (C07)
 
@@ -138,10 +137,6 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Do: open the display and do not set a mode.
   - Expect: the firmware's mode is still on the wire (i915 inherits it) until the first `set_mode`.
   - Record: what the monitor shows.
-- [ ] `needs-hardware` **Each bench mode.**
-  - Do: set 240p at 120 Hz and 480p at 60 Hz of `pc_31_120` (the self-test does it).
-  - Expect: the read back equals the request, and the picture shows the full test scene with no offset.
-  - Record: the self-test report.
 - [ ] `needs-hardware` **Positive sync on the wire.**
   - Do: set a mode with positive horizontal and vertical sync.
   - Expect: the read back has both polarities positive, and a scope or the monitor's on-screen display shows positive sync.
@@ -170,9 +165,9 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Do: end the frontend normally.
   - Expect: the plane goes off and the last validated mode stays on the wire, or the output goes off if i915 refuses an active CRTC with no primary plane.
   - Record: which of the two.
-- [ ] `needs-hardware` **Restore after a panic in the release build.**
-  - Do: cause an abort in the release build, with the launcher holding the descriptor.
-  - Expect: the mode and the last picture stay. The respawned frontend sets the last validated mode again.
+- [ ] `needs-hardware` **Restore after a crash of the frontend.**
+  - Do: in the release build, cause an abort, with the launcher holding the descriptor (over SSH: `kill -ABRT` of the frontend).
+  - Expect: the launcher's descriptor survives, the mode and the last picture stay on the VGA output, and the launcher starts the frontend again. The respawned frontend sets the last validated mode again.
   - Record: what the monitor shows during the respawn.
 - [ ] `needs-hardware` **Restore after a kill with no launcher.**
   - Do: kill a frontend that opened the device itself.
@@ -210,9 +205,8 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
 
 - [ ] `needs-hardware` **Double refresh for `native` on 31 kHz.**
   - Do: play a 240-line game with the style `native` on the 740s (`pc_31_120`).
-  - Expect: the mode runs at double refresh near 120 Hz, and the notice shows.
-  - Record: the mode in the quick menu.
-
+  - Expect: the mode runs at double refresh near 120 Hz, and the notice shows. The motion is smooth, at the right speed.
+  - Record: the mode in the quick menu, and what the motion looks like.
 - [ ] `needs-hardware` **A narrow mode with a whole-kHz clock.** (C09)
   - Do: on a 31 kHz monitor, play a Game Gear game on `arcade_31`. Check the ranges of `arcade_31` against the monitor first with the self-test dry run.
   - Expect: the picture is centred and stable.
@@ -220,8 +214,8 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
 
 ### Engine and guard (T26)
 
-- [ ] `needs-hardware` **A change with no button press reverts.**
-  - Do: on the 740s, change the monitor profile and press nothing.
+- [ ] `needs-hardware` **A change with no button press reverts.** (MVP exit)
+  - Do: on the 740s, change the monitor profile and press nothing. For the MVP exit, do it on the EDID profile of the 740s (Needs EDID).
   - Expect: the change reverts 15 s after its picture appears.
   - Record: the time to the revert.
 - [ ] `needs-hardware` **A confirmed change stays.**
@@ -232,7 +226,7 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Do: kill the frontend with SIGKILL twice before 3 s of picture.
   - Expect: the third start comes up in the safe default.
   - Record: the profile of the third start.
-- [ ] `needs-hardware` **Blind recovery.** Needs EDID.
+- [ ] `needs-hardware` **Blind recovery.** (MVP exit) Needs EDID.
   - Do: hold Select and Start for 5 s with no picture (output off), and again during an open confirm dialog.
   - Expect: the safe default comes back with the audio cue.
   - Record: the time to the picture.
@@ -247,18 +241,10 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Do: launch a Genesis Plus GX game on KMS.
   - Expect: one modeset at launch, and no audio gap at launch or at a mode switch.
   - Record: the modesets in the log.
-- [ ] `needs-hardware` **Double refresh motion.**
-  - Do: play with double refresh on the 31 kHz CRT.
-  - Expect: smooth motion at the right speed.
-  - Record: what the motion looks like.
 - [ ] `needs-hardware` **The quick menu over a frozen frame.**
   - Do: open the quick menu during a game on the CRT.
   - Expect: the menu shows over the frozen frame.
   - Record: what the picture shows.
-- [ ] `needs-hardware` **Save RAM survives a power cut.**
-  - Do: cut the power during play, after an in-game save.
-  - Expect: the save file is there after the reboot.
-  - Record: the file and its `.bak`.
 - [ ] `needs-hardware` **Audio latency on the i3-6100T.**
   - Do: play a click on a frame, and measure the time from the flip to the sound.
   - Expect: about 64 ms.
@@ -282,27 +268,22 @@ Each check is `needs-hardware`. `docs/spec/display-guard.md` describes the rules
 - [ ] Blind recovery on this monitor, with and without EDID. Do: hold Select and Start for 5 s. Expect: the safe default with the tone; in Settings, Display, the row "Keep this picture" ends safe mode. Record: what the monitor shows.
 - [ ] A named 15 kHz preset with an analog EDID of a PC monitor: `arcade_15` written in `global.toml`, and a VGA EDID emulator (or a KVM) that reports 30 to 70 kHz in front of a PC CRT, never in front of a 15 kHz tube. Do: boot and press nothing; then boot again; then hold Select and Start for 5 s. Expect: the boot prompt, then the 15 kHz safe start (out of range on the PC CRT); `global.toml` names `generic_15`, not `auto`; the next boot and the recovery send 15 kHz too. Record: the line rate of each mode in the log of the frontend.
 
-### MVP exit on the 740s
-
-- [ ] `needs-hardware` **Confirm-or-revert and blind recovery on the 740s.** (MVP exit) Needs EDID.
-  - Do: as in "Engine and guard", on the EDID profile of the 740s.
-  - Expect: confirm-or-revert reverts with no button press, and blind recovery restores the safe mode.
-  - Record: the results.
-
 ### The bridge is a CRT output (C08)
 
 - [ ] The bench (DP-to-VGA bridge, SyncMaster 740s). Do: start with `display.monitor = "auto"` and read the display panel. Expect: the CRT path, never the panel path; the limits are 165 MHz and 1920x1200. Record: the `subconnector` value and the profile id.
 
 ## 2. PC i3-6100T on a flat panel
 
-The first hardware session (2026-11-13) used the development image on a Dell U2724D (2560x1440, DisplayPort).
+The first hardware session (2026-11-13) used the development image on a Dell U2724D (2560x1440, DisplayPort). OP-078 to OP-084 record its findings.
 
 Results recorded:
 
-- 2026-11-13: the development image boots on the Dell U2724D, and a Mario game plays (the owner's report). Source: the owner; OP-078 to OP-084 record the findings of the session.
+- 2026-11-13: the development image boots on the Dell U2724D, and a Mario game plays (the owner's report).
 - 2026-11-13: the menu runs at 2560x1440 and 120 Hz, and a 59.923 Hz game switches to the 59.951 Hz mode (OP-081).
 - 2026-11-13: the frontend started three times with "no connected display found" before the DisplayPort monitor answered (OP-083, fixed by C11; the check is below).
-- 2026-11-13: sound plays on the PC, and the network share takes files (the owner's report; the details of the output and the client are not recorded).
+- 2026-11-13: sound plays on the PC, and the network share takes files (the owner's report; the output and the client are not recorded).
+- 2026-11-13: with the `powersave` governor (`intel_pstate`, `energy_performance_preference` `balance_performance`), FinalBurn Neo and Metal Slug X (59.18 Hz) on the 59.951 Hz mode presented about 42 frames per second and missed about 18 fields per second; with `performance` written by hand, 60.2 frames per second and none missed. The image now sets `performance` (`os/board/pc/system.config`).
+- 2026-11-19, commit `c02ae52e` (the orchestrator, Killer Instinct in its attract mode, 40 s averages): late pacing presents 48.1 frames per second at 3.2 GHz with 0.45 underruns per second, and 49.8 at 2.7 GHz with 0.75, against 38.2 and 29.8 before late pacing; no dropped frame; light scenes 58 to 60 per second, heavy scenes 39.6 to 42 with 18 to 21 missed fields; about 3 pacing changes in 30 s. `audio_queued_frames` read 2000 to 5200 frames, and the underruns came in bursts at the entry into a heavy scene; the queue correction of later commits addresses both.
 
 ### C08 flat panels
 
@@ -334,18 +315,16 @@ Each check is `needs-hardware`.
 
 ### CPU governor
 
-An image built before the `performance` governor booted with `powersave` (`intel_pstate`, `energy_performance_preference` `balance_performance`). With FinalBurn Neo and Metal Slug X (59.18 Hz) on the 59.951 Hz mode, it presented about 42 frames per second and missed about 18 fields per second. With `performance` written by hand it presented 60.2 frames per second and missed none.
+The result of 2026-11-13 is at the top of this section.
 
 - [ ] `needs-hardware` Do: over SSH, `cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver`. Expect: `performance` for each CPU, in both files; the driver is `intel_pstate`. Record: the output.
 - [ ] `needs-hardware` Do: play Metal Slug X (FinalBurn Neo) for 60 s on the flat panel, and read `neptronctl stats` before and after. Expect: `fields_missed` does not change, and `audio_underruns` does not change. Record: both values before and after, and the frames presented.
 
 ### Late pacing of a slow core
 
-The session leaves the flip of a late core frame queued and runs the next core frame at once (`docs/spec/pacing-audio.md`, "A core slower than the field"). Before this change, Killer Instinct (FinalBurn Neo) on this PC at 2.7 GHz presented 29.8 frames and missed 30.1 fields per second, with about 13 audio underruns per second; at 3.2 GHz 38.2 frames, 21.7 missed fields and 9.2 underruns per second. Read `neptronctl stats` twice, 60 s apart, for each check, and compute the rates per second. Run the pushed client: `cargo xtask os ssh --host A.B.C.D -- neptronctl stats`, or `/state/hot/bin/neptronctl stats` over a plain `ssh`. A plain `ssh root@A.B.C.D neptronctl stats` runs no login shell, gets the image's own `neptronctl`, and can speak an older protocol with no `late_frames` and `late_flips`.
+The session leaves the flip of a late core frame queued and runs the next core frame at once (`docs/spec/pacing-audio.md`, "A core slower than the field"). With no late pacing, Killer Instinct (FinalBurn Neo) on this PC presented 29.8 frames and missed 30.1 fields per second at 2.7 GHz, with about 13 audio underruns per second, and 38.2 frames, 21.7 missed fields and 9.2 underruns per second at 3.2 GHz. The result of 2026-11-19 is at the top of this section.
 
-Results recorded:
-
-- 2026-11-19, at commit `c02ae52e` (the orchestrator, on the owner's PC, Killer Instinct in its attract mode, 40 s averages): 48.1 frames presented per second at 3.2 GHz with 0.45 underruns per second, and 49.8 at 2.7 GHz with 0.75 underruns per second, against 38.2 and 29.8 before; no dropped frame; light scenes at 58 to 60 per second, heavy scenes at 39.6 to 42 per second with 18 to 21 missed fields (the core needs about 1.5 intervals there); about 3 pacing changes in 30 s. `audio_queued_frames` read 2000 to 5200 frames in late pacing and after it, and the underruns came in bursts at the entry into a heavy scene; the queue correction of the next commits addresses both. `late_frames` and `late_flips` were missing from the reply because the client was the image's own `neptronctl`.
+Read `neptronctl stats` twice, 60 s apart, for each check, and compute the rates per second. Run the pushed client: `cargo xtask os ssh --host A.B.C.D -- neptronctl stats`, or `/state/hot/bin/neptronctl stats` over a plain `ssh`. A plain `ssh root@A.B.C.D neptronctl stats` runs no login shell, gets the image's own `neptronctl`, and can speak an older protocol with no `late_frames` and `late_flips`.
 
 - [ ] `needs-hardware` **Killer Instinct at the `performance` governor.**
   - Do: play Killer Instinct for 60 s on the flat panel (59.951 Hz mode), with the CPU at its full clock (3.2 GHz).
@@ -357,7 +336,7 @@ Results recorded:
   - Record: the counters before and after, and what the sound is like.
 - [ ] `needs-hardware` **A light game keeps its latency and smoothness.**
   - Do: play Metal Slug X for 60 s, and read `neptronctl stats` before and after; tap a button and read `input_to_frame_ns`.
-  - Expect: 59.95 frames per second, `fields_missed`, `audio_underruns` and `late_frames` do not change, and `input_to_frame_ns` is one field, about 16.7 ms. Scrolling is smooth, as before this change.
+  - Expect: 59.95 frames per second, `fields_missed`, `audio_underruns` and `late_frames` do not change, and `input_to_frame_ns` is one field, about 16.7 ms. Scrolling is smooth.
   - Record: the counters and three values of `input_to_frame_ns`.
 - [ ] `needs-hardware` **A GPU that makes the flips late.**
   - Do: play Killer Instinct at the clock where its CPU time is just under one field (raise `scaling_max_freq` step by step from 2.7 GHz), for 60 s each, and read `neptronctl stats` before and after.
@@ -370,22 +349,17 @@ Results recorded:
 
 Each check is `needs-hardware`. Use the development image first.
 
-- [ ] Do: boot the stick with UEFI, then with legacy BIOS (CSM). Expect: GRUB shows no menu, no console appears, the frontend starts. Record: the time from power-on to the first frame.
+- [ ] Do: boot the stick with UEFI, then with legacy BIOS (CSM), first on a flat panel. Expect: GRUB shows no menu, no console appears, the KMS build of the frontend starts and shows the game list. Record: the time from power-on to the first frame, and the connector name in the log of the frontend.
 - [ ] Do: read the address from the router or from the console line `neptron: address eth0 A.B.C.D`, then `cargo xtask os ssh --host <address> -- uptime`. Expect: a login with the key; a password login is refused.
-- [ ] Do: (M02) cold boot the PC with the cable plugged in, then `cat /run/neptron/network.toml` over SSH (until the Network panel exists). Expect: the file holds the address of `eth0`, the one the router shows. Record: the file and the uptime of the lease (`grep -e udhcpc -e neptron-address /var/log/messages`).
+- [ ] Do: (M02) cold boot the PC with the cable plugged in, then `cat /run/neptron/network.toml` over SSH. Expect: the file holds the address of `eth0`, the one the router shows. Record: the file and the uptime of the lease (`grep -e udhcpc -e neptron-address /var/log/messages`).
 - [ ] Do: (M02) boot the PC with no cable and wait 2 minutes; then plug the cable in, wait for the lease, and `cat /run/neptron/network.toml` over SSH. Expect: syslog shows `neptron-address: addresses: none` first, then the address, with no reboot. Record: the syslog lines of `neptron-address`.
 - [ ] Do: (M02) on the router, give the PC a new fixed address (or end its lease), then pull and plug in the cable. Expect: `/run/neptron/network.toml` holds the new address; a renew with the same address leaves the inode of the file alone (`ls -i`). Record: the file before and after.
 - [ ] Do: `cargo xtask os logs --host <address>`. Expect: the binary paths, the guard events and each `mode set` line with its read back. Record: the driver line; it must name the Intel HD Graphics 530 (iris), not llvmpipe.
 - [ ] Do: `ls /dev/dri` and read `/sys/class/drm` over SSH. Expect: card0 is i915; no simpledrm and no vkms device.
 - [ ] Do: change one line of the code, then `cargo xtask os push --host <address>`. Expect: the log shows the frontend from `/state/hot/bin`. Record: the push time.
-- [ ] Do: first boot on a stick larger than the image. Expect: the share partition is made and can be read and written from macOS and Windows. A second boot keeps a file put there.
-- [ ] Do: write the image again over the stick with ROMs on it. Expect: the ROMs are still there.
-- [ ] Do: cut the power during play, then boot. Expect: the state partition mounts, the guard record and the save are kept.
+- [ ] Do: cut the power during play, after an in-game save, then boot. Expect: the state partition mounts, the guard record and the save are kept. Record: the save file and its `.bak`.
 - [ ] Do: `poweroff` over SSH during a game. Expect: the log ends with the clean stop line, and the save is on the disk.
-- [ ] Do: `kill -ABRT` of the frontend over SSH. Expect: the mode stays on the VGA output and the launcher starts the frontend again.
-- [ ] Do: check sound on the HDA output, a USB pad and a keyboard. Expect: all work; no key reaches a console.
 - [ ] Do: run the self-test with the launcher held (see `os/README.md`). Record: the JSON report.
-- [ ] Do: the same self-test on a kernel built with `--no-kernel-15khz`, when that image exists. Record: which modes the unpatched driver refuses (OP-070).
 
 - [ ] `needs-hardware` **Each core plays.**
   - Do: boot the USB image on any monitor. Play one game of each core (FCEUmm, Snes9x, Genesis Plus GX) with a gamepad.
@@ -394,7 +368,7 @@ Each check is `needs-hardware`. Use the development image first.
 
 ### The 15 kHz patch set at its GPL-2.0-only pin (M12)
 
-The pin moved to commit `d85a343379f7f54155f69ef56dc544b666635894` of `D0023R/linux_kernel_15khz` (ADR 0018). The nine patch files are the same as at the old pin. The build and QEMU checks of a pin change are in `os/README.md`, section "The 15 kHz kernel patch set". These checks need the PC and an image built with the new pin.
+The pin is commit `d85a343379f7f54155f69ef56dc544b666635894` of `D0023R/linux_kernel_15khz` (ADR 0018, OP-070). The build and QEMU checks of a pin change are in `os/README.md`, section "The 15 kHz kernel patch set". These checks need the PC and an image built with this pin.
 
 - [ ] `needs-hardware` **The stick boots on the PC with UEFI and with BIOS.**
   - Do: write the image to a stick and boot the PC with UEFI, then with legacy BIOS (CSM).
@@ -463,7 +437,7 @@ The pin moved to commit `d85a343379f7f54155f69ef56dc544b666635894` of `D0023R/li
   - Expect: it is found, grabbed (no key reaches a console), mapped, and released when unplugged.
   - Record: the keyboard model.
 - [ ] `needs-hardware` **Blind recovery from each device.** Needs EDID.
-  - Do: hold the recovery combination on a gamepad, then on a keyboard, with no picture.
+  - Do: hold the recovery combination on a gamepad, then on a keyboard, with no picture. Do it also from power-on.
   - Expect: the safe default comes back.
   - Record: the device and the time.
 - [ ] `needs-hardware` **Recovery held at boot on a keyboard encoder.** Needs EDID.
@@ -541,8 +515,8 @@ Use a USB pad that SDL3 has no mapping for: a cheap "USB Joystick" or "Generic U
   - Expect: no notice of the generic layout. Its row on `Settings > Input` has no ` (generic layout)` suffix. Its face buttons, D-pad, Start and Select are where the standard layout puts them.
   - Record: the pad, its GUID, and any button in the wrong place.
 - [ ] `needs-hardware` **Pads that work today keep their layout with the community database.**
-  - Do: on an image with the community database, plug an Xbox 360 pad, then an 8BitDo pad. With each, use every button and the D-pad in the game list and in a game, and compare with an image of main before the database (or with notes of that image).
-  - Expect: each pad opens with a known layout and no notice of the generic layout. Every button and the D-pad work in the menus and in the game. The face buttons are in the same places as before: the same button accepts and the same button goes back in the menus, and each face button gives the same RetroPad button in the game.
+  - Do: on an image with the community database, plug an Xbox 360 pad, then an 8BitDo pad. With each, use every button and the D-pad in the game list and in a game, and compare with an image with no community database (or with notes of such an image).
+  - Expect: each pad opens with a known layout and no notice of the generic layout. Every button and the D-pad work in the menus and in the game. The face buttons are in the same places as with no database: the same button accepts and the same button goes back in the menus, and each face button gives the same RetroPad button in the game.
   - Record: each pad, its GUID (the `input:` line of the log), and any button that moved.
 - [ ] `needs-hardware` **The load time of the mapping files on the Pi 3.**
   - Do: build two development images of the Pi, one with `BR2_PACKAGE_SDL_GAMECONTROLLERDB` off. On each, read the time from the start of the frontend to its first frame in the log of a boot.
@@ -551,12 +525,11 @@ Use a USB pad that SDL3 has no mapping for: a cheap "USB Joystick" or "Generic U
 
 ### USB enumeration scheme
 
-Every image has `usbcore.old_scheme_first=1` on the kernel command line. With the default scheme, the Mad Catz PS3 FightStick TE (0738:8838) enumerates but sends only its neutral report until it loses power. Over SSH, `cat /sys/module/usbcore/parameters/old_scheme_first` shows `Y`.
+Every image has `usbcore.old_scheme_first=1` on the kernel command line (OP-112). With the default scheme, the Mad Catz PS3 FightStick TE (0738:8838) enumerates but sends only its neutral report until it loses power. Over SSH, `cat /sys/module/usbcore/parameters/old_scheme_first` shows `Y`.
 
 Results recorded:
 
-- 2026-11-18: on the PC, with the parameter set at run time, the stick gives input after a replug (the owner's report).
-- 2026-11-18: on the PC, with the parameter set at run time, XInput pads work (the owner's report).
+- 2026-11-18: on the PC, with the parameter set at run time, the stick gives input after a replug, and XInput pads work (the owner's report).
 
 - [ ] `needs-hardware` **The stick at power-on on the PC.**
   - Do: plug the stick 0738:8838 into the PC, then power on. Use it in the game list and in a game.
@@ -588,7 +561,7 @@ Results recorded:
   - Expect: the mapping screen names the pad and each control, and every text is whole and sharp at 240 lines. A press moves to the next step at its release; a hold skips. After `Keep` the pad drives the menus with its new map at once, and `Settings > Input` shows `<name> (your layout)`. In a game every mapped button drives its control.
   - Record: the pad, its counts (the `input:` lines of the log), and the content of `/state/config/input/pads.toml`.
 - [ ] `needs-hardware` **An unknown pad mapped on the Pi.**
-  - Do: the same on the Raspberry Pi image, on its composite or 15 kHz output.
+  - Do: the same on the Raspberry Pi image, on its composite output.
   - Expect: the same result as on the PC.
   - Record: the same as on the PC.
 - [ ] `needs-hardware` **A known pad remapped.**
@@ -610,26 +583,16 @@ Results recorded:
 
 ### App and launcher (T27)
 
-- [ ] `needs-hardware` **The KMS frontend on the image.**
-  - Do: boot the x86_64 image (after T28).
-  - Expect: the KMS build of the frontend shows the game list.
-  - Record: the boot time.
-- [ ] `needs-hardware` **The descriptor survives a crash.**
-  - Do: crash the frontend, then cause a relaunch, on i915.
-  - Expect: the launcher's descriptor survives, and the mode stays on the wire.
-  - Record: what the monitor shows.
+The boot of the image, the crash of the frontend and the blind recovery from each device are in "The PC image (T28)", "KMS backend (T23) and blank (C07)" and "Input (T18)".
+
 - [ ] `needs-hardware` **SIGTERM to the launcher.**
   - Do: `kill -TERM` the launcher.
   - Expect: it forwards SIGTERM, and the frontend leaves a validated mode on the wire.
   - Record: what the monitor shows.
-- [ ] `needs-hardware` **Blind recovery on the image.** Needs EDID.
-  - Do: hold the combination on a gamepad and on a keyboard, also from power-on.
-  - Expect: the safe default comes back.
-  - Record: the device and the time.
 - [ ] `needs-hardware` **A connector change.** Needs EDID.
-  - Do: change the connector in `global.toml`.
-  - Expect: the boot prompt shows.
-  - Record: what the prompt says.
+  - Do: change the connector in `global.toml`, and boot.
+  - Expect: a new connector is a new place of the guard. With `display.monitor = "auto"` the EDID profile is the safe default, so no boot prompt shows. With a named preset that is not the last known good of the new place, the boot prompt shows (`docs/spec/display-guard.md`, rule 3).
+  - Record: the setting, and what the prompt says.
 
 ### Flow defects (C10)
 
@@ -656,14 +619,14 @@ Each check is `needs-hardware`. `docs/spec/network-share.md` is the spec. Use th
 - [ ] Do: boot with no cable, wait for the game list, then plug in the cable. Expect: within 30 s the router lists `neptron` with an address, and `\\<address>\share` opens from another computer. Record: the time from the plug to the address.
 - [ ] Do: from Windows 11 (24H2 or later, note the edition), open `\\NEPTRON\share`, then `\\neptron.local\share`, then `\\<address>\share`, with no change on Windows. Expect (from the spec): a refusal, because Windows 11 24H2 requires signing and refuses guest logons. Then turn on "Enable insecure guest logons" and turn off "Digitally sign communications (always)" (or `Set-SmbClientConfiguration -EnableInsecureGuestLogons $true -RequireSecuritySignature $false`) and try again. Expect: the share opens with `roms` and `bios`, with no password prompt. Record: the edition and build, the error text of the first try, which names resolve, and whether NEPTRON shows in the "Network" view (expected: no, there is no WS-Discovery).
 - [ ] Do: on Windows 11 24H2 with no change on Windows and no stored credential for NEPTRON (`cmdkey /list`), open `\\NEPTRON\share` in Explorer. Expect (from the spec): an error and no prompt, because Windows sends its own account name, which becomes a guest. Record: the exact text of what Explorer shows, and whether a prompt for a name and password appears.
-- [ ] Do: from Windows 11 24H2 with no change on Windows, `net use \\NEPTRON\share /user:neptron neptron`, then copy a file in; then remove the connection (`net use \\NEPTRON\share /delete`) and try "Map network drive" with "Connect using different credentials", and then a Windows credential for `NEPTRON` in Credential Manager with a plain Explorer open. Expect: each way opens the share read-write, and the copy succeeds: the system user `neptron` cannot write `/share`, so a successful copy proves that the forced user `nobody` is in use. Record: which ways work. From this Mac: `smbutil view //neptron:neptron@<address>` lists `share` and `IPC$`, and `smbutil view -g //<address>` (guest) lists them too. Record: the edition and build, and the outputs.
+- [ ] Do: from Windows 11 24H2 with no change on Windows, `net use \\NEPTRON\share /user:neptron neptron`, then copy a file in; then remove the connection (`net use \\NEPTRON\share /delete`) and try "Map network drive" with "Connect using different credentials", and then a Windows credential for `NEPTRON` in Credential Manager with a plain Explorer open. Expect: each way opens the share read-write, and the copy succeeds: the system user `neptron` cannot write `/share`, so a successful copy proves that the forced user `nobody` is in use. Record: which ways work. From a Mac: `smbutil view //neptron:neptron@<address>` lists `share` and `IPC$`, and `smbutil view -g //<address>` (guest) lists them too. Record: the edition and build, and the outputs.
 - [ ] Do: on the development image, `grep neptron /etc/passwd /etc/shadow`, then `ssh neptron@<address>`. Expect: the shell is `/bin/false`, the shadow field is `*`, and SSH refuses the login. Record: the lines and the SSH error.
 - [ ] Do: the same from Windows 10 (Home or Pro, note which). Expect: the share opens as guest with no change. Record: the edition, build and result.
 - [ ] Do: on macOS, Finder, Go, Connect to Server, `smb://neptron.local/share`, Connect As Guest; also look under "Network" in the sidebar. Expect: the share opens read-write; NEPTRON shows under "Network". Record: the macOS version, and whether a `._<name>` file appears next to a copied ROM.
 - [ ] Do: on Linux (GNOME Files or KDE Dolphin), open "Other Locations" or "Network", then `smb://neptron.local/share` as anonymous. Expect: NEPTRON shows in the list and the share opens read-write. Record: the desktop and version.
 - [ ] Do: copy a 2 GB file and a folder of 500 small files into `roms/nes` from Windows, then from macOS. Expect: the copies finish; the SHA-256 of the large file on the PC (`sha256sum` over SSH on the development image, or on another computer after the stick is moved) equals the source; during the copy a game runs with no audio dropout. Record: the copy speed in MB/s and any dropout.
 - [ ] Do: start a copy of a 2 GB file and pull the Ethernet cable in the middle. Expect: the client reports an error; the PC keeps running; after the cable is back the share opens again and the copy can be done again; the cut file is on the share with a smaller size. Record: what the client said, and the size of the cut file.
-- [ ] Do: on the development image, start a copy of a 2 GB file and run `poweroff` over SSH during the copy (C17 adds `Settings > System > Shut down`, which runs the same steps). Expect: the console shows `neptron-share` stop with no "still has sockets" line, and the share partition unmounts with no error; on the next boot `dmesg | grep -i exfat` shows no dirty-volume message. Record: the shutdown lines of the console.
+- [ ] Do: on the development image, start a copy of a 2 GB file and run `poweroff` over SSH during the copy (`Settings > System > Shut down` runs the same steps). Expect: the console shows `neptron-share` stop with no "still has sockets" line, and the share partition unmounts with no error; on the next boot `dmesg | grep -i exfat` shows no dirty-volume message. Record: the shutdown lines of the console.
 - [ ] Do: start a copy of a 2 GB file and cut the power during the copy. Expect: the next boot mounts the share partition; the files copied before stay; the cut file may be short or missing. Record: `dmesg | grep -i exfat`, and whether `/run/neptron/storage.toml` says `share = "partition"`.
 - [ ] Do: on the development image, `touch /state/network-share-off`, reboot, and try to open the share; then `netstat -ltnu`. Expect: no share and no `neptron.local`; nothing listens on 445 or 5353. Remove the file and run `/etc/init.d/S45neptron-share restart`. Expect: the share opens at once. Record: the `netstat` output of both states.
 - [ ] Do: on the release image, from another computer, `nmap -sT -sU -p 1-65535 <address>` (or a TCP scan of all ports and a UDP scan of 53, 67, 68, 137, 138, 5353). Expect: TCP 445 and UDP 5353 open, UDP 68 open or filtered while the PC holds a lease, nothing else. Record: the scan output.
@@ -680,7 +643,7 @@ Each check is `needs-hardware`. `docs/spec/network-panel.md` is the spec. Use th
 - [ ] Do: with the panel open and an address on screen, pull the cable, wait 30 s, then plug it in again. Expect: the address row goes back to `None (no cable or no network)` once `udhcpc` drops the lease (or stays, when the lease is kept: record which), and the address shows again after the replug. Nothing else on screen changes; the menu stays responsive. Record: what the row shows at each step and how long each change took.
 - [ ] Do: on the PC, plug in a USB Ethernet adapter with a second cable after the boot, with the panel open. Expect: a second address row for the adapter's port, in the order of the port names; the share paths keep the first address. Record: both port names and addresses.
 - [ ] Do: on the development image, `touch /state/network-share-off`, reboot, open the panel. Expect: `Share` `Off`, and no `Network name` row, no share path and no account rows. Remove the file and reboot. Expect: the rows are back. Record: what the panel shows in each state.
-- [ ] Do: on the 15 kHz CRT (the 740s at 15 kHz, or a TV), open the panel. Expect: every row reads clearly, the dotted address and the `\\` and `/` of the paths included. Record: a photo of the screen.
+- [ ] Do: on a 15 kHz CRT (the PC with a 15 kHz display, or the Pi on a composite TV), open the panel. Expect: every row reads clearly, the dotted address and the `\\` and `/` of the paths included. Record: a photo of the screen.
 
 ### Reboot and shut down (C17)
 
@@ -731,30 +694,22 @@ Each check is `needs-hardware`. Read `/run/neptron/storage.toml`, `grep neptron-
 
 ## 4. PC with a 15 kHz display
 
-These need a 15 kHz display (a SCART TV or an arcade monitor) on a PC output. They are not part of the MVP exit.
+These need a 15 kHz display (a SCART TV or an arcade monitor) on a PC output. They are not part of the MVP exit. The PC has no interlace (`intel_gen9`, `interlace = false`), so the interlaced checks are in section 6.
 
 - [ ] `needs-hardware` **The self-test on a 15 kHz profile.**
   - Do: on a 15 kHz display, `neptronctl selftest video --profile generic_15 --connector <name> --i-have-checked-the-monitor generic_15`.
   - Expect: 240p, 288p and the super-width modes pass. On i915 the interlaced families are not tested, because the capability table has no interlace.
   - Record: the same fields as on the bench.
-- [ ] `needs-hardware` **The spike with 480i on 15 kHz.**
-  - Do: `kms-spike ntsc --connector <name> --allow-low-pclock 6000000 --allow-interlace --modes 240p,480i --i-have-checked-the-monitor`.
+- [ ] `needs-hardware` **The spike with 480i on 15 kHz.** (T23, OP-030)
+  - Do: `kms-spike ntsc --connector <name> --allow-low-pclock 6000000 --allow-interlace --modes 240p,480i --i-have-checked-the-monitor`. The spike has its own GPU values; `--allow-interlace` lets it commit 480i, which the product refuses on the PC.
   - Expect: the test-only commit of 480i with a linear dumb buffer passes or fails with a clear error.
-  - Record: the result, and `flip_cadence` (per field or per frame).
+  - Record: the result, and `flip_cadence`: i915 signals one flip per field (about 59.94 per second) or per frame (about 29.97).
 - [ ] `needs-hardware` **A 15 kHz super-width mode on i915.** (T23)
   - Do: set 1920x240 at 60 Hz of `generic_15`, with the pixel clock floor of the capability table.
   - Expect: the test-only commit and the commit pass, the read back equals the request field by field, and the monitor syncs.
   - Record: the self-test report.
-- [ ] `needs-hardware` **480i with linear buffers and no kernel patch.** (T23)
-  - Do: set 480i on a 15 kHz display.
-  - Expect: the commit passes and the picture is stable.
-  - Record: the result.
-- [ ] `needs-hardware` **Interlace cadence.** (T23, OP-030)
-  - Do: in 480i, count the flip events per second.
-  - Expect: i915 signals one flip per field (about 59.94 per second) or per frame (about 29.97).
-  - Record: the count, and set `flip_per_field` in `data/hardware/matrix.toml` from it.
 - [ ] `needs-hardware` **A Mega Drive game with a whole-kHz clock.** (C09)
-  - Do: on a 15 kHz CRT, play a Mega Drive game at 320x224 on `generic_15` (horizontal total 411, was 416).
+  - Do: on a 15 kHz CRT, play a Mega Drive game at 320x224 on `generic_15` (horizontal total 411).
   - Expect: the picture is centred and has the right width.
   - Record: the position against a console or a test pattern.
 - [ ] `needs-hardware` **Space Invaders on `arcade_15`.** (C02)
@@ -766,28 +721,22 @@ These need a 15 kHz display (a SCART TV or an arcade monitor) on a PC output. Th
   - Expect: the mode runs at 16.181 kHz and the picture locks.
   - Record: what the crop hides.
 - [ ] `needs-hardware` **A SCART TV.** (MVP exit, not required for the MVP)
-  - Do: with a 15 kHz profile, show 288p at 50 Hz, 240p at 60 Hz and 576i.
+  - Do: with a 15 kHz profile, show 288p at 50 Hz and 240p at 60 Hz. 576i needs interlace: it is checked on the Pi composite output (section 6, "TV standard on Composite-1 (P05)").
   - Expect: each mode is stable.
   - Record: the TV model and the result.
-
-- [ ] `needs-hardware` **The field order of a 480i mode in late pacing.** The fake display cannot show a swapped field, so only this check proves the field order in late pacing.
-  - Do: on a 15 kHz CRT, show a 480i mode with a game that has fine horizontal lines (a test pattern or a menu with thin text). Make the core slow on purpose: limit the CPU clock with `scaling_max_freq` until `late_frames` grows in `neptronctl stats`. Watch for 60 s, then read the stats again.
-  - Expect: no swapped fields: no line pairs out of order, no picture that jumps up and down by one line, no comb on thin lines that was not there at full clock. `frames_presented` falls in proportion to the overrun and not to half, and the sound plays with no crackle.
-  - Record: the counters, the mode, the clock, and a close photo of the thin lines at full clock and in late pacing.
 
 ## 5. Raspberry Pi 3 on HDMI (P04)
 
 Each check is `needs-hardware`. The image is `images/rpi-arm64-dev/neptron-rpi-arm64.img` (development variant, built with `--dev-key`) unless the check says release. The setup: a Pi 3 B+ or 3 B, a 2.5 A power supply, an HDMI flat panel, a USB gamepad, Ethernet with DHCP, and a 3.3 V USB serial adapter on GPIO 14 (TX), 15 (RX) and ground at 115200 baud. QEMU does not boot this image.
 
-With an HDMI display that answers within 3 s, the frontend drives HDMI through the panel path. With none, it opens `Composite-1` (section 6).
+With an HDMI display that answers within 3 s (`COMPOSITE_FALLBACK_WAIT_NS`), the frontend drives HDMI through the panel path. With none, it opens `Composite-1` (section 6).
 
 Results recorded: none on HDMI.
 
 - [ ] Do: write the image to an SD card (`os/README.md`, "Write the image to an SD card"), connect the serial adapter and the HDMI panel, and power on. Expect: no rainbow splash; the serial console shows the whole kernel log from the start (the development command line has no `quiet`), with `Machine model: Raspberry Pi 3 Model B Plus`; the root is `/dev/mmcblk0p2` (EROFS) and init starts. Record: the serial log up to the first line of the frontend.
-- [ ] Do: watch the HDMI panel from power on. Expect: no text and no logo at any time; the first picture is the NEPTRON menu through the panel path, and the boot prompt shows on the first boot. Record: the connector and the mode in the log (`cargo xtask os logs --host <address>`), and a photo.
+- [ ] Do: watch the HDMI panel from power on. Expect: no text and no logo at any time; the first picture is the NEPTRON menu through the panel path in the native mode, with no boot prompt on the first boot (a trusted flat panel, `docs/spec/display-guard.md`, "Trust"). Record: the connector and the mode in the log (`cargo xtask os logs --host <address>`), and a photo.
 - [ ] Do: the first boot on a new card. Expect: `share = "partition"` in `/run/neptron/storage.toml`; the storage log says that partition 4 is made, formatted exFAT and mounted as `/dev/mmcblk0p4`; after a second boot the share is mounted and not formatted. Record: `/state/log/storage.log`, `sfdisk --dump /dev/mmcblk0`, and the time of `mkfs.exfat` on the card.
-- [ ] Do: 10 cold boots with the Ethernet cable plugged in: power off by unplugging the supply, wait 10 s, power on. After each boot, read the address of `eth0` (`/run/neptron/network.toml` over SSH, or the serial console). Expect: `eth0` gets an address at each boot, also when its USB chip appears after `S40neptron-network` ran (`mdev` and `net-hotplug` start its client); `ps` shows one `udhcpc` for `eth0`, never two. Record: for each boot, the uptime when the address came (`grep udhcpc /var/log/messages`) and the line of `S40neptron-network`.
-- [ ] Do: (M02) 5 cold boots of the Pi with the cable: power on the Pi and the router at the same time for at least 2 of them, so the lease comes late. After each, `cat /run/neptron/network.toml` over SSH (until the Network panel exists). Expect: the file holds the address of `eth0` at each boot, also when the lease came after 60 s; on the development image the serial console shows `neptron: address eth0 A.B.C.D`. Record: for each boot, the uptime of the lease (`grep -e udhcpc -e neptron-address /var/log/messages`) and the file.
+- [ ] Do: (M02) 10 cold boots with the Ethernet cable plugged in: power off by unplugging the supply, wait 10 s, power on. For at least 2 of them, power on the Pi and the router at the same time, so the lease comes late. After each boot, `cat /run/neptron/network.toml` over SSH. Expect: the file holds the address of `eth0` at each boot, also when its USB chip appears after `S40neptron-network` ran (`mdev` and `net-hotplug` start its client) and when the lease came after 60 s; `ps` shows one `udhcpc` for `eth0`, never two; on the development image the serial console shows `neptron: address eth0 A.B.C.D`. Record: for each boot, the uptime of the lease (`grep -e udhcpc -e neptron-address /var/log/messages`), the line of `S40neptron-network`, and the file.
 - [ ] Do: (M02) pull the Ethernet cable of the Pi for 30 s and plug it in again; then end the lease on the router, or give the Pi a new address, and pull and plug the cable again. Read `cat /run/neptron/network.toml` over SSH after each step. Expect: the file holds the old address while the lease runs, then the new address after the new lease. Record: the file and the syslog lines of `neptron-address` and `udhcpc`.
 - [ ] Do: on a cold boot of the Pi, note when `eth0` gets its address (`grep -e udhcpc -e neptron-network /var/log/messages`), then, from another computer, open `\\NEPTRON\share` and `ping neptron.local`. Expect: both answer, also when `eth0` came up after `S40neptron-network` ran: the SMB server opens a listener on a port that comes up later, and `mdnsd` follows the new address. Record: the uptime of the address, and the time until the share and the name answer.
 - [ ] Do: plug a USB Ethernet adapter with a cable into the Pi, wait for its address, unplug the adapter, wait 10 s, and plug it in again. Expect: syslog shows `the DHCP client of ethN stops` at the removal and a new `DHCP on ethN in the background` at the add; `ps` shows one `udhcpc` for the port; the port gets an address. Record: the syslog lines.
@@ -806,11 +755,10 @@ Results recorded: none on HDMI.
 Each check is `needs-hardware`.
 
 - [ ] Do: keep a monitor preset on an HDMI TV, then power on with the TV off. Wait until the boot falls back to composite, then reboot with the TV on. Expect: the HDMI boot starts on the kept preset with no prompt: the composite boot did not delete the HDMI record. Record: `/state/video/guard.toml` after each boot.
-- [ ] Do: first boot of a new image on an HDMI panel. Expect: the native mode with no prompt. Record: the mode.
 
 ## 6. Raspberry Pi 3 on composite
 
-The setup: a Pi 3 with the development image, the frontend from `cargo xtask os push --arch rpi-arm64` where a check says so, a 15 kHz TV on composite through a TRRS cable with video on the sleeve, and SSH. `docs/spec/raspberry-pi.md`, section 6, holds the full checklist of the first bench session (task P09); the checks below are the ones that tasks added.
+The setup: a Pi 3 with the development image, the frontend from `cargo xtask os push --arch rpi-arm64` where a check says so, a 15 kHz TV on composite through a TRRS cable with video on the sleeve, and SSH. `docs/spec/raspberry-pi.md`, section 6, holds the full checklist of the first bench session (task P09); the checks below are the ones that tasks added. The composite output is the only interlaced output of the images (`pi_vc4_composite`, `interlace = true`).
 
 Results recorded (a Pi 3 B on a Samsung TV, 2026-11-14):
 
@@ -821,10 +769,10 @@ Results recorded (a Pi 3 B on a Samsung TV, 2026-11-14):
 
 ### TV standard on Composite-1 (P05)
 
-Each check is `needs-hardware`. The setup: a Pi 3 B+ with the development image built after P05, a 15 kHz TV on composite through a TRRS cable with video on the sleeve, and SSH. Stop the frontend and the launcher first (`touch /run/neptron/hold && kill $(pidof neptron-launch)`). Run `kms-check` and `modetest` as root over SSH. The four table modes are 720x240p and 720x480i (525 lines) and 720x288p and 720x576i (625 lines), all at 13 500 kHz.
+Each check is `needs-hardware`. The setup: a Pi 3 B+ with the development image, a 15 kHz TV on composite through a TRRS cable with video on the sleeve, and SSH. Stop the frontend and the launcher first (`touch /run/neptron/hold && kill $(pidof neptron-launch)`). Run `kms-check` and `modetest` as root over SSH. The four table modes are 720x240p and 720x480i (525 lines) and 720x288p and 720x576i (625 lines), all at 13 500 kHz.
 
 - [ ] Do: `modetest -M vc4 -c`. Expect: the connector `Composite-1` has the property `TV mode` with its 8 values (`NTSC`, `NTSC-443`, `NTSC-J`, `PAL`, `PAL-M`, `PAL-N`, `SECAM`, `Mono`), the legacy `mode` property, and the four margins `left margin`, `right margin`, `top margin` and `bottom margin`. Record: the property lines of `Composite-1`.
-- [ ] Do: commit each table mode with each standard of its line system: 240p and 480i with `ntsc`, `ntsc_j`, `ntsc_443`, `pal_60`, `pal_m` and `mono_60`; 288p and 576i with `pal`, `pal_n`, `secam` and `mono_50`. That is 20 commits. Expect: each commit passes, the mode and the `TV mode` value read back as asked, and the TV shows a locked picture (in colour where the TV decodes the standard). Record: for each commit, the read back and what the TV shows.
+- [ ] Do: commit each table mode with each standard of its line system: 240p and 480i with `ntsc`, `ntsc_j`, `ntsc_443`, `pal_60`, `pal_m` and `mono_60`; 288p and 576i with `pal`, `pal_n`, `secam` and `mono_50`. That is 20 commits. Expect: each commit passes, the mode and the `TV mode` value read back as asked, and the TV shows a locked, stable picture (in colour where the TV decodes the standard). Record: for each commit, the read back and what the TV shows.
 - [ ] Do: with 240p on `ntsc`, change only the standard to `ntsc_j`. Expect: the commit is a modeset (the picture goes off for a moment), and `TV mode` reads back `NTSC-J`. Record: the log of the commit.
 - [ ] Do: after any modeset on `Composite-1`, read the four margin properties. Expect: all four read 0. Record: the values.
 - [ ] Do: try to commit 288p with the value `NTSC`. Expect: the commit is refused, nothing changes on the wire, and the earlier mode and standard stay on the TV and read back unchanged. Record: the error and the read back.
@@ -846,11 +794,7 @@ Each check is `needs-hardware`.
 
 Each check is `needs-hardware`. The setup: the Pi 3 with the development image, the frontend from `cargo xtask os push --arch rpi-arm64`, a 15 kHz TV on composite, SSH. The frame budget comes from ftrace (`/sys/kernel/debug/tracing`): `drm_vblank_event_delivered` (the flip event), `vc4_submit_cl_ioctl` (the GPU submit) and `vc4_rcl_end_irq` (the end of the render). Disable every event after the run.
 
-- [x] **The renderer against the reference on vc4.** (T19, P11)
-  - Do: `cargo xtask gles-compare`, copy `target/gles-compare/gles_compare` to `/tmp` on the Pi, and run it there.
-  - Expect: every scene equal, or inside the sharp bilinear tolerance of 1, through the framebuffer object and through the window path (the `window` lines), except `nearest_at_the_axis_product_limit` and `sharp_bilinear_at_the_axis_product_limit`, whose 4096-pixel output is above the 2048 limit of vc4. highp floats are available in the fragment shader, and `GL_MAX_TEXTURE_SIZE` (2048 on vc4) is enough for one texel per source pixel.
-  - Record: the program output.
-  - Result (2026-11-14, Pi 3 B, VC4 V3D 2.1, Mesa 26.1.8): every scene passes through the framebuffer object and through the window path, except the two axis product cases (commit `e03f6f7`).
+- [x] **The renderer against the reference on vc4, and its precision.** (T19, P11) 2026-11-14, Pi 3 B, VC4 V3D 2.1, Mesa 26.1.8, commit `e03f6f7`: `gles_compare` passes every scene through the framebuffer object and through the window path, except `nearest_at_the_axis_product_limit` and `sharp_bilinear_at_the_axis_product_limit` (their 4096-pixel output is above the 2048 limit of vc4); highp passes (at least 23 bits).
 - [ ] `needs-hardware` **The picture on the TV.**
   - Do: the 240p test suite on the SNES (sharp bilinear, 256 to 640 columns) and Sonic on the Mega Drive (nearest), on the TV.
   - Expect: the top line of the game is at the top of the picture, not one line lower; each source column edge shows at most one blended column; the colours of the colour bars match the suite.
@@ -860,34 +804,24 @@ Each check is `needs-hardware`. The setup: the Pi 3 with the development image, 
   - Expect: 60.054 frames per second over each 60 s, `fields_missed` 0 in steady play, `audio_underruns` steady, no `underrun occurred` line of ALSA in the log, and at least 2 ms left in the 16.65 ms field at the worst frame.
   - Record: the frames per second, `fields_missed`, the CPU time from the flip event to the submit and the GPU time (mean and worst), and the margin at the worst frame.
   - Result in part (2026-11-14, Pi 3 B, the development build of `os push`, no LTO): NES, SNES and Mega Drive games hold 60.054 frames per second with no missed field. Super Mario World leaves 1.66 ms at its worst frame, under the 2 ms of the expectation. The release image is not measured (OP-103).
-- [x] **The CPU clock in play.**
-  - Do: read `/sys/devices/system/cpu/cpu0/cpufreq/stats/time_in_state` before and after a game, and trace `power/cpu_frequency` with the frame events.
-  - Expect: with the `ondemand` governor the core runs below 1.2 GHz for much of a game. A frame that starts at 600 to 750 MHz after a light scene can take 13 to 16 ms on the CPU and miss its field.
-  - Record: the time in each state, and the frequency at the start of the late frames.
-  - Result (2026-11-14, Pi 3 B): with `ondemand` the clock fell to 600 MHz in a light scene, and an SNES game lost 24 to 30 fields in a burst. With `performance`, the governor of the image, the same game held 60.054 frames per second for 155 s with no missed field and no audio underrun (commit `d6f51ea`).
+- [x] **The CPU clock in play.** 2026-11-14, Pi 3 B, commit `d6f51ea`: with `ondemand` the clock fell to 600 MHz in a light scene, and an SNES game lost 24 to 30 fields in a burst; with `performance`, the governor of the image, the same game held 60.054 frames per second for 155 s with no missed field and no audio underrun.
 - [ ] `needs-hardware` **PAL.**
   - Do: set `display.tv` to `pal` through the app (`neptronctl settings set display.tv global pal`, then Keep), run the SNES 240p suite for 60 s with the trace, then set the old value back and Keep.
   - Expect: 288p at 50.08 Hz, 50.08 frames per second, no missed field in steady play, then 240p at 60.054 Hz again.
   - Record: the video state of both modes and the frame budget.
-- [x] **A dialog over a running game.** (P12)
-  - Do: run the SNES 240p suite on NTSC. Change `display.tv` to PAL with Keep, then back to `auto` with Keep, 8 times (`neptronctl settings set display.tv global pal`, then `auto`). Also open the quick menu for 10 s, and leave a PAL dialog until it reverts by itself. Keep the trace on for one change.
-  - Expect: `fields_missed` stays the same while each dialog shows. Each modeset adds at most 1 missed field and 2 audio underruns. The quick menu adds no missed field. The game list holds 60 frames per second. In the trace, the render of a dialog frame ends at most about 10 ms after the flip event.
-  - Record: `fields_missed` and `audio_underruns` before and after each step, and the GPU submit time, the GPU time and the end of the render after the flip event, for a dialog frame and for a game frame.
-  - Result (2026-11-14, Pi 3 B, the development build of `os push`): no missed field while a dialog shows, in 36 NTSC dialogs over the SNES suite and in each Sonic run. A modeset adds 1 to 2 audio underruns and at most 1 missed field (OP-103 point 2). The quick menu adds no missed field, and the game list holds 60.06 frames per second. A dialog frame: GPU submit 6.2 ms and render end 8.35 ms after the flip event, GPU time 2.2 ms. A game frame alone: 6.45 ms, 9.87 ms and 3.41 ms (OP-103 point 1).
-- [ ] `needs-hardware` **The vblank count of an interlaced mode.**
-  - Do: run a game in 480i on composite with the trace of `drm_vblank_event_delivered`, and compare the `seq` of the flip events with their times.
-  - Expect: to know whether the DRM vblank sequence of vc4 counts fields or frames in 480i. The session counts a missed field when two flips are more than 2 sequence numbers apart in an interlaced mode on a driver that flips once per frame (`flip_per_field` false). If vc4 counts frames, two flips one frame apart differ by 1 and a late frame by 2, so the subtraction of 2 hides each late frame.
-  - Record: the sequence step and the time step of steady flips.
+- [x] **A dialog over a running game.** (P12) 2026-11-14, Pi 3 B, the development build of `os push`: no missed field while a dialog shows, in 36 NTSC dialogs over the SNES suite and in each Sonic run. A modeset adds 1 to 2 audio underruns and at most 1 missed field (OP-103 point 2). The quick menu adds no missed field, and the game list holds 60.06 frames per second. A dialog frame: GPU submit 6.2 ms and render end 8.35 ms after the flip event, GPU time 2.2 ms. A game frame alone: 6.45 ms, 9.87 ms and 3.41 ms (OP-103 point 1).
+- [ ] `needs-hardware` **The vblank count and the flip cadence of an interlaced mode.** (OP-030)
+  - Do: run a game in 480i on composite with the trace of `drm_vblank_event_delivered`, and compare the `seq` of the flip events with their times. Count the flip events per second.
+  - Expect: to know whether the DRM vblank sequence of vc4 counts fields or frames in 480i, and whether vc4 signals one flip per field (about 59.94 per second) or per frame (about 29.97). The session counts a missed field when two flips are more than 2 sequence numbers apart in an interlaced mode on a driver that flips once per frame (`flip_per_field` false). If vc4 counts frames, two flips one frame apart differ by 1 and a late frame by 2, so the subtraction of 2 hides each late frame.
+  - Record: the sequence step and the time step of steady flips, the flips per second, and set `flip_per_field` of `pi_vc4_composite` in `data/hardware/matrix.toml` from it.
+- [ ] `needs-hardware` **The field order of a 480i mode in late pacing.** The fake display cannot show a swapped field, so only this check proves the field order in late pacing.
+  - Do: on the composite TV, show a 480i mode with a game that has fine horizontal lines (a test pattern or a menu with thin text). Make the core slow on purpose: limit the CPU clock with `scaling_max_freq` until `late_frames` grows in `neptronctl stats`. Watch for 60 s, then read the stats again.
+  - Expect: no swapped fields: no line pairs out of order, no picture that jumps up and down by one line, no comb on thin lines that was not there at full clock. `frames_presented` falls in proportion to the overrun and not to half, and the sound plays with no crackle.
+  - Record: the counters, the mode, the clock, and a close photo of the thin lines at full clock and in late pacing.
 - [ ] `needs-hardware` **Listening.**
   - Do: play each game above with headphones on the analog output.
   - Expect: no crackle and no gap in steady play.
   - Record: what is heard.
-
-- [x] **Precision on the Pi 3.** (T19)
-  - Do: the same run.
-  - Expect: `headless()` passes the highp check (at least 23 bits). The destination index from the varying of the vertex stage is exact after `floor` on both paths, and the `NEAREST` read at `(x + 0.5) / width` of the texture storage picks the exact texel. The every-value scenes and the 1920x240 scenes are byte-equal, and sharp bilinear stays within 1 per channel.
-  - Record: the program output.
-  - Result (2026-11-14): the same run as above passes (commit `e03f6f7`).
 - [ ] `needs-hardware` **Blank on the Pi 3.** (C07)
   - Do: the three blank checks of the KMS section (blank, set a mode after a blank, blank before the first mode) on vc4.
   - Expect: as on i915.
@@ -900,7 +834,6 @@ Each check is `needs-hardware`. The setup: the Pi 3 with the development image, 
   - Do: a release build, and the CPU share of `AudioPipeline::end_frame` with Sinc.
   - Expect: 3 to 4 % of one core.
   - Record: the share. Use Polynomial if it is over budget.
-
 - [ ] `needs-hardware` **A heavy core on the Pi 3 in late pacing.**
   - Do: play a game whose core cannot keep 60 frames per second on the Pi 3 (for example a CPS2 or Neo Geo game on FinalBurn Neo) for 60 s, and read `neptronctl stats` before and after.
   - Expect: `frames_presented` per second is the field rate over the overrun, not half of it; `frames_presented` plus `fields_missed` per second is the field rate; `frames_dropped` does not change; `audio_underruns` grows by at most 1; the sound slows with the game and does not crackle. A game below half speed plays no sound. The loop uses no code for vc4.
@@ -908,7 +841,7 @@ Each check is `needs-hardware`. The setup: the Pi 3 with the development image, 
 
 ### `neptron.toml` on the boot partition (P07)
 
-Each check is `needs-hardware`. The setup: a Pi 3 with an image built after P07, a 15 kHz TV on composite, a PC that reads FAT32 cards, and SSH for the log.
+Each check is `needs-hardware`. The setup: a Pi 3 with the image, a 15 kHz TV on composite, a PC that reads FAT32 cards, and SSH for the log.
 
 - [ ] Do: boot a new image once with the file unchanged. Expect: `/state/config/global.toml` gets no `[display]` value from the file; the log says `neptron.toml has changed: no setting to copy`. Record: the log line.
 - [ ] Do: write the image to the SD card. On the PC, open `neptron.toml` at the root of the `NEPTRONBOOT` partition, uncomment the `tv` line and set it to `"pal"`, save, and eject the card. Boot the Pi. Expect: the first picture is PAL 288p, with no prompt and no notice; `/state/config/global.toml` holds `tv = "pal"`; `mount` shows `/dev/mmcblk0p1 on /boot type vfat (ro,...)`. Record: the log lines that start with `neptron: neptron.toml` and the `mount` line.
@@ -916,19 +849,17 @@ Each check is `needs-hardware`. The setup: a Pi 3 with an image built after P07,
 - [ ] Do: on the PC, add `wifi = "home"` under `[display]`, uncomment the `pi_dac` line and set it to `"vga666"`, boot. Expect: two notices, one that names `display.wifi` with its line and one with "GPIO DACs are not supported by this image; the value is ignored"; no GPIO pin is driven. Record: the notices.
 - [ ] Do: on the PC, remove the `]` of `[display]`, boot twice. Expect: at each boot a notice "neptron.toml does not parse (...). No setting changes.", and the settings stay as they were. Record: the notice.
 - [ ] Do: with an HDMI display connected, uncomment the `output` line in the file on the PC, set it to `"Composite-1"`, and boot. Expect: the first boot after the edit already drives composite, and the HDMI display gets no signal. Record: `modetest -M vc4 -c`.
-- [ ] Do: on the PC image, uncomment the `monitor` line in the file on a stick, set it to `"generic_15"`, and boot a PC with a VGA CRT. Expect: the boot uses `generic_15`, with the boot prompt when it is not the last known good. Record: the `guard:` log lines.
+- [ ] Do: on the PC image, uncomment the `monitor` line in the file on a stick, set it to `"generic_15"`, and boot a PC with a 15 kHz CRT on VGA. Expect: the boot uses `generic_15`. With no EDID or a PC-range EDID it opens no boot prompt, because `generic_15` is then its own safe default (`docs/spec/display-guard.md`, "A named preset bounds the safe default"). Record: the `guard:` log lines.
 
 ### The Raspberry Pi leftovers (M10)
 
-- [ ] `needs-hardware` **The kind of each sound card on the Pi 3.** A Pi 3 B with the development image after M10, on composite, then on HDMI.
+- [ ] `needs-hardware` **The kind of each sound card on the Pi 3.** A Pi 3 B with the development image, on composite, then on HDMI.
   - Do: `cat /proc/asound/cards /proc/asound/pcm`, then open Audio, then Audio output, and read the log line `audio: driver alsa; devices ...`. Do it with `dtparam=audio=on`, then again with that line removed from `config.txt` (no jack card).
   - Expect: the cards are `Headphones` (driver `bcm2835_headpho`) and `vc4hdmi` (driver `vc4-hdmi`). The list shows `Analog (bcm2835 Headphones)` and `HDMI/DP 1 (vc4-hdmi)`, and `auto` takes the jack. With no jack card, `auto` opens the ALSA default device, which is then the `vc4hdmi` card. On composite with no jack card, expect that open to fail and the output to be "no sound": this is correct, because no audio output exists. On HDMI with no jack card, expect sound from the TV through the default device (alsa-lib's `cards/vc4-hdmi.conf` makes it convert to IEC958).
-  - Also record: whether `/usr/share/alsa/cards/vc4-hdmi.conf` is in the image (`ls /usr/share/alsa/cards`).
-  - Record: the two files, the list, and the log line of each run.
-
-- [ ] `needs-hardware` **The audio cover of a TV standard change on the Pi 3.** A Pi 3 B with the development image after M10, on composite, headphones on the jack.
+  - Record: the two files, the list, the log line of each run, and whether `/usr/share/alsa/cards/vc4-hdmi.conf` is in the image (`ls /usr/share/alsa/cards`).
+- [ ] `needs-hardware` **The audio cover of a TV standard change on the Pi 3.** A Pi 3 B with the development image, on composite, headphones on the jack.
   - Do: run the SNES 240p suite on NTSC with a tone or music. Read `neptronctl stats`. Change `display.tv` to `pal` with Keep, then back to `auto` with Keep, 8 times (`neptronctl settings set display.tv global pal`, then `auto`). Read the stats again. Listen at each change.
-  - Expect: `audio_underruns` does not grow at a change (before M10 it grew by 1 to 2). No click, no gap of old sound, and no echo of the sound before the change: the sound fades out, stays silent through the change, and fades in. The delay of the sound after a change is the same as before it.
+  - Expect: `audio_underruns` does not grow at a change (it grew by 1 to 2 on 2026-11-14, before the 100 ms mute cover). No click, no gap of old sound, and no echo of the sound before the change: the sound fades out, stays silent through the change, and fades in. The delay of the sound after a change is the same as before it.
   - Record: `audio_underruns` and `fields_missed` before and after, and what is heard.
 
 ### The share partition on an SD card (C18)
@@ -945,7 +876,6 @@ Each check is `needs-hardware`. The setup: a Pi 3 with an image built after P07,
   - Do: `cargo xtask test -p neptron-audio --features sdl3 --run-ignored only`.
   - Expect: a clean 440 Hz tone for one second, with no clicks.
   - Record: what you hear.
-
 - [ ] `needs-hardware` **No sound device.**
   - Do: boot a box with no sound device.
   - Expect: it boots and shows the "No sound" notice.
@@ -978,21 +908,21 @@ The images of a GitHub Release, not the development variant. `os/README.md`, "Ch
 
 ## Video policy of the arcade rule (M08b)
 
-These checks need a CRT. The policy tests prove each mode in emulation; only a tube shows the picture.
+These checks need a CRT. The policy tests prove each mode in emulation; only a tube shows the picture. An interlaced result needs the Pi composite output: on a PC tube, record the mode that the policy gives instead.
 
 - [ ] `needs-hardware` **A turned game keeps its shape on a CRT.** Needs the rotation of M08a.
   - Do: start a vertical game (DoDonPachi, 240x320 upright) on the 31 kHz PC CRT, and on a multi-sync tube if one is at hand.
   - Expect: the picture stands upright, 3:4, with black bars left and right (pillarboxed): about 56 % of the screen width at full height on a multi-sync tube (2x, 427x640p), and the same shape in the bordered 1:1 mode on 31 kHz. A round object of the game looks round, not wide.
   - Record: a photo, the mode in the status, and the width of the picture against the height of the screen.
-- [ ] `needs-hardware` **A mode moved onto a fixed line rate.** Needs a 25 kHz monitor (`arcade_25` or a 15, 25 and 31 kHz tube with its preset).
+- [ ] `needs-hardware` **A mode moved onto a fixed line rate.** Needs a 25 kHz monitor (`arcade_25` or a 15, 25 and 31 kHz tube with its preset) on the PC.
   - Do: start the NES (60.099 Hz) and a 480x640 source on the `arcade_25` preset.
-  - Expect: the NES shows 1:1 in 384 lines at 60.000 Hz; the 480x640 source shows interlaced 1:1 in 768i at about 24.93 kHz. The monitor locks with no roll and no bend; the picture is centred.
+  - Expect: the NES shows 1:1 in 384 lines at 60.000 Hz. The 480x640 source shows interlaced 1:1 in 768i at about 24.93 kHz only with a GPU that has interlace, which no PC GPU of the matrix has: record the mode it gets. The monitor locks with no roll and no bend; the picture is centred.
   - Record: the line rate and field rate in the status, and whether the tube held sync.
 - [ ] `needs-hardware` **Double refresh below every range.**
   - Do: start a Mega Drive PAL game (49.701 Hz) on a PC CRT whose EDID starts at 50 Hz; then Little Robin (30 Hz) on a 15 kHz tube.
   - Expect: the Mega Drive game shows at 99.40 Hz, each frame twice, at its own speed (the music has its pitch); Little Robin shows at 60 Hz, each frame twice, with the double-refresh notice.
   - Record: the field rate in the status, the notice, and whether the motion is smooth.
-- [ ] `needs-hardware` **A tall console game is fitted into 480i on a composite TV.** Needs the composite output.
+- [ ] `needs-hardware` **A tall console game is fitted into 480i on a composite TV.** The Pi 3 composite output.
   - Do: on the `ntsc` TV standard, start a PAL source of 576 lines (a PAL 576i game, or a PAL Amiga or PlayStation game in interlaced mode).
   - Expect: the game shows in 720x480i at 59.940 Hz, scaled to 480 lines with sharp bilinear, at the speed of NTSC (the speed notice shows). The lines are steady, with no line pairs missing and no roll.
   - Record: the mode and the notice in the status, and a photo of a fine horizontal detail.
@@ -1051,9 +981,9 @@ The renderers turn the game picture in emulation, and `gles-compare` checks the 
   - Do: start each one.
   - Expect: each picture is upright and the right way up; text reads from left to right.
   - Record: the set, the turn in the log, and a photo.
-- [ ] `needs-hardware` **A vertical game on a 15 kHz CRT and on composite.** A 15 kHz tube with `generic_15`, and the Pi 3 composite output on NTSC.
+- [ ] `needs-hardware` **A vertical game on a 15 kHz CRT and on composite.** A 15 kHz tube with `generic_15` on the PC, and the Pi 3 composite output on NTSC.
   - Do: start `ddonpach` with the picture mode Auto; then set Picture mode to Fill in the Video page of the quick menu.
-  - Expect: Auto shows 320 lines 1:1, interlaced (448i on the tube, 480i on NTSC), upright and pillarboxed, and the one-time notice of a vertical game shows on the first start only. Fill shows a progressive picture that fills the height, soft, and right after the change the notice says "Soft picture: Picture mode is set to Fill.". The interlaced picture has the flicker of 480i and no line pairs out of order.
+  - Expect: on composite, Auto shows 320 lines 1:1, interlaced (480i), upright and pillarboxed, and the one-time notice of a vertical game shows on the first start only. The interlaced picture has the flicker of 480i and no line pairs out of order. On the PC tube the policy has no interlace (448i is not possible): record the mode Auto gives. Fill shows a progressive picture that fills the height, soft, and right after the change the notice says "Soft picture: Picture mode is set to Fill.".
   - Record: the mode in the status, photos of both, and whether the one-time notice came back after a restart.
 - [ ] `needs-hardware` **Scanlines on a turned game.** A 31 kHz or multi-sync PC CRT.
   - Do: start `ddonpach` with `display.scanlines = on` on a mode with a whole vertical multiple of 2 or more (2x 640p on a multi-sync tube).
@@ -1063,14 +993,16 @@ The renderers turn the game picture in emulation, and `gles-compare` checks the 
   - Do: run `gles_compare` on the Pi as the GLES section of `crates/neptron-gfx/README.md` says, then a vertical game and a horizontal game of the same size on HDMI, and read the render time of each frame from the frame statistics.
   - Expect: every turned scene of `gles_compare` passes on `vc4` (the two axis product cases above 2048 pixels excepted, as for the scenes with no turn); the render time of the turned game is the time of the horizontal one within the noise.
   - Record: the `gles_compare` summary and both render times (ADR 0015 asks for this number).
-- [ ] `needs-hardware` **A game that does not start returns to the list with a notice.** The PC with an image built after this change (the arcade index then has the disk lines), FinalBurn Neo.
-  - Do: put `kinst.zip` with no disk image in `roms/arcade` and start it. Then put the disk image at `roms/arcade/kinst/kinst.chd` and start it again. Then, on an image or a `cargo xtask os push` with the frontend of this change but the arcade index of an older image, remove the disk image, start it again and hold the launch button.
-  - Expect: with the new index and no disk image, message 8 ("This game needs the hard disk image kinst.chd. Put it in the folder kinst, next to kinst.zip.") shows in the game list and no game run starts. With the disk image, the game starts and plays; this is the first run of a board with a disk image, and it is not a tested board family. With the old index, the core error screen shows for a moment, then the game list with the notice "kinst did not start: the core stopped it at the start. The core says: "HDD: kinst.chd not found". Check that the game has all its files.", and the log has that line and the error lines of the core. Wait more than 10 s on the error screen before a press: the notice is then "kinst stopped: the core ended the game. The core says: ..." with the last message of the core. No case returns to the list with no notice. In both cases the frontend never stops and the list mode is the mode before the launch.
+- [ ] `needs-hardware` **A game that does not start returns to the list with a notice.** The PC, FinalBurn Neo, with an image whose arcade index has the disk lines.
+  - Do: put `kinst.zip` with no disk image in `roms/arcade` and start it. Then put the disk image at `roms/arcade/kinst/kinst.chd` and start it again. Then, on an image or a `cargo xtask os push` with the current frontend but an arcade index with no disk lines, remove the disk image, start it again and hold the launch button.
+  - Expect: with the index with disk lines and no disk image, message 8 ("This game needs the hard disk image kinst.chd. Put it in the folder kinst, next to kinst.zip.") shows in the game list and no game run starts. With the disk image, the game starts and plays; this is the first run of a board with a disk image, and it is not a tested board family. With the old index, the core error screen shows for a moment, then the game list with the notice "kinst did not start: the core stopped it at the start. The core says: "HDD: kinst.chd not found". Check that the game has all its files.", and the log has that line and the error lines of the core. Wait more than 10 s on the error screen before a press: the notice is then "kinst stopped: the core ended the game. The core says: ..." with the last message of the core. No case returns to the list with no notice. In both cases the frontend never stops and the list mode is the mode before the launch.
   - Record: photos of both notices, whether the game runs with the disk image, and the log lines.
 
 ## Picture mode (M08e)
 
 The policy tests, the goldens of `crates/neptron-modeline/tests/golden/policy_modes.toml` and the exhaustive run of `offer` prove the decision of each picture mode and refresh choice in emulation, and tier 2 tests change them in a running game. Only a real screen shows the picture, the sync and the speed. Change the options in the Video page of the quick menu while the game runs, and read the mode in the status of the Video page after each change. A greyed option cannot be chosen: check that its help line gives the reason.
+
+A 15 kHz tube with `generic_15` is on the PC in these images, and the PC has no interlace. Where an expectation below names an interlaced mode on such a tube, record the mode the policy gives instead.
 
 - [ ] `needs-hardware` **Each picture mode on a 15 kHz CRT.** A 15 kHz tube with `generic_15`.
   - Do: start a SNES game, DoDonPachi (`ddonpach`, vertical) and a DOS game in 640x400 at 70 Hz. For each, choose every option of Picture mode that is not greyed.
@@ -1096,11 +1028,11 @@ The policy tests, the goldens of `crates/neptron-modeline/tests/golden/policy_mo
   - Do: set Picture mode to Fill in the quick menu and watch the screen until the new picture shows.
   - Expect: the notice "Soft picture: Picture mode is set to Fill." shows once the new picture is on screen, also when the tube takes long to lock: the app waits for the picture, not for a count of frames.
   - Record: the time from the pick to the picture, and when the notice shows.
-- [ ] `needs-hardware` **Settings > Display while its answers are made.** A Raspberry Pi 3 on DPI to a 15 kHz tube.
+- [ ] Not possible in this image (no DPI overlay). **Settings > Display while its answers are made.** A Raspberry Pi 3 on DPI to a 15 kHz tube.
   - Do: open Settings > Display, then Picture mode, at once and again after a scanline change.
   - Expect: the options show "..." for a moment, then their tags and reasons; the menu and the sound never stutter while they are made.
   - Record: how long the "..." shows.
-- [ ] `needs-hardware` **The cost of the picture answers on a Pi.** A Raspberry Pi 3 with `pc_31_120` on DPI, and with `generic_15`.
+- [ ] Not possible in this image (no DPI overlay). **The cost of the picture answers on a Pi.** A Raspberry Pi 3 with `pc_31_120` on DPI, and with `generic_15`.
   - Do: run `policy_cost` of `neptron-modeline` on the Pi (release build of the image), and open Settings > Display and the keep prompt of the quick menu while a game runs.
   - Expect: two decisions of the common case take less than 8 ms; the frame of the menus and the sound never stutter. The worst case (a stored mode and Auto with no picture, the Fill fallback) can pass 8 ms: record it.
   - Record: the numbers of `policy_cost`, and the time until the buttons of the keep prompt take a choice.
@@ -1119,7 +1051,7 @@ The policy tests, the goldens of `crates/neptron-modeline/tests/golden/policy_mo
 
 ## Screensaver (M15)
 
-- [ ] `needs-hardware` **No missed field while the screensaver runs on the Pi 3.** Raspberry Pi 3 on composite (NTSC) and on DPI to a 15 kHz tube.
+- [ ] `needs-hardware` **No missed field while the screensaver runs on the Pi 3.** Raspberry Pi 3 on composite (NTSC). The second setup of this check, DPI to a 15 kHz tube, is not possible in this image (no DPI overlay).
   - Do: set Screensaver time to 1 minute in Settings > Display. Leave the game list for 2 minutes, then pause a game with the quick menu and leave it for 2 minutes. Read the frame statistics of the control protocol before and after.
   - Expect: the screensaver starts after 1 minute in both places. The count of missed flips does not grow while it runs. The word moves smoothly, one pixel at a time, with no stutter.
   - Record: the missed flips before and after each wait, and the render time of the frame statistics.
