@@ -219,12 +219,14 @@ impl GameList {
         self.list
             .draw(frame, theme, total, |i| match snap.games.get(i) {
                 Some(game) => ListItem {
+                    accent_detail: false,
                     label: &game.title,
                     detail: Some(badge(game)).filter(|b| !b.is_empty()),
                     enabled: true,
                     kind: RowKind::Action,
                 },
                 None => ListItem {
+                    accent_detail: false,
                     label: PENDING_ROW,
                     detail: None,
                     enabled: false,

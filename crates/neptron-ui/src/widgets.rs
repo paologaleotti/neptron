@@ -244,6 +244,7 @@ mod tests {
                     list.handle(rng.action(), len);
                 }
                 list.draw(&mut frame, &theme, len, |_| ListItem {
+                    accent_detail: false,
                     label: "a label that is long enough to be cut",
                     detail: Some("detail text"),
                     enabled: true,

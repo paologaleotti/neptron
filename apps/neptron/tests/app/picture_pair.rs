@@ -60,7 +60,7 @@ fn pick(rig: &mut Rig, label: &str, option: &str, resets: bool) {
         .find(|o| o.label == option)
         .unwrap_or_else(|| panic!("{option} in {shown:?}"));
     assert!(picked.enabled, "{picked:?}");
-    let tag = picked.detail.ends_with("Auto too") || picked.detail.starts_with("Sets ");
+    let tag = picked.detail.ends_with("Auto too");
     assert_eq!(tag, resets, "{picked:?}");
     rig.focus(label);
     rig.tap(&[Control::A]);

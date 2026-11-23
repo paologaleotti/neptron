@@ -160,6 +160,7 @@ impl Options {
                 None => o.detail.as_str(),
             });
             ListItem {
+                accent_detail: true,
                 label: option.map_or("", |o| o.label.as_str()),
                 detail: detail.filter(|d| !d.is_empty()),
                 enabled: option.is_some_and(ChoiceOption::is_enabled),

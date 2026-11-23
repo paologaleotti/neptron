@@ -27,6 +27,10 @@ pub struct ListItem<'a> {
     /// What accept does. A [`RowKind::Page`] row shows an arrow at its
     /// right edge while it is enabled.
     pub kind: RowKind,
+    /// The detail of an enabled row is what the row gives, such as the tag
+    /// of an option: it shows in the accent colour, apart from the dim
+    /// reason of a row that is not available.
+    pub accent_detail: bool,
 }
 
 /// What one action did to a [`List`].
@@ -62,6 +66,7 @@ impl<'a> ListItem<'a> {
             detail: None,
             enabled: true,
             kind: RowKind::Action,
+            accent_detail: false,
         }
     }
 
@@ -69,6 +74,7 @@ impl<'a> ListItem<'a> {
     pub fn page(label: &'a str) -> Self {
         Self {
             kind: RowKind::Page,
+            accent_detail: false,
             ..Self::new(label)
         }
     }
@@ -192,6 +198,8 @@ impl List {
                 let at = Rect::new(add(inner.x, inner.w - detail_w), inner.y, detail_w, inner.h);
                 let detail_color = if focused {
                     color
+                } else if entry.enabled && entry.accent_detail {
+                    theme.colors.accent
                 } else {
                     theme.colors.text_dim
                 };
@@ -388,6 +396,7 @@ mod tests {
         let fills = |enabled| {
             let mut frame = UiFrame::new();
             l.draw(&mut frame, &theme, 1, |_| ListItem {
+                accent_detail: false,
                 enabled,
                 ..ListItem::new("Native")
             });
@@ -425,6 +434,7 @@ mod tests {
             0 => ListItem::page("Settings"),
             1 => ListItem::new("Resume"),
             _ => ListItem {
+                accent_detail: false,
                 enabled: false,
                 ..ListItem::page("Video")
             },
@@ -458,6 +468,7 @@ mod tests {
         let l = list();
         let mut frame = UiFrame::new();
         l.draw(&mut frame, &Theme::default(), 1, |_| ListItem {
+            accent_detail: false,
             detail: Some("1 game"),
             ..ListItem::page("Mega Drive")
         });

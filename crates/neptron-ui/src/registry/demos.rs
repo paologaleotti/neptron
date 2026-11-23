@@ -121,6 +121,7 @@ fn list(frame: &mut UiFrame, theme: &Theme) {
     list.draw(frame, theme, GAMES.len(), |i| {
         let (label, detail) = GAMES[i % GAMES.len()];
         ListItem {
+            accent_detail: false,
             label,
             detail,
             enabled: i != 2,

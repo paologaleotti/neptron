@@ -883,6 +883,7 @@ mod tests {
         let mut option = UiFrame::new();
         List::new(Rect::new(16, 12, 288, 12), 12).draw(&mut option, &theme, 1, |_| {
             super::super::ListItem {
+                accent_detail: false,
                 enabled: false,
                 ..super::super::ListItem::new("Native")
             }

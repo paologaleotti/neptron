@@ -64,7 +64,7 @@ pub mod picture_texts {
     /// `SpeedNotHeld`.
     pub const SPEED_NOT_HELD: &str = "This screen cannot hold the game's speed";
     /// `RateNotCovered` of Double rate for every reference game.
-    pub const NO_DOUBLE_RATE: &str = "This monitor does not take twice the rate of any game";
+    pub const NO_DOUBLE_RATE: &str = "This monitor does not take a doubled rate";
     /// A row that the display does not read on a TV.
     pub const NOT_USED_ON_A_TV: &str = "Not used on a TV";
     /// A row that the display does not read on a flat panel.
@@ -75,7 +75,7 @@ pub mod picture_texts {
     /// the ellipsis character.
     pub const JUDGING: &str = "...";
     /// The tag of a picture mode that also sets the refresh rate to Auto.
-    pub const SETS_RATE_AUTO: &str = "Sets rate Auto";
+    pub const RATE_TO_AUTO: &str = "Rate to Auto too";
     /// The longest picture notice of one picture: a stored pair that the
     /// display declines, the speed change and the scanlines, in one
     /// dialog, as the app joins them.
@@ -174,7 +174,7 @@ pub fn quick_reset_modes() -> Vec<ChoiceOption> {
         .map(|&(label, help)| {
             let option = ChoiceOption::new(label).with_help(help);
             match label {
-                "Game speed" => option.with_detail(texts::SETS_RATE_AUTO),
+                "Game speed" => option.with_detail(texts::RATE_TO_AUTO),
                 "2x" | "3x" | "4x" => option
                     .with_detail("15.63 kHz  60.099 Hz")
                     .unavailable(texts::NOT_SHOWN_HERE),

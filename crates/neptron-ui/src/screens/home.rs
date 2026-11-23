@@ -130,6 +130,7 @@ impl Home {
                 .map(StackText::as_str)
                 .filter(|s| !s.is_empty());
             ListItem {
+                accent_detail: false,
                 detail,
                 ..ListItem::page(row(snap, i).map_or("", |r| label(snap, r)))
             }

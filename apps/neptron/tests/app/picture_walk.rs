@@ -408,7 +408,7 @@ fn settings_walk(mut rig: Rig) -> Judged {
                 judged.greyed.push(name);
             } else if o.detail == pages::NOT_ALL_GAMES {
                 judged.not_for_every_game.push(name);
-            } else if o.detail.starts_with("Sets ") {
+            } else if o.detail.ends_with("Auto too") {
                 judged.resets.push(name);
             } else {
                 judged.plain.push(name);
@@ -419,7 +419,7 @@ fn settings_walk(mut rig: Rig) -> Judged {
             .iter()
             .find(|o| o.enabled && o.detail == pages::NOT_ALL_GAMES);
         let plain = shown.iter().skip(1).find(|o| {
-            o.enabled && o.detail != pages::NOT_ALL_GAMES && !o.detail.starts_with("Sets ")
+            o.enabled && o.detail != pages::NOT_ALL_GAMES && !o.detail.ends_with("Auto too")
         });
         if let Some(o) = greyed {
             let file_before = global_file(&rig);

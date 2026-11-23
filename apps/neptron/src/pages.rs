@@ -376,9 +376,7 @@ pub fn decline_text(reason: DeclineReason, scope: Scope) -> String {
         DeclineReason::RateNotCovered {
             asked: RefreshPolicy::ExactX2,
             ..
-        } if scope == Scope::EveryGame => {
-            "This monitor does not take twice the rate of any game".to_owned()
-        }
+        } if scope == Scope::EveryGame => "This monitor does not take a doubled rate".to_owned(),
         DeclineReason::RateNotCovered { rate_mhz, .. } => {
             format!("This monitor does not take {} Hz", hz(rate_mhz))
         }
@@ -438,8 +436,8 @@ pub const NOT_ALL_GAMES: &str = "Not all games";
 /// Auto.
 pub fn reset_tag(other: &str) -> &'static str {
     match other {
-        DISPLAY_STYLE => "Sets mode Auto",
-        _ => "Sets rate Auto",
+        DISPLAY_STYLE => "Mode to Auto too",
+        _ => "Rate to Auto too",
     }
 }
 
@@ -451,7 +449,7 @@ fn hz(mhz: u64) -> String {
 
 /// The reason of an option of the picture mode or refresh rows when the
 /// run has no engine to ask.
-pub const NO_DECISION: &str = "No picture decision now";
+pub const NO_DECISION: &str = "Not available now";
 
 /// The text of an option of the picture mode or refresh rows while its
 /// answer is in work. Three full stops: the font of the menus has no
@@ -628,7 +626,16 @@ pub fn keep_answer(
 }
 
 /// `text` with its first letter in lower case, for a reason after a colon.
+/// A text that starts with a name keeps it: a picture mode ("Native fills
+/// more ...", "Game speed ...") or "Auto".
 pub fn lower_first(text: &str) -> String {
+    let named = PictureStyle::ALL
+        .into_iter()
+        .map(mode_label)
+        .any(|name| text.starts_with(name) && text[name.len()..].starts_with([' ', ':', '.']));
+    if named {
+        return text.to_owned();
+    }
     let mut chars = text.chars();
     match chars.next() {
         Some(first) => first.to_lowercase().chain(chars).collect(),
@@ -2049,6 +2056,29 @@ mod tests {
             &open_caps(),
         )
         .expect("a plan")
+    }
+
+    /// A reason after a colon starts in lower case, but a mode name keeps
+    /// its capital: "Not all games: 2x fills more of this screen.", "...:
+    /// Native fills ...", "...: this monitor ...".
+    #[test]
+    fn a_mode_name_keeps_its_capital_after_a_colon() {
+        assert_eq!(lower_first("Native fills more"), "Native fills more");
+        assert_eq!(lower_first("Game speed is set"), "Game speed is set");
+        assert_eq!(lower_first("Fill. Then"), "Fill. Then");
+        assert_eq!(lower_first("This monitor"), "this monitor");
+        assert_eq!(lower_first("Fillers"), "fillers");
+        assert_eq!(lower_first("2x fills more"), "2x fills more");
+        assert_eq!(lower_first(""), "");
+        assert_eq!(
+            some_games_text(
+                SomeGames::Declined(DeclineReason::InterlacedFillsMore {
+                    asked: PictureStyle::Native
+                }),
+                DISPLAY_REFRESH_POLICY
+            ),
+            "Not all games: the interlaced picture fills more of this screen."
+        );
     }
 
     /// The placeholder of an answer in work is the text of the scenes, and
