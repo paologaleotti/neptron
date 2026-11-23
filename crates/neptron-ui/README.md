@@ -122,7 +122,7 @@ Menu during a game opens the quick menu over the paused game: Resume, Volume, Vi
 | Field | Meaning | Example |
 | --- | --- | --- |
 | `game` | What the core asks for: the source size, then the field rate | `256x224             60.099 Hz` |
-| `mode` | The mode on screen as the kernel reports it: the size with its scan suffix, the line rate, the field rate, then two spaces and the picture style | `768x448p  30.05 kHz 60.099 Hz  2x` |
+| `mode` | The mode on screen as the kernel reports it: the size with its scan suffix, the line rate, the field rate, then two spaces and the rung of the picture | `768x448p  30.05 kHz 60.099 Hz  2x` |
 | `result` | The result in words. The formatter joins two or more results with `, `. An alert result starts with the mark `[!] ` | `exact`, `[!] cropped 2 lines, speed (60.099 to 59.940 Hz)` |
 | `alert` | True when the player must notice the result. The formatter sets it for `filtered` and for `speed` | |
 
@@ -131,7 +131,7 @@ The formatter writes fixed columns, so that the field rates of the two lines are
 - Columns 1 to 10: the size, padded with spaces to 10 characters. The mode size ends with the scan suffix: `p` for progressive, `i` for interlaced (`768x448p`, `640x480i`).
 - Columns 11 to 20: the line rate, padded with spaces to 10 characters. It is in kHz with two decimals (`30.05 kHz`), and with one decimal from 100 kHz up (`133.3 kHz`, a 2160p panel), so it stays 9 characters. On the game line these columns are spaces.
 - Then the field rate in Hz with three decimals (`60.099 Hz`). The mode line uses the rate read back from the kernel, never the requested one.
-- On the mode line only: two spaces, then the picture style (`2x`, `native`).
+- On the mode line only: two spaces, then the rung of the picture (`2x`, `native`, `fit`).
 - When `alert` is true: the mark `[!] ` first. It is not a result word, and no `, ` follows it.
 - The results, in this order when there are more than one: `exact`, `double refresh`, `cropped N lines`, `small picture N%`, `filtered`, `speed (X to Y Hz)`. X is the rate of the game and Y the rate on screen, both with three decimals.
 

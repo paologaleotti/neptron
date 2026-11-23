@@ -503,7 +503,7 @@ The owner decided the open points of the first version of this section (A7 to A1
 
 | Item | Decision |
 | --- | --- |
-| CRT multiple (A7) | The smallest whole multiple that fills the screen. The picture styles `3x` and `4x` still ask for more |
+| CRT multiple (A7) | The smallest whole multiple that fills the screen. The picture modes `3x` and `4x` still ask for more |
 | Interlace | Never an interlaced mode, and never any mode, that the monitor profile does not declare. Interlace is allowed on composite TV and on a profile that declares it (the 15 kHz and 25 kHz ranges). Nothing widens a profile range or a validator limit |
 | Border too big (A8) | A picture below 60 % of the screen height. Below it, an interlaced 1:1 mode that fills more wins where the profile declares interlace; else the small exact picture stays. The policy never falls to a soft fit on its own when an exact mode exists |
 | Flat panel, every game (A9) | When the scale that fills the height is 4.0 or more, the game fills the height, sharp bilinear, with its shape kept. Under 4.0 it takes the largest whole multiple that fits. The value `integer` of `display.panel_scale` forces whole multiples at every scale. A picture below 60 % of the height at 1x keeps 1x, with a notice |
@@ -666,15 +666,15 @@ Since the picture mode (`docs/spec/video-policy-cases.md`, section 8), this key 
 | Label | Vertical games |
 | Choices, in menu order | `exact` (default): every pixel exact, with the largest picture that a whole scale gives; on 15 kHz and on a TV interlaced, with flicker. `fit`: the picture fills the height of the screen with its shape kept, scaled, soft; on 15 kHz and on a TV progressive, with no flicker |
 | Levels | game, system, global (`Levels::ALL`) |
-| Where the row shows | Settings > Display, next to the picture style, which writes at the global level. And the Video page of the quick menu while a game runs, which writes at the game level; its keep prompt then moves the change to the system or the global level, as for the picture style |
+| Where the row shows | No row: `display.vertical` is an expert key of the settings file. The picture mode covers it (`PICTURE_MODE_COVERS`): a pick of a picture mode at a level removes it at that level, and Fill gives the fit of a turned game. A value that a file still holds acts, and the notice names it |
 | Applies to | Every display: a CRT, a TV and a flat panel |
 | Effect | Only for a turned source (`R90`, `R270`). `exact` is rule R1 to R8. `fit` drops every exact rung below the fill threshold for that source (a `Dropped` reason, `VerticalFit`), so the fit wins where the exact picture is small: on 15 kHz and on a TV the progressive fit (240p or 288p, sharp bilinear); on 31 kHz only the fit into about 500 lines; on a panel the fractional scale. Where an exact mode fills at least the threshold (a multi-sync tube, a panel at 3x and above), `fit` changes nothing |
-| Safety | `Validated`, as the picture style |
+| Safety | `Validated`, as the picture mode |
 | Help text | "How a vertical game shows on a horizontal screen. Exact shows every pixel exact, with black borders, and on a 15 kHz screen or a TV with flicker. Fit fills the height, with a soft picture." |
 
 - This replaces the choices `interlaced` and `fitted` of the first version of this spec. The setting is not built yet (M08a), so no stored value changes.
 - The choices are append-only from M08a on. A cropped 1:1 view and the TATE choices are later values at the end of the list.
-- The picture style still applies: `3x` or `4x` on a multi-sync tube asks for that multiple of a vertical game.
+- The picture mode still applies: `3x` or `4x` on a multi-sync tube asks for that multiple of a vertical game.
 - The crawler finds the setting, as every setting.
 
 ### The notice the first time

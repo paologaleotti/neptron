@@ -289,7 +289,7 @@ impl Config {
         }
     }
 
-    /// The picture style, the refresh policy, the TV width, the vertical
+    /// The picture mode, the refresh rate, the TV width, the vertical
     /// games and the panel scale of the context, with the arcade rules for
     /// an arcade board.
     ///

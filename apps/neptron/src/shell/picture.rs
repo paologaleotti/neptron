@@ -29,7 +29,7 @@ pub(super) fn vertical_interlaced(
 /// The text of the notice for the picture of `notice` on an output of
 /// `kind`, or `None` for an exact picture. Every reason gives one
 /// sentence, in the order of [`Notice::reasons`]. A fit or a crop with no
-/// reason of its own (a fit that the picture style asks for) gives the
+/// reason of its own (a fit that the picture mode asks for) gives the
 /// words of the video status, `status`.
 pub(super) fn picture_text(kind: RefreshKind, notice: &Notice, status: &str) -> Option<String> {
     let mut text = String::new();
@@ -442,7 +442,7 @@ mod tests {
         );
     }
 
-    /// A fit that the picture style asks for has no reason of the policy:
+    /// A fit that the picture mode asks for has no reason of the policy:
     /// the notice carries the words of the video status, off a panel.
     #[test]
     fn a_fit_or_a_crop_with_no_reason_gives_the_status_words() {

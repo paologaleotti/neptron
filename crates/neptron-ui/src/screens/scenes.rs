@@ -1697,7 +1697,7 @@ fn quick_menu_panel(frame: &mut UiFrame, theme: &Theme) {
     screens.update(&snap, &[UiAction::Down], frame);
 }
 
-/// The keep prompt after a change of the refresh policy on the video page.
+/// The keep prompt after a change of the refresh rate on the video page.
 fn quick_menu_keep(frame: &mut UiFrame, theme: &Theme) {
     let mut snap = in_game();
     let mut screens = video_page_of(frame, theme, &mut snap);

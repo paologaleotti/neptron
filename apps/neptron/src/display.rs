@@ -258,8 +258,8 @@ impl Detected {
         self.notices.extend(notices);
     }
 
-    /// The safe default for the detected output, with the picture style
-    /// `auto` and the refresh policy `exact`. `setting` is the value of
+    /// The safe default for the detected output, with the picture mode
+    /// `auto` and the refresh rate `exact` (Auto). `setting` is the value of
     /// `display.monitor` at boot.
     ///
     /// - A CRT that gives EDID: its range profile.
@@ -615,7 +615,7 @@ fn mode_text(mode: &Modeline) -> String {
     }
 }
 
-/// Picture style `auto`, refresh policy `exact`, TV width `aspect`.
+/// Picture mode `auto`, refresh rate `exact` (Auto), TV width `aspect`.
 fn safe_settings() -> PolicySettings {
     // The values are choices of the schema, which the policy maps.
     policy_settings("auto", "exact", None, "aspect").unwrap_or_default()

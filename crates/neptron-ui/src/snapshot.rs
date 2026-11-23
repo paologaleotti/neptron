@@ -408,8 +408,8 @@ pub struct VideoStatus {
     /// What the core asks for: the source size and the field rate, for
     /// example `256x224  60.099 Hz`.
     pub game: String,
-    /// The mode on screen as the kernel reports it, and the picture style,
-    /// for example `768x448p 30.05 kHz 60.099 Hz  2x`.
+    /// The mode on screen as the kernel reports it, and the rung that the
+    /// picture uses, for example `768x448p 30.05 kHz 60.099 Hz  2x`.
     pub mode: String,
     /// The result in words, for example `exact`, `filtered` or
     /// `[!] cropped 2 lines, speed (57.550 to 59.940 Hz)`.

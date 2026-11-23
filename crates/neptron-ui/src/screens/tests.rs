@@ -944,10 +944,10 @@ fn video_menu(status: Option<VideoStatus>) -> (Run, Snapshot, Snapshot) {
     (run, first, video)
 }
 
-/// The path from the top of the video page to "Force 60 Hz".
+/// The path from the top of the video page to the refresh rate "60 Hz".
 const TO_FORCE_60: [UiAction; 6] = [Down, Accept, Down, Down, Down, Accept];
 
-/// Changes the refresh policy to "Force 60 Hz" on the video page, the app
+/// Changes the refresh rate to "60 Hz" on the video page, the app
 /// applies it, and the player goes back to the first page of the quick
 /// menu. Returns the snapshot of the first page.
 fn force_60_and_back() -> (Run, Snapshot) {
@@ -1024,7 +1024,7 @@ fn a_change_in_the_quick_menu_is_written_for_the_game() {
     );
 }
 
-/// `snap` after the app applied "Force 60 Hz" at the game level.
+/// `snap` after the app applied the refresh rate "60 Hz" at the game level.
 fn with_force_60(snap: &Snapshot) -> Snapshot {
     let mut applied = snap.clone();
     if let Some(row) = applied.settings.rows.iter_mut().find(|r| r.key == REFRESH) {
@@ -2802,7 +2802,7 @@ fn a_page_takes_no_more_actions_in_the_frame_of_a_game_change() {
     let (mut run, first, video) = video_menu(None);
     run.step(&video, &[Down, Accept]);
     assert_eq!(run.screen(), "options");
-    // One frame: choose "Force 60 Hz", then Back.
+    // One frame: choose the refresh rate "60 Hz", then Back.
     run.step(&video, &[Down, Down, Down, Accept, Back]);
     assert_eq!(run.intents(), [force_60(Level::Game)]);
     assert_eq!(

@@ -14,12 +14,11 @@ pub const SCHEMA_VERSION: i64 = 1;
 /// No setting can use it: every setting key has two or more segments.
 pub const VERSION_KEY: &str = "schema_version";
 
-/// The picture mode choices, in menu order. The list is append-only, so `sharp`, `speed` and
-/// `fit` come after `4x`. "Native, double refresh" is the mode `native` with the refresh
-/// policy `exact_x2`.
+/// The picture mode choices, in schema order: the list is append-only, so `sharp`, `speed`
+/// and `fit` come after `4x`. The menus show the modes in an order of their own.
 pub const PICTURE_STYLES: &[&str] = &["auto", "native", "2x", "3x", "4x", "sharp", "speed", "fit"];
 
-/// The refresh policy choices, in menu order.
+/// The choices of the refresh rate (the Refresh rate row), in menu order.
 pub const REFRESH_POLICIES: &[&str] = &["exact", "exact_x2", "force_50", "force_60"];
 
 /// The scanline choices, in menu order. `auto` draws scanlines where the tube cannot show
@@ -42,10 +41,10 @@ pub const NAME_MAX_LEN: usize = 32;
 pub const DISPLAY_OUTPUT: &str = "display.output";
 /// The key of the monitor profile: `auto` or a profile id such as `generic_15`.
 pub const DISPLAY_MONITOR: &str = "display.monitor";
-/// The key of the picture mode: one of [`PICTURE_STYLES`]. It keeps the name of the picture
-/// style that it was before the modes `sharp`, `speed` and `fit`.
+/// The key of the picture mode: one of [`PICTURE_STYLES`].
 pub const DISPLAY_STYLE: &str = "display.style";
-/// The key of the refresh policy: the rate target that every picture mode works with.
+/// The key of the refresh rate (the Refresh rate row): the rate target that every picture
+/// mode works with.
 pub const DISPLAY_REFRESH_POLICY: &str = "display.refresh_policy";
 /// The key of the Start hold that opens the quick menu, in whole seconds.
 ///

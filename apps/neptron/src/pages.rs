@@ -1783,8 +1783,8 @@ mod tests {
     }
 
     /// For every game: an option that some reference source declines is
-    /// selectable with "Not for every game: {reason}." in its help line,
-    /// and an option that every reference source declines is greyed.
+    /// selectable with the tag "Not all games" in its row, and an option
+    /// that every reference source declines is greyed.
     #[test]
     fn settings_display_judges_its_options_for_every_reference_game() {
         let config = config();

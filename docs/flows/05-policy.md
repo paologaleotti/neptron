@@ -30,7 +30,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["refresh policy"] --> B{"exact?"}
+    A["refresh rate"] --> B{"exact?"}
     B -- "no: exact_x2, force_50, force_60" --> C{"A range covers the asked rate?"}
     C -- "yes" --> D["Target 1: Double, Forced50 or Forced60"]
     C -- "no" --> E["Skipped target<br/>kept in Plan.skipped"]
@@ -124,7 +124,7 @@ flowchart TD
 
 The policy has no screen of its own. Its result shows in two places: the Video block of the quick menu and the Display panel (see [Screens](07-screens.md)). The mode line ends with the short rung name of `write_rung`, and the result line holds the words of `write_result`.
 
-### Picture styles and their ladders (`walk_ladder`)
+### Picture modes and their ladders (`walk_ladder`)
 
 The settings key is `display.style`. The values are `auto`, `native`, `2x`, `3x`, `4x`. The default is `auto`.
 
@@ -308,10 +308,10 @@ Other golden lines that show a rule:
 ## Differences from docs/definition
 
 1. `04-crt-video-pipeline.md`, picture style table: "Native" needs a "15 kHz capable monitor", and "Native, double refresh" is `native` with `exact_x2`. The code: `native` with `exact` takes double refresh by itself (`NativeDouble`) when a range covers twice the game rate, and orders it after the native rung at the game rate.
-2. `04-crt-video-pipeline.md`, picture style table: a "Fixed mode" style (a mode the user picks, such as 1024x768). The code has no such style: only `auto`, `native`, `2x`, `3x`, `4x`.
+2. `04-crt-video-pipeline.md`, picture style table: a "Fixed mode" style (a mode the user picks, such as 1024x768). The code has no such mode: the picture modes are `auto`, `native`, `2x`, `3x`, `4x`, `sharp`, `speed` and `fit`.
 3. `04-crt-video-pipeline.md`, picture style table: double refresh is "frame repeated or black frame inserted". The code only repeats the frame (`repeat` = 2); there is no black frame insertion.
 4. `04-crt-video-pipeline.md`, horizontal strategy: "Each system definition names its preferred strategy", with fixed super width for PlayStation, SNES, Mega Drive, Amiga. The app always passes `None` (`config.rs` `policy` and `global_policy`), so every system gets the GPU default (dynamic super width with a floor, native width without). The fixed super width is reached only in tests.
-5. `04-crt-video-pipeline.md`, decision procedure step 8: a notice when the winner is fitted or its refresh differs. The code also flags `strategy_replaced`, `double_refresh`, `style_fallback`, `cropped_lines` and `padded_fill_permille`. The app shows a toast only for fitted, cropped and padded, and none for a speed change (the Video block shows it).
+5. `04-crt-video-pipeline.md`, decision procedure step 8: a notice when the winner is fitted or its refresh differs. The code also flags `strategy_replaced`, `double_refresh`, `style_fallback`, `cropped_lines` and `padded_fill_permille`. The code also flags `fill_fallback`, `small_fill_permille` and `whole_steps`. The app shows one notice for a new picture with a sentence for each reason of `Notice::reasons`; a speed change has its sentence when it passes the alert threshold (`SPEED_ALERT_MIN_PPM`), and the Video block shows it too.
 6. `04-crt-video-pipeline.md`, sources that do not fit: fewer lines go into "a 224 or 240-line mode". The code tries 224 and 240 first, then any height a range holds at the rate (`border_lines`). Medium resolution gets "480p fit on 31 kHz"; the code gives a border mode (the game's lines centred), and the fit only as the last resort.
 7. `04-crt-video-pipeline.md`, sources that do not fit, "More lines than progressive allows ... Interlace". The code also has an overscan crop of up to 8 lines per edge before it uses rung 3 or the fit. The Definition does not name the crop.
 8. `04-crt-video-pipeline.md`, "Refresh matches the core to two decimals". The code reads this as less than `REFRESH_MATCH_MHZ` = 5 mHz.
@@ -319,5 +319,5 @@ Other golden lines that show a rule:
 10. `06-flat-panels-shaders-and-vertical-games.md`, scaling options "Integer (default)", "Integer, overscan", "Fit, sharp", "Stretch", and the aspect options. The code has one panel rule: the largest whole vertical factor, width at the core aspect. No setting chooses another.
 11. `06-flat-panels-shaders-and-vertical-games.md`, refresh: "Audio rate control absorbs small differences." On a panel the code picks the listed mode nearest the game rate, but only after the whole-factor rule and the preferred size. With no 50 Hz mode, a 50 Hz game gets the 60 Hz mode and runs at the panel rate; the difference is not small, and the Video block shows the `speed` alert, because it is above `PANEL_SPEED_SILENT_PPM` (5000 ppm).
 12. `04-crt-video-pipeline.md` says the picture style and the refresh policy are settings at global, system and game level, with no exception for a panel. In the code a panel ignores `display.refresh_policy`: `panel_plan` does not read it, and the menus show the `Refresh rate` row disabled with `Not used on a flat panel`. A panel reads `display.style`: each picture mode gives its factor or its fill there.
-13. `06-flat-panels-shaders-and-vertical-games.md`, vertical games: rotated upright on a panel and on a 31 kHz CRT, with a one-time warning on 15 kHz. The policy swaps the axes, but the engine refuses every rotated source (`Unshowable::Rotated`), so a rotated game gets no mode in the MVP.
-14. `crates/neptron-modeline/README.md`, "Picture styles" (the picture modes): "`auto` takes ... native at twice the rate with `exact_x2` where a range covers it". `auto` takes `Double` only when the policy is `exact_x2`; with `exact` it never takes `NativeDouble` (only `native` does).
+13. `06-flat-panels-shaders-and-vertical-games.md`, vertical games: rotated upright on a panel and on a 31 kHz CRT, with a one-time warning on 15 kHz. The policy swaps the axes and the engine shows a turned game; on a horizontal screen it is not turned upright, and on a 15 kHz CRT or a TV its interlaced picture gets the one-time notice of a vertical game. A screen turned on its side (TATE) comes in a later version.
+14. `crates/neptron-modeline/README.md`, "Picture modes": "`auto` takes ... native at twice the rate with `exact_x2` where a range covers it". `auto` takes `Double` only when the policy is `exact_x2`; with `exact` it never takes `NativeDouble` (only `native` does).
