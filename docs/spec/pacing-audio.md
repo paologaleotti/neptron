@@ -211,7 +211,7 @@ The honest result for a core that is too slow is that the game runs slower than 
 
 - `Session::sound_too_slow` is true while the audio is muted because the game runs below half speed.
 - `Session::slow_speed_percent` returns the speed of the game in percent of the run rate of the mode on screen while the measure is used, the window is full (120 frames, about 2 s), and the speed is below `SLOW_NOTICE_PERMILLE` (980, 98%). Else `None`. A single long frame does not give it.
-- The owner approved the two notice texts: "This game runs at {p}% speed. This machine is too slow for it." (from `slow_speed_percent`) and "Sound off: the game runs at less than half speed." (from `sound_too_slow`). The app wires them after the change of its notice code, in a later task.
+- The owner approved the two notice texts: "This game runs at {p}% speed. This machine is too slow for it." (from `slow_speed_percent`) and "Sound off: the game runs at less than half speed." (from `sound_too_slow`).
 - `frames_presented` (`Counters::flips`) counts every flip that completed, also the flip that the next frame waits for in late pacing and the flip that the engine drains after a timed-out wait.
 - A flip that the engine drains in a present after a failed wait (`FrameReport::drained_flips`) is no progress of the display for `FLIPLESS_FRAMES_LIMIT`: a display whose flips take 500 to 1000 ms ends the session with `DisplayStalled`. A flip that a wait of the loop returned, also the wait for the flip of the frame before in late pacing, is progress.
 - `fields_missed` keeps its rule. Each flip counts its gap for the frame it shows: a flip that the next frame waits for counts for the frame that queued it.
@@ -219,6 +219,17 @@ The honest result for a core that is too slow is that the game runs slower than 
 - `Counters::late_frames` counts the core frames whose flip the loop did not wait for, and `Counters::late_flips` the late flips of frames whose work fit. The stats reply gives both as `late_frames` and `late_flips` from protocol version 3 (`LATE_PACING_VERSION`), append-only.
 - `FrameReport::pacing` gives each change of pacing. The app writes one log line at each change, through the log of the run. With the hold rules the loop changes pacing a few times at most, then reaches a steady state.
 - `Counters::input_to_flip_ns` is the last delay from an input poll that returned at least one event to the first flip of the frame that ran the core with it, on the session clock. The flip event can come from another clock with another origin (the kernel's on KMS). Both clocks are monotonic, so the session keeps the lowest offset that a wait shows (the session time after the wait less the flip time: a wait that returns at the flip) and moves each flip time to its own clock with it (`FlipClock`). In late pacing the next frame waits for a flip that completed earlier, and the offset still gives the time of the flip. The app gives it as `input_to_frame_ns` in the stats reply, which had no source before.
+
+#### The speed notices
+
+The app decides when the two notices show in pure code (`apps/neptron/src/speed_notice.rs`, `SpeedNotices::step`). Each frame of a game gives it the two values of the session and the time of the clock of the run.
+
+- The speed notice shows when `slow_speed_percent` first gives a value, with that value. A change of the value does not show it again.
+- It shows again only after `slow_speed_percent` gave `None` (the game was no longer slow), and at least `SLOW_NOTICE_GAP_NS` (60 s) after the speed notice before. A game that is slow again before the 60 s pass gets the notice when they pass, if it is still slow.
+- The sound notice shows at each turn of `sound_too_slow` to true. A modeset stops the measure and so ends the mute, so a slow game can get the sound notice again after a modeset.
+- When both start in one frame, the sound notice comes first and the speed notice at the next frame.
+- Both are Warning notices of the app, with the mechanism of every other notice: a notice in a game waits for the quick menu, and goes to the log once when it is added. Only the frame that adds a notice allocates its text.
+- Tests: the unit tests of `SpeedNotices`; the tier 2 test `a_slow_game_tells_its_speed_and_its_sound_off` (`apps/neptron/tests/app/audio.rs`), a game whose frames take 40 ms on the simulated clock; and the scene `screens/notice-slow-speed`, which shows that the longest speed notice fits the notice box at 320x240.
 
 ### Safety and other paths
 
