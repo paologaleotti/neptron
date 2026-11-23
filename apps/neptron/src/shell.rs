@@ -172,6 +172,9 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     /// The requests of the keep prompt in a game, with their levels
     /// (`Self::keep_requests`).
     keep_asks: Vec<(Level, neptron_video::AnswerRequest)>,
+    /// The last settled picture answers of a page, which it shows while
+    /// its new answers are in work.
+    last_answers: Option<(neptron_ui::snapshot::PageId, neptron_video::PictureChoices)>,
     /// The one-time notices shown already, as the notices file holds them.
     shown_notices: crate::notices::ShownNotices,
     /// The pad notices of this power cycle and the silent pad rule.

@@ -349,6 +349,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             keep_batch: super::pair::KeepBatch::default(),
             page_ask: None,
             keep_asks: Vec::new(),
+            last_answers: None,
             shown_notices,
             pad_notes,
             pad_maps,

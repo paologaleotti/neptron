@@ -137,13 +137,20 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         };
         // The answers come from the cache of the engine; while they are in
         // work, the frame makes them a few decisions at a time and loads
-        // the page again when they are there.
+        // the page again when they are there. Meanwhile the page shows its
+        // last settled answers, and takes no pick of the picture rows.
         let (choices, judging) = match page {
             DISPLAY_PAGE | VIDEO_PAGE => {
                 self.page_ask = self.picture_request(level);
                 match self.picture_answers(level) {
-                    Some(Some(choices)) => (Some(choices), false),
-                    Some(None) => (None, true),
+                    Some(Some(choices)) => {
+                        self.last_answers = Some((page, choices.clone()));
+                        (Some(choices), false)
+                    }
+                    Some(None) => match &self.last_answers {
+                        Some((shown, last)) if *shown == page => (Some(last.clone()), true),
+                        _ => (None, true),
+                    },
                     None => (None, false),
                 }
             }

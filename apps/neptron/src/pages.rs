@@ -236,8 +236,10 @@ pub struct Names<'a> {
     /// engine, with the values of the level the page writes. `None` when
     /// the run has no engine: the options are then greyed.
     pub choices: Option<&'a PictureChoices>,
-    /// The answers are in work: the options of the picture mode and
-    /// refresh rows show [`JUDGING`] until they are there.
+    /// The answers are in work: `choices` are the last settled answers of
+    /// the page, or `None`. The offered options of the picture mode and
+    /// refresh rows show [`JUDGING`] and take no pick until the new
+    /// answers are there.
     pub judging: bool,
     /// Whom the page writes for: every game, or the game of the run.
     pub scope: Scope,
@@ -1238,7 +1240,10 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
 /// the detail says when a pick also sets the row of `other` to Auto, or
 /// when some games do not get the option; the help line keeps the option's
 /// own text. A declined option is greyed with its reason. With no answer
-/// the option is greyed: only an offered option can be chosen.
+/// the option is greyed: only an offered option can be chosen. While
+/// `judging`, `choice` is the last settled answer of the page: the option
+/// shows it, and an offered option takes no pick until the new answers
+/// are there.
 fn offered_option(
     option: ChoiceOption,
     choice: Option<&RowChoice>,
@@ -1263,13 +1268,20 @@ fn offered_option(
         }
         (Some(_) | None, _) => option,
     };
-    match (&choice.answer, choice.not_for_every_game) {
+    let option = match (&choice.answer, choice.not_for_every_game) {
         (RowAnswer::Declined(declined), _) => {
-            option.unavailable(decline_text(declined.reason, scope))
+            return option.unavailable(decline_text(declined.reason, scope));
         }
         (RowAnswer::ResetsOther { .. }, _) => option.with_detail(reset_tag(other)),
         (RowAnswer::Plain(_), Some(_)) => option.with_detail(NOT_ALL_GAMES),
         (RowAnswer::Plain(_), None) => option,
+    };
+    // Last settled answers while new ones are made: the page looks the
+    // same, but takes no pick until the new answers are there.
+    if judging {
+        option.unavailable(JUDGING)
+    } else {
+        option
     }
 }
 
