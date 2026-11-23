@@ -126,7 +126,22 @@ pub const PICTURE_MODE_COVERS: [&str; 2] = [DISPLAY_VERTICAL, DISPLAY_PANEL_SCAL
 /// The choices of [`DISPLAY_PANEL_SCALE`], in menu order.
 pub const PANEL_SCALES: &[&str] = &["auto", "integer"];
 
-static BUILTIN: [Entry; 13] = [
+/// The key of the screensaver switch: on or off.
+///
+/// Help text: "A dark picture with a moving NEPTRON after a time with no input, in the menus
+/// and in a paused game. It protects a tube from burn-in."
+pub const DISPLAY_SCREENSAVER: &str = "display.screensaver";
+
+/// The key of the time with no input before the screensaver starts: one of
+/// [`SCREENSAVER_MINUTES`], in whole minutes.
+///
+/// Help text of each option: "The time with no input before the screensaver starts."
+pub const DISPLAY_SCREENSAVER_MINUTES: &str = "display.screensaver_minutes";
+
+/// The choices of [`DISPLAY_SCREENSAVER_MINUTES`], in minutes, in menu order.
+pub const SCREENSAVER_MINUTES: &[&str] = &["1", "5", "10", "30"];
+
+static BUILTIN: [Entry; 15] = [
     Entry {
         key: DISPLAY_OUTPUT,
         label: "Output",
@@ -301,6 +316,29 @@ static BUILTIN: [Entry; 13] = [
         applies_to: AppliesTo::FlatPanel,
         expert: true,
     },
+    Entry {
+        key: DISPLAY_SCREENSAVER,
+        label: "Screensaver",
+        kind: Kind::Bool { default: true },
+        levels: Levels::GLOBAL,
+        live: true,
+        safety: Safety::None,
+        applies_to: AppliesTo::Every,
+        expert: false,
+    },
+    Entry {
+        key: DISPLAY_SCREENSAVER_MINUTES,
+        label: "Screensaver time",
+        kind: Kind::Choice {
+            choices: SCREENSAVER_MINUTES,
+            default: "5",
+        },
+        levels: Levels::GLOBAL,
+        live: true,
+        safety: Safety::None,
+        applies_to: AppliesTo::Every,
+        expert: false,
+    },
 ];
 
 impl Schema {
@@ -377,6 +415,54 @@ mod tests {
         assert_eq!(default(AUDIO_OUTPUT), "auto");
         assert_eq!(default(DISPLAY_TV), "auto");
         assert_eq!(default(DISPLAY_TV_WIDTH), "aspect");
+        assert_eq!(default(DISPLAY_SCREENSAVER), "true");
+        assert_eq!(default(DISPLAY_SCREENSAVER_MINUTES), "5");
+    }
+
+    #[test]
+    fn the_screensaver_settings_are_global_and_round_trip_through_a_file() {
+        let schema = Schema::builtin();
+        for key in [DISPLAY_SCREENSAVER, DISPLAY_SCREENSAVER_MINUTES] {
+            let entry = schema.get(key).unwrap();
+            assert_eq!(entry.levels, Levels::GLOBAL);
+            assert_eq!(entry.safety, Safety::None);
+            assert!(entry.live && !entry.expert);
+        }
+        let text = edit(
+            &schema,
+            Level::Global,
+            "",
+            &[
+                Change::Set {
+                    key: DISPLAY_SCREENSAVER,
+                    value: Value::Bool(false),
+                },
+                Change::Set {
+                    key: DISPLAY_SCREENSAVER_MINUTES,
+                    value: Value::Text("30".into()),
+                },
+            ],
+        )
+        .unwrap();
+        let parsed = parse_layer(&schema, Level::Global, &text);
+        assert_eq!(parsed.issues, []);
+        assert_eq!(
+            parsed.layer.get(DISPLAY_SCREENSAVER),
+            Some(&Value::Bool(false))
+        );
+        assert_eq!(
+            parsed.layer.get(DISPLAY_SCREENSAVER_MINUTES),
+            Some(&Value::Text("30".into()))
+        );
+        let game = parse_layer(&schema, Level::Game, &text);
+        assert_eq!(game.layer.get(DISPLAY_SCREENSAVER), None);
+        let bad = parse_layer(
+            &schema,
+            Level::Global,
+            "[display]\nscreensaver_minutes = \"7\"\n",
+        );
+        assert_eq!(bad.layer.get(DISPLAY_SCREENSAVER_MINUTES), None);
+        assert_eq!(bad.issues.len(), 1);
     }
 
     #[test]

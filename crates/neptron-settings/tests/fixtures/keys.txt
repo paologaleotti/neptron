@@ -17,3 +17,5 @@ display.tv global choice auto|ntsc|ntsc_j|ntsc_443|pal_60|pal_m|pal|pal_n|secam|
 display.tv_width game,system,global choice aspect|integer|fill
 display.vertical game,system,global choice exact|fit
 display.panel_scale game,system,global choice auto|integer
+display.screensaver global bool
+display.screensaver_minutes global choice 1|5|10|30
