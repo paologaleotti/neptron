@@ -627,6 +627,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 
     /// Applies a setting that does not change the signal.
     fn apply_live(&mut self, key: &str) {
+        self.screensaver
+            .set_timeout(self.config.screensaver_timeout_ns());
         let scanlines = self.config.scanlines();
         let hold_ns = self.config.start_hold_ns();
         let volume = self.config.volume_percent();

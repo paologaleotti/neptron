@@ -119,6 +119,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         }
         self.poll_mapping(now_ns);
         self.nav.update(&self.events, now_ns, &mut self.actions);
+        self.step_screensaver(now_ns);
         self.update_ui(now_ns);
         // A reboot or a power-off keeps its last frame on screen until the
         // machine stops, so that frame must say what happens: it shows,
@@ -166,6 +167,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 self.actions.truncate(start);
             }
         }
+        self.step_screensaver(now_ns);
         self.update_ui(now_ns);
         let ui = self
             .screens

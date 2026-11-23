@@ -16,6 +16,7 @@ pub use pair::PAIR_WRITE_LOG;
 pub use view::CONFIRM_TEXT;
 mod picture;
 mod protocol;
+mod screensaver;
 mod view;
 
 use std::cell::{Cell, RefCell};
@@ -226,6 +227,7 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     network_builds: u64,
     /// The roster counter of the input source at the last check.
     pad_changes: u64,
+    screensaver: screensaver::Screensaver,
     outcome: Option<Outcome>,
 }
 

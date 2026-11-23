@@ -320,6 +320,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 ),
             };
         let theme = load_theme(&paths.skin(), &mut found);
+        let screensaver =
+            super::screensaver::Screensaver::new(now_ns, config.screensaver_timeout_ns());
         let mut shell = Shell {
             paths,
             config,
@@ -373,6 +375,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             network_requests: 0,
             network_builds: 0,
             pad_changes: 0,
+            screensaver,
             outcome: None,
         };
         shell.first_snapshot();

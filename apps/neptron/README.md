@@ -64,6 +64,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 | --- | --- |
 | Poll the input once, ports, hotkeys. Blind recovery calls `Guard::recover` | The session polled the input in its last frame |
 | Navigation from the events, with key repeat | Navigation from `Session::input_events`, only while the UI shows; else only the menu button after `menu_opened` |
+| Screensaver: the idle timer (`shell/screensaver.rs`) | The same, from `Session::input_events`; `hide_picture` while it shows |
 | Snapshot: confirm, display mode | Snapshot: confirm, session, `video_status` (the read back, never a proposal), display mode |
 | `Screens::update`, then the intents | The same |
 | `SceneCanvas::paint`: the canvas is drawn only when the scene changed | The same, while the UI shows |
@@ -72,6 +73,7 @@ Each frame reads the clock once and gives that time to every guard call, the hot
 | No flip: the loop waits for itself one 60 Hz frame | `blanked`: the same |
 
 - Key repeat (`nav.rs`): a direction repeats after 400 ms, then every 66 ms. On `PromptOpened` every repeat stops and every held key is ignored until its release (OP-048). A, B and X are accept, back and menu; Start and Select are left to the hotkeys.
+- The screensaver (`docs/spec/screensaver.md`): `neptron_ui::screensaver::Idle` gets each frame the time, whether an event with a value that is not 0 came (a press, or a stick out of its dead zone), and whether it may show: in the game list or while the UI shows in a game, with no confirm of the guard and no guided mapping. While it shows, `Snapshot::screensaver` holds its time and the router draws it. The input that wakes it is consumed: the actions of the frame are dropped and `Navigator::hold_back` ignores the held controls until their release. The hotkeys still see the input, so the blind recovery works under it. The time setting is read at boot and after each live change.
 - The quick menu is never a toggle: the session ignores a second hotkey, and the app only opens it (OP-051). Resume, reset and quit go to the session.
 - A notice at the first picture of a game that is not exact (`shell/picture.rs`): one sentence for each reason of the policy (`Notice::reasons`: a soft picture and its cause, a small picture, a speed change, double refresh), with the texts of `docs/spec/arcade.md` section 11; a fit or a crop with no reason of its own gives the words of the video status.
 - The speed notices of a slow game (`speed_notice.rs`, `docs/spec/pacing-audio.md`): "This game runs at {p}% speed. This machine is too slow for it." when `Session::slow_speed_percent` first gives a value, and "Sound off: the game runs at less than half speed." at each turn of `Session::sound_too_slow` to true. The speed notice shows again only after the game was no longer slow, and at least `SLOW_NOTICE_GAP_NS` (60 s) after the one before. Both are Warning notices: they wait for the quick menu, as every notice in a game, and go to the log.

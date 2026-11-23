@@ -28,6 +28,7 @@ mod recovery;
 mod remapping;
 mod rescan;
 mod rig;
+mod screensaver;
 mod start;
 mod system;
 mod tv;
