@@ -8,14 +8,14 @@ This spec settles OP-090. It describes how the menus are put together. It does n
 - Each screen on the stack of the router keeps its own cursor. A screen that closes gives the screen under it back with its cursor.
 - The quick menu notes each change at the game level, so that the keep prompt can move it to the system or the global level. It notes the scopes of the row with the change, because with sub pages the row is often not in the snapshot when the prompt opens.
 - The tier 3 boot golden `os/tests/golden/boot-game-list.ppm` shows the empty home screen under a notice: the empty-state text and one row `Settings`, with the focus and its arrow. Tier 3 needs QEMU.
-- The control protocol (`neptron-ipc`, version 2, serving versions 1 and 2) is append-only. A new reply field needs a new protocol version; a reply holds only the fields of the version of its request.
+- The control protocol (`neptron-ipc`, version 3, serving versions 1 to 3) is append-only. A new reply field needs a new protocol version; a reply holds only the fields of the version of its request.
 - The session ignores the quick menu hotkey while the core is paused (`Hotkey::QuickMenu` only acts in `State::Running`). The end-to-end test checks that a second hotkey does not close the menu.
 
 ## Home
 
 Home lists the systems that have games, then `Favourites`, `Recent games` and one row `Settings`. Home has no `Display` or `Audio` row.
 
-Home with no games follows the same rule: the text that says where the games go, and one row `Settings` at the bottom, with its arrow. So Settings and every panel are reachable on a new stick with no games, when a user needs them most. The display panel is two presses away: `Settings > Display`. No notice or hint text names the row. The boot golden of tier 3 shows this row.
+Home with no games follows the same rule: the text that says where the games go, and one row `Settings` at the bottom, with its arrow. So every panel is reachable on a new stick with no games; the display panel is two presses away (`Settings > Display`). No notice or hint text names the row. The boot golden of tier 3 shows this row.
 
 ## The Settings page
 
@@ -27,7 +27,7 @@ Screen id: `settings`.
 
 ## Rows: one rule for every list
 
-A row has one of four kinds. The kind decides how the row looks, what accept does and what the footer says.
+A row has one of five kinds. The kind decides how the row looks, what accept does and what the footer says.
 
 | Kind | What the row does | How it looks | Footer, left |
 | --- | --- | --- | --- |
@@ -35,13 +35,15 @@ A row has one of four kinds. The kind decides how the row looks, what accept doe
 | `value` | Changes its value in place | `< value >` while focused (a number), the value alone (a switch) | `Left/Right: change` for a number, `Accept: change` for a switch |
 | `action` | Accept does something: resume, quit, play a game, use an option. An action row with a confirm question opens a dialog first (see "The confirm question of an action row") | Neither an arrow nor `< >` | `Accept: choose`, or the hint of its screen (`Accept: play`, `Accept: use`) |
 | `disabled` | Nothing: the row is unavailable now | Dim, with its reason, no arrow. With the focus: a solid bar in the `border` colour with the text in `text`, the look of a focused option that cannot be chosen (a one-pixel edge can vanish under scanlines) | none |
+| `info` | Nothing: a text to read, no control | No arrow, the focus look of a row that cannot act | none |
 
 The kind of a settings row comes from its value:
 
-- `SettingValue::Page(id)`: `page`. Accept opens page `id`.
+- `SettingValue::Page(id)` and `SettingValue::Link`: `page`. Accept opens the page.
 - `SettingValue::Choice` in a list with pickers (every screen): `page`. Accept opens the option list.
 - `SettingValue::Toggle` and `SettingValue::Number`: `value`.
 - `SettingValue::Action(id)`: `action`.
+- `SettingValue::Text`: `info`.
 - Any row with a reason (`MenuItem::unavailable`): `disabled`.
 
 The kind of a `List` row is in `ListItem::kind`. Home rows and Settings rows are `page`; game rows and option rows are `action`.
@@ -139,11 +141,11 @@ The frontend never formats. On the confirm it writes the request file `/state/sh
 
 The Warning notice of a share in a RAM folder gains one sentence when a format is on offer and the run has power control: `Settings > System can format it.` With no power control the row is disabled, so the notice does not point to it. After a boot with a request, `storage.toml` holds `share_format` (`done`, `refused` or `failed`) and, when it is not `done`, `share_format_reason`. The frontend shows `The share partition is formatted.` as an Info notice, or `The share partition was not formatted (<reason>).` as a Warning.
 
-Not in this panel yet: the version and a sleep timer. The network address is in the Network panel.
+Not in this panel yet: the version and a sleep timer.
 
 ### The Input panel
 
-`Settings > Input` shows the pad of each of the four players as information rows (`Player 1` to `Player 4`), one `Extra pad` row for each pad on ports 4 to 7, `Keyboard` (`Player 1`), and the number row `Hold Start for menu`, which the Display panel held before. A pad that went away in a game shows with `(away)`. The app builds the page again when a pad comes, goes or moves while the page is in the snapshot. `docs/spec/input-players.md` is the spec.
+`Settings > Input` shows the pad of each of the four players as information rows (`Player 1` to `Player 4`), one `Extra pad` row for each pad on ports 4 to 7, `Keyboard` (`Player 1`), and the number row `Hold Start for menu`. A pad that went away in a game shows with `(away)`. The app builds the page again when a pad comes, goes or moves while the page is in the snapshot. `docs/spec/input-players.md` is the spec.
 
 ### The Network panel
 
@@ -222,4 +224,4 @@ Scenes: `screens/system` (the System panel), `screens/system-shutdown-confirm` (
 
 ## Not built
 
-- The kind in the control protocol (`ui_tree` of `neptronctl`). It needs a new protocol version: a contract change with its own branch and ADR.
+- The kind in the control protocol (`ui_tree` of `neptronctl`, OP-093). It needs a new protocol version: a contract change with its own branch and ADR.
