@@ -1056,3 +1056,14 @@ The policy tests, the goldens of `crates/neptron-modeline/tests/golden/policy_mo
   - Do: open the options of Picture mode in Settings > Display. Start a SNES game and DoDonPachi, and choose every option of Picture mode that is not greyed. Set Scanlines to On.
   - Expect: Game speed, 2x, 3x and 4x are greyed; the help line of Game speed says "Not available. A TV has one rate.". Refresh rate is disabled ("Not used on a TV"). DoDonPachi shows interlaced 1:1 in Auto and Sharp lines, and a progressive soft picture in 240p (288p on PAL) in Fill, with no flicker. With Scanlines On, the notice says why no scanline shows. The SNES game on NTSC (60.054 Hz, 0.07 % off) shows no `[!]`.
   - Record: a photo of the options and of each picture, and the status lines.
+
+## Screensaver (M15)
+
+- [ ] `needs-hardware` **No missed field while the screensaver runs on the Pi 3.** Raspberry Pi 3 on composite (NTSC) and on DPI to a 15 kHz tube.
+  - Do: set Screensaver time to 1 minute in Settings > Display. Leave the game list for 2 minutes, then pause a game with the quick menu and leave it for 2 minutes. Read the frame statistics of the control protocol before and after.
+  - Expect: the screensaver starts after 1 minute in both places. The count of missed flips does not grow while it runs. The word moves smoothly, one pixel at a time, with no stutter.
+  - Record: the missed flips before and after each wait, and the render time of the frame statistics.
+- [ ] `needs-hardware` **The screensaver on a CRT.** A 15 kHz tube with `generic_15`, and the SyncMaster 740s with `pc_31_120`.
+  - Do: let the screensaver start in the game list. Watch it for 1 minute, then press a button.
+  - Expect: a black screen with the word NEPTRON, sharp, that bounces at each edge of the screen and takes a new colour at each wall. No colour looks white or bright. No part of the word leaves the visible area. The mode does not change (no resync). The button brings back the menu as it was, and does not open the focused row.
+  - Record: a photo of the screensaver, and whether the word reaches the edges inside the visible area.
