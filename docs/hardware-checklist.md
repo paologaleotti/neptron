@@ -1067,3 +1067,7 @@ The policy tests, the goldens of `crates/neptron-modeline/tests/golden/policy_mo
   - Do: let the screensaver start in the game list. Watch it for 1 minute, then press a button.
   - Expect: a black screen with the word NEPTRON, sharp, that bounces at each edge of the screen and takes a new colour at each wall. No colour looks white or bright. No part of the word leaves the visible area. The mode does not change (no resync). The button brings back the menu as it was, and does not open the focused row.
   - Record: a photo of the screensaver, and whether the word reaches the edges inside the visible area.
+- [ ] `needs-hardware` **Even movement on a flat HD panel.** A 1080p panel at 60 Hz, and the same panel with Refresh rate at Double rate (a 120 Hz menu mode) when it offers one.
+  - Do: let the screensaver start in the game list and watch it for 1 minute.
+  - Expect: the word moves on a straight 45 degree line, one canvas pixel on each axis in each frame, with no wobble or staircase. At 120 Hz it moves at the same speed as at 60 Hz.
+  - Record: the mode, and whether the movement is even.

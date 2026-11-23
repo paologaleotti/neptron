@@ -20,14 +20,16 @@ This spec settles task M15. After a time with no input, the menus go to a dark p
 
 ## Movement
 
-The position is a pure function of the time since the screensaver started and the size of the screen. The UI screen is always 320x240; the function takes any size, and its tests use other sizes too.
+The position is a pure function of the count of UI frames since the screensaver started and the size of the screen. The UI screen is always 320x240; the function takes any size, and its tests use other sizes too. The idle timer stays on the clock.
 
 - `free_x = screen_width - word_width` and `free_y = screen_height - word_height`. A free side of 0 keeps the word at 0 on that axis.
-- The speed on each axis is 1/8 of the screen side per second (`SPEED_NUM / SPEED_DEN` screens per second): 40 px/s across and 30 px/s down at 320x240. So the picture looks the same at every resolution and every refresh rate.
-- The distance on an axis is `elapsed_ns * side * SPEED_NUM / (SPEED_DEN * 1e9)`, in whole pixels, in 128-bit integers. It comes from the whole elapsed time each frame, so no remainder adds up and nothing drifts.
+- The word moves `STEP_PX` (1) canvas pixel on each axis in every UI frame: both axes step in the same frame, a true 45 degree path, as the classic bouncing logo. The distance on an axis is the frame count, in 128-bit integers.
+- A speed in pixels per second does not work: at 40 px/s across and 30 px/s down, at 60 frames per second, x steps on 2 of 3 frames and y on 1 of 2, at different frames. A flat panel shows each canvas pixel as several of its own, and the path is a shaking staircase.
+- The speed follows the frame rate of the menu: 60 px/s on a 60 Hz mode, 50 px/s on a 50 Hz mode. A rate that is not exactly 60 Hz gives no beat, because nothing depends on the clock.
+- Each drawn UI frame shows the next step, once. In the game list the loop runs once per flip. A menu mode with double refresh (`repeat` 2, such as a 120 Hz panel mode or `pc_31_120` for the 60 Hz menu) runs the loop twice per frame of the menu: each step then shows for both flips, so the word keeps one pixel per 1/60 s and never runs at double speed. In a paused game the session shows each frame of the loop for its `repeat` flips, so each loop frame is one step. A 15 kHz mode and a 50 Hz mode have `repeat` 1: one step per flip.
 - The unfolded coordinate is `u = free / 2 + distance`. The position is a triangle wave of `u` with the period `2 * free`. The count of walls hit on that axis is `u / free`.
 - The colour is entry `(walls_x + walls_y) mod 8` of the cycle. So the colour changes exactly in the frame in which the word reaches or passes a wall. A corner hits two walls in one frame and moves two steps; the colour still changes.
-- The position is in whole pixels, so the text stays sharp at 240p on a CRT. At 320x240 the word moves 0 or 1 pixel in a frame.
+- The position is in whole pixels, so the text stays sharp at 240p on a CRT.
 - The bounce uses the scaled box of the word (84x24). At 320x240 the free area is 236x216, and the word starts at (118, 108).
 
 ## When it starts
@@ -64,7 +66,7 @@ A notice with no timeout stays under the screensaver, and shows again after the 
 
 ## Drawing
 
-- The app puts the time since the screensaver started into the snapshot (`Snapshot::screensaver`). The router then draws the screensaver in place of every screen and overlay, with the screen id `screensaver` in the UI tree, and no rows.
+- The app puts the count of UI frames since the screensaver started into the snapshot (`Snapshot::screensaver`). The router then draws the screensaver in place of every screen and overlay, with the screen id `screensaver` in the UI tree, and no rows.
 - The screensaver changes no display mode. The canvas goes through the same present as every menu.
 - In a paused game the app asks the session to show no game picture while the screensaver shows (`Session::hide_picture`). On a flat panel the frozen game picture then does not stay around the canvas.
 - A frame allocates nothing: the scene buffers keep their memory, and the word is one text command.
@@ -95,10 +97,10 @@ Two global settings on Settings > Display, after the scanline rows:
 
 - The idle timer, with the simulated clock: it starts at the set time and not before; not in a running game; not with the setting Off; not while a confirm or a mapping shows; it restarts after input, after a held direction, and after a stick that leaves its dead zone, but not after a stick that jitters outside it.
 - The wake consumes the input: an accept on a row of the game list does not open the row.
-- The bounce at 320x240, 640x480, 1920x1080 and 1920x240: the word stays inside the screen, the positions are whole pixels, the colour changes only in a frame that reaches or passes a wall, and it follows the cycle.
+- The bounce at 320x240, 640x480, 1920x1080 and 1920x240: the word stays inside the screen, each frame moves it exactly 1 pixel on each axis (a reflection at a wall turns the direction), the colour changes only in a frame that reaches a wall, and it follows the cycle. The count of steps shows each step once, and twice in a row on a mode with double refresh.
 - The settings: the schema entries, a round trip through a file, the rows on the Display panel, and the crawler finds both.
-- Scenes and goldens at 320x240 at three times: the start, the first wall, and a later time with another position and colour. A test checks that the word is the font at twice its size. The UI has one canvas size, so a larger screen is a test of the movement, not a golden.
-- Tier 2 app tests: idle in the menus for the set time, the screensaver shows; one press, the menu is back and unchanged; the press did nothing else. A running game never shows it; a paused game does, with no game picture. Off never shows it. A confirm that opens just before the time holds it back, and a guided mapping longer than the time holds it back; the time then counts from their end. A held direction holds it off.
+- Scenes and goldens at 320x240 at three frame counts: the start (0), the first wall (108, the bottom edge, orange), and a later pose (1200, green). A test checks that the word is the font at twice its size. The UI has one canvas size, so a larger screen is a test of the movement, not a golden.
+- Tier 2 app tests: idle in the menus for the set time, the screensaver shows; one press, the menu is back and unchanged; the press did nothing else. A running game never shows it; a paused game does, with no game picture. Off never shows it. A confirm that opens just before the time holds it back, and a guided mapping longer than the time holds it back; the time then counts from their end. A held direction holds it off. N frames under the screensaver give N consecutive steps, each a new pose, and the canvas is drawn once in each.
 
 ## Hardware
 
