@@ -419,9 +419,6 @@ Against `docs/definition/08-frontend-and-ux.md`:
 
 Against the READMEs and code comments:
 
-14. `crates/neptron-ui/src/screens.rs`, doc of `DISPLAY_PAGE`, and `crates/neptron-ui/README.md` ("The display panel and the confirm dialog"): they say "all five rows of the display page still fit". The app page has ten setting rows (two only on a TV) plus `Grid pattern` and, in safe mode, one or two action rows (`DISPLAY_KEYS`, `safe_mode_rows` in `apps/neptron/src/pages.rs`).
-15. The reasons of the picture rows come from `DeclineReason` (`pages::decline_text`); `docs/spec/video-policy-cases.md`, section 8.7, lists them.
-16. `crates/neptron-ui/src/intent.rs`, doc of `Intent::QuitGame`: "Stop the game and return to the game list". The next run starts on Home with the cursor on the first row, not on the list of the system.
-17. The UI opens the grid pattern from any `Page(GRID_PAGE)` row, also on a page of the quick menu. The app has such a row on the display page only.
-18. `apps/neptron/README.md`, "Resume, reset and quit go to the session": the quick menu has no reset.
-19. `Intent::SelectProfile` exists and the app handles it, but no screen sends it. The monitor changes through the `Monitor profile` option list (`SetValue`).
+14. The reasons of the picture rows come from `DeclineReason` (`pages::decline_text`); `docs/spec/video-policy-cases.md`, section 8.7, lists them.
+15. The UI opens the grid pattern from any `Page(GRID_PAGE)` row, also on a page of the quick menu. The app has such a row on the display page only.
+16. `Intent::SelectProfile` exists and the app handles it, but no screen sends it. The monitor changes through the `Monitor profile` option list (`SetValue`).
