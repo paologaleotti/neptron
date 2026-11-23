@@ -1,27 +1,16 @@
 # Network panel: the address, the host name and the share
 
-This spec settles task M03. `Settings > Network` shows the local address of the machine, its host name, the state of the network share, and how to reach the share from another computer. The owner removed the old address file on the share (`docs/spec/network-share.md`, section 3): this panel is now the place where a user reads the address.
+`Settings > Network` shows the local address of the machine, its host name, the state of the network share, and how to reach the share from another computer. It is the place where a user reads the address: nothing about the address goes to the share (`docs/spec/network-share.md`, section 3).
 
 The panel only shows. It changes no setting, no file and no network state.
 
 ## Facts that drive the design
 
-- `/run/neptron/network.toml` exists in every image. The script `/usr/libexec/neptron/net-address` writes it at boot and at each DHCP event (`docs/spec/network-share.md`, section 3; `os/README.md`, "The address file"). Its form:
-
-  ```toml
-  version = 1
-  host_name = "neptron"
-
-  [[address]]
-  port = "eth0"
-  ipv4 = "192.168.0.112"
-  ```
-
-  One `[[address]]` table for each wired port with a lease, in the order of the port names. No table means no port has an address. The script keeps only a wired port name (`eth*`, `en*`: letters, digits, `_` and `-`) and a dotted IPv4 address. The format is append-only. The file is replaced by a rename, so a reader never sees a part of it, and it changes only when its content changes. `/run` is a RAM folder: no read touches a disk.
+- `/run/neptron/network.toml` exists in every image. The script `/usr/libexec/neptron/net-address` writes it at boot and at each DHCP event. `docs/spec/network-share.md`, section 3, has the format and the rules of the writer: `version = 1`, `host_name`, and one `[[address]]` table (`port`, `ipv4`) for each wired port with a lease, in the order of the port names; no table means no port has an address. The format is append-only. The file is replaced by a rename, so a reader never sees a part of it, and it changes only when its content changes. `/run` is a RAM folder: no read touches a disk.
 - The mDNS name is `<host_name>.local`: `mdnsd` announces the system host name.
 - The share is `share`, the folder `/share`, read-write for guests and for the published account `neptron` with the password `neptron` (only for Windows 11 24H2, which refuses guest sessions). Windows reaches it at `\\<address>\share`, macOS and Linux at `smb://<address>/share`.
-- **The share has an off switch, but no setting.** The file `/state/network-share-off` turns the share off when it is there at the start of the share script (boot, or `/etc/init.d/S45neptron-share restart`). No schema entry and no settings row exist. OP-092 lists the settings row as a later step. This task adds no setting (see "Open questions").
-- The frame thread does no file I/O. The model is `storage.toml` in `apps/neptron/src/storage.rs`, which the start reads once, before the first frame. The address can change at any time after the boot, so the network file needs a reader that runs while the panel is open.
+- **The share has an off switch, but no setting.** The file `/state/network-share-off` turns the share off when it is there at the start of the share script (boot, or `/etc/init.d/S45neptron-share restart`). No schema entry and no settings row exist; OP-092 lists the row as a later step (see "Open questions").
+- The frame thread does no file I/O. Unlike `storage.toml`, which the start reads once, the address can change at any time after the boot, so the network file needs a reader that runs while the panel is open.
 - The menu canvas is 320x240. The font is 6x12, one character is 6 px. A settings row of the generic page screen is 284 px wide, and 276 px (46 characters) inside its padding; with a scroll bar 272 px (45 characters). The box holds 14 rows of 12 px with the default skin.
 
 ## The rows
@@ -50,7 +39,7 @@ The panel lists rows in this order. Every row is an information row (see "The in
 
 With `Not known` and `Reading...` the panel has the address row only. Nothing else in the panel is sure then: the host name comes from the same file.
 
-With the share off, the panel does not show how to reach the share. `Off` follows the file of the switch now. The share script reads that file only at its start, so a switch file made without a restart of the share shows `Off` while the share still runs. Only the development image can make the file (`docs/spec/network-share.md`, section 4).
+With the share off, the panel does not show how to reach the share. `Off` follows the switch file as it is now. The share script reads that file only at its start, so a switch file made without a restart of the share shows `Off` while the share still runs. Only the development image can make the file (`docs/spec/network-share.md`, section 4).
 
 Several ports give several address rows. Each label holds its port name, so the labels stay different. The UI crawler stops on a label it saw before, and a test asks for different labels.
 
@@ -84,7 +73,7 @@ Share password                           neptron
 
 ## The information row
 
-The snapshot gets a new value kind, `SettingValue::Text(String)`, and the tree a new row kind, `RowKind::Info`.
+The snapshot value kind is `SettingValue::Text(String)`, and the tree row kind `RowKind::Info`.
 
 - An information row shows a text that the player reads. It takes no change: accept, left, right and Menu do nothing.
 - It takes the focus, as every row of a list does, so the player can scroll a long panel. With the focus it has the look of a disabled row with the focus: a solid bar in the `border` colour with the text in `text`. That look says "nothing to do here", and a scanline cannot hide it.
@@ -154,7 +143,7 @@ A run on a desktop or a bench has no `network.toml` in its run folder. The panel
 ## The Settings page and the ids
 
 - `NETWORK_PAGE` is `PageId(RESERVED_ID_MIN + 9)`.
-- `SETTINGS_PANELS` gets `Network` between `Library` and `System`. With the Input panel of M04 the order is `Display`, `Audio`, `Input`, `Library`, `Network`, `System`. System stays last, as the panel that ends the run.
+- `SETTINGS_PANELS` holds `Network` between `Library` and `System`: `Display`, `Audio`, `Input`, `Library`, `Network`, `System`. System stays last, as the panel that ends the run.
 - The screen id is `network`. The generic page screen shows the panel; no new screen code.
 - In a game the panel is listed and shows the same rows: it only shows.
 
@@ -169,12 +158,12 @@ A run on a desktop or a bench has no `network.toml` in its run folder. The panel
 
 ## Open questions
 
-- **A settings row for the share switch.** Default: no row; the panel shows the state of the switch file, `On` or `Off`, as text. The share has a switch (the file), but no schema entry; OP-092 lists the row as a later step, and this task does not invent it. Where: `crates/neptron-settings` (a schema entry), `apps/neptron/src/pages.rs`, the share script. How to change: a schema entry `network.share` (a switch, global), whose change writes or removes `/state/network-share-off` with the write rule of user data and runs `/etc/init.d/S45neptron-share restart`; it then needs a privileged hook in the launcher, since the frontend must not run init scripts.
+- **A settings row for the share switch.** Default: no row; the panel shows the state of the switch file, `On` or `Off`, as text. The share has a switch (the file), but no schema entry; OP-092 lists the row as a later step. Where: `crates/neptron-settings` (a schema entry), `apps/neptron/src/pages.rs`, the share script. How to change: a schema entry `network.share` (a switch, global), whose change writes or removes `/state/network-share-off` with the write rule of user data and runs `/etc/init.d/S45neptron-share restart`; it then needs a privileged hook in the launcher, since the frontend must not run init scripts.
 - **The account rows.** Default: the panel shows `Share user` and `Share password` with the published account `neptron`. The account is public by design (`docs/spec/network-share.md`, section 1) and only helps Windows 11 24H2. The values are constants of the frontend and must follow `os/board/common/rootfs-overlay/etc/ksmbd/ksmbdpwd.db`. How to change: put the account name in `network.toml` (a new field of version 1) and read it from there.
 
 ## Scenes and goldens
 
-- `screens/settings`: the Settings page with the new `Network` row.
+- `screens/settings`: the Settings page with the `Network` row.
 - `screens/network`: one port with an address, share on, focus on the first row.
 - `screens/network-two-ports`: two ports with addresses.
 - `screens/network-no-address`: a valid file with no address.
