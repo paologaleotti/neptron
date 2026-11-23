@@ -139,13 +139,20 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         // work, the frame makes them a few decisions at a time and loads
         // the page again when they are there.
         let (choices, judging) = match page {
-            DISPLAY_PAGE | VIDEO_PAGE => match self.picture_answers(level) {
-                Some(Some(choices)) => (Some(choices), false),
-                Some(None) => (None, true),
-                None => (None, false),
-            },
-            _ => (None, false),
+            DISPLAY_PAGE | VIDEO_PAGE => {
+                self.page_ask = self.picture_request(level);
+                match self.picture_answers(level) {
+                    Some(Some(choices)) => (Some(choices), false),
+                    Some(None) => (None, true),
+                    None => (None, false),
+                }
+            }
+            _ => {
+                self.page_ask = None;
+                (None, false)
+            }
         };
+        self.keep_asks = self.keep_requests();
         let names = Names {
             presets: &self.presets,
             detected: &self.detected,
@@ -266,7 +273,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 
     /// The answers for a page that writes `level`: `Some(None)` while they
     /// are in work, `None` with no engine or no plan.
-    fn picture_answers(&self, level: Level) -> Option<Option<PictureChoices>> {
+    pub(super) fn picture_answers(&self, level: Level) -> Option<Option<PictureChoices>> {
         let request = self.picture_request(level)?;
         match self.engine_ref()?.answers(&request) {
             None => Some(None),

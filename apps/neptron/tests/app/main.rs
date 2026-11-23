@@ -21,6 +21,7 @@ mod network;
 mod output;
 mod panel;
 mod pause;
+mod picture_pair;
 mod picture_walk;
 mod players;
 mod recovery;

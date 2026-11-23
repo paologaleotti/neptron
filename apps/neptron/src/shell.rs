@@ -10,6 +10,9 @@ mod frame;
 mod guard_events;
 mod intents;
 mod mapping;
+mod pair;
+
+pub use pair::PAIR_WRITE_LOG;
 mod picture;
 mod protocol;
 mod view;
@@ -161,13 +164,14 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     now_ns: u64,
     menu_hotkey: bool,
     picture_notice: PictureNotice,
-    /// The picks of this run at the game level that also set the other
-    /// picture row to Auto: (the key picked, the other key). A keep that
-    /// moves the pick to another level moves both keys.
-    game_resets: Vec<(&'static str, &'static str)>,
-    /// The keys whose move to another level the gate of that level refused
-    /// in this batch of intents: their value stays at the game level.
-    refused_keeps: Vec<&'static str>,
+    /// The keep of the batch of intents in work.
+    keep_batch: pair::KeepBatch,
+    /// The request of the picture answers of the loaded page, if it shows
+    /// the picture rows.
+    page_ask: Option<neptron_video::AnswerRequest>,
+    /// The requests of the keep prompt in a game, with their levels
+    /// (`Self::keep_requests`).
+    keep_asks: Vec<(Level, neptron_video::AnswerRequest)>,
     /// The one-time notices shown already, as the notices file holds them.
     shown_notices: crate::notices::ShownNotices,
     /// The pad notices of this power cycle and the silent pad rule.

@@ -24,7 +24,7 @@ use neptron_video::{
     SafeReason, SomeGames,
 };
 
-use crate::config::Config;
+use crate::config::{Config, PicturePair};
 use crate::display::{AUTO, Detected, FLAT};
 use crate::network::NetworkInfo;
 use crate::presets::Presets;
@@ -548,6 +548,81 @@ pub fn gate(key: &str, value: &str, choices: Option<&PictureChoices>, scope: Sco
         RowAnswer::Plain(_) => Gate::Set { note },
         RowAnswer::ResetsOther { .. } => Gate::SetWithReset { other, note },
         RowAnswer::Declined(declined) => Gate::Refused(decline_text(declined.reason, scope)),
+    }
+}
+
+/// The pair that a pick of `value` for `key` stores, with `other`, the
+/// value of the other row.
+pub fn pair_of(key: &str, value: Value, other: Value) -> PicturePair {
+    match key {
+        DISPLAY_STYLE => PicturePair {
+            style: value,
+            refresh: other,
+        },
+        _ => PicturePair {
+            style: other,
+            refresh: value,
+        },
+    }
+}
+
+/// The notice of a pick that also sets the row of `other` to Auto at
+/// `level`.
+pub fn reset_notice(other: &str, level: Level) -> String {
+    match level {
+        Level::Game => format!("{} is set to Auto too.", row_label(other)),
+        Level::System | Level::Global => format!(
+            "{} is set to Auto too, {}.",
+            row_label(other),
+            level_phrase(level)
+        ),
+    }
+}
+
+/// The reason that the keep prompt does not move the picture pair of the
+/// game to every game.
+pub const SYSTEM_OWN_PICTURE: &str = "This system has its own picture settings";
+
+/// The notice of a write for every game, or for the system, while the game
+/// of the run holds its own picture pair.
+pub const GAME_KEEPS_OWN_PICTURE: &str = "This game has its own picture settings and keeps them.";
+
+/// The notice of a write for every game while the system of the game of
+/// the run holds its own picture pair.
+pub const SYSTEM_KEEPS_OWN_PICTURE: &str =
+    "This system has its own picture settings and keeps them.";
+
+/// The notice of a keep that `level` refuses, for `reason`.
+pub fn not_kept_notice(level: Level, reason: &str) -> String {
+    format!(
+        "Not kept {}: {}. The choice stays for this game.",
+        level_phrase(level),
+        lower_first(reason)
+    )
+}
+
+/// What a keep of the picture pair whose mode is `style` does, from the
+/// answers `choices` of the level, judged with that pair stored: the
+/// option of the mode gives the pair (`Ok`, with the note for the games
+/// that do not get it), or the reason that the level refuses it.
+///
+/// # Errors
+///
+/// The reason, as text.
+pub fn keep_answer(
+    style: &str,
+    choices: &PictureChoices,
+    scope: Scope,
+) -> Result<Option<String>, String> {
+    let Some((_, choice)) = choices.modes.iter().find(|(s, _)| s.key() == style) else {
+        return Err(format!("{style} is not a choice"));
+    };
+    match &choice.answer {
+        RowAnswer::Plain(_) => Ok(choice
+            .not_for_every_game
+            .map(|s| some_games_text(s, DISPLAY_REFRESH_POLICY))),
+        RowAnswer::ResetsOther { stored_pair, .. } => Err(decline_text(*stored_pair, scope)),
+        RowAnswer::Declined(declined) => Err(decline_text(declined.reason, scope)),
     }
 }
 
@@ -1963,6 +2038,36 @@ mod tests {
             &open_caps(),
         )
         .expect("a plan")
+    }
+
+    /// A keep judges the pair of the game as stored at the new level: the
+    /// option of its mode gives it plain, or the keep is refused with the
+    /// reason of the stored pair, also where the menu would give the mode
+    /// with the refresh rate at Auto.
+    #[test]
+    fn a_keep_takes_only_the_stored_pair() {
+        let choices = this_game(256, 224, 60_099, RefreshPolicy::Force50);
+        let speed = choices
+            .modes
+            .iter()
+            .find(|(s, _)| *s == PictureStyle::Speed)
+            .map(|(_, c)| &c.answer);
+        assert!(
+            matches!(speed, Some(RowAnswer::ResetsOther { .. })),
+            "{speed:?}"
+        );
+        let refused = keep_answer("speed", &choices, Scope::ThisGame);
+        assert!(refused.is_err(), "{refused:?}");
+        assert_eq!(keep_answer("auto", &choices, Scope::ThisGame), Ok(None));
+        assert_eq!(
+            keep_answer("4x", &choices, Scope::ThisGame),
+            Err("Not possible with this screen and video output".to_owned())
+        );
+        assert!(keep_answer("nine", &choices, Scope::ThisGame).is_err());
+        assert_eq!(
+            not_kept_notice(Level::Global, SYSTEM_OWN_PICTURE),
+            "Not kept for all games: this system has its own picture settings. The choice stays for this game."
+        );
     }
 
     /// The scenes of the picture rows in `neptron-ui` show the options

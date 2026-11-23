@@ -27,11 +27,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// Carries out the intents of the last UI frame, in order.
     pub(super) fn carry_out(&mut self, now_ns: u64) {
         let mut intents = std::mem::take(&mut self.ui.intents);
+        self.keep_batch.start(&intents);
         for intent in intents.drain(..) {
             self.intent(intent, now_ns);
         }
-        // A refused move belongs to the keep of this batch only.
-        self.refused_keeps.clear();
         self.ui.intents = intents;
     }
 
@@ -64,16 +63,30 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     class: self.display_class(),
                     outputs: &self.runtime.audio_outputs,
                 };
+                let keep = self.keep_batch.moves(key, level);
                 let found = pages::entry(&self.config, key)
                     .and_then(|e| Some((e.key, pages::value_of(e, value, names, &self.config)?)));
-                if let (Some((key, value)), Some(level)) = (found, pages::settings_level(level)) {
-                    self.set_value(key, level, value, now_ns);
+                let Some(((key, value), level)) = found.zip(pages::settings_level(level)) else {
+                    return;
+                };
+                match pages::other_row(key) {
+                    Some(_) if keep => self.keep_pair(level, now_ns),
+                    Some(_) => {
+                        let gate = self.gate(key, level, &value);
+                        self.store_pick(key, level, value, gate, now_ns);
+                    }
+                    None => self.change_setting(key, level, Some(value), now_ns),
                 }
             }
-            Intent::ResetValue { key, level } => {
-                let key = pages::entry(&self.config, key).map(|e| e.key);
-                if let (Some(key), Some(level)) = (key, pages::settings_level(level)) {
-                    self.reset_value(key, level, now_ns);
+            Intent::ResetValue { key: ui_key, level } => {
+                let key = pages::entry(&self.config, ui_key).map(|e| e.key);
+                let Some((key, level)) = key.zip(pages::settings_level(level)) else {
+                    return;
+                };
+                match pages::other_row(key) {
+                    Some(_) if level == Level::Game && self.keep_batch.stays(ui_key) => {}
+                    Some(_) => self.reset_pair(level, now_ns),
+                    None => self.change_setting(key, level, None, now_ns),
                 }
             }
             Intent::Action(pages::RESCAN_GAMES) => self.rescan_games(),
@@ -435,108 +448,18 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     }
 
     /// Sets (`Some`) or unsets (`None`) a setting at a level. A setting with
-    /// no effect on the signal is written at once and applied live. A
-    /// picture style, refresh policy or TV width on a confirmed monitor is
-    /// written at once and goes to the guard with no prompt: it only
-    /// changes which modes the validator gave for that monitor the policy
-    /// picks. Any other display setting goes to the guard under a prompt:
-    /// it is on screen at once and reaches its file only when the player
-    /// keeps it.
+    /// no effect on the signal is written at once and applied live. A TV
+    /// width on a confirmed monitor is written at once and goes to the
+    /// guard with no prompt: it only changes which modes the validator gave
+    /// for that monitor the policy picks. Any other display setting goes to
+    /// the guard under a prompt: it is on screen at once and reaches its
+    /// file only when the player keeps it. The picture mode and the refresh
+    /// rate do not come here: they are one pair ([`Self::store_pick`]).
     pub(super) fn change_setting(
         &mut self,
         key: &'static str,
         level: Level,
         value: Option<Value>,
-        now_ns: u64,
-    ) {
-        self.change_setting_with(key, level, value, None, now_ns);
-    }
-
-    /// A set from the menus or the keep prompt, by the gate of `level`. A
-    /// keep that moves a game-level pick to another level and that the gate
-    /// refuses leaves the pick at the game level.
-    fn set_value(&mut self, key: &'static str, level: Level, value: Value, now_ns: u64) {
-        // A keep moves the whole change of the visit: a pick that also set
-        // the other row to Auto at the game level moves with that reset,
-        // where the level gives the pick at all.
-        let moves_reset =
-            self.is_keep(key, level, &value) && self.game_resets.iter().any(|(k, _)| *k == key);
-        let gate = match self.gate(key, level, &value) {
-            Gate::Set { note } if moves_reset => match pages::other_row(key) {
-                Some((other, _)) => Gate::SetWithReset { other, note },
-                None => Gate::Set { note },
-            },
-            gate => gate,
-        };
-        match gate {
-            Gate::Set { note } => {
-                self.change_setting(key, level, Some(value), now_ns);
-                if let Some(note) = note {
-                    self.notice(NoticeKind::Info, note);
-                }
-            }
-            Gate::SetWithReset { other, note } => {
-                let auto = pages::other_row(key).map(|(_, auto)| Value::Text(auto.to_owned()));
-                self.change_setting_with(key, level, Some(value), Some((other, auto)), now_ns);
-                if let Some(note) = note {
-                    self.notice(NoticeKind::Info, note);
-                }
-            }
-            Gate::Refused(reason) if self.is_keep(key, level, &value) => {
-                self.refused_keeps.push(key);
-                self.log(format!(
-                    "{key} = {value}: not kept at {}: {reason}",
-                    level.name()
-                ));
-                self.notice(
-                    NoticeKind::Info,
-                    format!(
-                        "Not kept {}: {}. The choice stays for this game.",
-                        pages::level_phrase(level),
-                        pages::lower_first(&reason)
-                    ),
-                );
-            }
-            Gate::Refused(reason) => self.refuse_value(key, &value, &reason),
-        }
-    }
-
-    /// A set at `level` of the value that the game level holds: the keep
-    /// prompt moves it there.
-    fn is_keep(&self, key: &str, level: Level, value: &Value) -> bool {
-        level != Level::Game && self.config.get(Level::Game, key) == Some(value)
-    }
-
-    /// A reset from the menus or the keep prompt. A key whose move the gate
-    /// refused in this batch keeps its game-level value. A pick of this
-    /// run that also set the other picture row at the game level loses both
-    /// keys there, in one write: no key of the pair stays behind alone.
-    fn reset_value(&mut self, key: &'static str, level: Level, now_ns: u64) {
-        if level == Level::Game && self.refused_keeps.contains(&key) {
-            return;
-        }
-        let pair = (level == Level::Game)
-            .then(|| {
-                self.game_resets
-                    .iter()
-                    .find(|(k, _)| *k == key)
-                    .map(|(_, o)| *o)
-            })
-            .flatten();
-        self.game_resets.retain(|(k, _)| *k != key);
-        self.change_setting_with(key, level, None, pair.map(|other| (other, None)), now_ns);
-    }
-
-    /// [`Self::change_setting`], and with `reset` the other picture row
-    /// (a key, with its new value or `None` to remove it) at the same
-    /// level, in the same write and the same revert. A set of the other row
-    /// to Auto gets a notice that names it.
-    pub(super) fn change_setting_with(
-        &mut self,
-        key: &'static str,
-        level: Level,
-        value: Option<Value>,
-        reset: Option<(&'static str, Option<Value>)>,
         now_ns: u64,
     ) {
         let Some(entry) = self.config.schema().get(key).copied() else {
@@ -546,40 +469,19 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             return;
         }
         let old = self.config.get(level, key).cloned();
-        let reset =
-            reset.filter(|(other, _)| pages::other_row(key).is_some_and(|(o, _)| o == *other));
-        let side = match self
-            .config
-            .set_clearing(level, key, value.clone(), reset.clone())
-        {
-            Ok(side) => side,
-            Err(e) => {
-                self.notice(
-                    NoticeKind::Error,
-                    format!("The setting was not changed: {e}."),
-                );
-                return;
+        let changed = match value.clone() {
+            Some(v) => self.config.set(level, key, v).map(drop),
+            None => {
+                self.config.unset(level, key);
+                Ok(())
             }
         };
-        self.note_picture_change(key);
-        if level == Level::Game && value.is_some() {
-            self.game_resets.retain(|(k, _)| *k != key);
-            if let Some((other, Some(_))) = &reset {
-                self.game_resets.push((key, other));
-            }
-        }
-        if let Some((other, Some(_))) = &reset {
+        if let Err(e) = changed {
             self.notice(
-                NoticeKind::Info,
-                match level {
-                    Level::Game => format!("{} is set to Auto too.", pages::row_label(other)),
-                    Level::System | Level::Global => format!(
-                        "{} is set to Auto too, {}.",
-                        pages::row_label(other),
-                        pages::level_phrase(level)
-                    ),
-                },
+                NoticeKind::Error,
+                format!("The setting was not changed: {e}."),
             );
+            return;
         }
         match entry.safety {
             Safety::None => {
@@ -587,9 +489,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 self.apply_live(key);
             }
             Safety::Validated if self.guard.phase() == Phase::Confirmed => {
-                let mut changes = vec![(key, value)];
-                changes.extend(side.into_iter().map(|c| (c.key, c.new)));
-                self.write_settings(level, changes);
+                self.write_settings(level, vec![(key, value)]);
                 self.follow(now_ns);
             }
             Safety::Validated | Safety::ConfirmOrRevert => {
@@ -599,23 +499,33 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     old,
                     new: value,
                 });
-                self.pending.extend(side.into_iter().map(|c| PendingChange {
-                    level,
-                    key: c.key,
-                    old: c.old,
-                    new: c.new,
-                }));
                 self.propose(now_ns);
             }
         }
         self.reload_page();
     }
 
-    /// What a set of `value` for `key` at `level` does, by the rule that
-    /// builds its option in the menu of that level (`pages::gate`). No
-    /// input, from the menus or the protocol, sets a value that the rule
-    /// refuses.
+    /// What a pick of `value` for `key` at `level` in a menu does, by the
+    /// rule that builds its option in the menu of that level
+    /// (`pages::gate`), from the answers of the loaded page. The frame
+    /// makes no answer at once for a pick: with no settled answers the
+    /// pick is refused.
     pub(super) fn gate(&self, key: &str, level: Level, value: &Value) -> Gate {
+        if pages::other_row(key).is_none() {
+            return Gate::Set { note: None };
+        }
+        let choices = self.picture_answers(level).flatten();
+        pages::gate(
+            key,
+            &value.to_string(),
+            choices.as_ref(),
+            self.scope_of(level),
+        )
+    }
+
+    /// [`Self::gate`] for the control protocol, which is no player path:
+    /// the answers are made at once when they are not there.
+    pub(super) fn gate_now(&self, key: &str, level: Level, value: &Value) -> Gate {
         if pages::other_row(key).is_none() {
             return Gate::Set { note: None };
         }
@@ -630,7 +540,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 
     /// A short notice for a value that the display does not give, and the
     /// line in the log.
-    fn refuse_value(&mut self, key: &str, value: &Value, reason: &str) {
+    pub(super) fn refuse_value(&mut self, key: &str, value: &Value, reason: &str) {
         self.log(format!("{key} = {value}: not offered: {reason}"));
         self.notice(
             NoticeKind::Info,
@@ -640,7 +550,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 
     /// A change of the picture mode or the refresh choice in a game: the
     /// picture notice shows again for the first new picture.
-    fn note_picture_change(&mut self, key: &str) {
+    pub(super) fn note_picture_change(&mut self, key: &str) {
         if key != DISPLAY_STYLE && key != DISPLAY_REFRESH_POLICY {
             return;
         }
@@ -655,7 +565,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// Gives the display configuration of the settings in memory to the
     /// guard. The same configuration as on the engine needs no prompt: the
     /// waiting changes are written at once.
-    fn propose(&mut self, now_ns: u64) {
+    pub(super) fn propose(&mut self, now_ns: u64) {
         let Some(config) = self.display_config() else {
             self.notice(
                 NoticeKind::Error,
@@ -678,7 +588,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 
     /// Gives the policy settings of the settings in memory to the guard,
     /// with no prompt.
-    fn follow(&mut self, now_ns: u64) {
+    pub(super) fn follow(&mut self, now_ns: u64) {
         let Some(config) = self.display_config() else {
             self.notice(
                 NoticeKind::Error,

@@ -158,7 +158,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         // choice that the display does not give is refused. The protocol
         // sets one key: a value that needs the other row at Auto is refused
         // too, and says so.
-        match self.gate(entry.key, level, &value) {
+        let gate = self.gate_now(entry.key, level, &value);
+        match &gate {
             Gate::Set { .. } => {}
             Gate::SetWithReset { other, .. } => {
                 return Err(format!(
@@ -169,13 +170,17 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             Gate::Refused(reason) => {
                 return Err(format!(
                     "{key} = {value} is refused: {}",
-                    pages::lower_first(&reason)
+                    pages::lower_first(reason)
                 ));
             }
         }
         // The time of the last frame: every guard call gets a frame time.
         let now_ns = self.now_ns;
-        self.change_setting(entry.key, level, Some(value), now_ns);
+        if pages::other_row(entry.key).is_some() {
+            self.store_pick(entry.key, level, value, gate, now_ns);
+        } else {
+            self.change_setting(entry.key, level, Some(value), now_ns);
+        }
         Ok(())
     }
 }

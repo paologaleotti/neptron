@@ -28,17 +28,26 @@ pub struct GameContext {
     pub arcade: bool,
 }
 
-/// A key that a set changed besides the key it names, at the same level:
-/// the other picture row set to Auto, or an expert key that the picture
-/// mode covers, removed.
+/// One key that a write changed, with its value before and after, for the
+/// write to the file and for a revert.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SideChange {
+pub struct KeyChange {
     /// The key.
     pub key: &'static str,
     /// The value before, `None` when unset.
     pub old: Option<Value>,
     /// The value now, `None` when removed.
     pub new: Option<Value>,
+}
+
+/// The two picture rows as the app stores them: a picture mode and a
+/// refresh choice, always written together at one level.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PicturePair {
+    /// The value of `display.style`.
+    pub style: Value,
+    /// The value of `display.refresh_policy`.
+    pub refresh: Value,
 }
 
 /// The schema and the layers of the context.
@@ -162,65 +171,90 @@ impl Config {
         }
     }
 
-    /// Sets (`Some`) or removes (`None`) `key` at `level` in memory, and
-    /// sets or removes `reset` (a key with its value: the other picture
-    /// row) at the same level. A picture mode that is set also removes, at the
-    /// same level, the expert keys that it covers (`PICTURE_MODE_COVERS`),
-    /// so the mode the player picks is what the player gets. The other
-    /// keys change only after the set of `key` succeeds, so a failed set
-    /// changes nothing. Returns every other key that changed, with its old
-    /// and new value, for the same write or for a revert.
+    /// Writes the picture pair at `level` in memory: both keys set
+    /// (`Some`), or both removed (`None`), so a level that the app writes
+    /// holds both keys or neither. A set also removes, at the same level,
+    /// the expert keys that the picture mode covers (`PICTURE_MODE_COVERS`),
+    /// so the mode the player picks is what the player gets. Returns every
+    /// key that changed, with its old and new value, for the same write and
+    /// for a revert.
     ///
     /// # Errors
     ///
     /// [`SetError`] when the layer refuses a value. Nothing changed.
-    pub fn set_clearing(
+    pub fn write_pair(
         &mut self,
         level: Level,
-        key: &str,
-        value: Option<Value>,
-        reset: Option<(&'static str, Option<Value>)>,
-    ) -> Result<Vec<SideChange>, SetError> {
-        let picture_mode = key == DISPLAY_STYLE && value.is_some();
-        let old = self.get(level, key).cloned();
-        match value {
-            Some(v) => {
-                self.set(level, key, v)?;
+        pair: Option<PicturePair>,
+    ) -> Result<Vec<KeyChange>, SetError> {
+        let before = |c: &Self, key| c.get(level, key).cloned();
+        let old_style = before(self, DISPLAY_STYLE);
+        let old_refresh = before(self, DISPLAY_REFRESH_POLICY);
+        let mut changes = Vec::new();
+        match pair {
+            Some(pair) => {
+                self.set(level, DISPLAY_STYLE, pair.style.clone())?;
+                if let Err(e) = self.set(level, DISPLAY_REFRESH_POLICY, pair.refresh.clone()) {
+                    self.restore(level, DISPLAY_STYLE, old_style);
+                    return Err(e);
+                }
+                changes.push(KeyChange {
+                    key: DISPLAY_STYLE,
+                    old: old_style,
+                    new: Some(pair.style),
+                });
+                changes.push(KeyChange {
+                    key: DISPLAY_REFRESH_POLICY,
+                    old: old_refresh,
+                    new: Some(pair.refresh),
+                });
+                changes.extend(PICTURE_MODE_COVERS.into_iter().filter_map(|covered| {
+                    Some(KeyChange {
+                        key: covered,
+                        old: Some(self.unset(level, covered)?),
+                        new: None,
+                    })
+                }));
             }
             None => {
-                self.unset(level, key);
-            }
-        }
-        let mut changes = Vec::new();
-        if let Some((other, new)) = reset {
-            let before = self.get(level, other).cloned();
-            match new.clone() {
-                Some(value) => {
-                    if let Err(e) = self.set(level, other, value) {
-                        self.restore(level, key, old);
-                        return Err(e);
+                for (key, old) in [
+                    (DISPLAY_STYLE, old_style),
+                    (DISPLAY_REFRESH_POLICY, old_refresh),
+                ] {
+                    if old.is_some() {
+                        self.unset(level, key);
+                        changes.push(KeyChange {
+                            key,
+                            old,
+                            new: None,
+                        });
                     }
                 }
-                None => {
-                    self.unset(level, other);
-                }
             }
-            changes.push(SideChange {
-                key: other,
-                old: before,
-                new,
-            });
-        }
-        if picture_mode {
-            changes.extend(PICTURE_MODE_COVERS.into_iter().filter_map(|covered| {
-                Some(SideChange {
-                    key: covered,
-                    old: Some(self.unset(level, covered)?),
-                    new: None,
-                })
-            }));
         }
         Ok(changes)
+    }
+
+    /// Whether `level` holds a key of the picture pair: a value of the
+    /// picture mode or of the refresh choice.
+    pub fn holds_picture(&self, level: Level) -> bool {
+        self.get(level, DISPLAY_STYLE).is_some()
+            || self.get(level, DISPLAY_REFRESH_POLICY).is_some()
+    }
+
+    /// Whether `level` holds exactly `pair`.
+    pub fn holds_pair(&self, level: Level, pair: &PicturePair) -> bool {
+        self.get(level, DISPLAY_STYLE) == Some(&pair.style)
+            && self.get(level, DISPLAY_REFRESH_POLICY) == Some(&pair.refresh)
+    }
+
+    /// The picture pair that the context resolves to: the pair that the
+    /// running game shows.
+    pub fn resolved_pair(&self) -> Option<PicturePair> {
+        Some(PicturePair {
+            style: self.resolved(DISPLAY_STYLE)?.value,
+            refresh: self.resolved(DISPLAY_REFRESH_POLICY)?.value,
+        })
     }
 
     /// Removes `key` at `level` in memory and returns the old value.
@@ -441,139 +475,106 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn a_picture_mode_set_removes_the_covered_keys_only_when_the_set_succeeds() {
-        let mut c = Config::load(&Storage::new("/nonexistent/config"), None).0;
-        c.set(
-            Level::Global,
-            DISPLAY_VERTICAL,
-            Value::Text("fit".to_owned()),
-        )
-        .unwrap();
-        c.set(
-            Level::Global,
-            DISPLAY_PANEL_SCALE,
-            Value::Text("integer".to_owned()),
-        )
-        .unwrap();
-        // A value the layer refuses changes nothing: the expert keys stay.
-        assert!(
-            c.set_clearing(Level::Global, DISPLAY_STYLE, Some(Value::Int(3)), None)
-                .is_err()
-        );
-        assert!(c.get(Level::Global, DISPLAY_VERTICAL).is_some());
-        assert!(c.get(Level::Global, DISPLAY_PANEL_SCALE).is_some());
-        let cleared = c
-            .set_clearing(
-                Level::Global,
-                DISPLAY_STYLE,
-                Some(Value::Text("sharp".to_owned())),
-                None,
-            )
-            .unwrap();
-        assert_eq!(cleared.len(), 2);
-        assert_eq!(c.get(Level::Global, DISPLAY_VERTICAL), None);
-        assert_eq!(c.get(Level::Global, DISPLAY_PANEL_SCALE), None);
-        // A reset of the mode removes nothing.
-        c.set(
-            Level::Global,
-            DISPLAY_VERTICAL,
-            Value::Text("fit".to_owned()),
-        )
-        .unwrap();
-        assert!(
-            c.set_clearing(Level::Global, DISPLAY_STYLE, None, None)
-                .unwrap()
-                .is_empty()
-        );
-        assert!(c.get(Level::Global, DISPLAY_VERTICAL).is_some());
+    fn text(v: &str) -> Value {
+        Value::Text(v.to_owned())
+    }
+
+    fn pair(style: &str, refresh: &str) -> Option<PicturePair> {
+        Some(PicturePair {
+            style: text(style),
+            refresh: text(refresh),
+        })
     }
 
     #[test]
-    fn a_set_with_a_reset_sets_the_other_row_only_when_both_sets_succeed() {
+    fn a_pair_write_sets_both_keys_and_removes_the_covered_keys_only_when_it_succeeds() {
         let mut c = Config::load(&Storage::new("/nonexistent/config"), None).0;
-        c.set(
-            Level::Global,
-            DISPLAY_REFRESH_POLICY,
-            Value::Text("force_50".to_owned()),
-        )
-        .unwrap();
-        let auto = || {
-            Some((
-                DISPLAY_REFRESH_POLICY,
-                Some(Value::Text("exact".to_owned())),
-            ))
-        };
-        // A refused value changes neither key.
-        assert!(
-            c.set_clearing(Level::Global, DISPLAY_STYLE, Some(Value::Int(3)), auto())
-                .is_err()
-        );
+        c.set(Level::Global, DISPLAY_VERTICAL, text("fit")).unwrap();
+        c.set(Level::Global, DISPLAY_PANEL_SCALE, text("integer"))
+            .unwrap();
+        c.set(Level::Global, DISPLAY_REFRESH_POLICY, text("force_50"))
+            .unwrap();
+        // A value the layer refuses changes nothing: no key of the pair and
+        // no expert key.
+        assert!(c.write_pair(Level::Global, pair("speed", "never")).is_err());
+        assert!(c.write_pair(Level::Global, pair("nine", "exact")).is_err());
+        assert_eq!(c.get(Level::Global, DISPLAY_STYLE), None);
         assert_eq!(
             c.get(Level::Global, DISPLAY_REFRESH_POLICY),
-            Some(&Value::Text("force_50".to_owned()))
+            Some(&text("force_50"))
         );
-        // A refused reset puts the first key back.
-        assert!(
-            c.set_clearing(
-                Level::Global,
-                DISPLAY_STYLE,
-                Some(Value::Text("speed".to_owned())),
-                Some((
-                    DISPLAY_REFRESH_POLICY,
-                    Some(Value::Text("never".to_owned()))
-                )),
-            )
-            .is_err()
-        );
-        assert_eq!(c.get(Level::Global, DISPLAY_STYLE), None);
-        let changes = c
-            .set_clearing(
-                Level::Global,
-                DISPLAY_STYLE,
-                Some(Value::Text("speed".to_owned())),
-                auto(),
-            )
-            .unwrap();
+        assert!(c.get(Level::Global, DISPLAY_VERTICAL).is_some());
+        let changes = c.write_pair(Level::Global, pair("sharp", "exact")).unwrap();
+        let keys: Vec<&str> = changes.iter().map(|c| c.key).collect();
         assert_eq!(
-            changes,
-            vec![SideChange {
+            keys,
+            [
+                DISPLAY_STYLE,
+                DISPLAY_REFRESH_POLICY,
+                DISPLAY_VERTICAL,
+                DISPLAY_PANEL_SCALE
+            ]
+        );
+        assert_eq!(
+            changes[1],
+            KeyChange {
                 key: DISPLAY_REFRESH_POLICY,
-                old: Some(Value::Text("force_50".to_owned())),
-                new: Some(Value::Text("exact".to_owned())),
-            }]
+                old: Some(text("force_50")),
+                new: Some(text("exact")),
+            }
         );
-        assert_eq!(
-            c.get(Level::Global, DISPLAY_STYLE),
-            Some(&Value::Text("speed".to_owned()))
-        );
+        assert!(c.holds_pair(Level::Global, &pair("sharp", "exact").unwrap()));
+        assert_eq!(c.get(Level::Global, DISPLAY_VERTICAL), None);
+        assert_eq!(c.get(Level::Global, DISPLAY_PANEL_SCALE), None);
     }
 
-    /// A refresh choice that also sets the picture mode to Auto keeps the
-    /// expert keys of that level: the pair that the menu judged had them,
-    /// so the write runs the very pair that was judged.
+    /// A removal takes both keys and only them: an expert key of the level
+    /// stays, and a level with one key (an old or hand-edited file) loses
+    /// that key.
     #[test]
-    fn a_reset_of_the_picture_mode_keeps_the_expert_keys_of_the_level() {
+    fn a_pair_removal_takes_both_keys_and_nothing_else() {
         let mut c = Config::load(&Storage::new("/nonexistent/config"), None).0;
-        c.set(
-            Level::Global,
-            DISPLAY_VERTICAL,
-            Value::Text("fit".to_owned()),
-        )
-        .unwrap();
-        let changes = c
-            .set_clearing(
-                Level::Global,
-                DISPLAY_REFRESH_POLICY,
-                Some(Value::Text("force_50".to_owned())),
-                Some((DISPLAY_STYLE, Some(Value::Text("auto".to_owned())))),
-            )
+        c.set(Level::Global, DISPLAY_VERTICAL, text("fit")).unwrap();
+        c.write_pair(Level::Global, pair("2x", "force_60")).unwrap();
+        c.set(Level::Global, DISPLAY_VERTICAL, text("fit")).unwrap();
+        let changes = c.write_pair(Level::Global, None).unwrap();
+        assert_eq!(changes.len(), 2, "{changes:?}");
+        assert!(!c.holds_picture(Level::Global));
+        assert_eq!(c.get(Level::Global, DISPLAY_VERTICAL), Some(&text("fit")));
+        c.set(Level::Global, DISPLAY_REFRESH_POLICY, text("force_50"))
             .unwrap();
-        assert_eq!(changes.len(), 1, "{changes:?}");
+        assert!(c.holds_picture(Level::Global));
+        let changes = c.write_pair(Level::Global, None).unwrap();
         assert_eq!(
-            c.get(Level::Global, DISPLAY_VERTICAL),
-            Some(&Value::Text("fit".to_owned()))
+            changes,
+            vec![KeyChange {
+                key: DISPLAY_REFRESH_POLICY,
+                old: Some(text("force_50")),
+                new: None,
+            }]
         );
+        assert!(c.write_pair(Level::Global, None).unwrap().is_empty());
+    }
+
+    /// Old files and hand-edited files can hold one key of the pair at a
+    /// level: the keys resolve one by one, each from the nearest level
+    /// that holds it.
+    #[test]
+    fn a_level_with_one_key_of_the_pair_resolves_each_key_alone() {
+        let c = config(
+            "[display]\nrefresh_policy = \"force_60\"\n",
+            "[display]\nstyle = \"2x\"\n",
+            "[display]\nrefresh_policy = \"force_50\"\n",
+        );
+        assert_eq!(c.resolved_pair(), pair("2x", "force_50"));
+        let up_to = |level, key| {
+            c.resolved_up_to(level, key)
+                .map(|r| r.value.to_string())
+                .unwrap_or_default()
+        };
+        assert_eq!(up_to(Level::System, DISPLAY_STYLE), "2x");
+        assert_eq!(up_to(Level::System, DISPLAY_REFRESH_POLICY), "force_60");
+        assert_eq!(up_to(Level::Global, DISPLAY_STYLE), "auto");
     }
 
     fn config(global: &str, system: &str, game: &str) -> Config {

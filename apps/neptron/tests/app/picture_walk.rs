@@ -31,7 +31,7 @@ fn pi_dpi_caps() -> GpuCaps {
         .expect("pi_vc4_dpi is in data/hardware/matrix.toml")
 }
 
-fn the_game() -> Option<NextRun> {
+pub(crate) fn the_game() -> Option<NextRun> {
     Some(NextRun {
         pads: Vec::new(),
         game: Some(GameRef {
@@ -63,7 +63,7 @@ fn inside(profile: &MonitorProfile, mode: &Modeline) -> bool {
 
 /// Dismisses the notices on show, then goes to the Video page of the
 /// quick menu.
-fn to_video_page(rig: &mut Rig) {
+pub(crate) fn to_video_page(rig: &mut Rig) {
     for _ in 0..8 {
         if rig.screen() != "notice" {
             break;
@@ -96,15 +96,15 @@ fn to_video_page(rig: &mut Rig) {
 
 /// An option of a row of the snapshot.
 #[derive(Debug, Clone)]
-struct Shown {
-    label: String,
-    enabled: bool,
-    help: String,
-    detail: String,
+pub(crate) struct Shown {
+    pub(crate) label: String,
+    pub(crate) enabled: bool,
+    pub(crate) help: String,
+    pub(crate) detail: String,
 }
 
 /// The options of the row `label` of the snapshot.
-fn options(rig: &mut Rig, label: &str) -> Vec<Shown> {
+pub(crate) fn options(rig: &mut Rig, label: &str) -> Vec<Shown> {
     let row = rig
         .shell()
         .snapshot()
@@ -165,12 +165,12 @@ const PICTURE_NOTICE_STARTS: [&str; 8] = [
 ];
 
 /// The settings file of the game, as it is on disk now.
-fn game_file(rig: &Rig) -> String {
+pub(crate) fn game_file(rig: &Rig) -> String {
     std::fs::read_to_string(rig.paths.config().join("games/nes/Test Game.toml")).unwrap_or_default()
 }
 
 /// The global settings file, as it is on disk now.
-fn global_file(rig: &Rig) -> String {
+pub(crate) fn global_file(rig: &Rig) -> String {
     std::fs::read_to_string(rig.paths.config().join("global.toml")).unwrap_or_default()
 }
 
@@ -357,7 +357,7 @@ struct Judged {
 }
 
 /// Opens Settings > Display from the game list.
-fn to_settings_display(rig: &mut Rig) {
+pub(crate) fn to_settings_display(rig: &mut Rig) {
     for _ in 0..8 {
         if rig.screen() == "display" {
             rig.wait_for_picture_answers();
@@ -955,165 +955,6 @@ fn the_protocol_refuses_a_value_the_display_does_not_give() {
         assert_eq!(game_file(&rig), file_before);
         assert_eq!(rig.display.active_mode(), mode_before);
         rig.finish();
-    });
-}
-
-/// The file of a settings level, as it is on disk now.
-fn level_file(rig: &Rig, file: &str) -> String {
-    std::fs::read_to_string(rig.paths.config().join(file)).unwrap_or_default()
-}
-
-/// One case of the keep prompt: the global file holds `global`, the quick
-/// menu picks `option` on the row `label` (whose tag says that the pick
-/// also sets the other row to Auto), and the keep moves the change to the
-/// level of the button `right` steps to the right of "This game".
-struct KeepCase {
-    global: &'static str,
-    label: &'static str,
-    option: &'static str,
-    right: u32,
-    /// The file the keep writes, and the lines it must hold there.
-    file: &'static str,
-    lines: [&'static str; 2],
-}
-
-/// The keep prompt moves the whole change of the visit: the pick and the
-/// reset of the other row go to the chosen level, judged with the values
-/// of that level, and the game level loses both keys in one write, so no
-/// key of the pair stays behind alone. The pair that another game of the
-/// system resolves to is then an offered pair.
-fn keep_moves_the_pair(dir: &std::path::Path, case: &KeepCase) {
-    let mut rig = Rig::new(dir);
-    std::fs::create_dir_all(rig.paths.config()).expect("the folder");
-    std::fs::write(
-        rig.paths.config().join("global.toml"),
-        format!("schema_version = 1\n\n[display]\n{}\n", case.global),
-    )
-    .expect("the global settings");
-    rig.boot(the_game());
-    rig.frames(30);
-    to_video_page(&mut rig);
-    let shown = options(&mut rig, case.label);
-    let picked = shown
-        .iter()
-        .find(|o| o.label == case.option)
-        .expect("the option");
-    assert!(
-        picked.enabled && picked.detail.starts_with("Sets "),
-        "{picked:?}"
-    );
-    rig.focus(case.label);
-    rig.tap(&[Control::A]);
-    rig.focus(case.option);
-    rig.tap(&[Control::A]);
-    rig.frames(30);
-    rig.until(600, "the game file", |r| {
-        let game = game_file(r);
-        game.contains("style") && game.contains("refresh_policy")
-    });
-    // The notice of the reset shows first; Back closes it, then the page.
-    for _ in 0..4 {
-        if rig.screen() == "quick-menu" {
-            break;
-        }
-        rig.tap(&[Control::B]);
-    }
-    rig.focus("Resume");
-    rig.tap(&[Control::A]);
-    assert_eq!(rig.screen(), "quick-menu/keep");
-    for _ in 0..case.right {
-        rig.tap(&[Control::Right]);
-    }
-    rig.tap(&[Control::A]);
-    rig.frames(30);
-    rig.until(600, "the files of the keep", |r| {
-        let file = level_file(r, case.file);
-        let game = game_file(r);
-        case.lines.iter().all(|l| file.contains(l))
-            && !game.contains("style")
-            && !game.contains("refresh_policy")
-    });
-    // Another game of the system resolves the pair of the level: an
-    // offered pair on this display.
-    let style = rig
-        .shell()
-        .config()
-        .policy_up_to(neptron_settings::Level::System);
-    let style = style.expect("the policy of the system level");
-    let profile = rig.shell().guard().active().monitor.profile().clone();
-    let engine = rig.shell().engine().expect("an engine");
-    let caps = *engine.odren().caps();
-    let source = engine.current().expect("a mode").source;
-    let choices = neptron_video::picture_choices_on(
-        &source,
-        &style,
-        neptron_video::ScanlineSettings {
-            mode: neptron_types::ScanlineMode::Auto,
-            strength_percent: 75,
-        },
-        &profile,
-        &caps,
-    )
-    .expect("a plan");
-    let mode = choices
-        .modes
-        .iter()
-        .find(|(s, _)| *s == style.style)
-        .map(|(_, c)| &c.answer);
-    assert!(
-        matches!(mode, Some(neptron_video::RowAnswer::Plain(_))),
-        "{}: {mode:?}",
-        case.file
-    );
-    rig.finish();
-}
-
-#[test]
-#[ignore = "tier 2"]
-fn the_keep_prompt_moves_the_pick_and_the_reset_of_the_other_row() {
-    let name = test_name(
-        module_path!(),
-        "the_keep_prompt_moves_the_pick_and_the_reset_of_the_other_row",
-    );
-    let cases = [
-        KeepCase {
-            global: "refresh_policy = \"force_50\"",
-            label: "Picture mode",
-            option: "Game speed",
-            right: 1,
-            file: "systems/nes.toml",
-            lines: ["style = \"speed\"", "refresh_policy = \"exact\""],
-        },
-        KeepCase {
-            global: "refresh_policy = \"force_50\"",
-            label: "Picture mode",
-            option: "Game speed",
-            right: 2,
-            file: "global.toml",
-            lines: ["style = \"speed\"", "refresh_policy = \"exact\""],
-        },
-        KeepCase {
-            global: "style = \"speed\"",
-            label: "Refresh rate",
-            option: "50 Hz",
-            right: 1,
-            file: "systems/nes.toml",
-            lines: ["style = \"auto\"", "refresh_policy = \"force_50\""],
-        },
-        KeepCase {
-            global: "style = \"speed\"",
-            label: "Refresh rate",
-            option: "50 Hz",
-            right: 2,
-            file: "global.toml",
-            lines: ["style = \"auto\"", "refresh_policy = \"force_50\""],
-        },
-    ];
-    // One process hosts one core, so each case runs in a child of its own.
-    in_children(&name, cases.len() as u32, |dir, stage| {
-        let root = dir.join(format!("case-{stage}"));
-        std::fs::create_dir_all(&root).expect("a folder");
-        keep_moves_the_pair(&root, &cases[stage as usize]);
     });
 }
 

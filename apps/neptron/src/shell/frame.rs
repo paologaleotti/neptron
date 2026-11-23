@@ -8,7 +8,7 @@ use neptron_input::Hotkey;
 use neptron_input::PadRoster;
 use neptron_session::{EndReason, PacingChange};
 use neptron_types::{Control, Frame, PixelFormat};
-use neptron_ui::screens::{DISPLAY_PAGE, INPUT_PAGE, NETWORK_PAGE, NETWORK_SCREEN, VIDEO_PAGE};
+use neptron_ui::screens::{INPUT_PAGE, NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
 use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
 
@@ -59,18 +59,34 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         self.outcome.take()
     }
 
-    /// Makes a few decisions of the picture answers that a page waits for,
-    /// and loads the page again when they are there. The frame thread
-    /// spends at most `PICTURE_DECISIONS_PER_FRAME` decisions on them.
+    /// Makes a few decisions of the picture answers that the page on show
+    /// or the keep prompt waits for, and loads the page again when they are
+    /// there. The frame thread spends at most `PICTURE_DECISIONS_PER_FRAME`
+    /// decisions on them: the page first, then the keep prompt of a paused
+    /// game.
     fn step_picture_answers(&mut self) {
-        let waits = matches!(self.snap.settings.page, Some(DISPLAY_PAGE | VIDEO_PAGE));
-        if !waits {
+        let paused = matches!(&self.stage, Stage::Game(game) if game.session.paused());
+        let keeps = if paused {
+            self.keep_asks.as_slice()
+        } else {
+            &[]
+        };
+        if self.page_ask.is_none() && keeps.is_empty() {
             return;
         }
-        let ready = self
-            .engine_ref()
-            .is_some_and(|engine| engine.step_answers([], PICTURE_DECISIONS_PER_FRAME));
-        if ready {
+        let waited = self
+            .page_ask
+            .iter()
+            .chain(keeps.iter().map(|(_, request)| request));
+        let ready = self.engine_ref().is_some_and(|engine| {
+            for (_, request) in keeps {
+                // The answers are read when the keep is judged; this only
+                // starts the work of a request that the cache does not hold.
+                let _started = engine.answers(request);
+            }
+            engine.step_answers(waited, PICTURE_DECISIONS_PER_FRAME)
+        });
+        if ready && self.page_ask.is_some() {
             self.reload_page();
         }
     }
