@@ -1,6 +1,6 @@
 # 0018: The PC images carry the 15 kHz kernel patch set under GPL-2.0-only
 
-- Status: accepted
+- Status: accepted. M14 (2026-11-23) settles the two release requirements under Consequences: CI makes a sources archive for each image (legal-info sources, the Buildroot release, the NEPTRON tree at the commit, the vendored crates), the release workflow publishes it beside the image on the GitHub Release page of the version, and each image names its commit and commit date (`/etc/neptron-release`, the head of `LICENCES.txt`). The offer in `LICENCES.txt` names the release page as the place of the source. The contact stays an issue in the public repository; a mailbox that needs no account is still the owner's open choice.
 - Date: 2026-11-19
 - Task: M12
 

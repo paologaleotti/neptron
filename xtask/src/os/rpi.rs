@@ -1016,7 +1016,11 @@ fn the_licence_notes_offer_the_source_for_three_years() {
         "This includes the Linux kernel of this image.",
         "no more than the cost of the physical act of the source distribution",
         "https://github.com/paologaleotti/neptron/issues",
-        "Name the image file and its SHA-256, and the NEPTRON commit that built it if you know it.",
+        "Name the image file and its SHA-256, and the NEPTRON commit at the top of this file.",
+        "https://github.com/paologaleotti/neptron/releases/tag/RELEASE, where RELEASE is the release named at the top of this file.",
+        "Next to each image file, `NAME.img.xz`, is its source, `NAME-sources.tar`.",
+        "the Buildroot release that built the image, the NEPTRON source at the commit named at the top of this file",
+        "An issue needs a GitHub account; the project has no other contact today.",
         "The kernel of this image applies no patch.",
         "the written offer does not cover them",
     ] {

@@ -198,16 +198,32 @@ The 15 kHz patch set of D0023R:
 Source code
 -----------
 
-The image contains software under the GNU General Public License and
-the GNU Lesser General Public License. The source code of each of these
-packages, at the version and with the patches that the image uses, is
-the `make legal-info` output of the build of the image. The kernel
-source is in its folder `sources/linux-6.18.63`: the kernel archive, the
-patches that this image applies (none in the image without the set) and
-the file `series` with their order. The project gives out that source
-together with the image, from the same place. The written offer below
-applies in every case, also for an image that reached you without its
-source.
+The image contains software under the GNU General Public License and the
+GNU Lesser General Public License, among others the Linux kernel,
+BusyBox, GRUB (GNU General Public License 3.0 or later), `neptron` and
+`neptronctl`.
+The project gives out the complete source code of the image from the
+same place as the image:
+
+- An image of a NEPTRON release: the page of that release on GitHub,
+  https://github.com/paologaleotti/neptron/releases/tag/RELEASE, where
+  RELEASE is the release named at the top of this file. Next to each
+  image file, `NAME.img.xz`, is its source, `NAME-sources.tar`.
+- An image that names no release (`none` at the top of this file) is a
+  test build. CI gives out its source as the artifact
+  `ARTIFACT-sources` of the same run, beside the image.
+
+The sources archive holds the source code of each package of the image
+that Buildroot gives out, at the version and with the patches that the
+image uses (the `make legal-info` output of the build, in
+`legal-info/sources`), the Buildroot release that built the image, the
+NEPTRON source at the commit named at the top of this file (with the
+board files, the package files and the build scripts), and the Rust
+crates that the build used. The kernel source is in the folder
+`legal-info/sources/linux-6.18.63`: the kernel archive, the patches that
+this image applies (none in the image without the set) and the file
+`series` with their order. The written offer below applies in every
+case, also for an image that reached you without its source.
 
 Written offer
 -------------
@@ -225,8 +241,9 @@ License for an LGPL package. The charge is no more than the cost of the
 physical act of the source distribution.
 
 To ask for the source, open an issue in the public repository of the
-project: https://github.com/paologaleotti/neptron/issues. Name the image
-file and its SHA-256, and the NEPTRON commit that built it if you know
-it.
+project: https://github.com/paologaleotti/neptron/issues. An issue needs
+a GitHub account; the project has no other contact today. Name the
+image file and its SHA-256, and the NEPTRON commit at the top of this
+file.
 
 The image contains no game and no BIOS file.
