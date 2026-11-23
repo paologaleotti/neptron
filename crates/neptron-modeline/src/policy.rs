@@ -151,6 +151,8 @@ pub struct Shown<V, E> {
     /// The picture mode of `plan` when it is not the mode of the settings:
     /// the mode of the settings has no picture here.
     pub fallback: Option<PictureStyle>,
+    /// The picture mode of the settings.
+    pub asked: PictureStyle,
 }
 
 impl<V, E> Shown<V, E> {
@@ -178,10 +180,10 @@ impl<V, E> Shown<V, E> {
             soft: None,
             small_fill_permille: None,
             whole_steps: None,
-            fill_fallback: false,
+            fill_fallback: None,
         });
         Some(Notice {
-            fill_fallback: true,
+            fill_fallback: Some(self.asked),
             soft: base.soft.filter(|s| *s != SoftReason::FillMode),
             ..base
         })
@@ -218,6 +220,7 @@ pub fn decide_shown<V, E>(
             winner,
             refused,
             fallback,
+            asked,
         }
     };
     let own = shown(first, &mut validate, None);

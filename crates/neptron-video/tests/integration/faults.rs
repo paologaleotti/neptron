@@ -384,7 +384,7 @@ fn a_failed_restore_is_an_error_and_the_engine_decides_again() {
             .chosen
             .notice
             .as_ref()
-            .is_some_and(|n| n.fill_fallback),
+            .is_some_and(|n| n.fill_fallback.is_some()),
         "{:?}",
         current.chosen.notice
     );

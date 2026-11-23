@@ -92,9 +92,10 @@ pub struct Notice {
     /// A flat panel shows a whole multiple, with borders, where the picture
     /// mode would fill the height, for this reason.
     pub whole_steps: Option<WholeReason>,
-    /// No other picture mode has a picture for this game on this display,
-    /// so the picture is the one of `fit` ([`super::decide_shown`]).
-    pub fill_fallback: bool,
+    /// The picture mode of the settings when it has no picture for this
+    /// game on this display, and Auto has none either: the picture is the
+    /// one of `fit` ([`super::decide_shown`]). `None` otherwise.
+    pub fill_fallback: Option<PictureStyle>,
 }
 
 /// Why a picture is soft (the winner is a fit).
@@ -124,9 +125,13 @@ pub enum SoftReason {
 /// [`Notice::reasons`]. The app holds the texts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NoticeReason {
-    /// No other picture mode has a picture here: the picture is the one of
-    /// Fill.
-    FillFallback,
+    /// The picture mode of the settings, and Auto, have no picture here:
+    /// the picture is the one of Fill.
+    FillFallback {
+        /// The picture mode of the settings: Auto, or a mode that has no
+        /// picture either.
+        asked: PictureStyle,
+    },
     /// The picture is soft, for this reason.
     Soft(SoftReason),
     /// The picture is small: the game fills this share of the screen
@@ -163,7 +168,8 @@ impl Notice {
             shown_mhz: self.shown_mhz,
         });
         [
-            self.fill_fallback.then_some(NoticeReason::FillFallback),
+            self.fill_fallback
+                .map(|asked| NoticeReason::FillFallback { asked }),
             self.soft.map(NoticeReason::Soft),
             self.small_fill_permille
                 .map(|fill_permille| NoticeReason::SmallPicture { fill_permille }),
@@ -282,7 +288,7 @@ pub fn notice(plan: &Plan, considered: &Considered) -> Option<Notice> {
         soft,
         small_fill_permille,
         whole_steps,
-        fill_fallback: false,
+        fill_fallback: None,
     })
 }
 

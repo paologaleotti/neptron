@@ -1,7 +1,8 @@
 use std::fmt::Write as _;
 
 use neptron_modeline::policy::{
-    Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, TV_SPEED_SILENT_PPM, speed_alert, speed_beyond,
+    PictureStyle, Proposal, REFRESH_MATCH_MHZ, RefreshKind, Rung, TV_SPEED_SILENT_PPM, speed_alert,
+    speed_beyond,
 };
 use neptron_types::{Filter, Modeline, SourceGeometry, TvStandard};
 
@@ -70,6 +71,10 @@ pub struct StatusInputs<'a> {
     /// The TV standard of the mode on screen; `None` on every output but a
     /// TV.
     pub tv_standard: Option<TvStandard>,
+    /// The picture mode of the settings when neither it nor Auto has a
+    /// picture, so the picture is the Fill picture (the notice of the
+    /// winner says so too). `None` otherwise.
+    pub fill_fallback: Option<PictureStyle>,
 }
 
 /// The width of the size column and of the line rate column, in
@@ -98,6 +103,7 @@ impl<'a> StatusInputs<'a> {
             rung: current.chosen.rung,
             proposal: &current.chosen.proposal,
             tv_standard: current.chosen.token.tv_standard(),
+            fill_fallback: current.chosen.notice.and_then(|n| n.fill_fallback),
         }
     }
 }
@@ -218,6 +224,12 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
     }
     if fitted {
         push_word(out, |s| s.write_str("filtered"));
+    }
+    if let Some(asked) = inputs.fill_fallback {
+        push_word(out, |s| match asked {
+            PictureStyle::Auto => s.write_str("fill: auto has no picture"),
+            other => write!(s, "fill: {} and auto have no picture", other.key()),
+        });
     }
     if speed_changed {
         push_word(out, |s| {
@@ -359,6 +371,7 @@ mod tests {
             rung,
             proposal,
             tv_standard: None,
+            fill_fallback: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -557,6 +570,7 @@ mod tests {
             rung,
             proposal: &p,
             tv_standard: Some(standard),
+            fill_fallback: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -644,6 +658,7 @@ mod tests {
             rung,
             proposal: &p,
             tv_standard: Some(TvStandard::Ntsc),
+            fill_fallback: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -659,6 +674,7 @@ mod tests {
                 let inputs = StatusInputs {
                     mode: &mode,
                     tv_standard: Some(standard),
+                    fill_fallback: None,
                     ..inputs
                 };
                 write_video_status(Some(&inputs), &mut out).unwrap();
@@ -673,6 +689,7 @@ mod tests {
         let worst = StatusInputs {
             mode: &neptron_types::TV_525_480I,
             tv_standard: Some(TvStandard::Ntsc443),
+            fill_fallback: None,
             ..inputs
         };
         write_video_status(Some(&worst), &mut out).unwrap();
@@ -725,6 +742,30 @@ mod tests {
         assert!(alert);
     }
 
+    /// The Fill picture of the fallback says in the status what the notice
+    /// says: which modes have no picture here.
+    #[test]
+    fn the_fill_fallback_names_the_modes_with_no_picture() {
+        let (mut p, _) = winner();
+        p.timing.target.kind = RefreshKind::Exact;
+        for (asked, words) in [
+            (PictureStyle::Auto, "fill: auto has no picture"),
+            (PictureStyle::Sharp, "fill: sharp and auto have no picture"),
+        ] {
+            let inputs = StatusInputs {
+                source: &SNES,
+                mode: &p.mode,
+                rung: Rung::Fitted,
+                proposal: &p,
+                tv_standard: None,
+                fill_fallback: Some(asked),
+            };
+            let mut out = VideoStatusText::default();
+            write_video_status(Some(&inputs), &mut out).unwrap();
+            assert_eq!(out.result, format!("[!] filtered, {words}"), "{asked:?}");
+        }
+    }
+
     #[test]
     fn a_1080p_panel_mode_line_keeps_its_columns_apart() {
         let (p, _) = winner();
@@ -736,6 +777,7 @@ mod tests {
             rung: Rung::Panel,
             proposal: &p,
             tv_standard: None,
+            fill_fallback: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -754,6 +796,7 @@ mod tests {
             rung: Rung::Panel,
             proposal: &p,
             tv_standard: None,
+            fill_fallback: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -804,6 +847,7 @@ mod tests {
             rung: Rung::Multiple(2),
             proposal: &p,
             tv_standard: None,
+            fill_fallback: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -835,6 +879,7 @@ mod tests {
             rung: Rung::Native,
             proposal: &p,
             tv_standard: None,
+            fill_fallback: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();
@@ -900,6 +945,7 @@ mod tests {
             rung,
             proposal: &p,
             tv_standard: None,
+            fill_fallback: None,
         };
         let mut out = VideoStatusText::default();
         write_video_status(Some(&inputs), &mut out).unwrap();

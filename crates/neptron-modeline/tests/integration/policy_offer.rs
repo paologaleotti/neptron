@@ -404,7 +404,7 @@ fn check(
                 }
             }
             promise_holds(offered, settings, screen)?;
-            let fallback = offered.notice.is_some_and(|n| n.fill_fallback);
+            let fallback = offered.notice.is_some_and(|n| n.fill_fallback.is_some());
             if fallback != (offered.plan.style != settings.style) {
                 return Err("the fill fallback and its notice disagree".to_owned());
             }
@@ -1506,7 +1506,7 @@ fn auto_with_no_picture_takes_the_fill_picture() {
     .unwrap();
     assert_eq!(shown.fallback, Some(PictureStyle::Fit));
     let notice = shown.notice().expect("a notice");
-    assert!(notice.fill_fallback);
+    assert_eq!(notice.fill_fallback, Some(PictureStyle::Auto));
     assert_ne!(
         notice.soft,
         Some(neptron_modeline::policy::SoftReason::FillMode)
@@ -1520,7 +1520,10 @@ fn auto_with_no_picture_takes_the_fill_picture() {
         validate,
     )
     .unwrap();
-    assert!(auto.is_ok_and(|o| o.notice.is_some_and(|n| n.fill_fallback)));
+    assert!(auto.is_ok_and(|o| {
+        o.notice
+            .is_some_and(|n| n.fill_fallback == Some(PictureStyle::Auto))
+    }));
     let sharp = offer(
         &ddonpach,
         &PolicySettings {
@@ -1537,6 +1540,23 @@ fn auto_with_no_picture_takes_the_fill_picture() {
     assert_eq!(declined.reason, DeclineReason::NoPicture);
     assert_eq!(declined.plan.style, PictureStyle::Fit);
     assert!(declined.winner.is_some(), "the Fill picture shows");
+    // The notice of that picture names the stored mode, which has no
+    // picture, and Auto, which has none either.
+    let stored = neptron_modeline::policy::decide_shown(
+        &ddonpach,
+        &PolicySettings {
+            style: PictureStyle::Sharp,
+            ..PolicySettings::default()
+        },
+        &profile,
+        &caps,
+        validate,
+    )
+    .unwrap();
+    assert_eq!(
+        stored.notice().and_then(|n| n.fill_fallback),
+        Some(PictureStyle::Sharp)
+    );
     // Where Fill has no picture either, nothing changes: no winner.
     let none = neptron_modeline::policy::decide_shown(
         &ddonpach,

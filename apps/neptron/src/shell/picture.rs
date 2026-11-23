@@ -4,7 +4,7 @@
 use neptron_types::ScanlineMode;
 use neptron_types::{Modeline, MonitorKind, Rotation, ScreenClass, SourceGeometry};
 use neptron_video::{
-    DeclineReason, Notice, NoticeReason, PolicySettings, RefreshKind, RefreshPolicy,
+    DeclineReason, Notice, NoticeReason, PictureStyle, PolicySettings, RefreshKind, RefreshPolicy,
     ScanlineOutcome, ScanlineSettings, SoftReason, VerticalMode, WholeReason,
 };
 
@@ -48,9 +48,13 @@ pub(super) fn picture_text(kind: RefreshKind, notice: &Notice, status: &str) -> 
 /// The sentence of one reason.
 fn reason_text(reason: NoticeReason) -> String {
     match reason {
-        NoticeReason::FillFallback => {
-            "Fill picture: no other picture mode has a picture for this game here.".to_owned()
-        }
+        NoticeReason::FillFallback {
+            asked: PictureStyle::Auto,
+        } => "Fill picture: Auto has no picture for this game here.".to_owned(),
+        NoticeReason::FillFallback { asked } => format!(
+            "Fill picture: {} and Auto have no picture for this game here.",
+            pages::mode_label(asked)
+        ),
         NoticeReason::Soft(SoftReason::TooTall { lines }) => {
             format!("Soft picture: this screen cannot show the game's {lines} lines.")
         }
@@ -308,8 +312,28 @@ mod tests {
             soft: None,
             small_fill_permille: None,
             whole_steps: None,
-            fill_fallback: false,
+            fill_fallback: None,
         }
+    }
+
+    /// The Fill picture of the fallback names the modes that have no
+    /// picture: Auto, or the stored mode and Auto. Other modes, such as a
+    /// whole multiple, can still have a picture, so the text names no more.
+    #[test]
+    fn the_fill_fallback_names_the_modes_with_no_picture() {
+        let fallback = |asked| Notice {
+            fitted: true,
+            fill_fallback: Some(asked),
+            ..exact()
+        };
+        assert_eq!(
+            picture_text(RefreshKind::Exact, &fallback(PictureStyle::Auto), "").as_deref(),
+            Some("Fill picture: Auto has no picture for this game here.")
+        );
+        assert_eq!(
+            picture_text(RefreshKind::Exact, &fallback(PictureStyle::Sharp), "").as_deref(),
+            Some("Fill picture: Sharp lines and Auto have no picture for this game here.")
+        );
     }
 
     #[test]
