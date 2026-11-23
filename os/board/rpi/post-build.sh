@@ -16,7 +16,7 @@ board=$BR2_EXTERNAL_NEPTRON_PATH/board/rpi
 "$board/check-kernel-config.sh" "$BR2_CONFIG" "$BUILD_DIR" || exit 1
 "$board/check-kernel-patches.sh" "$BR2_CONFIG" "$BR2_EXTERNAL_NEPTRON_PATH" || exit 1
 
-mkdir -p "$target/state" "$target/share"
+mkdir -p "$target/state" "$target/share" "$target/boot"
 
 legal=$BASE_DIR/legal-info
 if [ ! -f "$legal/manifest.csv" ]; then

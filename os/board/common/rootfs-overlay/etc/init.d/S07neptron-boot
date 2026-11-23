@@ -1,0 +1,56 @@
+#!/bin/sh
+# Mounts the boot partition (FAT32, partition 1 of the disk that holds the
+# root filesystem) read-only at /boot, so the frontend can read
+# /boot/neptron.toml. Another disk with the same layout is never used.
+# When the root filesystem is not on a partition of a disk (a QEMU run
+# that boots the root filesystem alone), nothing is mounted, and the
+# frontend finds no file.
+#
+# Read-only, because the firmware and the kernel are on the partition: a
+# power cut during a write could damage them.
+#
+# Every line goes to the console and to syslog with the tag neptron-boot.
+# A failure never stops the boot: the frontend starts with its settings.
+#
+# A second argument puts every path of the script below that folder, for a
+# test. Init never gives one; a variable would not do, because init passes
+# the kernel command line to its children as variables.
+
+[ "$1" = start ] || exit 0
+
+R=${2:-}
+BOOT=$R/boot
+DEV=$R/dev
+
+log() {
+	echo "neptron-boot: $1"
+	logger -t neptron-boot "$1" 2>/dev/null
+}
+
+root=$(mountpoint -d /)
+root_dir=$(readlink -f "$R/sys/dev/block/$root")
+if [ ! -r "$root_dir/partition" ]; then
+	log "the root filesystem is not on a partition of a disk; /boot is not mounted"
+	exit 0
+fi
+disk=${root_dir%/*}
+boot=
+for file in "$disk"/*/partition; do
+	[ -r "$file" ] || continue
+	if [ "$(cat "$file")" = 1 ]; then
+		dir=${file%/partition}
+		boot=$DEV/${dir##*/}
+		break
+	fi
+done
+if [ -z "$boot" ]; then
+	log "the boot disk has no partition 1; /boot is not mounted"
+	exit 0
+fi
+mkdir -p "$BOOT" 2>/dev/null
+if mount -t vfat -o ro,noatime,nodev,nosuid,noexec,fmask=0133,dmask=0022 "$boot" "$BOOT"; then
+	log "$boot mounted read-only at /boot"
+else
+	log "$boot does not mount at /boot; the settings stand"
+fi
+exit 0

@@ -15,7 +15,7 @@ target=$1
 # final configuration of the configured kernel version.
 "$BR2_EXTERNAL_NEPTRON_PATH/board/pc/check-kernel-config.sh" "$BR2_CONFIG" "$BUILD_DIR" || exit 1
 
-mkdir -p "$target/state" "$target/share"
+mkdir -p "$target/state" "$target/share" "$target/boot"
 # GRUB reads its configuration from the boot partition, not from here.
 rm -rf "$target/boot/grub"
 
