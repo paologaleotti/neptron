@@ -1,6 +1,6 @@
 ## Code standards
 
-These rules are binding for every task. The reviewer checks them. They go into `CLAUDE.md`.
+These rules are binding for every task. The code is written without human review, so a person who arrives later must be able to read it. T0 enforces what a lint can enforce; the reviewer checks the rest. `CLAUDE.md` has the short form.
 
 ### Errors
 
@@ -16,7 +16,7 @@ These rules are binding for every task. The reviewer checks them. They go into `
 - Decide in pure code, execute in the backend. The policy, the validator and the UI make every decision and do no I/O. A backend executes what it gets and makes no decision.
 - One code path for preview and for run. The display panel shows a mode from the same policy function that the engine uses.
 - Types of external libraries stay in their backend crate, behind the traits: `drm`, `gbm`, `glow`, `sdl3`, `libloading`, `evdev`.
-- In each file, public items come first. Every public item has a `///` comment.
+- In each file, public items come first. Every public item has a `///` comment: what it does, its units, its errors, when it can panic. The workspace lints in the root `Cargo.toml` deny `missing_docs`.
 - No `mod.rs`. A module root re-exports the public types of its private files, so callers import from one level.
 - Split a large module by concern, as `impl` blocks in child files. Do not make a file for two methods.
 - Signatures that only read take `&[T]` and `&str`.
@@ -26,9 +26,10 @@ These rules are binding for every task. The reviewer checks them. They go into `
 
 ### Comments
 
-- The default is no comment. A comment gives a reason that the code cannot show: a constraint, an order dependency, an external problem.
+- The default is no comment. A comment gives a reason that the code cannot show: a constraint (a limit and where its number comes from), an invariant the code relies on, an order dependency, an external problem. It never restates the code.
 - A comment describes the code as it is now. It does not tell history.
 - No comment that only points to a document section or a task number. No banner comments.
+- No `TODO` without the id of an open point in `docs/open-points.md`: `TODO(OP-NNN)`.
 
 ### Concurrency
 
@@ -43,8 +44,13 @@ These rules are binding for every task. The reviewer checks them. They go into `
 ### Unsafe
 
 - `unsafe` is only in the crates of the allow-list, and there in one module (`ffi.rs` or equivalent) with a safe wrapper around it.
-- Every `unsafe` block has a `// SAFETY:` comment that states the invariant. `unsafe_op_in_unsafe_fn` is denied.
+- Every `unsafe` block has a `// SAFETY:` comment that states the invariant. The workspace lints deny `unsafe_op_in_unsafe_fn` and clippy's `undocumented_unsafe_blocks`.
 - A pointer or a length from a core is checked (null, size, alignment) before use. A file descriptor has one owner (`OwnedFd`).
+
+### Safety-critical code
+
+- Safety-critical code stays small and plain: `neptron-safety`, the hard rails, and the commit path in `neptron-kms`. No macros, no clever generics, no hidden defaults. Every limit is a named constant with its unit in the name.
+- `neptron-safety` must be readable end to end in one sitting: a budget of about 500 lines, tests excluded. Growing past it needs the owner's approval.
 
 ### User data
 
