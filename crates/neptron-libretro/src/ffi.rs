@@ -18,9 +18,12 @@
 //! that, and it is `!Send`, so every call into the core comes from the
 //! thread that opened it.
 //!
-//! **Panics.** Each callback body runs in `catch_unwind` and has no panic
-//! path of its own; a panic becomes the default answer and never crosses
-//! the C boundary.
+//! **Panics.** A callback body must have no panic path. Each one runs in
+//! `catch_unwind`, which only helps where a panic unwinds: in the dev and
+//! test profiles a panic becomes the default answer. The release profile
+//! has `panic = "abort"`, so there a panic in a callback stops the process
+//! at once, with no final flush of the save RAM. A panic never crosses the
+//! C boundary in either profile.
 
 mod env;
 #[cfg(test)]
@@ -101,7 +104,9 @@ fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> Option<R> {
     .flatten()
 }
 
-/// Runs a callback body and turns a panic into `default`.
+/// Runs a callback body and turns a panic into `default`, in a profile
+/// where a panic unwinds. With `panic = "abort"` (release) it catches
+/// nothing.
 fn guard<R: Copy>(default: R, f: impl FnOnce() -> R) -> R {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or(default)
 }
