@@ -80,7 +80,7 @@ The order of the HID pads with no mapping is the order of the PlayStation 3 pad.
 | 12 | PS | Guide | nothing |
 | 13 and up | | | nothing |
 
-A pad with fewer buttons maps the ones it has, in this order.
+A pad with fewer buttons maps the ones it has, in this order. A pad with exactly 2 buttons is the exception: in this order it would have Y and B, so no accept. It maps raw 0 to A and raw 1 to B, so it has accept and back.
 
 ### Hats and axes
 
@@ -109,6 +109,7 @@ The tests show what holds: a pad with 8 buttons drives the menus and has no Star
 | 13 buttons, 1 hat, 4 axes | 0 to 11 as above | hat 0 | left and right | yes |
 | 8 buttons, 1 hat | Y B A X L R L2 R2 | hat 0 | none | no |
 | 12 buttons, no hat, 2 axes | 0 to 11 as above | axes 0 and 1 | left | yes |
+| 2 buttons, no hat, 2 axes | A B | axes 0 and 1 | left | no |
 | 1 button, 1 hat | | | | not a gamepad |
 
 ## The input notices

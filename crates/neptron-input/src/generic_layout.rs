@@ -32,6 +32,14 @@ pub const GENERIC_BUTTON_ORDER: [Option<Control>; 13] = [
 /// The fewest buttons of a gamepad: accept and back.
 pub const MIN_GENERIC_BUTTONS: u32 = 2;
 
+/// The buttons under which the PS3 order gives no accept: A is raw
+/// button 2. A pad with fewer buttons gets [`SMALL_BUTTON_ORDER`].
+const ACCEPT_INDEX_BUTTONS: u32 = 3;
+
+/// The controls of a pad with [`MIN_GENERIC_BUTTONS`] buttons: raw 0 is
+/// A, so the pad has accept; raw 1 stays B, as in the PS3 order.
+const SMALL_BUTTON_ORDER: [Option<Control>; 2] = [Some(Control::A), Some(Control::B)];
+
 /// The axis travel, in axis units, at which an axis that drives the D-pad
 /// sets a direction: half travel.
 pub const GENERIC_DPAD_THRESHOLD: i16 = 16_384;
@@ -110,6 +118,11 @@ impl GenericLayout {
         };
         for (slot, control) in layout.buttons.iter_mut().zip(GENERIC_BUTTON_ORDER) {
             *slot = control;
+        }
+        if counts.buttons < ACCEPT_INDEX_BUTTONS {
+            for (slot, control) in layout.buttons.iter_mut().zip(SMALL_BUTTON_ORDER) {
+                *slot = control;
+            }
         }
         let shown = usize::try_from(counts.buttons).unwrap_or(usize::MAX);
         for slot in layout.buttons.iter_mut().skip(shown) {
@@ -278,6 +291,23 @@ mod tests {
                 layout.axes_read()
             ),
             (8, 1, 0)
+        );
+    }
+
+    #[test]
+    fn every_gamepad_has_accept_and_back() {
+        for n in MIN_GENERIC_BUTTONS..=20 {
+            let layout = GenericLayout::for_counts(counts(n, 1, 0)).unwrap();
+            assert!(
+                layout.has_button(Control::A) && layout.has_button(Control::B),
+                "{n} buttons"
+            );
+        }
+        let two = GenericLayout::for_counts(counts(2, 0, 2)).unwrap();
+        assert_eq!(
+            buttons(&two)[..3],
+            [Some(Control::A), Some(Control::B), None],
+            "button 1 stays B, as in the order"
         );
     }
 
