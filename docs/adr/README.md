@@ -20,7 +20,7 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0002](0002-switchres-link-licence.md) | Licence of the link with Switchres | accepted | T05 |
 | [0003](0003-line-rate-tolerance-follows-switchres.md) | The lowest line rate of a range follows Switchres | accepted | T04 |
 | [0004](0004-font-licence.md) | The UI font is Spleen under BSD-2-Clause | accepted | T07 |
-| [0005](0005-ui-destination-in-scene.md) | The scene carries the UI destination rectangle | accepted, amended by 0012 | C01 |
+| [0005](0005-ui-destination-in-scene.md) | The scene carries the UI destination rectangle | accepted, amended by 0012 and P03 | C01 |
 | [0006](0006-scanlines-in-scene.md) | The scene carries the scanlines of the game picture | accepted | C04 |
 | [0007](0007-bounded-flip-wait-and-blank.md) | The flip wait is bounded, and a display can turn its output off | accepted | C07 |
 | 0008 | Not used | | |

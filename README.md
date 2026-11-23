@@ -18,15 +18,18 @@ This runs formatting, clippy, the dependency rules, the licence check and all te
 
 ## Continuous integration
 
-GitHub Actions runs the same `cargo xtask verify` on every pull request, on Linux and macOS. It builds three OS images: the PC image and the aarch64 test image, which it boots in QEMU for the tier 3 checks, and the Raspberry Pi image, whose SD card layout it checks. It builds them for a pull request that changes the OS or the device crates, on `main`, and every night. Make the check `ci-ok` required. The PC image that CI uploads applies the 15 kHz kernel patch set, which is GPL-2.0-only (ADR 0018); CI uploads the sources of each image beside it. [docs/ci.md](docs/ci.md) describes the jobs, the caches, the times and the artifacts.
+GitHub Actions runs the same `cargo xtask verify` on Linux and macOS. It builds three OS images on `main`, every night, and for a pull request that changes the OS or the device crates: the PC image and the aarch64 test image, which it boots in QEMU for the tier 3 checks, and the Raspberry Pi image, whose SD card layout it checks. Make the check `ci-ok` required. The PC image that CI uploads applies the 15 kHz kernel patch set, which is GPL-2.0-only (ADR 0018); CI uploads the sources of each image beside it. [docs/ci.md](docs/ci.md) describes the jobs, the caches, the times and the artifacts.
 
 ## Repository layout
 
 - `crates/`: libraries (types, safety validator, modeline solver, backends, UI, session).
 - `apps/`: binaries (`neptron`, `neptron-launch`, `neptronctl`, `neptron-update`).
 - `tools/`: standalone hardware tools.
-- `xtask/`: build, verification and worktree automation.
-- `docs/`: definition, implementation plan, ADRs and taskboard.
+- `data/`: monitor presets, cores, systems, input mappings, skins and hardware data.
+- `os/`: the Buildroot tree of the OS images ([os/README.md](os/README.md)).
+- `vendor/`: vendored third-party source (Switchres).
+- `xtask/`: build, verification and worktree automation ([xtask/README.md](xtask/README.md)).
+- `docs/`: definition, implementation plan, specs, flows, ADRs and taskboard.
 
 ## Documents
 
