@@ -288,6 +288,7 @@ fn build_program(repo: &Path, cache: &Cache, arch: Arch, share: &Path) -> Result
     // build changes.
     let _lock = MachineLock::take(&cache.build_lock(), "Buildroot build")?;
     build::build_container(&build::container_build(&plan.container), &dockerfile)?;
+    super::prune_cross_targets(&plan)?;
     for step in plan.bin_steps(PACKAGE) {
         super::run_step(Command::new("docker").args(step))?;
     }

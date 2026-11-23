@@ -417,7 +417,7 @@ Nothing large is in the repository.
 | Downloads | Docker volume `neptron-br-dl` |
 | Compiler cache | Docker volume `neptron-br-ccache` |
 | Buildroot output | Docker volume `neptron-br-out-<variant>`: `aarch64`, `x86_64`, `x86_64-dev`, `x86_64-no15khz`, `x86_64-dev-no15khz`, `rpi-arm64`, `rpi-arm64-dev` |
-| Cargo registry and target directory of the guest builds | Docker volume `neptron-cross-<output>`: `aarch64`, `x86_64`, and `rpi-arm64-dev` for `os push` to a Pi |
+| Cargo registry and target directories of the guest builds | Docker volume `neptron-cross-<output>`: `aarch64`, `x86_64`, and `rpi-arm64-dev` for `os push` to a Pi. One target directory per checkout, `target/wt-<folder>-<hash>`; each guest build removes the directories of checkouts that no longer exist |
 | Images | `~/.cache/neptron/buildroot/images/<variant>` (`NEPTRON_CACHE_DIR` moves `~/.cache/neptron`) |
 
 The downloads, the compiler cache and the output are Docker volumes because Buildroot needs a case-sensitive filesystem and the macOS default is not. All worktrees share them. `NEPTRON_OS_IMAGES` or `--images` boots an images directory from somewhere else, for example the base image that CI publishes.

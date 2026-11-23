@@ -431,7 +431,7 @@ pub fn app_check(args: &[&str]) -> Result<ExitCode, OsError> {
     // build changes.
     let _lock = MachineLock::take(&cache.build_lock(), "Buildroot build")?;
     build::build_container(&build::container_build(&container), &dockerfile)?;
-    for (package, features) in APP_CHECK_PACKAGES {
+    for (n, (package, features)) in APP_CHECK_PACKAGES.into_iter().enumerate() {
         let plan = cross::CrossPlan {
             arch,
             output: arch.name().to_owned(),
@@ -444,6 +444,9 @@ pub fn app_check(args: &[&str]) -> Result<ExitCode, OsError> {
             lint: true,
             filtered_linker: true,
         };
+        if n == 0 {
+            prune_cross_targets(&plan)?;
+        }
         for step in plan.app_steps() {
             run_step(Command::new("docker").args(step))?;
         }
@@ -507,6 +510,7 @@ pub fn run_guest_check(check: &GuestCheck, args: &[&str]) -> Result<ExitCode, Os
         // os build changes.
         let _lock = MachineLock::take(&cache.build_lock(), "Buildroot build")?;
         build::build_container(&build::container_build(&plan.container), &dockerfile)?;
+        prune_cross_targets(&plan)?;
         for step in plan.steps() {
             run_step(Command::new("docker").args(step))?;
         }
@@ -686,6 +690,19 @@ fn under_load_policy(policy: &LoadPolicy, program: &str) -> Command {
 
 fn spawn(cmd: &mut Command) -> Result<Child, OsError> {
     cmd.spawn().map_err(|source| spawn_error(cmd, source))
+}
+
+/// Removes from the cross volume of `plan` the target directories of
+/// checkouts that no longer exist. Each checkout has one target directory
+/// of some gigabytes, so the volume would grow with every task worktree.
+fn prune_cross_targets(plan: &cross::CrossPlan) -> Result<(), OsError> {
+    let list = repo::output(repo::git(&plan.repo).args(["worktree", "list", "--porcelain"]))?;
+    let live: Vec<String> = cross::worktree_paths(&list)
+        .iter()
+        .filter(|path| path.is_dir())
+        .map(|path| cross::worktree_key(path))
+        .collect();
+    run_step(Command::new("docker").args(plan.prune_step(&live)))
 }
 
 fn run_step(cmd: &mut Command) -> Result<(), OsError> {

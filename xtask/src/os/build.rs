@@ -11,14 +11,18 @@ pub const CONTAINER_REPO: &str = "neptron-dev";
 /// The image name for a `Dockerfile` text: its tag is a hash of the text, so
 /// branches with different Dockerfiles never replace each other's image.
 pub fn container_image(dockerfile: &str) -> String {
-    // FNV-1a, 64 bits: stable across Rust releases, and a tag needs no
-    // cryptographic strength.
+    format!("{CONTAINER_REPO}:{:016x}", fnv1a(dockerfile))
+}
+
+/// FNV-1a, 64 bits, of `text`: stable across Rust releases, for names that
+/// need no cryptographic strength.
+pub fn fnv1a(text: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in dockerfile.bytes() {
+    for byte in text.bytes() {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
-    format!("{CONTAINER_REPO}:{hash:016x}")
+    hash
 }
 
 /// The arguments of `os build`.

@@ -326,7 +326,7 @@ fn push(
         // os build changes.
         let _lock = MachineLock::take(&cache.build_lock(), "Buildroot build")?;
         build::build_container(&build::container_build(&container), &dockerfile)?;
-        for (package, features, bin) in PUSHED {
+        for (n, (package, features, bin)) in PUSHED.into_iter().enumerate() {
             let plan = cross::CrossPlan {
                 arch: board.arch(),
                 output: output.to_owned(),
@@ -339,6 +339,9 @@ fn push(
                 lint: false,
                 filtered_linker: true,
             };
+            if n == 0 {
+                super::prune_cross_targets(&plan)?;
+            }
             for step in plan.bench_steps(bin) {
                 super::run_step(Command::new("docker").args(step))?;
             }
