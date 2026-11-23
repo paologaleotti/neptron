@@ -4,7 +4,7 @@ Thin glue around RAUC. Milestone M4: this app stays a stub in the MVP.
 
 ## Public API sketch
 
-- `main`
+- `main`, which does nothing yet
 
 ## Must never depend on
 
@@ -14,7 +14,3 @@ Thin glue around RAUC. Milestone M4: this app stays a stub in the MVP.
 
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
 - No features.
-
-## Status
-
-Stub.

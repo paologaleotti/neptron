@@ -16,7 +16,7 @@ On every host (pure, no I/O):
 
 On Linux with the `kms` feature:
 
-- `KmsDisplay::from_env(KmsConfig) -> Result<KmsDisplay, KmsError>`: the display on the descriptor in `NEPTRON_DRM_FD` (`DRM_FD_ENV`). This is the path of the frontend (T27). A process takes the descriptor once.
+- `KmsDisplay::from_env(KmsConfig) -> Result<KmsDisplay, KmsError>`: the display on the descriptor in `NEPTRON_DRM_FD` (`DRM_FD_ENV`). This is the path of the frontend. A process takes the descriptor once.
 - `KmsDisplay::open(OwnedFd, KmsConfig)`: the same on a descriptor the caller opened (tests, tools).
 - `impl Display for KmsDisplay`: `caps`, `set_mode`, `present`, `wait_flip`, `blank`.
 - `KmsDisplay::capture() -> Result<Capture, DisplayError>`: the composed picture through a writeback connector, when `KmsConfig::writeback` is on. For tests and the self-test, not for the frame loop.

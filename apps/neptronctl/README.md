@@ -75,11 +75,11 @@ An error prints one JSON line on stderr: `{"error":{"code":"...","message":"..."
 - The connector: `--connector`, else the backend's connector rule. The GPU values and the EDID profile come from the card and the connector that sysfs detection chose. The run is refused before any modeset when `--device` (with links followed) is the node of another card, or when the backend chooses another connector.
 - SIGINT, SIGTERM and SIGHUP set a stop flag (`signal-hook`, no `unsafe`). The run reads it before each flip and stops within one flip wait (at most 500 ms on KMS), then turns the output off. SIGKILL runs no code: the kernel closes the descriptor, and the validated test mode can stay on the wire with no picture, or the driver turns the CRTC off.
 - A panic in the dev profile unwinds into the drop of `KmsDisplay`, which turns the plane off with the validated mode kept, or the output off. A release build aborts on a panic; then the last mode on the wire is a validated mode.
-- Limits, each a named constant with its unit: `SECONDS_PER_MODE_MAX_S` (10), `SECONDS_PER_MODE_MIN_S` (1), `FLIP_WAIT_RETRIES` (2), `FLIPS_PER_MODE_MAX` (2000), `FLIPS_MIN` (2), `VBLANK_PERIOD_TOLERANCE_PPM` (10 000), `PATTERN_WIDTH_MAX_PX` (512, from `TEXTURE_SIDE_MAX_TEXELS` 2048 and `TEXELS_PER_PIXEL` 4).
+- Limits, each a named constant with its unit: `SECONDS_PER_MODE_MAX_S` (10), `SECONDS_PER_MODE_MIN_S` (1), `FLIP_WAIT_RETRIES` (2), `FLIPS_PER_MODE_MAX` (2000), `FLIPS_MIN` (2), `VBLANK_PERIOD_TOLERANCE_PPM` (10 000), `PATTERN_WIDTH_MAX_PX` (512), `TEXTURE_SIDE_MAX_TEXELS` (2048), `TEXELS_PER_PIXEL` (4).
 
 ### On the bench
 
-Build `neptronctl` for Linux with the `kms` feature (the image task installs it; on a development machine, `cargo xtask os selftest-check` builds it for the guest). On the target, as root, with the frontend and the launcher stopped:
+Build `neptronctl` for Linux with the `kms` feature (the image installs it from `os/package/neptronctl`; on a development machine, `cargo xtask os selftest-check` builds it for the guest). On the target, as root, with the frontend and the launcher stopped:
 
 ```sh
 neptronctl selftest video --profile pc_31_120 --connector DP-1 --report /tmp/dry.json
@@ -158,8 +158,8 @@ The parser is written by hand. The grammar is a few fixed words, and a parser cr
 
 ## Status
 
-The control API client is done. `selftest video` is done, and it runs in the QEMU guest on `vkms` (`cargo xtask os selftest-check`). The policy gives every CRT mode a pixel clock in whole kHz (ADR 0009), which the KMS backend takes as it is. No run of the self-test on real hardware is recorded. There is no `modeline` command and no mode test command.
+`selftest video` runs in the QEMU guest on `vkms` (`cargo xtask os selftest-check`). The policy gives every CRT mode a pixel clock in whole kHz (ADR 0009), which the KMS backend takes as it is. No run of the self-test on real hardware is recorded. There is no `modeline` command and no mode test command.
 
 ## The copy of the mode conversion in `tools/kms-spike` (OP-060)
 
-The self-test uses `KmsDisplay` of `neptron-kms`, so it has no mode conversion of its own. `tools/kms-spike` keeps its own copy, because its dependency rule allows only `drm`, `neptron-types` and `neptron-safety`. The proposal: keep the spike as it is until the owner has run the hardware checklist with both tools, and compare the two reports for the same modes. Then delete `tools/kms-spike` and its dependency rule in `xtask/src/rules.rs` in one change, because `selftest video` covers what it did (the test modes, the read back, the timing, the restore) through the backend that the product uses. Until then, a change to `ModeRecord` must be made in both places.
+The self-test uses `KmsDisplay` of `neptron-kms`, so it has no mode conversion of its own. `tools/kms-spike` keeps its own copy, because its dependency rule allows only `drm`, `neptron-types` and `neptron-safety`. Until the owner runs the hardware checklist with both tools and compares the two reports for the same modes, the spike stays, and a change to `ModeRecord` must be made in both places. Then `tools/kms-spike` and its dependency rule in `xtask/src/rules.rs` go in one change: `selftest video` covers what it did (the test modes, the read back, the timing, the restore) through the backend that the product uses.

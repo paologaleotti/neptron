@@ -98,7 +98,3 @@ The test `rails_match_the_presets` in `src/rails.rs` pins each value with the pr
 - `tests/integration/presets.rs`: a mode in the middle of each of the 54 shipped ranges validates.
 - `tests/integration/switchres.rs`: the 61 modelines that upstream Switchres generates for the golden list of systems all validate, 12 of them below the line rate of a fixed range.
 - `tests/integration/property.rs`: random modes for every preset and three GPU entries validate or are rejected with a reason, and nothing panics.
-
-## Status
-
-`validate` has every range check and the hard rails.

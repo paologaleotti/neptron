@@ -4,7 +4,7 @@ Slang shader presets through librashader. Milestone M4: this crate stays a stub 
 
 ## Public API sketch
 
-- `struct ShaderChain` with `load(preset)` and `apply(...)`
+- Planned, not in the code: `struct ShaderChain` with `load(preset)` and `apply(...)`
 
 ## Must never depend on
 
@@ -14,7 +14,3 @@ Slang shader presets through librashader. Milestone M4: this crate stays a stub 
 
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
 - No features.
-
-## Status
-
-Stub.

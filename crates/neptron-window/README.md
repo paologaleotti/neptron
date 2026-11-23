@@ -101,7 +101,3 @@ The picture rule, the pacing rule and the key map are plain functions with unit 
 
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
 - Features: `sdl3`. No feature is on by default.
-
-## Status
-
-Complete for the MVP.

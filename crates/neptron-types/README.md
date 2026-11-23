@@ -33,7 +33,3 @@ Every contract value is an integer. Frequencies are in millihertz (`_mhz`), or i
 - No features.
 - A type on disk or on the wire changes by addition only.
 - Every enum serialises in snake_case (`r90`, `sharp_bilinear`, `left_x`). A test pins each wire name.
-
-## Status
-
-The contract types are in place.

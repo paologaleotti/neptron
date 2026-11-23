@@ -114,7 +114,3 @@ The crate carries the protocol only. The application that writes the handlers mu
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
 - Features: `control` adds the TCP listener and the TCP client. No feature is on by default, and without it no TCP code compiles.
 - Dependencies: `neptron-types`, `serde`, `serde_json`, `thiserror`. The base64 codec is in the crate, so it needs no dependency.
-
-## Status
-
-The protocol, the codec, the server loop, the Unix transport and the TCP transport behind `control` are done. The handlers live in the app.

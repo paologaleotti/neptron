@@ -22,6 +22,6 @@ The traits that hide display, audio, input and clock behind one interface, so th
 - `unsafe` is forbidden: the crate root carries `#![forbid(unsafe_code)]`.
 - No features.
 
-## Status
+## Implementations
 
-The traits are in place. The implementations are in `neptron-kms`, `neptron-window`, `neptron-audio`, `neptron-input` and `neptron-testkit`.
+The implementations are in `neptron-kms`, `neptron-window`, `neptron-audio`, `neptron-input` and `neptron-testkit`.
