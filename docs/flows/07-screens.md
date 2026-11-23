@@ -1,8 +1,8 @@
 # 7. The screens and the UI flow
 
-This flow covers everything the player sees and presses in the menus: the screens, the buttons that move between them, the rows of each settings page, the video block, the confirm dialog, the keep prompt and the notices. It also says when a change reaches its settings file. The UI (`neptron-ui`) decides nothing about the display. It sends intents, and the app (`apps/neptron/src/shell`) carries them out. A display change goes through [the guard](03-guard.md); the mode itself comes from [ODREN](04-odren.md) and [the policy](05-policy.md).
+This page covers what the player sees and presses in the menus: the screens, the buttons between them, the rows of each page, the video block, the confirm dialog, the keep prompt, the notices, and when a change reaches its settings file. The UI (`neptron-ui`) decides nothing about the display. It sends intents, and the app (`apps/neptron/src/shell`) carries them out. A display change goes through [the guard](03-guard.md); the mode comes from [ODREN](04-odren.md) and [the policy](05-policy.md).
 
-The menu canvas is 320x240. The golden pictures below are the reference renders of the screens. They use test fixtures (system names, game titles, video modes). The options of the picture rows in the scenes are the options that the app builds: a test of the app (`the_scenes_of_the_picture_rows_show_what_the_app_builds`) holds them equal. This file quotes the real texts from the code.
+The menu canvas is 320x240. The golden pictures below are the reference renders. They use test fixtures (system names, game titles, video modes). A test of the app (`the_scenes_of_the_picture_rows_show_what_the_app_builds`) holds the options of the picture rows in the scenes equal to the options that the app builds. This page quotes the texts of the code.
 
 ## Diagrams
 
@@ -37,6 +37,10 @@ flowchart TD
     Lib -->|"Back"| Set
     Set -->|"Accept on Network"| Net["Network panel<br/>address, host name, share"]
     Net -->|"Back"| Set
+    Set -->|"Accept on Input"| In["Input panel<br/>players, pads"]
+    In -->|"Accept on a present pad"| Pad["Page of a controller<br/>Map buttons"]
+    Pad -->|"Back"| In
+    In -->|"Back"| Set
     Sys -->|"Accept on Reboot or Shut down<br/>game list run only"| Ask
     Ask -->|"Accept on Cancel, or Back"| Sys
     Ask -->|"Right, then Accept"| Power
@@ -59,7 +63,7 @@ flowchart TD
     QM -->|"Quit game, no change"| Quit
 ```
 
-From the quick menu the player also reaches the video page, the Settings page with its panels, the option lists and the grid pattern. The detail is in the next diagram. Back on any screen closes the screen on top, and the screen under it gets the focus back on the row that opened the closed screen. Back on Home does nothing. With no games, Home has one row `Settings`, so the display and audio panels are reachable on a new stick.
+From the quick menu the player also reaches the video page, the Settings page with its panels, the option lists and the grid pattern (next diagram). Back closes the screen on top, and the screen under it gets the focus back on the row that opened the closed screen. Back on Home does nothing. With no games, Home has one row `Settings`, so the display and audio panels are reachable on a new stick.
 
 ### Detail: the quick menu
 
@@ -85,7 +89,11 @@ stateDiagram-v2
     Quitting --> [*] : session ends, run relaunches
 ```
 
-The grid pattern is reached from the display panel, also when that panel was opened from the quick menu (`Settings > Display`). The keep prompt sees only the changes at the game level (the first page and the video page), so a change on a panel of the Settings page never starts it. It also forgets a change that the app took back (the guard reverted a display change that was not kept): when the player leaves the video page, and when the prompt would open, a change whose row on the page that made it no longer shows that value at the game level is not asked about and not moved. The rows of a global panel never count. The UI takes no more actions in the frame of a change at the game level, so a back pressed in the same frame does not leave the page before the snapshot shows the change. The quick menu hotkey does nothing while the menu is open, at any depth: the session ignores it while the core is paused.
+- The grid pattern opens from the display panel, also when the quick menu opened that panel (`Settings > Display`).
+- The keep prompt sees only changes at the game level (the first page and the video page). A change on a panel of the Settings page never starts it.
+- The keep prompt forgets a change that the app took back (the guard reverted a display change that was not kept). When the player leaves the video page, and when the prompt would open, a change whose row no longer shows that value at the game level is not asked about and not moved.
+- The UI takes no more actions in the frame of a change at the game level, so a Back in the same frame does not leave the page before the snapshot shows the change.
+- The quick menu hotkey does nothing while the menu is open, at any depth: the session ignores it while the core is paused.
 
 ### Detail: who gets a button press
 
@@ -93,16 +101,20 @@ Each frame the router gives each action to one place only, in this order.
 
 ```mermaid
 flowchart TD
-    A["UI action"] --> C{"Confirm dialog<br/>in the snapshot?"}
+    A["UI action"] --> SS{"Screensaver<br/>in the snapshot?"}
+    SS -->|"yes"| Drop["Dropped"]
+    SS -->|"no"| C{"Confirm dialog<br/>in the snapshot?"}
     C -->|"yes"| CD["Confirm dialog"]
-    C -->|"no"| N{"Unread notice, and<br/>not a game shown alone?"}
-    N -->|"yes"| ND["Notice: Accept or Back<br/>dismisses it"]
+    C -->|"no"| PM{"Guided pad mapping<br/>in the snapshot?"}
+    PM -->|"yes"| PMD["Pad mapping"]
+    PM -->|"no"| N{"Unread notice, and<br/>not a game shown alone?"}
+    N -->|"yes"| ND["Notice"]
     N -->|"no"| T{"Screen on top"}
     T -->|"Game"| G["Menu opens the quick menu,<br/>every other action is ignored"]
     T -->|"another screen"| S["That screen"]
 ```
 
-While the game is shown alone (top screen `Game`, no confirm dialog), the app drops every navigation action except the `Menu` action that it makes from the quick menu hotkey. So the X button does nothing during play. The session pauses itself at the hotkey. While a confirm dialog is on screen the app holds that `Menu` action back, because the dialog takes every action; the frame after the dialog closes, the action opens the quick menu. So a paused game always shows the dialog or the quick menu.
+While the game is shown alone (top screen `Game`, no confirm dialog, no guided mapping), the app drops every navigation action except the `Menu` action that it makes from the quick menu hotkey. So the X button does nothing during play. The session pauses itself at the hotkey. While a confirm dialog is on screen the app holds that `Menu` action back, because the dialog takes every action; the frame after the dialog closes, the action opens the quick menu. So a paused game always shows the dialog or the quick menu.
 
 ### Detail: the confirm dialog
 
@@ -120,7 +132,7 @@ stateDiagram-v2
     Answered --> [*] : deadline, the app reverts
 ```
 
-`OnRevert` and `OnKeep` are not names in the code. They stand for the focus of the `Dialog` in `Confirm`. `Answered` is the field `answered`. The UI cannot tell a fresh press from a key repeat; the app sends only fresh presses to a confirmation, because `Navigator::hold_back` stops every repeat and ignores every key held when the prompt opens. At 0 s the dialog shows `Revert` alone.
+`OnRevert` and `OnKeep` are not names in the code. They stand for the focus of the `Dialog` in `Confirm`. `Answered` is the field `answered`. The UI cannot tell a fresh press from a key repeat. The app sends only fresh presses to a confirmation, because `Navigator::hold_back` stops every repeat and ignores every key held when the prompt opens. At 0 s the dialog shows `Revert` alone.
 
 ### Detail: what a settings change does
 
@@ -146,27 +158,30 @@ The screen id is the id in the widget tree (`out.tree.set_screen`).
 | Screen | Screen id | What the user sees | Golden picture |
 | --- | --- | --- | --- |
 | Home | `home` | Title `NEPTRON`. A box with one row per system that has games (name, then `1 game` or `N games`), then `Favourites`, `Recent games`, `Settings`, each with an arrow. Hint `Accept: open`. | [home.ppm](../../crates/neptron-ui/tests/golden/screens/home.ppm) |
-| Home with no games | `home` | The text `No games yet.` and where to copy games (`roms/nes   roms/snes   roms/megadrive`, plain files and `.zip` files), then one row `Settings` at the bottom, with its arrow. The tier 3 boot golden shows this screen under a notice. | [home-empty.ppm](../../crates/neptron-ui/tests/golden/screens/home-empty.ppm) |
+| Home with no games | `home` | The text `No games yet.` and where to copy games (the `roms` folder of the share partition, one folder per system, for example `roms/snes` and `roms/arcade`; plain files and `.zip` files), then one row `Settings` at the bottom, with its arrow. The tier 3 boot golden shows this screen under a notice. | [home-empty.ppm](../../crates/neptron-ui/tests/golden/screens/home-empty.ppm) |
 | Settings page | `settings` | Title `Settings` (the breadcrumb). One row per panel of `SETTINGS_PANELS`: `Display`, `Audio`, `Input`, `Library`, `Network`, `System`. Hints `Accept: open`, `Back: return`. | [settings.ppm](../../crates/neptron-ui/tests/golden/screens/settings.ppm) |
-| Input panel | `input` | Title `Settings > Input`. Information rows `Player 1` to `Player 4` with the name of the pad of each port, `<name> (away)` for a pad that went away in a game, or `None`; one `Extra pad` row for each pad on ports 4 to 7; `Keyboard` with `Player 1`. Then the number row `Hold Start for menu`. The rows follow the pads while the panel is on screen. Hints of the focused row, `Back: return`. `docs/spec/input-players.md` has the rules. | [input.ppm](../../crates/neptron-ui/tests/golden/screens/input.ppm), [input-empty.ppm](../../crates/neptron-ui/tests/golden/screens/input-empty.ppm) |
+| Input panel | `input` | Title `Settings > Input`. Rows `Player 1` to `Player 4` with the name of the pad of each port, `<name> (away)` for a pad that went away in a game, or `None`; one `Extra pad` row for each pad on ports 4 to 7; `Keyboard` with `Player 1`. Then the number row `Hold Start for menu`. A row of a present pad opens the page of that pad; a row with no pad or an away pad is information only. The rows follow the pads while the panel is on screen. `docs/spec/input-players.md` and `docs/spec/input-remapping.md` have the rules. | [input.ppm](../../crates/neptron-ui/tests/golden/screens/input.ppm), [input-empty.ppm](../../crates/neptron-ui/tests/golden/screens/input-empty.ppm) |
+| Page of a controller | `page` | Title: the label of the row (`Player 1`). Rows `Controller`, `Layout`, `Map buttons`, `Reset to default`, then one row per RetroPad control with its binding. In a game the actions are disabled with `Not during a game`. `docs/spec/input-remapping.md`, "The Input panel and the page of a controller", has the rows. | [pad-page.ppm](../../crates/neptron-ui/tests/golden/screens/pad-page.ppm) |
+| Guided pad mapping | `pad-mapping`, `pad-mapping/review` | A box over the screen: the pad name, the prompt, the step, a progress bar, the note, the time left. The review asks to keep or cancel the map. Game list run only. `docs/spec/input-remapping.md`, "The guided mapping", has the steps and texts. | [pad-mapping.ppm](../../crates/neptron-ui/tests/golden/screens/pad-mapping.ppm), [pad-mapping-note.ppm](../../crates/neptron-ui/tests/golden/screens/pad-mapping-note.ppm), [pad-mapping-review.ppm](../../crates/neptron-ui/tests/golden/screens/pad-mapping-review.ppm), [pad-mapping-incomplete.ppm](../../crates/neptron-ui/tests/golden/screens/pad-mapping-incomplete.ppm) |
 | Library panel | `library` | Title `Settings > Library`. One action row, `Rescan games` (see the transitions). | [library-scanning.ppm](../../crates/neptron-ui/tests/golden/screens/library-scanning.ppm) |
 | Network panel | `network` | Title `Settings > Network`. Information rows only (kind `Info`: no input, no hint, no arrow): `Address <port>` with its IPv4 address for each wired port (or `Address` with `None (no cable or no network)`, `Not known` or `Reading...`), `Host name`, `Share` (`On` or `Off`) and, with the share on, `Network name` (`<host_name>.local`), `Windows` (`\\<address>\share`), `macOS, Linux` (`smb://<address>/share`), `Share user` and `Share password` (`neptron`). The rows follow `/run/neptron/network.toml` while the panel is on screen. Hint `Back: return`. `docs/spec/network-panel.md` has every state. | [network.ppm](../../crates/neptron-ui/tests/golden/screens/network.ppm), [network-no-address.ppm](../../crates/neptron-ui/tests/golden/screens/network-no-address.ppm), [network-unknown.ppm](../../crates/neptron-ui/tests/golden/screens/network-unknown.ppm), [network-share-off.ppm](../../crates/neptron-ui/tests/golden/screens/network-share-off.ppm), [network-two-ports.ppm](../../crates/neptron-ui/tests/golden/screens/network-two-ports.ppm) |
 | System panel | `system` | Title `Settings > System`. Two action rows, `Reboot` and `Shut down`, with no arrow, and a third, `Format share`, only when `storage.toml` offers a format of the share partition. In a game every row is disabled with the reason `Not during a game`; in a run with no launcher that has power control, with `Needs the launcher`. Hints `Accept: choose`, `Back: return`. | [system.ppm](../../crates/neptron-ui/tests/golden/screens/system.ppm), [system-format.ppm](../../crates/neptron-ui/tests/golden/screens/system-format.ppm) |
 | Confirm question | `confirm-action` | A dialog over the System panel. Title `Reboot NEPTRON?` or `Shut down NEPTRON?`. Message `Settings and saves are written first. Then the machine starts again.` or `... Then the machine turns off.`. For the format: title `Format the share partition?`, message `NEPTRON finds no file system it can read on the partition for games (<size>). Formatting it erases everything on it.`. Buttons `Cancel` (focus) and the label of the row. Hints `Accept: choose`, `Back: cancel`. | [system-shutdown-confirm.ppm](../../crates/neptron-ui/tests/golden/screens/system-shutdown-confirm.ppm), [system-format-confirm.ppm](../../crates/neptron-ui/tests/golden/screens/system-format-confirm.ppm) |
 | After the confirm | `confirm-action/working` | A box with no buttons over the System panel. Title `Shut down`, `Reboot` or `Format share`. Text `Shutting down...`, `Restarting...` or `Formatting at the next start...`. No hints. It is the last frame of the run, and it stays on the wire until init stops the launcher. Back closes it. | [system-shutting-down.ppm](../../crates/neptron-ui/tests/golden/screens/system-shutting-down.ppm) |
-| Audio panel | `audio` | Title `Settings > Audio`. The rows of the audio page. Hints of the focused row, `Back: return`. | [audio.ppm](../../crates/neptron-ui/tests/golden/screens/audio.ppm) |
-| Game list | `games` | Title: the system name, `Favourites` or `Recent games` (`Games` if the system is not found). Right of the title: `N/total`. A list of titles, `*` after a favourite, `...` for a row not loaded yet. Under the list, the focused title in full on two lines. Hints `Accept: play` (only when the list has a game) and `Back: systems` (a system list) or `Back: home` (Favourites, Recent games). | [games-top.ppm](../../crates/neptron-ui/tests/golden/screens/games-top.ppm), [games-middle.ppm](../../crates/neptron-ui/tests/golden/screens/games-middle.ppm), [games-end.ppm](../../crates/neptron-ui/tests/golden/screens/games-end.ppm), [games-one.ppm](../../crates/neptron-ui/tests/golden/screens/games-one.ppm) |
+| Audio panel | `audio` | Title `Settings > Audio`. The rows `Volume` and `Audio output`. Hints of the focused row, `Back: return`. | [audio.ppm](../../crates/neptron-ui/tests/golden/screens/audio.ppm), [audio-output.ppm](../../crates/neptron-ui/tests/golden/screens/audio-output.ppm) |
+| Game list | `games` | Title: the system name, `Favourites` or `Recent games` (`Games` if the system is not found). Right of the title: `N/total`. A list of titles, `*` after a favourite, `...` for a row not loaded yet. Under the list, the focused title in full on two lines. Hints `Accept: play` (only when the list has a game) and `Back: systems` (a system list) or `Back: home` (Favourites, Recent games). Arcade lists: see `docs/spec/arcade.md`. | [games-top.ppm](../../crates/neptron-ui/tests/golden/screens/games-top.ppm), [games-middle.ppm](../../crates/neptron-ui/tests/golden/screens/games-middle.ppm), [games-end.ppm](../../crates/neptron-ui/tests/golden/screens/games-end.ppm), [games-one.ppm](../../crates/neptron-ui/tests/golden/screens/games-one.ppm), [games-arcade.ppm](../../crates/neptron-ui/tests/golden/screens/games-arcade.ppm), [games-versions.ppm](../../crates/neptron-ui/tests/golden/screens/games-versions.ppm) |
 | Empty game list | `games` | A text that says why: `This system has no games now.` plus where to put them, `No favourites yet.` plus `Press Menu on a game in a game list to add it here.`, or `No games played yet.` | [games-empty.ppm](../../crates/neptron-ui/tests/golden/screens/games-empty.ppm) |
-| Display panel | `display` | Title `Settings > Display`. An info box: `Output`, `Mode`, `Monitor`. Under it the rows of the display page. Hints of the focused row, `Back: return`. | [display.ppm](../../crates/neptron-ui/tests/golden/screens/display.ppm) |
+| Display panel | `display` | Title `Settings > Display`. An info box: `Output`, `Mode`, `Monitor`. Under it the rows of the display page. Hints of the focused row, `Back: return`. | [display.ppm](../../crates/neptron-ui/tests/golden/screens/display.ppm), [display-tv.ppm](../../crates/neptron-ui/tests/golden/screens/display-tv.ppm), [display-safe-mode.ppm](../../crates/neptron-ui/tests/golden/screens/display-safe-mode.ppm) |
 | Display panel in a game | `display` | The info box shows `Output` and `Monitor` only. Under it the video block (heading `Video`, lines `Game`, `Mode`, result). Then the rows. A skin with rows too tall keeps the three-line info box and no block. | [display-video.ppm](../../crates/neptron-ui/tests/golden/screens/display-video.ppm) |
-| Option list | `options` | Title: the breadcrumb, which ends with the row label. One line per option with its detail. A small mark left of the option in use. A dim option shows its reason. Under the list, the detail of the focused option in full, or `Not available. ` and the reason. Hints `Accept: use`, `Back: cancel`. | [display-style.ppm](../../crates/neptron-ui/tests/golden/screens/display-style.ppm) |
+| Option list | `options` | Title: the breadcrumb, which ends with the row label. One line per option with its detail. A small mark left of the option in use. A dim option shows its reason. Under the list, the detail of the focused option in full, or `Not available. ` and the reason. Hints `Accept: use`, `Back: cancel`. | [display-style.ppm](../../crates/neptron-ui/tests/golden/screens/display-style.ppm), [picture-mode.ppm](../../crates/neptron-ui/tests/golden/screens/picture-mode.ppm), [refresh-rate.ppm](../../crates/neptron-ui/tests/golden/screens/refresh-rate.ppm) |
 | Grid pattern | `pattern/grid` | A fixed test picture: grey grid with a 16 px pitch, white border on the canvas edge, white centre cross, amber corner marks at the safe area, the caption `Back: return`. It ignores the skin. | [grid.ppm](../../crates/neptron-ui/tests/golden/pattern/grid.ppm) |
+| Screensaver | `screensaver` | A black screen with `NEPTRON` that moves and bounces, after `Screensaver time` with no input, in the menus and in a paused game. The wake input is consumed. `docs/spec/screensaver.md` has the rules. | [screensaver-start.ppm](../../crates/neptron-ui/tests/golden/screens/screensaver-start.ppm), [screensaver-wall.ppm](../../crates/neptron-ui/tests/golden/screens/screensaver-wall.ppm), [screensaver-later.ppm](../../crates/neptron-ui/tests/golden/screens/screensaver-later.ppm) |
 | Game | `game` | Nothing. The game picture only. Under a confirm dialog the UI draws its background over the game. | none |
 | Quick menu | `quick-menu` | Title: the game name. Right of the title: `Paused`. The rows `Resume`, `Volume`, `Video`, `Settings`, `Quit game`. Hints of the focused row, `Back: resume`. | [quick-menu.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu.ppm), [quick-menu-volume.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-volume.ppm) |
 | Video page | `quick-menu/video` | Title `<game> > Video`. The video block (when a status exists and there is room), then the display rows of the game. Hints of the focused row, `Back: return`. | [quick-menu-video.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-video.ppm), [quick-menu-video-filtered.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-video-filtered.ppm), [quick-menu-video-long.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-video-long.ppm), [quick-menu-panel.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-panel.ppm), [breadcrumb-long.ppm](../../crates/neptron-ui/tests/golden/screens/breadcrumb-long.ppm) |
 | Keep prompt | `quick-menu/keep` | A dialog over the quick menu. Title `Keep the changes?`. Message `Keep the new settings for this game only, for all games of this system, or for all games?`. Buttons `This game` (focus), `System`, `All games`. Hints `Accept: choose`, `Back: cancel`. | [quick-menu-keep.ppm](../../crates/neptron-ui/tests/golden/screens/quick-menu-keep.ppm) |
 | Confirm dialog | `confirm` | A dialog over any screen, also over a running game. Title `Keep this picture?`. Message: `Keep the new picture?`, `No answer brings the old one back.`, an empty line, then `The old picture comes back in N s.` (N counts down, rounded up to whole seconds), or `The old picture comes back now.` at 0. Buttons `Revert` (focus), `Keep`. Hints `Accept: revert`, `Right, then Accept: keep`. At 0 s only `Revert` shows, with the hint `Accept: revert`. In the frame of an answer the last line is `One moment.` and the hints are empty. | [confirm-10s.ppm](../../crates/neptron-ui/tests/golden/screens/confirm-10s.ppm), [confirm-3s.ppm](../../crates/neptron-ui/tests/golden/screens/confirm-3s.ppm), [confirm-0s.ppm](../../crates/neptron-ui/tests/golden/screens/confirm-0s.ppm) |
-| Notice | `notice` | A dialog over any screen except a game shown alone. Title `Note`, `Warning` or `Error`, coloured by kind (see [Notices](#notices)). The text. One button `OK`. Hint `Accept: OK`. | [notice.ppm](../../crates/neptron-ui/tests/golden/screens/notice.ppm) (error), [notice-warning.ppm](../../crates/neptron-ui/tests/golden/screens/notice-warning.ppm) (warning) |
+| Notice | `notice` | A dialog over any screen except a game shown alone. Title `Note`, `Warning` or `Error`, coloured by kind (see [Notices](#notices)). The text. One button `OK` with the hint `Accept: OK`; or, for a notice with a choice, `Cancel` (focus) and the choice (for example `Set up this controller`), with the hints `Accept: choose`, `Back: cancel`. | [notice.ppm](../../crates/neptron-ui/tests/golden/screens/notice.ppm) (error), [notice-warning.ppm](../../crates/neptron-ui/tests/golden/screens/notice-warning.ppm) (warning), [notice-generic-pad.ppm](../../crates/neptron-ui/tests/golden/screens/notice-generic-pad.ppm) (choice) |
 
 ## Transitions
 
@@ -184,7 +199,7 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Game list | Home | Back | none | nothing |
 | Game list | same | Scroll past the loaded rows | `WINDOW_ROWS` = 128, `PREFETCH_ROWS` = 32 | One `LoadGames` per frame, 128 rows centred on the visible rows, until the snapshot holds the visible rows plus 32 on each side |
 | Game list | Game (next run) | Accept on a loaded game | `RELAUNCH_EXIT_CODE` = 75 | The run writes the relaunch file with the game and exits 75. The launcher starts the next run, which loads the core. See [the session](06-session.md). |
-| Game list | same | Menu (X) on a game | none | `ToggleFavourite`. The app does nothing with it: favourites are not kept in the MVP. |
+| Game list | same | Menu (X) on a game | none | `ToggleFavourite`. The app does nothing with it: favourites are not kept. |
 | Display panel | Option list | Accept on a choice row (Output, Monitor profile, Picture mode, Refresh rate, Scanlines) | none | nothing until a choice |
 | Display panel | Grid pattern | Accept on `Grid pattern` | none | nothing |
 | Library panel | same | Accept on `Rescan games` (game list run only; disabled in a game with the reason `Not during a game`) | none | A full scan of `share/roms` starts on the scan thread. The row keeps its label and is disabled with the reason `Scanning...` until the scan ends. The lists stay usable with the old index. At the end, the index and the cache are replaced, a game list on show keeps its focused game (when it moved by at most `MOVED_GAME_MARGIN_ROWS` = 64 rows), and an Info notice says what changed. |
@@ -195,7 +210,8 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Display panel | Settings page | Back | none | nothing |
 | Display panel | same | Left, Right on a number row | step 5 for `Scanline strength` | `SetValue` at the global level (see the change flow) |
 | Input panel | same | Left, Right on `Hold Start for menu` | step 1 | `SetValue` at the global level (see the change flow) |
-| Input panel | same | A pad comes, goes or moves while the panel is on screen | none | The app builds the page again from the roster of the input source. Accept, left, right and Menu on a player row do nothing |
+| Input panel | same | A pad comes, goes or moves while the panel is on screen | none | The app builds the page again from the roster of the input source |
+| Input panel | Page of a controller | Accept on the row of a present pad | none | The page of that port (`pad_page(port)`) |
 | any settings page | same | Menu (X) on a row whose value comes from the page level | none | `ResetValue` at that level: the row inherits again |
 | Option list | page under it | Accept on an enabled option | none | `SetValue` with that option, only when it is not the option in use and the row allows the page level. Then the list closes. |
 | Option list | same | Accept on a dim option | none | nothing |
@@ -214,11 +230,13 @@ Buttons: the menus use the RetroPad. `nav.rs` maps D-pad to Up, Down, Left, Righ
 | Keep prompt | Game or quitting | Accept on `System` or `All games` | none | For each noted change whose row allows that level: `SetValue` at that level, then `ResetValue` at the game level |
 | Keep prompt | Quick menu | Back | none | nothing |
 | Quick menu | quitting | `Quit game` with no change, or after the keep prompt | none | `QuitGame`: the session ends, save RAM is written, the run exits 75 and the next run starts on Home. While it waits, the quick menu takes only Back. |
-| any | Confirm dialog | The guard opens a prompt (a display change) | `CONFIRM_WINDOW_NS` = 10 s | The new mode is on the wire. Every held key is ignored until its release (`hold_back`). |
+| any | Confirm dialog | The guard opens a prompt (a display change) | `CONFIRM_WINDOW_NS` = 15 s | The new mode is on the wire. Every held key is ignored until its release (`hold_back`). |
 | Confirm dialog | screen under it | Accept with the focus on `Revert`, or Back | none | `RevertMode`: the guard declines, the old mode goes back on the wire, a Note notice |
 | Confirm dialog | screen under it | Right, then Accept on `Keep` | none: a fresh press moves the focus at once | `KeepMode`: the guard confirms, the waiting settings go to their files, the guard record is saved |
-| Confirm dialog | screen under it | No answer before the deadline | `CONFIRM_WINDOW_NS` = 10 s | The guard reverts (`Timeout`), a Note notice |
-| Notice | screen under it | Accept or Back | `NOTICES_MAX` = 8 notices kept, the oldest goes | `DismissNotice` removes it from the snapshot. The next notice shows. |
+| Confirm dialog | screen under it | No answer before the deadline | `CONFIRM_WINDOW_NS` = 15 s | The guard reverts (`Timeout`), a Note notice |
+| Notice | screen under it | Accept or Back (with a choice: Back, or Accept on `Cancel`) | `NOTICES_MAX` = 8 notices kept, the oldest goes | `DismissNotice` removes it from the snapshot. The next notice shows. |
+| Notice with a choice | depends on the notice | Right, then Accept on the choice | none | `AcceptNotice` |
+| menus, paused game | Screensaver | No input for `display.screensaver_minutes`, screensaver on, no confirm dialog or guided mapping open | default 5 min | The wake input is consumed; the screen under it shows again with the same focus |
 | any | safe mode | Select and Start held together on one port | `BLIND_RECOVERY_HOLD_NS` = 5 s | The guard puts the safe default on the wire. A Warning notice. Also a short tone, in the game list and in a game (`CUE_MS` = 200 ms at `CUE_HZ` = 880 Hz). See [the guard](03-guard.md). |
 
 ## The rows of each screen
@@ -241,20 +259,23 @@ The title band shows a breadcrumb: `Settings > Audio > Audio output`, or `<game>
 | `TV picture width` | `aspect`, `integer`, `fill` | Only on a TV. A change opens the confirm dialog. |
 | `Picture mode` | Auto, Sharp lines, Game speed, Fill, Native, 2x, 3x, 4x | Each option has a help line with its compromises. The page writes for every game, so it judges each option for the running game and the reference sources (`REFERENCE_SOURCES`) and shows no rate: an option no game can have is dim with the reason, for example `Not possible with this screen and video output`; an option that some games cannot have shows the tag `Not all games`, and the notice after the pick says why; an option that needs the refresh rate at Auto shows the tag `Rate to Auto too`. The options show `...` while the frame makes their answers; after a pick the declined options keep their reasons, and the offered options show `...` in place of their rates or tags and take no pick until the new answers are there. |
 | `Refresh rate` | Auto, Double rate, 50 Hz, 60 Hz | The same rules. Disabled with `Not used on a flat panel` on a panel and `Not used on a TV` on a TV. |
-
 | `Scanlines` | `auto`, `off`, `on` | Written at once, applied live. |
 | `Scanline strength` | 0 to 100 `%`, step 5, default 75 | Written at once, applied live. |
+| `Screensaver` | `On`, `Off`, default On | Written at once, applied live. See `docs/spec/screensaver.md`. |
+| `Screensaver time` | `1 minute`, `5 minutes`, `10 minutes`, `30 minutes`, default 5 | Written at once, applied live. |
 | `Grid pattern` | page | Opens the grid pattern. |
+| `Keep this picture` | action | Only in safe mode. Ends safe mode with the picture on screen. See [the guard](03-guard.md). |
+| `Try my settings again` | action | Only in safe mode after failed boots (`Safe(FailedBoots)`). Ends safe mode and applies the settings again. |
 
 Info box: `Output` is the connector name (`none` with no display). `Mode` is the mode the driver read back, for example `640x480p 59.94 Hz`, or on a TV the standard and the lines, `NTSC 240p 60.05 Hz`, with ` (safe mode)` after it while the guard is in safe mode. It is empty before the first read back. `Monitor` is the preset id that the guard gave the engine. A monitor of its EDID (`auto` with an EDID, or `flat`) shows the monitor name of the EDID (`DisplayInfo::monitor`), or its profile id when the EDID has no name, for example `NPT FHD 24`. `not set` shows only before the app gives a monitor.
 
-The display panel judges the picture options for every game (the running game and the reference sources) and shows no rate detail; the quick menu shows the line rate and the field rate of the mode that each option gives the running game.
+The display panel judges the picture options for every game (the running game and the reference sources) and shows no rate detail. The quick menu shows the line rate and the field rate of the mode that each option gives the running game.
 
 ### Input panel rows (`INPUT_PAGE`, written at the global level)
 
 | Row | Values | What it does |
 | --- | --- | --- |
-| `Player 1` to `Player 4`, `Extra pad`, `Keyboard` | text | Information only. |
+| `Player 1` to `Player 4`, `Extra pad`, `Keyboard` | text | A present pad opens its page. Otherwise information only. |
 | `Hold Start for menu` | 0 to 10 `s`, step 1, default 0 | Written at once, applied live. 0 turns the Start hold off. |
 
 ### Quick menu rows (`QUICK_MENU_PAGE`, written at the game level)
@@ -278,7 +299,7 @@ The display panel judges the picture options for every game (the running game an
 
 ### The video block
 
-The video block shows on the video page of the quick menu and in the display panel while a game runs and the driver has read a mode back. It has five lines of fixed layout: the heading `Video`, the `Game` line, the `Mode` line and two lines for the result. A result longer than two lines ends with an ellipsis. A block needs room for at least `MIN_PAGE_ROWS` = 2 rows under it, else it is not shown. The text comes from `write_video_status`; the UI draws it as it is.
+The video block shows on the video page of the quick menu, and in the display panel while a game runs and the driver has read a mode back. It has five lines of fixed layout: the heading `Video`, the `Game` line, the `Mode` line and two lines for the result. A result longer than two lines ends with an ellipsis. A block needs room for at least `MIN_PAGE_ROWS` = 2 rows under it, else it is not shown. The text comes from `write_video_status`; the UI draws it as it is.
 
 | Line | Content | Example |
 | --- | --- | --- |
@@ -297,14 +318,14 @@ The video block shows on the video page of the quick menu and in the display pan
 | `speed (X to Y Hz)` | The shown rate (field rate divided by the repeat) differs from the game rate by `REFRESH_MATCH_MHZ` = 5 mHz or more on a CRT, or by more than 5000 ppm on a flat panel (`PANEL_SPEED_SILENT_PPM`) or a TV (`TV_SPEED_SILENT_PPM`). X is the game rate, Y the shown rate, 3 decimals. Alert. |
 | `[!] ` | The start of the result when it is an alert (`filtered` or `speed`). The result is then drawn in the warning colour. |
 
-When the first picture of a game is cropped, padded or (on a CRT) fitted, the app also adds one Warning notice `Picture: <result>.` It shows when the player opens the quick menu (see Notices).
+When the picture of a game is not exact, the app also adds one Warning notice, at the first picture and after a change of the picture mode or the refresh choice: one sentence per reason, or `Picture: <result>.` for a fit or a crop with no reason of its own (`docs/spec/video-policy-cases.md`, section 8.9). It shows when the player opens the quick menu (see Notices).
 
 ### Notices
 
 | Kind | Title | Title bar colour (default palette) | Examples from the code |
 | --- | --- | --- | --- |
 | Info | `Note` | accent `#50C8F0` | After a scan: `3 games added, 1 removed.`, `1 game changed.`, `No games added or removed.` (a rescan only). `Display change undone: not kept in time.`, `Display change undone.`, `Display change undone: no picture.`, `Display change undone: the clock went back.` A superseded change, and a revert to the configuration on screen, show none. |
-| Warning | `Warning` | warning `#FF8020` | `Safe mode: the last starts gave no picture. Keep a picture in Settings, Display to leave it.`, `Safe mode: the picture was reset. Keep a picture in Settings, Display to leave it.` (at a start: once per power cycle), `Safe mode: the display settings gave no picture.`, `Safe mode: no display setting was kept.`, `Picture: <result>.`, `The game scan failed: <error>.` (the list keeps its games), `The game scan did not start: <error>.`, settings file issues and backend issues from the boot |
+| Warning | `Warning` | warning `#FF8020` | `Safe mode: the last starts gave no picture. Keep a picture in Settings, Display to leave it.`, `Safe mode: the picture was reset. Keep a picture in Settings, Display to leave it.` (at a start: once per power cycle), `Safe mode: the display settings gave no picture.`, `Safe mode: no display setting was kept.`, the picture notice (`Picture: <result>.` or the sentences of spec section 8.9), `The game scan failed: <error>.` (the list keeps its games), `The game scan did not start: <error>.`, settings file issues and backend issues from the boot |
 | Error | `Error` | error `#FF6060` | `The setting was not changed: <error>.`, `The display setting does not map to a picture.`, a failed write of the writer thread (for example `cannot write the guard record: <error>`), and the notice of the relaunch file: `The game stopped: <error>.`, `The game was not saved: <error>.`, or why a game did not start |
 
 Notices show oldest first, one at a time. Only Accept or Back dismisses one, so a notice cannot be passed over by accident. A notice never shows over a game shown alone: it waits for the quick menu, where it takes the buttons first. The notices of a run live in memory only. A notice from a game run that the player did not see is lost when the run ends, except the one that the run writes into the relaunch file.
@@ -313,7 +334,7 @@ Notices show oldest first, one at a time. Only Accept or Back dismisses one, so 
 
 | Level | File | Written from |
 | --- | --- | --- |
-| global | `global.toml` | The display panel, the keep prompt (`All games`), the revert of a boot prompt |
+| global | `global.toml` | The Settings panels, the keep prompt (`All games`), the revert of a boot prompt |
 | system | `systems/<system>.toml` | The keep prompt (`System`), only in a game run |
 | game | `games/<system>/<game>.toml` | The quick menu, its video page and their option lists, only in a game run |
 
@@ -321,7 +342,7 @@ A value resolves game, then system, then global, then the built-in default. The 
 
 | Setting | When it reaches its file |
 | --- | --- |
-| `Scanlines`, `Scanline strength`, `Hold Start for menu`, `Volume`, `Audio output` (safety none) | At once, on the writer thread. Applied live. |
+| `Scanlines`, `Scanline strength`, `Screensaver`, `Screensaver time`, `Hold Start for menu`, `Volume`, `Audio output` (safety none) | At once, on the writer thread. Applied live. |
 | `Picture mode`, `Refresh rate`, `TV picture width` (safety validated), `Monitor profile`, `TV standard` (confirm or revert) | Only on `Confirmed` (Keep). Taken back in memory on a revert or safe mode. Written at once, with no dialog, when the new display configuration equals the active one and no prompt is open. |
 | `Output` | Never from the menu. |
 
@@ -336,11 +357,11 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 | Keep refused by the guard (no valid picture now, or no frame of the change shown yet) | The dialog says `One moment.` for one frame, then shows the count again with the focus on `Keep`. | Press Accept again when the picture is on screen. The app logs `keep refused: <reason>`. With no accepted keep the change goes back at the deadline with `Display change undone: not kept in time.` |
 | No answer in time | At 0 s only `Revert` shows; then `Display change undone: not kept in time.` | Make the change again and keep it. |
 | A picture mode or refresh rate the display cannot give | The option is dim, with the reason in the row (or `Not available` when the reason is longer than half the row) and `Not available. {reason}.` under the list. Accept does nothing. The control protocol refuses the value with the same reason. | Choose another option, or change the monitor profile. |
-| A game the monitor cannot show exactly | The video block result is `[!] filtered` or `[!] speed (X to Y Hz)` in the warning colour, or `cropped N lines` or `small picture N%`. A Warning notice `Picture: <result>.` waits for the quick menu. | Try another picture mode or refresh rate in the quick menu. See [the policy](05-policy.md). |
+| A game the monitor cannot show exactly | The video block result is `[!] filtered` or `[!] speed (X to Y Hz)` in the warning colour, or `cropped N lines` or `small picture N%`. A Warning notice waits for the quick menu. | Try another picture mode or refresh rate in the quick menu. See [the policy](05-policy.md). |
 | A change on the in-game display panel (`Settings > Display`) has no visible effect | The row changes to `global`, no confirm dialog. | The game or its system has its own value, which wins over global. Change it on the video page of the quick menu, or reset the game row with Menu (X). |
 | Output must change | The `Output` option list does not apply a choice. | Edit `display.output` in `global.toml`. A new connector at the next start opens the boot prompt. |
 | A two-button pad | Reset to inherited and favourites need the Menu button (X). | Use a pad with X, or edit the settings file. |
-| Favourites and Recent games | Both lists are always empty: `No favourites yet.`, `No games played yet.` | None in the MVP. |
+| Favourites and Recent games | Both lists are always empty: `No favourites yet.`, `No games played yet.` | None. |
 | A settings write fails (read-only or full state partition) | An Error notice with the reason. The value stays in memory for this run. | Fix the storage. See [on disk](08-on-disk.md). |
 | A game stops (core error, display stall) | The next run starts on Home with an Error notice `The game stopped: <error>.` | Dismiss it with Accept. |
 | After `Quit game` the game does not stop | The quick menu takes only Back. | Back gives the quick menu back. |
@@ -352,6 +373,8 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 - [crates/neptron-ui/src/screens.rs](../../crates/neptron-ui/src/screens.rs): `DISPLAY_PAGE`, `QUICK_MENU_PAGE`, `AUDIO_PAGE`, `GRID_PAGE`, `SETTINGS_PAGE`, `VIDEO_PAGE`, `LIBRARY_PAGE`, `SETTINGS_PANELS`, `RESUME`, `QUIT_GAME`, `RESERVED_ID_MIN`.
 - [crates/neptron-ui/src/screens/settings.rs](../../crates/neptron-ui/src/screens/settings.rs): `SettingsMenu::handle`, `SettingsMenu::draw`.
 - [crates/neptron-ui/src/screens/panel.rs](../../crates/neptron-ui/src/screens/panel.rs): `PagePanel`, the generic page screen, and `screen_id`.
+- [crates/neptron-ui/src/screens/pad_mapping.rs](../../crates/neptron-ui/src/screens/pad_mapping.rs): the guided pad mapping.
+- [crates/neptron-ui/src/screensaver.rs](../../crates/neptron-ui/src/screensaver.rs): `SCREENSAVER_SCREEN`.
 - [crates/neptron-ui/src/screens/breadcrumb.rs](../../crates/neptron-ui/src/screens/breadcrumb.rs): `fit`, `SEPARATOR`.
 - [crates/neptron-ui/src/screens/home.rs](../../crates/neptron-ui/src/screens/home.rs): `Home::handle`, `Home::draw`, `NO_GAMES`.
 - [crates/neptron-ui/src/screens/game_list.rs](../../crates/neptron-ui/src/screens/game_list.rs): `GameList::handle`, `GameList::request`, `GameList::draw`, `empty_text`, `WINDOW_ROWS`, `PREFETCH_ROWS`.
@@ -365,7 +388,7 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 - [crates/neptron-ui/src/widgets/list.rs](../../crates/neptron-ui/src/widgets/list.rs): `List::handle`.
 - [crates/neptron-ui/src/screens/scenes.rs](../../crates/neptron-ui/src/screens/scenes.rs): the scenes of the golden pictures.
 - [crates/neptron-video/src/status.rs](../../crates/neptron-video/src/status.rs): `write_video_status`, `write_result`, `write_rung`, `ALERT_MARK`, `STATUS_COLUMN_CHARS`.
-- [apps/neptron/src/pages.rs](../../apps/neptron/src/pages.rs): `display_page`, `audio_page`, `quick_menu_page`, `video_page`, `system_page`, `row`, `names_of`, `short_label`, `DISPLAY_KEYS`, `QUICK_MENU_KEYS`, `VIDEO_KEYS`.
+- [apps/neptron/src/pages.rs](../../apps/neptron/src/pages.rs): `display_page`, `safe_mode_rows`, `audio_page`, `input_page`, `quick_menu_page`, `video_page`, `system_page`, `row`, `names_of`, `short_label`, `DISPLAY_KEYS`, `QUICK_MENU_KEYS`, `VIDEO_KEYS`.
 - [apps/neptron/src/nav.rs](../../apps/neptron/src/nav.rs): `action_of`, `Navigator::update`, `Navigator::hold_back`, `REPEAT_DELAY_NS`, `REPEAT_INTERVAL_NS`.
 - [crates/neptron-ui/src/screens/page.rs](../../crates/neptron-ui/src/screens/page.rs): `Page::handle`, `Page::answer`, `asked_row`, the confirm question of an action row.
 - [apps/neptron/src/power.rs](../../apps/neptron/src/power.rs): `REBOOT_EXIT_CODE`, `POWER_OFF_EXIT_CODE`, `POWER_ENV`, `control_from`, `exit_code`.
@@ -374,7 +397,7 @@ All writes go to the writer thread (`outbox.rs`): temp file, fsync, rename. A fa
 - [apps/neptron/src/shell/guard_events.rs](../../apps/neptron/src/shell/guard_events.rs): `on_guard`, `recover`, `reverted_text`, `safe_text`, `write_setting`.
 - [apps/neptron/src/shell/frame.rs](../../apps/neptron/src/shell/frame.rs): `list_frame`, `game_frame`, `update_ui`, `notice_picture`.
 - [crates/neptron-input/src/hotkeys.rs](../../crates/neptron-input/src/hotkeys.rs): `Hotkeys::update`, `QUICK_MENU_COMBO`, `BLIND_RECOVERY_HOLD_NS`.
-- [crates/neptron-settings/src/builtin.rs](../../crates/neptron-settings/src/builtin.rs): the eleven settings with their labels, choices, levels and safety.
+- [crates/neptron-settings/src/builtin.rs](../../crates/neptron-settings/src/builtin.rs): the settings with their labels, choices, levels and safety.
 
 ## Differences from docs/definition
 
@@ -382,10 +405,10 @@ Against `docs/definition/08-frontend-and-ux.md`:
 
 1. Boundary table, row "In": the definition says the UI takes "a time step". The code has no time step: the UI has no clock, key repeat comes from the app, and the countdown comes from `PendingConfirm::remaining_ns`.
 2. Screens table, "First-boot wizard": there is none. The first boot shows Home (or the boot prompt of the guard). Output, monitor and picture are set on the display panel.
-3. Screens table, "Home": the definition lists "Settings". The code has `Settings`, also on the home with no games. `Favourites` and `Recent games` exist, but their lists are always empty in the MVP (`Library::window`, and `ToggleFavourite` does nothing).
+3. Screens table, "Home": the definition lists "Settings". The code has `Settings`, also on the home with no games. `Favourites` and `Recent games` exist, but their lists are always empty (`Library::window`, and `ToggleFavourite` does nothing).
 4. Screens table, "Game list": no sort, filter or search. Menu (X) on a game sends a favourite toggle that the app ignores.
 5. Screens table, "Game page": there is none. Accept on a game launches it.
-6. Screens table, "Display panel": no geometry row. One test pattern (the grid). The panel also holds `Scanlines` and `Scanline strength`; `Hold Start for menu` is on the Input panel. `Output` is read-only.
+6. Screens table, "Display panel": no geometry row. One test pattern (the grid). The panel also holds `Scanlines`, `Scanline strength` and the screensaver rows; `Hold Start for menu` is on the Input panel. `Output` is read-only.
 7. Screens table, "Settings" (full tree): the Settings page has six panels, `Display`, `Audio`, `Input`, `Library`, `Network` and `System`.
 8. "Settings model", "offers reset to inherited": there is no row or option for it. The Menu button (X) on a row resets it. A pad with two buttons cannot reset.
 9. "Quick menu", combination: Select+Start held for 0.5 s is fixed (`QUICK_MENU_COMBO`, `QUICK_MENU_HOLD_NS`), not configurable. The Start hold exists but is off by default (`input.menu_hold_start_seconds` = 0, max 10 s); the definition says the arcade default is a 2 s hold.
@@ -396,7 +419,7 @@ Against `docs/definition/08-frontend-and-ux.md`:
 
 Against the READMEs and code comments:
 
-14. `crates/neptron-ui/src/screens.rs`, doc of `DISPLAY_PAGE`, and `crates/neptron-ui/README.md` ("The display panel and the confirm dialog"): they name four setting rows and the grid row, and say "all five rows of the display page still fit". The app page has nine setting rows (two only on a TV) plus `Grid pattern` (`DISPLAY_KEYS` in `apps/neptron/src/pages.rs`).
+14. `crates/neptron-ui/src/screens.rs`, doc of `DISPLAY_PAGE`, and `crates/neptron-ui/README.md` ("The display panel and the confirm dialog"): they say "all five rows of the display page still fit". The app page has ten setting rows (two only on a TV) plus `Grid pattern` and, in safe mode, one or two action rows (`DISPLAY_KEYS`, `safe_mode_rows` in `apps/neptron/src/pages.rs`).
 15. The reasons of the picture rows come from `DeclineReason` (`pages::decline_text`); `docs/spec/video-policy-cases.md`, section 8.7, lists them.
 16. `crates/neptron-ui/src/intent.rs`, doc of `Intent::QuitGame`: "Stop the game and return to the game list". The next run starts on Home with the cursor on the first row, not on the list of the system.
 17. The UI opens the grid pattern from any `Page(GRID_PAGE)` row, also on a page of the quick menu. The app has such a row on the display page only.

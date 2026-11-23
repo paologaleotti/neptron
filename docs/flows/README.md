@@ -18,7 +18,7 @@ Read [What happens when](10-what-happens-when.md) first. It answers real situati
 | [4. ODREN](04-odren.md) | The video engine: triggers, debounce, decision, validation, modeset, read back, restore, candidate walk, device errors, flip wait, blank, mute, the switch trace. |
 | [5. The policy](05-policy.md) | How a mode is chosen for a game: picture modes, rungs, refresh rates, super width, crop, padding, the fitted rung, interlace, whole-kHz clocks, the flat panel path, the notice flags, with examples from the golden file. |
 | [6. The session](06-session.md) | A game from launch to exit: launch settle, the frame loop, double refresh, the quick menu hotkey, blind recovery hold, save RAM flush, display errors, end reasons. |
-| [7. Screens and UI flow](07-screens.md) | Every screen, the navigation and the buttons, each row, the Video block words, notices, settings levels, the keep prompt, when a setting reaches the disk. |
+| [7. Screens and UI flow](07-screens.md) | Every screen, the navigation and the buttons, each row, the Video block words, notices, the screensaver, settings levels, the keep prompt, when a setting reaches the disk. |
 | [8. What lives on disk](08-on-disk.md) | The partitions, settings files and levels, the guard record, the relaunch file, save RAM and `.bak`, logs, the hot folder. |
 | [9. Control protocol and bench tools](09-control-and-bench.md) | The control socket commands, `neptronctl`, `selftest video`, `cargo xtask os push`, `logs` and `ssh`, and which are in a development build only. |
 | [10. What happens when](10-what-happens-when.md) | Real situations with the exact outcome and the way out. |
