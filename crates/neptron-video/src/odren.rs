@@ -799,6 +799,11 @@ impl Odren {
         })
     }
 
+    /// The steps of [`Self::step_answers`] that ran work so far.
+    pub fn answer_runs(&self) -> u64 {
+        self.answers.runs()
+    }
+
     /// Whether answers are in work.
     pub fn answers_in_work(&self) -> bool {
         self.answers.working()

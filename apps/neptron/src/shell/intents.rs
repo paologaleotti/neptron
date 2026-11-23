@@ -126,6 +126,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 }
             }
             Intent::Resume => {
+                // The page of the menu leaves with it: its answers wait for
+                // no one now.
+                self.page_ask = None;
                 if let Stage::Game(game) = &mut self.stage {
                     game.session.resume();
                 }

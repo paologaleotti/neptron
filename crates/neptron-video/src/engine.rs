@@ -308,6 +308,12 @@ impl<D: Display> VideoEngine<D> {
         self.odren.settled()
     }
 
+    /// The steps of [`Self::step_answers`] that ran work so far
+    /// ([`Odren::answer_runs`]).
+    pub fn answer_runs(&self) -> u64 {
+        self.odren.answer_runs()
+    }
+
     /// Whether answers are in work.
     pub fn answers_in_work(&self) -> bool {
         self.odren.answers_in_work()

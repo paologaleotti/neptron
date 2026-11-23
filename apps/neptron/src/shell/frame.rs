@@ -62,11 +62,15 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// Makes a few decisions of the picture answers that the page on show
     /// or the keep prompt waits for, and loads the page again when they are
     /// there. The frame thread spends at most `PICTURE_DECISIONS_PER_FRAME`
-    /// decisions on them. The keep prompt goes first while it shows, else
-    /// the page. In a paused game the snapshot says which levels of the
-    /// keep prompt wait.
+    /// decisions on them, and only while a menu shows: in the game list,
+    /// or in a paused game. A game that runs makes no answer. The keep
+    /// prompt goes first while it shows, else the page. In a paused game
+    /// the snapshot says which levels of the keep prompt wait.
     fn step_picture_answers(&mut self) {
         let paused = matches!(&self.stage, Stage::Game(game) if game.session.paused());
+        if !paused && !matches!(self.stage, Stage::List(_)) {
+            return;
+        }
         let keeps = if paused {
             self.keep_asks.as_slice()
         } else {

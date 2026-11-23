@@ -427,3 +427,46 @@ fn a_revert_then_a_reset_leaves_no_key_behind() {
         rig.finish();
     });
 }
+
+/// The picture answers are made only while a menu shows. A pick on the
+/// Video page starts new answers (of the page and of the keep prompt);
+/// after Resume the game runs, and no frame of play makes a decision of
+/// them, also while work is left.
+#[test]
+#[ignore = "tier 2"]
+fn no_picture_answer_is_made_during_play() {
+    let name = test_name(module_path!(), "no_picture_answer_is_made_during_play");
+    in_child(&name, |dir| {
+        let mut rig = Rig::new(dir);
+        write_level(&rig, "global.toml", "refresh_policy = \"force_50\"");
+        rig.boot(the_game());
+        rig.frames(30);
+        to_video_page(&mut rig);
+        let shown = options(&mut rig, "Picture mode");
+        assert!(shown.iter().any(|o| o.label == "Game speed" && o.enabled));
+        rig.focus("Picture mode");
+        rig.tap(&[Control::A]);
+        rig.focus("Game speed");
+        rig.tap(&[Control::A]);
+        back_to_quick_menu(&mut rig);
+        rig.focus("Resume");
+        rig.tap(&[Control::A]);
+        assert_eq!(rig.screen(), "quick-menu/keep");
+        // "This game": the change stays at the game level.
+        rig.tap(&[Control::A]);
+        rig.frames(2);
+        assert!(
+            rig.shell().engine().expect("an engine").answers_in_work(),
+            "work is left"
+        );
+        assert!(!rig.shell().paused(), "the game runs");
+        let runs = rig.shell().engine().expect("an engine").answer_runs();
+        rig.frames(120);
+        assert_eq!(
+            rig.shell().engine().expect("an engine").answer_runs(),
+            runs,
+            "no decision of the picture answers during play"
+        );
+        rig.finish();
+    });
+}

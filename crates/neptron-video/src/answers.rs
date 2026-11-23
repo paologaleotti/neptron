@@ -48,6 +48,9 @@ pub(crate) struct AnswerCache {
     /// Counts the calls of [`Self::step`]: an entry used since the last
     /// step is in use.
     clock: Cell<u64>,
+    /// Counts the steps that ran work: a measure for the tests that no
+    /// work runs while no one waits.
+    runs: Cell<u64>,
 }
 
 impl AnswerCache {
@@ -85,11 +88,11 @@ impl AnswerCache {
     }
 
     /// Runs the work of one request with `run`, which makes at most its
-    /// budget of decisions and returns whether the work is done. The first
-    /// request of `waited` that is in work goes first, in the order of
-    /// `waited` (the page on show, then the keep prompt); else the oldest
-    /// request in work. The requests of `waited` count as in use. Returns
-    /// whether a request got its answers in this call.
+    /// budget of decisions and returns whether the work is done: the first
+    /// request of `waited` that is in work, in the order of `waited` (the
+    /// keep prompt while it shows, else the page on show). A request that
+    /// no one waits for gets no work. The requests of `waited` count as in
+    /// use. Returns whether a request got its answers in this call.
     pub(crate) fn step<'r>(
         &self,
         generation: u64,
@@ -111,11 +114,7 @@ impl AnswerCache {
                 .iter()
                 .position(|e| e.generation == generation && e.request == *w && e.work.is_some())
         });
-        let Some(index) = first.or_else(|| {
-            entries
-                .iter()
-                .position(|e| e.generation == generation && e.work.is_some())
-        }) else {
+        let Some(index) = first else {
             return false;
         };
         let Some(entry) = entries.get_mut(index) else {
@@ -124,11 +123,17 @@ impl AnswerCache {
         let Some(work) = entry.work.as_mut() else {
             return false;
         };
+        self.runs.set(self.runs.get().wrapping_add(1));
         if !run(work) {
             return false;
         }
         entry.done = entry.work.take().map(ChoicesWork::finish);
         true
+    }
+
+    /// The steps that ran work so far.
+    pub(crate) fn runs(&self) -> u64 {
+        self.runs.get()
     }
 
     /// Whether a request is in work.
@@ -144,9 +149,10 @@ impl AnswerCache {
 }
 
 /// Makes room for one more entry when the cache holds [`ANSWERS_KEPT`]: it
-/// drops the done entry that was used least recently, but never one in work
-/// and never one used since the last step (`now`). With no such entry the
-/// cache grows: the entries in work end, and those in use are few.
+/// drops the entry that was used least recently, done or in work, but never
+/// one used since the last step (`now`): the page on show and the keep
+/// prompt keep theirs. With no such entry the cache grows: those in use are
+/// few.
 fn evict(entries: &mut Vec<Entry>, now: u64) {
     if entries.len() < ANSWERS_KEPT {
         return;
@@ -154,7 +160,7 @@ fn evict(entries: &mut Vec<Entry>, now: u64) {
     let oldest = entries
         .iter()
         .enumerate()
-        .filter(|(_, e)| e.work.is_none() && e.used != now)
+        .filter(|(_, e)| e.used != now)
         .min_by_key(|(_, e)| e.used)
         .map(|(i, _)| i);
     if let Some(i) = oldest {
@@ -190,39 +196,50 @@ mod tests {
     }
 
     #[test]
-    fn the_waited_request_goes_first_and_the_others_after() {
+    fn only_a_waited_request_gets_work() {
         let cache = AnswerCache::default();
         let (a, b) = (request(224), request(240));
         assert!(cache.get(0, &a).is_none());
         assert!(cache.get(0, &b).is_none());
-        assert!(cache.step(0, [&b], done));
-        assert!(cache.get(0, &b).is_some(), "the waited request first");
+        assert!(!cache.step(0, [], done), "no one waits: no work");
+        assert_eq!(cache.runs(), 0);
+        assert!(cache.step(0, [&b, &a], done));
+        assert!(cache.get(0, &b).is_some(), "the first waited request first");
         assert!(cache.get(0, &a).is_none());
-        assert!(cache.step(0, [], done));
-        assert!(cache.get(0, &a).is_some(), "then the oldest in work");
+        assert!(!cache.step(0, [&b], done), "a is left: no one waits for it");
+        assert!(cache.working());
+        assert!(cache.step(0, [&a], done));
         assert!(!cache.working());
-        assert!(!cache.step(0, [], done));
+        assert_eq!(cache.runs(), 2);
     }
 
     #[test]
-    fn no_entry_in_work_or_in_use_is_dropped() {
+    fn an_entry_in_use_is_never_dropped_and_an_unwaited_one_can_go() {
         let cache = AnswerCache::default();
         let page = request(100);
         assert!(cache.get(0, &page).is_none());
         assert!(cache.step(0, [&page], done));
-        // More requests than the cache keeps, all in work.
+        // More requests than the cache keeps, all in work and waited by no
+        // one: the oldest go first, the page in use stays.
         let others: Vec<AnswerRequest> = (0..8).map(|i| request(200 + i)).collect();
         for other in &others {
+            // One frame each: the page is still on show.
+            assert!(!cache.step(0, [&page], done));
             assert!(cache.get(0, other).is_none());
         }
-        assert_eq!(cache.len(), 9, "the entries in work stay, and the page");
+        assert_eq!(cache.len(), ANSWERS_KEPT);
         assert!(cache.get(0, &page).is_some(), "the page in use stays");
-        // Once done and no longer used, the oldest go first.
-        while cache.step(0, [&page], done) {}
-        assert!(cache.get(0, &request(300)).is_none());
-        assert_eq!(cache.len(), 9, "one old entry made room");
-        assert!(cache.get(0, &page).is_some(), "the page stays");
         assert!(cache.get(0, &others[0]).is_none(), "the oldest went");
+        // Requests in use are kept also when the cache is full of them: it
+        // grows by the new one.
+        let held: Vec<AnswerRequest> = (0..ANSWERS_KEPT as u16).map(|i| request(400 + i)).collect();
+        let fresh = AnswerCache::default();
+        for r in &held {
+            assert!(fresh.get(0, r).is_none());
+        }
+        assert!(!fresh.step(0, held.iter(), |_| false), "the work goes on");
+        assert!(fresh.get(0, &request(500)).is_none());
+        assert_eq!(fresh.len(), ANSWERS_KEPT + 1);
     }
 
     #[test]
