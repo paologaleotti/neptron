@@ -252,28 +252,48 @@ impl Drop for TempDir {
     }
 }
 
-/// Runs install-licences.sh on a fake Buildroot output in `dir`.
-fn install_licences(dir: &TempDir) -> std::process::Output {
-    std::process::Command::new("sh")
-        .arg(root().join("os/board/common/install-licences.sh"))
+/// Runs install-licences.sh on a fake Buildroot output in `dir`, with the
+/// source facts `env` (name and value).
+fn install_licences(dir: &TempDir, env: &[(&str, &str)]) -> std::process::Output {
+    let mut cmd = std::process::Command::new("sh");
+    cmd.arg(root().join("os/board/common/install-licences.sh"))
         .arg(dir.0.join("target"))
         .arg(dir.0.join("LICENCES.txt"))
         .env("BASE_DIR", &dir.0)
-        .output()
-        .unwrap()
+        .env("BR2_CONFIG", dir.0.join(".config"))
+        .env_remove("NEPTRON_SOURCE_COMMIT")
+        .env_remove("NEPTRON_SOURCE_DATE")
+        .env_remove("NEPTRON_SOURCE_RELEASE");
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
+    cmd.output().unwrap()
+}
+
+const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+const NOTES: &str = "release @NEPTRON_RELEASE@, commit @NEPTRON_COMMIT@, \
+                     date @NEPTRON_DATE@, variant @NEPTRON_VARIANT@\n";
+
+fn fake_output(name: &str) -> TempDir {
+    let dir = TempDir::create(name);
+    dir.write(
+        ".config",
+        "BR2_x86_64=y\n# BR2_PACKAGE_DROPBEAR is not set\n",
+    );
+    dir.write("LICENCES.txt", NOTES);
+    dir.write("legal-info/manifest.csv", "PACKAGE,VERSION\n");
+    dir.write("legal-info/licenses/busybox-1/LICENSE", "GPL\n");
+    dir
 }
 
 #[test]
 fn the_image_gets_the_legal_info_texts_and_the_notices_of_each_rust_program() {
-    let dir = TempDir::create("install");
-    dir.write("LICENCES.txt", "notes\n");
-    dir.write("legal-info/manifest.csv", "PACKAGE,VERSION\n");
-    dir.write("legal-info/licenses/busybox-1/LICENSE", "GPL\n");
+    let dir = fake_output("install");
     dir.write("target/usr/share/licenses/stale/LICENSE", "old\n");
     dir.write("target/usr/bin/neptron", "");
     dir.write("target/usr/bin/neptronctl", "");
     dir.write("neptron-notices/neptron.txt", "Rust crates in neptron\n");
-    let out = install_licences(&dir);
+    let out = install_licences(&dir, &[]);
     assert!(!out.status.success(), "neptronctl has no notices");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -286,11 +306,10 @@ fn the_image_gets_the_legal_info_texts_and_the_notices_of_each_rust_program() {
         "Rust crates in neptronctl\n",
     );
     dir.write("neptron-notices/neptron-launch.txt", "not in this image\n");
-    let out = install_licences(&dir);
+    let out = install_licences(&dir, &[]);
     assert!(out.status.success(), "{out:?}");
     let licenses = dir.0.join("target/usr/share/licenses");
     let read = |rel: &str| std::fs::read_to_string(licenses.join(rel)).unwrap();
-    assert_eq!(read("LICENCES.txt"), "notes\n");
     assert_eq!(read("manifest.csv"), "PACKAGE,VERSION\n");
     assert_eq!(read("busybox-1/LICENSE"), "GPL\n");
     assert_eq!(read("neptron-rust/neptron.txt"), "Rust crates in neptron\n");
@@ -302,5 +321,93 @@ fn the_image_gets_the_legal_info_texts_and_the_notices_of_each_rust_program() {
     assert!(!licenses.join("stale").exists());
 
     std::fs::remove_file(dir.0.join("legal-info/manifest.csv")).unwrap();
-    assert!(!install_licences(&dir).status.success());
+    assert!(!install_licences(&dir, &[]).status.success());
+}
+
+#[test]
+fn the_image_names_its_commit_date_release_and_variant() {
+    let dir = fake_output("release");
+    let release = |dir: &TempDir| {
+        (
+            std::fs::read_to_string(dir.0.join("target/etc/neptron-release")).unwrap(),
+            std::fs::read_to_string(dir.0.join("target/usr/share/licenses/LICENCES.txt")).unwrap(),
+        )
+    };
+    let out = install_licences(&dir, &[]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(
+        release(&dir),
+        (
+            "NEPTRON_RELEASE=none\nNEPTRON_COMMIT=unknown\nNEPTRON_COMMIT_DATE=unknown\n\
+             NEPTRON_VARIANT=release\n"
+                .to_owned(),
+            "release none, commit unknown, date unknown, variant release\n".to_owned()
+        ),
+        "a build with no facts"
+    );
+
+    let modified = format!("{COMMIT}-modified");
+    let facts = [
+        ("NEPTRON_SOURCE_COMMIT", modified.as_str()),
+        ("NEPTRON_SOURCE_DATE", "2026-11-23T12:34:56Z"),
+        ("NEPTRON_SOURCE_RELEASE", "v0.1.0"),
+    ];
+    dir.write(".config", "BR2_x86_64=y\nBR2_PACKAGE_DROPBEAR=y\n");
+    let out = install_licences(&dir, &facts);
+    assert!(out.status.success(), "{out:?}");
+    let (file, notes) = release(&dir);
+    assert_eq!(
+        file,
+        format!(
+            "NEPTRON_RELEASE=v0.1.0\nNEPTRON_COMMIT={modified}\n\
+             NEPTRON_COMMIT_DATE=2026-11-23T12:34:56Z\nNEPTRON_VARIANT=development\n"
+        )
+    );
+    assert_eq!(
+        notes,
+        format!(
+            "release v0.1.0, commit {modified}, date 2026-11-23T12:34:56Z, variant development\n"
+        )
+    );
+
+    for (key, bad) in [
+        ("NEPTRON_SOURCE_COMMIT", "0123456"),
+        (
+            "NEPTRON_SOURCE_COMMIT",
+            "0123456789ABCDEF0123456789abcdef01234567",
+        ),
+        (
+            "NEPTRON_SOURCE_COMMIT",
+            "0123456789abcdef0123456789abcdef0123456/",
+        ),
+        ("NEPTRON_SOURCE_DATE", "2026-11-23"),
+        ("NEPTRON_SOURCE_DATE", "x/y"),
+        ("NEPTRON_SOURCE_RELEASE", "v0.1"),
+        ("NEPTRON_SOURCE_RELEASE", "v0.1.0/x"),
+        ("NEPTRON_SOURCE_RELEASE", "main"),
+    ] {
+        let out = install_licences(&dir, &[(key, bad)]);
+        assert!(!out.status.success(), "{key}={bad}");
+    }
+    dir.write("LICENCES.txt", "@NEPTRON_OTHER@\n");
+    assert!(!install_licences(&dir, &[]).status.success());
+}
+
+/// The notes of both boards carry every placeholder that the script fills,
+/// at the head of the file.
+#[test]
+fn the_notes_open_with_the_facts_of_the_image() {
+    for board in ["pc", "rpi"] {
+        let text = read(&format!("os/board/{board}/LICENCES.txt"));
+        let head: String = text.lines().take(12).collect::<Vec<_>>().join("\n");
+        for line in [
+            "- NEPTRON release: @NEPTRON_RELEASE@",
+            "- NEPTRON commit: @NEPTRON_COMMIT@",
+            "- Commit date: @NEPTRON_DATE@",
+            "- Variant: @NEPTRON_VARIANT@",
+        ] {
+            assert!(head.contains(line), "{board}: {line}");
+        }
+        assert!(notes(board).contains("`/etc/neptron-release` inside the image"));
+    }
 }

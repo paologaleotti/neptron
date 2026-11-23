@@ -1,6 +1,24 @@
 NEPTRON licence notes, Raspberry Pi image
 =========================================
 
+This image
+----------
+
+- NEPTRON release: @NEPTRON_RELEASE@
+- NEPTRON commit: @NEPTRON_COMMIT@
+- Commit date: @NEPTRON_DATE@
+- Variant: @NEPTRON_VARIANT@
+
+The commit names the NEPTRON source that built this image, in the
+public repository github.com/paologaleotti/neptron. A commit that ends
+in `-modified` was built from a tree with changes that are not in that
+commit. "unknown" means that the build did not know the value. The date
+is the date of the commit, not of the build. The same values are in the
+file `/etc/neptron-release` inside the image.
+
+Licences
+--------
+
 This image contains programs under different licences. Three libretro
 cores, FinalBurn Neo, Snes9x and Genesis Plus GX, may not be sold or used
 commercially under their own licences. So this image, which contains

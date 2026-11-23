@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::source::SourceInfo;
 use super::{Arch, Board, OsError};
 
 /// The repository of the development container images.
@@ -241,6 +242,9 @@ pub struct BuildPlan {
     pub images: PathBuf,
     /// The container image, from [`container_image`].
     pub container: String,
+    /// The commit, commit date and release of the checkout, which the
+    /// image names (`board/common/install-licences.sh`).
+    pub source: SourceInfo,
 }
 
 impl BuildPlan {
@@ -320,6 +324,7 @@ impl BuildPlan {
             args.push("--volume".to_owned());
             args.push(format!("{}:{DEV_KEY_MOUNT}:ro", key.display()));
         }
+        args.extend(self.source.env_args());
         args.push(self.container.clone());
         args.extend(command.iter().map(|s| (*s).to_owned()));
         args
@@ -419,6 +424,12 @@ mod tests {
             checkout: PathBuf::from("/repo"),
             images: PathBuf::from("/cache/images/aarch64"),
             container: "neptron-dev:0123456789abcdef".to_owned(),
+            source: SourceInfo::from_git(
+                Some("0123456789abcdef0123456789abcdef01234567"),
+                Some(""),
+                Some("1795437296"),
+                None,
+            ),
         }
     }
 
@@ -869,6 +880,14 @@ mod tests {
                 "{line}"
             );
             assert!(line.contains(" neptron-dev:0123456789abcdef "), "{line}");
+            assert!(
+                line.contains(
+                    " --env NEPTRON_SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567 \
+                     --env NEPTRON_SOURCE_DATE=2026-11-23T12:34:56Z \
+                     --env NEPTRON_SOURCE_RELEASE=none neptron-dev:"
+                ),
+                "{line}"
+            );
         }
     }
 

@@ -25,6 +25,7 @@ mod qemu;
 mod rpi;
 mod selftest_check;
 mod share_check;
+mod source;
 #[cfg(test)]
 mod storage_script;
 mod trace;
@@ -651,8 +652,13 @@ fn build(args: &[&str]) -> Result<ExitCode, OsError> {
         checkout: repo.root.clone(),
         images,
         container: build::container_image(&text),
+        source: source::SourceInfo::of_checkout(&repo.root),
         args,
     };
+    eprintln!(
+        "xtask: the image names commit {}, commit date {}, release {}",
+        plan.source.commit, plan.source.date, plan.source.release
+    );
     let _lock = MachineLock::take(&cache.build_lock(), "Buildroot build")?;
     let start = std::time::Instant::now();
     build::execute(&plan, &dockerfile)?;
