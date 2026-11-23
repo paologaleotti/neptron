@@ -144,7 +144,7 @@ For the `alsa` driver the list comes from `/proc/asound`, not from SDL. A small 
 A file that is missing or cannot be read is empty text. The reader takes the bytes and converts them with a lossy UTF-8 conversion, so one bad byte in a monitor name does not drop its ELD. The parsing and the list (`alsa_outputs`) are pure and take the text, so the tests give them the text of the bench and of other cases.
 
 - **The stored value** is the ALSA name with the card id, which does not change when another card is plugged in: `hw:CARD=PCH,DEV=3`. The open uses `plughw:CARD=PCH,DEV=3`, so ALSA converts the format and the rate when the hardware needs it.
-- **HDMI or DisplayPort PCM**: a PCM whose id starts with `HDMI` or `DP`, or holds `DisplayPort`. Every other playback PCM is analog (a USB card's PCM is too).
+- **HDMI or DisplayPort PCM**: a PCM whose id starts with `HDMI` or `DP`, or holds `DisplayPort` (`is_digital`), or any PCM of a card whose id or driver holds `HDMI` in any case (`is_hdmi_card`). Every other playback PCM is analog (a USB card's PCM is too).
 - **The monitor of an HDMI PCM**, per card, from the number `v` of ELDs with `monitor_present 1` and `eld_valid 1`, and the number `h` of HDMI PCMs:
   - `v = 0`: no PCM of the card has a monitor (`Absent`): the kernel attaches a PCM only to a pin with a valid ELD.
   - `v = h`: every HDMI PCM has a monitor (`Present`). The name is known only when `h = 1`.
@@ -170,7 +170,7 @@ The part that tells the outputs apart comes first, because the value column of a
 
 An S/PDIF output is not an analog output: neither `auto` nor the fallback to the first analog PCM takes it. A device of another driver (SDL's names) has the kind `Other`, which is not analog, so there `auto` is the system default device.
 
-A PCM is HDMI or DisplayPort only by its name (an id that starts with `HDMI` or `DP`, or holds `DisplayPort`). The HDMI card `vc4-hdmi` of a Raspberry Pi has the PCM name `MAI PCM i2s-hifi-0`, so the list labels it `Analog`, and `auto` can take it (OP-102 point 2).
+The HDMI card of a Raspberry Pi (card id `vc4hdmi`, driver `vc4-hdmi`) names its PCM `MAI PCM i2s-hifi-0`, with no HDMI word, so it is HDMI by its card: the list labels it `HDMI/DP 1 (vc4-hdmi)`. It has no ELD file in `/proc`, so `auto` does not take it (OP-102 point 2).
 
 The menu shows `auto` first (detail `Automatic`), then the list. A stored value that is not in the list stays an option, labelled with its raw value and the detail `Not connected`.
 
@@ -236,7 +236,7 @@ Each start logs one line with the driver, the devices, the choice of `auto` and 
 neptron: audio: driver alsa; devices "hw:CARD=PCH,DEV=0", "hw:CARD=PCH,DEV=3", "hw:CARD=PCH,DEV=7", "hw:CARD=PCH,DEV=8"; auto: the first analog output "Analog (HDA Intel PCH)", because an HDMI/DP output may have a monitor but /proc does not show which one; opened "hw:CARD=PCH,DEV=0"
 ```
 
-The line goes to the log of the run before the frame loop starts, so `cargo xtask os logs` shows it; the protocol log of `neptronctl log tail` starts later and does not hold it. A `neptronctl` command that lists the devices needs a new request in `neptron-ipc` and a command in `apps/neptronctl`, Neither exists; the log line gives the same facts.
+The line goes to the log of the run before the frame loop starts, so `cargo xtask os logs` shows it; the protocol log of `neptronctl log tail` starts later and does not hold it. No `neptronctl` command lists the devices (see "Later steps"); the log line gives the same facts.
 
 ## Menus
 

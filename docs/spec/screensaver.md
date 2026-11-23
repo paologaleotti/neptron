@@ -1,6 +1,6 @@
 # Screensaver
 
-This spec settles task M15. After a time with no input, the menus go to a dark picture with a small moving wordmark. It protects a CRT from burn-in. Any input brings the menus back.
+After a time with no input, the menus go to a dark picture with a small moving wordmark. It protects a CRT from burn-in. Any input brings the menus back.
 
 ## Facts that drive the design
 
@@ -9,7 +9,7 @@ This spec settles task M15. After a time with no input, the menus go to a dark p
 - The navigator of the app (`apps/neptron/src/nav.rs`) turns input events into UI actions. `Navigator::hold_back` ignores each control held now until its release. A release gives no action.
 - An `InputEvent` has the value 0 for a released button and for a stick inside its dead zone (`neptron-input` applies the dead zone before the event). A value that is not 0 is a press, or a stick out of its dead zone.
 - In a paused game the session presents the last game picture under the UI canvas. On a CRT the canvas covers the whole active area. On a flat panel the game picture can show around the canvas.
-- The menus play no sound. A paused game is silent. The only sound of the game list is the tone of a blind recovery.
+- The menus play no sound. A paused game is silent. The only sound of the game list is the tone of a blind recovery. So the screensaver stops no sound, and the tone of a blind recovery still plays.
 
 ## What shows
 
@@ -75,10 +75,6 @@ A notice with no timeout stays under the screensaver, and shows again after the 
 
 Work of the app goes on under the screensaver: the game scan, the writes of the outbox, the picture answers of the page under it. Their notices wait for the wake. The network reader asks for a read only while the Network panel is the screen on show. The screensaver hides the panel, so no new read starts under it; a read in progress still comes in. At the wake the panel is on show again and asks for a fresh read.
 
-## Sound
-
-The menus play no sound, and a paused game is silent, so the screensaver stops no sound. The tone of a blind recovery plays as before.
-
 ## Settings
 
 Two global settings on Settings > Display, after the scanline rows:
@@ -104,4 +100,4 @@ Two global settings on Settings > Display, after the scanline rows:
 
 ## Hardware
 
-Two checks go to `docs/hardware-checklist.md`: no missed field while the screensaver runs on the Raspberry Pi 3, and a look at the screensaver on a CRT.
+`docs/hardware-checklist.md`, "Screensaver (M15)", has three checks: no missed field while the screensaver runs on the Raspberry Pi 3, a look at the screensaver on a CRT, and even movement on a flat HD panel.

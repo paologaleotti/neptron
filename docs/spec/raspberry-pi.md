@@ -1,6 +1,6 @@
 # Raspberry Pi image and composite video
 
-This spec describes the first Raspberry Pi image of NEPTRON and its composite video output. It says which boards come first, what the composite encoder of the kernel gives, how a fixed broadcast standard fits the ODREN video model, how sharp a composite picture can be, how the SD card image is built, how it is verified, and in which order the build tasks run. Open point OP-096 asked for it. Tasks P02 to P06, P10 and P11 built it; section 7 lists what is left.
+This spec describes the Raspberry Pi image of NEPTRON and its composite video output: the boards, what the composite encoder of the kernel gives, how a fixed broadcast standard fits the ODREN video model, how sharp a composite picture can be, how the SD card image is built, and how it is verified (OP-096). Everything in it is built; the bench session (P09) is left (section 7).
 
 ## The owner's decisions
 
@@ -35,13 +35,13 @@ The file `drivers/gpu/drm/vc4/vc4_vec.c` is the same in the Pi fork 6.12 and the
 2. The kernel is the Raspberry Pi fork, branch `rpi-6.18.y`, at the pinned commit `ea17ae02ca28`. The definition already decides this tree (`15-decisions-and-open-points.md`). No 15 kHz patch is in the Pi kernel.
 3. Composite is a new kind of monitor profile: a TV standard. `MonitorKind::Tv { standard }` holds one of ten standards. Each standard has a fixed table of two modes: 240p and 480i for the 525-line standards, 288p and 576i for the 625-line standards. Switchres is not used for it.
 4. The validator accepts a mode on a TV profile only when it is one of the two modes of the table, field for field, and when it also passes the 15 kHz hard rails. `ValidatedMode` carries the standard. The KMS backend sets the connector property `TV mode` in the same atomic commit as the mode.
-5. A change of standard is a change of the monitor. The guard puts it under confirm-or-revert with the 10 s timed revert, keeps it as last known good, and the blind recovery goes back to NTSC.
+5. A change of standard is a change of the monitor. The guard puts it under confirm-or-revert with the 15 s timed revert (`CONFIRM_WINDOW_NS`), keeps it as last known good, and the blind recovery goes back to NTSC.
 6. The policy has a small planner for a TV profile: progressive 240p or 288p for every game up to 240 or 288 lines (centred with black lines, or with the existing crop of at most 8 lines per edge), interlaced 480i or 576i for taller games, and the filtered fit last. The game runs at the encoder's field rate, and the audio run rate is the field rate that the driver reads back. A difference up to 5000 ppm gives no alert; a larger one shows the speed alert, as on a flat panel.
 7. Horizontally every mode has 720 samples at 13.5 MHz. The game gets the width of its display aspect (640 samples for a 256-wide or 320-wide console), snapped to a whole or half factor of its width when one is within 3 %, with nearest at a whole factor and the existing sharp bilinear filter otherwise. No line is ever scaled vertically.
 8. The settings are `display.tv` (the standard, default NTSC) and `display.tv_width` (`aspect`, `integer`, `fill`). Monochrome (colour burst off) is one of the standards: it gives the sharpest luma.
 9. The output rule: an HDMI display that answers wins; with none, the composite connector is used; a name in `display.output` wins over both (or `neptron.toml`). The first run of a boot chooses the output, and every relaunch of that boot keeps it (`run/output`). On a Pi 3 the two outputs share one pixel valve, so only one is driven at a time.
 10. The SD card has the PC layout: FAT32 boot (firmware, kernel, `config.txt`, `neptron.toml`), EROFS root, ext4 state, and the exFAT share that the first boot makes as `mmcblk0p4` with the same storage script.
-11. CI builds the image without QEMU checks and uploads it (task P08, not built). The aarch64 QEMU image keeps testing the frontend. The hardware checklist holds the checks of the board.
+11. CI builds the image without a QEMU boot and uploads it. The aarch64 QEMU image keeps testing the frontend. The hardware checklist holds the checks of the board.
 
 ## 1. Boards
 
@@ -164,7 +164,7 @@ The task that writes the table takes the full 480i and 576i values from `drm_ana
 
 - A composite connector never reports a display (`unknown`), so nothing can detect a TV. The output rule below handles it.
 - On the Pi 3 the VEC and HDMI share pixel valve 2 (VERIFIED). A commit that drives both fails its test-only step; NEPTRON drives one connector only.
-- The page flip events of an interlaced mode on `vc4` (one per field or one per frame) are not known (UNVERIFIED; the matrix entry says `flip_per_field = false` and the ODREN policy does not read it yet; OP-030). This touches 480i and 576i only, not 240p and 288p.
+- The page flip events of an interlaced mode on `vc4` (one per field or one per frame) are not known (UNVERIFIED; OP-030). The matrix entry says `flip_per_field = false`, and the session reads it to count missed fields in an interlaced mode (`crates/neptron-session/src/session/frame.rs`). This touches 480i and 576i only, not 240p and 288p.
 - The firmware drives composite with its own standard before Linux starts (`enable_tvout` defaults to 1 on the Pi 3). That is harmless: it is a broadcast standard (UNVERIFIED: what it shows with `disable_splash=1`).
 
 ## 3. A TV standard in the NEPTRON video model
@@ -213,13 +213,13 @@ ADR 0012 records the design. A TV is a **monitor kind**, not an output kind. `Ou
 - **Refresh.** The only target is the mode's own rate. `exact_x2`, `force_50` and `force_60` are skipped with the reason "the TV standard fixes the rate" (`Plan::skipped`), as for a target no range covers.
 - **Picture mode.** `auto` and `native` both walk the rungs above. `2x`, `3x` and `4x` have no mode on a TV, and a TV has one rate for `speed`: the menus grey them with the reason ("Not possible with this screen and video output", "A TV has one rate"; `docs/spec/video-policy-cases.md`, section 8.7).
 - **Width.** See "Sharpness". The field `PolicySettings::tv_width` (`aspect`, `integer`, `fill`) feeds it.
-- **Speed notice.** On a TV profile the notice `game_mhz` and `shown_mhz` appears only when the game rate and the field rate differ by more than `TV_SPEED_SILENT_PPM` (5000 ppm), equal to the bound of the audio rate control. Since the one alert threshold of every display class (`SPEED_ALERT_MIN_PPM`, `docs/spec/video-policy-cases.md`, section 9), `TV_SPEED_SILENT_PPM` is that constant. Below it the game is called exact. This is the flat-panel rule (`PANEL_SPEED_SILENT_PPM`), for the same reason: the user cannot choose another rate. The bound is only the threshold of the alert: the game and its sound always run at the field rate (see "The audio rate").
+- **Speed notice.** On a TV profile the notice `game_mhz` and `shown_mhz` appears only when the game rate and the field rate differ by more than `TV_SPEED_SILENT_PPM` (5000 ppm), equal to the bound of the audio rate control. `TV_SPEED_SILENT_PPM` is `SPEED_ALERT_MIN_PPM`, the one alert threshold of every display class (`docs/spec/video-policy-cases.md`, section 9). Below it the game is called exact. This is the flat-panel rule (`PANEL_SPEED_SILENT_PPM`), for the same reason: the user cannot choose another rate. The bound is only the threshold of the alert: the game and its sound always run at the field rate (see "The audio rate").
 
 **`neptron-video`**
 
 - The engine needs no change for the rungs. `Monitor::Profile` holds the TV profile.
 - On a TV the mode line of the video status names the standard first and leaves out the rung word: `NTSC 240p 15.73 kHz 60.054 Hz`, or `NTSC 4.43 480i 15.73 kHz 59.940 Hz` (`write_tv_mode` in `crates/neptron-video/src/status.rs`). The Display panel shows the short form `NTSC 240p 60.05 Hz`. The status uses `TV_SPEED_SILENT_PPM` for the `speed` result on a TV profile.
-- The guard needs no change. A standard change is a new monitor: `propose` opens the prompt, `decline` or no press in `CONFIRM_WINDOW_NS` (10 s) reverts, `confirm` makes it the last known good.
+- The guard needs no change. A standard change is a new monitor: `propose` opens the prompt, `decline` or no press in `CONFIRM_WINDOW_NS` (15 s) reverts, `confirm` makes it the last known good.
 
 **`neptron-platform` and `data/hardware/matrix.toml`**
 
@@ -424,7 +424,7 @@ enable_tvout=1
 - Tree: `raspberrypi/linux`, branch `rpi-6.18.y`, commit `ea17ae02ca28483e508b05c7c44190c01a1ef8eb`, the tarball's SHA-256 in `os/board/rpi/patches/linux/linux.hash`.
 - Configuration: `bcm2711_defconfig` (VERIFIED: the Pi docs give it for 64-bit Pi 3, Zero 2 W, 4 and 5; Buildroot uses it for its Pi 3 and Zero 2 W 64-bit defconfigs), 4K pages, plus the NEPTRON fragments: `vc4` and `v3d` built in, the SD host and EROFS, ext4, exFAT and FAT built in (no initramfs), no `CONFIG_VT`, no `CONFIG_FB`, no fbdev emulation, no framebuffer console, no `simpledrm`, no DRM panic screen, the USB HID and Ethernet drivers, `ksmbd`.
 - The PC's post-build check of the silent kernel (layer 8) runs on the Pi kernel too (`os/board/rpi/check-kernel-config.sh`).
-- The CPU governor is `performance` (`CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE` in `os/board/rpi/system.config`). With `ondemand` the clock fell to 600 MHz in a light scene, and the next heavy frame missed its field: an SNES game on a Pi 3 B lost 24 to 30 fields in a burst. With `performance` the same game held 60.054 frames per second for 155 s with no missed field and no audio underrun (2026-11-14, commit `d6f51ea`). The firmware still lowers the clock when the board is too hot.
+- The CPU governor is `performance` (`CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE` in `os/board/rpi/system.config`). With `ondemand` the clock fell to 600 MHz in a light scene, and an SNES game on a Pi 3 B lost 24 to 30 fields in a burst; with `performance` it lost none in 155 s (2026-11-14, commit `d6f51ea`). The firmware still lowers the clock when the board is too hot.
 - **No 15 kHz patch.** The 15 kHz patch set enters the PC build only through `BR2_LINUX_KERNEL_PATCH` in `os/configs/neptron_pc_x86_64_defconfig`. `os/patches/linux` holds only `linux.hash`, no patch file (VERIFIED: the tree on 2026-11-13). The Pi defconfig sets no `BR2_LINUX_KERNEL_PATCH` and uses its own global patch directory `os/board/rpi/patches` (with the hash of the Pi kernel tarball), so no file of the PC kernel setup is in its path. A post-build check fails the Pi build when `BR2_LINUX_KERNEL_PATCH` is not empty. The reason for the rule is that the Pi kernel needs no patch; the licence of the set (GPL-2.0-only since ADR 0018) is not the reason. The VEC needs nothing from the set: NEPTRON sets its modes through atomic KMS, and the set patches the console mode and AMD and Intel drivers.
 
 ### Mesa and the GPU
@@ -458,8 +458,8 @@ Measured on a Pi 3 B on composite, NTSC 240p, with the development build of `os 
 
 - NES, SNES and Mega Drive games hold 60.054 frames per second with no missed field.
 - Super Mario World leaves 1.66 ms in its worst frame. The release image is not measured.
-- A keep or revert dialog over a running game halves the rate while it is open.
-- A change of the TV standard takes about 75 ms from the last flip of the old mode to the first flip of the new one. The muted queue covered about 32 ms, so the underrun count went up by one. Since M10 a mute fills the queue up to 100 ms (`MUTE_COVER_MS`), which covers the change; the check on the Pi is in `docs/hardware-checklist.md`.
+- A keep or revert dialog over a running game misses no field (P12: 36 NTSC dialogs over the SNES 240p suite). A dialog frame ends 8.35 ms after the flip event; a game frame alone, 9.87 ms.
+- A change of the TV standard takes about 75 ms from the last flip of the old mode to the first flip of the new one. A mute fills the queue up to 100 ms (`MUTE_COVER_MS`), which covers the change; with the earlier 32 ms cover the underrun count went up by one. The check on the Pi is in `docs/hardware-checklist.md`.
 - With the vc4 vblank sequence in 480i not checked, `fields_missed` can hide real misses in interlace (UNVERIFIED).
 
 ### SD card layout
@@ -472,7 +472,7 @@ Measured on a Pi 3 B on composite, NTSC 240p, with the development build of `os 
 | 4 share | exFAT, label `NEPTRON` | The rest of the card, made at the first boot | As on the PC |
 
 - The firmware reads only the FAT partition 1 (VERIFIED: Buildroot's Pi `genimage.cfg.in` puts the firmware and `config.txt` there). The boot partition is twice the PC's, because the kernel `Image` is not compressed and the overlays and device trees add files (UNVERIFIED: the sizes; the build reports them).
-- `cmdline.txt`: `root=PARTUUID=<signature>-02 rootfstype=erofs ro rootwait quiet console=serial0,115200 panic=10`. The disk signature is fixed per variant, as on the PC, with new values for the Pi variants.
+- `cmdline.txt`: `root=PARTUUID=<signature>-02 rootfstype=erofs ro rootwait quiet console=serial0,115200 panic=10 usbcore.old_scheme_first=1`. The development variant drops `quiet` (`os/board/rpi/cmdline.sh`). The disk signature is fixed per variant, as on the PC, with new values for the Pi variants.
 - **`mmcblk0p4`.** `S06neptron-storage` finds partitions by the `partition` number in sysfs and the disk from the device of `/`, never by building a name (VERIFIED: the function `partition` in `os/board/common/rootfs-overlay/etc/init.d/S06neptron-storage`). So `mmcblk0p4` needs no change in the script. `sfdisk --append` and `partx` work on `/dev/mmcblk0` the same way (UNVERIFIED on a card). An SD card is slower than a USB stick, so the first `mkfs.exfat` takes longer (UNVERIFIED).
 - A/B root and RAUC with `tryboot` stay later, as on the PC.
 
@@ -493,7 +493,7 @@ Measured on a Pi 3 B on composite, NTSC 240p, with the development build of `os 
 | USB audio | All | `snd-usb-audio` | A USB DAC is the way to better sound than PWM |
 
 - The output list (`docs/spec/audio-settings.md`, ADR 0011) takes the analog jack under `auto`, which is right on composite. `S08neptron-mixer` (from the PC overlay, which the Pi image also uses) sets `PCM` and the other controls to 0 dB; the `snd_bcm2835` control name `PCM` is UNVERIFIED.
-- The PCM of the `vc4-hdmi` card is HDMI by its card (card id `vc4hdmi`, driver `vc4-hdmi`), because its name `MAI PCM i2s-hifi-0` has no HDMI word. The list labels it `HDMI/DP 1 (vc4-hdmi)`. The card has no ELD file in `/proc`, so its monitor is unknown, and `auto` never takes it: `auto` takes the jack card, or the default device when there is no jack card (OP-102 point 2). Before this, the list labelled it "Analog", and with no jack card `auto` took it and the open failed while HDMI was off.
+- The PCM of the `vc4-hdmi` card is HDMI by its card (card id `vc4hdmi`, driver `vc4-hdmi`), because its name `MAI PCM i2s-hifi-0` has no HDMI word. The list labels it `HDMI/DP 1 (vc4-hdmi)`. The card has no ELD file in `/proc`, so its monitor is unknown, and `auto` never takes it: `auto` takes the jack card, or the default device when there is no jack card (OP-102 point 2).
 - SDL gets device periods of 1024 frames (`DEVICE_PERIOD_FRAMES` in `crates/neptron-audio/src/sdl.rs`). With 512 the analog output of the Pi 3 (44100 Hz) ran short of data 14 times a second; with 1024 ALSA logged no underrun in 60 s (commit `dff9f44`). The mean output latency is about 64 ms (`docs/spec/pacing-audio.md`).
 - The jack carries video on its sleeve, so audio and video leave on one cable.
 - Expect hiss and limited dynamic range from the 11-bit PWM (VERIFIED in principle: the bit depth; UNVERIFIED: how it sounds).
@@ -515,14 +515,14 @@ The definition gives 3 s from kernel start to the first UI frame for the Pi 4 an
 
 - `cargo xtask os build --arch rpi-arm64 --dev-key KEY` builds it in its own output, as on the PC: Dropbear with the key only, the hot folder `/state/hot`, the log, and the `control` feature. The address is in `/run/neptron/network.toml`, as on every image, and on the serial console at each change.
 - `cargo xtask os push --arch rpi-arm64 --host A.B.C.D` builds the frontend, the launcher and `neptronctl` for the Pi and sends them. It must link against the glibc of the Pi output, not of the QEMU aarch64 output, because the two outputs can hold different glibc builds. The cross build uses the Buildroot toolchain of the `rpi-arm64` output.
-- A serial console on GPIO 14 and 15 helps the first boot: `console=serial0,115200` and, on the Pi 3, `dtoverlay=disable-bt` or `miniuart-bt` in the development `config.txt` only (UNVERIFIED: which one keeps the serial clock stable with `core_freq_fixed=1`).
+- A serial console on GPIO 14 and 15 helps the first boot: `console=serial0,115200` on the command line, and `enable_uart=1` and `dtoverlay=disable-bt` in the development `config.txt` only (`os/board/rpi/config-dev.txt`). `disable-bt` puts the PL011 UART on GPIO 14 and 15, and the clock of the PL011 does not follow the core clock.
 
 ### `neptron.toml` on the boot partition
 
-The definition describes the file and its keys (`05-crt-safety-model.md`, `10-os-layer.md`). The Pi image needs it, because it is how a user picks composite with an HDMI display connected, or PAL, before the first boot. P07 built it: `S07neptron-boot` mounts the partition, `apps/neptron/src/boot_file.rs` imports the file, and `apps/neptron/src/prestart.rs` runs the import before the backend reads a setting (`apps/neptron/README.md`, "Boot, before the first frame"), and both images ship the file (`os/board/rpi/neptron.toml`, `os/board/pc/neptron.toml`).
+The definition describes the file and its keys (`05-crt-safety-model.md`, `10-os-layer.md`). It is how a user picks composite with an HDMI display connected, or PAL, before the first boot. `S07neptron-boot` mounts the partition, `apps/neptron/src/boot_file.rs` imports the file, and `apps/neptron/src/prestart.rs` runs the import before the backend reads a setting (`apps/neptron/README.md`, "Boot, before the first frame"). Both images ship the file (`os/board/rpi/neptron.toml`, `os/board/pc/neptron.toml`).
 
 - **Place.** `/neptron.toml` at the root of the FAT32 boot partition. On the Pi the firmware's files are beside it.
-- **Mount.** The init scripts mount the boot partition read-only at `/boot` before the launcher starts. A read-write remount is only for the later writes (the Wi-Fi blanking of the definition, not built).
+- **Mount.** `S07neptron-boot` mounts partition 1 of the boot disk read-only at `/boot` (`vfat`, `ro,noatime,nodev,nosuid,noexec`) before the launcher starts. A failed mount never stops the boot. A read-write remount is only for the later writes (the Wi-Fi blanking of the definition, not built).
 - **When it is read.** At each start of the frontend, before the backend reads a setting, so the first start after a change already opens the output that the file names. When its SHA-256 differs from the one stored on the state partition, its values are copied into `config/global.toml` once, through `Storage::apply` (`crates/neptron-settings/README.md`), and the new hash is stored. Otherwise the menus' settings stand. This is the definition's rule.
 - **Format.** The keys of `global.toml`. For the Pi: `display.output`, `display.tv`, `display.tv_width`, `display.pi_dac`. A key the schema does not know is ignored and listed with its line, as is a value the schema refuses. There is no diagnostics page yet, so the list is notices at a new boot and log lines. A file that cannot be read or parsed changes nothing, keeps the stored hash, and is listed at each new boot until it is fixed. The hash is in `/state/neptron.toml.sha256`. The image ships a file with every key commented out, so a new image copies nothing: only a line that the user uncomments is copied. The Pi file:
 
@@ -538,7 +538,7 @@ The definition describes the file and its keys (`05-crt-safety-model.md`, `10-os
 # pi_dac   = "none"     # none. GPIO DACs are not supported by this image.
 ```
 
-- **The GPIO DAC stays off.** The first image has no DAC overlay in `config.txt` and installs none of the DPI overlays (the overlay list holds `vc4-kms-v3d` and nothing for DPI). So GPIO pins are never driven as a video bus, whatever the file says. A `pi_dac` value other than `none` gives a notice: "GPIO DACs are not supported by this image; the value is ignored". When DACs come, the rule of the definition holds: a DAC is used only when the file or a setting names it, NEPTRON then writes its overlay line into an included file and reboots once, and it is never tried automatically.
+- **The GPIO DAC stays off.** The image has no DAC overlay in `config.txt` and installs none of the DPI overlays (`os/board/rpi/post-image.sh` copies `vc4-kms-v3d`, and `disable-bt` in the development variant, nothing for DPI). So GPIO pins are never driven as a video bus, whatever the file says. A `pi_dac` value other than `none` gives a notice: "GPIO DACs are not supported by this image; the value is ignored". When DACs come, the rule of the definition holds: a DAC is used only when the file or a setting names it, NEPTRON then writes its overlay line into an included file and reboots once, and it is never tried automatically.
 
 ## 6. Verification
 
@@ -560,25 +560,25 @@ QEMU cannot test the Pi display: its Pi machines model the firmware framebuffer 
 
 ### The CI entry
 
-Task P08 enables the `rpi-arm64` entry of `.github/image-targets.json` (on the branch `ci/setup`, not on `main`):
+The `rpi-arm64` entry of `.github/image-targets.json` is enabled. `docs/ci.md` describes the workflow.
 
-- `defconfig`: `neptron_rpi_arm64_defconfig`; `fragments`: none; `build_args`: `--arch rpi-arm64`; `images_dir`: `rpi-arm64`; `image_files`: `neptron-rpi-arm64.img`; `artifact`: `neptron-rpi-arm64`; `upload_image`: true; `rebuild`: `neptron`, `neptron-launch`, `neptronctl`; `checks`: none.
+- `defconfig`: `neptron_rpi_arm64_defconfig`; `fragments`: none; `build_args`: `--arch rpi-arm64`; `images_dir`: `rpi-arm64`; `image_files`: `neptron-rpi-arm64.img`; `artifact`: `neptron-rpi-arm64`; `upload_image`: true; `rebuild`: `neptron`, `neptron-launch`, `neptronctl`; `checks`: `pi-layout`; `build_minutes`: 300.
 - The upload carries the image, `SHA256SUMS`, `legal/`, `LICENCES.txt` and the `README.txt` that says the image must not be sold, and the `legal-info` sources as a second artifact, as for the PC.
 - The Pi image holds no 15 kHz patch, so it needs no `--no-kernel-15khz`. The build's own check (above) keeps it so.
-- The runner is `ubuntu-24.04-arm`. Without LLVM the cold build should be shorter than the PC's; the 330 minute limit of the entry stays until a build is measured.
+- The runner is `ubuntu-24.04-arm`.
 
 ### Hardware checklist: first boot of a Pi 3 B+ on a 15 kHz TV
 
-These lines go into `docs/hardware-checklist.md` with the board task, each `needs-hardware`. The setup: a Pi 3 B+, a 2.5 A power supply, a TRRS-to-RCA cable with video on the sleeve, a 15 kHz TV with a composite input, a USB gamepad, Ethernet, no HDMI cable unless the line says so.
+The bench session (P09) runs these checks, each `needs-hardware`, and writes the results into `docs/hardware-checklist.md`, section 6. The setup: a Pi 3 B+, a 2.5 A power supply, a TRRS-to-RCA cable with video on the sleeve, a 15 kHz TV with a composite input, a USB gamepad, Ethernet, no HDMI cable unless the line says so.
 
 | # | Check | Expect |
 | --- | --- | --- |
 | 1 | The cable: a meter between the sleeve and the yellow plug | Continuity; the sleeve is video |
 | 2 | Power on with no HDMI cable; watch the TV from power on | No rainbow splash, no text at any time; the first picture is NEPTRON's menu in 240p NTSC, locked, in colour on an NTSC-capable set |
 | 3 | The time from power on to the first frame, and the log's kernel and frontend times | Recorded; the target is 3.5 s from kernel start to the first frame |
-| 4 | The boot prompt on the first boot | It shows; no press reverts after 10 s and the picture stays; a press keeps it |
+| 4 | The boot prompt on the first boot | None: a boot on a TV output never prompts (`docs/spec/display-guard.md`, "Trust") |
 | 5 | `neptronctl selftest video` timing on 240p | Field period about 16.652 ms (60.054 Hz); line rate 15.734 kHz |
-| 6 | The Display panel: switch to `pal_60`, `pal`, `ntsc_j`, `ntsc_443`, `secam`, `mono_60`, `mono_50`, `pal_m`, `pal_n` in turn | Each is a full modeset; a standard the TV shows can be kept; a standard it cannot show (no colour, roll) reverts by itself after 10 s; record what the TV does for each |
+| 6 | The Display panel: switch to `pal_60`, `pal`, `ntsc_j`, `ntsc_443`, `secam`, `mono_60`, `mono_50`, `pal_m`, `pal_n` in turn | Each is a full modeset; a standard the TV shows can be kept; a standard it cannot show (no colour, roll) reverts by itself after 15 s; record what the TV does for each |
 | 7 | 288p timing on `pal` | Field period about 19.968 ms (50.080 Hz) |
 | 8 | The 240p test suite on the NES core: grid, overscan, colour bars, PLUGE, grey ramp, sharpness, horizontal stripes, the drop shadow | Grid squares even; the left and right edges in the overscan area as on a console; black at the setup level of the standard; record the photos |
 | 9 | An NES game, `tv_width` `aspect` | 240 lines, no flicker, visible scan lines, width about that of a real NES on the same TV; columns of even width |
@@ -597,24 +597,25 @@ These lines go into `docs/hardware-checklist.md` with the board task, each `need
 | 22 | First boot on a new card | Partition 4 made and formatted exFAT as `mmcblk0p4`; the second boot mounts it unchanged; the SMB share over Ethernet |
 | 23 | `neptron.toml` with `tv = "pal"` before the first boot | The first boot comes up on PAL |
 | 24 | The time `vc4` needs to report an HDMI display after boot | Recorded; it sets `COMPOSITE_FALLBACK_WAIT_NS` |
-| 25 | `vcgencmd get_throttled` (or the kernel log) after 30 minutes | No under-voltage, no throttling |
+| 25 | `dmesg \| grep -i voltage` after 30 minutes (the image has no `vcgencmd`) | No under-voltage, no throttling |
 
 ## 7. Build plan
 
-Each task is one branch `mvp/<task>` under the run rules. `docs/taskboard.toml` holds the status.
+`docs/taskboard.toml` holds the status. Merged: P01 to P08 and P10 to P12. Left: P09, the bench session.
 
-**Merged:** P01 (this spec), P02, P03, P04, P05, P06, and two tasks that the first composite tests raised, P10 and P11: the frame budget and the renderer on vc4 (the programs by blending axes, one texel per pixel with the CPU expansion, the destination index from a varying, the window path in `gles_compare`, the texture that only grows, the audio frame after the present, the underrun count and `fields_missed`, the 1024-frame audio period, the `performance` governor). **Left:** P07, P08 and P09.
-
-| Task | Scope | Owns | Needs | Gate | Parallel with |
-| --- | --- | --- | --- | --- | --- |
-| P02 TV standard contract | ADR 0012; `TvStandard`, the four modes, `MonitorKind::Tv`; the TV arm of `validate`, `ValidatedMode::tv_standard`, `Rejection::NotATvMode`; the `set_mode` doc; `FakeDisplay` | `docs/adr/0012-*`, `crates/neptron-types`, `crates/neptron-safety`, `crates/neptron-backend`, `crates/neptron-testkit` | P01 | T1 | P04 |
-| P03 TV policy | `policy/tv.rs`, `PolicySettings::tv_width`, the width rule, `TV_SPEED_SILENT_PPM`, goldens; remove the composite limit from the README and OP-047 text | `crates/neptron-modeline` | P02 | T1 | P05, P04 |
-| P04 Pi board and image | `os/board/rpi`, the defconfig, the kernel pin and fragments, `config.txt`, `cmdline.txt`, `genimage.cfg`, `LICENCES.txt`, the no-15-kHz and silent-kernel checks, `xtask` target `rpi-arm64` (build, dev variant, push), `os/README.md` section, the checklist lines | `os/configs/neptron_rpi_arm64*`, `os/board/rpi/**`, `xtask/src/os/**`, `os/README.md`, `docs/hardware-checklist.md` | P01 | T0 and T1; `os build --arch rpi-arm64` passes; the aarch64 boot check still passes | P02, P03, P05 |
-| P05 KMS TV mode | The `TV mode` and margin properties in `set_mode`, `WireMode` with the standard, read back, `kms-check` cases | `crates/neptron-kms` | P02 | T1; `kms-check` (T3) | P03, P04 |
-| P06 App and settings | `display.tv` and `display.tv_width` in the schema; the TV profile on a `tv_encoder` connector; the output rule and `COMPOSITE_FALLBACK_WAIT_NS`; the safe default; the status line; the Display panel rows; the `tv_encoder` quirk in the matrix; scene goldens | `crates/neptron-settings`, `crates/neptron-video` (status), `crates/neptron-platform`, `data/hardware/matrix.toml`, `apps/neptron` | P03, P05 | T2 | P07 |
-| P07 `neptron.toml` reader | Mount `/boot` read-only; read, hash and import `neptron.toml`; the diagnostics lines; the commented file in both images | `os/board/common/rootfs-overlay` (mount), `apps/neptron` (import module), `os/board/rpi` and `os/board/pc` (the file) | P04, P06 for the Pi keys | T2; boot check on aarch64 and x86\_64 | P08 |
-| P08 CI | Enable `rpi-arm64` in `.github/image-targets.json`, the upload, `docs/ci.md` | `.github/**`, `docs/ci.md` | P04, and the CI branch merged | The workflow on a branch | P07 |
-| P09 Bench session | The checklist above on the owner's Pi 3 B+ | `docs/hardware-checklist.md` (results) | P06 image built | The checklist | |
+| Task | Scope |
+| --- | --- |
+| P01 | This spec |
+| P02 TV standard contract | ADR 0012; `TvStandard`, the four modes, `MonitorKind::Tv`; the TV arm of `validate`, `ValidatedMode::tv_standard`, `Rejection::NotATvMode`; the `set_mode` doc; `FakeDisplay` |
+| P03 TV policy | `policy/tv.rs`, `PolicySettings::tv_width`, the width rule, `TV_SPEED_SILENT_PPM`, goldens |
+| P04 Pi board and image | `os/board/rpi`, the defconfig, the kernel pin and fragments, `config.txt`, `cmdline.txt`, `genimage.cfg`, `LICENCES.txt`, the no-15-kHz and silent-kernel checks, the `xtask` target `rpi-arm64` (build, dev variant, push), the checklist lines |
+| P05 KMS TV mode | The `TV mode` and margin properties in `set_mode`, `WireMode` with the standard, read back, `kms-check` cases |
+| P06 App and settings | `display.tv` and `display.tv_width`; the TV profile on a `tv_encoder` connector; the output rule and `COMPOSITE_FALLBACK_WAIT_NS`; the safe default; the status line; the Display panel rows; the `tv_encoder` quirk in the matrix; scene goldens |
+| P07 `neptron.toml` reader | The read-only mount of `/boot`; the read, hash and import of `neptron.toml`; the notices and log lines; the commented file in both images |
+| P08 CI | The `rpi-arm64` entry of `.github/image-targets.json`, the upload, `docs/ci.md` |
+| P09 Bench session | The checklist of section 6 on the owner's Pi 3; results in `docs/hardware-checklist.md` |
+| P10, P11 | The frame budget and the renderer on vc4: the programs by blending axes, one texel per pixel with the CPU expansion, the destination index from a varying, the window path in `gles_compare`, the texture that only grows, the audio frame after the present, the underrun count and `fields_missed`, the 1024-frame audio period, the `performance` governor |
+| P12 | A UI over a running game holds the field rate |
 
 **The first composite picture** (2026-11-14, a Pi 3 B on a Samsung tube, the development image of P04 with the frontend of P06 and later through `os push`): the picture locks in NTSC 240p, the menu is sharp, and the grid of the 240p test suite fills the tube with correct geometry; the game picture reaches the edges of the visible area. NES, SNES and Mega Drive games hold the field rate after P10 and P11. OP-102 and OP-103 hold the open points of these tests. P09 runs the rest of the checklist.
 
@@ -636,7 +637,7 @@ Each has a default that the build tasks took. The owner decided 1 (the default),
 ## 9. Gaps against other documents
 
 - The definition's output rule for a Pi needs the app: `choose` in `neptron-kms` never takes composite under `auto`, so the app falls back to the composite connector of a TV encoder (section 3, "The output rule").
-- `data/hardware/matrix.toml` gives `pi_vc4_composite` `flip_per_field = false`, and the policy does not read the field; the flip cadence of 480i on `vc4` is unknown (OP-030).
+- `data/hardware/matrix.toml` gives `pi_vc4_composite` `flip_per_field = false`, which the session reads to count missed fields; the flip cadence of 480i on `vc4` is unknown (OP-030).
 - Buildroot 2026.08.1 labels `rpi-firmware` as `BSD-3-Clause`. `LICENCE.broadcom` limits use to Raspberry Pi devices and forbids modification. `os/board/rpi/LICENCES.txt` gives the real terms.
 
 ## Sources
