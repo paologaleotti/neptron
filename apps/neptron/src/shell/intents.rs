@@ -424,6 +424,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 self.on_guard(step, now_ns);
                 let kept = self.guard.active().clone();
                 self.rewrite_global(&kept);
+                self.follow_stored_monitor();
                 self.reload_page();
             }
             Err(e) => self.log(format!("keep refused: {e}")),

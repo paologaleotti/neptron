@@ -67,6 +67,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 let changes = std::mem::take(&mut self.pending);
                 self.write_pending(changes);
                 self.snap.confirm = None;
+                self.follow_stored_monitor();
             }
             GuardEvent::Reverted {
                 reason,
@@ -105,16 +106,19 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         }
     }
 
-    /// Reads the display on the driven connector again, and gives the
-    /// guard the safe default of that display and of the stored
-    /// `display.monitor`. The run handles no hot plug, so the monitor on
-    /// the connector can differ from the one of the boot, and the safe
-    /// default of the boot can be unsafe for it.
+    /// Reads the display on the driven connector again, then decides the
+    /// safe default again ([`Self::follow_stored_monitor`]). The run
+    /// handles no hot plug, so the monitor on the connector can differ from
+    /// the one of the boot, and the safe default of the boot can be unsafe
+    /// for it.
     ///
-    /// This reads sysfs on the frame thread. The blind recovery is a rare
-    /// action of the user that sets a mode at once, which takes longer
-    /// than this read, and a read on another thread would come after that
-    /// mode.
+    /// This is an exception to the rule that the frame thread does no file
+    /// I/O. Its bound: one read of the small sysfs files of the DRM
+    /// connectors, only in the blind recovery. The recovery is a rare
+    /// action that the user holds for 5 s, and it must set a mode at once:
+    /// a read on another thread would come after that mode, and a second
+    /// thread in the safety path adds a way to fail. A read that fails
+    /// keeps the detection of the boot.
     fn detect_again(&mut self) {
         let Some(caps) = self.with_engine(|_, engine| *engine.display().caps()) else {
             return;
@@ -122,33 +126,49 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         // The safe default follows the stored setting, not a change that
         // waits for a Keep: the recovery ends that change.
         self.roll_back();
-        let mut detected = Detected::read(
-            &self.paths.sysfs,
-            &self.runtime.output,
-            self.runtime.subconnector.as_deref(),
-        )
-        .with_tv(self.runtime.tv_standards.clone());
-        detected.fit_to(&caps);
-        let safe = match detected.safe(&self.presets, &self.config.monitor()) {
-            Ok(safe) => safe,
-            Err(e) => {
-                self.log(format!("display: {e}; the safe default of the boot stays"));
-                return;
+        match neptron_platform::detect(&self.paths.sysfs) {
+            Ok(platform) => {
+                let mut detected = Detected::of(
+                    &platform,
+                    &self.runtime.output,
+                    self.runtime.subconnector.as_deref(),
+                )
+                .with_tv(self.runtime.tv_standards.clone());
+                detected.fit_to(&caps);
+                let identity = detected.identity();
+                if identity != self.here.monitor {
+                    self.log(format!(
+                        "display: the monitor on {} changed from {} to {identity}",
+                        self.runtime.output, self.here.monitor
+                    ));
+                    self.here.monitor = identity;
+                }
+                self.detected = detected;
             }
-        };
-        let identity = detected.identity();
-        if identity != self.here.monitor {
-            self.log(format!(
-                "display: the monitor on {} changed from {} to {identity}; the safe default is {}",
-                self.runtime.output,
-                self.here.monitor,
-                safe.monitor.profile().id
-            ));
-            self.here.monitor = identity;
+            Err(e) => self.log(format!(
+                "display: cannot read the display again ({e}); the detection of the boot stays"
+            )),
         }
-        self.detected = detected;
-        self.safe = safe.clone();
-        self.guard.set_safe(safe);
+        self.follow_stored_monitor();
+    }
+
+    /// Decides the safe default again from the detection and the stored
+    /// `display.monitor`, and gives it to the guard: after a kept change of
+    /// the monitor, and at the blind recovery. It reads no file.
+    pub(super) fn follow_stored_monitor(&mut self) {
+        match self.detected.safe(&self.presets, &self.config.monitor()) {
+            Ok(safe) => {
+                if safe != self.safe {
+                    self.log(format!(
+                        "display: the safe default is now {}",
+                        safe.monitor.profile().id
+                    ));
+                }
+                self.safe = safe.clone();
+                self.guard.set_safe(safe);
+            }
+            Err(e) => self.log(format!("display: {e}; the safe default stays")),
+        }
     }
 
     /// Puts the safe default on the engine for this run, with `notice`.

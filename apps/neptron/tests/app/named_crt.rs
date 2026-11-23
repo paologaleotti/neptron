@@ -268,3 +268,58 @@ fn the_blind_recovery_stays_inside_the_named_preset() {
         },
     );
 }
+
+/// A 15 kHz CRT behind an EDID dongle that shows a PC EDID, booted with
+/// `auto`: the safe default of the run is the EDID profile. The user keeps
+/// `arcade_15` in the run. From the Keep on, the safe default comes from
+/// the kept preset, so a later safe state of the run (a confirmed
+/// configuration with no picture) sends no mode of the EDID profile.
+/// `Guard::set_safe` gives the guard the new one
+/// (`no_valid_mode_uses_the_safe_default_given_last` in `neptron-video`).
+#[test]
+#[ignore = "tier 2"]
+fn a_kept_preset_bounds_the_safe_default_of_the_run() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "a_kept_preset_bounds_the_safe_default_of_the_run",
+        ),
+        |dir| {
+            let mut rig = Rig::new(dir);
+            rig.output = "VGA-1".to_owned();
+            sysfs_with_vga(&rig.paths.sysfs, CRT_ANALOG);
+            rig.boot(None);
+            rig.frames(2);
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            assert_eq!(
+                rig.shell().guard().safe().monitor.profile().id,
+                "edid_npt_0071"
+            );
+            rig.scanned();
+            while rig.screen() == "notice" {
+                rig.tap(&[Control::A]);
+            }
+            rig.focus("Settings");
+            rig.tap(&[Control::A]);
+            rig.focus("Display");
+            rig.tap(&[Control::A]);
+            rig.focus("Monitor profile");
+            rig.tap(&[Control::A]);
+            rig.focus("arcade_15");
+            let from = rig.display.mode_calls().len();
+            rig.tap(&[Control::A]);
+            rig.keep();
+            assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);
+            assert_eq!(rig.shell().config().text("display.monitor"), "arcade_15");
+            assert_eq!(
+                rig.shell().guard().safe().monitor.profile().id,
+                "generic_15",
+                "the kept preset bounds the safe default"
+            );
+            let kept = rig.display.mode_calls()[from..].to_vec();
+            assert!(!kept.is_empty(), "the change sets a mode");
+            assert_valid(&rig, &kept, "arcade_15");
+            rig.finish();
+        },
+    );
+}

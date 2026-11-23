@@ -6,7 +6,9 @@
 //! work with no picture, so no scenario reads the screen first.
 
 use neptron_testkit::ModeFault;
-use neptron_video::{GuardEvent, GuardRecord, MODESET_ATTEMPTS, Phase, SafeReason};
+use neptron_video::{
+    GuardEvent, GuardRecord, MODESET_ATTEMPTS, NO_PICTURE_LIMIT_NS, Phase, SafeReason,
+};
 
 use crate::guard_rig::{FRAME_NS, GuardRig, config, confirmed, crt_15, crt_31, dead_edid, mode_of};
 
@@ -290,5 +292,18 @@ fn a_revert_to_the_safe_default_uses_the_one_given_last() {
     rig.run_past_deadline();
     assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::NothingConfirmed));
     rig.frame();
+    assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
+}
+
+/// A confirmed configuration with no picture gives way to the safe default
+/// given last, not to the one of the boot: the app gives a new one after a
+/// kept change of the monitor.
+#[test]
+fn no_valid_mode_uses_the_safe_default_given_last() {
+    let mut rig = GuardRig::boot(confirmed(dead_edid()), config(dead_edid()), crt_31());
+    assert_eq!(rig.guard.phase(), Phase::Confirmed);
+    rig.guard.set_safe(crt_15());
+    rig.run_for(NO_PICTURE_LIMIT_NS + 2 * FRAME_NS);
+    assert_eq!(rig.guard.phase(), Phase::Safe(SafeReason::NoValidMode));
     assert_eq!(rig.wire(), Some(mode_of(&crt_15())));
 }
