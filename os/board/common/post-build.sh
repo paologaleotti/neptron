@@ -41,6 +41,12 @@
 # check-gamecontrollerdb.sh fails it when the configuration enables the
 # community gamepad database and the image has no database file.
 #
+# The skeleton fstab mounts /run as tmpfs with no size, so it could take
+# half of the memory. /run holds small files only: the status files of
+# NEPTRON, the control socket, and the lock and pid files of the daemons.
+# The /run line gets the size RUN_SIZE_MIB; the build fails when the
+# image has no such line.
+#
 # S05neptron-mounts mounts the 9p share of the QEMU checks at /mnt/host.
 # The root of the PC and Pi images is read-only EROFS, so the mount point
 # must be in the image.
@@ -48,6 +54,7 @@
 set -eu
 
 target=$1
+RUN_SIZE_MIB=8
 
 "$(dirname "$0")/check-arcade-index.sh" "$target"
 "$(dirname "$0")/check-gamecontrollerdb.sh" "$BR2_CONFIG" "$target"
@@ -73,6 +80,31 @@ for path in etc/init.d/S45neptron-share etc/ksmbd/ksmbd.conf etc/ksmbd/ksmbd.sub
 	fi
 done
 "$(dirname "$0")/check-share-filter.sh" "$target"
+
+fstab=$target/etc/fstab
+if [ ! -f "$fstab" ]; then
+	echo "post-build: the image has no /etc/fstab to give /run a size" >&2
+	exit 1
+fi
+awk -v size="size=${RUN_SIZE_MIB}m" '
+	$2 == "/run" && $3 == "tmpfs" {
+		n = split($4, options, ",")
+		$4 = ""
+		for (i = 1; i <= n; i++)
+			if (options[i] !~ /^size=/)
+				$4 = $4 (($4 == "") ? "" : ",") options[i]
+		$4 = $4 (($4 == "") ? "" : ",") size
+	}
+	{ print }
+' "$fstab" > "$fstab.new"
+mv "$fstab.new" "$fstab"
+if ! awk -v size="size=${RUN_SIZE_MIB}m" '
+	$2 == "/run" && $3 == "tmpfs" && ("," $4 ",") ~ ("," size ",") { found = 1 }
+	END { exit !found }
+' "$fstab"; then
+	echo "post-build: /etc/fstab of the image mounts no /run tmpfs with size=${RUN_SIZE_MIB}m" >&2
+	exit 1
+fi
 
 mdev_conf=$target/etc/mdev.conf
 mdev_rule='SUBSYSTEM=net;(eth|en).*	root:root 600 */usr/libexec/neptron/net-hotplug'

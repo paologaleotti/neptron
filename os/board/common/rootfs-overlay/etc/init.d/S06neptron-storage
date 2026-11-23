@@ -47,7 +47,14 @@ mkdir -p "$STATE" "$SHARE" 2>/dev/null
 # Nothing on the share runs as a program.
 SHARE_OWNER=65534
 SHARE_MOUNT_OPTIONS="noatime,iocharset=utf8,uid=$SHARE_OWNER,gid=$SHARE_OWNER,dmask=0022,fmask=0133,nosuid,nodev,noexec"
-SHARE_RAM_OPTIONS="mode=0755,uid=$SHARE_OWNER,gid=$SHARE_OWNER,nosuid,nodev,noexec"
+# The RAM share holds what a client copies over SMB, in memory that the
+# kernel cannot reclaim. With no size, tmpfs takes up to half of the
+# memory: about 450 MB of the 1 GB of a Raspberry Pi 3, which the frontend,
+# a core and the GPU buffers of vc4 need. 64 MiB holds many cartridge
+# games. When it is full, a write gets ENOSPC, which ksmbd sends as
+# STATUS_DISK_FULL: the client reports a full disk, and nothing is killed.
+SHARE_RAM_SIZE_MIB=64
+SHARE_RAM_OPTIONS="mode=0755,size=${SHARE_RAM_SIZE_MIB}m,uid=$SHARE_OWNER,gid=$SHARE_OWNER,nosuid,nodev,noexec"
 
 # Every flag that the script reads is set here first: a variable of init
 # with the same name must not change a decision.

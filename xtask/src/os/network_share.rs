@@ -277,6 +277,12 @@ fn the_share_partition_belongs_to_the_guest_and_runs_nothing() {
     for option in ["iocharset=utf8", "dmask=0022", "fmask=0133"] {
         assert!(partition.iter().any(|o| o == option), "{option}");
     }
+    // A client fills a RAM share with no size up to half of the memory.
+    assert_eq!(value("SHARE_RAM_SIZE_MIB"), "64");
+    assert!(
+        ram.iter().any(|o| o == "size=${SHARE_RAM_SIZE_MIB}m"),
+        "{ram:?}"
+    );
     assert!(storage.contains("mount -t exfat -o \"$SHARE_MOUNT_OPTIONS\" \"$share\" \"$SHARE\""));
     assert!(storage.contains("[ \"$1\" = share ] && options=$SHARE_RAM_OPTIONS"));
     assert!(storage.contains("chown -R \"$SHARE_OWNER:$SHARE_OWNER\" \"$SHARE\""));
@@ -929,6 +935,7 @@ fn post_build(dir: &TempDir, interfaces: &str, read_only: bool) -> (bool, String
     std::fs::create_dir_all(target.join("usr/sbin")).unwrap();
     std::fs::write(target.join("usr/sbin/iptables-legacy-restore"), "").unwrap();
     std::fs::write(target.join("etc/mdev.conf"), MDEV_CONF).unwrap();
+    std::fs::write(target.join("etc/fstab"), SKELETON_FSTAB).unwrap();
     udhcpc_files(&target);
     let file = target.join("etc/network/interfaces");
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
@@ -1030,6 +1037,87 @@ fn the_post_build_checks_the_udhcpc_hook_and_removes_the_old_address_script() {
     assert!(!out.status.success());
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("no /usr/bin/flock"),
+        "{out:?}"
+    );
+}
+
+/// The fstab of Buildroot's skeleton-init-sysv: /run and /tmp are tmpfs
+/// with no size.
+const SKELETON_FSTAB: &str = "# <file system>\t<mount pt>\t<type>\t<options>\t<dump>\t<pass>\n\
+    /dev/root\t/\t\text2\trw,noauto\t0\t1\n\
+    proc\t\t/proc\t\tproc\tdefaults\t0\t0\n\
+    devpts\t\t/dev/pts\tdevpts\tdefaults,gid=5,mode=620,ptmxmode=0666\t0\t0\n\
+    tmpfs\t\t/dev/shm\ttmpfs\tmode=0777\t0\t0\n\
+    tmpfs\t\t/tmp\t\ttmpfs\tmode=1777\t0\t0\n\
+    tmpfs\t\t/run\t\ttmpfs\tmode=0755,nosuid,nodev\t0\t0\n\
+    sysfs\t\t/sys\t\tsysfs\tdefaults\t0\t0\n";
+
+/// The fields of the fstab line of `mount_point`.
+fn fstab_line(fstab: &str, mount_point: &str) -> Vec<String> {
+    fstab
+        .lines()
+        .map(|l| l.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
+        .find(|f| f.get(1).map(String::as_str) == Some(mount_point))
+        .unwrap_or_else(|| panic!("no {mount_point} in {fstab}"))
+}
+
+/// /run is tmpfs with no size in the skeleton, so it could take half of
+/// the memory. The post-build step gives it a size, once, and keeps the
+/// other options and lines.
+#[test]
+fn the_post_build_gives_run_a_size() {
+    let dir = TempDir::create("post-build-run");
+    let (ok, err, _) = post_build(&dir, "auto lo\niface lo inet loopback\n", false);
+    assert!(ok, "{err}");
+    let path = dir.path("target").join("etc/fstab");
+    let fstab = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        fstab_line(&fstab, "/run"),
+        [
+            "tmpfs",
+            "/run",
+            "tmpfs",
+            "mode=0755,nosuid,nodev,size=8m",
+            "0",
+            "0"
+        ],
+        "{fstab}"
+    );
+    for (point, options) in [("/tmp", "mode=1777"), ("/dev/shm", "mode=0777")] {
+        assert_eq!(fstab_line(&fstab, point)[3], options, "{fstab}");
+    }
+    assert_eq!(fstab.lines().count(), SKELETON_FSTAB.lines().count());
+    let again = run_post_build(&dir);
+    assert!(again.status.success(), "{again:?}");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        fstab,
+        "a second run changes nothing"
+    );
+    std::fs::write(
+        &path,
+        SKELETON_FSTAB.replace("mode=0755,nosuid,nodev", "size=50%,mode=0755"),
+    )
+    .unwrap();
+    assert!(run_post_build(&dir).status.success());
+    let fstab = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        fstab_line(&fstab, "/run")[3],
+        "mode=0755,size=8m",
+        "{fstab}"
+    );
+    std::fs::write(&path, SKELETON_FSTAB.replace("/run", "/srv")).unwrap();
+    let out = run_post_build(&dir);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("no /run tmpfs with size=8m"),
+        "{out:?}"
+    );
+    std::fs::remove_file(&path).unwrap();
+    let out = run_post_build(&dir);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("no /etc/fstab"),
         "{out:?}"
     );
 }
