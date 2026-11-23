@@ -648,7 +648,7 @@ What the game gets (`PadMask` in `neptron-session`), on each port of the core:
 - A late press lasts at most `LATE_PRESS_MAX_FRAMES` (30) core frames, about the 0.5 s of the hold at 60 Hz. A combination that cannot open the menu (Select joins a press of Start whose Start hold fired) can be held back for seconds, and a replay of seconds would be a press that the player did not make. A press held back for longer replays for 30 frames.
 - Only frames in which the core runs count, for the time held back and for the late press. So a late press does not run out while the core is paused or the output is off.
 - A short tap of Select and Start reaches the game, as on the original hardware, so a game's own Select and Start combination (for example a soft reset with other buttons) works with a tap; only a hold of 0.5 s opens the menu.
-- When the quick menu opens, the held-back press is dropped: it was for the menu. When the menu closes, every button still down stays up for the core until its release. So the menu leaves no stuck press and no phantom press in the game.
+- When the quick menu opens, the held-back press is dropped: it was for the menu. When the menu closes, every button still down stays up for the core until its release. So the menu leaves no stuck press and no phantom press in the game. The menu side is the same: when the quick menu opens, the app calls `Navigator::hold_back`, so a direction held in the game (a crouch on the lever) gives no action and no repeat in the menu until its release. Without it the repeat runs the cursor down to `Quit game`.
 
 ## 14. Save files
 

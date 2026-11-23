@@ -73,3 +73,30 @@ fn the_menu_hotkey_under_a_confirm_dialog_opens_the_quick_menu_after_it() {
         },
     );
 }
+
+#[test]
+#[ignore = "tier 2"]
+fn a_direction_held_across_the_menu_hotkey_does_not_move_the_quick_menu() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "a_direction_held_across_the_menu_hotkey_does_not_move_the_quick_menu",
+        ),
+        |dir| {
+            let mut rig = in_game(dir);
+            rig.hold(&[Control::Down]);
+            rig.frames(40);
+            rig.open_menu();
+            assert_eq!(rig.screen(), "quick-menu");
+            let first = rig.focused();
+            assert_eq!(first.as_deref(), Some("Resume"));
+            rig.frames(60);
+            assert_eq!(rig.focused(), first, "the held Down does not repeat");
+            rig.release(&[Control::Down]);
+            rig.frames(2);
+            rig.tap(&[Control::Down]);
+            assert_ne!(rig.focused(), first, "a new press moves");
+            rig.finish();
+        },
+    );
+}

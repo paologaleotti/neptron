@@ -158,6 +158,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         // close.
         if self.snap.confirm.is_none() && std::mem::take(&mut self.menu_hotkey) {
             self.actions.push(UiAction::Menu);
+            // A direction held in the game would repeat in the menu and
+            // can reach `Quit game`, which quits with no question.
+            self.nav.hold_back();
         }
         if let Stage::Game(game) = &self.stage {
             let start = self.actions.len();
