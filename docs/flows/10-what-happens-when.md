@@ -93,7 +93,7 @@ The confirm dialog that the rows below call "the boot prompt" or "the confirm di
 
 The other pages list the differences in full. The ones that change the answer on this page:
 
-1. `05-crt-safety-model.md`, "First boot when the display is unknown": no blind probe and no `neptron.toml` exist. With no EDID, `auto` gives `generic_15`, and a VGA connector with no EDID is not used at all unless `display.output` names it.
+1. `05-crt-safety-model.md`, "First boot when the display is unknown": no blind probe exists. `neptron.toml` is imported into `global.toml` when it changed, before the backend reads a setting. With no EDID, `auto` gives `generic_15`, and a VGA connector with no EDID is not used at all unless `display.output` names it.
 2. `05-crt-safety-model.md`, layer 6: the recovery tone plays in the game list and in a game. The quick menu opens after 0.5 s of Select and Start, so in a game the recovery hold opens it first.
 3. `05-crt-safety-model.md`, layer 7, and `14-risks-and-open-questions.md`: a crash does not re-apply the last validated mode. The new frontend decides again from its first frame, and the start counts as a new boot.
 4. `06-flat-panels-shaders-and-vertical-games.md`: rotated (vertical) games get no mode. The engine refuses every rotated source.

@@ -14,7 +14,8 @@ flowchart TD
     K -->|"root PARTUUID signature-02, EROFS read-only"| INIT["BusyBox init<br/>sysinit lines of inittab"]
     INIT -->|"rcS, in name order"| S05["S05neptron-mounts<br/>debugfs, 9p host folder"]
     S05 --> S06["S06neptron-storage<br/>/state and /share"]
-    S06 --> S07["S07neptron-qemu<br/>QEMU run only"]
+    S06 --> S07B["S07neptron-boot<br/>/boot read-only"]
+    S07B --> S07["S07neptron-qemu<br/>QEMU run only"]
     S07 -->|"other S scripts"| S99["S99neptron-run<br/>QEMU command only"]
     S99 -->|"rcS done"| LS["launch script<br/>respawn entry"]
     LS -->|"no /run/neptron/hold"| NL["neptron-launch<br/>opens /dev/dri/card0"]
@@ -216,7 +217,7 @@ The script writes one line for each decision to the console (`ttyS0`) and to sys
 | Kernel | Reboot | Kernel panic | `panic=10` (10 s) | |
 | Kernel | BusyBox init | Root mounted read-only | | Root filesystem EROFS, never written |
 | init | rcS | After the sysinit lines: mount `/proc`, `mount -a`, hostname | | |
-| rcS | Launch script | All `S??*` scripts have run in name order | | `S05neptron-mounts`, `S06neptron-storage`, `S07neptron-qemu`, `S08neptron-mixer` (PC and Pi), `S40neptron-network` (DHCP, background), `S45neptron-share` (SMB and mDNS, background), Buildroot's own scripts, then `S99neptron-run`. The development image adds `S49neptron-ssh-keys`. `S40neptron-network` writes `/run/neptron/network.toml` at boot; the hook of `udhcpc` writes it again at each lease event |
+| rcS | Launch script | All `S??*` scripts have run in name order | | `S05neptron-mounts`, `S06neptron-storage`, `S07neptron-boot` (partition 1 read-only at `/boot`), `S07neptron-qemu`, `S08neptron-mixer` (PC and Pi), `S40neptron-network` (DHCP, background), `S45neptron-share` (SMB and mDNS, background), Buildroot's own scripts, then `S99neptron-run`. The development image adds `S49neptron-ssh-keys`. `S40neptron-network` writes `/run/neptron/network.toml` at boot; the hook of `udhcpc` writes it again at each lease event |
 | Launch script | `neptron-launch` | `/run/neptron/hold` does not exist (checked each second) | | Release: sources `mesa-cache` (the Mesa shader cache on `/state/cache/mesa`, off when `/state` is not a read-write ext4 mount), then `exec /usr/bin/neptron-launch --power -- /usr/bin/neptron --backend kms`. Development: the hot folder binaries when present, output to `svlogd` |
 
 The disk signature is fixed for each build variant: `4e505452` (release), `4e505444` (development), `4e50544e` (release with no 15 kHz patches), `4e505445` (development with no 15 kHz patches). The root partition is `<signature>-02`.
@@ -326,7 +327,7 @@ The frontend's quit writes the game's save RAM (`Session::quit`) and the writer 
 - [post-build.sh](../../os/board/pc/post-build.sh): the release checks, the development SSH key.
 - [video.config](../../os/board/pc/video.config), [console.config](../../os/board/pc/console.config), [check-kernel-config.sh](../../os/board/pc/check-kernel-config.sh): the silent kernel.
 - [inittab](../../os/board/pc/rootfs-overlay/etc/inittab): sysinit, the `respawn` launcher, the shutdown entries.
-- [S05neptron-mounts](../../os/board/common/rootfs-overlay/etc/init.d/S05neptron-mounts), [S06neptron-storage](../../os/board/common/rootfs-overlay/etc/init.d/S06neptron-storage) (`partition`, `signature`, `format_refusal`, `old_share`, `make_partition`, `prepare_share`), [S07neptron-qemu](../../os/board/pc/rootfs-overlay/etc/init.d/S07neptron-qemu), [S99neptron-run](../../os/board/common/rootfs-overlay/etc/init.d/S99neptron-run).
+- [S05neptron-mounts](../../os/board/common/rootfs-overlay/etc/init.d/S05neptron-mounts), [S06neptron-storage](../../os/board/common/rootfs-overlay/etc/init.d/S06neptron-storage) (`partition`, `signature`, `format_refusal`, `old_share`, `make_partition`, `prepare_share`), [S07neptron-boot](../../os/board/common/rootfs-overlay/etc/init.d/S07neptron-boot), [S07neptron-qemu](../../os/board/pc/rootfs-overlay/etc/init.d/S07neptron-qemu), [S99neptron-run](../../os/board/common/rootfs-overlay/etc/init.d/S99neptron-run).
 - [launch](../../os/board/common/rootfs-overlay/usr/libexec/neptron/launch), [launch (development)](../../os/board/pc/dev-overlay/usr/libexec/neptron/launch), [stop](../../os/board/common/rootfs-overlay/usr/libexec/neptron/stop), [host-run](../../os/board/common/rootfs-overlay/usr/libexec/neptron/host-run).
 - [main.rs](../../apps/neptron-launch/src/main.rs): `main`, `Process::run`.
 - [backoff.rs](../../apps/neptron-launch/src/backoff.rs): `Exit::of_code`, `Backoff::after`, `Backoff::relaunch_fits`.
@@ -342,7 +343,7 @@ The frontend's quit writes the game's save RAM (`Session::quit`) and the writer 
 1. `05-crt-safety-model.md`, "Shortening the 31 kHz window on x86": the launcher blanks the analog output as its first action, on by default. Code: the launcher sets no mode and makes no commit. Its README says this is not done in the MVP.
 2. `05-crt-safety-model.md`, layer 7 "Supervisor": the init system restarts the frontend on a crash. Code: init restarts the launcher; the launcher restarts the frontend, with a backoff of 250 ms to 8 s.
 3. `10-os-layer.md`, "Boot path", step 3: init starts the launcher first, and the other services start afterwards in the background. Code: init runs every `rcS` script to its end before it starts the launcher. This includes `e2fsck`, the first-boot partition and format, the start of DHCP and of the network share (both in the background), and on the development image the SSH key script.
-4. `10-os-layer.md`, "Disk layout": a FAT32 boot partition with `neptron.toml`, and root A and root B. Code: one FAT boot partition (64 MiB, label `NEPTRONBOOT`) with GRUB, the kernel and the licences, and one root partition (EROFS, 384 MiB). No code reads `neptron.toml`. There is no root B.
+4. `10-os-layer.md`, "Disk layout": a FAT32 boot partition with `neptron.toml`, and root A and root B. Code: one FAT boot partition (64 MiB, label `NEPTRONBOOT`) with GRUB, the kernel and the licences, and one root partition (EROFS, 384 MiB). `S07neptron-boot` mounts the boot partition read-only at `/boot`, and the frontend imports `neptron.toml` at each start (P07). There is no root B.
 5. `10-os-layer.md`, "Configuration": the GRUB configuration is written from the settings. Code: `grub.cfg` is fixed. `post-image.sh` puts in only the disk signature, at build time.
 6. `10-os-layer.md`, "Updates": A/B updates with RAUC. Code: none.
 7. `10-os-layer.md`, "Footprint": BusyBox provides a debug shell. Code: the PC image has no getty and no shell on any console. Only the aarch64 QEMU test image has one.
@@ -350,4 +351,4 @@ The frontend's quit writes the game's save RAM (`Session::quit`) and the writer 
 9. `10-os-layer.md`, "Network services": SMB and SSH on by default with a default password. Code: every image has DHCP on each wired port and the SMB share of `/share` (`ksmbd`, `mdnsd`, name `neptron.local`), with a guest and one published account, off when `/state/network-share-off` exists. The development image adds SSH with one public key and no password (`DROPBEAR_ARGS="-s"`).
 10. `10-os-layer.md`, "Folder layout": the first boot makes an empty folder for every system. Code: `S06neptron-storage` makes them at every boot, also on a RAM folder, and also makes `bios/`.
 11. `12-technology-choices.md`, "Logging": `tracing` into a RAM ring buffer, no constant writes to the card. Code: the frontend and the launcher write lines to standard error. On the release image that is the console, `ttyS0`, and nothing is kept. On the development image `svlogd` keeps it in `/state/log/neptron` on the state partition.
-12. `05-crt-safety-model.md`, "Unknown monitor on first boot" and `neptron.toml`: a file on the boot partition can preset the profile before the first boot. Code: no code reads `neptron.toml`.
+12. `05-crt-safety-model.md`, "Unknown monitor on first boot" and `neptron.toml`: a file on the boot partition can preset the profile before the first boot. Code: the frontend imports `neptron.toml` into `global.toml` when the file has changed (`boot_file.rs`). The values are settings: the display follows them through the monitor checks, the guard and the validator. There is no blind probe.

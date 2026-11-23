@@ -39,7 +39,7 @@ The file `drivers/gpu/drm/vc4/vc4_vec.c` is the same in the Pi fork 6.12 and the
 6. The policy has a small planner for a TV profile: progressive 240p or 288p for every game up to 240 or 288 lines (centred with black lines, or with the existing crop of at most 8 lines per edge), interlaced 480i or 576i for taller games, and the filtered fit last. The game runs at the encoder's field rate, and the audio run rate is the field rate that the driver reads back. A difference up to 5000 ppm gives no alert; a larger one shows the speed alert, as on a flat panel.
 7. Horizontally every mode has 720 samples at 13.5 MHz. The game gets the width of its display aspect (640 samples for a 256-wide or 320-wide console), snapped to a whole or half factor of its width when one is within 3 %, with nearest at a whole factor and the existing sharp bilinear filter otherwise. No line is ever scaled vertically.
 8. The settings are `display.tv` (the standard, default NTSC) and `display.tv_width` (`aspect`, `integer`, `fill`). Monochrome (colour burst off) is one of the standards: it gives the sharpest luma.
-9. The output rule: an HDMI display that answers wins; with none, the composite connector is used; a name in `display.output` wins over both (`neptron.toml` sets it after P07). The first run of a boot chooses the output, and every relaunch of that boot keeps it (`run/output`). On a Pi 3 the two outputs share one pixel valve, so only one is driven at a time.
+9. The output rule: an HDMI display that answers wins; with none, the composite connector is used; a name in `display.output` wins over both (or `neptron.toml`). The first run of a boot chooses the output, and every relaunch of that boot keeps it (`run/output`). On a Pi 3 the two outputs share one pixel valve, so only one is driven at a time.
 10. The SD card has the PC layout: FAT32 boot (firmware, kernel, `config.txt`, `neptron.toml`), EROFS root, ext4 state, and the exFAT share that the first boot makes as `mmcblk0p4` with the same storage script.
 11. CI builds the image without QEMU checks and uploads it (task P08, not built). The aarch64 QEMU image keeps testing the frontend. The hardware checklist holds the checks of the board.
 
@@ -293,7 +293,7 @@ The Switchres wrapper and every CRT and panel path of the policy, every golden o
 
 The definition: "a Pi uses HDMI when a display is detected there and composite otherwise" (`05-crt-safety-model.md`). `choose` in `neptron-kms` never takes an analog connector without EDID unless it is named, and composite reports nothing (`crates/neptron-kms/src/connector.rs`). So the app holds the Pi rule (`apps/neptron/src/display_wait.rs` and `boot_output.rs`, where the platform and the matrix are known), with `choose` unchanged:
 
-1. `display.output` names a connector (in `global.toml`, or in `neptron.toml` through its import after P07): that connector. `Composite-1` gives composite also with an HDMI display connected.
+1. `display.output` names a connector (in `global.toml`, or in `neptron.toml` through its import): that connector. `Composite-1` gives composite also with an HDMI display connected.
 2. `auto`: `choose`. An HDMI display that reports its EDID is a candidate, so HDMI wins, through the flat-panel path.
 3. `auto` and `choose` finds no candidate, and a `Composite` connector exists whose GPU entry has the `tv_encoder` quirk: the app opens that connector by name.
 4. The display wait: with `auto`, the app waits for an HDMI display at most `COMPOSITE_FALLBACK_WAIT_NS` (3 s as a first value), not the full `DISPLAY_WAIT_MAX_NS` (15 s), before it takes composite. The value is UNVERIFIED: the time `vc4` needs to report a connected HDMI display after the driver loads is a hardware check.
@@ -519,21 +519,23 @@ The definition gives 3 s from kernel start to the first UI frame for the Pi 4 an
 
 ### `neptron.toml` on the boot partition
 
-The definition describes the file and its keys (`05-crt-safety-model.md`, `10-os-layer.md`). No code reads it (task P07, not built; `docs/flows/01-power-on.md`). The Pi image needs it, because it is how a user picks composite with an HDMI display connected, or PAL, before the first boot. This section is the design for P07.
+The definition describes the file and its keys (`05-crt-safety-model.md`, `10-os-layer.md`). The Pi image needs it, because it is how a user picks composite with an HDMI display connected, or PAL, before the first boot. P07 built it: `S07neptron-boot` mounts the partition, `apps/neptron/src/boot_file.rs` imports the file, and `apps/neptron/src/prestart.rs` runs the import before the backend reads a setting (`apps/neptron/README.md`, "Boot, before the first frame"), and both images ship the file (`os/board/rpi/neptron.toml`, `os/board/pc/neptron.toml`).
 
 - **Place.** `/neptron.toml` at the root of the FAT32 boot partition. On the Pi the firmware's files are beside it.
-- **Mount.** The init scripts mount the boot partition read-only at `/boot` before the launcher starts. A read-write remount is only for the later writes (the Wi-Fi blanking of the definition).
-- **When it is read.** At each start of the frontend. When its SHA-256 differs from the one stored on the state partition, its values are copied into `config/global.toml` once, through `Storage::apply` (`crates/neptron-settings/README.md`), and the new hash is stored. Otherwise the menus' settings stand. This is the definition's rule.
-- **Format.** The keys of `global.toml`. For the Pi: `display.output`, `display.tv`, `display.tv_width`, `display.pi_dac`. A key the schema does not know is ignored and listed on the diagnostics page with its line. The image ships a commented file:
+- **Mount.** The init scripts mount the boot partition read-only at `/boot` before the launcher starts. A read-write remount is only for the later writes (the Wi-Fi blanking of the definition, not built).
+- **When it is read.** At each start of the frontend, before the backend reads a setting, so the first start after a change already opens the output that the file names. When its SHA-256 differs from the one stored on the state partition, its values are copied into `config/global.toml` once, through `Storage::apply` (`crates/neptron-settings/README.md`), and the new hash is stored. Otherwise the menus' settings stand. This is the definition's rule.
+- **Format.** The keys of `global.toml`. For the Pi: `display.output`, `display.tv`, `display.tv_width`, `display.pi_dac`. A key the schema does not know is ignored and listed with its line, as is a value the schema refuses. There is no diagnostics page yet, so the list is notices at a new boot and log lines. A file that cannot be read or parsed changes nothing, keeps the stored hash, and is listed at each new boot until it is fixed. The hash is in `/state/neptron.toml.sha256`. The image ships a file with every key commented out, so a new image copies nothing: only a line that the user uncomments is copied. The Pi file:
 
 ```toml
 # NEPTRON first-boot settings. This partition is FAT32: edit it on any PC.
-# A value here is copied into the settings once, when this file changes.
+# Remove the # at the start of a line and set its value. A value here is
+# copied into the settings once, when this file changes.
 
 [display]
-output = "auto"     # auto | HDMI-A-1 | Composite-1
-tv     = "auto"     # auto (NTSC) | ntsc | ntsc_j | ntsc_443 | pal_60 | pal_m | pal | pal_n | secam | mono_60 | mono_50
-pi_dac = "none"     # none. GPIO DACs are not supported by this image.
+# output   = "auto"     # auto | HDMI-A-1 | Composite-1
+# tv       = "auto"     # auto (NTSC) | ntsc | ntsc_j | ntsc_443 | pal_60 | pal_m | pal | pal_n | secam | mono_60 | mono_50
+# tv_width = "aspect"   # aspect | integer | fill
+# pi_dac   = "none"     # none. GPIO DACs are not supported by this image.
 ```
 
 - **The GPIO DAC stays off.** The first image has no DAC overlay in `config.txt` and installs none of the DPI overlays (the overlay list holds `vc4-kms-v3d` and nothing for DPI). So GPIO pins are never driven as a video bus, whatever the file says. A `pi_dac` value other than `none` gives a notice: "GPIO DACs are not supported by this image; the value is ignored". When DACs come, the rule of the definition holds: a DAC is used only when the file or a setting names it, NEPTRON then writes its overlay line into an included file and reboots once, and it is never tried automatically.
@@ -634,7 +636,6 @@ Each has a default that the build tasks took. The owner decided 1 (the default),
 ## 9. Gaps against other documents
 
 - The definition's output rule for a Pi needs the app: `choose` in `neptron-kms` never takes composite under `auto`, so the app falls back to the composite connector of a TV encoder (section 3, "The output rule").
-- No code reads `neptron.toml` (P07).
 - `data/hardware/matrix.toml` gives `pi_vc4_composite` `flip_per_field = false`, and the policy does not read the field; the flip cadence of 480i on `vc4` is unknown (OP-030).
 - Buildroot 2026.08.1 labels `rpi-firmware` as `BSD-3-Clause`. `LICENCE.broadcom` limits use to Raspberry Pi devices and forbids modification. `os/board/rpi/LICENCES.txt` gives the real terms.
 

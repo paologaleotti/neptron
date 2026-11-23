@@ -892,6 +892,18 @@ Each check is `needs-hardware`. The setup: the Pi 3 with the development image, 
   - Expect: `frames_presented` per second is the field rate over the overrun, not half of it; `frames_presented` plus `fields_missed` per second is the field rate; `frames_dropped` does not change; `audio_underruns` grows by at most 1; the sound slows with the game and does not crackle. A game below half speed plays no sound. The loop uses no code for vc4.
   - Record: the counters, the game, and what the sound is like.
 
+### `neptron.toml` on the boot partition (P07)
+
+Each check is `needs-hardware`. The setup: a Pi 3 with an image built after P07, a 15 kHz TV on composite, a PC that reads FAT32 cards, and SSH for the log.
+
+- [ ] Do: boot a new image once with the file unchanged. Expect: `/state/config/global.toml` gets no `[display]` value from the file; the log says `neptron.toml has changed: no setting to copy`. Record: the log line.
+- [ ] Do: write the image to the SD card. On the PC, open `neptron.toml` at the root of the `NEPTRONBOOT` partition, uncomment the `tv` line and set it to `"pal"`, save, and eject the card. Boot the Pi. Expect: the first picture is PAL 288p, with no prompt and no notice; `/state/config/global.toml` holds `tv = "pal"`; `mount` shows `/dev/mmcblk0p1 on /boot type vfat (ro,...)`. Record: the log lines that start with `neptron: neptron.toml` and the `mount` line.
+- [ ] Do: in Settings, Display, set the TV standard to NTSC and keep it, then reboot. Expect: NTSC stays; the log says `neptron.toml has not changed since its import`. Record: the log line.
+- [ ] Do: on the PC, add `wifi = "home"` under `[display]`, uncomment the `pi_dac` line and set it to `"vga666"`, boot. Expect: two notices, one that names `display.wifi` with its line and one with "GPIO DACs are not supported by this image; the value is ignored"; no GPIO pin is driven. Record: the notices.
+- [ ] Do: on the PC, remove the `]` of `[display]`, boot twice. Expect: at each boot a notice "neptron.toml does not parse (...). No setting changes.", and the settings stay as they were. Record: the notice.
+- [ ] Do: with an HDMI display connected, uncomment the `output` line in the file on the PC, set it to `"Composite-1"`, and boot. Expect: the first boot after the edit already drives composite, and the HDMI display gets no signal. Record: `modetest -M vc4 -c`.
+- [ ] Do: on the PC image, uncomment the `monitor` line in the file on a stick, set it to `"generic_15"`, and boot a PC with a VGA CRT. Expect: the boot uses `generic_15`, with the boot prompt when it is not the last known good. Record: the `guard:` log lines.
+
 ### The share partition on an SD card (C18)
 
 - [ ] Do: on a Raspberry Pi 3 with an SD card, an empty partition 4 with no marker, time the first boot that offers the format and the second boot. Expect: the second boot scans nothing (no new `neptron-storage` lines of the scan; `/state/cache/share-scan` holds the key and `result=none`). Record: the time of the storage script at each boot (the first and the last `neptron-storage` line in `/var/log/messages`).
