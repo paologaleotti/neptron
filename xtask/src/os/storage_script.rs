@@ -956,8 +956,23 @@ fn e2fsck_errors_are_a_reason_in_syslog() {
         "state-e2fsck",
         "FAKE_E2FSCK_EXIT",
         "8",
-        "left errors (exit 8), and e2fsck -fy could not repair them (exit 8); /state is a RAM folder",
+        "failed (exit 8), an error of the check itself such as a read error of the card, so nothing is repaired; /state is a RAM folder",
     );
+}
+
+/// An operational error (8 and above) is no damage that a repair fixes:
+/// -fy never runs, so it cannot rewrite blocks of a failing card.
+#[test]
+fn an_operational_error_of_e2fsck_never_runs_the_repair() {
+    for exit in ["8", "12", "16"] {
+        let out = Run::new(&format!("state-op-{exit}"))
+            .set("FAKE_E2FSCK_EXIT", exit)
+            .set("FAKE_E2FSCK_Y_EXIT", "0")
+            .start();
+        assert_eq!(out.calls("e2fsck -fy "), 0, "{exit}: {out:#?}");
+        assert!(out.status.contains("state = \"ram\""), "{exit}: {out:#?}");
+        assert!(!out.status.contains("state_repair"), "{exit}: {out:#?}");
+    }
 }
 
 /// The safe repair of -p leaves errors: -fy repairs once, and the state

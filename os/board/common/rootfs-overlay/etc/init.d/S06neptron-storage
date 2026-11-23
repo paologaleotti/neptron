@@ -150,9 +150,13 @@ fi
 
 # e2fsck exits with 0 (clean), 1 or 2 (errors corrected); 4 and above
 # leave errors, and then the state partition is not mounted for writing.
-# When the safe repair of -p leaves errors, -fy repairs once with a yes to
-# every question: the settings and saves are worth more than a refusal at
-# every boot, and the release image has no other repair path. -y can clear
+# The exit is a bit mask: 4 is errors left, 8 an error of e2fsck itself
+# (for example a read error of a failing card), 16 and up worse. When the
+# safe repair of -p leaves errors and nothing else (exit 4 exactly), -fy
+# repairs once with a yes to every question: on a device that does not
+# read well, -y could write wrong blocks, so it never runs then. The
+# settings and saves are worth more than a refusal at every boot, and the
+# release image has no other repair path. -y can clear
 # a damaged file or move it to lost+found, so the frontend shows a notice
 # with state_repair. The partition is never formatted.
 #
@@ -169,7 +173,9 @@ elif [ -z "$state" ]; then
 else
 	e2fsck -p "$state"
 	code=$?
-	if [ "$code" -ge 4 ]; then
+	if [ "$code" -ge 8 ]; then
+		say "e2fsck $state failed (exit $code), an error of the check itself such as a read error of the card, so nothing is repaired; /state is a RAM folder"
+	elif [ "$code" -ge 4 ]; then
 		log "e2fsck -p $state left errors (exit $code); e2fsck -fy repairs it once"
 		output=$(e2fsck -fy "$state" 2>&1)
 		repair=$?
