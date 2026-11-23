@@ -904,6 +904,14 @@ Each check is `needs-hardware`. The setup: a Pi 3 with an image built after P07,
 - [ ] Do: with an HDMI display connected, uncomment the `output` line in the file on the PC, set it to `"Composite-1"`, and boot. Expect: the first boot after the edit already drives composite, and the HDMI display gets no signal. Record: `modetest -M vc4 -c`.
 - [ ] Do: on the PC image, uncomment the `monitor` line in the file on a stick, set it to `"generic_15"`, and boot a PC with a VGA CRT. Expect: the boot uses `generic_15`, with the boot prompt when it is not the last known good. Record: the `guard:` log lines.
 
+### The Raspberry Pi leftovers (M10)
+
+- [ ] `needs-hardware` **The kind of each sound card on the Pi 3.** A Pi 3 B with the development image after M10, on composite, then on HDMI.
+  - Do: `cat /proc/asound/cards /proc/asound/pcm`, then open Audio, then Audio output, and read the log line `audio: driver alsa; devices ...`. Do it with `dtparam=audio=on`, then again with that line removed from `config.txt` (no jack card).
+  - Expect: the cards are `Headphones` (driver `bcm2835_headpho`) and `vc4hdmi` (driver `vc4-hdmi`). The list shows `Analog (bcm2835 Headphones)` and `HDMI/DP 1 (vc4-hdmi)`, and `auto` takes the jack. With no jack card, `auto` opens the ALSA default device, which is then the `vc4hdmi` card. On composite with no jack card, expect that open to fail and the output to be "no sound": this is correct, because no audio output exists. On HDMI with no jack card, expect sound from the TV through the default device (alsa-lib's `cards/vc4-hdmi.conf` makes it convert to IEC958).
+  - Also record: whether `/usr/share/alsa/cards/vc4-hdmi.conf` is in the image (`ls /usr/share/alsa/cards`).
+  - Record: the two files, the list, and the log line of each run.
+
 ### The share partition on an SD card (C18)
 
 - [ ] Do: on a Raspberry Pi 3 with an SD card, an empty partition 4 with no marker, time the first boot that offers the format and the second boot. Expect: the second boot scans nothing (no new `neptron-storage` lines of the scan; `/state/cache/share-scan` holds the key and `result=none`). Record: the time of the storage script at each boot (the first and the last `neptron-storage` line in `/var/log/messages`).

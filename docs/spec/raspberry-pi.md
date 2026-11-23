@@ -493,7 +493,7 @@ Measured on a Pi 3 B on composite, NTSC 240p, with the development build of `os 
 | USB audio | All | `snd-usb-audio` | A USB DAC is the way to better sound than PWM |
 
 - The output list (`docs/spec/audio-settings.md`, ADR 0011) takes the analog jack under `auto`, which is right on composite. `S08neptron-mixer` (from the PC overlay, which the Pi image also uses) sets `PCM` and the other controls to 0 dB; the `snd_bcm2835` control name `PCM` is UNVERIFIED.
-- The list labels the PCM of the `vc4-hdmi` card "Analog", because the kind of a PCM comes from its name and `MAI PCM i2s-hifi-0` has no HDMI word. With no jack card, `auto` takes it, and the open fails while HDMI is off (OP-102 point 2).
+- The PCM of the `vc4-hdmi` card is HDMI by its card (card id `vc4hdmi`, driver `vc4-hdmi`), because its name `MAI PCM i2s-hifi-0` has no HDMI word. The list labels it `HDMI/DP 1 (vc4-hdmi)`. The card has no ELD file in `/proc`, so its monitor is unknown, and `auto` never takes it: `auto` takes the jack card, or the default device when there is no jack card (OP-102 point 2). Before this, the list labelled it "Analog", and with no jack card `auto` took it and the open failed while HDMI was off.
 - SDL gets device periods of 1024 frames (`DEVICE_PERIOD_FRAMES` in `crates/neptron-audio/src/sdl.rs`). With 512 the analog output of the Pi 3 (44100 Hz) ran short of data 14 times a second; with 1024 ALSA logged no underrun in 60 s (commit `dff9f44`). The mean output latency is about 64 ms (`docs/spec/pacing-audio.md`).
 - The jack carries video on its sleeve, so audio and video leave on one cable.
 - Expect hiss and limited dynamic range from the 11-bit PWM (VERIFIED in principle: the bit depth; UNVERIFIED: how it sounds).

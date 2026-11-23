@@ -17,7 +17,7 @@ mod sdl;
 
 pub use alsa::{
     ALSA_NAME_PREFIX, AlsaCard, AlsaPcm, AlsaText, Eld, alsa_name, alsa_outputs, is_digital,
-    is_spdif, open_name, parse_cards, parse_eld, parse_pcms,
+    is_hdmi_card, is_spdif, open_name, parse_cards, parse_eld, parse_pcms,
 };
 pub use control::{CONTROL_SPAN_MS, MAX_RATE_DEVIATION_PPM, RateControl};
 pub use error::AudioError;

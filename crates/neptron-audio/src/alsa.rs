@@ -65,6 +65,9 @@ pub struct AlsaCard {
     pub index: u32,
     /// The card id, such as `PCH`: stable when another card is plugged in.
     pub id: String,
+    /// The driver, such as `HDA-Intel` or `vc4-hdmi`. The kernel cuts it
+    /// to 15 characters.
+    pub driver: String,
     /// The card name, such as `HDA Intel PCH`.
     pub name: String,
 }
@@ -102,11 +105,12 @@ pub fn parse_cards(text: &str) -> Vec<AlsaCard> {
             let index = index.parse().ok()?;
             let (id, rest) = rest.trim_start().strip_prefix('[')?.split_once(']')?;
             let rest = rest.strip_prefix(':')?;
-            let name = rest.split_once(" - ").map_or(rest, |(_, name)| name).trim();
+            let (driver, name) = rest.split_once(" - ").unwrap_or(("", rest));
             Some(AlsaCard {
                 index,
                 id: id.trim().to_owned(),
-                name: name.to_owned(),
+                driver: driver.trim().to_owned(),
+                name: name.trim().to_owned(),
             })
         })
         .collect()
@@ -157,6 +161,15 @@ pub fn is_digital(pcm: &AlsaPcm) -> bool {
     pcm.id.starts_with("HDMI") || pcm.id.starts_with("DP") || pcm.id.contains("DisplayPort")
 }
 
+/// True for a card of HDMI or DisplayPort outputs only: its id or its
+/// driver holds `HDMI`, in any case. The `vc4-hdmi` card of a Raspberry Pi
+/// names its PCM `MAI PCM i2s-hifi-0`, so its PCM id tells nothing.
+pub fn is_hdmi_card(card: &AlsaCard) -> bool {
+    [card.id.as_str(), card.driver.as_str()]
+        .iter()
+        .any(|text| text.to_ascii_uppercase().contains("HDMI"))
+}
+
 /// True for an S/PDIF PCM: its id or name holds `Digital`, `S/PDIF`,
 /// `SPDIF` or `IEC958`. It is not an analog output.
 pub fn is_spdif(pcm: &AlsaPcm) -> bool {
@@ -196,25 +209,26 @@ pub fn open_name(name: &str) -> String {
 pub fn alsa_outputs(text: &AlsaText) -> Vec<OutputDevice> {
     let cards = parse_cards(&text.cards);
     let pcms = parse_pcms(&text.pcm);
+    let digital_on = |card: &AlsaCard, pcm: &AlsaPcm| {
+        pcm.card == card.index && (is_digital(pcm) || is_hdmi_card(card))
+    };
     let hdmi_cards = cards
         .iter()
-        .filter(|c| pcms.iter().any(|p| p.card == c.index && is_digital(p)))
+        .filter(|c| pcms.iter().any(|p| digital_on(c, p)))
         .count();
     let mut listed = Vec::new();
     let mut last = Vec::new();
     let mut k = 0;
     for card in &cards {
-        let elds: Vec<Eld> = text
-            .elds
-            .iter()
-            .filter(|(index, _)| *index == card.index)
+        let card_elds = text.elds.iter().filter(|(index, _)| *index == card.index);
+        // The HDMI card of a Pi has no ELD file in /proc, so the monitor of
+        // a PCM that is HDMI by its card only is unknown, not absent.
+        let no_eld_file = card_elds.clone().next().is_none();
+        let elds: Vec<Eld> = card_elds
             .map(|(_, t)| parse_eld(t))
             .filter(|e| e.present && e.valid)
             .collect();
-        let digital = pcms
-            .iter()
-            .filter(|p| p.card == card.index && is_digital(p))
-            .count();
+        let digital = pcms.iter().filter(|p| digital_on(card, p)).count();
         // One card with HDMI PCMs counts them per card; with two or more
         // cards the count runs across them, so the labels differ early.
         if hdmi_cards < 2 {
@@ -235,7 +249,7 @@ pub fn alsa_outputs(text: &AlsaText) -> Vec<OutputDevice> {
                     kind,
                 },
             };
-            if !is_digital(pcm) {
+            if !digital_on(card, pcm) {
                 let (head, kind) = if is_spdif(pcm) {
                     ("Digital", OutputKind::Digital)
                 } else {
@@ -261,6 +275,7 @@ pub fn alsa_outputs(text: &AlsaText) -> Vec<OutputDevice> {
                 )
             };
             let item = match (elds.len(), digital) {
+                (0, _) if no_eld_file && !is_digital(pcm) => numbered("", Monitor::Unknown),
                 (0, _) => numbered("Nothing connected", Monitor::Absent),
                 (1, 1) => match elds[0].name.clone() {
                     Some(monitor) => entry(
@@ -401,6 +416,7 @@ mod tests {
             [AlsaCard {
                 index: 0,
                 id: "PCH".to_owned(),
+                driver: "HDA-Intel".to_owned(),
                 name: "HDA Intel PCH".to_owned()
             }]
         );
@@ -685,6 +701,77 @@ mod tests {
         for (i, label) in short.iter().enumerate() {
             assert!(!short[..i].contains(label), "{short:?}");
         }
+    }
+
+    /// The text of a Pi 3 B with `vc4-kms-v3d` and `dtparam=audio=on`:
+    /// the jack card of `snd_bcm2835` and the HDMI card of `vc4`. The
+    /// `vc4-hdmi` card has no ELD file in `/proc`.
+    fn pi3(jack: bool) -> AlsaText {
+        let mut cards = String::new();
+        let mut pcm = String::new();
+        let hdmi = u32::from(jack);
+        if jack {
+            cards.push_str(" 0 [Headphones     ]: bcm2835_headpho - bcm2835 Headphones\n                      bcm2835 Headphones\n");
+            pcm.push_str("00-00: bcm2835 Headphones : bcm2835 Headphones : playback 8\n");
+        }
+        cards.push_str(&format!(
+            " {hdmi} [vc4hdmi        ]: vc4-hdmi - vc4-hdmi\n                      vc4-hdmi\n"
+        ));
+        pcm.push_str(&format!(
+            "0{hdmi}-00: MAI PCM i2s-hifi-0 : MAI PCM i2s-hifi-0 : playback 1\n"
+        ));
+        AlsaText {
+            cards,
+            pcm,
+            elds: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_pi_hdmi_card_is_hdmi_and_the_jack_card_is_analog() {
+        let devices = alsa_outputs(&pi3(true));
+        assert_eq!(
+            view(&devices),
+            [
+                (
+                    "hw:CARD=Headphones,DEV=0",
+                    "Analog (bcm2835 Headphones)",
+                    "bcm2835 Headphones"
+                ),
+                ("hw:CARD=vc4hdmi,DEV=0", "HDMI/DP 1 (vc4-hdmi)", ""),
+            ]
+        );
+        assert_eq!(devices[0].kind, OutputKind::Analog);
+        assert_eq!(devices[1].kind, OutputKind::Hdmi);
+        // No ELD file: /proc cannot tell whether HDMI is on.
+        assert_eq!(devices[1].monitor, Monitor::Unknown);
+        let choice = crate::auto_choice(&devices);
+        assert_eq!(choice.device.as_deref(), Some("hw:CARD=Headphones,DEV=0"));
+    }
+
+    #[test]
+    fn with_no_jack_card_auto_does_not_take_the_pi_hdmi_card() {
+        let devices = alsa_outputs(&pi3(false));
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].kind, OutputKind::Hdmi);
+        assert_eq!(devices[0].label, "HDMI/DP 1 (vc4-hdmi)");
+        assert_eq!(crate::auto_choice(&devices).device, None);
+    }
+
+    #[test]
+    fn the_card_id_or_driver_marks_an_hdmi_card() {
+        let card = |id: &str, driver: &str| AlsaCard {
+            index: 0,
+            id: id.to_owned(),
+            driver: driver.to_owned(),
+            name: String::new(),
+        };
+        assert!(is_hdmi_card(&card("vc4hdmi", "vc4-hdmi")));
+        assert!(is_hdmi_card(&card("vc4hdmi0", "vc4-hdmi")));
+        assert!(is_hdmi_card(&card("x", "vc4hdmi")));
+        assert!(!is_hdmi_card(&card("Headphones", "bcm2835_headpho")));
+        assert!(!is_hdmi_card(&card("PCH", "HDA-Intel")));
+        assert!(!is_hdmi_card(&card("Device", "USB-Audio")));
     }
 
     #[test]
