@@ -40,8 +40,10 @@ use crate::snapshot::{ActionId, PageId};
 /// numbers below it for its own pages and actions.
 pub const RESERVED_ID_MIN: u32 = 0xFFFF_0000;
 
-/// The page of the display panel: output, monitor profile, picture mode,
-/// refresh rate, and a row that opens [`GRID_PAGE`].
+/// The page of the display panel: the rows of the display settings that the
+/// app gives (output, monitor profile, picture mode, refresh rate,
+/// scanlines, screensaver and, on a TV, its rows), and a row that opens
+/// [`GRID_PAGE`].
 pub const DISPLAY_PAGE: PageId = PageId(RESERVED_ID_MIN + 1);
 /// The page of the quick menu: the rows a player can change during a game,
 /// written at the game level, with rows for [`RESUME`] and [`QUIT_GAME`].

@@ -62,7 +62,8 @@ pub enum Intent {
     RevertMode,
     /// Close the quick menu and continue the game.
     Resume,
-    /// Stop the game and return to the game list.
+    /// Stop the game. The run ends, and the next run starts on the home
+    /// screen.
     QuitGame,
     /// Remove a notice from the snapshot: the player has read it, or chose
     /// `Cancel` in a notice with a choice.
