@@ -67,11 +67,12 @@ commands:
            [--output NAME] [-- make targets...]
                        build the image of target A with Buildroot in the
                        development container: the aarch64 QEMU test image,
-                       or the x86_64 PC image (a USB image that also boots
-                       in QEMU); --dev-key FILE adds SSH with that public
-                       key and the control commands, --no-kernel-15khz
-                       leaves out the 15 kHz kernel patches; each variant
-                       has its own output
+                       the x86_64 PC image (a USB image that also boots
+                       in QEMU), or the rpi-arm64 Raspberry Pi image (an SD
+                       card image that QEMU does not boot); --dev-key FILE
+                       adds SSH with that public key and the control
+                       commands, --no-kernel-15khz leaves out the 15 kHz
+                       kernel patches; each variant has its own output
   os app-check [--arch A]
                        check (warnings denied) and build the frontend with
                        kms and the launcher for Linux in the container
@@ -89,10 +90,11 @@ commands:
                        a fresh, a rewritten and a reused stick and a format
                        request; and, with a network card, the address file
                        of a lease and of a late port (tier T3)
-  os push --host H [--user U] [--port P] [--data] [--no-restart]
+  os push --host H [--arch x86_64|rpi-arm64] [--output NAME]
+          [--user U] [--port P] [--data] [--no-restart]
                        build the frontend, the launcher and neptronctl in the
                        bench profile and put them in the hot folder of a PC
-                       that runs the development variant, over SSH
+                       or a Pi that runs the development variant, over SSH
   os logs --host H [--user U] [--port P] [--follow]
                        print the log of the launcher and the frontend, the
                        lines of the storage script (syslog and the storage
