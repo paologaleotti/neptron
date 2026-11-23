@@ -1,6 +1,6 @@
 # 2. Frontend boot
 
-This flow covers the start of one run of the frontend (`apps/neptron`), from the process start to the first frame. The run opens the display on the descriptor of the launcher, reads the settings and the monitor presets, finds out what display is on the wire (CRT or flat panel), picks the safe default and the wanted configuration, and starts the [guard](03-guard.md). The guard record is written before the first modeset, so a run that crashes later still counts as a boot. The launcher side (exit codes, backoff, relaunch) is in [Power-on to first picture](01-power-on.md). What happens after the first frame is in [ODREN](04-odren.md) and [The screens](07-screens.md).
+This flow covers one run of the frontend (`apps/neptron`) from the process start to the first frame. The run opens the display on the descriptor of the launcher, reads the settings and the monitor presets, finds out what display is on the wire (CRT, flat panel or TV), picks the safe default and the wanted configuration, and starts the [guard](03-guard.md). The guard record is written before the first modeset, so a run that crashes later still counts as a boot. [Power-on to first picture](01-power-on.md) has the launcher side (exit codes, backoff, relaunch). [ODREN](04-odren.md) and [The screens](07-screens.md) continue after the first frame.
 
 ## Diagrams
 
@@ -67,11 +67,14 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["EDID profile of the output"] -->|"CRT profile"| C["That CRT profile"]
-    A -->|"panel profile"| B["Last known good on this output<br/>is this panel"]
+    TV{"TV output?<br/>TV mode property"} -->|"yes"| T["TV profile of NTSC,<br/>or the first standard offered"]
+    TV -->|"no"| A["EDID profile of the output"]
+    A -->|"CRT profile"| C["That CRT profile"]
+    A -->|"panel profile"| B["Trusted: digital link,<br/>display.monitor auto or flat"]
     B -->|"yes"| P["That panel, native mode"]
     B -->|"no"| G["Preset generic_15"]
     A -->|"none"| G
+    T --> S
     G -->|"preset missing"| E["BootError::Monitor NoSafeProfile<br/>exit code 1"]
     C --> S["style auto, refresh exact"]
     P --> S
@@ -100,7 +103,7 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 | Outcome | What the user sees |
 | --- | --- |
 | `Booted::Ready`, guard `Confirmed` | The game list (or the game) in the wanted configuration. Any boot issue shows as a notice. |
-| `Booted::Ready`, guard `Pending` (the boot prompt) | The wanted configuration and the confirm dialog: title "Keep this picture?", text "Keep the new picture?\nNo answer brings the old one back." with "The old picture comes back in N s.", buttons "Revert" (focus) and "Keep". See [The guard](03-guard.md). |
+| `Booted::Ready`, guard `Pending` (the boot prompt) | The wanted configuration and the confirm dialog "Keep this picture?" (see [The screens](07-screens.md)). |
 | `Booted::Ready`, guard `Safe(reason)` | The safe default, and once per power cycle a warning notice, for example "Safe mode: the last starts gave no picture. Keep a picture in Settings, Display to leave it." The display panel shows "(safe mode)" after the mode and the row "Keep this picture". |
 | `Booted::Ready` after a failed record write | The safe default and the warning "Safe mode: the guard record cannot be written ({e}). This start uses the safe picture." No tone. |
 | `Booted::Relaunch` (a game did not start) | Nothing from this run. The next run shows the game list with an error notice, for example "{name} did not start: {e}." |
@@ -146,9 +149,9 @@ The boot shows no screen of its own. These are the outcomes of the boot and what
 
 - `failed_boots` before this boot is below `SAFE_MODE_FAILED_BOOTS` = 2;
 - the record is not in safe mode;
-- the monitor of `wanted` is not the last known good of this output.
+- the monitor of `wanted` is not the safe default's, not trusted by its class, and not the last known good of this place.
 
-So the prompt appears on the first boot on any display, after the monitor moved to another connector, after a different monitor is plugged in on the same connector (its EDID hash differs from the record's `monitor`), after a preset changed in the settings files, and after a preset file of the last known good was removed. With no answer it reverts after `CONFIRM_WINDOW_NS` = 10 s. A game run never opens it (`Guard::continue_boot`): it starts on the last known good, or in the safe default when nothing was kept, with no notice.
+So, for a display that is not trusted by its class, the prompt appears on the first boot, after the monitor moved to another connector, after a different monitor is plugged in on the same connector (its EDID hash differs from the record's `monitor`), after a preset changed in the settings files, and after a preset file of the last known good was removed. With no answer it reverts after `CONFIRM_WINDOW_NS` = 15 s from its first settled picture (see [the guard](03-guard.md)). A game run never opens it (`Guard::continue_boot`): it starts on the last known good, or in the safe default when nothing was kept, with no notice.
 
 ## What can go wrong
 
@@ -158,7 +161,7 @@ So the prompt appears on the first boot on any display, after the monitor moved 
 | `display.output` names a connector that does not exist | No picture. The log line carries "no connector is named {name}; the connectors are: {available}". | Fix `display.output` in `global.toml`. |
 | No EDID and no `generic_15` preset in `data/monitors` | No picture. Log: "neptron: the frontend cannot start: no safe monitor profile: no EDID and no generic_15 preset in the monitor folder". | Restore the preset (it is on the image). |
 | The EDID of the named output is broken or gives no profile | Notice "The EDID of {connector} gives no profile ({e}); the safe start is used." `auto` gives `generic_15`. | Set a preset in `display.monitor`. |
-| A DAC that shows its own digital EDID, with a CRT behind it, and no analog subconnector | It is taken for a flat panel. The panel mode is shown under the boot prompt for 10 s at most, then `generic_15`. | Set a CRT preset in `display.monitor`. A preset always wins. |
+| A DAC that shows its own digital EDID, with a CRT behind it, and no analog subconnector | It is taken for a flat panel. With `display.monitor` = `auto` it is trusted and driven as a panel with no prompt. | Set a CRT preset in `display.monitor`. A preset always wins. |
 | A panel above the GPU limits | Notice "The panel's native mode ... is above what this system sends (...). It runs at ...". | None needed. The panel scales. |
 | The settings files are damaged | A warning notice per file. The setting falls back to the level below. | Fix or delete the file. |
 | `display.monitor` names a preset that is not installed | Notice `the monitor profile "{id}" is not installed; the safe default is used`. | Pick another monitor in the display panel. |
@@ -189,7 +192,7 @@ So the prompt appears on the first boot on any display, after the monitor moved 
 - `05-crt-safety-model.md`, "Which output is used": the definition says that with none named and one connector connected, that one is used. The code (`choose`) never takes an analog connector that reports no EDID unless `display.output` names it, also when it is the only one. Then the display does not open and the run exits with code 69.
 - `05-crt-safety-model.md`, row 7 "Supervisor": "the frontend's first action is to re-apply the last validated mode". The code does not re-apply a stored mode. It builds `wanted` from the settings and compares its monitor with the last known good monitor (`Guard::boot`); ODREN then decides a new mode for the source.
 - `05-crt-safety-model.md`, row 5 "Last known good": the definition says the last confirmed configuration is stored. The record stores only the monitor (`MonitorRef`: a preset id or an EDID profile id) and the connector (`output`). It drops the last known good when the connector differs.
-- `06-flat-panels-shaders-and-vertical-games.md`, "Flat-panel mode": "Starts in the panel's preferred EDID mode, up to 4K." In the code the panel is only `wanted` under the boot prompt until the user keeps it on this output. Until then the safe default is `generic_15`. The preferred mode is also cut to the GPU caps; a GPU with no digital limits in the table (all but `intel_gen9`) gets 165 MHz and 1920x1200.
+- `06-flat-panels-shaders-and-vertical-games.md`, "Flat-panel mode": "Starts in the panel's preferred EDID mode, up to 4K." In the code only a trusted panel (digital link, `display.monitor` `auto` or `flat`) does so with no prompt. A named preset on a panel EDID opens the boot prompt, with `generic_15` as the safe default. The preferred mode is also cut to the GPU caps; a GPU with no digital limits in the table (all but `intel_gen9`) gets 165 MHz and 1920x1200.
 - `06-flat-panels-shaders-and-vertical-games.md`: "Another listed mode can be chosen in the Display panel". The monitor row offers `auto`, `flat` (when a panel profile exists) and the presets. No row picks one listed panel mode.
 - `08-frontend-and-ux.md`, "First-boot wizard": no wizard exists in the code. The first boot is the boot prompt.
 - `05-crt-safety-model.md`, row 4 "Confirm or revert" covers "output". In the code the output connector is not under the guard. The display panel shows it read only, and a new connector takes effect at the next start, where the boot prompt opens because the record's `output` differs.
