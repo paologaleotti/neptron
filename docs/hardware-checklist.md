@@ -1040,6 +1040,10 @@ The policy tests, the goldens of `crates/neptron-modeline/tests/golden/policy_mo
   - Do: open Settings > Display, then Picture mode, at once and again after a scanline change.
   - Expect: the options show "..." for a moment, then their tags and reasons; the menu and the sound never stutter while they are made.
   - Record: how long the "..." shows.
+- [ ] `needs-hardware` **The cost of the picture answers on a Pi.** A Raspberry Pi 3 with `pc_31_120` on DPI, and with `generic_15`.
+  - Do: run `policy_cost` of `neptron-modeline` on the Pi (release build of the image), and open Settings > Display and the keep prompt of the quick menu while a game runs.
+  - Expect: two decisions of the common case take less than 8 ms; the frame of the menus and the sound never stutter. The worst case (a stored mode and Auto with no picture, the Fill fallback) can pass 8 ms: record it.
+  - Record: the numbers of `policy_cost`, and the time until the buttons of the keep prompt take a choice.
 - [ ] `needs-hardware` **The speed alert.** A 15 kHz tube with `generic_15`, and a TV.
   - Do: start a NES game (60.099 Hz) on `ntsc`-rate modes (a TV, or the `ntsc` preset) and a WonderSwan game (75.47 Hz) on the 15 kHz tube.
   - Expect: the NES game at 59.94 Hz (0.26 % off) shows no `[!]` and no speed sentence in the notice; on a CRT the status still shows `speed (60.099 to 59.940 Hz)`. The WonderSwan game at 65 Hz (-13.9 %) shows `[!] speed (75.472 to 65.000 Hz)` and the speed sentence.

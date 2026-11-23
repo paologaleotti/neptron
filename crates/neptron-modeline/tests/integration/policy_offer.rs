@@ -881,13 +881,14 @@ fn presets_run(gpu: &str, part: Part, every_scanline: bool) {
 }
 
 /// The CRT presets with an open GPU, every scanline setting that a plan
-/// reads, in six parts that run side by side.
+/// reads, in twelve parts that run side by side: each part stays under
+/// 20 s on a loaded machine.
 macro_rules! open_presets {
     ($($test:ident: $part:literal,)*) => {
         $(
             #[test]
             fn $test() {
-                presets_run("open", Part { part: $part, parts: 6 }, true);
+                presets_run("open", Part { part: $part, parts: 12 }, true);
             }
         )*
     };
@@ -900,6 +901,12 @@ open_presets! {
     offer_on_the_presets_with_an_open_gpu_part_4: 3,
     offer_on_the_presets_with_an_open_gpu_part_5: 4,
     offer_on_the_presets_with_an_open_gpu_part_6: 5,
+    offer_on_the_presets_with_an_open_gpu_part_7: 6,
+    offer_on_the_presets_with_an_open_gpu_part_8: 7,
+    offer_on_the_presets_with_an_open_gpu_part_9: 8,
+    offer_on_the_presets_with_an_open_gpu_part_10: 9,
+    offer_on_the_presets_with_an_open_gpu_part_11: 10,
+    offer_on_the_presets_with_an_open_gpu_part_12: 11,
 }
 
 #[test]
@@ -1054,36 +1061,33 @@ fn generated_fill_fallback() -> Vec<Cell> {
 /// each field rate edge of each range, one millihertz inside and outside:
 /// the same invariants hold. A profile that the solver refuses gives an
 /// error, never a panic; such errors stay below a quarter of the cases. A
-/// failure prints the seed and the case. The run has six parts, which
-/// run side by side.
-#[test]
-fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_1() {
-    generated_run(Part { part: 0, parts: 6 });
+/// failure prints the seed and the case. The run has twelve parts.
+/// The parts of the generated run, which run side by side: each stays
+/// under 20 s on a loaded machine.
+macro_rules! generated_parts {
+    ($($test:ident: $part:literal,)*) => {
+        $(
+            #[test]
+            fn $test() {
+                generated_run(Part { part: $part, parts: 12 });
+            }
+        )*
+    };
 }
 
-#[test]
-fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_2() {
-    generated_run(Part { part: 1, parts: 6 });
-}
-
-#[test]
-fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_3() {
-    generated_run(Part { part: 2, parts: 6 });
-}
-
-#[test]
-fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_4() {
-    generated_run(Part { part: 3, parts: 6 });
-}
-
-#[test]
-fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_5() {
-    generated_run(Part { part: 4, parts: 6 });
-}
-
-#[test]
-fn generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_6() {
-    generated_run(Part { part: 5, parts: 6 });
+generated_parts! {
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_1: 0,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_2: 1,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_3: 2,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_4: 3,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_5: 4,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_6: 5,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_7: 6,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_8: 7,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_9: 8,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_10: 9,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_11: 10,
+    generated_ranges_and_sources_with_their_edges_keep_every_invariant_part_12: 11,
 }
 
 fn generated_run(part: Part) {
@@ -1152,7 +1156,14 @@ fn generated_run(part: Part) {
             },
         ));
     }
-    let screens = part_of(screens, part);
+    // The parts split the sources, not the screens: a profile that the
+    // solver refuses then spreads over every part, as over the whole run.
+    let sources: Vec<(&'static str, SourceGeometry)> = sources
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| i % part.parts == part.part)
+        .map(|(_, s)| s)
+        .collect();
     let depth = Depth {
         every_scanline: false,
         deep: true,
@@ -1165,7 +1176,11 @@ fn generated_run(part: Part) {
     );
     let named = |list: &[Cell]| -> BTreeSet<Cell> {
         list.iter()
-            .filter(|(profile, ..)| screens.iter().any(|s| s.profile.id == *profile))
+            .filter(|(_, name, rate, _)| {
+                sources
+                    .iter()
+                    .any(|(n, s)| n == name && s.refresh_mhz == *rate)
+            })
             .cloned()
             .collect()
     };

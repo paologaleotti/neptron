@@ -1978,9 +1978,11 @@ mod tests {
 
     /// The options of the picture rows of a page, built by the app.
     fn page_options(
+        build: fn(&Config, Names<'_>) -> SettingsPage,
         class: DisplayClass,
         choices: &PictureChoices,
         scope: Scope,
+        judging: bool,
     ) -> (Vec<ChoiceOption>, Vec<ChoiceOption>) {
         let config = config();
         let presets = Presets::default();
@@ -1989,12 +1991,12 @@ mod tests {
             presets: &presets,
             detected: &detected,
             choices: Some(choices),
-            judging: false,
+            judging,
             scope,
             class,
             outputs: &[],
         };
-        let page = display_page(&config, names);
+        let page = build(&config, names);
         let options = |label: &str| {
             let row = page.rows.iter().find(|r| r.label == label).expect(label);
             let SettingValue::Choice { options, .. } = &row.value else {
@@ -2137,22 +2139,44 @@ mod tests {
                 "tv" => SceneDisplay::Tv,
                 _ => continue,
             };
-            let (modes, rates) = page_options(class, &every_game(&profile), Scope::EveryGame);
+            let (modes, rates) = page_options(
+                display_page,
+                class,
+                &every_game(&profile),
+                Scope::EveryGame,
+                false,
+            );
             assert_eq!(modes, scenes::settings_modes(display), "{name}");
             assert_eq!(rates, scenes::settings_rates(display), "{name}");
         }
+        // The quick menu cases come from the builder of the Video page,
+        // which the quick menu shows.
         let (dos, _) = page_options(
+            video_page,
             DisplayClass::Crt,
             &this_game(640, 400, 70_086, RefreshPolicy::Exact),
             Scope::ThisGame,
+            false,
         );
         assert_eq!(dos, scenes::quick_dos_modes());
+        let snes_answers = this_game(256, 224, 60_099, RefreshPolicy::Force50);
         let (snes, _) = page_options(
+            video_page,
             DisplayClass::Crt,
-            &this_game(256, 224, 60_099, RefreshPolicy::Force50),
+            &snes_answers,
             Scope::ThisGame,
+            false,
         );
         assert_eq!(snes, scenes::quick_reset_modes());
+        // While new answers are in work, the page shows the last ones.
+        let (last, _) = page_options(
+            video_page,
+            DisplayClass::Crt,
+            &snes_answers,
+            Scope::ThisGame,
+            true,
+        );
+        assert_eq!(last, scenes::quick_last_modes());
         let modes: Vec<_> = PICTURE_MODE_MENU_ORDER
             .iter()
             .map(|m| (mode_label(*m), mode_help(*m)))
