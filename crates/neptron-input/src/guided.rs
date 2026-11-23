@@ -250,6 +250,14 @@ impl GuidedMapping {
         &self.map
     }
 
+    /// True when the last raw state read had no input active: no button,
+    /// no hat direction and every axis at its rest. It stays current
+    /// after the mapping is done, so the caller can wait for a neutral
+    /// pad before the new map reads it.
+    pub fn neutral(&self) -> bool {
+        self.last == Some(Presses::default())
+    }
+
     /// What to show, with `left` nanoseconds before the timeout.
     fn view(&self, left: u64, release: bool) -> Guided {
         match (self.phase, GUIDED_STEPS.get(self.step)) {
@@ -694,6 +702,28 @@ mod tests {
             2,
             "the release of the hold counts for nothing"
         );
+    }
+
+    #[test]
+    fn a_last_skip_ends_with_the_pad_held_and_neutral_follows_the_release() {
+        let mut rig = Rig::new(&[]);
+        for _ in 1..GUIDED_STEPS.len() {
+            rig.hold(0, 2_000);
+        }
+        assert!(rig.guided.neutral());
+        rig.set(RawInput::JoyButton {
+            index: 1,
+            pressed: true,
+        });
+        let shown = rig.frame(2_000);
+        assert!(matches!(shown, Guided::Done(_)), "{shown:?}");
+        assert!(!rig.guided.neutral(), "the button of the skip is down");
+        let shown = rig.set(RawInput::JoyButton {
+            index: 1,
+            pressed: false,
+        });
+        assert!(matches!(shown, Guided::Done(_)), "{shown:?}");
+        assert!(rig.guided.neutral());
     }
 
     #[test]

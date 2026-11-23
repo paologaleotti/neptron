@@ -102,7 +102,8 @@ After the last step the guided mapping gives the map. The app checks it:
 
 A map with the minimum goes to a trial, as a change of picture does:
 
-- The app gives the new map to the pad at once. The player tests it on the dialog.
+- The dialog shows at once. The app gives the new map to the pad when the pad is neutral: until then the source still captures the pad, and the pad sends no UI action. A last step skipped by a hold ends with that input down. With the new map, that input could be A or B, and it would answer the dialog before the player sees it.
+- The player tests the new map on the dialog.
 - The dialog has `Cancel` (the focus) and `Keep`. Only right, then accept, keeps. So the trial checks the D-pad and accept of the new map.
 - Back, accept on `Cancel`, or `MAP_REVIEW_TIMEOUT_NS` (15 s) with no answer, gives the old map back. The dialog shows the time left. A review that cannot keep shows `Cancel` alone and closes at the same timeout.
 - `Keep` stores the map.

@@ -468,3 +468,54 @@ fn a_mapping_ends_with_no_change_from_the_keyboard_and_at_its_timeouts() {
         assert_eq!(rig.state_file(PAD_MAPS), "", "nothing was written");
     });
 }
+
+#[test]
+#[ignore = "tier 2"]
+fn a_last_skip_held_with_back_of_the_new_map_leaves_the_review_on_show() {
+    let name = test_name(
+        module_path!(),
+        "a_last_skip_held_with_back_of_the_new_map_leaves_the_review_on_show",
+    );
+    in_child(&name, |dir| {
+        let mut rig = Rig::new(dir);
+        rig.boot(None);
+        rig.plug(pad(1));
+        rig.frames(2);
+        let stick = rig.plug_joystick(joystick(), STICK);
+        rig.frames(2);
+        rig.tap(&[Control::Right]);
+        rig.tap(&[Control::A]);
+        rig.frames(2);
+        assert_eq!(rig.screen(), "pad-mapping");
+        for raw in &STICK_ANSWERS[..18] {
+            answer(&mut rig, stick, *raw);
+        }
+        // Button 3 is B in the new map. The last skip ends with it down.
+        answer(&mut rig, stick, Raw::Skip(3));
+        rig.pads.set_joy_button(stick, 3, true);
+        rig.until(300, "the review", |r| review(r).is_some());
+        rig.frames(30);
+        assert!(review(&mut rig).is_some(), "the held B is not an answer");
+        rig.pads.set_joy_button(stick, 3, false);
+        rig.frames(4);
+        assert!(review(&mut rig).is_some(), "the release is not an answer");
+
+        // Right on the hat, then A on button 0: Keep.
+        rig.pads.set_joy_hat(stick, HatState(HatState::RIGHT));
+        rig.frames(2);
+        rig.pads.set_joy_hat(stick, HatState::default());
+        rig.frames(2);
+        rig.joy_tap(stick, 0);
+        rig.frames(4);
+        assert!(rig.shell().snapshot().pad_mapping.is_none());
+        rig.pads.set_joy_button(stick, 0, true);
+        rig.frames(2);
+        assert!(
+            rig.shell().ports().expect("ports").is_held(1, Control::A),
+            "the new map is kept"
+        );
+        rig.pads.set_joy_button(stick, 0, false);
+        rig.frames(2);
+        rig.finish();
+    });
+}

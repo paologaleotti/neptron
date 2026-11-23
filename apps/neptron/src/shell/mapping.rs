@@ -45,6 +45,11 @@ enum RunStage {
         map: PlayerMap,
         can_keep: bool,
         deadline_ns: u64,
+        /// The guided mapping while the source still captures the pad.
+        /// A step skipped by a hold ends with an input down; if the new
+        /// map read the pad then, that input would answer the review. So
+        /// the capture goes on until the pad is neutral.
+        settling: Option<Box<GuidedMapping>>,
     },
 }
 
@@ -121,18 +126,37 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     Guided::TimedOut => Next::TimedOut,
                 },
             },
-            RunStage::Review { deadline_ns, .. } => {
+            RunStage::Review {
+                deadline_ns,
+                settling,
+                ..
+            } => {
                 let left = deadline_ns.saturating_sub(now_ns);
                 if left == 0 {
                     Next::TimedOut
                 } else {
-                    Next::Show(Shown::Review(left.div_ceil(NANOS_PER_SECOND)))
+                    match settling.as_deref_mut().map(|g| (list.input.captured(), g)) {
+                        Some((Capture::Gone, _)) => Next::Gone,
+                        Some((Capture::Pad(state), guided)) => {
+                            // Done already: only the neutral test counts.
+                            let _ = guided.update(&state, now_ns);
+                            if guided.neutral() {
+                                Next::Settled
+                            } else {
+                                Next::Show(Shown::Review(left.div_ceil(NANOS_PER_SECOND)))
+                            }
+                        }
+                        Some((Capture::Waiting, _)) | None => {
+                            Next::Show(Shown::Review(left.div_ceil(NANOS_PER_SECOND)))
+                        }
+                    }
                 }
             }
         };
         match next {
             Next::Show(shown) => self.show_mapping(shown, now_ns),
             Next::Review(map) => self.review_mapping(map, now_ns),
+            Next::Settled => self.try_mapping(),
             Next::Gone => {
                 self.end_mapping();
                 self.notice(
@@ -183,7 +207,12 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         if let Stage::List(list) = &mut self.stage {
             match run.stage {
                 RunStage::Capture(_) => list.input.capture(None),
-                RunStage::Review { .. } => list.input.set_player_maps(self.pad_maps.maps()),
+                RunStage::Review { settling, .. } => {
+                    if settling.is_some() {
+                        list.input.capture(None);
+                    }
+                    list.input.set_player_maps(self.pad_maps.maps());
+                }
             }
         }
         self.reload_page();
@@ -213,28 +242,28 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         self.reload_page();
     }
 
-    /// Ends the capture and puts `map` on trial: the source reads the pad
-    /// with it, so the player tests it on the review. A map that cannot
-    /// drive the menus is not given to the pad.
+    /// Shows the review of `map`. The pad stays captured until it is
+    /// neutral, then [`Self::try_mapping`] puts the map on trial.
     fn review_mapping(&mut self, map: PlayerMap, now_ns: u64) {
         let (message, can_keep) = pad_page::review_text(&map);
         let Some(run) = &mut self.mapping else {
             return;
         };
-        let Stage::List(list) = &mut self.stage else {
+        let RunStage::Capture(guided) = core::mem::replace(
+            &mut run.stage,
+            RunStage::Review {
+                map,
+                can_keep,
+                deadline_ns: now_ns.saturating_add(MAP_REVIEW_TIMEOUT_NS),
+                settling: None,
+            },
+        ) else {
             return;
         };
-        list.input.capture(None);
-        if can_keep {
-            let mut trial = self.pad_maps.maps().clone();
-            trial.insert(run.key.identity, map);
-            list.input.set_player_maps(&trial);
+        let neutral = guided.neutral();
+        if let RunStage::Review { settling, .. } = &mut run.stage {
+            *settling = Some(guided);
         }
-        run.stage = RunStage::Review {
-            map,
-            can_keep,
-            deadline_ns: now_ns.saturating_add(MAP_REVIEW_TIMEOUT_NS),
-        };
         let seconds = MAP_REVIEW_TIMEOUT_NS / NANOS_PER_SECOND;
         run.shown = Some(Shown::Review(seconds));
         self.snap.pad_mapping = Some(PadMapping::new(
@@ -243,6 +272,40 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             MappingStage::Review { message, can_keep },
             MAP_REVIEW_TIMEOUT_NS,
         ));
+        if neutral {
+            self.try_mapping();
+        }
+    }
+
+    /// Ends the capture of a neutral pad and puts the map of the review
+    /// on trial: the source reads the pad with it, so the player tests it
+    /// on the review. A map that cannot drive the menus is not given to
+    /// the pad.
+    fn try_mapping(&mut self) {
+        let Some(run) = &mut self.mapping else {
+            return;
+        };
+        let Stage::List(list) = &mut self.stage else {
+            return;
+        };
+        let RunStage::Review {
+            map,
+            can_keep,
+            settling,
+            ..
+        } = &mut run.stage
+        else {
+            return;
+        };
+        if settling.take().is_none() {
+            return;
+        }
+        list.input.capture(None);
+        if *can_keep {
+            let mut trial = self.pad_maps.maps().clone();
+            trial.insert(run.key.identity, *map);
+            list.input.set_player_maps(&trial);
+        }
     }
 
     /// Puts the view of the mapping in the snapshot when it changed.
@@ -285,6 +348,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
 enum Next {
     Show(Shown),
     Review(PlayerMap),
+    /// The pad of the review is neutral: its capture can end.
+    Settled,
     Gone,
     TimedOut,
 }
