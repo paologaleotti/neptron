@@ -109,6 +109,7 @@ The state column is one line. The full entry below is the reference.
 | OP-112 | A setting to turn off the old USB enumeration scheme | The images boot with `usbcore.old_scheme_first=1`; no setting yet |
 | OP-113 | Leftovers of the start failure and quick menu work of 2026-11-18 | `os push --data` carries no arcade index and no controller database; no game with a disk image is tested |
 | OP-114 | Decisions and findings of 2026-11-19 | M05b dropped; M12's gate met in CI; Killer Instinct is slow on the bench PC; the Pi has no HDMI entry in the hardware matrix |
+| OP-115 | Decisions and findings of 2026-11-23 | The last sound round of M16 is dropped; the cost of the picture answers in a menu has no limit per frame; the screensaver is a bouncing wordmark |
 
 ### Decided
 
@@ -1231,3 +1232,12 @@ The state column is one line. The full entry below is the reference.
 - Where: `docs/taskboard.toml`, `.github/workflows/images.yml`, `crates/neptron-session`, `data/hardware/matrix.toml`
 - How to change: a new release image for the local tier 3 commands; M16 for the pacing; an entry for the Pi HDMI output when its limits are measured on the bench.
 - Decision: Owner, 2026-11-19: the notice texts of M16 are approved ("This game runs at {p}% speed. This machine is too slow for it." and "Sound off: the game runs at less than half speed."); when Auto finds no picture for a game, the Fill picture is the default (built in M08e).
+
+### OP-115: Decisions and findings of 2026-11-23.
+
+- Raised by: the measurement of M16 on the bench PC and the closing review of M08e (2026-11-23)
+- Status: open
+- Default: (1) M16 is merged at the build that the owner tested. On the i3-6100T at 3.2 GHz, Killer Instinct in its attract mode gives 58.6 frames per second over 120 s with 165 missed fields and 27 audio underruns. A later round restored a bound of 4 underruns in the test `a_fast_core_with_a_spike_every_10_frames_is_measured` (the merged test allows 15) and changed the speed measure at the start of a heavy scene. On the same run it gave 48.3 frames per second with 1402 missed fields and 76 underruns, and the simulation did not show the loss. That round is not merged. The few audio underruns of a heavy scene stay. (2) The picture answers of a menu page are made at 2 decisions per frame. One decision that falls back to Fill on a 31 kHz CRT walks three plans; the estimate for a Pi 3 from the dev profile is 11 ms for that decision, which is more than a frame can give. The work runs only while a menu shows, never during play. (3) The screensaver of M15 is a black screen with the NEPTRON wordmark that moves and takes the next colour of a fixed palette at each wall.
+- Where: `crates/neptron-session/src/pacing.rs`, `crates/neptron-session/src/speed.rs`, `crates/neptron-video/src/answers.rs`, `docs/hardware-checklist.md`
+- How to change: for (1), first give the fake audio sink the period and the blocking of the real device so the loss shows in a test, then take up the speed measure again; for (2), measure `policy_cost` on a Pi 3, and if needed give the step a budget in plans and make the fallback of `decide_shown` resumable.
+- Decision: Owner, 2026-11-23: merge the tested build of M16 and drop the last round; the screensaver starts after 5 minutes in the menu, a paused game and the quick menu, never in a running game, with the settings On or Off and 1, 5, 10 or 30 minutes.

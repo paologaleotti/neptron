@@ -676,7 +676,7 @@ name = "Picture mode (spec first): one setting with more options (auto, sharp, s
 owns = ["crates/neptron-modeline", "crates/neptron-settings", "crates/neptron-video", "crates/neptron-ui", "apps/neptron", "docs/spec"]
 needs = ["M08d"]
 gate = "T2; goldens of each mode on each display class; the crawler finds the setting"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "M09"
