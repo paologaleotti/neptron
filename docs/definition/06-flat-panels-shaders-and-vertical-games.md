@@ -33,7 +33,7 @@ The monitor profile selects one of two display modes: CRT mode changes the signa
 
 - Defaults by profile: flat panel gets built-in scanlines for consoles and arcade and the LCD grid for handhelds. A 15 kHz CRT gets no shader, because its scanlines are real. A 31 kHz CRT gets line doubling with optional scanlines.
 - Scanlines look best at a whole-number vertical scale, so choosing a scanline shader suggests integer scaling. A brightness-adaptive variant with moiré filtering covers fractional scales, as RePlayOS's display filter does.
-- Shaders run as a pass after scaling in `neptron-gfx`; preset loading lives in a new `neptron-shader` crate.
+- Shaders run as a pass after scaling in `neptron-gfx`; preset loading lives in `neptron-shader`.
 - Budget: every built-in shader holds full speed at 1080p on a Pi 4. This is a release test.
 
 **Vertical games on horizontal screens**

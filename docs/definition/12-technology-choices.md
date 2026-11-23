@@ -6,7 +6,7 @@ NEPTRON hand-writes only what makes it NEPTRON: the display layer, the libretro 
 | --- | --- | --- | --- | --- |
 | Base OS | Buildroot stable (2026.08 or later) at a pinned commit, br2-external tree. The LTS branch (2025.02) has no SDL3 package and its Rust is too old for edition 2024 | Reuse | Small, reproducible, you asked for it | Yocto (heavier), Debian base (slow boot, large) |
 | Language | Rust stable, edition 2024, pinned toolchain |  | Project rule; memory safety around a lot of FFI |  |
-| Display | DRM/KMS atomic API through the `drm` crate; buffers through `gbm` | Build on crates | Full control of modesets, timings and buffer modifiers; this is the product | SDL3 for video (hides the modeset), X11, Wayland |
+| Display | DRM/KMS atomic API through the `drm` and `drm-ffi` crates; buffers through the raw libgbm binding `gbm-sys` | Build on crates | Full control of modesets, timings and buffer modifiers; this is the product | SDL3 for video (hides the modeset), X11, Wayland |
 | Game rendering | OpenGL ES 2/3 on EGL (`khronos-egl`, `glow`), Mesa drivers | Build on crates | Works on every target; GL cores need a shared GL context anyway | wgpu for now (heavier; revisit with Vulkan cores) |
 | Shaders | Own GLES 2 shaders for the built-in set; librashader for slang presets | Mixed | Built-ins are a few dozen lines each; the slang runtime is a solved, large problem | Writing a slang runtime ourselves |
 | Core hosting | Bindings generated from `libretro.h`, `libloading`; core runs in-process | Build | Per-frame control of video, audio and input; this is the product | RetroArch as a subprocess (two UIs, no control of switching) |

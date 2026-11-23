@@ -10,7 +10,7 @@ The UI is drawn on a 320x240 logical canvas with pixel fonts, so it is sharp on 
 | Out | A scene (rectangles, sprites, text runs and clips; never pixels), a list of intents (launch this game, set this value at this level, change this profile), and the widget tree for the control API |
 
 - The UI never acts. It does not load cores, write settings, touch the display or read files other than its skin. It returns intents and the app carries them out.
-- It depends on no other NEPTRON crate, and only the app binary depends on it. It has no threads and no I/O in its update path, so every screen is a pure function of snapshot plus input.
+- Its dependency rule is in the monorepo layout. It has no threads and no I/O in its update path, so every screen is a pure function of snapshot plus input.
 - The snapshot and intent types are defined inside `neptron-ui`. The app converts the settings schema and the library into them, so a change to settings or library internals cannot break a screen.
 
 Inside the crate, four layers, each using only the one below:
@@ -40,7 +40,7 @@ Inside the crate, four layers, each using only the one below:
 
 **Quick menu ("everything" menu)**
 
-- Default combination Select + Start, configurable. On arcade panels without a Select button the default is holding Start for 2 seconds.
+- Select + Start opens it (the same combination held for 5 seconds is the blind recovery). For arcade panels without a Select button, the setting `input.menu_hold_start_seconds` opens it with a Start hold: off by default, 2 seconds suggested on an arcade panel (OP-038).
 - The core is paused and the overlay is drawn over the frozen frame in the current video mode. Opening it never causes a mode switch.
 - Contents: resume, save and load state, video (refresh policy, interlace, position, scaling, shader, rotation), core options, controls (remap, turbo), disc swap, reset, quit.
 - Changes apply immediately. On leaving, one prompt asks where to keep them: this game, this system, or everywhere.
@@ -50,7 +50,7 @@ Inside the crate, four layers, each using only the one below:
 - Everything works with a D-pad and two buttons. Keyboard and mouse are optional.
 - Content stays inside a 5% overscan-safe area. No text under 8 pixels tall on the logical canvas.
 - The UI responds within one frame. List scrolling never blocks on disk.
-- The game library is a local index rebuilt in the background. `gamelist.xml` files from EmulationStation setups are imported so RetroPie, Batocera and Recalbox users keep their names and favourites. *(added)*
+- The game library is a local index rebuilt in the background. `gamelist.xml` files from EmulationStation setups are imported so RetroPie, Batocera and Recalbox users keep their names and favourites.
 
 **Skinning**
 

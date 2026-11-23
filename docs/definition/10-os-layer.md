@@ -49,7 +49,8 @@ config/
 ├── global.toml                   what applies everywhere
 ├── systems/<system>.toml         only what differs for one system
 ├── games/<system>/<game>.toml    only what differs for one game
-├── input/<controller>.toml       button mappings from the guided mapper
+├── input/pads.toml                button mappings from the guided mapper, per controller model
+├── notices.toml                  one-time notices already shown
 ├── monitors/custom.toml          your own monitor profiles
 └── reference.toml                generated, read-only: every key, default, allowed values
 ```
@@ -106,6 +107,6 @@ state/                      ext4; reached over SMB and SFTP, not by plugging int
 
 - x86: current LTS (6.18 line) plus the 15 kHz patch set as Buildroot kernel patches, and out-of-tree input modules as Buildroot packages.
 - Pi: the Raspberry Pi downstream kernel tree, plus the small DPI interlace patch for Pi 3/4 and custom device-tree overlays for the supported GPIO DACs.
-- One kernel config fragment per concern (`video.config`, `input.config`, `fastboot.config`) so each choice is reviewable. The release kernel has no virtual terminal (CONFIG\_VT off) and no getty on a screen, so keys from keyboard encoders cannot reach a console. NEPTRON also grabs each keyboard device it reads.
+- One kernel config fragment per concern (`system.config`, `video.config`, `console.config`, `input.config`, `sound.config`, `storage.config`, `network.config`) so each choice is reviewable. The release kernel has no virtual terminal (CONFIG\_VT off) and no getty on a screen, so keys from keyboard encoders cannot reach a console. NEPTRON also grabs each keyboard device it reads.
 
 **Cores** are Buildroot packages pinned to exact commits. Each core has a metadata file in the repo: systems, file extensions, required BIOS files, default options per platform, and whether it reports resolution changes reliably.

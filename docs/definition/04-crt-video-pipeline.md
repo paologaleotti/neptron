@@ -2,8 +2,6 @@
 
 NEPTRON's DynaRes equivalent is a closed loop: the core states what it draws, a solver turns that into a modeline for the active monitor profile, a validator approves it, and one atomic KMS commit applies it. It is called the Open Dynamic Resolution Engine, **ODREN**.
 
-&#91;embedded content: mode-switch flow · 5 steps, 1 decision\]
-
 A rejected candidate loops back to the solver, which offers the next-best mode or the profile's safe fallback. The refresh actually achieved drives audio resampling and frame pacing.
 
 **Inputs**
@@ -46,7 +44,7 @@ RetroArch offers the 120 Hz path as its ["31 kHz, 120 Hz" Switchres mode](https:
 
 **Picture style: the one setting that chooses among these**
 
-The table above lists what is possible; the user picks with a single "Picture style" setting in the Display panel, overridable per system and per game and changeable live from the quick menu. Refresh is independent of the style: every CRT mode is generated, so each style runs at the game's exact rate, or exactly twice it, whenever the monitor's range allows.
+The table above lists what is possible; the user picks with a single setting in the Display panel, overridable per system and per game and changeable live from the quick menu. Its key is `display.style` and its menu label is "Picture mode". `docs/spec/video-policy-cases.md`, section 8, defines every value, its label and its help line. Refresh is independent of the style: every CRT mode is generated, so each style runs at the game's exact rate, or exactly twice it, whenever the monitor's range allows.
 
 | Picture style | Signal sent | Scanlines | Needs |
 | --- | --- | --- | --- |
@@ -61,7 +59,7 @@ The table above lists what is possible; the user picks with a single "Picture st
 - The line count is the game's own height times the factor, so a 224-line game at 3x is a 672-line mode with no borders.
 - Each row shows the resulting line rate and field rate before it is applied, for example "45.3 kHz, 59.94 Hz, in range". Styles the active monitor profile cannot display are greyed out with the reason.
 - Double refresh has a trade-off the menu states: repeating frames keeps brightness but doubles moving edges; inserting black frames gives correct motion at half brightness with 60 Hz flicker. That is why it is not the default.
-- Two companion settings sit beside it: scanline strength, and refresh policy (`exact`, `exact_x2`, `force_50`, `force_60`). In the settings files the picture style takes `auto`, `native`, `2x`, `3x` or `4x`.
+- Two companion settings sit beside it: scanline strength, and refresh policy (see "Force 50 Hz / 60 Hz"). In the settings files the picture style takes `auto`, `native`, `2x`, `3x`, `4x`, `sharp`, `speed` or `fit`.
 
 **Decision procedure.** ODREN runs these steps at launch and whenever the core's geometry changes. This list is the specification the policy tests are written from.
 
@@ -71,7 +69,7 @@ The table above lists what is possible; the user picks with a single "Picture st
 4. For each candidate set lines to height times the factor, refresh to the game's rate (times two for double refresh, or the forced rate), and width by the horizontal strategy.
 5. Ask Switchres for the modeline for that width, line count, refresh and interlace flag under the profile.
 6. Validate it. The first candidate that validates wins; the reasons the earlier ones failed are kept for the log and the notice.
-7. If the winner equals the current mode, update only scale and crop. Otherwise wait until the request has been stable for a few frames, then commit.
+7. If the winner equals the current mode, update only scale and crop. Otherwise wait until the request has been stable for a few frames (`DEBOUNCE_FRAMES`, 3 core frames), then commit.
 8. If the winner is the fitted rung, or its refresh differs from the game's, show the notice.
 
 **Sources that do not fit the monitor**
@@ -97,8 +95,8 @@ The table above lists what is possible; the user picks with a single "Picture st
 - With a fixed super width a horizontal change (PlayStation moving between 256, 320, 512 and 640) needs no modeset at all, only a new scale factor. Only line count, refresh or interlace changes cause a real switch.
 - Switches are debounced, applied with an atomic commit at vertical blank, and audio is muted for the frames the monitor needs to resync.
 
-* Scanout buffers are allocated once at the largest size any mode needs, and each mode shows a cropped region of them. A switch changes only timings, never the GL or buffer setup, which is what keeps it to a few frames. RePlayOS reports 1 to 3 frames with the same approach in its [changelog](https://www.replayos.com/changelog/).
-* Software-rendered cores can draw straight into those buffers through libretro's software-framebuffer callback, saving a copy per frame. libretro.h marks that callback experimental, so it is an optimisation and never a requirement.
+- Scanout buffers are allocated once at the largest size any mode needs, and each mode shows a cropped region of them. A switch changes only timings, never the GL or buffer setup, which is what keeps it to a few frames. RePlayOS reports 1 to 3 frames with the same approach in its [changelog](https://www.replayos.com/changelog/).
+- Software-rendered cores can draw straight into those buffers through libretro's software-framebuffer callback, saving a copy per frame. libretro.h marks that callback experimental, so it is an optimisation and never a requirement.
 
 **Timing**
 
