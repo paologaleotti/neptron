@@ -50,7 +50,7 @@ for _ in 0..repeat {                           // 2 for double refresh
 - `speed`: the speed of the game changes. X is the game's rate, Y the read-back field rate per game frame. On a CRT it shows when they differ by `REFRESH_MATCH_MHZ` (5 mHz) or more, and sets the alert only above `SPEED_ALERT_MIN_PPM` (5000 ppm of the shown rate, 0.5 %, the one alert threshold of every display class, `neptron_modeline::policy::speed_alert`): 60.099 Hz shown at 59.940 Hz gives `speed (60.099 to 59.940 Hz)` with no `[!]`. On a flat panel it shows only when they differ by more than `PANEL_SPEED_SILENT_PPM` (5000 ppm, 0.5 % of the mode's rate), the bound of the audio rate control (`neptron_audio::MAX_RATE_DEVIATION_PPM`): 60.099 Hz on 60 Hz stays silent, a 50 Hz game on a 60 Hz panel mode gives `[!] speed (50.000 to 60.000 Hz)`. The panel and TV bounds and the alert use one comparison, `neptron_modeline::policy::speed_beyond`, in parts per million of the shown rate.
 - Before the first mode is on screen the function returns `None`, and the UI shows no block.
 - `[!] ` starts the result when `alert` is true, so the alert shows also where its colour is hard to tell apart. The mark is not a result word and has no `, ` after it.
-- The worst mode line, `1920x238p 15.73 kHz 59.9xx Hz  native`, has 37 characters. A 1080p panel, `1920x1080p 67.50 kHz 60.000 Hz  panel`, has 37 too. A 2160p panel, `3840x2160p 133.3 kHz 59.997 Hz  panel`, has 37: from 100 kHz up the line rate has one decimal. The longest real results, with the mark, wrap into two lines of 37: `[!] double refresh, small picture 100%, speed (57.500 to 50.082 Hz)` gives 33 and 33 characters, and `[!] double refresh, cropped 16 lines, speed (100.000 to 60.099 Hz)` gives 37 and 28. The word is `speed` and not `speed changed`, because with `speed changed` and the mark the first of these needs three lines.
+- The mode line fits the 37 characters of the UI value column: `1920x238p 15.73 kHz 59.9xx Hz  native`, `1920x1080p 67.50 kHz 60.000 Hz  panel` and `3840x2160p 133.3 kHz 59.997 Hz  panel` (one decimal from 100 kHz up) have 37 each. The longest real results, with the mark, wrap into two lines of 37: `[!] double refresh, small picture 100%, speed (57.500 to 50.082 Hz)` gives 33 and 33 characters, and `[!] double refresh, cropped 16 lines, speed (100.000 to 60.099 Hz)` gives 37 and 28. The word is `speed` and not `speed changed`, because `speed changed` makes the first of these need three lines.
 
 ## The state machine
 
@@ -92,7 +92,7 @@ Rules:
 
 ## A mode the inputs refuse
 
-The engine detects the case, turns the output off when no valid mode exists, and exposes both states:
+The engine detects the case, turns the output off when no valid mode exists, and exposes both states (`current_refused()`, `blanked()`):
 
 - `set_monitor`, `set_settings` and `set_veto` judge the mode on the display with the new inputs. A refusal is recorded as `Kept(CurrentRefused)` with the reason, and `current_refused()` turns on.
 - A refused read back with no restore, or a failed or refused restore, leaves a mode the engine does not know on the display, with no current mode. `current_refused()` turns on too, and the same present blanks.
@@ -103,7 +103,7 @@ The engine detects the case, turns the output off when no valid mode exists, and
 What the callers must do:
 
 - The guard reads `current_refused()` and `blanked()` after each frame. When either stays on for `NO_PICTURE_LIMIT_NS`, it reverts to the last confirmed inputs, or to the safe default. `current_refused()` on after failed blanks means a refused mode is still on the wire. See "The guard".
-- T25 (session) shows no game picture as confirmed while either is on, keeps the audio muted, and passes the state to the guard and to the control protocol.
+- The session shows no game picture as confirmed while either is on, keeps the audio muted, and passes the state to the guard and to the control protocol.
 
 ## The guard
 
@@ -230,5 +230,7 @@ The CRT safety model (rows 4 to 6) asks more than the guard does. These parts ar
 - `tests/integration/guard_confirm.rs`: timeout revert, confirmation, refused confirmations, decline, a new change while one is pending, the confirmed configuration chosen again, a settings change during a pending change, a blank during a pending change, a revert target the inputs refuse, device errors during a revert, a confirmation before a frame of the change, a propose loop with no picture, the pending limit, a settings loop with no picture, time that goes backwards, a flip that never completes during a pending change, the old mode left by device errors and by a decision with no winner (`NotShown`), a revert that gives the restored configuration its own no-picture limit, a change after the pending limit.
 - `tests/integration/guard_boot.rs`: a boot on the last known good, a good boot, two failed boots, safe mode until a confirmation, a revert in safe mode, settings that differ from the last known good, a first boot with nothing confirmed, a last known good with no valid mode, settings that follow, a boot prompt whose revert asks for the settings, the boot prompt that comes back until they are written, and a game setting during a boot prompt that does not reach the global settings.
 - `tests/integration/guard_recovery.rs`: the blind recovery in each state: confirmed, a confirmation open, the output off, a refused mode after failed blanks, safe mode, before the first frame, a source blocked by device errors.
-- The guard rig checks after every frame that a mode on the wire passes the validator for the current monitor, unless the engine reports it as refused.
+- `tests/integration/guard_tv.rs`: the guard on a TV output; a change of the TV standard is a change of the monitor.
+- `tests/integration/scanlines.rs`: the scanlines of the scene from the settings, the mode and the scale.
+- The guard rig (`guard_rig.rs`) checks after every frame that a mode on the wire passes the validator for the current monitor, unless the engine reports it as refused.
 - `tests/integration/check5.rs`: timing check 5. Two scripted cores (SNES under a fixed super width, Mega Drive under the native width) change width, lines, scan and rate at given frames. The list of switches must equal `tests/golden/switch_trace.txt`, and every frame checks the mute and the debounce. The golden holds the modes the policy picks on `generic_15`; a policy change shows as a diff to check line by line.
