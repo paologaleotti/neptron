@@ -966,7 +966,7 @@ The state column is one line. The full entry below is the reference.
 ### OP-089: The shared cross-build cache gives stale results between worktrees.
 
 - Raised by: C10 and C12 (2026-11-13)
-- Status: open, a fix wanted soon
+- Status: closed by M11 (2026-11-23). Each checkout has its own target folder in the cross volume, `os build` adds the rebuild targets of the NEPTRON packages itself, and the packages copy their source fresh. A warm image build from a task worktree proved it. M11 also closes the data push gap of OP-113 (the arcade index and `input/`); that push is not yet run against the bench PC
 - Default: two caches can give a stale build with no warning.
   1. `cargo xtask os app-check` and `os push` mount every worktree at `/src/repo` and share one target folder in the volume `neptron-cross-<arch>`. When a different worktree built later than the source files of this one changed, cargo takes the old outputs as fresh, and the check fails or, worse, passes on code of a different branch. The workaround is to touch the source files first.
   2. A warm `cargo xtask os build` does not rebuild the NEPTRON packages when their source changed, so the image keeps an old frontend. The targets must be named by hand (`-- neptron-rebuild neptron-launch-rebuild neptronctl-rebuild neptron-capture-rebuild neptron-vkms-probe-rebuild`). On 2026-11-14 a Buildroot output kept an old `neptron-types` in the frontend until the source files were touched.

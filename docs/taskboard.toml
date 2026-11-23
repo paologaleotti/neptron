@@ -703,7 +703,7 @@ name = "Build tooling: a push or a build from another worktree never links a sta
 owns = ["xtask", "os/package"]
 needs = []
 gate = "T1; a test that fails with the old behaviour"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "M12"
