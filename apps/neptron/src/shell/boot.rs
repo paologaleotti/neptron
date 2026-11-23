@@ -101,10 +101,12 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         let catalog = Catalog::builtin()?;
         let game = next.as_ref().and_then(|n| n.game.clone());
         let storage = Storage::new(paths.config());
+        let mut game_log = Vec::new();
         let files = game.as_ref().map(|g| {
             let mut issues = Vec::new();
             let files = game_files::find(&paths.roms(), &catalog, g, &mut issues);
             found.warn_all(issues);
+            game_log.extend(files.long_folder.clone());
             if files.adopt_flat {
                 adopt_flat_settings(&storage, &g.system, &files, &mut found);
             }
@@ -410,6 +412,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         };
         shell.first_snapshot();
         for line in imported.log {
+            shell.log(line);
+        }
+        for line in game_log {
             shell.log(line);
         }
         // A relaunch is a run of the same boot: its first run showed the

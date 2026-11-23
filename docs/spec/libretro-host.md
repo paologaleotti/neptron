@@ -388,7 +388,7 @@ The save file follows the folders of the game below its system's ROM folder. The
 | `roms/snes/hacks/Chrono Trigger.sfc` | `saves/snes/hacks/Chrono Trigger.srm` |
 | `roms/snes/a/b/Chrono Trigger.zip` | `saves/snes/a/b/Chrono Trigger.srm` |
 
-So two games of one name in two folders keep two saves. Two files with the same stem in one folder (`Chrono Trigger.sfc` beside `Chrono Trigger.zip`) share one save, as in RetroArch. The core's save directory (`GET_SAVE_DIRECTORY`) stays `saves/<system>/`, so files that a core writes there itself keep their paths.
+So two games of one name in two folders keep two saves. A folder name longer than 255 bytes (the ext4 limit of the state partition; exFAT takes 255 UTF-16 units, up to 765 bytes) cannot be a save folder: the app gives such a game the flat save and settings paths, logs one line, and the game starts. Two files with the same stem in one folder (`Chrono Trigger.sfc` beside `Chrono Trigger.zip`) share one save, as in RetroArch. The core's save directory (`GET_SAVE_DIRECTORY`) stays `saves/<system>/`, so files that a core writes there itself keep their paths.
 
 `save_folder` makes each missing folder with `create_dir` and syncs it into its parent. A folder name can hold any character that the share allows. A name that could leave the save folder (empty, `.`, `..`, a leading dot, `/`, `\` or NUL) is `SaveFileError::BadFolderName`. An entry on the way that is a symbolic link or not a folder is `SaveFileError::NotAFolder`: a link is never followed.
 

@@ -37,7 +37,15 @@ pub struct GameFiles {
     /// The flat files may be copied to the game's own files: the game is
     /// in a folder, and no game of its name is at the top of the system.
     pub adopt_flat: bool,
+    /// A log line when a folder name of the game is longer than
+    /// [`NAME_MAX_BYTES`]: the game then keeps the flat files.
+    pub long_folder: Option<String>,
 }
+
+/// The longest file name that ext4, the file system of the state
+/// partition, takes, in bytes. exFAT takes 255 UTF-16 units, which can be
+/// up to 765 bytes of UTF-8.
+pub const NAME_MAX_BYTES: usize = 255;
 
 impl GameFiles {
     /// The folders and the stem of `game`, with no claim on the flat files.
@@ -45,10 +53,24 @@ impl GameFiles {
     /// the last one the file. A path of one part is a game at the top.
     pub fn of(game: &GameRef) -> Self {
         let parts: Vec<&str> = game.path.split('/').collect();
-        let folders = match parts.len() {
+        let mut folders: Vec<String> = match parts.len() {
             0..=2 => Vec::new(),
             n => parts[1..n - 1].iter().map(|p| (*p).to_owned()).collect(),
         };
+        // A folder that the state partition cannot name would stop the
+        // launch, so such a game keeps the flat files and starts.
+        let long_folder = folders
+            .iter()
+            .find(|f| f.len() > NAME_MAX_BYTES)
+            .map(|f| {
+                format!(
+                    "the folder name {f:?} of {} is longer than {NAME_MAX_BYTES} bytes, so the game keeps the save and settings files of the top of its system",
+                    game.path
+                )
+            });
+        if long_folder.is_some() {
+            folders.clear();
+        }
         let file = parts.last().copied().unwrap_or_default();
         let stem = Path::new(file)
             .file_stem()
@@ -59,6 +81,7 @@ impl GameFiles {
             folders,
             stem,
             adopt_flat: false,
+            long_folder,
         }
     }
 
@@ -181,6 +204,25 @@ mod tests {
             ("snes/no extension/Game", "no extension/Game"),
         ] {
             assert_eq!(GameFiles::of(&game(path)).key(), key, "{path}");
+        }
+    }
+
+    /// ext4 takes names of 255 bytes at most; exFAT takes 255 UTF-16 units,
+    /// up to 765 bytes of UTF-8. A game in a folder with a longer name
+    /// keeps the flat files and starts.
+    #[test]
+    fn a_folder_name_too_long_for_the_state_partition_keeps_the_flat_files() {
+        let longest = "a".repeat(NAME_MAX_BYTES);
+        let files = GameFiles::of(&game(&format!("snes/{longest}/Game.sfc")));
+        assert_eq!(files.folders, std::slice::from_ref(&longest));
+        assert_eq!(files.long_folder, None);
+        for long in ["a".repeat(NAME_MAX_BYTES + 1), "é".repeat(128)] {
+            let files = GameFiles::of(&game(&format!("snes/ok/{long}/Game.sfc")));
+            assert_eq!(files.folders, Vec::<String>::new(), "{long}");
+            assert_eq!(files.key(), "Game");
+            assert!(!files.clone().with_top_level(false).adopt_flat);
+            let note = files.long_folder.expect("a log line");
+            assert!(note.contains("longer than 255 bytes"), "{note}");
         }
     }
 
