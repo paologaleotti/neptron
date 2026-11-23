@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod atomic;
+pub mod boot_file;
 pub mod boot_output;
 pub mod config;
 pub mod control;
@@ -31,6 +32,7 @@ pub mod power;
 pub mod presets;
 pub mod record;
 pub mod relaunch;
+mod sha256;
 pub mod shell;
 pub mod speed_notice;
 pub mod start_failure;
