@@ -184,11 +184,56 @@ pub fn dev_key_problem(path: &Path, checkout: &Path, text: &str) -> Option<Strin
     None
 }
 
+/// The packages of `os/package` that build from this repository, in build
+/// order, with the configuration symbol that turns each one on.
+pub const LOCAL_PACKAGES: [(&str, &str); 5] = [
+    ("neptron", "BR2_PACKAGE_NEPTRON"),
+    ("neptron-launch", "BR2_PACKAGE_NEPTRON_LAUNCH"),
+    ("neptronctl", "BR2_PACKAGE_NEPTRONCTL"),
+    ("neptron-capture", "BR2_PACKAGE_NEPTRON_CAPTURE"),
+    ("neptron-vkms-probe", "BR2_PACKAGE_NEPTRON_VKMS_PROBE"),
+];
+
+/// The make targets that build each package of [`LOCAL_PACKAGES`] that
+/// `configs` turn on again from the current source: `<package>-reconfigure`.
+/// `configs` are the texts of the defconfig and of the fragments, in the
+/// order of the merge; a later line wins.
+///
+/// Buildroot does not see a change to the source of a local package. A
+/// `-rebuild` or a `-reconfigure` copies the source again (with the hooks
+/// of `os/package/neptron/local-source.mk`, every file of it).
+/// `-reconfigure`, not `-rebuild`: the configure step runs `cargo vendor`,
+/// and a `Cargo.lock` with a new crate fails the offline build with the
+/// old vendor folder. A package that is off gets no target, because its
+/// target would build it and put it in the image.
+pub fn rebuild_targets(configs: &[&str]) -> Vec<String> {
+    LOCAL_PACKAGES
+        .iter()
+        .filter(|(_, symbol)| {
+            let mut on = false;
+            for line in configs.iter().flat_map(|c| c.lines()).map(str::trim) {
+                if line == format!("{symbol}=y") {
+                    on = true;
+                } else if line.starts_with(&format!("{symbol}="))
+                    || line == format!("# {symbol} is not set")
+                {
+                    on = false;
+                }
+            }
+            on
+        })
+        .map(|(package, _)| format!("{package}-reconfigure"))
+        .collect()
+}
+
 /// Every Docker command of one `os build`, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildPlan {
     /// The arguments.
     pub args: BuildArgs,
+    /// The targets that build the local packages again, from
+    /// [`rebuild_targets`]. They run before the targets of the user.
+    pub rebuild: Vec<String>,
     /// The checkout. Buildroot reads the br2-external tree `os/` in it, and
     /// the packages of the frontend and the launcher build its workspace.
     pub checkout: PathBuf,
@@ -206,9 +251,11 @@ impl BuildPlan {
         container_build(&self.container)
     }
 
-    /// The `docker run` arguments of each step: apply the defconfig, run the
-    /// extra targets, collect the licences, build everything, copy the
-    /// images out. The licences come first: the image carries them.
+    /// The `docker run` arguments of each step: apply the defconfig, build
+    /// the local packages again, run the extra targets, collect the
+    /// licences, build everything, copy the images out. The licences come
+    /// first: the image carries them. A target of the user that is also a
+    /// rebuild target runs once, in the rebuild.
     pub fn steps(&self) -> Vec<Vec<String>> {
         let jobs = format!("BR2_JLEVEL={}", self.args.jobs);
         let external = format!("BR2_EXTERNAL={CHECKOUT_MOUNT}/os");
@@ -231,7 +278,12 @@ impl BuildPlan {
             steps.push(self.run(&merge));
             steps.push(self.make(&["olddefconfig"]));
         }
-        for target in &self.args.targets {
+        let user = self
+            .args
+            .targets
+            .iter()
+            .filter(|t| !self.rebuild.contains(t));
+        for target in self.rebuild.iter().chain(user) {
             steps.push(self.make(&[&jobs, target]));
         }
         steps.push(self.make(&[&jobs, "legal-info"]));
@@ -363,6 +415,7 @@ mod tests {
     fn plan(args: &[&str]) -> BuildPlan {
         BuildPlan {
             args: BuildArgs::parse(args, Arch::Aarch64).unwrap(),
+            rebuild: Vec::new(),
             checkout: PathBuf::from("/repo"),
             images: PathBuf::from("/cache/images/aarch64"),
             container: "neptron-dev:0123456789abcdef".to_owned(),
@@ -817,5 +870,204 @@ mod tests {
             );
             assert!(line.contains(" neptron-dev:0123456789abcdef "), "{line}");
         }
+    }
+
+    fn repo_file(path: &str) -> String {
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(path))
+            .unwrap()
+    }
+
+    #[test]
+    fn the_rebuild_targets_run_once_and_before_the_targets_of_the_user() {
+        let mut p = plan(&[
+            "--",
+            "source",
+            "neptron-reconfigure",
+            "linux-reconfigure",
+            "neptronctl-reconfigure",
+        ]);
+        p.rebuild = rebuild_targets(&[&repo_file("os/configs/neptron_qemu_aarch64_defconfig")]);
+        let tail = |s: &Vec<String>| s[s.len() - 2..].join(" ");
+        let made: Vec<String> = p.steps()[1..9].iter().map(tail).collect();
+        assert_eq!(
+            made,
+            [
+                "BR2_JLEVEL=4 neptron-reconfigure",
+                "BR2_JLEVEL=4 neptron-launch-reconfigure",
+                "BR2_JLEVEL=4 neptronctl-reconfigure",
+                "BR2_JLEVEL=4 neptron-capture-reconfigure",
+                "BR2_JLEVEL=4 neptron-vkms-probe-reconfigure",
+                "BR2_JLEVEL=4 source",
+                "BR2_JLEVEL=4 linux-reconfigure",
+                "BR2_JLEVEL=4 legal-info",
+            ]
+        );
+        assert_eq!(p.steps().len(), 11);
+    }
+
+    #[test]
+    fn a_build_with_no_targets_still_builds_the_local_packages_again() {
+        let mut p = plan(&["--arch", "rpi-arm64"]);
+        p.rebuild = rebuild_targets(&[&repo_file("os/configs/neptron_rpi_arm64_defconfig")]);
+        let lines: Vec<String> = p.steps().iter().map(|s| s.join(" ")).collect();
+        let at = |t: &str| {
+            lines
+                .iter()
+                .position(|l| l.ends_with(&format!("BR2_JLEVEL=4 {t}")))
+        };
+        let rebuild = [
+            "neptron-reconfigure",
+            "neptron-launch-reconfigure",
+            "neptronctl-reconfigure",
+        ];
+        for (n, target) in rebuild.iter().enumerate() {
+            assert_eq!(at(target), Some(n + 1), "{target}: {lines:#?}");
+        }
+        assert!(
+            at("neptron-capture-reconfigure").is_none(),
+            "off in the Pi image"
+        );
+        assert!(at("legal-info").unwrap() > 3);
+    }
+
+    #[test]
+    fn the_rebuild_targets_follow_the_configuration() {
+        for (defconfig, count) in [
+            ("neptron_qemu_aarch64_defconfig", 5),
+            ("neptron_pc_x86_64_defconfig", 5),
+            ("neptron_rpi_arm64_defconfig", 3),
+        ] {
+            let text = repo_file(&format!("os/configs/{defconfig}"));
+            assert_eq!(rebuild_targets(&[&text]).len(), count, "{defconfig}");
+        }
+        let base = "BR2_PACKAGE_NEPTRON=y\nBR2_PACKAGE_NEPTRON_CAPTURE=y\n";
+        assert_eq!(
+            rebuild_targets(&[base]),
+            ["neptron-reconfigure", "neptron-capture-reconfigure"]
+        );
+        assert_eq!(
+            rebuild_targets(&[base, "# BR2_PACKAGE_NEPTRON_CAPTURE is not set\n"]),
+            ["neptron-reconfigure"],
+            "a later fragment wins"
+        );
+        assert_eq!(
+            rebuild_targets(&["BR2_PACKAGE_NEPTRON_CONTROL=y\n"]),
+            Vec::<String>::new(),
+            "a symbol with the package name as a prefix is another symbol"
+        );
+        assert!(rebuild_targets(&[]).is_empty());
+    }
+
+    /// Every package of `os/package` that builds from this tree is in the
+    /// rebuild list and copies its whole source again on each rsync.
+    #[test]
+    fn every_local_package_is_rebuilt_and_copies_its_source_again() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../os/package");
+        let mut local = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let name = entry.unwrap().file_name().into_string().unwrap();
+            let Ok(mk) = std::fs::read_to_string(dir.join(&name).join(format!("{name}.mk"))) else {
+                continue;
+            };
+            if mk.lines().any(|l| l.ends_with("_SITE_METHOD = local")) {
+                let var = name.to_uppercase().replace('-', "_");
+                for hook in [
+                    format!("{var}_PRE_RSYNC_HOOKS += NEPTRON_LOCAL_SOURCE_CLEAR"),
+                    format!("{var}_POST_RSYNC_HOOKS += NEPTRON_LOCAL_SOURCE_TOUCH"),
+                ] {
+                    assert!(mk.lines().any(|l| l == hook), "{name}.mk lacks {hook:?}");
+                }
+                local.push(name);
+            }
+        }
+        local.sort();
+        let mut listed: Vec<String> = LOCAL_PACKAGES
+            .iter()
+            .map(|(p, _)| (*p).to_owned())
+            .collect();
+        listed.sort();
+        assert_eq!(local, listed);
+        for (package, symbol) in LOCAL_PACKAGES {
+            let config = std::fs::read_to_string(dir.join(package).join("Config.in")).unwrap();
+            assert!(
+                config
+                    .lines()
+                    .any(|l| l.trim() == format!("config {symbol}")),
+                "{package}: {symbol}"
+            );
+        }
+    }
+
+    /// The hooks of `local-source.mk`, run by make on folders that stand
+    /// for a build folder with a stale copy. `cp -pR` keeps the file times
+    /// as the rsync of Buildroot does.
+    #[test]
+    fn the_rsync_hooks_replace_a_stale_copy_and_give_it_a_new_time() {
+        let root = std::env::temp_dir().join(format!("xtask-local-source-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root); // A folder of an earlier run may not exist.
+        let (src, dest) = (root.join("src"), root.join("build"));
+        let write = |path: &Path, text: &str| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        write(&src.join("crates/types/lib.rs"), "new");
+        write(&src.join(".cargo/config.toml"), "checkout");
+        write(&src.join("Cargo.toml"), "[workspace]");
+        for file in ["crates/types/lib.rs", "Cargo.toml"] {
+            std::fs::File::options()
+                .write(true)
+                .open(src.join(file))
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+        write(&dest.join("crates/types/lib.rs"), "old");
+        write(&dest.join("crates/types/removed.rs"), "old");
+        write(&dest.join("target/release/neptron.d"), "dep-info");
+        write(&dest.join("VENDOR/serde/lib.rs"), "vendored");
+        write(&dest.join(".cargo/config.toml"), "checkout and vendor");
+        write(&dest.join(".stamp_configured"), "");
+        let built = std::fs::metadata(dest.join("target/release/neptron.d"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        let mk =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../os/package/neptron/local-source.mk");
+        let makefile = format!(
+            "include {}\nqstrip = $(strip $(subst \",,$(1)))\nSRCDIR = {}\n\
+             {}/.stamp_rsynced:\n\
+             \t$(NEPTRON_LOCAL_SOURCE_CLEAR)\n\
+             \tcp -pR {}/crates {}/Cargo.toml $(@D)/\n\
+             \t$(NEPTRON_LOCAL_SOURCE_TOUCH)\n",
+            mk.display(),
+            src.display(),
+            dest.display(),
+            src.display(),
+            src.display(),
+        );
+        write(&root.join("Makefile"), &makefile);
+        let out = std::process::Command::new("make")
+            .arg("-s")
+            .arg("-C")
+            .arg(&root)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let read = |p: &str| std::fs::read_to_string(dest.join(p)).unwrap();
+        assert_eq!(read("crates/types/lib.rs"), "new");
+        assert!(!dest.join("crates/types/removed.rs").exists());
+        assert_eq!(read("target/release/neptron.d"), "dep-info");
+        assert_eq!(read("VENDOR/serde/lib.rs"), "vendored");
+        assert_eq!(read(".cargo/config.toml"), "checkout and vendor");
+        assert!(dest.join(".stamp_configured").exists());
+        for file in ["crates/types/lib.rs", "Cargo.toml"] {
+            let time = std::fs::metadata(dest.join(file))
+                .unwrap()
+                .modified()
+                .unwrap();
+            assert!(time >= built, "{file} is older than the build output");
+        }
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

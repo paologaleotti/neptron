@@ -640,7 +640,9 @@ fn build(args: &[&str]) -> Result<ExitCode, OsError> {
         }
     }
     let images = cache.images_dir(&args.variant());
+    let rebuild = local_rebuild_targets(&repo, &args)?;
     let plan = BuildPlan {
+        rebuild,
         checkout: repo.root.clone(),
         images,
         container: build::container_image(&text),
@@ -659,6 +661,19 @@ fn build(args: &[&str]) -> Result<ExitCode, OsError> {
         eprintln!("xtask: disk image {}", plan.images.join(disk).display());
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The rebuild targets of the local packages that the defconfig and the
+/// fragments of `args` turn on.
+fn local_rebuild_targets(repo: &Repo, args: &BuildArgs) -> Result<Vec<String>, OsError> {
+    let configs = repo.root.join("os").join("configs");
+    let mut texts = Vec::new();
+    for name in std::iter::once(args.board.defconfig()).chain(args.fragments()) {
+        let path = configs.join(name);
+        texts.push(std::fs::read_to_string(&path).map_err(|source| OsError::Io { path, source })?);
+    }
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    Ok(build::rebuild_targets(&texts))
 }
 
 fn check_docker_daemon() -> Result<(), OsError> {

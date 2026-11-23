@@ -7,6 +7,9 @@
 NEPTRONCTL_VERSION = 0.1.0
 NEPTRONCTL_SITE = $(NEPTRON_WORKSPACE)
 NEPTRONCTL_SITE_METHOD = local
+# Copy the whole source again on each rsync; see local-source.mk.
+NEPTRONCTL_PRE_RSYNC_HOOKS += NEPTRON_LOCAL_SOURCE_CLEAR
+NEPTRONCTL_POST_RSYNC_HOOKS += NEPTRON_LOCAL_SOURCE_TOUCH
 NEPTRONCTL_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = $(NEPTRON_WORKSPACE_EXCLUSIONS)
 # The legal-info copy of a local package ignores the exclusions above and
 # would take the build output of the checkout. The source is the public
