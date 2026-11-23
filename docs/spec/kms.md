@@ -9,7 +9,7 @@ The backend executes and decides nothing. The engine (`neptron-video`) decides w
 - Linux 6.18, `Documentation/gpu/drm-kms.rst` and `drm-uapi.rst`: the atomic API, `DRM_MODE_ATOMIC_TEST_ONLY`, `DRM_MODE_ATOMIC_NONBLOCK`, `DRM_MODE_ATOMIC_ALLOW_MODESET`, `DRM_MODE_PAGE_FLIP_EVENT`, the writeback connector properties `WRITEBACK_FB_ID` and `WRITEBACK_OUT_FENCE_PTR`.
 - Linux 6.18, `drivers/gpu/drm/vkms`: the virtual driver of the QEMU images. Its vblank comes from a timer, its writeback connector checks that the buffer has the size of the mode, its CRCs go to debugfs.
 - Mesa 26.1, `src/gbm` and `src/egl/drivers/dri2/platform_drm.c`: EGL on GBM (`EGL_PLATFORM_GBM_KHR`). A window surface is drawn with the GL origin at the bottom left, so the last GL row is the first row of the buffer in memory.
-- `tools/kms-spike` (T21) and its runs on `vkms`, `os/README.md` (T14) and its `vkms` probe, the open points OP-018, OP-030, OP-032, OP-034, OP-043 and OP-045.
+- `tools/kms-spike` and its runs on `vkms`, `os/README.md` and its `vkms` probe, the open points OP-018, OP-030, OP-032, OP-034, OP-043 and OP-045.
 
 ## Device and connector
 
@@ -168,7 +168,7 @@ What the run showed (aarch64 guest, Mesa softpipe, kernel 6.18): every check pas
 - Anything about a real GPU or a real monitor: the pixel clock the hardware makes, the minimum pixel clock, the timing of a real vblank, the flip cadence of an interlaced mode (OP-030), the linear-buffer path for 480i on i915.
 - The connector choice between several displays: `vkms` on kernel 6.18 has one connector (`Virtual-1`). The rule is tested as a pure function in tier 1.
 - What a real driver does at the last close (the CRTC off or on), and the console takeover: `vkms` has no console.
-- The modifier path: Mesa's `kms_swrast` on `vkms` may not take modifiers, so the fallback with the linear usage flag can be the one that runs. The program prints which path ran.
+- The modifier path: Mesa's GBM on `vkms` takes no modifiers, so only the fallback with the linear usage flag runs there. The program prints which path ran.
 - Real-time behaviour: QEMU on a loaded host misses vblanks.
 - Setting a TV standard: `vkms` has no `TV mode` property, and no virtual driver of kernel 6.18 has one. Setting a standard and reading it back need a Raspberry Pi (`docs/hardware-checklist.md`).
 
@@ -178,4 +178,4 @@ The hardware checks go to `docs/hardware-checklist.md`.
 
 - With several connected connectors and no connector of the class the rule asks for (a CRT profile and only digital candidates, or the reverse), the first candidate wins. Where: `connector.rs`. How to change: a decision in the Definition.
 - A CRTC that drives two connectors (a firmware clone) is refused at open, not split. Where: `device.rs`. How to change: detach the other connector in the first modeset, after a decision that it is safe.
-- After a crash with the launcher holding the descriptor, the framebuffers of the dead frontend stay until the launcher closes the descriptor; each restart adds a few. Where: the launcher (T27). How to change: the launcher re-opens the device after a number of restarts, or the frontend removes framebuffers it does not know at open.
+- After a crash with the launcher holding the descriptor, the framebuffers of the dead frontend stay until the launcher closes the descriptor; each restart adds a few. Where: the launcher (`neptron-launch`). How to change: the launcher re-opens the device after a number of restarts, or the frontend removes framebuffers it does not know at open.

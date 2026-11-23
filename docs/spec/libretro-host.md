@@ -63,6 +63,8 @@ impl Host {
     pub fn run_frame(&mut self) -> Result<FrameOutput<'_>, RunError>;
     pub fn reset(&mut self) -> Result<(), RunError>;
     pub fn logs(&self) -> &[LogRecord];
+    pub fn error_logs(&self) -> &[LogRecord];
+    pub fn dropped_logs(&self) -> usize;
     pub fn copy_save_ram(&mut self, out: &mut Vec<u8>) -> Result<usize, SaveRamError>;
     pub fn load_save_ram(&mut self, bytes: &[u8]) -> Result<SaveRamLoad, SaveRamError>;
 }
@@ -269,7 +271,7 @@ FinalBurn Neo calls it in `retro_load_game` and when its vertical-mode option ch
 
 ### Input descriptors
 
-`SET_INPUT_DESCRIPTORS` gives an array of `retro_input_descriptor` that ends with a null description. The host keeps `InputDescriptor { port, device, index, id, description }` for each entry, at most `MAX_INPUT_DESCRIPTORS` (256). A longer list is cut, and the cut is logged once (level warn). A description is a C string, read as every core string (at most `MAX_CORE_STRING_BYTES`); an entry whose description has no NUL in that range is skipped. A second call replaces the list. `Host::input_descriptors()` gives it. Nothing reads it in the MVP; the remapping screen will show it.
+`SET_INPUT_DESCRIPTORS` gives an array of `retro_input_descriptor` that ends with a null description. The host keeps `InputDescriptor { port, device, index, id, description }` for each entry, at most `MAX_INPUT_DESCRIPTORS` (256). A longer list is cut, and the cut is logged once (level warn). A description is a C string, read as every core string (at most `MAX_CORE_STRING_BYTES`); an entry whose description has no NUL in that range is skipped. A second call replaces the list. `Host::input_descriptors()` gives it. Nothing reads it in the MVP.
 
 ## Environment calls
 
@@ -323,7 +325,7 @@ void neptron_libretro_log_printf(unsigned level, const char *fmt, ...);
 
 It formats the message with `vsnprintf` into a stack buffer of 1,024 bytes (longer messages are cut) and calls one Rust function through a function pointer, which the host sets once in `Host::open`, before the core can get the log function. The Rust function finds the state through the thread-local slot, as the other callbacks do. A message from another thread has no state and is dropped.
 
-Why not answer `false`: Snes9x calls its log pointer without a null check on some paths (an unknown controller port, a failed multi-cart load), so `false` can crash it. FCEUmm and Genesis Plus GX use their own logger when the call fails, and lose nothing. A core log is also the best way to see why a ROM does not load. The shim is 30 lines of C with no state except the function pointer, and `cc` is already the build tool of the Switchres crate.
+Why not answer `false`: Snes9x calls its log pointer without a null check on some paths (an unknown controller port, a failed multi-cart load), so `false` can crash it. FCEUmm and Genesis Plus GX use their own logger when the call fails, and lose nothing. A core log is also the best way to see why a ROM does not load. The shim is a short C file with no state except the function pointer, and `cc` is already the build tool of the Switchres crate.
 
 `LogRecord { level, source, text }`: the source is the core or the host. The log queue holds 64 records of at most 1,024 bytes each, made once at `Host::open`. A record beyond that is counted in `Dropped::log_records`. `run_frame` clears the queue at its start; `FrameOutput::logs` and `Host::logs` show the records of the last call. The error-level records also go to a store of their own, `ERROR_LOG_CAPACITY` (16) records made at `Host::open`, which keeps the first ones of a call: `Host::error_logs`. A noisy load fills the queue before its last lines (FinalBurn Neo logs 57 lines for one set), and the error lines at its end say why it failed. `Host::dropped_logs` gives the records of the last call that the full queue dropped. The host writes no log itself: the session forwards the records to its own log.
 
@@ -357,7 +359,7 @@ ROMs and BIOS files are user data. The host opens content read-only and never wr
 
 ### The zip reader
 
-The host reads zip files with `miniz_oxide` (raw deflate) and its own central-directory reader of about 340 lines.
+The host reads zip files with `miniz_oxide` (raw deflate) and its own central-directory reader.
 
 - `miniz_oxide` is pure Rust, licensed MIT, Zlib or Apache-2.0, and has one dependency (`adler2`, 0BSD, MIT or Apache-2.0). It compiles in about one second. It is the deflate code that `flate2` and the Rust standard library's backtrace code use.
 - The `zip` crate with only deflate pulls in `flate2`, `crc32fast`, `indexmap` and more, and also writes archives. The host needs one read path.

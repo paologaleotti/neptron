@@ -10,7 +10,7 @@ This spec settles OP-105 and OP-076. It describes when the guard opens the keep 
 - The record held one place. A boot at another place (a monitor that is off at boot, the composite fallback of a Pi) erased the confirmation of the first place.
 - A safe state never made a boot good. On a TV that nobody kept, each power cut added one failed boot, and the third power-on was sticky safe mode.
 - The picture on screen in safe mode could not be kept: a `propose` of the active configuration wrote it with no prompt.
-- The dialog ignored Left and Right until it saw 60 frames with no direction. A quick "Right, then Accept" was a Revert. Since T27 the app (`Navigator::hold_back`) drops key repeats and keys held when the dialog opens, so the UI rule is redundant.
+- The dialog ignored Left and Right until it saw 60 frames with no direction. A quick "Right, then Accept" was a Revert. The app (`Navigator::hold_back`) drops key repeats and keys held when the dialog opens, so the UI needs no such rule.
 
 ## Rules
 
@@ -92,7 +92,7 @@ In safe mode the Display panel shows action rows at its end:
 
 ## The record
 
-The file is `state/video/guard.toml`, written as temp file, fsync, rename. The format stays version 1 and is append-only. A build before this spec ignores the new fields and reads the old ones.
+The file is `state/video/guard.toml`, written as temp file, fsync, rename. The format stays version 1 and is append-only. An older build ignores `run_open` and `places` and reads the other fields.
 
 ```toml
 version = 1
@@ -123,8 +123,8 @@ kind = "edid"
 id = "panel_npt_1080"
 ```
 
-- `run_open` (new, optional, default `false`): the run marker of rule 9.
-- `places` (new, optional): one entry per place with a last known good, oldest first, at most 8 (`PLACES_MAX`). A confirmation or a boot that uses a place moves it to the end. When a ninth place comes, the first entry goes.
+- `run_open` (optional, default `false`): the run marker of rule 9.
+- `places` (optional): one entry per place with a last known good, oldest first, at most 8 (`PLACES_MAX`). A confirmation or a boot that uses a place moves it to the end. When a ninth place comes, the first entry goes.
 - `output`, `monitor` and `last_known_good` at the top: the last entry of `places`, so an older build finds the place that was used last.
 - A file with no `places` gives one place from the top fields when all three are there. A file with `places` ignores the top fields.
 - The boot reads the last known good of its place only. It keeps the other entries as they are and writes them back with every save. An entry that no longer builds (a preset that was removed) stays in the file.
@@ -141,7 +141,7 @@ The run folder (`/run/neptron`) is a RAM folder. The marker `run/safe-notice-sho
 
 ## Tests
 
-The tests that first fail and then pass with this spec:
+The tests of the rules:
 
 - `a_tv_first_boot_opens_no_prompt_and_no_reverted_notice` (app, tier 2)
 - `a_return_to_the_list_after_an_unanswered_prompt_opens_no_prompt` (app, tier 2)
@@ -149,7 +149,7 @@ The tests that first fail and then pass with this spec:
 - `power_cuts_on_a_kept_or_trusted_tv_never_reach_safe_mode` (guard)
 - `clean_restarts_count_no_failed_boot` (guard)
 - `a_fresh_right_then_accept_keeps` (UI)
-- `a_refused_keep_is_logged_and_the_dialog_stays` (app, tier 2), and `an_accept_on_keep_at_the_deadline_reverts` (app, tier 2): the analysis named the first `a_keep_at_the_deadline_is_logged`, but a Keep at the deadline cannot come from the UI
+- `a_refused_keep_is_logged_and_the_dialog_stays` (app, tier 2), and `an_accept_on_keep_at_the_deadline_reverts` (app, tier 2)
 - `a_revert_to_the_same_configuration_shows_no_notice` (guard)
 - `safe_mode_ends_when_the_picture_on_screen_is_kept` (guard, and app tier 2)
 - `a_trusted_panel_boots_native_with_no_prompt` (app, tier 2)
