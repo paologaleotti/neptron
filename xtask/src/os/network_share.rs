@@ -207,6 +207,46 @@ fn both_kernels_build_in_the_smb_server_with_no_smb1_rdma_or_kerberos() {
     }
 }
 
+/// The guest share is for the local network only: no kernel of an image
+/// has IPv6, and both kernel checks fail the build when it comes back.
+#[test]
+fn no_kernel_has_ipv6() {
+    let pi = parse(&read("configs/neptron_rpi_arm64_defconfig"));
+    for (fragments, rel) in [
+        (
+            &defconfig(Arch::X86_64)["BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES"],
+            "board/pc/network.config",
+        ),
+        (
+            &defconfig(Arch::Aarch64)["BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES"],
+            "board/qemu/network.config",
+        ),
+        (
+            &pi["BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES"],
+            "board/rpi/network.config",
+        ),
+    ] {
+        assert!(fragments.contains(rel), "{rel} is not in the defconfig");
+        assert_eq!(
+            parse(&read(rel)).get("CONFIG_IPV6").map(String::as_str),
+            Some("n"),
+            "{rel}"
+        );
+    }
+    for rel in [
+        "board/pc/check-kernel-config.sh",
+        "board/rpi/check-kernel-config.sh",
+    ] {
+        let check = read(rel);
+        for line in [
+            "if has IPV6 y; then",
+            "elif has IPV6 m && ! disables_ipv6 \"$cmdline\"; then",
+        ] {
+            assert!(check.lines().any(|l| l == line), "{rel} misses {line}");
+        }
+    }
+}
+
 #[test]
 fn the_share_partition_belongs_to_the_guest_and_runs_nothing() {
     let storage = read(STORAGE_SCRIPT);

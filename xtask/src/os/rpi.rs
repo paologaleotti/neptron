@@ -312,6 +312,18 @@ fn each_kernel_fragment_holds_its_concern() {
 /// (`custom` gives the custom tarball line) and the `.config` of
 /// `linux-custom` (no text for no file).
 fn check_kernel_config(name: &str, custom: bool, config: Option<&str>) -> Output {
+    check_kernel_config_with(name, custom, config, None)
+}
+
+/// Runs the kernel check of the Pi as [`check_kernel_config`] does, with
+/// `cmdline` as the file of the kernel command line (none for the
+/// cmdline.txt of the board).
+fn check_kernel_config_with(
+    name: &str,
+    custom: bool,
+    config: Option<&str>,
+    cmdline: Option<&str>,
+) -> Output {
     let dir = TempDir::create(&format!("kconfig-{name}"));
     let br2 = dir.0.join("br2.config");
     let line = if custom {
@@ -325,10 +337,57 @@ fn check_kernel_config(name: &str, custom: bool, config: Option<&str>) -> Output
     if let Some(text) = config {
         std::fs::write(build.join("linux-custom/.config"), text).unwrap();
     }
-    run_sh(
-        &os_dir().join("board/rpi/check-kernel-config.sh"),
-        &[&br2, &build],
-    )
+    let script = os_dir().join("board/rpi/check-kernel-config.sh");
+    match cmdline {
+        Some(text) => {
+            let file = dir.0.join("cmdline.txt");
+            std::fs::write(&file, text).unwrap();
+            run_sh(&script, &[&br2, &build, &file])
+        }
+        None => run_sh(&script, &[&br2, &build]),
+    }
+}
+
+/// The Pi kernel check fails on IPv6 built in, and on the module of
+/// `bcm2711_defconfig` unless the command line turns IPv6 off.
+#[test]
+fn the_kernel_check_refuses_ipv6_unless_it_is_off() {
+    let base = "CONFIG_DRM_VC4=y\nCONFIG_I2C_BCM2835=y\nCONFIG_SMB_SERVER=y\n\
+                CONFIG_BCM2835_WDT=y\nCONFIG_MMC_BLOCK=y\nCONFIG_MMC_BCM2835=y\n\
+                CONFIG_EROFS_FS=y\nCONFIG_EROFS_FS_ZIP=y\n";
+    let with = |ipv6: &str| format!("{base}{ipv6}");
+    let off = check_kernel_config("ipv6off", true, Some(&with("# CONFIG_IPV6 is not set\n")));
+    assert!(off.status.success(), "{off:?}");
+    let builtin = check_kernel_config_with(
+        "ipv6y",
+        true,
+        Some(&with("CONFIG_IPV6=y\n")),
+        Some("root=x ipv6.disable=1\n"),
+    );
+    assert!(!builtin.status.success());
+    assert!(
+        stderr(&builtin).contains("CONFIG_IPV6 is built in"),
+        "{builtin:?}"
+    );
+    let template = check_kernel_config("ipv6template", true, Some(&with("CONFIG_IPV6=m\n")));
+    assert!(
+        !template.status.success(),
+        "cmdline.txt does not set ipv6.disable=1"
+    );
+    assert!(
+        stderr(&template).contains("CONFIG_IPV6 is a module"),
+        "{template:?}"
+    );
+    for (name, cmdline, ok) in [
+        ("ipv6m", "root=x ipv6.disable=1 quiet\n", true),
+        ("ipv6mfirst", "ipv6.disable=1 root=x\n", true),
+        ("ipv6mnone", "root=x quiet\n", false),
+        ("ipv6mzero", "root=x ipv6.disable=0\n", false),
+    ] {
+        let out =
+            check_kernel_config_with(name, true, Some(&with("CONFIG_IPV6=m\n")), Some(cmdline));
+        assert_eq!(out.status.success(), ok, "{name}: {out:?}");
+    }
 }
 
 #[test]

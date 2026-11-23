@@ -25,7 +25,7 @@ From `ksmbd-tools` 3.5.2 (`ksmbd.conf.5.in`, `tools/config_parser.c`, `include/t
 - The tools read `/etc/ksmbd/ksmbd.conf`, `/etc/ksmbd/ksmbdpwd.db` and `/etc/ksmbd/ksmbd.subauth`, and write the lock file `/run/ksmbd.lock` (`RUNSTATEDIR`). A missing user database is accepted ("No user database"). A missing `ksmbd.subauth` is made at the first start, which a read-only root does not allow, so the image holds that file.
 - There is no `follow symlinks` or `wide links` option. The kernel server does the path walk.
 
-From Linux 6.18 (`fs/smb/server/transport_tcp.c`): with no `interfaces` list, the server listens on port 445 on every interface that is up and on every interface that comes up later, except bridge ports. It binds the IPv6 wildcard with dual stack, so one socket serves IPv4 and IPv6.
+From Linux 6.18 (`fs/smb/server/transport_tcp.c`): with no `interfaces` list, the server listens on port 445 on every interface that is up and on every interface that comes up later, except bridge ports. It first makes an IPv6 socket on the IPv6 wildcard with dual stack. When the kernel has no IPv6, that socket fails with `EAFNOSUPPORT`, and the server binds the IPv4 wildcard with no log line. The kernels of the images have no IPv6 (section 3), so the server listens on IPv4 only.
 
 On the bench PC (i3-6100T, 8 GB, development image, 2026-11-13): one Ethernet port, `eth0`, an RTL8168h on `r8169`. The kernel logged `Unable to load firmware rtl_nic/rtl8168h-2.fw (-2)`, and the port still got its address by DHCP. The release image holds no firmware file and needs none for this chip.
 
@@ -108,7 +108,8 @@ ipv4 = "192.168.0.112"
 - `version` is 1. The format is append-only: a later version adds fields and never renames or removes one.
 - `host_name` is the system host name. The mDNS name is `<host_name>.local` (`mdnsd` announces the system host name).
 - One `[[address]]` table for each port with a lease, in the order of the port names. No table when no port has an address.
-- **IPv4 only.** `udhcpc` asks for IPv4, and the kernels of the images have no IPv6 (`/proc/sys/net/ipv6` is missing on the Pi).
+- **IPv4 only.** `udhcpc` asks for IPv4, and no kernel of the images has IPv6: each `network.config` sets `# CONFIG_IPV6 is not set` (the PC kernel of the `x86_64` defconfig has it built in, and `bcm2711_defconfig` makes it a module). The reason: the guest share is for the local network only, and IPv6 autoconfiguration (SLAAC) can give the port a global address that the internet reaches. The PC and Pi kernel checks (`check-kernel-config.sh`) fail the build when `CONFIG_IPV6` is built in, or is a module and the kernel command line does not set `ipv6.disable=1`. The images use the kernel option, not the command line, because the fragments are ours.
+- **Nothing in the image needs IPv6.** `udhcpc` is IPv4 DHCP. ksmbd falls back to an IPv4 socket (section "Facts"). `ksmbd.mountd` talks to the kernel over netlink. `mdnsd` 1.1 is built with IPv6 (its default), and when the IPv6 socket fails it logs `Failed creating UDP6 socket` and goes on with IPv4 only (`src/mdnsd.c`, "IPv6 is best-effort"). The image runs no NTP client.
 - **Only a wired port name** (`eth*`, `en*`, letters, digits, `_` and `-`) and **only a dotted IPv4 address** (four groups, each 0 to 255, at most three digits) are kept. The values come from a DHCP server and from mdev.
 - **No write when the content is the same.** A renew every half lease writes nothing.
 - **Temp file and rename.** The new content goes to `/run/neptron/.network.toml.<pid>.new`, a name of its own for each run, and replaces the file with a rename, so a reader never sees a part of it. `/run` is a RAM folder: the file is new at each boot, and a write costs no disk.
@@ -170,10 +171,10 @@ A file that arrives over the share appears in the game list after a rescan: afte
 
 | | PC image, release and development | Raspberry Pi image, release and development | aarch64 QEMU test image |
 | --- | --- | --- | --- |
-| Kernel | `board/pc/network.config`: `CONFIG_SMB_SERVER=y` and its options | `board/rpi/network.config`: the same options, and the USB Ethernet drivers of the Pi 3 B and 3 B+ | `board/qemu/network.config`: the same options |
+| Kernel | `board/pc/network.config`: `CONFIG_SMB_SERVER=y` and its options, no IPv6 | `board/rpi/network.config`: the same options, and the USB Ethernet drivers of the Pi 3 B and 3 B+ | `board/qemu/network.config`: the same options |
 | Packages | `ksmbd-tools`, `mdnsd` | `ksmbd-tools`, `mdnsd` | `ksmbd-tools`, `mdnsd` |
 | Init | `S40neptron-network`, `S45neptron-share` (common overlay) | the same | the same |
-| Kernel check | `board/pc/check-kernel-config.sh` fails on SMB1, SMB Direct, Kerberos | `board/rpi/check-kernel-config.sh`, the same rules | no post-build check |
+| Kernel check | `board/pc/check-kernel-config.sh` fails on SMB1, SMB Direct, Kerberos, and IPv6 | `board/rpi/check-kernel-config.sh`, the same rules | no post-build check; an xtask test pins `# CONFIG_IPV6 is not set` in the fragment |
 
 The test image gets the same server so that the boot check can see port 445 listen. Its `/share` is a RAM folder. The QEMU runs have no network card (`-nic none`) except an SSH run, and the server listens on the loopback interface anyway.
 

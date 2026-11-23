@@ -610,6 +610,18 @@ mod tests {
         version: Option<&str>,
         kernels: &[(&str, Option<&str>)],
     ) -> std::process::Output {
+        check_kernel_config_with(name, version, kernels, None)
+    }
+
+    /// Runs check-kernel-config.sh as [`check_kernel_config`] does, with
+    /// `cmdline` as the file of the kernel command line (none for the
+    /// grub.cfg of the board).
+    fn check_kernel_config_with(
+        name: &str,
+        version: Option<&str>,
+        kernels: &[(&str, Option<&str>)],
+        cmdline: Option<&str>,
+    ) -> std::process::Output {
         let script = os_dir().join("board/pc/check-kernel-config.sh");
         let dir = std::env::temp_dir().join(format!("xtask-kconfig-{name}-{}", std::process::id()));
         let build = dir.join("build");
@@ -626,14 +638,74 @@ mod tests {
                 std::fs::write(folder.join(".config"), text).unwrap();
             }
         }
-        let out = std::process::Command::new("sh")
-            .arg(&script)
-            .arg(&br2)
-            .arg(&build)
-            .output()
-            .unwrap();
+        let mut command = std::process::Command::new("sh");
+        command.arg(&script).arg(&br2).arg(&build);
+        if let Some(text) = cmdline {
+            let file = dir.join("cmdline");
+            std::fs::write(&file, text).unwrap();
+            command.arg(&file);
+        }
+        let out = command.output().unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         out
+    }
+
+    /// The guest share must not be reachable over IPv6: the check fails
+    /// on IPv6 built in, and on a module unless the command line turns
+    /// IPv6 off.
+    #[test]
+    fn the_kernel_check_refuses_ipv6_unless_it_is_off() {
+        let base =
+            "CONFIG_SMB_SERVER=y\nCONFIG_ACPI=y\nCONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y\n";
+        let run = |name: &str, ipv6: &str, cmdline: Option<&str>| {
+            let text = format!("{base}{ipv6}");
+            check_kernel_config_with(name, Some("6.18.63"), &[("6.18.63", Some(&text))], cmdline)
+        };
+        let off = run("ipv6off", "# CONFIG_IPV6 is not set\n", None);
+        assert!(off.status.success(), "{off:?}");
+        let absent = run("ipv6absent", "", None);
+        assert!(absent.status.success(), "{absent:?}");
+        let builtin = run(
+            "ipv6y",
+            "CONFIG_IPV6=y\n",
+            Some("linux /bzImage ipv6.disable=1\n"),
+        );
+        assert!(
+            !builtin.status.success(),
+            "the command line cannot turn off a built-in IPv6 here"
+        );
+        assert!(
+            String::from_utf8_lossy(&builtin.stderr).contains("CONFIG_IPV6 is built in"),
+            "{builtin:?}"
+        );
+        let grub = run("ipv6grub", "CONFIG_IPV6=m\n", None);
+        assert!(
+            !grub.status.success(),
+            "grub.cfg does not set ipv6.disable=1"
+        );
+        assert!(
+            String::from_utf8_lossy(&grub.stderr).contains("CONFIG_IPV6 is a module"),
+            "{grub:?}"
+        );
+        for (name, cmdline, ok) in [
+            (
+                "ipv6m",
+                "\tlinux /bzImage root=x ipv6.disable=1 quiet\n",
+                true,
+            ),
+            ("ipv6mend", "\tlinux /bzImage root=x ipv6.disable=1\n", true),
+            ("ipv6mnone", "\tlinux /bzImage root=x quiet\n", false),
+            ("ipv6mzero", "\tlinux /bzImage ipv6.disable=0\n", false),
+            (
+                "ipv6mcomment",
+                "# ipv6.disable=1\n\tlinux /bzImage quiet\n",
+                false,
+            ),
+            ("ipv6mpart", "\tlinux /bzImage xipv6.disable=1\n", false),
+        ] {
+            let out = run(name, "CONFIG_IPV6=m\n", Some(cmdline));
+            assert_eq!(out.status.success(), ok, "{name}: {out:?}");
+        }
     }
 
     #[test]

@@ -5,12 +5,15 @@
 # transport and no Kerberos, the watchdog driver must be built in (the
 # power-off and the reboot of a Pi go through it), and vc4 must be built
 # in with the I2C controller of the HDMI DDC bus. The drivers of the root
-# filesystem on the SD card must be built in. The fragments set these
-# options, but another option can select one again. Exits with 0 when all
-# hold, else with 1 and one line for each fault. A missing or unreadable
-# file is a fault.
+# filesystem on the SD card must be built in, and IPv6 must be off. The
+# fragments set these options, but another option can select one again.
+# Exits with 0 when all hold, else with 1 and one line for each fault. A
+# missing or unreadable file is a fault.
 #
-# Usage: check-kernel-config.sh BR2_CONFIG BUILD_DIR
+# Usage: check-kernel-config.sh BR2_CONFIG BUILD_DIR [CMDLINE]
+#
+# CMDLINE is the file with the kernel command line, by default the
+# template cmdline.txt beside this script. A test gives another one.
 #
 # The kernel of this board is a custom tarball, which Buildroot builds in
 # BUILD_DIR/linux-custom. A configuration with another kernel source is a
@@ -29,6 +32,7 @@ ROOT_ON="MMC_BLOCK MMC_BCM2835 EROFS_FS EROFS_FS_ZIP"
 
 br2_config=$1
 build_dir=$2
+cmdline=${3:-$(dirname "$0")/cmdline.txt}
 if [ ! -f "$br2_config" ] || ! grep -qx 'BR2_LINUX_KERNEL_CUSTOM_TARBALL=y' "$br2_config"; then
 	echo "check-kernel-config: '$br2_config' does not build the kernel from a custom tarball" >&2
 	exit 1
@@ -49,6 +53,12 @@ has() {
 		exit 1
 	fi
 	return "$code"
+}
+
+# 0 when the file $1 turns IPv6 off on the kernel command line. A missing
+# file turns nothing off.
+disables_ipv6() {
+	grep -v '^[[:space:]]*#' "$1" 2>/dev/null | grep -Eq '(^|[[:space:]])ipv6\.disable=1([[:space:]]|$)'
 }
 
 for option in $OPTIONS; do
@@ -87,4 +97,15 @@ for option in $ROOT_ON; do
 		status=1
 	fi
 done
+# The guest share is for the local network only, and IPv6
+# autoconfiguration can give the port a global address. A module is
+# accepted only when the command line turns it off, because the first IPv6
+# socket loads it on demand.
+if has IPV6 y; then
+	echo "check-kernel-config: CONFIG_IPV6 is built in in $config; the network share must not be reachable over IPv6" >&2
+	status=1
+elif has IPV6 m && ! disables_ipv6 "$cmdline"; then
+	echo "check-kernel-config: CONFIG_IPV6 is a module in $config and $cmdline does not set ipv6.disable=1; the network share must not be reachable over IPv6" >&2
+	status=1
+fi
 exit $status

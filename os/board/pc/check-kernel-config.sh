@@ -3,12 +3,15 @@
 # mode of its own (the CRT safety model, layer 8), the SMB server of the
 # network share must be built in, with no SMB1, no RDMA transport and no
 # Kerberos, ACPI must be built in (the power-off of a PC goes through
-# it), and the default CPU governor must be performance. The fragments set
-# these options, but another option can select one again. Exits with 0
-# when all hold, else with 1 and one line for each fault. A missing or
-# unreadable file is a fault.
+# it), the default CPU governor must be performance, and IPv6 must be off.
+# The fragments set these options, but another option can select one
+# again. Exits with 0 when all hold, else with 1 and one line for each
+# fault. A missing or unreadable file is a fault.
 #
-# Usage: check-kernel-config.sh BR2_CONFIG BUILD_DIR
+# Usage: check-kernel-config.sh BR2_CONFIG BUILD_DIR [CMDLINE]
+#
+# CMDLINE is the file with the kernel command line, by default grub.cfg
+# beside this script. A test gives another one.
 #
 # The kernel version comes from BR2_CONFIG, and the file checked is exactly
 # BUILD_DIR/linux-<version>/.config: Buildroot keeps the folder of an older
@@ -23,6 +26,7 @@ GOVERNOR_ON="CPU_FREQ_DEFAULT_GOV_PERFORMANCE"
 
 br2_config=$1
 build_dir=$2
+cmdline=${3:-$(dirname "$0")/grub.cfg}
 version=
 if [ -f "$br2_config" ]; then
 	version=$(sed -n 's/^BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="\(.*\)"$/\1/p' "$br2_config")
@@ -47,6 +51,12 @@ has() {
 		exit 1
 	fi
 	return "$code"
+}
+
+# 0 when the file $1 turns IPv6 off on the kernel command line. A missing
+# file turns nothing off.
+disables_ipv6() {
+	grep -v '^[[:space:]]*#' "$1" 2>/dev/null | grep -Eq '(^|[[:space:]])ipv6\.disable=1([[:space:]]|$)'
 }
 
 for option in $OPTIONS; do
@@ -79,4 +89,15 @@ for option in $GOVERNOR_ON; do
 		status=1
 	fi
 done
+# The guest share is for the local network only, and IPv6
+# autoconfiguration can give the port a global address. A module is
+# accepted only when the command line turns it off, because the first IPv6
+# socket loads it on demand.
+if has IPV6 y; then
+	echo "check-kernel-config: CONFIG_IPV6 is built in in $config; the network share must not be reachable over IPv6" >&2
+	status=1
+elif has IPV6 m && ! disables_ipv6 "$cmdline"; then
+	echo "check-kernel-config: CONFIG_IPV6 is a module in $config and $cmdline does not set ipv6.disable=1; the network share must not be reachable over IPv6" >&2
+	status=1
+fi
 exit $status
