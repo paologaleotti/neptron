@@ -1,6 +1,6 @@
 ## Feature definition
 
-The table is the full scope for the first public alpha. Milestones M0 to M4 are defined in the roadmap. The MVP in the Implementation plan tab is a subset of M0 to M3.
+The table is the full scope for the first public alpha. Milestones M0 to M4 are defined in the roadmap. The MVP in the Implementation plan (`docs/plan/`) is a subset of M0 to M3.
 
 | Area | Feature | Milestone |
 | --- | --- | --- |
@@ -41,7 +41,7 @@ The table is the full scope for the first public alpha. Milestones M0 to M4 are 
 | System | Network setup and language from the UI; clock set from network time at startup when a network is there, by hand otherwise; Bluetooth pairing after alpha | M3 |
 | System | Diagnostics page and one-button log export; SSH and SFTP on by default with a documented default password, changeable in settings | M3 |
 | System | Safe shutdown from the power button (ACPI on x86, GPIO on Pi) with saves flushed first | M3 |
-| System | Burn-in protection: screensaver after idle in menus and while paused; dims by default, with black-screen and off as options | M3 |
+| System | Burn-in protection: screensaver after idle in menus and while paused; on by default, can be switched off | M3 |
 | System | Read-only root, A/B signed updates with rollback | M4 |
 | System | Install to internal disk from the live USB image on x86 | M4 |
-| Developer | Agent control API and headless verification: screenshots, UI tree, input injection, simulated clock, local emulation on macOS and Linux. See the Implementation plan tab | M0 onward |
+| Developer | Agent control API and headless verification: screenshots, UI tree, input injection, simulated clock, local emulation on macOS and Linux. See the Implementation plan (`docs/plan/`) | M0 onward |
