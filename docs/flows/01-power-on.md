@@ -1,6 +1,6 @@
 # 1. Power-on to first picture
 
-This flow covers the PC image from the power button to the first frame of the frontend, and back down at shutdown. It says what the screen gets before NEPTRON code runs, how the init scripts mount the state and share partitions (and when the first boot makes the share partition), and how the launcher (`apps/neptron-launch`) holds the display and restarts the frontend. What the frontend does after its process starts is in [Frontend boot](02-frontend-boot.md). The files on the partitions are in [Settings and files on disk](08-on-disk.md).
+This flow covers the PC image from the power button to the first frame of the frontend, and back down at shutdown: what the screen gets before NEPTRON code runs, how the init scripts mount the state and share partitions (and when the first boot makes the share partition), and how the launcher (`apps/neptron-launch`) holds the display and restarts the frontend. [Frontend boot](02-frontend-boot.md) continues after the frontend process starts. [Settings and files on disk](08-on-disk.md) lists the files on the partitions.
 
 ## Diagrams
 
@@ -248,7 +248,7 @@ The disk signature is fixed for each build variant: `4e505452` (release), `4e505
 | Request read | Formatted | Partition 4 matches the request and every rule holds | | `sfdisk --part-type <disk> 4 7` when the type differs, then `mkfs.exfat -L NEPTRON`. Line: `neptron-storage: <dev> is formatted exFAT on the request of the user`; `share_format = "done"` |
 | Request read | Refused | Any mismatch, or no partition 4 reaches the rules | | Nothing is formatted. Line: `neptron-storage: the format request is refused: <why>`; `share_format = "refused"`, `share_format_reason` |
 | Any | Status file | Always | | `/run/neptron/storage.toml`: `state` and `share`, each `partition` or `ram`, and `state_reason` or `share_reason` for a RAM folder: the `neptron-storage:` line that names the reason. The frontend reads it at boot (`StorageStatus::read`), logs `neptron: storage: <notice>` and shows the notice. |
-| Any | ROM folders | Always, also on a RAM folder | | `mkdir -p /share/roms/<id>` for each `/usr/share/neptron/systems/<id>.toml` (`megadrive`, `nes`, `snes`), and `mkdir -p /share/bios` |
+| Any | ROM folders | Always, also on a RAM folder | | `mkdir -p /share/roms/<id>` for each `/usr/share/neptron/systems/<id>.toml` (the files of `data/systems`: `arcade`, `megadrive`, `neogeo`, `nes`, `snes`), and `mkdir -p /share/bios` |
 
 ### Launcher
 
@@ -297,7 +297,7 @@ Exit codes of the launcher: 0 after a quit or a stop, 1 after a device error or 
 
 The frontend's quit writes the game's save RAM (`Session::quit`) and the writer backlog (`Outbox::finish`) before exit 0. Steps 1 to 3 run before the file systems become read-only, so these writes reach the disk.
 
-`Settings > System` starts this order on both images: the frontend ends its run in the game list (the rows are disabled in a game, so a game's save RAM is always written by the game's own quit first), writes its backlog and exits 80 or 81; the launcher, started with `--power` by both launch scripts, runs BusyBox `reboot` or `poweroff`, which only signal init. The launcher does not call the system call and does not run the stop script itself: init runs it as step 1 and stops the launcher with it. On the development image, `poweroff` or `reboot` over SSH runs the same order. The power button of a PC has no handler: pressing it is still a power cut, unless the firmware turns it into an ACPI event that nothing reads.
+`Settings > System` starts this order on both images. The frontend ends its run in the game list (the rows are disabled in a game, so the game's own quit always writes its save RAM first), writes its backlog and exits 80 or 81. The launcher (both launch scripts pass `--power`) runs BusyBox `reboot` or `poweroff`, which only signal init. The launcher does not make the system call and does not run the stop script: init runs it as step 1, and it stops the launcher. On the development image, `poweroff` or `reboot` over SSH runs the same order. The power button of a PC has no handler: a press is a power cut, unless the firmware turns it into an ACPI event that nothing reads.
 
 ## What can go wrong
 
@@ -314,7 +314,7 @@ The frontend's quit writes the game's save RAM (`Session::quit`) and the writer 
 | Partition 4 does not read cleanly | `... left untouched: its first 16 MiB do not read cleanly`. | Replace the stick. |
 | Partition 4 has a damaged exFAT main boot sector and a good backup | `... left untouched: it holds an exFAT backup boot sector (sector <n>), so it is a damaged share`. Empty game list. | Repair the share with an exFAT tool on a PC. |
 | `blkid` cannot probe partition 4 cleanly | `... left untouched: blkid could not probe it cleanly`. | Check the stick on a PC. |
-| `e2fsck` cannot repair the state partition | `/state` is a RAM folder. The notice "The state partition is not in use (e2fsck <dev> left errors (exit <code>); /state is a RAM folder). ..." stays until OK. The guard record in RAM still counts the failed boots of this power cycle, so the guard boots as usual: the boot prompt, then the safe default with nothing kept. Settings, saves and the guard record of this boot are lost at power off. The guard starts with no record. | Repair or re-create the ext4 state partition on a Linux PC. |
+| `e2fsck` cannot repair the state partition | `/state` is a RAM folder, as in "Storage results". The notice reads "The state partition is not in use (e2fsck <dev> left errors (exit <code>); /state is a RAM folder). ...". The guard starts with no record. | Repair or re-create the ext4 state partition on a Linux PC. |
 | `/dev/dri/card0` is missing or is not the GPU | The launcher logs one line, waits `DEVICE_MISSING_WAIT_NS` = 2 s and exits 1; init starts it again. So it tries the device every 2 s and does not spin. No picture from NEPTRON. | Needs a shell; check the driver and the device node. |
 | The frontend crashes in a loop | The last mode stays on the wire while the launcher waits 250 ms, then up to 8 s. Each start counts as a boot for the [guard](03-guard.md). After `SAFE_MODE_FAILED_BOOTS` = 2 failed boots the next start is in safe mode. | Wait for safe mode, or see [What happens when](10-what-happens-when.md). |
 | A frontend stuck in a core at shutdown | SIGKILL 5 s after the SIGTERM. The save RAM since the last flush is lost. | None needed. The shutdown goes on. |
@@ -340,14 +340,14 @@ The frontend's quit writes the game's save RAM (`Session::quit`) and the writer 
 
 ## Differences from docs/definition
 
-1. `05-crt-safety-model.md`, "Shortening the 31 kHz window on x86": the launcher blanks the analog output as its first action, on by default. Code: the launcher sets no mode and makes no commit. Its README says this is not done in the MVP.
+1. `05-crt-safety-model.md`, "Shortening the 31 kHz window on x86": the launcher blanks the analog output as its first action, on by default. Code: the launcher sets no mode and makes no commit (`apps/neptron-launch/README.md`).
 2. `05-crt-safety-model.md`, layer 7 "Supervisor": the init system restarts the frontend on a crash. Code: init restarts the launcher; the launcher restarts the frontend, with a backoff of 250 ms to 8 s.
 3. `10-os-layer.md`, "Boot path", step 3: init starts the launcher first, and the other services start afterwards in the background. Code: init runs every `rcS` script to its end before it starts the launcher. This includes `e2fsck`, the first-boot partition and format, the start of DHCP and of the network share (both in the background), and on the development image the SSH key script.
 4. `10-os-layer.md`, "Disk layout": a FAT32 boot partition with `neptron.toml`, and root A and root B. Code: one FAT boot partition (64 MiB, label `NEPTRONBOOT`) with GRUB, the kernel and the licences, and one root partition (EROFS, 384 MiB). `S07neptron-boot` mounts the boot partition read-only at `/boot`, and the frontend imports `neptron.toml` at each start (P07). There is no root B.
 5. `10-os-layer.md`, "Configuration": the GRUB configuration is written from the settings. Code: `grub.cfg` is fixed. `post-image.sh` puts in only the disk signature, at build time.
 6. `10-os-layer.md`, "Updates": A/B updates with RAUC. Code: none.
 7. `10-os-layer.md`, "Footprint": BusyBox provides a debug shell. Code: the PC image has no getty and no shell on any console. Only the aarch64 QEMU test image has one.
-8. `10-os-layer.md`, "Kernel": one fragment per concern, `video.config`, `input.config`, `fastboot.config`. Code: `video.config`, `console.config`, `input.config`, `sound.config`, `storage.config`, `network.config` and `qemu/host.config`. There is no `fastboot.config`.
+8. `10-os-layer.md`, "Kernel": one fragment per concern, `video.config`, `input.config`, `fastboot.config`. Code: `video.config`, `console.config`, `input.config`, `sound.config`, `storage.config`, `network.config`, `system.config` and `qemu/host.config`. There is no `fastboot.config`.
 9. `10-os-layer.md`, "Network services": SMB and SSH on by default with a default password. Code: every image has DHCP on each wired port and the SMB share of `/share` (`ksmbd`, `mdnsd`, name `neptron.local`), with a guest and one published account, off when `/state/network-share-off` exists. The development image adds SSH with one public key and no password (`DROPBEAR_ARGS="-s"`).
 10. `10-os-layer.md`, "Folder layout": the first boot makes an empty folder for every system. Code: `S06neptron-storage` makes them at every boot, also on a RAM folder, and also makes `bios/`.
 11. `12-technology-choices.md`, "Logging": `tracing` into a RAM ring buffer, no constant writes to the card. Code: the frontend and the launcher write lines to standard error. On the release image that is the console, `ttyS0`, and nothing is kept. On the development image `svlogd` keeps it in `/state/log/neptron` on the state partition.

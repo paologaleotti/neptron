@@ -1,6 +1,6 @@
 # 9. The control protocol and the bench tools
 
-This page is for the person who tests NEPTRON on a bench. The frontend serves a control protocol on a Unix socket: JSON lines that read the UI, the session, the video state, the counters, the settings and the log. A development build adds the commands that change the frontend (input, launch, settings writes). On the host side, `cargo xtask os push`, `os logs` and `os ssh` put new binaries on a PC or a Raspberry Pi that runs the development image and read its log. `neptronctl selftest video` shows test modes on a monitor with the frontend stopped. The player never needs any of this.
+This page is for bench tests. The frontend serves a control protocol on a Unix socket: JSON lines that read the UI, the session, the video state, the counters, the settings and the log. A development build adds the commands that change the frontend (input, launch, settings writes). On the host, `cargo xtask os push`, `os logs` and `os ssh` put new binaries on a PC or a Raspberry Pi with the development image and read its log. `neptronctl selftest video` shows test modes on a monitor with the frontend stopped. The player never needs any of this.
 
 ## Diagrams
 
@@ -150,9 +150,9 @@ All three need `--host H`. `--user` defaults to `root`, `--port` to 22. `--arch`
 | Command | What it does | Dev build only | Source |
 | --- | --- | --- | --- |
 | `cargo xtask os push --host H` | Builds `neptron` (features `kms,control`), `neptron-launch` and `neptronctl` (`kms`) in the bench profile in the development container. Sends each to `/state/hot/bin/.<name>.new` over SSH (`cat >`, because Dropbear has no SFTP), renames it over the old file, then restarts the launcher and the frontend. | Yes: the PC needs the development image (SSH, hot folder). | `bench::run`, `push`, `install_script`, `RESTART_SCRIPT` |
-| `... --data` | Also replaces `/state/hot/share/neptron` with `monitors`, `cores`, `systems`, `skins` and `hardware` from `data/` (`DATA_DIRS`). | Yes | `send_data`, `prepare_script` |
+| `... --data` | Also replaces `/state/hot/share/neptron` with `monitors`, `cores`, `systems`, `skins`, `hardware` and `input` from `data/` (`DATA_DIRS`), and the arcade index `arcade/fbneo.idx` that the push makes as the image build does (`ARCADE_DIR`). | Yes | `send_data`, `prepare_script`, `data_tar_args` |
 | `... --no-restart` | Copies and installs, but leaves the running programs alone. | Yes | `push` |
-| `cargo xtask os logs --host H` | Prints the last 400 lines of `/state/log/neptron/current`, the last 100 lines of `dmesg`, and the hot folder. | Yes: the log file is only on the development image. | `logs_script` |
+| `cargo xtask os logs --host H` | Prints the last 400 lines of `/state/log/neptron/current`, the last 100 lines of `/state/log/storage.log`, the last 100 lines of `dmesg`, and the hot folder. | Yes: the log file is only on the development image. | `logs_script` |
 | `... --follow` | `tail -n 200 -f` of the log. | Yes | `logs_script` |
 | `cargo xtask os ssh --host H -- command...` | Runs one command on the PC, with each word quoted. | Yes | `bench::run` |
 
