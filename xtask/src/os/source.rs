@@ -8,6 +8,7 @@
 
 use std::path::Path;
 
+use crate::release::is_release_tag;
 use crate::repo;
 
 /// The facts of the source of one build.
@@ -108,30 +109,6 @@ pub fn is_commit(text: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// Whether `text` is a release tag: `v`, then `MAJOR.MINOR.PATCH`, and an
-/// optional pre-release part of letters, digits, dots and hyphens after a
-/// hyphen (`v0.1.0`, `v0.2.0-rc.1`).
-pub fn is_release_tag(text: &str) -> bool {
-    let Some(version) = text.strip_prefix('v') else {
-        return false;
-    };
-    let (core, pre) = match version.split_once('-') {
-        Some((core, pre)) => (core, Some(pre)),
-        None => (version, None),
-    };
-    let parts: Vec<&str> = core.split('.').collect();
-    let numbers = parts.len() == 3
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
-    let pre_ok = pre.is_none_or(|p| {
-        !p.is_empty()
-            && p.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
-    });
-    numbers && pre_ok
-}
-
 /// The UTC date and time of `seconds` after the Unix epoch, as
 /// `YYYY-MM-DDTHH:MM:SSZ`.
 pub fn utc_date(seconds: i64) -> String {
@@ -224,24 +201,5 @@ mod tests {
             "--env NEPTRON_SOURCE_COMMIT=unknown --env NEPTRON_SOURCE_DATE=unknown \
              --env NEPTRON_SOURCE_RELEASE=none"
         );
-    }
-
-    #[test]
-    fn a_release_tag_is_v_and_a_version() {
-        for good in ["v0.1.0", "v10.20.30", "v0.2.0-rc.1", "v1.0.0-beta-2"] {
-            assert!(is_release_tag(good), "{good}");
-        }
-        for bad in [
-            "0.1.0",
-            "v0.1",
-            "v0.1.0.0",
-            "v0.x.0",
-            "v0.1.0-",
-            "v0.1.0-rc 1",
-            "v",
-            "",
-        ] {
-            assert!(!is_release_tag(bad), "{bad}");
-        }
     }
 }

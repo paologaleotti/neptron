@@ -11,6 +11,7 @@ mod load;
 mod monitors;
 mod notices;
 mod os;
+mod release;
 mod repo;
 mod rules;
 mod sha256;
@@ -46,6 +47,9 @@ commands:
                        write the licence notices of the crates in a Rust
                        program of the image, from its cargo tree list and
                        the vendored crates (run by the image build)
+  release-names --tag vX.Y.Z --artifact NAME --image FILE.img
+                       print the asset names of an image of a GitHub
+                       Release and of its sources archive (for CI)
   bindgen              generate the libretro bindings of neptron-libretro-sys
                        from its vendored libretro.h (needs the bindgen tool)
   rules                check the dependency rules, the unsafe allow-list
@@ -135,6 +139,8 @@ enum Error {
     #[error(transparent)]
     Os(#[from] os::OsError),
     #[error(transparent)]
+    Release(#[from] release::ReleaseError),
+    #[error(transparent)]
     Repo(#[from] repo::RepoError),
     #[error(transparent)]
     Load(#[from] load::LoadError),
@@ -178,6 +184,10 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         }
         "rust-notices" => {
             notices::run(&rest)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        "release-names" => {
+            release::run(&rest)?;
             Ok(ExitCode::SUCCESS)
         }
         "bindgen" => {
