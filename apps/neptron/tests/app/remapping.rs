@@ -31,7 +31,7 @@ fn joystick() -> PadInfo {
 
 /// One answer to a prompt of the guided mapping.
 #[derive(Debug, Clone, Copy)]
-enum Raw {
+pub(crate) enum Raw {
     /// A raw button of a joystick.
     Button(u8),
     /// A hat direction of a joystick.
@@ -47,7 +47,7 @@ enum Raw {
 }
 
 /// The step of the prompt on show, from 1, or `None` with no prompt.
-fn step(rig: &mut Rig) -> Option<u32> {
+pub(crate) fn step(rig: &mut Rig) -> Option<u32> {
     match &rig.shell().snapshot().pad_mapping {
         Some(PadMapping {
             stage: MappingStage::Prompt { step, .. },
@@ -58,7 +58,7 @@ fn step(rig: &mut Rig) -> Option<u32> {
 }
 
 /// The review on show: its message and whether it offers Keep.
-fn review(rig: &mut Rig) -> Option<(String, bool)> {
+pub(crate) fn review(rig: &mut Rig) -> Option<(String, bool)> {
     match &rig.shell().snapshot().pad_mapping {
         Some(PadMapping {
             stage: MappingStage::Review { message, can_keep },
@@ -88,7 +88,7 @@ fn set(rig: &mut Rig, pad: ScriptedPad, raw: Raw, down: bool) {
 
 /// Answers the prompt on show with `raw`, and checks that the mapping
 /// moves on.
-fn answer(rig: &mut Rig, pad: ScriptedPad, raw: Raw) {
+pub(crate) fn answer(rig: &mut Rig, pad: ScriptedPad, raw: Raw) {
     let before = step(rig);
     assert!(before.is_some(), "no prompt for {raw:?}");
     set(rig, pad, raw, true);
@@ -109,7 +109,7 @@ fn answer(rig: &mut Rig, pad: ScriptedPad, raw: Raw) {
 
 /// Opens the page of the controller of the row `row` of the Input panel,
 /// from home, with the keyboard.
-fn open_pad_page(rig: &mut Rig, row: &str) {
+pub(crate) fn open_pad_page(rig: &mut Rig, row: &str) {
     rig.scanned();
     rig.focus("Settings");
     rig.tap(&[Control::A]);
@@ -126,7 +126,7 @@ fn open_pad_page(rig: &mut Rig, row: &str) {
 }
 
 /// Starts the mapping from the page on show, with the keyboard.
-fn map_buttons(rig: &mut Rig) {
+pub(crate) fn map_buttons(rig: &mut Rig) {
     rig.focus("Map buttons");
     rig.tap(&[Control::A]);
     rig.frames(2);
@@ -264,7 +264,7 @@ fn a_generic_pad_is_mapped_from_its_notice_and_plays_with_its_map_after_a_relaun
 /// The answers for a scripted gamepad: the D-pad, A and B swapped against
 /// the standard layout, Start, Select, the face and shoulder buttons, and
 /// a hold for the triggers and the sticks, which it lacks.
-const PAD_ANSWERS: [Raw; 20] = [
+pub(crate) const PAD_ANSWERS: [Raw; 20] = [
     Raw::Pad(PadButton::DPadUp),
     Raw::Pad(PadButton::DPadDown),
     Raw::Pad(PadButton::DPadLeft),
