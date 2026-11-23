@@ -253,16 +253,45 @@ fn reason_holds(
     let own_rung = walk_ladder(settings.style).first().copied();
     // A proposal of the asked rung, whole, at the rate of the winner, that
     // the validator accepts.
-    let whole_at_winner = || {
-        won.is_some_and(|w| {
-            plan.proposals().any(|(_, c, p)| {
-                Some(c.rung) == own_rung
-                    && c.target.kind == w.target.kind
-                    && p.overscan_crop.is_none()
-                    && valid(&p.mode)
-            })
+    let asked_at_winner = || {
+        won.and_then(|w| {
+            plan.proposals()
+                .find(|(_, c, p)| {
+                    Some(c.rung) == own_rung
+                        && c.target.kind == w.target.kind
+                        && c.target.rate_mhz == w.target.rate_mhz
+                        && p.overscan_crop.is_none()
+                        && valid(&p.mode)
+                })
+                .map(|(_, _, p)| *p)
         })
     };
+    let whole_at_winner = || asked_at_winner().is_some();
+    // The share of the screen height that the game fills, in per mille:
+    // the height of the game's place on the screen over the lines that the
+    // screen scans in one frame (the active lines, or the lines that a
+    // padded range forces in each field).
+    let fill = |p: &neptron_modeline::policy::Proposal| {
+        let scanned = p.padding.map_or(0, |pad| {
+            u64::from(pad.picture_lines) * if p.mode.interlace { 2 } else { 1 }
+        });
+        let frame = u64::from(p.mode.vactive).max(scanned);
+        u64::from(p.placement.dest.h) * 1_000 / frame.max(1)
+    };
+    // The winner fills more of the screen than the asked rung at the
+    // winner's rate: (the winner's rung, true) when it does.
+    let fills_more = || {
+        let (Some(w), Some(a)) = (won, asked_at_winner()) else {
+            return None;
+        };
+        let wp = w.outcome.as_ref().ok()?;
+        (fill(wp) > fill(&a)).then_some(w.rung)
+    };
+    let smaller_fills_more = || match (fills_more(), own_rung) {
+        (Some(Rung::Multiple(k)), Some(Rung::Multiple(n))) => k < n,
+        _ => false,
+    };
+    let interlaced_fills_more = || fills_more() == Some(Rung::Interlaced);
     let holds = match declined.reason {
         // The plan of the asked candidate has no proposal that validates;
         // the winner, if any, is the one of the fallback.
@@ -308,14 +337,20 @@ fn reason_holds(
                 && !whole_at_winner()
         }
         // The asked rung is reachable whole at the rate the winner runs,
-        // and the winner, a smaller step, ranks first.
+        // and the winner, a smaller multiple, fills more of the screen.
         DeclineReason::SmallerFillsMore { asked, shown } => {
             !matches!(screen.profile.kind, MonitorKind::FlatPanel { .. })
                 && asked == settings.style
-                && factor.is_some()
                 && rung == Some(shown)
-                && own_rung != Some(shown)
-                && whole_at_winner()
+                && smaller_fills_more()
+        }
+        // The asked rung is reachable whole at the rate the winner runs,
+        // and the winner, the interlaced picture, fills more of the screen.
+        DeclineReason::InterlacedFillsMore { asked } => {
+            !matches!(screen.profile.kind, MonitorKind::FlatPanel { .. })
+                && asked == settings.style
+                && rung == Some(Rung::Interlaced)
+                && interlaced_fills_more()
         }
         DeclineReason::TooLargeForScreen { asked, shown } => match &screen.profile.kind {
             MonitorKind::FlatPanel { modes } => {
@@ -367,6 +402,7 @@ fn reason_name(reason: DeclineReason) -> &'static str {
         DeclineReason::RateNotHeld { .. } => "rate not held",
         DeclineReason::NotShownHere { .. } => "not shown here",
         DeclineReason::SmallerFillsMore { .. } => "smaller fills more",
+        DeclineReason::InterlacedFillsMore { .. } => "interlaced fills more",
         DeclineReason::TooLargeForScreen { .. } => "too large for screen",
         DeclineReason::NoExactMode => "no exact mode",
         DeclineReason::OneRateOnTv => "one rate on TV",
@@ -475,6 +511,7 @@ fn is_rate_reason(reason: DeclineReason) -> bool {
         DeclineReason::NoPicture
         | DeclineReason::NotShownHere { .. }
         | DeclineReason::SmallerFillsMore { .. }
+        | DeclineReason::InterlacedFillsMore { .. }
         | DeclineReason::TooLargeForScreen { .. }
         | DeclineReason::NoExactMode
         | DeclineReason::OneRateOnTv
@@ -1596,6 +1633,34 @@ fn a_whole_multiple_that_ranks_after_a_smaller_step_says_so() {
         DeclineReason::SmallerFillsMore {
             asked: PictureStyle::X3,
             shown: Rung::Multiple(2),
+        }
+    );
+}
+
+/// A turned 288x224 board at 60 Hz in Native on `d9200`: Native is
+/// reachable at the rate of the winner, but the winner, the interlaced
+/// picture, fills more of the screen height. The reason says so, and is
+/// never `SmallerFillsMore`, which names a smaller multiple.
+#[test]
+fn the_interlaced_picture_that_fills_more_says_so() {
+    let profile = preset("d9200");
+    let caps = open_caps();
+    let board = SourceGeometry {
+        rotation: neptron_types::Rotation::R270,
+        ..source(288, 224, 60_000)
+    };
+    let settings = PolicySettings {
+        style: PictureStyle::Native,
+        ..PolicySettings::default()
+    };
+    let answer = offer(&board, &settings, AUTO_75, &profile, &caps, |m| {
+        validate(m, &profile, &caps).map(drop)
+    })
+    .unwrap();
+    assert_eq!(
+        answer.expect_err("declined").reason,
+        DeclineReason::InterlacedFillsMore {
+            asked: PictureStyle::Native
         }
     );
 }

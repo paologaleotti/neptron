@@ -75,16 +75,23 @@ pub enum DeclineReason {
         /// The rung that the display shows in its place.
         shown: Rung,
     },
-    /// `native` or a multiple on a CRT or a TV: the asked rung is reachable
-    /// whole at the rate of the winner, but a smaller step ranks first and
-    /// fills more of the screen (a padded 2x of a lower line rate range
-    /// before a padded 3x). The order of the plan is the policy of `auto`'s
+    /// A multiple on a CRT or a TV: the asked rung is reachable whole at
+    /// the rate of the winner, but the winner, a smaller whole multiple,
+    /// ranks first and fills more of the screen height (its padding leaves
+    /// fewer empty lines). The order of the plan is the policy of `auto`'s
     /// walk and does not change.
     SmallerFillsMore {
         /// The picture mode that was asked.
         asked: PictureStyle,
         /// The rung that the display shows in its place.
         shown: Rung,
+    },
+    /// `native` or a multiple on a CRT or a TV: the asked rung is reachable
+    /// whole at the rate of the winner, but the winner, the interlaced
+    /// picture, ranks first and fills more of the screen height.
+    InterlacedFillsMore {
+        /// The picture mode that was asked.
+        asked: PictureStyle,
     },
     /// `native` or a multiple on a flat panel: the factor does not fit the
     /// panel, and the winner is a smaller one or the fit.
@@ -694,11 +701,15 @@ fn judge<E>(
     }))
 }
 
-/// `reason`, or [`DeclineReason::SmallerFillsMore`] where it is
-/// `NotShownHere` and the asked rung is reachable whole at the target of
-/// the winner: a proposal of it there, with no crop, passes `validate`, but
-/// ranks after the winner, a smaller step that fills more of the screen.
-/// The order of the plan does not change; only the reason is true.
+/// `reason`, made true where it is `NotShownHere` but the asked rung is
+/// reachable whole at the target of the winner (its kind and its rate): a
+/// proposal of it there, with no crop, passes `validate`, and ranks after
+/// the winner. Then the reason says why the winner ranks first, from the
+/// fill of the two proposals: [`DeclineReason::SmallerFillsMore`] where
+/// the winner is a smaller whole multiple that fills more of the screen
+/// height, [`DeclineReason::InterlacedFillsMore`] where the winner, the
+/// interlaced picture, fills more. The order of the plan does not change; only the reason
+/// is true.
 fn ranked_after<E>(
     reason: DeclineReason,
     plan: &Plan,
@@ -709,17 +720,44 @@ fn ranked_after<E>(
         return reason;
     };
     let own = super::walk_ladder(asked).first().copied();
-    let reachable = plan.proposals().any(|(_, c, p)| {
+    let reachable = plan.proposals().find(|(_, c, p)| {
         Some(c.rung) == own
             && c.target.kind == won.target.kind
+            && c.target.rate_mhz == won.target.rate_mhz
             && p.overscan_crop.is_none()
             && validate(&p.mode).is_ok()
     });
-    if reachable {
+    let (Some((_, _, asked_proposal)), Ok(winner)) = (reachable, won.outcome.as_ref()) else {
+        return reason;
+    };
+    let smaller = match (won.rung, own) {
+        (Rung::Multiple(k), Some(Rung::Multiple(n))) => k < n,
+        _ => false,
+    };
+    let fills_more = fill_permille(winner) > fill_permille(asked_proposal);
+    if smaller && fills_more {
         DeclineReason::SmallerFillsMore { asked, shown }
+    } else if fills_more && won.rung == Rung::Interlaced {
+        DeclineReason::InterlacedFillsMore { asked }
     } else {
+        // Not reached in the exhaustive runs of the tests: there a winner
+        // that fills more than the asked rung is a smaller multiple or the
+        // interlaced picture.
         reason
     }
+}
+
+/// The share of the screen height that the game fills, in per mille: the
+/// lines of the game on the screen over the lines the screen scans, the
+/// active lines of the mode or, for a padded picture, the lines that the
+/// range forces, whichever is more.
+fn fill_permille(proposal: &super::Proposal) -> u64 {
+    let fields = if proposal.mode.interlace { 2 } else { 1 };
+    let forced = proposal
+        .padding
+        .map_or(0, |p| u64::from(p.picture_lines) * fields);
+    let screen = u64::from(proposal.mode.vactive).max(forced).max(1);
+    u64::from(proposal.placement.dest.h) * 1_000 / screen
 }
 
 /// Why the display does not give the refresh choice `asked`, whose plan

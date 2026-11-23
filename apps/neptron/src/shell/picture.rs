@@ -122,6 +122,7 @@ pub(super) fn declined_text(policy: PolicySettings, reason: DeclineReason, shown
         DeclineReason::NoPicture => pair(),
         DeclineReason::NotShownHere { .. }
         | DeclineReason::SmallerFillsMore { .. }
+        | DeclineReason::InterlacedFillsMore { .. }
         | DeclineReason::TooLargeForScreen { .. }
         | DeclineReason::NoExactMode
         | DeclineReason::OneRateOnTv
@@ -132,6 +133,7 @@ pub(super) fn declined_text(policy: PolicySettings, reason: DeclineReason, shown
         }
         DeclineReason::NotShownHere { .. }
         | DeclineReason::SmallerFillsMore { .. }
+        | DeclineReason::InterlacedFillsMore { .. }
         | DeclineReason::TooLargeForScreen { .. }
         | DeclineReason::NoExactMode
         | DeclineReason::OneRateOnTv

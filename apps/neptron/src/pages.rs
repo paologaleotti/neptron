@@ -386,22 +386,20 @@ pub fn decline_text(reason: DeclineReason, scope: Scope) -> String {
         DeclineReason::NotShownHere { .. } => {
             "Not possible with this screen and video output".to_owned()
         }
-        DeclineReason::SmallerFillsMore { shown, .. } => {
-            format!("{} fills more of this screen", rung_label(shown))
+        DeclineReason::SmallerFillsMore {
+            shown: Rung::Multiple(k),
+            ..
+        } => format!("{k}x fills more of this screen"),
+        DeclineReason::InterlacedFillsMore { .. } => {
+            "The interlaced picture fills more of this screen".to_owned()
+        }
+        // The policy gives this reason with a whole multiple only.
+        DeclineReason::SmallerFillsMore { .. } => {
+            "A smaller multiple fills more of this screen".to_owned()
         }
         DeclineReason::TooLargeForScreen { .. } => "Too large for this screen".to_owned(),
         DeclineReason::NoExactMode => "No exact mode on this screen".to_owned(),
         DeclineReason::SpeedNotHeld => "This screen cannot hold the game's speed".to_owned(),
-    }
-}
-
-/// The name of a rung in a reason: the mode that shows it.
-fn rung_label(rung: Rung) -> String {
-    match rung {
-        Rung::Native => "Native".to_owned(),
-        Rung::Multiple(k) => format!("{k}x"),
-        Rung::Interlaced => "The interlaced picture".to_owned(),
-        Rung::Fitted | Rung::Panel => "A smaller picture".to_owned(),
     }
 }
 
