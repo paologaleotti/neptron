@@ -93,7 +93,7 @@ state/                      ext4; reached over SMB and SFTP, not by plugging int
 
 - The SMB share is open to the LAN by default, with no password, under a default hostname (`neptron`).
 - SSH and SFTP are on by default with a documented default login *(after 0.1)*. The password can be changed, and each service switched off, in settings.
-- These services are meant for a home LAN only. The first-boot wizard and the documentation say plainly not to forward them to the internet.
+- These services are meant for a home LAN only. The first-boot wizard *(after 0.1)* and the documentation say plainly not to forward them to the internet.
 - The clock is set from network time once at startup when a network is up. With no network it keeps the last saved time and can be set by hand.
 
 **Footprint and determinism**
