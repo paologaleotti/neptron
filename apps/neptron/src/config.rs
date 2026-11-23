@@ -3,9 +3,10 @@
 
 use neptron_settings::{
     AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_PANEL_SCALE,
-    DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE,
-    DISPLAY_TV, DISPLAY_TV_WIDTH, DISPLAY_VERTICAL, INPUT_MENU_HOLD_START_SECONDS, Layer, Layers,
-    Level, PICTURE_MODE_COVERS, Resolved, Schema, SetError, Storage, Target, Value, resolve_key,
+    DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_SCREENSAVER,
+    DISPLAY_SCREENSAVER_MINUTES, DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH, DISPLAY_VERTICAL,
+    INPUT_MENU_HOLD_START_SECONDS, Layer, Layers, Level, PICTURE_MODE_COVERS, Resolved, Schema,
+    SetError, Storage, Target, Value, resolve_key,
 };
 use neptron_video::{
     PolicySettings, ScanlineSettings, SettingsError, policy_settings, scanline_settings,
@@ -13,6 +14,9 @@ use neptron_video::{
 };
 
 use crate::outbox::FileTarget;
+
+/// Nanoseconds in one minute.
+const NANOS_PER_MINUTE: u64 = 60_000_000_000;
 
 /// The game a run is for: the system and the game name (the ROM file name
 /// without its extension).
@@ -403,6 +407,17 @@ impl Config {
             .saturating_mul(1_000_000_000)
     }
 
+    /// The time with no input before the screensaver starts, in
+    /// nanoseconds; `None` with the screensaver off.
+    pub fn screensaver_timeout_ns(&self) -> Option<u64> {
+        let on = self.resolved(DISPLAY_SCREENSAVER).map(|r| r.value);
+        if on != Some(Value::Bool(true)) {
+            return None;
+        }
+        let minutes: u64 = self.text(DISPLAY_SCREENSAVER_MINUTES).parse().ok()?;
+        Some(minutes.saturating_mul(NANOS_PER_MINUTE))
+    }
+
     /// The volume of the game, in percent: 100 is the core's own level.
     pub fn volume_percent(&self) -> u32 {
         u32::try_from(self.int(AUDIO_VOLUME)).unwrap_or(0)
@@ -662,6 +677,20 @@ mod tests {
     fn the_start_hold_is_in_nanoseconds() {
         let c = config("[input]\nmenu_hold_start_seconds = 2\n", "", "");
         assert_eq!(c.start_hold_ns(), 2_000_000_000);
+    }
+
+    #[test]
+    fn the_screensaver_time_is_in_nanoseconds_and_off_is_none() {
+        let (c, _) = Config::load(&Storage::new("/nonexistent/config"), None);
+        assert_eq!(c.screensaver_timeout_ns(), Some(5 * 60_000_000_000));
+        let c = config("[display]\nscreensaver_minutes = \"30\"\n", "", "");
+        assert_eq!(c.screensaver_timeout_ns(), Some(30 * 60_000_000_000));
+        let c = config(
+            "[display]\nscreensaver = false\nscreensaver_minutes = \"1\"\n",
+            "",
+            "",
+        );
+        assert_eq!(c.screensaver_timeout_ns(), None);
     }
 
     #[test]

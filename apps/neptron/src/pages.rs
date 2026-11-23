@@ -5,8 +5,9 @@ use neptron_audio::OutputDevice;
 use neptron_input::{MapKind, PLAYER_PORTS, Roster, RosterEntry};
 use neptron_settings::{
     AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
-    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH,
-    DisplayClass, Entry, INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
+    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_SCREENSAVER, DISPLAY_SCREENSAVER_MINUTES,
+    DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH, DisplayClass, Entry,
+    INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
 };
 use neptron_types::{ScanlineMode, TvStandard};
 use neptron_ui::Value as UiValue;
@@ -160,7 +161,7 @@ const ADDRESS_KEY_BASE: u32 = ACTION_KEY_BASE + 0x100;
 /// The rows of the display panel, written at the global level. The TV
 /// rows show only on a TV. The expert keys that the picture mode covers
 /// (vertical games, panel scale) have no row.
-pub const DISPLAY_KEYS: [&str; 8] = [
+pub const DISPLAY_KEYS: [&str; 10] = [
     DISPLAY_OUTPUT,
     DISPLAY_MONITOR,
     DISPLAY_TV,
@@ -169,7 +170,12 @@ pub const DISPLAY_KEYS: [&str; 8] = [
     DISPLAY_REFRESH_POLICY,
     DISPLAY_SCANLINES,
     DISPLAY_SCANLINE_STRENGTH,
+    DISPLAY_SCREENSAVER,
+    DISPLAY_SCREENSAVER_MINUTES,
 ];
+
+/// The help line of every option of the screensaver time.
+pub const SCREENSAVER_TIME_HELP: &str = "The time with no input before the screensaver starts.";
 
 /// The settings rows of the Input panel, after the rows of the players,
 /// written at the global level.
@@ -1235,6 +1241,9 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
             None => ChoiceOption::new(choice),
         },
         DISPLAY_TV => tv_option(choice, names.detected),
+        DISPLAY_SCREENSAVER_MINUTES => {
+            ChoiceOption::new(minutes_label(choice)).with_help(SCREENSAVER_TIME_HELP)
+        }
         _ => ChoiceOption::new(choice),
     }
 }
@@ -1317,6 +1326,14 @@ fn tv_option(choice: &str, detected: &Detected) -> ChoiceOption {
         option.unavailable(NOT_OFFERED)
     } else {
         option
+    }
+}
+
+/// `1 minute`, `5 minutes`: the option of a time in whole minutes.
+fn minutes_label(minutes: &str) -> String {
+    match minutes {
+        "1" => "1 minute".to_owned(),
+        _ => format!("{minutes} minutes"),
     }
 }
 
@@ -1635,6 +1652,59 @@ mod tests {
         assert!(
             !page.rows[2].scopes.game,
             "the panel writes the global level"
+        );
+    }
+
+    #[test]
+    fn the_display_page_ends_with_the_screensaver_rows_before_the_grid() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            choices: None,
+            judging: false,
+            scope: Scope::EveryGame,
+            class: DisplayClass::Crt,
+            outputs: &[],
+        };
+        let page = display_page(&config, names);
+        let labels: Vec<_> = page.rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(
+            labels[labels.len() - 3..],
+            ["Screensaver", "Screensaver time", "Grid pattern"]
+        );
+        let on = &page.rows[labels.len() - 3];
+        assert_eq!(on.value, SettingValue::Toggle(true));
+        assert!(on.scopes.global && !on.scopes.game && on.live);
+        let time = &page.rows[labels.len() - 2];
+        let SettingValue::Choice { index, options } = &time.value else {
+            panic!("{time:?}");
+        };
+        assert_eq!(*index, 1, "5 minutes by default");
+        let texts: Vec<_> = options
+            .iter()
+            .map(|o| (o.label.as_str(), o.help.as_str(), o.is_enabled()))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                ("1 minute", SCREENSAVER_TIME_HELP, true),
+                ("5 minutes", SCREENSAVER_TIME_HELP, true),
+                ("10 minutes", SCREENSAVER_TIME_HELP, true),
+                ("30 minutes", SCREENSAVER_TIME_HELP, true),
+            ]
+        );
+        let entry = entry(&config, time.key).expect("the entry");
+        assert_eq!(
+            value_of(entry, UiValue::Choice(3), names, &config),
+            Some(Value::Text("30".to_owned()))
+        );
+        let entry = super::entry(&config, on.key).expect("the entry");
+        assert_eq!(
+            value_of(entry, UiValue::Toggle(false), names, &config),
+            Some(Value::Bool(false))
         );
     }
 
@@ -2504,6 +2574,8 @@ mod tests {
                 "Refresh rate",
                 "Scanlines",
                 "Scanline strength",
+                "Screensaver",
+                "Screensaver time",
                 "Grid pattern",
             ]
         );
