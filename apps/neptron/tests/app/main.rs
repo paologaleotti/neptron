@@ -18,6 +18,7 @@ mod crawler;
 mod end_to_end;
 mod faults;
 mod generic_pads;
+mod named_crt;
 mod network;
 mod output;
 mod panel;

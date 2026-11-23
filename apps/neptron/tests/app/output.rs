@@ -97,7 +97,7 @@ fn a_boot_at_another_place_keeps_the_confirmation_of_the_first() {
 }
 
 /// The EDID of an analog CRT, made from the specification.
-const CRT_ANALOG: &[u8] = include_bytes!("../fixtures/edid/crt_analog.bin");
+pub(crate) const CRT_ANALOG: &[u8] = include_bytes!("../fixtures/edid/crt_analog.bin");
 
 /// `edid` with another serial number (bytes 0x0C to 0x0F) and its checksum
 /// fixed: the same model, another monitor.
@@ -111,7 +111,7 @@ fn other_serial(edid: &[u8]) -> Vec<u8> {
 
 /// A sysfs tree under `root` with one GPU and a VGA connector that reports
 /// `edid`.
-fn sysfs_with_vga(root: &std::path::Path, edid: &[u8]) {
+pub(crate) fn sysfs_with_vga(root: &std::path::Path, edid: &[u8]) {
     let drm = root.join("class/drm");
     let card = drm.join("card0/device");
     std::fs::create_dir_all(&card).expect("the card");
@@ -136,7 +136,7 @@ fn another_monitor_on_the_same_output_asks_again_with_a_preset() {
     std::fs::create_dir_all(&config).expect("the config folder");
     std::fs::write(
         config.join("global.toml"),
-        "schema_version = 1\n\n[display]\nmonitor = \"generic_15\"\n",
+        "schema_version = 1\n\n[display]\nmonitor = \"arcade_15\"\n",
     )
     .expect("the settings");
     rig.boot(None);

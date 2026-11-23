@@ -52,6 +52,26 @@ A display is trusted at boot by its class. The function is `Detected::trusts(set
 
 A trusted flat panel is also the safe default of the run, in its native mode as fitted to the caps. So a revert, safe mode and the blind recovery on such a display give the panel mode. The boot decides the safe default once, from the setting at boot. A named preset on a panel tells the frontend that a CRT can be behind an adapter, so its safe default stays the 15 kHz safe start. On every other display the safe default does not change: the CRT EDID profile, or `generic_15`, or the TV profile of NTSC (or of the first standard the output offers).
 
+## A named preset bounds the safe default
+
+A named preset (`display.monitor` is not `auto` or `flat`) says which monitor is on the wire. The EDID can come from another device: an EDID dongle, a VGA KVM, or a splitter whose DDC comes from a PC monitor on its other port. So a 15 kHz CRT can show an analog EDID of 30 to 70 kHz. A 31 kHz signal can harm such a tube. A 15 kHz signal on a PC monitor gives no picture and harms nothing. Harm ranks above no picture.
+
+The rule: no fallback goes above the highest line rate of the named preset. `Detected::safe` gives:
+
+1. The CRT EDID profile, when the highest line rate of its ranges is not above the highest line rate of the named preset. Then every mode of the EDID profile is a mode the named monitor can take.
+2. Else the 15 kHz safe start (`generic_15`), when its highest line rate is not above that of the named preset. This is the case for every shipped CRT preset except `ntsc` and `pal`.
+3. Else the named preset itself. It then opens no boot prompt, because it is the safe default.
+
+With `auto` or `flat` the rules of "Trust" apply as before: the CRT EDID profile is the safe default. A name that no preset has gives no bound: the EDID profile, as with `auto`.
+
+So the revert target of a boot prompt, safe mode, the blind recovery and the next boots stay inside the named preset:
+
+- An unanswered boot prompt for `arcade_15` on a display with a PC-range analog EDID reverts to `generic_15`, and the global settings name `generic_15`, never `auto`. The next boot starts on `generic_15` with no prompt, because it is the safe default.
+- `generic_15` named on such a display is its own safe default, so it opens no boot prompt.
+- `Safe(FailedBoots)`, `Safe(Recovery)` and the blind recovery give the same safe default.
+
+The validator does not change. The rule only chooses which monitor profile the validator gets for a fallback.
+
 ## States
 
 | State | Event | Next | Notice |
@@ -154,6 +174,8 @@ The tests of the rules:
 - `safe_mode_ends_when_the_picture_on_screen_is_kept` (guard, and app tier 2)
 - `a_trusted_panel_boots_native_with_no_prompt` (app, tier 2)
 - `a_change_window_starts_at_the_first_settled_frame` (guard)
+- `a_named_15_khz_preset_never_falls_back_to_a_pc_range_edid`, `an_analog_edid_inside_the_named_preset_stays_the_safe_default` and `a_preset_under_the_safe_start_is_its_own_safe_default` (app unit tests)
+- `an_unanswered_boot_prompt_stays_inside_the_named_preset`, `a_reverted_menu_change_stays_inside_the_named_preset`, `safe_mode_after_failed_boots_stays_inside_the_named_preset` and `the_blind_recovery_stays_inside_the_named_preset` (app, tier 2): `arcade_15` and `generic_15` on a VGA output with an analog EDID of 30 to 71 kHz. Every mode that reaches the fake display is inside the named preset.
 
 These stay green:
 

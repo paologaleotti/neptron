@@ -128,9 +128,14 @@ fn auto_and_the_safe_start_of_each_display() {
         assert!(!detected.trusts("pc_31_120"), "{what}");
         let safe = detected.safe(&presets(), AUTO).expect("safe");
         assert_eq!(safe.monitor.profile().id, id, "{what}");
+        // A named preset never falls back to a profile whose line rates
+        // it does not bound: a preset with no range bounds none.
         let named = detected.safe(&presets(), "pc_31_120").expect("safe");
-        let expected = if panel { SAFE_START_PROFILE } else { id };
-        assert_eq!(named.monitor.profile().id, expected, "{what} with a preset");
+        assert_eq!(
+            named.monitor.profile().id,
+            SAFE_START_PROFILE,
+            "{what} with a preset"
+        );
         assert_eq!(
             detected.notices.is_empty(),
             !matches!(
@@ -140,6 +145,108 @@ fn auto_and_the_safe_start_of_each_display() {
             "{what}: {:?}",
             detected.notices
         );
+    }
+}
+
+/// The shipped presets of `data/monitors`.
+fn shipped_presets() -> Presets {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/monitors");
+    let (presets, issues) = Presets::load(&dir).expect("the monitor folder");
+    assert!(issues.is_empty(), "{issues:?}");
+    presets
+}
+
+/// The highest line rate of a CRT profile, in millihertz.
+fn highest_line_rate_mhz(profile: &MonitorProfile) -> u64 {
+    match &profile.kind {
+        MonitorKind::Crt { ranges } => ranges.iter().map(|r| r.h_max_mhz).max().expect("a range"),
+        MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => panic!("no CRT: {profile:?}"),
+    }
+}
+
+/// A 15 kHz CRT behind a device that reports an analog EDID of a PC
+/// monitor (30 to 71 kHz): the safe default of a named 15 kHz preset is
+/// never the EDID profile, on a VGA output and on a digital connector.
+#[test]
+fn a_named_15_khz_preset_never_falls_back_to_a_pc_range_edid() {
+    let presets = shipped_presets();
+    for kind in ["VGA", "DP", "HDMI-A"] {
+        let name = format!("{kind}-1");
+        let p = platform(vec![connector(&name, kind, Some(CRT_ANALOG))]);
+        let detected = Detected::of(&p, &name, None);
+        let edid = detected.edid.as_ref().expect("an analog EDID profile");
+        assert!(
+            highest_line_rate_mhz(&edid.profile) > 31_000_000,
+            "{edid:?}"
+        );
+        for setting in ["arcade_15", "generic_15"] {
+            let named = presets.get(setting).expect("the preset");
+            let safe = detected.safe(&presets, setting).expect("safe");
+            assert_eq!(
+                safe.monitor.profile().id,
+                SAFE_START_PROFILE,
+                "{kind} with {setting}"
+            );
+            assert!(
+                highest_line_rate_mhz(safe.monitor.profile()) <= highest_line_rate_mhz(named),
+                "{kind} with {setting}: {safe:?}"
+            );
+            assert_eq!(
+                detected.monitor_setting(&safe.monitor),
+                SAFE_START_PROFILE,
+                "a revert to it never names auto"
+            );
+        }
+        let auto = detected.safe(&presets, AUTO).expect("safe");
+        assert_eq!(
+            auto.monitor,
+            Monitor::Edid(edid.clone()),
+            "auto keeps the EDID"
+        );
+    }
+}
+
+/// An analog EDID whose ranges stay under the highest line rate of the
+/// named preset stays the safe default: it knows the display, and no mode
+/// it gives goes above the preset.
+#[test]
+fn an_analog_edid_inside_the_named_preset_stays_the_safe_default() {
+    let presets = shipped_presets();
+    let arcade = presets.get("arcade_15").expect("arcade_15").clone();
+    let edid = EdidProfile {
+        profile: MonitorProfile {
+            id: "edid_npt_0015".to_owned(),
+            kind: arcade.kind.clone(),
+        },
+        pclock_max_hz: 30_000_000,
+        formula: None,
+        name: None,
+    };
+    let detected = Detected {
+        edid: Some(edid.clone()),
+        ..Detected::default()
+    };
+    let safe = detected.safe(&presets, "arcade_15").expect("safe");
+    assert_eq!(safe.monitor, Monitor::Edid(edid));
+}
+
+/// A named preset whose highest line rate is under that of the safe
+/// start is its own safe default, on every display that is not trusted.
+#[test]
+fn a_preset_under_the_safe_start_is_its_own_safe_default() {
+    let presets = shipped_presets();
+    let start = presets.get(SAFE_START_PROFILE).expect("the safe start");
+    let ntsc = presets.get("ntsc").expect("ntsc");
+    assert!(highest_line_rate_mhz(ntsc) < highest_line_rate_mhz(start));
+    let vga = platform(vec![connector("VGA-1", "VGA", Some(CRT_ANALOG))]);
+    let panel = platform(vec![connector("HDMI-A-1", "HDMI-A", Some(PANEL_1080P))]);
+    for detected in [
+        Detected::default(),
+        Detected::of(&vga, "VGA-1", None),
+        Detected::of(&panel, "HDMI-A-1", None),
+    ] {
+        let safe = detected.safe(&presets, "ntsc").expect("safe");
+        assert_eq!(safe.monitor, Monitor::Profile(ntsc.clone()), "{detected:?}");
     }
 }
 

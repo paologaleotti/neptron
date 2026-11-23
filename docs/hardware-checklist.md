@@ -280,6 +280,7 @@ Each check is `needs-hardware`. `docs/spec/display-guard.md` describes the rules
 - [ ] No EDID, `pc_31_120` written in `global.toml`. Do: boot and press nothing. Expect: the boot prompt; 15 s after the 31 kHz picture appears, the 15 kHz safe start comes back (out of range on the 740s). Record: the time from the picture to the revert.
 - [ ] No EDID, `pc_31_120` written. Do: boot, press Right, then Accept within the window. Expect: Keep is taken at once (no wait after the press), no "Display change undone" notice, and the next boot has no prompt. Record: the notices.
 - [ ] Blind recovery on this monitor, with and without EDID. Do: hold Select and Start for 5 s. Expect: the safe default with the tone; in Settings, Display, the row "Keep this picture" ends safe mode. Record: what the monitor shows.
+- [ ] A named 15 kHz preset with an analog EDID of a PC monitor: `arcade_15` written in `global.toml`, and a VGA EDID emulator (or a KVM) that reports 30 to 70 kHz in front of a PC CRT, never in front of a 15 kHz tube. Do: boot and press nothing; then boot again; then hold Select and Start for 5 s. Expect: the boot prompt, then the 15 kHz safe start (out of range on the PC CRT); `global.toml` names `generic_15`, not `auto`; the next boot and the recovery send 15 kHz too. Record: the line rate of each mode in the log of the frontend.
 
 ### MVP exit on the 740s
 
