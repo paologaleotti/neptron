@@ -1,15 +1,35 @@
 NEPTRON licence notes, Raspberry Pi image
 =========================================
 
-NEPTRON is open source and not commercial. This image is free of charge.
-Nobody may sell it, or sell a device or a service because it holds it.
+This image contains programs under different licences. Three libretro
+cores, FinalBurn Neo, Snes9x and Genesis Plus GX, may not be sold or used
+commercially under their own licences. So this image, which contains
+them, may not be sold. Every other program in this image keeps its own
+licence, and its rights are not reduced. Remove those three cores
+(`fbneo_libretro.so`, `snes9x_libretro.so` and
+`genesis_plus_gx_libretro.so` in `/usr/lib/libretro`) to redistribute
+the rest under its own terms.
 
-The NEPTRON programs are under the MIT licence or the Apache License
-2.0, at your option:
+The NEPTRON programs
+--------------------
 
 - `neptron`: the frontend.
-- `neptron-launch`: the launcher.
 - `neptronctl`: the command-line client and the self-test of the bench.
+- `neptron-launch`: the launcher.
+
+The NEPTRON source code is under the MIT licence or the Apache License
+2.0, at your option (`LICENSE-MIT`, `LICENSE-APACHE`).
+
+`neptron` and `neptronctl` contain Switchres
+(github.com/antonioginer/switchres, commit
+09272ac24640daee45f5be15b1b856ecd220dda2), by Chris Kennedy, Antonio
+Giner, Alexandre Wodarczyk and Gil Delescluse, under the GNU General
+Public License 2.0 or later. So these two programs are under the GNU
+General Public License 3.0 or later. The texts are in the folders
+`legal/licenses/neptron-0.1.0` and `legal/licenses/neptronctl-0.1.0`:
+`LICENSE-GPL-3.0` for the programs, and `vendor/switchres/LICENSE` for
+Switchres. The other NEPTRON programs contain no Switchres code and are
+under the MIT licence or the Apache License 2.0, at your option.
 
 The image also holds other software. Each package keeps its own licence.
 The folder `legal` on this partition lists them:
@@ -21,8 +41,8 @@ The folder `legal` on this partition lists them:
 The same texts are in `/usr/share/licenses` inside the image.
 
 The monitor presets in `/usr/share/neptron/monitors` come from Switchres
-and are under the GNU General Public License 2.0 or later. The frontend
-reads them at run time and does not contain them.
+too and are under the GNU General Public License 2.0 or later. The
+frontend reads them at run time and does not contain them.
 
 The gamepad mappings in `/usr/share/sdl-gamecontrollerdb` come from the
 community database SDL_GameControllerDB
@@ -127,10 +147,12 @@ Libretro cores
   made from the game list (DAT) in the source of FinalBurn Neo. It is
   under the FB Neo licence too.
 
-The owner of NEPTRON decided (open point OP-054) that a free, open
-source image can hold Snes9x and Genesis Plus GX, with their licence
-texts and this list, and that the image is never sold. The owner also
-accepted the FB Neo licence: NEPTRON takes no donations.
+The frontend opens one core at a time in its own process, through the
+libretro API. Each core is a separate library, built from its own
+source; the frontend contains no core code (ADR 0019 of NEPTRON). The
+owner of NEPTRON accepted the licences of Snes9x, Genesis Plus GX and
+FinalBurn Neo for a free image that is never sold. NEPTRON takes no
+donations, as the FB Neo licence asks.
 
 Network share
 -------------
@@ -154,8 +176,10 @@ What may be distributed
 
 This image may be distributed free of charge, unchanged, for use on a
 Raspberry Pi, with this file, the folder `legal`, and the source code
-below. It may not be sold (the cores above), and its firmware files may
-not be changed or used on other hardware (the firmware licence above).
+below. It may not be sold, because it contains the three cores named at
+the top of this file. Its firmware files may not be changed or used on
+other hardware (the firmware licence above). Every other program keeps
+the rights of its own licence.
 
 Source code
 -----------

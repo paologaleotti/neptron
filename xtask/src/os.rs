@@ -17,6 +17,8 @@ mod defconfig;
 mod guest;
 mod host;
 #[cfg(test)]
+mod licences;
+#[cfg(test)]
 mod network_share;
 mod qemu;
 #[cfg(test)]

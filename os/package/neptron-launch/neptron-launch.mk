@@ -12,9 +12,11 @@ NEPTRON_LAUNCH_PRE_RSYNC_HOOKS += NEPTRON_LOCAL_SOURCE_CLEAR
 NEPTRON_LAUNCH_POST_RSYNC_HOOKS += NEPTRON_LOCAL_SOURCE_TOUCH
 NEPTRON_LAUNCH_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = $(NEPTRON_WORKSPACE_EXCLUSIONS)
 # The legal-info copy of a local package ignores the exclusions above and
-# would take the build output of the checkout. The source is the public
-# NEPTRON repository at the commit of the image.
+# would take the build output of the checkout, so legal-info does not save
+# this source. The sources archive of CI holds it: the NEPTRON tree at the
+# commit of the image and the vendored crates of the build (docs/ci.md).
 NEPTRON_LAUNCH_REDISTRIBUTE = NO
+# The launcher links no Switchres code.
 NEPTRON_LAUNCH_LICENSE = MIT or Apache-2.0
 NEPTRON_LAUNCH_LICENSE_FILES = LICENSE-MIT LICENSE-APACHE
 NEPTRON_LAUNCH_DEPENDENCIES = host-rustc

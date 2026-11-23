@@ -976,7 +976,7 @@ fn the_licence_notes_correct_the_firmware_label_and_say_what_may_be_shared() {
         "Copyright (c) 2015, Raspberry Pi (Trading) Ltd",
         "DISCLAIMER.  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND",
         "What may be distributed",
-        "OP-054",
+        "ADR 0019",
         "no Wi-Fi or Bluetooth firmware",
     ] {
         assert!(notes.contains(line), "LICENCES.txt misses {line:?}");

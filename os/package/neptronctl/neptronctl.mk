@@ -12,11 +12,17 @@ NEPTRONCTL_PRE_RSYNC_HOOKS += NEPTRON_LOCAL_SOURCE_CLEAR
 NEPTRONCTL_POST_RSYNC_HOOKS += NEPTRON_LOCAL_SOURCE_TOUCH
 NEPTRONCTL_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = $(NEPTRON_WORKSPACE_EXCLUSIONS)
 # The legal-info copy of a local package ignores the exclusions above and
-# would take the build output of the checkout. The source is the public
-# NEPTRON repository at the commit of the image.
+# would take the build output of the checkout, so legal-info does not save
+# this source. The sources archive of CI holds it: the NEPTRON tree at the
+# commit of the image and the vendored crates of the build (docs/ci.md).
 NEPTRONCTL_REDISTRIBUTE = NO
-NEPTRONCTL_LICENSE = MIT or Apache-2.0
-NEPTRONCTL_LICENSE_FILES = LICENSE-MIT LICENSE-APACHE
+# The binary links Switchres (GPL-2.0-or-later, vendor/switchres) through
+# neptron-modeline, so it is GPL-3.0-or-later (ADR 0002). The NEPTRON
+# source is MIT or Apache-2.0.
+NEPTRONCTL_LICENSE = GPL-3.0+ (binary), MIT or Apache-2.0 (NEPTRON source), \
+	GPL-2.0+ (Switchres)
+NEPTRONCTL_LICENSE_FILES = LICENSE-GPL-3.0 LICENSE-MIT LICENSE-APACHE \
+	vendor/switchres/LICENSE
 NEPTRONCTL_DEPENDENCIES = host-rustc host-pkgconf libdrm mesa3d neptron
 NEPTRONCTL_PRE_CONFIGURE_HOOKS += NEPTRON_WORKSPACE_VENDOR
 
