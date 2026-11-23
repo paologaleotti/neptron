@@ -702,6 +702,16 @@ Each check is `needs-hardware`. Before each one, read `/run/neptron/storage.toml
 - [ ] Do: write the image to a stick that has other partitions after the end of the image (for example a stick that held another system, with a partition at the planned start of the share). Expect: no format of any space that holds a filesystem; when a partition 4 or a filesystem is in the way, `share = "ram"` with a reason that names it, and the notice shows the same reason. Record: `sfdisk --dump /dev/sda` before the boot, the syslog lines, and the notice text.
 - [ ] Do: on the stick of the first check, run `dmesg | grep -i -e sda -e 'sync cache' -e 'I/O error'` after the first boot. Record: the lines. They show whether the stick fails a cache flush, which makes sfdisk exit with an error after it wrote the table.
 
+### The checks of the state and the share partition after a power cut
+
+Each check is `needs-hardware`. Read `/run/neptron/storage.toml` and `/state/log/storage.log` after each boot, as for C16. The script tests run each branch against fakes; these checks prove the real tools on a real stick.
+
+- [ ] Do: copy a large ROM set to `\\NEPTRON\share` from a PC and pull the power cord in the middle of the copy, then boot. Expect: the storage log has `fsck.exfat /dev/sda4: clean` or `fsck.exfat repaired /dev/sda4 (exit 1)`; `share = "partition"` with no `share_read_only`; the ROMs that were there before the copy are complete (compare a checksum). Record: the `fsck.exfat` lines and the time of the check (the `neptron-storage` lines before and after it in `/var/log/messages`).
+- [ ] Do: on a stick of 32 GB or more with a full share (many small files), time the `fsck.exfat -p` of a boot. Expect: well under the 120 s limit (`SHARE_CHECK_SECONDS`). Record: the time and the file count.
+- [ ] Do: damage the share on another computer so that `fsck.exfat -p` leaves errors (for example, overwrite part of the FAT with `dd`), then boot. Expect: `share_read_only = true` with the reason in `storage.toml`, the notice "The share partition is read-only...", the games still start, a copy of a new file over SMB fails, and nothing is formatted. Record: the notice, the `fsck.exfat` lines and its exit code.
+- [ ] Do: on the development image, `mount | grep /state`. Expect: `errors=remount-ro` in the options. Record: the line.
+- [ ] Do: damage the state partition on a Linux computer so that `e2fsck -p` exits with 4 (for example, `debugfs -w -R "clri <inode of a file in /saves>"`), then boot. Expect: the storage log has `e2fsck -p ... left errors (exit 4); e2fsck -fy repairs it once`, the `e2fsck -fy:` lines, and the repair line; `state = "partition"`; the notice "The state partition had errors, and they were repaired..."; the other saves are there. Record: the lines and the notice.
+
 ### The format of the share partition that the user confirms (C18)
 
 Each check is `needs-hardware`. Read `/run/neptron/storage.toml`, `grep neptron-storage /var/log/messages` and `/state/log/storage.log` before and after each boot, as for C16. In QEMU, `cargo xtask os share-check --case offer --case retype` runs these steps on a virtual disk; a real stick can behave in another way.

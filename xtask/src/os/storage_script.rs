@@ -41,15 +41,36 @@ const FAKES: &[(&str, &str)] = &[
     ("mountpoint", "echo 8:2"),
     (
         "e2fsck",
-        "echo \"e2fsck $*\" >> \"$LOG\"; exit \"${FAKE_E2FSCK_EXIT:-0}\"",
+        "echo \"e2fsck $*\" >> \"$LOG\"\n\
+         case \"$1\" in\n\
+         -fy)\n\
+         \techo 'Pass 1: Checking inodes, blocks, and sizes'\n\
+         \techo 'Inode 12 has illegal block(s).  Clear? yes'\n\
+         \texit \"${FAKE_E2FSCK_Y_EXIT:-${FAKE_E2FSCK_EXIT:-0}}\" ;;\n\
+         esac\n\
+         exit \"${FAKE_E2FSCK_EXIT:-0}\"",
     ),
     (
         "mount",
         "echo \"mount $*\" >> \"$LOG\"\n\
          case \"$*\" in\n\
+         *'-t exfat -o ro,'*) exit \"${FAKE_MOUNT_EXFAT_RO_EXIT:-0}\" ;;\n\
          *'-t exfat'*) exit \"${FAKE_MOUNT_EXFAT_EXIT:-0}\" ;;\n\
          *'-t ext4'*) exit \"${FAKE_MOUNT_EXT4_EXIT:-0}\" ;;\n\
          esac",
+    ),
+    (
+        "fsck.exfat",
+        "echo \"fsck.exfat $*\" >> \"$LOG\"\n\
+         if [ -n \"$FAKE_FSCK_EXFAT_SAYS\" ]; then echo \"$FAKE_FSCK_EXFAT_SAYS\"; fi\n\
+         exit \"${FAKE_FSCK_EXFAT_EXIT:-0}\"",
+    ),
+    (
+        "timeout",
+        "echo \"timeout $1\" >> \"$LOG\"\n\
+         if [ \"$FAKE_TIMEOUT_EXPIRES\" = yes ]; then exit 143; fi\n\
+         shift\n\
+         exec \"$@\"",
     ),
     (
         "logger",
@@ -935,7 +956,198 @@ fn e2fsck_errors_are_a_reason_in_syslog() {
         "state-e2fsck",
         "FAKE_E2FSCK_EXIT",
         "8",
-        "left errors (exit 8); /state is a RAM folder",
+        "left errors (exit 8), and e2fsck -fy could not repair them (exit 8); /state is a RAM folder",
+    );
+}
+
+/// The safe repair of -p leaves errors: -fy repairs once, and the state
+/// partition is mounted. The frontend gets the repair for a notice, and
+/// the storage log keeps what e2fsck said.
+#[test]
+fn errors_that_e2fsck_p_leaves_are_repaired_once_with_yes() {
+    let out = Run::new("state-repair")
+        .set("FAKE_E2FSCK_EXIT", "4")
+        .set("FAKE_E2FSCK_Y_EXIT", "1")
+        .start();
+    assert!(out.ok, "{out:#?}");
+    assert_eq!(out.calls("e2fsck -p "), 1, "{out:#?}");
+    assert_eq!(out.calls("e2fsck -fy "), 1, "{out:#?}");
+    assert!(
+        out.first("e2fsck -fy ") < out.first("mount -t ext4"),
+        "{out:#?}"
+    );
+    assert!(
+        out.status.starts_with(&format!(
+            "state = \"partition\"\nstate_repair = \"e2fsck repaired {}/dev/sda3 (exit 1) after errors that its safe repair could not fix\"\n",
+            out_root(&out)
+        )),
+        "{out:#?}"
+    );
+    for line in [
+        "e2fsck -fy: Pass 1: Checking inodes, blocks, and sizes",
+        "e2fsck -fy: Inode 12 has illegal block(s).  Clear? yes",
+        "/dev/sda3 mounted at /state (e2fsck exit 1)",
+    ] {
+        assert!(out.state_log.contains(line), "{line}: {out:#?}");
+    }
+}
+
+#[test]
+fn errors_that_e2fsck_fy_leaves_give_a_ram_folder_and_no_format() {
+    let out = Run::new("state-repair-fails")
+        .set("FAKE_E2FSCK_EXIT", "4")
+        .set("FAKE_E2FSCK_Y_EXIT", "4")
+        .start();
+    assert!(
+        out.status.contains("state = \"ram\"")
+            && out
+                .status
+                .contains("left errors (exit 4), and e2fsck -fy could not repair them (exit 4)"),
+        "{out:#?}"
+    );
+    assert!(!out.status.contains("state_repair"), "{out:#?}");
+    assert_eq!(out.calls("mount -t ext4"), 0, "{out:#?}");
+    assert_eq!(out.calls("e2fsck -fy "), 1, "one try: {out:#?}");
+}
+
+/// A clean state partition gets no second check, and the state partition
+/// is never formatted by the script.
+#[test]
+fn a_clean_state_partition_mounts_with_errors_remount_ro() {
+    let out = Run::new("state-clean").start();
+    out.assert_share_mounted(true);
+    assert_eq!(out.calls("e2fsck -fy "), 0, "{out:#?}");
+    assert!(
+        out.log
+            .lines()
+            .any(|l| l.starts_with("mount -t ext4 -o noatime,errors=remount-ro ")),
+        "{out:#?}"
+    );
+    let text = script();
+    assert!(
+        !text.contains("mkfs.ext") && !text.contains("mke2fs"),
+        "{text}"
+    );
+}
+
+/// The test folder, as the script names its paths.
+fn out_root(out: &Outcome) -> String {
+    out.log
+        .lines()
+        .find_map(|l| l.strip_prefix("e2fsck -p "))
+        .and_then(|l| l.strip_suffix("/dev/sda3"))
+        .unwrap_or_else(|| panic!("no e2fsck -p: {out:#?}"))
+        .to_owned()
+}
+
+/// Every share gets fsck.exfat -p before its mount, under a time limit.
+#[test]
+fn the_share_is_checked_before_each_mount() {
+    let run = Run::new("exfat-check");
+    let out = run.boot(&[]);
+    out.assert_share_mounted(true);
+    assert!(run.path("share/roms/nes").is_dir(), "{out:#?}");
+    assert_eq!(out.calls("fsck.exfat -p "), 1, "{out:#?}");
+    assert!(
+        out.first("mkfs.exfat") < out.first("fsck.exfat"),
+        "{out:#?}"
+    );
+    assert!(
+        out.first("fsck.exfat") < out.first("mount -t exfat"),
+        "{out:#?}"
+    );
+    assert!(out.log.contains("timeout 120\n"), "{out:#?}");
+    assert!(out.state_log.contains("sda4: clean"), "{out:#?}");
+}
+
+#[test]
+fn a_share_that_the_check_repairs_mounts_read_write() {
+    let out = Run::new("exfat-repaired")
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .set("FAKE_FSCK_EXFAT_EXIT", "1")
+        .set("FAKE_FSCK_EXFAT_SAYS", "bitmap fixed")
+        .with_partition_4()
+        .start();
+    out.assert_share_mounted(false);
+    assert!(
+        out.state_log.contains("fsck.exfat: bitmap fixed"),
+        "{out:#?}"
+    );
+    assert!(out.state_log.contains("sda4 (exit 1)"), "{out:#?}");
+}
+
+/// What the check leaves: the share mounts read-only, the notice says
+/// why, no folder is made, and nothing is formatted.
+fn read_only_share(name: &str, var: &str, value: &str, exit: &str) {
+    let run = Run::new(name)
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .set(var, value)
+        .with_partition_4();
+    let out = run.boot(&[]);
+    assert!(out.ok, "{out:#?}");
+    let reason = format!(
+        "fsck.exfat {}/dev/sda4 left errors or did not end within 120 s (exit {exit})",
+        out_root(&out)
+    );
+    assert_eq!(
+        out.status,
+        format!(
+            "state = \"partition\"\nshare = \"partition\"\nshare_read_only = true\nshare_read_only_reason = \"{reason}\"\n"
+        ),
+        "{name}: {out:#?}"
+    );
+    assert_eq!(out.calls("mount -t exfat -o ro,"), 1, "{name}: {out:#?}");
+    assert_eq!(out.calls("mount -t exfat"), 1, "never read-write: {out:#?}");
+    assert_eq!(out.calls("mkfs"), 0, "{name}: {out:#?}");
+    assert!(
+        out.state_log.contains("mounted read-only at /share"),
+        "{out:#?}"
+    );
+    assert!(
+        !run.path("share/roms").exists(),
+        "no folder on a read-only share"
+    );
+}
+
+#[test]
+fn a_share_with_errors_left_mounts_read_only() {
+    read_only_share("exfat-errors", "FAKE_FSCK_EXFAT_EXIT", "4", "4");
+}
+
+#[test]
+fn a_check_that_does_not_end_in_time_mounts_read_only() {
+    read_only_share("exfat-slow", "FAKE_TIMEOUT_EXPIRES", "yes", "143");
+}
+
+#[test]
+fn a_share_that_does_not_mount_read_only_is_a_ram_folder() {
+    let out = Run::new("exfat-ro-fails")
+        .set("FAKE_BLKID", "TYPE=exfat")
+        .set("FAKE_FSCK_EXFAT_EXIT", "4")
+        .set("FAKE_MOUNT_EXFAT_RO_EXIT", "32")
+        .with_partition_4()
+        .start();
+    assert!(out.status.contains("share = \"ram\""), "{out:#?}");
+    assert!(
+        out.status
+            .contains("sda4 does not mount read-only after its check: fsck.exfat"),
+        "{out:#?}"
+    );
+    assert!(!out.status.contains("share_read_only"), "{out:#?}");
+    assert_eq!(out.calls("mkfs"), 0, "{out:#?}");
+}
+
+/// An image with no fsck.exfat mounts the share as before, and says so.
+#[test]
+fn with_no_fsck_exfat_the_share_mounts_unchecked() {
+    let run = Run::new("exfat-no-fsck");
+    std::fs::remove_file(run.path("bin/fsck.exfat")).unwrap();
+    let path = format!("{}:/usr/bin:/bin", run.path("bin").display());
+    let out = run.set("PATH", &path).start();
+    out.assert_share_mounted(true);
+    assert!(
+        out.state_log.contains("the image has no fsck.exfat, so"),
+        "{out:#?}"
     );
 }
 

@@ -60,6 +60,16 @@ pub struct StorageStatus {
     /// Why the request was not carried out.
     #[serde(default)]
     pub share_format_reason: Option<String>,
+    /// What `e2fsck -fy` repaired on the state partition after the safe
+    /// repair left errors. A damaged file can be gone or in `lost+found`.
+    #[serde(default)]
+    pub state_repair: Option<String>,
+    /// The share partition is mounted read-only: its check left errors.
+    #[serde(default)]
+    pub share_read_only: bool,
+    /// Why the share partition is read-only.
+    #[serde(default)]
+    pub share_read_only_reason: Option<String>,
 }
 
 /// The notice after a format that the user asked for: an Info notice,
@@ -173,6 +183,12 @@ impl StorageStatus {
     /// with no power control the row is disabled.
     pub fn notices(&self, power: bool) -> Vec<String> {
         let mut notices = Vec::new();
+        if let Some(repair) = self.state_repair.as_deref() {
+            notices.push(format!(
+                "The state partition had errors, and they were repaired ({}). Check your saves and settings: a damaged file can be gone, or moved to lost+found on the state partition.",
+                reason(Some(repair))
+            ));
+        }
         if self.state == Mounted::Ram {
             notices.push(format!(
                 "The state partition is not in use ({}). Settings, saves and display choices are lost at power-off.",
@@ -186,6 +202,12 @@ impl StorageStatus {
                 reason(self.share_format_reason.as_deref())
             )),
             None => {}
+        }
+        if self.share == Mounted::Partition && self.share_read_only {
+            notices.push(format!(
+                "The share partition is read-only: its check found errors that it cannot repair safely ({}). Games run, but no file can be added. Copy your files off over the network, then repair the partition on a computer.",
+                reason(self.share_read_only_reason.as_deref())
+            ));
         }
         if self.share == Mounted::Ram {
             let fix = if power && self.format_offer().is_some() {
@@ -282,6 +304,33 @@ mod tests {
         assert!(notices[0].contains("(e2fsck /dev/sda3 left errors (exit 4))"));
         assert!(notices[0].contains("lost at power-off"));
         assert!(notices[1].contains("(no share partition)"));
+    }
+
+    #[test]
+    fn a_repaired_state_partition_gives_a_notice() {
+        let text = "state = \"partition\"\n\
+                    state_repair = \"e2fsck repaired /dev/sda3 (exit 1) after errors that its safe repair could not fix\"\n\
+                    share = \"partition\"\n";
+        let dir = folder("repaired", Some(text));
+        let status = StorageStatus::read(&dir).expect("read").expect("a status");
+        assert!(!status.state_in_ram());
+        let notices = status.notices(true);
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].starts_with("The state partition had errors, and they were repaired (e2fsck repaired /dev/sda3 (exit 1)"));
+        assert!(notices[0].contains("lost+found"), "{notices:?}");
+    }
+
+    #[test]
+    fn a_read_only_share_gives_a_notice_with_its_reason() {
+        let text = "state = \"partition\"\nshare = \"partition\"\nshare_read_only = true\n\
+                    share_read_only_reason = \"fsck.exfat /dev/sda4 left errors (exit 4)\"\n";
+        let dir = folder("read-only", Some(text));
+        let status = StorageStatus::read(&dir).expect("read").expect("a status");
+        assert_eq!(status.format_offer(), None, "never a format");
+        let notices = status.notices(true);
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].starts_with("The share partition is read-only"));
+        assert!(notices[0].contains("(fsck.exfat /dev/sda4 left errors (exit 4))"));
     }
 
     fn offer_text(device: &str, kind: &str) -> String {

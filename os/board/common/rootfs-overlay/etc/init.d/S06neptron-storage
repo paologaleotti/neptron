@@ -55,12 +55,17 @@ SHARE_MOUNT_OPTIONS="noatime,iocharset=utf8,uid=$SHARE_OWNER,gid=$SHARE_OWNER,dm
 # STATUS_DISK_FULL: the client reports a full disk, and nothing is killed.
 SHARE_RAM_SIZE_MIB=64
 SHARE_RAM_OPTIONS="mode=0755,size=${SHARE_RAM_SIZE_MIB}m,uid=$SHARE_OWNER,gid=$SHARE_OWNER,nosuid,nodev,noexec"
+# The last lines of the output of a repair tool that go to the log.
+REPAIR_LOG_LINES=20
 
 # Every flag that the script reads is set here first: a variable of init
 # with the same name must not change a decision.
 state_writable=no
 state_kind=partition
 share_kind=partition
+state_repair=
+share_check=
+share_check_reason=
 state=
 share=
 last=
@@ -88,6 +93,18 @@ log() {
 	logger -t neptron-storage "$1" 2>/dev/null
 	boot_lines="$boot_lines$1
 "
+}
+
+# Logs the last REPAIR_LOG_LINES lines of $2, each after the prefix $1.
+log_tail() {
+	lines=$(printf '%s\n' "$2" | tail -n "$REPAIR_LOG_LINES")
+	# A here-document, not a pipe: the loop must run in this shell, so
+	# that log keeps the lines for the storage log.
+	while IFS= read -r line; do
+		[ -n "$line" ] && log "$1: $line"
+	done <<EOF
+$lines
+EOF
 }
 
 # Logs one line and keeps it as the reason of the next RAM folder.
@@ -131,8 +148,18 @@ if [ -r "$root_dir/partition" ]; then
 	state=$(partition "$disk" 3)
 fi
 
-# e2fsck -p exits with 0 (clean), 1 or 2 (errors corrected); 4 and above
+# e2fsck exits with 0 (clean), 1 or 2 (errors corrected); 4 and above
 # leave errors, and then the state partition is not mounted for writing.
+# When the safe repair of -p leaves errors, -fy repairs once with a yes to
+# every question: the settings and saves are worth more than a refusal at
+# every boot, and the release image has no other repair path. -y can clear
+# a damaged file or move it to lost+found, so the frontend shows a notice
+# with state_repair. The partition is never formatted.
+#
+# errors=remount-ro: an error that the kernel finds at run time stops all
+# writes, so a damaged filesystem gets no more damage before the next
+# check.
+STATE_MOUNT_OPTIONS=noatime,errors=remount-ro
 if [ -z "$disk" ]; then
 	say "the root filesystem is not on a partition of a disk, so there is no state partition; /state is a RAM folder"
 	ram_folder state
@@ -143,9 +170,21 @@ else
 	e2fsck -p "$state"
 	code=$?
 	if [ "$code" -ge 4 ]; then
-		say "e2fsck $state left errors (exit $code); /state is a RAM folder"
+		log "e2fsck -p $state left errors (exit $code); e2fsck -fy repairs it once"
+		output=$(e2fsck -fy "$state" 2>&1)
+		repair=$?
+		log_tail "e2fsck -fy" "$output"
+		if [ "$repair" -ge 4 ]; then
+			say "e2fsck $state left errors (exit $code), and e2fsck -fy could not repair them (exit $repair); /state is a RAM folder"
+		else
+			state_repair="e2fsck repaired $state (exit $repair) after errors that its safe repair could not fix"
+			log "$state_repair"
+			code=$repair
+		fi
+	fi
+	if [ "$code" -ge 4 ]; then
 		ram_folder state
-	elif ! mount -t ext4 -o noatime "$state" "$STATE"; then
+	elif ! mount -t ext4 -o "$STATE_MOUNT_OPTIONS" "$state" "$STATE"; then
 		say "$state does not mount; /state is a RAM folder"
 		ram_folder state
 	else
@@ -1039,24 +1078,81 @@ elif make_partition; then
 else
 	share=
 fi
+# exFAT has no journal: a power cut during a write can leave the
+# allocation bitmap out of step with the files, and the kernel mounts such
+# a volume read-write. A later write can then take clusters of a ROM or a
+# BIOS file. So fsck.exfat -p checks the share before each mount and
+# repairs, with no question, what is safe to repair. Its exit codes
+# (exfatprogs): 0 clean, 1 errors corrected, 2 corrected and a reboot
+# needed (a mounted volume only), 4 errors left, 8 an operation error. The
+# check reads the whole allocation, so a time limit keeps a slow or failing
+# stick from stopping the boot.
+SHARE_CHECK_SECONDS=120
+
+# Checks the share partition $1 before the mount, and sets share_check to
+# clean, repaired or failed (the reason in share_check_reason), or none
+# when the image has no fsck.exfat.
+check_share() {
+	if ! command -v fsck.exfat >/dev/null 2>&1; then
+		share_check=none
+		log "the image has no fsck.exfat, so $1 is mounted with no check"
+		return
+	fi
+	output=$(timeout "$SHARE_CHECK_SECONDS" fsck.exfat -p "$1" 2>&1)
+	code=$?
+	case $code in
+	0)
+		share_check=clean
+		log "fsck.exfat $1: clean"
+		;;
+	1 | 2)
+		share_check=repaired
+		log_tail "fsck.exfat" "$output"
+		log "fsck.exfat repaired $1 (exit $code)"
+		;;
+	*)
+		share_check=failed
+		log_tail "fsck.exfat" "$output"
+		share_check_reason="fsck.exfat $1 left errors or did not end within $SHARE_CHECK_SECONDS s (exit $code)"
+		log "$share_check_reason"
+		;;
+	esac
+}
+
 mounted=no
 if [ -n "$share" ] && wait_node "$share" && prepare_share; then
-	if mount -t exfat -o "$SHARE_MOUNT_OPTIONS" "$share" "$SHARE"; then
+	check_share "$share"
+	if [ "$share_check" = failed ]; then
+		# A share with errors left is never written and never formatted:
+		# its files are the user's. Read-only, the games still run, and the
+		# user can copy the files off and repair it on a computer.
+		if mount -t exfat -o "ro,$SHARE_MOUNT_OPTIONS" "$share" "$SHARE"; then
+			mounted=ro
+		else
+			say "$share does not mount read-only after its check: $share_check_reason"
+		fi
+	elif mount -t exfat -o "$SHARE_MOUNT_OPTIONS" "$share" "$SHARE"; then
 		mounted=yes
 	else
 		say "$share does not mount"
 	fi
 fi
-if [ "$mounted" = yes ]; then
+case $mounted in
+yes)
 	log "$share mounted at /share"
 	if [ -e "$MARKER" ]; then
 		rm -f "$MARKER"
 		sync
 	fi
-else
+	;;
+ro)
+	log "$share mounted read-only at /share: $share_check_reason"
+	;;
+*)
 	log "/share is a RAM folder: $last"
 	ram_folder share
-fi
+	;;
+esac
 if [ "$format_request" = yes ]; then
 	request_refused "no partition 4 reached the checks: ${last:-no reason}"
 fi
@@ -1066,7 +1162,14 @@ status() {
 	if [ "$state_kind" = ram ]; then
 		echo "state_reason = \"$state_reason\""
 	fi
+	if [ -n "$state_repair" ]; then
+		echo "state_repair = \"$(printf '%s' "$state_repair" | tr -d '"\\')\""
+	fi
 	echo "share = \"$share_kind\""
+	if [ "$mounted" = ro ]; then
+		echo "share_read_only = true"
+		echo "share_read_only_reason = \"$(printf '%s' "$share_check_reason" | tr -d '"\\')\""
+	fi
 	if [ "$share_kind" = ram ]; then
 		echo "share_reason = \"$share_reason\""
 		if [ -n "$fix_device" ]; then
@@ -1090,12 +1193,15 @@ fi
 
 # One ROM folder for each system of the image, as the definition asks for
 # the first boot. The names are the file names of data/systems.
-for system in "$SYSTEMS"/*.toml; do
-	[ -e "$system" ] || continue
-	name=${system##*/}
-	mkdir -p "$SHARE/roms/${name%.toml}"
-done
-mkdir -p "$SHARE/bios"
+# A read-only share gets no new folder.
+if [ "$mounted" != ro ]; then
+	for system in "$SYSTEMS"/*.toml; do
+		[ -e "$system" ] || continue
+		name=${system##*/}
+		mkdir -p "$SHARE/roms/${name%.toml}"
+	done
+	mkdir -p "$SHARE/bios"
+fi
 # On exFAT the mount gives every folder to nobody; in a RAM folder the
 # folders that root just made need it too.
 if [ "$share_kind" = ram ]; then
