@@ -124,6 +124,8 @@ pub struct Session<D: Display, S: AudioSink, I: InputSource, C: Clock> {
     /// [`SOUND_RESUME_PERMILLE`](crate::SOUND_RESUME_PERMILLE): the audio
     /// is muted.
     too_slow_for_sound: bool,
+    /// The app asked for frames with no game picture while paused.
+    picture_hidden: bool,
     counters: Counters,
 }
 
@@ -156,11 +158,20 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             return;
         }
         self.state = State::Running;
+        self.picture_hidden = false;
         self.mask.hold_back_pressed(&self.ports);
         self.hotkeys.cancel_quick_menu();
         if self.engine.source_blocked() {
             self.engine.retry();
         }
+    }
+
+    /// While `hide` is true and the session is paused, each frame shows the
+    /// UI alone, with no game picture: on a flat panel the frozen picture
+    /// then does not stay on screen around the UI. [`Session::resume`]
+    /// ends it. A running game always shows its picture.
+    pub fn hide_picture(&mut self, hide: bool) {
+        self.picture_hidden = hide && self.state == State::Paused;
     }
 
     /// Resets the core (`retro_reset`).

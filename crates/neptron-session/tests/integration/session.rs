@@ -976,3 +976,41 @@ fn a_30_ms_modeset_leaves_audio_in_the_queue() {
         }
     );
 }
+
+#[test]
+fn a_paused_session_can_show_the_ui_with_no_game_picture() {
+    with_script!(
+        "a_paused_session_can_show_the_ui_with_no_game_picture",
+        SCRIPT,
+        |dir| {
+            let mut rig = Rig::launch(dir, Setup::default());
+            rig.run(10);
+            rig.session.hide_picture(true);
+            rig.session.run_frame(None).unwrap();
+            let shown = rig.display.frames().last().unwrap().clone();
+            assert!(
+                shown.scene.game.is_some(),
+                "a running game shows its picture"
+            );
+            rig.press(&[Control::Select, Control::Start]);
+            while !rig.session.paused() {
+                rig.session.run_frame(Some(canvas())).unwrap();
+            }
+            rig.release(&[Control::Select, Control::Start]);
+            rig.session.hide_picture(true);
+            rig.session.run_frame(Some(canvas())).unwrap();
+            let hidden = rig.display.frames().last().unwrap().clone();
+            assert_eq!(hidden.scene.ui, Some((320, 240)));
+            assert!(hidden.scene.game.is_none(), "the UI alone");
+            rig.session.hide_picture(false);
+            rig.session.run_frame(Some(canvas())).unwrap();
+            let back = rig.display.frames().last().unwrap().clone();
+            assert!(back.scene.game.is_some());
+            rig.session.hide_picture(true);
+            rig.session.resume();
+            rig.session.run_frame(None).unwrap();
+            let resumed = rig.display.frames().last().unwrap().clone();
+            assert!(resumed.scene.game.is_some(), "a resume shows the game");
+        }
+    );
+}

@@ -9,7 +9,7 @@ Game lifecycle: launch, the display-locked loop, pause, quick menu, exit and sav
 - `Session<D: Display, S: AudioSink, I: InputSource, C: Clock>`: one game, from launch to exit. The same type runs the real cores and the test core, on KMS, the window or the fakes.
   - `launch(&GameLaunch, VideoSetup<D>, Devices<S, I, C>, SessionOptions) -> Result<Session, LaunchError>`.
   - `run_frame(ui: Option<Frame>) -> Result<FrameReport, SessionError>`: one frame of the loop.
-  - `resume()`, `reset()`, `set_start_hold_ns(ns)`, `set_volume_percent(percent)`, `write_cue(samples)` (a tone mixed into the next core frames), `quit() -> ExitReport`.
+  - `resume()`, `reset()`, `hide_picture(hide)` (while paused, frames show the UI with no game picture, for the screensaver), `set_start_hold_ns(ns)`, `set_volume_percent(percent)`, `write_cue(samples)` (a tone mixed into the next core frames), `quit() -> ExitReport`.
   - `slow_speed_percent()`: the speed of a game that the machine cannot keep at full speed, in percent of the mode's run rate, after 2 s of late pacing below 98% (`SLOW_NOTICE_PERMILLE`), else `None`. `sound_too_slow()`: the game runs below half speed and its sound is off. The app shows a notice from them.
   - Reads for the UI snapshot and the control API: `paused()`, `ended()`, `video_status(&mut VideoStatusText)`, `video()`, `last_frame()`, `source()`, `input_events()`, `ports()`, `input()` (the source, for the port of each pad), `message()`, `host()` (system info, core options), `core_logs()`, `audio_stats()`, `audio_sink()`, `volume_percent()`, `run_rate_mhz()`, `save_stats()`, `counters()`.
   - Live changes: `video_mut()` (`set_settings`, `set_scanlines`, `set_monitor`, `retry` of the engine), `host_mut()` (`set_option`).

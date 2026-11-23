@@ -276,7 +276,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
         loop {
             // The inputs refuse the mode on screen: no game picture is shown
             // on it as if it were confirmed.
-            let game = if self.engine.current_refused() {
+            let game = if self.engine.current_refused() || self.picture_hidden {
                 None
             } else {
                 self.picture.frame()

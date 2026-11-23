@@ -149,6 +149,7 @@ impl<D: Display, S: AudioSink, I: InputSource, C: Clock> Session<D, S, I, C> {
             run_rate_slewing: false,
             queue_level: 0,
             too_slow_for_sound: false,
+            picture_hidden: false,
             counters: Counters {
                 refused_options: refused_options as u64,
                 ..Counters::default()
