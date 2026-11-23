@@ -378,6 +378,26 @@ How a command runs:
 3. `xtask` accepts only markers with its nonce, so output that contains the marker text does not end the run. It prints the lines between the markers, the time to the first marker and the guest uptime, and exits with the exit code of the command. It writes the whole console to `target/qemu/<arch>-console.log`.
 4. `xtask` stops QEMU 30 s after the deadline, and at once on SIGTERM, SIGHUP or SIGINT. It removes its script on exit, and the next run removes scripts that a killed run left.
 
+## Check a release
+
+These commands read a release image and its sources archive with no Pi and no PC. They need `xz`, `sfdisk` and `jq` (Linux) and mtools (`brew install mtools` on macOS). The names are those of release 0.1.0 of the PC image; for the Pi image use `neptron-rpi-arm64`. A local build has the same files in `~/.cache/neptron/buildroot/images/<variant>` (the image and `boot-part/`).
+
+```sh
+img=neptron-pc-x86_64-0.1.0.img
+xz -dk "$img.xz" && sha256sum "$img"            # equals the SHA-256 in the release notes
+start=$(sfdisk --json "$img" | jq '.partitiontable.partitions[0].start')
+boot="$img@@$((start * 512))"
+export MTOOLS_SKIP_CHECK=1
+mtype -i "$boot" ::LICENCES.txt | head -12      # release v0.1.0, the commit of the tag, Variant: release
+mdir -i "$boot" ::legal/neptron-rust            # neptron.txt, neptron-launch.txt, neptronctl.txt
+mdir -i "$boot" ::legal/licenses/neptron-0.1.0  # LICENSE-GPL-3.0, LICENSE-MIT, LICENSE-APACHE, vendor, data, crates
+mtype -i "$boot" ::legal/manifest.csv | grep -E '^"?(neptron|neptronctl|libretro-genesis-plus-gx)'
+tar -tf neptron-pc-x86_64-0.1.0-sources.tar | grep -E \
+  'README.txt|buildroot-.*\.tar\.gz|neptron-[0-9a-f]{40}(-vendor)?\.tar\.xz|legal-info/(manifest.csv|sources/linux-6\.18\.63/series)'
+```
+
+Expected: the head of `LICENCES.txt` names the release, the 40-hex commit of the tag (no `-modified`), its date and `Variant: release`; the manifest gives `neptron` and `neptronctl` as `GPL-3.0+ (binary), ...` and `libretro-genesis-plus-gx` with its LGPL parts; the archive lists `README.txt`, the Buildroot archive, the NEPTRON and vendor archives of the commit, the manifest and, for the PC, the `series` file of the kernel patches. The root file system is EROFS: on Linux, `sudo mount -o ro,loop,offset=$((root_start * 512)) "$img" /mnt` with the start of partition 2 shows `/mnt/etc/neptron-release` and `/mnt/usr/share/licenses/neptron-rust`.
+
 ## The cores
 
 One package for each core, pinned to an exact upstream commit, with the SHA-256 of the GitHub archive of that commit and of the licence file in its `.hash` file. `BR2_DOWNLOAD_FORCE_CHECK_HASHES` makes Buildroot refuse a download with another hash.

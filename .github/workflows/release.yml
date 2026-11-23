@@ -1,0 +1,145 @@
+# The GitHub Release of a version tag.
+#
+# A push of a tag v<major>.<minor>.<patch> (with an optional -<pre> part)
+# on a commit of main builds the release images with images.yml
+# (release: true), runs the tier 3 checks on exactly those files, and
+# makes a draft GitHub Release of the tag with those images, the sources
+# archive of each one and SHA256SUMS. The owner reads the draft and
+# publishes it. Release assets do not expire, so the source stays beside
+# each image for as long as the release exists (ADR 0018). docs/ci.md,
+# section "Release", says how to start it and what to check.
+#
+# Nothing here needs a secret: the default token, with contents: write in
+# the publish job only.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions: {}
+
+# A second push of the same tag waits; it never cancels a build of hours.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  tag:
+    name: tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      # A release is a commit that passed the checks of main, and its tag
+      # is a version that release-names accepts.
+      - name: Check the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          cargo xtask release-names --tag "$TAG" --artifact check --image check.img
+          head=$(git rev-parse HEAD)
+          if ! git merge-base --is-ancestor "$head" origin/main; then
+            echo "The tag $TAG names $head, which is not on main."
+            exit 1
+          fi
+          echo "Release $TAG of commit $head" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  images:
+    needs: tag
+    uses: ./.github/workflows/images.yml
+    with:
+      release: true
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+
+  publish:
+    name: publish
+    needs: images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the release assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: assets
+      # One compressed image and one sources archive for each target that
+      # uploads an image, and nothing else.
+      - name: Check the assets
+        run: |
+          want=$(jq '[.targets[] | select(.enabled and .upload_image)] | length' .github/image-targets.json)
+          cd assets
+          ls -l
+          images=$(find . -maxdepth 1 -name '*.img.xz' | wc -l)
+          sources=$(find . -maxdepth 1 -name '*-sources.tar' | wc -l)
+          if [ "$images" != "$want" ] || [ "$sources" != "$want" ]; then
+            echo "Want $want images and $want sources archives, got $images and $sources."
+            exit 1
+          fi
+          for image in *.img.xz; do
+            [ -f "${image%.img.xz}-sources.tar" ] || { echo "$image has no sources archive"; exit 1; }
+            xz -t "$image"
+          done
+          sha256sum -- *.img.xz *-sources.tar > SHA256SUMS
+          cat SHA256SUMS
+      - name: Make the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          version=${TAG#v}
+          prerelease=
+          case $version in *-*) prerelease=--prerelease ;; esac
+          cat > notes.md <<EOF
+          NEPTRON $version, commit $GITHUB_SHA.
+
+          Tested on Intel graphics (PC) and on the Raspberry Pi 3. AMD and other
+          graphics cards are not tested and can show no picture: the PC image
+          holds no AMD firmware.
+
+          A PC shows the picture of its firmware at 31 kHz or more until NEPTRON
+          starts. Read the safety section of the README before you connect a
+          monitor that takes 15 kHz only.
+
+          Each image comes with its source code: NAME-sources.tar beside
+          NAME.img.xz. LICENCES.txt on the boot partition of each image gives
+          the licences, the commit and the written offer. The images hold
+          FinalBurn Neo, Snes9x and Genesis Plus GX, which may not be sold or
+          used commercially under their own licences, so an image may not be
+          sold. Every other program keeps its own licence.
+
+          The SHA-256 of the image inside each .img.xz file, the file that the
+          checks of the release ran on:
+
+          $(cat assets/*.notes)
+
+          SHA256SUMS holds the SHA-256 of every file of this release.
+          EOF
+          gh release create "$TAG" --repo "$REPO" --verify-tag --draft $prerelease \
+            --title "NEPTRON $version" --notes-file notes.md \
+            assets/*.img.xz assets/*-sources.tar assets/SHA256SUMS
+          echo "Draft release $TAG made; publish it on the releases page." | tee -a "$GITHUB_STEP_SUMMARY"

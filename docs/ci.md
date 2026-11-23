@@ -2,12 +2,13 @@
 
 NEPTRON runs its checks and builds its OS images on GitHub Actions. The repository is public, so the standard runners cost nothing. `docs/plan/09-ci-pipeline-and-definition-of-done.md` is the design; this file describes what exists, where it differs from the design, and why.
 
-Three files do the work:
+Four files do the work:
 
 | File | What it holds |
 | --- | --- |
 | `.github/workflows/ci.yml` | The triggers, the Rust checks (`lint`, `test-linux`, `test-macos`), the call of the image workflow, and `ci-ok` |
 | `.github/workflows/images.yml` | The OS image builds and the tier 3 checks in QEMU, one matrix job per image target |
+| `.github/workflows/release.yml` | The GitHub Release of a version tag: the release images, their checks and the draft release (see "Release") |
 | `.github/image-targets.json` | One entry per image target: runner, defconfig, `os build` arguments, checks, artifact name |
 
 ## What runs when
@@ -19,6 +20,7 @@ Three files do the work:
 | Nightly (02:23 UTC) | The same as a push to `main`, plus `test-macos` |
 | Manual (`Run workflow` on the Actions page, or `gh workflow run ci.yml --ref BRANCH`) | Every job in full. The input `images` turns the image builds off. A manual run saves the Cargo caches of its own branch |
 | Merge queue (`merge_group`) | Every job in full, if the owner turns the merge queue on |
+| Push of a tag `vX.Y.Z` or `vX.Y.Z-PRE` | `release.yml` only: `tag`, `images` (release) and `publish` (see "Release") |
 
 `ci-ok` runs last. It fails when any other job failed or was cancelled, and passes when every job passed or was skipped by a path filter. It is the one check to make required (see "Repository settings").
 
@@ -56,7 +58,7 @@ The tier 2 job is the same command as on a laptop, so a green local run predicts
 They apply to pull requests only.
 
 - `test-linux` runs unless every changed file is under `docs/`, a `*.md` file or a `LICENSE-*` file.
-- The image builds run when a pull request changes `os/`, `Dockerfile`, the OS commands of `xtask` (`xtask/src/os.rs`, `xtask/src/os/`), the image workflow, its target file or `.github/check-pi-image.sh`, the launcher (`apps/neptron-launch`) or a device crate (`neptron-kms`, `neptron-gfx`, `neptron-input`, `neptron-audio`, `neptron-libretro`, `neptron-libretro-sys`).
+- The image builds run when a pull request changes `os/`, `Dockerfile`, the OS commands of `xtask` (`xtask/src/os.rs`, `xtask/src/os/`), the image workflow, its target file, `.github/check-pi-image.sh` or `.github/check-release-variant.sh`, the launcher (`apps/neptron-launch`) or a device crate (`neptron-kms`, `neptron-gfx`, `neptron-input`, `neptron-audio`, `neptron-libretro`, `neptron-libretro-sys`).
 
 A change to the frontend alone does not build an image in a pull request, as the plan asks: an image build takes much longer than the other checks, and the frontend runs in tier 2 on the fakes. `main` and the nightly run build the image with it.
 
@@ -163,7 +165,8 @@ Why not a container image on GHCR: it would also work, and container storage on 
   - `image rpi-arm64`: its defconfig names no kernel patch, and `board/rpi/check-kernel-patches.sh` fails the build when `BR2_LINUX_KERNEL_PATCH` is set, when the global patch directory is not `board/rpi/patches`, or when that directory holds a file other than the two hash files.
   - Every image job: the step "Check the kernel patches of the output" compares `BR2_LINUX_KERNEL_PATCH` in the final `.config` of the output with the value that the defconfig and the fragments of the target name. For a target that names no patch it also fails on a 15 kHz entry in the list of patches that the kernel applied (`build/linux-*/.applied_patches_list`). The image upload, the sources upload, the base and the downloads cache run only after it passed.
   - `lint`, `test-linux`, `test-macos`: they build no kernel.
-- **OP-054, non-commercial cores.** The PC and Pi images hold Snes9x, Genesis Plus GX and FinalBurn Neo. The owner accepts that for a free, non-commercial product. The image artifact carries the licence manifest (`legal/manifest.csv`, the licence texts), `LICENCES.txt` and a `README.txt` that says that the image must never be sold. The sources of the GPL and LGPL packages (`make legal-info`) are a second artifact of the same run, with the same retention. There is no GitHub Release: artifacts with a short retention are enough for now.
+- **The source beside every image (ADR 0018).** Each uploaded image gets its sources archive (see "The sources archive"), with the same retention. A release publishes both as assets of the GitHub Release, which do not expire.
+- **ADR 0019, non-commercial cores.** The PC and Pi images hold FinalBurn Neo, Snes9x and Genesis Plus GX, which may not be sold or used commercially under their own licences, so an image that holds them may not be sold; every other program keeps its own licence. The image artifact carries the licence manifest (`legal/manifest.csv`, the licence texts, the Rust crate notices), `LICENCES.txt` and a `README.txt` that say so. The sources archive is a second artifact of the same run, with the same retention.
 - **OP-053, test ROMs.** The SNES and Mega Drive ROMs are not in the repository, and CI never downloads a ROM. `core-trace --allow-missing-roms` reports their cases as skipped; the NES cases must pass, and a ROM with a wrong hash still fails the run.
 
 ## Artifacts
@@ -194,6 +197,28 @@ Before the upload, the step checks the image against the SHA-256 that "Record th
 
 Get them on the run page (Summary, Artifacts) or with `gh run download RUN_ID --name NAME`. A downloaded image is written to a stick as `os/README.md` describes. Check it first: `sha256sum -c SHA256SUMS`.
 
+## Release
+
+`release.yml` runs for a push of a tag `vX.Y.Z` or `vX.Y.Z-PRE` (for example `v0.1.0` or `v0.2.0-rc.1`):
+
+1. `tag` checks the tag with `cargo xtask release-names` and that its commit is on `main`, so a release is a commit that passed the checks of `main`.
+2. `images` calls `images.yml` with `release: true`. Each target builds its release image (`cargo xtask os build` never adds the development variant in CI) and runs its checks, as on `main`. For each uploaded image, "Check the release variant" also checks that `/etc/neptron-release` and `LICENCES.txt` of the boot partition name the tag and exactly the commit of the tag, with no `-modified`. "Make the release assets" compresses the image that the checks ran on (`xz`) and names it and its sources archive with `cargo xtask release-names`: `neptron-pc-x86_64-0.1.0.img.xz` and `neptron-pc-x86_64-0.1.0-sources.tar`, and the same for `neptron-rpi-arm64`. A file of 2 GiB or more fails the job: GitHub refuses such an asset. The files go to the artifact `release-<artifact>`.
+3. `publish` runs only when every image job passed. It checks that it has one image and one sources archive for each target that uploads an image, tests each `xz` file, writes `SHA256SUMS` and makes a **draft** GitHub Release of the tag with those files. The notes name the commit, the hardware that was tested, the safety warning, the licence terms and the SHA-256 of each image before compression. It uses the default token with `contents: write`, in that job only.
+
+The images are built on the Buildroot base of `main` for the same key, as every `main` run is (see "The Buildroot base"); the local packages and the images are always built again.
+
+To make a release:
+
+1. On `main`, change the "Status" section of `README.md` for the release (it says "There is no release yet" until then), and merge with a green CI.
+2. Tag that commit and push the tag: `git tag -a v0.1.0 -m "NEPTRON 0.1.0" <commit>`, then `git push origin v0.1.0`.
+3. Follow the run: `gh run list --workflow release.yml`, then `gh run watch RUN_ID`. A cold build of the PC image takes about 4 hours; with the base of `main` the run takes about an hour.
+4. Read the draft on the releases page (`gh release view v0.1.0`): the four files and `SHA256SUMS`, and the notes. Download one image and its sources archive and check them as `os/README.md` ("Check a release") describes.
+5. Publish it: `gh release edit v0.1.0 --draft=false`, or "Publish release" on the page.
+
+A failed run makes no release. Re-run the failed jobs (`gh run rerun RUN_ID --failed`). If a draft of the tag exists already, `publish` fails; delete the draft first (`gh release delete v0.1.0`, which keeps the tag). Never move a tag that a published release uses.
+
+Release assets do not expire. The project keeps a release, with its sources archives, for at least three years after it last gives out its images, because the written offer in `LICENCES.txt` runs that long (ADR 0018).
+
 ## Re-run and run by hand
 
 - Re-run a failed job on the run page (Re-run failed jobs), or `gh run rerun RUN_ID --failed`.
@@ -214,7 +239,7 @@ The `rpi-arm64` target builds the release variant (`cargo xtask os build --arch 
 
 ## Repository settings
 
-These are the settings that only the owner can change. Nothing in CI needs a secret.
+These are the settings that only the owner can change. Nothing in CI needs a secret. Only the `publish` job of `release.yml` writes: it asks for `contents: write` in its own `permissions`, which works with the setting "Read repository contents and packages permissions"; an organisation policy that forbids a workflow to ask for write access would stop it.
 
 1. **Required check.** Settings, Branches (or Rules), a rule for `main`: require the status check `ci-ok`. Do not require the other jobs: a path filter skips them, and a skipped required check of another workflow can block a pull request.
 2. **Fork pull requests.** Settings, Actions, General: keep "Require approval for first-time contributors". The workflows use `pull_request`, never `pull_request_target`, so a fork gets a read-only token and no secret.

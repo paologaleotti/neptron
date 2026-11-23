@@ -610,6 +610,49 @@ jobs:
           compression-level: 0
           path: ${{ env.WORK }}/dist/${{ matrix.artifact }}-sources.tar
 
+      # For a release: the compressed image and its sources archive under
+      # the names of release-names, and a line with the SHA-256 of the image
+      # that the checks ran on, for the release notes. A release asset must
+      # be smaller than 2 GiB.
+      - name: Make the release assets
+        if: success() && matrix.upload_image && inputs.release
+        env:
+          FILES: ${{ join(matrix.image_files, ' ') }}
+          ARTIFACT: ${{ matrix.artifact }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -- $FILES
+          if [ $# != 1 ]; then
+            echo "A release target has one image file, not: $FILES"
+            exit 1
+          fi
+          names=$(cargo xtask release-names --tag "$TAG" --artifact "$ARTIFACT" --image "$1")
+          image=$(echo "$names" | sed -n 's/^image=//p')
+          sources=$(echo "$names" | sed -n 's/^sources=//p')
+          rel="$WORK/release"
+          mkdir -p "$rel"
+          xz -T0 -6 -c "$WORK/dist/$ARTIFACT/$1" > "$rel/$image"
+          mv "$WORK/dist/$ARTIFACT-sources.tar" "$rel/$sources"
+          raw=$(cd "$WORK/dist/$ARTIFACT" && sha256sum "$1" | cut -d' ' -f1)
+          echo "- $image: $1, SHA-256 $raw" > "$rel/$ARTIFACT.notes"
+          for f in "$rel/$image" "$rel/$sources"; do
+            size=$(stat -c %s "$f")
+            if [ "$size" -ge 2147483648 ]; then
+              echo "$f has $size bytes; a release asset must be smaller than 2 GiB"
+              exit 1
+            fi
+          done
+          ls -l "$rel" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release assets
+        if: success() && matrix.upload_image && inputs.release
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.artifact }}
+          retention-days: 7
+          compression-level: 0
+          path: ${{ env.WORK }}/release
+
       # A build step that ran out of time can leave its container running.
       - name: Stop the build containers
         if: always()
