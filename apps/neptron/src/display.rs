@@ -7,11 +7,15 @@ use neptron_platform::{
     Connector, ConnectorStatus, DisplayClass, EdidProfile, Matrix, Platform, display_class,
     panel_profile_from_edid, profile_for_display,
 };
-use neptron_types::{GpuCaps, Modeline, MonitorKind, MonitorProfile, OutputKind, TvStandard};
+use neptron_types::{GpuCaps, Modeline, MonitorKind, OutputKind, TvStandard};
 use neptron_video::{DisplayConfig, Monitor, PolicySettings, policy_settings};
 
 use crate::presets::Presets;
 use crate::record::MonitorRef;
+
+mod bound;
+
+pub use bound::DERIVED_ID_MARK;
 
 /// The preset of the safe start when no monitor reports EDID: a 15 kHz
 /// profile, NTSC-timed modes included. The safety model starts an unknown
@@ -262,17 +266,20 @@ impl Detected {
     /// `auto` and the refresh rate `exact` (Auto). `setting` is the value of
     /// `display.monitor` at boot.
     ///
-    /// - A CRT that gives EDID: its range profile, when `setting` names no
-    ///   preset, or names a preset whose highest line rate is not under
-    ///   the highest line rate of the EDID ranges.
+    /// - `auto` or `flat`, or a name that no preset has, on a CRT that
+    ///   gives EDID: its range profile.
     /// - A trusted flat panel ([`Self::trusts`] for `setting`): the panel
     ///   in its native mode.
-    /// - Every other case: the 15 kHz safe start, or the named preset
-    ///   itself when its highest line rate is under that of the safe
-    ///   start. A named preset says which monitor is on the wire: a 15 kHz
-    ///   CRT can be behind an adapter, a KVM or an EDID dongle that shows
-    ///   the EDID of another display, digital or analog. So no fallback
-    ///   goes above the line rates of the named preset.
+    /// - A named CRT preset: a profile whose every mode is a mode of the
+    ///   preset (`bound::safe_for_preset`): the analog EDID profile inside
+    ///   it, the preset inside the EDID, their common part, or else the
+    ///   15 kHz safe start or the 15 kHz ranges of the preset. A named
+    ///   preset says which monitor is on the wire: a 15 kHz CRT can be
+    ///   behind an adapter, a KVM or an EDID dongle that shows the EDID of
+    ///   another display, digital or analog.
+    /// - A named preset with no CRT range, such as a custom panel or TV
+    ///   profile, bounds no line rate: the 15 kHz safe start.
+    /// - Every other case: the 15 kHz safe start.
     ///
     /// A TV output overrides all of these: its safe default is the TV
     /// profile of NTSC ([`TV_SAFE_STANDARD`]), or of the first standard it
@@ -300,25 +307,15 @@ impl Detected {
             AUTO | FLAT => None,
             id => presets.get(id),
         };
-        let monitor = match &self.edid {
-            Some(edid)
-                if !is_panel(edid) && named.is_none_or(|p| stays_under(&edid.profile, p)) =>
-            {
-                Monitor::Edid(edid.clone())
-            }
-            Some(edid) if self.trusts(setting) => Monitor::Edid(edid.clone()),
-            _ => {
-                let start = safe_start(presets)?;
-                match named {
-                    Some(preset)
-                        if highest_line_rate_mhz(preset).is_some()
-                            && !stays_under(start.profile(), preset) =>
-                    {
-                        Monitor::Profile(preset.clone())
-                    }
-                    _ => start,
-                }
-            }
+        let monitor = match (&self.edid, named) {
+            (Some(edid), None) if !is_panel(edid) => Monitor::Edid(edid.clone()),
+            (Some(edid), _) if self.trusts(setting) => Monitor::Edid(edid.clone()),
+            (edid, Some(preset)) => bound::safe_for_preset(
+                preset,
+                edid.as_ref().filter(|e| !is_panel(e)),
+                safe_start(presets)?,
+            ),
+            _ => safe_start(presets)?,
         };
         Ok(DisplayConfig {
             monitor,
@@ -405,13 +402,23 @@ impl Detected {
     }
 
     /// The monitor of a guard record entry again: a preset by its id, or
-    /// a profile of the connected display's EDID when its id matches.
+    /// a profile of the connected display's EDID when its id matches, or a
+    /// safe default made from a named preset when the display and the
+    /// presets make the same one again.
     ///
     /// On a TV output only the TV profile of a standard it offers comes
     /// back, and on any other output never a TV profile: a connector with
     /// the `TV mode` property takes no other mode, and one without it
     /// cannot set a standard.
     pub fn rebuild(&self, presets: &Presets, entry: &MonitorRef) -> Option<Monitor> {
+        let (MonitorRef::Profile { id } | MonitorRef::Edid { id }) = entry;
+        if let Some(named) = bound::named_preset_of(id) {
+            return self
+                .safe(presets, named)
+                .ok()
+                .map(|safe| safe.monitor)
+                .filter(|monitor| &monitor.profile().id == id);
+        }
         match entry {
             MonitorRef::Profile { id } => match TvStandard::from_profile_id(id) {
                 Some(standard) if self.offers(standard) => {
@@ -434,10 +441,16 @@ impl Detected {
     /// The value of `display.monitor` that names `monitor`: its preset id,
     /// `auto` for the profile the detection gives, `flat` for the panel
     /// profile of a display that the detection drives as a CRT. A TV
-    /// profile is `auto`: `display.tv` names it ([`tv_setting`]).
+    /// profile is `auto`: `display.tv` names it ([`tv_setting`]). A safe
+    /// default made from a named preset (its id holds
+    /// [`DERIVED_ID_MARK`]) is that preset's id, never `auto`: the next
+    /// boot must make the same safe default again.
     pub fn monitor_setting(&self, monitor: &Monitor) -> String {
         if tv_setting(monitor).is_some() {
             return AUTO.to_owned();
+        }
+        if let Some(named) = bound::named_preset_of(&monitor.profile().id) {
+            return named.to_owned();
         }
         match monitor {
             Monitor::Profile(profile) => profile.id.clone(),
@@ -607,25 +620,6 @@ fn safe_start(presets: &Presets) -> Result<Monitor, MonitorError> {
         .cloned()
         .map(Monitor::Profile)
         .ok_or(MonitorError::NoSafeProfile)
-}
-
-/// Whether no mode of `profile` has a line rate above the highest line
-/// rate of `preset`. False when either has no CRT range: the line rates of
-/// a panel or a TV profile are not bounded here, so they never count as
-/// under a preset.
-fn stays_under(profile: &MonitorProfile, preset: &MonitorProfile) -> bool {
-    matches!(
-        (highest_line_rate_mhz(profile), highest_line_rate_mhz(preset)),
-        (Some(max), Some(limit)) if max <= limit
-    )
-}
-
-/// The highest line rate of the ranges of a CRT profile, in millihertz.
-fn highest_line_rate_mhz(profile: &MonitorProfile) -> Option<u64> {
-    match &profile.kind {
-        MonitorKind::Crt { ranges } => ranges.iter().map(|r| r.h_max_mhz).max(),
-        MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => None,
-    }
 }
 
 fn is_panel(edid: &EdidProfile) -> bool {

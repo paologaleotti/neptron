@@ -123,7 +123,7 @@ Before these checks, the first settled picture of a pending change moves its dea
 | `Safe(NoValidMode)` | The safe default | Warning notice "Safe mode: the display settings gave no picture." "(safe mode)" and the row "Keep this picture". |
 | `Safe(NothingConfirmed)` | The safe default | Reached as the revert target of a boot prompt or of a continued boot, so the notice is the revert notice, for example "Display change undone: not kept in time.", or none. "(safe mode)" and the row "Keep this picture". |
 
-The safe default is the one of [Frontend boot](02-frontend-boot.md): the CRT profile of the EDID, or the panel in its native mode when the display is a trusted panel and `display.monitor` is `auto` or `flat`, else `generic_15`; style `auto`, refresh `exact`. On a TV output: the TV profile of NTSC, or of the first standard the output offers.
+The safe default is the one of [Frontend boot](02-frontend-boot.md), style `auto`, refresh `exact`. With `display.monitor` `auto` or `flat`: the CRT profile of the EDID, or the panel in its native mode when the display is a trusted panel, else `generic_15`. With a named CRT preset, a profile whose every mode is a mode of the preset: the analog EDID profile when it lies inside the preset, the preset when it lies inside the EDID, their common part, or else `generic_15` or the 15 kHz ranges of the preset (`docs/spec/display-guard.md`, "A named preset bounds the safe default"). On a TV output: the TV profile of NTSC, or of the first standard the output offers.
 
 ## Transitions
 
@@ -244,7 +244,7 @@ A boot drives a trusted display with no prompt (ADR 0013):
 
 1. A TV output (a connector with the `TV mode` property): its modes are the fixed table modes of its standards. Any standard from the settings boots with no prompt. A change of the standard in the menu still opens the dialog.
 2. A flat panel: the driven connector reports the EDID, the EDID gives a flat-panel profile, the output kind is digital (no analog connector or subconnector, no analog EDID input), and `display.monitor` is `auto` or `flat`. The panel is also the safe default of the run, so a revert and the blind recovery give the panel mode.
-3. A named preset is never trusted. On a panel EDID it opens the boot prompt, and the safe default of the run is `generic_15`: a CRT can be behind an adapter with its own digital EDID.
+3. A named preset is never trusted. On a panel EDID it opens the boot prompt, and the safe default of the run is `generic_15` when it lies inside the preset: a CRT can be behind an adapter with its own digital EDID. On an analog EDID the safe default stays inside the preset too, and a preset that lies inside the EDID is its own safe default, with no prompt.
 
 ## What can go wrong
 

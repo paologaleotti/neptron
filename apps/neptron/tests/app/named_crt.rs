@@ -1,22 +1,34 @@
-//! A named 15 kHz preset on a VGA output whose EDID reports a PC monitor
-//! of 30 to 71 kHz: a 15 kHz CRT behind an EDID dongle, a KVM or a
-//! splitter. No mode above the highest line rate of the preset reaches the
-//! display: not at an unanswered boot prompt, at the revert of a menu
-//! change, in safe mode after failed boots, or at the blind recovery.
+//! A named CRT preset on a VGA output whose EDID reports a PC monitor of
+//! 30 to 71 kHz: for a 15 kHz preset, a 15 kHz CRT behind an EDID dongle,
+//! a KVM or a splitter. Every mode that reaches the display passes the
+//! validator for the named preset: at an unanswered boot prompt, at the
+//! revert of a menu change, in safe mode after failed boots, and at the
+//! blind recovery. The safe default is the one the rule gives.
 
 use std::path::Path;
 
+use neptron_backend::Display;
 use neptron_input::BLIND_RECOVERY_HOLD_NS;
-use neptron_testkit::preset::monitor_preset;
-use neptron_types::{Control, MonitorKind};
+use neptron_testkit::ModeRecord;
+use neptron_testkit::preset::validated_mode;
+use neptron_types::Control;
 use neptron_video::{Phase, SAFE_MODE_FAILED_BOOTS, SafeReason};
 
 use crate::output::{CRT_ANALOG, sysfs_with_vga};
 use crate::panel::CONFIRM_WINDOW_FRAMES;
 use crate::rig::{Rig, in_child, test_name};
 
-/// The 15 kHz presets that an owner names for such a display.
-const NAMED: [&str; 2] = ["arcade_15", "generic_15"];
+/// The presets named for such a display, and the id of the safe default
+/// that the rule gives for each on the 30 to 71 kHz EDID: the 15 kHz safe
+/// start for a 15 kHz preset, the preset itself when it lies inside the
+/// EDID, and their common part (field rates from 50 Hz) for `arcade_31`,
+/// whose lowest field rate of 49.5 Hz is under that of the EDID.
+const NAMED: [(&str, &str); 4] = [
+    ("arcade_15", "generic_15"),
+    ("generic_15", "generic_15"),
+    ("pc_31_120", "pc_31_120"),
+    ("arcade_31", "arcade_31@edid_npt_0071"),
+];
 
 /// The frames of the blind recovery hold at 60 Hz, and a margin.
 const HOLD_FRAMES: u32 = (BLIND_RECOVERY_HOLD_NS / 16_000_000) as u32 + 30;
@@ -39,28 +51,43 @@ fn named_rig(dir: &Path, preset: &str) -> Rig {
     rig
 }
 
-/// The highest line rate of the shipped preset `id`, in millihertz.
-fn highest_line_rate_mhz(id: &str) -> u64 {
-    match monitor_preset(id).expect("the preset").kind {
-        MonitorKind::Crt { ranges } => ranges.iter().map(|r| r.h_max_mhz).max().expect("a range"),
-        MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => panic!("{id} is no CRT"),
+/// Every mode of `calls`, and the mode on the wire, pass the validator
+/// for the shipped preset `id` and the caps of the display. A step that
+/// keeps the mode on the wire sends no new mode.
+fn assert_valid(rig: &Rig, calls: &[ModeRecord], id: &str) {
+    let caps = *rig.display.caps();
+    for call in calls {
+        if let Err(e) = validated_mode(&call.requested, id, &caps) {
+            panic!("call {} is no mode of {id}: {e}", call.call);
+        }
+    }
+    let wire = rig.display.active_mode().expect("a mode on the wire");
+    if let Err(e) = validated_mode(&wire, id, &caps) {
+        panic!("the mode on the wire is no mode of {id}: {e}");
     }
 }
 
-/// Every mode that reached the display has a line rate inside `preset`.
+/// Every mode that reached the display passes the validator for the named
+/// preset.
 fn assert_inside(rig: &Rig, preset: &str) {
-    let max = highest_line_rate_mhz(preset);
     let calls = rig.display.mode_calls();
     assert!(!calls.is_empty(), "{preset}: no mode reached the display");
-    for call in calls {
-        assert!(
-            call.requested.line_rate_mhz() <= max,
-            "{preset}: call {} sent {} mHz, above {max} mHz: {:?}",
-            call.call,
-            call.requested.line_rate_mhz(),
-            call.requested
-        );
-    }
+    assert_valid(rig, &calls, preset);
+}
+
+/// The run's safe default is `safe`, and every mode sent from call `from`
+/// on, in a safe state, passes the validator for it when it is a shipped
+/// preset; a common part has no file, and its modes pass for the named
+/// preset.
+fn assert_safe(rig: &mut Rig, from: usize, preset: &str, safe: &str) {
+    assert_eq!(
+        rig.shell().guard().safe().monitor.profile().id,
+        safe,
+        "{preset}"
+    );
+    let calls = rig.display.mode_calls();
+    let shipped = if safe.contains('@') { preset } else { safe };
+    assert_valid(rig, &calls[from..], shipped);
 }
 
 /// Waits for the end of the boot prompt, if one opened.
@@ -84,12 +111,17 @@ fn an_unanswered_boot_prompt_stays_inside_the_named_preset() {
             "an_unanswered_boot_prompt_stays_inside_the_named_preset",
         ),
         |dir| {
-            for preset in NAMED {
+            for (preset, safe) in NAMED {
                 let mut rig = named_rig(dir, preset);
                 rig.boot(None);
+                let prompted = rig.shell().guard().pending().is_some();
+                let from = rig.display.mode_calls().len();
                 past_the_boot_prompt(&mut rig);
                 rig.frames(10);
                 assert_inside(&rig, preset);
+                if prompted {
+                    assert_safe(&mut rig, from, preset, safe);
+                }
                 rig.finish();
                 let settings = std::fs::read_to_string(rig.paths.config().join("global.toml"))
                     .expect("the settings");
@@ -118,7 +150,7 @@ fn a_reverted_menu_change_stays_inside_the_named_preset() {
             "a_reverted_menu_change_stays_inside_the_named_preset",
         ),
         |dir| {
-            for preset in NAMED {
+            for (preset, safe_id) in NAMED {
                 let mut rig = named_rig(dir, preset);
                 rig.boot(None);
                 past_the_boot_prompt(&mut rig);
@@ -135,6 +167,7 @@ fn a_reverted_menu_change_stays_inside_the_named_preset() {
                 // prompt; in safe mode it waits for a Keep and reverts to
                 // the safe default.
                 let safe = matches!(rig.shell().guard().phase(), Phase::Safe(_));
+                let from = rig.display.mode_calls().len();
                 rig.focus("Picture mode");
                 rig.tap(&[Control::A]);
                 rig.focus("Native");
@@ -149,6 +182,11 @@ fn a_reverted_menu_change_stays_inside_the_named_preset() {
                 assert!(!matches!(rig.shell().guard().phase(), Phase::Pending(_)));
                 rig.frames(10);
                 assert_inside(&rig, preset);
+                let after = rig.display.mode_calls()[from..].to_vec();
+                assert_valid(&rig, &after, preset);
+                if safe {
+                    assert_safe(&mut rig, from, preset, safe_id);
+                }
                 rig.finish();
             }
         },
@@ -164,7 +202,7 @@ fn safe_mode_after_failed_boots_stays_inside_the_named_preset() {
             "safe_mode_after_failed_boots_stays_inside_the_named_preset",
         ),
         |dir| {
-            for preset in NAMED {
+            for (preset, safe) in NAMED {
                 let mut rig = named_rig(dir, preset);
                 for _ in 0..SAFE_MODE_FAILED_BOOTS {
                     rig.boot(None);
@@ -172,6 +210,7 @@ fn safe_mode_after_failed_boots_stays_inside_the_named_preset() {
                     // The run dies: no `finish`, so no clean exit.
                     rig.shell = None;
                 }
+                let from = rig.display.mode_calls().len();
                 rig.boot(None);
                 assert_eq!(
                     rig.shell().guard().phase(),
@@ -180,6 +219,7 @@ fn safe_mode_after_failed_boots_stays_inside_the_named_preset() {
                 );
                 rig.frames(10);
                 assert_inside(&rig, preset);
+                assert_safe(&mut rig, from, preset, safe);
                 rig.finish();
             }
         },
@@ -195,7 +235,7 @@ fn the_blind_recovery_stays_inside_the_named_preset() {
             "the_blind_recovery_stays_inside_the_named_preset",
         ),
         |dir| {
-            for preset in NAMED {
+            for (preset, safe) in NAMED {
                 let mut rig = named_rig(dir, preset);
                 rig.boot(None);
                 rig.frames(2);
@@ -203,6 +243,7 @@ fn the_blind_recovery_stays_inside_the_named_preset() {
                     rig.keep();
                 }
                 assert_eq!(rig.shell().guard().phase(), Phase::Confirmed, "{preset}");
+                let from = rig.display.mode_calls().len();
                 rig.hold(&[Control::Select, Control::Start]);
                 rig.until(HOLD_FRAMES, "the recovery", |r| {
                     r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
@@ -210,6 +251,7 @@ fn the_blind_recovery_stays_inside_the_named_preset() {
                 rig.release(&[Control::Select, Control::Start]);
                 rig.frames(10);
                 assert_inside(&rig, preset);
+                assert_safe(&mut rig, from, preset, safe);
                 rig.finish();
 
                 // The next boot starts in safe mode, on the same default.

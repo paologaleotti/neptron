@@ -56,18 +56,35 @@ A trusted flat panel is also the safe default of the run, in its native mode as 
 
 A named preset (`display.monitor` is not `auto` or `flat`) says which monitor is on the wire. The EDID can come from another device: an EDID dongle, a VGA KVM, or a splitter whose DDC comes from a PC monitor on its other port. So a 15 kHz CRT can show an analog EDID of 30 to 70 kHz. A 31 kHz signal can harm such a tube. A 15 kHz signal on a PC monitor gives no picture and harms nothing. Harm ranks above no picture.
 
-The rule: no fallback goes above the highest line rate of the named preset. `Detected::safe` gives:
+The rule: every mode of the safe default is a mode of the named CRT preset. `Detected::safe` decides it in `apps/neptron/src/display/bound.rs`. "Inside" compares the line rates, the field rates and the line counts (progressive and interlaced), range by range: a preset with several ranges is inside when each of its ranges lies inside one range of the other profile.
 
-1. The CRT EDID profile, when the highest line rate of its ranges is not above the highest line rate of the named preset. Then every mode of the EDID profile is a mode the named monitor can take.
-2. Else the 15 kHz safe start (`generic_15`), when its highest line rate is not above that of the named preset. This is the case for every shipped CRT preset except `ntsc` and `pal`.
-3. Else the named preset itself. It then opens no boot prompt, because it is the safe default.
+| Named preset P and analog EDID E | Safe default | Boot prompt for P |
+| --- | --- | --- |
+| E inside P | E | yes; its revert writes `auto`, which gives E again |
+| P inside E | P itself | no: P is the safe default, and two sources agree on every mode |
+| P and E have a part in common | P cut to E: the common line rates, field rates and line counts of each pair of ranges, the porches, sync and polarities of P, the pixel clock limit of E. Its id is `<P>@<E id>` | yes; its revert writes P's id |
+| No part in common, a panel EDID, or no EDID | `generic_15` when it lies inside P; else the ranges of P under 19 kHz (the 15 kHz class of the hard rails), with the id `<P>@15khz`, or P itself when all its ranges are under 19 kHz; else `generic_15` | yes, unless the safe default is P itself |
 
-With `auto` or `flat` the rules of "Trust" apply as before: the CRT EDID profile is the safe default. A name that no preset has gives no bound: the EDID profile, as with `auto`.
+The mark `@` is reserved: no preset file may hold it in its id (`PresetError::Reserved`). A revert to a safe default made from P writes P's id to `display.monitor` (`Detected::monitor_setting`), never `auto` and never an id that no preset has. The guard record keeps such a profile by its id, and `Detected::rebuild` makes it again when the display and the presets give the same one.
+
+Examples with the shipped presets:
+
+| Named preset | EDID 30 to 71 kHz, 50 to 160 Hz | No EDID |
+| --- | --- | --- |
+| `arcade_15`, `generic_15`, `arcade_25`, `pc_31_120` | `generic_15`, `generic_15`, `generic_15`, `pc_31_120` | `generic_15` |
+| `pc_70_120` | `pc_70_120` (inside the EDID) | `generic_15` |
+| `arcade_31` | its 31 kHz range with field rates from 50 Hz | `generic_15` |
+| `arcade_15_31` | its 31 kHz range | `generic_15` |
+| `pstar` | its 31.5 to 31.6 kHz range | its two ranges under 19 kHz |
+| `ntsc`, `pal` | the preset itself | the preset itself |
+| `d9200` on an EDID of 31 to 38 kHz | its ranges 31 to 32 kHz and 37 to 38 kHz, no mode from 32 to 37 kHz | `generic_15` |
+
+With `auto` or `flat` the rules of "Trust" apply as before: the CRT EDID profile is the safe default. A name that no preset has gives no bound: the EDID profile, as with `auto`. A named preset with no CRT range (a custom panel or TV profile) bounds no line rate: the safe default is `generic_15`.
 
 So the revert target of a boot prompt, safe mode, the blind recovery and the next boots stay inside the named preset:
 
 - An unanswered boot prompt for `arcade_15` on a display with a PC-range analog EDID reverts to `generic_15`, and the global settings name `generic_15`, never `auto`. The next boot starts on `generic_15` with no prompt, because it is the safe default.
-- `generic_15` named on such a display is its own safe default, so it opens no boot prompt.
+- `generic_15` named on such a display, and `pc_31_120` on a PC CRT whose EDID holds it, are their own safe default, so they open no boot prompt.
 - `Safe(FailedBoots)`, `Safe(Recovery)` and the blind recovery give the same safe default.
 
 The validator does not change. The rule only chooses which monitor profile the validator gets for a fallback.
@@ -174,9 +191,9 @@ The tests of the rules:
 - `safe_mode_ends_when_the_picture_on_screen_is_kept` (guard, and app tier 2)
 - `a_trusted_panel_boots_native_with_no_prompt` (app, tier 2)
 - `a_change_window_starts_at_the_first_settled_frame` (guard)
-- `a_named_15_khz_preset_never_falls_back_to_a_pc_range_edid`, `an_analog_edid_inside_the_named_preset_stays_the_safe_default` and `a_preset_under_the_safe_start_is_its_own_safe_default` (app unit tests)
+- `a_named_15_khz_preset_never_falls_back_to_a_pc_range_edid`, `an_analog_edid_inside_the_named_preset_stays_the_safe_default`, `a_preset_under_the_safe_start_is_its_own_safe_default`, `a_preset_inside_the_edid_is_its_own_safe_default`, `a_part_in_common_is_the_safe_default`, `with_nothing_in_common_the_safe_default_is_15_khz` and `every_shipped_preset_bounds_its_safe_default` (app unit tests)
 - `recovery_uses_the_safe_default_of_the_monitor_detected_now` and `a_revert_to_the_safe_default_uses_the_one_given_last` (guard), and `the_blind_recovery_after_a_hot_plug_is_safe_for_the_new_monitor` (app, tier 2)
-- `an_unanswered_boot_prompt_stays_inside_the_named_preset`, `a_reverted_menu_change_stays_inside_the_named_preset`, `safe_mode_after_failed_boots_stays_inside_the_named_preset` and `the_blind_recovery_stays_inside_the_named_preset` (app, tier 2): `arcade_15` and `generic_15` on a VGA output with an analog EDID of 30 to 71 kHz. Every mode that reaches the fake display is inside the named preset.
+- `an_unanswered_boot_prompt_stays_inside_the_named_preset`, `a_reverted_menu_change_stays_inside_the_named_preset`, `safe_mode_after_failed_boots_stays_inside_the_named_preset` and `the_blind_recovery_stays_inside_the_named_preset` (app, tier 2): `arcade_15`, `generic_15`, `pc_31_120` and `arcade_31` on a VGA output with an analog EDID of 30 to 71 kHz. Every mode that reaches the fake display passes the validator for the named preset, and the safe default is the one of the table.
 
 These stay green:
 

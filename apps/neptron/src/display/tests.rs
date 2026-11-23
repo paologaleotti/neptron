@@ -1,5 +1,5 @@
 use neptron_platform::{Connector, Gpu, UNKNOWN_GPU_CAPS};
-use neptron_types::{MonitorKind, MonitorProfile, TvStandard};
+use neptron_types::{CrtRange, MonitorKind, MonitorProfile, TvStandard};
 
 use super::*;
 
@@ -128,14 +128,18 @@ fn auto_and_the_safe_start_of_each_display() {
         assert!(!detected.trusts("pc_31_120"), "{what}");
         let safe = detected.safe(&presets(), AUTO).expect("safe");
         assert_eq!(safe.monitor.profile().id, id, "{what}");
-        // A named preset never falls back to a profile whose line rates
-        // it does not bound: a preset with no range bounds none.
-        let named = detected.safe(&presets(), "pc_31_120").expect("safe");
-        assert_eq!(
-            named.monitor.profile().id,
-            SAFE_START_PROFILE,
-            "{what} with a preset"
-        );
+        // A named preset bounds its safe default. `pc_31_120` lies inside
+        // the 30 to 71 kHz analog EDID, so it is its own safe default;
+        // with a panel EDID or none, the 15 kHz safe start.
+        let named = detected
+            .safe(&shipped_presets(), "pc_31_120")
+            .expect("safe");
+        let expected = if id.starts_with("edid_") {
+            "pc_31_120"
+        } else {
+            SAFE_START_PROFILE
+        };
+        assert_eq!(named.monitor.profile().id, expected, "{what} with a preset");
         assert_eq!(
             detected.notices.is_empty(),
             !matches!(
@@ -882,4 +886,232 @@ fn a_tv_output_with_no_property_is_no_tv() {
         detected.wanted(AUTO, "pal", &presets()),
         detected.monitor(AUTO, &presets())
     );
+}
+
+/// The analog EDID profile of `CRT_ANALOG` (30 to 71 kHz, 50 to 160 Hz),
+/// as the VGA connector gives it.
+fn pc_edid() -> EdidProfile {
+    let p = platform(vec![connector("VGA-1", "VGA", Some(CRT_ANALOG))]);
+    Detected::of(&p, "VGA-1", None)
+        .edid
+        .expect("an analog EDID profile")
+}
+
+/// `pc_edid` with the line rates `h_min_khz` to `h_max_khz` and its own id.
+fn edid_khz(h_min_khz: u64, h_max_khz: u64) -> EdidProfile {
+    let mut edid = pc_edid();
+    edid.profile.id = format!("edid_npt_{h_min_khz}{h_max_khz}");
+    let MonitorKind::Crt { ranges } = &mut edid.profile.kind else {
+        panic!("a CRT EDID");
+    };
+    for range in ranges {
+        range.h_min_mhz = h_min_khz * 1_000_000;
+        range.h_max_mhz = h_max_khz * 1_000_000;
+    }
+    edid
+}
+
+/// A display on an analog link that gives `edid`.
+fn analog(edid: EdidProfile) -> Detected {
+    Detected {
+        edid: Some(edid),
+        ..Detected::default()
+    }
+}
+
+fn ranges(profile: &MonitorProfile) -> &[CrtRange] {
+    match &profile.kind {
+        MonitorKind::Crt { ranges } => ranges,
+        MonitorKind::FlatPanel { .. } | MonitorKind::Tv { .. } => panic!("no CRT: {profile:?}"),
+    }
+}
+
+/// Every range of `inner` lies inside one range of `outer`: line rates,
+/// field rates and line counts.
+fn inside(inner: &MonitorProfile, outer: &MonitorProfile) -> bool {
+    ranges(inner).iter().all(|i| {
+        ranges(outer).iter().any(|o| {
+            o.h_min_mhz <= i.h_min_mhz
+                && i.h_max_mhz <= o.h_max_mhz
+                && o.v_min_mhz <= i.v_min_mhz
+                && i.v_max_mhz <= o.v_max_mhz
+                && o.progressive_lines_min <= i.progressive_lines_min
+                && i.progressive_lines_max <= o.progressive_lines_max
+                && (i.interlaced_lines_max == 0
+                    || (o.interlaced_lines_min <= i.interlaced_lines_min
+                        && i.interlaced_lines_max <= o.interlaced_lines_max))
+        })
+    })
+}
+
+/// The line rates of the ranges of `profile`, in kHz rounded down.
+fn line_rates_khz(profile: &MonitorProfile) -> Vec<(u64, u64)> {
+    ranges(profile)
+        .iter()
+        .map(|r| (r.h_min_mhz / 1_000_000, r.h_max_mhz / 1_000_000))
+        .collect()
+}
+
+/// The safe default of `setting` on `detected`, and the value of
+/// `display.monitor` that a revert to it writes.
+fn safe_of(detected: &Detected, setting: &str) -> (Monitor, String) {
+    let safe = detected.safe(&shipped_presets(), setting).expect("safe");
+    let written = detected.monitor_setting(&safe.monitor);
+    (safe.monitor, written)
+}
+
+/// A preset inside the EDID is its own safe default, so the boot opens no
+/// prompt for it: two sources agree on every mode.
+#[test]
+fn a_preset_inside_the_edid_is_its_own_safe_default() {
+    let presets = shipped_presets();
+    let detected = analog(pc_edid());
+    for setting in ["pc_31_120", "pc_70_120"] {
+        let preset = presets.get(setting).expect("the preset");
+        assert!(inside(preset, &pc_edid().profile), "{setting}");
+        let (safe, written) = safe_of(&detected, setting);
+        assert_eq!(safe, Monitor::Profile(preset.clone()), "{setting}");
+        assert_eq!(
+            detected.monitor(setting, &presets).expect("wanted"),
+            safe,
+            "the wanted monitor is the safe default: no prompt"
+        );
+        assert_eq!(written, setting);
+    }
+}
+
+/// An EDID that covers only part of the preset gives their common part,
+/// range by range, with the timings of the preset and the pixel clock
+/// limit of the EDID. A revert to it writes the preset's id.
+#[test]
+fn a_part_in_common_is_the_safe_default() {
+    let presets = shipped_presets();
+    // A tri-sync preset, an EDID of 31 to 38 kHz: no mode from 32 to 37 kHz.
+    let edid = edid_khz(31, 38);
+    let detected = analog(edid.clone());
+    let (safe, written) = safe_of(&detected, "d9200");
+    let Monitor::Edid(common) = &safe else {
+        panic!("{safe:?}");
+    };
+    assert_eq!(line_rates_khz(&common.profile), [(31, 32), (37, 38)]);
+    assert_eq!(common.pclock_max_hz, edid.pclock_max_hz);
+    let d9200 = presets.get("d9200").expect("d9200");
+    assert!(inside(&common.profile, d9200));
+    assert!(inside(&common.profile, &edid.profile));
+    assert_eq!(written, "d9200", "never auto, never an id with no preset");
+    let entry = MonitorRef::Edid {
+        id: common.profile.id.clone(),
+    };
+    assert_eq!(
+        detected.rebuild(&presets, &entry),
+        Some(safe.clone()),
+        "a kept common part comes back"
+    );
+
+    // Presets with a 15 kHz part on the 30 to 71 kHz EDID: the 31 kHz
+    // part they share.
+    let detected = analog(pc_edid());
+    for (setting, rates) in [
+        ("arcade_15_31", [(31_400_000, 31_500_000)]),
+        ("pstar", [(31_500_000, 31_600_000)]),
+    ] {
+        let (safe, written) = safe_of(&detected, setting);
+        let preset = presets.get(setting).expect("the preset");
+        let got: Vec<(u64, u64)> = ranges(safe.profile())
+            .iter()
+            .map(|r| (r.h_min_mhz, r.h_max_mhz))
+            .collect();
+        assert_eq!(got, rates, "{setting}");
+        assert!(inside(safe.profile(), preset), "{setting}");
+        assert!(inside(safe.profile(), &pc_edid().profile), "{setting}");
+        assert_eq!(written, setting);
+    }
+
+    // A 15 kHz preset on an EDID of 15 to 16 kHz, which goes under the
+    // lowest line rate of the preset: the common part, not the EDID.
+    let edid = edid_khz(15, 16);
+    let detected = analog(edid.clone());
+    let (safe, written) = safe_of(&detected, "arcade_15");
+    let arcade = presets.get("arcade_15").expect("arcade_15");
+    assert!(!inside(&edid.profile, arcade));
+    let got: Vec<(u64, u64)> = ranges(safe.profile())
+        .iter()
+        .map(|r| (r.h_min_mhz, r.h_max_mhz))
+        .collect();
+    assert_eq!(got, [(15_625_000, 16_000_000)]);
+    assert!(inside(safe.profile(), arcade));
+    assert!(inside(safe.profile(), &edid.profile));
+    assert_eq!(written, "arcade_15");
+}
+
+/// With no part in common, a panel EDID or no EDID: the safe start when
+/// it lies inside the preset, else the 15 kHz ranges of the preset, else
+/// the safe start.
+#[test]
+fn with_nothing_in_common_the_safe_default_is_15_khz() {
+    let presets = shipped_presets();
+    let panel = platform(vec![connector("HDMI-A-1", "HDMI-A", Some(PANEL_1080P))]);
+    let displays = [
+        ("PC EDID", analog(pc_edid())),
+        ("no EDID", Detected::default()),
+        ("panel EDID", Detected::of(&panel, "HDMI-A-1", None)),
+    ];
+    for (what, detected) in &displays {
+        let (safe, written) = safe_of(detected, "arcade_15");
+        assert_eq!(safe.profile().id, SAFE_START_PROFILE, "arcade_15, {what}");
+        assert_eq!(written, SAFE_START_PROFILE);
+        let (safe, _) = safe_of(detected, "arcade_25");
+        assert_eq!(safe.profile().id, SAFE_START_PROFILE, "arcade_25, {what}");
+    }
+    // `pstar` does not hold the safe start: its own ranges under 19 kHz.
+    for (what, detected) in &displays[1..] {
+        let (safe, written) = safe_of(detected, "pstar");
+        assert_eq!(
+            line_rates_khz(safe.profile()),
+            [(15, 15), (16, 16)],
+            "pstar, {what}"
+        );
+        assert!(inside(safe.profile(), presets.get("pstar").expect("pstar")));
+        assert_eq!(written, "pstar", "{what}");
+        let entry = MonitorRef::Profile {
+            id: safe.profile().id.clone(),
+        };
+        assert_eq!(detected.rebuild(&presets, &entry), Some(safe), "{what}");
+    }
+}
+
+/// For every shipped preset on every kind of display, the safe default
+/// lies inside the preset, unless the preset has no 15 kHz range and the
+/// safe start is not inside it: then the safe start. A revert to it never
+/// writes `auto`.
+#[test]
+fn every_shipped_preset_bounds_its_safe_default() {
+    let presets = shipped_presets();
+    let start = presets.get(SAFE_START_PROFILE).expect("the safe start");
+    let panel = platform(vec![connector("HDMI-A-1", "HDMI-A", Some(PANEL_1080P))]);
+    let displays = [
+        analog(pc_edid()),
+        analog(edid_khz(15, 16)),
+        analog(edid_khz(31, 38)),
+        analog(edid_khz(15, 40)),
+        Detected::default(),
+        Detected::of(&panel, "HDMI-A-1", None),
+    ];
+    for preset in presets.profiles() {
+        let has_15_khz = ranges(preset).iter().any(|r| r.h_max_mhz < 19_000_000);
+        for detected in &displays {
+            let (safe, written) = safe_of(detected, &preset.id);
+            let what = format!(
+                "{} on {:?}",
+                preset.id,
+                detected.edid.as_ref().map(|e| &e.profile.id)
+            );
+            if safe.profile() == start && !inside(start, preset) {
+                assert!(!has_15_khz, "{what}");
+            } else {
+                assert!(inside(safe.profile(), preset), "{what}: {safe:?}");
+            }
+            assert_ne!(written, AUTO, "{what}");
+        }
+    }
 }

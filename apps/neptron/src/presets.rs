@@ -48,8 +48,10 @@ pub enum PresetError {
     },
     /// A file takes a place of the built-in TV profiles: its id starts
     /// with [`TV_PROFILE_ID_PREFIX`], or it is of the TV kind, whose fixed
-    /// mode tables are built in.
-    #[error("{} holds the profile {id:?}, which is a built-in TV profile or of its form", path.display())]
+    /// mode tables are built in. Or its id holds
+    /// [`crate::display::DERIVED_ID_MARK`], the mark of a safe default
+    /// that the frontend makes from a preset.
+    #[error("{} holds the profile {id:?}, which is a built-in TV profile, of its form, or a reserved id", path.display())]
     Reserved {
         /// The file.
         path: PathBuf,
@@ -138,6 +140,7 @@ fn read_profile(path: &Path) -> Result<MonitorProfile, PresetError> {
         });
     }
     if profile.id.starts_with(TV_PROFILE_ID_PREFIX)
+        || profile.id.contains(crate::display::DERIVED_ID_MARK)
         || matches!(profile.kind, MonitorKind::Tv { .. })
     {
         return Err(PresetError::Reserved {
@@ -222,6 +225,24 @@ mod tests {
             issues
                 .iter()
                 .all(|e| matches!(e, PresetError::Reserved { .. }))
+        );
+        // The folder is the test's own; a failed removal leaves a temp folder.
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_cannot_take_the_id_of_a_safe_default_made_from_a_preset() {
+        let dir = std::env::temp_dir().join(format!("neptron-presets-mark-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let good = std::fs::read_to_string(monitors_dir().join("ntsc.toml")).expect("ntsc");
+        let id = format!("ntsc{}15khz", crate::display::DERIVED_ID_MARK);
+        let marked = good.replace("id = \"ntsc\"", &format!("id = \"{id}\""));
+        std::fs::write(dir.join(format!("{id}.toml")), marked).expect("write");
+        let (presets, issues) = Presets::load(&dir).expect("the folder");
+        assert!(presets.profiles().is_empty());
+        assert!(
+            matches!(issues.as_slice(), [PresetError::Reserved { .. }]),
+            "{issues:?}"
         );
         // The folder is the test's own; a failed removal leaves a temp folder.
         let _ = std::fs::remove_dir_all(&dir);
