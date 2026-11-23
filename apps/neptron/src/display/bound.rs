@@ -15,12 +15,17 @@ pub const DERIVED_ID_MARK: char = '@';
 /// 15 kHz safe start. "Inside" means the line rates, the field rates and
 /// the line counts, range by range.
 ///
-/// - `edid` inside `preset`: `edid`.
-/// - `preset` inside `edid`: `preset` itself.
-/// - A part in common: `preset` cut to the ranges of `edid`, with the
-///   timings of `preset` and the pixel clock limit of `edid`.
-/// - No part in common, or no analog EDID: `start` when it is inside
-///   `preset`; else the ranges of `preset` under 19 kHz; else `start`.
+/// With an analog EDID that shares a part with `preset`, the safe default
+/// is an EDID profile with the pixel clock limit of `edid` and the id
+/// `<preset>@<edid id>`, so a revert writes the preset's id, never `auto`:
+///
+/// - `edid` inside `preset`: the ranges of `edid`.
+/// - `preset` inside `edid`: the ranges of `preset`.
+/// - Else `preset` cut to the ranges of `edid`, with the timings of
+///   `preset`.
+///
+/// No part in common, or no analog EDID: `start` when it is inside
+/// `preset`; else the ranges of `preset` under 19 kHz; else `start`.
 ///
 /// A preset with no CRT range (a custom panel or TV profile) bounds no
 /// line rate, so it gets `start`.
@@ -35,18 +40,18 @@ pub fn safe_for_preset(
     if let Some(edid) = edid
         && let Some(found) = crt_ranges(&edid.profile)
     {
-        if inside(found, named) {
-            return Monitor::Edid(edid.clone());
-        }
-        if inside(named, found) {
-            return Monitor::Profile(preset.clone());
-        }
-        let common = intersect(named, found);
-        if !common.is_empty() {
+        let ranges = if inside(found, named) {
+            found.to_vec()
+        } else if inside(named, found) {
+            named.to_vec()
+        } else {
+            intersect(named, found)
+        };
+        if !ranges.is_empty() {
             return Monitor::Edid(EdidProfile {
                 profile: MonitorProfile {
                     id: derived_id(&preset.id, &edid.profile.id),
-                    kind: MonitorKind::Crt { ranges: common },
+                    kind: MonitorKind::Crt { ranges },
                 },
                 ..edid.clone()
             });

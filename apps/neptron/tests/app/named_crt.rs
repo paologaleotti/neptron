@@ -20,13 +20,14 @@ use crate::rig::{Rig, in_child, test_name};
 
 /// The presets named for such a display, and the id of the safe default
 /// that the rule gives for each on the 30 to 71 kHz EDID: the 15 kHz safe
-/// start for a 15 kHz preset, the preset itself when it lies inside the
-/// EDID, and their common part (field rates from 50 Hz) for `arcade_31`,
-/// whose lowest field rate of 49.5 Hz is under that of the EDID.
+/// start for a 15 kHz preset, the ranges of the preset with the pixel
+/// clock limit of the EDID when it lies inside the EDID, and their common
+/// part (field rates from 50 Hz) for `arcade_31`, whose lowest field rate
+/// of 49.5 Hz is under that of the EDID.
 const NAMED: [(&str, &str); 4] = [
     ("arcade_15", "generic_15"),
     ("generic_15", "generic_15"),
-    ("pc_31_120", "pc_31_120"),
+    ("pc_31_120", "pc_31_120@edid_npt_0071"),
     ("arcade_31", "arcade_31@edid_npt_0071"),
 ];
 
@@ -90,12 +91,18 @@ fn assert_safe(rig: &mut Rig, from: usize, preset: &str, safe: &str) {
     assert_valid(rig, &calls[from..], shipped);
 }
 
+/// Runs frames until no change waits for a Keep. The frames of a 120 Hz
+/// mode are shorter, so the bound is four confirm windows at 60 Hz.
+fn wait_for_the_revert(rig: &mut Rig) {
+    rig.until(4 * CONFIRM_WINDOW_FRAMES, "the revert", |r| {
+        !matches!(r.shell().guard().phase(), Phase::Pending(_))
+    });
+}
+
 /// Waits for the end of the boot prompt, if one opened.
 fn past_the_boot_prompt(rig: &mut Rig) {
     rig.frames(2);
-    if matches!(rig.shell().guard().phase(), Phase::Pending(_)) {
-        rig.frames(CONFIRM_WINDOW_FRAMES);
-    }
+    wait_for_the_revert(rig);
     assert!(
         !matches!(rig.shell().guard().phase(), Phase::Pending(_)),
         "the boot prompt ended"
@@ -178,8 +185,7 @@ fn a_reverted_menu_change_stays_inside_the_named_preset() {
                     "{preset}: {:?}",
                     rig.shell().guard().phase()
                 );
-                rig.frames(CONFIRM_WINDOW_FRAMES);
-                assert!(!matches!(rig.shell().guard().phase(), Phase::Pending(_)));
+                wait_for_the_revert(&mut rig);
                 rig.frames(10);
                 assert_inside(&rig, preset);
                 let after = rig.display.mode_calls()[from..].to_vec();
