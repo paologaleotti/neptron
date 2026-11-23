@@ -1449,7 +1449,7 @@ fn network_share_off(frame: &mut UiFrame, theme: &Theme) {
 }
 
 /// The text of the confirm dialog, as the app gives it.
-pub(super) const CHANGE: &str = "Keep the new picture?\nNo answer brings the old one back.";
+pub(super) const CHANGE: &str = super::picture_scenes::picture_texts::CONFIRM_PICTURE;
 
 /// The display panel after the player chose the 2x picture mode, with a
 /// confirmation that has `remaining_ns` left.

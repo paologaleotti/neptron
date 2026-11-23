@@ -71,6 +71,9 @@ pub mod picture_texts {
     pub const NOT_USED_ON_A_PANEL: &str = "Not used on a flat panel";
     /// The tag of an option that some reference games do not get.
     pub const NOT_ALL_GAMES: &str = "Not all games";
+    /// The message of the confirm dialog of a new picture, as the app
+    /// gives it.
+    pub const CONFIRM_PICTURE: &str = "Keep the new picture?\nNo answer brings the old one back.";
     /// An option whose answer is in work. The font has the full stop, not
     /// the ellipsis character.
     pub const JUDGING: &str = "...";

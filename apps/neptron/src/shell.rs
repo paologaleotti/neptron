@@ -13,6 +13,7 @@ mod mapping;
 mod pair;
 
 pub use pair::PAIR_WRITE_LOG;
+pub use view::CONFIRM_TEXT;
 mod picture;
 mod protocol;
 mod view;

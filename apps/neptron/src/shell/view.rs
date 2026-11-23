@@ -22,7 +22,7 @@ use super::{Shell, Stage};
 use crate::pages::{self, Names, Scope};
 
 /// What the confirm dialog says.
-const CONFIRM_TEXT: &str = "Keep the new picture?\nNo answer brings the old one back.";
+pub const CONFIRM_TEXT: &str = "Keep the new picture?\nNo answer brings the old one back.";
 
 /// The monitor line of the Display panel on a TV output.
 pub const TV_MONITOR_NAME: &str = "Composite TV";

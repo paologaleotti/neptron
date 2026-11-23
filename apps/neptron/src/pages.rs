@@ -2083,6 +2083,16 @@ mod tests {
         );
     }
 
+    /// The confirm scenes show the message of the confirm dialog of the
+    /// app.
+    #[test]
+    fn the_confirm_scenes_show_the_message_of_the_app() {
+        assert_eq!(
+            crate::shell::CONFIRM_TEXT,
+            neptron_ui::screens::picture_scenes::picture_texts::CONFIRM_PICTURE
+        );
+    }
+
     /// The placeholder of an answer in work is the text of the scenes, and
     /// the font draws each of its characters.
     #[test]
