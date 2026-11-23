@@ -748,4 +748,4 @@ name = "Screensaver (spec first): on by default, to protect a CRT from burn-in. 
 owns = ["crates/neptron-ui", "crates/neptron-settings", "crates/neptron-session", "apps/neptron", "docs/spec"]
 needs = []
 gate = "T2 with the simulated clock; scenes and goldens; the crawler finds the settings; no missed field while it runs on the Pi 3"
-status = "pending"
+status = "merged"
