@@ -155,12 +155,12 @@ left_x = "a0"
 left_y = "-a1"
 ```
 
-- `version` is the version of the layout of the file. A file with no version is version 1. A file with a higher version is read as far as this build knows it, and never written: the app then refuses a change and says why.
+- `version` is the version of the layout of the file. A file with no version is version 1. A file with a higher version is not used: this build cannot know what its bindings mean. Every pad gets its default map, and a boot notice says so: `The file of the controller layouts has version 2, newer than 1. Its controller layouts are not used. A new layout starts a new file and keeps the old one as pads.toml.bak.` The player can still map and reset a pad. The first write of the run copies the newer file to `pads.toml.bak` (temp file, fsync, rename), then writes a new file of version 1. When the copy fails, the file is not written. So the newer file is never lost, and the player is never stuck with no way to fix a pad.
 - `identity` is the identity of the pad, 16 hex digits. `name` is for the reader of the file.
 - A control key holds its binding. A control with no key has no binding (it was skipped).
 - The control keys: `b`, `y`, `select`, `start`, `up`, `down`, `left`, `right`, `a`, `x`, `l`, `r`, `l2`, `r2`, `l3`, `r3`, `left_x`, `left_y`, `right_x`, `right_y`.
 - The binding texts: `b3` (button 3), `h0up`, `h0right`, `h0down`, `h0left` (hat 0), `a2+` and `a2-` (a half of axis 2 from the centre), `a4+full` and `a4-full` (axis 4 from its end), `a0` and `-a0` (a stick axis, normal or inverted). A stick text is valid only for an axis control, and the other texts only for a button control.
-- **Append-only.** A key is never renamed or removed. A new key is added, and an older build ignores it. An entry with a damaged binding loses that binding only, with a log line. An entry with no valid identity is skipped. A file that does not parse, or whose `pad` key is not a list, reads as no map, with a notice, and the app refuses to write it, so the file of the player is never lost. While the file cannot be written, `Map buttons` and `Reset to default` are disabled with the reason `File cannot be written`, and `Set up this controller` opens the Input panel.
+- **Append-only.** A key is never renamed or removed. A new key is added, and an older build ignores it. An entry with a damaged binding loses that binding only, with a log line. An entry with no valid identity is skipped. A file that does not parse, whose `pad` key is not a list, or whose version is not a number, reads as no map, with a notice, and the app refuses to write it, so the file of the player is never lost. While the file cannot be written, `Map buttons` and `Reset to default` are disabled with the reason `File cannot be written`, and `Set up this controller` opens the Input panel.
 - An identity is compared as a value: an entry written by hand in capitals is the same identity. When the file has more than one entry of an identity, the last one is the map in memory; `Keep` replaces that entry, with its unknown keys, and drops the others; `Reset to default` removes them all.
 - The text of the file is made before anything changes. When it cannot be made, the layout is not kept, nothing is written, and the player gets a notice.
 - **Room for per-game and per-system maps.** A later build adds the keys `system` and `game` to a `[[pad]]` table. This build skips an entry with either key, so it never applies a per-game map to every game.
@@ -208,7 +208,7 @@ A pad with a map of the player gets no notice of the generic layout: its map is 
 
 ## The minimum of a map and the quick menu
 
-The rule of the minimum holds for a map that the guided mapping makes. A map from the file is used as it is: the player or a newer build wrote it. A map of the file with no accept is still safe: every other device drives the menus.
+The rule of the minimum holds for every map. The guided mapping never keeps a map without it. A map from the file can lack one: a hand edit, a damaged binding, or a pad with fewer inputs than the pad of the mapping. The source then gives that pad its default map (`PlayerMaps` gives `BuiltinMaps`), so a pad alone can always drive the menus. The entry stays in the file. A boot notice says it: `A controller layout has no direction, A or B. Its controller uses its default layout.`
 
 ## Tests
 

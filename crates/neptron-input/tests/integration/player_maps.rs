@@ -47,6 +47,34 @@ fn map(pairs: &[(Control, Binding)]) -> PlayerMap {
     map
 }
 
+/// The D-pad of a scripted gamepad (raw buttons 10 to 13), so a map
+/// can drive the menus. A map with a menu gap is not used.
+const PAD_DPAD: [(Control, Binding); 4] = [
+    (Control::Up, Binding::Button(10)),
+    (Control::Down, Binding::Button(11)),
+    (Control::Left, Binding::Button(12)),
+    (Control::Right, Binding::Button(13)),
+];
+
+/// The four directions of hat 0 of a joystick.
+fn hat_dpad() -> [(Control, Binding); 4] {
+    [
+        (Control::Up, HatDirection::Up),
+        (Control::Down, HatDirection::Down),
+        (Control::Left, HatDirection::Left),
+        (Control::Right, HatDirection::Right),
+    ]
+    .map(|(control, direction)| {
+        (
+            control,
+            Binding::Hat {
+                index: 0,
+                direction,
+            },
+        )
+    })
+}
+
 fn maps_of(identity: DeviceIdentity, map: PlayerMap) -> PlayerMaps {
     let mut maps = PlayerMaps::new();
     maps.insert(identity, map);
@@ -154,7 +182,13 @@ fn a_known_pad_gets_the_map_of_the_player_at_once_and_back_on_reset() {
     let changes = pads.roster_changes();
 
     // Raw button 0 of a scripted gamepad is South.
-    let swap = map(&[(Control::A, Binding::Button(0))]);
+    let mut swap = map(&[
+        (Control::A, Binding::Button(0)),
+        (Control::B, Binding::Button(1)),
+    ]);
+    for (control, binding) in PAD_DPAD {
+        swap.set(control, Some(binding)).unwrap();
+    }
     pads.set_player_maps(&maps_of(pad(1, 1).identity, swap));
     assert_eq!(
         poll(&mut pads),
@@ -181,16 +215,13 @@ fn a_generic_pad_with_a_map_of_the_player_gives_no_generic_notice() {
     let mut pads = ScriptedPads::new(PortRule::Menus, &Roster::new());
     let test = pads.clone();
     let stick = test.plug_joystick(pad(2, 1), counts(4, 1, 2));
-    let mine = map(&[
+    let mut mine = map(&[
         (Control::A, Binding::Button(0)),
-        (
-            Control::Down,
-            Binding::Hat {
-                index: 0,
-                direction: HatDirection::Down,
-            },
-        ),
+        (Control::B, Binding::Button(1)),
     ]);
+    for (control, binding) in hat_dpad() {
+        mine.set(control, Some(binding)).unwrap();
+    }
     pads.set_player_maps(&maps_of(pad(2, 1).identity, mine));
     assert!(poll(&mut pads).is_empty());
     let mut notices = Vec::new();
@@ -217,10 +248,15 @@ fn two_pads_of_one_model_share_the_map() {
     let second = test.plug(pad(3, 2));
     let other = test.plug(pad(4, 1));
     poll(&mut pads);
-    pads.set_player_maps(&maps_of(
-        pad(3, 1).identity,
-        map(&[(Control::X, Binding::Button(1))]),
-    ));
+    let mut shared = map(&[
+        (Control::X, Binding::Button(1)),
+        (Control::A, Binding::Button(2)),
+        (Control::B, Binding::Button(0)),
+    ]);
+    for (control, binding) in PAD_DPAD {
+        shared.set(control, Some(binding)).unwrap();
+    }
+    pads.set_player_maps(&maps_of(pad(3, 1).identity, shared));
     poll(&mut pads);
     let kinds: Vec<_> = pads.roster().ports()[..3]
         .iter()
@@ -331,8 +367,9 @@ fn a_map_made_on_a_bigger_pad_drops_the_inputs_that_this_pad_lacks() {
     let mut pads = ScriptedPads::new(PortRule::Menus, &Roster::new());
     let test = pads.clone();
     let small = test.plug_joystick(pad(8, 1), counts(12, 1, 4));
-    let made_elsewhere = map(&[
+    let mut made_elsewhere = map(&[
         (Control::A, Binding::Button(0)),
+        (Control::B, Binding::Button(1)),
         (
             Control::L2,
             Binding::HalfAxis {
@@ -343,6 +380,9 @@ fn a_map_made_on_a_bigger_pad_drops_the_inputs_that_this_pad_lacks() {
         ),
         (Control::R2, Binding::Button(14)),
     ]);
+    for (control, binding) in hat_dpad() {
+        made_elsewhere.set(control, Some(binding)).unwrap();
+    }
     pads.set_player_maps(&maps_of(pad(8, 1).identity, made_elsewhere));
     assert!(
         poll(&mut pads).is_empty(),
@@ -363,4 +403,21 @@ fn a_map_made_on_a_bigger_pad_drops_the_inputs_that_this_pad_lacks() {
     assert_eq!(trimmed.len(), 1, "one log line: {notices:?}");
     test.set_joy_button(small, 0, true);
     assert_eq!(poll(&mut pads), [(PAD0, Control::A, 1)]);
+}
+
+#[test]
+fn a_map_with_no_b_is_not_used_and_the_pad_keeps_its_builtin_map() {
+    let mut pads = ScriptedPads::new(PortRule::Menus, &Roster::new());
+    let test = pads.clone();
+    let one = test.plug(pad(10, 1));
+    let mut no_b = map(&[(Control::A, Binding::Button(0))]);
+    for (control, binding) in PAD_DPAD {
+        no_b.set(control, Some(binding)).unwrap();
+    }
+    pads.set_player_maps(&maps_of(pad(10, 1).identity, no_b));
+    poll(&mut pads);
+    assert_eq!(pads.pad_map(pad(10, 1).key()), Some(PadMap::Known));
+    assert_eq!(pads.roster().get(0).map(|e| e.map), Some(MapKind::Known));
+    test.set(one, PadButton::South, true);
+    assert_eq!(poll(&mut pads), [(PAD0, Control::B, 1)], "South is still B");
 }

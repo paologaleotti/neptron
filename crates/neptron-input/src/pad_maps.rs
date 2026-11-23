@@ -127,10 +127,20 @@ impl PlayerMaps {
 impl PlayerMaps {
     /// The bindings of the map of `identity` that the pad with `layout`
     /// does not have: an index past its counts. [`PadMaps::map`] drops
-    /// them.
+    /// them. 0 when the pad does not use the map.
     pub fn dropped(&self, identity: DeviceIdentity, layout: PadLayout) -> u32 {
+        self.fitted(identity, layout)
+            .map_or(0, |(_, dropped)| dropped)
+    }
+
+    /// The map of `identity` with only the bindings that the pad has, and
+    /// the count of the others. `None` with no map, or when the fitted
+    /// map has a menu gap: a damaged file or a pad with fewer inputs can
+    /// leave one, and then the pad could not drive the menus.
+    fn fitted(&self, identity: DeviceIdentity, layout: PadLayout) -> Option<(PlayerMap, u32)> {
         self.get(identity)
-            .map_or(0, |map| map.fitted(layout.counts()).1)
+            .map(|map| map.fitted(layout.counts()))
+            .filter(|(map, _)| map.menu_gaps().next().is_none())
     }
 }
 
@@ -145,10 +155,11 @@ impl PadLayout {
 
 impl PadMaps for PlayerMaps {
     /// The map of the player of `identity`, with only the bindings that
-    /// the pad has, or the built-in map.
+    /// the pad has, or the built-in map. A map that would leave a menu
+    /// gap is not used: the pad gets the built-in map.
     fn map(&self, identity: DeviceIdentity, layout: PadLayout) -> Result<PadMap, NotAGamepad> {
-        match self.get(identity) {
-            Some(map) => Ok(PadMap::Player(map.fitted(layout.counts()).0)),
+        match self.fitted(identity, layout) {
+            Some((map, _)) => Ok(PadMap::Player(map)),
             None => BuiltinMaps.map(identity, layout),
         }
     }
@@ -200,19 +211,39 @@ mod tests {
         assert!(BuiltinMaps.map(id, PadLayout::Joystick(none)).is_err());
     }
 
+    /// A map that drives the menus with one button and three axes: the
+    /// directions on axes 0 and 1, A on button 0, B on axis 2.
+    fn menu_map() -> PlayerMap {
+        use crate::Binding;
+        use neptron_types::Control;
+        let half = |index, positive| {
+            Some(Binding::HalfAxis {
+                index,
+                positive,
+                full: false,
+            })
+        };
+        let mut map = PlayerMap::new();
+        map.set(Control::Left, half(0, false)).unwrap();
+        map.set(Control::Right, half(0, true)).unwrap();
+        map.set(Control::Up, half(1, false)).unwrap();
+        map.set(Control::Down, half(1, true)).unwrap();
+        map.set(Control::A, Some(Binding::Button(0))).unwrap();
+        map.set(Control::B, half(2, true)).unwrap();
+        map
+    }
+
     #[test]
     fn the_map_of_the_player_comes_first_for_any_layout() {
         let mine = DeviceIdentity(7);
         let other = DeviceIdentity(8);
-        let mut map = PlayerMap::new();
-        map.set(neptron_types::Control::A, Some(crate::Binding::Button(0)))
-            .unwrap();
+        let map = menu_map();
         let mut maps = PlayerMaps::new();
         maps.insert(mine, map);
         let few = JoystickCounts {
             buttons: 1,
             hats: 0,
-            axes: 0,
+            axes: 3,
         };
         assert_eq!(
             maps.map(mine, PadLayout::Gamepad(PAD)),
@@ -226,7 +257,10 @@ mod tests {
         assert_eq!(maps.map(other, PadLayout::Gamepad(PAD)), Ok(PadMap::Known));
         assert!(maps.map(other, PadLayout::Joystick(few)).is_err());
         assert_eq!(PadMap::Player(map).kind(), MapKind::Player);
-        assert_eq!(PadMap::Player(map).raw_reads().map(|r| r.buttons), Some(1));
+        assert_eq!(
+            PadMap::Player(map).raw_reads().map(|r| (r.buttons, r.axes)),
+            Some((1, 3))
+        );
         assert_eq!(PadMap::Known.raw_reads(), None);
         let mut other_map = map;
         other_map.set(neptron_types::Control::A, None).unwrap();
@@ -243,14 +277,13 @@ mod tests {
         use crate::{Binding, HatDirection};
         use neptron_types::Control;
         let mine = DeviceIdentity(7);
-        let mut map = PlayerMap::new();
-        map.set(Control::A, Some(Binding::Button(2))).unwrap();
-        map.set(Control::B, Some(Binding::Button(12))).unwrap();
-        let up = Binding::Hat {
+        let mut map = menu_map();
+        map.set(Control::X, Some(Binding::Button(12))).unwrap();
+        let start = Binding::Hat {
             index: 1,
             direction: HatDirection::Up,
         };
-        map.set(Control::Up, Some(up)).unwrap();
+        map.set(Control::Start, Some(start)).unwrap();
         let l2 = Binding::HalfAxis {
             index: 5,
             positive: true,
@@ -267,9 +300,9 @@ mod tests {
         let Ok(PadMap::Player(fitted)) = maps.map(mine, small) else {
             panic!("a map of the player");
         };
-        assert_eq!(fitted.get(Control::A), Some(Binding::Button(2)));
-        assert_eq!(fitted.get(Control::B), None);
-        assert_eq!(fitted.get(Control::Up), None);
+        assert_eq!(fitted.get(Control::A), Some(Binding::Button(0)));
+        assert_eq!(fitted.get(Control::X), None);
+        assert_eq!(fitted.get(Control::Start), None);
         assert_eq!(fitted.get(Control::L2), None);
         assert_eq!(maps.dropped(mine, small), 3);
         assert_eq!(maps.dropped(mine, PadLayout::Gamepad(PAD)), 0);
@@ -277,5 +310,33 @@ mod tests {
             maps.map(mine, PadLayout::Gamepad(PAD)),
             Ok(PadMap::Player(map))
         );
+    }
+
+    #[test]
+    fn a_map_that_cannot_drive_the_menus_gives_the_builtin_map() {
+        use neptron_types::Control;
+        let mine = DeviceIdentity(7);
+        let mut no_b = menu_map();
+        no_b.set(Control::B, None).unwrap();
+        let mut maps = PlayerMaps::new();
+        maps.insert(mine, no_b);
+        assert_eq!(maps.map(mine, PadLayout::Gamepad(PAD)), Ok(PadMap::Known));
+        assert_eq!(maps.dropped(mine, PadLayout::Gamepad(PAD)), 0);
+        let joystick = PadLayout::Joystick(PAD);
+        assert_eq!(
+            maps.map(mine, joystick),
+            BuiltinMaps.map(mine, joystick),
+            "a plain joystick gets the generic layout"
+        );
+
+        // A pad with no axis 2 loses B in the fit: the same rule.
+        maps.insert(mine, menu_map());
+        let two_axes = PadLayout::Gamepad(JoystickCounts {
+            buttons: 4,
+            hats: 0,
+            axes: 2,
+        });
+        assert_eq!(maps.map(mine, two_axes), Ok(PadMap::Known));
+        assert_eq!(maps.dropped(mine, two_axes), 0, "no trimmed notice");
     }
 }

@@ -189,7 +189,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         let (identity, name) = (run.key.identity, run.name.clone());
         match self.pad_maps.store(identity, &name, &map) {
             Ok(text) => {
-                self.outbox.send(Job::PadMaps { text });
+                let backup = self.pad_maps.backs_up();
+                self.outbox.send(Job::PadMaps { text, backup });
                 self.log(format!("the layout of {name} is kept"));
             }
             Err(e) => self.notice(NoticeKind::Warning, format!("The layout is not kept: {e}.")),
@@ -231,7 +232,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         match self.pad_maps.remove(entry.pad.identity) {
             Ok(text) => {
                 list.input.set_player_maps(self.pad_maps.maps());
-                self.outbox.send(Job::PadMaps { text });
+                let backup = self.pad_maps.backs_up();
+                self.outbox.send(Job::PadMaps { text, backup });
                 self.log(format!("the layout of {} is reset", entry.pad.name));
             }
             Err(e) => self.notice(

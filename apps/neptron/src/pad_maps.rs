@@ -7,6 +7,11 @@
 //! table or a key of a newer build survives. An entry with a key `system`
 //! or `game` is a map for one system or one game: this build skips it and
 //! keeps it.
+//!
+//! A file of a newer version is not used: this build cannot know what its
+//! bindings mean. A write then starts a new file, and the writer keeps the
+//! newer file as `pads.toml.bak` first ([`PadMapsFile::backs_up`]). So the
+//! player can still map and reset a pad, and the newer file is not lost.
 
 use neptron_input::{Binding, CONTROL_KEYS, DeviceIdentity, PlayerMap, PlayerMaps};
 use toml::{Table, Value};
@@ -27,11 +32,15 @@ const SCOPE_KEYS: [&str; 2] = ["system", "game"];
 #[derive(Debug, Clone)]
 pub struct PadMapsFile {
     maps: PlayerMaps,
-    /// The file as read; `None` when it cannot be written: it did not
-    /// parse, or a newer build wrote it.
+    /// The file as read, or an empty table for a newer file; `None` when
+    /// it cannot be written: it did not parse, or this build cannot keep
+    /// all of it.
     table: Option<Table>,
     /// Why the file cannot be written, for the player.
     locked: Option<String>,
+    /// Why the file is not used: a newer build wrote it. A write replaces
+    /// it, and keeps it as the backup first.
+    newer: Option<String>,
     /// Makes the text of the file. A test gives one that fails.
     render: Render,
 }
@@ -45,6 +54,7 @@ impl Default for PadMapsFile {
             maps: PlayerMaps::new(),
             table: None,
             locked: None,
+            newer: None,
             render: render_toml,
         }
     }
@@ -53,8 +63,7 @@ impl Default for PadMapsFile {
 /// Why a map cannot be stored.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PadMapsError {
-    /// The file of the maps is damaged or newer, and a write could lose
-    /// it.
+    /// The file of the maps is damaged, and a write could lose it.
     #[error("{0}")]
     Locked(String),
     /// The text of the file cannot be made. The file is not written.
@@ -65,7 +74,8 @@ pub enum PadMapsError {
 impl PadMapsFile {
     /// Reads `text`, the content of the file, or `None` for no file.
     /// Returns the maps and the problems, one line each. A file that does
-    /// not parse gives no map and cannot be written.
+    /// not parse gives no map and cannot be written. A file that cannot
+    /// be written, or of a newer version, gives no map.
     pub fn parse(text: Option<&str>) -> (Self, Vec<String>) {
         let mut issues = Vec::new();
         let Some(text) = text else {
@@ -103,15 +113,35 @@ impl PadMapsFile {
             _ if !entries_ok => Some(format!(
                 "the key {PAD_KEY} of the file of the controller layouts is not a list"
             )),
-            Some(v) if v <= PAD_MAPS_VERSION => None,
-            Some(v) => Some(format!(
-                "the file of the controller layouts has version {v}, newer than {PAD_MAPS_VERSION}"
-            )),
+            Some(_) => None,
             None => {
                 Some("the version of the file of the controller layouts is not a number".to_owned())
             }
         };
         issues.extend(locked.clone());
+        if locked.is_some() {
+            return (
+                Self {
+                    locked,
+                    ..Self::default()
+                },
+                issues,
+            );
+        }
+        if let Some(v) = version.filter(|v| *v > PAD_MAPS_VERSION) {
+            let reason = format!(
+                "the file of the controller layouts has version {v}, newer than {PAD_MAPS_VERSION}"
+            );
+            issues.push(reason.clone());
+            return (
+                Self {
+                    table: Some(Table::new()),
+                    newer: Some(reason),
+                    ..Self::default()
+                },
+                issues,
+            );
+        }
         let mut maps = PlayerMaps::new();
         let entries = table.get(PAD_KEY).and_then(Value::as_array);
         for (n, entry) in entries.into_iter().flatten().enumerate() {
@@ -127,12 +157,10 @@ impl PadMapsFile {
                 None => continue,
             }
         }
-        let table = locked.is_none().then_some(table);
         (
             Self {
                 maps,
-                table,
-                locked,
+                table: Some(table),
                 ..Self::default()
             },
             issues,
@@ -147,6 +175,29 @@ impl PadMapsFile {
     /// Why the file cannot be written, or `None` when it can.
     pub fn locked(&self) -> Option<&str> {
         self.locked.as_deref()
+    }
+
+    /// Why the file is not used because a newer build wrote it, or
+    /// `None`.
+    pub fn newer(&self) -> Option<&str> {
+        self.newer.as_deref()
+    }
+
+    /// True when a write must keep the file on disk as the backup first:
+    /// the run read a newer file, and a write replaces it.
+    pub fn backs_up(&self) -> bool {
+        self.newer.is_some()
+    }
+
+    /// The maps that the source does not give their pad: each lacks a
+    /// direction, A or B, so the pad could not drive the menus. A hand
+    /// edit or a damaged binding can leave one. The map stays in the
+    /// file.
+    pub fn unusable(&self) -> usize {
+        self.maps
+            .iter()
+            .filter(|(_, map)| map.menu_gaps().next().is_some())
+            .count()
     }
 
     /// Reads the file at `path`. A missing file is no map. A file that
@@ -544,15 +595,62 @@ a = "b1"
         ));
         assert!(file.remove(ID).is_err());
 
-        let newer = "version = 2\n[[pad]]\nidentity = \"8f3a2b1c0d4e5f60\"\na = \"b2\"\n";
+        assert!(!file.backs_up());
+
+        let (file, issues) = PadMapsFile::parse(Some(
+            "version = \"one\"\n[[pad]]\nidentity = \"8f3a2b1c0d4e5f60\"\na = \"b2\"\n",
+        ));
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(file.locked().is_some());
+        assert!(
+            file.maps().iter().next().is_none(),
+            "a locked file is not used, as the boot notice says"
+        );
+    }
+
+    #[test]
+    fn a_newer_file_is_not_used_and_a_store_starts_a_new_file_that_backs_it_up() {
+        let newer =
+            "version = 2\nfuture = 1\n[[pad]]\nidentity = \"8f3a2b1c0d4e5f60\"\na = \"b2\"\n";
         let (mut file, issues) = PadMapsFile::parse(Some(newer));
         assert_eq!(issues.len(), 1, "{issues:?}");
-        assert!(file.maps().get(ID).is_some(), "read as far as known");
-        assert!(file.store(ID, "x", &sample()).is_err());
-        assert_eq!(
-            file.maps().get(ID).and_then(|m| m.get(Control::Up)),
-            None,
-            "a refused store changes nothing"
-        );
+        assert!(issues[0].contains("version 2"), "{issues:?}");
+        assert_eq!(file.locked(), None, "the player can map and reset");
+        assert!(file.newer().is_some_and(|r| r.contains("version 2")));
+        assert!(file.maps().iter().next().is_none(), "its maps are not used");
+        assert!(file.backs_up());
+        let text = file.store(ID, "x", &sample()).unwrap();
+        assert!(text.contains("version = 1"), "{text}");
+        assert!(!text.contains("future"), "a new file: {text}");
+        assert_eq!(file.maps().get(ID), Some(&sample()));
+        assert!(file.backs_up(), "every write of the run asks for it");
+        let text = file.remove(ID).unwrap();
+        assert!(!text.contains("identity"), "{text}");
+    }
+
+    #[test]
+    fn a_map_with_a_menu_gap_is_reported() {
+        let text = "[[pad]]\nidentity = \"8f3a2b1c0d4e5f60\"\na = \"b2\"\nb = \"b2 \"\n";
+        let (file, issues) = PadMapsFile::parse(Some(text));
+        assert_eq!(issues.len(), 1, "the damaged b: {issues:?}");
+        assert!(file.maps().get(ID).is_some(), "kept, so a write keeps it");
+        assert_eq!(file.unusable(), 1, "the source gives its pad the default");
+        let full = sample_with_menus();
+        let (mut file, _) = PadMapsFile::parse(None);
+        let text = file.store(ID, "x", &full).unwrap();
+        assert_eq!(PadMapsFile::parse(Some(&text)).0.unusable(), 0);
+    }
+
+    fn sample_with_menus() -> PlayerMap {
+        let mut map = sample();
+        for (control, index) in [
+            (Control::Down, 1),
+            (Control::Left, 3),
+            (Control::Right, 4),
+            (Control::B, 5),
+        ] {
+            map.set(control, Some(Binding::Button(index))).unwrap();
+        }
+        map
     }
 }

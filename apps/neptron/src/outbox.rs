@@ -89,6 +89,10 @@ pub enum Job {
     PadMaps {
         /// The text of the file.
         text: String,
+        /// Keep the file on disk as `<name>.bak` before the first write of
+        /// the run: it is of a newer version, and the write replaces it.
+        /// The file is not written when the backup fails.
+        backup: bool,
     },
 }
 
@@ -124,6 +128,9 @@ pub struct Places {
     /// The file of the controller layouts of the player.
     pub pad_maps: PathBuf,
 }
+
+/// The suffix of the backup of a file of the controller layouts.
+const BACKUP_SUFFIX: &str = ".bak";
 
 impl Outbox {
     /// Starts the writer thread.
@@ -244,6 +251,9 @@ struct Replies {
 fn write_jobs(places: &Places, jobs: &Receiver<Job>, replies: &Replies) {
     let schema = Schema::builtin();
     let storage = Storage::new(&places.config);
+    // Only the first write of the run finds the newer file on disk; a
+    // later backup would replace it with a file of this run.
+    let mut pad_maps_backed_up = false;
     for job in jobs {
         let result = match &job {
             Job::Settings { target, changes } => {
@@ -293,13 +303,23 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, replies: &Replies) {
                         places.pad_notes.display()
                     )
                 }),
-            Job::PadMaps { text } => crate::atomic::write(&places.pad_maps, text.as_bytes())
-                .map_err(|e| {
-                    format!(
-                        "cannot write the controller layouts {}: {e}",
-                        places.pad_maps.display()
-                    )
-                }),
+            Job::PadMaps { text, backup } => {
+                let backed_up = if *backup && !pad_maps_backed_up {
+                    back_up(&places.pad_maps)
+                } else {
+                    Ok(())
+                };
+                backed_up
+                    .inspect(|()| pad_maps_backed_up |= *backup)
+                    .and_then(|()| {
+                        crate::atomic::write(&places.pad_maps, text.as_bytes()).map_err(|e| {
+                            format!(
+                                "cannot write the controller layouts {}: {e}",
+                                places.pad_maps.display()
+                            )
+                        })
+                    })
+            }
             Job::Cache { index, full_scan } => write_cache(&places.cache, index).and_then(|()| {
                 if *full_scan {
                     mark_scanned(&places.scanned)
@@ -313,6 +333,26 @@ fn write_jobs(places: &Places, jobs: &Receiver<Job>, replies: &Replies) {
             // first ones, and the next write tries again.
             let _ = replies.failures.try_send(message);
         }
+    }
+}
+
+/// Copies the file at `path`, if there is one, to `<path>.bak` with the
+/// write rule of user data.
+fn back_up(path: &std::path::Path) -> Result<(), String> {
+    let mut name = path.as_os_str().to_owned();
+    name.push(BACKUP_SUFFIX);
+    let bak = PathBuf::from(name);
+    let failed = |e: std::io::Error| {
+        format!(
+            "cannot keep {} as {}, so it is not replaced: {e}",
+            path.display(),
+            bak.display()
+        )
+    };
+    match std::fs::read(path) {
+        Ok(bytes) => crate::atomic::write(&bak, &bytes).map_err(failed),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(failed(e)),
     }
 }
 
@@ -402,11 +442,36 @@ mod tests {
         let mut outbox = Outbox::start(places.clone()).expect("start");
         outbox.send(Job::PadMaps {
             text: "version = 1\n".to_owned(),
+            backup: false,
         });
         assert!(outbox.finish().is_empty());
         assert_eq!(
             std::fs::read_to_string(&places.pad_maps).expect("the file"),
             "version = 1\n"
+        );
+    }
+
+    #[test]
+    fn a_newer_pad_maps_file_is_kept_as_its_backup_once() {
+        let places = places("pad-maps-backup");
+        let bak = places.pad_maps.with_extension("toml.bak");
+        crate::atomic::write(&places.pad_maps, b"version = 2\n").expect("the newer file");
+        let mut outbox = Outbox::start(places.clone()).expect("start");
+        for text in ["version = 1\n# one\n", "version = 1\n# two\n"] {
+            outbox.send(Job::PadMaps {
+                text: text.to_owned(),
+                backup: true,
+            });
+        }
+        assert!(outbox.finish().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&places.pad_maps).expect("the file"),
+            "version = 1\n# two\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&bak).expect("the backup"),
+            "version = 2\n",
+            "the second write does not replace the backup"
         );
     }
 

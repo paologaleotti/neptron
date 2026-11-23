@@ -115,6 +115,21 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 "{reason}. The controller layouts are not used, and a new one is not kept."
             ));
         }
+        if let Some(reason) = pad_maps.newer() {
+            found.warn(format!(
+                "{reason}. Its controller layouts are not used. A new layout starts a new file and keeps the old one as pads.toml.bak."
+            ));
+        }
+        match pad_maps.unusable() {
+            0 => {}
+            1 => found.warn(
+                "A controller layout has no direction, A or B. Its controller uses its default layout."
+                    .to_owned(),
+            ),
+            n => found.warn(format!(
+                "{n} controller layouts have no direction, A or B. Their controllers use their default layout."
+            )),
+        }
         if let Some(notice) = next.as_ref().and_then(|n| n.notice.clone()) {
             found.issues.push((NoticeKind::Error, notice));
         }

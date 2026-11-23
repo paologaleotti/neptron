@@ -519,3 +519,123 @@ fn a_last_skip_held_with_back_of_the_new_map_leaves_the_review_on_show() {
         rig.finish();
     });
 }
+
+/// Writes `text` as the file of the controller layouts before a boot.
+fn write_pad_maps(dir: &std::path::Path, text: &str) {
+    let path = dir.join("state").join(PAD_MAPS);
+    std::fs::create_dir_all(path.parent().expect("a folder")).expect("the folder");
+    std::fs::write(path, text).expect("the file");
+}
+
+/// The identity of [`pad`] `n` as the file writes it.
+fn identity_text(n: u8) -> String {
+    format!("{:016x}", pad(n).identity.0)
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn a_stored_layout_with_no_b_is_not_used_and_the_boot_says_so() {
+    let name = test_name(
+        module_path!(),
+        "a_stored_layout_with_no_b_is_not_used_and_the_boot_says_so",
+    );
+    in_child(&name, |dir| {
+        // South is raw button 0; the B binding is damaged.
+        let text = format!(
+            "version = 1\n[[pad]]\nidentity = \"{}\"\nup = \"b10\"\ndown = \"b11\"\nleft = \"b12\"\nright = \"b13\"\na = \"b0\"\nb = \"b1 \"\n",
+            identity_text(1)
+        );
+        write_pad_maps(dir, &text);
+        let mut rig = Rig::new(dir);
+        rig.boot(None);
+        let one = rig.plug(pad(1));
+        rig.frames(2);
+        assert!(
+            crate::tv::notice_texts(&mut rig)
+                .iter()
+                .any(|n| n.contains("Its controller uses its default layout")),
+            "{:?}",
+            crate::tv::notice_texts(&mut rig)
+        );
+        crate::tv::dismiss_notices(&mut rig);
+        rig.pads.set(one, PadButton::South, true);
+        rig.frames(2);
+        let ports = rig.shell().ports().expect("ports");
+        assert!(
+            ports.is_held(0, Control::B),
+            "the default map drives the pad"
+        );
+        assert!(!ports.is_held(0, Control::A));
+        rig.pads.set(one, PadButton::South, false);
+        rig.frames(2);
+        rig.finish();
+        assert_eq!(rig.state_file(PAD_MAPS), text, "the file stays as it is");
+    });
+}
+
+#[test]
+#[ignore = "tier 2"]
+fn a_newer_file_is_not_used_and_a_new_layout_keeps_it_as_the_backup() {
+    let name = test_name(
+        module_path!(),
+        "a_newer_file_is_not_used_and_a_new_layout_keeps_it_as_the_backup",
+    );
+    in_child(&name, |dir| {
+        let newer = format!(
+            "version = 2\n[[pad]]\nidentity = \"{}\"\nup = \"b10\"\ndown = \"b11\"\nleft = \"b12\"\nright = \"b13\"\na = \"b0\"\nb = \"b1\"\n",
+            identity_text(1)
+        );
+        write_pad_maps(dir, &newer);
+        let mut rig = Rig::new(dir);
+        rig.boot(None);
+        let one = rig.plug(pad(1));
+        rig.frames(2);
+        assert!(
+            crate::tv::notice_texts(&mut rig)
+                .iter()
+                .any(|n| n.contains("version 2") && n.contains("pads.toml.bak")),
+            "{:?}",
+            crate::tv::notice_texts(&mut rig)
+        );
+        crate::tv::dismiss_notices(&mut rig);
+        rig.pads.set(one, PadButton::South, true);
+        rig.frames(2);
+        assert!(
+            rig.shell().ports().expect("ports").is_held(0, Control::B),
+            "the newer layout is not used"
+        );
+        rig.pads.set(one, PadButton::South, false);
+        rig.frames(2);
+
+        open_pad_page(&mut rig, "Player 1");
+        assert_eq!(row(&mut rig, "Layout").as_deref(), Some("Known"));
+        map_buttons(&mut rig);
+        for raw in PAD_ANSWERS {
+            answer(&mut rig, one, raw);
+        }
+        assert!(review(&mut rig).is_some_and(|(_, can_keep)| can_keep));
+        rig.pads.set(one, PadButton::DPadRight, true);
+        rig.frames(2);
+        rig.pads.set(one, PadButton::DPadRight, false);
+        rig.frames(2);
+        rig.pads.set(one, PadButton::South, true);
+        rig.frames(2);
+        rig.pads.set(one, PadButton::South, false);
+        rig.frames(4);
+        assert!(rig.shell().snapshot().pad_mapping.is_none());
+        assert_eq!(row(&mut rig, "Layout").as_deref(), Some("Yours"));
+
+        // Reset works too, and the backup stays the newer file.
+        rig.focus("Reset to default");
+        rig.tap(&[Control::A]);
+        rig.tap(&[Control::Right]);
+        rig.tap(&[Control::A]);
+        rig.frames(4);
+        assert_eq!(row(&mut rig, "Layout").as_deref(), Some("Known"));
+        rig.finish();
+        let file = rig.state_file(PAD_MAPS);
+        assert!(file.contains("version = 1"), "{file}");
+        assert!(!file.contains("[[pad]]"), "{file}");
+        assert_eq!(rig.state_file("config/input/pads.toml.bak"), newer);
+    });
+}
