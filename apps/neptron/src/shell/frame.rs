@@ -188,6 +188,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                     self.recover(now_ns);
                 }
                 self.notice_picture();
+                self.notice_speed(now_ns);
                 if let Some(reason) = report.ended {
                     self.end_by_core(reason);
                 } else if report.blanked {
@@ -467,6 +468,20 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             self.outbox.send(Job::Notices {
                 text: self.shown_notices.to_text(),
             });
+        }
+    }
+
+    /// A notice when the game runs slower than its rate, and when its
+    /// sound turns off below half speed (`SpeedNotices::step`). Only the
+    /// frame that shows a notice allocates its text.
+    fn notice_speed(&mut self, now_ns: u64) {
+        let Stage::Game(game) = &self.stage else {
+            return;
+        };
+        let slow = game.session.slow_speed_percent();
+        let sound_off = game.session.sound_too_slow();
+        if let Some(notice) = self.speed_notices.step(slow, sound_off, now_ns) {
+            self.notice(NoticeKind::Warning, notice.text());
         }
     }
 }

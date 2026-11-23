@@ -346,6 +346,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             now_ns,
             menu_hotkey: false,
             picture_notice: super::PictureNotice::Launch,
+            speed_notices: crate::speed_notice::SpeedNotices::new(),
             keep_batch: super::pair::KeepBatch::default(),
             page_ask: None,
             keep_asks: Vec::new(),

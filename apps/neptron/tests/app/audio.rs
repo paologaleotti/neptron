@@ -232,3 +232,65 @@ fn the_stats_and_the_log_show_the_late_pacing() {
         },
     );
 }
+
+/// A game whose frames take 40 ms, 2.4 fields at 60 Hz, runs at about
+/// 42% speed: the player gets the notice of the sound that turns off, then
+/// the notice of the speed with its value, and the log has each. The speed
+/// notice does not show again while the game stays slow.
+#[test]
+#[ignore = "tier 2"]
+fn a_slow_game_tells_its_speed_and_its_sound_off() {
+    in_child(
+        &test_name(
+            module_path!(),
+            "a_slow_game_tells_its_speed_and_its_sound_off",
+        ),
+        |dir| {
+            let mut rig = crate::pause::in_game(dir);
+            let sound = neptron::speed_notice::SOUND_OFF_TEXT;
+            rig.until(600, "the two notices", |rig| {
+                rig.clock.advance(SLOW_FRAME_NS);
+                rig.shell().snapshot().notices.len() >= 2
+            });
+            let texts = notice_texts(&mut rig);
+            assert_eq!(texts[0], sound, "{texts:?}");
+            let percent = texts[1]
+                .strip_prefix("This game runs at ")
+                .and_then(|t| t.strip_suffix("% speed. This machine is too slow for it."))
+                .and_then(|p| p.parse::<u32>().ok());
+            assert!(percent.is_some_and(|p| (40..=44).contains(&p)), "{texts:?}");
+            let lines = rig.shell().log_lines(64);
+            for text in &texts {
+                assert!(lines.contains(text), "{text}: {lines:?}");
+            }
+            for _ in 0..600 {
+                rig.clock.advance(SLOW_FRAME_NS);
+                rig.frames(1);
+            }
+            let slow = notice_texts(&mut rig)
+                .iter()
+                .filter(|t| t.starts_with("This game runs at "))
+                .count();
+            assert_eq!(slow, 1, "{:?}", notice_texts(&mut rig));
+            // A notice waits while the game runs alone, and shows over
+            // the quick menu.
+            rig.open_menu();
+            assert_eq!(rig.screen(), "notice");
+            let tree = format!("{:?}", rig.tree());
+            assert!(tree.contains(sound), "{tree}");
+            rig.finish();
+        },
+    );
+}
+
+/// The time of one frame of the slow game of the test, in nanoseconds.
+const SLOW_FRAME_NS: u64 = 40_000_000;
+
+fn notice_texts(rig: &mut Rig) -> Vec<String> {
+    rig.shell()
+        .snapshot()
+        .notices
+        .iter()
+        .map(|n| n.text.clone())
+        .collect()
+}

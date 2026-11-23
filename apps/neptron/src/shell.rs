@@ -165,6 +165,8 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     now_ns: u64,
     menu_hotkey: bool,
     picture_notice: PictureNotice,
+    /// When the notices of a slow game show.
+    speed_notices: crate::speed_notice::SpeedNotices,
     /// The keep of the batch of intents in work.
     keep_batch: pair::KeepBatch,
     /// The request of the picture answers of the loaded page, if it shows
