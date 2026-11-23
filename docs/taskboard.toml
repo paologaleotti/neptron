@@ -694,7 +694,7 @@ name = "The Raspberry Pi leftovers: the HDMI sound card named Analog (OP-102), t
 owns = ["crates/neptron-audio", "crates/neptron-modeline", "apps/neptron"]
 needs = ["M01"]
 gate = "T2; a check on the Pi"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "M11"
