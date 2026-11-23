@@ -4,8 +4,8 @@
 //! panels and on the composite TV standards.
 //!
 //! The test checks that every cell has a plan and that every CRT winner
-//! has a whole-kHz pixel clock, and prints the table. Appendix A of
-//! docs/spec/arcade.md holds a copy. To make it again:
+//! has a whole-kHz pixel clock, and prints the table.
+//! docs/spec/arcade-table.md holds a copy. To make it again:
 //!
 //! ```text
 //! cargo xtask test -p neptron-modeline --no-capture arcade_table
