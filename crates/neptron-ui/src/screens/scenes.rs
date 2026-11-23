@@ -560,7 +560,7 @@ fn screensaver_start(frame: &mut UiFrame, theme: &Theme) {
 
 /// The first wall: the right edge, in orange.
 fn screensaver_wall(frame: &mut UiFrame, theme: &Theme) {
-    screensaver_at(frame, theme, 3_475_000_000);
+    screensaver_at(frame, theme, 2_950_000_000);
 }
 
 /// Twenty seconds in: six walls, in violet.

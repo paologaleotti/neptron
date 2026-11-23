@@ -17,11 +17,15 @@ pub const SCREENSAVER_SCREEN: &str = "screensaver";
 /// The word that moves.
 pub const WORDMARK: &str = "NEPTRON";
 
-/// Width of the word in pixels.
-pub const WORDMARK_WIDTH_PX: u32 = WORDMARK.len() as u32 * font::ADVANCE;
+/// The scale of the word: each pixel of the UI font is a square of this
+/// side.
+pub const WORDMARK_SCALE: u32 = 2;
 
-/// Height of the word in pixels: the glyph box.
-pub const WORDMARK_HEIGHT_PX: u32 = font::GLYPH_HEIGHT;
+/// Width of the word in pixels.
+pub const WORDMARK_WIDTH_PX: u32 = WORDMARK.len() as u32 * font::ADVANCE * WORDMARK_SCALE;
+
+/// Height of the word in pixels: the scaled glyph box.
+pub const WORDMARK_HEIGHT_PX: u32 = font::GLYPH_HEIGHT * WORDMARK_SCALE;
 
 /// The speed on each axis, as a fraction of the screen side per second:
 /// the numerator.
@@ -46,8 +50,9 @@ pub const GREEN: Color = Color::rgb(0x00, 0xBF, 0x00);
 pub const CYAN: Color = Color::rgb(0x00, 0xBF, 0xBF);
 /// Blue at 75 %, with some green, so it stays visible on a dark tube.
 pub const BLUE: Color = Color::rgb(0x00, 0x5F, 0xBF);
-/// Violet at 75 %.
-pub const VIOLET: Color = Color::rgb(0x5F, 0x00, 0xBF);
+/// Violet at 75 %, with red and green raised, so it does not look dark
+/// on black.
+pub const VIOLET: Color = Color::rgb(0x90, 0x40, 0xBF);
 /// Magenta at 75 %.
 pub const MAGENTA: Color = Color::rgb(0xBF, 0x00, 0xBF);
 
@@ -119,7 +124,38 @@ pub fn draw(elapsed_ns: u64, out: &mut UiFrame) {
         .rect(Rect::new(0, 0, UI_WIDTH, UI_HEIGHT), Color::BLACK);
     let x = i32::try_from(pose.x).unwrap_or(0);
     let y = i32::try_from(pose.y).unwrap_or(0);
-    out.scene.text_run(x, y, pose.color, WORDMARK);
+    let mut left = x;
+    for c in WORDMARK.chars() {
+        draw_glyph(out, left, y, pose.color, c);
+        left += (font::ADVANCE * WORDMARK_SCALE) as i32;
+    }
+}
+
+/// Draws `c` at [`WORDMARK_SCALE`] with its top-left corner at `x`, `y`:
+/// one rectangle for each run of set pixels in a glyph row. The canvas
+/// draws the font at one size only.
+fn draw_glyph(out: &mut UiFrame, x: i32, y: i32, color: Color, c: char) {
+    let scale = WORDMARK_SCALE as i32;
+    for (row, bits) in (0i32..).zip(font::glyph(c).iter()) {
+        let mut column = 0;
+        while column < font::GLYPH_WIDTH {
+            if bits & (0x80 >> column) == 0 {
+                column += 1;
+                continue;
+            }
+            let start = column;
+            while column < font::GLYPH_WIDTH && bits & (0x80 >> column) != 0 {
+                column += 1;
+            }
+            let rect = Rect::new(
+                x + start as i32 * scale,
+                y + row * scale,
+                (column - start) * WORDMARK_SCALE,
+                WORDMARK_SCALE,
+            );
+            out.scene.rect(rect, color);
+        }
+    }
 }
 
 impl Idle {
@@ -337,9 +373,9 @@ mod tests {
     #[test]
     fn it_starts_at_the_centre_in_red_and_moves_right_and_down() {
         let start = pose(0, 320, 240);
-        assert_eq!((start.x, start.y, start.color), (139, 114, RED));
+        assert_eq!((start.x, start.y, start.color), (118, 108, RED));
         let later = pose(NANOS_PER_SECOND, 320, 240);
-        assert_eq!((later.x, later.y), (139 + 40, 114 + 30));
+        assert_eq!((later.x, later.y), (118 + 40, 108 + 30));
     }
 
     #[test]
@@ -391,12 +427,55 @@ mod tests {
 
     #[test]
     fn a_bounce_turns_the_motion_at_the_wall() {
-        // At 320 wide the word is 139 px from the right wall at the start
-        // and moves 40 px/s: it touches the wall after 3.475 s.
-        let at_wall = pose(3_475_000_000, 320, 240);
-        assert_eq!((at_wall.x, at_wall.walls, at_wall.color), (278, 1, ORANGE));
-        let after = pose(3_600_000_000, 320, 240);
-        assert_eq!((after.x, after.walls), (278 - 5, 1));
+        // At 320 wide the word is 118 px from the right wall at the start
+        // and moves 40 px/s: it touches the wall after 2.95 s.
+        let at_wall = pose(2_950_000_000, 320, 240);
+        assert_eq!((at_wall.x, at_wall.walls, at_wall.color), (236, 1, ORANGE));
+        let after = pose(3_100_000_000, 320, 240);
+        assert_eq!((after.x, after.walls), (236 - 6, 1));
+    }
+
+    /// The least light of a colour of the palette, as `luma` gives it: red
+    /// at 75 % is the darkest colour that still reads well on black.
+    const LUMA_MIN: u32 = 40;
+
+    /// The light of a colour, 0 to 255, with the weights of Rec. 709.
+    fn luma(color: Color) -> u32 {
+        (2126 * u32::from(color.r()) + 7152 * u32::from(color.g()) + 722 * u32::from(color.b()))
+            / 10_000
+    }
+
+    #[test]
+    fn no_colour_of_the_palette_is_dark_on_black() {
+        for color in PALETTE {
+            assert!(luma(color) >= LUMA_MIN, "{color:?}: {}", luma(color));
+        }
+        assert!(
+            luma(Color::rgb(0x5F, 0x00, 0xBF)) < LUMA_MIN,
+            "a dark violet fails"
+        );
+    }
+
+    #[test]
+    fn the_word_is_the_font_at_twice_its_size() {
+        let mut frame = UiFrame::new();
+        draw(0, &mut frame);
+        let mut canvas = crate::canvas::CpuCanvas::new();
+        frame.render(&mut canvas);
+        let mut small = UiFrame::new();
+        small.scene.text_run(0, 0, RED, WORDMARK);
+        let mut reference = crate::canvas::CpuCanvas::new();
+        small.render(&mut reference);
+        let start = pose(0, UI_WIDTH, UI_HEIGHT);
+        for y in 0..font::GLYPH_HEIGHT {
+            for x in 0..WORDMARK.len() as u32 * font::ADVANCE {
+                let lit = reference.pixel(x, y) == Some(RED);
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let big = canvas.pixel(start.x + 2 * x + dx, start.y + 2 * y + dy);
+                    assert_eq!(big == Some(RED), lit, "{x},{y}");
+                }
+            }
+        }
     }
 
     #[test]
