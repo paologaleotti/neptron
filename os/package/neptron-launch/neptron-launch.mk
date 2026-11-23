@@ -31,6 +31,7 @@ endef
 define NEPTRON_LAUNCH_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/target/$(RUSTC_TARGET_NAME)/release/neptron-launch \
 		$(TARGET_DIR)/usr/bin/neptron-launch
+	$(call NEPTRON_WORKSPACE_NOTICES,neptron-launch,--package neptron-launch)
 endef
 
 $(eval $(generic-package))

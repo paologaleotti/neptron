@@ -33,6 +33,20 @@ General Public License 3.0 or later. The texts are in the folders
 Switchres. The other NEPTRON programs contain no Switchres code and are
 under the MIT licence or the Apache License 2.0, at your option.
 
+`neptron` also contains the Spleen font by Frederic Cambus, under the
+BSD 2-Clause licence. Its notice is in `legal/licenses/neptron-0.1.0`,
+file `crates/neptron-ui/assets/fonts/spleen/LICENSE`.
+
+`neptron`, `neptronctl` and `neptron-launch` are written in Rust. Each
+one contains the Rust standard library and crates from crates.io, each
+under its own licence (MIT, Apache-2.0, ISC, zlib and others). The
+files `legal/neptron-rust/<program>.txt` on this partition list them,
+with their licence, notice and copyright texts. The same files are in
+`/usr/share/licenses/neptron-rust` inside the image.
+
+The licence texts of `neptron-capture` and `neptron-vkms-probe` are in
+`legal/licenses/neptron-capture-1` and `legal/licenses/neptron-vkms-probe-1`.
+
 The image also holds other software. Each package keeps its own licence.
 The folder `legal` on this partition lists them:
 
@@ -61,8 +75,17 @@ Libretro cores
   copies free of charge, and it does not allow commercial use or sale.
 - Genesis Plus GX (`genesis_plus_gx_libretro.so`): the Genesis Plus GX
   licence. It allows use and copies free of charge, and it does not allow
-  commercial use or sale. It also contains code under the GNU Lesser
-  General Public License 2.1.
+  commercial use or sale. Its `LICENSE.txt` names these parts, each
+  under its own licence:
+  - The Nuked OPN2 core, the NTSC filter and Blip Buffer: the GNU Lesser
+    General Public License 2.1 or later. The written offer below covers
+    their source.
+  - Tremor and libchdr (with Zstandard): the BSD 3-Clause licence.
+  - minimp3: CC0 1.0.
+  - dr_flac: the MIT licence. zlib: the zlib licence. The LZMA decoder:
+    public domain.
+  The licence folder of the image holds `LICENSE.txt`, with the full
+  text of the LGPL, under `libretro-genesis-plus-gx`.
 - FinalBurn Neo (`fbneo_libretro.so`): the FB Neo licence, with the MAME
   licence. It allows use and copies free of charge. It does not allow
   sale or any other monetary profit, and it does not allow requests for

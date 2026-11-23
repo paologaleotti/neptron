@@ -986,10 +986,16 @@ fn the_licence_notes_correct_the_firmware_label_and_say_what_may_be_shared() {
         "the Pi image holds no 15 kHz patch"
     );
     let post_image = read("board/rpi/post-image.sh");
-    assert!(post_image.contains("cp \"$board/LICENCES.txt\" \"$part/LICENCES.txt\""));
+    assert!(
+        post_image
+            .contains("cp \"$TARGET_DIR/usr/share/licenses/LICENCES.txt\" \"$part/LICENCES.txt\"")
+    );
     assert!(post_image.contains("\"$part/legal/LICENCE.broadcom\""));
     let post_build = read("board/rpi/post-build.sh");
-    assert!(post_build.contains("\"$target/usr/share/licenses/LICENCES.txt\""));
+    assert!(
+        post_build
+            .contains("board/common/install-licences.sh\" \"$target\" \"$board/LICENCES.txt\"")
+    );
 }
 
 /// The Pi image carries the same written offer of GPL-2.0 section 3(b) as

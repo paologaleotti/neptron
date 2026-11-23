@@ -32,7 +32,9 @@ fi
 boot="$img@@$((8192 * 512))"
 for file in bootcode.bin start.elf fixup.dat config.txt cmdline.txt Image \
 	bcm2710-rpi-3-b.dtb bcm2710-rpi-3-b-plus.dtb bcm2710-rpi-zero-2-w.dtb \
-	overlays/vc4-kms-v3d.dtbo LICENCES.txt legal/manifest.csv legal/LICENCE.broadcom; do
+	overlays/vc4-kms-v3d.dtbo LICENCES.txt legal/manifest.csv legal/LICENCE.broadcom \
+	legal/neptron-rust/neptron.txt legal/neptron-rust/neptron-launch.txt \
+	legal/neptron-rust/neptronctl.txt; do
 	mdir -i "$boot" "::$file" > /dev/null 2>&1 || fail "the boot partition has no $file"
 done
 if mdir -i "$boot" ::overlays/disable-bt.dtbo > /dev/null 2>&1; then

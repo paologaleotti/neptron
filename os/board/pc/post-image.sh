@@ -35,10 +35,13 @@ cp "$images/efi-part/EFI/BOOT/bootx64.efi" "$part/EFI/BOOT/bootx64.efi"
 sed "s/@SIGNATURE@/$signature/g" "$board/grub.cfg" > "$part/EFI/BOOT/grub.cfg"
 cp "$part/EFI/BOOT/grub.cfg" "$part/boot/grub/grub.cfg"
 cp "$board/neptron.toml" "$part/neptron.toml"
-cp "$board/LICENCES.txt" "$part/LICENCES.txt"
+# The post-build step put the notes and the Rust crate notices in the
+# target folder; the boot partition gets the same files.
+cp "$TARGET_DIR/usr/share/licenses/LICENCES.txt" "$part/LICENCES.txt"
 legal=$BASE_DIR/legal-info
 cp "$legal/manifest.csv" "$legal/README" "$part/legal/"
 cp -r "$legal/licenses" "$part/legal/licenses"
+cp -r "$TARGET_DIR/usr/share/licenses/neptron-rust" "$part/legal/neptron-rust"
 
 rm -f "$images/state.ext4" "$images/share.exfat"
 truncate -s 256M "$images/state.ext4"

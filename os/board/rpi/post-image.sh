@@ -41,10 +41,13 @@ variant=release
 "$board/cmdline.sh" "$board/cmdline.txt" "$signature" "$variant" > "$part/cmdline.txt"
 
 cp "$board/neptron.toml" "$part/neptron.toml"
-cp "$board/LICENCES.txt" "$part/LICENCES.txt"
+# The post-build step put the notes and the Rust crate notices in the
+# target folder; the boot partition gets the same files.
+cp "$TARGET_DIR/usr/share/licenses/LICENCES.txt" "$part/LICENCES.txt"
 legal=$BASE_DIR/legal-info
 cp "$legal/manifest.csv" "$legal/README" "$part/legal/"
 cp -r "$legal/licenses" "$part/legal/licenses"
+cp -r "$TARGET_DIR/usr/share/licenses/neptron-rust" "$part/legal/neptron-rust"
 # The firmware licence asks that its notice and disclaimer come with the
 # files; it is also in legal/licenses, under the package version.
 broadcom=$(ls "$BUILD_DIR"/rpi-firmware-*/boot/LICENCE.broadcom)

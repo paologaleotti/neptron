@@ -18,10 +18,12 @@ NEPTRON_OVERRIDE_SRCDIR_RSYNC_EXCLUSIONS = $(NEPTRON_WORKSPACE_EXCLUSIONS)
 NEPTRON_REDISTRIBUTE = NO
 # The binary links Switchres (GPL-2.0-or-later, vendor/switchres), so it is
 # GPL-3.0-or-later (ADR 0002). The NEPTRON source is MIT or Apache-2.0.
+# The UI font table is Spleen, BSD-2-Clause (ADR 0004).
 NEPTRON_LICENSE = GPL-3.0+ (binary), MIT or Apache-2.0 (NEPTRON source), \
-	GPL-2.0+ (Switchres, monitor presets)
+	GPL-2.0+ (Switchres, monitor presets), BSD-2-Clause (Spleen font)
 NEPTRON_LICENSE_FILES = LICENSE-GPL-3.0 LICENSE-MIT LICENSE-APACHE \
-	vendor/switchres/LICENSE data/monitors/LICENSE
+	vendor/switchres/LICENSE data/monitors/LICENSE \
+	crates/neptron-ui/assets/fonts/spleen/LICENSE
 NEPTRON_DEPENDENCIES = host-rustc host-pkgconf libdrm mesa3d sdl3 alsa-lib
 NEPTRON_PRE_CONFIGURE_HOOKS += NEPTRON_WORKSPACE_VENDOR
 
@@ -66,6 +68,7 @@ define NEPTRON_INSTALL_TARGET_CMDS
 		cp -r $(@D)/data/$$dir $(TARGET_DIR)/usr/share/neptron/$$dir || exit 1; \
 	done
 	$(NEPTRON_INSTALL_ARCADE_INDEX)
+	$(call NEPTRON_WORKSPACE_NOTICES,neptron,--package neptron --features $(NEPTRON_FEATURES))
 endef
 
 $(eval $(generic-package))

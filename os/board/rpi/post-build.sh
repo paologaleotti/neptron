@@ -18,16 +18,7 @@ board=$BR2_EXTERNAL_NEPTRON_PATH/board/rpi
 
 mkdir -p "$target/state" "$target/share" "$target/boot"
 
-legal=$BASE_DIR/legal-info
-if [ ! -f "$legal/manifest.csv" ]; then
-	echo "post-build: $legal/manifest.csv is missing; run make legal-info before the build" >&2
-	exit 1
-fi
-rm -rf "$target/usr/share/licenses"
-mkdir -p "$target/usr/share/licenses"
-cp -r "$legal/licenses/." "$target/usr/share/licenses/"
-cp "$legal/manifest.csv" "$target/usr/share/licenses/manifest.csv"
-install -D -m 0644 "$board/LICENCES.txt" "$target/usr/share/licenses/LICENCES.txt"
+"$BR2_EXTERNAL_NEPTRON_PATH/board/common/install-licences.sh" "$target" "$board/LICENCES.txt"
 
 if grep -qx 'BR2_PACKAGE_DROPBEAR=y' "$BR2_CONFIG"; then
 	# The development variant: SSH with the one public key given to

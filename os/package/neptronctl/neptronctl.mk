@@ -35,6 +35,7 @@ endef
 define NEPTRONCTL_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/target/$(RUSTC_TARGET_NAME)/release/neptronctl \
 		$(TARGET_DIR)/usr/bin/neptronctl
+	$(call NEPTRON_WORKSPACE_NOTICES,neptronctl,--package neptronctl --features kms)
 endef
 
 $(eval $(generic-package))

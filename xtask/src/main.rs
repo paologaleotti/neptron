@@ -9,6 +9,7 @@ mod arcade;
 mod bindgen;
 mod load;
 mod monitors;
+mod notices;
 mod os;
 mod repo;
 mod rules;
@@ -40,6 +41,11 @@ commands:
   arcade-index --commit <hex> <dat> <out>
                        write the arcade index of neptron-library from the
                        ClrMamePro XML DAT of FinalBurn Neo at that commit
+  rust-notices --program NAME --crates FILE --vendor DIR --std DIR...
+               --out FILE
+                       write the licence notices of the crates in a Rust
+                       program of the image, from its cargo tree list and
+                       the vendored crates (run by the image build)
   bindgen              generate the libretro bindings of neptron-libretro-sys
                        from its vendored libretro.h (needs the bindgen tool)
   rules                check the dependency rules, the unsafe allow-list
@@ -125,6 +131,8 @@ enum Error {
     #[error(transparent)]
     Monitors(#[from] monitors::MonitorsError),
     #[error(transparent)]
+    Notices(#[from] notices::NoticesError),
+    #[error(transparent)]
     Os(#[from] os::OsError),
     #[error(transparent)]
     Repo(#[from] repo::RepoError),
@@ -166,6 +174,10 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         }
         "arcade-index" => {
             arcade::run(&rest)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        "rust-notices" => {
+            notices::run(&rest)?;
             Ok(ExitCode::SUCCESS)
         }
         "bindgen" => {

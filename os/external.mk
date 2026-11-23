@@ -17,6 +17,36 @@ define NEPTRON_WORKSPACE_VENDOR
 		cargo vendor --locked VENDOR >> $(@D)/.cargo/config.toml
 endef
 
+# Runs in the install step of a Rust program of the workspace: $(1) is the
+# program, $(2) the cargo tree arguments that select its package and its
+# features. `cargo xtask rust-notices` writes the licence notices of the
+# crates in the binary and of the Rust standard library. The crate list is
+# that of the target build without build-time and proc-macro crates,
+# because those run on the build machine and are not in the binary. The
+# Rust toolchain package keeps its licence files at the root of its build
+# folder. The notices go to NEPTRON_NOTICES_DIR, outside the target
+# folder: the post-build step of the PC and Pi images makes
+# /usr/share/licenses anew from legal-info and copies them in.
+NEPTRON_NOTICES_DIR = $(BASE_DIR)/neptron-notices
+define NEPTRON_WORKSPACE_NOTICES
+	cd $(@D) && $(HOST_MAKE_ENV) CARGO_HOME=$(BR_CARGO_HOME) \
+		cargo tree --offline --locked --target $(RUSTC_TARGET_NAME) \
+			--edges normal,no-proc-macro --prefix none $(2) \
+			> $(@D)/rust-crates-$(1).txt
+	cd $(@D) && $(HOST_MAKE_ENV) CARGO_HOME=$(BR_CARGO_HOME) \
+		cargo run --offline --locked --quiet --package xtask -- rust-notices \
+			--program $(1) --crates $(@D)/rust-crates-$(1).txt \
+			--vendor $(@D)/VENDOR \
+			--std $(HOST_RUST_BIN_DIR) --std $(HOST_DIR)/share/doc/rust/licenses \
+			--out $(NEPTRON_NOTICES_DIR)/$(1).txt
+endef
+
+# A post-rsync hook of a package whose source is a folder of os/package:
+# the licence files of the NEPTRON source, for legal-info.
+define NEPTRON_WORKSPACE_LICENCE_FILES
+	cp $(NEPTRON_WORKSPACE)/LICENSE-MIT $(NEPTRON_WORKSPACE)/LICENSE-APACHE $(@D)/
+endef
+
 # The workspace release profile (fat LTO, one codegen unit, abort on panic)
 # replaces the profile values that Buildroot sets for every Cargo package.
 # The linker is the Buildroot compiler behind link-filter.sh; see there.
