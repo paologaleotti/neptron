@@ -24,10 +24,10 @@ Inside the crate, four layers, each using only the one below:
 
 | Screen | Purpose |
 | --- | --- |
-| First-boot wizard | Pick output and monitor profile (confirm-or-revert), centre the picture, map the controller, optional network |
+| First-boot wizard *(after 0.1)* | Pick output and monitor profile (confirm-or-revert), centre the picture, map the controller, optional network |
 | Home | Systems that actually contain games, plus Favourites, Recents, Settings |
-| Game list | Per system: sort, filter, search, favourites; arcade filters by orientation and players |
-| Game page | Box art, launch, resume last state, per-game settings, save-state slots |
+| Game list | Per system: sort, filter, search *(after 0.1)*, favourites; arcade filters by orientation and players |
+| Game page *(after 0.1)* | Box art, launch, resume last state, per-game settings, save-state slots |
 | Display panel | One entry from Home: output, monitor profile, refresh policy, geometry, test patterns |
 | Settings | Full tree: display, audio, input, systems and cores, network, storage, updates, diagnostics |
 | Quick menu | In-game overlay on a button combination |

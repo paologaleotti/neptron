@@ -79,7 +79,7 @@ The development profile is tuned for compile and verify time, the release profil
 - Generated code is committed, not built: the libretro bindings come from `xtask bindgen`, so no build needs libclang.
 - Each crate has one integration-test binary, to cut link time. Tests run with `cargo nextest`.
 - `.cargo/config.toml` sets no linker: Linux links with rust-lld by default since Rust 1.90, and the macOS default linker is already fast. CI caches the Cargo target directory and the Buildroot download and compiler caches.
-- Release builds target `x86-64-v2` on PCs and Cortex-A53 on Pi, so one image runs on every supported machine.
+- Release builds target `x86-64-v2` *(after 0.1)* on PCs and Cortex-A53 on Pi, so one image runs on every supported machine.
 - A new dependency must justify its compile time in its commit. `xtask verify` prints the build time, and the tier budgets in the Implementation plan are limits, not hopes.
 
 **Working with Claude Code**

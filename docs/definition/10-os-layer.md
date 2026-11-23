@@ -64,7 +64,7 @@ config/
 - **Bad input never blocks boot.** An unknown or invalid key is ignored on its own and listed on the diagnostics page with file and line. Display keys still pass the safety validator, whoever wrote them.
 - **`neptron.toml` is an inbox, not a second system.** It uses the same keys as `global.toml`. When it has changed since the last boot, its values are copied into `config/global.toml` once. It exists because the state partition is ext4 and cannot be read by plugging the disk into a Windows or Mac PC.
 - **No secrets in `config/`.** The share is open on the LAN, so passwords are kept in the internal area.
-- **Firmware files are generated.** `config.txt` on a Pi and the GRUB configuration are written from the settings. Hand edits to them are overwritten. The first Pi image ships a fixed `config.txt`, because no setting needs a line in it yet; the GPIO DACs bring the first one.
+- **Firmware files are generated** *(after 0.1)*. `config.txt` on a Pi and the GRUB configuration are written from the settings. Hand edits to them are overwritten. The first Pi image ships a fixed `config.txt`, because no setting needs a line in it yet; the GPIO DACs bring the first one.
 
 **Folder layout.** The share partition uses the folder names of Batocera and RetroPie, so an existing `roms` and `bios` collection copies over unchanged.
 
@@ -87,12 +87,12 @@ state/                      ext4; reached over SMB and SFTP, not by plugging int
 - exFAT ignores case, so RetroPie's `BIOS` folder works as `bios`. Each core's metadata lists its BIOS files with checksums for the presence check.
 - Saves stay on the state partition. A `saves` folder found on the share (the Batocera layout) is imported once, on request.
 
-**Updates.** A/B image updates through RAUC, built without its D-Bus service: the new signed bundle is written to the inactive slot, booted once, and kept only if the frontend reaches a confirmed picture. Otherwise the bootloader falls back. On x86, RAUC's GRUB backend does this with a one-shot try flag in `grubenv`. On Pi, RAUC has no firmware backend yet ([PR #1599](https://github.com/rauc/rauc/pull/1599) is open), so NEPTRON supplies a RAUC custom-backend script that edits `autoboot.txt` and reboots with `tryboot`. Bundles can also be installed from a file on USB, with no network.
+**Updates** *(after 0.1)*. A/B image updates through RAUC, built without its D-Bus service: the new signed bundle is written to the inactive slot, booted once, and kept only if the frontend reaches a confirmed picture. Otherwise the bootloader falls back. On x86, RAUC's GRUB backend does this with a one-shot try flag in `grubenv`. On Pi, RAUC has no firmware backend yet ([PR #1599](https://github.com/rauc/rauc/pull/1599) is open), so NEPTRON supplies a RAUC custom-backend script that edits `autoboot.txt` and reboots with `tryboot`. Bundles can also be installed from a file on USB, with no network.
 
 **Network services.** NEPTRON follows Batocera's habits so the box is easy to reach on a home network:
 
 - The SMB share is open to the LAN by default, with no password, under a default hostname (`neptron`).
-- SSH and SFTP are on by default with a documented default login. The password can be changed, and each service switched off, in settings.
+- SSH and SFTP are on by default with a documented default login *(after 0.1)*. The password can be changed, and each service switched off, in settings.
 - These services are meant for a home LAN only. The first-boot wizard and the documentation say plainly not to forward them to the internet.
 - The clock is set from network time once at startup when a network is up. With no network it keeps the last saved time and can be set by hand.
 

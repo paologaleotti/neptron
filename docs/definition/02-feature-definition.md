@@ -27,7 +27,7 @@ The table is the full scope for the first public alpha. Milestones M0 to M4 are 
 | Emulation | Save states, SRAM flush on exit, per-core options editor, BIOS presence check | M3 |
 | Emulation | ROMs in `.zip` files, read into memory at launch | MVP |
 | Emulation | Fast-forward; `.7z` ROMs; zipped ROMs unpacked to a file for cores that need a path | M3 |
-| UI | Rust frontend: system list, game list, favourites, recents, search, launch, exit | M3 |
+| UI | Rust frontend: system list, game list, favourites, recents, search *(after 0.1)*, launch, exit | M3 |
 | UI | Settings at three levels: global, per system, per game, with visible inheritance | M3 |
 | UI | In-game quick menu on a button combination: video, timing, core options, save states, input, quit | M3 |
 | UI | Skinnable through data files; one built-in skin readable at 240p | M3, skins M4+ |
@@ -39,9 +39,9 @@ The table is the full scope for the first public alpha. Milestones M0 to M4 are 
 | Platform | Analog out: VGA and DVI-I on x86; GPIO DPI (VGA666, RGB-Pi, Pi2SCART class) and composite on Pi | M1, composite M4 |
 | System | Game transfer over the network (SMB share, open on the LAN by default under a default hostname), USB storage, exFAT data partition; web uploader after alpha | M3 |
 | System | Network setup and language from the UI; clock set from network time at startup when a network is there, by hand otherwise; Bluetooth pairing after alpha | M3 |
-| System | Diagnostics page and one-button log export; SSH and SFTP on by default with a documented default password, changeable in settings | M3 |
+| System | Diagnostics page and one-button log export; SSH and SFTP on by default with a documented default password, changeable in settings *(after 0.1)* | M3 |
 | System | Safe shutdown from the power button (ACPI on x86, GPIO on Pi) with saves flushed first | M3 |
 | System | Burn-in protection: screensaver after idle in menus and while paused; on by default, can be switched off | M3 |
-| System | Read-only root, A/B signed updates with rollback | M4 |
+| System | Read-only root, A/B signed updates with rollback *(after 0.1)* | M4 |
 | System | Install to internal disk from the live USB image on x86 | M4 |
 | Developer | Agent control API and headless verification: screenshots, UI tree, input injection, simulated clock, local emulation on macOS and Linux. See the Implementation plan (`docs/plan/`) | M0 onward |

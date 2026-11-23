@@ -16,7 +16,7 @@ Twelve decisions are made. The open points below are a checklist: tick one when 
 | Test bench | i3-6100T on VGA with a Samsung SyncMaster 740s CRT; a Raspberry Pi 3B on composite; a European 15 kHz SCART TV. There is no VGA to SCART adapter yet, so 15 kHz from x86 is proven on the virtual display only until the community hardware matrix covers it. A VGA666 board for the Pi comes later |
 | UI rendering | The UI emits a scene of four primitive kinds. GLES draws it on hardware; the CPU reference renderer draws it in tests and the desktop window |
 | Burn-in | Screensaver after idle, on by default; `docs/spec/screensaver.md` defines it |
-| Network services | SMB open on the LAN under a default hostname; SSH and SFTP on with a default password; clock from network time at startup |
+| Network services | SMB open on the LAN under a default hostname; SSH and SFTP on with a default password *(after 0.1)*; clock from network time at startup |
 | Code and comments | Doc comments on every public item; comments only for limits, invariants and reasons; safety-critical code kept small and plain. Rules are in the Implementation plan (`docs/plan/`) |
 
 ### You decide
@@ -41,7 +41,7 @@ The default applies until the point is ticked. A different answer needs your app
   Answer: FBNeo at a pinned commit, with an arcade index made from its DAT (ADR 0014, `docs/spec/arcade.md`).
 - [ ] **Save compatibility.** Default: read RetroArch `.srm` names; save states are not compatible; `.m3u` and CHD through the cores. WP 3.3 and 3.4.
 - [ ] **Rewind, run-ahead, cheats.** Default: non-goals until after the alpha.
-- [ ] **Per-board performance list.** Default: `neptronctl bench` measures each system on each board in M2, and the table is committed.
+- [ ] **Per-board performance list.** Default: `neptronctl bench` *(after 0.1)* measures each system on each board in M2, and the table is committed.
 - [ ] **Custom monitor profiles.** Default: a `custom.toml` file, validated under the hard rails; no editor screen in the alpha.
 - [ ] **Fonts and languages.** Default: Latin scripts only in the alpha, with one permissively licensed pixel font.
   The font is Spleen under BSD-2-Clause (ADR 0004).
