@@ -497,7 +497,7 @@ name = "Raspberry Pi: the neptron.toml reader on the boot partition"
 owns = ["os/board/common/rootfs-overlay", "apps/neptron", "os/board/rpi", "os/board/pc"]
 needs = ["P04", "P06"]
 gate = "T2; boot check on aarch64 and x86_64"
-status = "in_progress"
+status = "merged"
 
 [[task]]
 id = "P08"
@@ -694,7 +694,7 @@ name = "The Raspberry Pi leftovers: the HDMI sound card named Analog (OP-102), t
 owns = ["crates/neptron-audio", "crates/neptron-modeline", "apps/neptron"]
 needs = ["M01"]
 gate = "T2; a check on the Pi"
-status = "pending"
+status = "in_progress"
 
 [[task]]
 id = "M11"
