@@ -2,7 +2,9 @@
 //! `neptron-input` to `Guard::recover`, with the record written.
 
 use neptron::NextRun;
+use neptron_backend::Display;
 use neptron_input::{BLIND_RECOVERY_HOLD_NS, QUICK_MENU_HOLD_NS};
+use neptron_testkit::preset::validated_mode;
 use neptron_types::Control;
 use neptron_video::{Phase, SafeReason};
 
@@ -302,53 +304,72 @@ fn the_blind_recovery_after_a_hot_plug_is_safe_for_the_new_monitor() {
     );
 }
 
-/// A read of sysfs that fails at the blind recovery keeps the detection of
-/// the boot: the run does not take the display for one with no EDID, and
-/// the log says that the read failed.
+/// A read of sysfs that fails at the blind recovery gives the safe default
+/// of a display with no EDID, never the EDID profile of the boot: the
+/// monitor can have changed during the run. The log says that the read
+/// failed, and names no change of monitor. Two cases: the PC CRT of the
+/// boot is still there, or a 15 kHz CRT with no EDID took its place.
 #[test]
 #[ignore = "tier 2"]
-fn a_failed_read_at_the_blind_recovery_keeps_the_detection_of_the_boot() {
+fn a_failed_read_at_the_blind_recovery_takes_no_edid() {
     in_child(
         &test_name(
             module_path!(),
-            "a_failed_read_at_the_blind_recovery_keeps_the_detection_of_the_boot",
+            "a_failed_read_at_the_blind_recovery_takes_no_edid",
         ),
         |dir| {
-            let mut rig = Rig::new(dir);
-            rig.output = "VGA-1".to_owned();
-            sysfs_with_vga(&rig.paths.sysfs, CRT_ANALOG);
-            rig.boot(None);
-            rig.frames(2);
-            let boot_mode = rig.display.active_mode().expect("a mode");
+            for swapped in [false, true] {
+                let root = dir.join(if swapped { "swapped" } else { "same" });
+                std::fs::create_dir_all(&root).expect("the folder");
+                let mut rig = Rig::new(&root);
+                rig.output = "VGA-1".to_owned();
+                sysfs_with_vga(&rig.paths.sysfs, CRT_ANALOG);
+                rig.boot(None);
+                rig.frames(2);
+                if swapped {
+                    sysfs_with_vga(&rig.paths.sysfs, &[]);
+                }
 
-            // The DRM folder of sysfs is no folder: its read fails.
-            let drm = rig.paths.sysfs.join("class/drm");
-            std::fs::remove_dir_all(&drm).expect("the DRM folder");
-            std::fs::write(&drm, b"").expect("a file in its place");
-            rig.hold(&[Control::Select, Control::Start]);
-            rig.until(HOLD_FRAMES, "the recovery", |r| {
-                r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
-            });
-            rig.release(&[Control::Select, Control::Start]);
-            rig.frames(10);
-            assert_eq!(
-                rig.shell().guard().safe().monitor.profile().id,
-                "edid_npt_0071",
-                "the EDID profile of the boot"
-            );
-            assert_eq!(rig.display.active_mode(), Some(boot_mode));
-            let lines = rig.shell().log_lines(100);
-            assert!(
-                lines
-                    .iter()
-                    .any(|l| l.contains("cannot read the display again")),
-                "{lines:?}"
-            );
-            assert!(
-                !lines.iter().any(|l| l.contains("changed from")),
-                "{lines:?}"
-            );
-            rig.finish();
+                // The DRM folder of sysfs is no folder: its read fails.
+                let drm = rig.paths.sysfs.join("class/drm");
+                std::fs::remove_dir_all(&drm).expect("the DRM folder");
+                std::fs::write(&drm, b"").expect("a file in its place");
+                let from = rig.display.mode_calls().len();
+                rig.hold(&[Control::Select, Control::Start]);
+                rig.until(HOLD_FRAMES, "the recovery", |r| {
+                    r.shell().guard().phase() == Phase::Safe(SafeReason::Recovery)
+                });
+                rig.release(&[Control::Select, Control::Start]);
+                rig.frames(10);
+                assert_eq!(
+                    rig.shell().guard().safe().monitor.profile().id,
+                    "generic_15",
+                    "swapped {swapped}"
+                );
+                let caps = *rig.display.caps();
+                let after = &rig.display.mode_calls()[from..];
+                assert!(!after.is_empty(), "the recovery sets a mode");
+                for call in after {
+                    if let Err(e) = validated_mode(&call.requested, "generic_15", &caps) {
+                        panic!(
+                            "swapped {swapped}: call {} is no mode of generic_15: {e}",
+                            call.call
+                        );
+                    }
+                }
+                let lines = rig.shell().log_lines(100);
+                assert!(
+                    lines
+                        .iter()
+                        .any(|l| l.contains("cannot read the display again")),
+                    "{lines:?}"
+                );
+                assert!(
+                    !lines.iter().any(|l| l.contains("changed from")),
+                    "{lines:?}"
+                );
+                rig.finish();
+            }
         },
     );
 }

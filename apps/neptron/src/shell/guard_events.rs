@@ -118,7 +118,8 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// action that the user holds for 5 s, and it must set a mode at once:
     /// a read on another thread would come after that mode, and a second
     /// thread in the safety path adds a way to fail. A read that fails
-    /// keeps the detection of the boot.
+    /// drops the EDID of the detection, so the safe default is that of a
+    /// display with no EDID.
     fn detect_again(&mut self) {
         let Some(caps) = self.with_engine(|_, engine| *engine.display().caps()) else {
             return;
@@ -145,9 +146,19 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 }
                 self.detected = detected;
             }
-            Err(e) => self.log(format!(
-                "display: cannot read the display again ({e}); the detection of the boot stays"
-            )),
+            Err(e) => {
+                self.log(format!(
+                    "display: cannot read the display again ({e}); the safe default takes no EDID"
+                ));
+                // The monitor can have changed during the run, so the EDID
+                // of the boot no longer counts. The identity of the place
+                // stays: nothing says that it changed.
+                self.detected = Detected {
+                    edid: None,
+                    panel: None,
+                    ..self.detected.clone()
+                };
+            }
         }
         self.follow_stored_monitor();
     }
