@@ -348,6 +348,11 @@ fn check_kernel_config_with(
     }
 }
 
+/// The kernel options of the packet filter of the network share.
+const FILTER_CONFIG: &str = "CONFIG_NETFILTER=y\nCONFIG_NETFILTER_XTABLES=y\n\
+    CONFIG_NETFILTER_XTABLES_LEGACY=y\nCONFIG_IP_NF_IPTABLES=y\n\
+    CONFIG_IP_NF_IPTABLES_LEGACY=y\nCONFIG_IP_NF_FILTER=y\n";
+
 /// The Pi kernel check fails on IPv6 built in, and on the module of
 /// `bcm2711_defconfig` unless the command line turns IPv6 off.
 #[test]
@@ -355,7 +360,7 @@ fn the_kernel_check_refuses_ipv6_unless_it_is_off() {
     let base = "CONFIG_DRM_VC4=y\nCONFIG_I2C_BCM2835=y\nCONFIG_SMB_SERVER=y\n\
                 CONFIG_BCM2835_WDT=y\nCONFIG_MMC_BLOCK=y\nCONFIG_MMC_BCM2835=y\n\
                 CONFIG_EROFS_FS=y\nCONFIG_EROFS_FS_ZIP=y\n";
-    let with = |ipv6: &str| format!("{base}{ipv6}");
+    let with = |ipv6: &str| format!("{base}{FILTER_CONFIG}{ipv6}");
     let off = check_kernel_config("ipv6off", true, Some(&with("# CONFIG_IPV6 is not set\n")));
     assert!(off.status.success(), "{off:?}");
     let builtin = check_kernel_config_with(
@@ -392,10 +397,12 @@ fn the_kernel_check_refuses_ipv6_unless_it_is_off() {
 
 #[test]
 fn the_kernel_check_refuses_a_mode_option_and_needs_the_watchdog() {
-    let good = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_VC4=y\n\
-                CONFIG_I2C_BCM2835=y\nCONFIG_SMB_SERVER=y\nCONFIG_BCM2835_WDT=y\n\
-                CONFIG_MMC_BLOCK=y\nCONFIG_MMC_BCM2835=y\nCONFIG_MMC_BCM2835_MMC=y\n\
-                CONFIG_EROFS_FS=y\nCONFIG_EROFS_FS_ZIP=y\n";
+    let good = &format!(
+        "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_VC4=y\n\
+         CONFIG_I2C_BCM2835=y\nCONFIG_SMB_SERVER=y\nCONFIG_BCM2835_WDT=y\n\
+         CONFIG_MMC_BLOCK=y\nCONFIG_MMC_BCM2835=y\nCONFIG_MMC_BCM2835_MMC=y\n\
+         CONFIG_EROFS_FS=y\nCONFIG_EROFS_FS_ZIP=y\n{FILTER_CONFIG}"
+    );
     let ok = check_kernel_config("ok", true, Some(good));
     assert!(ok.status.success(), "{ok:?}");
     let missing = check_kernel_config("missing", true, None);
@@ -467,6 +474,16 @@ fn the_kernel_check_refuses_a_mode_option_and_needs_the_watchdog() {
             "kerberos",
             "CONFIG_SMB_SERVER_KERBEROS5=y\n",
             "CONFIG_SMB_SERVER_KERBEROS5 is on",
+        ),
+        (
+            "filtermodule",
+            "CONFIG_IP_NF_FILTER=m\n",
+            "CONFIG_IP_NF_FILTER is not built in",
+        ),
+        (
+            "nolegacy",
+            "# CONFIG_NETFILTER_XTABLES_LEGACY is not set\n",
+            "CONFIG_NETFILTER_XTABLES_LEGACY is not built in",
         ),
     ] {
         let text = good

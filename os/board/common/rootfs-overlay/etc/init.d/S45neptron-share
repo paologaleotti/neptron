@@ -6,7 +6,11 @@
 # by writing or removing that file, then running this script with restart.
 #
 # Start must never delay the boot to the game list, so the daemons start
-# in a background job. Stop runs in rcK, before init unmounts the file
+# in a background job. The job first loads the packet filter that limits
+# the share to the local network (/etc/neptron/share-filter.rules), and
+# starts nothing when the load fails: the share stays off rather than
+# open to every address. The rules replace the whole filter table, so a
+# restart loads them again with no duplicate. Stop runs in rcK, before init unmounts the file
 # systems: it closes every session of a client, so no file is open on the
 # share partition at the unmount, and the data of a copy reaches the disk.
 
@@ -39,6 +43,10 @@ start() {
 		return
 	fi
 	(
+		if ! iptables-legacy-restore /etc/neptron/share-filter.rules; then
+			echo "neptron-share: the packet filter did not load, so the share stays off"
+			exit 0
+		fi
 		if ksmbd.mountd; then
 			echo "neptron-share: the SMB server serves /share"
 		else

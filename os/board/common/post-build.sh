@@ -5,7 +5,12 @@
 # The mdnsd package installs its own init script, which would start mdnsd
 # whatever the switch of the network share says, with the services of
 # /etc/mdns.d. S45neptron-share starts mdnsd only when the share is on,
-# with its own service folder, so the package script goes.
+# with its own service folder, so the package script goes. The iptables
+# package installs S35iptables, which loads /etc/iptables.conf and flushes
+# every rule at stop; S45neptron-share loads the filter of the share
+# itself, so that script goes too. check-share-filter.sh fails the build
+# when the filter, the tool that loads it, or its load in
+# S45neptron-share is missing.
 #
 # S40neptron-network starts DHCP in the background. Buildroot does not
 # install ifupdown-scripts again when BR2_SYSTEM_DHCP changes, so an output
@@ -47,7 +52,7 @@ target=$1
 "$(dirname "$0")/check-arcade-index.sh" "$target"
 "$(dirname "$0")/check-gamecontrollerdb.sh" "$BR2_CONFIG" "$target"
 
-rm -f "$target/etc/init.d/S50mdnsd" "$target/etc/init.d/S41neptron-address"
+rm -f "$target/etc/init.d/S50mdnsd" "$target/etc/init.d/S41neptron-address" "$target/etc/init.d/S35iptables"
 mkdir -p "$target/mnt/host"
 
 interfaces=$target/etc/network/interfaces
@@ -67,6 +72,7 @@ for path in etc/init.d/S45neptron-share etc/ksmbd/ksmbd.conf etc/ksmbd/ksmbd.sub
 		exit 1
 	fi
 done
+"$(dirname "$0")/check-share-filter.sh" "$target"
 
 mdev_conf=$target/etc/mdev.conf
 mdev_rule='SUBSYSTEM=net;(eth|en).*	root:root 600 */usr/libexec/neptron/net-hotplug'

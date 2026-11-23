@@ -5,10 +5,11 @@
 # transport and no Kerberos, the watchdog driver must be built in (the
 # power-off and the reboot of a Pi go through it), and vc4 must be built
 # in with the I2C controller of the HDMI DDC bus. The drivers of the root
-# filesystem on the SD card must be built in, and IPv6 must be off. The
-# fragments set these options, but another option can select one again.
-# Exits with 0 when all hold, else with 1 and one line for each fault. A
-# missing or unreadable file is a fault.
+# filesystem on the SD card must be built in, the packet filter of the
+# network share must be built in, and IPv6 must be off. The fragments set
+# these options, but another option can select one again. Exits with 0
+# when all hold, else with 1 and one line for each fault. A missing or
+# unreadable file is a fault.
 #
 # Usage: check-kernel-config.sh BR2_CONFIG BUILD_DIR [CMDLINE]
 #
@@ -29,6 +30,8 @@ DISPLAY_ON="DRM_VC4 I2C_BCM2835"
 # card itself. The Pi 3 reads its card through the sdhost controller
 # (MMC_BCM2835); sdhci-iproc is the card host of the Pi 4, not needed here.
 ROOT_ON="MMC_BLOCK MMC_BCM2835 EROFS_FS EROFS_FS_ZIP"
+# The packet filter that limits the network share to the local network.
+FILTER_ON="NETFILTER NETFILTER_XTABLES NETFILTER_XTABLES_LEGACY IP_NF_IPTABLES IP_NF_IPTABLES_LEGACY IP_NF_FILTER"
 
 br2_config=$1
 build_dir=$2
@@ -94,6 +97,12 @@ done
 for option in $ROOT_ON; do
 	if ! has "$option" y; then
 		echo "check-kernel-config: CONFIG_$option is not built in in $config; the kernel mounts the root from the SD card with no initramfs" >&2
+		status=1
+	fi
+done
+for option in $FILTER_ON; do
+	if ! has "$option" y; then
+		echo "check-kernel-config: CONFIG_$option is not built in in $config; the packet filter of the network share needs it" >&2
 		status=1
 	fi
 done

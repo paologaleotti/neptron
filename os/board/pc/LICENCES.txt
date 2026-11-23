@@ -86,6 +86,8 @@ The network share (SMB) uses these programs:
   3-Clause licence) and libffi (MIT licence).
 - `mdnsd`, which gives the name `neptron.local` on the network: BSD
   3-Clause licence.
+- `iptables`, which limits the share to the local network: GNU General
+  Public License 2.0.
 
 Firmware
 --------

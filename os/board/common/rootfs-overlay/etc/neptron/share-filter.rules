@@ -1,0 +1,28 @@
+# The packet filter of the network share, for iptables-legacy-restore.
+# S45neptron-share loads it before it starts the SMB server and mDNS, and
+# starts neither when the load fails.
+#
+# The share is open to guests, read-write, so only clients on the local
+# network may reach it: loopback, the private IPv4 ranges of RFC 1918, and
+# the link-local range. Any other source, such as a host on the internet
+# when the PC has a public address, gets no answer on TCP 445 (SMB) and
+# UDP 5353 (mDNS). ksmbd-tools 3.5.2 has no address limit of its own:
+# "hosts allow" compares the client address as an exact string, with no
+# range or mask. The images have no IPv6, so no IPv6 rule is needed.
+#
+# board/common/check-share-filter.sh fails the build when the rule lines
+# of this file are not exactly these.
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:neptron-lan - [0:0]
+-A INPUT -p tcp -m tcp --dport 445 -j neptron-lan
+-A INPUT -p udp -m udp --dport 5353 -j neptron-lan
+-A neptron-lan -s 127.0.0.0/8 -j ACCEPT
+-A neptron-lan -s 10.0.0.0/8 -j ACCEPT
+-A neptron-lan -s 172.16.0.0/12 -j ACCEPT
+-A neptron-lan -s 192.168.0.0/16 -j ACCEPT
+-A neptron-lan -s 169.254.0.0/16 -j ACCEPT
+-A neptron-lan -j DROP
+COMMIT

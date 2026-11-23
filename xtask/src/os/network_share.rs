@@ -437,10 +437,256 @@ fn write_fifo(path: &Path, text: &'static str) {
     .unwrap_or_else(|message| panic!("{message}"))
 }
 
+/// A filter that does not load keeps the share off: the server and mDNS
+/// never start open to every address.
+#[test]
+fn a_filter_that_does_not_load_keeps_the_share_off() {
+    let dir = TempDir::create("nofilter");
+    let done = dir.path("done");
+    mkfifo(&done);
+    dir.fake(
+        "iptables-legacy-restore",
+        &format!(
+            "echo \"iptables-legacy-restore $*\" >> \"$LOG\"; echo done > \"{}\"; exit 1",
+            done.display()
+        ),
+    );
+    dir.logging_fakes(&["ksmbd.mountd", "start-stop-daemon"]);
+    let (ok, out) = dir.run(SHARE_SCRIPT, "start");
+    assert!(ok, "{out}");
+    assert_eq!(read_fifo(&done), "done\n");
+    // The job prints its line after the fake ends; wait for it with a
+    // bound, as the other waits of this file do.
+    let path = dir.path("start.out");
+    let out = bounded("the line of the share job", move || {
+        loop {
+            let text = std::fs::read_to_string(&path).unwrap();
+            if text.contains("the share stays off") {
+                return text;
+            }
+            std::thread::yield_now();
+        }
+    })
+    .unwrap_or_else(|message| panic!("{message}"));
+    assert!(out.contains("the packet filter did not load"), "{out}");
+    assert_eq!(
+        dir.log(),
+        "iptables-legacy-restore /etc/neptron/share-filter.rules\n",
+        "nothing starts"
+    );
+}
+
+/// The filter rules that the check expects, for the fixtures below.
+const FILTER_RULES: &str = "board/common/rootfs-overlay/etc/neptron/share-filter.rules";
+
+/// Builds a fake target with the share filter, the tool that loads it and
+/// the init script, changes it with `change`, and runs
+/// check-share-filter.sh on it.
+fn check_share_filter(name: &str, change: impl FnOnce(&Path)) -> std::process::Output {
+    let dir = TempDir::create(&format!("filter-{name}"));
+    let target = dir.path("target");
+    for (rel, from) in [
+        ("etc/neptron/share-filter.rules", FILTER_RULES),
+        ("etc/init.d/S45neptron-share", SHARE_SCRIPT),
+    ] {
+        let path = target.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, read(from)).unwrap();
+    }
+    std::fs::create_dir_all(target.join("usr/sbin")).unwrap();
+    std::fs::write(target.join("usr/sbin/xtables-legacy-multi"), "").unwrap();
+    std::os::unix::fs::symlink(
+        "xtables-legacy-multi",
+        target.join("usr/sbin/iptables-legacy-restore"),
+    )
+    .unwrap();
+    change(&target);
+    Command::new("sh")
+        .arg(os_dir().join("board/common/check-share-filter.sh"))
+        .arg(&target)
+        .output()
+        .unwrap()
+}
+
+/// Replaces `from` with `to` in the file `rel` of a fake target.
+fn edit(target: &Path, rel: &str, from: &str, to: &str) {
+    let path = target.join(rel);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(from), "{rel} has no {from}");
+    std::fs::write(&path, text.replacen(from, to, 1)).unwrap();
+}
+
+/// The build fails when the image loses the address limit of the share:
+/// a changed rule, no filter file, no tool to load it, no load in the
+/// init script, or the package script that flushes it.
+#[test]
+fn the_filter_check_refuses_an_image_without_the_address_limit() {
+    let ok = check_share_filter("ok", |_| ());
+    assert!(ok.status.success(), "{ok:?}");
+    const RULES: &str = "etc/neptron/share-filter.rules";
+    let comment = check_share_filter("comment", |t| {
+        edit(t, RULES, "*filter", "# A comment.\n\n*filter")
+    });
+    assert!(
+        comment.status.success(),
+        "comments change no rule: {comment:?}"
+    );
+    type Change = Box<dyn FnOnce(&Path)>;
+    let cases: [(&str, Change, &str); 9] = [
+        (
+            "nodrop",
+            Box::new(|t| edit(t, RULES, "-A neptron-lan -j DROP\n", "")),
+            "are not the ones",
+        ),
+        (
+            "any",
+            Box::new(|t| {
+                edit(
+                    t,
+                    RULES,
+                    "-A neptron-lan -s 127.0.0.0/8",
+                    "-A neptron-lan -s 0.0.0.0/0 -j ACCEPT\n-A neptron-lan -s 127.0.0.0/8",
+                )
+            }),
+            "are not the ones",
+        ),
+        (
+            "wide",
+            Box::new(|t| edit(t, RULES, "10.0.0.0/8", "10.0.0.0/1")),
+            "are not the ones",
+        ),
+        (
+            "nojump",
+            Box::new(|t| {
+                edit(
+                    t,
+                    RULES,
+                    "-A INPUT -p tcp -m tcp --dport 445 -j neptron-lan\n",
+                    "",
+                )
+            }),
+            "are not the ones",
+        ),
+        (
+            "accept",
+            Box::new(|t| {
+                edit(
+                    t,
+                    RULES,
+                    "-A INPUT -p tcp",
+                    "-A INPUT -j ACCEPT\n-A INPUT -p tcp",
+                )
+            }),
+            "are not the ones",
+        ),
+        (
+            "norules",
+            Box::new(|t| std::fs::remove_file(t.join(RULES)).unwrap()),
+            "has no /etc/neptron/share-filter.rules",
+        ),
+        (
+            "notool",
+            Box::new(|t| std::fs::remove_file(t.join("usr/sbin/iptables-legacy-restore")).unwrap()),
+            "has no /usr/sbin/iptables-legacy-restore",
+        ),
+        (
+            "noload",
+            Box::new(|t| {
+                edit(
+                    t,
+                    "etc/init.d/S45neptron-share",
+                    "if ! iptables-legacy-restore /etc/neptron/share-filter.rules; then",
+                    "if false; then",
+                )
+            }),
+            "does not load the filter",
+        ),
+        (
+            "s35",
+            Box::new(|t| std::fs::write(t.join("etc/init.d/S35iptables"), "").unwrap()),
+            "S35iptables",
+        ),
+    ];
+    for (name, change, fault) in cases {
+        let out = check_share_filter(name, change);
+        assert!(!out.status.success(), "{name}");
+        let text = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(text.contains(fault), "{name}: {text}");
+    }
+}
+
+/// Every image limits the share to the local network with the packet
+/// filter: the package, the kernel options and both kernel checks, and the
+/// post-build step that checks the image.
+#[test]
+fn every_image_filters_the_share_to_the_local_network() {
+    let filter = [
+        "CONFIG_NETFILTER",
+        "CONFIG_NETFILTER_XTABLES",
+        "CONFIG_NETFILTER_XTABLES_LEGACY",
+        "CONFIG_IP_NF_IPTABLES",
+        "CONFIG_IP_NF_IPTABLES_LEGACY",
+        "CONFIG_IP_NF_FILTER",
+    ];
+    for (defconfig, fragment) in [
+        (
+            "configs/neptron_pc_x86_64_defconfig",
+            "board/pc/network.config",
+        ),
+        (
+            "configs/neptron_qemu_aarch64_defconfig",
+            "board/qemu/network.config",
+        ),
+        (
+            "configs/neptron_rpi_arm64_defconfig",
+            "board/rpi/network.config",
+        ),
+    ] {
+        let options = parse(&read(defconfig));
+        assert_eq!(
+            options.get("BR2_PACKAGE_IPTABLES").map(String::as_str),
+            Some("y"),
+            "{defconfig}"
+        );
+        assert!(
+            !options.contains_key("BR2_PACKAGE_IPTABLES_NFTABLES_DEFAULT"),
+            "{defconfig}: the share loads the legacy tables"
+        );
+        let kernel = parse(&read(fragment));
+        for option in filter {
+            assert_eq!(
+                kernel.get(option).map(String::as_str),
+                Some("y"),
+                "{fragment} {option}"
+            );
+        }
+    }
+    let names = filter.map(|o| o.trim_start_matches("CONFIG_")).join(" ");
+    for rel in [
+        "board/pc/check-kernel-config.sh",
+        "board/rpi/check-kernel-config.sh",
+    ] {
+        let line = format!("FILTER_ON=\"{names}\"");
+        assert!(read(rel).lines().any(|l| l == line), "{rel} misses {line}");
+    }
+    let post_build = read("board/common/post-build.sh");
+    assert!(post_build.contains("\"$target/etc/init.d/S35iptables\""));
+    assert!(post_build.contains("\"$(dirname \"$0\")/check-share-filter.sh\" \"$target\""));
+    for dev in [
+        "configs/neptron_pc_x86_64_dev.fragment",
+        "configs/neptron_pc_x86_64_no15khz.fragment",
+        "configs/neptron_rpi_arm64_dev.fragment",
+    ] {
+        let fragment = parse(&read(dev));
+        assert!(!fragment.contains_key("BR2_PACKAGE_IPTABLES"), "{dev}");
+    }
+}
+
 #[test]
 fn the_off_switch_keeps_the_server_and_mdns_down() {
     let dir = TempDir::create("off");
     dir.logging_fakes(&[
+        "iptables-legacy-restore",
         "ksmbd.mountd",
         "start-stop-daemon",
         "ksmbd.control",
@@ -458,6 +704,7 @@ fn the_off_switch_keeps_the_server_and_mdns_down() {
 #[test]
 fn the_share_starts_in_the_background_and_never_delays_the_boot() {
     let dir = TempDir::create("start");
+    dir.logging_fakes(&["iptables-legacy-restore"]);
     let gate = dir.path("gate");
     let done = dir.path("done");
     mkfifo(&gate);
@@ -480,16 +727,18 @@ fn the_share_starts_in_the_background_and_never_delays_the_boot() {
     );
     let (ok, out) = dir.run(SHARE_SCRIPT, "start");
     assert!(ok, "{out}");
-    assert_eq!(
-        dir.log(),
-        "",
+    assert!(
+        !dir.log().contains("ksmbd.mountd"),
         "the script returned before the server started"
     );
     write_fifo(&gate, "go\n");
     assert_eq!(read_fifo(&done), "done\n");
     assert_eq!(
         dir.log(),
-        "ksmbd.mountd \nstart-stop-daemon --start --quiet --exec /usr/sbin/mdnsd -- /etc/neptron/mdns.d\n"
+        "iptables-legacy-restore /etc/neptron/share-filter.rules\n\
+         ksmbd.mountd \n\
+         start-stop-daemon --start --quiet --exec /usr/sbin/mdnsd -- /etc/neptron/mdns.d\n",
+        "the filter is in place before the server listens"
     );
 }
 
@@ -551,7 +800,13 @@ fn restart_starts_the_daemons_only_after_the_old_ones_ended() {
     let dir = TempDir::create("restart");
     let done = dir.path("done");
     mkfifo(&done);
-    dir.logging_fakes(&["ksmbd.control", "usleep", "sync", "ksmbd.mountd"]);
+    dir.logging_fakes(&[
+        "ksmbd.control",
+        "usleep",
+        "sync",
+        "iptables-legacy-restore",
+        "ksmbd.mountd",
+    ]);
     // The old daemons end after three looks.
     dir.fake(
         "pidof",
@@ -587,6 +842,7 @@ fn restart_starts_the_daemons_only_after_the_old_ones_ended() {
             // The check for the line that says a daemon still runs.
             "pidof mdnsd ksmbd.mountd",
             "sync",
+            "iptables-legacy-restore /etc/neptron/share-filter.rules",
             "ksmbd.mountd",
             "start-stop-daemon --start --quiet --exec /usr/sbin/mdnsd -- /etc/neptron/mdns.d",
         ],
@@ -654,11 +910,24 @@ fn post_build(dir: &TempDir, interfaces: &str, read_only: bool) -> (bool, String
         "etc/ksmbd/ksmbdpwd.db",
         "etc/neptron/mdns.d/smb.service",
         "etc/init.d/S50mdnsd",
+        "etc/init.d/S35iptables",
     ] {
         let file = target.join(path);
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(&file, "").unwrap();
     }
+    std::fs::write(
+        target.join("etc/init.d/S45neptron-share"),
+        read(SHARE_SCRIPT),
+    )
+    .unwrap();
+    std::fs::write(
+        target.join("etc/neptron/share-filter.rules"),
+        read(FILTER_RULES),
+    )
+    .unwrap();
+    std::fs::create_dir_all(target.join("usr/sbin")).unwrap();
+    std::fs::write(target.join("usr/sbin/iptables-legacy-restore"), "").unwrap();
     std::fs::write(target.join("etc/mdev.conf"), MDEV_CONF).unwrap();
     udhcpc_files(&target);
     let file = target.join("etc/network/interfaces");
@@ -669,6 +938,7 @@ fn post_build(dir: &TempDir, interfaces: &str, read_only: bool) -> (bool, String
     }
     let out = run_post_build(dir);
     assert!(!target.join("etc/init.d/S50mdnsd").exists());
+    assert!(!target.join("etc/init.d/S35iptables").exists());
     (
         out.status.success(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -760,6 +1030,23 @@ fn the_post_build_checks_the_udhcpc_hook_and_removes_the_old_address_script() {
     assert!(!out.status.success());
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("no /usr/bin/flock"),
+        "{out:?}"
+    );
+}
+
+/// The post-build step of every image runs the filter check: an image
+/// without the filter of the share fails the build.
+#[test]
+fn the_post_build_fails_an_image_without_the_share_filter() {
+    let dir = TempDir::create("post-build-filter");
+    let (ok, err, _) = post_build(&dir, "auto lo\niface lo inet loopback\n", false);
+    assert!(ok, "{err}");
+    let rules = dir.path("target").join("etc/neptron/share-filter.rules");
+    std::fs::write(&rules, "*filter\nCOMMIT\n").unwrap();
+    let out = run_post_build(&dir);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("are not the ones"),
         "{out:?}"
     );
 }

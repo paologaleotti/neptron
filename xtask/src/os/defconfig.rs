@@ -650,6 +650,11 @@ mod tests {
         out
     }
 
+    /// The kernel options of the packet filter of the network share.
+    const FILTER_CONFIG: &str = "CONFIG_NETFILTER=y\nCONFIG_NETFILTER_XTABLES=y\n\
+        CONFIG_NETFILTER_XTABLES_LEGACY=y\nCONFIG_IP_NF_IPTABLES=y\n\
+        CONFIG_IP_NF_IPTABLES_LEGACY=y\nCONFIG_IP_NF_FILTER=y\n";
+
     /// The guest share must not be reachable over IPv6: the check fails
     /// on IPv6 built in, and on a module unless the command line turns
     /// IPv6 off.
@@ -658,7 +663,7 @@ mod tests {
         let base =
             "CONFIG_SMB_SERVER=y\nCONFIG_ACPI=y\nCONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y\n";
         let run = |name: &str, ipv6: &str, cmdline: Option<&str>| {
-            let text = format!("{base}{ipv6}");
+            let text = format!("{base}{FILTER_CONFIG}{ipv6}");
             check_kernel_config_with(name, Some("6.18.63"), &[("6.18.63", Some(&text))], cmdline)
         };
         let off = run("ipv6off", "# CONFIG_IPV6 is not set\n", None);
@@ -710,7 +715,9 @@ mod tests {
 
     #[test]
     fn the_kernel_check_reads_the_configured_kernel_and_every_mode_option() {
-        let off = "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\nCONFIG_SMB_SERVER=y\nCONFIG_ACPI=y\nCONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y\n";
+        let off = &format!(
+            "# CONFIG_VT is not set\n# CONFIG_FB is not set\nCONFIG_DRM_I915=y\nCONFIG_SMB_SERVER=y\nCONFIG_ACPI=y\nCONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y\n{FILTER_CONFIG}"
+        );
         let ok = check_kernel_config("off", Some("6.18.63"), &[("6.18.63", Some(off))]);
         assert!(ok.status.success(), "{ok:?}");
         let missing = check_kernel_config("missing", Some("6.18.63"), &[("6.18.63", None)]);
@@ -786,6 +793,21 @@ mod tests {
                 "rdma",
                 "CONFIG_SMB_SERVER=y\nCONFIG_SMB_SERVER_SMBDIRECT=y\n",
                 "CONFIG_SMB_SERVER_SMBDIRECT is on",
+            ),
+            (
+                "nofilter",
+                "CONFIG_SMB_SERVER=y\n# CONFIG_NETFILTER is not set\n",
+                "CONFIG_NETFILTER is not built in",
+            ),
+            (
+                "nolegacy",
+                "CONFIG_NETFILTER=y\nCONFIG_NETFILTER_XTABLES=y\nCONFIG_IP_NF_IPTABLES=y\n",
+                "CONFIG_NETFILTER_XTABLES_LEGACY is not built in",
+            ),
+            (
+                "filtermodule",
+                "CONFIG_IP_NF_FILTER=m\n",
+                "CONFIG_IP_NF_FILTER is not built in",
             ),
         ] {
             let out = check_kernel_config(name, Some("6.18.63"), &[("6.18.63", Some(text))]);

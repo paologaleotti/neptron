@@ -59,3 +59,7 @@ BR2_PACKAGE_NEPTRON_CAPTURE=y
 # server listen.
 BR2_PACKAGE_KSMBD_TOOLS=y
 BR2_PACKAGE_MDNSD=y
+# The packet filter of the network share: only clients on the local
+# network reach it (etc/neptron/share-filter.rules). The legacy tool, with
+# no nftables library; the package turns on the kernel options it needs.
+BR2_PACKAGE_IPTABLES=y
