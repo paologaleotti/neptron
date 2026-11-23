@@ -183,6 +183,10 @@ pub(super) const SCENES: &[SceneDef] = &[
         build: notice_game_ended,
     },
     SceneDef {
+        name: "screens/notice-slow-speed",
+        build: notice_slow_speed,
+    },
+    SceneDef {
         name: "screens/quick-menu",
         build: quick_menu,
     },
@@ -1589,6 +1593,17 @@ fn notice_game_ended(frame: &mut UiFrame, theme: &Theme) {
         theme,
         "Astro Racer stopped: the core ended the game. The core says: \"abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abc...\".",
         NoticeKind::Error,
+    );
+}
+
+/// The notice of a game that the machine cannot keep at full speed, with
+/// a speed of two digits, the longest text of the speed notices.
+fn notice_slow_speed(frame: &mut UiFrame, theme: &Theme) {
+    notice_over_list(
+        frame,
+        theme,
+        "This game runs at 41% speed. This machine is too slow for it.",
+        NoticeKind::Warning,
     );
 }
 
