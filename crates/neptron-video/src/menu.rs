@@ -27,14 +27,15 @@ pub enum TurnedMenuMode {
     Progressive,
 }
 
-/// The mode of the turned menu that the app uses. The owner has not
-/// decided it yet (question T3 of `docs/spec/tate.md`); this is the
-/// proposed default of the spec.
+/// The mode of the turned menu that the app uses: the proposed default
+/// of question T3 of `docs/spec/tate.md`. It is an interim placement
+/// until the portrait canvas of the UI exists.
 pub const TURNED_MENU_MODE: TurnedMenuMode = TurnedMenuMode::Interlaced;
 
 /// The source that the policy plans for the menu source `menu` on a
 /// screen at `screen`, with the mode of the turned menu `choice`. The
 /// canvas turns with the screen in every case; only the mode changes.
+/// It is an interim placement until the portrait canvas of the UI exists.
 pub const fn menu_plan_source(
     choice: TurnedMenuMode,
     screen: Rotation,
