@@ -2,8 +2,8 @@
 //! how much of the canvas the monitor shows.
 //!
 //! The pattern does not follow the skin: its pixels are fixed, so one
-//! photo of a monitor compares with another. On the 320x240 canvas it
-//! draws, in this order:
+//! photo of a monitor compares with another. It covers the canvas of the
+//! form. On the 320x240 canvas it draws, in this order:
 //!
 //! 1. Black on every pixel.
 //! 2. The grid, grey `#808080`, lines two pixels wide, centred on the
@@ -25,12 +25,11 @@
 //! that cuts the border but shows the four corner marks shows the safe
 //! area, so every menu is visible.
 
-use crate::canvas::{UI_HEIGHT, UI_WIDTH};
 use crate::frame::UiFrame;
 use crate::geom::{Color, Rect};
 use crate::input::UiAction;
+use crate::metrics::Metrics;
 use crate::text::Align;
-use crate::theme::SAFE_AREA;
 
 use super::chrome;
 use super::router::Nav;
@@ -52,9 +51,6 @@ const CROSS: Color = Color::WHITE;
 const MARK: Color = Color::rgb(0xF0, 0xC0, 0x30);
 const CAPTION: &str = "Back: return";
 
-const CENTRE_X: i32 = (UI_WIDTH / 2) as i32;
-const CENTRE_Y: i32 = (UI_HEIGHT / 2) as i32;
-
 /// Accept or back closes the pattern. The other actions do nothing, so a
 /// player can touch the pad while adjusting the monitor.
 pub(super) fn handle(action: UiAction) -> Nav {
@@ -64,44 +60,46 @@ pub(super) fn handle(action: UiAction) -> Nav {
     }
 }
 
-pub(super) fn draw(frame: &mut UiFrame) {
+pub(super) fn draw(frame: &mut UiFrame, metrics: &Metrics) {
+    let (width, height) = (metrics.canvas.width(), metrics.canvas.height());
+    let (centre_x, centre_y) = ((width / 2) as i32, (height / 2) as i32);
     let scene = &mut frame.scene;
-    scene.rect(Rect::new(0, 0, UI_WIDTH, UI_HEIGHT), Color::BLACK);
-    for k in 1..UI_WIDTH / GRID_PITCH_PX {
+    scene.rect(metrics.canvas.rect(), Color::BLACK);
+    for k in 1..width / GRID_PITCH_PX {
         let x = (k * GRID_PITCH_PX) as i32 - 1;
-        scene.rect(Rect::new(x, 0, LINE_PX, UI_HEIGHT), GRID);
+        scene.rect(Rect::new(x, 0, LINE_PX, height), GRID);
     }
-    let rows = CENTRE_Y / GRID_PITCH_PX as i32;
+    let rows = centre_y / GRID_PITCH_PX as i32;
     for j in -rows..=rows {
-        let y = CENTRE_Y + j * GRID_PITCH_PX as i32 - 1;
-        scene.rect(Rect::new(0, y, UI_WIDTH, LINE_PX), GRID);
+        let y = centre_y + j * GRID_PITCH_PX as i32 - 1;
+        scene.rect(Rect::new(0, y, width, LINE_PX), GRID);
     }
     for edge in [
-        Rect::new(0, 0, UI_WIDTH, 1),
-        Rect::new(0, UI_HEIGHT as i32 - 1, UI_WIDTH, 1),
-        Rect::new(0, 0, 1, UI_HEIGHT),
-        Rect::new(UI_WIDTH as i32 - 1, 0, 1, UI_HEIGHT),
+        Rect::new(0, 0, width, 1),
+        Rect::new(0, height as i32 - 1, width, 1),
+        Rect::new(0, 0, 1, height),
+        Rect::new(width as i32 - 1, 0, 1, height),
     ] {
         scene.rect(edge, BORDER);
     }
     let half = (CROSS_PX / 2) as i32;
     scene.rect(
-        Rect::new(CENTRE_X - 1, CENTRE_Y - half, LINE_PX, CROSS_PX),
+        Rect::new(centre_x - 1, centre_y - half, LINE_PX, CROSS_PX),
         CROSS,
     );
     scene.rect(
-        Rect::new(CENTRE_X - half, CENTRE_Y - 1, CROSS_PX, LINE_PX),
+        Rect::new(centre_x - half, centre_y - 1, CROSS_PX, LINE_PX),
         CROSS,
     );
-    draw_corner_marks(frame);
-    draw_caption(frame);
+    draw_corner_marks(frame, metrics.safe);
+    draw_caption(frame, metrics.safe, centre_x);
 }
 
-fn draw_corner_marks(frame: &mut UiFrame) {
-    let left = SAFE_AREA.x;
-    let top = SAFE_AREA.y;
-    let right = (SAFE_AREA.right() - i64::from(LINE_PX)) as i32;
-    let bottom = (SAFE_AREA.bottom() - i64::from(LINE_PX)) as i32;
+fn draw_corner_marks(frame: &mut UiFrame, safe: Rect) {
+    let left = safe.x;
+    let top = safe.y;
+    let right = (safe.right() - i64::from(LINE_PX)) as i32;
+    let bottom = (safe.bottom() - i64::from(LINE_PX)) as i32;
     let arm = MARK_ARM_PX as i32 - LINE_PX as i32;
     for (x, y, dx, dy) in [
         (left, top, 0, 0),
@@ -118,11 +116,11 @@ fn draw_corner_marks(frame: &mut UiFrame) {
     }
 }
 
-fn draw_caption(frame: &mut UiFrame) {
+fn draw_caption(frame: &mut UiFrame, safe: Rect, centre_x: i32) {
     let width = crate::font::text_width(CAPTION) + 2 * CAPTION_PAD_PX;
     let height = crate::font::GLYPH_HEIGHT + 1;
-    let x = CENTRE_X - (width / 2) as i32;
-    let y = (SAFE_AREA.bottom() - i64::from(height)) as i32;
+    let x = centre_x - (width / 2) as i32;
+    let y = (safe.bottom() - i64::from(height)) as i32;
     let caption = Rect::new(x, y, width, height);
     frame.scene.rect(caption, Color::BLACK);
     let text = Rect::new(x, y + 1, width, height - 1);
@@ -133,11 +131,19 @@ fn draw_caption(frame: &mut UiFrame) {
 mod tests {
     use super::*;
     use crate::canvas::CpuCanvas;
+    use crate::metrics::Form;
+
+    const UI_WIDTH: u32 = Form::Landscape.size().width();
+    const UI_HEIGHT: u32 = Form::Landscape.size().height();
 
     fn canvas() -> CpuCanvas {
+        canvas_of(Form::Landscape)
+    }
+
+    fn canvas_of(form: Form) -> CpuCanvas {
         let mut frame = UiFrame::new();
-        draw(&mut frame);
-        let mut canvas = CpuCanvas::new();
+        draw(&mut frame, &Metrics::of(form, &crate::Theme::default()));
+        let mut canvas = CpuCanvas::with_size(form.size());
         frame.render(&mut canvas);
         canvas
     }
@@ -216,7 +222,7 @@ mod tests {
     #[test]
     fn the_caption_box_is_where_the_doc_says() {
         let mut frame = UiFrame::new();
-        draw(&mut frame);
+        draw(&mut frame, &Metrics::default());
         let boxes: Vec<_> = frame
             .scene
             .commands()
@@ -227,7 +233,27 @@ mod tests {
             })
             .collect();
         assert_eq!(boxes.last(), Some(&Rect::new(120, 215, 80, 13)));
-        assert!(SAFE_AREA.contains(&Rect::new(120, 215, 80, 13)));
+        assert!(
+            Form::Landscape
+                .safe_area()
+                .contains(&Rect::new(120, 215, 80, 13))
+        );
+    }
+
+    #[test]
+    fn the_portrait_pattern_covers_the_portrait_canvas() {
+        let c = canvas_of(Form::Portrait);
+        for (x, y) in [(0, 0), (239, 0), (0, 319), (239, 319)] {
+            assert_eq!(at(&c, x, y), BORDER, "{x},{y}");
+        }
+        for (x, y) in [(119, 144), (120, 175), (104, 159), (135, 160)] {
+            assert_eq!(at(&c, x, y), CROSS, "{x},{y}");
+        }
+        for (x, y) in [(12, 16), (227, 16), (12, 303), (227, 303)] {
+            assert_eq!(at(&c, x, y), MARK, "{x},{y}");
+        }
+        assert_eq!(at(&c, 15, 60), GRID);
+        assert_eq!(at(&c, 72, 15), GRID);
     }
 
     #[test]

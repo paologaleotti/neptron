@@ -436,7 +436,7 @@ impl Screens {
     fn draw(&self, snap: &Snapshot, out: &mut UiFrame) {
         if let Some(frames) = snap.screensaver {
             out.tree.set_screen(screensaver::SCREENSAVER_SCREEN);
-            screensaver::draw(frames, out);
+            screensaver::draw(frames, self.metrics.canvas, out);
             return;
         }
         let (theme, metrics) = (&self.theme, &self.metrics);
@@ -473,7 +473,7 @@ impl Screens {
             }
             Some(Screen::Grid) => {
                 out.tree.set_screen("pattern/grid");
-                pattern::draw(out);
+                pattern::draw(out, metrics);
             }
             Some(Screen::Game) | None => {
                 out.tree.set_screen("game");

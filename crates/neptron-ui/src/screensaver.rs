@@ -9,10 +9,10 @@
 //! the two axes at different frames, and the path would shake on a panel
 //! that shows each canvas pixel as several of its own.
 
-use crate::canvas::{UI_HEIGHT, UI_WIDTH};
 use crate::font;
 use crate::frame::UiFrame;
 use crate::geom::{Color, Rect};
+use crate::metrics::Size;
 
 /// The screen id of the screensaver in the tree.
 pub const SCREENSAVER_SCREEN: &str = "screensaver";
@@ -112,12 +112,11 @@ pub fn pose(frames: u64, width: u32, height: u32) -> Pose {
     }
 }
 
-/// Draws the screensaver on the UI canvas, `frames` UI frames after its
-/// start.
-pub fn draw(frames: u64, out: &mut UiFrame) {
-    let pose = pose(frames, UI_WIDTH, UI_HEIGHT);
-    out.scene
-        .rect(Rect::new(0, 0, UI_WIDTH, UI_HEIGHT), Color::BLACK);
+/// Draws the screensaver on a UI canvas of `canvas`, `frames` UI frames
+/// after its start. The walls are the edges of that canvas.
+pub fn draw(frames: u64, canvas: Size, out: &mut UiFrame) {
+    let pose = pose(frames, canvas.width(), canvas.height());
+    out.scene.rect(canvas.rect(), Color::BLACK);
     let x = i32::try_from(pose.x).unwrap_or(0);
     let y = i32::try_from(pose.y).unwrap_or(0);
     let mut left = x;
@@ -237,6 +236,9 @@ fn axis(frames: u64, side: u32, mark: u32) -> (u32, u128) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics::Form;
+
+    const LANDSCAPE: Size = Form::Landscape.size();
 
     const MINUTE_NS: u64 = 60_000_000_000;
     const FIVE_MINUTES_NS: u64 = 5 * MINUTE_NS;
@@ -438,14 +440,14 @@ mod tests {
     #[test]
     fn the_word_is_the_font_at_twice_its_size() {
         let mut frame = UiFrame::new();
-        draw(0, &mut frame);
+        draw(0, LANDSCAPE, &mut frame);
         let mut canvas = crate::canvas::CpuCanvas::new();
         frame.render(&mut canvas);
         let mut small = UiFrame::new();
         small.scene.text_run(0, 0, RED, WORDMARK);
         let mut reference = crate::canvas::CpuCanvas::new();
         small.render(&mut reference);
-        let start = pose(0, UI_WIDTH, UI_HEIGHT);
+        let start = pose(0, LANDSCAPE.width(), LANDSCAPE.height());
         for y in 0..font::GLYPH_HEIGHT {
             for x in 0..WORDMARK.len() as u32 * font::ADVANCE {
                 let lit = reference.pixel(x, y) == Some(RED);
@@ -489,13 +491,27 @@ mod tests {
     }
 
     #[test]
+    fn the_portrait_word_stays_inside_the_portrait_canvas() {
+        let portrait = Form::Portrait.size();
+        for n in [0, 1, 155, 156, 295, 296, 1000] {
+            let mut frame = UiFrame::new();
+            draw(n, portrait, &mut frame);
+            let mut canvas = crate::canvas::CpuCanvas::with_size(portrait);
+            frame.render(&mut canvas);
+            let p = pose(n, portrait.width(), portrait.height());
+            assert!(p.x + WORDMARK_WIDTH_PX <= 240, "{n}: {p:?}");
+            assert!(p.y + WORDMARK_HEIGHT_PX <= 320, "{n}: {p:?}");
+        }
+    }
+
+    #[test]
     fn a_frame_of_the_screensaver_does_not_allocate_after_the_first() {
         let mut frame = UiFrame::new();
-        draw(0, &mut frame);
+        draw(0, LANDSCAPE, &mut frame);
         let capacity = frame.scene.capacity();
         for n in 1..600 {
             frame.clear();
-            draw(n, &mut frame);
+            draw(n, LANDSCAPE, &mut frame);
             assert_eq!(frame.scene.capacity(), capacity);
         }
     }

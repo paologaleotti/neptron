@@ -54,7 +54,6 @@ pub fn render(scene: &SceneDef, theme: &Theme, frame: &mut UiFrame, canvas: &mut
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::theme::SAFE_AREA;
 
     #[test]
     fn names_are_valid_and_unique() {
@@ -85,7 +84,8 @@ mod tests {
             let mut frame = UiFrame::new();
             (scene.build)(&mut frame, &Theme::default());
             for row in frame.tree.rows() {
-                assert!(SAFE_AREA.contains(&row.rect), "{}: {row:?}", scene.name);
+                let safe = crate::Metrics::default().safe;
+                assert!(safe.contains(&row.rect), "{}: {row:?}", scene.name);
             }
         }
     }
