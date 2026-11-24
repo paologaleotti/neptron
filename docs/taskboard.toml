@@ -484,7 +484,7 @@ status = "merged"
 [[task]]
 id = "C19"
 wave = 11
-name = "After 0.1: A second network share for saves and states (OP-092)"
+name = "After 0.1, with TATE mode: the saves live on the share partition, in a saves folder beside roms and bios, as Recalbox does; no second network share (OP-092, OP-117)"
 owns = ["os", "docs/spec/network-share.md", "xtask/src/os"]
 needs = ["C13", "P06"]
 gate = "T1; the boot checks and the share check"
