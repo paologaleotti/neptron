@@ -106,11 +106,11 @@ Every SSH call of these three commands uses the SSH agent or key of the user and
 
 ### Screen simulator
 
-`docs/spec/screen-simulator.md` defines the model, the measures and the flags.
+The simulator lives in `neptron_testkit::screen`; `docs/spec/screen-simulator.md` defines the model, the measures and the flags. xtask does not depend on it: `cargo xtask screen ARGS` runs `cargo run -p neptron-testkit --example screen -- ARGS` under the machine-load rules, then turns each PPM file the simulator wrote under `target/screen/` into a PNG file (the writer of `src/ui/png.rs`) and draws the labels of the contact sheets with the UI font.
 
-- `cargo xtask screen --display D --source S [--set KEY=VALUE]...`: runs one core frame of source S through `VideoEngine` on the fake display of `neptron-testkit`, with the policy settings that `neptron-video` builds from the setting values, as the app does. D is a preset of `data/monitors`, a TV standard (`ntsc`, `pal`, ...) or a flat panel `WxH@RATE`; `--gpu ID` takes another entry of `data/hardware/matrix.toml`. S is a reference source of the policy (`snes`, `psx`, ...), an arcade set of `docs/spec/arcade-table.md` (`rtype`), or `WxH@RATE` with `--aspect`, `--rotate`, `--interlaced` and `--arcade`. The picture is a test pattern with numbered lines, or `--frame FILE.ppm`. It writes `frame.png`, `wire.png` (the frame buffer of the mode), `glass.png` (the model of the screen, 1440x1080 by default, `--size`, `--overscan`, `--turn`, `--exact` for 1:1 crops of a panel) and `measures.json` to `target/screen/<case>/`, and prints the measures as one table row. No ROM and no core is used.
-- `cargo xtask screen survey [--display D]... [--source S]...`: runs every picture mode and every refresh rate for each display and source (default: 7 displays, 13 sources, 1001 cases, a few minutes) and writes `target/screen/survey/`: a contact sheet `<display>.png` per display, and `survey.md` and `survey.json` with the measures and the flags, the suspicious rows first.
-- `cargo xtask screen golden [--bless]`: compares the glass of the eight reference cases with `xtask/tests/golden/screen/<case>.ppm`; `--bless` writes them. Look at each PNG in `target/screen/golden/` first (rule 11). A unit test of xtask runs the same comparison and asserts the measures of each case.
+- `cargo xtask screen --display D --source S [--set KEY=VALUE]...`: one case. It writes `frame.png`, `wire.png` (the frame buffer of the mode), `glass.png` (the model of the screen) and `measures.json` to `target/screen/<case>/` and prints the measures as one table row.
+- `cargo xtask screen survey [--display D]... [--source S]...`: every picture mode and every refresh rate for each display and source (default: 7 displays, 13 sources, 1001 cases, a few minutes). It writes `target/screen/survey/`: a contact sheet `<display>.png` per display, `survey.md` and `survey.json` with the rows to look at first, and the glass of each row to look at in `look/<display>/`.
+- `cargo xtask screen golden [--bless]`: compares the glass of the reference cases with `crates/neptron-testkit/tests/golden/screen/<case>.ppm`; `--bless` writes them. Look at each PNG in `target/screen/golden/` first (rule 11). A unit test of `neptron-testkit` runs the same comparison and asserts the measures of each case.
 
 ## Rule checker
 
@@ -176,19 +176,18 @@ Before its first step, each guest build removes the target directories of checko
 
 ## Dependencies
 
-- `neptron-ui`: the scene registry, the CPU canvas and the golden format for `shot`, `gallery` and `golden`. The PNG files are written by a small encoder in `src/ui/png.rs` (stored deflate blocks), so no image crate is needed.
+- `neptron-ui`: the scene registry, the CPU canvas and the golden format for `shot`, `gallery` and `golden`. The PNG files are written by a small encoder in `src/ui/png.rs` (one deflate block of fixed Huffman codes over a greedy LZ77 match), so no image crate is needed.
 - `signal-hook`: sets a flag on SIGTERM, SIGHUP and SIGINT, so that `qemu` stops its QEMU child before it exits. It needs `unsafe` code to install a handler, which xtask forbids in its own code. It is small: it pulls in `libc` (already in the build) and `signal-hook-registry`.
 - `neptron-library`: the encoder of the arcade index, so the index is written by the code that the frontend reads it with.
 - `roxmltree`: reads the DAT for `arcade-index`. A read-only XML tree with no dependency but `memchr`, MIT or Apache-2.0. Only xtask has XML code; the image has none.
 - `serde_json`: reads `cargo metadata` and Cargo build messages, and writes the report.
 - `thiserror`: each module owns its error enum, as the code standards ask.
-- `neptron-video`, `neptron-modeline`, `neptron-testkit`, `neptron-platform`, `neptron-settings`, `neptron-types`: the screen simulator runs the decision path of the app (the engine, its settings functions and the fake display with the reference renderer), reads the TV picture constants of the policy, the GPU table and the settings schema. They are workspace crates that the workspace build compiles anyway; xtask links them, so a change to one of them rebuilds xtask.
 
 Arguments are parsed by hand, and the slot lock uses `std::fs::File::try_lock`, to keep the compile time low.
 
 ## Must never depend on
 
-- Any NEPTRON crate except `neptron-ui` (for `shot`, `gallery` and `golden`), `neptron-library` (for `arcade-index`, as `docs/spec/arcade.md` section 6 asks), and the crates of the decision path for `screen` (`neptron-video`, `neptron-modeline`, `neptron-testkit`, `neptron-platform`, `neptron-settings`, `neptron-types`).
+- Any NEPTRON crate except `neptron-ui` (for `shot`, `gallery` and `golden`) and `neptron-library` (for `arcade-index`, as `docs/spec/arcade.md` section 6 asks).
 - Heavy crates: every dependency must justify its compile time.
 
 ## Rules

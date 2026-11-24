@@ -64,16 +64,17 @@ commands:
   golden [--bless] [scene...]
                        compare UI scenes with their golden images; --bless
                        writes the golden of each scene that differs
-  screen --display D --source S [--set KEY=VALUE]... [--gpu ID]
-         [--aspect A] [--rotate R] [--interlaced] [--arcade]
-         [--frame FILE.ppm] [--overscan PERCENT] [--size WxH]
-         [--turn 0|90|180|270] [--exact] [--out NAME]
-                       simulate a screen: the mode and the scene of the
-                       app for source S on display D (a preset id, a TV
-                       standard such as ntsc or pal, or a panel WxH@RATE),
-                       the frame buffer of the mode (wire.png), what the
-                       screen shows (glass.png) and the measures; writes
-                       target/screen/<case>/
+  screen --display D --source S [--set KEY=VALUE]... [options]
+  screen survey [--display D]... [--source S]...
+  screen golden [--bless]
+                       run the screen simulator of neptron-testkit: the
+                       mode and the scene of the app for source S on
+                       display D (a preset id, a TV standard such as ntsc
+                       or pal, or a panel WxH@RATE), the frame buffer of
+                       the mode (wire.png), what the screen shows
+                       (glass.png) and the measures, in target/screen/;
+                       the survey writes contact sheets and survey.md
+                       (docs/spec/screen-simulator.md has every option)
   os build [--arch A] [--jobs N] [--dev-key FILE] [--no-kernel-15khz]
            [--output NAME] [-- make targets...]
                        build the image of target A with Buildroot in the
