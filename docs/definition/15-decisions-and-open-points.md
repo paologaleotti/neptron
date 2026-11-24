@@ -13,7 +13,7 @@ Twelve decisions are made. The open points below are a checklist: tick one when 
 | Autonomy | Claude Code builds the whole MVP without human review. You answer only open points and architecture decisions |
 | Safety limits | Generated from the shipped Switchres presets, not typed by hand; see the safety model |
 | Taskboard | Every task has a binding brief, and the shared contracts are written in the Implementation plan (`docs/plan/`) |
-| Test bench | i3-6100T on VGA with a Samsung SyncMaster 740s CRT; a Raspberry Pi 3B on composite; a European 15 kHz SCART TV. There is no VGA to SCART adapter yet, so 15 kHz from x86 is proven on the virtual display only until the community hardware matrix covers it. A VGA666 board for the Pi comes later |
+| Test bench | i3-6100T on VGA with a Samsung SyncMaster 750s CRT; a Raspberry Pi 3B on composite; a European 15 kHz SCART TV. There is no VGA to SCART adapter yet, so 15 kHz from x86 is proven on the virtual display only until the community hardware matrix covers it. A VGA666 board for the Pi comes later |
 | UI rendering | The UI emits a scene of four primitive kinds. GLES draws it on hardware; the CPU reference renderer draws it in tests and the desktop window |
 | Burn-in | Screensaver after idle, on by default; `docs/spec/screensaver.md` defines it |
 | Network services | SMB open on the LAN under a default hostname; SSH and SFTP on with a default password *(after 0.1)*; clock from network time at startup |

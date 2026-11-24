@@ -16,21 +16,21 @@ Two limits of the images decide where a check can run:
 - Keep these files with each result: the JSON report of the tool, and the output of `dmesg | tail -50` after the run. A photo of the screen helps when the picture is wrong.
 - Run every tool as root on a text console, with no X or Wayland. Stop the frontend and the launcher before a tool that opens the DRM device (`neptronctl selftest video`, `kms-spike`, `gles_compare`).
 
-## 1. PC i3-6100T with the VGA CRT (SyncMaster 740s)
+## 1. PC i3-6100T with the VGA CRT (SyncMaster 750s)
 
 - Computer: Intel i3-6100T with Intel HD 530 (i915, capability table entry `intel_gen9`).
-- Monitor: Samsung SyncMaster 740s, a 31 kHz PC CRT, through a DisplayPort to VGA bridge. Its preset is `pc_31_120`: 31.4 to 31.6 kHz, 100 to 130 Hz for 200 to 256 lines, 50 to 65 Hz for 400 to 512 lines, no interlace.
+- Monitor: Samsung SyncMaster 750s, a 31 kHz PC CRT, through a DisplayPort to VGA bridge. Its preset is `pc_31_120`: 31.4 to 31.6 kHz, 100 to 130 Hz for 200 to 256 lines, 50 to 65 Hz for 400 to 512 lines, no interlace.
 - Also needed for some checks: a USB gamepad, a USB keyboard, a second console (SSH or another virtual terminal).
 
 Results recorded: none on the CRT.
 
-### Safety rules for the 740s
+### Safety rules for the 750s
 
-The frontend falls back to its safe default when it has no settings, after two failed boots, and on blind recovery. The safe default is the EDID profile when the monitor gives EDID, and else `generic_15` (15 kHz). A 15 kHz signal is out of range for the 740s. It is deliberate on an unknown display, but do not send it to this monitor.
+The frontend falls back to its safe default when it has no settings, after two failed boots, and on blind recovery. The safe default is the EDID profile when the monitor gives EDID, and else `generic_15` (15 kHz). A 15 kHz signal is out of range for the 750s. It is deliberate on an unknown display, but do not send it to this monitor.
 
 - Do the check "Find the VGA connector" first. Its result decides the rest:
   - **EDID**: the `edid` file of the connector is not empty. The safe default is the EDID profile, and every check below can run.
-  - **No EDID**: the file is empty. Before the frontend starts with the 740s connected, write the preset into `/state/config/global.toml` (`[display]` with `monitor = "pc_31_120"`), and confirm the boot prompt within 15 s (`CONFIRM_WINDOW_NS`); with no confirmation the guard reverts to the safe default. Skip each check marked "Needs EDID", and write "skipped: no EDID through the bridge" under it.
+  - **No EDID**: the file is empty. Before the frontend starts with the 750s connected, write the preset into `/state/config/global.toml` (`[display]` with `monitor = "pc_31_120"`), and confirm the boot prompt within 15 s (`CONFIRM_WINDOW_NS`); with no confirmation the guard reverts to the safe default. Skip each check marked "Needs EDID", and write "skipped: no EDID through the bridge" under it.
 - Keep a hand on the power switch of the monitor. Switch the monitor off at once if it whines, clicks, or shows a rolling or folded picture, and write down what the tool or the frontend showed at that moment.
 - A check marked "Needs EDID" can make the frontend fall back to the safe default.
 
@@ -45,9 +45,9 @@ Do these before the CRT gets a mode that nobody checked on it. First boot the im
 - [ ] `needs-hardware` **Check the ranges before the first mode.**
   - Do: `neptronctl selftest video --profile pc_31_120 --connector <name> --report /tmp/dry-pc.json`. If the `edid` file is not empty, also `neptronctl selftest video --profile edid --connector <name> --report /tmp/dry-edid.json`.
   - Expect: the dry run sets no mode. It prints the ranges of the profile, the GPU values (table entry `intel_gen9`, pixel clock 25 to 165 MHz, no interlace) and the modes: 240p at 120 Hz (`240p_double_refresh`), 480p, 768x224 at 120 Hz (`super_width_dynamic`) and 1920x224 at 120 Hz (`super_width_fixed`).
-  - Record: compare each range with the manual of the 740s. Write down the modes and the EDID profile id (`edid_...`) and its ranges.
-- [ ] `needs-hardware` **The first start on the 740s.**
-  - Do: with **EDID**, boot the image with only the CRT connected and no settings file. With **no EDID**, do not boot with no settings: write `pc_31_120` into the settings first (see "Safety rules for the 740s"), boot, and confirm the boot prompt.
+  - Record: compare each range with the manual of the 750s. Write down the modes and the EDID profile id (`edid_...`) and its ranges.
+- [ ] `needs-hardware` **The first start on the 750s.**
+  - Do: with **EDID**, boot the image with only the CRT connected and no settings file. With **no EDID**, do not boot with no settings: write `pc_31_120` into the settings first (see "Safety rules for the 750s"), boot, and confirm the boot prompt.
   - Expect: with EDID, the frontend uses the EDID profile and shows the game list. With no EDID, it uses `pc_31_120` and shows the game list. No noise comes from the tube.
   - Record: which case it was, what the monitor shows, and which profile the frontend log names.
 - [ ] `needs-hardware` **The output can be turned off.** (C07)
@@ -106,7 +106,7 @@ Keep the JSON report and `dmesg | tail -50` of every run of the spike.
   - Record: the commit that was built.
 - [ ] `needs-hardware` **Dry run of the spike.**
   - Do: `kms-spike pc_31_120 --connector <name>`.
-  - Expect: the printed ranges match the manual of the 740s. The restore plan is "output off", because the console mode fails `pc_31_120`.
+  - Expect: the printed ranges match the manual of the 750s. The restore plan is "output off", because the console mode fails `pc_31_120`.
   - Record: the restore plan.
 - [ ] `needs-hardware` **Confirmed run of the spike.**
   - Do: `kms-spike pc_31_120 --connector <name> --i-have-checked-the-monitor`.
@@ -193,7 +193,7 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
   - Expect: each frame draws and presents within one frame period.
   - Record: the missed vertical blanks over 600 frames.
 - [ ] `needs-hardware` **Scanline strength.**
-  - Do: show 2x black scanlines at 100, 75 and 50 percent on the 740s.
+  - Do: show 2x black scanlines at 100, 75 and 50 percent on the 750s.
   - Expect: the lines read as gaps at a brightness that looks right.
   - Record: the value that looks right.
 - [ ] `needs-hardware` **No moiré from the bridge.**
@@ -204,7 +204,7 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
 ### Policy (C02, C09)
 
 - [ ] `needs-hardware` **Double refresh for `native` on 31 kHz.**
-  - Do: play a 240-line game with the style `native` on the 740s (`pc_31_120`).
+  - Do: play a 240-line game with the style `native` on the 750s (`pc_31_120`).
   - Expect: the mode runs at double refresh near 120 Hz, and the notice shows. The motion is smooth, at the right speed.
   - Record: the mode in the quick menu, and what the motion looks like.
 - [ ] `needs-hardware` **A narrow mode with a whole-kHz clock.** (C09)
@@ -215,7 +215,7 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
 ### Engine and guard (T26)
 
 - [ ] `needs-hardware` **A change with no button press reverts.** (MVP exit)
-  - Do: on the 740s, change the monitor profile and press nothing. For the MVP exit, do it on the EDID profile of the 740s (Needs EDID).
+  - Do: on the 750s, change the monitor profile and press nothing. For the MVP exit, do it on the EDID profile of the 750s (Needs EDID).
   - Expect: the change reverts 15 s after its picture appears.
   - Record: the time to the revert.
 - [ ] `needs-hardware` **A confirmed change stays.**
@@ -263,14 +263,14 @@ Run these with the real frontend path (`KmsDisplay::from_env` from the launcher)
 Each check is `needs-hardware`. `docs/spec/display-guard.md` describes the rules.
 
 - [ ] With EDID through the bridge, no settings file. Do: boot. Expect: the EDID profile with no prompt and no notice. Record: the mode.
-- [ ] No EDID, `pc_31_120` written in `global.toml`. Do: boot and press nothing. Expect: the boot prompt; 15 s after the 31 kHz picture appears, the 15 kHz safe start comes back (out of range on the 740s). Record: the time from the picture to the revert.
+- [ ] No EDID, `pc_31_120` written in `global.toml`. Do not run this check on the 750s: with no answer the guard reverts to the 15 kHz safe start, which this monitor does not take (see the safety rules above). The revert of an unanswered prompt is checked on the 15 kHz TV and in the tier 2 tests. Write "skipped: 31 kHz monitor".
 - [ ] No EDID, `pc_31_120` written. Do: boot, press Right, then Accept within the window. Expect: Keep is taken at once (no wait after the press), no "Display change undone" notice, and the next boot has no prompt. Record: the notices.
-- [ ] Blind recovery on this monitor, with and without EDID. Do: hold Select and Start for 5 s. Expect: the safe default with the tone; in Settings, Display, the row "Keep this picture" ends safe mode. Record: what the monitor shows.
+- [ ] Blind recovery on this monitor, with EDID only (with no EDID the safe default is 15 kHz: skip it and write "skipped: no EDID"). Do: hold Select and Start for 5 s. Expect: the safe default with the tone; in Settings, Display, the row "Keep this picture" ends safe mode. Record: what the monitor shows.
 - [ ] A named 15 kHz preset with an analog EDID of a PC monitor: `arcade_15` written in `global.toml`, and a VGA EDID emulator (or a KVM) that reports 30 to 70 kHz in front of a PC CRT, never in front of a 15 kHz tube. Do: boot and press nothing; then boot again; then hold Select and Start for 5 s. Expect: the boot prompt, then the 15 kHz safe start (out of range on the PC CRT); `global.toml` names `generic_15`, not `auto`; the next boot and the recovery send 15 kHz too. Record: the line rate of each mode in the log of the frontend.
 
 ### The bridge is a CRT output (C08)
 
-- [ ] The bench (DP-to-VGA bridge, SyncMaster 740s). Do: start with `display.monitor = "auto"` and read the display panel. Expect: the CRT path, never the panel path; the limits are 165 MHz and 1920x1200. Record: the `subconnector` value and the profile id.
+- [ ] The bench (DP-to-VGA bridge, SyncMaster 750s). Do: start with `display.monitor = "auto"` and read the display panel. Expect: the CRT path, never the panel path; the limits are 165 MHz and 1920x1200. Record: the `subconnector` value and the profile id.
 
 ## 2. PC i3-6100T on a flat panel
 
@@ -1055,7 +1055,7 @@ A 15 kHz tube with `generic_15` is on the PC in these images, and the PC has no 
   - Do: set Screensaver time to 1 minute in Settings > Display. Leave the game list for 2 minutes, then pause a game with the quick menu and leave it for 2 minutes. Read the frame statistics of the control protocol before and after.
   - Expect: the screensaver starts after 1 minute in both places. The count of missed flips does not grow while it runs. The word moves smoothly, one pixel at a time, with no stutter.
   - Record: the missed flips before and after each wait, and the render time of the frame statistics.
-- [ ] `needs-hardware` **The screensaver on a CRT.** A 15 kHz tube with `generic_15`, and the SyncMaster 740s with `pc_31_120`.
+- [ ] `needs-hardware` **The screensaver on a CRT.** A 15 kHz tube with `generic_15`, and the SyncMaster 750s with `pc_31_120`.
   - Do: let the screensaver start in the game list. Watch it for 1 minute, then press a button.
   - Expect: a black screen with the word NEPTRON, sharp, that bounces at each edge of the screen and takes a new colour at each wall. No colour looks white or bright. No part of the word leaves the visible area. The mode does not change (no resync). The button brings back the menu as it was, and does not open the focused row.
   - Record: a photo of the screensaver, and whether the word reaches the edges inside the visible area.

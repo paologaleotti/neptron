@@ -46,7 +46,7 @@ The state column is one line. The full entry below is the reference.
 | OP-009 | No hotplug event, no device other than a RetroPad | Absent |
 | OP-010 | Transparent UI canvas | Opaque |
 | OP-014 | One sync and porch set per EDID range | Largest GTF porches |
-| OP-015 | Real EDID of the SyncMaster 740s | Bench check |
+| OP-015 | Real EDID of the SyncMaster 750s | Bench check |
 | OP-016 | A flat panel in a custom file skips the rails | Accepted |
 | OP-017 | No hard rail above 40 kHz | The profile is the only limit |
 | OP-018 | Sync polarity and GPU size in `validate` | Not checked |
@@ -270,7 +270,7 @@ The state column is one line. The full entry below is the reference.
 - Where: `crates/neptron-platform/src/gtf.rs`, `profile.rs`
 - How to change: one `CrtRange` per line-rate band.
 
-### OP-015: The real EDID of the SyncMaster 740s is not checked.
+### OP-015: The real EDID of the SyncMaster 750s is not checked.
 
 - Raised by: T11
 - Status: open, bench check

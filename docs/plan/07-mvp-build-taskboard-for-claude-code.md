@@ -169,7 +169,7 @@ Each brief lists what the task must deliver and the choices that are already mad
 | --- | --- | --- |
 | Automated | Claude Code | `cargo xtask verify --tier 3` is green on Linux, tier 2 is green on macOS, and T4 is green for the three cores |
 | Any monitor | You, 10 minutes | The USB image boots to the game list; each core plays with sound and a gamepad; the quick menu quits to the list |
-| SyncMaster 740s, profile from its EDID | You, 15 minutes | The self-test report shows the programmed modes; 480p, the 2x picture style and 240p at 120 Hz are stable; confirm-or-revert reverts with no button press; blind recovery restores the safe mode |
+| SyncMaster 750s, profile from its EDID | You, 15 minutes | The self-test report shows the programmed modes; 480p, the 2x picture style and 240p at 120 Hz are stable; confirm-or-revert reverts with no button press; blind recovery restores the safe mode |
 | SCART TV, 15 kHz profile | Not required for the MVP; you or the community, when an adapter is there | 288p at 50 Hz, 240p at 60 Hz and 576i are stable |
 
 The taskboard covers WP 0.1 to 0.6, 1.1 to 1.7 and 2.1 to 2.5, and the minimum of 2.6, 2.7, 3.1 to 3.3. The work packages in `08-work-packages.md` stay the full plan to the alpha.

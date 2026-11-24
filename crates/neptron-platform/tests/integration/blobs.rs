@@ -2,7 +2,7 @@
 //! (release A, revision 1 for EDID 1.3; release A, revision 2 for EDID 1.4).
 //!
 //! No blob is the EDID of a real monitor. `pc_crt_30_71` describes a
-//! 17-inch PC CRT of the SyncMaster 740s class: 30 to 71 kHz, 50 to
+//! 17-inch PC CRT of the SyncMaster 750s class: 30 to 71 kHz, 50 to
 //! 160 Hz. Its manufacturer id `NPT` and its product code are made up.
 
 /// Byte offsets in the base block.

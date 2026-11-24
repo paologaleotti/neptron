@@ -56,7 +56,7 @@ Use the connector name that `--list-connectors` printed in place of `DP-1`.
 
 What to expect at the end: the console of a desktop kernel runs at a 31 kHz-and-higher mode, for example 1024x768, which fails validation for `pc_31_120`. So the tool switches the output off at the end, and it says so before the first modeset. With fbdev emulation the kernel console then takes the display back in its own mode when the tool closes the device. This is expected, and it is not a failure of the restore.
 
-The SyncMaster 740s is a 31 kHz and higher PC monitor. On it, 240p shows at 120 Hz and 480p at 60 Hz. 480i cannot be tested on a 31 kHz monitor: it needs a preset with an interlaced range, and every shipped 31 kHz range and the 31 kHz hard rails refuse interlace. To measure Intel interlace and a native low pixel clock, use a 15 kHz preset on a 15 kHz display, for example:
+The SyncMaster 750s is a 31 kHz and higher PC monitor. On it, 240p shows at 120 Hz and 480p at 60 Hz. 480i cannot be tested on a 31 kHz monitor: it needs a preset with an interlaced range, and every shipped 31 kHz range and the 31 kHz hard rails refuse interlace. To measure Intel interlace and a native low pixel clock, use a 15 kHz preset on a 15 kHz display, for example:
 
 ```sh
 kms-spike ntsc --connector DP-1 --width 640 --allow-low-pclock 6000000 --allow-interlace
