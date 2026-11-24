@@ -662,7 +662,7 @@ What the game gets (`PadMask` in `neptron-session`), on each port of the core:
 
 TATE is a screen turned on its side. It gives a vertical game its native mode: DoDonPachi as 320x240 at 57.55 Hz, 240p, every pixel exact, no flicker. This is the best picture a CRT can give a vertical game, and a strong reason for a vertical cabinet. It needs the UI turned too, so it is a separate task: the first task after version 0.1 (OP-107).
 
-The owner decided the shape of TATE on 2026-11-19 (OP-107). [`tate.md`](tate.md) is the spec: the decisions, the turn of every case, the mode policy, the turned UI, the input, the settings and the work packages. ADR 0020 (proposed) records the turned UI canvas in `Scene`. The design notes of this section moved to that spec, section 14, each with its outcome.
+The owner decided the shape of TATE on 2026-11-19 (OP-107). [`tate.md`](tate.md) is the spec: the decisions, the turn of every case, the mode policy, the turned UI, the input, the settings and the work packages. ADR 0020 records the turned UI canvas in `Scene`. The design notes of this section moved to that spec, section 14, each with its outcome.
 
 ## 16. Where the code is
 

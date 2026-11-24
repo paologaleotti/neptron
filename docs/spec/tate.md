@@ -2,7 +2,7 @@
 
 This spec defines how NEPTRON drives a display that stands turned: the screen orientation, the game orientation, the turn of every picture, the mode policy, the UI, the input and the settings. It settles OP-107. ADR 0020 records the change to the `Scene` contract. Task N01 builds it in the work packages of section 12.
 
-A mark **Proposed default** names a point that the owner's decisions do not settle. Each one is in the list of section 13 as a question for the owner.
+The owner accepted this design on 2026-11-24 ("ok yes to all, start the work packages"). A mark **Decision: Owner, 2026-11-24** names a point that was a question of section 13. A mark **Proposed default** names a point that is still open: the turned menu on a 15 kHz CRT or a TV (T3) and the quick menu over a game there (T4). The owner decides them after the screen simulator (task N02) shows them.
 
 ## 1. The owner's decisions
 
@@ -51,7 +51,7 @@ A screen at 270 ("Turned right") has line 0 at the right, and each line runs fro
 
 **Game orientation** (`G`). The turn, counter-clockwise, that the frame as drawn needs to be upright for the player on a screen at 0. It is the value of `SET_ROTATION`: `R0` for a horizontal board, `R90` for DoDonPachi. A game is **vertical** when `G` is `R90` or `R270`, and **horizontal** when it is `R0` or `R180`.
 
-**Override** (`O`). The per-game setting `display.rotation`: Auto, or a fixed `G`. A fixed value replaces the core's `G`. It does not change the frame, the aspect or the input. Its use is a game whose core reports no turn or a wrong one. It is not a way to turn a horizontal game to fill a turned screen (section 10).
+**Override** (`O`). The per-game setting `display.rotation`: Auto, or a fixed `G`. A fixed value replaces the core's `G` (Decision: Owner, 2026-11-24, T1). It does not change the frame, the aspect or the input. Its use is a game whose core reports no turn or a wrong one. It is not a way to turn a horizontal game to fill a turned screen (section 10).
 
 **Turn** (`R`). The turn of the game picture relative to the scan-out, the value of `Scene::rotation`:
 
@@ -204,7 +204,7 @@ What the numbers say:
 
 **A later version adds (b)**, the portrait layout, for the 15 kHz tube and the TV. ADR 0020 is made so that (b) needs no second contract change: the canvas `Frame` carries its own size, `ui_rotation` turns any canvas, and the destination rule of section 6.4 is written for a canvas of any size.
 
-Proposed default: the turned menu takes the policy's answer for the turned `MENU_SOURCE` with the settings the menu uses today. On `generic_15` that is interlaced 1:1. The menu has no picture mode of its own.
+Proposed default (T3): interlaced 1:1. The turned menu takes the policy's answer for the turned `MENU_SOURCE` with the settings the menu uses today. On `generic_15` that is interlaced 1:1. The menu has no picture mode of its own. The owner decides after the screen simulator (task N02) shows the turned menu on a 15 kHz CRT and a TV.
 
 ### 6.4 Where the turned canvas goes
 
@@ -232,7 +232,7 @@ Every screen draws into the canvas, and the engine turns the canvas by `U`: the 
 
 The game picture and the canvas are two layers with two turns. A vertical game on a screen at 90 has `R = R0`; the canvas has `U = R270`. The renderer draws the game, then the canvas over it, each with its own turn, into its own rectangle. The quick menu, the keep prompt of the quick menu, the dialogs over a game and the notices over a running game all show this way. The mode stays the game's mode, so the canvas takes the size of section 6.2 (soft at 240p).
 
-Proposed default: opening the quick menu does not change the mode. A change to the menu's mode at each open and close would cost two re-syncs of the tube.
+Proposed default (T4): no mode change. Opening the quick menu does not change the mode. A change to the menu's mode at each open and close would cost two re-syncs of the tube. The owner decides after the screen simulator (task N02) shows the quick menu over a game on a 15 kHz CRT and a TV.
 
 ### 7.3 The screensaver
 
@@ -240,7 +240,7 @@ The screensaver draws in the canvas, so it bounces in the turned frame with no c
 
 ### 7.4 Notices
 
-- **A horizontal game on a turned screen** (the owner's notice). When `S` is 90 or 270 and the game is across with the override at Auto (or at the game's own orientation), the app adds one sentence to the picture notice of the quick menu (`apps/neptron/src/shell/picture.rs`), which shows at the first picture of each start of the game: "Horizontal game on a turned screen: it shows upright, at a smaller size." Proposed default: at each start, as the other picture notices. No new `NoticeReason`: the policy does not know the screen orientation, and the app does.
+- **A horizontal game on a turned screen** (the owner's notice). When `S` is 90 or 270 and the game is across with the override at Auto (or at the game's own orientation), the app adds one sentence to the picture notice of the quick menu (`apps/neptron/src/shell/picture.rs`), which shows at the first picture of each start of the game: "Horizontal game on a turned screen: it shows upright, at a smaller size." Decision: Owner, 2026-11-24 (T7): one sentence in the picture notice at each start, as the other picture notices. No new `NoticeReason`: the policy does not know the screen orientation, and the app does.
 - **The one-time notice of an interlaced picture across the lines** (`VERTICAL_INTERLACED` in `apps/neptron/src/notices.rs`). It fires when a picture across the lines gets the interlaced rung on a 15 kHz CRT or a TV. Its last sentence changes, because TATE now exists: "Settings > Display > Screen orientation turns the menus and the games for a screen on its side." A second id, `horizontal_interlaced`, has its own text for a horizontal game across a turned screen: "This is a horizontal game on a turned screen. It shows interlaced, with every pixel exact. Picture mode Fill, in Settings > Display or in Video in the quick menu, shows it as a soft picture with no flicker." Both are one-time notices in `state/config/notices.toml`. The ids only grow.
 
 ### 7.5 The boot, the guard and the first setup
@@ -249,7 +249,7 @@ The screensaver draws in the canvas, so it bounces in the turned frame with no c
 - At the first boot the setting is 0. A user with a turned screen sees the boot prompt and the menu on their side. Two ways set it:
   1. The menu, sideways, once: Settings > Display > Screen orientation. The text is readable with the head turned, and the directions are those of the upright canvas (section 8).
   2. Before the first boot: `neptron.toml` on the boot partition, `[display]` `orientation = "90"`. The boot file imports any global key of the schema (`docs/spec/raspberry-pi.md`, "`neptron.toml` on the boot partition"). The image files get a commented line (`# orientation = "0"   # 0 | 90 | 180 | 270`). The files are in `os/board/*/neptron.toml`, outside the paths of N01: WP4 asks the orchestrator to add them.
-- The display guard does not change. It judges the signal, and the orientation does not change what a monitor takes: the menu mode of a turned screen goes through the policy and the validator as every mode does. Safe mode, the blind recovery and a reverted boot prompt keep the orientation (Proposed default): the safe picture is the safe signal, and a turned cabinet needs its turned menu most of all in safe mode.
+- The display guard does not change. It judges the signal, and the orientation does not change what a monitor takes: the menu mode of a turned screen goes through the policy and the validator as every mode does. Safe mode, the blind recovery and a reverted boot prompt keep the orientation (Decision: Owner, 2026-11-24, T5): the safe picture is the safe signal, and a turned cabinet needs its turned menu most of all in safe mode.
 
 ## 8. Input
 
@@ -274,6 +274,8 @@ Two new keys, at the end of the schema (the key list is append-only). Their choi
 | Safety | `Validated`: the menu mode it gives goes through the validator |
 | Applies to | every display |
 | Where the row shows | Settings > Display, after Monitor profile (or TV standard) and before Picture mode |
+| Where the player changes it | Settings > Display, from the menu only. The row is disabled during a game (T6). The value applies at once with the keep prompt below, and is stored at the global level when the player keeps it |
+| Texts | Decision: Owner, 2026-11-24 (T8): the label, the help text and the option texts as written here |
 | Help text | "How the screen stands. Turn the menus and the games for a screen turned on its side, as in a vertical cabinet. Vertical games then fill the screen at their own lines." |
 
 | Value | Label | Help line |
@@ -283,9 +285,9 @@ Two new keys, at the end of the schema (the key list is append-only). Their choi
 | `180` | Upside down | The screen is upside down: its top is at the bottom. |
 | `270` | Turned right | The screen is turned 90 degrees to the right: its top is on the right. |
 
-**The keep prompt.** A change of the screen orientation opens a keep prompt, drawn in the new orientation: title "Keep this orientation?", buttons "Revert" (focus) and "Keep", 15 s (`CONFIRM_WINDOW_NS`), and the old value comes back at the timeout. Reason: the picture turns under the player. A wrong pick (90 for a screen turned right) shows the menu upside down, with the directions of an upside-down picture. A player who cannot use it waits 15 s. The prompt is the app's, not the display guard's (Proposed default): the guard judges the signal, and its record holds monitors, not orientations. It uses the dialog widget of the guard's prompt, and the screensaver does not start under it, as for the other dialogs with a timeout.
+**The keep prompt.** A change of the screen orientation opens a keep prompt, drawn in the new orientation: title "Keep this orientation?", buttons "Revert" (focus) and "Keep", 15 s (`CONFIRM_WINDOW_NS`), and the old value comes back at the timeout. Reason: the picture turns under the player. A wrong pick (90 for a screen turned right) shows the menu upside down, with the directions of an upside-down picture. A player who cannot use it waits 15 s. Decision: Owner, 2026-11-24 (T5): a change of the screen orientation uses this keep prompt with the 15 s revert. The prompt is the app's, not the display guard's: the guard judges the signal, and its record holds monitors, not orientations. It uses the dialog widget of the guard's prompt, and the screensaver does not start under it, as for the other dialogs with a timeout.
 
-Proposed default: the row is disabled in a game with the reason "Not during a game", the rule of the rescan row. A turn of the screen in a game would replan the game and the menu at once, and a player turns a cabinet's monitor with the machine in the menus.
+Decision: Owner, 2026-11-24 (T6): the Screen orientation row is disabled during a game, with the reason "Not during a game", the rule of the rescan row. A turn of the screen in a game would replan the game and the menu at once, and a player turns a cabinet's monitor with the machine in the menus.
 
 ### 9.2 Game orientation
 
@@ -294,11 +296,13 @@ Proposed default: the row is disabled in a game with the reason "Not during a ga
 | Key | `display.rotation` (the name of the Definition and of ADR 0015) |
 | Label | Game orientation |
 | Kind | choice: `auto`, `0`, `90`, `180`, `270` (default `auto`) |
-| Levels | game only (`Levels::new(true, false, false)`), Proposed default |
+| Levels | game only (`Levels::new(true, false, false)`). Decision: Owner, 2026-11-24 (T2) |
 | Live | yes: a change in a running game is a new source (section 5) |
 | Safety | `Validated` |
 | Applies to | every display |
 | Where the row shows | `VIDEO_PAGE` of the quick menu, the first row of the display rows |
+| Where the player changes it | The Video page of the quick menu, during the game, and in the game's display settings wherever the per-game picture rows show. A change applies at once to the running game (a new source, section 5) and is stored for that game at the game level. Settings > Display has no row, because the key has no global level |
+| Texts | Decision: Owner, 2026-11-24 (T8): the label, the help text and the option texts as written here |
 | Help text | "How the game picture turns to stand upright. Auto takes it from the game. Change it only when a game shows on its side or upside down." |
 
 | Value | Label | Help line |
@@ -313,7 +317,7 @@ The row is not judged by `offer`: every value has a picture, because the policy 
 
 ### 9.3 The picture mode pair
 
-The pair storage of Picture mode and Refresh rate (`docs/spec/video-policy-cases.md`, section 8.7) does not change. The pair is judged with the display source, so the answers on a turned screen are the answers for the turned picture. One pair serves every orientation, as one pair serves every display class (P4). Proposed default. A pair stored for a game at `S = 0` (for example `native` for a vertical game) can give another picture at `S = 90`; the notice of a stored candidate (section 8.9 of that spec) says what shows.
+The pair storage of Picture mode and Refresh rate (`docs/spec/video-policy-cases.md`, section 8.7) does not change. The pair is judged with the display source, so the answers on a turned screen are the answers for the turned picture. One pair serves every orientation, as one pair serves every display class (P4). This is part of the design that the owner accepted on 2026-11-24. A pair stored for a game at `S = 0` (for example `native` for a vertical game) can give another picture at `S = 90`; the notice of a stored candidate (section 8.9 of that spec) says what shows.
 
 ## 10. Not in version 1
 
@@ -336,7 +340,7 @@ The pair storage of Picture mode and Refresh rate (`docs/spec/video-policy-cases
 - `Orientation::display_source`: every field but `rotation` is kept, for an interlaced source and a source with no aspect too.
 - `ui_dest_turned`: `generic_15` at 448i (320 lines 1:1, nearest), at 240p (240 lines, sharp bilinear), `arcade_31` at about 500 lines, NTSC 480i (240 samples, 320 lines, centred), PAL 576i, 240p on a TV (sharp bilinear), panels 1920x1080 (`(600, 60, 720, 960)`), 1280x720 (`(400, 40, 480, 640)`) and 3840x2160, a portrait panel mode 1080x1920, a super-width CRT mode 1920x240, zero sizes and the 16-bit extremes. Each with the filter.
 - Renderers (`neptron-gfx`, reference): the canvas turned by each `ui_rotation` with an asymmetric 3x2 canvas, pixel for pixel against the rule of ADR 0015; `ui_filter` below a scale of 1; a turned canvas clipped at each edge; a turned `ui_dest` above the side limit refused; a game and a canvas with different turns in one scene. Every test of today passes with `R0` and `Nearest`.
-- Policy (`neptron-modeline`): a golden `policy_tate.toml` with the reference boards of Appendix B of the arcade spec as display sources at `S = 90` and `S = 270`, on one profile of each class (`generic_15`, `arcade_25`, `arcade_31`, `d9800`, `tv_ntsc`, `tv_pal`, `panel_1080`). A test asserts that a vertical board at `S = 90` gives the same mode as the same raster at `R0`, and that the turned menu source gives the modes of section 6.2. The policy code does not change, so every golden of today stays.
+- Policy (`neptron-modeline`): a golden `policy_tate.toml` with the reference boards of Appendix B of the arcade spec as display sources at `S = 90` and `S = 270`, on one profile of each class (`generic_15`, `arcade_25`, `arcade_31`, `d9800`, `tv_ntsc`, `tv_pal`, `panel_1080`). A test asserts that a vertical board at `S = 90` gives the same mode as the same raster at `R0`. The golden also records the policy's answer for the turned menu source as data; it decides nothing about the menu mode (T3). The policy code does not change, so every golden of today stays.
 
 ### 11.2 Engine and app
 
@@ -367,29 +371,33 @@ Each one is a line in `docs/hardware-checklist.md`, labelled `needs-hardware`. N
 
 Each package builds, passes its gate, and merges alone, in this order. None leaves `main` in a half state: until package 4, the orientation is always `Orientation::NORMAL`, and every picture of today stays the same.
 
+Packages 1 and 2 do not depend on the open questions T3 and T4. Package 1 adds the fields and the renderers for every turn and both filters. Package 2 gives the pure functions: `ui_dest_turned` places a turned canvas in any mode, with 320 lines or fewer, so it serves every answer to T3 and T4. Package 3 takes the policy's answer for the turned menu source (T3) and keeps the game's mode under the quick menu (T4); an owner decision after N02 changes that in the engine only, in one place each, and changes no contract.
+
 | # | Package | Crates and paths | Gate |
 | --- | --- | --- | --- |
-| 1 | The contract and the renderers. `Scene::ui_rotation` and `Scene::ui_filter` (ADR 0020); the reference and GLES renderers draw a turned and filtered canvas; every builder of a `Scene` sets `R0` and `Nearest`; the scene hash of the fake display includes both fields | `neptron-types`, `neptron-gfx`, `neptron-video`, and the builders outside N01's paths: `neptron-kms` (only the two fields in the black scene of `mode.rs`), `neptron-kms/examples`, `neptron-window/examples`, `neptron-testkit`, `apps/neptronctl` | T1; tier 3 `gles-compare` with the new cases |
+| 1 | The contract and the renderers. `Scene::ui_rotation` and `Scene::ui_filter` (ADR 0020); the reference and GLES renderers draw a turned and filtered canvas; every builder of a `Scene` sets `R0` and `Nearest`; the scene hash of the fake display includes both fields | `neptron-types`, `neptron-gfx`, `neptron-video`. Outside N01's paths: `crates/neptron-kms/src/kms/mode.rs` (only the two fields in the black scene), `crates/neptron-kms/examples/kms_check.rs`, `crates/neptron-window/examples/smoke.rs`, `crates/neptron-testkit` (`src/display/screen.rs`, `src/display/record.rs`, the scene hash, its integration tests), `apps/neptronctl/src/selftest/pattern.rs` | T1; tier 3 `gles-compare` with the new cases |
 | 2 | The pure orientation functions. `Rotation` arithmetic and `Orientation` in `neptron-types` with the table of section 4; `ui_dest_turned` in `neptron-modeline`; the golden `policy_tate.toml` | `neptron-types`, `neptron-modeline` | T1 |
 | 3 | The engine. `VideoEngine::set_orientation`; the display source before the policy, the scene and the answers; `ui_rotation`, `ui_dest` and `ui_filter` of the scene from the orientation | `neptron-video` | T1 |
-| 4 | The settings and the rows. The two schema keys; the app resolves them and sets the orientation of the menu engine at boot and of the game engine after `Session::launch`, before the first `run_frame` (the first mode comes with the first frame); the rows on Settings > Display and `VIDEO_PAGE`; the keep prompt of the orientation; the line of the boot files | `neptron-settings`, `neptron-ui`, `apps/neptron`, and `os/board/*/neptron.toml` (outside N01's paths) | T2; the crawler finds both rows |
+| 4 | The settings and the rows. The two schema keys; the app resolves them and sets the orientation of the menu engine at boot and of the game engine after `Session::launch`, before the first `run_frame` (the first mode comes with the first frame); the rows on Settings > Display and `VIDEO_PAGE`; the keep prompt of the orientation; the line of the boot files | `neptron-settings`, `neptron-ui`, `apps/neptron`. Outside N01's paths: `os/board/rpi/neptron.toml` and `os/board/pc/neptron.toml` (the commented `orientation` line); `crates/neptron-session` only if the app cannot set the orientation before the first frame | T2; the crawler finds both rows |
 | 5 | The notices and the turned output. The notice of a horizontal game on a turned screen, the second one-time notice, the text change of the first; the 36 goldens of section 11.3; the tier 2 tests of input and the screensaver | `apps/neptron`, `neptron-gfx` (golden tests) | T2 |
-| 6 | Docs and bench. The arcade spec results for turned screens, the crate READMEs, the hardware checklist lines, the open points | `docs/spec`, crate READMEs, `docs/hardware-checklist.md` | T0; the owner's bench session |
+| 6 | Docs and bench. The arcade spec results for turned screens, the crate READMEs, the hardware checklist lines, the open points | `docs/spec`, crate READMEs. Outside N01's paths: `docs/hardware-checklist.md` (the lines of section 11.5) | T0; the owner's bench session |
 
-Package 1 needs the orchestrator to widen the paths of N01, or a small separate branch for the contract (run rule 4). If the app cannot set the orientation of the game engine before its first frame, package 4 adds one field to the launch request of `neptron-session` instead, which is also outside N01's paths.
+The path gaps, for each implementer: N01 owns `crates/neptron-types`, `neptron-gfx`, `neptron-modeline`, `neptron-video`, `neptron-ui`, `neptron-settings`, `neptron-input`, `apps/neptron`, `docs/spec` and `docs/adr`. Package 1 also edits the `Scene` builders in `neptron-kms` (`mode.rs`, the KMS commit path: the two fields only), the kms and window examples, `neptron-testkit` and `apps/neptronctl`. Package 4 edits `os/board/*/neptron.toml`, and `neptron-session` only in the case above. Package 6 edits `docs/hardware-checklist.md`. The orchestrator widens the paths of N01 for these packages, or runs package 1 as a small separate branch for the contract (run rule 4).
 
-## 13. Proposed defaults
+## 13. Decisions and open questions
 
-| # | Question | Proposed default |
+The owner accepted the design on 2026-11-24: "ok yes to all, start the work packages". T3 and T4 stay open until the screen simulator (task N02) shows them; their proposed defaults hold until then.
+
+| # | Question | State |
 | --- | --- | --- |
-| T1 | What a fixed Game orientation means | It replaces the core's turn (section 3). Auto or a correct value always shows the game upright |
-| T2 | The levels of Game orientation | The game level only |
-| T3 | The turned menu on a 15 kHz CRT and a TV | The policy's answer for the turned menu source: interlaced 1:1, sharp, with flicker |
-| T4 | The quick menu over a game at 240 or 288 lines on a turned screen | No mode change; the canvas at 0.75 or 0.9, sharp bilinear, soft |
-| T5 | The keep prompt of the screen orientation | The app's own prompt, 15 s, Revert first; the display guard, safe mode and the blind recovery keep the orientation |
-| T6 | Screen orientation in a game | The row is disabled: "Not during a game" |
-| T7 | The notice of a horizontal game on a turned screen | One sentence in the picture notice at each start; a second one-time notice for its interlaced case |
-| T8 | The texts | The labels and help lines of sections 7.4, 9.1 and 9.2, waiting for approval |
+| T1 | What a fixed Game orientation means | Decision: Owner, 2026-11-24. It replaces the core's turn (section 3). Auto or a correct value always shows the game upright |
+| T2 | The levels of Game orientation | Decision: Owner, 2026-11-24. The game level only |
+| T3 | The turned menu on a 15 kHz CRT and a TV | Proposed default: interlaced 1:1, the policy's answer for the turned menu source, sharp, with flicker. The owner decides after the screen simulator (task N02) shows it |
+| T4 | The quick menu over a game at 240 or 288 lines on a turned screen | Proposed default: no mode change; the canvas at 0.75 or 0.9, sharp bilinear, soft. The owner decides after the screen simulator (task N02) shows it |
+| T5 | The keep prompt of the screen orientation | Decision: Owner, 2026-11-24. The keep prompt with the 15 s revert, Revert first; the display guard, safe mode and the blind recovery keep the orientation |
+| T6 | Screen orientation in a game | Decision: Owner, 2026-11-24. The row is disabled during a game: "Not during a game" |
+| T7 | The notice of a horizontal game on a turned screen | Decision: Owner, 2026-11-24. One sentence in the picture notice at each start; a second one-time notice for its interlaced case |
+| T8 | The texts | Decision: Owner, 2026-11-24. The labels and help lines of sections 7.4, 9.1 and 9.2 as written |
 
 ## 14. The design notes of the arcade spec
 
