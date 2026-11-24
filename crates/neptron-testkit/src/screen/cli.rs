@@ -195,8 +195,11 @@ fn run_survey(root: &Path, tables: &Tables, args: &[&str]) -> Result<ExitCode, C
     let json = survey::to_json(&rows).pretty();
     write(&dir.join("survey.json"), json.as_bytes())?;
     for name in &names {
-        let (all, look, note) = survey::counts(&rows, name);
-        println!("{name}: {all} rows, {look} to look at, {note} with notes only");
+        let c = survey::counts(&rows, name);
+        println!(
+            "{name}: {} rows, {} to look at ({} pictures), {} with notes only",
+            c.rows, c.look_rows, c.look_pictures, c.note_rows
+        );
     }
     println!("{}", dir.join("survey.md").display());
     Ok(ExitCode::SUCCESS)
@@ -594,13 +597,14 @@ mod tests {
             0,
             false,
         ),
-        // 480i 1:1 at the console width of 640 of the 704 samples.
+        // 480i 1:1, 640 samples: a console picture against the console
+        // width of 644 samples, 0.6 % narrow.
         e(
             (720, 480),
             (40, 0, 640, 480),
             (0, 0, 0, 0),
             (1000, 1000),
-            -91,
+            -6,
             false,
         ),
         // A vertical board with no interlace on the PC: 320 lines fitted

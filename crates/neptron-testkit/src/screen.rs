@@ -42,9 +42,10 @@ pub use run::{
     simulate, survey_rows,
 };
 pub use survey::{
-    ASPECT_ERROR_MAX_PERMILLE, DISPLAYS, EXTRA_SOURCES, Flag, LABEL_ADVANCE_PX, LABEL_COLOR,
-    LABEL_LINE_PX, LARGER_MARGIN_PERMILLE, LOOK_COLOR, Label, NOTE_COLOR, OFF_CENTRE_MAX_PX,
-    REFRESHES, Row, SMALL_FILL_MIN_PERMILLE, STYLES, Severity, Tile, compare_rows, contact_sheet,
-    counts, labels_json, markdown, own_flags, settings_matrix, sort_rows, to_json,
+    ASPECT_ERROR_MAX_PERMILLE, Counts, DISPLAYS, EXTRA_SOURCES, Flag, LABEL_ADVANCE_PX,
+    LABEL_COLOR, LABEL_LINE_PX, LARGER_MARGIN_PERMILLE, LOOK_COLOR, Label, NOTE_COLOR,
+    OFF_CENTRE_MAX_PX, REFRESHES, Row, SMALL_FILL_MIN_PERMILLE, STYLES, Severity, Tile,
+    compare_rows, contact_sheet, counts, labels_json, look_pictures, markdown, own_flags,
+    settings_matrix, sort_rows, to_json,
 };
 pub use wire::{SceneFacts, Shown, Wire, WireError, run as run_wire};

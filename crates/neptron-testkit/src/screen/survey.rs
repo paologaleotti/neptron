@@ -75,13 +75,17 @@ pub enum Flag {
     /// some source lines show taller than others. Look.
     UnevenLines,
     /// A picture mode that promises whole steps gives a scale that is not
-    /// whole. Look.
-    NotWhole,
+    /// whole. Look; a note when the menus decline the mode and say why.
+    NotWhole {
+        /// The menus decline the mode.
+        declined: bool,
+    },
     /// The placement gives the picture a shape more than
     /// [`ASPECT_ERROR_MAX_PERMILLE`] off its aspect. Look.
     Aspect,
-    /// Fill gives a picture no larger than Native, where another setting
-    /// gives a larger one. Look.
+    /// Fill gives a picture no larger than Native, where another picture
+    /// mode at the game's own rate gives a larger one, by the area the
+    /// placement covers in the mode. Look.
     FillNotLarger,
     /// The picture is off the centre of the mode. Look.
     OffCentre,
@@ -119,7 +123,7 @@ impl Flag {
             Self::NoPicture => "no_picture".into(),
             Self::Cropped { .. } => "cropped".into(),
             Self::UnevenLines => "uneven_lines".into(),
-            Self::NotWhole => "not_whole".into(),
+            Self::NotWhole { .. } => "not_whole".into(),
             Self::Aspect => "aspect".into(),
             Self::FillNotLarger => "fill_not_larger".into(),
             Self::OffCentre => "off_centre".into(),
@@ -134,12 +138,13 @@ impl Flag {
         match self {
             Self::Cropped { noticed: true }
             | Self::Small { stated: true }
+            | Self::NotWhole { declined: true }
             | Self::SameAs(_)
             | Self::SpeedAlert => Severity::Note,
             Self::NoPicture
             | Self::Cropped { noticed: false }
             | Self::UnevenLines
-            | Self::NotWhole
+            | Self::NotWhole { declined: false }
             | Self::Aspect
             | Self::FillNotLarger
             | Self::OffCentre
@@ -196,7 +201,9 @@ pub fn own_flags(style: &str, measures: &Measures) -> Vec<Flag> {
         flags.push(Flag::UnevenLines);
     }
     if WHOLE_STYLES.contains(&style) && !p.scale_y_whole {
-        flags.push(Flag::NotWhole);
+        flags.push(Flag::NotWhole {
+            declined: measures.offer.starts_with("declined"),
+        });
     }
     if p.aspect_error_permille.abs() > ASPECT_ERROR_MAX_PERMILLE {
         flags.push(Flag::Aspect);
@@ -245,7 +252,11 @@ pub fn compare_rows(rows: &mut [Row]) {
         if let (Some(native), Some(fit)) = (find(rows, "native"), find(rows, "fit"))
             && let (Some(n), Some(f)) = (area(&rows[native]), area(&rows[fit]))
         {
-            let largest = members.iter().filter_map(|&i| area(&rows[i])).max();
+            let largest = members
+                .iter()
+                .filter(|&&i| rows[i].refresh == REFRESHES[0])
+                .filter_map(|&i| area(&rows[i]))
+                .max();
             let larger = largest.is_some_and(|l| l * 1_000 > f * (1_000 + LARGER_MARGIN_PERMILLE));
             if f <= n && larger {
                 rows[fit].flags.push(Flag::FillNotLarger);
@@ -267,10 +278,12 @@ pub fn compare_rows(rows: &mut [Row]) {
     }
 }
 
-/// The area of the picture on the glass, in millionths.
+/// The area of the picture as the policy places it in the mode, in per
+/// mille of the reference area. The glass window of a PC CRT changes with
+/// the mode, so the glass fill does not compare two modes.
 fn area(row: &Row) -> Option<u64> {
     let p = row.measures.picture.as_ref()?;
-    Some(u64::from(p.fill_w_permille) * u64::from(p.fill_h_permille))
+    Some(u64::from(p.placed_area_permille))
 }
 
 fn same_offered_picture(a: &Row, b: &Row) -> bool {
@@ -302,19 +315,59 @@ pub fn sort_rows(rows: &mut [Row]) {
     });
 }
 
-/// The rows of one display: how many, how many to look at, how many with
-/// notes only.
-pub fn counts(rows: &[Row], display: &str) -> (usize, usize, usize) {
+/// The counts of one display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Counts {
+    /// Every row.
+    pub rows: usize,
+    /// The rows to look at.
+    pub look_rows: usize,
+    /// The distinct pictures of the rows to look at ([`look_pictures`]).
+    pub look_pictures: usize,
+    /// The rows with notes and no flag to look at.
+    pub note_rows: usize,
+}
+
+/// The counts of the rows of `display`.
+pub fn counts(rows: &[Row], display: &str) -> Counts {
     let mine: Vec<&Row> = rows
         .iter()
         .filter(|r| r.measures.display == display)
         .collect();
-    let look = mine.iter().filter(|r| r.look()).count();
-    let note = mine
-        .iter()
-        .filter(|r| !r.look() && !r.flags.is_empty())
-        .count();
-    (mine.len(), look, note)
+    Counts {
+        rows: mine.len(),
+        look_rows: mine.iter().filter(|r| r.look()).count(),
+        look_pictures: look_pictures(rows)
+            .iter()
+            .filter(|group| group[0].measures.display == display)
+            .count(),
+        note_rows: mine
+            .iter()
+            .filter(|r| !r.look() && !r.flags.is_empty())
+            .count(),
+    }
+}
+
+/// The rows to look at, grouped by picture: the rows of one display and
+/// source with the same mode, destination and crop and the same flags to
+/// look at. Many settings give one picture; a person looks at it once.
+pub fn look_pictures(rows: &[Row]) -> Vec<Vec<&Row>> {
+    let mut groups: Vec<Vec<&Row>> = Vec::new();
+    for row in rows.iter().filter(|r| r.look()) {
+        let same = |other: &Row| {
+            let (a, b) = (&row.measures, &other.measures);
+            let picture = |m: &Measures| m.picture.as_ref().map(|p| (p.mode, p.dest, p.crop));
+            a.display == b.display
+                && a.source == b.source
+                && picture(a) == picture(b)
+                && row.flag_names(Severity::Look, " ") == other.flag_names(Severity::Look, " ")
+        };
+        match groups.iter_mut().find(|g| same(g[0])) {
+            Some(group) => group.push(row),
+            None => groups.push(vec![row]),
+        }
+    }
+    groups
 }
 
 /// The survey as Markdown: the counts per display, the rows to look at,
@@ -326,10 +379,32 @@ pub fn markdown(rows: &[Row], displays: &[String]) -> String {
          `docs/spec/screen-simulator.md` defines each measure and flag. A `look` flag is a \
          likely fault; a `note` flag is expected by design and stated by the policy.\n\n",
     );
-    out.push_str("| display | rows | look | note only |\n| --- | --- | --- | --- |\n");
+    out.push_str(
+        "| display | rows | look rows | look pictures | note only |\n| --- | --- | --- | --- | --- |\n",
+    );
     for display in displays {
-        let (all, look, note) = counts(rows, display);
-        out.push_str(&format!("| {display} | {all} | {look} | {note} |\n"));
+        let c = counts(rows, display);
+        out.push_str(&format!(
+            "| {display} | {} | {} | {} | {} |\n",
+            c.rows, c.look_rows, c.look_pictures, c.note_rows
+        ));
+    }
+    out.push_str("\n## Pictures to look at\n\nEach line is one picture; its settings column lists every setting that gives it.\n\n");
+    out.push_str("| look | display | source | settings | mode | kHz | Hz | dest | scale x/y | cropped t/b/l/r | borders t/b/l/r | fill w/h | aspect | speed | scanlines | hidden by glass t/b/l/r | notices | offer |\n");
+    out.push_str(&format!("|{}\n", " --- |".repeat(18)));
+    for group in look_pictures(rows) {
+        let first = group[0];
+        let mut m = first.measures.clone();
+        m.settings = group
+            .iter()
+            .map(|r| r.measures.settings.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "| {} {}\n",
+            first.flag_names(Severity::Look, ", "),
+            m.row()
+        ));
     }
     let header = Measures::HEADER.replacen("| display |", "| look | note | display |", 1);
     let rule = format!("|{}\n", " --- |".repeat(header.matches('|').count() - 1));
@@ -346,8 +421,7 @@ pub fn markdown(rows: &[Row], displays: &[String]) -> String {
         }
         t
     };
-    out.push_str(&table("Rows to look at", &|r| r.look()));
-    out.push_str(&table("Other rows", &|r| !r.look()));
+    out.push_str(&table("Every row, the rows to look at first", &|_| true));
     out
 }
 
@@ -567,6 +641,8 @@ mod tests {
             glass_aspect_error_permille: 0,
             uneven_lines: false,
             notice_cropped_lines: 0,
+            console_picture: false,
+            placed_area_permille: 1_000,
             glass_hidden: Edges::default(),
             overscan_hidden: None,
             speed_ppm: 0,
@@ -617,7 +693,7 @@ mod tests {
             [
                 Flag::Cropped { noticed: false },
                 Flag::UnevenLines,
-                Flag::NotWhole,
+                Flag::NotWhole { declined: false },
                 Flag::Aspect,
                 Flag::OffCentre,
                 Flag::Small { stated: false },
@@ -681,6 +757,7 @@ mod tests {
     fn fill_no_larger_than_native_and_twin_modes_are_flagged() {
         let mut small = picture();
         small.fill_w_permille = 600;
+        small.placed_area_permille = 600;
         small.dest.w = 192;
         small.dest.x = 64;
         let mut rows = vec![
@@ -701,7 +778,11 @@ mod tests {
         sort_rows(&mut rows);
         assert!(rows[0].look());
         assert!(rows.last().unwrap().flags.is_empty());
-        assert_eq!(counts(&rows, "d"), (4, 1, 1));
+        let c = counts(&rows, "d");
+        assert_eq!(
+            (c.rows, c.look_rows, c.look_pictures, c.note_rows),
+            (4, 1, 1, 1)
+        );
     }
 
     #[test]
@@ -747,7 +828,7 @@ mod tests {
         assert_eq!(labels[5].color, LOOK_COLOR);
         assert_eq!(labels_json(&labels).as_array().unwrap().len(), 15);
         let md = markdown(&rows, &["d".into()]);
-        assert!(md.contains("| d | 5 | 1 | 0 |"), "{md}");
+        assert!(md.contains("| d | 5 | 1 | 1 | 0 |"), "{md}");
         assert_eq!(to_json(&rows).as_array().unwrap().len(), 5);
     }
 }

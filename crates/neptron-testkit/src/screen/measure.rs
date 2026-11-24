@@ -3,9 +3,12 @@
 //! fills, its shape and its speed. Pure.
 
 use neptron_types::{Rect, Rotation, ScanlineKind, SourceGeometry};
-use neptron_video::Notice;
+use neptron_video::{
+    Notice, Rung, TV_525_CONSOLE_WIDTH_SAMPLES, TV_525_PICTURE_LINES, TV_625_CONSOLE_WIDTH_SAMPLES,
+    TV_CONSOLE_LINES_MIN,
+};
 
-use super::glass::Glass;
+use super::glass::{Glass, Tube, TubeClass};
 use super::json::{Json, object};
 use super::wire::{Shown, Wire};
 
@@ -100,6 +103,13 @@ pub struct Picture {
     pub uneven_lines: bool,
     /// The source lines that the notice of the policy says it crops.
     pub notice_cropped_lines: u16,
+    /// A console picture on a TV: its shape is measured against the
+    /// console width of the policy, not the 4:3 line.
+    pub console_picture: bool,
+    /// The part of the reference area of the mode that the picture covers,
+    /// in per mille: its size as the policy places it, with no glass
+    /// model.
+    pub placed_area_permille: u32,
     /// Source lines and columns in the frame buffer that the glass does
     /// not show: outside the window of the scan, or under the bezel.
     pub glass_hidden: Edges<u32>,
@@ -151,6 +161,9 @@ pub struct Names<'a> {
     pub source: &'a str,
     /// The settings.
     pub settings: &'a str,
+    /// The source is an arcade board: the policy gives it the arcade
+    /// rules.
+    pub arcade: bool,
 }
 
 /// The measures of `wire` for `source`. `glass` is the glass of the case
@@ -170,7 +183,7 @@ pub fn measure(
         .shown
         .as_ref()
         .zip(glass)
-        .map(|(shown, (glass, bare))| picture(source, shown, glass, bare));
+        .map(|(shown, (glass, bare))| picture(source, names.arcade, shown, glass, bare));
     Measures {
         display: names.display.to_owned(),
         class: names.class.to_owned(),
@@ -183,7 +196,13 @@ pub fn measure(
     }
 }
 
-fn picture(source: &SourceGeometry, shown: &Shown, glass: &Glass, bare: &Glass) -> Picture {
+fn picture(
+    source: &SourceGeometry,
+    arcade: bool,
+    shown: &Shown,
+    glass: &Glass,
+    bare: &Glass,
+) -> Picture {
     let mode = &shown.mode;
     let scene = &shown.scene;
     let (tw, th) = turned(&scene.crop, scene.rotation);
@@ -250,15 +269,32 @@ fn picture(source: &SourceGeometry, shown: &Shown, glass: &Glass, bare: &Glass) 
     let width = (glass.x(mode, (dx + dw) as f64) - glass.x(mode, dx as f64)) * f64::from(aw);
     let height = (glass.y(mode, (dy + dh) as f64) - glass.y(mode, dy as f64)) * f64::from(ah);
     let glass_aspect = if height > 0.0 { width / height } else { 0.0 };
-    let ((ref_w, ref_h), (sw, sh)) = glass.reference(mode);
+    let ((mut ref_w, mut ref_h), (sw, sh)) = glass.reference(mode);
+    let cover = |placed: i64, reference: f64| (placed as f64 / reference).clamp(0.0, 1.0);
+    let placed_area_permille = (cover(dw, ref_w) * cover(dh, ref_h) * 1000.0).round() as u32;
+    if matches!(glass, Glass::Tube(t) if !matches!(t.class, TubeClass::Tv(_))) {
+        // The size controls of a CRT are set for the whole frame of the
+        // game: lines that the policy cuts would show above and below.
+        ref_w += f64::from(cropped.left + cropped.right) * dw as f64 / f64::from(tw.max(1));
+        ref_h += f64::from(cropped.top + cropped.bottom) * dh as f64 / f64::from(th.max(1));
+    }
     let placed_w = dw as f64 / ref_w * f64::from(sw);
     let placed_h = dh as f64 / ref_h * f64::from(sh);
-    let shown_aspect = if placed_h > 0.0 {
-        placed_w / placed_h
-    } else {
-        0.0
-    };
     let asked_aspect = asked_aspect(source, &scene.crop, scene.rotation);
+    // The policy reads the lines of the whole frame for an exact rung and
+    // the lines it fills for the fitted rung.
+    let placed_lines = match shown.rung {
+        Rung::Fitted => u16::try_from(dest.h).unwrap_or(u16::MAX),
+        _ => upright_lines(source),
+    };
+    let console = console_width(glass, placed_lines, source.aspect_milli, arcade, mode);
+    let shown_aspect = match console {
+        // A console picture does not fill the 4:3 line: the policy gives
+        // it the console width, so its shape is its width against that.
+        Some(width) => dw as f64 / f64::from(width) * asked_aspect,
+        None if placed_h > 0.0 => placed_w / placed_h,
+        None => 0.0,
+    };
     let error = |shown: f64| {
         if asked_aspect > 0.0 {
             ((shown / asked_aspect - 1.0) * 1000.0).round() as i64
@@ -299,6 +335,8 @@ fn picture(source: &SourceGeometry, shown: &Shown, glass: &Glass, bare: &Glass) 
         aspect_error_permille: error(shown_aspect),
         glass_aspect_error_permille: error(glass_aspect),
         uneven_lines: th == 0 || !dest.h.is_multiple_of(th),
+        console_picture: console.is_some(),
+        placed_area_permille,
         notice_cropped_lines: shown.notice.map_or(0, |n| n.cropped_lines),
         glass_hidden,
         overscan_hidden,
@@ -311,6 +349,48 @@ fn picture(source: &SourceGeometry, shown: &Shown, glass: &Glass, bare: &Glass) 
         notices: shown.notice.as_ref().map(notice_parts).unwrap_or_default(),
     }
 }
+
+/// The console width of the policy, in samples, for a console picture on a
+/// TV: not an arcade board, a 4:3 frame, and 224 to 240 of its `lines` per
+/// field (the rule of the policy's `aspect_samples`).
+fn console_width(
+    glass: &Glass,
+    lines: u16,
+    aspect_milli: u32,
+    arcade: bool,
+    mode: &neptron_types::Modeline,
+) -> Option<u16> {
+    let Glass::Tube(Tube {
+        class: TubeClass::Tv(standard),
+        ..
+    }) = glass
+    else {
+        return None;
+    };
+    let field_lines = if mode.interlace { lines / 2 } else { lines };
+    let four_thirds = aspect_milli.abs_diff(FOUR_THIRDS_MILLI) <= 1;
+    let console = !arcade
+        && four_thirds
+        && (TV_CONSOLE_LINES_MIN..=TV_525_PICTURE_LINES).contains(&field_lines);
+    console.then(|| {
+        if standard.lines() == 525 {
+            TV_525_CONSOLE_WIDTH_SAMPLES
+        } else {
+            TV_625_CONSOLE_WIDTH_SAMPLES
+        }
+    })
+}
+
+/// The lines of the upright source.
+fn upright_lines(source: &SourceGeometry) -> u16 {
+    match source.rotation {
+        Rotation::R0 | Rotation::R180 => source.height,
+        Rotation::R90 | Rotation::R270 => source.width,
+    }
+}
+
+/// The display aspect 4:3, in thousandths, as a core gives it.
+const FOUR_THIRDS_MILLI: u32 = 1_333;
 
 /// The columns and lines of `crop` after the turn.
 pub fn turned(crop: &Rect, rotation: Rotation) -> (u32, u32) {
@@ -546,6 +626,8 @@ impl Picture {
             ),
             ("uneven_lines", self.uneven_lines.into()),
             ("notice_cropped_lines", self.notice_cropped_lines.into()),
+            ("console_picture", self.console_picture.into()),
+            ("placed_area_permille", self.placed_area_permille.into()),
             ("glass_hidden_source_px", edges_json(&self.glass_hidden)),
             (
                 "overscan_hidden_source_px",

@@ -185,6 +185,7 @@ pub fn simulate(case: &Case, frame: &Rgb, options: &GlassOptions) -> Result<Outc
         gpu: &case.screen.gpu,
         source: &case.source.name,
         settings: &case.label,
+        arcade: case.source.arcade,
     };
     let measures = measure::measure(names, &geometry, &wire, glass.as_ref().zip(bare.as_ref()));
     Ok(Outcome {
