@@ -12,7 +12,7 @@ cargo xtask screen survey [--display D]... [--source S]...
 cargo xtask screen golden [--bless]
 ```
 
-One case writes `target/screen/<case>/`: `frame.png` (the source picture), `wire.png`, `glass.png` and `measures.json`. It prints the measures as one row of a table. The survey writes `target/screen/survey/`: one contact sheet per display (`<display>.png`), `survey.md` and `survey.json`. `golden` compares the reference cases with `xtask/tests/golden/screen/`.
+The simulator is `neptron_testkit::screen`, run by the example `screen` of `neptron-testkit`. It writes PPM and JSON files; `cargo xtask screen` starts it with the same arguments and turns the PPM files into PNG files. One case writes `target/screen/<case>/`: `frame.png` (the source picture), `wire.png`, `glass.png` and `measures.json`. It prints the measures as one row of a table. The survey writes `target/screen/survey/`: one contact sheet per display (`<display>.png`), `survey.md`, `survey.json`, and the glass of each row to look at in `look/<display>/`. `golden` compares the reference cases with `crates/neptron-testkit/tests/golden/screen/`.
 
 ## A case
 
@@ -83,7 +83,11 @@ Each line of the mode is a band of light as high as the beam spot. The spot is o
 | `cropped_source_px` | Source lines (top, bottom) and columns (left, right) of the upright picture that are not in the frame buffer: the crop of the policy, and any part of `dest` outside the mode. |
 | `borders_mode_px` | Mode pixels with no picture at each edge. Negative where `dest` reaches past the mode. |
 | `fill_w_permille`, `fill_h_permille` | The part of the visible width and height of the glass that the picture covers. |
-| `aspect_shown_milli`, `aspect_asked_milli`, `aspect_error_permille` | The width to height of the picture on the glass (4:3 glass for a tube, square pixels for a panel), the width to height the source asks for the shown part (its display aspect, the crop and the turn applied), and shown over asked less 1. |
+| `aspect_shown_milli`, `aspect_asked_milli`, `aspect_error_permille` | The shape that the policy gives the picture in the mode: the width to height of `dest` when a reference area of the mode fills the screen, the width to height the source asks for the shown part (its display aspect, the crop and the turn applied), and shown over asked less 1. The reference area is the active area of a CRT mode on a 4:3 screen (a tube has no fixed pixel shape; the usual set-up of the size controls makes the whole frame of the game fill the screen, so lines that the policy cuts count as if they showed), the 4:3 picture of a TV (704 samples by 240 or 288 lines per field), and the panel itself with square pixels. A console picture on a TV (not an arcade board, a 4:3 frame, 224 to 240 lines per field, counting the whole frame for an exact rung and the filled lines for the fitted rung: the rule of the policy's `aspect_samples`) does not fill the 4:3 line by design: its shape is its width against the console width of the policy (644 samples on 525 lines, 650 on 625), and `console_picture` is true. |
+| `glass_aspect_error_permille` | The same error on the glass model, where the window of the class model sets the size. For information only: a monitor adjustment changes it, so no flag reads it. |
+| `uneven_lines` | The scale down is not a whole number: source lines do not map to whole mode lines, so some lines show taller than others. |
+| `notice_cropped_lines` | The source lines that the notice of the policy says it crops. |
+| `placed_area_permille` | The part of the reference area of the mode that the picture covers: its size as the policy places it, with no glass model. |
 | `glass_hidden_source_px` | Source lines and columns in the frame buffer that the glass does not show: outside the window of the scan or under the bezel. |
 | `overscan_hidden_source_px` | On a TV, the part of the above that the overscan alone hides. |
 | `speed_ppm`, `speed_alert` | The rate the game runs at (the field rate per game frame) less its own rate, in parts per million of its own rate, and whether the status line shows the speed alert (`Timing::changes_speed`). |
@@ -96,21 +100,32 @@ Each line of the mode is a band of light as high as the beam spot. The spot is o
 
 The default survey runs the displays `generic_15`, `arcade_15`, `pc_31_120`, `ntsc`, `pal`, `1920x1080@60` and `2560x1440@120`; the sources of `REFERENCE_SOURCES` plus `rtype`, `gunbird` and `pacman`; and the settings: every picture mode with the refresh rate at Auto (`exact`), and Auto with every other refresh rate. Each display gets a contact sheet: one row per source, one column per setting, each tile labelled with the source and settings, the mode and its size, and the flags.
 
-A row gets a flag, with its name, when:
+A row gets a flag, with its name and a severity. `look` is a likely fault: a person should look at the picture. `note` is a choice the policy makes on purpose and states. The rows to look at come first, and their glass is also in `look/<display>/<source>-<style>-<refresh>.png`. On the contact sheet a tile to look at has an orange frame and orange flags; notes are blue.
 
-| Flag | Condition |
-| --- | --- |
-| `no_picture` | The engine has no mode: the picture mode and its fallbacks give no picture. |
-| `cropped` | `cropped_source_px` is above 0 at an edge. |
-| `small` | The picture fills less than 70 % of the visible width and less than 70 % of the visible height (`SMALL_FILL_MIN_PERMILLE`). |
-| `aspect` | The aspect error is above 3 % (`ASPECT_ERROR_MAX_PERMILLE`). |
-| `not_whole` | `native`, `2x`, `3x`, `4x` or `sharp` (the modes that promise whole steps) scale the lines by a fraction. |
-| `fill_smaller_than_auto` | The area of Fill on the glass is more than 0.5 % below the area of Auto (`FILL_SMALLER_MARGIN_PERMILLE`). |
-| `same_as_<mode>` | Two of `native`, `2x`, `3x`, `4x`, `fit` that the menus both offer give the same mode, destination and crop. |
-| `off_centre` | The centre of `dest` is more than 1 pixel from the centre of the mode on an axis (`OFF_CENTRE_MAX_PX`). |
+| Flag | Severity | Condition |
+| --- | --- | --- |
+| `no_picture` | look | The engine has no mode: the picture mode and its fallbacks give no picture. |
+| `cropped` | look, or note when the notice names it | `cropped_source_px` is above 0 at an edge. It is a note when the notice of the policy names the same lines (`notice_cropped_lines`, top and bottom only). |
+| `uneven_lines` | look | `uneven_lines` on a progressive mode of a CRT or a TV. A panel scales with sharp-bilinear by design, and an interlaced mode weaves, so neither is flagged. |
+| `not_whole` | look, or note when the menus decline the mode | `native`, `2x`, `3x`, `4x` or `sharp` (the modes that promise whole steps) scale the lines by a fraction. When the menus decline the mode, they say why and grey it, so it is a note. |
+| `aspect` | look | The placement aspect error is above 3 % (`ASPECT_ERROR_MAX_PERMILLE`). |
+| `fill_not_larger` | look | Fill gives a picture no larger than Native, where another picture mode at the game's own rate (refresh rate Auto) gives a picture more than 0.5 % larger (`LARGER_MARGIN_PERMILLE`). The size is `placed_area_permille`: the glass window of a PC CRT changes with the mode, so the glass fill does not compare two modes. |
+| `off_centre` | look | The centre of `dest` is more than 1 pixel from the centre of the mode on an axis (`OFF_CENTRE_MAX_PX`). |
+| `small` | look, or note for Native or when the notice names it | The picture fills less than 70 % of the visible width and less than 70 % of the visible height (`SMALL_FILL_MIN_PERMILLE`). |
+| `same_as_<mode>` | note | Two of `native`, `2x`, `3x`, `4x`, `fit` that the menus both offer give the same mode, destination and crop. |
+| `speed_alert` | note | The game runs at another speed and the status line says so. |
 
-The rows with the most flags come first. A flag is a hint for a person, not a test failure.
+`survey.md` lists the pictures to look at first: the rows of one display and source with the same mode, destination, crop and flags are one picture, with every setting that gives it. Then it lists every row. A flag is a hint for a person, not a test failure.
+
+## Findings of the first survey
+
+The first survey found these results of the policy. They are recorded as they are, found by the first survey, not changed here.
+
+- **Fill on a TV never fills.** On `ntsc` and `pal`, Fill (`display.style = fit`) gives the same picture as Native for every source of the survey. `tv_plan` (`crates/neptron-modeline/src/policy/tv.rs`, line 76) always puts the progressive rung of `progressive_native` (with the overscan crop) before the fitted rung; Fill only drops the interlaced 1:1 rung (lines 77 to 90). R-Type on `ntsc` shows 384x256 as 704x240 with 8 lines cut at the top and the bottom, the same in Auto, Native and Fill.
+- **The 704-sample clamp makes a 256-line game too narrow on a TV.** `plain_aspect_samples` (`crates/neptron-modeline/src/policy/tv/width.rs`, line 120) clamps the width to `TV_SAFE_WIDTH_SAMPLES`. A 4:3 frame of 256 lines needs 750 samples over 256 lines, so R-Type, Mortal Kombat and the Amiga PAL frame on `ntsc` are 6.2 % too narrow.
+- **A fractional squeeze of the lines.** The fitted TV rung (`Fit::Fill` in `tv.rs`, lines 275 to 280) and the fallback of `build_scene` for a frame that does not match the planned source size (`crates/neptron-video/src/scene.rs`, line 57) scale the lines by a fraction with sharp-bilinear: a 384x272 board with Fill on `ntsc` shows 272 lines in 240 at 0.882, with uneven lines. This is the likely cause of the picture that the owner saw shrink "in a very weird way" when Fill was picked for R-Type on a 240p NTSC TV; the simulator does not reproduce it for 384x256, where the crop rung wins.
+- **DoDonPachi on `pc_31_120`.** Native and Fill give the same 1x picture, 240x320 in a 683x512 mode, which fills 35 % of the width and 61 % of the height.
 
 ## Goldens
 
-`xtask/tests/golden/screen/` holds the glass of eight reference cases at 360x270, and a unit test of xtask asserts their measures as numbers. `cargo xtask screen golden` compares them; `--bless` writes them after a person has looked at each picture in `target/screen/golden/`.
+`crates/neptron-testkit/tests/golden/screen/` holds the glass of six reference cases at 240x180, and a unit test of `neptron-testkit` asserts their measures as numbers. `cargo xtask screen golden` compares them; `--bless` writes them after a person has looked at each picture in `target/screen/golden/`.
