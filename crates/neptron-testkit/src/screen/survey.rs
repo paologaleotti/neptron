@@ -72,8 +72,15 @@ pub enum Flag {
         noticed: bool,
     },
     /// The lines of a progressive tube mode are scaled by a fraction:
-    /// some source lines show taller than others. Look.
-    UnevenLines,
+    /// some source lines show taller than others. Look; a note for the
+    /// picture mode Fit, smoothed with no line dropped, the one mode that
+    /// may scale lines by a fraction.
+    UnevenLines {
+        /// Fit, sharp bilinear, every line on the screen.
+        fit: bool,
+    },
+    /// Source lines reach no screen line. Look.
+    DroppedLines,
     /// A picture mode that promises whole steps gives a scale that is not
     /// whole. Look; a note when the menus decline the mode and say why.
     NotWhole {
@@ -122,7 +129,8 @@ impl Flag {
         match self {
             Self::NoPicture => "no_picture".into(),
             Self::Cropped { .. } => "cropped".into(),
-            Self::UnevenLines => "uneven_lines".into(),
+            Self::UnevenLines { .. } => "uneven_lines".into(),
+            Self::DroppedLines => "dropped_lines".into(),
             Self::NotWhole { .. } => "not_whole".into(),
             Self::Aspect => "aspect".into(),
             Self::FillNotLarger => "fill_not_larger".into(),
@@ -139,11 +147,13 @@ impl Flag {
             Self::Cropped { noticed: true }
             | Self::Small { stated: true }
             | Self::NotWhole { declined: true }
+            | Self::UnevenLines { fit: true }
             | Self::SameAs(_)
             | Self::SpeedAlert => Severity::Note,
             Self::NoPicture
             | Self::Cropped { noticed: false }
-            | Self::UnevenLines
+            | Self::UnevenLines { fit: false }
+            | Self::DroppedLines
             | Self::NotWhole { declined: false }
             | Self::Aspect
             | Self::FillNotLarger
@@ -198,7 +208,11 @@ pub fn own_flags(style: &str, measures: &Measures) -> Vec<Flag> {
     }
     let tube = measures.class != "panel";
     if tube && !p.mode.interlace && p.uneven_lines {
-        flags.push(Flag::UnevenLines);
+        let fit = style == "fit" && p.filter == "sharpbilinear" && p.dropped_lines == 0;
+        flags.push(Flag::UnevenLines { fit });
+    }
+    if p.dropped_lines > 0 {
+        flags.push(Flag::DroppedLines);
     }
     if WHOLE_STYLES.contains(&style) && !p.scale_y_whole {
         flags.push(Flag::NotWhole {
@@ -640,6 +654,7 @@ mod tests {
             aspect_error_permille: 0,
             glass_aspect_error_permille: 0,
             uneven_lines: false,
+            dropped_lines: 0,
             notice_cropped_lines: 0,
             console_picture: false,
             placed_area_permille: 1_000,
@@ -685,6 +700,7 @@ mod tests {
         p.aspect_error_permille = -62;
         p.scale_y_whole = false;
         p.uneven_lines = true;
+        p.dropped_lines = 3;
         p.dest.x = 10;
         p.speed_alert = true;
         let r = row("2x", Some(p));
@@ -692,7 +708,8 @@ mod tests {
             r.flags,
             [
                 Flag::Cropped { noticed: false },
-                Flag::UnevenLines,
+                Flag::UnevenLines { fit: false },
+                Flag::DroppedLines,
                 Flag::NotWhole { declined: false },
                 Flag::Aspect,
                 Flag::OffCentre,
@@ -730,12 +747,36 @@ mod tests {
     fn uneven_lines_count_only_on_a_progressive_tube_mode() {
         let mut p = picture();
         p.uneven_lines = true;
-        assert_eq!(row("auto", Some(p.clone())).flags, [Flag::UnevenLines]);
+        assert_eq!(
+            row("auto", Some(p.clone())).flags,
+            [Flag::UnevenLines { fit: false }]
+        );
         let mut panel = row("auto", Some(p.clone()));
         panel.measures.class = "panel".into();
         assert!(own_flags("auto", &panel.measures).is_empty());
         p.mode.interlace = true;
         assert!(row("auto", Some(p)).flags.is_empty());
+    }
+
+    /// Fit may scale lines by a fraction, smoothed and with every line on
+    /// the screen: a note. Nearest, or a line dropped, is a fault.
+    #[test]
+    fn uneven_lines_are_a_note_only_for_a_smoothed_fit() {
+        let mut p = picture();
+        p.uneven_lines = true;
+        p.filter = "sharpbilinear".into();
+        let r = row("fit", Some(p.clone()));
+        assert_eq!(r.flags, [Flag::UnevenLines { fit: true }]);
+        assert!(!r.look());
+        assert!(row("native", Some(p.clone())).look());
+        p.dropped_lines = 1;
+        assert_eq!(
+            row("fit", Some(p.clone())).flags,
+            [Flag::UnevenLines { fit: false }, Flag::DroppedLines]
+        );
+        p.dropped_lines = 0;
+        p.filter = "nearest".into();
+        assert!(row("fit", Some(p)).look());
     }
 
     #[test]

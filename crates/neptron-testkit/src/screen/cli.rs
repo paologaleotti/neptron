@@ -33,13 +33,22 @@ const EXACT_CROP: (u32, u32) = (480, 270);
 
 /// The reference cases with a golden glass: name, display, source and
 /// settings.
-pub const GOLDEN_CASES: [(&str, &str, &str, &[&str]); 6] = [
+pub const GOLDEN_CASES: [(&str, &str, &str, &[&str]); 10] = [
     ("snes-generic_15-auto", "generic_15", "snes", &[]),
     ("rtype-ntsc-auto", "ntsc", "rtype", &[]),
     ("psx-pc_31_120-auto", "pc_31_120", "psx", &[]),
     ("psx_480i-ntsc-auto", "ntsc", "psx_480i", &[]),
     ("ddonpach-generic_15-auto", "generic_15", "ddonpach", &[]),
     ("snes-panel_1080-auto", "1920x1080@60", "snes", &[]),
+    ("snes-ntsc-fit", "ntsc", "snes", &["style=fit"]),
+    (
+        "ddonpach-pc_31_120-fit",
+        "pc_31_120",
+        "ddonpach",
+        &["style=fit"],
+    ),
+    ("rtype-ntsc-fit", "ntsc", "rtype", &["style=fit"]),
+    ("rtype-pal-fit", "pal", "rtype", &["style=fit"]),
 ];
 
 const USAGE: &str = "\
@@ -567,7 +576,7 @@ mod tests {
 
     /// The measures of [`GOLDEN_CASES`], in its order, computed by hand
     /// from the placement and the glass model, then read back.
-    const EXPECTED: [Expected; 6] = [
+    const EXPECTED: [Expected; 10] = [
         // 256 at 5x fills the 1280 line, 224 of the 240 lines of the
         // window: 93.2 % high. The placement fills the mode: no error.
         e(
@@ -626,6 +635,42 @@ mod tests {
             0,
             true,
         ),
+        // Fit: the SNES fills 240 lines at the console shape, 690 samples.
+        e(
+            (720, 240),
+            (15, 0, 690, 240),
+            (0, 0, 0, 0),
+            (1000, 1000),
+            0,
+            true,
+        ),
+        // Fit: DoDonPachi fills the 512 lines at 1.6, 3:4 on the face.
+        e(
+            (854, 512),
+            (187, 0, 480, 512),
+            (0, 0, 0, 0),
+            (562, 970),
+            -1,
+            true,
+        ),
+        // Fit: R-Type shows its 256 lines in 240 at 704 samples.
+        e(
+            (720, 240),
+            (8, 0, 704, 240),
+            (0, 0, 0, 0),
+            (1000, 1000),
+            0,
+            true,
+        ),
+        // Fit: R-Type fills 288 lines on PAL at 704 samples.
+        e(
+            (720, 288),
+            (8, 0, 704, 288),
+            (0, 0, 0, 0),
+            (1000, 1000),
+            0,
+            true,
+        ),
     ];
 
     #[test]
@@ -673,8 +718,42 @@ mod tests {
         }
     }
 
+    /// The Fit cases of the golden list: the whole picture, every line on
+    /// the screen, the shape within 1 %, smoothed.
     #[test]
-    fn rtype_on_ntsc_crops_16_lines_with_a_notice_and_fill_changes_nothing() {
+    fn fit_shows_every_line_at_its_shape() {
+        let tables = Tables::load(&workspace_root()).unwrap();
+        for (i, (name, _, _, sets)) in GOLDEN_CASES.iter().enumerate() {
+            if !sets.contains(&"style=fit") {
+                continue;
+            }
+            let (_, m) = golden_glass(&tables, i).unwrap();
+            let p = m.picture.clone().unwrap();
+            assert_eq!(p.cropped, Edges::default(), "{name}");
+            assert_eq!(p.dropped_lines, 0, "{name}");
+            assert!(
+                p.aspect_error_permille.abs() < 10,
+                "{name}: {}",
+                p.aspect_error_permille
+            );
+            assert!(!p.mode.interlace, "{name}");
+            assert_eq!(p.filter, "sharpbilinear", "{name}");
+            assert_eq!(
+                p.dest.h,
+                u32::from(p.mode.vactive),
+                "{name}: the whole height"
+            );
+            assert!(
+                survey::own_flags("fit", &m)
+                    .iter()
+                    .all(|f| f.severity() == survey::Severity::Note),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn rtype_on_ntsc_crops_16_lines_in_auto_and_fit_shows_them_all() {
         let tables = Tables::load(&workspace_root()).unwrap();
         let (_, auto) = golden_glass(&tables, 1).unwrap();
         let p = auto.picture.clone().unwrap();
@@ -695,11 +774,14 @@ mod tests {
             turn: Turn::R0,
         };
         let out = simulate(&fill, &pattern_of(&fill.source), &options).unwrap();
-        assert_eq!(out.measures.picture, auto.picture);
+        let fit = out.measures.picture.unwrap();
+        assert_eq!(fit.crop.h, 256);
+        assert_eq!((fit.dest.h, fit.scale_y_milli), (240, 938));
+        assert_eq!(fit.notices, ["fitted", "speed_change", "soft=FillMode"]);
     }
 
     #[test]
-    fn a_fitted_272_line_board_on_ntsc_has_uneven_lines() {
+    fn a_fitted_272_line_board_on_ntsc_shows_every_line_smoothed() {
         let tables = Tables::load(&workspace_root()).unwrap();
         let screen = tables
             .screen(&DisplaySpec::parse("ntsc").unwrap(), None)
@@ -723,8 +805,16 @@ mod tests {
         let p = out.measures.picture.as_ref().unwrap();
         assert_eq!(p.scale_y_milli, 882, "240 lines for 272");
         assert!(p.uneven_lines);
+        assert_eq!(p.filter, "sharpbilinear");
+        assert_eq!(p.dropped_lines, 0);
+        assert_eq!(p.cropped, Edges::default());
+        assert!(
+            p.aspect_error_permille.abs() < 10,
+            "{}",
+            p.aspect_error_permille
+        );
         let flags = survey::own_flags("fit", &out.measures);
-        assert!(flags.contains(&Flag::UnevenLines), "{flags:?}");
+        assert_eq!(flags, [Flag::UnevenLines { fit: true }, Flag::SpeedAlert]);
     }
 
     #[test]
@@ -750,10 +840,8 @@ mod tests {
         assert!(auto.flags.contains(&Flag::Aspect), "{:?}", auto.flags);
         assert!(auto.look(), "the 704-sample clamp is a finding");
         let fit = rows.iter().find(|r| r.style == "fit").unwrap();
-        assert!(fit.flags.contains(&Flag::SameAs("native".into())));
-        assert!(
-            !fit.flags.contains(&Flag::FillNotLarger),
-            "nothing is larger"
-        );
+        assert!(!fit.flags.contains(&Flag::SameAs("native".into())));
+        assert!(!fit.flags.contains(&Flag::FillNotLarger));
+        assert!(!fit.look(), "{:?}", fit.flags);
     }
 }

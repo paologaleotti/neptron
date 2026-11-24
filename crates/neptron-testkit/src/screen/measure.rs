@@ -101,6 +101,10 @@ pub struct Picture {
     /// Source lines do not map to whole mode lines: the scale down is not
     /// a whole number, so some lines show taller than others.
     pub uneven_lines: bool,
+    /// Source lines inside the crop that no screen line samples: the
+    /// two-tap filter of the renderer skips them. 0 at every scale from
+    /// 0.5 up with sharp bilinear, and at every scale from 1 up.
+    pub dropped_lines: u32,
     /// The source lines that the notice of the policy says it crops.
     pub notice_cropped_lines: u16,
     /// A console picture on a TV: its shape is measured against the
@@ -281,17 +285,20 @@ fn picture(
     let placed_w = dw as f64 / ref_w * f64::from(sw);
     let placed_h = dh as f64 / ref_h * f64::from(sh);
     let asked_aspect = asked_aspect(source, &scene.crop, scene.rotation);
-    // The policy reads the lines of the whole frame for an exact rung and
-    // the lines it fills for the fitted rung.
-    let placed_lines = match shown.rung {
-        Rung::Fitted => u16::try_from(dest.h).unwrap_or(u16::MAX),
-        _ => upright_lines(source),
-    };
-    let console = console_width(glass, placed_lines, source.aspect_milli, arcade, mode);
+    // The policy reads the lines of the whole frame. The fitted rung keeps
+    // that shape and scales it with the lines it fills.
+    let own_lines = upright_lines(source);
+    let console = console_width(glass, own_lines, source.aspect_milli, arcade, mode);
     let shown_aspect = match console {
         // A console picture does not fill the 4:3 line: the policy gives
         // it the console width, so its shape is its width against that.
-        Some(width) => dw as f64 / f64::from(width) * asked_aspect,
+        Some(width) => {
+            let reference = match shown.rung {
+                Rung::Fitted => f64::from(width) * dh as f64 / f64::from(own_lines.max(1)),
+                _ => f64::from(width),
+            };
+            dw as f64 / reference * asked_aspect
+        }
         None if placed_h > 0.0 => placed_w / placed_h,
         None => 0.0,
     };
@@ -335,6 +342,7 @@ fn picture(
         aspect_error_permille: error(shown_aspect),
         glass_aspect_error_permille: error(glass_aspect),
         uneven_lines: th == 0 || !dest.h.is_multiple_of(th),
+        dropped_lines: dropped_lines(th, dest.h, scene.filter),
         console_picture: console.is_some(),
         placed_area_permille,
         notice_cropped_lines: shown.notice.map_or(0, |n| n.cropped_lines),
@@ -379,6 +387,36 @@ fn console_width(
             TV_625_CONSOLE_WIDTH_SAMPLES
         }
     })
+}
+
+/// The source lines of `lines` that no line of `dest_lines` samples, by
+/// the tap rule of the reference renderer: each screen line samples the
+/// source line under its centre, and sharp bilinear below a scale of 1
+/// also blends the neighbour on the side of the centre, unless the centre
+/// is the middle of the line.
+pub fn dropped_lines(lines: u32, dest_lines: u32, filter: neptron_types::Filter) -> u32 {
+    if lines == 0 || dest_lines == 0 {
+        return lines;
+    }
+    let (n, m) = (u64::from(lines), u64::from(dest_lines));
+    let mut seen = vec![false; lines as usize];
+    for i in 0..m {
+        let num = (2 * i + 1) * n;
+        let (near, rem) = (num / (2 * m), num % (2 * m));
+        seen[near.min(n - 1) as usize] = true;
+        let blends = filter == neptron_types::Filter::SharpBilinear && m < n && 2 * rem != 2 * m;
+        if blends {
+            let far = if 2 * rem < 2 * m {
+                near.checked_sub(1)
+            } else {
+                Some(near + 1)
+            };
+            if let Some(far) = far.filter(|&f| f < n) {
+                seen[far as usize] = true;
+            }
+        }
+    }
+    u32::try_from(seen.iter().filter(|s| !**s).count()).unwrap_or(u32::MAX)
 }
 
 /// The lines of the upright source.
@@ -625,6 +663,7 @@ impl Picture {
                 self.glass_aspect_error_permille.into(),
             ),
             ("uneven_lines", self.uneven_lines.into()),
+            ("dropped_lines", self.dropped_lines.into()),
             ("notice_cropped_lines", self.notice_cropped_lines.into()),
             ("console_picture", self.console_picture.into()),
             ("placed_area_permille", self.placed_area_permille.into()),
@@ -715,6 +754,23 @@ mod tests {
 
     fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
         Rect { x, y, w, h }
+    }
+
+    #[test]
+    fn sharp_bilinear_drops_no_line_from_a_scale_of_one_half() {
+        use neptron_types::Filter::{Nearest, SharpBilinear};
+        for (lines, dest) in [(256, 240), (272, 240), (480, 240), (224, 241), (320, 512)] {
+            assert_eq!(
+                dropped_lines(lines, dest, SharpBilinear),
+                0,
+                "{lines} in {dest}"
+            );
+        }
+        // Nearest drops 16 of 256 lines in 240.
+        assert_eq!(dropped_lines(256, 240, Nearest), 16);
+        assert_eq!(dropped_lines(224, 448, Nearest), 0);
+        // Below one half the two taps skip lines.
+        assert!(dropped_lines(640, 240, SharpBilinear) > 0);
     }
 
     #[test]
