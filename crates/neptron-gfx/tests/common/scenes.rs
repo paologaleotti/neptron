@@ -187,6 +187,16 @@ impl Case {
         Self { rotation, ..self }
     }
 
+    /// This case with the UI canvas turned by `ui_rotation` and scaled
+    /// with `ui_filter`.
+    pub fn with_ui_turned(self, ui_rotation: Rotation, ui_filter: Filter) -> Self {
+        Self {
+            ui_rotation,
+            ui_filter,
+            ..self
+        }
+    }
+
     /// The scene, borrowing the images of the case.
     pub fn scene(&self) -> Scene<'_> {
         Scene {
@@ -447,5 +457,30 @@ pub fn golden_cases() -> Vec<Case> {
             (16, 20),
         )
         .turned(Rotation::R90),
+        // A game turned by R90 under a canvas turned by R270, both at 2x.
+        // The canvas covers the right third of the game and goes past it.
+        Case::game(
+            "ui_turned_r270_over_a_turned_game",
+            pattern(8, 6, Xrgb8888),
+            rect(0, 0, 8, 6),
+            rect(0, 0, 12, 16),
+            Nearest,
+            (24, 18),
+        )
+        .turned(Rotation::R90)
+        .with_ui(pattern(8, 6, Xrgb1555), rect(8, 2, 12, 16))
+        .with_ui_turned(Rotation::R270, Nearest),
+        // A 16x12 canvas turned by R90 is 12x16, to 9x12: a scale of 0.75
+        // on each axis, as a turned canvas on 240 lines.
+        Case::game(
+            "ui_turned_r90_sharp_bilinear_below_1",
+            pattern(8, 6, Rgb565),
+            rect(0, 0, 8, 6),
+            rect(0, 0, 16, 12),
+            Nearest,
+            (16, 12),
+        )
+        .with_ui(pattern(16, 12, Xrgb8888), rect(2, 0, 9, 12))
+        .with_ui_turned(Rotation::R90, SharpBilinear),
     ]
 }

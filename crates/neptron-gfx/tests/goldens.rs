@@ -287,6 +287,16 @@ fn turn_r90_crop_outside_the_frame() {
     golden("turn_r90_crop_outside_the_frame");
 }
 
+#[test]
+fn ui_turned_r270_over_a_turned_game() {
+    golden("ui_turned_r270_over_a_turned_game");
+}
+
+#[test]
+fn ui_turned_r90_sharp_bilinear_below_1() {
+    golden("ui_turned_r90_sharp_bilinear_below_1");
+}
+
 /// Renders the case `name` of the scene list and compares it with its
 /// golden.
 fn golden(name: &str) {

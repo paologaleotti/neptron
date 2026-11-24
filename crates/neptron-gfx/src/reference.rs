@@ -129,12 +129,17 @@ pub struct OutputBuffer<'a> {
 /// The UI canvas is drawn after the game, over it, and is opaque: every
 /// output pixel it covers shows the canvas pixel, whatever the game shows
 /// there. The X bits of the canvas are ignored, as for the game. The whole
-/// canvas scales to `ui_dest`, in output pixels, with nearest scaling and
-/// the sample rule of the game: pixel `i` of `ui_dest` shows canvas column
-/// `floor((i + 1/2) * ui.width / ui_dest.w)`, and the same holds for lines.
-/// Each axis scales on its own. A part of `ui_dest` outside the output is
+/// canvas is turned by `scene.ui_rotation`, with the pixel rule of the
+/// game picture and the crop equal to the whole canvas, and the turned
+/// canvas `T` scales to `ui_dest`, in output pixels, with
+/// `scene.ui_filter` and the sample rules of the game. With nearest, pixel
+/// `i` of `ui_dest` shows column `floor((i + 1/2) * T.w / ui_dest.w)` of
+/// `T`, and the same holds for lines. Sharp bilinear is the rule of the
+/// game, with the whole canvas as the crop. Each axis scales on its own.
+/// The canvas has no scanlines. A part of `ui_dest` outside the output is
 /// clipped; the scale does not change. A `ui_dest` with a zero side shows
-/// no UI. The renderer does not choose `ui_dest`.
+/// no UI. The renderer chooses neither `ui_dest`, nor the turn, nor the
+/// filter.
 ///
 /// # Integers
 ///
@@ -192,7 +197,7 @@ impl ReferenceRenderer {
             self.draw_game(game, scene, out);
         }
         if let Some(ui) = &scene.ui {
-            self.draw_ui(ui, scene.ui_dest, out);
+            self.draw_ui(ui, scene, out);
         }
         Ok(())
     }

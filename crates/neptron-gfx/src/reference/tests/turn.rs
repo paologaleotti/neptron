@@ -157,7 +157,7 @@ fn scanlines_follow_the_lines_of_the_turned_picture() {
 }
 
 /// The turn of the frame on the CPU, by the pixel rule, as the picture `T`.
-fn turn_on_cpu(pixels: &[u32], (w, h): (usize, usize), rotation: Rotation) -> Vec<u32> {
+pub(super) fn turn_on_cpu(pixels: &[u32], (w, h): (usize, usize), rotation: Rotation) -> Vec<u32> {
     let (tw, th) = match rotation {
         Rotation::R0 | Rotation::R180 => (w, h),
         Rotation::R90 | Rotation::R270 => (h, w),
