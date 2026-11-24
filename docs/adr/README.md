@@ -20,7 +20,7 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0002](0002-switchres-link-licence.md) | Licence of the link with Switchres | accepted | T05 |
 | [0003](0003-line-rate-tolerance-follows-switchres.md) | The lowest line rate of a range follows Switchres | accepted | T04 |
 | [0004](0004-font-licence.md) | The UI font is Spleen under BSD-2-Clause | accepted | T07 |
-| [0005](0005-ui-destination-in-scene.md) | The scene carries the UI destination rectangle | accepted, amended by 0012 and P03 | C01 |
+| [0005](0005-ui-destination-in-scene.md) | The scene carries the UI destination rectangle | accepted, amended by 0012, P03 and 0020 | C01 |
 | [0006](0006-scanlines-in-scene.md) | The scene carries the scanlines of the game picture | accepted | C04 |
 | [0007](0007-bounded-flip-wait-and-blank.md) | The flip wait is bounded, and a display can turn its output off | accepted | C07 |
 | 0008 | Not used | | |
@@ -30,9 +30,9 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0012](0012-tv-standard-is-a-monitor-kind.md) | A TV standard is a monitor kind with a fixed mode table | accepted, amended by P03, P05, P06 | P02 |
 | [0013](0013-display-guard-trust-and-failed-boots.md) | The display guard trusts a display by its class, and counts only runs that end abnormally | accepted | M01 |
 | [0014](0014-fbneo-arcade-core-and-licence.md) | FinalBurn Neo is the arcade core, under its non-commercial licence | accepted | M06 |
-| [0015](0015-rotation-in-scene.md) | The scene carries the rotation of the game picture | accepted | M06, M08a |
+| [0015](0015-rotation-in-scene.md) | The scene carries the rotation of the game picture | accepted, amended by 0020 | M06, M08a |
 | [0016](0016-initial-core-option-values.md) | The host holds initial core option values and applies them when the core declares its options | accepted | M06, M07a |
 | [0017](0017-community-gamepad-database.md) | The images ship the community gamepad database under the zlib licence | accepted | controller-db |
 | [0018](0018-15khz-kernel-patches-gpl-2-0-only.md) | The PC images carry the 15 kHz kernel patch set under GPL-2.0-only | accepted | M12 |
 | [0019](0019-gpl-frontend-loads-non-commercial-cores.md) | The GPL frontend loads the non-commercial cores in its own process | accepted | M14 |
-| [0020](0020-turned-ui-canvas-in-scene.md) | The scene carries the turn and the filter of the UI canvas | proposed | N01 |
+| [0020](0020-turned-ui-canvas-in-scene.md) | The scene carries the turn and the filter of the UI canvas | accepted | N01 |

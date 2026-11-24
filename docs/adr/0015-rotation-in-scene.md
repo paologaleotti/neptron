@@ -1,6 +1,6 @@
 # 0015: The scene carries the rotation of the game picture
 
-- Status: accepted
+- Status: accepted. Amended by ADR 0020: the UI canvas turns by `Scene::ui_rotation`.
 - Date: 2026-11-16
 - Task: M06 (decision); M08a builds it
 

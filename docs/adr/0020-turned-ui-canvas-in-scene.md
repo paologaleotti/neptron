@@ -1,6 +1,6 @@
 # 0020: The scene carries the turn and the filter of the UI canvas
 
-- Status: proposed
+- Status: accepted (Owner, 2026-11-24)
 - Date: 2026-11-24
 - Task: N01
 
@@ -42,7 +42,7 @@ The parts before this change:
 - A turned 320x240 canvas is smaller on a turned 4:3 face than the canvas of today, and on a 15 kHz CRT or a TV it needs an interlaced menu mode or a soft scale. `docs/spec/tate.md`, section 6, gives the numbers. A portrait layout (a 240x320 canvas) is a later version; it needs no second change of these fields, because the canvas frame carries its own size and `ui_dest_turned` is written for a canvas of any size.
 - `ui_filter` is the first filter of the canvas. Nothing outside a turned canvas sets `SharpBilinear` for it in this change.
 - `Rotation` is exhaustive. A renderer matches all four values of `ui_rotation` with no wildcard arm.
-- When the owner accepts this ADR, ADR 0015 gets a line in its Status: "Amended by ADR 0020: the UI canvas turns by `Scene::ui_rotation`." ADR 0005 gets the line: "Amended by ADR 0020: `ui_dest` holds the canvas after its turn, and `ui_filter` names its scaling."
+- The owner accepted this ADR on 2026-11-24. ADR 0015 has a line in its Status: "Amended by ADR 0020: the UI canvas turns by `Scene::ui_rotation`." ADR 0005 has the line: "Amended by ADR 0020: `ui_dest` holds the canvas after its turn, and `ui_filter` names its scaling."
 - The GPU cost of a turned canvas is expected to be zero, as for the game picture. The work package checks the render time of a turned scene on the Pi with the existing bench build, and records it.
 - Nothing on disk or on the wire changes. `Scene` borrows its frames and has no serde (ADR 0001).
 
