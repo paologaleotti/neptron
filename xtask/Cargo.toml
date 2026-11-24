@@ -12,6 +12,16 @@ publish.workspace = true
 neptron-library = { path = "../crates/neptron-library" }
 # The scene registry and the golden format, for shot, gallery and golden.
 neptron-ui = { path = "../crates/neptron-ui" }
+# The screen simulator runs the decision path of the app: the engine and
+# its settings functions, the policy constants of the TV picture, the GPU
+# table, the settings schema, and the fake display with the reference
+# renderer.
+neptron-modeline = { path = "../crates/neptron-modeline" }
+neptron-platform = { path = "../crates/neptron-platform" }
+neptron-settings = { path = "../crates/neptron-settings" }
+neptron-testkit = { path = "../crates/neptron-testkit" }
+neptron-types = { path = "../crates/neptron-types" }
+neptron-video = { path = "../crates/neptron-video" }
 # Reads the JSON of cargo metadata and cargo build, and writes the verify report.
 serde_json.workspace = true
 # Reads the DAT of FinalBurn Neo for arcade-index.

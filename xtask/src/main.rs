@@ -14,6 +14,7 @@ mod os;
 mod release;
 mod repo;
 mod rules;
+mod screen;
 mod sha256;
 mod ui;
 mod verify;
@@ -63,6 +64,16 @@ commands:
   golden [--bless] [scene...]
                        compare UI scenes with their golden images; --bless
                        writes the golden of each scene that differs
+  screen --display D --source S [--set KEY=VALUE]... [--gpu ID]
+         [--aspect A] [--rotate R] [--interlaced] [--arcade]
+         [--frame FILE.ppm] [--overscan PERCENT] [--size WxH]
+         [--turn 0|90|180|270] [--exact] [--out NAME]
+                       simulate a screen: the mode and the scene of the
+                       app for source S on display D (a preset id, a TV
+                       standard such as ntsc or pal, or a panel WxH@RATE),
+                       the frame buffer of the mode (wire.png), what the
+                       screen shows (glass.png) and the measures; writes
+                       target/screen/<case>/
   os build [--arch A] [--jobs N] [--dev-key FILE] [--no-kernel-15khz]
            [--output NAME] [-- make targets...]
                        build the image of target A with Buildroot in the
@@ -149,6 +160,8 @@ enum Error {
     #[error(transparent)]
     Rules(#[from] rules::RulesError),
     #[error(transparent)]
+    Screen(#[from] screen::ScreenError),
+    #[error(transparent)]
     Ui(#[from] ui::UiError),
     #[error(transparent)]
     Verify(#[from] verify::VerifyError),
@@ -200,6 +213,7 @@ fn run(args: &[String]) -> Result<ExitCode, Error> {
         "shot" => Ok(ui::shot(&rest)?),
         "gallery" => Ok(ui::gallery(&rest)?),
         "golden" => Ok(ui::golden(&rest)?),
+        "screen" => Ok(screen::run(&rest)?),
         "os" => Ok(os::run_os(&rest)?),
         "qemu" => Ok(os::run_qemu(&rest)?),
         "gles-compare" => Ok(os::run_guest_check(&os::GLES_COMPARE, &rest)?),
