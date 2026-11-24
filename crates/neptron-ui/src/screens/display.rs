@@ -7,6 +7,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
+use crate::metrics::Metrics;
 use crate::snapshot::{Level, Snapshot};
 use crate::theme::Theme;
 
@@ -132,8 +133,23 @@ impl DisplayPanel {
     }
 
     /// Draws the panel under the breadcrumb `path`.
-    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
-        chrome::frame_path(frame, theme, path, "", self.page.hint(snap), "Back: return");
+    pub(super) fn draw(
+        &self,
+        snap: &Snapshot,
+        theme: &Theme,
+        metrics: &Metrics,
+        path: &[&str],
+        frame: &mut UiFrame,
+    ) {
+        chrome::frame_path(
+            frame,
+            theme,
+            metrics,
+            path,
+            "",
+            self.page.hint(snap),
+            "Back: return",
+        );
         let places = &self.places;
         chrome::boxed(frame, theme, places.info_box);
         let (output, mode) = snap
@@ -174,6 +190,6 @@ impl DisplayPanel {
                 chrome::field(frame, theme, line(2), "Monitor", monitor);
             }
         }
-        self.page.draw(snap, theme, frame);
+        self.page.draw(snap, theme, metrics, frame);
     }
 }

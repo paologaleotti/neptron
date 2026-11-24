@@ -7,6 +7,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
+use crate::metrics::Metrics;
 use crate::snapshot::{ConfirmId, Notice, NoticeId, NoticeKind, PendingConfirm, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
@@ -114,7 +115,13 @@ impl Confirm {
         self.answered = true;
     }
 
-    pub(super) fn draw(&self, pending: &PendingConfirm, theme: &Theme, frame: &mut UiFrame) {
+    pub(super) fn draw(
+        &self,
+        pending: &PendingConfirm,
+        theme: &Theme,
+        metrics: &Metrics,
+        frame: &mut UiFrame,
+    ) {
         let mut message = StackText::<MESSAGE_BYTES>::new();
         let seconds = pending.remaining_ns.div_ceil(NANOS_PER_SECOND);
         // `StackText` never fails; it drops what does not fit.
@@ -139,11 +146,17 @@ impl Confirm {
         };
         draw_dialog(&self.dialog, &content, &[], theme, frame);
         if self.answered {
-            chrome::hints(frame, theme, "", "");
+            chrome::hints(frame, theme, metrics, "", "");
         } else if pending.remaining_ns == 0 {
-            chrome::hints(frame, theme, "Accept: revert", "");
+            chrome::hints(frame, theme, metrics, "Accept: revert", "");
         } else {
-            chrome::hints(frame, theme, "Accept: revert", "Right, then Accept: keep");
+            chrome::hints(
+                frame,
+                theme,
+                metrics,
+                "Accept: revert",
+                "Right, then Accept: keep",
+            );
         }
     }
 }
@@ -215,7 +228,13 @@ impl Notices {
         self.shown = self.current(snap).map(|n| n.id);
     }
 
-    pub(super) fn draw(&self, notice: &Notice, theme: &Theme, frame: &mut UiFrame) {
+    pub(super) fn draw(
+        &self,
+        notice: &Notice,
+        theme: &Theme,
+        metrics: &Metrics,
+        frame: &mut UiFrame,
+    ) {
         let (title, tone) = match notice.kind {
             NoticeKind::Info => ("Note", DialogTone::Normal),
             NoticeKind::Warning => ("Warning", DialogTone::Warning),
@@ -229,7 +248,7 @@ impl Notices {
                 tone,
             };
             draw_dialog(&self.dialog, &content, &[], theme, frame);
-            chrome::hints(frame, theme, "Accept: OK", "");
+            chrome::hints(frame, theme, metrics, "Accept: OK", "");
             return;
         };
         let content = DialogContent {
@@ -239,7 +258,7 @@ impl Notices {
             tone,
         };
         draw_dialog(&self.dialog, &content, &[], theme, frame);
-        chrome::hints(frame, theme, "Accept: choose", "Back: cancel");
+        chrome::hints(frame, theme, metrics, "Accept: choose", "Back: cancel");
     }
 
     /// Remembers a dismissed notice. When the set is full, every id in it

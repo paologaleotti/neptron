@@ -7,12 +7,13 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
+use crate::metrics::Metrics;
 use crate::snapshot::{MappingId, MappingStage, PadMapping};
 use crate::text::{Align, StackText};
 use crate::theme::Theme;
 use crate::widgets::{Dialog, DialogContent, DialogEvent, DialogTone};
 
-use super::chrome::{self, Layout, offset};
+use super::chrome::{self, offset};
 use super::overlays::draw_dialog;
 
 /// The buttons of the review. `Cancel` comes first and has the focus, so
@@ -100,7 +101,13 @@ impl PadMappingScreen {
         }
     }
 
-    pub(super) fn draw(&self, mapping: &PadMapping, theme: &Theme, frame: &mut UiFrame) {
+    pub(super) fn draw(
+        &self,
+        mapping: &PadMapping,
+        theme: &Theme,
+        metrics: &Metrics,
+        frame: &mut UiFrame,
+    ) {
         let seconds = mapping.remaining_ns.div_ceil(NANOS_PER_SECOND);
         match &mapping.stage {
             MappingStage::Prompt {
@@ -111,14 +118,14 @@ impl PadMappingScreen {
             } => draw_prompt(
                 frame,
                 theme,
+                metrics,
                 mapping,
                 prompt,
                 (*step, *steps),
                 note,
-                seconds,
             ),
             MappingStage::Review { message, can_keep } => {
-                chrome::background(frame, theme);
+                chrome::background(frame, theme, metrics);
                 let mut text = StackText::<MESSAGE_BYTES>::new();
                 // `StackText` never fails; it drops what does not fit.
                 let _ = match (*can_keep, self.answered) {
@@ -144,9 +151,15 @@ impl PadMappingScreen {
                 };
                 draw_dialog(&self.dialog, &content, &[], theme, frame);
                 if *can_keep {
-                    chrome::hints(frame, theme, "Accept: cancel", "Right, then Accept: keep");
+                    chrome::hints(
+                        frame,
+                        theme,
+                        metrics,
+                        "Accept: cancel",
+                        "Right, then Accept: keep",
+                    );
                 } else {
-                    chrome::hints(frame, theme, "Accept: cancel", "");
+                    chrome::hints(frame, theme, metrics, "Accept: cancel", "");
                 }
             }
         }
@@ -167,24 +180,26 @@ fn buttons(can_keep: bool) -> &'static [&'static str] {
 fn draw_prompt(
     frame: &mut UiFrame,
     theme: &Theme,
+    metrics: &Metrics,
     mapping: &PadMapping,
     prompt: &str,
     (step, steps): (u32, u32),
     note: &str,
-    seconds: u64,
 ) {
+    let seconds = mapping.remaining_ns.div_ceil(NANOS_PER_SECOND);
     let mut progress = StackText::<LINE_BYTES>::new();
     // `StackText` never fails; it drops what does not fit.
     let _ = write!(progress, "Step {step} of {steps}");
     chrome::frame(
         frame,
         theme,
+        metrics,
         "Map buttons",
         progress.as_str(),
         "Back: cancel",
         "Hold: skip",
     );
-    let content = Layout::new(theme).content;
+    let content = metrics.content;
     let row = theme.row_height_px();
     let rows = 11;
     let (outer, inner) = chrome::rows_box(content, theme, rows);

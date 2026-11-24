@@ -15,6 +15,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
+use crate::metrics::Metrics;
 use crate::snapshot::{GameEntry, GameId, GameSource, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
@@ -179,7 +180,7 @@ impl GameList {
         &self,
         snap: &Snapshot,
         theme: &Theme,
-        layout: &Layout,
+        metrics: &Metrics,
         frame: &mut UiFrame,
     ) {
         let total = self.total(snap);
@@ -202,6 +203,7 @@ impl GameList {
         chrome::frame(
             frame,
             theme,
+            metrics,
             self.title(snap),
             position.as_str(),
             accept,
@@ -211,7 +213,7 @@ impl GameList {
             return;
         };
         if total == 0 {
-            let text = chrome::padded(layout.content, theme);
+            let text = chrome::padded(metrics.content, theme);
             chrome::paragraph(frame, theme, text, theme.colors.text, self.empty_text());
             return;
         }

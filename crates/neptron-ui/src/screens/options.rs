@@ -8,6 +8,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
+use crate::metrics::Metrics;
 use crate::snapshot::{
     ChoiceOption, IN_WORK, Level, MenuItem, PageId, SettingKey, SettingValue, Snapshot,
 };
@@ -142,9 +143,24 @@ impl Options {
     }
 
     /// Draws the list under the breadcrumb `path`.
-    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
+    pub(super) fn draw(
+        &self,
+        snap: &Snapshot,
+        theme: &Theme,
+        metrics: &Metrics,
+        path: &[&str],
+        frame: &mut UiFrame,
+    ) {
         let choice = self.choice(snap);
-        chrome::frame_path(frame, theme, path, "", "Accept: use", "Back: cancel");
+        chrome::frame_path(
+            frame,
+            theme,
+            metrics,
+            path,
+            "",
+            "Accept: use",
+            "Back: cancel",
+        );
         chrome::boxed(frame, theme, self.list_box);
         chrome::boxed(frame, theme, self.help_box);
         let Some((_, index, options)) = choice else {

@@ -5,6 +5,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
+use crate::metrics::Metrics;
 use crate::snapshot::{
     ActionId, Confirmation, Level, MenuItem, PageId, SettingKey, SettingValue, Snapshot,
 };
@@ -198,7 +199,13 @@ impl Page {
         (!snap.settings.is_for(self.id)).then_some(Intent::LoadSettings { page: self.id })
     }
 
-    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, frame: &mut UiFrame) {
+    pub(super) fn draw(
+        &self,
+        snap: &Snapshot,
+        theme: &Theme,
+        metrics: &Metrics,
+        frame: &mut UiFrame,
+    ) {
         let rows = self.rows(snap);
         chrome::boxed(frame, theme, self.list_box);
         self.list.draw(frame, theme, rows);
@@ -218,7 +225,7 @@ impl Page {
                 tone: DialogTone::Normal,
             };
             draw_dialog(&asking.dialog, &content, &[], theme, frame);
-            chrome::hints(frame, theme, "", "");
+            chrome::hints(frame, theme, metrics, "", "");
             return;
         }
         frame.tree.set_screen(CONFIRM_ACTION_SCREEN);
@@ -229,7 +236,7 @@ impl Page {
             tone: DialogTone::Normal,
         };
         draw_dialog(&asking.dialog, &content, &[], theme, frame);
-        chrome::hints(frame, theme, "Accept: choose", "Back: cancel");
+        chrome::hints(frame, theme, metrics, "Accept: choose", "Back: cancel");
     }
 
     /// Closes the confirm question when its row is gone, disabled or has no

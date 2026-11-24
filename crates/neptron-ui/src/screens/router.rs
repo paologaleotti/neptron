@@ -21,6 +21,7 @@ use super::pattern;
 use super::quick_menu::QuickMenu;
 use super::settings::SettingsMenu;
 use super::{DISPLAY_PAGE, GRID_PAGE, SETTINGS_PAGE, SETTINGS_PANELS};
+use crate::metrics::{Form, Metrics};
 
 /// The label of the row that opens the Settings page, on the home screen
 /// and in the quick menu.
@@ -39,7 +40,7 @@ pub const MAX_DEPTH: usize = 8;
 /// that state, the snapshot and the actions.
 pub struct Screens {
     theme: Theme,
-    layout: Layout,
+    metrics: Metrics,
     stack: Vec<Screen>,
     confirm: Confirm,
     notices: Notices,
@@ -99,12 +100,12 @@ pub(super) enum Screen {
 impl Screens {
     /// The home screen, drawn with `theme`.
     pub fn new(theme: Theme) -> Self {
-        let layout = Layout::new(&theme);
+        let metrics = Metrics::of(Form::Landscape, &theme);
         let mut stack = Vec::with_capacity(MAX_DEPTH);
-        stack.push(Screen::Home(Home::new(&layout, &theme)));
+        stack.push(Screen::Home(Home::new(&Layout::of(&metrics), &theme)));
         Self {
             theme,
-            layout,
+            metrics,
             stack,
             confirm: Confirm::new(),
             notices: Notices::new(),
@@ -391,7 +392,7 @@ impl Screens {
         if self.stack.len() >= MAX_DEPTH {
             return;
         }
-        let (layout, theme) = (&self.layout, &self.theme);
+        let (layout, theme) = (&Layout::of(&self.metrics), &self.theme);
         let screen = match target {
             Target::Games(source) => Screen::Games(GameList::new(source, layout, theme)),
             Target::QuickMenu => Screen::QuickMenu(Box::new(QuickMenu::new(layout, theme))),
@@ -438,37 +439,37 @@ impl Screens {
             screensaver::draw(frames, out);
             return;
         }
-        let (theme, layout) = (&self.theme, &self.layout);
+        let (theme, metrics) = (&self.theme, &self.metrics);
         let mut parts = [""; MAX_DEPTH];
         let path = self.path(snap, &mut parts);
         match self.stack.last() {
             Some(Screen::Home(home)) => {
                 out.tree.set_screen("home");
-                home.draw(snap, theme, layout, out);
+                home.draw(snap, theme, metrics, out);
             }
             Some(Screen::Games(list)) => {
                 out.tree.set_screen("games");
-                list.draw(snap, theme, layout, out);
+                list.draw(snap, theme, metrics, out);
             }
             Some(Screen::Settings(menu)) => {
                 out.tree.set_screen("settings");
-                menu.draw(theme, path, out);
+                menu.draw(theme, metrics, path, out);
             }
             Some(Screen::Display(panel)) => {
                 out.tree.set_screen("display");
-                panel.draw(snap, theme, path, out);
+                panel.draw(snap, theme, metrics, path, out);
             }
             Some(Screen::Page(panel)) => {
                 out.tree.set_screen(panel.screen_id());
-                panel.draw(snap, theme, path, out);
+                panel.draw(snap, theme, metrics, path, out);
             }
             Some(Screen::Options(options)) => {
                 out.tree.set_screen("options");
-                options.draw(snap, theme, path, out);
+                options.draw(snap, theme, metrics, path, out);
             }
             Some(Screen::QuickMenu(menu)) => {
                 out.tree.set_screen("quick-menu");
-                menu.draw(snap, theme, path, out);
+                menu.draw(snap, theme, metrics, path, out);
             }
             Some(Screen::Grid) => {
                 out.tree.set_screen("pattern/grid");
@@ -477,22 +478,22 @@ impl Screens {
             Some(Screen::Game) | None => {
                 out.tree.set_screen("game");
                 if snap.confirm.is_some() {
-                    chrome::background(out, theme);
+                    chrome::background(out, theme, metrics);
                 }
             }
         }
         if let Some(pending) = &snap.confirm {
             out.tree.clear();
             out.tree.set_screen("confirm");
-            self.confirm.draw(pending, theme, out);
+            self.confirm.draw(pending, theme, metrics, out);
         } else if let Some(mapping) = &snap.pad_mapping {
             out.tree.clear();
             out.tree.set_screen(PadMappingScreen::screen_id(mapping));
-            self.pad_mapping.draw(mapping, theme, out);
+            self.pad_mapping.draw(mapping, theme, metrics, out);
         } else if let Some(notice) = self.notices.current(snap).filter(|_| !self.in_game()) {
             out.tree.clear();
             out.tree.set_screen("notice");
-            self.notices.draw(notice, theme, out);
+            self.notices.draw(notice, theme, metrics, out);
         }
     }
 

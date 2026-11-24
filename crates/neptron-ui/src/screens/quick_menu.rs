@@ -6,6 +6,7 @@
 use crate::frame::UiFrame;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
+use crate::metrics::Metrics;
 use crate::snapshot::{Level, MenuItem, PageId, Scopes, SettingKey, SettingValue, Snapshot};
 use crate::theme::Theme;
 use crate::widgets::{Dialog, DialogContent, DialogEvent, DialogTone};
@@ -167,16 +168,24 @@ impl QuickMenu {
     }
 
     /// Draws the first page under the breadcrumb `path`.
-    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
+    pub(super) fn draw(
+        &self,
+        snap: &Snapshot,
+        theme: &Theme,
+        metrics: &Metrics,
+        path: &[&str],
+        frame: &mut UiFrame,
+    ) {
         chrome::frame_path(
             frame,
             theme,
+            metrics,
             path,
             "Paused",
             self.page.hint(snap),
             "Back: resume",
         );
-        self.page.draw(snap, theme, frame);
+        self.page.draw(snap, theme, metrics, frame);
         if let Some((dialog, _)) = &self.prompt {
             frame.tree.clear();
             frame.tree.set_screen(KEEP_SCREEN);
@@ -188,7 +197,7 @@ impl QuickMenu {
             };
             let waiting = KEEP_LEVELS.map(|level| waits(snap, level));
             draw_dialog(dialog, &content, &waiting, theme, frame);
-            chrome::hints(frame, theme, "Accept: choose", "Back: cancel");
+            chrome::hints(frame, theme, metrics, "Accept: choose", "Back: cancel");
         }
     }
 

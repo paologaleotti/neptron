@@ -7,6 +7,7 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::Intent;
+use crate::metrics::Metrics;
 use crate::snapshot::{Level, PageId, SettingKey, Snapshot};
 use crate::theme::Theme;
 
@@ -129,11 +130,26 @@ impl PagePanel {
     }
 
     /// Draws the page under the breadcrumb `path`.
-    pub(super) fn draw(&self, snap: &Snapshot, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
-        chrome::frame_path(frame, theme, path, "", self.page.hint(snap), "Back: return");
+    pub(super) fn draw(
+        &self,
+        snap: &Snapshot,
+        theme: &Theme,
+        metrics: &Metrics,
+        path: &[&str],
+        frame: &mut UiFrame,
+    ) {
+        chrome::frame_path(
+            frame,
+            theme,
+            metrics,
+            path,
+            "",
+            self.page.hint(snap),
+            "Back: return",
+        );
         if let Some(status) = video::status(snap).filter(|_| self.video) {
             video::draw(frame, theme, self.content, status);
         }
-        self.page.draw(snap, theme, frame);
+        self.page.draw(snap, theme, metrics, frame);
     }
 }

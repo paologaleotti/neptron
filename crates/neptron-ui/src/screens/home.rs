@@ -6,6 +6,7 @@ use core::fmt::Write;
 use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
+use crate::metrics::Metrics;
 use crate::snapshot::{GameSource, Level, Snapshot};
 use crate::text::StackText;
 use crate::theme::Theme;
@@ -88,16 +89,16 @@ impl Home {
         &self,
         snap: &Snapshot,
         theme: &Theme,
-        layout: &Layout,
+        metrics: &Metrics,
         frame: &mut UiFrame,
     ) {
-        chrome::frame(frame, theme, "NEPTRON", "", "Accept: open", "");
+        chrome::frame(frame, theme, metrics, "NEPTRON", "", "Accept: open", "");
         if snap.systems.is_empty() {
             let text = Rect::new(
-                layout.content.x,
-                layout.content.y,
-                layout.content.w,
-                (self.alone_box.y - layout.content.y).max(0) as u32,
+                metrics.content.x,
+                metrics.content.y,
+                metrics.content.w,
+                (self.alone_box.y - metrics.content.y).max(0) as u32,
             );
             chrome::paragraph(
                 frame,

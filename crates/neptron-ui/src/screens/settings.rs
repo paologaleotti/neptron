@@ -5,6 +5,7 @@
 use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
+use crate::metrics::Metrics;
 use crate::snapshot::Level;
 use crate::theme::Theme;
 use crate::widgets::{HINT_OPEN, List, ListEvent, ListItem};
@@ -58,8 +59,14 @@ impl SettingsMenu {
     }
 
     /// Draws the page under the breadcrumb `path`.
-    pub(super) fn draw(&self, theme: &Theme, path: &[&str], frame: &mut UiFrame) {
-        chrome::frame_path(frame, theme, path, "", HINT_OPEN, "Back: return");
+    pub(super) fn draw(
+        &self,
+        theme: &Theme,
+        metrics: &Metrics,
+        path: &[&str],
+        frame: &mut UiFrame,
+    ) {
+        chrome::frame_path(frame, theme, metrics, path, "", HINT_OPEN, "Back: return");
         chrome::boxed(frame, theme, self.list_box);
         self.list.draw(frame, theme, SETTINGS_PANELS.len(), |i| {
             ListItem::page(SETTINGS_PANELS.get(i).map_or("", |p| p.label))

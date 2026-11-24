@@ -2057,7 +2057,8 @@ fn the_video_block_changes_no_navigation_of_the_display_panel() {
 /// Checks that the rows of the settings list sit inside the content area
 /// under every box above them, and that the focused row is one of them.
 fn assert_rows_in_their_box(run: &Run, theme: &Theme, what: &str) {
-    let content = super::chrome::Layout::new(theme).content;
+    let content =
+        super::chrome::Layout::of(&crate::Metrics::of(crate::Form::Landscape, theme)).content;
     let above = run
         .frame
         .tree
@@ -2458,7 +2459,7 @@ fn a_change_taken_back_while_the_prompt_is_open_is_not_moved() {
 
 #[test]
 fn a_change_whose_row_is_not_in_the_snapshot_stays_for_the_game() {
-    let layout = super::chrome::Layout::new(&Theme::default());
+    let layout = super::chrome::Layout::of(&crate::Metrics::default());
     let mut menu = super::quick_menu::QuickMenu::new(&layout, &Theme::default());
     let mut snap = in_game();
     snap.settings.rows.retain(|r| r.key != VOLUME);
