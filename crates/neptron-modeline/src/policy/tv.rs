@@ -10,12 +10,15 @@ use width::LineSystem;
 
 use neptron_types::{GpuCaps, Modeline, Rect, TvStandard};
 
-use super::placement::{centre, filter_for, line_crop, whole, whole_u32};
+use super::fit::fit_larger;
+use super::placement::{centre, filter_for, line_crop, whole_u32};
 use super::settings::Effective;
+use super::source::div_round;
 use super::{
     Considered, Dropped, FORCE_50_MHZ, FORCE_60_MHZ, OVERSCAN_CROP_MAX_LINES_PER_EDGE,
-    OrientedSource, OverscanCrop, Placement, Plan, Proposal, RefreshKind, RefreshPolicy,
-    RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, TvWidth, UI_CANVAS, walk_ladder,
+    OrientedSource, OverscanCrop, PictureStyle, Placement, Plan, Proposal, RefreshKind,
+    RefreshPolicy, RefreshTarget, Rung, ScaleClaim, SkippedTarget, Timing, TvWidth, UI_CANVAS,
+    walk_ladder,
 };
 
 /// The largest difference between the game's rate and the field rate of a
@@ -72,6 +75,14 @@ pub(crate) fn tv_plan(
     if source.interlaced {
         considered.push(tv.interlaced(Rung::Native, caps));
         considered.push(tv.dropped(Rung::Interlaced, INTERLACED, Dropped::SameAsNative));
+    } else if tv.fit_mode() {
+        considered.extend(
+            tv.progressive_native()
+                .into_iter()
+                .map(|c| tv.exact_or_fit(c)),
+        );
+        let interlaced = tv.interlaced(Rung::Interlaced, caps);
+        considered.push(tv.exact_or_fit(interlaced));
     } else {
         considered.extend(tv.progressive_native());
         let fit = settings.asks_fit(source);
@@ -135,6 +146,83 @@ impl Tv<'_> {
     fn interlaced_fill_permille(&self) -> u32 {
         let lines = u32::from(self.source.height) * 1_000;
         (lines / u32::from(self.modes[INTERLACED].vactive.max(1))).min(1_000)
+    }
+
+    /// The picture mode `fit` for a progressive game. Its fitted rung
+    /// keeps the shape of the game ([`Tv::fill_size`]); the fitted rung of
+    /// every other mode spans the active lines with the width of its rule.
+    fn fit_mode(&self) -> bool {
+        self.settings.style == PictureStyle::Fit && !self.source.interlaced
+    }
+
+    /// The picture mode `fit`: an exact picture stays only where it is as
+    /// large as the fit of the progressive mode ([`fit_larger`]). The
+    /// shares are the lines of each picture over the active lines.
+    fn exact_or_fit(&self, considered: Considered) -> Considered {
+        let Ok(proposal) = &considered.outcome else {
+            return considered;
+        };
+        let progressive = &self.modes[PROGRESSIVE];
+        let fit_lines = self.fill_size(progressive).1;
+        let share = |lines: u32, mode: &Modeline| {
+            let share = u64::from(lines) * 1_000 / u64::from(mode.vactive.max(1));
+            u32::try_from(share.min(1_000)).unwrap_or(1_000)
+        };
+        let fill = share(proposal.placement.dest.h, &proposal.mode);
+        let cut = proposal.overscan_crop.map_or(0, |crop| crop.lines());
+        match fit_larger(
+            fill,
+            share(fit_lines, progressive),
+            cut,
+            proposal.mode.interlace,
+        ) {
+            Some(reason) => Considered {
+                outcome: Err(reason),
+                ..considered
+            },
+            None => considered,
+        }
+    }
+
+    /// The width and the lines of the fit in `mode`: the active lines, or
+    /// fewer for a game that is wider than the safe width at that height.
+    /// The width keeps the shape that the width rule gives the game at its
+    /// own lines ([`width::shape_samples`]), scaled with the lines. A width
+    /// rule other than `aspect` gives its own width over the active lines.
+    fn fill_size(&self, mode: &Modeline) -> (u32, u32) {
+        let source = self.source;
+        let lines = u32::from(mode.vactive);
+        let safe = u32::from(TV_SAFE_WIDTH_SAMPLES.min(mode.hactive));
+        let fields = if mode.interlace { 2 } else { 1 };
+        if self.settings.tv_width != TvWidth::Aspect {
+            let field_lines = u16::try_from(lines.div_ceil(fields)).unwrap_or(u16::MAX);
+            let w = width::tv_samples(
+                self.settings.tv_width,
+                self.system,
+                source.width,
+                source.height,
+                source.aspect_milli,
+                field_lines,
+            );
+            return (w.min(safe), lines);
+        }
+        let own_field_lines =
+            u16::try_from(u32::from(source.height).div_ceil(fields)).unwrap_or(u16::MAX);
+        let own = u64::from(width::shape_samples(
+            self.settings.arcade,
+            self.system,
+            source.width,
+            source.height,
+            source.aspect_milli,
+            own_field_lines,
+        ));
+        let height = u64::from(source.height.max(1));
+        let w = div_round(own * u64::from(lines), height);
+        if w <= safe {
+            return (w.max(1), lines);
+        }
+        let h = u64::from(safe) * height / own.max(1);
+        (safe, u32::try_from(h).unwrap_or(lines).clamp(1, lines))
     }
 
     /// The source has more lines than the progressive mode shows with the
@@ -272,10 +360,18 @@ impl Tv<'_> {
                     crop.map_or(0, |c| c.lines_per_edge),
                 )
             }
+            Fit::Fill if self.fit_mode() => {
+                let h = self.fill_size(mode).1;
+                let mut y = centre(mode.vactive, h);
+                if mode.interlace {
+                    y &= !1;
+                }
+                (y, h, whole_u32(h, source.height), 0)
+            }
             Fit::Fill => (
                 0,
                 u32::from(mode.vactive),
-                whole(mode.vactive, source.height),
+                whole_u32(u32::from(mode.vactive), source.height),
                 0,
             ),
         };
@@ -287,7 +383,9 @@ impl Tv<'_> {
         };
         let fields = if mode.interlace { 2 } else { 1 };
         let field_lines = u16::try_from(frame_lines.div_ceil(fields)).unwrap_or(u16::MAX);
-        let w = if self.settings.arcade && self.settings.tv_width == TvWidth::Aspect {
+        let w = if fit == Fit::Fill && self.fit_mode() {
+            self.fill_size(mode).0
+        } else if self.settings.arcade && self.settings.tv_width == TvWidth::Aspect {
             width::board_samples(
                 self.system,
                 source.width,

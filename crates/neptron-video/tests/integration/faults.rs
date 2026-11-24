@@ -153,7 +153,16 @@ fn a_mode_the_driver_refuses_is_dropped_and_the_next_proposal_is_tried() {
     assert_eq!(record.decided_frame, failed_frame + 1, "no debounce");
     if step.directive == Directive::Modeset {
         assert_ne!(rig.current_mode(), refused);
-        assert!(record.refused.iter().any(|r| r.reason == Refusal::Driver));
+        // The refusal is in the record of the plan that wins: Auto's own,
+        // or the Fit picture where Auto has no other mode. Fit puts its
+        // larger fit before the refused exact mode, so its record holds
+        // no refusal.
+        let fit_fallback = record
+            .winner
+            .as_ref()
+            .and_then(|w| w.notice)
+            .is_some_and(|n| n.fill_fallback.is_some());
+        assert!(fit_fallback || record.refused.iter().any(|r| r.reason == Refusal::Driver));
     } else {
         assert_eq!(step.directive, Directive::Kept);
     }

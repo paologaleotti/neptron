@@ -358,6 +358,9 @@ fn soft_reason(plan: &Plan, winner: &Considered) -> SoftReason {
             .iter()
             .filter_map(|c| c.outcome.as_ref().err())
     };
+    if dropped().any(|d| matches!(d, Dropped::FitLarger { .. })) {
+        return SoftReason::FillMode;
+    }
     if dropped().any(|d| matches!(d, Dropped::VerticalFit { .. })) {
         return if plan.style == PictureStyle::Fit {
             SoftReason::FillMode

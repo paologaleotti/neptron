@@ -468,7 +468,7 @@ fn progressive_window(range: &CrtRange, rate_mhz: u32) -> Option<Window> {
 /// game's share of the width must be its share of the height times its
 /// aspect over the screen's aspect. A core with no aspect gets square
 /// pixels. The width is never below the game width.
-fn border_width(
+pub(crate) fn border_width(
     source: &OrientedSource,
     game_lines: u16,
     mode_lines: u16,

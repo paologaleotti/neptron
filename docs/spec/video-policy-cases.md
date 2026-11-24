@@ -315,7 +315,7 @@ The table below is the output of `offer` for the SNES (256x224 at 60.099 Hz) wit
 | `4x` | no: not shown here | no: rate not covered | no: not shown here | no: not shown here |
 | `sharp` | 256x224p 60.09 Hz | no: rate not covered | 256x224p 50.00 Hz | 256x224p 59.99 Hz |
 | `speed` | 256x224p 60.09 Hz | no: rate not covered | no: speed not held | 256x224p 59.99 Hz |
-| `fit` | 256x224p 60.09 Hz | no: rate not covered | 256x224p 50.00 Hz | 256x224p 59.99 Hz |
+| `fit` | 256x241p 60.09 Hz | no: rate not covered | 256x288p 50.00 Hz | 256x241p 59.99 Hz |
 
 **31 kHz CRT (`arcade_31`)**
 
@@ -328,7 +328,7 @@ The table below is the output of `offer` for the SNES (256x224 at 60.099 Hz) wit
 | `4x` | no: not shown here | no: rate not covered | no: not shown here | no: not shown here |
 | `sharp` | 256x448p 60.09 Hz | no: rate not covered | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
 | `speed` | 256x448p 60.09 Hz | no: rate not covered | no: speed not held | 256x448p 60.00 Hz |
-| `fit` | 256x448p 60.09 Hz | no: rate not covered | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+| `fit` | 256x478p 60.09 Hz | no: rate not covered | 256x512p 50.00 Hz | 256x479p 60.00 Hz |
 
 **31 kHz PC CRT up to 120 Hz (`pc_31_120`)**
 
@@ -341,7 +341,7 @@ The table below is the output of `offer` for the SNES (256x224 at 60.099 Hz) wit
 | `4x` | no: not shown here | no: rate not held | no: not shown here | no: not shown here |
 | `sharp` | 256x448p 60.09 Hz | 256x224p 120.19 Hz | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
 | `speed` | 256x448p 60.09 Hz | 256x224p 120.19 Hz | no: speed not held | 256x448p 60.00 Hz |
-| `fit` | 256x448p 60.09 Hz | 256x224p 120.19 Hz | 256x448p 50.00 Hz | 256x448p 60.00 Hz |
+| `fit` | 256x506p 60.10 Hz | 256x243p 120.19 Hz | 256x512p 50.00 Hz | 256x507p 60.00 Hz |
 
 **TV (`tv_ntsc`)**
 
@@ -468,7 +468,8 @@ The cases. The measures are those of the screen simulator (`docs/spec/screen-sim
 | d. R-Type 384x256, 55 Hz | `pal` | 626x256 in 288p, 1:1 | 704x288, all 256 lines at 1.125, shape within 1 % |
 | A vertical game on a horizontal TV (DoDonPachi) | `ntsc` | 480i 1:1, interlaced | 240 lines at 0.75, progressive, the shape kept |
 | A horizontal 4:3 game on a turned screen (a 320x240 source turned by 270 degrees) | `generic_15` | 1x, interlaced 1:1 | The height of the scan-out filled, progressive |
-| An exact picture as large as the fit (SNES 2x, 448 lines) | `arcade_31` | 2x | 2x: it fills its mode |
+| An exact picture as large as the fit (SNES) | `edid_30_70` | 2x, 448 of the 480 lines that the range forces | 3x, 672 lines: it fills its mode, every line whole |
+| SNES | `arcade_31` | 2x, 448 of 478 lines | 478 lines at 2.13, soft |
 | SNES | 1080p panel | Fill at 4.82 | The same |
 
 ## 9. The speed alert

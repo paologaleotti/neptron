@@ -751,7 +751,8 @@ fn sweep_sources() -> Vec<SourceGeometry> {
 /// sources and every setting, is a table mode of the standard, never of
 /// the other line system, and passes the validator. The placement lies
 /// inside the mode, and a game that fits the progressive mode wins it
-/// with one line per scan line.
+/// with one line per scan line; under Fit a progressive game wins the
+/// progressive mode with every line.
 #[test]
 fn every_tv_proposal_is_a_table_mode_that_the_validator_accepts() {
     let settings = every_settings();
@@ -813,7 +814,12 @@ fn every_tv_proposal_is_a_table_mode_that_the_validator_accepts() {
                 let first = plan.proposals().next().unwrap().1;
                 let lines = plan.source.height;
                 let progressive = standard.modes()[0];
-                if !plan.source.interlaced && lines <= progressive.vactive + 16 {
+                if !plan.source.interlaced && s.style == PictureStyle::Fit {
+                    // Fit: the progressive mode, every line shown.
+                    let p = first.outcome.as_ref().unwrap();
+                    assert_eq!(p.mode, progressive, "{source:?}");
+                    assert_eq!(p.overscan_crop, None, "{source:?}");
+                } else if !plan.source.interlaced && lines <= progressive.vactive + 16 {
                     assert_eq!(first.rung, Rung::Native, "{source:?}");
                     assert_eq!(
                         first.outcome.as_ref().unwrap().mode,

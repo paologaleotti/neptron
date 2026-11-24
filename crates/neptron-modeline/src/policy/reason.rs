@@ -110,6 +110,21 @@ pub enum Dropped {
         /// The exact mode is interlaced.
         interlaced: bool,
     },
+    /// The picture mode `fit` asks for the whole picture as large as the
+    /// screen allows: an exact picture that the fit makes larger, an exact
+    /// picture with lines cut, and an interlaced 1:1 mode of a progressive
+    /// game give way to the fit.
+    FitLarger {
+        /// The share of the picture lines the exact picture fills, in per
+        /// mille.
+        fill_permille: u32,
+        /// The share the fit fills, in per mille.
+        fit_permille: u32,
+        /// The exact picture hides this many source lines.
+        cut_lines: u16,
+        /// The exact mode is interlaced.
+        interlaced: bool,
+    },
 }
 
 impl Dropped {
@@ -131,6 +146,7 @@ impl Dropped {
             Self::WidthChanged { .. } => "width_changed",
             Self::RefreshMissed { .. } => "refresh_missed",
             Self::VerticalFit { .. } => "vertical_fit",
+            Self::FitLarger { .. } => "fit_larger",
         }
     }
 }
@@ -216,6 +232,24 @@ impl fmt::Display for Dropped {
                 },
                 fill_permille / 10,
                 fill_permille % 10
+            ),
+            Self::FitLarger {
+                fill_permille,
+                fit_permille,
+                cut_lines,
+                interlaced,
+            } => write!(
+                f,
+                "fit: the exact {} picture fills {}.{} % of the lines and cuts {cut_lines}, the fit fills {}.{} %",
+                if interlaced {
+                    "interlaced"
+                } else {
+                    "progressive"
+                },
+                fill_permille / 10,
+                fill_permille % 10,
+                fit_permille / 10,
+                fit_permille % 10
             ),
         }
     }

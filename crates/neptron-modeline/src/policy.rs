@@ -28,6 +28,7 @@
 mod choose;
 mod clock;
 mod crt;
+mod fit;
 mod ladder;
 mod offer;
 mod padding;
@@ -49,6 +50,7 @@ pub use choose::{
     Choice, Notice, NoticeReason, PANEL_SPEED_NOTICE_MIN_PPM, Refused, SPEED_ALERT_MIN_PPM,
     SoftReason, Switch, Winner, choose, notice, speed_alert, switch_for,
 };
+pub use fit::FIT_EXACT_MARGIN_PERMILLE;
 pub use ladder::{Rung, walk_ladder};
 pub use offer::{
     ChoicesWork, DeclineReason, Declined, Offer, Offered, PictureChoices, REFERENCE_SOURCES,

@@ -596,3 +596,144 @@ fn the_speed_notice_starts_above_the_alert_threshold() {
         "generic_15"
     ));
 }
+
+/// The winner of the picture mode `fit` for `board` on the display `id`,
+/// with the source turned by `rotation`.
+fn fit_winner(
+    board: &str,
+    rotation: Option<Rotation>,
+    id: &str,
+) -> (Rung, Proposal, Option<SoftReason>) {
+    let displays = arcade_table::displays();
+    let display = displays
+        .iter()
+        .find(|d| d.profile.id == id)
+        .unwrap_or_else(|| panic!("no display {id}"));
+    let board = sources().find(|b| b.name == board).unwrap();
+    let source = SourceGeometry {
+        rotation: rotation.unwrap_or(board.rotation),
+        ..board.source()
+    };
+    let plan = decide_with(
+        &source,
+        PictureStyle::Fit,
+        arcade_table::settings_of(board),
+        display,
+    );
+    let w = won(&plan, display).unwrap_or_else(|| panic!("no picture on {id}"));
+    let soft = notice(&plan, w.considered).and_then(|n| n.soft);
+    (w.considered.rung, *w.proposal, soft)
+}
+
+/// The shape of `dest` on a 4:3 face that the active area of `p` fills,
+/// over the asked aspect, less 1, in per mille.
+fn crt_shape_error_permille(p: &Proposal, aspect_milli: u32) -> i64 {
+    let d = p.placement.dest;
+    let shown = i64::from(d.w) * 4_000 * i64::from(p.mode.vactive)
+        / (3 * i64::from(p.mode.hactive) * i64::from(d.h));
+    (shown - i64::from(aspect_milli)) * 1_000 / i64::from(aspect_milli)
+}
+
+/// Fit shows the whole picture, as large as the screen allows, at its
+/// shape, smoothed where the scale is a fraction, on a 15 kHz CRT, a
+/// 31 kHz CRT, an NTSC and a PAL TV and a flat panel; a vertical game on a
+/// horizontal screen fills the height, and so does a horizontal game on a
+/// turned screen (the source turned by 270 degrees relative to the scan).
+#[test]
+fn fit_shows_the_whole_picture_as_large_as_the_screen_allows() {
+    use neptron_types::{Filter, Rect};
+    let fitted = |board, rotation, id| {
+        let (rung, p, soft) = fit_winner(board, rotation, id);
+        assert_eq!(rung, Rung::Fitted, "{board} on {id}");
+        assert!(!p.mode.interlace, "{board} on {id}");
+        assert_eq!(p.overscan_crop, None, "{board} on {id}");
+        let crop = p.placement.crop;
+        let source = sources().find(|b| b.name == board).unwrap();
+        assert_eq!(
+            (crop.w, crop.h),
+            (u32::from(source.width), u32::from(source.height))
+        );
+        assert_eq!(p.placement.filter, Filter::SharpBilinear, "{board} on {id}");
+        assert_eq!(soft, Some(SoftReason::FillMode), "{board} on {id}");
+        p
+    };
+    let rect = |x, y, w, h| Rect { x, y, w, h };
+    // NTSC: the SNES fills 240 lines at the console shape of Auto (644
+    // samples over 224 lines); R-Type shows its 256 lines in 240 at
+    // 751 / 256 x 240 = 704 samples, where Auto cuts 16 lines.
+    let dest = |board, id| fitted(board, None, id).placement.dest;
+    assert_eq!(dest("snes_ntsc", "tv_ntsc"), rect(15, 0, 690, 240));
+    assert_eq!(dest("rtype", "tv_ntsc"), rect(8, 0, 704, 240));
+    // PAL: R-Type fills 288 lines at 626 / 256 x 288 = 704 samples.
+    assert_eq!(dest("rtype", "tv_pal"), rect(8, 0, 704, 288));
+    // A vertical game on a horizontal TV: 3:4 over 240 lines, 396 samples.
+    assert_eq!(dest("ddonpach", "tv_ntsc"), rect(162, 0, 396, 240));
+    // CRTs: a vertical game, a horizontal game on a turned screen and a
+    // console fill the active lines at their shape.
+    let cases = [
+        ("ddonpach", None, "pc_31_120", 750),
+        ("ddonpach", None, "arcade_31", 750),
+        ("ddonpach", None, "generic_15", 750),
+        ("rtype", Some(Rotation::R270), "generic_15", 750),
+        ("rtype", Some(Rotation::R270), "pc_31_120", 750),
+        ("snes_ntsc", None, "generic_15", 1_333),
+        ("snes_ntsc", None, "arcade_31", 1_333),
+    ];
+    for (board, rotation, id, aspect) in cases {
+        let p = fitted(board, rotation, id);
+        let d = p.placement.dest;
+        assert_eq!(
+            (d.y, d.h),
+            (0, u32::from(p.mode.vactive)),
+            "{board} on {id}"
+        );
+        let error = crt_shape_error_permille(&p, aspect);
+        assert!(error.abs() < 10, "{board} on {id}: shape {error} per mille");
+        // Each column of the game keeps at least one pixel of the mode.
+        let columns = if rotation.is_some() || board == "ddonpach" {
+            sources().find(|b| b.name == board).unwrap().height
+        } else {
+            sources().find(|b| b.name == board).unwrap().width
+        };
+        assert!(d.w >= u32::from(columns), "{board} on {id}: {d:?}");
+    }
+    // DoDonPachi on `pc_31_120`: 512 lines, where Auto and Native show
+    // 320 lines in 512.
+    assert_eq!(fitted("ddonpach", None, "pc_31_120").mode.vactive, 512);
+    // A flat panel fills the height.
+    let (rung, p, _) = fit_winner("snes_ntsc", None, "panel_1080");
+    assert_eq!((rung, p.placement.dest.h), (Rung::Panel, 1_080));
+}
+
+/// An exact picture that is as large as the fit stays under Fit: a whole
+/// multiple that fills its mode keeps every line whole.
+#[test]
+fn fit_keeps_an_exact_picture_that_is_as_large() {
+    for (board, id, rung) in [
+        ("snes_ntsc", "edid_30_70", Rung::Multiple(3)),
+        ("mk", "arcade_31", Rung::Multiple(2)),
+        ("nes_ntsc", "tv_ntsc", Rung::Native),
+    ] {
+        let (won, p, soft) = fit_winner(board, None, id);
+        assert_eq!(won, rung, "{board} on {id}");
+        assert!(p.placement.scale.y.is_some(), "{board} on {id}");
+        assert_eq!(soft, None, "{board} on {id}");
+    }
+}
+
+/// Auto does not take the rule of Fit: R-Type on NTSC keeps 240p with
+/// the crop of 8 lines at each edge.
+#[test]
+fn auto_keeps_its_crop_where_fit_shows_every_line() {
+    let displays = arcade_table::displays();
+    let display = displays.iter().find(|d| d.profile.id == "tv_ntsc").unwrap();
+    let board = sources().find(|b| b.name == "rtype").unwrap();
+    let plan = decide_with(
+        &board.source(),
+        PictureStyle::Auto,
+        arcade_table::settings_of(board),
+        display,
+    );
+    let w = won(&plan, display).unwrap();
+    assert_eq!(w.proposal.overscan_crop.map(|c| c.lines()), Some(16));
+}

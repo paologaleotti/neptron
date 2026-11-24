@@ -304,10 +304,6 @@ pub(crate) fn centre(outer: u16, inner: u32) -> i32 {
     margin as i32
 }
 
-pub(crate) fn whole(outer: u16, inner: u16) -> Option<u16> {
-    whole_u32(u32::from(outer), inner)
-}
-
 pub(crate) fn whole_u32(outer: u32, inner: u16) -> Option<u16> {
     let inner = u32::from(inner);
     if inner == 0 || outer == 0 || !outer.is_multiple_of(inner) {

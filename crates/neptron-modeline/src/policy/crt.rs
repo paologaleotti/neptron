@@ -1,11 +1,13 @@
 use neptron_types::{CrtRange, GpuCaps, MonitorKind, MonitorProfile};
 
+use super::fit::{fit_larger, fit_share_permille};
 use super::ladder::walk_ladder;
+use super::padding::forced_picture_lines;
 use super::refresh::{
     below_ranges_double_target, game_target, native_double_target, refresh_targets,
 };
 use super::settings::Effective;
-use super::shape::{Shape, blank_lines, overscan_crop, progressive_capacity, shape};
+use super::shape::{Shape, blank_lines, border_width, overscan_crop, progressive_capacity, shape};
 use super::solve::solve;
 use super::{
     Considered, Dropped, EXACT_SPEED_MARGIN_PPM, HorizontalStrategy, OrientedSource, PictureStyle,
@@ -145,6 +147,9 @@ pub(crate) fn crt_plan(crt: &Crt<'_>) -> Result<Plan, PolicyError> {
         speed_order(&mut entries, target, margin_ppm);
     }
     entries.sort_by_key(|(key, _)| *key);
+    if style == PictureStyle::Fit && !crt.source.interlaced {
+        fit_pass(&mut entries, crt);
+    }
     Ok(Plan {
         source: crt.source,
         style: crt.settings.style,
@@ -244,17 +249,22 @@ fn speed_order(entries: &mut [(Key, Considered)], window: RefreshTarget, margin_
     }
 }
 
-/// `display.vertical = fit` for a turned game, or the `fit` style for a
-/// progressive game ([`Effective::asks_fit`]): an interlaced 1:1 mode and
-/// an exact picture below [`SMALL_PICTURE_MIN_PERCENT`] of the picture
-/// lines drop, so the fit fills the screen with no flicker. An exact
-/// picture that fills more stays: the fit would not be larger.
+/// `display.vertical = fit` for a turned game ([`Effective::asks_fit`]):
+/// an interlaced 1:1 mode and an exact picture below
+/// [`SMALL_PICTURE_MIN_PERCENT`] of the picture lines drop, so the fit
+/// fills the screen with no flicker. An exact picture that fills more
+/// stays. The `fit` style for a progressive game takes the rule of
+/// [`fit_mode`].
 fn vertical_fit(crt: &Crt<'_>, rung: Rung, outcome: Outcome) -> Outcome {
     let asked = crt.settings.asks_fit(&crt.source);
     let Ok(proposal) = outcome else {
         return outcome;
     };
     if !asked || rung.is_fitted() {
+        return Ok(proposal);
+    }
+    if crt.settings.style == PictureStyle::Fit && !crt.source.interlaced {
+        // `fit_pass` judges these once the fit is known.
         return Ok(proposal);
     }
     let fill_permille = proposal.padding.map_or(1_000, |p| p.fill_permille());
@@ -266,6 +276,57 @@ fn vertical_fit(crt: &Crt<'_>, rung: Rung, outcome: Outcome) -> Outcome {
         });
     }
     Ok(proposal)
+}
+
+/// The picture mode `fit` for a progressive game, on the entries in their
+/// order: where the first fit of the plan is progressive, each exact
+/// picture goes through [`fit_mode`]. Where it is interlaced, or the plan
+/// has no fit, every exact picture stays: the mode never trades an exact
+/// picture for an interlaced fit.
+fn fit_pass(entries: &mut [(Key, Considered)], crt: &Crt<'_>) {
+    let first_fit = entries
+        .iter()
+        .filter(|(_, c)| c.rung.is_fitted())
+        .find_map(|(_, c)| c.outcome.as_ref().ok());
+    if !first_fit.is_some_and(|p| !p.mode.interlace) {
+        return;
+    }
+    for (_, considered) in entries.iter_mut() {
+        if considered.rung.is_fitted() {
+            continue;
+        }
+        if let Ok(proposal) = &considered.outcome {
+            considered.outcome = fit_mode(crt, *proposal);
+        }
+    }
+}
+
+/// The picture mode `fit` for a progressive game: an exact picture stays
+/// only where it is as large as the fit ([`fit_larger`]). Its share is
+/// the game's lines over the picture lines of the mode: its active lines,
+/// or the lines the minimum line rate of its range forces at the target.
+fn fit_mode(crt: &Crt<'_>, proposal: Proposal) -> Outcome {
+    let mode = &proposal.mode;
+    let forced = crt.ranges.get(proposal.source_index).map_or(0, |range| {
+        forced_picture_lines(range, proposal.timing.target.rate_mhz)
+    });
+    let picture = u32::from(mode.vactive).max(forced).max(1);
+    let shown = proposal.placement.dest.h;
+    let fill = u32::try_from(u64::from(shown) * 1_000 / u64::from(picture)).unwrap_or(u32::MAX);
+    // The fit takes the most progressive lines a range holds at the
+    // target; a range that forces more lines leaves it a border too.
+    let capacity = u32::from(progressive_capacity(
+        crt.ranges,
+        proposal.timing.target.rate_mhz,
+    ));
+    let face_share = fit_share_permille(&crt.source, crt.settings.solver.monitor_aspect);
+    let fit = u64::from(face_share) * u64::from(capacity) / u64::from(capacity.max(forced).max(1));
+    let fit = u32::try_from(fit).unwrap_or(face_share);
+    let cut = proposal.overscan_crop.map_or(0, |crop| crop.lines());
+    match fit_larger(fill.min(1_000), fit, cut, mode.interlace) {
+        Some(reason) => Err(reason),
+        None => Ok(proposal),
+    }
 }
 
 /// Each range of a profile with more than one range as a profile of its
@@ -385,9 +446,21 @@ fn candidate(
 
 /// The fitted rung when the fit is asked ([`Effective::asks_fit`]): the
 /// most progressive lines a range holds at the rate, so the fit has no
-/// flicker. Every other shape stays.
+/// flicker. Under the `fit` style the mode is also as wide as a game of
+/// another shape needs to keep each of its columns ([`border_width`]): a
+/// turned game fills the height in a third of the face, and a mode of
+/// its own width would squeeze its columns. Every other shape stays.
 fn fit_progressive(shape: Shape, target: RefreshTarget, crt: &Crt<'_>) -> Shape {
     let asked = crt.settings.asks_fit(&crt.source);
+    let shape = if asked && shape.rung.is_fitted() && crt.settings.style == PictureStyle::Fit {
+        let aspect = crt.settings.solver.monitor_aspect;
+        Shape {
+            base_width: border_width(&crt.source, shape.lines, shape.lines, aspect),
+            ..shape
+        }
+    } else {
+        shape
+    };
     let capacity = progressive_capacity(crt.ranges, target.rate_mhz);
     // The `fit` mode fills the progressive lines, also above the game's
     // own; `display.vertical = fit` under another mode only lowers a fit

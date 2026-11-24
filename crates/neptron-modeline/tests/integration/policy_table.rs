@@ -1393,7 +1393,9 @@ fn the_display_panel_rows_come_from_the_same_plan_and_validator() {
             (PictureStyle::X4, true, Some(Rung::Multiple(4))),
             (PictureStyle::Sharp, true, Some(Rung::Multiple(2))),
             (PictureStyle::Speed, true, Some(Rung::Multiple(2))),
-            (PictureStyle::Fit, true, Some(Rung::Multiple(2))),
+            // 2x fills 448 of the 480 lines that the range forces at the
+            // game's rate; 3x fills its mode, so it is as large as the fit.
+            (PictureStyle::Fit, true, Some(Rung::Multiple(3))),
         ]
     );
     let (_, native_plan, native_winner) = row(&rows[1].1);

@@ -106,9 +106,41 @@ pub(crate) fn board_samples(
     snap(width, plain_aspect_samples(system, aspect, field_lines))
 }
 
+/// The width that gives the game its shape over `field_lines` lines, with
+/// no clamp to the safe width and no snap to a whole factor: the aspect
+/// width of an arcade board (`board`), the console width of a 4:3 console
+/// picture, else the aspect width. The fit scales it with its lines, so it
+/// keeps the shape of the game where the clamp of the `aspect` rule would
+/// make a tall game narrow. At least 1.
+pub(crate) fn shape_samples(
+    board: bool,
+    system: LineSystem,
+    width: u16,
+    height: u16,
+    aspect_milli: u32,
+    field_lines: u16,
+) -> u32 {
+    let aspect = match aspect_milli {
+        0 => div_round(u64::from(width.max(1)) * 1_000, u64::from(height.max(1))),
+        a => a,
+    };
+    let samples = if board {
+        raw_aspect_samples(system, aspect, field_lines)
+    } else {
+        console_or_aspect_samples(system, aspect, field_lines)
+    };
+    samples.max(1)
+}
+
 /// The width that keeps the display aspect over `field_lines` lines of
 /// the line system, at most the safe width.
 fn plain_aspect_samples(system: LineSystem, aspect_milli: u32, field_lines: u16) -> u32 {
+    raw_aspect_samples(system, aspect_milli, field_lines).clamp(1, u32::from(TV_SAFE_WIDTH_SAMPLES))
+}
+
+/// The width that keeps the display aspect over `field_lines` lines of
+/// the line system, with no bound.
+fn raw_aspect_samples(system: LineSystem, aspect_milli: u32, field_lines: u16) -> u32 {
     let picture_lines = match system {
         LineSystem::L525 => TV_525_PICTURE_LINES,
         LineSystem::L625 => TV_625_PICTURE_LINES,
@@ -117,7 +149,6 @@ fn plain_aspect_samples(system: LineSystem, aspect_milli: u32, field_lines: u16)
         u64::from(aspect_milli) * u64::from(field_lines) * u64::from(TV_SAFE_WIDTH_SAMPLES) * 3,
         4_000 * u64::from(picture_lines),
     )
-    .clamp(1, u32::from(TV_SAFE_WIDTH_SAMPLES))
 }
 
 /// The width that keeps the display aspect over `field_lines` lines of
@@ -130,23 +161,25 @@ fn plain_aspect_samples(system: LineSystem, aspect_milli: u32, field_lines: u16)
 ///
 /// The division rounds to the nearest sample, a half up.
 fn aspect_samples(system: LineSystem, aspect_milli: u32, field_lines: u16) -> u32 {
-    let (picture_lines, console) = match system {
-        LineSystem::L525 => (TV_525_PICTURE_LINES, TV_525_CONSOLE_WIDTH_SAMPLES),
-        LineSystem::L625 => (TV_625_PICTURE_LINES, TV_625_CONSOLE_WIDTH_SAMPLES),
+    console_or_aspect_samples(system, aspect_milli, field_lines)
+        .clamp(1, u32::from(TV_SAFE_WIDTH_SAMPLES))
+}
+
+/// [`aspect_samples`] with no bound.
+fn console_or_aspect_samples(system: LineSystem, aspect_milli: u32, field_lines: u16) -> u32 {
+    let console = match system {
+        LineSystem::L525 => TV_525_CONSOLE_WIDTH_SAMPLES,
+        LineSystem::L625 => TV_625_CONSOLE_WIDTH_SAMPLES,
     };
-    let samples = div_round(
-        u64::from(aspect_milli) * u64::from(field_lines) * u64::from(TV_SAFE_WIDTH_SAMPLES) * 3,
-        4_000 * u64::from(picture_lines),
-    );
+    let samples = raw_aspect_samples(system, aspect_milli, field_lines);
     let console = u32::from(console);
     let four_thirds = aspect_milli.abs_diff(FOUR_THIRDS_MILLI) <= 1;
-    let samples = match field_lines {
+    match field_lines {
         _ if !four_thirds => samples,
         lines if lines < TV_CONSOLE_LINES_MIN => samples,
         lines if lines <= TV_525_PICTURE_LINES => console,
         _ => samples.max(console),
-    };
-    samples.clamp(1, u32::from(TV_SAFE_WIDTH_SAMPLES))
+    }
 }
 
 /// The whole or half factor of `width` nearest `target`, when it is a
@@ -262,6 +295,22 @@ mod tests {
                 "{system:?}: {widths:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_shape_width_has_no_clamp_and_no_snap() {
+        use LineSystem::{L525, L625};
+        // R-Type, 384x256: 750.9 samples over its 256 lines on NTSC, 625.8
+        // on PAL.
+        assert_eq!(shape_samples(true, L525, 384, 256, FOUR_THIRDS, 256), 751);
+        assert_eq!(shape_samples(true, L625, 384, 256, FOUR_THIRDS, 256), 626);
+        // A console picture keeps the console width, not snapped to 640.
+        assert_eq!(shape_samples(false, L525, 256, 224, FOUR_THIRDS, 224), 644);
+        // A 256-line computer frame is wider than the console width.
+        assert_eq!(shape_samples(false, L525, 320, 256, FOUR_THIRDS, 256), 751);
+        // Square pixels.
+        assert_eq!(shape_samples(false, L525, 160, 144, 0, 144), 352);
+        assert_eq!(shape_samples(false, L525, 0, 0, 0, 0), 1);
     }
 
     #[test]
