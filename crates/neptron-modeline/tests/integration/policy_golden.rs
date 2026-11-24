@@ -24,7 +24,7 @@ struct Expected {
     case: BTreeMap<String, String>,
 }
 
-fn expected(file: &str) -> BTreeMap<String, String> {
+pub(crate) fn expected(file: &str) -> BTreeMap<String, String> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/golden")
         .join(file);
@@ -78,7 +78,7 @@ fn outcome(source: &SourceGeometry, profile: &MonitorProfile, caps: &GpuCaps) ->
 
 /// [`outcome`] with other settings. A winner that changes the game speed
 /// ends with "speed".
-fn outcome_with(
+pub(crate) fn outcome_with(
     source: &SourceGeometry,
     settings: &PolicySettings,
     profile: &MonitorProfile,
@@ -141,7 +141,7 @@ fn outcome_with(
 
 /// Compares every case with the file and lists each difference, missing
 /// case and extra case as a line of the file.
-fn compare(file: &str, actual: BTreeMap<String, String>) {
+pub(crate) fn compare(file: &str, actual: BTreeMap<String, String>) {
     let expected = expected(file);
     let mut diffs = Vec::new();
     for (key, got) in &actual {
