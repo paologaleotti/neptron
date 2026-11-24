@@ -1,7 +1,9 @@
 use neptron_backend::DisplayError;
 use neptron_modeline::policy::{PolicySettings, Proposal, Switch, panel_scanlines, switch_for};
 use neptron_safety::{Rejection, ValidatedMode, validate};
-use neptron_types::{FlipEvent, Frame, GpuCaps, Modeline, Rotation, Scene, SourceGeometry};
+use neptron_types::{
+    FlipEvent, Frame, GpuCaps, Modeline, Orientation, Scene, SourceGeometry, Turns,
+};
 
 use crate::answers::{AnswerCache, AnswerRequest};
 use crate::cache::Cache;
@@ -33,7 +35,9 @@ pub struct Current {
     /// The mode the driver read back. Its field rate is the real rate for
     /// frame pacing and audio rate control.
     pub read_back: Modeline,
-    /// The source the placement is for.
+    /// The display source the placement is for: the core's source with
+    /// the turn of the orientation ([`Orientation::display_source`]). Its
+    /// rotation is the turn of the game picture.
     pub source: SourceGeometry,
 }
 
@@ -93,6 +97,8 @@ pub struct Odren {
     answers_generation: u64,
     /// Scanlines change the scene only, never the mode.
     scanlines: ScanlineSettings,
+    /// The screen orientation and the game override.
+    orientation: Orientation,
     cache: Cache,
     answers: AnswerCache,
     current: Option<Current>,
@@ -162,6 +168,7 @@ impl Odren {
             generation: 0,
             answers_generation: 0,
             scanlines: ScanlineSettings::OFF,
+            orientation: Orientation::NORMAL,
             cache: Cache::new(),
             answers: AnswerCache::default(),
             current: None,
@@ -249,6 +256,32 @@ impl Odren {
         self.scanlines
     }
 
+    /// The screen orientation and the game override. From the next frame
+    /// the policy plans the display source of each core source
+    /// ([`Orientation::display_source`]): a new turn of the game picture
+    /// is a new source, and goes through the debounce as a new size does.
+    /// The next scene turns the UI canvas, and the picture answers are
+    /// made again for the new display sources. The validator judges every
+    /// mode as before: the orientation changes no limit of the monitor.
+    pub fn set_orientation(&mut self, orientation: Orientation) {
+        if orientation != self.orientation {
+            self.orientation = orientation;
+            self.answers_generation += 1;
+        }
+    }
+
+    /// The screen orientation and the game override.
+    pub fn orientation(&self) -> Orientation {
+        self.orientation
+    }
+
+    /// The turns of a game whose core source is `source`, in the
+    /// orientation of the engine. `Turns::horizontal_on_turned_screen`
+    /// says when the app adds its sentence to the picture notice.
+    pub fn turns(&self, source: &SourceGeometry) -> Turns {
+        self.orientation.turns(source.rotation)
+    }
+
     /// The scene of the mode on screen, or `None` before the first mode.
     pub fn scene<'a>(&self, game: Option<Frame<'a>>, ui: Option<Frame<'a>>) -> Option<Scene<'a>> {
         let current = self.current.as_ref()?;
@@ -258,15 +291,16 @@ impl Odren {
             monitor: &self.inputs.monitor.profile().kind,
             mode: &current.read_back,
             scanlines: self.scanlines,
-            ui_turn: Rotation::R0,
+            ui_turn: self.orientation.ui_turn(),
             face: self.inputs.settings.solver.monitor_aspect,
         };
         Some(build_scene(&inputs, game, ui))
     }
 
-    /// The scene that `proposal` would show for `source`, for the preview
-    /// of the Display panel: the same function, monitor and scanline
-    /// settings as the run.
+    /// The scene that `proposal` would show for the core source `source`,
+    /// for the preview of the Display panel: the same function, monitor,
+    /// scanline settings and orientation as the run. `proposal` is an
+    /// answer of the engine, planned for the display source of `source`.
     pub fn preview_scene<'a>(
         &self,
         proposal: &Proposal,
@@ -274,13 +308,14 @@ impl Odren {
         game: Option<Frame<'a>>,
         ui: Option<Frame<'a>>,
     ) -> Scene<'a> {
+        let source = self.orientation.display_source(source);
         let inputs = SceneInputs {
             placement: &proposal.placement,
-            source,
+            source: &source,
             monitor: &self.inputs.monitor.profile().kind,
             mode: &proposal.mode,
             scanlines: self.scanlines,
-            ui_turn: Rotation::R0,
+            ui_turn: self.orientation.ui_turn(),
             face: self.inputs.settings.solver.monitor_aspect,
         };
         build_scene(&inputs, game, ui)
@@ -398,8 +433,10 @@ impl Odren {
     }
 
     /// Takes the source of one core frame: debounce, decision, and what the
-    /// display does. Call it once per core frame, not once per flip.
+    /// display does. Call it once per core frame, not once per flip. The
+    /// policy, the cache and the trace see its display source.
     pub fn on_frame(&mut self, source: SourceGeometry) -> Directive {
+        let source = self.orientation.display_source(&source);
         self.frame += 1;
         if let Some(stale) = self.commit.take() {
             self.keep_trigger(stale.record.trigger);
@@ -779,7 +816,7 @@ impl Odren {
         request: &AnswerRequest,
     ) -> Option<Result<neptron_modeline::policy::PictureChoices, crate::Unshowable>> {
         self.answers
-            .get(self.answers_generation, request)
+            .get(self.answers_generation, self.orientation, request)
             .map(|done| done.map_err(crate::Unshowable::Policy))
     }
 
@@ -793,14 +830,15 @@ impl Odren {
         waited: impl IntoIterator<Item = &'r AnswerRequest> + Clone,
         budget: usize,
     ) -> bool {
-        self.answers.step(self.answers_generation, waited, |work| {
-            work.step(
-                self.inputs.monitor.profile(),
-                &self.inputs.caps,
-                |mode| self.inputs.check(mode).map(drop),
-                budget,
-            )
-        })
+        self.answers
+            .step(self.answers_generation, self.orientation, waited, |work| {
+                work.step(
+                    self.inputs.monitor.profile(),
+                    &self.inputs.caps,
+                    |mode| self.inputs.check(mode).map(drop),
+                    budget,
+                )
+            })
     }
 
     /// The steps of [`Self::step_answers`] that ran work so far.
@@ -834,7 +872,8 @@ impl Odren {
         &self,
         source: &SourceGeometry,
     ) -> Result<neptron_modeline::policy::Offer, crate::Unshowable> {
-        self.inputs.offer(source, self.scanlines)
+        self.inputs
+            .offer(&self.orientation.display_source(source), self.scanlines)
     }
 
     /// A modeset of a monitor, settings or retry change that did not reach
@@ -963,6 +1002,7 @@ impl Odren {
 #[cfg(test)]
 mod tests {
     use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
+    use neptron_types::Rotation;
 
     use super::*;
 

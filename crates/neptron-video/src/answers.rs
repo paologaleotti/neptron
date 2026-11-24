@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 
 use neptron_modeline::policy::{ChoicesWork, PictureChoices, PolicyError, PolicySettings};
-use neptron_types::SourceGeometry;
+use neptron_types::{Orientation, SourceGeometry};
 
 use crate::ScanlineSettings;
 
@@ -28,6 +28,8 @@ const ANSWERS_KEPT: usize = 6;
 #[derive(Debug)]
 struct Entry {
     generation: u64,
+    /// The orientation whose display sources the work judges.
+    orientation: Orientation,
     request: AnswerRequest,
     work: Option<ChoicesWork>,
     done: Option<Result<PictureChoices, PolicyError>>,
@@ -36,10 +38,12 @@ struct Entry {
 }
 
 /// The answers of the picture menus that the engine computed, keyed by the
-/// request and by the generation of the inputs that the request does not
-/// carry (the monitor profile, the caps, the veto and the driver
-/// refusals): a change of any of those is a new generation, and the old
-/// answers no longer match. The policy settings and the scanlines are in
+/// request, by the orientation, and by the generation of the inputs that
+/// the request does not carry (the monitor profile, the caps, the veto,
+/// the driver refusals and the orientation): a change of any of those is a
+/// new generation, and the old answers no longer match. The work judges
+/// the display sources of the request's sources in the orientation of
+/// the entry. The policy settings and the scanlines are in
 /// the request, so a change of them is no new generation. The engine owns
 /// it and uses it from the frame thread only, so a `RefCell` and no lock.
 #[derive(Debug, Default)]
@@ -60,24 +64,31 @@ impl AnswerCache {
     pub(crate) fn get(
         &self,
         generation: u64,
+        orientation: Orientation,
         request: &AnswerRequest,
     ) -> Option<Result<PictureChoices, PolicyError>> {
         let now = self.clock.get();
         let mut entries = self.entries.borrow_mut();
         if let Some(entry) = entries
             .iter_mut()
-            .find(|e| e.generation == generation && &e.request == request)
+            .find(|e| e.matches(generation, orientation, request))
         {
             entry.used = now;
             return entry.done.clone();
         }
         entries.retain(|e| e.generation == generation);
         evict(&mut entries, now);
+        let shown: Vec<SourceGeometry> = request
+            .sources
+            .iter()
+            .map(|s| orientation.display_source(s))
+            .collect();
         entries.push(Entry {
             generation,
+            orientation,
             request: request.clone(),
             work: Some(ChoicesWork::new(
-                &request.sources,
+                &shown,
                 request.settings,
                 request.scanlines,
             )),
@@ -96,6 +107,7 @@ impl AnswerCache {
     pub(crate) fn step<'r>(
         &self,
         generation: u64,
+        orientation: Orientation,
         waited: impl IntoIterator<Item = &'r AnswerRequest> + Clone,
         run: impl FnOnce(&mut ChoicesWork) -> bool,
     ) -> bool {
@@ -103,8 +115,10 @@ impl AnswerCache {
         self.clock.set(now);
         let mut entries = self.entries.borrow_mut();
         for entry in entries.iter_mut() {
-            if entry.generation == generation
-                && waited.clone().into_iter().any(|w| *w == entry.request)
+            if waited
+                .clone()
+                .into_iter()
+                .any(|w| entry.matches(generation, orientation, w))
             {
                 entry.used = now;
             }
@@ -112,7 +126,7 @@ impl AnswerCache {
         let first = waited.into_iter().find_map(|w| {
             entries
                 .iter()
-                .position(|e| e.generation == generation && e.request == *w && e.work.is_some())
+                .position(|e| e.matches(generation, orientation, w) && e.work.is_some())
         });
         let Some(index) = first else {
             return false;
@@ -148,6 +162,12 @@ impl AnswerCache {
     }
 }
 
+impl Entry {
+    fn matches(&self, generation: u64, orientation: Orientation, request: &AnswerRequest) -> bool {
+        self.generation == generation && self.orientation == orientation && &self.request == request
+    }
+}
+
 /// Makes room for one more entry when the cache holds [`ANSWERS_KEPT`]: it
 /// drops the entry that was used least recently, done or in work, but never
 /// one used since the last step (`now`): the page on show and the keep
@@ -175,6 +195,8 @@ mod tests {
 
     use super::*;
 
+    const NORMAL: Orientation = Orientation::NORMAL;
+
     fn request(height: u16) -> AnswerRequest {
         AnswerRequest {
             sources: vec![SourceGeometry {
@@ -199,16 +221,22 @@ mod tests {
     fn only_a_waited_request_gets_work() {
         let cache = AnswerCache::default();
         let (a, b) = (request(224), request(240));
-        assert!(cache.get(0, &a).is_none());
-        assert!(cache.get(0, &b).is_none());
-        assert!(!cache.step(0, [], done), "no one waits: no work");
+        assert!(cache.get(0, NORMAL, &a).is_none());
+        assert!(cache.get(0, NORMAL, &b).is_none());
+        assert!(!cache.step(0, NORMAL, [], done), "no one waits: no work");
         assert_eq!(cache.runs(), 0);
-        assert!(cache.step(0, [&b, &a], done));
-        assert!(cache.get(0, &b).is_some(), "the first waited request first");
-        assert!(cache.get(0, &a).is_none());
-        assert!(!cache.step(0, [&b], done), "a is left: no one waits for it");
+        assert!(cache.step(0, NORMAL, [&b, &a], done));
+        assert!(
+            cache.get(0, NORMAL, &b).is_some(),
+            "the first waited request first"
+        );
+        assert!(cache.get(0, NORMAL, &a).is_none());
+        assert!(
+            !cache.step(0, NORMAL, [&b], done),
+            "a is left: no one waits for it"
+        );
         assert!(cache.working());
-        assert!(cache.step(0, [&a], done));
+        assert!(cache.step(0, NORMAL, [&a], done));
         assert!(!cache.working());
         assert_eq!(cache.runs(), 2);
     }
@@ -217,28 +245,37 @@ mod tests {
     fn an_entry_in_use_is_never_dropped_and_an_unwaited_one_can_go() {
         let cache = AnswerCache::default();
         let page = request(100);
-        assert!(cache.get(0, &page).is_none());
-        assert!(cache.step(0, [&page], done));
+        assert!(cache.get(0, NORMAL, &page).is_none());
+        assert!(cache.step(0, NORMAL, [&page], done));
         // More requests than the cache keeps, all in work and waited by no
         // one: the oldest go first, the page in use stays.
         let others: Vec<AnswerRequest> = (0..8).map(|i| request(200 + i)).collect();
         for other in &others {
             // One frame each: the page is still on show.
-            assert!(!cache.step(0, [&page], done));
-            assert!(cache.get(0, other).is_none());
+            assert!(!cache.step(0, NORMAL, [&page], done));
+            assert!(cache.get(0, NORMAL, other).is_none());
         }
         assert_eq!(cache.len(), ANSWERS_KEPT);
-        assert!(cache.get(0, &page).is_some(), "the page in use stays");
-        assert!(cache.get(0, &others[0]).is_none(), "the oldest went");
+        assert!(
+            cache.get(0, NORMAL, &page).is_some(),
+            "the page in use stays"
+        );
+        assert!(
+            cache.get(0, NORMAL, &others[0]).is_none(),
+            "the oldest went"
+        );
         // Requests in use are kept also when the cache is full of them: it
         // grows by the new one.
         let held: Vec<AnswerRequest> = (0..ANSWERS_KEPT as u16).map(|i| request(400 + i)).collect();
         let fresh = AnswerCache::default();
         for r in &held {
-            assert!(fresh.get(0, r).is_none());
+            assert!(fresh.get(0, NORMAL, r).is_none());
         }
-        assert!(!fresh.step(0, held.iter(), |_| false), "the work goes on");
-        assert!(fresh.get(0, &request(500)).is_none());
+        assert!(
+            !fresh.step(0, NORMAL, held.iter(), |_| false),
+            "the work goes on"
+        );
+        assert!(fresh.get(0, NORMAL, &request(500)).is_none());
         assert_eq!(fresh.len(), ANSWERS_KEPT + 1);
     }
 
@@ -246,10 +283,13 @@ mod tests {
     fn a_new_generation_drops_the_old_answers() {
         let cache = AnswerCache::default();
         let a = request(224);
-        assert!(cache.get(0, &a).is_none());
-        assert!(cache.step(0, [&a], done));
-        assert!(cache.get(0, &a).is_some());
-        assert!(cache.get(1, &a).is_none(), "a new generation is new work");
+        assert!(cache.get(0, NORMAL, &a).is_none());
+        assert!(cache.step(0, NORMAL, [&a], done));
+        assert!(cache.get(0, NORMAL, &a).is_some());
+        assert!(
+            cache.get(1, NORMAL, &a).is_none(),
+            "a new generation is new work"
+        );
         assert_eq!(cache.len(), 1);
         let settings = PolicySettings {
             style: PictureStyle::X2,
@@ -258,9 +298,32 @@ mod tests {
         };
         let b = AnswerRequest { settings, ..a };
         assert!(
-            cache.get(1, &b).is_none(),
+            cache.get(1, NORMAL, &b).is_none(),
             "other settings are another request"
         );
         assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn another_orientation_is_another_entry() {
+        let cache = AnswerCache::default();
+        let a = request(224);
+        let turned = Orientation {
+            screen: Rotation::R90,
+            game_override: None,
+        };
+        assert!(cache.get(0, NORMAL, &a).is_none());
+        assert!(cache.step(0, NORMAL, [&a], done));
+        assert!(cache.get(0, NORMAL, &a).is_some());
+        assert!(
+            cache.get(0, turned, &a).is_none(),
+            "the answers of another orientation are new work"
+        );
+        assert!(
+            !cache.step(0, NORMAL, [&a], done),
+            "the turned work is not waited"
+        );
+        assert!(cache.step(0, turned, [&a], done));
+        assert!(cache.get(0, turned, &a).is_some());
     }
 }

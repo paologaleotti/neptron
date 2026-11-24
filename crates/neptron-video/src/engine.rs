@@ -2,7 +2,7 @@ use neptron_backend::{Display, DisplayError};
 use neptron_modeline::policy::{Offer, PictureChoices, PolicySettings, Proposal};
 
 use crate::answers::AnswerRequest;
-use neptron_types::{FlipEvent, Frame, Modeline, Scene, SourceGeometry};
+use neptron_types::{FlipEvent, Frame, Modeline, Orientation, Scene, SourceGeometry, Turns};
 
 use crate::odren::{AfterModeSet, ModeOrder};
 use crate::{
@@ -108,6 +108,25 @@ impl<D: Display> VideoEngine<D> {
     /// New scanline settings. The next scene takes them, with no modeset.
     pub fn set_scanlines(&mut self, scanlines: ScanlineSettings) {
         self.odren.set_scanlines(scanlines);
+    }
+
+    /// The screen orientation and the game override, for this engine and
+    /// for a test harness with no app. The default is
+    /// [`Orientation::NORMAL`], with which every picture is the picture of
+    /// a display with no orientation. See [`Odren::set_orientation`].
+    pub fn set_orientation(&mut self, orientation: Orientation) {
+        self.odren.set_orientation(orientation);
+    }
+
+    /// The screen orientation and the game override.
+    pub fn orientation(&self) -> Orientation {
+        self.odren.orientation()
+    }
+
+    /// The turns of a game whose core source is `source`. See
+    /// [`Odren::turns`].
+    pub fn turns(&self, source: &SourceGeometry) -> Turns {
+        self.odren.turns(source)
     }
 
     /// The scene that `proposal` would show for `source`, for the preview

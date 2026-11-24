@@ -17,3 +17,4 @@ mod inputs;
 mod panel;
 mod scanlines;
 mod stall;
+mod tate;

@@ -37,7 +37,7 @@ const GAME_240: SourceGeometry = source(320, 240, 60_000);
 /// A progressive mode near `rate_hz`, with the blanking of CTA-861 1080p
 /// scaled to the size; only the size and the rate matter to a panel. The
 /// clock is rounded down to whole kHz, as every mode on the wire has it.
-fn mode(width: u16, height: u16, rate_hz: u32) -> Modeline {
+pub fn mode(width: u16, height: u16, rate_hz: u32) -> Modeline {
     let htotal = width + width / 8;
     let vtotal = height + height / 24;
     let pclock_hz = u32::from(htotal) * u32::from(vtotal) * rate_hz;
@@ -58,7 +58,7 @@ fn mode(width: u16, height: u16, rate_hz: u32) -> Modeline {
     }
 }
 
-fn panel(modes: Vec<Modeline>) -> Monitor {
+pub fn panel(modes: Vec<Modeline>) -> Monitor {
     let pclock_max_hz = modes.iter().map(|m| m.pclock_hz).max().unwrap();
     Monitor::Edid(EdidProfile {
         profile: MonitorProfile {
