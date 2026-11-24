@@ -144,7 +144,8 @@ enum Which {
 
 /// A scene copied into one buffer: a header with the mode size, the crop,
 /// the destination and the UI destination, the filter, the scanline kind and
-/// strength, the rotation, and the size and format of each frame, then the
+/// strength, the rotation, the turn and the filter of the UI canvas, and
+/// the size and format of each frame, then the
 /// rows of the game frame and of the UI canvas with no padding. All values
 /// are little-endian. The hash of [`Render::Scene`] is the hash of these
 /// bytes, so it is the same on every host.
@@ -157,6 +158,8 @@ struct OwnedScene {
     filter: Option<Filter>,
     scanlines: Option<Scanlines>,
     rotation: Option<Rotation>,
+    ui_rotation: Option<Rotation>,
+    ui_filter: Option<Filter>,
     game: Option<Layout>,
     ui: Option<Layout>,
 }
@@ -184,21 +187,15 @@ impl OwnedScene {
             bytes.extend_from_slice(&rect.w.to_le_bytes());
             bytes.extend_from_slice(&rect.h.to_le_bytes());
         }
-        bytes.push(match scene.filter {
-            Filter::Nearest => 0,
-            Filter::SharpBilinear => 1,
-        });
+        bytes.push(filter_byte(scene.filter));
         bytes.push(match scene.scanlines.kind {
             ScanlineKind::None => 0,
             ScanlineKind::Black => 1,
         });
         bytes.push(scene.scanlines.strength_percent);
-        bytes.push(match scene.rotation {
-            Rotation::R0 => 0,
-            Rotation::R90 => 1,
-            Rotation::R180 => 2,
-            Rotation::R270 => 3,
-        });
+        bytes.push(rotation_byte(scene.rotation));
+        bytes.push(rotation_byte(scene.ui_rotation));
+        bytes.push(filter_byte(scene.ui_filter));
         for frame in [&scene.game, &scene.ui] {
             match frame {
                 None => bytes.push(0),
@@ -222,6 +219,8 @@ impl OwnedScene {
         self.filter = Some(scene.filter);
         self.scanlines = Some(scene.scanlines);
         self.rotation = Some(scene.rotation);
+        self.ui_rotation = Some(scene.ui_rotation);
+        self.ui_filter = Some(scene.ui_filter);
     }
 
     fn scene(&self) -> Scene<'_> {
@@ -254,7 +253,25 @@ impl OwnedScene {
             ui: self.ui.as_ref().map(frame),
             ui_dest: self.ui_dest.unwrap_or(empty),
             rotation: self.rotation.unwrap_or(Rotation::R0),
+            ui_rotation: self.ui_rotation.unwrap_or(Rotation::R0),
+            ui_filter: self.ui_filter.unwrap_or(Filter::Nearest),
         }
+    }
+}
+
+fn rotation_byte(rotation: Rotation) -> u8 {
+    match rotation {
+        Rotation::R0 => 0,
+        Rotation::R90 => 1,
+        Rotation::R180 => 2,
+        Rotation::R270 => 3,
+    }
+}
+
+fn filter_byte(filter: Filter) -> u8 {
+    match filter {
+        Filter::Nearest => 0,
+        Filter::SharpBilinear => 1,
     }
 }
 

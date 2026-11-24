@@ -1044,6 +1044,8 @@ mod linux {
                 },
                 scanlines: Scanlines::NONE,
                 rotation: Rotation::R0,
+                ui_rotation: Rotation::R0,
+                ui_filter: Filter::Nearest,
             }
         }
 

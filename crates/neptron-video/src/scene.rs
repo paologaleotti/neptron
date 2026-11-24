@@ -79,6 +79,8 @@ pub fn build_scene<'a>(
         filter,
         ui,
         ui_dest: placement.ui_dest,
+        ui_rotation: Rotation::R0,
+        ui_filter: Filter::Nearest,
         scanlines,
     }
 }
@@ -277,6 +279,21 @@ mod tests {
         assert_eq!(scene.dest, p.dest);
         assert_eq!(scene.filter, p.filter);
         assert_eq!(scene.ui_dest, p.ui_dest);
+    }
+
+    #[test]
+    fn the_ui_canvas_is_upright_with_nearest() {
+        let p = placement();
+        for rotation in [Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270] {
+            let source = SourceGeometry { rotation, ..SOURCE };
+            let scene = build(&p, &source, Some(frame(256, 224)), Some(frame(320, 240)));
+            assert_eq!(scene.rotation, rotation);
+            assert_eq!(
+                (scene.ui_rotation, scene.ui_filter),
+                (Rotation::R0, Filter::Nearest),
+                "{rotation:?}"
+            );
+        }
     }
 
     /// 256x240 with 8 overscan lines cut at the top and the bottom: 224

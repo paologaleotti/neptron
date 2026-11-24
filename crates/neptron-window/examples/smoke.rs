@@ -141,6 +141,8 @@ fn run_frames(
                 h: 0,
             },
             rotation: Rotation::R0,
+            ui_rotation: Rotation::R0,
+            ui_filter: Filter::Nearest,
         };
         display.present(&scene)?;
         let flip = display.wait_flip()?;

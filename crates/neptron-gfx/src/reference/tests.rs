@@ -33,6 +33,8 @@ fn scene<'a>(game: Option<Frame<'a>>, crop: Rect, dest: Rect, filter: Filter) ->
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
         rotation: Rotation::R0,
+        ui_rotation: Rotation::R0,
+        ui_filter: Filter::Nearest,
     }
 }
 

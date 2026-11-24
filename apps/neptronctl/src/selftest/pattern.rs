@@ -86,6 +86,8 @@ impl Pattern {
             ui: None,
             ui_dest: full(0, 0),
             rotation: Rotation::R0,
+            ui_rotation: Rotation::R0,
+            ui_filter: Filter::Nearest,
         }
     }
 

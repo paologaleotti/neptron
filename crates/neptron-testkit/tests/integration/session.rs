@@ -160,6 +160,8 @@ fn run(render: Render, frames: u64) -> Outcome {
                 h: 0,
             },
             rotation: Rotation::R0,
+            ui_rotation: Rotation::R0,
+            ui_filter: Filter::Nearest,
         };
         display.present(&scene).unwrap();
         let flipped = display.wait_flip();

@@ -125,6 +125,10 @@ pub struct Case {
     pub ui: Option<Source>,
     /// The destination of the UI canvas.
     pub ui_dest: Rect,
+    /// The turn of the UI canvas.
+    pub ui_rotation: Rotation,
+    /// The filter of the UI canvas.
+    pub ui_filter: Filter,
     /// Output width.
     pub width: u32,
     /// Output height.
@@ -151,6 +155,8 @@ impl Case {
             rotation: Rotation::R0,
             ui: None,
             ui_dest: rect(0, 0, 0, 0),
+            ui_rotation: Rotation::R0,
+            ui_filter: Filter::Nearest,
             width,
             height,
         }
@@ -192,6 +198,8 @@ impl Case {
             ui: self.ui.as_ref().map(Source::frame),
             ui_dest: self.ui_dest,
             rotation: self.rotation,
+            ui_rotation: self.ui_rotation,
+            ui_filter: self.ui_filter,
         }
     }
 }

@@ -1032,6 +1032,8 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
         rotation: Rotation::R0,
+        ui_rotation: Rotation::R0,
+        ui_filter: Filter::Nearest,
     };
     let too_large = Scene {
         game: Some(game.frame()),
@@ -1154,6 +1156,8 @@ fn texture_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
         rotation: Rotation::R0,
+        ui_rotation: Rotation::R0,
+        ui_filter: Filter::Nearest,
     };
     let mut data = vec![PADDING; 8 * 6 * 4];
     let mut out = OutputBuffer {
@@ -1188,6 +1192,8 @@ fn output_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
         ui: None,
         ui_dest: rect(0, 0, 0, 0),
         rotation: Rotation::R0,
+        ui_rotation: Rotation::R0,
+        ui_filter: Filter::Nearest,
     };
     let mut data = vec![PADDING; width as usize * 4];
     let mut out = OutputBuffer {

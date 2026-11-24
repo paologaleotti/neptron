@@ -61,6 +61,10 @@ pub struct SceneSummary {
     pub ui: Option<(u16, u16)>,
     /// The UI destination rectangle.
     pub ui_dest: Rect,
+    /// The turn of the UI canvas.
+    pub ui_rotation: Rotation,
+    /// The scaling filter of the UI canvas.
+    pub ui_filter: Filter,
 }
 
 /// One call of `present`, and the flip that followed it.
@@ -113,6 +117,8 @@ impl SceneSummary {
             rotation: scene.rotation,
             ui: scene.ui.map(|f| (f.width, f.height)),
             ui_dest: scene.ui_dest,
+            ui_rotation: scene.ui_rotation,
+            ui_filter: scene.ui_filter,
         }
     }
 }

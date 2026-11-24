@@ -76,6 +76,8 @@ fn scene(data: &[u8]) -> Scene<'_> {
             h: 0,
         },
         rotation: Rotation::R0,
+        ui_rotation: Rotation::R0,
+        ui_filter: Filter::Nearest,
     }
 }
 
@@ -104,6 +106,8 @@ fn empty() -> Scene<'static> {
             h: 0,
         },
         rotation: Rotation::R0,
+        ui_rotation: Rotation::R0,
+        ui_filter: Filter::Nearest,
     }
 }
 
@@ -868,6 +872,56 @@ fn the_scene_hash_includes_the_scanlines() {
     assert_eq!(hash(black(50)), hash(black(50)));
     assert_ne!(hash(Scanlines::NONE), hash(black(50)));
     assert_ne!(hash(black(50)), hash(black(100)));
+}
+
+#[test]
+fn the_scene_hash_includes_the_turn_and_the_filter_of_the_ui() {
+    let hash = |ui_rotation, ui_filter| {
+        let clock = SimClock::new();
+        let mut display =
+            FakeDisplay::with_options(clock, CAPS_LOW_CLOCK, DisplayOptions::default());
+        display.set_mode(&mode(MODE_240P)).unwrap();
+        let data = bytes(&PIXELS);
+        let s = Scene {
+            ui: Some(Frame {
+                data: &data,
+                width: 4,
+                height: 2,
+                pitch: 16,
+                format: PixelFormat::Xrgb8888,
+            }),
+            ui_dest: Rect {
+                x: 0,
+                y: 0,
+                w: 2,
+                h: 4,
+            },
+            ui_rotation,
+            ui_filter,
+            ..scene(&data)
+        };
+        display.present(&s).unwrap();
+        let summary = display.frames()[0].scene;
+        assert_eq!(
+            (summary.ui_rotation, summary.ui_filter),
+            (ui_rotation, ui_filter)
+        );
+        display.frames()[0].hash.unwrap()
+    };
+    let upright = hash(Rotation::R0, Filter::Nearest);
+    assert_eq!(upright, hash(Rotation::R0, Filter::Nearest));
+    let turned = [
+        hash(Rotation::R90, Filter::Nearest),
+        hash(Rotation::R180, Filter::Nearest),
+        hash(Rotation::R270, Filter::Nearest),
+    ];
+    for (i, a) in turned.iter().enumerate() {
+        assert_ne!(*a, upright, "turn {i}");
+        for b in &turned[i + 1..] {
+            assert_ne!(a, b);
+        }
+    }
+    assert_ne!(upright, hash(Rotation::R0, Filter::SharpBilinear));
 }
 
 #[test]

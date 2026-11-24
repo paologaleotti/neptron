@@ -58,7 +58,7 @@ pub struct Rect {
     pub h: u32,
 }
 
-/// How the game frame is scaled.
+/// How a picture is scaled: the game frame, or the UI canvas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Filter {
@@ -80,7 +80,8 @@ pub struct Scene<'a> {
     /// Where the turned picture goes, in pixels of the display mode.
     pub dest: Rect,
     /// The turn, counter-clockwise, of the cropped game picture before it
-    /// is scaled into `dest`. The UI canvas is never turned.
+    /// is scaled into `dest`. The UI canvas has its own turn,
+    /// `ui_rotation`.
     ///
     /// Let `crop` be `w` by `h`. The turned picture `T` is `w` by `h` for
     /// [`Rotation::R0`] and [`Rotation::R180`], and `h` by `w` for
@@ -105,12 +106,30 @@ pub struct Scene<'a> {
     pub scanlines: Scanlines,
     /// The 320x240 UI canvas, drawn over the game, or `None` for no UI.
     pub ui: Option<Frame<'a>>,
-    /// Where the whole UI canvas goes, in pixels of the display mode. Each
-    /// axis scales on its own, so the video side picks the shape:
-    /// [`ui_dest_fill`] on a CRT, [`ui_dest_uniform`] on a flat panel. A
-    /// rectangle with a zero side shows no UI. The renderer ignores it when
-    /// `ui` is `None`.
+    /// Where the whole UI canvas goes after the turn of `ui_rotation`, in
+    /// pixels of the display mode. Each axis scales on its own, so the
+    /// video side picks the shape: [`ui_dest_fill`] on a CRT,
+    /// [`ui_dest_uniform`] on a flat panel. A rectangle with a zero side
+    /// shows no UI. The renderer ignores it when `ui` is `None`.
     pub ui_dest: Rect,
+    /// The turn, counter-clockwise, of the whole UI canvas before it is
+    /// scaled into `ui_dest`.
+    ///
+    /// The pixel rule is the rule of `rotation`, with the crop equal to the
+    /// whole canvas. Let the canvas be `w` by `h`. The turned canvas `T` is
+    /// `w` by `h` for [`Rotation::R0`] and [`Rotation::R180`], and `h` by
+    /// `w` for [`Rotation::R90`] and [`Rotation::R270`]. Pixel `(tx, ty)`
+    /// of `T` is the canvas pixel `(fx, fy)` of the table of `rotation`.
+    /// The game picture and the canvas turn on their own: a scene can show
+    /// a game at `R0` under a canvas at `R270`.
+    pub ui_rotation: Rotation,
+    /// How the turned canvas `T` is scaled into `ui_dest`.
+    /// [`Filter::Nearest`] samples the canvas pixel under the centre of each
+    /// output pixel. [`Filter::SharpBilinear`] is the rule of the game
+    /// picture, per axis, with no scanlines: the video side sets it when an
+    /// axis of `T` scales below 1, so that a stroke of one canvas pixel is
+    /// not dropped. The canvas stays opaque and is never darkened.
+    pub ui_filter: Filter,
 }
 
 /// The UI destination for a CRT: the full active area of a
