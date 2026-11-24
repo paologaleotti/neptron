@@ -104,6 +104,14 @@ Every SSH call of these three commands uses the SSH agent or key of the user and
 - `cargo xtask gallery`: renders every scene onto one contact sheet, `target/ui/gallery.png`, each tile under its name.
 - `cargo xtask golden [--bless] [scene...]`: compares each scene (default: all) with its golden image in `crates/neptron-ui/tests/golden/<scene>.ppm`, byte for byte. For a difference it prints the pixel count, the bounding box and the first differing pixels, and writes `<scene>.expected.png`, `<scene>.actual.png` and `<scene>.diff.png` (differing pixels in red over a dark copy of the golden) to `target/ui/golden`. A golden without a scene is reported as stale. It exits non-zero on any failure. `--bless` writes the golden of each scene that differs or has none; nothing blesses automatically. The format is binary PPM, described in `crates/neptron-ui/README.md`. The test `crates/neptron-ui/tests/golden.rs` runs the same comparison in tier 1.
 
+### Screen simulator
+
+`docs/spec/screen-simulator.md` defines the model, the measures and the flags.
+
+- `cargo xtask screen --display D --source S [--set KEY=VALUE]...`: runs one core frame of source S through `VideoEngine` on the fake display of `neptron-testkit`, with the policy settings that `neptron-video` builds from the setting values, as the app does. D is a preset of `data/monitors`, a TV standard (`ntsc`, `pal`, ...) or a flat panel `WxH@RATE`; `--gpu ID` takes another entry of `data/hardware/matrix.toml`. S is a reference source of the policy (`snes`, `psx`, ...), an arcade set of `docs/spec/arcade-table.md` (`rtype`), or `WxH@RATE` with `--aspect`, `--rotate`, `--interlaced` and `--arcade`. The picture is a test pattern with numbered lines, or `--frame FILE.ppm`. It writes `frame.png`, `wire.png` (the frame buffer of the mode), `glass.png` (the model of the screen, 1440x1080 by default, `--size`, `--overscan`, `--turn`, `--exact` for 1:1 crops of a panel) and `measures.json` to `target/screen/<case>/`, and prints the measures as one table row. No ROM and no core is used.
+- `cargo xtask screen survey [--display D]... [--source S]...`: runs every picture mode and every refresh rate for each display and source (default: 7 displays, 13 sources, 1001 cases, a few minutes) and writes `target/screen/survey/`: a contact sheet `<display>.png` per display, and `survey.md` and `survey.json` with the measures and the flags, the suspicious rows first.
+- `cargo xtask screen golden [--bless]`: compares the glass of the eight reference cases with `xtask/tests/golden/screen/<case>.ppm`; `--bless` writes them. Look at each PNG in `target/screen/golden/` first (rule 11). A unit test of xtask runs the same comparison and asserts the measures of each case.
+
 ## Rule checker
 
 `cargo xtask rules` reads `cargo metadata` and checks the rules below. The rule tables are at the top of `src/rules.rs`. A change to them is a change to a dependency rule (run rule 9).
@@ -174,12 +182,13 @@ Before its first step, each guest build removes the target directories of checko
 - `roxmltree`: reads the DAT for `arcade-index`. A read-only XML tree with no dependency but `memchr`, MIT or Apache-2.0. Only xtask has XML code; the image has none.
 - `serde_json`: reads `cargo metadata` and Cargo build messages, and writes the report.
 - `thiserror`: each module owns its error enum, as the code standards ask.
+- `neptron-video`, `neptron-modeline`, `neptron-testkit`, `neptron-platform`, `neptron-settings`, `neptron-types`: the screen simulator runs the decision path of the app (the engine, its settings functions and the fake display with the reference renderer), reads the TV picture constants of the policy, the GPU table and the settings schema. They are workspace crates that the workspace build compiles anyway; xtask links them, so a change to one of them rebuilds xtask.
 
 Arguments are parsed by hand, and the slot lock uses `std::fs::File::try_lock`, to keep the compile time low.
 
 ## Must never depend on
 
-- Any NEPTRON crate except `neptron-ui` (for `shot`, `gallery` and `golden`) and `neptron-library` (for `arcade-index`, as `docs/spec/arcade.md` section 6 asks).
+- Any NEPTRON crate except `neptron-ui` (for `shot`, `gallery` and `golden`), `neptron-library` (for `arcade-index`, as `docs/spec/arcade.md` section 6 asks), and the crates of the decision path for `screen` (`neptron-video`, `neptron-modeline`, `neptron-testkit`, `neptron-platform`, `neptron-settings`, `neptron-types`).
 - Heavy crates: every dependency must justify its compile time.
 
 ## Rules
