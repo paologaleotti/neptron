@@ -662,25 +662,7 @@ What the game gets (`PadMask` in `neptron-session`), on each port of the core:
 
 TATE is a screen turned on its side. It gives a vertical game its native mode: DoDonPachi as 320x240 at 57.55 Hz, 240p, every pixel exact, no flicker. This is the best picture a CRT can give a vertical game, and a strong reason for a vertical cabinet. It needs the UI turned too, so it is a separate task: the first task after version 0.1 (OP-107).
 
-### The owner's decision (2026-11-19, OP-107)
-
-- One system setting gives the screen orientation: 0 (YOKO), 90, 180 or 270 degrees. The UI follows it.
-- In Auto, a vertical game runs at its own lines, full screen. A horizontal game shows upright and small, with a notice.
-- Each game has an orientation override (Auto, 0, 90, 180, 270) in its display settings.
-
-### Design notes
-
-- The screen orientation is a global setting, safety `ConfirmOrRevert`: the user must be able to read the keep or revert dialog in the new orientation, or the revert must come with no input.
-- The game turn that the renderer applies is the core's rotation less the screen rotation, modulo 360 degrees.
-- A vertical game on a vertical screen: turn 0. The policy gets the frame as drawn (320x240) and finds its native mode.
-- A horizontal game on a vertical screen: turn 90 or 270. The policy swaps the axes and the game gets the treatment of section 11 that a vertical game gets on a horizontal screen. `display.vertical` then applies to horizontal games: its meaning is "a game whose long side is across the tube's lines".
-- The core keeps `fbneo-vertical-mode = "disabled"`, so it always reports the turn that the board needs (`R0`, `R90`, `R180` or `R270`, section 8.2) and the aspect of the upright picture. NEPTRON does all turns, so one code path serves both orientations. The core's `TATE` modes are not used: they move the turn into the core and change the aspect it reports.
-- The validator and the hard rails see the real raster of the tube. TATE changes no safety rule.
-- `Scene` gets a turn for the UI canvas (a second field, by a new ADR), or one screen turn that applies to the game and the UI. ADR 0015 leaves both open.
-- The UI needs a portrait layout: a 240x320 canvas, or the 320x240 canvas turned and scaled. A turned 320x240 canvas does not fit the 240-pixel width of a turned 15 kHz screen at 1:1, so the portrait layout is the likely path. That is the largest part of the task (`neptron-ui` screens, scenes and goldens, the crawler in both orientations).
-- The menu directions follow the viewer: up on the d-pad is up on the turned screen. The game's input is not turned: the controls of a cabinet do not move.
-- Every screen of the frontend must be turned: the boot prompt, the keep or revert dialog, the safe mode, the recovery screens, the notices.
-- Tests: goldens of the policy for turned screens on every profile; scene goldens of each UI screen in portrait; `gles-compare` scenes with a turned UI; a bench check with a turned monitor (a hardware checklist line). Whether the owner can turn a monitor for this test is a question for the owner.
+The owner decided the shape of TATE on 2026-11-19 (OP-107). [`tate.md`](tate.md) is the spec: the decisions, the turn of every case, the mode policy, the turned UI, the input, the settings and the work packages. ADR 0020 (proposed) records the turned UI canvas in `Scene`. The design notes of this section moved to that spec, section 14, each with its outcome.
 
 ## 16. Where the code is
 
