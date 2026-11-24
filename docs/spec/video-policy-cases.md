@@ -463,11 +463,11 @@ The cases. The measures are those of the screen simulator (`docs/spec/screen-sim
 | --- | --- | --- | --- |
 | a. SNES 256x224 | `ntsc` | 640x224 in 240p, 1:1, 16 lines of border | 690x240, all 224 lines at 1.071, soft; the console shape of Auto |
 | b. A 384x272 board | `ntsc` | 480i 1:1 | 704x240, all 272 lines at 0.882, sharp bilinear, no line dropped |
-| c. DoDonPachi, turned (240x320 on the screen) | `pc_31_120` | 1x, 240x320 in 683x512, 35 % by 61 % of the screen | 512 lines at 1.6, 384 of 683 columns: the whole height, the shape kept |
+| c. DoDonPachi, turned (240x320 on the screen) | `pc_31_120` | 1x, 240x320 in 683x512, 35 % by 61 % of the screen | 854x512, 512 lines at 1.6, 480 of 854 columns (2 per game column): the whole height, the shape kept |
 | d. R-Type 384x256, 55 Hz | `ntsc` | 704x240, 8 lines cut at each edge, shape -6.2 % | 704x240, all 256 lines at 0.9375, shape within 1 % |
 | d. R-Type 384x256, 55 Hz | `pal` | 626x256 in 288p, 1:1 | 704x288, all 256 lines at 1.125, shape within 1 % |
 | A vertical game on a horizontal TV (DoDonPachi) | `ntsc` | 480i 1:1, interlaced | 240 lines at 0.75, progressive, the shape kept |
-| A horizontal 4:3 game on a turned screen (a 320x240 source turned by 270 degrees) | `generic_15` | 1x, interlaced 1:1 | The height of the scan-out filled, progressive |
+| A horizontal game on a turned screen (R-Type turned by 270 degrees: 256 columns, 384 lines) | `generic_15`, `pc_31_120` | Upright and small | The height of the scan-out filled, progressive, the shape kept |
 | An exact picture as large as the fit (SNES) | `edid_30_70` | 2x, 448 of the 480 lines that the range forces | 3x, 672 lines: it fills its mode, every line whole |
 | SNES | `arcade_31` | 2x, 448 of 478 lines | 478 lines at 2.13, soft |
 | SNES | 1080p panel | Fill at 4.82 | The same |

@@ -1063,3 +1063,7 @@ A 15 kHz tube with `generic_15` is on the PC in these images, and the PC has no 
   - Do: let the screensaver start in the game list and watch it for 1 minute.
   - Expect: the word moves on a straight 45 degree line, one canvas pixel on each axis in each frame, with no wobble or staircase. At 120 Hz it moves at the same speed as at 60 Hz.
   - Record: the mode, and whether the movement is even.
+- [ ] `needs-hardware` **Picture mode Fit on a TV and a CRT.** A TV on composite (NTSC and PAL) with R-Type, the SNES and DoDonPachi, and the SyncMaster 750s with `pc_31_120` and DoDonPachi.
+  - Do: set Picture mode to Fit in the quick menu of each game.
+  - Expect: the whole picture shows, no line cut, as large as the screen allows, with round circles (the shape kept). The lines are even and soft, with no line that looks thicker or missing. DoDonPachi fills the height of each screen. R-Type on NTSC shows the lines that Auto cuts at the top and the bottom.
+  - Record: a photo of each picture, and any line that looks uneven.
