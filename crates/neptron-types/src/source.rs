@@ -1,19 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// A rotation of the picture, in steps of 90 degrees counter-clockwise,
-/// as libretro defines it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Rotation {
-    /// No rotation.
-    R0,
-    /// 90 degrees counter-clockwise.
-    R90,
-    /// 180 degrees.
-    R180,
-    /// 270 degrees counter-clockwise.
-    R270,
-}
+use crate::Rotation;
 
 /// What a core draws: the input of the mode solver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

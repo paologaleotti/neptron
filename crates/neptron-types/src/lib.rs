@@ -12,6 +12,7 @@ mod gpu;
 mod modeline;
 mod monitor;
 mod output;
+mod rotation;
 mod scanline;
 mod scene;
 mod source;
@@ -22,10 +23,11 @@ pub use gpu::GpuCaps;
 pub use modeline::Modeline;
 pub use monitor::{CrtRange, MonitorKind, MonitorProfile};
 pub use output::OutputKind;
+pub use rotation::Rotation;
 pub use scanline::{
     CRT_15KHZ_CLASS_MAX_LINE_RATE_MHZ, ScanlineKind, ScanlineMode, Scanlines, ScreenClass,
     scanlines_for,
 };
 pub use scene::{Filter, Frame, PixelFormat, Rect, Scene, ui_dest_fill, ui_dest_uniform};
-pub use source::{Rotation, SourceGeometry};
+pub use source::SourceGeometry;
 pub use tv::{TV_525_240P, TV_525_480I, TV_625_288P, TV_625_576I, TV_PCLOCK_HZ, TvStandard};
