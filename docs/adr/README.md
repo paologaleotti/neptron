@@ -35,3 +35,4 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0017](0017-community-gamepad-database.md) | The images ship the community gamepad database under the zlib licence | accepted | controller-db |
 | [0018](0018-15khz-kernel-patches-gpl-2-0-only.md) | The PC images carry the 15 kHz kernel patch set under GPL-2.0-only | accepted | M12 |
 | [0019](0019-gpl-frontend-loads-non-commercial-cores.md) | The GPL frontend loads the non-commercial cores in its own process | accepted | M14 |
+| [0020](0020-turned-ui-canvas-in-scene.md) | The scene carries the turn and the filter of the UI canvas | proposed | N01 |
