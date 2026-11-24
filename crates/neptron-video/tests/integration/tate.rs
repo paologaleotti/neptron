@@ -13,7 +13,7 @@ use neptron_testkit::SceneSummary;
 use neptron_types::{
     Filter, Frame, Modeline, MonitorKind, Orientation, PixelFormat, Rect, Rotation, SourceGeometry,
 };
-use neptron_video::{Directive, Monitor, PolicySettings};
+use neptron_video::{Content, Directive, Monitor, PolicySettings, TURNED_MENU_MODE};
 
 use crate::guard_rig::{FRAME_NS, GuardRig, crt_15, crt_31};
 use crate::harness::{Rig, SNES, frame, generic_15};
@@ -354,6 +354,19 @@ fn the_engine_says_when_a_horizontal_game_is_on_a_turned_screen() {
     rig.engine
         .set_orientation(at(Rotation::R270, Some(Rotation::R90)));
     assert!(!rig.engine.turns(&SF2).horizontal_on_turned_screen);
+}
+
+/// The menu engine reads no game override in the turns, as in its
+/// answers: the turns are those of a game at Auto.
+#[test]
+fn the_turns_of_the_menu_engine_read_no_override() {
+    let mut rig = Rig::new(generic_15(), PolicySettings::default());
+    rig.engine.set_content(Content::Menu(TURNED_MENU_MODE));
+    rig.engine
+        .set_orientation(at(Rotation::R270, Some(Rotation::R90)));
+    let turns = rig.engine.turns(&SF2);
+    assert!(turns.horizontal_on_turned_screen);
+    assert_eq!(turns.game, Rotation::R90, "R0 less 270");
 }
 
 /// Safe mode and the blind recovery change the monitor, not the

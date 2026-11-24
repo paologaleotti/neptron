@@ -9,9 +9,9 @@ use crate::answers::{AnswerCache, AnswerRequest};
 use crate::cache::Cache;
 use crate::decision::{Decision, Inputs};
 use crate::{
-    Chosen, Monitor, Outcome, READ_BACK_RATE_NOTICE_MHZ, ScanlineSettings, SceneInputs,
+    Chosen, Content, Monitor, Outcome, READ_BACK_RATE_NOTICE_MHZ, ScanlineSettings, SceneInputs,
     StatusInputs, SwitchRecord, SwitchTrace, Trigger, Unshowable, Veto, VideoStatusText,
-    build_scene, write_video_status,
+    build_scene, menu_plan_source, write_video_status,
 };
 
 /// A source that asks for a new mode must stay the same for this many core
@@ -99,6 +99,8 @@ pub struct Odren {
     scanlines: ScanlineSettings,
     /// The screen orientation and the game override.
     orientation: Orientation,
+    /// What the engine shows: games, or the menu.
+    content: Content,
     cache: Cache,
     answers: AnswerCache,
     current: Option<Current>,
@@ -169,6 +171,7 @@ impl Odren {
             answers_generation: 0,
             scanlines: ScanlineSettings::OFF,
             orientation: Orientation::NORMAL,
+            content: Content::Game,
             cache: Cache::new(),
             answers: AnswerCache::default(),
             current: None,
@@ -275,11 +278,49 @@ impl Odren {
         self.orientation
     }
 
+    /// What the engine shows: [`Content::Game`] by default. The menu
+    /// engine sets [`Content::Menu`], so that the mode of the menu on a
+    /// turned screen follows its choice, and so that the picture answers
+    /// of Settings > Display read no game override. A change is taken as
+    /// [`Odren::set_orientation`] takes one.
+    pub fn set_content(&mut self, content: Content) {
+        if content != self.content {
+            self.content = content;
+            self.answers_generation += 1;
+        }
+    }
+
+    /// What the engine shows.
+    pub fn content(&self) -> Content {
+        self.content
+    }
+
+    /// The source that the policy plans for the core source `source`.
+    fn plan_source(&self, source: &SourceGeometry) -> SourceGeometry {
+        match self.content {
+            Content::Game => self.orientation.display_source(source),
+            Content::Menu(choice) => menu_plan_source(choice, self.orientation.screen, source),
+        }
+    }
+
+    /// The orientation of the picture answers, the offer and the preview:
+    /// the menu's answers are those of the games at Auto.
+    fn answer_orientation(&self) -> Orientation {
+        match self.content {
+            Content::Game => self.orientation,
+            Content::Menu(_) => Orientation {
+                game_override: None,
+                ..self.orientation
+            },
+        }
+    }
+
     /// The turns of a game whose core source is `source`, in the
-    /// orientation of the engine. `Turns::horizontal_on_turned_screen`
+    /// orientation of the engine. The menu engine reads no game override,
+    /// as for its answers. `Turns::horizontal_on_turned_screen`
     /// says when the app adds its sentence to the picture notice.
     pub fn turns(&self, source: &SourceGeometry) -> Turns {
-        self.orientation.turns(source.rotation)
+        self.answer_orientation().turns(source.rotation)
     }
 
     /// The scene of the mode on screen, or `None` before the first mode.
@@ -308,7 +349,7 @@ impl Odren {
         game: Option<Frame<'a>>,
         ui: Option<Frame<'a>>,
     ) -> Scene<'a> {
-        let source = self.orientation.display_source(source);
+        let source = self.answer_orientation().display_source(source);
         let inputs = SceneInputs {
             placement: &proposal.placement,
             source: &source,
@@ -436,7 +477,7 @@ impl Odren {
     /// display does. Call it once per core frame, not once per flip. The
     /// policy, the cache and the trace see its display source.
     pub fn on_frame(&mut self, source: SourceGeometry) -> Directive {
-        let source = self.orientation.display_source(&source);
+        let source = self.plan_source(&source);
         self.frame += 1;
         if let Some(stale) = self.commit.take() {
             self.keep_trigger(stale.record.trigger);
@@ -816,7 +857,7 @@ impl Odren {
         request: &AnswerRequest,
     ) -> Option<Result<neptron_modeline::policy::PictureChoices, crate::Unshowable>> {
         self.answers
-            .get(self.answers_generation, self.orientation, request)
+            .get(self.answers_generation, self.answer_orientation(), request)
             .map(|done| done.map_err(crate::Unshowable::Policy))
     }
 
@@ -830,15 +871,19 @@ impl Odren {
         waited: impl IntoIterator<Item = &'r AnswerRequest> + Clone,
         budget: usize,
     ) -> bool {
-        self.answers
-            .step(self.answers_generation, self.orientation, waited, |work| {
+        self.answers.step(
+            self.answers_generation,
+            self.answer_orientation(),
+            waited,
+            |work| {
                 work.step(
                     self.inputs.monitor.profile(),
                     &self.inputs.caps,
                     |mode| self.inputs.check(mode).map(drop),
                     budget,
                 )
-            })
+            },
+        )
     }
 
     /// The steps of [`Self::step_answers`] that ran work so far.
@@ -872,8 +917,10 @@ impl Odren {
         &self,
         source: &SourceGeometry,
     ) -> Result<neptron_modeline::policy::Offer, crate::Unshowable> {
-        self.inputs
-            .offer(&self.orientation.display_source(source), self.scanlines)
+        self.inputs.offer(
+            &self.answer_orientation().display_source(source),
+            self.scanlines,
+        )
     }
 
     /// A modeset of a monitor, settings or retry change that did not reach

@@ -6,8 +6,8 @@ use neptron_types::{FlipEvent, Frame, Modeline, Orientation, Scene, SourceGeomet
 
 use crate::odren::{AfterModeSet, ModeOrder};
 use crate::{
-    Current, Directive, Monitor, Odren, Outcome, ScanlineSettings, SwitchTrace, Unshowable, Veto,
-    VideoStatusText,
+    Content, Current, Directive, Monitor, Odren, Outcome, ScanlineSettings, SwitchTrace,
+    Unshowable, Veto, VideoStatusText,
 };
 
 /// An error of the engine. The trace has the details of every failed
@@ -121,6 +121,12 @@ impl<D: Display> VideoEngine<D> {
     /// The screen orientation and the game override.
     pub fn orientation(&self) -> Orientation {
         self.odren.orientation()
+    }
+
+    /// What the engine shows. The menu engine sets
+    /// `Content::Menu(TURNED_MENU_MODE)`. See [`Odren::set_content`].
+    pub fn set_content(&mut self, content: Content) {
+        self.odren.set_content(content);
     }
 
     /// The turns of a game whose core source is `source`. See
