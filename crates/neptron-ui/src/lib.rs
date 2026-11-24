@@ -3,7 +3,8 @@
 //! The app gives a [`Snapshot`] and the player's [`UiAction`]s. The UI
 //! gives a [`UiFrame`]: a [`UiScene`] of draw commands, a [`UiTree`] for the
 //! control API, and [`Intent`]s that the app carries out. A [`Canvas`] draws
-//! the scene; [`CpuCanvas`] draws it into a 320x240 XRGB8888 buffer.
+//! the scene; [`CpuCanvas`] draws it into an XRGB8888 buffer of the size of a
+//! [`Form`]. A screen lays out from [`Metrics`], computed once per form.
 //!
 //! The crate does no I/O, reads no clock and starts no thread. It depends
 //! on no other NEPTRON crate.
