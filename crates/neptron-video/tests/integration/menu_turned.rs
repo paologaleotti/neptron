@@ -14,7 +14,7 @@ use crate::panel::{mode, panel};
 use crate::tate::{DDONPACH, at, canvas, last_scene};
 
 /// The source of the menu canvas, as the app plans it.
-const MENU_SOURCE: SourceGeometry = SourceGeometry {
+pub const MENU_SOURCE: SourceGeometry = SourceGeometry {
     width: 320,
     height: 240,
     refresh_mhz: 60_000,

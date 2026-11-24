@@ -18,6 +18,7 @@ use neptron_video::{Content, Directive, Monitor, Outcome, PolicySettings, TURNED
 use crate::faults::refuse_all;
 use crate::guard_rig::{FRAME_NS, GuardRig, crt_15, crt_31};
 use crate::harness::{Rig, SNES, frame, generic_15};
+use crate::menu_turned::MENU_SOURCE;
 use crate::panel::{mode, panel};
 
 /// DoDonPachi: a 320x240 frame on its side at 57.55 Hz, `R90`.
@@ -130,6 +131,119 @@ fn expected_ui(kind: &MonitorKind, mode: &Modeline, ui: Rotation, upright: Rect)
     }
 }
 
+/// The side of the red mark, in frame pixels: large enough that a
+/// picture scaled down (a fit or a squeezed canvas) keeps it red at the
+/// corner pixel of its destination.
+const MARK: usize = 8;
+
+/// A black frame with a red square of [`MARK`] pixels at its top left.
+fn marked(width: u16, height: u16) -> Vec<u8> {
+    let pitch = usize::from(width) * 2;
+    let mut data = vec![0; pitch * usize::from(height)];
+    for y in 0..MARK {
+        for x in 0..MARK {
+            // RGB565 red, 0xF800, little endian.
+            data[y * pitch + x * 2 + 1] = 0xF8;
+        }
+    }
+    data
+}
+
+fn frame_of(data: &[u8], width: u16, height: u16) -> Frame<'_> {
+    Frame {
+        data,
+        width,
+        height,
+        pitch: usize::from(width) * 2,
+        format: PixelFormat::Rgb565,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Corner {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+/// The corner of `rect` in which the screen shows red; it fails when no
+/// corner or more than one does.
+fn red_corner(screen: &neptron_testkit::RgbImage, rect: Rect) -> Corner {
+    let x = |v: i32| u32::try_from(v).unwrap();
+    let (left, top) = (x(rect.x), x(rect.y));
+    let (right, bottom) = (left + rect.w - 1, top + rect.h - 1);
+    let red = |px, py| {
+        let [r, g, b] = screen.pixel(px, py).unwrap();
+        r > 200 && g < 60 && b < 60
+    };
+    let corners = [
+        (Corner::TopLeft, red(left, top)),
+        (Corner::TopRight, red(right, top)),
+        (Corner::BottomLeft, red(left, bottom)),
+        (Corner::BottomRight, red(right, bottom)),
+    ];
+    let found: Vec<Corner> = corners.iter().filter(|c| c.1).map(|c| c.0).collect();
+    assert_eq!(found.len(), 1, "red corners of {rect:?}: {found:?}");
+    found[0]
+}
+
+/// One frame of `source` with a mark at the top left of the game frame,
+/// then one with a mark at the top left of the canvas alone: the corners
+/// of `dest` and of `ui_dest` that show them.
+fn marked_corners(screen: Rotation, source: SourceGeometry) -> (Corner, Corner) {
+    let mut rig = Rig::new(generic_15(), PolicySettings::default());
+    rig.engine.set_orientation(at(screen, None));
+    let game = marked(source.width, source.height);
+    let ui = marked(320, 240);
+    for _ in 0..2 {
+        rig.engine.begin_frame(source);
+        rig.engine
+            .present(Some(frame_of(&game, source.width, source.height)), None)
+            .unwrap();
+        rig.engine.wait_flip().unwrap();
+    }
+    let dest = last_scene(&rig).dest;
+    let game_corner = red_corner(&rig.fake.screen().unwrap(), dest);
+    rig.engine.begin_frame(source);
+    rig.engine
+        .present(None, Some(frame_of(&ui, 320, 240)))
+        .unwrap();
+    rig.engine.wait_flip().unwrap();
+    let ui_dest = last_scene(&rig).ui_dest;
+    (
+        game_corner,
+        red_corner(&rig.fake.screen().unwrap(), ui_dest),
+    )
+}
+
+/// The corners are worked out by hand from what the player must see, not
+/// from `Orientation`: the top left of an upright picture is at the
+/// player's top left.
+#[test]
+fn a_corner_mark_lands_in_the_named_corner_of_the_scan_out() {
+    // S=90: the display is turned a quarter turn to the left. Its top edge
+    // is at the player's left and its right edge at the player's top, so
+    // the player's top left is the display's top right. SF2 is drawn
+    // upright, and so is the canvas: both marks are at the top right.
+    assert_eq!(
+        marked_corners(Rotation::R90, SF2),
+        (Corner::TopRight, Corner::TopRight)
+    );
+    // DoDonPachi is drawn on its side and stands upright after a quarter
+    // turn to the left. That turn takes the frame's top left to the
+    // picture's bottom left, as the player sees it.
+    // S=0: the display stands as usual, so the mark is at the bottom left.
+    assert_eq!(marked_corners(Rotation::R0, DDONPACH).0, Corner::BottomLeft);
+    // S=270: the display is turned a quarter turn to the right. Its right
+    // edge is at the player's bottom and its bottom edge at the player's
+    // left, so the player's bottom left is the display's bottom right.
+    assert_eq!(
+        marked_corners(Rotation::R270, DDONPACH).0,
+        Corner::BottomRight
+    );
+}
+
 /// For each screen orientation, a vertical board, a horizontal board and
 /// a console game, at Auto and with a fixed override: the mode and the
 /// game picture are those of the frame as drawn with the turn `R`, and the
@@ -166,22 +280,60 @@ fn every_screen_orientation_turns_the_game_and_the_canvas_as_the_spec_says() {
     }
 }
 
-/// At a screen orientation of 0 with Auto, the engine is the engine of
-/// today: the same modes and the same scenes as an engine that never had
-/// an orientation set.
+/// One frame of `source` as the engine of `content` shows it: a game
+/// with the canvas over it, or the canvas alone for the menu.
+fn content_frame(rig: &mut Rig, content: Content, source: SourceGeometry) {
+    rig.engine.begin_frame(source);
+    let game = (content == Content::Game).then(|| frame(&source));
+    rig.engine.present(game, Some(canvas())).unwrap();
+    rig.engine.wait_flip().unwrap();
+}
+
+/// An engine turned to 90 and back to 0 with Auto is the engine of today:
+/// the same mode, the same scene and the same answers as an engine that
+/// never had an orientation set, for games and for the menu.
 #[test]
 fn the_normal_orientation_gives_the_scenes_of_an_engine_with_none() {
+    let menu = (Content::Menu(TURNED_MENU_MODE), MENU_SOURCE);
     for (name, monitor) in monitors() {
-        for source in [DDONPACH, SF2, SNES] {
+        let cases = [DDONPACH, SF2, SNES]
+            .map(|s| (Content::Game, s))
+            .into_iter()
+            .chain([menu]);
+        for (content, source) in cases {
+            let case = format!("{name} {content:?} {source:?}");
             let mut plain = Rig::new(monitor.clone(), PolicySettings::default());
-            frame_with_ui(&mut plain, source);
-            let (mode, scene) = shown(monitor.clone(), Orientation::NORMAL, source);
-            assert_eq!(mode, plain.engine.current().unwrap().read_back, "{name}");
-            assert_eq!(scene, last_scene(&plain), "{name} {source:?}");
-            assert_eq!(scene.rotation, source.rotation);
+            content_frame(&mut plain, content, source);
+            let mut rig = Rig::new(monitor.clone(), PolicySettings::default());
+            rig.engine.set_content(content);
+            rig.engine.set_orientation(at(Rotation::R90, None));
+            for _ in 0..4 {
+                content_frame(&mut rig, content, source);
+            }
+            let turned = last_scene(&rig);
+            assert_eq!(turned.ui_rotation, Rotation::R270, "{case}");
+            rig.engine.set_orientation(Orientation::NORMAL);
+            for _ in 0..4 {
+                content_frame(&mut rig, content, source);
+            }
+            assert!(rig.engine.settled(), "{case}");
+            assert_eq!(
+                rig.engine.current().unwrap().read_back,
+                plain.engine.current().unwrap().read_back,
+                "{case}"
+            );
+            let scene = last_scene(&rig);
+            assert_eq!(scene, last_scene(&plain), "{case}");
+            assert_eq!(scene.rotation, source.rotation, "{case}");
             assert_eq!(
                 (scene.ui_rotation, scene.ui_filter),
-                (Rotation::R0, Filter::Nearest)
+                (Rotation::R0, Filter::Nearest),
+                "{case}"
+            );
+            assert_eq!(
+                rig.engine.picture_choices(&source).unwrap(),
+                plain.engine.picture_choices(&source).unwrap(),
+                "{case}"
             );
         }
     }
