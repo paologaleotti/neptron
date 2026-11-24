@@ -57,7 +57,9 @@ pub use offer::{
 };
 pub use padding::{PADDED_FILL_MIN_PERCENT, Padding, SMALL_PICTURE_MIN_PERCENT};
 pub use panel::PANEL_FILL_MIN_SCALE_MILLI;
-pub use placement::{HorizontalScale, Placement, ScaleClaim, UI_CANVAS, whole_multiple};
+pub use placement::{
+    HorizontalScale, Placement, ScaleClaim, UI_CANVAS, UiPlacement, ui_dest_turned, whole_multiple,
+};
 pub use plan::{
     Considered, HeldWhole, Plan, Proposal, StrategyReplaced, Timing, WholeReason, speed_beyond,
 };

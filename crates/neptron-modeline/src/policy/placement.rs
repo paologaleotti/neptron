@@ -5,6 +5,10 @@ use super::shape::{game_aspect_milli, same_aspect};
 use super::source::div_round;
 use crate::Aspect;
 
+mod turned;
+
+pub use turned::{UiPlacement, ui_dest_turned};
+
 /// Size of the UI canvas, in pixels.
 pub const UI_CANVAS: (u16, u16) = (320, 240);
 
