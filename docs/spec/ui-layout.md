@@ -1,6 +1,6 @@
 # UI layout: one layout code for a landscape and a portrait canvas
 
-This spec defines how the menus of `neptron-ui` lay out on a canvas of more than one size: the landscape canvas of today (320x240) and a portrait canvas (240x320) for a screen turned on its side (TATE, `docs/spec/tate.md`). It gives the layout model, an inventory of every screen and widget, the change to the canvas contract (ADR 0021, proposed), the fate of the interim code of TATE package 3, the goldens and the tests, and the work packages. It is a design only: no product code comes with it.
+This spec defines how the menus of `neptron-ui` lay out on a canvas of more than one size: the landscape canvas of today (320x240) and a portrait canvas (240x320) for a screen turned on its side (TATE, `docs/spec/tate.md`). It gives the layout model, an inventory of every screen and widget, the change to the canvas contract (ADR 0021), the fate of the interim code of TATE package 3, the goldens and the tests, and the work packages. It is a design only: no product code comes with it.
 
 ## 1. The owner's decisions
 
@@ -19,7 +19,7 @@ What follows from them:
 - The layout follows the size of the canvas: one layout code that adapts, not a second copy of every screen.
 - Box art, themes and a high-definition UI come later. This design does not design them, but it keeps the door open (section 11).
 
-Every choice that the player sees and that this spec does not settle is a question in section 14. A run rule says that no code starts before the owner answers the questions that shape a visible result.
+The owner answered every question of this design on 2026-11-24 ("Yes to all", to the recommendations). Section 14 lists the decisions; each one has the mark **Decision: Owner, 2026-11-24** where it applies in the text.
 
 ## 2. Terms
 
@@ -77,7 +77,7 @@ impl Metrics {
 
 The rules, each with its reason:
 
-- **Safe area: 5 % of each axis on each side.** It is the rule of today (`SAFE_MARGIN_X_PX = UI_WIDTH / 20`). A turned tube overscans as a normal tube does, and the margin follows the canvas axis that the player sees. Portrait: 12 px at the left and the right, 16 px at the top and the bottom.
+- **Safe area: 5 % of each axis on each side.** It is the rule of today (`SAFE_MARGIN_X_PX = UI_WIDTH / 20`). A turned tube overscans as a normal tube does, and the margin follows the canvas axis that the player sees. Portrait: 12 px at the left and the right, 16 px at the top and the bottom. Decision: Owner, 2026-11-24 (D5).
 - **Title band:** one row and 4 px, then a 2 px rule, then a 4 px gap. Unchanged.
 - **Hint band:** one row and 2 px, at the bottom of the safe area; a second line when its two texts do not fit one line (3.4).
 - **Framed box:** 1 px sides, 2 px top and bottom lines, 1 px gap (`BOX_EDGE_H_PX`). Unchanged.
@@ -116,7 +116,7 @@ The rules, in order of preference:
 
 1. **Wrap** (the owner's rule 4). A text that does not fit its line goes on to a second line. Where:
    - A list row label: the row takes two lines (3.5). The second line starts at the column of the first.
-   - A band of two texts (the title band with its count, the hint band with two hints): when both do not fit one line with two characters between them, the left text takes line 1 and the right text takes line 2, right-aligned. The content area then starts or ends one row later.
+   - A band of two texts (the title band with its count, the hint band with two hints): when both do not fit one line with two characters between them, the left text takes line 1 and the right text takes line 2, right-aligned. The content area then starts or ends one row later. Decision: Owner, 2026-11-24 (D4).
    - A field (`chrome::field`, a name column of 9 characters and a value): the value wraps inside its column.
    - A paragraph, a dialog message, a help box, a notice: as today, with the line count of the form.
 2. **Stack.** A settings row whose label, value and source do not fit one line in fixed columns (the label column under 18 characters) is `Stacked`: the label on line 1 with the arrow at the right; the source (indented by 2 characters) and the value (right-aligned) on line 2. A disabled row shows its reason as the value. The rule is on the character count, so a wide canvas keeps `OneLine`.
@@ -137,7 +137,7 @@ Line 1 of a wrapped row never ends in a space, and a wrapped row keeps its whole
 - A row has 1 line, or 2 when its label wraps (rule 1) or when the widget asks for a stacked row (rule 2). Never 3: a label longer than 2 lines is shortened on line 2 with the mark and reported.
 - The window of visible rows keeps the focused row whole. Up and Down move by one row; Left and Right move by one page, where a page is the rows that fit the box.
 - The scroll bar measures rows, not lines.
-- The game list keeps rows of one line: its row pitch must be constant for a window of 10,000 rows, and the title box shows the whole title (question Q3).
+- The game list keeps rows of one line: its row pitch must be constant for a window of 10,000 rows, and the title box shows the whole title. Decision: Owner, 2026-11-24 (D3).
 
 ### 3.6 What is not supported
 
@@ -272,7 +272,7 @@ Change: `game_title_lines` from `Metrics`; the list rect from `Metrics`; the tit
   Accept: open            Back: return
 ```
 
-The alternative, a compact row with the wrap of rule 1 and no source column, is `portrait-display-compact.png` (question Q1).
+Decision: Owner, 2026-11-24 (D1): settings rows in portrait are stacked: the label on line 1, then the source and the value on line 2. The compact row (one line, the label wraps, no source column, `portrait-display-compact.png`) is not used.
 
 **The options of a setting, with dim reasons.** Today: a mark column, the option label, the detail at the right in at most half the row, an option that cannot be chosen dim with its reason, or "Not available" when the reason does not fit half the row; the help box (2 lines) shows the help or the reason in full. Portrait: half a row is 16 characters. "Not all games" (13) fits; "Not available" (13) fits; every longer reason already goes to the help box. The help box has 4 lines (136 characters): the longest option help of today has 89 characters (3 lines).
 
@@ -301,7 +301,7 @@ The alternative, a compact row with the wrap of rule 1 and no source column, is 
 
 Change: `help_lines` from `Metrics`; the list rows of the option list stay one line (an option label has at most 14 characters today).
 
-**A dialog with two buttons and a timeout (the keep prompt).** Today: 224 wide, centred, a title bar, the message wrapped at 35 characters, the buttons centred, and the hint band of the dialog ("Accept: revert", "Right, then Accept: keep"). Portrait: the whole safe width (216), 34 characters. The two hints need 40 of 34 characters: the hint band takes two lines (rule 1). "The old picture comes back in 10 s." has 35 characters: it wraps to "10 s." alone on a line, which looks bad; section 5.4 proposes "The old picture returns in 10 s." (32). Mock: `portrait-keep-dialog.png`.
+**A dialog with two buttons and a timeout (the keep prompt).** Today: 224 wide, centred, a title bar, the message wrapped at 35 characters, the buttons centred, and the hint band of the dialog ("Accept: revert", "Right, then Accept: keep"). Portrait: the whole safe width (216), 34 characters. The two hints need 40 of 34 characters: the hint band takes two lines (rule 1). "The old picture comes back in 10 s." has 35 characters: it wraps to "10 s." alone on a line, which looks bad; the owner approved "The old picture returns in 10 s." (32) in its place (D2). Mock: `portrait-keep-dialog.png`.
 
 ```
   Settings > Display
@@ -446,14 +446,14 @@ At 34 characters a few wrapped texts end in a line of one short word. These are 
 
 | Text today | Where | At 34 characters | Proposed text |
 | --- | --- | --- | --- |
-| "The old picture comes back in 10 s." (35) | Keep prompt of a display change (`overlays.rs`) | "...comes back in" / "10 s." | "The old picture returns in 10 s." (32) |
-| "The old orientation comes back in 15 s." (39, the text that TATE package 8 would write) | Keep prompt of the screen orientation | "...comes back in" / "15 s." | "The screen turns back in 15 s." (30) |
+| "The old picture comes back in 10 s." (35) | Keep prompt of a display change (`overlays.rs`) | "...comes back in" / "10 s." | "The old picture returns in 10 s." (32), approved |
+| "The old orientation comes back in 15 s." (39, the text that TATE package 8 would write) | Keep prompt of the screen orientation | "...comes back in" / "15 s." | "The screen turns back in 15 s." (30), approved |
 | "Keep the new settings for this game only, for all games of this system, or for all games?" (89) | Keep prompt of the quick menu | Last line "games?" | Keep: three full lines, the last one "system, or for all games?" with the real breaks; no change |
 | "The old layout comes back in 12 s." (34) | Review of the mapping | Fits exactly | No change; it is at the limit, and a 3-digit count cannot occur (the window is 15 s) |
 
-### 5.4 For the owner's approval
+### 5.4 The approved short texts
 
-Two short texts, used in both forms (one text, one translation later):
+Decision: Owner, 2026-11-24 (D2): two short texts, used in both forms (one text, one translation later):
 
 1. "The old picture comes back in {s} s." becomes "The old picture returns in {s} s."
 2. The keep prompt of the screen orientation (TATE package 8) says "The screen turns back in {s} s."
@@ -464,7 +464,7 @@ The text of the notices and of the help boxes needs no change. The automatic che
 
 ### 6.1 What changes
 
-The canvas size becomes a value end to end. ADR 0021 (proposed) records it. In short:
+The canvas size becomes a value end to end. ADR 0021 (accepted, Owner, 2026-11-24) records it. In short:
 
 - `neptron-types`: `Scene::ui` is "the UI canvas, upright for the player, of the size of its `Frame`". No new field: `Frame` already carries `width` and `height`, and ADR 0020 already says that `ui_dest` holds `T`. The change is the meaning: a canvas of 240x320 is valid, and the renderers must draw it.
 - Both renderers already turn and place any canvas size (ADR 0020 wrote them for it). The GLES UI texture grows only; the row compare of the upload must compare canvases of the same size, and a change of size sends the whole canvas once. Tests: a 240x320 canvas with each `ui_rotation`, against the reference renderer; a change of size between two scenes sends every row.
@@ -527,7 +527,7 @@ The game keeps its mode. `T` (320x240) goes where the placement of that mode put
 | Case | Mode of the game | `T` in it | Result |
 | --- | --- | --- | --- |
 | A vertical game on a turned 15 kHz tube (DoDonPachi, `S = 90`) | 240p at 57.55 Hz, own lines | full active area, 240 lines | 1:1, nearest, sharp. T4 of the TATE spec is settled: no mode change, and nothing is soft |
-| A vertical game of 224 lines (`S = 90`) | 224p | 224 lines | 0.93 on the line axis: `SharpBilinear` (Q6) |
+| A vertical game of 224 lines (`S = 90`) | 224p | 224 lines | 0.93 on the line axis: `SharpBilinear` (D6) |
 | A horizontal game on a turned 15 kHz tube, Picture mode Auto (`S = 90`) | interlaced, for example 510x448i | full active area, 448 lines | The portrait menu at full size over the small upright game (decision 3). 240 canvas columns on 448 lines, nearest: some columns get 2 lines and some 1, as the landscape canvas over a vertical game at `S = 0` today. Each field has 224 lines, so each canvas column shows in at least one field |
 | The same with Picture mode Fill | 240p | 240 lines | 1:1 |
 | A turned 31 kHz tube | 480p, 2x | full active area | 2 lines per canvas column |
@@ -535,6 +535,15 @@ The game keeps its mode. `T` (320x240) goes where the placement of that mode put
 | A turned flat panel | native | the whole scale of the menu | 4x on 1080p |
 
 The canvas stays opaque (ADR 0005): the quick menu covers the game where it lies, and the game shows around it where the canvas does not reach.
+
+#### 6.4.1 The change on a normal screen
+
+Decision: Owner, 2026-11-24 (D6): the filter rule applies to every placement of `T`, also on a screen at 0 or 180. This changes a picture of a normal screen. It is a designed change, not a golden to bless by accident.
+
+- **What changes.** Today the engine sets `Filter::Nearest` for every upright canvas (`ui_place` in `crates/neptron-video/src/scene.rs`, the arm `R0 | R180`). On a CRT the canvas fills the active area of the mode (`ui_dest_fill`). In a game mode with fewer than 240 active lines (a 224-line game: for example `ui_dest` 1280x224 in the placement test of `neptron-modeline`) or fewer than 320 active samples, the scale of an axis is below 1, and nearest drops canvas lines or columns: 16 of the 240 canvas lines at 224 lines. After the change the engine sets `Filter::SharpBilinear` there. The player sees the quick menu, its keep prompt, the dialogs and the notices over such a game soft, with every line of each glyph, in place of sharp with lines missing. The ADR 0020 sentence "every upright canvas of today has both scales at 1 or more" is not true for these modes; ADR 0021 corrects it.
+- **What does not change.** The menu (its mode has 240 lines or more and 320 samples or more on every display class), a TV (whole factors, at least 1 on each axis), a flat panel (a whole scale, at least 1), and every game mode with 240 lines or more and 320 samples or more. No canvas golden of `neptron-ui`, no golden of `neptron-gfx` (its scenes set the filter themselves) and no policy golden records the filter of the engine at a screen at 0, so none of them changes.
+- **What the change touches in tests.** The expectations that state `Filter::Nearest` for an upright canvas over a mode below the canvas size: in `crates/neptron-video` (the unit tests of `scene.rs`, `tests/integration/tate.rs`, `tests/integration/menu_turned.rs`), and any scene hash of the fake display (`neptron-testkit`) of a frame that shows the UI over such a mode in the tier 2 tests of `apps/neptron`. Before the change, the package runs these tests and lists every expectation that the rule changes; after it, each listed expectation changes in the same commit, and no other.
+- **Where.** Package L4 (TATE package 7), in one commit of its own: `feat(video): soften the UI canvas below a scale of 1 on every screen`. Its body names this section and lists each changed expectation. The review checks that list against this section. A changed expectation that the list does not name stops the package (run rule 11).
 
 ### 6.5 The screensaver
 
@@ -553,15 +562,15 @@ A change of the screen orientation between 0 or 180 and 90 or 270, or a change o
 ### 6.8 Screenshots and the tree
 
 - `neptronctl screenshot --stage ui` returns the canvas as it is: 240x320 in portrait. The `Screenshot` reply already carries `width` and `height`. The `output` and `scanout` stages are in scan-out pixels, as today.
-- The UI tree: the row bounds are in canvas pixels. The tree reply gets the canvas size as an appended field in a new protocol version (the protocol is append-only), so the crawler and a tool know the safe area of the form.
+- The UI tree: the row bounds are in canvas pixels. The tree reply gets the canvas size as an appended field in protocol version 4 (the protocol is at version 3 and is append-only; a reply holds only the fields of the version of its request), so the crawler and a tool know the safe area of the form.
 
 ### 6.9 ADR
 
-A contract change: yes. `Scene::ui` changes its meaning (a canvas of either size), the placement takes the size of `T`, the menu source and the destination of a turned canvas change (they were written in ADR 0020 and the TATE spec for a 320x240 canvas turned), and the tree reply gets a field. ADR 0021 (status proposed) records it. It amends ADR 0005 and ADR 0020 when the owner accepts it.
+A contract change: yes. `Scene::ui` changes its meaning (a canvas of either size), the placement takes the size of `T`, the menu source and the destination of a turned canvas change (they were written in ADR 0020 and the TATE spec for a 320x240 canvas turned), and the tree reply gets a field. ADR 0021 (accepted, Owner, 2026-11-24) records it. It amends ADR 0005 and ADR 0020.
 
 ## 7. The interim code of TATE package 3
 
-Package 3 (branch `mvp/N01c`) turns the 320x240 canvas on a turned screen and chooses its mode. With the portrait layout:
+Package 3 (merged on `main`) turns the 320x240 canvas on a turned screen and chooses its mode. With the portrait layout:
 
 | Item | What happens | Why |
 | --- | --- | --- |
@@ -575,7 +584,7 @@ Package 3 (branch `mvp/N01c`) turns the 320x240 canvas on a turned screen and ch
 | A landscape canvas on a turned panel, large | Not used: a turned screen always gets the portrait menu | Decision 2; the portrait menu is 4x on 1080p, larger than the turned landscape canvas (3x) |
 | The sharp-bilinear squeeze of the menu on 240 lines | Removed | Nothing squeezes the menu |
 
-Until the settings package wires the orientation, the orientation is always `Orientation::NORMAL`, so the interim path never runs in the product. Package 3 can merge as built; package L4 removes the interim code. The orchestrator can also trim `TurnedMenuMode` from package 3 before its merge, which saves code that lives one package. Either way `main` stays correct.
+Until the settings package wires the orientation, the orientation is always `Orientation::NORMAL`, so the interim path never runs in the product. Package L4 removes it.
 
 ## 8. Navigation and input
 
@@ -607,7 +616,7 @@ Every scene of the registry (78) renders in both forms and passes the fit check 
 | Guided mapping | `pad-mapping`, `pad-mapping-review` |
 | Others | `breadcrumb-long`, `library-scanning`, `screensaver-start`, `pattern/grid` |
 
-36 portrait goldens. Why not all 78: a golden costs a look before it is blessed and a review at each visual change; the fit check covers every scene in both forms for the faults that matter (a cut, an overlap, a text outside the safe area), and the 36 cover each widget, each screen kind and each wrap rule once.
+36 portrait goldens. Decision: Owner, 2026-11-24 (D8). Why not all 78: a golden costs a look before it is blessed and a review at each visual change; the fit check covers every scene in both forms for the faults that matter (a cut, an overlap, a text outside the safe area), and the 36 cover each widget, each screen kind and each wrap rule once.
 
 ### 9.3 Names, tool and gallery
 
@@ -638,12 +647,12 @@ The crawler of `apps/neptron/tests/app/crawler.rs` runs once per display class t
 
 - **The refactor must keep every landscape pixel.** 97 uses of the constants in 15 files change, and the centring arithmetic must stay exact. The 78 goldens catch any slip, but a slip found late costs a rework of a package. Mitigation: package L1 moves the constants into `Metrics` with the landscape numbers and changes no widget.
 - **Rows of two lines in `List`.** The window, the page step and the scroll bar get harder. The settings list and the home list use them; the game list does not (fixed pitch for 10,000 rows).
-- **Stacked settings rows halve the rows on screen.** The Display page shows 8 rows in portrait against 10 in landscape (14 in an empty box). A page with safe-mode rows scrolls. This is the cost of no cut and no squeeze (Q1 has the compact alternative).
+- **Stacked settings rows halve the rows on screen.** The Display page shows 8 rows in portrait against 10 in landscape (14 in an empty box). A page with safe-mode rows scrolls. This is the cost of no cut and no squeeze (D1).
 - **A form change at run time** lays out every screen of the stack again. A bug there shows a screen in the wrong form for one frame or loses a cursor. Mitigation: the test of 6.6 for each screen kind.
 - **The fit check can be noisy.** Intended overlaps (a focus bar, a dialog rim, a text in a framed band) must not count. The rule of covered texts handles the known cases; a new intended overlap needs a rule, not an exemption list.
 - **Texts made at run time** (formatted values, reasons with numbers, names from devices and files) are only as long as the fixtures. The scenes use the longest real values; a name without a bound uses rule 3.
 - **The quick menu over an interlaced game** (a horizontal game across a turned 15 kHz tube in Auto) puts 240 canvas columns on 448 lines with nearest: uneven column widths, as the landscape canvas over a vertical game at `S = 0` today. It is readable, not perfect. Picture mode Fill gives 240p and 1:1.
-- **A 224-line game** gets a soft quick menu (Q6), in both forms. Today at `S = 0` nearest drops 16 canvas rows there.
+- **A 224-line game** gets a soft quick menu (D6), in both forms. Today at `S = 0` nearest drops 16 canvas rows there. This changes a picture of a normal screen (section 6.4.1).
 - **Package order with N01.** Package 3 is in work with the interim code. Packages L1 and L2 touch only `neptron-ui` and can run beside TATE packages 3 to 5. L4 must come after package 3.
 - **Hardware.** The claim of 6.3 is exact in emulation; the look of a 240p portrait menu on a turned tube is a hardware check (`docs/hardware-checklist.md`, needs-hardware).
 - **Box art and an HD UI** will put more pressure on the canvas size (memory, upload, CPU drawing time on the Raspberry Pi 3). The portrait canvas has the same pixel count as the landscape one, so this design adds no cost.
@@ -658,15 +667,15 @@ Not designed here. What they would build on, and what they would change:
 
 ## 12. Work packages
 
-Each package merges alone, with `main` unchanged for a normal screen at every step: the 78 landscape goldens stay byte-identical, and the orientation stays `NORMAL` until the TATE settings package wires it.
+Each package merges alone, and the orientation stays `NORMAL` until the TATE settings package wires it. The rule of the safety net: **the 78 landscape goldens of `neptron-ui` stay byte-identical in L1 and L2.** A package of L1 or L2 that changes one landscape pixel stops and reports; it never blesses (run rule 11). L3 adds portrait goldens and changes no landscape golden except by the approved text of D2 (the scenes `confirm-3s` and `confirm-10s`, one line of text each, looked at before the bless). L4 changes the picture of a normal screen only as section 6.4.1 says. L5 changes no golden of today.
 
 | # | Package | Crates and paths | Size (lines touched, rough) | Gate |
 | --- | --- | --- | --- | --- |
-| L1 | Metrics as values. `Form`, `Size`, `Metrics::of` with the landscape numbers and a portrait value that no screen uses yet; `chrome::Layout` from `Metrics`; the router holds `Metrics`; `SAFE_AREA`, the margins, `UI_WIDTH`, `UI_HEIGHT`, `DIALOG_WIDTH_PX` replaced at every use; `CpuCanvas::with_size`, `SceneCanvas::new(Size)`; the screensaver and the pattern take the size. No visual change | `crates/neptron-ui` | 700 | T1; all 78 goldens identical; a test of the landscape metrics against the old constants |
-| L2 | Widgets take the metrics. `List`, `SettingsList`, `Dialog`, `Grid`, the option help box, the game title box, the video block read their counts from `Metrics`; `RowShape`; rows of 1 or 2 lines in `List`; `text::draw_short`; the unit rule of `wrap`; the fit check as a test over every scene in landscape. Still no visual change | `crates/neptron-ui` | 1,000 | T1; all 78 goldens identical; the fit check passes on all landscape scenes |
-| L3 | The portrait layout. The portrait metrics in use; stacked rows; two-line bands; the registry with forms; `xtask shot`, `golden` and `gallery` with portrait; 36 portrait goldens, each one looked at; the fit check over every scene in both forms; the approved short texts (5.4). Starts only after the owner answers the questions of section 14 | `crates/neptron-ui`, `xtask` (the UI tools), `apps/neptron` only for the approved texts | 1,500 and 36 goldens | T1; the fit check in both forms |
-| L4 | The canvas size in the contract and the engine (ADR 0021). `Scene::ui` doc; the form factor rule in `neptron-types`; the placement takes the size of `T`; the engine plans the menu from `T` and gives the form; removal of `TurnedMenuMode`, `menu_plan_source`, `ui_dest_turned`; `policy_tate.toml` menu cases recorded again with the equality test; the GLES upload on a size change; `canvas_frame` from the canvas; the tree reply with the canvas size (protocol version 4) | `neptron-types`, `neptron-modeline`, `neptron-video`, `neptron-gfx`, `neptron-ipc`, `apps/neptron`, `apps/neptronctl` (tree print only) | 900 | T1; tier 3 `gles-compare` with a 240x320 canvas at each `ui_rotation` |
-| L5 | The wiring, inside the TATE settings package (TATE package 8). The app gives the form to the UI at boot and at each change of orientation; the router lays out again (6.6); the keep prompt of the orientation in the new form; the crawler in both forms; the lines of `screensaver.md` and `ui-navigation.md` | `apps/neptron`, `crates/neptron-ui`, `docs/spec` | 400 | T2; the crawler in both forms |
+| L1 | Metrics as values. `Form`, `Size`, `Metrics::of` with the landscape numbers and a portrait value that no screen uses yet; `chrome::Layout` from `Metrics`; the router holds `Metrics`; `SAFE_AREA`, the margins, `UI_WIDTH`, `UI_HEIGHT`, `DIALOG_WIDTH_PX` replaced at every use; `CpuCanvas::with_size`, `SceneCanvas::new(Size)`; the screensaver and the pattern take the size. No visual change | `crates/neptron-ui` | 700 | T1 (`cargo xtask verify --tier 1`); the 78 landscape goldens byte-identical; a test of the landscape metrics against the old constants |
+| L2 | Widgets take the metrics. `List`, `SettingsList`, `Dialog`, `Grid`, the option help box, the game title box, the video block read their counts from `Metrics`; `RowShape`; rows of 1 or 2 lines in `List`; `text::draw_short`; the unit rule of `wrap`; the fit check as a test over every scene in landscape. Still no visual change | `crates/neptron-ui` | 1,000 | T1; the 78 landscape goldens byte-identical; the fit check passes on all 78 landscape scenes |
+| L3 | The portrait layout. The portrait metrics in use; stacked rows; two-line bands; the registry with forms; `xtask shot`, `golden` and `gallery` with portrait; 36 portrait goldens, each one looked at; the fit check over every scene in both forms; the approved short texts (5.4), with the landscape goldens `confirm-3s` and `confirm-10s`, which show the new text | `crates/neptron-ui`, `xtask` (the UI tools), `apps/neptron` only for the approved texts | 1,500 and 36 goldens | T1; the 36 portrait goldens looked at before the bless; the fit check on all 78 scenes in both forms; no landscape golden changes except `confirm-3s` and `confirm-10s` |
+| L4 | The canvas size in the contract and the engine (ADR 0021). `Scene::ui` doc; the form factor rule in `neptron-types`; the placement takes the size of `T`; the engine plans the menu from `T` and gives the form; removal of `TurnedMenuMode`, `menu_plan_source`, `ui_dest_turned`; `policy_tate.toml` menu cases recorded again with the equality test; the GLES upload on a size change; `canvas_frame` from the canvas; the tree reply with the canvas size (protocol version 4); the filter rule on every screen in its own commit (6.4.1) | `neptron-types`, `neptron-modeline`, `neptron-video`, `neptron-gfx`, `neptron-ipc`, `apps/neptron`, `apps/neptronctl` (tree print only) | 900 | T1; tier 3 `gles-compare` with a 240x320 canvas at each `ui_rotation`; only the expectations listed under 6.4.1 change |
+| L5 | The wiring, inside the TATE settings package (TATE package 8). The app gives the form to the UI at boot and at each change of orientation; the router lays out again (6.6); the keep prompt of the orientation in the new form; the crawler in both forms; the lines of `screensaver.md` and `ui-navigation.md` | `apps/neptron`, `crates/neptron-ui`, `docs/spec` | 400 | T2 (`cargo xtask verify --tier 2`); the crawler in both forms; no golden of today changes |
 
 The TATE spec (section 12) holds the merged order of all packages.
 
@@ -676,24 +685,24 @@ Three portrait mocks drawn with the real canvas, font and skin of `neptron-ui` b
 
 - `portrait-game-list.png`: the game list of a system with the long title in the box.
 - `portrait-display.png`: the Display page of a turned flat panel with stacked rows, two dim rows with their reason.
-- `portrait-display-compact.png`: the same page with compact rows (Q1).
-- `portrait-keep-dialog.png`: the keep prompt over the Display page, with the two-line hint band and the proposed short text.
+- `portrait-display-compact.png`: the same page with compact rows, the alternative that the owner did not take (D1).
+- `portrait-keep-dialog.png`: the keep prompt over the Display page, with the two-line hint band and the approved short text.
 - `landscape-games-middle.png`, `landscape-display.png`, `landscape-confirm-10s.png`, `landscape-picture-mode.png`: today's screens.
 
-## 14. Questions for the owner
+## 14. Decisions
 
-Every choice of this design that the player sees. Each has a recommendation; nothing of L3 starts before the answers.
+The owner answered on 2026-11-24: "Yes to all", to the recommendations below. The decisions of section 1 stay. Each line is **Decision: Owner, 2026-11-24**.
 
-| # | Question | Options | Recommendation |
-| --- | --- | --- | --- |
-| Q1 | The settings rows in portrait | (a) Stacked: label on line 1, source and value on line 2, every row two lines (`portrait-display.png`). (b) Compact: label and value on one line, the label wraps when it does not fit, no source column (`portrait-display-compact.png`) | (a): nothing is cut or dropped, the source (global, system, game) stays visible, and every row has the same rhythm. (b) shows more rows but loses the source column |
-| Q2 | The two short texts of 5.4 | "The old picture returns in {s} s."; "The screen turns back in {s} s." | Yes, in both forms |
-| Q3 | A long game title in the game list | (a) Shortened with `...` in the row, whole in a title box of 3 lines under the list. (b) The row wraps to two lines | (a): the list keeps a fixed pitch for 10,000 games, and the title box shows the whole title, so nothing is lost |
-| Q4 | A band whose two texts do not fit one line (hint band, title band) | (a) Two lines. (b) Shorter hints in portrait, for example "Right+Accept: keep" | (a), the owner's rule 4 |
-| Q5 | The safe margins in portrait | (a) 5 % of each axis, as today (34 characters). (b) Smaller side margins (36 characters) | (a): a turned tube overscans as a normal tube |
-| Q6 | The quick menu over a game with fewer lines than the canvas (a 224-line game), in every orientation | (a) `SharpBilinear`: soft, nothing dropped. (b) Nearest: sharp, 16 canvas lines or columns dropped, as today at `S = 0` | (a): a dropped column takes a stroke of a glyph |
-| Q7 | The first setup of a turned cabinet | (a) As the TATE spec: the menu shows sideways once, until Screen orientation is set; or `orientation` in `neptron.toml` before the first boot. (b) A first-boot screen that asks which way is up: four texts, one along each edge and each upright when its edge is the top ("Press Up", "Press Left", "Press Down", "Press Right"); the player presses what the upright text says, and that picks the orientation; no input for 10 s keeps Normal | (a) for the MVP, (b) as a later package. (b) needs text drawn in four turns (a new primitive), a new screen in the boot path before the guard's prompt, and a step at every first boot. No mock: the canvas cannot draw turned text today |
-| Q8 | The portrait goldens | (a) The 36 scenes of 9.2, and the fit check on all 78 in both forms. (b) All 78 | (a) |
+| # | Question | Decision |
+| --- | --- | --- |
+| D1 | The settings rows in portrait | Stacked: the label on line 1, then the source and the value on line 2 (`portrait-display.png`). The compact row is not used |
+| D2 | The texts where a wrap looks bad | "The old picture returns in {s} s." and "The screen turns back in {s} s.", in both forms (section 5.4) |
+| D3 | A long game title in the game list | Shortened with `...` in its row, and shown whole in a title box under the list (3 lines in portrait, 2 in landscape) |
+| D4 | A band whose two texts do not fit one line (hint band, title band) | Two lines: the left text on line 1, the right text on line 2, right-aligned |
+| D5 | The safe margins in portrait | 5 % of each axis, as today: 12 px at the sides, 16 px at the top and the bottom (34 characters) |
+| D6 | The UI over a game with fewer lines or samples than the canvas | The soft placement, `SharpBilinear`, in every orientation, also on a normal screen (section 6.4.1) |
+| D7 | The first setup of a turned cabinet | The menu shows sideways once, until Screen orientation is set, or `orientation` in `neptron.toml` before the first boot. A first-boot screen that asks which way is up (four texts, one upright along each edge, each naming a direction to press; no input for 10 s keeps Normal) is later work: it needs text drawn in four turns and a new screen in the boot path |
+| D8 | The portrait goldens | The 36 scenes of section 9.2, and the automatic fit check on all 78 scenes in both forms |
 
 ## 15. Tests that the design asks for (summary)
 
