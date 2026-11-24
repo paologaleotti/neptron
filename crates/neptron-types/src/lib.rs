@@ -11,6 +11,7 @@ mod event;
 mod gpu;
 mod modeline;
 mod monitor;
+mod orientation;
 mod output;
 mod rotation;
 mod scanline;
@@ -22,6 +23,7 @@ pub use event::{Control, FlipEvent, InputEvent};
 pub use gpu::GpuCaps;
 pub use modeline::Modeline;
 pub use monitor::{CrtRange, MonitorKind, MonitorProfile};
+pub use orientation::{Orientation, PictureSize, Turns};
 pub use output::OutputKind;
 pub use rotation::Rotation;
 pub use scanline::{
