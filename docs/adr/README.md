@@ -20,7 +20,7 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0002](0002-switchres-link-licence.md) | Licence of the link with Switchres | accepted | T05 |
 | [0003](0003-line-rate-tolerance-follows-switchres.md) | The lowest line rate of a range follows Switchres | accepted | T04 |
 | [0004](0004-font-licence.md) | The UI font is Spleen under BSD-2-Clause | accepted | T07 |
-| [0005](0005-ui-destination-in-scene.md) | The scene carries the UI destination rectangle | accepted, amended by 0012, P03 and 0020 | C01 |
+| [0005](0005-ui-destination-in-scene.md) | The scene carries the UI destination rectangle | accepted, amended by 0012, P03, 0020 and 0021 | C01 |
 | [0006](0006-scanlines-in-scene.md) | The scene carries the scanlines of the game picture | accepted | C04 |
 | [0007](0007-bounded-flip-wait-and-blank.md) | The flip wait is bounded, and a display can turn its output off | accepted | C07 |
 | 0008 | Not used | | |
@@ -35,5 +35,5 @@ To write one, copy `0000-template.md` to the next free number. A later change th
 | [0017](0017-community-gamepad-database.md) | The images ship the community gamepad database under the zlib licence | accepted | controller-db |
 | [0018](0018-15khz-kernel-patches-gpl-2-0-only.md) | The PC images carry the 15 kHz kernel patch set under GPL-2.0-only | accepted | M12 |
 | [0019](0019-gpl-frontend-loads-non-commercial-cores.md) | The GPL frontend loads the non-commercial cores in its own process | accepted | M14 |
-| [0020](0020-turned-ui-canvas-in-scene.md) | The scene carries the turn and the filter of the UI canvas | accepted | N01 |
-| [0021](0021-ui-canvas-size-and-portrait-menu.md) | The UI canvas has a size of its own, and a turned screen gets a portrait canvas | proposed | N01 |
+| [0020](0020-turned-ui-canvas-in-scene.md) | The scene carries the turn and the filter of the UI canvas | accepted, amended by 0021 | N01 |
+| [0021](0021-ui-canvas-size-and-portrait-menu.md) | The UI canvas has a size of its own, and a turned screen gets a portrait canvas | accepted | N01 |

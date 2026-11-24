@@ -1,6 +1,6 @@
 # 0005: The scene carries the UI destination rectangle
 
-- Status: accepted. Amended by ADR 0012 and task P03: on a TV profile the UI destination has the largest whole factor across inside 704 samples and the largest whole factor down, centred (`ui_dest` in `crates/neptron-modeline/src/policy/tv.rs`), so a 320x240 canvas is 640x240 in a 720x240 mode. Amended by ADR 0020: `ui_dest` holds the canvas after its turn, and `ui_filter` names its scaling.
+- Status: accepted. Amended by ADR 0012 and task P03: on a TV profile the UI destination has the largest whole factor across inside 704 samples and the largest whole factor down, centred (`ui_dest` in `crates/neptron-modeline/src/policy/tv.rs`), so a 320x240 canvas is 640x240 in a 720x240 mode. Amended by ADR 0020: `ui_dest` holds the canvas after its turn, and `ui_filter` names its scaling. Amended by ADR 0021: `ui_dest` places `T` of the size of the canvas.
 - Date: 2026-11-11
 - Task: C01
 

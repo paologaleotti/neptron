@@ -1,6 +1,6 @@
 # 0020: The scene carries the turn and the filter of the UI canvas
 
-- Status: accepted (Owner, 2026-11-24)
+- Status: accepted (Owner, 2026-11-24). Amended by ADR 0021: a turned screen gets a portrait canvas; `ui_dest_turned` is removed; the filter rule applies at every orientation.
 - Date: 2026-11-24
 - Task: N01
 

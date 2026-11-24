@@ -1,6 +1,6 @@
 # 0021: The UI canvas has a size of its own, and a turned screen gets a portrait canvas
 
-- Status: proposed
+- Status: accepted (Owner, 2026-11-24)
 - Date: 2026-11-24
 - Task: N01
 
@@ -23,22 +23,22 @@ The parts before this change:
 3. The video side decides the form, as it decides `ui_rotation` (ADR 0020). The app gives the form to the UI before the next frame and sends the canvas with its real size.
 4. The menu plans its mode from the raster of `T`, the canvas after its turn. For a portrait canvas turned by 90 or 270 degrees, and for a landscape canvas upright or turned by 180, `T` is 320x240: the menu source `MENU_SOURCE` at `R0`. So the menu has the same mode in every orientation of a CRT, a TV and a landscape panel, through the same policy and validator.
 5. The placement of the policy takes the size of `T` as a parameter in place of `UI_CANVAS`. The rules of ADR 0005 and of the TV (P03) do not change. On a CRT and a TV `T` is always 320x240. On a flat panel `T` can be 240x320 (a panel with a portrait native mode), and the uniform whole scale takes it.
-6. The filter rule of ADR 0020, point 4, applies to every placement of `T`: `Nearest` when each axis scales by 1 or more, `SharpBilinear` when an axis is below 1.
+6. The filter rule of ADR 0020, point 4, applies to every placement of `T`, at every orientation: `Nearest` when each axis scales by 1 or more, `SharpBilinear` when an axis is below 1. ADR 0020 says that every upright canvas of today has both scales at 1 or more; that is not true on a CRT in a game mode of fewer than 240 lines or 320 samples (a 224-line game), where the canvas fills the active area. There the canvas of a screen at 0 changes from nearest, which drops canvas lines, to `SharpBilinear` (`docs/spec/ui-layout.md`, section 6.4.1).
 7. `ui_dest_turned` is removed. The menu choice of TATE package 3 (`TurnedMenuMode`, `menu_plan_source`) is removed. `ui_rotation`, `ui_filter`, `Orientation` and the game turn stay.
 8. The GLES renderer compares canvas rows for its upload only between canvases of the same size; a canvas of a new size goes whole.
-9. The tree reply of the control protocol gets the canvas size as an appended field, in a new protocol version. The screenshot reply already carries its size.
+9. The control protocol goes to version 4 to report the canvas size: the tree reply gets the canvas size as an appended field, which a reply holds only for a request of version 4. The protocol serves versions 1 to 4. The screenshot reply already carries its size.
 
 ## Consequences
 
 - On a turned 15 kHz CRT and a TV the menu is 240p, 1:1, with no flicker and no soft scale: 240 canvas columns on 240 lines. A change of the screen orientation needs no mode change. The questions T3 and T4 of the TATE spec close.
 - On a turned flat panel the menu is 4x on 1080p, against 3x for the turned landscape canvas.
-- The quick menu over a vertical game on a turned screen is 1:1 at the game's 240 lines. Over a game of fewer lines than the canvas it is soft (`SharpBilinear`) in every orientation; at a screen at 0 this changes the picture of today, where nearest drops canvas lines (an owner question, `docs/spec/ui-layout.md` Q6).
+- The quick menu over a vertical game on a turned screen is 1:1 at the game's 240 lines. Over a game of fewer lines than the canvas it is soft (`SharpBilinear`) in every orientation. On a screen at 0 this changes the picture of today, where nearest drops canvas lines: Decision: Owner, 2026-11-24. `docs/spec/ui-layout.md`, section 6.4.1, says what changes, which test expectations change and in which package, so that no one blesses it by accident.
 - `neptron-ui` lays out from a `Metrics` value per form (`docs/spec/ui-layout.md`, section 3). Its 78 landscape goldens stay byte-identical; the portrait form gets its own goldens.
 - The golden `policy_tate.toml` records the menu cases again: the menu at 90 and 270 equals the menu at 0 for each display class. This changes what NEPTRON sends in the menu of a turned screen, by design.
-- `neptron-types` gets the form rule and a `Form` type; `neptron-modeline` loses `ui_dest_turned` and its `UI_CANVAS` constant becomes a parameter; `neptron-video` loses its menu choice; the GLES upload gets a size check; `neptron-ipc` gets a protocol version.
-- Nothing on disk changes. The control protocol grows by one field in a new version (append-only).
+- `neptron-types` gets the form rule and a `Form` type; `neptron-modeline` loses `ui_dest_turned` and its `UI_CANVAS` constant becomes a parameter; `neptron-video` loses its menu choice; the GLES upload gets a size check; `neptron-ipc` goes to protocol version 4.
+- Nothing on disk changes. The control protocol grows by one field in version 4 (append-only).
 - A later form (a high-definition canvas) is a new value of `Form` and a new row of the form rule, with no new change of `Scene`.
-- On acceptance, ADR 0005 gets the Status line "Amended by ADR 0021: `ui_dest` places `T` of the size of the canvas", and ADR 0020 gets "Amended by ADR 0021: a turned screen gets a portrait canvas; `ui_dest_turned` is removed".
+- ADR 0005 gets the Status line "Amended by ADR 0021: `ui_dest` places `T` of the size of the canvas", and ADR 0020 gets "Amended by ADR 0021: a turned screen gets a portrait canvas; `ui_dest_turned` is removed; the filter rule applies at every orientation".
 
 ## Alternatives
 
