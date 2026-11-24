@@ -56,7 +56,8 @@ pub use neptron_modeline::policy::{
     DeclineReason, Declined, Dropped, HorizontalStrategy, Notice, NoticeReason, Offer, Offered,
     PanelScale, PictureChoices, PictureStyle, Placement, PolicyError, PolicySettings, Proposal,
     REFERENCE_SOURCES, RefreshKind, RefreshPolicy, RefreshTarget, Refused, RowAnswer, RowChoice,
-    Rung, ScanlineOutcome, SoftReason, SomeGames, TV_525_PICTURE_LINES, TV_625_PICTURE_LINES,
+    Rung, ScanlineOutcome, SoftReason, SomeGames, TV_525_CONSOLE_WIDTH_SAMPLES,
+    TV_525_PICTURE_LINES, TV_625_CONSOLE_WIDTH_SAMPLES, TV_625_PICTURE_LINES, TV_CONSOLE_LINES_MIN,
     TV_SAFE_WIDTH_SAMPLES, TV_SPEED_SILENT_PPM, Timing, TvWidth, VerticalMode, WholeReason,
     for_every_game,
 };
