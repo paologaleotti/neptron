@@ -6,6 +6,8 @@ Test fakes: a display that records every mode and scene, a fake audio sink, scri
 
 - Any hardware crate, SDL3, or a hardware feature of `neptron-gfx`
 - Threads or sleeps: the simulated clock is the only time source
+- `neptron-modeline`: only `neptron-video` may depend on it. The screen simulator reaches the policy through `neptron-video`.
+- `neptron-ui`: only the app and xtask may depend on it. The screen simulator leaves the text of its labels to xtask.
 
 ## Rules
 
@@ -20,6 +22,7 @@ Test fakes: a display that records every mode and scene, a fake audio sink, scri
 - `ScriptedInput: InputSource`: timed RetroPad events. `press`, `release`, `tap`, `set`, `push`; `delivered`, `pending`.
 - `golden`: `RgbImage`, `encode_ppm`, `decode_ppm`, `difference`, and `Golden`, which compares an image with `tests/golden/<name>.ppm` at the workspace root.
 - `preset`: `monitor_preset(id)` reads `data/monitors/<id>.toml`. `validated_mode` runs `validate` against it. `MODE_240P`, `MODE_288P`, `MODE_480I` and `CAPS_LOW_CLOCK` pass `generic_15`.
+- `screen`: the screen simulator (`docs/spec/screen-simulator.md`). It runs one core frame through `neptron_video::VideoEngine` on a `FakeDisplay` with the settings functions of `neptron-video`, then models the glass and measures the picture. `simulate` runs one `Case`; `survey_rows` runs the survey matrix and flags the rows (`Flag`, `Severity`); `cli::run` is the command line that the example `screen` runs and `cargo xtask screen` starts. It writes PPM and JSON files under `target/screen/`; its goldens are in `tests/golden/screen/`. It depends on `neptron-video`, `neptron-platform` (the GPU table), `neptron-settings` (the schema defaults) and `serde_json`.
 - `frame_hash`: FNV-1a 64 over little-endian 64-bit words, the same on every host.
 
 ## Determinism

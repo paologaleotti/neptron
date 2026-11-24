@@ -15,6 +15,7 @@ mod image;
 mod input;
 pub mod preset;
 mod rng;
+pub mod screen;
 
 pub use audio::{AudioOptions, AudioWrite, FakeAudio, Underrun};
 pub use clock::{ClockError, SimClock};

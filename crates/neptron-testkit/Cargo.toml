@@ -13,6 +13,12 @@ neptron-backend = { path = "../neptron-backend" }
 neptron-gfx = { path = "../neptron-gfx" }
 neptron-safety = { path = "../neptron-safety" }
 neptron-types = { path = "../neptron-types" }
+# The screen simulator: the GPU table, the settings schema and the engine
+# of the app with its settings functions, so a case takes the decision path
+# of the app.
+neptron-platform = { path = "../neptron-platform" }
+neptron-settings = { path = "../neptron-settings" }
+neptron-video = { path = "../neptron-video" }
 # The code standards make each crate own a thiserror enum.
 thiserror.workspace = true
 # Reads the monitor presets in data/monitors.
