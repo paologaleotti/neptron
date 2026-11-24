@@ -228,7 +228,7 @@ fn every_mode_in_the_profile(rig: &mut Rig) {
     }
 }
 
-/// The picture mode Fill, chosen in the Video page of the quick menu while
+/// The picture mode Fit, chosen in the Video page of the quick menu while
 /// the vertical board runs on 15 kHz: the mode changes from interlaced 1:1
 /// to a progressive fit inside the monitor profile, the guard stays
 /// confirmed (the validator alone decides), the game level holds the
@@ -245,11 +245,11 @@ fn on_15_khz_fill_from_the_quick_menu_changes_the_mode_to_a_progressive_fit() {
         let before = rig.display.active_mode().expect("a mode");
         assert!(before.interlace, "{before:?}");
         let switches = rig.display.mode_switches().len();
-        let shown = pick_picture_mode(&mut rig, "Fill");
+        let shown = pick_picture_mode(&mut rig, "Fit");
         assert!(
             shown
                 .iter()
-                .any(|n| n == "Soft picture: Picture mode is set to Fill."),
+                .any(|n| n == "Soft picture: Picture mode is set to Fit."),
             "the notice of the new picture, right after the change: {shown:?}"
         );
         assert_eq!(rig.shell().guard().phase(), Phase::Confirmed);

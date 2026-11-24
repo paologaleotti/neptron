@@ -385,7 +385,7 @@ fn a_failed_restore_is_an_error_and_the_engine_decides_again() {
     // engine takes the picture of Fill, the default where `auto` has none
     // (`decide_shown`), and says so in the notice. It never sets the
     // refused mode again.
-    let step = rig.try_frame(MD_H32).expect("the Fill picture");
+    let step = rig.try_frame(MD_H32).expect("the Fit picture");
     assert_eq!(step.directive, Directive::Modeset);
     let current = rig.engine.current().expect("a mode");
     assert!(

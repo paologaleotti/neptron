@@ -50,9 +50,9 @@ fn reason_text(reason: NoticeReason) -> String {
     match reason {
         NoticeReason::FillFallback {
             asked: PictureStyle::Auto,
-        } => "Fill picture: Auto has no picture for this game here.".to_owned(),
+        } => "Fit picture: Auto has no picture for this game here.".to_owned(),
         NoticeReason::FillFallback { asked } => format!(
-            "Fill picture: {} and Auto have no picture for this game here.",
+            "Fit picture: {} and Auto have no picture for this game here.",
             pages::mode_label(asked)
         ),
         NoticeReason::Soft(SoftReason::TooTall { lines }) => {
@@ -68,7 +68,7 @@ fn reason_text(reason: NoticeReason) -> String {
             "Soft picture: the setting display.vertical is set to fit.".to_owned()
         }
         NoticeReason::Soft(SoftReason::FillMode) => {
-            "Soft picture: Picture mode is set to Fill.".to_owned()
+            "Soft picture: Picture mode is set to Fit.".to_owned()
         }
         NoticeReason::SmallPicture { fill_permille } => format!(
             "Small picture: the game uses {} % of the screen height, to stay sharp.",
@@ -318,7 +318,7 @@ mod tests {
         }
     }
 
-    /// The Fill picture of the fallback names the modes that have no
+    /// The Fit picture of the fallback names the modes that have no
     /// picture: Auto, or the stored mode and Auto. Other modes, such as a
     /// whole multiple, can still have a picture, so the text names no more.
     #[test]
@@ -330,11 +330,11 @@ mod tests {
         };
         assert_eq!(
             picture_text(RefreshKind::Exact, &fallback(PictureStyle::Auto), "").as_deref(),
-            Some("Fill picture: Auto has no picture for this game here.")
+            Some("Fit picture: Auto has no picture for this game here.")
         );
         assert_eq!(
             picture_text(RefreshKind::Exact, &fallback(PictureStyle::Sharp), "").as_deref(),
-            Some("Fill picture: Sharp lines and Auto have no picture for this game here.")
+            Some("Fit picture: Sharp lines and Auto have no picture for this game here.")
         );
     }
 
@@ -366,7 +366,7 @@ mod tests {
             ),
             (
                 SoftReason::FillMode,
-                "Soft picture: Picture mode is set to Fill.",
+                "Soft picture: Picture mode is set to Fit.",
             ),
         ];
         for (soft, text) in cases {

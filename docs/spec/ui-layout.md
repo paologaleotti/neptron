@@ -283,7 +283,7 @@ Decision: Owner, 2026-11-24 (D1): settings rows in portrait are stacked: the lab
   | * Auto                           |
   |  [Sharp lines                   ]|
   |   Game speed                     |
-  |   Fill                           |
+  |   Fit                            |
   |   Native          Not all games  |
   |  ~2x              ~Not available |
   |  ~3x              ~Not available |
@@ -529,7 +529,7 @@ The game keeps its mode. `T` (320x240) goes where the placement of that mode put
 | A vertical game on a turned 15 kHz tube (DoDonPachi, `S = 90`) | 240p at 57.55 Hz, own lines | full active area, 240 lines | 1:1, nearest, sharp. T4 of the TATE spec is settled: no mode change, and nothing is soft |
 | A vertical game of 224 lines (`S = 90`) | 224p | 224 lines | 0.93 on the line axis: `SharpBilinear` (D6) |
 | A horizontal game on a turned 15 kHz tube, Picture mode Auto (`S = 90`) | interlaced, for example 510x448i | full active area, 448 lines | The portrait menu at full size over the small upright game (decision 3). 240 canvas columns on 448 lines, nearest: some columns get 2 lines and some 1, as the landscape canvas over a vertical game at `S = 0` today. Each field has 224 lines, so each canvas column shows in at least one field |
-| The same with Picture mode Fill | 240p | 240 lines | 1:1 |
+| The same with Picture mode Fit | 240p | 240 lines | 1:1 |
 | A turned 31 kHz tube | 480p, 2x | full active area | 2 lines per canvas column |
 | A TV | 240p, 288p, 480i | whole factors, centred | as the menu |
 | A turned flat panel | native | the whole scale of the menu | 4x on 1080p |
@@ -651,7 +651,7 @@ The crawler of `apps/neptron/tests/app/crawler.rs` runs once per display class t
 - **A form change at run time** lays out every screen of the stack again. A bug there shows a screen in the wrong form for one frame or loses a cursor. Mitigation: the test of 6.6 for each screen kind.
 - **The fit check can be noisy.** Intended overlaps (a focus bar, a dialog rim, a text in a framed band) must not count. The rule of covered texts handles the known cases; a new intended overlap needs a rule, not an exemption list.
 - **Texts made at run time** (formatted values, reasons with numbers, names from devices and files) are only as long as the fixtures. The scenes use the longest real values; a name without a bound uses rule 3.
-- **The quick menu over an interlaced game** (a horizontal game across a turned 15 kHz tube in Auto) puts 240 canvas columns on 448 lines with nearest: uneven column widths, as the landscape canvas over a vertical game at `S = 0` today. It is readable, not perfect. Picture mode Fill gives 240p and 1:1.
+- **The quick menu over an interlaced game** (a horizontal game across a turned 15 kHz tube in Auto) puts 240 canvas columns on 448 lines with nearest: uneven column widths, as the landscape canvas over a vertical game at `S = 0` today. It is readable, not perfect. Picture mode Fit gives 240p and 1:1.
 - **A 224-line game** gets a soft quick menu (D6), in both forms. Today at `S = 0` nearest drops 16 canvas rows there. This changes a picture of a normal screen (section 6.4.1).
 - **Package order with N01.** Package 3 is in work with the interim code. Packages L1 and L2 touch only `neptron-ui` and can run beside TATE packages 3 to 5. L4 must come after package 3.
 - **Hardware.** The claim of 6.3 is exact in emulation; the look of a 240p portrait menu on a turned tube is a hardware check (`docs/hardware-checklist.md`, needs-hardware).

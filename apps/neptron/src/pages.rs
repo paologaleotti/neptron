@@ -281,7 +281,7 @@ pub fn mode_label(style: PictureStyle) -> &'static str {
         PictureStyle::X4 => "4x",
         PictureStyle::Sharp => "Sharp lines",
         PictureStyle::Speed => "Game speed",
-        PictureStyle::Fit => "Fill",
+        PictureStyle::Fit => "Fit",
     }
 }
 
@@ -302,7 +302,7 @@ pub fn mode_help(style: PictureStyle) -> &'static str {
         }
         PictureStyle::Speed => "The game's own speed first. The picture can be soft.",
         PictureStyle::Fit => {
-            "The largest picture with no flicker where the screen allows it. The picture can be soft."
+            "The whole picture, as large as the screen allows. The picture can be soft."
         }
     }
 }
@@ -2137,9 +2137,9 @@ mod tests {
     fn a_mode_name_keeps_its_capital_after_a_colon() {
         assert_eq!(lower_first("Native fills more"), "Native fills more");
         assert_eq!(lower_first("Game speed is set"), "Game speed is set");
-        assert_eq!(lower_first("Fill. Then"), "Fill. Then");
+        assert_eq!(lower_first("Fit. Then"), "Fit. Then");
         assert_eq!(lower_first("This monitor"), "this monitor");
-        assert_eq!(lower_first("Fillers"), "fillers");
+        assert_eq!(lower_first("Fitting"), "fitting");
         assert_eq!(lower_first("2x fills more"), "2x fills more");
         assert_eq!(lower_first(""), "");
         assert_eq!(
@@ -2346,7 +2346,7 @@ mod tests {
                     "Auto",
                     "Sharp lines",
                     "Game speed",
-                    "Fill",
+                    "Fit",
                     "Native",
                     "2x",
                     "3x",

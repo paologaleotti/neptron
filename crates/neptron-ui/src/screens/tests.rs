@@ -502,7 +502,7 @@ fn a_picture_style_applies_only_from_its_option_list() {
             ("Auto", None),
             ("Sharp lines", None),
             ("Game speed", None),
-            ("Fill", None),
+            ("Fit", None),
             ("Native", None),
             ("2x", tag),
             ("3x", tag),

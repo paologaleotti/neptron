@@ -20,7 +20,7 @@ The owner decided on 2026-11-19 (OP-107) and on 2026-11-24. They bind this spec:
 - A vertical arcade board drives a monitor that is mounted on its side. Its video signal is a normal horizontal raster: DoDonPachi sends 320x240 at 57.55 Hz at 15 kHz, as a horizontal Cave board does. The picture is upright only because the tube is turned.
 - FinalBurn Neo gives the frame as the board draws it, on its side, and asks for the turn with `SET_ROTATION` (`docs/spec/arcade.md`, sections 8.2 and 11). DoDonPachi: a 320x240 frame and `R90`. A flipped board asks for `R180` (horizontal) or `R270` (vertical). NEPTRON pins `fbneo-vertical-mode = "disabled"`, so the core never turns a frame itself. The core reports the aspect of the upright picture (3:4 for DoDonPachi). The session inverts it for `R90` and `R270`, so `SourceGeometry::aspect_milli` is always the aspect of the frame as drawn (ADR 0015, point 8). No trace of a vertical set exists yet; this is the reading of the core source that the arcade spec records. The test core covers `R90`, `R180` and `R270`.
 - `Scene::rotation` (ADR 0015) turns the cropped game picture before it is scaled into `dest`. It is the turn relative to the scan-out of the display. Both renderers draw all four values. The UI canvas is never turned.
-- The policy (`take_source` in `crates/neptron-modeline/src/policy/source.rs`) swaps the axes of a source turned by 90 or 270 degrees, so the long side becomes lines. Every rule of the policy, the picture modes, the refresh rate, the Fill fallback, the speed alert, the notices and the scanline rule then work on that raster. `convert.rs` gives Switchres its "rotated" flag from the same field.
+- The policy (`take_source` in `crates/neptron-modeline/src/policy/source.rs`) swaps the axes of a source turned by 90 or 270 degrees, so the long side becomes lines. Every rule of the policy, the picture modes, the refresh rate, the Fit fallback, the speed alert, the notices and the scanline rule then work on that raster. `convert.rs` gives Switchres its "rotated" flag from the same field.
 - The engine (`crates/neptron-video/src/scene.rs`) takes the turn of the scene from the same `SourceGeometry` that the policy planned with (ADR 0015, point 9).
 - The menu is the 320x240 canvas. The app plans its mode with the same policy, as the source `MENU_SOURCE` (320x240, 60 Hz, 4:3, `R0`, `apps/neptron/src/shell.rs`). The canvas goes into `Scene::ui_dest`: the full active area on a CRT, whole factors on a TV, one whole scale centred on a flat panel (ADR 0005). The renderers scale it with nearest.
 - The font is Spleen 6x12. Every screen of `neptron-ui` is laid out for 320x240 (about 9,300 lines of screens and 78 screen goldens).
@@ -69,7 +69,7 @@ A frame turned by `G'` is upright on a screen at 0. The display adds its own tur
 `G'` and `R` follow from the rule of section 3. The size rule:
 
 - **Own lines, full screen.** The policy sees the frame as drawn, the same raster as a horizontal game of that size. It gets every rule of a horizontal source: DoDonPachi on a turned 15 kHz tube is 240p at 57.55 Hz, every pixel exact.
-- **Across, upright and small.** The policy sees the swapped raster, and the rules of a turned source hold (`docs/spec/arcade.md`, section 11): exact lines with borders, interlaced 1:1 on a 15 kHz CRT and on a TV, the fit only with Picture mode Fill. This is how a vertical game shows on a screen at 0 today.
+- **Across, upright and small.** The policy sees the swapped raster, and the rules of a turned source hold (`docs/spec/arcade.md`, section 11): exact lines with borders, interlaced 1:1 on a 15 kHz CRT and on a TV, the fit only with Picture mode Fit. This is how a vertical game shows on a screen at 0 today.
 
 The last column is how the player sees the picture. It depends only on `G'` against the true orientation of the game: with Auto, or with the override equal to the truth, the picture is always upright. So a horizontal game on a turned screen is always shown across, upright and small, unless the user sets an override that does not match the game.
 
@@ -139,7 +139,7 @@ Examples, all with no change to the policy:
 | DoDonPachi, 320x240, `R90`, 57.55 Hz | 0 | 320x240, `R90`: 240 wide, 320 lines | Interlaced 1:1, 448i, 71 %, as today |
 | DoDonPachi | 90 | 320x240, `R0`: 240 lines | 240p at 57.55 Hz, 1:1, full screen, no flicker |
 | DoDonPachi | 270 | 320x240, `R180`: 240 lines | The same mode; the picture is turned by 180 |
-| Street Fighter II, 384x224, `R0`, 59.63 Hz | 90 | 384x224, `R270`: 224 wide, 384 lines | Across: interlaced 1:1, 384 of 448 lines; Fill gives the 240p fit |
+| Street Fighter II, 384x224, `R0`, 59.63 Hz | 90 | 384x224, `R270`: 224 wide, 384 lines | Across: interlaced 1:1, 384 of 448 lines; Fit gives the 240p fit |
 | `MENU_SOURCE`, 320x240, `R0`, 60 Hz | 90 | Not a display source: the menu plans the raster of the turned portrait canvas, 320x240 at `R0` (section 6.3) | 240p at 60 Hz, the menu mode of a screen at 0 |
 
 The validator and the hard rails see the real raster of the display in every case. TATE changes no safety rule.
@@ -175,7 +175,7 @@ These are the numbers of the turned 320x240 canvas, option (a). Package 3 builds
 | Display class | Mode of the turned menu | Display pixels per canvas pixel | Width of the menu (player) | Glyph on the face | Today at `S = 0` |
 | --- | --- | --- | --- | --- | --- |
 | 15 kHz CRT (`generic_15`) | Interlaced 1:1, 448i or 480i at 60 Hz | 1 line across; about 1 sample along, the mode width keeps the shape | 67 % to 71 % | 0.16 x 0.32 in (20-inch), interlaced | 240p, full face; glyph 0.30 x 0.60 in |
-| 15 kHz CRT, Picture mode Fill | 240p fit | 0.75 line across, soft | 100 % | 0.23 x 0.45 in, soft, no flicker | as above |
+| 15 kHz CRT, Picture mode Fit | 240p fit | 0.75 line across, soft | 100 % | 0.23 x 0.45 in, soft, no flicker | as above |
 | 31 kHz CRT (`arcade_31`) | 320 lines 1:1 in about 500 lines, progressive | 1 line across | 62 % to 64 % | 0.12 x 0.23 in (17-inch), no flicker | 480p 2x, full; glyph 0.24 x 0.48 in |
 | Multi-sync CRT from 40 kHz | 2x, 640 lines | 2 lines across | full | as the 31 kHz menu today | 2x or more |
 | Flat panel 1080p, turned | 1920x1080 native | 3x3 (720x960 in scan-out) | 89 % | 18 x 36 panel pixels | 4x, 24 x 48 |
@@ -251,7 +251,7 @@ The screensaver draws in the canvas, so it bounces in the turned frame: the wall
 ### 7.4 Notices
 
 - **A horizontal game on a turned screen** (the owner's notice). When `S` is 90 or 270 and the game is across with the override at Auto (or at the game's own orientation), the app adds one sentence to the picture notice of the quick menu (`apps/neptron/src/shell/picture.rs`), which shows at the first picture of each start of the game: "Horizontal game on a turned screen: it shows upright, at a smaller size." Decision: Owner, 2026-11-24 (T7): one sentence in the picture notice at each start, as the other picture notices. No new `NoticeReason`: the policy does not know the screen orientation, and the app does.
-- **The one-time notice of an interlaced picture across the lines** (`VERTICAL_INTERLACED` in `apps/neptron/src/notices.rs`). It fires when a picture across the lines gets the interlaced rung on a 15 kHz CRT or a TV. Its last sentence changes, because TATE now exists: "Settings > Display > Screen orientation turns the menus and the games for a screen on its side." A second id, `horizontal_interlaced`, has its own text for a horizontal game across a turned screen: "This is a horizontal game on a turned screen. It shows interlaced, with every pixel exact. Picture mode Fill, in Settings > Display or in Video in the quick menu, shows it as a soft picture with no flicker." Both are one-time notices in `state/config/notices.toml`. The ids only grow.
+- **The one-time notice of an interlaced picture across the lines** (`VERTICAL_INTERLACED` in `apps/neptron/src/notices.rs`). It fires when a picture across the lines gets the interlaced rung on a 15 kHz CRT or a TV. Its last sentence changes, because TATE now exists: "Settings > Display > Screen orientation turns the menus and the games for a screen on its side." A second id, `horizontal_interlaced`, has its own text for a horizontal game across a turned screen: "This is a horizontal game on a turned screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker." Both are one-time notices in `state/config/notices.toml`. The ids only grow.
 
 ### 7.5 The boot, the guard and the first setup
 
@@ -323,7 +323,7 @@ Decision: Owner, 2026-11-24 (T6): the Screen orientation row is disabled during 
 | `180` | Turn over | The picture turns upside down. |
 | `270` | Turn right | The picture turns 90 degrees to the right. |
 
-The row is not judged by `offer`: every value has a picture, because the policy gives a picture for every source shape (or the Fill fallback). The keep prompt of the quick menu does not offer a move to the system or the global level, because the key has the game level only.
+The row is not judged by `offer`: every value has a picture, because the policy gives a picture for every source shape (or the Fit fallback). The keep prompt of the quick menu does not offer a move to the system or the global level, because the key has the game level only.
 
 ### 9.3 The picture mode pair
 

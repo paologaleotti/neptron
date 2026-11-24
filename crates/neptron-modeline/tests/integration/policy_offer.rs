@@ -649,7 +649,7 @@ fn choices_hold(
 type Cell = (String, &'static str, u32, &'static str);
 
 /// The result of a run: the counts by result, the cells with no picture at
-/// all, and the cells where `auto` takes the Fill picture.
+/// all, and the cells where `auto` takes the Fit picture.
 struct Run {
     counts: BTreeMap<&'static str, usize>,
     no_picture: BTreeSet<Cell>,

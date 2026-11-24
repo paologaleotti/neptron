@@ -584,7 +584,7 @@ fn expected_settings_15_khz() -> Judged {
             "Picture mode: Auto",
             "Picture mode: Sharp lines",
             "Picture mode: Game speed",
-            "Picture mode: Fill",
+            "Picture mode: Fit",
             "Refresh rate: Auto",
             "Refresh rate: 50 Hz",
             "Refresh rate: 60 Hz",
@@ -608,7 +608,7 @@ fn expected_settings_pi_dpi() -> Judged {
         plain: names(&[
             "Picture mode: Auto",
             "Picture mode: Game speed",
-            "Picture mode: Fill",
+            "Picture mode: Fit",
             "Refresh rate: Auto",
         ]),
         not_for_every_game: names(&[
@@ -635,7 +635,7 @@ fn expected_settings_panel() -> Judged {
         plain: names(&[
             "Picture mode: Auto",
             "Picture mode: Sharp lines",
-            "Picture mode: Fill",
+            "Picture mode: Fit",
             "Picture mode: Native",
             "Picture mode: 2x",
         ]),
@@ -657,7 +657,7 @@ fn expected_settings_tv() -> Judged {
         plain: names(&[
             "Picture mode: Auto",
             "Picture mode: Sharp lines",
-            "Picture mode: Fill",
+            "Picture mode: Fit",
         ]),
         not_for_every_game: names(&["Picture mode: Native"]),
         resets: Vec::new(),
@@ -741,7 +741,7 @@ fn expected_15_khz() -> Walked {
             "Picture mode: Auto",
             "Picture mode: Sharp lines",
             "Picture mode: Game speed",
-            "Picture mode: Fill",
+            "Picture mode: Fit",
             "Picture mode: Native",
             "Refresh rate: Auto",
             "Refresh rate: 50 Hz",
@@ -769,7 +769,7 @@ fn expected_panel() -> Walked {
             "Picture mode: Auto",
             "Picture mode: Sharp lines",
             "Picture mode: Game speed",
-            "Picture mode: Fill",
+            "Picture mode: Fit",
             "Picture mode: Native",
             "Picture mode: 2x",
             "Picture mode: 3x",
@@ -786,7 +786,7 @@ fn expected_tv() -> Walked {
         chosen: names(&[
             "Picture mode: Auto",
             "Picture mode: Sharp lines",
-            "Picture mode: Fill",
+            "Picture mode: Fit",
             "Picture mode: Native",
         ]),
         greyed: names(&[

@@ -72,7 +72,7 @@ pub struct StatusInputs<'a> {
     /// TV.
     pub tv_standard: Option<TvStandard>,
     /// The picture mode of the settings when neither it nor Auto has a
-    /// picture, so the picture is the Fill picture (the notice of the
+    /// picture, so the picture is the Fit picture (the notice of the
     /// winner says so too). `None` otherwise.
     pub fill_fallback: Option<PictureStyle>,
 }
@@ -227,8 +227,8 @@ fn write_result(inputs: &StatusInputs<'_>, out: &mut String) -> bool {
     }
     if let Some(asked) = inputs.fill_fallback {
         push_word(out, |s| match asked {
-            PictureStyle::Auto => s.write_str("fill: auto has no picture"),
-            other => write!(s, "fill: {} and auto have no picture", other.key()),
+            PictureStyle::Auto => s.write_str("fit: auto has no picture"),
+            other => write!(s, "fit: {} and auto have no picture", other.key()),
         });
     }
     if speed_changed {
@@ -742,15 +742,15 @@ mod tests {
         assert!(alert);
     }
 
-    /// The Fill picture of the fallback says in the status what the notice
+    /// The Fit picture of the fallback says in the status what the notice
     /// says: which modes have no picture here.
     #[test]
     fn the_fill_fallback_names_the_modes_with_no_picture() {
         let (mut p, _) = winner();
         p.timing.target.kind = RefreshKind::Exact;
         for (asked, words) in [
-            (PictureStyle::Auto, "fill: auto has no picture"),
-            (PictureStyle::Sharp, "fill: sharp and auto have no picture"),
+            (PictureStyle::Auto, "fit: auto has no picture"),
+            (PictureStyle::Sharp, "fit: sharp and auto have no picture"),
         ] {
             let inputs = StatusInputs {
                 source: &SNES,

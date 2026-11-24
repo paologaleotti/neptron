@@ -20,8 +20,8 @@ pub const PICTURE_MODE_TEXTS: [(&str, &str); 8] = [
         "The game's own speed first. The picture can be soft.",
     ),
     (
-        "Fill",
-        "The largest picture with no flicker where the screen allows it. The picture can be soft.",
+        "Fit",
+        "The whole picture, as large as the screen allows. The picture can be soft.",
     ),
     (
         "Native",
@@ -156,7 +156,7 @@ pub fn quick_dos_modes() -> Vec<ChoiceOption> {
             let option = ChoiceOption::new(label).with_help(help);
             match label {
                 "Auto" | "Sharp lines" => option.with_detail("15.72 kHz  64.285 Hz"),
-                "Fill" => option.with_detail("15.67 kHz  65.000 Hz"),
+                "Fit" => option.with_detail("15.67 kHz  65.000 Hz"),
                 "Game speed" => option
                     .with_detail("15.67 kHz  65.000 Hz")
                     .unavailable(texts::SPEED_NOT_HELD),

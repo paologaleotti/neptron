@@ -522,7 +522,7 @@ The policy returns the reason for every result that is not exact as data: `Notic
 | `Soft(SoftReason::NoInterlace { lines })` | The game needs an interlaced mode, and neither the profile nor the GPU offers one | "Soft picture: the game needs {lines} lines, and this monitor profile has no interlaced mode." |
 | `Soft(SoftReason::NoRate)` | No exact mode at any rate the display covers | "Soft picture: no sharp mode at this game's rate." |
 | `Soft(SoftReason::Chosen)` | `display.vertical = fit` | "Soft picture: the setting display.vertical is set to fit." |
-| `Soft(SoftReason::FillMode)` | The picture mode `fit` | "Soft picture: Picture mode is set to Fill." |
+| `Soft(SoftReason::FillMode)` | The picture mode `fit` | "Soft picture: Picture mode is set to Fit." |
 | `SmallPicture { fill_permille }` | Below 60 % of the screen height | "Small picture: the game uses {fill} % of the screen height, to stay sharp." |
 | `SpeedChange { game_mhz, shown_mhz }` | The game runs at another rate | "The game runs at {shown} Hz, not {game} Hz: {percent} % speed." |
 | `DoubleRefresh { field_mhz }` | Each frame shows twice | "Each frame shows twice at {shown} Hz. The game speed does not change." |
@@ -551,7 +551,7 @@ Since the picture mode (`docs/spec/video-policy-cases.md`, section 8), this key 
 | Label | Vertical games |
 | Choices, in menu order | `exact` (default): every pixel exact, with the largest picture that a whole scale gives; on 15 kHz and on a TV interlaced, with flicker. `fit`: the picture fills the height of the screen with its shape kept, scaled, soft; on 15 kHz and on a TV progressive, with no flicker |
 | Levels | game, system, global (`Levels::ALL`) |
-| Where the row shows | No row: `display.vertical` is an expert key of the settings file. The picture mode covers it (`PICTURE_MODE_COVERS`): a pick of a picture mode at a level removes it at that level, and Fill gives the fit of a turned game. A value that a file still holds acts, and the notice names it |
+| Where the row shows | No row: `display.vertical` is an expert key of the settings file. The picture mode covers it (`PICTURE_MODE_COVERS`): a pick of a picture mode at a level removes it at that level, and Fit gives the fit of a turned game. A value that a file still holds acts, and the notice names it |
 | Applies to | Every display: a CRT, a TV and a flat panel |
 | Effect | Only for a turned source (`R90`, `R270`). `exact` is rule R1 to R8. `fit` drops every exact rung below the fill threshold for that source (a `Dropped` reason, `VerticalFit`), so the fit wins where the exact picture is small: on 15 kHz and on a TV the progressive fit (240p or 288p, sharp bilinear); on 31 kHz only the fit into about 500 lines; on a panel the fractional scale. Where an exact mode fills at least the threshold (a multi-sync tube, a panel at 3x and above), `fit` changes nothing |
 | Safety | `Validated`, as the picture mode |
@@ -565,7 +565,7 @@ Since the picture mode (`docs/spec/video-policy-cases.md`, section 8), this key 
 
 The first time a vertical game gets the interlaced rung on a 15 kHz CRT or a TV with `display.vertical = exact`, the frontend shows this notice once (`VERTICAL_INTERLACED_TEXT` in `apps/neptron/src/notices.rs`):
 
-> This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fill, in Settings > Display or in Video in the quick menu, shows it as a soft picture with no flicker. A screen turned on its side (TATE) comes in a later version.
+> This is a vertical game on a horizontal screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker. A screen turned on its side (TATE) comes in a later version.
 
 The frontend keeps the notices already shown in `state/config/notices.toml` (open point A4). The writer thread of `apps/neptron/src/outbox.rs`, which does every file write of the frame loop, writes it as temp file, fsync, rename; the frame thread only sends the job. The menu process reads the file at boot with the settings. A deleted file shows the notice again and loses nothing.
 
