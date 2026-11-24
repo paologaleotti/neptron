@@ -50,6 +50,11 @@ use crate::{Image, OutputBuffer, RectKind};
 /// with an exact integer offset and sign per axis and a swap of the two
 /// axes, before its texture read. The texture is not turned.
 ///
+/// The UI canvas takes the same path with its own turn and filter
+/// (`scene.ui_rotation` and `scene.ui_filter`) and the whole canvas as the
+/// crop, so a turned canvas also costs no extra pass, and a canvas below a
+/// scale of 1 with sharp bilinear uses the blend programs of the game.
+///
 /// Scanlines follow the same split. The pattern of dark lines comes from
 /// the reference code and reaches the shader as a uniform. On a nearest
 /// pixel the shader darkens with exact integer steps, so it equals the
@@ -96,6 +101,8 @@ use crate::{Image, OutputBuffer, RectKind};
 /// rows of the canvas from the first to the last that differ from the
 /// canvas the texture holds, and a canvas with no change sends nothing
 /// ([`ui_rows_uploaded`](Self::ui_rows_uploaded) counts the rows sent).
+/// The texture holds the canvas upright, whatever its turn, so the rows
+/// are canvas rows: a turn or a change of the turn sends nothing.
 /// The game frame goes whole in every call.
 ///
 /// # Byte order
@@ -315,7 +322,7 @@ impl GlesRenderer {
                     h: u32::from(frame.height),
                 };
                 let (rects, kind) = ((whole, scene.ui_dest), RectKind::UiDest);
-                let look = (Rotation::R0, Filter::Nearest);
+                let look = (scene.ui_rotation, scene.ui_filter);
                 draw_of(frame, rects, look, None, kind, size)?
             }
             None => None,

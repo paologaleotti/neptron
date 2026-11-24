@@ -404,6 +404,82 @@ mod tests {
         );
     }
 
+    /// The quad of the whole 320x240 UI canvas turned by `rotation` into
+    /// `dest`, with sharp bilinear, on a 720x480 output.
+    fn canvas_quad(rotation: Rotation, dest: Rect) -> Result<Option<Quad>, GlesError> {
+        let canvas = Frame {
+            data: &[],
+            width: 320,
+            height: 240,
+            pitch: 1280,
+            format: PixelFormat::Xrgb8888,
+        };
+        let whole = rect(0, 0, 320, 240);
+        let kind = RectKind::UiDest;
+        let filter = Filter::SharpBilinear;
+        quad(
+            &canvas,
+            (whole, dest),
+            rotation,
+            filter,
+            None,
+            kind,
+            (720, 480),
+        )
+    }
+
+    #[test]
+    fn a_turned_canvas_on_240_lines_blends_only_its_lines() {
+        let q = canvas_quad(Rotation::R90, rect(240, 0, 240, 240))
+            .unwrap()
+            .unwrap();
+        assert_eq!(q.visible, [240.0, 0.0, 240.0, 240.0]);
+        assert_eq!(q.crop, [0.0, 0.0, 240.0, 320.0]);
+        assert_eq!(q.bounds, [0.0, 0.0, 239.0, 319.0]);
+        assert_eq!(q.turn, [0.0, 1.0, 319.0, -1.0]);
+        assert_eq!(q.swap, [1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(q.axis, [1.0 / 480.0, 1.0 / 480.0, 1.0, 1.0]);
+        assert_eq!(
+            q.variant,
+            Variant {
+                blend_x: false,
+                blend_y: true
+            }
+        );
+        assert_eq!(q.scan, [0.0; 4], "the canvas has no scanlines");
+    }
+
+    #[test]
+    fn a_turned_canvas_at_a_whole_scale_blends_nothing() {
+        for rotation in [Rotation::R90, Rotation::R270] {
+            let q = canvas_quad(rotation, rect(0, 0, 480, 640))
+                .unwrap()
+                .unwrap();
+            assert_eq!(q.variant, Variant::ALL[0], "{rotation:?}");
+            assert_eq!(q.axis[2..], [2.0, 2.0], "{rotation:?}");
+        }
+        let q = canvas_quad(Rotation::R180, rect(0, 0, 640, 480))
+            .unwrap()
+            .unwrap();
+        assert_eq!(q.turn, [319.0, -1.0, 239.0, -1.0]);
+        assert_eq!(q.variant, Variant::ALL[0]);
+    }
+
+    /// The axis product limit holds on the axes of the turned canvas.
+    #[test]
+    fn the_axis_product_limit_names_the_ui_destination() {
+        assert_eq!(
+            canvas_quad(Rotation::R90, rect(0, 0, 240, 30_000)),
+            Err(GlesError::ScaleTooLarge {
+                rect: RectKind::UiDest,
+                source_len: 320,
+                dest_len: 30_000,
+                limit: MAX_AXIS_PRODUCT
+            })
+        );
+        assert!(canvas_quad(Rotation::R0, rect(0, 0, 240, 30_000)).is_ok());
+    }
+
     /// Only sharp bilinear at a scale that is not whole blends an axis.
     #[test]
     fn the_axes_that_blend_pick_the_program() {

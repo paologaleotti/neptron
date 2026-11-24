@@ -2,10 +2,9 @@
 //! GLES renderer and with the reference renderer, and compares the bytes.
 //!
 //! It needs EGL with the Mesa surfaceless platform, so it runs in the QEMU
-//! guest: `cargo xtask gles-compare`. A game pixel drawn with nearest
-//! scaling and every UI pixel must be equal. A game pixel drawn with sharp
-//! bilinear may differ by 1 per channel. The exit code is the number of
-//! failed checks.
+//! guest: `cargo xtask gles-compare`. A pixel drawn with nearest scaling
+//! must be equal. A game pixel or a UI pixel drawn with sharp bilinear may
+//! differ by 1 per channel. The exit code is the number of failed checks.
 
 #![forbid(unsafe_code)]
 
@@ -27,7 +26,7 @@ use scenes::{Case, Source, rect};
 /// them.
 const OUTPUT_PADDING_BYTES: usize = 12;
 const PADDING: u8 = 0xAA;
-/// The largest channel difference of a sharp bilinear game pixel.
+/// The largest channel difference of a sharp bilinear pixel.
 const SHARP_TOLERANCE: u8 = 1;
 /// The side of the pbuffer of the window checks: every scene up to 1080p.
 const WINDOW_SIDE: u32 = 1920;
@@ -51,6 +50,7 @@ fn main() -> ExitCode {
         .into_iter()
         .chain(extra_cases())
         .chain(turned_cases())
+        .chain(turned_ui_cases())
         .collect();
     for case in &cases {
         count += 1;
@@ -90,9 +90,11 @@ fn main() -> ExitCode {
     if !second_renderer(&mut gles, &mut reference, &cases[..2]) {
         failed = failed.saturating_add(1);
     }
-    count += 1;
-    if !ui_uploads(&mut reference) {
-        failed = failed.saturating_add(1);
+    for turn in [None, Some(Rotation::R90)] {
+        count += 1;
+        if !ui_uploads(&mut reference, turn) {
+            failed = failed.saturating_add(1);
+        }
     }
     count += 1;
     if !game_under_the_ui(&mut reference) {
@@ -137,9 +139,17 @@ fn second_renderer(
 
 /// A UI canvas over a game on the composite 240p output, drawn in turn as
 /// it changes: each step must equal the reference, and send to the GPU
-/// only the rows from the first to the last that changed. Prints one line
-/// per step. True when every step holds.
-fn ui_uploads(reference: &mut ReferenceRenderer) -> bool {
+/// only the rows from the first to the last that changed. With `turn`, the
+/// canvas is turned by it onto the 240 lines with sharp bilinear, as on a
+/// turned screen, and the rows are still canvas rows; a last step draws the
+/// same canvas with no turn and must send no row. Prints one line per step.
+/// True when every step holds.
+fn ui_uploads(reference: &mut ReferenceRenderer, turn: Option<Rotation>) -> bool {
+    let name = if turn.is_some() {
+        "ui_uploads_turned"
+    } else {
+        "ui_uploads"
+    };
     // The canvas, with the pixels of `rows` changed by `change`.
     let canvas = |rows: std::ops::Range<u16>, change: u32| {
         Source::from_fn(320, 240, PixelFormat::Xrgb8888, move |x, y| {
@@ -151,16 +161,21 @@ fn ui_uploads(reference: &mut ReferenceRenderer) -> bool {
             }
         })
     };
-    let case = |ui: Source| {
-        Case::game(
-            "ui_uploads",
+    let case = |ui: Source, turn: Option<Rotation>| {
+        let base = Case::game(
+            name,
             Source::pattern(256, 224, PixelFormat::Rgb565),
             rect(0, 0, 256, 224),
             rect(8, 8, 704, 224),
             Filter::SharpBilinear,
             (720, 240),
-        )
-        .with_ui(ui, rect(40, 0, 640, 240))
+        );
+        match turn {
+            None => base.with_ui(ui, rect(40, 0, 640, 240)),
+            Some(t) => base
+                .with_ui(ui, rect(240, 0, 240, 240))
+                .with_ui_turned(t, Filter::SharpBilinear),
+        }
     };
     // Rows 20 and 200 of `ui` changed: the band 20 to 200 goes.
     let two_rows = |mut ui: Source| {
@@ -197,23 +212,35 @@ fn ui_uploads(reference: &mut ReferenceRenderer) -> bool {
             181,
         ),
     ];
+    let mut steps: Vec<_> = steps
+        .into_iter()
+        .map(|(w, ui, r)| (w, ui, r, turn))
+        .collect();
+    if turn.is_some() {
+        steps.push((
+            "the same canvas with no turn sends no row",
+            padding(canvas(0..0, 0)),
+            0,
+            None,
+        ));
+    }
     // A new renderer, so that no canvas of the other checks is held.
     let mut gles = match GlesRenderer::headless() {
         Ok(r) => r,
         Err(e) => {
-            println!("FAIL ui_uploads: a new renderer: {e}");
+            println!("FAIL {name}: a new renderer: {e}");
             return false;
         }
     };
     let gles = &mut gles;
     let mut ok = true;
-    for (what, ui, rows) in steps {
+    for (what, ui, rows, turn) in steps {
         let before = gles.ui_rows_uploaded();
-        let same = compare(gles, reference, &case(ui));
+        let same = compare(gles, reference, &case(ui, turn));
         let sent = gles.ui_rows_uploaded() - before;
         let step = same && sent == rows;
         println!(
-            "{} ui_uploads: {what}: {sent} rows sent, {rows} expected",
+            "{} {name}: {what}: {sent} rows sent, {rows} expected",
             if step { "ok  " } else { "FAIL" }
         );
         ok &= step;
@@ -237,6 +264,16 @@ fn ui_in_a_corner() -> Case {
         Source::pattern(8, 6, PixelFormat::Xrgb8888),
         rect(40, 30, 24, 18),
     )
+}
+
+/// The UI of `ui_in_a_corner`, turned by `R90`: the 8x6 canvas is 6x8,
+/// to 24x18 at 4x and 2.25x. The game shows in the same two parts.
+fn ui_turned_in_a_corner() -> Case {
+    Case {
+        name: "ui_turned_in_a_corner",
+        ..ui_in_a_corner()
+    }
+    .with_ui_turned(Rotation::R90, Filter::Nearest)
 }
 
 /// A UI at lines 40 to 199 of a 300-line output, over a game at lines 0 to
@@ -290,6 +327,7 @@ fn game_under_the_ui(reference: &mut ReferenceRenderer) -> bool {
         (no_ui, 1, 1),
         (ui_in_a_corner(), 1, 2),
         (ui_in_the_middle_rows(), 1, 4),
+        (ui_turned_in_a_corner(), 1, 2),
     ];
     let mut offscreen = match GlesRenderer::headless() {
         Ok(r) => r,
@@ -463,7 +501,7 @@ struct Diff {
     pixels: usize,
     /// Largest channel difference of a pixel that must be equal.
     exact_max: u8,
-    /// Largest channel difference of a sharp bilinear game pixel.
+    /// Largest channel difference of a sharp bilinear pixel.
     sharp_max: u8,
     /// Bytes outside the pixels (row padding, X bytes) that are wrong.
     bad_bytes: usize,
@@ -490,7 +528,7 @@ impl Diff {
                     let px = |s: &[u8]| [s[0], s[1], s[2], s[3]];
                     d.first = Some((x, y, px(e), px(a)));
                 }
-                if is_sharp_game_pixel(case, x, y) {
+                if is_sharp_pixel(case, x, y) {
                     d.sharp_max = d.sharp_max.max(diff);
                 } else {
                     d.exact_max = d.exact_max.max(diff);
@@ -532,19 +570,20 @@ impl std::fmt::Display for Diff {
     }
 }
 
-/// True when output pixel `(x, y)` shows the game with sharp bilinear: the
-/// filter is sharp bilinear, and the pixel is inside `dest` and not under
-/// the UI.
-fn is_sharp_game_pixel(case: &Case, x: u32, y: u32) -> bool {
+/// True when output pixel `(x, y)` is drawn with sharp bilinear: a UI
+/// pixel when the UI filter is sharp bilinear, or a game pixel, not under
+/// the UI, when the game filter is.
+fn is_sharp_pixel(case: &Case, x: u32, y: u32) -> bool {
     let inside = |r: Rect| {
         let (x, y) = (i64::from(x), i64::from(y));
         let (rx, ry) = (i64::from(r.x), i64::from(r.y));
         x >= rx && y >= ry && x < rx + i64::from(r.w) && y < ry + i64::from(r.h)
     };
-    case.filter == Filter::SharpBilinear
-        && case.game.is_some()
-        && inside(case.dest)
-        && !(case.ui.is_some() && inside(case.ui_dest))
+    let under_ui = case.ui.is_some() && inside(case.ui_dest);
+    if under_ui {
+        return case.ui_filter == Filter::SharpBilinear;
+    }
+    case.filter == Filter::SharpBilinear && case.game.is_some() && inside(case.dest)
 }
 
 /// Scenes beyond the goldens: every value of each pixel format, both
@@ -1007,6 +1046,143 @@ fn turned_cases() -> Vec<Case> {
     cases
 }
 
+/// Scenes with the UI canvas turned: each turn at a whole scale with
+/// nearest over an upright game, at a scale of 0.75 with sharp bilinear
+/// over a game turned by `R270`, and clipped at the edges of the output
+/// with each filter; then the 320x240 canvas on the 240 lines of a turned
+/// 15 kHz screen over a game, and at 3x on a turned 1080p panel.
+fn turned_ui_cases() -> Vec<Case> {
+    use Filter::{Nearest, SharpBilinear};
+    use PixelFormat::{Rgb565, Xrgb1555, Xrgb8888};
+    let pattern = Source::pattern;
+    let mut cases = Vec::new();
+    for (rotation, names) in [
+        (
+            Rotation::R90,
+            [
+                "ui_r90_nearest_2x_over_a_game",
+                "ui_r90_sharp_bilinear_0_75_over_a_turned_game",
+                "ui_r90_nearest_clipped",
+                "ui_r90_sharp_bilinear_clipped",
+            ],
+        ),
+        (
+            Rotation::R180,
+            [
+                "ui_r180_nearest_2x_over_a_game",
+                "ui_r180_sharp_bilinear_0_75_over_a_turned_game",
+                "ui_r180_nearest_clipped",
+                "ui_r180_sharp_bilinear_clipped",
+            ],
+        ),
+        (
+            Rotation::R270,
+            [
+                "ui_r270_nearest_2x_over_a_game",
+                "ui_r270_sharp_bilinear_0_75_over_a_turned_game",
+                "ui_r270_nearest_clipped",
+                "ui_r270_sharp_bilinear_clipped",
+            ],
+        ),
+    ] {
+        let quarter = rotation != Rotation::R180;
+        // The turned 40x30 canvas: 30x40 for a quarter turn.
+        let (tw, th) = if quarter { (30, 40) } else { (40, 30) };
+        cases.push(
+            Case::game(
+                names[0],
+                pattern(40, 30, Xrgb8888),
+                rect(0, 0, 40, 30),
+                rect(0, 0, 80, 60),
+                Nearest,
+                (100, 100),
+            )
+            .with_ui(pattern(40, 30, Xrgb1555), rect(20, 10, 2 * tw, 2 * th))
+            .with_ui_turned(rotation, Nearest),
+        );
+        // The turned 320x240 canvas: 240x320 for a quarter turn, to 0.75.
+        let (cw, ch) = if quarter { (180, 240) } else { (240, 180) };
+        cases.push(
+            Case::game(
+                names[1],
+                pattern(40, 30, Rgb565),
+                rect(0, 0, 40, 30),
+                rect(0, 0, 75, 100),
+                SharpBilinear,
+                (240, 240),
+            )
+            .turned(Rotation::R270)
+            .with_ui(pattern(320, 240, Xrgb8888), rect(30, 0, cw, ch))
+            .with_ui_turned(rotation, SharpBilinear),
+        );
+        // 3x: the left and the bottom edges cut the canvas.
+        cases.push(
+            Case {
+                game: None,
+                ..Case::game(
+                    names[2],
+                    pattern(1, 1, Xrgb8888),
+                    rect(0, 0, 0, 0),
+                    rect(0, 0, 0, 0),
+                    Nearest,
+                    (60, 60),
+                )
+            }
+            .with_ui(pattern(16, 12, Rgb565), {
+                let (w, h) = if quarter { (36, 48) } else { (48, 36) };
+                rect(-5, 60 - 20, w, h)
+            })
+            .with_ui_turned(rotation, Nearest),
+        );
+        // 0.8 on each axis: the top and the right edges cut the canvas.
+        cases.push(
+            Case::game(
+                names[3],
+                pattern(16, 12, Xrgb1555),
+                rect(0, 0, 16, 12),
+                rect(0, 0, 60, 45),
+                SharpBilinear,
+                (60, 60),
+            )
+            .with_ui(pattern(40, 30, Xrgb8888), {
+                let (w, h) = if quarter { (24, 32) } else { (32, 24) };
+                rect(60 - 13, -9, w, h)
+            })
+            .with_ui_turned(rotation, SharpBilinear),
+        );
+    }
+    // A turned 15 kHz screen at 240 lines: the quick menu over a game. The
+    // 320 canvas columns go to 240 lines; the 240 canvas lines stay 1:1.
+    cases.push(
+        Case::game(
+            "ui_r90_320x240_on_240_lines_over_a_game",
+            pattern(320, 240, Rgb565),
+            rect(0, 0, 320, 240),
+            rect(0, 0, 720, 240),
+            SharpBilinear,
+            (720, 240),
+        )
+        .with_ui(pattern(320, 240, Xrgb8888), rect(240, 0, 240, 240))
+        .with_ui_turned(Rotation::R90, SharpBilinear),
+    );
+    // A panel turned right: the canvas at 3x, 720x960, over a vertical
+    // game at its own lines.
+    cases.push(
+        Case::game(
+            "ui_r270_320x240_3x_on_1080p_over_a_vertical_game",
+            pattern(320, 240, Xrgb1555),
+            rect(0, 0, 320, 240),
+            rect(0, 0, 1920, 1080),
+            SharpBilinear,
+            (1920, 1080),
+        )
+        .turned(Rotation::R180)
+        .with_ui(pattern(320, 240, Xrgb8888), rect(600, 60, 720, 960))
+        .with_ui_turned(Rotation::R270, Nearest),
+    );
+    cases
+}
+
 /// An image with no pixel bytes and the given size and pitch.
 fn empty(width: u16, height: u16, pitch: usize, format: PixelFormat) -> Source {
     Source {
@@ -1111,8 +1287,10 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
             strength_percent: 101,
             limit: 100,
         }));
+    let ui_turned_scale_ok = ui_turned_scale(gles, &mut out);
     let mut untouched = data.iter().all(|&b| b == PADDING);
     let texture_ok = texture_limit(gles, &mut untouched);
+    let ui_texture_ok = ui_texture_limit(gles, &mut untouched);
     let output_ok = output_limit(gles, &mut untouched);
     vec![
         (
@@ -1129,8 +1307,16 @@ fn error_checks(gles: &mut GlesRenderer) -> Vec<(&'static str, bool)> {
             strength_ok,
         ),
         (
+            "the axis product limit applies to the axes of the turned canvas",
+            ui_turned_scale_ok,
+        ),
+        (
             "a row above GL_MAX_TEXTURE_SIZE pixels is refused",
             texture_ok,
+        ),
+        (
+            "a turned canvas with a row above GL_MAX_TEXTURE_SIZE pixels is refused",
+            ui_texture_ok,
         ),
         ("an output above the GL limits is refused", output_ok),
         ("a refused scene leaves the output unchanged", untouched),
@@ -1171,6 +1357,88 @@ fn texture_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
     result
         == Err(GlesError::TextureTooLarge {
             image: Image::Game,
+            width: u64::from(width),
+            height: 1,
+            limit,
+        })
+}
+
+/// A canvas of 4x2048 into a UI destination 4097 wide. Upright, both
+/// axis products are below the limit. Turned by `R90`, the 2048 canvas
+/// lines are the columns of the turned canvas, to 4097. True when the
+/// upright scene draws and the turned one is refused with `ScaleTooLarge`
+/// for the UI destination.
+fn ui_turned_scale(gles: &mut GlesRenderer, out: &mut OutputBuffer<'_>) -> bool {
+    let canvas = Source::pattern(4, 2048, PixelFormat::Xrgb8888);
+    let upright = Scene {
+        game: None,
+        crop: rect(0, 0, 0, 0),
+        dest: rect(0, 0, 0, 0),
+        filter: Filter::Nearest,
+        scanlines: Scanlines::NONE,
+        ui: Some(canvas.frame()),
+        ui_dest: rect(0, 0, 4097, 6),
+        rotation: Rotation::R0,
+        ui_rotation: Rotation::R0,
+        ui_filter: Filter::Nearest,
+    };
+    let upright_ok = gles.render(&upright, out).is_ok();
+    out.data.fill(PADDING);
+    let turned = gles.render(
+        &Scene {
+            ui_rotation: Rotation::R90,
+            ..upright
+        },
+        out,
+    );
+    let untouched = out.data.iter().all(|&b| b == PADDING);
+    upright_ok
+        && untouched
+        && turned
+            == Err(GlesError::ScaleTooLarge {
+                rect: RectKind::UiDest,
+                source_len: 2048,
+                dest_len: 4097,
+                limit: neptron_gfx::gles::MAX_AXIS_PRODUCT,
+            })
+}
+
+/// A canvas one pixel wider than the texture limit, turned by `R90` so
+/// that its long side is one column of the output. The texture holds the
+/// canvas upright, so the limit applies to the canvas as it is. True when
+/// the renderer refuses it with `TextureTooLarge` for the UI. Clears
+/// `untouched` when the output changes.
+fn ui_texture_limit(gles: &mut GlesRenderer, untouched: &mut bool) -> bool {
+    let limit = gles.max_texture_side();
+    let Ok(width) = u16::try_from(limit + 1) else {
+        println!("FAIL GL_MAX_TEXTURE_SIZE {limit} is too large for a canvas wider than it");
+        return false;
+    };
+    let canvas = Source::from_fn(width, 1, PixelFormat::Xrgb8888, |_, _| 0);
+    let scene = Scene {
+        game: None,
+        crop: rect(0, 0, 0, 0),
+        dest: rect(0, 0, 0, 0),
+        filter: Filter::Nearest,
+        scanlines: Scanlines::NONE,
+        ui: Some(canvas.frame()),
+        ui_dest: rect(0, 0, 1, 6),
+        rotation: Rotation::R0,
+        ui_rotation: Rotation::R90,
+        ui_filter: Filter::SharpBilinear,
+    };
+    let mut data = vec![PADDING; 8 * 6 * 4];
+    let mut out = OutputBuffer {
+        data: &mut data,
+        width: 8,
+        height: 6,
+        pitch: 32,
+    };
+    let result = gles.render(&scene, &mut out);
+    *untouched &= data.iter().all(|&b| b == PADDING);
+    result
+        == Err(GlesError::TextureTooLarge {
+            image: Image::Ui,
             width: u64::from(width),
             height: 1,
             limit,
