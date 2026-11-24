@@ -269,14 +269,14 @@ mod tests {
     #[test]
     fn the_landscape_metrics_equal_the_fixed_constants() {
         use crate::canvas::{UI_HEIGHT, UI_WIDTH};
-        use crate::theme::{SAFE_AREA, SAFE_MARGIN_X_PX, SAFE_MARGIN_Y_PX};
+        use crate::theme::SAFE_AREA;
         use crate::widgets::DIALOG_WIDTH_PX;
         let m = Metrics::of(Form::Landscape, &Theme::default());
         assert_eq!(m.canvas.width(), UI_WIDTH);
         assert_eq!(m.canvas.height(), UI_HEIGHT);
         assert_eq!(m.safe, SAFE_AREA);
-        assert_eq!(m.safe.x, SAFE_MARGIN_X_PX as i32);
-        assert_eq!(m.safe.y, SAFE_MARGIN_Y_PX as i32);
+        assert_eq!(m.safe.x, (UI_WIDTH / 20) as i32);
+        assert_eq!(m.safe.y, (UI_HEIGHT / 20) as i32);
         assert_eq!(m.dialog.w, DIALOG_WIDTH_PX);
         assert_eq!(
             m.dialog.x,

@@ -3,11 +3,16 @@
 
 use crate::font;
 use crate::geom::{Color, Rect};
+use crate::metrics::{Form, Size};
 
-/// Width of the logical UI canvas in pixels.
-pub const UI_WIDTH: u32 = 320;
-/// Height of the logical UI canvas in pixels.
-pub const UI_HEIGHT: u32 = 240;
+/// Width of the landscape canvas in pixels. Only callers outside the crate
+/// read it; package L4 removes it, when the app sends the canvas with its
+/// own size.
+pub const UI_WIDTH: u32 = Form::Landscape.size().width();
+/// Height of the landscape canvas in pixels. Only callers outside the crate
+/// read it; package L4 removes it, when the app sends the canvas with its
+/// own size.
+pub const UI_HEIGHT: u32 = Form::Landscape.size().height();
 /// Bytes per pixel of the XRGB8888 buffer.
 pub const BYTES_PER_PIXEL: usize = 4;
 
@@ -77,6 +82,7 @@ pub const MISSING_SPRITE_SIZE_PX: u32 = 8;
 /// The buffer is made once in [`CpuCanvas::new`]. Drawing never allocates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CpuCanvas {
+    size: Size,
     width: u32,
     height: u32,
     bytes: Vec<u8>,
@@ -116,16 +122,28 @@ impl Sprite {
 }
 
 impl CpuCanvas {
-    /// A black canvas of [`UI_WIDTH`] by [`UI_HEIGHT`] pixels.
+    /// A black canvas of the landscape size, 320x240 pixels.
     pub fn new() -> Self {
-        let len = UI_WIDTH as usize * UI_HEIGHT as usize * BYTES_PER_PIXEL;
+        Self::with_size(Form::Landscape.size())
+    }
+
+    /// A black canvas of `size`.
+    pub fn with_size(size: Size) -> Self {
+        let (width, height) = (size.width(), size.height());
+        let len = width as usize * height as usize * BYTES_PER_PIXEL;
         Self {
-            width: UI_WIDTH,
-            height: UI_HEIGHT,
+            size,
+            width,
+            height,
             bytes: vec![0; len],
-            clip: full(UI_WIDTH, UI_HEIGHT),
+            clip: full(width, height),
             sprites: Vec::new(),
         }
+    }
+
+    /// The size of the canvas.
+    pub fn size(&self) -> Size {
+        self.size
     }
 
     /// Stores a sprite and returns its number.
@@ -319,8 +337,8 @@ mod tests {
     const RED: Color = Color::rgb(0xFF, 0, 0);
 
     fn count(canvas: &CpuCanvas, color: Color) -> usize {
-        (0..UI_HEIGHT)
-            .flat_map(|y| (0..UI_WIDTH).map(move |x| (x, y)))
+        (0..canvas.height())
+            .flat_map(|y| (0..canvas.width()).map(move |x| (x, y)))
             .filter(|&(x, y)| canvas.pixel(x, y) == Some(color))
             .count()
     }
@@ -331,6 +349,18 @@ mod tests {
         assert_eq!(canvas.as_bytes().len(), 320 * 240 * 4);
         assert_eq!(canvas.pitch(), 1280);
         assert_eq!(count(&canvas, Color::BLACK), 320 * 240);
+    }
+
+    #[test]
+    fn a_portrait_canvas_is_240_by_320() {
+        let canvas = CpuCanvas::with_size(Form::Portrait.size());
+        assert_eq!((canvas.width(), canvas.height()), (240, 320));
+        assert_eq!(canvas.size(), Form::Portrait.size());
+        assert_eq!(canvas.pitch(), 960);
+        assert_eq!(count(&canvas, Color::BLACK), 240 * 320);
+        assert_eq!(canvas.pixel(239, 319), Some(Color::BLACK));
+        assert_eq!(canvas.pixel(240, 0), None);
+        assert_eq!(CpuCanvas::new().size(), Form::Landscape.size());
     }
 
     #[test]
@@ -356,8 +386,8 @@ mod tests {
         let mut canvas = CpuCanvas::new();
         canvas.clear(Color::WHITE);
         canvas.fill_rect(Rect::new(3, 5, 7, 4), RED);
-        for y in 0..UI_HEIGHT {
-            for x in 0..UI_WIDTH {
+        for y in 0..canvas.height() {
+            for x in 0..canvas.width() {
                 let inside = (3..10).contains(&x) && (5..9).contains(&y);
                 let expected = if inside { RED } else { Color::WHITE };
                 assert_eq!(canvas.pixel(x, y), Some(expected), "({x}, {y})");

@@ -1,6 +1,7 @@
 //! A canvas that draws a scene again only when the scene changed.
 
 use crate::canvas::CpuCanvas;
+use crate::metrics::Size;
 use crate::scene::UiScene;
 
 /// A [`CpuCanvas`] and the scene it shows.
@@ -19,9 +20,17 @@ pub struct SceneCanvas {
 }
 
 impl SceneCanvas {
-    /// A black canvas that shows no scene yet.
+    /// A black landscape canvas that shows no scene yet.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A black canvas of `size` that shows no scene yet.
+    pub fn with_size(size: Size) -> Self {
+        Self {
+            canvas: CpuCanvas::with_size(size),
+            ..Self::default()
+        }
     }
 
     /// Draws `scene` when it differs from the scene on the canvas, or when
@@ -52,13 +61,13 @@ impl SceneCanvas {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::canvas::{UI_HEIGHT, UI_WIDTH};
     use crate::geom::{Color, Rect};
+    use crate::metrics::Form;
 
     /// A scene that covers the whole canvas, as every screen does.
     fn scene(color: Color) -> UiScene {
         let mut scene = UiScene::new();
-        scene.rect(Rect::new(0, 0, UI_WIDTH, UI_HEIGHT), Color::BLACK);
+        scene.rect(Form::Landscape.size().rect(), Color::BLACK);
         scene.rect(Rect::new(0, 0, 10, 10), color);
         scene.text_run(20, 20, Color::WHITE, "Keep");
         scene
@@ -68,6 +77,17 @@ mod tests {
         let mut canvas = CpuCanvas::new();
         scene.render(&mut canvas);
         canvas
+    }
+
+    #[test]
+    fn a_canvas_has_the_size_it_was_made_with() {
+        for form in [Form::Landscape, Form::Portrait] {
+            let mut canvas = SceneCanvas::with_size(form.size());
+            assert!(canvas.paint(&scene(Color::WHITE)));
+            assert_eq!(canvas.canvas().size(), form.size());
+            assert_eq!(canvas.canvas().pixel(0, 0), Some(Color::WHITE));
+        }
+        assert_eq!(SceneCanvas::new().canvas().size(), Form::Landscape.size());
     }
 
     #[test]

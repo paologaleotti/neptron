@@ -2,23 +2,14 @@
 //! [`Theme::new`], which refuses sizes outside the limits; the built-in
 //! values are [`Theme::default`].
 
-use crate::canvas::{UI_HEIGHT, UI_WIDTH};
 use crate::font;
 use crate::geom::{Color, Rect};
+use crate::metrics::Form;
 
-/// Horizontal overscan margin: 5% of the canvas width, in pixels.
-pub const SAFE_MARGIN_X_PX: u32 = UI_WIDTH / 20;
-/// Vertical overscan margin: 5% of the canvas height, in pixels.
-pub const SAFE_MARGIN_Y_PX: u32 = UI_HEIGHT / 20;
-
-/// The area that every screen keeps its content in, so that a CRT that
-/// overscans shows all of it.
-pub const SAFE_AREA: Rect = Rect::new(
-    SAFE_MARGIN_X_PX as i32,
-    SAFE_MARGIN_Y_PX as i32,
-    UI_WIDTH - 2 * SAFE_MARGIN_X_PX,
-    UI_HEIGHT - 2 * SAFE_MARGIN_Y_PX,
-);
+/// The safe area of the landscape canvas. The layout reads the safe area
+/// from `Metrics`; only the crawler of the app reads this constant, and
+/// package L5 removes it when the crawler runs in both forms.
+pub const SAFE_AREA: Rect = Form::Landscape.safe_area();
 
 /// The smallest row height: one glyph box, so text is never cut.
 pub const ROW_HEIGHT_MIN_PX: u32 = font::GLYPH_HEIGHT;
@@ -167,6 +158,7 @@ mod tests {
     #[test]
     fn safe_area_is_five_percent_in() {
         assert_eq!(SAFE_AREA, Rect::new(16, 12, 288, 216));
+        assert_eq!(Form::Portrait.safe_area(), Rect::new(12, 16, 216, 288));
     }
 
     #[test]
