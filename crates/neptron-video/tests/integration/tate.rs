@@ -13,8 +13,9 @@ use neptron_testkit::SceneSummary;
 use neptron_types::{
     Filter, Frame, Modeline, MonitorKind, Orientation, PixelFormat, Rect, Rotation, SourceGeometry,
 };
-use neptron_video::{Content, Directive, Monitor, PolicySettings, TURNED_MENU_MODE};
+use neptron_video::{Content, Directive, Monitor, Outcome, PolicySettings, TURNED_MENU_MODE};
 
+use crate::faults::refuse_all;
 use crate::guard_rig::{FRAME_NS, GuardRig, crt_15, crt_31};
 use crate::harness::{Rig, SNES, frame, generic_15};
 use crate::panel::{mode, panel};
@@ -340,6 +341,43 @@ fn a_change_of_the_override_is_a_new_source() {
         Rotation::R270
     );
     assert!(rig.current_mode().interlace, "across the lines of the tube");
+}
+
+/// A turn whose new display source has no winner keeps the mode and the
+/// game's old turn, while the canvas takes the new turn at once. The
+/// trace holds the kept display source with its rotation.
+#[test]
+fn a_kept_source_after_a_turn_keeps_the_old_game_turn_and_the_trace_names_it() {
+    let mut rig = Rig::new(generic_15(), PolicySettings::default());
+    rig.frame(DDONPACH);
+    let mode = rig.current_mode();
+    rig.engine.set_veto(Box::new(
+        move |m: &Modeline| {
+            if *m == mode { Ok(()) } else { refuse_all(m) }
+        },
+    ));
+    rig.frame(DDONPACH);
+    rig.engine.set_orientation(at(Rotation::R90, None));
+    for _ in 0..4 {
+        assert_eq!(frame_with_ui(&mut rig, DDONPACH), Directive::Kept);
+    }
+    assert_eq!(rig.current_mode(), mode);
+    let scene = last_scene(&rig);
+    assert_eq!(scene.rotation, Rotation::R90, "the old turn of the game");
+    assert_eq!(
+        scene.ui_rotation,
+        Rotation::R270,
+        "the new turn of the canvas"
+    );
+    let record = rig.engine.trace().last().unwrap();
+    assert!(matches!(record.outcome, Outcome::Kept(_)), "{record:?}");
+    assert_eq!(
+        record.source,
+        SourceGeometry {
+            rotation: Rotation::R0,
+            ..DDONPACH
+        }
+    );
 }
 
 /// The engine says when a horizontal game stands across a turned screen,

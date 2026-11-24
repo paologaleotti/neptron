@@ -266,6 +266,14 @@ impl Odren {
     /// The next scene turns the UI canvas, and the picture answers are
     /// made again for the new display sources. The validator judges every
     /// mode as before: the orientation changes no limit of the monitor.
+    ///
+    /// The game picture takes its turn from the source on screen, and the
+    /// canvas from this orientation. So when the new display source has no
+    /// winner, or its `set_mode` failed and it is blocked
+    /// ([`Directive::Kept`]), the game keeps the old turn under a canvas
+    /// with the new one, until the source changes. The trace records that
+    /// display source with its rotation: in the record of the decision with
+    /// no winner, or in the record of the failed modeset.
     pub fn set_orientation(&mut self, orientation: Orientation) {
         if orientation != self.orientation {
             self.orientation = orientation;

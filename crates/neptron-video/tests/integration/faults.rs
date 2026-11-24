@@ -13,7 +13,7 @@ use neptron_video::{
 
 use crate::harness::{MD_H32, MD_H40, Rig, SNES, frame, generic_15, mode_for, native_width};
 
-fn refuse_all(mode: &Modeline) -> Result<(), Rejection> {
+pub fn refuse_all(mode: &Modeline) -> Result<(), Rejection> {
     Err(Rejection::NotAPanelMode {
         mode: *mode,
         panel_modes: 0,
