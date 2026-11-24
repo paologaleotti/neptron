@@ -45,6 +45,9 @@ pub use trace::{
     Outcome, READ_BACK_RATE_NOTICE_MHZ, SwitchRecord, SwitchTrace, TRACE_CAPACITY, Trigger,
 };
 
+/// The shape of a screen face, which the solver settings and the scene
+/// inputs carry.
+pub use neptron_modeline::Aspect;
 /// The policy types that the engine's callers name. Only this crate may
 /// depend on `neptron-modeline`.
 pub use neptron_modeline::policy::{

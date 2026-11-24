@@ -1,7 +1,7 @@
 use neptron_backend::DisplayError;
 use neptron_modeline::policy::{PolicySettings, Proposal, Switch, panel_scanlines, switch_for};
 use neptron_safety::{Rejection, ValidatedMode, validate};
-use neptron_types::{FlipEvent, Frame, GpuCaps, Modeline, Scene, SourceGeometry};
+use neptron_types::{FlipEvent, Frame, GpuCaps, Modeline, Rotation, Scene, SourceGeometry};
 
 use crate::answers::{AnswerCache, AnswerRequest};
 use crate::cache::Cache;
@@ -258,6 +258,8 @@ impl Odren {
             monitor: &self.inputs.monitor.profile().kind,
             mode: &current.read_back,
             scanlines: self.scanlines,
+            ui_turn: Rotation::R0,
+            face: self.inputs.settings.solver.monitor_aspect,
         };
         Some(build_scene(&inputs, game, ui))
     }
@@ -278,6 +280,8 @@ impl Odren {
             monitor: &self.inputs.monitor.profile().kind,
             mode: &proposal.mode,
             scanlines: self.scanlines,
+            ui_turn: Rotation::R0,
+            face: self.inputs.settings.solver.monitor_aspect,
         };
         build_scene(&inputs, game, ui)
     }
@@ -959,7 +963,6 @@ impl Odren {
 #[cfg(test)]
 mod tests {
     use neptron_testkit::preset::{CAPS_LOW_CLOCK, monitor_preset};
-    use neptron_types::Rotation;
 
     use super::*;
 
