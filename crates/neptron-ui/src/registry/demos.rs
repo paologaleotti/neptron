@@ -1,13 +1,13 @@
 //! Scenes that show each widget template and the font with fixture data.
 
-use crate::canvas::{UI_HEIGHT, UI_WIDTH};
 use crate::frame::UiFrame;
 use crate::geom::Rect;
+use crate::metrics::{Form, Metrics};
 use crate::snapshot::{
     ActionId, ChoiceOption, Level, MenuItem, PageId, Scopes, SettingKey, SettingValue,
 };
 use crate::text::{self, Align};
-use crate::theme::{SAFE_AREA, Theme};
+use crate::theme::Theme;
 use crate::tree::{TreeRow, WidgetKind};
 use crate::widgets::{
     Dialog, DialogContent, DialogTone, Grid, GridCell, List, ListItem, SettingsList, Slider,
@@ -71,23 +71,27 @@ const GAMES: &[(&str, Option<&str>)] = &[
     ("Tundra Rally", Some("1996")),
 ];
 
-fn content() -> Rect {
-    let top = SAFE_AREA.y + HEADER_HEIGHT_PX as i32;
-    Rect::new(
-        SAFE_AREA.x,
-        top,
-        SAFE_AREA.w,
-        SAFE_AREA.h - HEADER_HEIGHT_PX,
-    )
+/// The metrics the widget scenes lay out with.
+fn landscape(theme: &Theme) -> Metrics {
+    Metrics::of(Form::Landscape, theme)
 }
 
-fn header(frame: &mut UiFrame, theme: &Theme, screen: &'static str, title: &str) {
+fn content(metrics: &Metrics) -> Rect {
+    let safe = metrics.safe;
+    let top = safe.y + HEADER_HEIGHT_PX as i32;
+    Rect::new(safe.x, top, safe.w, safe.h - HEADER_HEIGHT_PX)
+}
+
+/// Draws the background and the title of a widget scene, and returns the
+/// metrics of the scene.
+fn header(frame: &mut UiFrame, theme: &Theme, screen: &'static str, title: &str) -> Metrics {
+    let metrics = landscape(theme);
+    let safe = metrics.safe;
     frame.tree.set_screen(screen);
-    frame.scene.rect(
-        Rect::new(0, 0, UI_WIDTH, UI_HEIGHT),
-        theme.colors.background,
-    );
-    let title_box = Rect::new(SAFE_AREA.x, SAFE_AREA.y, SAFE_AREA.w, theme.row_height_px());
+    frame
+        .scene
+        .rect(metrics.canvas.rect(), theme.colors.background);
+    let title_box = Rect::new(safe.x, safe.y, safe.w, theme.row_height_px());
     let clipped = text::draw_in(
         &mut frame.scene,
         title_box,
@@ -95,12 +99,7 @@ fn header(frame: &mut UiFrame, theme: &Theme, screen: &'static str, title: &str)
         theme.colors.accent,
         title,
     );
-    let line = Rect::new(
-        SAFE_AREA.x,
-        SAFE_AREA.y + theme.row_height_px() as i32 + 1,
-        SAFE_AREA.w,
-        1,
-    );
+    let line = Rect::new(safe.x, safe.y + theme.row_height_px() as i32 + 1, safe.w, 1);
     frame.scene.rect(line, theme.colors.border);
     frame.tree.push(TreeRow {
         widget: WidgetKind::Label,
@@ -112,11 +111,12 @@ fn header(frame: &mut UiFrame, theme: &Theme, screen: &'static str, title: &str)
         focused: false,
         clipped,
     });
+    metrics
 }
 
 fn list(frame: &mut UiFrame, theme: &Theme) {
-    header(frame, theme, "widgets/list", "Game list");
-    let mut list = List::new(content(), theme.row_height_px());
+    let metrics = header(frame, theme, "widgets/list", "Game list");
+    let mut list = List::new(content(&metrics), theme.row_height_px());
     list.select(4, GAMES.len());
     list.draw(frame, theme, GAMES.len(), |i| {
         let (label, detail) = GAMES[i % GAMES.len()];
@@ -165,7 +165,7 @@ fn number(value: i64, min: i64, max: i64, unit: &str) -> SettingValue {
 }
 
 fn settings_list(frame: &mut UiFrame, theme: &Theme) {
-    header(frame, theme, "widgets/settings-list", "Display");
+    let metrics = header(frame, theme, "widgets/settings-list", "Display");
     let items = [
         setting(
             1,
@@ -206,24 +206,24 @@ fn settings_list(frame: &mut UiFrame, theme: &Theme) {
         ),
         setting(8, "Advanced", SettingValue::Page(PageId(1)), Level::Default),
     ];
-    let mut list = SettingsList::new(content(), theme.row_height_px());
+    let mut list = SettingsList::new(content(&metrics), theme.row_height_px());
     list.select(3, items.len());
     list.draw(frame, theme, &items);
 }
 
 fn dialog(frame: &mut UiFrame, theme: &Theme) {
-    header(frame, theme, "widgets/dialog", "Display");
+    let metrics = header(frame, theme, "widgets/dialog", "Display");
     let content = DialogContent {
         title: "Keep this video mode?",
         message: "320x240 at 59.92 Hz on VGA-1.\nThe old mode comes back in 10 seconds.",
         buttons: &["Keep", "Revert"],
         tone: DialogTone::Normal,
     };
-    Dialog::new(1).draw(frame, theme, &content);
+    Dialog::new(1).draw(frame, theme, &metrics, &content);
 }
 
 fn grid(frame: &mut UiFrame, theme: &Theme) {
-    header(frame, theme, "widgets/grid", "Home");
+    let metrics = header(frame, theme, "widgets/grid", "Home");
     let cells = [
         "NES",
         "SNES",
@@ -233,7 +233,7 @@ fn grid(frame: &mut UiFrame, theme: &Theme) {
         "Settings",
         "Display",
     ];
-    let mut grid = Grid::new(content(), 3, 66);
+    let mut grid = Grid::new(content(&metrics), 3, 66);
     grid.select(1, cells.len());
     grid.draw(frame, theme, cells.len(), |i| GridCell {
         label: cells[i % cells.len()],
@@ -242,8 +242,8 @@ fn grid(frame: &mut UiFrame, theme: &Theme) {
 }
 
 fn slider(frame: &mut UiFrame, theme: &Theme) {
-    header(frame, theme, "widgets/slider", "Audio");
-    let area = content();
+    let metrics = header(frame, theme, "widgets/slider", "Audio");
+    let area = content(&metrics);
     let sliders = [
         ("Volume", 70, 0, 100, "%"),
         ("Audio latency", 64, 16, 128, "ms"),
@@ -264,8 +264,8 @@ fn slider(frame: &mut UiFrame, theme: &Theme) {
 }
 
 fn font(frame: &mut UiFrame, theme: &Theme) {
-    header(frame, theme, "font/ascii", "Font");
-    let area = content();
+    let metrics = header(frame, theme, "font/ascii", "Font");
+    let area = content(&metrics);
     let lines = [
         " !\"#$%&'()*+,-./0123456789:;<=>?",
         "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_",

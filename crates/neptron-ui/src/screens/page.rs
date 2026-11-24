@@ -224,7 +224,7 @@ impl Page {
                 buttons: &[],
                 tone: DialogTone::Normal,
             };
-            draw_dialog(&asking.dialog, &content, &[], theme, frame);
+            draw_dialog(&asking.dialog, &content, &[], theme, metrics, frame);
             chrome::hints(frame, theme, metrics, "", "");
             return;
         }
@@ -235,7 +235,7 @@ impl Page {
             buttons: &["Cancel", &row.label],
             tone: DialogTone::Normal,
         };
-        draw_dialog(&asking.dialog, &content, &[], theme, frame);
+        draw_dialog(&asking.dialog, &content, &[], theme, metrics, frame);
         chrome::hints(frame, theme, metrics, "Accept: choose", "Back: cancel");
     }
 

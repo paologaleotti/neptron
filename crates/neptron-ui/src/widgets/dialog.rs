@@ -2,16 +2,13 @@ use crate::font;
 use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
+use crate::metrics::{DIALOG_BORDER_PX as BORDER_PX, Metrics};
 use crate::text::{self, Align};
-use crate::theme::{SAFE_AREA, Theme};
+use crate::theme::Theme;
 use crate::tree::{TreeRow, WidgetKind};
 
 use super::{add, framed, to_u32};
 
-/// Width of a dialog in pixels.
-pub const DIALOG_WIDTH_PX: u32 = 224;
-
-const BORDER_PX: u32 = 1;
 const BUTTON_GAP_PX: u32 = 8;
 const BUTTON_MIN_WIDTH_PX: u32 = 48;
 
@@ -57,7 +54,7 @@ pub enum DialogEvent {
     Cancelled,
 }
 
-/// A box in the middle of the safe area with a title, a message and a row
+/// A box in the middle of the dialog column of the metrics with a title, a message and a row
 /// of buttons. Left and right move between the buttons.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Dialog {
@@ -92,11 +89,13 @@ impl Dialog {
         DialogEvent::Moved
     }
 
-    /// The area the dialog covers for this content.
-    pub fn layout(content: &DialogContent<'_>, theme: &Theme) -> Rect {
+    /// The area the dialog covers for this content, in the dialog column
+    /// of `metrics`.
+    pub fn layout(content: &DialogContent<'_>, theme: &Theme, metrics: &Metrics) -> Rect {
+        let column = metrics.dialog;
         let row = theme.row_height_px();
-        let lines =
-            to_u32(text::wrap(content.message, message_width(theme)).count()).min(max_lines(theme));
+        let lines = to_u32(text::wrap(content.message, message_width(column, theme)).count())
+            .min(max_lines(column, theme));
         // A dialog with no buttons, such as a box that says what happens
         // now, ends below its text.
         let buttons = if content.buttons.is_empty() {
@@ -106,15 +105,20 @@ impl Dialog {
         };
         let height = (2 * BORDER_PX + row + 2 * theme.padding_px() + buttons)
             .saturating_add(lines.saturating_mul(row));
-        let height = height.min(SAFE_AREA.h);
-        let x = add(SAFE_AREA.x, (SAFE_AREA.w - DIALOG_WIDTH_PX) / 2);
-        let y = add(SAFE_AREA.y, (SAFE_AREA.h - height) / 2);
-        Rect::new(x, y, DIALOG_WIDTH_PX, height)
+        let height = height.min(column.h);
+        let y = add(column.y, (column.h - height) / 2);
+        Rect::new(column.x, y, column.w, height)
     }
 
     /// Draws the dialog.
-    pub fn draw(&self, frame: &mut UiFrame, theme: &Theme, content: &DialogContent<'_>) {
-        self.draw_waiting(frame, theme, content, &[]);
+    pub fn draw(
+        &self,
+        frame: &mut UiFrame,
+        theme: &Theme,
+        metrics: &Metrics,
+        content: &DialogContent<'_>,
+    ) {
+        self.draw_waiting(frame, theme, metrics, content, &[]);
     }
 
     /// Draws the dialog with the buttons that wait marked: `waiting[i]` is
@@ -124,10 +128,12 @@ impl Dialog {
         &self,
         frame: &mut UiFrame,
         theme: &Theme,
+        metrics: &Metrics,
         content: &DialogContent<'_>,
         waiting: &[bool],
     ) {
-        let area = Self::layout(content, theme);
+        let column = metrics.dialog;
+        let area = Self::layout(content, theme, metrics);
         let row = theme.row_height_px();
         framed(
             &mut frame.scene,
@@ -147,7 +153,7 @@ impl Dialog {
         let title_box = Rect::new(
             add(title.x, theme.padding_px()),
             title.y,
-            message_width(theme),
+            message_width(column, theme),
             row,
         );
         let title_clipped = text::draw_in(
@@ -168,7 +174,7 @@ impl Dialog {
             clipped: title_clipped,
         });
 
-        let message_clipped = self.draw_message(frame, theme, content.message, inner);
+        let message_clipped = self.draw_message(frame, theme, column, content.message, inner);
         frame.tree.push(TreeRow {
             widget: WidgetKind::Dialog,
             kind: None,
@@ -182,10 +188,17 @@ impl Dialog {
         self.draw_buttons(frame, theme, content.buttons, waiting, area);
     }
 
-    fn draw_message(&self, frame: &mut UiFrame, theme: &Theme, message: &str, inner: Rect) -> bool {
+    fn draw_message(
+        &self,
+        frame: &mut UiFrame,
+        theme: &Theme,
+        column: Rect,
+        message: &str,
+        inner: Rect,
+    ) -> bool {
         let row = theme.row_height_px();
-        let width = message_width(theme);
-        let limit = max_lines(theme) as usize;
+        let width = message_width(column, theme);
+        let limit = max_lines(column, theme) as usize;
         let top = add(inner.y, row + theme.padding_px());
         let mut clipped = false;
         for (i, line) in text::wrap(message, width).enumerate() {
@@ -219,7 +232,7 @@ impl Dialog {
             return;
         }
         let row = theme.row_height_px();
-        let widths = ButtonWidths::of(buttons, theme);
+        let widths = ButtonWidths::of(buttons, area.w, theme);
         let gaps = (count - 1).saturating_mul(BUTTON_GAP_PX);
         let total = buttons
             .iter()
@@ -272,10 +285,10 @@ impl ButtonWidths {
     /// fits in an equal share of the row. A longer label, such as `Set up
     /// this controller`, gets its own width when every button then fits;
     /// else every button gets the equal share and the long label is cut.
-    fn of(buttons: &[&str], theme: &Theme) -> Self {
+    fn of(buttons: &[&str], dialog_w: u32, theme: &Theme) -> Self {
         let count = to_u32(buttons.len()).max(1);
         let gaps = (count - 1).saturating_mul(BUTTON_GAP_PX);
-        let room = DIALOG_WIDTH_PX
+        let room = dialog_w
             .saturating_sub(2 * theme.padding_px())
             .saturating_sub(gaps);
         let share = room / count;
@@ -312,22 +325,29 @@ fn own_width(label: &str, theme: &Theme) -> u32 {
         .max(BUTTON_MIN_WIDTH_PX)
 }
 
-fn message_width(theme: &Theme) -> u32 {
-    DIALOG_WIDTH_PX.saturating_sub(2 * BORDER_PX + 2 * theme.padding_px())
+fn message_width(column: Rect, theme: &Theme) -> u32 {
+    column
+        .w
+        .saturating_sub(2 * BORDER_PX + 2 * theme.padding_px())
 }
 
 fn button_row(theme: &Theme) -> u32 {
     theme.row_height_px() + 2 + 2 * theme.padding_px()
 }
 
-fn max_lines(theme: &Theme) -> u32 {
+fn max_lines(column: Rect, theme: &Theme) -> u32 {
     let fixed = 2 * BORDER_PX + theme.row_height_px() + 3 * theme.padding_px() + button_row(theme);
-    SAFE_AREA.h.saturating_sub(fixed) / theme.row_height_px().max(1)
+    column.h.saturating_sub(fixed) / theme.row_height_px().max(1)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics::Form;
+
+    fn landscape(theme: &Theme) -> Metrics {
+        Metrics::of(Form::Landscape, theme)
+    }
 
     #[test]
     fn a_long_second_label_gets_its_own_width_when_both_fit() {
@@ -337,7 +357,7 @@ mod tests {
             ..CONTENT
         };
         let mut frame = UiFrame::new();
-        Dialog::new(0).draw(&mut frame, &theme, &content);
+        Dialog::new(0).draw(&mut frame, &theme, &landscape(&theme), &content);
         let buttons: Vec<_> = frame
             .tree
             .rows()
@@ -350,17 +370,17 @@ mod tests {
             "{buttons:?}"
         );
         assert!(buttons[1].2.w > buttons[0].2.w);
-        let area = Dialog::layout(&content, &theme);
+        let area = Dialog::layout(&content, &theme, &landscape(&theme));
         assert!(buttons[0].2.x >= area.x);
         assert!(i64::from(buttons[1].2.x) + i64::from(buttons[1].2.w) <= area.right());
         assert_eq!(
-            ButtonWidths::of(&["Cancel", "Start"], &theme),
+            ButtonWidths::of(&["Cancel", "Start"], 224, &theme),
             ButtonWidths::Equal(BUTTON_MIN_WIDTH_PX),
             "short labels keep one width"
         );
         let long = "A label far too long for any button of a dialog";
         assert!(matches!(
-            ButtonWidths::of(&["Cancel", long], &theme),
+            ButtonWidths::of(&["Cancel", long], 224, &theme),
             ButtonWidths::Equal(_)
         ));
     }
@@ -376,7 +396,7 @@ mod tests {
             let mut frame = UiFrame::new();
             let mut dialog = Dialog::new(count - 1);
             assert_eq!(dialog.handle(UiAction::Right, count), DialogEvent::None);
-            dialog.draw(&mut frame, &Theme::default(), &content);
+            dialog.draw(&mut frame, &Theme::default(), &Metrics::default(), &content);
             let drawn = frame
                 .tree
                 .rows()
@@ -389,19 +409,25 @@ mod tests {
     #[test]
     fn a_dialog_with_no_buttons_is_as_tall_as_its_text() {
         let theme = Theme::default();
-        let with = Dialog::layout(&CONTENT, &theme);
+        let with = Dialog::layout(&CONTENT, &theme, &landscape(&theme));
         let none = DialogContent {
             buttons: &[],
             ..CONTENT
         };
-        let without = Dialog::layout(&none, &theme);
+        let without = Dialog::layout(&none, &theme, &landscape(&theme));
         assert_eq!(
             without.h,
             with.h - button_row(&theme) - theme.padding_px(),
             "no room for buttons"
         );
         assert_eq!(without.w, with.w);
-        let lines = to_u32(text::wrap(CONTENT.message, message_width(&theme)).count());
+        let lines = to_u32(
+            text::wrap(
+                CONTENT.message,
+                message_width(landscape(&theme).dialog, &theme),
+            )
+            .count(),
+        );
         assert_eq!(
             without.h,
             2 * BORDER_PX + theme.row_height_px() * (1 + lines) + 2 * theme.padding_px()
@@ -416,8 +442,8 @@ mod tests {
             crate::theme::PADDING_MAX_PX,
         )
         .expect("valid");
-        assert!(message_width(&theme) >= 30 * font::ADVANCE);
-        assert!(max_lines(&theme) >= 3);
+        assert!(message_width(landscape(&theme).dialog, &theme) >= 30 * font::ADVANCE);
+        assert!(max_lines(landscape(&theme).dialog, &theme) >= 3);
     }
 
     const CONTENT: DialogContent<'static> = DialogContent {
@@ -447,16 +473,31 @@ mod tests {
 
     #[test]
     fn the_dialog_is_centred_in_the_safe_area() {
-        let area = Dialog::layout(&CONTENT, &Theme::default());
-        assert!(SAFE_AREA.contains(&area));
+        let area = Dialog::layout(&CONTENT, &Theme::default(), &Metrics::default());
+        assert!(Metrics::default().safe.contains(&area));
         assert_eq!(area.x, 48);
+        assert_eq!(area.w, 224);
         assert_eq!(i64::from(area.y) - 12, 228 - area.bottom());
+    }
+
+    #[test]
+    fn the_message_lines_and_width_follow_the_form() {
+        let theme = Theme::default();
+        let land = landscape(&theme);
+        assert_eq!(max_lines(land.dialog, &theme), 14);
+        assert_eq!(font::chars_in(message_width(land.dialog, &theme)), 35);
+        let portrait = Metrics::of(Form::Portrait, &theme);
+        assert_eq!(max_lines(portrait.dialog, &theme), 20);
+        assert_eq!(font::chars_in(message_width(portrait.dialog, &theme)), 34);
+        let area = Dialog::layout(&CONTENT, &theme, &portrait);
+        assert_eq!((area.x, area.w), (12, 216));
+        assert!(portrait.safe.contains(&area));
     }
 
     #[test]
     fn the_tree_has_title_message_and_buttons() {
         let mut frame = UiFrame::new();
-        Dialog::new(1).draw(&mut frame, &Theme::default(), &CONTENT);
+        Dialog::new(1).draw(&mut frame, &Theme::default(), &Metrics::default(), &CONTENT);
         let rows: Vec<_> = frame
             .tree
             .rows()
@@ -471,7 +512,7 @@ mod tests {
                 (WidgetKind::Button, "Revert", true, false),
             ]
         );
-        let area = Dialog::layout(&CONTENT, &Theme::default());
+        let area = Dialog::layout(&CONTENT, &Theme::default(), &Metrics::default());
         assert!(frame.tree.rows().all(|r| area.contains(&r.rect)));
     }
 
@@ -485,7 +526,12 @@ mod tests {
         ];
         for (tone, colour) in tones {
             let mut frame = UiFrame::new();
-            Dialog::new(0).draw(&mut frame, &theme, &DialogContent { tone, ..CONTENT });
+            Dialog::new(0).draw(
+                &mut frame,
+                &theme,
+                &landscape(&theme),
+                &DialogContent { tone, ..CONTENT },
+            );
             let bar = frame.tree.rows().next().expect("title row").rect;
             let fill = frame.scene.commands().iter().find_map(|c| match *c {
                 crate::DrawCommand::Rect { rect, color } if rect == bar => Some(color),
@@ -503,9 +549,13 @@ mod tests {
             ..CONTENT
         };
         let mut frame = UiFrame::new();
-        Dialog::new(0).draw(&mut frame, &Theme::default(), &content);
+        Dialog::new(0).draw(&mut frame, &Theme::default(), &Metrics::default(), &content);
         let message = frame.tree.rows().nth(1).expect("message row");
         assert!(message.clipped);
-        assert!(SAFE_AREA.contains(&Dialog::layout(&content, &Theme::default())));
+        assert!(Metrics::default().safe.contains(&Dialog::layout(
+            &content,
+            &Theme::default(),
+            &Metrics::default()
+        )));
     }
 }

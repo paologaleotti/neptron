@@ -12,7 +12,7 @@ mod list;
 mod settings_list;
 mod slider;
 
-pub use dialog::{DIALOG_WIDTH_PX, Dialog, DialogContent, DialogEvent, DialogTone};
+pub use dialog::{Dialog, DialogContent, DialogEvent, DialogTone};
 pub use grid::{Grid, GridCell, GridEvent, MAX_COLUMNS};
 pub use list::{List, ListEvent, ListItem, MAX_VISIBLE_ROWS, SCROLLBAR_WIDTH_PX};
 pub use settings_list::{
@@ -280,7 +280,17 @@ mod tests {
                     buttons: &buttons,
                     tone: DialogTone::Normal,
                 };
-                dialog.draw(&mut frame, &theme, &content);
+                let form = if rng.below(2) == 0 {
+                    crate::Form::Landscape
+                } else {
+                    crate::Form::Portrait
+                };
+                dialog.draw(
+                    &mut frame,
+                    &theme,
+                    &crate::Metrics::of(form, &theme),
+                    &content,
+                );
 
                 let len = rng.count();
                 let mut grid = Grid::new(rng.rect(), rng.count(), rng.u32());

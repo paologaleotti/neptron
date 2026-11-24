@@ -196,7 +196,7 @@ impl QuickMenu {
                 tone: DialogTone::Normal,
             };
             let waiting = KEEP_LEVELS.map(|level| waits(snap, level));
-            draw_dialog(dialog, &content, &waiting, theme, frame);
+            draw_dialog(dialog, &content, &waiting, theme, metrics, frame);
             chrome::hints(frame, theme, metrics, "Accept: choose", "Back: cancel");
         }
     }
