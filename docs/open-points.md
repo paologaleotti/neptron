@@ -112,6 +112,7 @@ The state column is one line. The full entry below is the reference.
 | OP-114 | Decisions and findings of 2026-11-19 | M05b dropped; M12's gate met in CI; Killer Instinct is slow on the bench PC; the Pi has no HDMI entry in the hardware matrix |
 | OP-115 | Decisions and findings of 2026-11-23 | The last sound round of M16 is dropped; the cost of the picture answers in a menu has no limit per frame; the screensaver is a bouncing wordmark |
 | OP-116 | Release review of 2026-11-23 | Six fix tasks before 0.1; the list of what waits until after 0.1 |
+| OP-117 | Decisions of 2026-11-24 | 0.1.0 is an internal milestone; the public release is 1.0; the bench monitor is a SyncMaster 750s |
 
 ### Decided
 
@@ -1119,3 +1120,12 @@ The state column is one line. The full entry below is the reference.
 - Where: the findings are in the task reports of the fix tasks; `apps/neptron/src/display.rs`, `os/board`, `crates/neptron-session`, `crates/neptron-input`, `apps/neptron/src/config.rs`, `os/package`
 - How to change: each point of 2 is a task of its own after 0.1.
 - Decision: Owner, 2026-11-23: the menu width on a TV waits until after 0.1.
+
+### OP-117: Decisions of 2026-11-24.
+
+- Raised by: the owner (2026-11-24)
+- Status: decided
+- Default: release 0.1.0 is an internal milestone: a tagged state of `main` with images that the release workflow built and checked. It need not be perfect. Versions 0.x are published and anyone can use them; the release for the public is 1.0. TATE mode is the first task after 0.1 (OP-107), and the points that wait until after 0.1 (OP-116, and the list in `docs/definition/13-roadmap.md`) are the work list toward 1.0. The bench monitor on VGA is a Samsung SyncMaster 750s, a 31 kHz PC CRT that never gets 15 kHz; the 15 kHz display is a consumer TV on RGB SCART or composite.
+- Where: `.github/workflows/release.yml`, `docs/hardware-checklist.md`
+- How to change: a release 0.x is a GitHub pre-release until 1.0.
+- Decision: Owner, 2026-11-24: 0.1.0 is an internal milestone and the public release is 1.0; the notice texts of the review fixes of 2026-11-23 are approved.
