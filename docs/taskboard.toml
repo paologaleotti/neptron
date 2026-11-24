@@ -769,7 +769,7 @@ name = "Screen simulator: a command that renders what a monitor of a given profi
 owns = ["xtask", "crates/neptron-testkit", "docs/spec"]
 needs = []
 gate = "T1; goldens of the reference cases; the measures of each case are asserted"
-status = "pending"
+status = "merged"
 
 [[task]]
 id = "N03"
@@ -815,3 +815,12 @@ owns = ["os", "crates/neptron-video", "crates/neptron-settings", "apps/neptron"]
 needs = []
 gate = "T2; boot checks"
 status = "pending"
+
+[[task]]
+id = "N08"
+wave = 15
+name = "Picture mode Fit: the option Fill becomes Fit, the whole picture as large as the screen allows at its right shape, never cut; an uneven line scale only in Fit and always smoothed (OP-117)"
+owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-settings", "crates/neptron-testkit", "apps/neptron", "docs/spec"]
+needs = ["N02"]
+gate = "T2; screen golden"
+status = "in_progress"
