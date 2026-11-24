@@ -42,11 +42,16 @@ pub struct SceneInputs<'p> {
 /// source that the placement was planned for, so the placement and the
 /// turn always agree.
 ///
-/// Otherwise the frame is shown whole in the current destination, turned,
-/// with sharp-bilinear when the scale of the turned picture is not whole. That covers a frame of
-/// another size (a new size while the debounce waits, or while no mode
-/// fits it) and a crop that reaches outside the frame, so the renderer
-/// never reads outside the frame.
+/// Otherwise (a frame of another size while the debounce waits or while
+/// no mode fits it, or a crop that reaches outside the frame) the frame
+/// is shown turned inside the current destination, and the renderer never
+/// reads outside the frame. A fit (no whole vertical scale in the
+/// placement) shows the whole frame in the destination, with sharp
+/// bilinear where the scale is not whole. A whole-step placement keeps
+/// whole steps of lines: the largest whole multiple of the frame's lines
+/// up to the planned one that fits, centred, with the width scaled by the
+/// same step; a frame taller than the destination shows its middle lines
+/// once each. Only the picture mode Fit scales lines by a fraction.
 ///
 /// The UI canvas turns by `inputs.ui_turn`. Upright or upside down, it
 /// goes to the placement's UI destination with nearest: a half turn keeps
@@ -65,21 +70,17 @@ pub fn build_scene<'a>(
 ) -> Scene<'a> {
     let placement = inputs.placement;
     let rotation = inputs.source.rotation;
-    let (crop, filter) = match game {
+    let (crop, dest, filter) = match game {
         Some(frame) if !crop_holds(&placement.crop, inputs.source, &frame) => {
-            let crop = whole(&frame);
-            (
-                crop,
-                filter_for(turned_size(&crop, rotation), &placement.dest),
-            )
+            other_frame(placement, rotation, &frame)
         }
-        _ => (placement.crop, placement.filter),
+        _ => (placement.crop, placement.dest, placement.filter),
     };
     let (_, turned_lines) = turned_size(&crop, rotation);
     let scanlines = scanlines_for(
         inputs.scanlines.mode,
         inputs.scanlines.strength_percent,
-        whole_multiple(turned_lines, placement.dest.h),
+        whole_multiple(turned_lines, dest.h),
         ScreenClass::of(inputs.monitor, inputs.mode),
         inputs.mode.interlace,
     );
@@ -87,7 +88,7 @@ pub fn build_scene<'a>(
     Scene {
         game,
         crop,
-        dest: placement.dest,
+        dest,
         rotation,
         filter,
         ui,
@@ -124,6 +125,66 @@ fn crop_holds(crop: &Rect, source: &SourceGeometry, frame: &Frame<'_>) -> bool {
         && crop.h > 0
         && x + i64::from(crop.w) <= width
         && y + i64::from(crop.h) <= height
+}
+
+/// The crop, the destination and the filter of a frame that the
+/// placement does not fit: see [`build_scene`].
+fn other_frame(
+    placement: &Placement,
+    rotation: Rotation,
+    frame: &Frame<'_>,
+) -> (Rect, Rect, Filter) {
+    let all = whole(frame);
+    let dest = placement.dest;
+    let Some(planned_step) = placement.scale.y.filter(|&k| k > 0) else {
+        return (all, dest, filter_for(turned_size(&all, rotation), &dest));
+    };
+    let (columns, lines) = turned_size(&all, rotation);
+    let (planned_columns, _) = turned_size(&placement.crop, rotation);
+    let step = (dest.h / lines.max(1)).min(u32::from(planned_step));
+    let (crop, step, h) = if step == 0 {
+        (middle_lines(all, rotation, lines - dest.h), 1, dest.h)
+    } else {
+        (all, step, lines * step)
+    };
+    // The width keeps the planned columns per game column, less the
+    // vertical steps the frame does not get.
+    let w = u64::from(columns) * u64::from(dest.w) * u64::from(step)
+        / (u64::from(planned_columns.max(1)) * u64::from(planned_step));
+    let w = u32::try_from(w).unwrap_or(dest.w).clamp(1, dest.w);
+    let placed = Rect {
+        x: dest.x + centre(dest.w, w),
+        y: dest.y + centre(dest.h, h),
+        w,
+        h,
+    };
+    (
+        crop,
+        placed,
+        filter_for(turned_size(&crop, rotation), &placed),
+    )
+}
+
+/// `all` less `cut` lines of the turned picture, half at each edge.
+fn middle_lines(all: Rect, rotation: Rotation, cut: u32) -> Rect {
+    let first = i32::try_from(cut / 2).unwrap_or(0);
+    match rotation {
+        Rotation::R0 | Rotation::R180 => Rect {
+            y: first,
+            h: all.h - cut,
+            ..all
+        },
+        Rotation::R90 | Rotation::R270 => Rect {
+            x: first,
+            w: all.w - cut,
+            ..all
+        },
+    }
+}
+
+/// The offset that centres `inner` in `outer`.
+fn centre(outer: u32, inner: u32) -> i32 {
+    i32::try_from(outer.saturating_sub(inner) / 2).unwrap_or(0)
 }
 
 fn whole(frame: &Frame<'_>) -> Rect {
@@ -449,11 +510,10 @@ mod tests {
                 h: 240
             }
         );
-        assert_eq!(scene.dest, p.dest);
+        assert_eq!(scene.dest, rect(320, 104, 640, 240), "1x, centred");
         assert_eq!(
-            scene.filter,
-            Filter::SharpBilinear,
-            "448 is not a multiple of 240"
+            scene.dest.h, scene.crop.h,
+            "whole steps of lines stay whole"
         );
         p.crop = Rect {
             x: -1,
@@ -478,7 +538,30 @@ mod tests {
         );
         assert_eq!(scene.dest, p.dest);
         assert_eq!(scene.filter, Filter::Nearest, "1280 is 4 times 320");
+    }
+
+    /// A frame taller than a whole-step destination shows its middle
+    /// lines once each, not its lines pressed by a fraction.
+    #[test]
+    fn a_taller_frame_in_whole_steps_shows_its_middle_lines() {
+        let p = placement();
         let scene = build(&p, &SOURCE, Some(frame(512, 448)), None);
+        assert_eq!(scene.crop, rect(0, 112, 512, 224));
+        assert_eq!(scene.dest, p.dest);
+        assert_eq!(scene.dest.h, scene.crop.h);
+    }
+
+    /// A fit keeps the whole frame in its destination, smoothed.
+    #[test]
+    fn a_frame_of_another_size_in_a_fit_is_shown_whole_and_smoothed() {
+        let p = Placement {
+            filter: Filter::SharpBilinear,
+            scale: ScaleClaim { x: None, y: None },
+            ..placement()
+        };
+        let scene = build(&p, &SOURCE, Some(frame(512, 448)), None);
+        assert_eq!(scene.crop, rect(0, 0, 512, 448));
+        assert_eq!(scene.dest, p.dest);
         assert_eq!(scene.filter, Filter::SharpBilinear);
     }
 
@@ -558,18 +641,25 @@ mod tests {
     }
 
     /// A frame of another size while the debounce waits is shown whole and
-    /// turned; its filter reads the scale of the turned picture.
+    /// turned, in whole steps of the lines of the turned picture.
     #[test]
-    fn a_turned_frame_of_another_size_takes_the_filter_of_the_turn() {
+    fn a_turned_frame_of_another_size_keeps_whole_steps_of_the_turn() {
         let (p, source) = turned();
+        // 160 lines at 2x in 640, 240 columns at 2x.
         let scene = build(&p, &source, Some(frame(160, 240)), None);
         assert_eq!(scene.rotation, Rotation::R90);
-        assert_eq!(scene.filter, Filter::Nearest, "240 to 480 and 160 to 640");
+        assert_eq!(scene.dest, rect(0, 160, 480, 320));
+        assert_eq!(scene.filter, Filter::Nearest);
+        // 240 lines at 2x in 640, 160 columns at 2x.
         let scene = build(&p, &source, Some(frame(240, 160)), None);
-        assert_eq!(
-            scene.filter,
-            Filter::SharpBilinear,
-            "160 to 480 is 3x, 240 to 640 is not"
-        );
+        assert_eq!(scene.dest, rect(80, 80, 320, 480));
+        assert_eq!(scene.filter, Filter::Nearest);
+        // 400 lines are taller than 640 at 2x: 1x, centred.
+        let scene = build(&p, &source, Some(frame(400, 240)), None);
+        assert_eq!(scene.dest, rect(120, 120, 240, 400));
+        // 800 lines: the middle 640, once each.
+        let scene = build(&p, &source, Some(frame(800, 240)), None);
+        assert_eq!(scene.crop, rect(80, 0, 640, 240));
+        assert_eq!(scene.dest, rect(120, 0, 240, 640));
     }
 }

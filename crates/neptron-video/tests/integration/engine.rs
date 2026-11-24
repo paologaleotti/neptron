@@ -119,7 +119,7 @@ fn a_change_that_breaks_before_the_debounce_starts_again() {
 }
 
 #[test]
-fn the_frames_during_the_debounce_show_whole_in_the_old_mode() {
+fn the_frames_during_the_debounce_show_whole_in_whole_steps_of_the_old_mode() {
     let mut rig = Rig::generic_15(native_width());
     rig.frame(MD_H40);
     let dest = rig.engine.current().unwrap().chosen.proposal.placement.dest;
@@ -134,7 +134,15 @@ fn the_frames_during_the_debounce_show_whole_in_the_old_mode() {
             h: 224
         }
     );
-    assert_eq!(scene.dest, dest);
+    // The old placement is 1:1: the 256 columns stay 256, centred.
+    assert_eq!(
+        scene.dest,
+        Rect {
+            x: dest.x + 32,
+            w: 256,
+            ..dest
+        }
+    );
 }
 
 #[test]
