@@ -6,10 +6,12 @@ use neptron_modeline::policy::{
     Considered, Dropped, EXACT_SPEED_MARGIN_PPM, HorizontalScale, HorizontalStrategy, PanelScale,
     PictureStyle, Plan, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy,
     Rung, SkippedTarget, Switch, VerticalMode, choose, decide, notice, picture_choices, switch_for,
+    ui_placement,
 };
 use neptron_safety::validate;
 use neptron_types::{
-    Filter, GpuCaps, MonitorProfile, Rect, Rotation, SourceGeometry, ui_dest_fill,
+    Filter, Form, GpuCaps, MonitorKind, MonitorProfile, Rect, Rotation, SourceGeometry,
+    ui_dest_fill,
 };
 
 use crate::presets::{edid_caps, intel_gen9, open_caps, panel_1080, pc_crt_30_71, preset, source};
@@ -1320,7 +1322,10 @@ fn the_ui_fills_a_crt_mode_and_scales_uniformly_on_a_panel() {
     )
     .unwrap();
     let p = plan.proposals().next().unwrap().2;
-    assert_eq!(p.placement.ui_dest, ui_dest_fill(1_280, 224));
+    let ui = |kind: &MonitorKind, p: &Proposal| {
+        ui_placement(kind, &p.mode, Form::Landscape.canvas()).dest
+    };
+    assert_eq!(ui(&preset("generic_15").kind, p), ui_dest_fill(1_280, 224));
 
     // The whole multiple of `integer`; `auto` fills the height from a
     // scale of 4 (1080 / 224 = 4.82).
@@ -1331,7 +1336,7 @@ fn the_ui_fills_a_crt_mode_and_scales_uniformly_on_a_panel() {
     let plan = decide(&snes(), &integer, &panel_1080(), &open_caps()).unwrap();
     let p = plan.proposals().next().unwrap().2;
     assert_eq!(
-        p.placement.ui_dest,
+        ui(&panel_1080().kind, p),
         Rect {
             x: 320,
             y: 60,

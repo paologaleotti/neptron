@@ -95,16 +95,17 @@ fn engine_with(
 /// The mode, the game's rectangle, the menu's rectangle and the filter
 /// that the engine shows for `source` on `monitor`.
 fn shown(monitor: Monitor, source: SourceGeometry) -> (Modeline, Rect, Rect, Filter) {
-    let (_, mut engine) = engine(monitor);
+    let (fake, mut engine) = engine(monitor);
     engine.begin_frame(source);
     engine.present(Some(frame(&source)), None).unwrap();
     engine.wait_flip().unwrap();
     let current = engine.current().unwrap();
     let placement = current.chosen.proposal.placement;
+    let scene = fake.frames().last().unwrap().scene;
     (
         current.read_back,
         placement.dest,
-        placement.ui_dest,
+        scene.ui_dest,
         placement.filter,
     )
 }

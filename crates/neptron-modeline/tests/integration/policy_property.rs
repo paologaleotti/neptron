@@ -14,10 +14,12 @@
 use neptron_modeline::policy::{
     Considered, HorizontalStrategy, OVERSCAN_CROP_MAX_LINES_PER_EDGE, OrientedSource, PictureStyle,
     Plan, PolicyError, PolicySettings, Proposal, REFRESH_MATCH_MHZ, RefreshKind, RefreshPolicy,
-    Rung, Winner, choose, decide, notice,
+    Rung, Winner, choose, decide, notice, ui_placement,
 };
 use neptron_safety::validate;
-use neptron_types::{GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry, ui_dest_fill};
+use neptron_types::{
+    Form, GpuCaps, MonitorKind, MonitorProfile, Rotation, SourceGeometry, ui_dest_fill,
+};
 
 use crate::arcade_table::margin_mhz;
 use crate::presets::{
@@ -212,8 +214,12 @@ fn check_placement(p: &Proposal, source: &OrientedSource, crt: bool) -> Result<(
     {
         return Err(format!("y claim {k} but {} from {crop_lines}", d.h));
     }
-    if crt && place.ui_dest != ui_dest_fill(m.hactive, m.vactive) {
-        return Err(format!("ui {:?} does not fill the mode", place.ui_dest));
+    if crt {
+        let kind = MonitorKind::Crt { ranges: Vec::new() };
+        let ui = ui_placement(&kind, m, Form::Landscape.canvas()).dest;
+        if ui != ui_dest_fill(m.hactive, m.vactive) {
+            return Err(format!("ui {ui:?} does not fill the mode"));
+        }
     }
     Ok(())
 }

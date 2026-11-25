@@ -1,7 +1,7 @@
 use neptron_modeline::Aspect;
-use neptron_modeline::policy::{Placement, UI_CANVAS, ui_dest_turned, whole_multiple};
+use neptron_modeline::policy::{Placement, ui_dest_turned, ui_placement, whole_multiple};
 use neptron_types::{
-    Filter, Frame, Modeline, MonitorKind, Rect, Rotation, Scene, ScreenClass, SourceGeometry,
+    Filter, Form, Frame, Modeline, MonitorKind, Rect, Rotation, Scene, ScreenClass, SourceGeometry,
     scanlines_for,
 };
 
@@ -54,8 +54,9 @@ pub struct SceneInputs<'p> {
 /// once each. Only the picture mode Fit scales lines by a fraction.
 ///
 /// The UI canvas turns by `inputs.ui_turn`. Upright or upside down, it
-/// goes to the placement's UI destination with nearest: a half turn keeps
-/// its shape. Turned by 90 or 270, it goes where
+/// goes where `neptron_modeline::policy::ui_placement` places a canvas of
+/// its size in the mode of the scene, with nearest: a half turn keeps its
+/// shape. Turned by 90 or 270, it goes where
 /// `neptron_modeline::policy::ui_dest_turned` places the turned canvas in
 /// the mode of the scene, with the filter of that function.
 ///
@@ -99,13 +100,16 @@ pub fn build_scene<'a>(
     }
 }
 
-/// The destination and the filter of the UI canvas `ui` (the canvas of
-/// [`UI_CANVAS`] when the scene has none) after the turn of the inputs.
+/// The destination and the filter of the UI canvas `ui` (the landscape
+/// canvas when the scene has none) after the turn of the inputs.
 fn ui_place(inputs: &SceneInputs<'_>, ui: Option<&Frame<'_>>) -> (Rect, Filter) {
+    let (width, height) = ui.map_or(Form::Landscape.canvas(), |f| (f.width, f.height));
     match inputs.ui_turn {
-        Rotation::R0 | Rotation::R180 => (inputs.placement.ui_dest, Filter::Nearest),
+        Rotation::R0 | Rotation::R180 => {
+            let placed = ui_placement(inputs.monitor, inputs.mode, (width, height));
+            (placed.dest, Filter::Nearest)
+        }
         Rotation::R90 | Rotation::R270 => {
-            let (width, height) = ui.map_or(UI_CANVAS, |f| (f.width, f.height));
             let placed = ui_dest_turned(inputs.monitor, inputs.mode, (height, width), inputs.face);
             (placed.dest, placed.filter)
         }
@@ -247,12 +251,6 @@ mod tests {
                 h: 224,
             },
             filter: Filter::Nearest,
-            ui_dest: Rect {
-                x: 0,
-                y: 0,
-                w: 1_280,
-                h: 240,
-            },
             scale: ScaleClaim {
                 x: Some(5),
                 y: Some(1),
@@ -383,7 +381,7 @@ mod tests {
     fn a_canvas_upside_down_keeps_the_destination_of_the_placement() {
         let scene = build_turned(&crt(), &MODE_448P, Rotation::R180, Some(frame(320, 240)));
         assert_eq!(scene.ui_rotation, Rotation::R180);
-        assert_eq!(scene.ui_dest, placement().ui_dest);
+        assert_eq!(scene.ui_dest, rect(0, 0, 1_280, 448), "the active area");
         assert_eq!(scene.ui_filter, Filter::Nearest);
     }
 
@@ -440,7 +438,7 @@ mod tests {
         assert_eq!(scene.crop, p.crop);
         assert_eq!(scene.dest, p.dest);
         assert_eq!(scene.filter, p.filter);
-        assert_eq!(scene.ui_dest, p.ui_dest);
+        assert_eq!(scene.ui_dest, rect(0, 0, 1_280, 448));
     }
 
     #[test]

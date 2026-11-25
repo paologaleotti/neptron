@@ -1,20 +1,10 @@
-use neptron_types::{Filter, Modeline, MonitorKind, Rect, ui_dest_uniform};
+use neptron_types::{Modeline, MonitorKind, Rect, ui_dest_uniform};
 
 use super::centre;
+use super::ui::{UiPlacement, ui_filter};
 use crate::Aspect;
 use crate::policy::TV_SAFE_WIDTH_SAMPLES;
 use crate::policy::source::div_round;
-
-/// Where a canvas goes in a mode and how it is scaled into it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct UiPlacement {
-    /// Where the turned canvas goes, in pixels of the mode: the value of
-    /// `Scene::ui_dest`.
-    pub dest: Rect,
-    /// How the turned canvas is scaled into `dest`: the value of
-    /// `Scene::ui_filter`.
-    pub filter: Filter,
-}
 
 /// Where a UI canvas turned by 90 or 270 degrees goes in `mode`, and its
 /// filter. `canvas` is the size of the turned canvas `T` in scan-out
@@ -119,20 +109,12 @@ fn centred(mode: &Modeline, w: u32, h: u32) -> Rect {
     }
 }
 
-fn ui_filter(dest: Rect, canvas: (u16, u16)) -> Filter {
-    let empty = dest.w == 0 || dest.h == 0;
-    if empty || (dest.w >= u32::from(canvas.0) && dest.h >= u32::from(canvas.1)) {
-        Filter::Nearest
-    } else {
-        Filter::SharpBilinear
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use neptron_types::{TV_525_240P, TV_525_480I, TV_625_288P, TV_625_576I, TvStandard};
 
     use super::*;
+    use neptron_types::Filter;
 
     const TURNED: (u16, u16) = (240, 320);
 

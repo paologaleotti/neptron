@@ -1,4 +1,4 @@
-use neptron_types::{Filter, Modeline, Rect, Rotation, ui_dest_fill, ui_dest_uniform};
+use neptron_types::{Filter, Modeline, Rect, Rotation};
 
 use super::OrientedSource;
 use super::shape::{game_aspect_milli, same_aspect};
@@ -6,11 +6,10 @@ use super::source::div_round;
 use crate::Aspect;
 
 mod turned;
+mod ui;
 
-pub use turned::{UiPlacement, ui_dest_turned};
-
-/// Size of the UI canvas, in pixels.
-pub const UI_CANVAS: (u16, u16) = (320, 240);
+pub use turned::ui_dest_turned;
+pub use ui::{UiPlacement, ui_placement};
 
 /// How the game picture sits in a mode: everything the renderer needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,9 +23,6 @@ pub struct Placement {
     pub dest: Rect,
     /// How the game is scaled from `crop` to `dest`.
     pub filter: Filter,
-    /// Where the UI canvas goes, in pixels of the mode: the full active
-    /// area on a CRT, one whole scale, centred, on a flat panel.
-    pub ui_dest: Rect,
     /// The whole scale factors that hold exactly on each axis.
     pub scale: ScaleClaim,
 }
@@ -90,7 +86,7 @@ pub(crate) enum Vertical {
 }
 
 /// The placement of the game in a CRT mode. `base_width` is the width the
-/// horizontal multiple applies to. The UI fills the active area. A fit
+/// horizontal multiple applies to. A fit
 /// keeps the game's shape on the face of shape `monitor_aspect`.
 pub(crate) fn crt_placement(
     source: &OrientedSource,
@@ -140,7 +136,6 @@ pub(crate) fn crt_placement(
             h,
         },
         filter: filter_for(scale),
-        ui_dest: ui_dest_fill(mode.hactive, mode.vactive),
         scale,
     }
 }
@@ -202,7 +197,6 @@ pub(crate) fn panel_placement(
             h,
         },
         filter: panel_filter(source, w, h, scale),
-        ui_dest: ui_dest_uniform(mode.hactive, mode.vactive, UI_CANVAS.0, UI_CANVAS.1),
         scale,
     }
 }
@@ -405,7 +399,6 @@ mod tests {
             }
         );
         assert_eq!(p.filter, Filter::Nearest);
-        assert_eq!(p.ui_dest, rect(0, 0, 1_280, 224));
     }
 
     #[test]
@@ -576,7 +569,6 @@ mod tests {
                 y: Some(4)
             }
         );
-        assert_eq!(p.ui_dest, rect(320, 60, 1_280, 960));
     }
 
     #[test]

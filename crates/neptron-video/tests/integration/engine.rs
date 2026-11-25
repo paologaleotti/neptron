@@ -1,6 +1,6 @@
 //! The good path: launch, debounce, scale only, mute, trace.
 
-use neptron_types::{Filter, Rect, Rotation, SourceGeometry};
+use neptron_types::{Filter, Rect, Rotation, SourceGeometry, ui_dest_fill};
 use neptron_video::{
     DEBOUNCE_FRAMES, Directive, Outcome, PictureStyle, PolicySettings, RefreshPolicy, Trigger,
 };
@@ -455,8 +455,8 @@ fn the_ui_alone_needs_a_mode() {
     let scene = rig.fake.frames().last().unwrap().scene;
     assert_eq!(scene.game, None);
     assert_eq!(scene.ui, Some((256, 224)));
-    let placement = rig.engine.current().unwrap().chosen.proposal.placement;
-    assert_eq!(scene.ui_dest, placement.ui_dest);
+    let mode = rig.engine.current().unwrap().read_back;
+    assert_eq!(scene.ui_dest, ui_dest_fill(mode.hactive, mode.vactive));
 }
 
 #[test]

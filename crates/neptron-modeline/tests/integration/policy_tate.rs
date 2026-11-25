@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use neptron_modeline::policy::{PolicySettings, UI_CANVAS, choose, decide, ui_dest_turned};
+use neptron_modeline::policy::{PolicySettings, choose, decide, ui_dest_turned};
 use neptron_safety::validate;
 use neptron_types::{Filter, Orientation, Rotation, SourceGeometry};
 
@@ -62,11 +62,10 @@ fn turned_ui(source: &SourceGeometry, settings: &PolicySettings, display: &Displ
     let Some(winner) = choice.winner else {
         return " ui none".into();
     };
-    let (canvas_w, canvas_h) = UI_CANVAS;
     let ui = ui_dest_turned(
         &profile.kind,
         &winner.proposal.mode,
-        (canvas_h, canvas_w),
+        (240, 320),
         settings.solver.monitor_aspect,
     );
     let d = ui.dest;

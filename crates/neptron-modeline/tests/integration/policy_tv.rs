@@ -7,12 +7,12 @@
 use neptron_modeline::policy::{
     Dropped, PictureStyle, Plan, PolicySettings, RefreshKind, RefreshPolicy, Rung, SkippedTarget,
     TV_SAFE_WIDTH_SAMPLES, TV_SPEED_SILENT_PPM, TvWidth, VerticalMode, choose, decide, notice,
-    picture_choices,
+    picture_choices, ui_placement,
 };
 use neptron_safety::validate;
 use neptron_types::{
-    Filter, GpuCaps, MonitorProfile, Rect, Rotation, SourceGeometry, TV_525_240P, TV_525_480I,
-    TV_625_288P, TV_625_576I, TvStandard,
+    Filter, Form, GpuCaps, MonitorProfile, Rect, Rotation, SourceGeometry, TV_525_240P,
+    TV_525_480I, TV_625_288P, TV_625_576I, TvStandard,
 };
 
 use crate::presets::{gpu_table, open_caps};
@@ -528,7 +528,9 @@ fn the_ui_sits_at_whole_factors_centred_in_each_mode() {
         ] {
             let plan = plan(&source, &PolicySettings::default(), standard);
             for (_, _, p) in plan.proposals() {
-                assert_eq!(p.placement.ui_dest, want(p.mode), "{}", standard.key());
+                let kind = standard.profile().kind;
+                let ui = ui_placement(&kind, &p.mode, Form::Landscape.canvas());
+                assert_eq!(ui.dest, want(p.mode), "{}", standard.key());
                 seen.insert(p.mode.vactive);
             }
         }
