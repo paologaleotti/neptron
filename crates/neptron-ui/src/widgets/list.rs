@@ -1,3 +1,6 @@
+use core::cell::Cell;
+
+use crate::font;
 use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
@@ -10,9 +13,14 @@ use super::{ARROW_COLUMN_PX, add, draw_arrow, to_u32};
 /// Width of the scroll bar, and the gap before it, in pixels.
 pub const SCROLLBAR_WIDTH_PX: u32 = 4;
 
-/// The most rows a list draws: one per canvas line. A taller rectangle
-/// draws no more, so a huge rectangle costs no more work than the canvas.
-pub const MAX_VISIBLE_ROWS: usize = crate::canvas::UI_HEIGHT as usize;
+/// The most lines a list draws: one per line of the tallest canvas. A
+/// taller rectangle draws no more, so a huge rectangle costs no more work
+/// than the canvas.
+pub const MAX_VISIBLE_ROWS: usize = 320;
+
+/// The most lines of one row. A label that needs more is shortened on its
+/// last line and reported as clipped.
+pub const MAX_ROW_LINES: u32 = 2;
 
 /// One row of a [`List`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,14 +56,49 @@ pub enum ListEvent {
     Menu,
 }
 
+/// What a [`List`] does with a label wider than its row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LabelRule {
+    /// The row keeps one line and the label is cut: a fault of the layout,
+    /// reported as clipped in the tree.
+    #[default]
+    Cut,
+    /// The row keeps one line and the label is shortened with `...`. Not a
+    /// fault: the text shows whole in another place, or has no bound. Every
+    /// row has the same height, so a window of any length costs the same.
+    Shorten,
+    /// The label wraps on to a second line of the row.
+    Wrap,
+}
+
 /// A vertical list with one focused row. Up and down move by one row; left
-/// and right move by one page.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// and right move by one page, the rows that fit the box.
+///
+/// A row has one line, or two when its label wraps ([`LabelRule::Wrap`]).
+/// The window of visible rows keeps the focused row whole, and the scroll
+/// bar measures rows.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct List {
     rect: Rect,
     row_height_px: u32,
     cursor: usize,
-    top: usize,
+    /// The first visible row. A draw moves it down when rows of two lines
+    /// push the focused row out of the box.
+    top: Cell<usize>,
+    /// The rows that the last draw showed whole: a page for a list with
+    /// rows of two lines.
+    shown: Cell<usize>,
+    labels: LabelRule,
+    /// True when a row can have more than one line.
+    tall_rows: bool,
+}
+
+/// The rows in view of a list of some length.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct View {
+    pub cursor: usize,
+    pub top: usize,
+    pub scrolls: bool,
 }
 
 impl<'a> ListItem<'a> {
@@ -82,19 +125,41 @@ impl<'a> ListItem<'a> {
 
 impl List {
     /// A list in `rect` with rows of `row_height_px`, cursor on the first
-    /// row.
+    /// row. A label that does not fit is cut ([`LabelRule::Cut`]).
     pub fn new(rect: Rect, row_height_px: u32) -> Self {
         Self {
             rect,
             row_height_px: row_height_px.max(1),
             cursor: 0,
-            top: 0,
+            top: Cell::new(0),
+            shown: Cell::new(0),
+            labels: LabelRule::Cut,
+            tall_rows: false,
         }
+    }
+
+    /// The same list with the rule `labels` for a label wider than its row.
+    pub fn with_labels(mut self, labels: LabelRule) -> Self {
+        self.labels = labels;
+        self.tall_rows = labels == LabelRule::Wrap;
+        self
+    }
+
+    /// The same list, with rows of more than one line that another widget
+    /// lays out.
+    pub(super) fn with_tall_rows(mut self) -> Self {
+        self.tall_rows = true;
+        self
     }
 
     /// The area of the list.
     pub fn rect(&self) -> Rect {
         self.rect
+    }
+
+    /// Moves the list into `rect` and keeps its cursor.
+    pub fn set_rect(&mut self, rect: Rect) {
+        self.rect = rect;
     }
 
     /// The focused row.
@@ -104,11 +169,11 @@ impl List {
 
     /// The first visible row.
     pub fn top(&self) -> usize {
-        self.top
+        self.top.get()
     }
 
-    /// The number of rows that fit, at least 1 and at most
-    /// [`MAX_VISIBLE_ROWS`].
+    /// The number of lines that fit, at least 1 and at most
+    /// [`MAX_VISIBLE_ROWS`]. With rows of one line, the rows that fit.
     pub fn visible_rows(&self) -> usize {
         ((self.rect.h / self.row_height_px) as usize).clamp(1, MAX_VISIBLE_ROWS)
     }
@@ -123,7 +188,7 @@ impl List {
     pub fn handle(&mut self, action: UiAction, len: usize) -> ListEvent {
         self.settle(len);
         let last = len.saturating_sub(1);
-        let page = self.visible_rows();
+        let page = self.page();
         let target = match action {
             UiAction::Up => self.cursor.saturating_sub(1),
             UiAction::Down => self.cursor.saturating_add(1).min(last),
@@ -150,118 +215,233 @@ impl List {
         len: usize,
         item: impl Fn(usize) -> ListItem<'a>,
     ) {
-        let (cursor, top) = self.window(len);
-        let rows = self.visible_rows();
-        let scrolls = self.scrolls(len);
-        for index in top..len.min(top.saturating_add(rows)) {
-            let row = self.row_rect(index - top, scrolls);
-            let entry = item(index);
-            let focused = index == cursor;
-            let color = if focused && !entry.enabled {
-                frame.scene.rect(row, theme.colors.border);
-                theme.colors.text
-            } else if focused {
-                frame.scene.rect(row, theme.colors.focus);
-                theme.colors.focus_text
-            } else if entry.enabled {
-                theme.colors.text
+        let lines = |i: usize, scrolls: bool| self.item_lines(theme, &item(i), scrolls);
+        let view = self.view(len, &lines);
+        let mut shown = 0;
+        for (index, row, row_lines) in self.rows(len, view, &lines) {
+            self.draw_row(
+                frame,
+                theme,
+                row,
+                row_lines,
+                &item(index),
+                index == view.cursor,
+            );
+            shown += 1;
+        }
+        self.finish(frame, theme, len, view, shown);
+    }
+
+    /// The rows in view of a list of `len` rows, whose row `i` has
+    /// `lines(i, scrolls)` lines. The first visible row moves down until
+    /// the focused row fits whole.
+    pub(super) fn view(&self, len: usize, lines: &impl Fn(usize, bool) -> u32) -> View {
+        let capacity = self.visible_rows();
+        let cursor = self.cursor.min(len.saturating_sub(1));
+        let scrolls = len > capacity
+            || (self.tall_rows
+                && (0..len).map(|i| lines(i, false) as usize).sum::<usize>() > capacity);
+        let top = self.top.get().min(cursor);
+        let mut first = cursor;
+        let mut used = (lines(cursor, scrolls) as usize).min(capacity);
+        while first > top {
+            let above = lines(first - 1, scrolls) as usize;
+            if used + above > capacity {
+                break;
+            }
+            used += above;
+            first -= 1;
+        }
+        View {
+            cursor,
+            top: first,
+            scrolls,
+        }
+    }
+
+    /// The visible rows of `view`: the index, the rectangle and the lines
+    /// of each. A row that does not fit whole under the others is not in
+    /// view; the first row always is, cut to the box.
+    pub(super) fn rows<'l>(
+        &'l self,
+        len: usize,
+        view: View,
+        lines: &'l impl Fn(usize, bool) -> u32,
+    ) -> impl Iterator<Item = (usize, Rect, u32)> + 'l {
+        let capacity = self.visible_rows();
+        let mut used = 0usize;
+        (view.top..len).map_while(move |index| {
+            let mut row_lines = lines(index, view.scrolls).max(1) as usize;
+            if index == view.top {
+                row_lines = row_lines.min(capacity);
+            }
+            if used + row_lines > capacity {
+                return None;
+            }
+            let row = self.row_rect(used, row_lines, view.scrolls);
+            used += row_lines;
+            Some((index, row, to_u32(row_lines)))
+        })
+    }
+
+    /// Keeps the window of the last draw and draws the scroll bar.
+    pub(super) fn finish(
+        &self,
+        frame: &mut UiFrame,
+        theme: &Theme,
+        len: usize,
+        view: View,
+        shown: usize,
+    ) {
+        self.top.set(view.top);
+        self.shown.set(shown);
+        if view.scrolls {
+            let rows = if self.tall_rows {
+                shown
+            } else {
+                self.visible_rows()
+            };
+            self.draw_scrollbar(frame, theme, len, view.top, rows);
+        }
+    }
+
+    /// The lines of `entry` in this list: two when its label wraps.
+    fn item_lines(&self, theme: &Theme, entry: &ListItem<'_>, scrolls: bool) -> u32 {
+        if self.labels != LabelRule::Wrap {
+            return 1;
+        }
+        let row = self.row_rect(0, 1, scrolls);
+        let label_w = Columns::of(row, theme, entry).label.w;
+        if font::text_width(entry.label) > label_w {
+            MAX_ROW_LINES
+        } else {
+            1
+        }
+    }
+
+    fn draw_row(
+        &self,
+        frame: &mut UiFrame,
+        theme: &Theme,
+        row: Rect,
+        lines: u32,
+        entry: &ListItem<'_>,
+        focused: bool,
+    ) {
+        let color = if focused && !entry.enabled {
+            frame.scene.rect(row, theme.colors.border);
+            theme.colors.text
+        } else if focused {
+            frame.scene.rect(row, theme.colors.focus);
+            theme.colors.focus_text
+        } else if entry.enabled {
+            theme.colors.text
+        } else {
+            theme.colors.text_dim
+        };
+        let first = Rect::new(row.x, row.y, row.w, self.row_height_px.min(row.h));
+        let columns = Columns::of(first, theme, entry);
+        if columns.arrow {
+            let arrow_color = if focused {
+                color
             } else {
                 theme.colors.text_dim
             };
-            let padded = Rect::new(
-                add(row.x, theme.padding_px()),
-                row.y,
-                row.w.saturating_sub(2 * theme.padding_px()),
-                row.h,
-            );
-            let arrow = entry.enabled && entry.kind == RowKind::Page;
-            let inner = if arrow {
-                let arrow_color = if focused {
-                    color
-                } else {
-                    theme.colors.text_dim
-                };
-                draw_arrow(&mut frame.scene, padded, arrow_color);
-                Rect::new(
-                    padded.x,
-                    padded.y,
-                    padded.w.saturating_sub(ARROW_COLUMN_PX),
-                    padded.h,
-                )
+            draw_arrow(&mut frame.scene, columns.padded, arrow_color);
+        }
+        if let Some(detail) = entry.detail {
+            let detail_color = if focused {
+                color
+            } else if entry.enabled && entry.accent_detail {
+                theme.colors.accent
             } else {
-                padded
+                theme.colors.text_dim
             };
-            let detail_w = entry
-                .detail
-                .map_or(0, |d| crate::font::text_width(d).min(inner.w / 2));
-            if let Some(detail) = entry.detail {
-                let at = Rect::new(add(inner.x, inner.w - detail_w), inner.y, detail_w, inner.h);
-                let detail_color = if focused {
-                    color
-                } else if entry.enabled && entry.accent_detail {
-                    theme.colors.accent
-                } else {
-                    theme.colors.text_dim
-                };
-                text::draw_in(&mut frame.scene, at, Align::Right, detail_color, detail);
+            text::draw_in(
+                &mut frame.scene,
+                columns.detail,
+                Align::Right,
+                detail_color,
+                detail,
+            );
+        }
+        let clipped = match self.labels {
+            LabelRule::Cut => text::draw_in(
+                &mut frame.scene,
+                columns.label,
+                Align::Left,
+                color,
+                entry.label,
+            ),
+            LabelRule::Shorten => {
+                text::draw_short(
+                    &mut frame.scene,
+                    columns.label,
+                    Align::Left,
+                    color,
+                    entry.label,
+                );
+                false
             }
-            let gap = if detail_w > 0 {
-                crate::font::ADVANCE
+            LabelRule::Wrap => draw_wrapped(
+                frame,
+                columns.label,
+                lines,
+                self.row_height_px,
+                color,
+                entry.label,
+            ),
+        };
+        frame.tree.push(TreeRow {
+            widget: WidgetKind::List,
+            kind: Some(if entry.enabled {
+                entry.kind
             } else {
-                0
-            };
-            let label_box = Rect::new(
-                inner.x,
-                inner.y,
-                inner.w.saturating_sub(detail_w + gap),
-                inner.h,
-            );
-            let clipped =
-                text::draw_in(&mut frame.scene, label_box, Align::Left, color, entry.label);
-            frame.tree.push(TreeRow {
-                widget: WidgetKind::List,
-                kind: Some(if entry.enabled {
-                    entry.kind
-                } else {
-                    RowKind::Disabled
-                }),
-                label: entry.label,
-                value: entry.detail,
-                source: None,
-                rect: row,
-                focused,
-                clipped,
-            });
-        }
-        if scrolls {
-            self.draw_scrollbar(frame, theme, len, top);
+                RowKind::Disabled
+            }),
+            label: entry.label,
+            value: entry.detail,
+            source: None,
+            rect: row,
+            focused,
+            clipped,
+        });
+    }
+
+    fn page(&self) -> usize {
+        match self.shown.get() {
+            shown if self.tall_rows && shown > 0 => shown,
+            _ => self.visible_rows(),
         }
     }
 
-    pub(super) fn scrolls(&self, len: usize) -> bool {
-        len > self.visible_rows()
-    }
-
-    pub(super) fn row_rect(&self, slot: usize, scrolls: bool) -> Rect {
+    /// The rectangle of a row of `lines` lines that starts `slot` lines
+    /// below the top of the list.
+    pub(super) fn row_rect(&self, slot: usize, lines: usize, scrolls: bool) -> Rect {
         let bar = if scrolls { SCROLLBAR_WIDTH_PX } else { 0 };
         let offset = to_u32(slot).saturating_mul(self.row_height_px);
         Rect::new(
             self.rect.x,
             add(self.rect.y, offset),
             self.rect.w.saturating_sub(bar),
-            self.row_height_px,
+            to_u32(lines).saturating_mul(self.row_height_px),
         )
     }
 
-    pub(super) fn draw_scrollbar(
+    /// The height of one line, in pixels.
+    pub(super) fn line_px(&self) -> u32 {
+        self.row_height_px
+    }
+
+    fn draw_scrollbar(
         &self,
         frame: &mut UiFrame,
         theme: &Theme,
         len: usize,
         top: usize,
+        rows: usize,
     ) {
-        let rows = self.visible_rows();
-        let track_h = to_u32(rows)
+        let track_h = to_u32(self.visible_rows())
             .saturating_mul(self.row_height_px)
             .min(self.rect.h);
         let x = add(
@@ -283,18 +463,96 @@ impl List {
     }
 
     fn settle(&mut self, len: usize) {
-        (self.cursor, self.top) = self.window(len);
+        let view = self.view(len, &|_, _| 1);
+        self.cursor = view.cursor;
+        self.top.set(view.top);
     }
+}
 
-    pub(super) fn window(&self, len: usize) -> (usize, usize) {
-        let rows = self.visible_rows();
-        let cursor = self.cursor.min(len.saturating_sub(1));
-        let mut top = self.top.min(cursor);
-        if cursor >= top.saturating_add(rows) {
-            top = cursor - (rows - 1);
+/// The columns of the first line of a row: the row less its padding, the
+/// arrow, the detail and the label.
+struct Columns {
+    padded: Rect,
+    arrow: bool,
+    detail: Rect,
+    label: Rect,
+}
+
+impl Columns {
+    fn of(row: Rect, theme: &Theme, entry: &ListItem<'_>) -> Self {
+        let padded = Rect::new(
+            add(row.x, theme.padding_px()),
+            row.y,
+            row.w.saturating_sub(2 * theme.padding_px()),
+            row.h,
+        );
+        let arrow = entry.enabled && entry.kind == RowKind::Page;
+        let inner = if arrow {
+            Rect::new(
+                padded.x,
+                padded.y,
+                padded.w.saturating_sub(ARROW_COLUMN_PX),
+                padded.h,
+            )
+        } else {
+            padded
+        };
+        let detail_w = entry
+            .detail
+            .map_or(0, |d| font::text_width(d).min(inner.w / 2));
+        let detail = Rect::new(add(inner.x, inner.w - detail_w), inner.y, detail_w, inner.h);
+        let gap = if detail_w > 0 { font::ADVANCE } else { 0 };
+        let label = Rect::new(
+            inner.x,
+            inner.y,
+            inner.w.saturating_sub(detail_w + gap),
+            inner.h,
+        );
+        Self {
+            padded,
+            arrow,
+            detail,
+            label,
         }
-        (cursor, top)
     }
+}
+
+/// Draws `label` on up to `lines` lines of `line_px` from `first`, the box
+/// of the label on the first line. Text left after the last line is
+/// shortened with an ellipsis there. Returns true when text was cut.
+pub(super) fn draw_wrapped(
+    frame: &mut UiFrame,
+    first: Rect,
+    lines: u32,
+    line_px: u32,
+    color: crate::geom::Color,
+    label: &str,
+) -> bool {
+    let mut parts = text::wrap(label, first.w);
+    for line in 0..lines.max(1) {
+        let rect = Rect::new(
+            first.x,
+            add(first.y, line.saturating_mul(line_px)),
+            first.w,
+            first.h,
+        );
+        let Some(part) = parts.next() else {
+            return false;
+        };
+        if line + 1 == lines.max(1) {
+            let rest = label.get(offset_in(label, part)..).unwrap_or(part);
+            return text::draw_in(&mut frame.scene, rect, Align::Left, color, rest.trim_end());
+        }
+        text::draw_in(&mut frame.scene, rect, Align::Left, color, part);
+    }
+    false
+}
+
+/// The byte offset of `part`, a slice of `text`, in `text`.
+fn offset_in(text: &str, part: &str) -> usize {
+    (part.as_ptr() as usize)
+        .saturating_sub(text.as_ptr() as usize)
+        .min(text.len())
 }
 
 #[cfg(test)]
@@ -494,5 +752,119 @@ mod tests {
             ListItem::new("A very long game title")
         });
         assert!(frame.tree.focused().expect("one row").clipped);
+    }
+
+    fn texts(frame: &UiFrame) -> Vec<(i32, i32, &str)> {
+        frame
+            .scene
+            .commands()
+            .iter()
+            .filter_map(|c| match *c {
+                crate::DrawCommand::Text { x, y, span, .. } => Some((x, y, frame.scene.text(span))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn wrapping(h: u32) -> List {
+        List::new(Rect::new(0, 0, 96, h), 12).with_labels(LabelRule::Wrap)
+    }
+
+    #[test]
+    fn a_label_that_does_not_fit_wraps_to_a_second_line() {
+        let l = wrapping(48);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), 2, |i| ListItem {
+            detail: Some("12"),
+            ..ListItem::page(["Nintendo System", "Mega Drive"][i])
+        });
+        let rows: Vec<_> = frame.tree.rows().map(|r| (r.rect, r.clipped)).collect();
+        assert_eq!(
+            rows,
+            [
+                (Rect::new(0, 0, 96, 24), false),
+                (Rect::new(0, 24, 96, 12), false)
+            ]
+        );
+        let t = texts(&frame);
+        assert!(t.contains(&(4, 0, "Nintendo")), "{t:?}");
+        assert!(t.contains(&(4, 12, "System")), "{t:?}");
+        assert!(t.contains(&(4, 24, "Mega Drive")), "{t:?}");
+    }
+
+    #[test]
+    fn a_label_of_more_than_two_lines_is_cut_on_the_second() {
+        let l = wrapping(48);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), 1, |_| {
+            ListItem::new("one two three four five six seven")
+        });
+        assert!(frame.tree.focused().expect("one row").clipped);
+        let t = texts(&frame);
+        assert_eq!(t.first(), Some(&(4, 0, "one two three")));
+        assert!(t.iter().any(|&(_, y, s)| y == 12 && s == "..."), "{t:?}");
+    }
+
+    #[test]
+    fn the_window_keeps_a_focused_row_of_two_lines_whole() {
+        let labels = ["a", "long long long long", "b", "long long long long", "c"];
+        let mut l = wrapping(48);
+        let theme = Theme::default();
+        let draw = |l: &List| {
+            let mut frame = UiFrame::new();
+            l.draw(&mut frame, &theme, labels.len(), |i| {
+                ListItem::new(labels[i])
+            });
+            frame
+        };
+        l.select(3, labels.len());
+        let frame = draw(&l);
+        assert_eq!(l.top(), 2);
+        let focused = frame.tree.focused().expect("focus");
+        assert_eq!(focused.label, "long long long long");
+        assert!(l.rect().contains(&focused.rect), "{:?}", focused.rect);
+        assert!(!focused.clipped);
+        l.handle(UiAction::Up, labels.len());
+        draw(&l);
+        assert_eq!((l.cursor(), l.top()), (2, 2), "the window stays");
+        l.handle(UiAction::Up, labels.len());
+        draw(&l);
+        assert_eq!((l.cursor(), l.top()), (1, 1));
+    }
+
+    #[test]
+    fn a_page_of_rows_of_two_lines_is_the_rows_shown() {
+        let mut l = wrapping(48);
+        let theme = Theme::default();
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &theme, 10, |_| {
+            ListItem::new("long long long long")
+        });
+        assert_eq!(frame.tree.rows().len(), 2);
+        assert_eq!(l.handle(UiAction::Right, 10), ListEvent::Moved);
+        assert_eq!(l.cursor(), 2);
+    }
+
+    #[test]
+    fn rows_that_fit_in_number_but_not_in_lines_scroll() {
+        let l = wrapping(48);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), 3, |_| {
+            ListItem::new("long long long long")
+        });
+        let rows: Vec<_> = frame.tree.rows().map(|r| r.rect.w).collect();
+        assert_eq!(rows, [96 - SCROLLBAR_WIDTH_PX, 96 - SCROLLBAR_WIDTH_PX]);
+    }
+
+    #[test]
+    fn a_shortened_label_is_not_reported_as_clipped() {
+        let l = List::new(Rect::new(0, 0, 60, 12), 12).with_labels(LabelRule::Shorten);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), 1, |_| {
+            ListItem::new("A very long game title")
+        });
+        let row = frame.tree.focused().expect("one row");
+        assert!(!row.clipped);
+        assert_eq!(row.rect.h, 12);
     }
 }

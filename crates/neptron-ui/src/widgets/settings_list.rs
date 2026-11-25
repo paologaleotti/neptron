@@ -3,12 +3,13 @@ use crate::frame::UiFrame;
 use crate::geom::Rect;
 use crate::input::UiAction;
 use crate::intent::{Intent, Value};
+use crate::metrics::RowShape;
 use crate::snapshot::{ChoiceOption, Level, MenuItem, SettingValue};
 use crate::text::{self, Align, StackText};
 use crate::theme::Theme;
 use crate::tree::{RowKind, TreeRow, WidgetKind};
 
-use super::list::{List, ListEvent};
+use super::list::{List, ListEvent, MAX_ROW_LINES, draw_wrapped};
 use super::{ARROW_COLUMN_PX, add, draw_arrow, step_value};
 
 /// What one action did to a [`SettingsList`].
@@ -52,10 +53,11 @@ pub const HINT_CHOOSE: &str = "Accept: choose";
 /// A list made with [`SettingsList::with_pickers`] never changes a choice
 /// in place: accept on a choice row gives [`SettingsEvent::Pick`], so the
 /// screen can show every option with its detail before one applies.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettingsList {
     list: List,
     pickers: bool,
+    shape: RowShape,
 }
 
 /// The short name of a level, as the source column shows it.
@@ -68,16 +70,31 @@ pub fn source_label(level: Level) -> &'static str {
     }
 }
 
-const VALUE_CHARS: usize = 14;
-const SOURCE_CHARS: usize = 7;
+/// Width of the value column of a row of one line, in characters.
+pub(crate) const VALUE_CHARS: usize = 14;
+/// Width of the source column, in characters.
+pub(crate) const SOURCE_CHARS: usize = 7;
+/// The characters of a row of one line right of its label: the source, a
+/// space, the value between its two arrows, and a space before them.
+pub(crate) const COLUMNS_CHARS: usize = SOURCE_CHARS + 1 + VALUE_CHARS + 2 + 1;
+/// The indent of the source on the second line of a stacked row, in
+/// characters.
+const STACKED_INDENT_CHARS: usize = 2;
 
 impl SettingsList {
     /// A settings list in `rect` with rows of `row_height_px`.
     pub fn new(rect: Rect, row_height_px: u32) -> Self {
         Self {
-            list: List::new(rect, row_height_px),
+            list: List::new(rect, row_height_px).with_tall_rows(),
             pickers: false,
+            shape: RowShape::OneLine,
         }
+    }
+
+    /// The same list with rows of `shape`.
+    pub fn with_shape(mut self, shape: RowShape) -> Self {
+        self.shape = shape;
+        self
     }
 
     /// The same list, in which accept on a choice row gives
@@ -168,22 +185,232 @@ impl SettingsList {
     /// Draws the visible rows.
     pub fn draw(&self, frame: &mut UiFrame, theme: &Theme, items: &[MenuItem]) {
         let len = items.len();
-        let (cursor, top) = self.list.window(len);
-        let scrolls = self.list.scrolls(len);
-        let rows = self.list.visible_rows();
-        for (slot, (index, item)) in items.iter().enumerate().skip(top).take(rows).enumerate() {
-            let row = self.list.row_rect(slot, scrolls);
-            let focused = index == cursor;
-            let kind = self.kind(item);
-            draw_row(frame, theme, row, item, kind, focused);
+        let lines = |i: usize, scrolls: bool| {
+            items
+                .get(i)
+                .map_or(1, |item| self.item_lines(theme, item, scrolls))
+        };
+        let view = self.list.view(len, &lines);
+        let line_px = self.list.line_px();
+        let mut shown = 0;
+        for (index, row, row_lines) in self.list.rows(len, view, &lines) {
+            if let Some(item) = items.get(index) {
+                let focused = index == view.cursor;
+                let kind = self.kind(item);
+                if row_lines > 1 {
+                    draw_tall_row(frame, theme, row, line_px, item, kind, focused);
+                } else {
+                    draw_row(frame, theme, row, item, kind, focused);
+                }
+            }
+            shown += 1;
         }
-        if scrolls {
-            self.list.draw_scrollbar(frame, theme, len, top);
-        }
+        self.list.finish(frame, theme, len, view, shown);
+    }
+
+    /// The lines of `item`: two for a stacked row, and for a row whose
+    /// label, or label and text, do not fit one line.
+    fn item_lines(&self, theme: &Theme, item: &MenuItem, scrolls: bool) -> u32 {
+        let row = self.list.row_rect(0, 1, scrolls);
+        let (padded, inner) = columns(row, theme);
+        let fits = |text: &str, room: Rect| {
+            let need = if text.is_empty() {
+                font::text_width(&item.label)
+            } else {
+                font::text_width(&item.label)
+                    .saturating_add(font::ADVANCE)
+                    .saturating_add(font::text_width(text))
+            };
+            need <= room.w
+        };
+        let one_line = match (&item.value, &item.unavailable) {
+            (SettingValue::Text(text), None) => fits(text, padded),
+            (SettingValue::Link { text, .. }, None) => fits(text, inner),
+            (SettingValue::Action(_) | SettingValue::Page(_), None) => fits("", inner),
+            _ => self.shape == RowShape::OneLine,
+        };
+        if one_line { 1 } else { MAX_ROW_LINES }
     }
 
     fn picks(&self, item: &MenuItem) -> bool {
         self.pickers && matches!(item.value, SettingValue::Choice { .. })
+    }
+}
+
+/// A row without its padding, and that less the arrow column.
+fn columns(row: Rect, theme: &Theme) -> (Rect, Rect) {
+    let padded = Rect::new(
+        add(row.x, theme.padding_px()),
+        row.y,
+        row.w.saturating_sub(2 * theme.padding_px()),
+        row.h,
+    );
+    let inner = Rect::new(
+        padded.x,
+        padded.y,
+        padded.w.saturating_sub(ARROW_COLUMN_PX),
+        padded.h,
+    );
+    (padded, inner)
+}
+
+/// Draws a row of two lines. A row with a value, and a row that is not
+/// available, is stacked: the label on the first line, then the source
+/// and the value, or the reason, on the second. An information row or a
+/// link puts its text on the second line. Any other row wraps its label.
+fn draw_tall_row(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    row: Rect,
+    line_px: u32,
+    item: &MenuItem,
+    kind: RowKind,
+    focused: bool,
+) {
+    let (color, dim) = row_colors(frame, theme, row, item, kind, focused);
+    let first = Rect::new(row.x, row.y, row.w, line_px);
+    let second = Rect::new(row.x, add(row.y, line_px), row.w, line_px);
+    let (_, inner1) = columns(first, theme);
+    let (padded2, inner2) = columns(second, theme);
+    let indent = font::char_count_width(STACKED_INDENT_CHARS);
+    let after_indent = |r: Rect| Rect::new(add(r.x, indent), r.y, r.w.saturating_sub(indent), r.h);
+    let label = |frame: &mut UiFrame, color| {
+        text::draw_in(&mut frame.scene, inner1, Align::Left, color, &item.label)
+    };
+    let arrow = |frame: &mut UiFrame, line: Rect| {
+        if kind == RowKind::Page {
+            let (padded, _) = columns(line, theme);
+            draw_arrow(&mut frame.scene, padded, if focused { color } else { dim });
+        }
+    };
+    if let Some(reason) = &item.unavailable {
+        let label_clipped = label(frame, dim);
+        let reason_box = after_indent(padded2);
+        let reason_clipped = text::draw_in(&mut frame.scene, reason_box, Align::Right, dim, reason);
+        let clipped = label_clipped || reason_clipped;
+        push(frame, item, kind, row, Some(reason), focused, clipped);
+        return;
+    }
+    match &item.value {
+        SettingValue::Text(text) | SettingValue::Link { text, .. } => {
+            let label_clipped = label(frame, color);
+            let room = if kind == RowKind::Info {
+                padded2
+            } else {
+                inner2
+            };
+            arrow(frame, second);
+            let text_clipped = text::draw_in(
+                &mut frame.scene,
+                after_indent(room),
+                Align::Right,
+                color,
+                text,
+            );
+            push(
+                frame,
+                item,
+                kind,
+                row,
+                Some(text),
+                focused,
+                label_clipped || text_clipped,
+            );
+        }
+        SettingValue::Action(_) | SettingValue::Page(_) => {
+            arrow(frame, first);
+            let clipped = draw_wrapped(frame, inner1, MAX_ROW_LINES, line_px, color, &item.label);
+            push(frame, item, kind, row, None, focused, clipped);
+        }
+        SettingValue::Toggle(_) | SettingValue::Number { .. } | SettingValue::Choice { .. } => {
+            let label_clipped = label(frame, color);
+            arrow(frame, second);
+            let source_w = font::char_count_width(SOURCE_CHARS);
+            let source_box = Rect::new(add(inner2.x, indent), second.y, source_w, line_px);
+            text::draw_in(
+                &mut frame.scene,
+                source_box,
+                Align::Left,
+                source_color(theme, item, focused, color, dim),
+                source_label(item.source),
+            );
+            let advance = font::ADVANCE;
+            let arrows = focused && kind == RowKind::Value;
+            let arrow_w = if arrows { advance } else { 0 };
+            let value_x = indent + source_w + advance;
+            let value_box = Rect::new(
+                add(inner2.x, value_x),
+                second.y,
+                inner2.w.saturating_sub(value_x + arrow_w),
+                line_px,
+            );
+            let mut buf = StackText::<32>::new();
+            let value = text::value_text(&item.value, &mut buf);
+            let value_clipped =
+                text::draw_in(&mut frame.scene, value_box, Align::Right, color, value);
+            if arrows {
+                let value_w = font::text_width(value).min(value_box.w);
+                let right = Rect::new(add(value_box.x, value_box.w), second.y, advance, line_px);
+                let left = Rect::new(
+                    add(value_box.x, value_box.w.saturating_sub(value_w + advance)),
+                    second.y,
+                    advance,
+                    line_px,
+                );
+                text::draw_in(&mut frame.scene, left, Align::Left, color, "<");
+                text::draw_in(&mut frame.scene, right, Align::Left, color, ">");
+            }
+            push(
+                frame,
+                item,
+                kind,
+                row,
+                Some(value),
+                focused,
+                label_clipped || value_clipped,
+            );
+        }
+    }
+}
+
+/// Fills the bar of a focused row and gives the colours of its text and
+/// of its dim text.
+fn row_colors(
+    frame: &mut UiFrame,
+    theme: &Theme,
+    row: Rect,
+    item: &MenuItem,
+    kind: RowKind,
+    focused: bool,
+) -> (crate::geom::Color, crate::geom::Color) {
+    if focused && (!item.is_enabled() || kind == RowKind::Info) {
+        // The look of a focused option that cannot be chosen (`List`): a
+        // solid bar, which a scanline cannot hide as it can a thin edge.
+        frame.scene.rect(row, theme.colors.border);
+        (theme.colors.text, theme.colors.text)
+    } else if focused {
+        frame.scene.rect(row, theme.colors.focus);
+        (theme.colors.focus_text, theme.colors.focus_text)
+    } else {
+        (theme.colors.text, theme.colors.text_dim)
+    }
+}
+
+/// The colour of the source: dim for a default, else the accent colour,
+/// or the text colour of a focused row.
+fn source_color(
+    theme: &Theme,
+    item: &MenuItem,
+    focused: bool,
+    color: crate::geom::Color,
+    dim: crate::geom::Color,
+) -> crate::geom::Color {
+    if item.source == Level::Default {
+        dim
+    } else if focused {
+        color
+    } else {
+        theme.colors.accent
     }
 }
 
@@ -196,33 +423,12 @@ fn draw_row(
     focused: bool,
 ) {
     let arrows = focused && kind == RowKind::Value;
-    let (color, dim) = if focused && (!item.is_enabled() || kind == RowKind::Info) {
-        // The look of a focused option that cannot be chosen (`List`): a
-        // solid bar, which a scanline cannot hide as it can a thin edge.
-        frame.scene.rect(row, theme.colors.border);
-        (theme.colors.text, theme.colors.text)
-    } else if focused {
-        frame.scene.rect(row, theme.colors.focus);
-        (theme.colors.focus_text, theme.colors.focus_text)
-    } else {
-        (theme.colors.text, theme.colors.text_dim)
-    };
-    let padded = Rect::new(
-        add(row.x, theme.padding_px()),
-        row.y,
-        row.w.saturating_sub(2 * theme.padding_px()),
-        row.h,
-    );
+    let (color, dim) = row_colors(frame, theme, row, item, kind, focused);
+    let (padded, inner) = columns(row, theme);
     if kind == RowKind::Page {
         let arrow_color = if focused { color } else { dim };
         draw_arrow(&mut frame.scene, padded, arrow_color);
     }
-    let inner = Rect::new(
-        padded.x,
-        padded.y,
-        padded.w.saturating_sub(ARROW_COLUMN_PX),
-        padded.h,
-    );
     if let (SettingValue::Text(text), None) = (&item.value, &item.unavailable) {
         draw_info(frame, row, padded, item, text, color, focused);
         return;
@@ -267,18 +473,11 @@ fn draw_row(
     }
     let source_x = add(inner.x, inner.w.saturating_sub(source_w));
     let source_box = Rect::new(source_x, row.y, source_w, row.h);
-    let source_color = if item.source == Level::Default {
-        dim
-    } else if focused {
-        color
-    } else {
-        theme.colors.accent
-    };
     text::draw_in(
         &mut frame.scene,
         source_box,
         Align::Right,
-        source_color,
+        source_color(theme, item, focused, color, dim),
         source_label(item.source),
     );
 
@@ -856,7 +1055,7 @@ mod tests {
         at(&mut l, 1);
         let mut frame = UiFrame::new();
         l.draw(&mut frame, &theme, &items);
-        let row = l.list.row_rect(1, false);
+        let row = l.list.row_rect(1, 1, false);
         let fills: Vec<_> = frame
             .scene
             .commands()
@@ -1192,7 +1391,7 @@ mod tests {
             .collect();
         assert_eq!(
             fills,
-            [(l.list.row_rect(1, false), theme.colors.border)],
+            [(l.list.row_rect(1, 1, false), theme.colors.border)],
             "the focus bar of a row that cannot act, and no arrow"
         );
     }
@@ -1217,5 +1416,93 @@ mod tests {
             })
             .collect();
         assert!(texts.contains(&crate::text::ELLIPSIS), "{texts:?}");
+    }
+
+    fn texts(frame: &UiFrame) -> Vec<(i32, i32, &str)> {
+        frame
+            .scene
+            .commands()
+            .iter()
+            .filter_map(|c| match *c {
+                crate::DrawCommand::Text { x, y, span, .. } => Some((x, y, frame.scene.text(span))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_stacked_row_puts_the_source_and_the_value_under_the_label() {
+        let l = SettingsList::new(Rect::new(12, 0, 212, 120), 12).with_shape(RowShape::Stacked);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), &items());
+        let rows: Vec<_> = frame.tree.rows().map(|r| (r.label, r.rect.h)).collect();
+        assert_eq!(
+            rows,
+            [
+                ("Setting 1", 24),
+                ("Setting 2", 24),
+                ("Setting 3", 24),
+                ("Setting 4", 12)
+            ]
+        );
+        let t = texts(&frame);
+        let line = |text: &str| {
+            t.iter()
+                .find(|(_, _, s)| *s == text)
+                .map(|&(x, y, _)| (x, y))
+        };
+        assert_eq!(line("Setting 1"), Some((16, 0)));
+        assert_eq!(line("default"), Some((16 + 12, 12)), "the source, indented");
+        let (x, y) = line("Off").expect("the value");
+        assert_eq!(y, 12);
+        assert_eq!(
+            x + 18,
+            12 + 212 - 4 - ARROW_COLUMN_PX as i32 - 6,
+            "right of it: >"
+        );
+        assert!(
+            t.contains(&(x - 6, 12, "<")) && t.contains(&(x + 18, 12, ">")),
+            "{t:?}"
+        );
+        assert!(frame.tree.rows().all(|r| !r.clipped));
+    }
+
+    #[test]
+    fn a_stacked_row_that_is_not_available_shows_its_reason_under_the_label() {
+        let mut items = items();
+        items[0].unavailable = Some("Not used on a flat panel".into());
+        let l = SettingsList::new(Rect::new(12, 0, 212, 120), 12).with_shape(RowShape::Stacked);
+        let mut frame = UiFrame::new();
+        l.draw(&mut frame, &Theme::default(), &items);
+        let t = texts(&frame);
+        let reason = t
+            .iter()
+            .find(|(_, _, s)| *s == "Not used on a flat panel")
+            .expect("the reason");
+        assert_eq!(reason.1, 12);
+        assert_eq!(
+            reason.0 + 24 * 6,
+            12 + 212 - 4,
+            "right-aligned to the padding"
+        );
+        assert!(!frame.tree.rows().any(|r| r.clipped));
+    }
+
+    #[test]
+    fn an_information_row_too_long_for_one_line_takes_two() {
+        let mut row = item(
+            1,
+            SettingValue::Text("None (no cable or no network)".into()),
+            Level::Default,
+        );
+        row.label = "Address".into();
+        let one = SettingsList::new(Rect::new(16, 0, 284, 48), 12);
+        let narrow = SettingsList::new(Rect::new(12, 0, 212, 48), 12);
+        for (list, height) in [(one, 12), (narrow, 24)] {
+            let mut frame = UiFrame::new();
+            list.draw(&mut frame, &Theme::default(), std::slice::from_ref(&row));
+            let drawn = frame.tree.focused().expect("one row");
+            assert_eq!((drawn.rect.h, drawn.clipped), (height, false));
+        }
     }
 }

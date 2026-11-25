@@ -36,7 +36,7 @@ pub use frame::UiFrame;
 pub use geom::{Color, Rect};
 pub use input::UiAction;
 pub use intent::{Intent, Value};
-pub use metrics::{Form, Metrics, Size, SizeError};
+pub use metrics::{Form, Metrics, RowShape, Size, SizeError};
 pub use painted::SceneCanvas;
 pub use scene::{DrawCommand, TextSpan, UiScene};
 pub use snapshot::Snapshot;

@@ -9,12 +9,14 @@
 mod dialog;
 mod grid;
 mod list;
-mod settings_list;
+pub(crate) mod settings_list;
 mod slider;
 
 pub use dialog::{Dialog, DialogContent, DialogEvent, DialogTone};
 pub use grid::{Grid, GridCell, GridEvent, MAX_COLUMNS};
-pub use list::{List, ListEvent, ListItem, MAX_VISIBLE_ROWS, SCROLLBAR_WIDTH_PX};
+pub use list::{
+    LabelRule, List, ListEvent, ListItem, MAX_ROW_LINES, MAX_VISIBLE_ROWS, SCROLLBAR_WIDTH_PX,
+};
 pub use settings_list::{
     HINT_CHANGE, HINT_CHOOSE, HINT_OPEN, HINT_STEP, SettingsEvent, SettingsList, source_label,
 };

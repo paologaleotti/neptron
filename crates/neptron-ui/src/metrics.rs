@@ -5,6 +5,8 @@
 use crate::font;
 use crate::geom::Rect;
 use crate::theme::Theme;
+use crate::widgets::settings_list;
+use crate::widgets::{ARROW_COLUMN_PX, SCROLLBAR_WIDTH_PX};
 
 /// The shape of the canvas. A closed set: each form has its goldens, and
 /// the layout rules are written from sizes, so a later form needs a new
@@ -39,6 +41,22 @@ pub enum SizeError {
     },
 }
 
+/// The shape of a settings row with a value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum RowShape {
+    /// One line: the label, then the value and the source in fixed
+    /// columns.
+    #[default]
+    OneLine,
+    /// Two lines: the label, then the source and the value under it. For a
+    /// line too narrow for a label column of [`LABEL_CHARS_MIN`].
+    Stacked,
+}
+
+/// The fewest characters of the label column of a settings row of one
+/// line. A narrower line stacks the row.
+pub const LABEL_CHARS_MIN: u32 = 18;
+
 /// The numbers of a layout, computed once from the form and the theme.
 /// Every rectangle is in canvas pixels and lies inside the canvas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +84,8 @@ pub struct Metrics {
     pub dialog: Rect,
     /// The characters on one line of a dialog message.
     pub dialog_chars: u32,
+    /// The shape of a settings row with a value.
+    pub settings_row: RowShape,
     /// The lines of the title box under the game list.
     pub game_title_lines: u32,
     /// The lines of the help box under an option list.
@@ -186,6 +206,16 @@ impl Metrics {
             safe.h,
         );
         let dialog_text_px = dialog_w.saturating_sub(2 * DIALOG_BORDER_PX + 2 * padding_px);
+        let label_px = box_text_px.saturating_sub(
+            ARROW_COLUMN_PX
+                + SCROLLBAR_WIDTH_PX
+                + font::char_count_width(settings_list::COLUMNS_CHARS),
+        );
+        let settings_row = if chars(label_px) >= LABEL_CHARS_MIN {
+            RowShape::OneLine
+        } else {
+            RowShape::Stacked
+        };
         let (game_title_lines, help_lines, video_lines) = match form {
             Form::Landscape => (2, 2, 5),
             Form::Portrait => (3, 4, 7),
@@ -202,6 +232,7 @@ impl Metrics {
             text_chars: chars(box_text_px),
             dialog,
             dialog_chars: chars(dialog_text_px),
+            settings_row,
             game_title_lines,
             help_lines,
             video_lines,
@@ -259,6 +290,7 @@ mod tests {
         assert_eq!(m.text_chars, 46);
         assert_eq!(m.dialog, Rect::new(48, 12, 224, 216));
         assert_eq!(m.dialog_chars, 35);
+        assert_eq!(m.settings_row, RowShape::OneLine);
         assert_eq!(m.game_title_lines, 2);
         assert_eq!(m.help_lines, 2);
         assert_eq!(m.video_lines, 5);
@@ -295,6 +327,7 @@ mod tests {
         assert_eq!(m.text_chars, 34);
         assert_eq!(m.dialog, Rect::new(12, 16, 216, 288));
         assert_eq!(m.dialog_chars, 34);
+        assert_eq!(m.settings_row, RowShape::Stacked);
         assert_eq!(m.game_title_lines, 3);
         assert_eq!(m.help_lines, 4);
         assert_eq!(m.video_lines, 7);
