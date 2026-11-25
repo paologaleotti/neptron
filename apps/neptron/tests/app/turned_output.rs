@@ -2,8 +2,9 @@
 //! the reference renderer of the fake display draws the scenes of the
 //! engine. One table drives every case: four display classes, the screen
 //! at 90, 180 and 270, and three scenes (the game list, a vertical game
-//! under the quick menu, a horizontal game). The game frames are patterns
-//! of the test core. At 0 the picture equals the picture of a run with no
+//! under the quick menu, a horizontal game). The game frames are the test
+//! card of the core: a border, a diagonal, a circle that is round on the
+//! glass, an arrow to the top and a marked top-left corner. At 0 the picture equals the picture of a run with no
 //! orientation setting.
 //!
 //! A missing or different golden fails, and the test writes the actual
@@ -57,10 +58,15 @@ const SCREENS: [Option<Rotation>; 5] = [
     Some(Rotation::R270),
 ];
 
-/// A 320x240 board turned by the core by `rotation` quarter turns: 1 is a
-/// vertical game, 0 a horizontal one.
+/// A 320x240 board turned by the core by `rotation` quarter turns, as
+/// FinalBurn Neo sends it: 1 is a vertical game (DoDonPachi: the aspect
+/// 3:4 of the upright picture), 0 a horizontal one (4:3). The frames are
+/// the test card of the core, so a picture shows its shape and its top.
 fn board(rotation: u32) -> String {
-    format!("neptron-testcore 1\ngeometry 320 240 1333\ntiming 57550 48000\nrotation {rotation}\n")
+    let aspect_milli = if rotation % 2 == 1 { 750 } else { 1333 };
+    format!(
+        "neptron-testcore 4\npattern shape\ngeometry 320 240 {aspect_milli}\ntiming 57550 48000\nrotation {rotation}\n"
+    )
 }
 
 /// A rig under `dir/<class>-<screen>` on `class`, with the screen
