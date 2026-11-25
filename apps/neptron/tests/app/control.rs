@@ -5,8 +5,8 @@ use std::sync::mpsc;
 
 use neptron::control::ControlServer;
 use neptron_ipc::{
-    Client, ClientError, Command, ErrorCode, Reply, SessionState, SettingsGetArgs, WaitArgs,
-    WaitCondition,
+    CanvasSize, Client, ClientError, Command, ErrorCode, Reply, SessionState, SettingsGetArgs,
+    WaitArgs, WaitCondition,
 };
 
 use crate::rig::Rig;
@@ -52,9 +52,20 @@ fn the_socket_serves_the_frame_thread() {
     rig.finish();
 
     assert!(matches!(hello, Reply::Hello(h) if h.server.starts_with("neptron")));
-    assert!(
-        matches!(tree, Reply::UiTree(t) if t.screen == "home"),
+    let Reply::UiTree(tree) = tree else {
+        panic!("ui_tree");
+    };
+    assert_eq!(
+        tree.screen, "home",
         "the game list: the safe default needs no boot prompt"
+    );
+    assert_eq!(
+        tree.canvas,
+        Some(CanvasSize {
+            width: 320,
+            height: 240
+        }),
+        "the bounds are in the landscape canvas"
     );
     assert!(matches!(state, Reply::SessionState(s) if s.state == SessionState::Idle));
     let Reply::SettingsGet(style) = style else {

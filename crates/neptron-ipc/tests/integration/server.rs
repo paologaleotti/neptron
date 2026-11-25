@@ -3,7 +3,7 @@
 use std::io::{self, BufRead, Read, Write};
 
 use neptron_ipc::{
-    Command, ErrorCode, MAX_REQUEST_LINE_BYTES, Reply, Request, Response, ServeError,
+    CanvasSize, Command, ErrorCode, MAX_REQUEST_LINE_BYTES, Reply, Request, Response, ServeError,
     decode_response, dispatch, encode_request, serve_lines,
 };
 
@@ -44,7 +44,7 @@ fn hello_names_the_protocol_and_the_server() {
     let Reply::Hello(hello) = reply else {
         panic!("{reply:?}")
     };
-    assert_eq!(hello.protocol, 3);
+    assert_eq!(hello.protocol, 4);
     assert_eq!(hello.server, "empty");
 }
 
@@ -215,13 +215,13 @@ fn a_write_failure_ends_the_connection_with_an_error() {
 #[test]
 fn a_hello_of_a_newer_client_learns_the_versions_the_server_speaks() {
     let responses = serve(
-        br#"{"v":4,"id":1,"cmd":"hello"}"#,
+        br#"{"v":5,"id":1,"cmd":"hello"}"#,
         &mut FixedHandler::default(),
     );
-    assert_eq!(responses[0].version, 3);
+    assert_eq!(responses[0].version, 4);
     let error = responses[0].outcome.as_ref().unwrap_err();
     assert_eq!(error.code, ErrorCode::UnsupportedVersion);
-    assert_eq!((error.min_version, error.max_version), (Some(1), Some(3)));
+    assert_eq!((error.min_version, error.max_version), (Some(1), Some(4)));
 }
 
 #[test]
@@ -268,6 +268,52 @@ fn a_field_of_a_later_version_is_not_sent_to_an_older_request() {
         panic!("{v3:?}");
     };
     assert_eq!((stats.late_frames, stats.late_flips), (Some(5), Some(2)));
+}
+
+fn tree_at(version: u32) -> Response {
+    let line = encode_request(&Request {
+        version,
+        id: 4,
+        command: Command::UiTree,
+    })
+    .unwrap();
+    let mut input = line;
+    input.push(b'\n');
+    serve(&input, &mut FixedHandler::default()).remove(0)
+}
+
+/// The canvas size came with version 4: a request of version 3 gets the
+/// tree with no `canvas` key.
+#[test]
+fn the_canvas_size_of_the_tree_comes_from_version_4() {
+    let v3 = tree_at(3);
+    let Ok(Reply::UiTree(tree)) = v3.outcome else {
+        panic!("{v3:?}");
+    };
+    assert_eq!(tree.canvas, None);
+    let v4 = tree_at(4);
+    let Ok(Reply::UiTree(tree)) = v4.outcome else {
+        panic!("{v4:?}");
+    };
+    assert_eq!(
+        tree.canvas,
+        Some(CanvasSize {
+            width: 240,
+            height: 320
+        })
+    );
+}
+
+/// A tree reply of a version 3 server, with no `canvas` key, still reads.
+#[test]
+fn an_older_tree_reply_reads() {
+    let line =
+        r#"{"v":3,"id":2,"reply":"ui_tree","data":{"screen":"home","focused":null,"rows":[]}}"#;
+    let response = decode_response(line.as_bytes()).unwrap();
+    let Ok(Reply::UiTree(tree)) = response.outcome else {
+        panic!("{response:?}");
+    };
+    assert_eq!(tree.canvas, None);
 }
 
 /// A stats reply of a version 1 server, with no `fields_missed` key, still

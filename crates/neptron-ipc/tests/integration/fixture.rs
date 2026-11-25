@@ -1,6 +1,7 @@
 //! A handler that serves every command from fixed data, for the server and
 //! socket tests.
 
+use neptron_ipc::CanvasSize;
 use neptron_ipc::{
     ClockStepArgs, ErrorBody, ErrorCode, FrameReached, Handler, InputQueued, InputScriptArgs,
     InputSendArgs, LogLines, LogTailArgs, Screenshot, ScreenshotArgs, ScriptQueued,
@@ -35,6 +36,10 @@ impl Handler for FixedHandler {
             screen: "home".into(),
             focused: None,
             rows: Vec::new(),
+            canvas: Some(CanvasSize {
+                width: 240,
+                height: 320,
+            }),
         })
     }
 

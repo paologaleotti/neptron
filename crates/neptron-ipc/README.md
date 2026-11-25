@@ -42,7 +42,7 @@ One JSON object per line, in UTF-8, ended by `\n`. A `\r` before the `\n` is rem
 | --- | --- | --- |
 | `hello` | none | `protocol`, `server` |
 | `screenshot` | `stage`: `ui`, `output` or `scanout` | `stage`, `width`, `height`, `png_base64` |
-| `ui_tree` | none | `screen`, `focused`, `rows` (`id`, `label`, `value`, `setting`, `source`, `clipped`, `bounds`) |
+| `ui_tree` | none | `screen`, `focused`, `rows` (`id`, `label`, `value`, `setting`, `source`, `clipped`, `bounds`, in canvas pixels); from version 4 also `canvas` (`width`, `height`) |
 | `input_send` | `port`, `control`, `value` | `frame` at which the change applies |
 | `input_script` | `events` (`frame`, `port`, `control`, `value`) | `start_frame`, `events` |
 | `clock_step` | `frames` | `frame` |
@@ -91,6 +91,7 @@ The protocol is append-only. A new version adds commands, reply fields, enum val
 | 1 | Everything above except what a later version adds |
 | 2 | `fields_missed` in `stats`: the fields in which no new frame reached the display while the core ran (`FIELDS_MISSED_VERSION`) |
 | 3 | `late_frames` and `late_flips` in `stats`: the core frames whose flip the loop did not wait for (late pacing), and the flips that landed after their blank although the work of their frame fit (`LATE_PACING_VERSION`) |
+| 4 | `canvas` in `ui_tree`: the size of the UI canvas that the row bounds are in, 320x240 or 240x320 (`CANVAS_SIZE_VERSION`, ADR 0021) |
 
 `Reply::for_version` removes the fields of a later version from a reply to an older request, and `handle_line` applies it to every reply.
 

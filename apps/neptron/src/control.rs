@@ -17,11 +17,11 @@ use std::time::Duration;
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::PadRoster;
 use neptron_ipc::{
-    ClockStepArgs, Command, ControlListener, ErrorBody, ErrorCode, FrameReached, Handler,
-    InputQueued, InputScriptArgs, InputSendArgs, ListenError, LogLines, LogTailArgs, Reply,
-    ScreenshotArgs, ScriptQueued, SessionLaunchArgs, SessionState, SessionStatus, SettingLevel,
-    SettingValue, SettingWritten, SettingsGetArgs, SettingsSetArgs, Stats, UiRow, UiTree,
-    VideoState, WaitArgs, WaitCondition, dispatch, serve_lines,
+    CanvasSize, ClockStepArgs, Command, ControlListener, ErrorBody, ErrorCode, FrameReached,
+    Handler, InputQueued, InputScriptArgs, InputSendArgs, ListenError, LogLines, LogTailArgs,
+    Reply, ScreenshotArgs, ScriptQueued, SessionLaunchArgs, SessionState, SessionStatus,
+    SettingLevel, SettingValue, SettingWritten, SettingsGetArgs, SettingsSetArgs, Stats, UiRow,
+    UiTree, VideoState, WaitArgs, WaitCondition, dispatch, serve_lines,
 };
 use neptron_settings::Level;
 use neptron_types::Rect;
@@ -262,6 +262,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Han
 
     fn ui_tree(&mut self) -> Result<UiTree, ErrorBody> {
         let tree = &self.ui().tree;
+        let canvas = self.canvas().canvas();
         Ok(UiTree {
             screen: tree.screen().to_owned(),
             focused: tree.focused().map(|r| r.label.to_owned()),
@@ -282,6 +283,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> Han
                     },
                 })
                 .collect(),
+            canvas: Some(CanvasSize {
+                width: canvas.size().width(),
+                height: canvas.size().height(),
+            }),
         })
     }
 

@@ -10,8 +10,8 @@ use std::thread;
 use std::time::Duration;
 
 use neptron_ipc::{
-    ClockStepArgs, ControlListener, ErrorBody, FrameReached, Handler, InputScriptArgs, Screenshot,
-    ScreenshotArgs, ScriptQueued, Stats, serve_stream,
+    CanvasSize, ClockStepArgs, ControlListener, ErrorBody, FrameReached, Handler, InputScriptArgs,
+    Screenshot, ScreenshotArgs, ScriptQueued, Stats, UiTree, serve_stream,
 };
 use serde_json::Value;
 
@@ -48,6 +48,18 @@ impl Handler for Fixture {
             fields_missed: Some(1068),
             late_frames: Some(2100),
             late_flips: Some(3),
+        })
+    }
+
+    fn ui_tree(&mut self) -> Result<UiTree, ErrorBody> {
+        Ok(UiTree {
+            screen: "home".into(),
+            focused: None,
+            rows: Vec::new(),
+            canvas: Some(CanvasSize {
+                width: 240,
+                height: 320,
+            }),
         })
     }
 
@@ -133,6 +145,17 @@ fn stats_print_the_late_pacing_counters() {
     assert_eq!(stats["fields_missed"], 1068, "{stats}");
 }
 
+/// The tree prints the size of the canvas that its row bounds are in.
+#[test]
+fn the_tree_prints_the_canvas_size() {
+    let dir = TempDir::new();
+    let out = run_with_server(&dir, &["ui", "tree"]);
+    assert_eq!(out.status.code(), Some(0), "{:?}", out);
+    let tree = json(&out.stdout);
+    assert_eq!(tree["canvas"]["width"], 240, "{tree}");
+    assert_eq!(tree["canvas"]["height"], 320, "{tree}");
+}
+
 #[test]
 fn hello_names_the_server() {
     let dir = TempDir::new();
@@ -140,7 +163,7 @@ fn hello_names_the_server() {
     assert_eq!(out.status.code(), Some(0));
     assert_eq!(
         json(&out.stdout),
-        serde_json::json!({"protocol": 3, "server": "cli fixture"})
+        serde_json::json!({"protocol": 4, "server": "cli fixture"})
     );
 }
 

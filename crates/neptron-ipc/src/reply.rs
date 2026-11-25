@@ -75,6 +75,21 @@ pub struct UiTree {
     pub focused: Option<String>,
     /// Every visible row, from top to bottom.
     pub rows: Vec<UiRow>,
+    /// The size of the UI canvas that the row bounds are in. Added in
+    /// protocol version [`CANVAS_SIZE_VERSION`]; `None` in a reply to an
+    /// older request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canvas: Option<CanvasSize>,
+}
+
+/// The size of the UI canvas, in canvas pixels: 320x240 in the landscape
+/// form, 240x320 in the portrait form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CanvasSize {
+    /// Width, in pixels.
+    pub width: u32,
+    /// Height, in pixels.
+    pub height: u32,
 }
 
 /// One visible row of the UI.
@@ -92,7 +107,7 @@ pub struct UiRow {
     pub source: Option<SettingLevel>,
     /// The layout cut some text of the row.
     pub clipped: bool,
-    /// Where the row is on the 320x240 canvas.
+    /// Where the row is on the canvas, in canvas pixels.
     pub bounds: Rect,
 }
 
@@ -204,6 +219,9 @@ pub const FIELDS_MISSED_VERSION: u32 = 2;
 /// [`Stats::late_flips`].
 pub const LATE_PACING_VERSION: u32 = 3;
 
+/// The protocol version that added [`UiTree::canvas`].
+pub const CANVAS_SIZE_VERSION: u32 = 4;
+
 /// The data of [`Reply::SettingsGet`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SettingValue {
@@ -248,6 +266,10 @@ impl Reply {
                 late_frames: None,
                 late_flips: None,
                 ..stats
+            }),
+            Self::UiTree(tree) if version < CANVAS_SIZE_VERSION => Self::UiTree(UiTree {
+                canvas: None,
+                ..tree
             }),
             other => other,
         }

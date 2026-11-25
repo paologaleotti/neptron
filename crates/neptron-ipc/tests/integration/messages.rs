@@ -4,11 +4,11 @@
 use std::fmt::Debug;
 
 use neptron_ipc::{
-    ClockStepArgs, Command, ErrorBody, ErrorCode, FrameReached, HelloReply, InputQueued,
-    InputScriptArgs, InputSendArgs, LogLines, LogTailArgs, Reply, Screenshot, ScreenshotArgs,
-    ScriptQueued, ScriptedInput, SessionLaunchArgs, SessionState, SessionStatus, SettingLevel,
-    SettingValue, SettingWritten, SettingsGetArgs, SettingsSetArgs, Stage, Stats, UiRow, UiTree,
-    Verdict, VideoState, WaitArgs, WaitCondition,
+    CanvasSize, ClockStepArgs, Command, ErrorBody, ErrorCode, FrameReached, HelloReply,
+    InputQueued, InputScriptArgs, InputSendArgs, LogLines, LogTailArgs, Reply, Screenshot,
+    ScreenshotArgs, ScriptQueued, ScriptedInput, SessionLaunchArgs, SessionState, SessionStatus,
+    SettingLevel, SettingValue, SettingWritten, SettingsGetArgs, SettingsSetArgs, Stage, Stats,
+    UiRow, UiTree, Verdict, VideoState, WaitArgs, WaitCondition,
 };
 use neptron_types::{Control, Modeline, Rect};
 use serde::Serialize;
@@ -176,11 +176,16 @@ pub fn replies() -> Vec<(Reply, String)> {
                         h: 12,
                     },
                 }],
+                canvas: Some(CanvasSize {
+                    width: 320,
+                    height: 240,
+                }),
             }),
             concat!(
                 r#"{"reply":"ui_tree","data":{"screen":"settings/display","focused":"style","rows":[{"#,
                 r#""id":"style","label":"Picture mode","value":"Native","setting":"video.style","#,
-                r#""source":"global","clipped":false,"bounds":{"x":8,"y":32,"w":304,"h":12}}]}}"#
+                r#""source":"global","clipped":false,"bounds":{"x":8,"y":32,"w":304,"h":12}}],"#,
+                r#""canvas":{"width":320,"height":240}}}"#
             )
             .into(),
         ),

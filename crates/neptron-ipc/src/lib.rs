@@ -30,9 +30,9 @@ pub use envelope::{
 pub use error::{ErrorBody, ErrorCode};
 pub use line::{LineRead, MAX_REQUEST_LINE_BYTES, MAX_RESPONSE_LINE_BYTES, read_line};
 pub use reply::{
-    FIELDS_MISSED_VERSION, FrameReached, HelloReply, InputQueued, LATE_PACING_VERSION, LogLines,
-    Reply, Screenshot, ScriptQueued, SessionStatus, SettingValue, SettingWritten, Stats, UiRow,
-    UiTree, Verdict, VideoState,
+    CANVAS_SIZE_VERSION, CanvasSize, FIELDS_MISSED_VERSION, FrameReached, HelloReply, InputQueued,
+    LATE_PACING_VERSION, LogLines, Reply, Screenshot, ScriptQueued, SessionStatus, SettingValue,
+    SettingWritten, Stats, UiRow, UiTree, Verdict, VideoState,
 };
 pub use server::{Handler, ServeError, dispatch, handle_line, serve_lines};
 #[cfg(feature = "control")]
