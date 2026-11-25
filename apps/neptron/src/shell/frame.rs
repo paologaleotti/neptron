@@ -15,15 +15,15 @@ use neptron_ui::{CpuCanvas, Form, SceneCanvas, UiAction};
 use super::intents::EndNotice;
 use super::picture::{declined_text, picture_text, scanline_text, vertical_interlaced};
 use super::{
-    MENU_SOURCE, Outcome, PICTURE_DECISIONS_PER_FRAME, Shell, Stage, UNPACED_FRAME_NS,
-    proposal_hash,
+    MENU_SOURCE, Outcome, PICTURE_DECISIONS_PER_FRAME, PictureNotice, Shell, Stage,
+    UNPACED_FRAME_NS, proposal_hash,
 };
 
 use crate::library::{ScanKind, Scanned, changes_text};
 use crate::network::{NETWORK_REFRESH_NS, NetworkInfo};
 use crate::notices::{
-    HORIZONTAL_INTERLACED, HORIZONTAL_INTERLACED_TEXT, VERTICAL_INTERLACED,
-    VERTICAL_INTERLACED_TEXT,
+    HORIZONTAL_INTERLACED, HORIZONTAL_INTERLACED_TEXT, HORIZONTAL_ON_TURNED_SCREEN_TEXT,
+    VERTICAL_INTERLACED, VERTICAL_INTERLACED_TEXT,
 };
 use crate::outbox::Job;
 use crate::pad_notes::{NoteKind, SET_UP_CONTROLLER, silent_text};
@@ -470,6 +470,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             return;
         };
         let settled = game.session.video().settled();
+        let launch = self.picture_notice == PictureNotice::Launch;
         let (next, show) = self
             .picture_notice
             .step(proposal_hash(&current.chosen.proposal), settled);
@@ -513,6 +514,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             .video()
             .orientation()
             .turns(game.session.source().rotation);
+        if launch && turns.horizontal_on_turned_screen {
+            texts.push(HORIZONTAL_ON_TURNED_SCREEN_TEXT.to_owned());
+        }
         let vertical = policy.map(|p| p.read_vertical());
         let first_vertical = vertical.is_some_and(|v| {
             vertical_interlaced(

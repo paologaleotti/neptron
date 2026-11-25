@@ -1,5 +1,6 @@
 //! The notices that the frontend shows only once: the ids of those shown
-//! already, in `state/config/notices.toml`.
+//! already, in `state/config/notices.toml`. Also the text of the notice of
+//! a horizontal game on a turned screen, which shows at each start.
 //!
 //! The file is not user data: a deleted or damaged file shows the notices
 //! again and loses nothing, so a bad file reads as an empty list and never
@@ -21,6 +22,12 @@ pub const HORIZONTAL_INTERLACED: &str = "horizontal_interlaced";
 
 /// The text of [`HORIZONTAL_INTERLACED`].
 pub const HORIZONTAL_INTERLACED_TEXT: &str = "This is a horizontal game on a turned screen. It shows interlaced, with every pixel exact. Picture mode Fit, in Settings > Display or in Video in the quick menu, shows the whole picture as large as the screen allows, with no flicker.";
+
+/// The text that the picture notice adds once at each start of a
+/// horizontal game that stands across a turned screen
+/// (`Turns::horizontal_on_turned_screen`). It is no one-time notice.
+pub const HORIZONTAL_ON_TURNED_SCREEN_TEXT: &str =
+    "This game is horizontal. It shows small on a turned screen.";
 
 /// The version of the file format. The format only grows.
 const FORMAT: u32 = 1;

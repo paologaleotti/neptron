@@ -9,7 +9,9 @@
 use std::path::Path;
 
 use neptron::NextRun;
-use neptron::notices::{HORIZONTAL_INTERLACED_TEXT, VERTICAL_INTERLACED_TEXT};
+use neptron::notices::{
+    HORIZONTAL_INTERLACED_TEXT, HORIZONTAL_ON_TURNED_SCREEN_TEXT, VERTICAL_INTERLACED_TEXT,
+};
 use neptron::pages::ORIENTATION_IN_GAME;
 use neptron_testkit::preset::validated_mode;
 use neptron_types::{Control, MonitorKind, Orientation, Rotation};
@@ -448,6 +450,66 @@ fn notices_after(rig: &mut Rig, after: u32) -> Vec<(u32, String)> {
         .filter(|n| n.id.0 > after)
         .map(|n| (n.id.0, n.text.clone()))
         .collect()
+}
+
+/// A horizontal game across a turned screen: the picture notice says so
+/// once at the start of the game, in the quick menu, and not again after
+/// a change of the picture mode. On a screen at 0 or 180 it does not show.
+#[test]
+#[ignore = "tier 2"]
+fn a_horizontal_game_on_a_turned_screen_says_so_once_at_its_start() {
+    let name = test_name(
+        module_path!(),
+        "a_horizontal_game_on_a_turned_screen_says_so_once_at_its_start",
+    );
+    let cases = [
+        (Some("generic_15"), Rotation::R90),
+        (None, Rotation::R270),
+        (Some("pc_31_120"), Rotation::R0),
+        (None, Rotation::R180),
+    ];
+    in_children(&name, cases.len() as u32, |dir, stage| {
+        let (display, screen) = cases[stage as usize];
+        let what = format!("{display:?} at {}", screen.degrees());
+        let mut rig = turned_rig(dir, display, screen);
+        rig.boot(Some(game()));
+        rig.frames(30);
+        let shown = notices_after(&mut rig, 0);
+        let with_text = shown
+            .iter()
+            .filter(|(_, t)| t.contains(HORIZONTAL_ON_TURNED_SCREEN_TEXT))
+            .count();
+        assert_eq!(with_text, usize::from(screen.across()), "{what}: {shown:?}");
+        assert!(
+            rig.display
+                .frames()
+                .iter()
+                .all(|f| f.scene.ui.is_none() || f.scene.game.is_none()),
+            "{what}: no notice over the running game"
+        );
+        rig.open_menu();
+        rig.frames(1);
+        if screen.across() {
+            assert_eq!(rig.screen(), "notice", "{what}: in the quick menu");
+        }
+        dismiss_notices(&mut rig);
+        let last = shown.iter().map(|(id, _)| *id).max().unwrap_or(0);
+        rig.focus("Video");
+        rig.tap(&[Control::A]);
+        rig.focus("Picture mode");
+        rig.tap(&[Control::A]);
+        rig.focus("Fit");
+        rig.tap(&[Control::A]);
+        rig.frames(30);
+        let later = notices_after(&mut rig, last);
+        assert!(
+            later
+                .iter()
+                .all(|(_, t)| !t.contains(HORIZONTAL_ON_TURNED_SCREEN_TEXT)),
+            "{what}: {later:?}"
+        );
+        rig.finish();
+    });
 }
 
 /// A horizontal game across a turned 15 kHz tube shows interlaced with
