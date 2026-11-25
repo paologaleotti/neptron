@@ -10,7 +10,7 @@ use neptron_session::{EndReason, PacingChange};
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_ui::screens::{INPUT_PAGE, KEEP_SCREEN, NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
-use neptron_ui::{CpuCanvas, UI_HEIGHT, UI_WIDTH, UiAction};
+use neptron_ui::{CpuCanvas, UiAction};
 
 use super::intents::EndNotice;
 use super::picture::{declined_text, picture_text, scanline_text, vertical_interlaced};
@@ -529,12 +529,16 @@ fn button_presses(events: &[neptron_types::InputEvent]) -> u32 {
     u32::try_from(count).unwrap_or(u32::MAX)
 }
 
-/// The UI canvas as the `ui` frame of a scene.
+/// The UI canvas as the `ui` frame of a scene, of the size of the canvas.
 fn canvas_frame(canvas: &CpuCanvas) -> Frame<'_> {
+    let size = canvas.size();
+    // A canvas has the size of a form, which fits a u16; a side of 0 would
+    // only show no UI.
+    let side = |pixels: u32| u16::try_from(pixels).unwrap_or(0);
     Frame {
         data: canvas.as_bytes(),
-        width: UI_WIDTH as u16,
-        height: UI_HEIGHT as u16,
+        width: side(size.width()),
+        height: side(size.height()),
         pitch: canvas.pitch(),
         format: PixelFormat::Xrgb8888,
     }
@@ -554,6 +558,36 @@ fn pacing_line(change: PacingChange) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use neptron_ui::{CpuCanvas, Form, Size};
+
+    use super::canvas_frame;
+
+    /// The frame of a canvas has the size of the canvas, in both forms.
+    #[test]
+    fn the_canvas_frame_has_the_size_of_the_canvas() {
+        for form in [Form::Landscape, Form::Portrait] {
+            let canvas = CpuCanvas::with_size(form.size());
+            let frame = canvas_frame(&canvas);
+            let size = (u32::from(frame.width), u32::from(frame.height));
+            assert_eq!(size, (form.size().width(), form.size().height()));
+            assert_eq!(frame.pitch * usize::from(frame.height), frame.data.len());
+        }
+    }
+
+    /// The UI and the video contract each name the forms; the app joins
+    /// them, so each form has one canvas size on both sides.
+    #[test]
+    fn each_form_has_the_same_canvas_size_in_the_ui_and_the_contract() {
+        let pairs = [
+            (Form::Landscape, neptron_types::Form::Landscape),
+            (Form::Portrait, neptron_types::Form::Portrait),
+        ];
+        for (ui, contract) in pairs {
+            let (w, h) = contract.canvas();
+            assert_eq!(Size::new(u32::from(w), u32::from(h)), Ok(ui.size()));
+        }
+    }
+
     /// A TV shows no `speed` word for a change the audio rate control
     /// absorbs: the status of the video crate and the audio crate must use
     /// one bound. The app depends on both, and neither may depend on the
