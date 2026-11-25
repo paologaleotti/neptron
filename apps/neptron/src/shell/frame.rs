@@ -10,7 +10,7 @@ use neptron_session::{EndReason, PacingChange};
 use neptron_types::{Control, Frame, PixelFormat};
 use neptron_ui::screens::{INPUT_PAGE, KEEP_SCREEN, NETWORK_PAGE, NETWORK_SCREEN};
 use neptron_ui::snapshot::NoticeKind;
-use neptron_ui::{CpuCanvas, UiAction};
+use neptron_ui::{CpuCanvas, Form, SceneCanvas, UiAction};
 
 use super::intents::EndNotice;
 use super::picture::{declined_text, picture_text, scanline_text, vertical_interlaced};
@@ -248,6 +248,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
     /// carries out its intents and draws the canvas.
     fn update_ui(&mut self, now_ns: u64) {
         self.refresh_view(now_ns);
+        self.sync_form();
         self.screens.update(&self.snap, &self.actions, &mut self.ui);
         if let Some(page) = self.screens.take_open_failure() {
             let label = neptron_ui::screens::SETTINGS_PANELS
@@ -260,9 +261,36 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             );
         }
         self.carry_out(now_ns);
+        // An intent of this frame turned the screen: the frame draws the UI
+        // again in the new form, so the scene it presents has one form.
+        if self.sync_form() {
+            self.screens.update(&self.snap, &[], &mut self.ui);
+            self.carry_out(now_ns);
+        }
         if self.screens.shows_ui() {
             self.canvas.paint(&self.ui.scene);
         }
+    }
+
+    /// Gives the UI the form of the engine of the stage, and the canvas of
+    /// that form. The one path from the engine's form to the UI: at boot
+    /// and in every frame. True when the form changed.
+    pub(super) fn sync_form(&mut self) -> bool {
+        let Some(form) = self.engine_ref().map(|e| ui_form(e.form())) else {
+            return false;
+        };
+        if form == self.screens.form() {
+            return false;
+        }
+        self.screens.set_form(form);
+        let size = form.size();
+        let next = match self.spare_canvas.take() {
+            Some(canvas) if canvas.canvas().size() == size => canvas,
+            _ => SceneCanvas::with_size(size),
+        };
+        self.spare_canvas = Some(std::mem::replace(&mut self.canvas, next));
+        self.log(format!("ui: the {form:?} form"));
+        true
     }
 
     /// Takes a finished scan of the game list: the new systems, the game
@@ -529,6 +557,15 @@ fn button_presses(events: &[neptron_types::InputEvent]) -> u32 {
     u32::try_from(count).unwrap_or(u32::MAX)
 }
 
+/// The form of the UI for the form of the video contract. The two crates
+/// may not depend on each other, so the app joins them.
+pub(super) fn ui_form(form: neptron_types::Form) -> Form {
+    match form {
+        neptron_types::Form::Landscape => Form::Landscape,
+        neptron_types::Form::Portrait => Form::Portrait,
+    }
+}
+
 /// The UI canvas as the `ui` frame of a scene, of the size of the canvas.
 fn canvas_frame(canvas: &CpuCanvas) -> Frame<'_> {
     let size = canvas.size();
@@ -560,7 +597,7 @@ fn pacing_line(change: PacingChange) -> &'static str {
 mod tests {
     use neptron_ui::{CpuCanvas, Form, Size};
 
-    use super::canvas_frame;
+    use super::{canvas_frame, ui_form};
 
     /// The frame of a canvas has the size of the canvas, in both forms.
     #[test]
@@ -585,6 +622,7 @@ mod tests {
         for (ui, contract) in pairs {
             let (w, h) = contract.canvas();
             assert_eq!(Size::new(u32::from(w), u32::from(h)), Ok(ui.size()));
+            assert_eq!(ui_form(contract), ui);
         }
     }
 

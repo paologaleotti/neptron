@@ -157,6 +157,9 @@ pub struct Shell<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock 
     screens: Screens,
     ui: UiFrame,
     canvas: SceneCanvas,
+    /// The canvas of the other form, kept after the first change of form,
+    /// so a later change makes no new buffer.
+    spare_canvas: Option<SceneCanvas>,
     snap: Snapshot,
     nav: Navigator,
     actions: Vec<UiAction>,

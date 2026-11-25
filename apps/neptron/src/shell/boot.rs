@@ -17,8 +17,8 @@ use neptron_ui::screens::Screens;
 use neptron_ui::snapshot::{DisplayInfo, NoticeKind, ProfileEntry, ProfileId};
 use neptron_ui::{SceneCanvas, Snapshot, Theme, UiFrame};
 use neptron_video::{
-    DisplayConfig, Guard, GuardEvent, GuardRecord, SafeReason, ScanlineSettings, VideoEngine,
-    VideoStatusText,
+    Content, DisplayConfig, Guard, GuardEvent, GuardRecord, SafeReason, ScanlineSettings,
+    VideoEngine, VideoStatusText,
 };
 
 use super::{ControlInput, Devices, GameStage, ListStage, Runtime, Shell, Stage};
@@ -200,6 +200,10 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 let mut engine =
                     VideoEngine::new(devices.display, wanted.monitor.clone(), wanted.settings);
                 engine.set_scanlines(scanlines);
+                // Before the guard sets the first mode: the first picture
+                // of the boot is already turned.
+                engine.set_content(Content::Menu);
+                engine.set_orientation(config.orientation());
                 // A return from a game is a run of the same boot: the first
                 // run had the boot prompt, so this one never prompts.
                 let start = if next.is_some() {
@@ -368,6 +372,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             screens: Screens::new(theme),
             ui: UiFrame::new(),
             canvas: SceneCanvas::new(),
+            spare_canvas: None,
             snap: Snapshot::default(),
             nav: Navigator::new(),
             actions: Vec::with_capacity(16),
@@ -411,6 +416,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
             outcome: None,
         };
         shell.first_snapshot();
+        shell.sync_form();
         for line in imported.log {
             shell.log(line);
         }
@@ -646,12 +652,15 @@ fn launch<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone
         start_hold_ns: config.start_hold_ns(),
         volume_percent: config.volume_percent(),
     };
-    let session = Session::launch(&game, video, devices, options).map_err(|e| {
+    let mut session = Session::launch(&game, video, devices, options).map_err(|e| {
         (
             start_failure::launch_notice(&name, &e),
             start_failure::launch_log(&e),
         )
     })?;
+    // The launch sets no mode; the first `run_frame` does, with this
+    // orientation.
+    session.video_mut().set_orientation(config.orientation());
     Ok(GameStage {
         session,
         reference: reference.clone(),

@@ -2,12 +2,13 @@
 //! start, and changed in memory as the frame loop writes them.
 
 use neptron_settings::{
-    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_PANEL_SCALE,
-    DISPLAY_REFRESH_POLICY, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_SCREENSAVER,
-    DISPLAY_SCREENSAVER_MINUTES, DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH, DISPLAY_VERTICAL,
-    INPUT_MENU_HOLD_START_SECONDS, Layer, Layers, Level, PICTURE_MODE_COVERS, Resolved, Schema,
-    SetError, Storage, Target, Value, resolve_key,
+    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_ORIENTATION, DISPLAY_OUTPUT,
+    DISPLAY_PANEL_SCALE, DISPLAY_REFRESH_POLICY, DISPLAY_ROTATION, DISPLAY_SCANLINE_STRENGTH,
+    DISPLAY_SCANLINES, DISPLAY_SCREENSAVER, DISPLAY_SCREENSAVER_MINUTES, DISPLAY_STYLE, DISPLAY_TV,
+    DISPLAY_TV_WIDTH, DISPLAY_VERTICAL, INPUT_MENU_HOLD_START_SECONDS, Layer, Layers, Level,
+    PICTURE_MODE_COVERS, Resolved, Schema, SetError, Storage, Target, Value, resolve_key,
 };
+use neptron_types::{Orientation, Rotation};
 use neptron_video::{
     PolicySettings, ScanlineSettings, SettingsError, policy_settings, scanline_settings,
     with_display_choices,
@@ -461,6 +462,23 @@ impl Config {
         self.text(DISPLAY_OUTPUT)
     }
 
+    /// The orientation of the context: the screen orientation of the
+    /// global level, and the game orientation of the game, `None` for
+    /// Auto. The one place where the settings become an [`Orientation`].
+    ///
+    /// The layers hold only values of the choices of the schema, and each
+    /// choice names a turn in degrees, so every value maps: the test
+    /// `every_orientation_choice_is_a_turn` proves it. A value with no turn
+    /// would give the screen at 0 and the game at Auto, the orientation of
+    /// a display with no setting.
+    pub fn orientation(&self) -> Orientation {
+        let screen = turn_of(&self.text(DISPLAY_ORIENTATION)).unwrap_or(Rotation::R0);
+        Orientation {
+            screen,
+            game_override: turn_of(&self.text(DISPLAY_ROTATION)),
+        }
+    }
+
     /// The text of `key` in the context.
     pub fn text(&self, key: &str) -> String {
         self.resolved(key)
@@ -501,6 +519,12 @@ impl Config {
     }
 }
 
+/// The turn of a choice of the orientation keys, in degrees; `None` for
+/// `auto` and for a text that names no quarter turn.
+fn turn_of(choice: &str) -> Option<Rotation> {
+    choice.parse().ok().and_then(Rotation::from_degrees)
+}
+
 #[cfg(test)]
 mod tests {
     use neptron_settings::Source;
@@ -516,6 +540,44 @@ mod tests {
             style: text(style),
             refresh: text(refresh),
         })
+    }
+
+    #[test]
+    fn every_orientation_choice_is_a_turn() {
+        let screen: Vec<_> = neptron_settings::SCREEN_ORIENTATIONS
+            .iter()
+            .map(|c| turn_of(c))
+            .collect();
+        assert_eq!(screen, Rotation::ALL.map(Some));
+        let game: Vec<_> = neptron_settings::GAME_ORIENTATIONS
+            .iter()
+            .map(|c| turn_of(c))
+            .collect();
+        assert_eq!(game[0], None, "auto");
+        assert_eq!(game[1..], Rotation::ALL.map(Some));
+    }
+
+    #[test]
+    fn the_orientation_reads_the_screen_and_the_game_override() {
+        let context = GameContext {
+            system: "snes".into(),
+            game: "astro".into(),
+            arcade: false,
+        };
+        let mut c = Config::load(&Storage::new("/nonexistent/config"), Some(context)).0;
+        assert_eq!(c.orientation(), Orientation::NORMAL);
+        c.set(Level::Global, DISPLAY_ORIENTATION, text("270"))
+            .unwrap();
+        c.set(Level::Game, DISPLAY_ROTATION, text("90")).unwrap();
+        assert_eq!(
+            c.orientation(),
+            Orientation {
+                screen: Rotation::R270,
+                game_override: Some(Rotation::R90),
+            }
+        );
+        c.set(Level::Game, DISPLAY_ROTATION, text("auto")).unwrap();
+        assert_eq!(c.orientation().game_override, None);
     }
 
     #[test]
