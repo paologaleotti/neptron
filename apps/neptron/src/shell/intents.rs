@@ -4,8 +4,8 @@ use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::PadRoster;
 use neptron_session::{ExitReport, Flush};
 use neptron_settings::{
-    AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY, DISPLAY_STYLE,
-    INPUT_MENU_HOLD_START_SECONDS, Level, Safety, Value,
+    AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_ORIENTATION, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
+    DISPLAY_STYLE, INPUT_MENU_HOLD_START_SECONDS, Level, Safety, Value,
 };
 use neptron_ui::Intent;
 use neptron_ui::screens::INPUT_PAGE;
@@ -16,7 +16,7 @@ use super::{Outcome, PendingChange, PictureNotice, Shell, Stage, proposal_hash};
 use crate::library::{CheckStart, ScanKind, ScanStart};
 use crate::outbox::Job;
 use crate::pad_notes::NoteKind;
-use crate::pages::{self, Gate, Names};
+use crate::pages::{self, Gate, Names, ORIENTATION_KEYS};
 use crate::power::{self, PowerRequest};
 use crate::relaunch::{NextRun, PadRecord};
 
@@ -472,6 +472,11 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         if key == DISPLAY_OUTPUT || self.config.file(level).is_none() {
             return;
         }
+        // A turn of the screen in a game would plan the game and the menu
+        // again at once; its row is disabled there.
+        if key == DISPLAY_ORIENTATION && self.in_game() {
+            return;
+        }
         let old = self.config.get(level, key).cloned();
         let changed = match value.clone() {
             Some(v) => self.config.set(level, key, v).map(drop),
@@ -485,6 +490,15 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
                 NoticeKind::Error,
                 format!("The setting was not changed: {e}."),
             );
+            return;
+        }
+        // An orientation applies at once and is stored, with no prompt: the
+        // menu stays usable in every orientation, and every mode it gives
+        // still goes through the validator of the engine.
+        if ORIENTATION_KEYS.contains(&key) {
+            self.write_setting(level, key, value);
+            self.apply_orientation();
+            self.reload_page();
             return;
         }
         match entry.safety {

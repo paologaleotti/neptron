@@ -4,10 +4,10 @@
 use neptron_audio::OutputDevice;
 use neptron_input::{MapKind, PLAYER_PORTS, Roster, RosterEntry};
 use neptron_settings::{
-    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_OUTPUT, DISPLAY_REFRESH_POLICY,
-    DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES, DISPLAY_SCREENSAVER, DISPLAY_SCREENSAVER_MINUTES,
-    DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH, DisplayClass, Entry,
-    INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
+    AUDIO_OUTPUT, AUDIO_VOLUME, DISPLAY_MONITOR, DISPLAY_ORIENTATION, DISPLAY_OUTPUT,
+    DISPLAY_REFRESH_POLICY, DISPLAY_ROTATION, DISPLAY_SCANLINE_STRENGTH, DISPLAY_SCANLINES,
+    DISPLAY_SCREENSAVER, DISPLAY_SCREENSAVER_MINUTES, DISPLAY_STYLE, DISPLAY_TV, DISPLAY_TV_WIDTH,
+    DisplayClass, Entry, INPUT_MENU_HOLD_START_SECONDS, Kind, Level, Source, Value,
 };
 use neptron_types::{ScanlineMode, TvStandard};
 use neptron_ui::Value as UiValue;
@@ -161,10 +161,11 @@ const ADDRESS_KEY_BASE: u32 = ACTION_KEY_BASE + 0x100;
 /// The rows of the display panel, written at the global level. The TV
 /// rows show only on a TV. The expert keys that the picture mode covers
 /// (vertical games, panel scale) have no row.
-pub const DISPLAY_KEYS: [&str; 10] = [
+pub const DISPLAY_KEYS: [&str; 11] = [
     DISPLAY_OUTPUT,
     DISPLAY_MONITOR,
     DISPLAY_TV,
+    DISPLAY_ORIENTATION,
     DISPLAY_TV_WIDTH,
     DISPLAY_STYLE,
     DISPLAY_REFRESH_POLICY,
@@ -173,6 +174,14 @@ pub const DISPLAY_KEYS: [&str; 10] = [
     DISPLAY_SCREENSAVER,
     DISPLAY_SCREENSAVER_MINUTES,
 ];
+
+/// The keys that turn the picture: a change applies at once and is
+/// stored, with no keep prompt.
+pub const ORIENTATION_KEYS: [&str; 2] = [DISPLAY_ORIENTATION, DISPLAY_ROTATION];
+
+/// The reason that the Screen orientation row is disabled in a game: a
+/// turn would plan the game and the menu again at once.
+pub const ORIENTATION_IN_GAME: &str = "Not during a game";
 
 /// The help line of every option of the screensaver time.
 pub const SCREENSAVER_TIME_HELP: &str = "The time with no input before the screensaver starts.";
@@ -216,7 +225,8 @@ pub const QUICK_MENU_KEYS: [&str; 1] = [AUDIO_VOLUME];
 
 /// The rows of the video page of the quick menu, written at the game level.
 /// The TV width shows only on a TV.
-pub const VIDEO_KEYS: [&str; 5] = [
+pub const VIDEO_KEYS: [&str; 6] = [
+    DISPLAY_ROTATION,
     DISPLAY_TV_WIDTH,
     DISPLAY_STYLE,
     DISPLAY_REFRESH_POLICY,
@@ -658,11 +668,19 @@ enum View {
     Game,
 }
 
-/// The rows of the display panel.
-pub fn display_page(config: &Config, names: Names<'_>) -> SettingsPage {
+/// The rows of the display panel. In a game the Screen orientation row is
+/// disabled.
+pub fn display_page(config: &Config, names: Names<'_>, in_game: bool) -> SettingsPage {
     let mut rows: Vec<MenuItem> = DISPLAY_KEYS
         .iter()
-        .filter_map(|key| row(config, names, key, View::Global))
+        .filter_map(|key| {
+            let row = row(config, names, key, View::Global)?;
+            Some(if in_game && *key == DISPLAY_ORIENTATION {
+                row.unavailable(ORIENTATION_IN_GAME)
+            } else {
+                row
+            })
+        })
         .collect();
     rows.push(page_row(0, "Grid pattern", GRID_PAGE));
     SettingsPage::new(DISPLAY_PAGE, "Display", rows)
@@ -1244,6 +1262,16 @@ fn choice_option(key: &str, choice: &str, names: Names<'_>) -> ChoiceOption {
         DISPLAY_SCREENSAVER_MINUTES => {
             ChoiceOption::new(minutes_label(choice)).with_help(SCREENSAVER_TIME_HELP)
         }
+        DISPLAY_ORIENTATION => match SCREEN_ORIENTATION_OPTIONS.iter().find(|o| o.0 == choice) {
+            Some((_, label, short, help)) => ChoiceOption::new(*label)
+                .with_short(*short)
+                .with_help(*help),
+            None => ChoiceOption::new(choice),
+        },
+        DISPLAY_ROTATION => match GAME_ORIENTATION_OPTIONS.iter().find(|o| o.0 == choice) {
+            Some((_, label, help)) => ChoiceOption::new(*label).with_help(*help),
+            None => ChoiceOption::new(choice),
+        },
         _ => ChoiceOption::new(choice),
     }
 }
@@ -1328,6 +1356,50 @@ fn tv_option(choice: &str, detected: &Detected) -> ChoiceOption {
         option
     }
 }
+
+/// The options of the screen orientation: the choice, the label with the
+/// word and the degrees, the short form of the row, and the help line. The
+/// value column of a row holds 14 characters, and two labels are longer,
+/// so the row shows the short form of every option, in one style.
+pub const SCREEN_ORIENTATION_OPTIONS: [(&str, &str, &str, &str); 4] = [
+    ("0", "Yoko (0)", "Yoko 0", "The screen stands as usual."),
+    (
+        "90",
+        "Tate left (90)",
+        "Tate left 90",
+        "The screen is turned 90 degrees to the left: its top is on the left.",
+    ),
+    (
+        "180",
+        "Yoko flipped (180)",
+        "Yoko flip 180",
+        "The screen is upside down: its top is at the bottom.",
+    ),
+    (
+        "270",
+        "Tate right (270)",
+        "Tate right 270",
+        "The screen is turned 90 degrees to the right: its top is on the right.",
+    ),
+];
+
+/// The options of the game orientation: the choice, the label and the
+/// help line.
+pub const GAME_ORIENTATION_OPTIONS: [(&str, &str, &str); 5] = [
+    ("auto", "Auto", "The turn that the game asks for."),
+    ("0", "No turn", "The picture shows as the game draws it."),
+    (
+        "90",
+        "Turn left",
+        "The picture turns 90 degrees to the left.",
+    ),
+    ("180", "Turn over", "The picture turns upside down."),
+    (
+        "270",
+        "Turn right",
+        "The picture turns 90 degrees to the right.",
+    ),
+];
 
 /// `1 minute`, `5 minutes`: the option of a time in whole minutes.
 fn minutes_label(minutes: &str) -> String {
@@ -1640,7 +1712,7 @@ mod tests {
             class: DisplayClass::Crt,
             outputs: &[],
         };
-        let page = display_page(&config, names);
+        let page = display_page(&config, names, false);
         assert!(page.is_for(DISPLAY_PAGE));
         assert_eq!(
             page.rows.len(),
@@ -1652,6 +1724,120 @@ mod tests {
         assert!(
             !page.rows[2].scopes.game,
             "the panel writes the global level"
+        );
+    }
+
+    #[test]
+    fn the_screen_orientation_row_follows_the_monitor_and_is_disabled_in_a_game() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            choices: None,
+            judging: false,
+            scope: Scope::EveryGame,
+            class: DisplayClass::Crt,
+            outputs: &[],
+        };
+        let page = display_page(&config, names, false);
+        let labels: Vec<_> = page.rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(
+            labels[..4],
+            [
+                "Output",
+                "Monitor profile",
+                "Screen orientation",
+                "Picture mode"
+            ]
+        );
+        let row = &page.rows[2];
+        assert!(row.is_enabled() && row.live);
+        assert_eq!(
+            row.scopes,
+            Scopes {
+                global: true,
+                ..Scopes::NONE
+            }
+        );
+        let SettingValue::Choice { index, options } = &row.value else {
+            panic!("{row:?}");
+        };
+        assert_eq!(*index, 0, "Yoko (0) by default");
+        let texts: Vec<_> = options
+            .iter()
+            .map(|o| (o.label.as_str(), o.value_text(), o.help.as_str()))
+            .collect();
+        let want: Vec<_> = SCREEN_ORIENTATION_OPTIONS
+            .iter()
+            .map(|(_, label, short, help)| (*label, *short, *help))
+            .collect();
+        assert_eq!(texts, want);
+        assert_eq!(texts[2].0, "Yoko flipped (180)");
+        assert!(
+            options.iter().all(|o| o.value_text().chars().count() <= 14),
+            "the row value fits its column"
+        );
+        let key = row.key;
+        let entry = entry(&config, key).unwrap();
+        assert_eq!(
+            value_of(entry, UiValue::Choice(3), names, &config),
+            Some(Value::Text("270".into()))
+        );
+        let in_game = display_page(&config, names, true);
+        let row = in_game.rows.iter().find(|r| r.key == key).unwrap();
+        assert_eq!(row.unavailable.as_deref(), Some(ORIENTATION_IN_GAME));
+        assert!(
+            in_game
+                .rows
+                .iter()
+                .filter(|r| r.key != key)
+                .all(|r| page.rows.iter().any(|p| p == r)),
+            "no other row changes in a game"
+        );
+    }
+
+    #[test]
+    fn the_game_orientation_is_the_first_row_of_the_video_page_at_the_game_level_only() {
+        let config = config();
+        let presets = Presets::default();
+        let detected = Detected::default();
+        let names = Names {
+            presets: &presets,
+            detected: &detected,
+            choices: None,
+            judging: false,
+            scope: Scope::ThisGame,
+            class: DisplayClass::Crt,
+            outputs: &[],
+        };
+        let page = video_page(&config, names);
+        let row = &page.rows[0];
+        assert_eq!(row.label, "Game orientation");
+        assert_eq!(
+            row.scopes,
+            Scopes {
+                game: true,
+                ..Scopes::NONE
+            }
+        );
+        let SettingValue::Choice { index, options } = &row.value else {
+            panic!("{row:?}");
+        };
+        assert_eq!(*index, 0, "Auto by default");
+        let labels: Vec<_> = options.iter().map(|o| o.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Auto", "No turn", "Turn left", "Turn over", "Turn right"]
+        );
+        assert!(options.iter().all(|o| !o.help.is_empty()));
+        assert!(
+            display_page(&config, names, false)
+                .rows
+                .iter()
+                .all(|r| r.label != "Game orientation"),
+            "the key has no global level"
         );
     }
 
@@ -1669,7 +1855,7 @@ mod tests {
             class: DisplayClass::Crt,
             outputs: &[],
         };
-        let page = display_page(&config, names);
+        let page = display_page(&config, names, false);
         let labels: Vec<_> = page.rows.iter().map(|r| r.label.as_str()).collect();
         assert_eq!(
             labels[labels.len() - 3..],
@@ -1842,7 +2028,10 @@ mod tests {
                             };
                             let case =
                                 format!("{} {source:?} {style} {refresh} {scope:?}", profile.id);
-                            for page in [display_page(&config, names), video_page(&config, names)] {
+                            for page in [
+                                display_page(&config, names, false),
+                                video_page(&config, names),
+                            ] {
                                 agree(&config, names, &page, &choices, &case);
                             }
                         }
@@ -1902,7 +2091,7 @@ mod tests {
                 agree(
                     &config,
                     names,
-                    &display_page(&config, names),
+                    &display_page(&config, names, false),
                     &choices,
                     &case,
                 );
@@ -2220,7 +2409,7 @@ mod tests {
                 _ => continue,
             };
             let (modes, rates) = page_options(
-                display_page,
+                |config, names| display_page(config, names, false),
                 class,
                 &every_game(&profile),
                 Scope::EveryGame,
@@ -2294,7 +2483,7 @@ mod tests {
             class: DisplayClass::Crt,
             outputs: &[],
         };
-        let page = display_page(&config, names);
+        let page = display_page(&config, names, false);
         for label in ["Picture mode", "Refresh rate"] {
             let row = page.rows.iter().find(|r| r.label == label).expect(label);
             let SettingValue::Choice { options, .. } = &row.value else {
@@ -2329,7 +2518,10 @@ mod tests {
             class: DisplayClass::FlatPanel,
             outputs: &[],
         };
-        for page in [display_page(&config, names), video_page(&config, names)] {
+        for page in [
+            display_page(&config, names, false),
+            video_page(&config, names),
+        ] {
             let mode = page
                 .rows
                 .iter()
@@ -2408,7 +2600,7 @@ mod tests {
             class: DisplayClass::Crt,
             outputs: &[],
         };
-        let page = display_page(&config, names);
+        let page = display_page(&config, names, false);
         let monitor = page
             .rows
             .iter()
@@ -2440,7 +2632,7 @@ mod tests {
                 outputs: &[],
             };
             for page in [
-                display_page(&config, names),
+                display_page(&config, names, false),
                 quick_menu_page(&config, names),
                 video_page(&config, names),
             ] {
@@ -2491,7 +2683,7 @@ mod tests {
         };
         let mut keys: Vec<_> = [
             quick_menu_page(&config, names),
-            display_page(&config, names),
+            display_page(&config, names, false),
             library_page(false, false),
             system_page(false, true, Some(&offer()), FormatRow::Offered),
         ]
@@ -2561,7 +2753,7 @@ mod tests {
             class: DisplayClass::Tv,
             outputs: &[],
         };
-        let page = display_page(&config, names);
+        let page = display_page(&config, names, false);
         let labels: Vec<_> = page.rows.iter().map(|r| r.label.as_str()).collect();
         assert_eq!(
             labels,
@@ -2569,6 +2761,7 @@ mod tests {
                 "Output",
                 "Monitor profile",
                 "TV standard",
+                "Screen orientation",
                 "TV picture width",
                 "Picture mode",
                 "Refresh rate",
@@ -2581,7 +2774,7 @@ mod tests {
         );
         assert_eq!(page.rows[1].unavailable.as_deref(), Some(NOT_USED_ON_A_TV));
         assert_eq!(
-            page.rows[5].unavailable.as_deref(),
+            page.rows[6].unavailable.as_deref(),
             Some(NOT_USED_ON_A_TV),
             "the standard fixes the rate"
         );
@@ -2609,21 +2802,21 @@ mod tests {
             value_of(tv, UiValue::Choice(6), names, &config),
             Some(Value::Text("pal".to_owned()))
         );
-        let SettingValue::Choice { options, .. } = &page.rows[3].value else {
+        let SettingValue::Choice { options, .. } = &page.rows[4].value else {
             panic!("a choice");
         };
         let widths: Vec<_> = options.iter().map(|o| o.label.as_str()).collect();
         assert_eq!(widths, ["aspect", "integer", "fill"]);
         let video = video_page(&config, names);
-        assert_eq!(video.rows[0].label, "TV picture width");
-        assert!(video.rows[0].scopes.game, "the width of one game");
+        assert_eq!(video.rows[1].label, "TV picture width");
+        assert!(video.rows[1].scopes.game, "the width of one game");
 
         let detected = Detected::default().with_tv(Some(vec![TvStandard::Ntsc, TvStandard::Pal]));
         let names = Names {
             detected: &detected,
             ..names
         };
-        let page = display_page(&config, names);
+        let page = display_page(&config, names, false);
         let SettingValue::Choice { options, .. } = &page.rows[2].value else {
             panic!("a choice");
         };

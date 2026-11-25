@@ -272,6 +272,26 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         }
     }
 
+    /// Sets the orientation of the settings on the engine of the stage:
+    /// the screen orientation, and the game orientation of the game of the
+    /// run. The next [`Self::sync_form`] gives the UI the form that
+    /// follows.
+    pub(super) fn apply_orientation(&mut self) {
+        let orientation = self.config.orientation();
+        if self
+            .with_engine(|_, engine| engine.set_orientation(orientation))
+            .is_some()
+        {
+            self.log(format!(
+                "orientation: screen {}, game {}",
+                orientation.screen.degrees(),
+                orientation
+                    .game_override
+                    .map_or_else(|| "auto".to_owned(), |r| r.degrees().to_string())
+            ));
+        }
+    }
+
     /// Gives the UI the form of the engine of the stage, and the canvas of
     /// that form. The one path from the engine's form to the UI: at boot
     /// and in every frame. True when the form changed.

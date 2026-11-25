@@ -171,7 +171,7 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         };
         self.snap.settings = match page {
             DISPLAY_PAGE => {
-                let mut page = pages::display_page(&self.config, names);
+                let mut page = pages::display_page(&self.config, names, self.in_game());
                 page.rows.extend(pages::safe_mode_rows(self.guard.phase()));
                 page
             }

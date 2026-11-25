@@ -3,7 +3,7 @@
 use neptron_backend::{AudioSink, Clock, Display, InputSource};
 use neptron_input::PadRoster;
 use neptron_ipc::Stats;
-use neptron_settings::{DISPLAY_OUTPUT, Level};
+use neptron_settings::{DISPLAY_ORIENTATION, DISPLAY_OUTPUT, Level};
 use neptron_types::{Control, InputEvent};
 
 use super::{Shell, Stage};
@@ -153,6 +153,9 @@ impl<D: Display, S: AudioSink, I: InputSource + PadRoster, C: Clock + Clone> She
         entry.kind.check(&value).map_err(|e| e.to_string())?;
         if !entry.levels.allows(level) {
             return Err(format!("{key} cannot be set at the {} level", level.name()));
+        }
+        if entry.key == DISPLAY_ORIENTATION && self.in_game() {
+            return Err(format!("{key} cannot change during a game"));
         }
         // The rule of the menu of that level: a picture mode or refresh
         // choice that the display does not give is refused. The protocol
