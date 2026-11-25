@@ -20,7 +20,7 @@ mod options;
 mod script;
 
 pub use audio::{frames_after, max_frames_per_run, sample};
-pub use frame::{expected_hash, hash, pixel, render};
+pub use frame::{expected_hash, hash, pixel, render, render_shape, shape_pixel};
 pub use model::{Core, PADDING_BYTE, Request, SaveRam, Step, UNKNOWN_ENVIRONMENT_COMMAND, Video};
 pub use options::{
     CORE_OPTIONS, CoreOption, LOAD_OPTION, VALUE_NOT_LISTED, VALUE_NOT_SET, declaration, option,
@@ -30,6 +30,6 @@ pub use options::{
 pub use script::{
     Action, AudioMode, AvInfo, Event, Geometry, HEADER_KEYWORD, LOAD_LINES_VERSION, LoadError,
     LoadOutcome, LogLevel, MAX_ASPECT_MILLI, MAX_DIMENSION_PX, MAX_FPS_MHZ, MAX_SAMPLE_RATE_HZ,
-    MAX_SAVE_RAM_BYTES, MIN_FPS_MHZ, OptionTiming, PixelFormat, SCRIPT_ENV, SCRIPT_VERSION, Script,
-    ScriptError, Size, TEXT_ACTIONS_VERSION, Timing,
+    MAX_SAVE_RAM_BYTES, MIN_FPS_MHZ, OptionTiming, PATTERN_VERSION, Pattern, PixelFormat,
+    SCRIPT_ENV, SCRIPT_VERSION, Script, ScriptError, Size, TEXT_ACTIONS_VERSION, Timing,
 };

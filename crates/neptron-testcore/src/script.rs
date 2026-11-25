@@ -16,12 +16,14 @@ pub const SCRIPT_ENV: &str = "NEPTRON_TESTCORE_SCRIPT";
 pub const HEADER_KEYWORD: &str = "neptron-testcore";
 /// The newest script version that the parser reads. Version 2 adds the
 /// setup lines `load` and `load_error`, version 3 the actions `log` and
-/// `message`.
-pub const SCRIPT_VERSION: u32 = 3;
+/// `message`, version 4 the setup line `pattern`.
+pub const SCRIPT_VERSION: u32 = 4;
 /// The first script version with the setup lines `load` and `load_error`.
 pub const LOAD_LINES_VERSION: u32 = 2;
 /// The first script version with the actions `log` and `message`.
 pub const TEXT_ACTIONS_VERSION: u32 = 3;
+/// The first script version with the setup line `pattern`.
+pub const PATTERN_VERSION: u32 = 4;
 /// Largest frame width or height, in pixels.
 pub const MAX_DIMENSION_PX: u32 = 4096;
 /// Smallest frame rate, in millihertz. It bounds the audio of one frame, and
@@ -135,6 +137,19 @@ pub enum LoadOutcome {
     Shutdown,
 }
 
+/// What the frames of the core show.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Pattern {
+    /// A hash of the frame number, the buttons and the position
+    /// ([`pixel`](crate::pixel)): every frame differs.
+    #[default]
+    Noise,
+    /// The same test card in every frame ([`shape_pixel`](crate::shape_pixel)):
+    /// a border, a diagonal, a circle that is round on the glass, an arrow
+    /// to the top and a marked top-left corner, all of the upright picture.
+    Shape,
+}
+
 /// The level of a `log` action, as libretro numbers them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogLevel {
@@ -234,6 +249,8 @@ pub struct Script {
     pub rotation: Option<u32>,
     /// What `retro_load_game` does at its end.
     pub load: LoadOutcome,
+    /// What the frames show.
+    pub pattern: Pattern,
     /// A line that `retro_load_game` logs at error level, if any.
     pub load_error: Option<String>,
     /// The texts of the `log` and `message` actions.
@@ -501,6 +518,7 @@ struct Builder {
     rotation: Option<u32>,
     load: Option<LoadOutcome>,
     load_error: Option<String>,
+    pattern: Option<Pattern>,
     texts: Vec<String>,
     max_line: usize,
     events: Vec<(usize, Event)>,
@@ -538,7 +556,9 @@ impl Builder {
             keyword,
             args: &args,
         };
-        if LOAD_KEYWORDS.contains(&keyword) && self.version < LOAD_LINES_VERSION {
+        if (LOAD_KEYWORDS.contains(&keyword) && self.version < LOAD_LINES_VERSION)
+            || (keyword == "pattern" && self.version < PATTERN_VERSION)
+        {
             return Err(ScriptError::UnknownKeyword {
                 line,
                 keyword: keyword.to_owned(),
@@ -589,6 +609,10 @@ impl Builder {
                     return Err(a.value_error(0, "log text"));
                 }
                 Ok(a.args.join(" "))
+            }),
+            "pattern" => set_once(&mut self.pattern, &a, |a| {
+                a.count(1)?;
+                a.pattern(0)
             }),
             _ => Err(ScriptError::UnknownKeyword {
                 line,
@@ -759,6 +783,7 @@ impl Builder {
             options: self.options.unwrap_or(OptionTiming::Init),
             rotation: self.rotation,
             load: self.load.unwrap_or_default(),
+            pattern: self.pattern.unwrap_or_default(),
             load_error: self.load_error,
             texts: self.texts,
             events: self.events.into_iter().map(|(_, e)| e).collect(),
@@ -766,7 +791,7 @@ impl Builder {
     }
 }
 
-const SETUP_KEYWORDS: [&str; 10] = [
+const SETUP_KEYWORDS: [&str; 11] = [
     "pixel_format",
     "geometry",
     "max_size",
@@ -777,6 +802,7 @@ const SETUP_KEYWORDS: [&str; 10] = [
     "rotation",
     "load",
     "load_error",
+    "pattern",
 ];
 
 /// The setup keywords that a script of version 1 does not have.
@@ -923,6 +949,14 @@ impl Args<'_> {
         }
     }
 
+    fn pattern(&self, index: usize) -> Result<Pattern, ScriptError> {
+        match self.token(index) {
+            "noise" => Ok(Pattern::Noise),
+            "shape" => Ok(Pattern::Shape),
+            _ => Err(self.value_error(index, "pattern")),
+        }
+    }
+
     fn audio_mode(&self, index: usize) -> Result<AudioMode, ScriptError> {
         match self.token(index) {
             "batch" => Ok(AudioMode::Batch),
@@ -970,6 +1004,35 @@ mod tests {
         assert_eq!(s.load_error, None);
         let s = Script::parse("neptron-testcore 2\nload ok\n").unwrap();
         assert_eq!(s.load, LoadOutcome::Ok);
+    }
+
+    #[test]
+    fn version_4_has_the_pattern_line() {
+        assert_eq!(parse("").unwrap().pattern, Pattern::Noise);
+        let s = Script::parse("neptron-testcore 4\npattern shape\n").unwrap();
+        assert_eq!(s.pattern, Pattern::Shape);
+        let s = Script::parse("neptron-testcore 4\npattern noise\n").unwrap();
+        assert_eq!(s.pattern, Pattern::Noise);
+        assert!(matches!(
+            Script::parse("neptron-testcore 3\npattern shape\n"),
+            Err(ScriptError::UnknownKeyword { line: 2, .. })
+        ));
+        assert!(matches!(
+            Script::parse("neptron-testcore 4\npattern stripes\n"),
+            Err(ScriptError::Value {
+                line: 2,
+                what: "pattern",
+                ..
+            })
+        ));
+        assert!(matches!(
+            Script::parse("neptron-testcore 4\npattern shape\npattern shape\n"),
+            Err(ScriptError::Duplicate { line: 3, .. })
+        ));
+        assert!(matches!(
+            Script::parse("neptron-testcore 4\nat 1 dupe\npattern shape\n"),
+            Err(ScriptError::SetupAfterEvent { line: 3, .. })
+        ));
     }
 
     #[test]
@@ -1240,10 +1303,10 @@ rotation 2"
             Err(ScriptError::Header { .. })
         ));
         assert_eq!(
-            Script::parse("neptron-testcore 4"),
+            Script::parse("neptron-testcore 5"),
             Err(ScriptError::Version {
                 line: 1,
-                version: 4
+                version: 5
             })
         );
         assert!(matches!(

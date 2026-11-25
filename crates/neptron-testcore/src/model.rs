@@ -12,8 +12,10 @@ use std::cell::Cell;
 use std::mem;
 
 use crate::audio::{frames_after, max_frames_per_run, sample};
-use crate::frame::render;
-use crate::script::{Action, AudioMode, AvInfo, Geometry, LogLevel, PixelFormat, Script, Size};
+use crate::frame::{render, render_shape};
+use crate::script::{
+    Action, AudioMode, AvInfo, Geometry, LogLevel, Pattern, PixelFormat, Script, Size,
+};
 
 /// The byte that fills the frame buffer at load. The bytes of a row beyond
 /// the frame width keep it until a wider frame covers them.
@@ -374,7 +376,20 @@ impl Core {
             };
         }
         let format = self.script.pixel_format;
-        match render(buffer, self.pitch, self.size, format, self.frame, buttons) {
+        let drawn = match self.script.pattern {
+            Pattern::Noise => render(buffer, self.pitch, self.size, format, self.frame, buttons),
+            // The card follows the turn at load: a later `rotation` action
+            // leaves the frames as the board draws them.
+            Pattern::Shape => render_shape(
+                buffer,
+                self.pitch,
+                self.size,
+                format,
+                self.av.geometry.aspect_milli,
+                self.script.rotation.unwrap_or(0),
+            ),
+        };
+        match drawn {
             Some(()) => {
                 self.last_frame_size = Some(self.size);
                 Video::Frame {
@@ -496,6 +511,24 @@ mod tests {
             );
         }
         assert_eq!(c.frame(), 3);
+    }
+
+    #[test]
+    fn the_shape_pattern_sends_the_card_at_the_turn_at_load() {
+        let mut c = Core::new(
+            Script::parse(
+                "neptron-testcore 4\npattern shape\ngeometry 320 240 750\nrotation 1\nat 1 rotation 3\n",
+            )
+            .unwrap(),
+            true,
+        );
+        let format = PixelFormat::Xrgb8888;
+        let mut card = vec![0; 1280 * 240];
+        crate::frame::render_shape(&mut card, 1280, QVGA, format, 750, 1).unwrap();
+        let want = hash(&card, 1280, QVGA, format);
+        for buttons in [0, 0xFFFF] {
+            assert_eq!(frame_hash(&run(&mut c, buttons), format), want);
+        }
     }
 
     #[test]

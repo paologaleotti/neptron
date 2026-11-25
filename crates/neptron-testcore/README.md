@@ -15,7 +15,7 @@ A libretro core that follows a script, for tests. It reads its script from the f
 
 A script is a UTF-8 text file. A byte sequence that is not UTF-8 is an error, reported with its line. Each line holds one keyword and its arguments, separated by spaces. A `#` starts a comment to the end of the line. Blank lines do not count. Every number is an unsigned decimal integer, ASCII digits only (no sign, no separators): frequencies in millihertz or hertz, sizes in pixels, aspect ratios in thousandths.
 
-The first line is the header `neptron-testcore <version>`, version 1, 2 or 3. Version 2 adds the setup lines `load` and `load_error`. Version 3 adds the actions `log` and `message`. A script of an older version that has one of them is an error.
+The first line is the header `neptron-testcore <version>`, version 1, 2, 3 or 4. Version 2 adds the setup lines `load` and `load_error`. Version 3 adds the actions `log` and `message`. Version 4 adds the setup line `pattern`. A script of an older version that has one of them is an error.
 
 The setup lines come next. Each one is optional and can appear once.
 
@@ -31,6 +31,7 @@ The setup lines come next. Each one is optional and can appear once.
 | `rotation <value>` | The core calls `SET_ROTATION` with this value in `retro_load_game`, after the options. Any value up to 4294967295, so a test can send one that the frontend refuses | none |
 | `load_error <text>` | Version 2. `retro_load_game` logs the text (the rest of the line) at error level, after the rotation, as a core logs why a game cannot run | none |
 | `load <ok\|refuse\|shutdown>` | Version 2. What `retro_load_game` does last: return true; return false, as a core that refuses the content; or call `RETRO_ENVIRONMENT_SHUTDOWN` and return true, as a core that shows its own error screen | `ok` |
+| `pattern <noise\|shape>` | Version 4. What the frames show. `noise`: a hash of the frame number, the buttons and the position (`pixel`), so every frame differs. `shape`: the same test card in every frame (`shape_pixel`), drawn on the upright picture: a white border, a green diagonal from the top-left to the bottom-right corner, a red circle that is round on the glass, a yellow arrow that points to the top and a blue top-left corner. The card takes the turn of the `rotation` setup line and the reported aspect as the shape of the upright picture (0: square pixels). A `rotation` action does not change it | `noise` |
 
 Event lines follow: `at <frame> <action>`. Frame 0 is the first `retro_run` after `retro_load_game` or `retro_reset`. The frame numbers must not go down. Events of one frame run in file order, before the core sends that frame.
 
