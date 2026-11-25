@@ -824,3 +824,111 @@ owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-setti
 needs = ["N02"]
 gate = "T2; screen golden"
 status = "merged"
+
+[[task]]
+id = "S01"
+wave = 16
+name = "Milestone 0.2, design: the hardware-render interface of libretro for GL and GLES cores in the host and the renderer, with an ADR and the questions for the owner; no product code"
+owns = ["docs/spec", "docs/adr"]
+needs = []
+gate = "T0; the owner's answers"
+status = "pending"
+
+[[task]]
+id = "S02"
+wave = 16
+name = "Hardware-render for GL and GLES cores: the core draws into a frame buffer of the renderer, on the PC and on the Pi; a GL test core"
+owns = ["crates/neptron-libretro", "crates/neptron-libretro-sys", "crates/neptron-gfx", "crates/neptron-video", "crates/neptron-session", "crates/neptron-testcore"]
+needs = ["S01"]
+gate = "T2; gles-compare; kms-check"
+status = "pending"
+
+[[task]]
+id = "S03"
+wave = 16
+name = "Pad model for 3D systems: two analog sticks, analog triggers, L2, R2, L3, R3, in the layouts and the guided mapping"
+owns = ["crates/neptron-input", "crates/neptron-types", "crates/neptron-libretro", "apps/neptron"]
+needs = []
+gate = "T2"
+status = "pending"
+
+[[task]]
+id = "S04"
+wave = 16
+name = "Disc games: CHD and cue files, lists of several discs, a BIOS check with a clear message, memory cards as save data"
+owns = ["crates/neptron-library", "crates/neptron-session", "crates/neptron-libretro", "apps/neptron"]
+needs = []
+gate = "T2"
+status = "pending"
+
+[[task]]
+id = "S05"
+wave = 16
+name = "Core options: defaults for each core and machine, and a menu page for the options a user needs"
+owns = ["crates/neptron-libretro", "crates/neptron-settings", "crates/neptron-ui", "apps/neptron"]
+needs = []
+gate = "T2"
+status = "pending"
+
+[[task]]
+id = "S06"
+wave = 16
+name = "Save states: slots for each game, save and load in the quick menu, written as temp file, fsync, rename"
+owns = ["crates/neptron-session", "crates/neptron-libretro", "crates/neptron-ui", "apps/neptron"]
+needs = []
+gate = "T2"
+status = "pending"
+
+[[task]]
+id = "S07"
+wave = 16
+name = "Picture for 480i and 480p systems: the policy for interlaced and VGA sources on each display class, and a filter against the flicker of interlaced modes"
+owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-gfx", "docs/spec"]
+needs = []
+gate = "T2; screen golden; gles-compare"
+status = "pending"
+
+[[task]]
+id = "S08"
+wave = 16
+name = "Picture adjustment for a CRT: horizontal and vertical position and horizontal size, stored for each monitor profile, every mode still through the validator"
+owns = ["crates/neptron-modeline", "crates/neptron-video", "crates/neptron-settings", "apps/neptron", "docs/spec"]
+needs = []
+gate = "T2; a review of monitor safety"
+status = "pending"
+
+[[task]]
+id = "S09"
+wave = 16
+name = "Images for the Raspberry Pi 4 and 5: 64-bit, KMS, HDMI and composite where the board has it, boot checks"
+owns = ["os"]
+needs = []
+gate = "image builds; boot checks"
+status = "pending"
+
+[[task]]
+id = "S10"
+wave = 16
+name = "PlayStation: the core and its licence check, the system in the library and the images, the picture cases"
+owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
+needs = ["S02", "S03", "S04", "S05", "S07"]
+gate = "T2; core-trace; image builds"
+status = "pending"
+
+[[task]]
+id = "S11"
+wave = 16
+name = "Dreamcast and Naomi: the core and its licence check, the system in the library and the images of the PC and the Pi 4 and 5, the picture cases"
+owns = ["os", "crates/neptron-library", "apps/neptron", "docs/spec"]
+needs = ["S02", "S03", "S04", "S05", "S07", "S09"]
+gate = "T2; core-trace; image builds"
+status = "pending"
+
+[[task]]
+id = "S12"
+wave = 16
+name = "Bench session and release 0.2"
+owns = ["docs"]
+needs = ["S06", "S08", "S10", "S11"]
+gate = "the owner's bench session"
+status = "pending"
