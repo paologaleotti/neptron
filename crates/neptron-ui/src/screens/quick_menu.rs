@@ -70,6 +70,13 @@ impl QuickMenu {
         }
     }
 
+    /// Lays the menu out again for `metrics`. The cursor, the noted
+    /// changes and an open prompt stay.
+    pub(super) fn relayout(&mut self, metrics: &Metrics, theme: &Theme) {
+        let content = Layout::of(metrics).content;
+        self.page.relayout(content, metrics, theme);
+    }
+
     /// Notes a change at the game level, made here or in a screen opened
     /// from here, so the prompt can move it on leaving. A reset removes the
     /// note: the value inherits again and there is nothing to move.

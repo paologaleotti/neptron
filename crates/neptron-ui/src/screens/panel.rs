@@ -55,6 +55,15 @@ impl PagePanel {
         }
     }
 
+    /// Lays the panel out again for `metrics`, with no video block, and
+    /// keeps the cursor. The next sync puts the video block back when it
+    /// fits.
+    pub(super) fn relayout(&mut self, metrics: &Metrics, theme: &Theme) {
+        self.content = Layout::of(metrics).content;
+        self.video = false;
+        self.page.relayout(self.content, metrics, theme);
+    }
+
     /// The page of the panel.
     pub(super) fn page_id(&self) -> PageId {
         self.page.id()

@@ -110,6 +110,15 @@ impl DisplayPanel {
         }
     }
 
+    /// Lays the panel out again for `metrics`, with no video block, and
+    /// keeps the cursor. The next sync puts the video block back when it
+    /// fits.
+    pub(super) fn relayout(&mut self, metrics: &Metrics, theme: &Theme) {
+        self.content = Layout::of(metrics).content;
+        self.places = Places::new(self.content, metrics, theme, false, |_| 0);
+        self.page.relayout(self.places.page, metrics, theme);
+    }
+
     /// Shows the video block while the snapshot has a video status and the
     /// block leaves room for the rows, and removes it otherwise.
     pub(super) fn sync(&mut self, snap: &Snapshot, metrics: &Metrics, theme: &Theme) {

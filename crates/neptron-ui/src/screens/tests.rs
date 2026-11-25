@@ -3318,3 +3318,97 @@ fn the_screensaver_covers_a_notice_that_shows_again_after_it() {
     run.step(&snap, &[]);
     assert_eq!(run.screen(), "notice");
 }
+
+/// Turns the canvas to portrait and back under the screen on show: the
+/// screen, its focused row and the rows in view stay, in both forms.
+fn turn_and_back(run: &mut Run, snap: &Snapshot) {
+    use crate::metrics::Form;
+    run.step(snap, &[]);
+    let (screen, focused) = (run.screen(), run.focused().map(str::to_owned));
+    assert!(focused.is_some(), "{screen}: a row has the focus");
+    for form in [Form::Portrait, Form::Landscape] {
+        run.screens.set_form(form);
+        assert_eq!(run.screens.form(), form);
+        run.step(snap, &[]);
+        assert_eq!(run.screen(), screen, "{form:?}");
+        assert_eq!(
+            run.focused().map(str::to_owned),
+            focused,
+            "{screen} {form:?}"
+        );
+        let canvas = run.screens.metrics().canvas;
+        let focus = run.frame.tree.focused().map(|r| r.rect);
+        let inside = focus.is_some_and(|r| {
+            r.x >= 0
+                && r.y >= 0
+                && r.x as u32 + r.w <= canvas.width()
+                && r.y as u32 + r.h <= canvas.height()
+        });
+        assert!(
+            inside,
+            "{screen} {form:?}: the focused row is on the canvas"
+        );
+    }
+}
+
+#[test]
+fn a_change_of_form_keeps_the_screen_and_its_cursor_on_every_screen_kind() {
+    let mut run = Run::new();
+    let snap = with_systems();
+    run.step(&snap, &[Down, Down]);
+    assert_eq!(run.screen(), "home");
+    turn_and_back(&mut run, &snap);
+
+    let (mut run, snap) = snes_list();
+    run.step(&snap, &[Down; 30]);
+    assert_eq!(run.screen(), "games");
+    turn_and_back(&mut run, &snap);
+
+    let mut run = Run::new();
+    let snap = with_display();
+    run.step(&snap, &super::scenes::TO_SETTINGS);
+    run.step(&snap, &[Down, Down]);
+    assert_eq!(run.screen(), "settings");
+    turn_and_back(&mut run, &snap);
+
+    let mut run = Run::new();
+    let snap = with_display();
+    run.step(&snap, &TO_DISPLAY);
+    run.step(&snap, &[Down, Down, Down]);
+    assert_eq!(run.screen(), "display");
+    turn_and_back(&mut run, &snap);
+    run.step(&snap, &[Up, Accept]);
+    assert_eq!(run.screen(), "options");
+    turn_and_back(&mut run, &snap);
+
+    let mut run = Run::new();
+    let snap = with_audio();
+    run.step(&snap, &TO_AUDIO);
+    run.step(&snap, &[Down]);
+    assert_eq!(run.screen(), "audio");
+    turn_and_back(&mut run, &snap);
+
+    let mut run = Run::new();
+    let mut snap = in_game();
+    run.step(&snap, &[]);
+    run.step(&snap, &[Menu, Down]);
+    assert_eq!(run.screen(), "quick-menu");
+    turn_and_back(&mut run, &snap);
+    run.step(&snap, &[Down, Accept]);
+    snap.settings = video_page();
+    run.step(&snap, &[Down]);
+    assert_eq!(run.screen(), "quick-menu/video");
+    turn_and_back(&mut run, &snap);
+}
+
+#[test]
+fn the_same_form_lays_nothing_out_again() {
+    use crate::metrics::Form;
+    let mut run = Run::new();
+    let snap = with_systems();
+    run.step(&snap, &[Down]);
+    let before = run.frame.scene.clone();
+    run.screens.set_form(Form::Landscape);
+    run.step(&snap, &[]);
+    assert_eq!(run.frame.scene, before);
+}

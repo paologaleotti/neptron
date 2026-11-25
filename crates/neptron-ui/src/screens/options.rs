@@ -87,6 +87,15 @@ impl Options {
         }
     }
 
+    /// Lays the screen out again for `metrics`, with the cursor kept.
+    pub(super) fn relayout(&mut self, metrics: &Metrics, theme: &Theme) {
+        let fresh = Self::new(self.page, self.key, self.level, self.label, metrics, theme);
+        self.list.set_rect(fresh.list.rect());
+        self.list_box = fresh.list_box;
+        self.help_box = fresh.help_box;
+        self.help = fresh.help;
+    }
+
     /// Puts the cursor on the option in use the first time the snapshot
     /// holds the row.
     pub(super) fn sync(&mut self, snap: &Snapshot) {

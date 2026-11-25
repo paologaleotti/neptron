@@ -33,6 +33,13 @@ impl SettingsMenu {
         }
     }
 
+    /// Lays the page out again for `metrics`, with the cursor kept.
+    pub(super) fn relayout(&mut self, metrics: &Metrics, theme: &Theme) {
+        let fresh = Self::new(self.label, metrics, theme);
+        self.list.set_rect(fresh.list.rect());
+        self.list_box = fresh.list_box;
+    }
+
     /// Puts the cursor on the row of panel `index`.
     pub(super) fn select(&mut self, index: usize) {
         self.list.select(index, SETTINGS_PANELS.len());

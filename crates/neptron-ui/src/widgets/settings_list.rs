@@ -124,6 +124,14 @@ impl SettingsList {
         self.list.select(index, len);
     }
 
+    /// Moves the list into `rect` with rows of `shape`, and keeps its
+    /// cursor and its first visible row. The next draw computes the window
+    /// of visible rows again.
+    pub fn relayout(&mut self, rect: Rect, shape: RowShape) {
+        self.list.set_rect(rect);
+        self.shape = shape;
+    }
+
     /// What accept does on `item` in this list.
     pub fn kind(&self, item: &MenuItem) -> RowKind {
         if !item.is_enabled() {

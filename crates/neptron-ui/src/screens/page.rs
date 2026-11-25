@@ -116,6 +116,16 @@ impl Page {
         self.list_box = list_box;
     }
 
+    /// Lays the page out again in a box at the top of `area`, with the
+    /// rows of the shape of `metrics`. The cursor and the first visible
+    /// row stay.
+    pub(super) fn relayout(&mut self, area: Rect, metrics: &Metrics, theme: &Theme) {
+        let (list_box, list) = chrome::rows_box(area, theme, chrome::box_rows(area, theme));
+        self.shape = metrics.settings_row;
+        self.list.relayout(list, self.shape);
+        self.list_box = list_box;
+    }
+
     pub(super) fn id(&self) -> PageId {
         self.id
     }

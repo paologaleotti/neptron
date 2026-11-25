@@ -61,6 +61,15 @@ impl Home {
         }
     }
 
+    /// Lays the screen out again for `metrics`, with the cursors kept.
+    pub(super) fn relayout(&mut self, metrics: &Metrics, theme: &Theme) {
+        let fresh = Self::new(metrics, theme);
+        self.list.set_rect(fresh.list.rect());
+        self.list_box = fresh.list_box;
+        self.alone.set_rect(fresh.alone.rect());
+        self.alone_box = fresh.alone_box;
+    }
+
     pub(super) fn handle(&mut self, action: UiAction, snap: &Snapshot) -> Nav {
         let list = if snap.systems.is_empty() {
             &mut self.alone

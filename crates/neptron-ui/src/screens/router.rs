@@ -184,6 +184,36 @@ impl Screens {
         self.visible
     }
 
+    /// The form of the canvas that the screens lay out on.
+    pub fn form(&self) -> Form {
+        self.metrics.form
+    }
+
+    /// Lays every screen on the stack out again on a canvas of `form`,
+    /// from the next [`Screens::update`]. Each screen keeps its cursor and
+    /// its first visible row; the list windows are computed again for the
+    /// new row count. The overlays lay out at each draw, so they follow
+    /// too. The same form does nothing.
+    pub fn set_form(&mut self, form: Form) {
+        if form == self.metrics.form {
+            return;
+        }
+        self.metrics = Metrics::of(form, &self.theme);
+        let (metrics, theme) = (&self.metrics, &self.theme);
+        for screen in &mut self.stack {
+            match screen {
+                Screen::Home(home) => home.relayout(metrics, theme),
+                Screen::Games(list) => list.relayout(metrics, theme),
+                Screen::Settings(menu) => menu.relayout(metrics, theme),
+                Screen::Display(panel) => panel.relayout(metrics, theme),
+                Screen::Page(panel) => panel.relayout(metrics, theme),
+                Screen::Options(options) => options.relayout(metrics, theme),
+                Screen::QuickMenu(menu) => menu.relayout(metrics, theme),
+                Screen::Grid | Screen::Game => {}
+            }
+        }
+    }
+
     /// The metrics the screens lay out with.
     pub fn metrics(&self) -> &Metrics {
         &self.metrics

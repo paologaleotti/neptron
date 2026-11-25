@@ -107,6 +107,17 @@ impl GameList {
         }
     }
 
+    /// Lays the screen out again for `metrics`, with the cursor and the
+    /// focused game kept. The next sync fits the bands to the texts.
+    pub(super) fn relayout(&mut self, metrics: &Metrics, theme: &Theme) {
+        let fresh = Self::new(self.source, metrics, theme);
+        self.list.set_rect(fresh.list.rect());
+        self.list_box = fresh.list_box;
+        self.panel = fresh.panel;
+        self.title = fresh.title;
+        self.layout = fresh.layout;
+    }
+
     /// Lays the boxes out again when the bands of the screen change their
     /// lines. The widest count of the list decides, so the boxes do not
     /// move while the cursor moves.
