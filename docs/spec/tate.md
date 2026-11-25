@@ -2,7 +2,7 @@
 
 This spec defines how NEPTRON drives a display that stands turned: the screen orientation, the game orientation, the turn of every picture, the mode policy, the UI, the input and the settings. It settles OP-107. ADR 0020 records the change to the `Scene` contract for the turn of the canvas. ADR 0021 records the portrait canvas, and `docs/spec/ui-layout.md` designs the layout that follows the canvas size. Task N01 builds it in the work packages of section 12.
 
-The owner accepted this design on 2026-11-24 ("ok yes to all, start the work packages"). A mark **Decision: Owner, 2026-11-24** names a point that was a question of section 13. The turned menu on a 15 kHz CRT or a TV (T3) and the quick menu over a game there (T4) were open; the owner decided them on 2026-11-24 with a portrait layout of the menu (section 6.3).
+The owner accepted this design on 2026-11-24 ("ok yes to all, start the work packages"). A mark **Decision: Owner, 2026-11-24** names a point that was a question of section 13. The turned menu on a 15 kHz CRT or a TV (T3) and the quick menu over a game there (T4) were open; the owner decided them on 2026-11-24 with a portrait layout of the menu (section 6.3). On 2026-11-25 the owner changed the option labels of the screen orientation and removed its keep prompt (section 1). A mark **Decision: Owner, 2026-11-25** names these points.
 
 ## 1. The owner's decisions
 
@@ -14,6 +14,13 @@ The owner decided on 2026-11-19 (OP-107) and on 2026-11-24. They bind this spec:
 - On a screen at 0 (YOKO), a vertical game shows upright and small, as today.
 - "a screen can be rotated how the user wants." All four orientations work the same way, with no preferred side.
 - "ofc second layout!! let the ui be somewhat responsive. ofc. that is hard requirement. no sense of squeezing anything. tate mode ui needs to be specific and well done." A screen at 90 or 270 gets a portrait menu; a screen at 180 keeps the landscape menu, turned; a flat panel mounted in portrait gets the portrait menu at a whole scale; the quick menu over a horizontal game on a turned screen is the portrait menu at full size, with the small upright game behind it. `docs/spec/ui-layout.md`, section 1, has the whole decision.
+
+The owner decided on 2026-11-25, in the settings package:
+
+- The options of Screen orientation carry the word and the degrees: "Yoko (0)", "Tate left (90)", "Yoko flipped (180)", "Tate right (270)". The help lines stay (section 9.1).
+- A change of the screen orientation has no keep prompt. It applies at once and is stored. Reason: the menu stays readable and usable in every orientation, so a wrong pick cannot lock the user out (section 9.1).
+- Game orientation Auto shows every game upright to the viewer on the current screen: a vertical game fills a turned screen, a horizontal game shows across it, small (section 4).
+- The menu takes the portrait layout at once after the change, with no restart (`docs/spec/ui-layout.md`, section 6.6).
 
 ## 2. Facts that drive the design
 
@@ -228,7 +235,7 @@ In the menu, the mode is the policy's answer for the turned menu source, so `ui_
 
 ### 6.5 The menu mode on a turned CRT
 
-With the portrait canvas the menu needs no mode of its own: the menu at 90 and 270 has the mode of the menu at 0, from the same source through the same policy and validator. A change of the screen orientation in the menu is not a mode change on any display; the tube does not re-sync. The keep prompt of section 9.1 stays, because the picture turns under the player.
+With the portrait canvas the menu needs no mode of its own: the menu at 90 and 270 has the mode of the menu at 0, from the same source through the same policy and validator. A change of the screen orientation in the menu is not a mode change on any display; the tube does not re-sync. The change applies at once, with no keep prompt (section 9.1).
 
 The interim path of package 3 plans the menu source turned with the screen, which gives an interlaced mode on a 15 kHz tube and a TV (240p to 448i on `generic_15`). Package 7 removes it.
 
@@ -256,10 +263,11 @@ The screensaver draws in the canvas, so it bounces in the turned frame: the wall
 ### 7.5 The boot, the guard and the first setup
 
 - The screen orientation is a global setting. The app reads it before the first frame, so the first picture of a boot (the boot prompt of the display guard, or the menu) is already turned.
-- At the first boot the setting is 0. A user with a turned screen sees the boot prompt and the menu on their side. Two ways set it:
+- At the first boot the setting is 0 ("Yoko (0)"). A user with a turned screen sees the boot prompt and the menu on their side. Two ways set it:
   1. The menu, sideways, once: Settings > Display > Screen orientation. The text is readable with the head turned, and the directions are those of the upright canvas (section 8).
   2. Before the first boot: `neptron.toml` on the boot partition, `[display]` `orientation = "90"`. The boot file imports any global key of the schema (`docs/spec/raspberry-pi.md`, "`neptron.toml` on the boot partition"). The image files get a commented line (`# orientation = "0"   # 0 | 90 | 180 | 270`). The files are in `os/board/*/neptron.toml`, outside the paths of N01: package 8 asks the orchestrator to add them. Decision: Owner, 2026-11-24: the first setup of a turned cabinet is these two ways. A first-boot screen that asks which way is up (four texts, one upright along each edge) is later work (`docs/spec/ui-layout.md`, D7).
 - The display guard does not change. It judges the signal, and the orientation does not change what a monitor takes: the menu mode of a turned screen goes through the policy and the validator as every mode does. Safe mode, the blind recovery and a reverted boot prompt keep the orientation (Decision: Owner, 2026-11-24, T5): the safe picture is the safe signal, and a turned cabinet needs its turned menu most of all in safe mode.
+- A wrong orientation is no lockout (Decision: Owner, 2026-11-25). The orientation never changes the menu mode (section 6.5), and every mode still goes through the validator. The menu is drawn whole in every orientation: at worst it is sideways or upside down for the player, and Up on the stick moves up in the canvas. The player reads it with the head turned, moves to the same row and picks again. `neptron.toml` on the boot partition sets the value too.
 
 ## 8. Input
 
@@ -284,18 +292,18 @@ Two new keys, at the end of the schema (the key list is append-only). Their choi
 | Safety | `Validated`: the menu mode it gives goes through the validator |
 | Applies to | every display |
 | Where the row shows | Settings > Display, after Monitor profile (or TV standard) and before Picture mode |
-| Where the player changes it | Settings > Display, from the menu only. The row is disabled during a game (T6). The value applies at once with the keep prompt below, and is stored at the global level when the player keeps it |
-| Texts | Decision: Owner, 2026-11-24 (T8): the label, the help text and the option texts as written here |
+| Where the player changes it | Settings > Display, from the menu only. The row is disabled during a game (T6). The value applies at once and is stored at the global level, with no keep prompt (Decision: Owner, 2026-11-25) |
+| Texts | Decision: Owner, 2026-11-24 (T8): the label, the help text and the help lines as written here. Decision: Owner, 2026-11-25: the option labels as written here |
 | Help text | "How the screen stands. Turn the menus and the games for a screen turned on its side, as in a vertical cabinet. Vertical games then fill the screen at their own lines." |
 
 | Value | Label | Help line |
 | --- | --- | --- |
-| `0` | Normal | The screen stands as usual. |
-| `90` | Turned left | The screen is turned 90 degrees to the left: its top is on the left. |
-| `180` | Upside down | The screen is upside down: its top is at the bottom. |
-| `270` | Turned right | The screen is turned 90 degrees to the right: its top is on the right. |
+| `0` | Yoko (0) | The screen stands as usual. |
+| `90` | Tate left (90) | The screen is turned 90 degrees to the left: its top is on the left. |
+| `180` | Yoko flipped (180) | The screen is upside down: its top is at the bottom. |
+| `270` | Tate right (270) | The screen is turned 90 degrees to the right: its top is on the right. |
 
-**The keep prompt.** A change of the screen orientation opens a keep prompt, drawn in the new orientation: title "Keep this orientation?", buttons "Revert" (focus) and "Keep", 15 s (`CONFIRM_WINDOW_NS`), and the old value comes back at the timeout. The message ends with "The screen turns back in {s} s." (Decision: Owner, 2026-11-24: the short text that fits a portrait line, `docs/spec/ui-layout.md`, section 5.4). Reason: the picture turns under the player. A wrong pick (90 for a screen turned right) shows the menu upside down, with the directions of an upside-down picture. A player who cannot use it waits 15 s. Decision: Owner, 2026-11-24 (T5): a change of the screen orientation uses this keep prompt with the 15 s revert. The prompt is the app's, not the display guard's: the guard judges the signal, and its record holds monitors, not orientations. It uses the dialog widget of the guard's prompt, and the screensaver does not start under it, as for the other dialogs with a timeout.
+**No keep prompt.** Decision: Owner, 2026-11-25, in place of the keep prompt of T5: a change of the screen orientation applies at once and is stored at the global level. The menu takes the form of the new orientation in the next frame, with no restart (`docs/spec/ui-layout.md`, section 6.6). Reason: the menu stays readable and usable in every orientation, so a wrong pick cannot lock the user out (section 7.5). A wrong pick (90 for a screen turned right) shows the menu upside down; the player picks again on the same row.
 
 Decision: Owner, 2026-11-24 (T6): the Screen orientation row is disabled during a game, with the reason "Not during a game", the rule of the rescan row. A turn of the screen in a game would replan the game and the menu at once, and a player turns a cabinet's monitor with the machine in the menus.
 
@@ -312,6 +320,7 @@ Decision: Owner, 2026-11-24 (T6): the Screen orientation row is disabled during 
 | Applies to | every display |
 | Where the row shows | `VIDEO_PAGE` of the quick menu, the first row of the display rows |
 | Where the player changes it | The Video page of the quick menu, during the game, and in the game's display settings wherever the per-game picture rows show. A change applies at once to the running game (a new source, section 5) and is stored for that game at the game level. Settings > Display has no row, because the key has no global level |
+| Auto | Decision: Owner, 2026-11-25: Auto shows every game upright to the viewer on the current screen, as the table of section 4 says. A vertical game fills a turned screen; a horizontal game shows across it, small |
 | Texts | Decision: Owner, 2026-11-24 (T8): the label, the help text and the option texts as written here |
 | Help text | "How the game picture turns to stand upright. Auto takes it from the game. Change it only when a game shows on its side or upside down." |
 
@@ -355,7 +364,7 @@ The pair storage of Picture mode and Refresh rate (`docs/spec/video-policy-cases
 
 - Engine (`neptron-video`, fake display): at each `S`, a vertical and a horizontal source give the scene `rotation`, `ui_rotation`, `ui_dest` and `ui_filter` of sections 4 and 6.4; a change of `S` or `O` is a new source through the debounce; the answers of Settings > Display on a turned screen use the turned reference sources; `Orientation::NORMAL` gives the scenes of today.
 - Settings (`neptron-settings`): the two schema entries, their levels and safety, a round trip through a file, a value the schema refuses, the import of `display.orientation` from `neptron.toml`.
-- App, tier 2: a boot with `S = 90` turns the first frame; a change on Settings > Display opens the keep prompt; its timeout reverts, Revert reverts, Keep keeps; the row is disabled in a game; the Game orientation row of `VIDEO_PAGE` changes the turn of the running game; the notice of a horizontal game on a turned screen; the screensaver under a turned menu; Down moves the focus down at each `S` (no turn of input); the crawler finds both rows.
+- App, tier 2: a boot with `S = 90` turns the first frame; a change on Settings > Display applies at once, is stored, and the menu takes the form of the new orientation with no restart; every mode that the display receives passes the validator at each `S`; the row is disabled in a game; the Game orientation row of `VIDEO_PAGE` changes the turn of the running game; the notice of a horizontal game on a turned screen; the screensaver under a turned menu; Down moves the focus down at each `S` (no turn of input); the crawler finds both rows.
 
 ### 11.3 Goldens of the turned output
 
@@ -391,7 +400,7 @@ Packages 1 to 3 build option (a) of section 6.1: the turn of the canvas, the pur
 | 5 | Layout L2: the widgets take the metrics; rows of one or two lines; `text::draw_short` and the unit rule of `wrap`; the fit check over every landscape scene. No visual change | `neptron-ui` | T1; the 78 landscape goldens identical |
 | 6 | Layout L3: the portrait layout. Stacked rows, two-line bands, the registry and the UI tools of `xtask` with the portrait form, 36 portrait goldens, the fit check in both forms, the approved short texts (D1 to D8 of the layout spec) | `neptron-ui`, `xtask` (the UI tools), `apps/neptron` (the approved texts only) | T1; the 36 portrait goldens looked at before the bless; the fit check on all 78 scenes in both forms; no landscape golden changes except `confirm-3s` and `confirm-10s` (the approved text) |
 | 7 | Layout L4: the canvas size in the contract (ADR 0021). The form rule in `neptron-types`; the placement takes the size of `T`; the menu plans the raster of `T`; removal of `TurnedMenuMode`, the turned menu source and `ui_dest_turned`; `policy_tate.toml` menu cases recorded again; the GLES upload on a size change; the tree reply with the canvas size (protocol version 4); the filter rule on every screen in its own commit, which changes the UI over a game of fewer than 240 lines or 320 samples on a normal screen (`docs/spec/ui-layout.md`, section 6.4.1) | `neptron-types`, `neptron-modeline`, `neptron-video`, `neptron-gfx`, `apps/neptron`. Outside N01's paths: `neptron-ipc` (the tree reply, protocol version 4), `apps/neptronctl` (the tree print) | T1; tier 3 `gles-compare` with a 240x320 canvas; only the expectations listed under section 6.4.1 of the layout spec change |
-| 8 | The settings and the rows, with the layout wiring (L5). The two schema keys; the app resolves them and sets the orientation of the menu engine at boot and of the game engine after `Session::launch`, before the first `run_frame` (the first mode comes with the first frame); the app gives the form to the UI, and the router lays out again at a change; the rows on Settings > Display and `VIDEO_PAGE`; the keep prompt of the orientation, in the new form; the line of the boot files; the crawler in both forms | `neptron-settings`, `neptron-ui`, `apps/neptron`, `docs/spec`. Outside N01's paths: `os/board/rpi/neptron.toml` and `os/board/pc/neptron.toml` (the commented `orientation` line); `crates/neptron-session` only if the app cannot set the orientation before the first frame | T2; the crawler finds both rows, in both forms |
+| 8 | The settings and the rows, with the layout wiring (L5). The two schema keys; the app resolves them and sets the orientation of the menu engine at boot and of the game engine after `Session::launch`, before the first `run_frame` (the first mode comes with the first frame); the app gives the form to the UI, and the router lays out again at a change; the rows on Settings > Display and `VIDEO_PAGE`; a change of the orientation applies at once, with no keep prompt (Decision: Owner, 2026-11-25); the line of the boot files; the crawler in both forms | `neptron-settings`, `neptron-ui`, `apps/neptron`, `docs/spec`. Outside N01's paths: `os/board/rpi/neptron.toml` and `os/board/pc/neptron.toml` (the commented `orientation` line); `crates/neptron-session` only if the app cannot set the orientation before the first frame | T2; the crawler finds both rows, in both forms |
 | 9 | The notices and the turned output. The notice of a horizontal game on a turned screen, the second one-time notice, the text change of the first; the 36 goldens of section 11.3; the tier 2 tests of input and the screensaver | `apps/neptron`, `neptron-gfx` (golden tests) | T2 |
 | 10 | Docs and bench. The arcade spec results for turned screens, the crate READMEs, the hardware checklist lines, the open points | `docs/spec`, crate READMEs. Outside N01's paths: `docs/hardware-checklist.md` (the lines of section 11.5) | T0; the owner's bench session |
 
@@ -407,10 +416,10 @@ The owner accepted the design on 2026-11-24: "ok yes to all, start the work pack
 | T2 | The levels of Game orientation | Decision: Owner, 2026-11-24. The game level only |
 | T3 | The turned menu on a 15 kHz CRT and a TV | Decision: Owner, 2026-11-24: a portrait layout, never squeezed, never interlaced. The menu is the portrait canvas at the menu mode of a screen at 0: 240p, 1:1 (section 6.3) |
 | T4 | The quick menu over a game at 240 or 288 lines on a turned screen | Decision: Owner, 2026-11-24: a portrait layout, never squeezed, never interlaced. No mode change; the portrait canvas is 1:1 over a game at 240 lines, and full size over a horizontal game shown across (section 7.2) |
-| T5 | The keep prompt of the screen orientation | Decision: Owner, 2026-11-24. The keep prompt with the 15 s revert, Revert first; the display guard, safe mode and the blind recovery keep the orientation |
+| T5 | The keep prompt of the screen orientation | Decision: Owner, 2026-11-24: the display guard, safe mode and the blind recovery keep the orientation. Changed by the owner on 2026-11-25: no keep prompt; a change applies at once and is stored (section 9.1) |
 | T6 | Screen orientation in a game | Decision: Owner, 2026-11-24. The row is disabled during a game: "Not during a game" |
 | T7 | The notice of a horizontal game on a turned screen | Decision: Owner, 2026-11-24. One sentence in the picture notice at each start; a second one-time notice for its interlaced case |
-| T8 | The texts | Decision: Owner, 2026-11-24. The labels and help lines of sections 7.4, 9.1 and 9.2 as written |
+| T8 | The texts | Decision: Owner, 2026-11-24. The labels and help lines of sections 7.4, 9.1 and 9.2 as written. Changed by the owner on 2026-11-25: the option labels of Screen orientation carry the word and the degrees (section 9.1) |
 
 ## 14. The design notes of the arcade spec
 
@@ -418,7 +427,7 @@ These notes were in `docs/spec/arcade.md`, section 15, before this spec. Each on
 
 | Note | Decision here |
 | --- | --- |
-| The screen orientation is a global setting, safety `ConfirmOrRevert`: the user must read the keep or revert dialog in the new orientation, or the revert must come with no input | Global, safety `Validated`, with a keep prompt of the app that reverts at its timeout with no input (section 9.1). `ConfirmOrRevert` is the guard's class for the output and the monitor |
+| The screen orientation is a global setting, safety `ConfirmOrRevert`: the user must read the keep or revert dialog in the new orientation, or the revert must come with no input | Global, safety `Validated`. No keep prompt (Decision: Owner, 2026-11-25): the orientation never changes the menu mode, and the menu stays usable in every orientation (sections 7.5 and 9.1). `ConfirmOrRevert` is the guard's class for the output and the monitor |
 | The game turn is the core's rotation less the screen rotation, modulo 360 degrees | Kept: `R = (G' - S) mod 360`, with the override in place of the core's turn (section 3) |
 | A vertical game on a vertical screen: turn 0. The policy gets the frame as drawn (320x240) and finds its native mode | Kept (section 5). On a screen at 270 the turn is 180, with the same mode |
 | A horizontal game on a vertical screen: turn 90 or 270, the treatment of a turned game; `display.vertical` then means "a game whose long side is across the tube's lines" | Kept (sections 4 and 5.1). The help text of the key says so |

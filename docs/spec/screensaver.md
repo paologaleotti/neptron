@@ -4,7 +4,7 @@ After a time with no input, the menus go to a dark picture with a small moving w
 
 ## Facts that drive the design
 
-- The UI draws into one 320x240 XRGB8888 canvas (`neptron-ui`, `UI_WIDTH` and `UI_HEIGHT`). The video engine scales that canvas to the mode on screen: the full active area on a CRT, a whole scale centred on a flat panel. Every screen of the UI goes through this one path.
+- The UI draws into one XRGB8888 canvas of the form of the screen (`neptron-ui`, `Form`): 320x240 in landscape, 240x320 in portrait on a turned screen (`docs/spec/ui-layout.md`). The video engine scales that canvas to the mode on screen: the full active area on a CRT, a whole scale centred on a flat panel. Every screen of the UI goes through this one path.
 - The UI crate has no clock. The app gives it a `Snapshot` and the actions of each frame. The app reads the clock once per frame.
 - The navigator of the app (`apps/neptron/src/nav.rs`) turns input events into UI actions. `Navigator::hold_back` ignores each control held now until its release. A release gives no action.
 - An `InputEvent` has the value 0 for a released button and for a stick inside its dead zone (`neptron-input` applies the dead zone before the event). A value that is not 0 is a press, or a stick out of its dead zone.
@@ -20,7 +20,7 @@ After a time with no input, the menus go to a dark picture with a small moving w
 
 ## Movement
 
-The position is a pure function of the count of UI frames since the screensaver started and the size of the screen. The UI screen is always 320x240; the function takes any size, and its tests use other sizes too. The idle timer stays on the clock.
+The position is a pure function of the count of UI frames since the screensaver started and the size of the screen. The UI screen is the canvas of the form: 320x240 or 240x320. The walls are the walls of that canvas; the function takes any size, and its tests use other sizes too. The idle timer stays on the clock.
 
 - `free_x = screen_width - word_width` and `free_y = screen_height - word_height`. A free side of 0 keeps the word at 0 on that axis.
 - The word moves `STEP_PX` (1) canvas pixel on each axis in every UI frame: both axes step in the same frame, a true 45 degree path, as the classic bouncing logo. The distance on an axis is the frame count, in 128-bit integers.

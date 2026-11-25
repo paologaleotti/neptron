@@ -447,7 +447,7 @@ At 34 characters a few wrapped texts end in a line of one short word. These are 
 | Text today | Where | At 34 characters | Proposed text |
 | --- | --- | --- | --- |
 | "The old picture comes back in 10 s." (35) | Keep prompt of a display change (`overlays.rs`) | "...comes back in" / "10 s." | "The old picture returns in 10 s." (32), approved |
-| "The old orientation comes back in 15 s." (39, the text that TATE package 8 would write) | Keep prompt of the screen orientation | "...comes back in" / "15 s." | "The screen turns back in 15 s." (30), approved |
+| "The old orientation comes back in 15 s." (39, the text that TATE package 8 would write) | Keep prompt of the screen orientation | "...comes back in" / "15 s." | "The screen turns back in 15 s." (30), approved; not used, the owner removed this prompt on 2026-11-25 (TATE section 9.1) |
 | "Keep the new settings for this game only, for all games of this system, or for all games?" (89) | Keep prompt of the quick menu | Last line "games?" | Keep: three full lines, the last one "system, or for all games?" with the real breaks; no change |
 | "The old layout comes back in 12 s." (34) | Review of the mapping | Fits exactly | No change; it is at the limit, and a 3-digit count cannot occur (the window is 15 s) |
 
@@ -456,7 +456,7 @@ At 34 characters a few wrapped texts end in a line of one short word. These are 
 Decision: Owner, 2026-11-24 (D2): two short texts, used in both forms (one text, one translation later):
 
 1. "The old picture comes back in {s} s." becomes "The old picture returns in {s} s."
-2. The keep prompt of the screen orientation (TATE package 8) says "The screen turns back in {s} s."
+2. The keep prompt of the screen orientation (TATE package 8) says "The screen turns back in {s} s." Decision: Owner, 2026-11-25: the screen orientation has no keep prompt (TATE section 9.1), so this text is not used.
 
 The text of the notices and of the help boxes needs no change. The automatic check of section 9.4 lists any new text that ends in a one-word line, so a later text gets the same review.
 
@@ -516,7 +516,7 @@ The aspect: on a 4:3 tube turned, 240 lines span the 3 units of the player's wid
 So:
 
 - **No interlaced menu.** T3 of `docs/spec/tate.md` is settled by the layout: the turned menu on a 15 kHz CRT or a TV is 240p, 1:1, with no flicker.
-- **No mode change at a change of orientation** on a CRT, a TV or a panel: the menu mode is the same at every `S`. The keep prompt of the orientation stays (the picture turns under the player), but the tube does not re-sync.
+- **No mode change at a change of orientation** on a CRT, a TV or a panel: the menu mode is the same at every `S`. The tube does not re-sync. The change applies at once, with no keep prompt (Decision: Owner, 2026-11-25, TATE section 9.1).
 - **The flat panel gains:** 4x on 1080p, against 3x for the turned landscape canvas of package 3.
 - `policy_tate.toml`: the "menu" cases record today the policy's answer for the turned menu source (interlaced on `generic_15`, 264 or 240 samples on a TV). Package L4 records them again as the source of `T`, equal to `S = 0`, with a test that asserts that equality. This is a designed change of what NEPTRON sends in the menu of a turned screen, not a golden blessed to get a green run.
 
@@ -551,7 +551,7 @@ It draws in the canvas of the form, with the walls of that canvas. In the menu o
 
 ### 6.6 A change of form
 
-A change of the screen orientation between 0 or 180 and 90 or 270, or a change of display, changes the form. The app reads the form from the engine after it sets the orientation and gives it to the UI before the next frame. The router computes the new `Metrics` and lays out every screen on its stack again: each screen keeps its cursor and its first visible row as an index, and the list windows are computed again for the new row count. Overlays (a dialog, a keep prompt) lay out again too. The keep prompt of the orientation is drawn in the new form (TATE section 9.1). A test changes the form under each screen kind and checks the cursor and the tree.
+A change of the screen orientation between 0 or 180 and 90 or 270, or a change of display, changes the form. The app reads the form from the engine after it sets the orientation and gives it to the UI before the next frame. The router computes the new `Metrics` and lays out every screen on its stack again: each screen keeps its cursor and its first visible row as an index, and the list windows are computed again for the new row count. Overlays (a dialog, a keep prompt) lay out again too. A change of the screen orientation has no keep prompt (Decision: Owner, 2026-11-25, TATE section 9.1): the Display page shows in the new form in the next frame, with no restart. A test changes the form under each screen kind and checks the cursor and the tree.
 
 ### 6.7 The canvas in the app
 
@@ -675,7 +675,7 @@ Each package merges alone, and the orientation stays `NORMAL` until the TATE set
 | L2 | Widgets take the metrics. `List`, `SettingsList`, `Dialog`, `Grid`, the option help box, the game title box, the video block read their counts from `Metrics`; `RowShape`; rows of 1 or 2 lines in `List`; `text::draw_short`; the unit rule of `wrap`; the fit check as a test over every scene in landscape. Still no visual change | `crates/neptron-ui` | 1,000 | T1; the 78 landscape goldens byte-identical; the fit check passes on all 78 landscape scenes |
 | L3 | The portrait layout. The portrait metrics in use; stacked rows; two-line bands; the registry with forms; `xtask shot`, `golden` and `gallery` with portrait; 36 portrait goldens, each one looked at; the fit check over every scene in both forms; the approved short texts (5.4), with the landscape goldens `confirm-3s` and `confirm-10s`, which show the new text | `crates/neptron-ui`, `xtask` (the UI tools), `apps/neptron` only for the approved texts | 1,500 and 36 goldens | T1; the 36 portrait goldens looked at before the bless; the fit check on all 78 scenes in both forms; no landscape golden changes except `confirm-3s` and `confirm-10s` |
 | L4 | The canvas size in the contract and the engine (ADR 0021). `Scene::ui` doc; the form factor rule in `neptron-types`; the placement takes the size of `T`; the engine plans the menu from `T` and gives the form; removal of `TurnedMenuMode`, `menu_plan_source`, `ui_dest_turned`; `policy_tate.toml` menu cases recorded again with the equality test; the GLES upload on a size change; `canvas_frame` from the canvas; the tree reply with the canvas size (protocol version 4); the filter rule on every screen in its own commit (6.4.1) | `neptron-types`, `neptron-modeline`, `neptron-video`, `neptron-gfx`, `neptron-ipc`, `apps/neptron`, `apps/neptronctl` (tree print only) | 900 | T1; tier 3 `gles-compare` with a 240x320 canvas at each `ui_rotation`; only the expectations listed under 6.4.1 change |
-| L5 | The wiring, inside the TATE settings package (TATE package 8). The app gives the form to the UI at boot and at each change of orientation; the router lays out again (6.6); the keep prompt of the orientation in the new form; the crawler in both forms; the lines of `screensaver.md` and `ui-navigation.md` | `apps/neptron`, `crates/neptron-ui`, `docs/spec` | 400 | T2 (`cargo xtask verify --tier 2`); the crawler in both forms; no golden of today changes |
+| L5 | The wiring, inside the TATE settings package (TATE package 8). The app gives the form to the UI at boot and at each change of orientation; the router lays out again (6.6); no keep prompt of the orientation (TATE section 9.1); the crawler in both forms; the lines of `screensaver.md` and `ui-navigation.md` | `apps/neptron`, `crates/neptron-ui`, `docs/spec` | 400 | T2 (`cargo xtask verify --tier 2`); the crawler in both forms; no golden of today changes |
 
 The TATE spec (section 12) holds the merged order of all packages.
 
@@ -696,7 +696,7 @@ The owner answered on 2026-11-24: "Yes to all", to the recommendations below. Th
 | # | Question | Decision |
 | --- | --- | --- |
 | D1 | The settings rows in portrait | Stacked: the label on line 1, then the source and the value on line 2 (`portrait-display.png`). The compact row is not used |
-| D2 | The texts where a wrap looks bad | "The old picture returns in {s} s." and "The screen turns back in {s} s.", in both forms (section 5.4) |
+| D2 | The texts where a wrap looks bad | "The old picture returns in {s} s." and "The screen turns back in {s} s.", in both forms (section 5.4). The second one is not used: the owner removed the keep prompt of the orientation on 2026-11-25 |
 | D3 | A long game title in the game list | Shortened with `...` in its row, and shown whole in a title box under the list (3 lines in portrait, 2 in landscape) |
 | D4 | A band whose two texts do not fit one line (hint band, title band) | Two lines: the left text on line 1, the right text on line 2, right-aligned |
 | D5 | The safe margins in portrait | 5 % of each axis, as today: 12 px at the sides, 16 px at the top and the bottom (34 characters) |

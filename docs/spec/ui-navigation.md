@@ -6,6 +6,7 @@ This spec settles OP-090. It describes how the menus are put together. It does n
 
 - The snapshot holds the rows of one settings page at a time (`Snapshot::settings`). A screen asks for its page with `Intent::LoadSettings`, and the app answers in a later frame.
 - Each screen on the stack of the router keeps its own cursor. A screen that closes gives the screen under it back with its cursor.
+- Every screen lays out on the canvas of the form of the screen: 320x240 in landscape, 240x320 in portrait on a turned screen. A change of the screen orientation lays every screen on the stack out again in the next frame; each keeps its cursor and its first visible row (`docs/spec/ui-layout.md`, section 6.6).
 - The quick menu notes each change at the game level, so that the keep prompt can move it to the system or the global level. It notes the scopes of the row with the change, because with sub pages the row is often not in the snapshot when the prompt opens.
 - The tier 3 boot golden `os/tests/golden/boot-game-list.ppm` shows the empty home screen under a notice: the empty-state text and one row `Settings`, with the focus and its arrow. Tier 3 needs QEMU.
 - The control protocol (`neptron-ipc`, version 3, serving versions 1 to 3) is append-only. A new reply field needs a new protocol version; a reply holds only the fields of the version of its request.
@@ -174,7 +175,7 @@ The first page of the quick menu (`QUICK_MENU_PAGE`, written at the game level):
 | `Settings` | page | Opens the Settings page: Display, Audio, Input, Library, Network and System, at the global level |
 | `Quit game` | action | Ends the game, through the keep prompt after a change |
 
-`VIDEO_PAGE` (written at the game level): the video block, then `TV picture width` (on a TV only), `Picture mode`, `Refresh rate`, `Scanlines` and `Scanline strength`. The vertical games and the panel scale are expert keys of the settings files, and the menus do not show them. The options of Picture mode and Refresh rate come from one decision of the policy (`offer`), which greys an option the display does not give (`docs/spec/video-policy-cases.md`, section 8).
+`VIDEO_PAGE` (written at the game level): the video block, then `Game orientation` (`docs/spec/tate.md`, section 9.2), `TV picture width` (on a TV only), `Picture mode`, `Refresh rate`, `Scanlines` and `Scanline strength`. The vertical games and the panel scale are expert keys of the settings files, and the menus do not show them. The options of Picture mode and Refresh rate come from one decision of the policy (`offer`), which greys an option the display does not give (`docs/spec/video-policy-cases.md`, section 8).
 
 In a game the player reaches the display rows of the game under `Video`, the volume on the first page, and the global panels under `Settings`: Display, Audio, Input, Library, Network and System.
 
